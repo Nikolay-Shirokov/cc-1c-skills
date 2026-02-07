@@ -9,6 +9,7 @@
 | `/epf-init` | `<Name> [Synonym]` | Создать новую обработку (корневой XML + модуль объекта) |
 | `/epf-add-form` | `<ProcessorName> <FormName> [Synonym]` | Добавить управляемую форму |
 | `/epf-add-template` | `<ProcessorName> <TemplateName> <TemplateType>` | Добавить макет (HTML, Text, SpreadsheetDocument, BinaryData) |
+| `/epf-add-help` | `<ProcessorName>` | Добавить встроенную справку (Help.xml + HTML) |
 | `/epf-remove-form` | `<ProcessorName> <FormName>` | Удалить форму |
 | `/epf-remove-template` | `<ProcessorName> <TemplateName>` | Удалить макет |
 | `/epf-build` | `<ProcessorName>` | Собрать EPF из XML (документация команды 1cv8.exe) |
@@ -97,16 +98,19 @@ src/
 ├── epf-remove-template/ # SKILL.md + scripts/remove-template.ps1
 ├── epf-build/           # SKILL.md (только документация)
 ├── epf-dump/            # SKILL.md (только документация)
+├── epf-add-help/        # SKILL.md + scripts/add-help.ps1
 ├── epf-bsp-init/        # SKILL.md (шаблоны кода, без скриптов)
 └── epf-bsp-add-command/ # SKILL.md (шаблоны кода, без скриптов)
 docs/
 ├── 1c-xml-format-spec.md   # Спецификация XML-формата выгрузки
+├── 1c-help-spec.md         # Спецификация встроенной справки
 └── build-spec.md            # Спецификация команд сборки/разборки
 ```
 
 ## Спецификации
 
 - [XML-формат выгрузки обработок](docs/1c-xml-format-spec.md) — полное описание структуры XML-файлов, namespace'ов, элементов форм
+- [Встроенная справка](docs/1c-help-spec.md) — Help.xml, HTML-страницы, кнопка справки на форме
 - [Сборка и разборка EPF](docs/build-spec.md) — команды `1cv8.exe`, параметры, коды возврата
 
 ## Технические детали
