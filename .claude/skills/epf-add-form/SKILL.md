@@ -1,6 +1,7 @@
 ---
 name: epf-add-form
 description: Добавить управляемую форму к внешней обработке 1С
+argument-hint: <ProcessorName> <FormName> [Synonym]
 allowed-tools:
   - Bash
   - Read

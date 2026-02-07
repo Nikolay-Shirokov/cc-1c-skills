@@ -1,6 +1,7 @@
 ---
 name: epf-dump
 description: Разобрать EPF-файл обработки 1С в XML-исходники
+argument-hint: <EpfFile>
 allowed-tools:
   - Bash
   - Read

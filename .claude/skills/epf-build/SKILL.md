@@ -1,6 +1,7 @@
 ---
 name: epf-build
 description: Собрать внешнюю обработку 1С (EPF) из XML-исходников
+argument-hint: <ProcessorName>
 allowed-tools:
   - Bash
   - Read

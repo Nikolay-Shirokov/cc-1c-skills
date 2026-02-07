@@ -1,6 +1,7 @@
 ---
 name: epf-add-template
 description: Добавить макет к внешней обработке 1С
+argument-hint: <ProcessorName> <TemplateName> <TemplateType>
 allowed-tools:
   - Bash
   - Read

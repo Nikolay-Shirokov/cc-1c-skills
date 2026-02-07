@@ -1,6 +1,8 @@
 ---
 name: epf-remove-form
 description: Удалить форму из внешней обработки 1С
+argument-hint: <ProcessorName> <FormName>
+disable-model-invocation: true
 allowed-tools:
   - Bash
   - Read

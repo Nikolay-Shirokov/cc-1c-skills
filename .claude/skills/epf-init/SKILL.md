@@ -1,6 +1,7 @@
 ---
 name: epf-init
 description: Создать пустую внешнюю обработку 1С (scaffold XML-исходников)
+argument-hint: <Name> [Synonym]
 allowed-tools:
   - Bash
   - Read

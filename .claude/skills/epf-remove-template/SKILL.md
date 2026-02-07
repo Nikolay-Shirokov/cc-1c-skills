@@ -1,6 +1,8 @@
 ---
 name: epf-remove-template
 description: Удалить макет из внешней обработки 1С
+argument-hint: <ProcessorName> <TemplateName>
+disable-model-invocation: true
 allowed-tools:
   - Bash
   - Read
