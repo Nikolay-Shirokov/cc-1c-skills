@@ -13,6 +13,8 @@
 | `/epf-remove-template` | `<ProcessorName> <TemplateName>` | Удалить макет |
 | `/epf-build` | `<ProcessorName>` | Собрать EPF из XML (документация команды 1cv8.exe) |
 | `/epf-dump` | `<EpfFile>` | Разобрать EPF в XML (документация команды 1cv8.exe) |
+| `/epf-bsp-init` | `<ProcessorName> <Вид>` | Добавить регистрацию БСП (СведенияОВнешнейОбработке) |
+| `/epf-bsp-add-command` | `<ProcessorName> <Идентификатор>` | Добавить команду в обработку БСП |
 
 Навыки удаления (`epf-remove-*`) не вызываются Claude автоматически — только по явной команде пользователя.
 
@@ -23,6 +25,15 @@
 > /epf-add-form МояОбработка Форма
 > /epf-add-template МояОбработка Макет HTML
 > /epf-build МояОбработка
+```
+
+### Обработка БСП (дополнительная печатная форма)
+
+```
+> /epf-init МояПечатнаяФорма "Моя печатная форма"
+> /epf-bsp-init МояПечатнаяФорма печатная форма для Документ.СчетНаОплату
+> /epf-add-template МояПечатнаяФорма СчетНаОплату SpreadsheetDocument
+> /epf-build МояПечатнаяФорма
 ```
 
 Первая добавленная форма автоматически становится основной (DefaultForm). Флаг `--main` нужен только для переназначения основной формы на другую.
@@ -85,7 +96,9 @@ src/
 ├── epf-remove-form/     # SKILL.md + scripts/remove-form.ps1
 ├── epf-remove-template/ # SKILL.md + scripts/remove-template.ps1
 ├── epf-build/           # SKILL.md (только документация)
-└── epf-dump/            # SKILL.md (только документация)
+├── epf-dump/            # SKILL.md (только документация)
+├── epf-bsp-init/        # SKILL.md (шаблоны кода, без скриптов)
+└── epf-bsp-add-command/ # SKILL.md (шаблоны кода, без скриптов)
 docs/
 ├── 1c-xml-format-spec.md   # Спецификация XML-формата выгрузки
 └── build-spec.md            # Спецификация команд сборки/разборки
@@ -104,3 +117,4 @@ docs/
 - ClassId обработки фиксирован: `c3831ec8-d8d5-4f93-8a22-f9bfae07327f`
 - Порядок элементов в `ChildObjects`: TabularSections → Forms → Templates
 - Первая форма автоматически назначается основной (DefaultForm)
+- BSP-навыки (`epf-bsp-*`) не используют скрипты — Claude модифицирует код напрямую через Read/Edit
