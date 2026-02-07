@@ -4,24 +4,28 @@
 
 ## Навыки
 
-| Навык | Описание |
-|-------|----------|
-| `/epf-init` | Создать новую обработку (корневой XML + модуль объекта) |
-| `/epf-add-form` | Добавить управляемую форму |
-| `/epf-add-template` | Добавить макет (HTML, Text, SpreadsheetDocument, BinaryData) |
-| `/epf-remove-form` | Удалить форму |
-| `/epf-remove-template` | Удалить макет |
-| `/epf-build` | Собрать EPF из XML (документация команды 1cv8.exe) |
-| `/epf-dump` | Разобрать EPF в XML (документация команды 1cv8.exe) |
+| Навык | Параметры | Описание |
+|-------|-----------|----------|
+| `/epf-init` | `<Name> [Synonym]` | Создать новую обработку (корневой XML + модуль объекта) |
+| `/epf-add-form` | `<ProcessorName> <FormName> [Synonym]` | Добавить управляемую форму |
+| `/epf-add-template` | `<ProcessorName> <TemplateName> <TemplateType>` | Добавить макет (HTML, Text, SpreadsheetDocument, BinaryData) |
+| `/epf-remove-form` | `<ProcessorName> <FormName>` | Удалить форму |
+| `/epf-remove-template` | `<ProcessorName> <TemplateName>` | Удалить макет |
+| `/epf-build` | `<ProcessorName>` | Собрать EPF из XML (документация команды 1cv8.exe) |
+| `/epf-dump` | `<EpfFile>` | Разобрать EPF в XML (документация команды 1cv8.exe) |
+
+Навыки удаления (`epf-remove-*`) не вызываются Claude автоматически — только по явной команде пользователя.
 
 ## Быстрый старт
 
 ```
 > /epf-init МояОбработка "Моя обработка"
-> /epf-add-form МояОбработка Форма --main
+> /epf-add-form МояОбработка Форма
 > /epf-add-template МояОбработка Макет HTML
 > /epf-build МояОбработка
 ```
+
+Первая добавленная форма автоматически становится основной (DefaultForm). Флаг `--main` нужен только для переназначения основной формы на другую.
 
 После `/epf-init` создаётся структура:
 
@@ -55,12 +59,23 @@ src/
                 └── Template.html             # Содержимое макета
 ```
 
+## Подключение к проекту
+
+Скопируйте каталог `.claude/skills/` в корень вашего проекта. Навыки будут доступны при запуске Claude Code из этого каталога.
+
+```
+МойПроект/
+├── .claude/skills/    ← скопировать из этого репозитория
+├── src/               ← исходники обработки (создаются навыками)
+└── ...
+```
+
 ## Требования
 
 - **Windows** с PowerShell 5.1+ (входит в Windows)
 - **1С:Предприятие 8.3** — для сборки/разборки EPF (навыки генерации XML работают без платформы)
 
-## Структура проекта
+## Структура репозитория
 
 ```
 .claude/skills/          # Навыки Claude Code
@@ -88,3 +103,4 @@ docs/
 - UUID генерируются через `[guid]::NewGuid()`
 - ClassId обработки фиксирован: `c3831ec8-d8d5-4f93-8a22-f9bfae07327f`
 - Порядок элементов в `ChildObjects`: TabularSections → Forms → Templates
+- Первая форма автоматически назначается основной (DefaultForm)
