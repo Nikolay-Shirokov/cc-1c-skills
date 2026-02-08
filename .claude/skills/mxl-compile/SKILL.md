@@ -127,6 +127,8 @@ powershell.exe -NoProfile -File .claude/skills/mxl-compile/scripts/mxl-compile.p
 | `size` | `10` | Размер |
 | `bold` | `false` | Жирный |
 | `italic` | `false` | Курсив |
+| `underline` | `false` | Подчёркнутый |
+| `strikeout` | `false` | Зачёркнутый |
 
 Шрифт `"default"` используется когда стиль не указывает шрифт явно.
 
@@ -137,7 +139,8 @@ powershell.exe -NoProfile -File .claude/skills/mxl-compile/scripts/mxl-compile.p
 | `font` | `"default"` | Ссылка на имя шрифта |
 | `align` | — | `left`, `center`, `right` |
 | `valign` | — | `top`, `center` |
-| `border` | — | `none`, `all`, `bottom`, `top` |
+| `border` | — | Стороны рамки: `all`, `top`, `bottom`, `left`, `right`, `none`. Через запятую: `"top,bottom"` |
+| `borderWidth` | `"thin"` | Толщина рамки: `thin` (1px) или `thick` (2px) |
 | `wrap` | `false` | Перенос текста |
 
 ### Области (`areas[]`)

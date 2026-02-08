@@ -42,14 +42,18 @@ function Add-Font {
 	$size = if ($fontDef.size) { [int]$fontDef.size } else { 10 }
 	$bold = if ($fontDef.bold -eq $true) { "true" } else { "false" }
 	$italic = if ($fontDef.italic -eq $true) { "true" } else { "false" }
+	$underline = if ($fontDef.underline -eq $true) { "true" } else { "false" }
+	$strikeout = if ($fontDef.strikeout -eq $true) { "true" } else { "false" }
 
 	$idx = $script:fontEntries.Count
 	$script:fontMap[$name] = $idx
 	$script:fontEntries += @{
-		Face   = $face
-		Size   = $size
-		Bold   = $bold
-		Italic = $italic
+		Face      = $face
+		Size      = $size
+		Bold      = $bold
+		Italic    = $italic
+		Underline = $underline
+		Strikeout = $strikeout
 	}
 }
 
@@ -70,21 +74,31 @@ if (-not $hasDefault) {
 
 # --- 3. Determine line palette ---
 
-$hasBorders = $false
+$hasThinBorders = $false
+$hasThickBorders = $false
 
 # Scan styles for border usage
 if ($def.styles) {
 	foreach ($prop in $def.styles.PSObject.Properties) {
-		if ($prop.Value.border -and $prop.Value.border -ne "none") {
-			$hasBorders = $true
-			break
+		$s = $prop.Value
+		if ($s.border -and $s.border -ne "none") {
+			if ($s.borderWidth -eq "thick") {
+				$hasThickBorders = $true
+			} else {
+				$hasThinBorders = $true
+			}
 		}
 	}
 }
 
-$solidLineIndex = -1
-if ($hasBorders) {
-	$solidLineIndex = 0
+$thinLineIndex = -1
+$thickLineIndex = -1
+$lineCount = 0
+if ($hasThinBorders) {
+	$thinLineIndex = $lineCount; $lineCount++
+}
+if ($hasThickBorders) {
+	$thickLineIndex = $lineCount; $lineCount++
 }
 
 # --- 4. Parse column width specs ---
@@ -136,15 +150,16 @@ function Resolve-Style {
 			}
 
 			# Borders
-			if ($style.border) {
-				switch ($style.border) {
-					"all" {
-						$lb = $solidLineIndex; $tb = $solidLineIndex
-						$rb = $solidLineIndex; $bb = $solidLineIndex
+			if ($style.border -and $style.border -ne "none") {
+				$lineIdx = if ($style.borderWidth -eq "thick") { $thickLineIndex } else { $thinLineIndex }
+				foreach ($side in ($style.border -split ',')) {
+					switch ($side.Trim()) {
+						"all"    { $lb = $lineIdx; $tb = $lineIdx; $rb = $lineIdx; $bb = $lineIdx }
+						"left"   { $lb = $lineIdx }
+						"top"    { $tb = $lineIdx }
+						"right"  { $rb = $lineIdx }
+						"bottom" { $bb = $lineIdx }
 					}
-					"bottom" { $bb = $solidLineIndex }
-					"top"    { $tb = $solidLineIndex }
-					"none"   { }
 				}
 			}
 
@@ -524,15 +539,20 @@ foreach ($ni in $namedItems) {
 }
 
 # 7h. Line palette
-if ($hasBorders) {
+if ($hasThinBorders) {
 	X "`t<line width=`"1`" gap=`"false`">"
+	X "`t`t<v8ui:style xsi:type=`"v8ui:SpreadsheetDocumentCellLineType`">Solid</v8ui:style>"
+	X "`t</line>"
+}
+if ($hasThickBorders) {
+	X "`t<line width=`"2`" gap=`"false`">"
 	X "`t`t<v8ui:style xsi:type=`"v8ui:SpreadsheetDocumentCellLineType`">Solid</v8ui:style>"
 	X "`t</line>"
 }
 
 # 7i. Font palette
 foreach ($fe in $fontEntries) {
-	X "`t<font faceName=`"$($fe.Face)`" height=`"$($fe.Size)`" bold=`"$($fe.Bold)`" italic=`"$($fe.Italic)`" underline=`"false`" strikeout=`"false`" kind=`"Absolute`" scale=`"100`"/>"
+	X "`t<font faceName=`"$($fe.Face)`" height=`"$($fe.Size)`" bold=`"$($fe.Bold)`" italic=`"$($fe.Italic)`" underline=`"$($fe.Underline)`" strikeout=`"$($fe.Strikeout)`" kind=`"Absolute`" scale=`"100`"/>"
 }
 
 # 7j. Format palette
@@ -589,5 +609,5 @@ $enc = New-Object System.Text.UTF8Encoding($true)
 
 Write-Host "[OK] Compiled: $OutputPath"
 Write-Host "     Areas: $($namedItems.Count), Rows: $totalRowCount, Columns: $totalColumns"
-Write-Host "     Fonts: $($fontEntries.Count), Lines: $(if ($hasBorders) { 1 } else { 0 }), Formats: $($formatRegistry.Count)"
+Write-Host "     Fonts: $($fontEntries.Count), Lines: $lineCount, Formats: $($formatRegistry.Count)"
 Write-Host "     Merges: $($merges.Count)"
