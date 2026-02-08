@@ -58,7 +58,3 @@ pwsh -NoProfile -File .claude/skills/epf-add-form/scripts/add-form.ps1 -Processo
 - AutoCommandBar с id=-1
 - Реквизит "Объект" с MainAttribute=true
 - BSL-модуль содержит 5 регионов: ОбработчикиСобытийФормы, ОбработчикиСобытийЭлементовФормы, ОбработчикиКомандФормы, ОбработчикиОповещений, СлужебныеПроцедурыИФункции
-
-## Спецификация
-
-Подробности формата: `docs/1c-xml-format-spec.md`

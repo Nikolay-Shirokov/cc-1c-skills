@@ -73,7 +73,3 @@ $env:V8_BASE = ".\base"
 # Собрать
 & "$env:V8_PATH\1cv8.exe" DESIGNER /F $env:V8_BASE /DisableStartupDialogs /LoadExternalDataProcessorOrReportFromFiles "src\МояОбработка.xml" "build\МояОбработка.epf" /Out "build\build.log"
 ```
-
-## Спецификация
-
-Подробности: `docs/build-spec.md`

@@ -44,7 +44,3 @@ pwsh -NoProfile -File .claude/skills/epf-remove-template/scripts/remove-template
 ## Что модифицируется
 
 - `<SrcDir>/<ProcessorName>.xml` — убирается `<Template>` из `ChildObjects`
-
-## Спецификация
-
-Подробности формата: `docs/1c-xml-format-spec.md`

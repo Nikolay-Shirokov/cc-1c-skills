@@ -45,7 +45,3 @@ pwsh -NoProfile -File .claude/skills/epf-remove-form/scripts/remove-form.ps1 -Pr
 
 - `<SrcDir>/<ProcessorName>.xml` — убирается `<Form>` из `ChildObjects`
 - Если удаляемая форма была DefaultForm — очищается значение DefaultForm
-
-## Спецификация
-
-Подробности формата: `docs/1c-xml-format-spec.md`

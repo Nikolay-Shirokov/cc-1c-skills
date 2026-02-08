@@ -52,4 +52,3 @@ pwsh -NoProfile -File .claude/skills/epf-init/scripts/init.ps1 -Name "<Name>" [-
 - Добавить форму: `/epf-add-form`
 - Добавить макет: `/epf-add-template`
 - Собрать EPF: `/epf-build`
-- Спецификация формата: `docs/1c-xml-format-spec.md`

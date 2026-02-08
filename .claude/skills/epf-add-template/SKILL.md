@@ -59,7 +59,3 @@ pwsh -NoProfile -File .claude/skills/epf-add-template/scripts/add-template.ps1 -
 ## Что модифицируется
 
 - `<SrcDir>/<ProcessorName>.xml` — добавляется `<Template>` в конец `ChildObjects`
-
-## Спецификация
-
-Подробности формата: `docs/1c-xml-format-spec.md`

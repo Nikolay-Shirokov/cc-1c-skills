@@ -90,7 +90,3 @@ powershell.exe -NoProfile -File .claude/skills/epf-add-help/scripts/add-help.ps1
 ## Редактирование справки
 
 После создания содержимое справки — обычный HTML. Отредактируй `Ext/Help/ru.html` в соответствии с назначением обработки. Поддерживается стандартная HTML-разметка: `<h1>`..`<h4>`, `<p>`, `<ul>`, `<ol>`, `<table>`, `<strong>`, `<em>`, `<a>`, `<pre>`.
-
-## Спецификация
-
-Подробности формата: `docs/1c-help-spec.md`
