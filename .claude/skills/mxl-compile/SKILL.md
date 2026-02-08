@@ -39,6 +39,8 @@ powershell.exe -NoProfile -File .claude/skills/mxl-compile/scripts/mxl-compile.p
 3. Claude вызывает `/mxl-validate` для проверки корректности
 4. Claude вызывает `/mxl-info` для верификации структуры
 
+**Если макет создаётся по изображению** (скриншот, скан печатной формы) — сначала вызвать `/img-grid` для наложения сетки, по ней определить границы колонок и пропорции, затем использовать `"Nx"` ширины + `"page"` для автоматического расчёта размеров.
+
 ## JSON-схема DSL
 
 Полная спецификация формата: **`docs/mxl-dsl-spec.md`** (прочитать через Read tool перед написанием JSON).
@@ -46,7 +48,7 @@ powershell.exe -NoProfile -File .claude/skills/mxl-compile/scripts/mxl-compile.p
 Краткая структура:
 
 ```
-{ columns, defaultWidth, columnWidths,
+{ columns, page, defaultWidth, columnWidths,
   fonts: { name: { face, size, bold, italic, underline, strikeout } },
   styles: { name: { font, align, valign, border, borderWidth, wrap, format } },
   areas: [{ name, rows: [{ height, rowStyle, cells: [
@@ -56,6 +58,7 @@ powershell.exe -NoProfile -File .claude/skills/mxl-compile/scripts/mxl-compile.p
 ```
 
 Ключевые правила:
+- `page` — формат страницы (`"A4-landscape"`, `"A4-portrait"` или число). Автоматически вычисляет `defaultWidth` из суммы пропорций `"Nx"`
 - `col` — 1-based позиция колонки
 - `rowStyle` — автозаполнение пустот стилем (рамки по всей ширине)
 - Тип заполнения определяется автоматически: `param` → Parameter, `text` → Text, `template` → Template

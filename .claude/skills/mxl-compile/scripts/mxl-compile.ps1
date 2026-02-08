@@ -119,6 +119,57 @@ function Parse-ColumnSpec {
 	return $cols
 }
 
+# --- 4a. Auto-calculate defaultWidth from page format ---
+
+$pageTargets = @{
+	"A4-landscape" = 780
+	"A4-portrait"  = 540
+}
+
+if ($def.page) {
+	$pageName = "$($def.page)"
+	$targetWidth = $null
+
+	if ($pageName -match '^\d+$') {
+		$targetWidth = [int]$pageName
+	} elseif ($pageTargets.ContainsKey($pageName)) {
+		$targetWidth = $pageTargets[$pageName]
+	} else {
+		Write-Warning "Unknown page format '$pageName'. Known: $($pageTargets.Keys -join ', '), or a number."
+	}
+
+	if ($targetWidth) {
+		$totalUnits = 0.0
+		$absoluteSum = 0
+		$specifiedCols = @{}
+
+		if ($def.columnWidths) {
+			foreach ($prop in $def.columnWidths.PSObject.Properties) {
+				$val = "$($prop.Value)"
+				$cols = Parse-ColumnSpec $prop.Name
+				foreach ($c in $cols) {
+					$specifiedCols[[int]$c] = $true
+					if ($val -match '^([0-9.]+)x$') {
+						$totalUnits += [double]$Matches[1]
+					} else {
+						$absoluteSum += [int]$val
+					}
+				}
+			}
+		}
+
+		for ($c = 1; $c -le $totalColumns; $c++) {
+			if (-not $specifiedCols.ContainsKey($c)) {
+				$totalUnits += 1.0
+			}
+		}
+
+		if ($totalUnits -gt 0) {
+			$defaultWidth = [int][math]::Round(($targetWidth - $absoluteSum) / $totalUnits)
+		}
+	}
+}
+
 # Build column width map: 1-based col -> width
 $colWidthMap = @{}
 if ($def.columnWidths) {
@@ -671,6 +722,9 @@ $enc = New-Object System.Text.UTF8Encoding($true)
 # --- 9. Summary ---
 
 Write-Host "[OK] Compiled: $OutputPath"
+if ($def.page) {
+	Write-Host "     Page: $pageName -> target $targetWidth, defaultWidth=$defaultWidth"
+}
 Write-Host "     Areas: $($namedItems.Count), Rows: $totalRowCount, Columns: $totalColumns"
 Write-Host "     Fonts: $($fontEntries.Count), Lines: $lineCount, Formats: $($formatRegistry.Count)"
 Write-Host "     Merges: $($merges.Count)"
