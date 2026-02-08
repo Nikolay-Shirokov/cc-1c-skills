@@ -37,12 +37,14 @@ pwsh -NoProfile -File .claude/skills/epf-add-template/scripts/add-template.ps1 -
 
 ## Маппинг типов
 
-| Type                | TemplateType         | Расширение | Содержимое            |
-|---------------------|----------------------|------------|-----------------------|
-| HTML                | HTMLDocument         | `.html`    | Пустой HTML-документ  |
-| Text                | TextDocument         | `.txt`     | Пустой файл           |
-| SpreadsheetDocument | SpreadsheetDocument  | `.xml`     | Минимальный spreadsheet |
-| BinaryData          | BinaryData           | `.bin`     | Пустой файл           |
+Пользователь может указать тип в свободной форме. Определи нужный по контексту:
+
+| Пользователь пишет                          | TemplateType        | Расширение | Содержимое              |
+|---------------------------------------------|---------------------|------------|-------------------------|
+| HTML                                        | HTMLDocument        | `.html`    | Пустой HTML-документ    |
+| Text, текстовый документ, текст             | TextDocument        | `.txt`     | Пустой файл             |
+| SpreadsheetDocument, табличный документ, MXL | SpreadsheetDocument | `.xml`     | Минимальный spreadsheet |
+| BinaryData, двоичные данные                 | BinaryData          | `.bin`     | Пустой файл             |
 
 ## Что создаётся
 
