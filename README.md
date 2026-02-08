@@ -16,6 +16,8 @@
 | `/epf-dump` | `<EpfFile>` | Разобрать EPF в XML (документация команды 1cv8.exe) |
 | `/epf-bsp-init` | `<ProcessorName> <Вид>` | Добавить регистрацию БСП (СведенияОВнешнейОбработке) |
 | `/epf-bsp-add-command` | `<ProcessorName> <Идентификатор>` | Добавить команду в обработку БСП |
+| `/mxl-info` | `<TemplatePath>` | Анализ структуры табличного документа (области, параметры, колонки) |
+| `/mxl-validate` | `<TemplatePath>` | Валидация табличного документа (индексы, ссылки, границы) |
 
 Навыки удаления (`epf-remove-*`) не вызываются Claude автоматически — только по явной команде пользователя.
 
@@ -138,11 +140,14 @@ src/
 ├── epf-dump/            # SKILL.md (только документация)
 ├── epf-add-help/        # SKILL.md + scripts/add-help.ps1
 ├── epf-bsp-init/        # SKILL.md (шаблоны кода, без скриптов)
-└── epf-bsp-add-command/ # SKILL.md (шаблоны кода, без скриптов)
+├── epf-bsp-add-command/ # SKILL.md (шаблоны кода, без скриптов)
+├── mxl-info/            # SKILL.md + scripts/mxl-info.ps1
+└── mxl-validate/        # SKILL.md + scripts/mxl-validate.ps1
 docs/
 ├── 1c-xml-format-spec.md   # Спецификация XML-формата выгрузки
 ├── 1c-help-spec.md         # Спецификация встроенной справки
-└── build-spec.md            # Спецификация команд сборки/разборки
+├── build-spec.md            # Спецификация команд сборки/разборки
+└── 1c-spreadsheet-spec.md   # Спецификация табличного документа (MXL)
 ```
 
 ## Спецификации
@@ -150,6 +155,7 @@ docs/
 - [XML-формат выгрузки обработок](docs/1c-xml-format-spec.md) — полное описание структуры XML-файлов, namespace'ов, элементов форм
 - [Встроенная справка](docs/1c-help-spec.md) — Help.xml, HTML-страницы, кнопка справки на форме
 - [Сборка и разборка EPF](docs/build-spec.md) — команды `1cv8.exe`, параметры, коды возврата
+- [Табличный документ (MXL)](docs/1c-spreadsheet-spec.md) — XML-формат SpreadsheetDocument, совместимость версий
 
 ## Технические детали
 
