@@ -158,6 +158,7 @@ docs/
 - [Встроенная справка](docs/1c-help-spec.md) — Help.xml, HTML-страницы, кнопка справки на форме
 - [Сборка и разборка EPF](docs/build-spec.md) — команды `1cv8.exe`, параметры, коды возврата
 - [Табличный документ (MXL)](docs/1c-spreadsheet-spec.md) — XML-формат SpreadsheetDocument, совместимость версий
+- [MXL DSL](docs/mxl-dsl-spec.md) — JSON-формат описания макета для `/mxl-compile` и `/mxl-decompile`
 
 ## Технические детали
 

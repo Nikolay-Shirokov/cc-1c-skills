@@ -39,156 +39,24 @@ powershell.exe -NoProfile -File .claude/skills/mxl-compile/scripts/mxl-compile.p
 3. Claude вызывает `/mxl-validate` для проверки корректности
 4. Claude вызывает `/mxl-info` для верификации структуры
 
-## JSON-схема
+## JSON-схема DSL
 
-### Пример
+Полная спецификация формата: **`docs/mxl-dsl-spec.md`** (прочитать через Read tool перед написанием JSON).
 
-```json
-{
-  "columns": 10,
-  "defaultWidth": 30,
-  "columnWidths": { "1": 15, "2-8": 40, "9-10": 50 },
+Краткая структура:
 
-  "fonts": {
-    "default": { "face": "Arial", "size": 10 },
-    "bold": { "face": "Arial", "size": 10, "bold": true },
-    "header": { "face": "Arial", "size": 14, "bold": true }
-  },
-
-  "styles": {
-    "default": {},
-    "header": { "font": "header", "align": "center" },
-    "label": { "font": "bold" },
-    "bordered": { "border": "all" },
-    "bordered-right": { "border": "all", "align": "right" },
-    "total-right": { "font": "bold", "border": "top", "align": "right" }
-  },
-
-  "areas": [
-    {
-      "name": "Заголовок",
-      "rows": [
-        { "height": 20, "cells": [
-          { "col": 1, "span": 10, "style": "header", "param": "ТекстЗаголовка" }
-        ]}
-      ]
-    },
-    {
-      "name": "ШапкаТаблицы",
-      "rows": [
-        { "rowStyle": "bordered", "cells": [
-          { "col": 1, "text": "№" },
-          { "col": 2, "span": 6, "text": "Наименование" },
-          { "col": 9, "text": "Кол-во" },
-          { "col": 10, "text": "Сумма" }
-        ]}
-      ]
-    },
-    {
-      "name": "Строка",
-      "rows": [
-        { "rowStyle": "bordered", "cells": [
-          { "col": 1, "param": "НомерСтроки" },
-          { "col": 2, "span": 6, "param": "Товар", "detail": "Номенклатура" },
-          { "col": 9, "style": "bordered-right", "param": "Количество" },
-          { "col": 10, "style": "bordered-right", "param": "Сумма" }
-        ]}
-      ]
-    },
-    {
-      "name": "Итого",
-      "rows": [
-        { "cells": [
-          { "col": 8, "span": 2, "style": "total-right", "text": "Итого:" },
-          { "col": 10, "style": "total-right", "param": "Всего" }
-        ]}
-      ]
-    }
-  ]
+```
+{ columns, defaultWidth, columnWidths,
+  fonts: { name: { face, size, bold, italic, underline, strikeout } },
+  styles: { name: { font, align, valign, border, borderWidth, wrap, format } },
+  areas: [{ name, rows: [{ height, rowStyle, cells: [
+    { col, span, rowspan, style, param, detail, text, template }
+  ]}]}]
 }
 ```
 
-### Верхний уровень
-
-| Поле | Обяз. | По умолч. | Описание |
-|------|:-----:|-----------|----------|
-| `columns` | да | — | Количество колонок |
-| `defaultWidth` | нет | 10 | Ширина колонок по умолчанию |
-| `columnWidths` | нет | `{}` | Ширины колонок. Ключи 1-based: `"1"`, `"3-14"`, `"5,7,9"` |
-| `fonts` | нет | — | Именованные шрифты (если не задано, создаётся Arial 10) |
-| `styles` | нет | `{}` | Именованные стили |
-| `areas` | да | — | Массив именованных областей (порядок = порядок в документе) |
-
-### Шрифты (`fonts.<name>`)
-
-| Поле | По умолч. | Описание |
-|------|-----------|----------|
-| `face` | `"Arial"` | Имя шрифта |
-| `size` | `10` | Размер |
-| `bold` | `false` | Жирный |
-| `italic` | `false` | Курсив |
-| `underline` | `false` | Подчёркнутый |
-| `strikeout` | `false` | Зачёркнутый |
-
-Шрифт `"default"` используется когда стиль не указывает шрифт явно.
-
-### Стили (`styles.<name>`)
-
-| Поле | По умолч. | Описание |
-|------|-----------|----------|
-| `font` | `"default"` | Ссылка на имя шрифта |
-| `align` | — | `left`, `center`, `right` |
-| `valign` | — | `top`, `center` |
-| `border` | — | Стороны рамки: `all`, `top`, `bottom`, `left`, `right`, `none`. Через запятую: `"top,bottom"` |
-| `borderWidth` | `"thin"` | Толщина рамки: `thin` (1px) или `thick` (2px) |
-| `wrap` | `false` | Перенос текста |
-| `format` | — | Формат данных 1С: `"ЧЦ=15; ЧДЦ=2"`, `"ДФ=dd.MM.yyyy"` и т.д. |
-
-### Области (`areas[]`)
-
-| Поле | Обяз. | Описание |
-|------|:-----:|----------|
-| `name` | да | Имя области для `Макет.ПолучитьОбласть("Имя")` |
-| `rows` | да | Массив строк |
-
-### Строки (`rows[]`)
-
-| Поле | По умолч. | Описание |
-|------|-----------|----------|
-| `height` | — | Высота строки (если не задана, используется авто) |
-| `rowStyle` | — | Стиль для ВСЕХ колонок (заполняет пустоты рамками) |
-| `cells` | `[]` | Массив ячеек |
-
-Строка без `cells` и `rowStyle` → пустая строка.
-
-### Ячейки (`cells[]`)
-
-| Поле | Обяз. | По умолч. | Описание |
-|------|:-----:|-----------|----------|
-| `col` | да | — | Позиция колонки (1-based) |
-| `span` | нет | `1` | Объединение по горизонтали (количество колонок) |
-| `rowspan` | нет | `1` | Объединение по вертикали (количество строк) |
-| `style` | нет | rowStyle | Стиль ячейки (переопределяет rowStyle) |
-| `param` | нет | — | Параметр заполнения |
-| `detail` | нет | — | Параметр расшифровки (только с `param`) |
-| `text` | нет | — | Статический текст |
-| `template` | нет | — | Шаблонный текст с `[Параметр]` |
-
-Тип заполнения определяется автоматически:
-- `param` → fillType=Parameter
-- `template` → fillType=Template
-- `text` → fillType=Text
-
-### `rowStyle` — автозаполнение
-
-Когда задан `rowStyle`, скрипт создаёт ячейки для ВСЕХ колонок строки. Позиции без явных ячеек заполняются пустыми ячейками с указанным стилем. Это обеспечивает сплошные рамки в табличных строках.
-
-## Ограничения MVP
-
-Текущая версия не поддерживает:
-- Множественные наборы колонок
-- Области типа Columns / Rectangle
-- Рисунки (штрихкоды, картинки)
-- Фон ячеек
-
-Эти возможности будут добавлены в будущих версиях без переделки основной архитектуры.
+Ключевые правила:
+- `col` — 1-based позиция колонки
+- `rowStyle` — автозаполнение пустот стилем (рамки по всей ширине)
+- Тип заполнения определяется автоматически: `param` → Parameter, `text` → Text, `template` → Template
+- `rowspan` — объединение строк вниз (rowStyle учитывает занятые ячейки)
