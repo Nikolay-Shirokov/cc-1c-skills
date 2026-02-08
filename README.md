@@ -18,6 +18,7 @@
 | `/epf-bsp-add-command` | `<ProcessorName> <Идентификатор>` | Добавить команду в обработку БСП |
 | `/mxl-info` | `<TemplatePath>` | Анализ структуры табличного документа (области, параметры, колонки) |
 | `/mxl-validate` | `<TemplatePath>` | Валидация табличного документа (индексы, ссылки, границы) |
+| `/mxl-compile` | `<JsonPath> <OutputPath>` | Компиляция табличного документа из JSON-определения |
 
 Навыки удаления (`epf-remove-*`) не вызываются Claude автоматически — только по явной команде пользователя.
 
@@ -142,7 +143,8 @@ src/
 ├── epf-bsp-init/        # SKILL.md (шаблоны кода, без скриптов)
 ├── epf-bsp-add-command/ # SKILL.md (шаблоны кода, без скриптов)
 ├── mxl-info/            # SKILL.md + scripts/mxl-info.ps1
-└── mxl-validate/        # SKILL.md + scripts/mxl-validate.ps1
+├── mxl-validate/        # SKILL.md + scripts/mxl-validate.ps1
+└── mxl-compile/         # SKILL.md + scripts/mxl-compile.ps1
 docs/
 ├── 1c-xml-format-spec.md   # Спецификация XML-формата выгрузки
 ├── 1c-help-spec.md         # Спецификация встроенной справки
