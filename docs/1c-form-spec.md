@@ -5,6 +5,157 @@
 
 ---
 
+## 0. Файловая структура и регистрация
+
+### Файлы формы
+
+Каждая форма объекта конфигурации состоит из 3 файлов:
+
+```
+<Объект>/Forms/
+  ИмяФормы.xml                  ← метаданные (UUID, имя, синоним, FormType)
+  ИмяФормы/
+    Ext/
+      Form.xml                   ← определение формы (описано в разделах 1–17)
+      Form/
+        Module.bsl               ← модуль формы (1С-код)
+```
+
+Общие формы (CommonForm) — аналогично, но на верхнем уровне конфигурации:
+
+```
+CommonForms/
+  ИмяФормы.xml                  ← метаданные (тег <CommonForm>)
+  ИмяФормы/
+    Ext/
+      Form.xml
+      Form/
+        Module.bsl
+```
+
+### Метаданные формы — шаблон
+
+#### Форма объекта (Document, Catalog, DataProcessor, Report, ...)
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<MetaDataObject xmlns="http://v8.1c.ru/8.3/MDClasses"
+		xmlns:app="http://v8.1c.ru/8.2/managed-application/core"
+		xmlns:v8="http://v8.1c.ru/8.1/data/core"
+		xmlns:xr="http://v8.1c.ru/8.3/xcf/readable"
+		xmlns:xs="http://www.w3.org/2001/XMLSchema"
+		xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+		version="2.17">
+	<Form uuid="XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX">
+		<Properties>
+			<Name>ИмяФормы</Name>
+			<Synonym>
+				<v8:item>
+					<v8:lang>ru</v8:lang>
+					<v8:content>Отображаемое имя</v8:content>
+				</v8:item>
+			</Synonym>
+			<Comment/>
+			<FormType>Managed</FormType>
+			<IncludeHelpInContents>false</IncludeHelpInContents>
+			<UsePurposes>
+				<v8:Value xsi:type="app:ApplicationUsePurpose">PlatformApplication</v8:Value>
+				<v8:Value xsi:type="app:ApplicationUsePurpose">MobilePlatformApplication</v8:Value>
+			</UsePurposes>
+		</Properties>
+	</Form>
+</MetaDataObject>
+```
+
+#### CommonForm
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<MetaDataObject xmlns="http://v8.1c.ru/8.3/MDClasses"
+		xmlns:app="http://v8.1c.ru/8.2/managed-application/core"
+		xmlns:v8="http://v8.1c.ru/8.1/data/core"
+		xmlns:xr="http://v8.1c.ru/8.3/xcf/readable"
+		xmlns:xs="http://www.w3.org/2001/XMLSchema"
+		xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+		version="2.17">
+	<CommonForm uuid="XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX">
+		<Properties>
+			<Name>ИмяФормы</Name>
+			<Synonym>
+				<v8:item>
+					<v8:lang>ru</v8:lang>
+					<v8:content>Отображаемое имя</v8:content>
+				</v8:item>
+			</Synonym>
+			<Comment/>
+			<FormType>Managed</FormType>
+			<IncludeHelpInContents>false</IncludeHelpInContents>
+			<UseStandardCommands>false</UseStandardCommands>
+			<ExtendedPresentation/>
+			<Explanation/>
+			<UsePurposes>
+				<v8:Value xsi:type="app:ApplicationUsePurpose">PlatformApplication</v8:Value>
+				<v8:Value xsi:type="app:ApplicationUsePurpose">MobilePlatformApplication</v8:Value>
+			</UsePurposes>
+		</Properties>
+	</CommonForm>
+</MetaDataObject>
+```
+
+### Регистрация формы
+
+#### В ChildObjects родительского объекта
+
+```xml
+<!-- В файле Documents/АвансовыйОтчет.xml (или Catalogs/Контрагенты.xml и т.д.) -->
+<ChildObjects>
+	<Form>ФормаДокумента</Form>
+	<Form>ФормаСписка</Form>
+	...
+</ChildObjects>
+```
+
+CommonForms регистрируются в `Configuration.xml`:
+
+```xml
+<ChildObjects>
+	<CommonForm>ИмяФормы</CommonForm>
+	...
+</ChildObjects>
+```
+
+#### DefaultForm в Properties родительского объекта
+
+Формат значения: `ТипОбъекта.ИмяОбъекта.Form.ИмяФормы`
+
+```xml
+<Properties>
+	<DefaultObjectForm>Document.АвансовыйОтчет.Form.ФормаДокумента</DefaultObjectForm>
+	<DefaultListForm>Document.АвансовыйОтчет.Form.ФормаСписка</DefaultListForm>
+	<DefaultChoiceForm>Document.АвансовыйОтчет.Form.ФормаВыбора</DefaultChoiceForm>
+</Properties>
+```
+
+#### Свойства DefaultForm по типам объектов
+
+| Тип объекта | Свойства DefaultForm |
+|-------------|---------------------|
+| Document | DefaultObjectForm, DefaultListForm, DefaultChoiceForm |
+| Catalog | DefaultObjectForm, DefaultFolderForm, DefaultListForm, DefaultChoiceForm, DefaultFolderChoiceForm |
+| ChartOfCharacteristicTypes | DefaultObjectForm, DefaultFolderForm, DefaultListForm, DefaultChoiceForm, DefaultFolderChoiceForm |
+| ChartOfAccounts | DefaultObjectForm, DefaultListForm, DefaultChoiceForm |
+| DataProcessor | DefaultForm |
+| Report | DefaultForm |
+| InformationRegister | DefaultRecordForm, DefaultListForm |
+| ExchangePlan | DefaultObjectForm, DefaultListForm, DefaultChoiceForm |
+| BusinessProcess | DefaultObjectForm, DefaultListForm, DefaultChoiceForm |
+| Task | DefaultObjectForm, DefaultListForm, DefaultChoiceForm |
+| CommonForm | — (регистрируется в Configuration.xml, нет DefaultForm) |
+
+> Report.DefaultForm может указывать на общую форму: `CommonForm.ФормаОтчета`.
+
+---
+
 ## 1. Корневой элемент
 
 ```xml
