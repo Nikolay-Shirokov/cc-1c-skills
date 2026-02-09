@@ -122,8 +122,8 @@ Claude сделает grep по Form.xml и найдёт полный XML-бло
 ### Флаги
 
 Показываются только при отклонении от умолчания:
-- `[hidden]` — элемент скрыт (Visible=false)
-- `[disabled]` — элемент недоступен (Enabled=false)
+- `[visible:false]` — элемент скрыт (Visible=false)
+- `[enabled:false]` — элемент недоступен (Enabled=false)
 - `[ro]` — только чтение (ReadOnly=true)
 - `,collapse` — сворачиваемая группа (Behavior=Collapsible)
 

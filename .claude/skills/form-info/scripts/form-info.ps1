@@ -149,9 +149,9 @@ function Get-EventsStr($node) {
 function Get-Flags($node) {
 	$flags = @()
 	$vis = $node.SelectSingleNode("d:Visible", $ns)
-	if ($vis -and $vis.InnerText -eq "false") { $flags += "hidden" }
+	if ($vis -and $vis.InnerText -eq "false") { $flags += "visible:false" }
 	$en = $node.SelectSingleNode("d:Enabled", $ns)
-	if ($en -and $en.InnerText -eq "false") { $flags += "disabled" }
+	if ($en -and $en.InnerText -eq "false") { $flags += "enabled:false" }
 	$ro = $node.SelectSingleNode("d:ReadOnly", $ns)
 	if ($ro -and $ro.InnerText -eq "true") { $flags += "ro" }
 	if ($flags.Count -eq 0) { return "" }

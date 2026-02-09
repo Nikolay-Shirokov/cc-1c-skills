@@ -254,8 +254,8 @@ function Emit-Companion {
 
 function Emit-CommonFlags {
 	param($el, [string]$indent)
-	if ($el.hidden -eq $true)   { X "$indent<Visible>false</Visible>" }
-	if ($el.disabled -eq $true) { X "$indent<Enabled>false</Enabled>" }
+	if ($el.visible -eq $false -or $el.hidden -eq $true) { X "$indent<Visible>false</Visible>" }
+	if ($el.enabled -eq $false -or $el.disabled -eq $true) { X "$indent<Enabled>false</Enabled>" }
 	if ($el.readOnly -eq $true) { X "$indent<ReadOnly>true</ReadOnly>" }
 }
 

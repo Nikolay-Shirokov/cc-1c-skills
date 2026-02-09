@@ -71,7 +71,7 @@ Events:
 Elements:
   ├─ [Group:AH] ГруппаШапка
   │  ├─ [Input] Организация -> Объект.Организация {OnChange}
-  │  └─ [Input] Договор -> Объект.Договор [hidden] {StartChoice}
+  │  └─ [Input] Договор -> Объект.Договор [visible:false] {StartChoice}
   ├─ [Table] Товары -> Объект.Товары
   │  ├─ [Input] Номенклатура -> Объект.Товары.Номенклатура {OnChange}
   │  └─ [Input] Сумма -> Объект.Товары.Сумма [ro]
@@ -105,8 +105,8 @@ Elements:
 | `[BtnGroup]` | ButtonGroup |
 
 **Флаги** (только при отклонении от умолчания):
-- `[hidden]` — Visible=false
-- `[disabled]` — Enabled=false
+- `[visible:false]` — элемент скрыт (Visible=false)
+- `[enabled:false]` — элемент недоступен (Enabled=false)
 - `[ro]` — ReadOnly=true
 - `,collapse` — Behavior=Collapsible (для групп)
 

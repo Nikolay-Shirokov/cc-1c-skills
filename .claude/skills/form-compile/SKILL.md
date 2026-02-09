@@ -58,8 +58,8 @@ powershell.exe -NoProfile -File .claude\skills\form-compile\scripts\form-compile
 - `"name"` — переопределить имя (по умолчанию из значения ключа типа)
 - `"path"` — DataPath (привязка к данным)
 - `"title"` — заголовок
-- `"hidden": true` — Visible=false
-- `"disabled": true` — Enabled=false
+- `"visible": false` — Visible=false (скрыть элемент)
+- `"enabled": false` — Enabled=false (сделать недоступным)
 - `"readOnly": true` — ReadOnly=true
 - `"on": ["OnChange", "StartChoice"]` — события с автоименованием обработчиков
 
