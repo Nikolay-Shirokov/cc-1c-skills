@@ -560,6 +560,29 @@ function Emit-Element {
 	}
 	if (-not $typeKey) { Write-Warning "Unknown element type, skipping"; return }
 
+	# Validate known keys — warn about typos
+	$knownKeys = @{
+		"group"=1;"input"=1;"check"=1;"label"=1;"labelField"=1;"table"=1;"pages"=1;"page"=1
+		"button"=1;"picture"=1;"picField"=1;"calendar"=1;"cmdBar"=1;"popup"=1
+		"name"=1;"path"=1;"title"=1
+		"visible"=1;"hidden"=1;"enabled"=1;"disabled"=1;"readOnly"=1
+		"on"=1;"handlers"=1
+		"titleLocation"=1;"representation"=1;"width"=1;"height"=1
+		"horizontalStretch"=1;"verticalStretch"=1;"autoMaxWidth"=1;"autoMaxHeight"=1
+		"multiLine"=1;"passwordMode"=1;"choiceButton"=1;"clearButton"=1
+		"spinButton"=1;"dropListButton"=1;"markIncomplete"=1;"skipOnInput"=1;"inputHint"=1
+		"hyperlink"=1;"showTitle"=1;"united"=1;"children"=1;"columns"=1
+		"changeRowSet"=1;"changeRowOrder"=1;"header"=1;"footer"=1
+		"commandBarLocation"=1;"searchStringLocation"=1;"pagesRepresentation"=1
+		"type"=1;"command"=1;"stdCommand"=1;"defaultButton"=1;"locationInCommandBar"=1
+		"src"=1;"autofill"=1
+	}
+	foreach ($p in $el.PSObject.Properties) {
+		if (-not $knownKeys.ContainsKey($p.Name)) {
+			Write-Warning "Element '$($el.$typeKey)': unknown key '$($p.Name)' — ignored."
+		}
+	}
+
 	$name = Get-ElementName -el $el -typeKey $typeKey
 	$id = New-Id
 
