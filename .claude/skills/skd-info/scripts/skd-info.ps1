@@ -347,116 +347,81 @@ if ($Mode -eq "overview") {
 		}
 	}
 
-	# Links
+	# Links — only dataset pairs (not field-level)
 	$links = $root.SelectNodes("s:dataSetLink", $ns)
 	if ($links.Count -gt 0) {
-		$linkStrs = @()
+		$linkPairs = [ordered]@{}
 		foreach ($lnk in $links) {
 			$srcDs = $lnk.SelectSingleNode("s:sourceDataSet", $ns).InnerText
 			$dstDs = $lnk.SelectSingleNode("s:destinationDataSet", $ns).InnerText
-			$srcExpr = $lnk.SelectSingleNode("s:sourceExpression", $ns).InnerText
-			$dstExpr = $lnk.SelectSingleNode("s:destinationExpression", $ns).InnerText
-			$paramNode = $lnk.SelectSingleNode("s:parameter", $ns)
-			$paramStr = if ($paramNode) { " param=$($paramNode.InnerText)" } else { "" }
-			$linkStrs += "$srcDs.$srcExpr -> $dstDs.$dstExpr$paramStr"
+			$key = "$srcDs -> $dstDs"
+			if (-not $linkPairs.Contains($key)) { $linkPairs[$key] = 0 }
+			$linkPairs[$key] = $linkPairs[$key] + 1
 		}
-		if ($linkStrs.Count -le 2) {
-			$lines.Add("Links: " + ($linkStrs -join "; "))
-		} else {
-			$lines.Add("Links ($($linkStrs.Count)):")
-			foreach ($ls in $linkStrs) { $lines.Add("  $ls") }
+		$linkStrs = @()
+		foreach ($key in $linkPairs.Keys) {
+			$cnt = $linkPairs[$key]
+			if ($cnt -gt 1) { $linkStrs += "$key (${cnt} fields)" }
+			else { $linkStrs += $key }
 		}
-	} else {
-		$lines.Add("Links: (none)")
+		$lines.Add("Links: " + ($linkStrs -join ", "))
 	}
 
-	# Calculated fields
+	# Calculated fields — count only
 	$calcFields = $root.SelectNodes("s:calculatedField", $ns)
 	if ($calcFields.Count -gt 0) {
-		$calcNames = @()
-		foreach ($cf in $calcFields) {
-			$calcNames += $cf.SelectSingleNode("s:dataPath", $ns).InnerText
-		}
-		if ($calcNames.Count -le 10) {
-			$lines.Add("Calculated: " + ($calcNames -join ", "))
-		} else {
-			$lines.Add("Calculated ($($calcNames.Count)): " + (($calcNames[0..9] -join ", ")) + ", ...")
-		}
+		$lines.Add("Calculated: $($calcFields.Count)")
 	}
 
-	# Totals
+	# Totals — count + group flag
 	$totalFields = $root.SelectNodes("s:totalField", $ns)
 	if ($totalFields.Count -gt 0) {
-		if ($totalFields.Count -le 5) {
-			$totalStrs = @()
-			foreach ($tf in $totalFields) {
-				$tfPath = $tf.SelectSingleNode("s:dataPath", $ns).InnerText
-				$tfExpr = $tf.SelectSingleNode("s:expression", $ns).InnerText
-				$tfGroup = $tf.SelectSingleNode("s:group", $ns)
-				$groupStr = ""
-				if ($tfGroup) { $groupStr = " [group:$($tfGroup.InnerText)]" }
-				$totalStrs += "$tfPath=$tfExpr$groupStr"
-			}
-			$lines.Add("Totals: " + ($totalStrs -join ", "))
+		$hasGrouped = $false
+		$uniquePaths = @{}
+		foreach ($tf in $totalFields) {
+			$tfPath = $tf.SelectSingleNode("s:dataPath", $ns).InnerText
+			$uniquePaths[$tfPath] = $true
+			if ($tf.SelectSingleNode("s:group", $ns)) { $hasGrouped = $true }
+		}
+		$groupNote = if ($hasGrouped) { ", with group formulas" } else { "" }
+		if ($uniquePaths.Count -eq $totalFields.Count) {
+			$lines.Add("Totals: $($totalFields.Count)$groupNote")
 		} else {
-			# Compact: group by dataPath, show unique paths with count
-			$pathCounts = [ordered]@{}
-			$hasGrouped = $false
-			foreach ($tf in $totalFields) {
-				$tfPath = $tf.SelectSingleNode("s:dataPath", $ns).InnerText
-				$tfGroup = $tf.SelectSingleNode("s:group", $ns)
-				if ($tfGroup) { $hasGrouped = $true }
-				if (-not $pathCounts.Contains($tfPath)) { $pathCounts[$tfPath] = 0 }
-				$pathCounts[$tfPath] = $pathCounts[$tfPath] + 1
-			}
-			$uniquePaths = @($pathCounts.Keys)
-			$groupNote = if ($hasGrouped) { ", some with group-specific formulas" } else { "" }
-			if ($uniquePaths.Count -le 10) {
-				$lines.Add("Totals ($($totalFields.Count) for $($uniquePaths.Count) fields$groupNote): " + ($uniquePaths -join ", "))
-			} else {
-				$lines.Add("Totals ($($totalFields.Count) for $($uniquePaths.Count) fields$groupNote):")
-				$lines.Add("  " + (($uniquePaths[0..14] -join ", ")) + ", ...")
-			}
+			$lines.Add("Totals: $($totalFields.Count) ($($uniquePaths.Count) fields$groupNote)")
 		}
 	}
 
-	# Templates
+	# Templates — count only
 	$templates = $root.SelectNodes("s:template", $ns)
 	$groupTemplates = $root.SelectNodes("s:groupTemplate", $ns)
 	if ($templates.Count -gt 0 -or $groupTemplates.Count -gt 0) {
-		$tplNames = @()
-		foreach ($tpl in $templates) {
-			$tplNames += $tpl.SelectSingleNode("s:name", $ns).InnerText
-		}
-		$gtStrs = @()
-		foreach ($gt in $groupTemplates) {
-			$gtField = $gt.SelectSingleNode("s:groupField", $ns).InnerText
-			$gtType = $gt.SelectSingleNode("s:templateType", $ns).InnerText
-			$gtTpl = $gt.SelectSingleNode("s:template", $ns).InnerText
-			$gtStrs += "$gtTpl($gtField/$gtType)"
-		}
-		$totalTpl = $tplNames.Count + $gtStrs.Count
-		if ($totalTpl -le 10) {
-			$all = $tplNames + $gtStrs
-			$lines.Add("Templates: " + ($all -join ", "))
-		} else {
-			$lines.Add("Templates: $($tplNames.Count) templates, $($groupTemplates.Count) group bindings")
-		}
+		$parts = @()
+		if ($templates.Count -gt 0) { $parts += "$($templates.Count) templates" }
+		if ($groupTemplates.Count -gt 0) { $parts += "$($groupTemplates.Count) group bindings" }
+		$lines.Add("Templates: " + ($parts -join ", "))
 	}
 
-	# Parameters
+	# Parameters — split visible/hidden
 	$params = $root.SelectNodes("s:parameter", $ns)
 	if ($params.Count -gt 0) {
-		$paramStrs = @()
+		$visibleNames = @()
+		$hiddenCount = 0
 		foreach ($p in $params) {
 			$pName = $p.SelectSingleNode("s:name", $ns).InnerText
-			$paramStrs += $pName
+			$useRestrict = $p.SelectSingleNode("s:useRestriction", $ns)
+			$isHidden = ($useRestrict -and $useRestrict.InnerText -eq "true")
+			if ($isHidden) { $hiddenCount++ } else { $visibleNames += $pName }
 		}
-		if ($params.Count -le 15) {
-			$lines.Add("Params ($($params.Count)): " + ($paramStrs -join ", "))
-		} else {
-			$lines.Add("Params ($($params.Count)): " + (($paramStrs[0..9] -join ", ")) + ", ...")
+		$paramLine = "Params: $($params.Count)"
+		if ($hiddenCount -gt 0 -and $visibleNames.Count -gt 0) {
+			$paramLine += " ($($visibleNames.Count) visible, $hiddenCount hidden)"
+		} elseif ($hiddenCount -eq $params.Count) {
+			$paramLine += " (all hidden)"
 		}
+		if ($visibleNames.Count -gt 0 -and $visibleNames.Count -le 8) {
+			$paramLine += ": " + ($visibleNames -join ", ")
+		}
+		$lines.Add($paramLine)
 	} else {
 		$lines.Add("Params: (none)")
 	}
@@ -509,6 +474,41 @@ if ($Mode -eq "overview") {
 			$lines.Add("  [$varIdx] $vName$vPresStr$structStr$filterStr")
 		}
 	}
+
+	# Hints — suggest next commands
+	$lines.Add("")
+	$hints = @()
+	# Collect query dataset names for hint
+	$queryDsNames = @()
+	foreach ($ds in $root.SelectNodes("s:dataSet", $ns)) {
+		$dsType = Get-DataSetType $ds
+		if ($dsType -eq "Query") {
+			$queryDsNames += $ds.SelectSingleNode("s:name", $ns).InnerText
+		} elseif ($dsType -eq "Union") {
+			foreach ($subDs in $ds.SelectNodes("s:item", $ns)) {
+				if ((Get-DataSetType $subDs) -eq "Query") {
+					$sn = $subDs.SelectSingleNode("s:name", $ns)
+					if ($sn) { $queryDsNames += $sn.InnerText }
+				}
+			}
+		}
+	}
+	if ($queryDsNames.Count -eq 1) {
+		$hints += "-Mode query             query text"
+	} elseif ($queryDsNames.Count -gt 1) {
+		$hints += "-Mode query -Name <ds>  query text ($($queryDsNames -join ', '))"
+	}
+	$hints += "-Mode fields            field details + calculated + totals"
+	if ($params.Count -gt 0) {
+		$hints += "-Mode params            parameter details"
+	}
+	if ($variants.Count -eq 1) {
+		$hints += "-Mode variant           variant structure"
+	} elseif ($variants.Count -gt 1) {
+		$hints += "-Mode variant -Name <N> variant structure (1..$($variants.Count))"
+	}
+	$lines.Add("Next:")
+	foreach ($h in $hints) { $lines.Add("  $h") }
 }
 
 # ============================================================
