@@ -1,7 +1,7 @@
 ---
 name: skd-info
 description: Анализ структуры схемы компоновки данных 1С (СКД) — наборы, поля, параметры, варианты
-argument-hint: <TemplatePath> [-Mode overview|query|fields|params|variant] [-Name <dataset|variant>]
+argument-hint: <TemplatePath> [-Mode overview|query|fields|links|totals|params|variant] [-Name <dataset|variant>]
 allowed-tools:
   - Bash
   - Read
@@ -24,7 +24,7 @@ allowed-tools:
 | Параметр     | Обязательный | По умолчанию | Описание                                          |
 |--------------|:------------:|--------------|---------------------------------------------------|
 | TemplatePath | да           | —            | Путь к Template.xml или каталогу макета            |
-| Mode         | нет          | `overview`   | Режим: `overview`, `query`, `fields`, `params`, `variant` |
+| Mode         | нет          | `overview`   | Режим: `overview`, `query`, `fields`, `links`, `totals`, `params`, `variant` |
 | Name         | нет          | —            | Имя набора (query/fields) или варианта (variant)   |
 | Batch        | нет          | `0`          | Номер пакета запроса (0 = все). Только для query   |
 | Limit        | нет          | `150`        | Макс. строк вывода (защита от переполнения)        |
@@ -43,6 +43,8 @@ powershell.exe -NoProfile -File .claude\skills\skd-info\scripts\skd-info.ps1 -Te
 ... -Mode query -Name ДанныеТ13 -Batch 3
 ... -Mode fields
 ... -Mode fields -Name НаборДанных1
+... -Mode links
+... -Mode totals
 ... -Mode params
 ... -Mode variant -Name Основной
 ... -Mode variant -Name 1
@@ -78,7 +80,8 @@ Variants:
 
 Next:
   -Mode query             query text
-  -Mode fields            field details + calculated + totals
+  -Mode fields            field tables by dataset
+  -Mode totals            calculated fields + resources
   -Mode variant -Name <N> variant structure (1..2)
 ```
 
@@ -115,17 +118,37 @@ Params: 18 (7 visible, 11 hidden): Период, Ответственный, ...
 
 Фильтр по номеру батча: `-Batch 3` покажет только 3-й пакет.
 
-### fields — таблица полей
+### fields — таблица полей наборов данных
 
 ```
-=== Fields: НоменклатураСЦенами (7) ===
+=== Fields: НоменклатураСЦенами [Query] (7) ===
   dataPath                     title                  role       restrict     format
   Номенклатура                 -                      -          -            -
   Номенклатура.Артикул         "Артикул"              -          -            -
   Цена                         -                      -          -            ЧГ=0
---- calculated ---
+```
+
+Без `-Name` — поля всех наборов. С `-Name <набор>` — только указанного.
+
+### links — связи наборов данных
+
+```
+=== Links (5) ===
+
+РасчетНалогаНаИмущество -> СостояниеОС :
+  Организация -> Организация
+  ОсновноеСредство -> ОсновноеСредство
+```
+
+Группирует по парам наборов. Показывает поля связи и параметры.
+
+### totals — вычисляемые поля и ресурсы
+
+```
+=== Calculated fields (3) ===
   УИД = БухгалтерскиеОтчеты.ПолучитьУИДСсылкиСтрокой(Номенклатура)  restrict:cond,grp,ord
---- totals ---
+
+=== Resources (2) ===
   Цена = Максимум(Цена)
   ПравоИнтерактивное = Максимум(ПравоИнтерактивное) [group:ОбъектМетаданных]
 ```
@@ -178,7 +201,9 @@ Output: style=ЧерноБелый  groups=Separately  totalsH=None  totalsV=Non
 
 - **Перед анализом отчёта**: overview для понимания структуры
 - **Отладка данных**: query для просмотра текста запроса
-- **Модификация полей**: fields для полного списка с ролями
+- **Модификация полей**: fields для списка с ролями по наборам
+- **Связи между наборами**: links для полей связи и параметров
+- **Формулы и ресурсы**: totals для вычисляемых полей и ресурсов
 - **Программный вызов**: params для списка параметров
 - **Изменение вывода**: variant для структуры группировок и фильтров
 

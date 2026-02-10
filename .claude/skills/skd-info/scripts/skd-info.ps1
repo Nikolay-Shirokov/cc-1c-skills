@@ -1,7 +1,7 @@
 ﻿param(
 	[Parameter(Mandatory=$true)]
 	[string]$TemplatePath,
-	[ValidateSet("overview", "query", "fields", "params", "variant")]
+	[ValidateSet("overview", "query", "fields", "links", "totals", "params", "variant")]
 	[string]$Mode = "overview",
 	[string]$Name,
 	[int]$Batch = 0,
@@ -498,7 +498,16 @@ if ($Mode -eq "overview") {
 	} elseif ($queryDsNames.Count -gt 1) {
 		$hints += "-Mode query -Name <ds>  query text ($($queryDsNames -join ', '))"
 	}
-	$hints += "-Mode fields            field details + calculated + totals"
+	$hints += "-Mode fields            field tables by dataset"
+	$linkCount = $root.SelectNodes("s:dataSetLink", $ns).Count
+	if ($linkCount -gt 0) {
+		$hints += "-Mode links             dataset connections ($linkCount)"
+	}
+	$calcCount = $root.SelectNodes("s:calculatedField", $ns).Count
+	$totalCount = $root.SelectNodes("s:totalField", $ns).Count
+	if ($calcCount -gt 0 -or $totalCount -gt 0) {
+		$hints += "-Mode totals            calculated fields + resources"
+	}
 	if ($params.Count -gt 0) {
 		$hints += "-Mode params            parameter details"
 	}
@@ -646,22 +655,6 @@ elseif ($Mode -eq "query") {
 # ============================================================
 elseif ($Mode -eq "fields") {
 
-	# Links (full detail)
-	$links = $root.SelectNodes("s:dataSetLink", $ns)
-	if ($links.Count -gt 0) {
-		$lines.Add("--- links ---")
-		foreach ($lnk in $links) {
-			$srcDs = $lnk.SelectSingleNode("s:sourceDataSet", $ns).InnerText
-			$dstDs = $lnk.SelectSingleNode("s:destinationDataSet", $ns).InnerText
-			$srcExpr = $lnk.SelectSingleNode("s:sourceExpression", $ns).InnerText
-			$dstExpr = $lnk.SelectSingleNode("s:destinationExpression", $ns).InnerText
-			$paramNode = $lnk.SelectSingleNode("s:parameter", $ns)
-			$paramStr = if ($paramNode) { "  param=$($paramNode.InnerText)" } else { "" }
-			$lines.Add("  $srcDs.$srcExpr -> $dstDs.$dstExpr$paramStr")
-		}
-		$lines.Add("")
-	}
-
 	$dataSets = $root.SelectNodes("s:dataSet", $ns)
 
 	function Show-DataSetFields($dsNode) {
@@ -734,14 +727,9 @@ elseif ($Mode -eq "fields") {
 	}
 
 	if ($Name) {
+		# Search nested items first (Union child over Union parent)
 		$found = $false
 		foreach ($ds in $dataSets) {
-			$dsNameNode = $ds.SelectSingleNode("s:name", $ns)
-			if ($dsNameNode -and $dsNameNode.InnerText -eq $Name) {
-				Show-DataSetFields $ds
-				$found = $true
-				break
-			}
 			foreach ($subDs in $ds.SelectNodes("s:item", $ns)) {
 				$subNameNode = $subDs.SelectSingleNode("s:name", $ns)
 				if ($subNameNode -and $subNameNode.InnerText -eq $Name) {
@@ -751,6 +739,16 @@ elseif ($Mode -eq "fields") {
 				}
 			}
 			if ($found) { break }
+		}
+		if (-not $found) {
+			foreach ($ds in $dataSets) {
+				$dsNameNode = $ds.SelectSingleNode("s:name", $ns)
+				if ($dsNameNode -and $dsNameNode.InnerText -eq $Name) {
+					Show-DataSetFields $ds
+					$found = $true
+					break
+				}
+			}
 		}
 		if (-not $found) {
 			Write-Error "Dataset '$Name' not found"
@@ -773,15 +771,63 @@ elseif ($Mode -eq "fields") {
 			}
 		}
 	}
+}
+
+# ============================================================
+# MODE: links
+# ============================================================
+elseif ($Mode -eq "links") {
+
+	$links = $root.SelectNodes("s:dataSetLink", $ns)
+	if ($links.Count -eq 0) {
+		$lines.Add("(no links)")
+	} else {
+		$lines.Add("=== Links ($($links.Count)) ===")
+		$lines.Add("")
+		# Group by source->dest pair
+		$currentPair = ""
+		foreach ($lnk in $links) {
+			$srcDs = $lnk.SelectSingleNode("s:sourceDataSet", $ns).InnerText
+			$dstDs = $lnk.SelectSingleNode("s:destinationDataSet", $ns).InnerText
+			$srcExpr = $lnk.SelectSingleNode("s:sourceExpression", $ns).InnerText
+			$dstExpr = $lnk.SelectSingleNode("s:destinationExpression", $ns).InnerText
+			$paramNode = $lnk.SelectSingleNode("s:parameter", $ns)
+			$paramListNode = $lnk.SelectSingleNode("s:parameterListAllowed", $ns)
+
+			$pair = "$srcDs -> $dstDs"
+			if ($pair -ne $currentPair) {
+				if ($currentPair) { $lines.Add("") }
+				$lines.Add("$pair :")
+				$currentPair = $pair
+			}
+
+			$paramStr = ""
+			if ($paramNode) { $paramStr = "  param=$($paramNode.InnerText)" }
+
+			$lines.Add("  $srcExpr -> $dstExpr$paramStr")
+		}
+	}
+}
+
+# ============================================================
+# MODE: totals
+# ============================================================
+elseif ($Mode -eq "totals") {
 
 	# Calculated fields
 	$calcFields = $root.SelectNodes("s:calculatedField", $ns)
 	if ($calcFields.Count -gt 0) {
-		$lines.Add("")
-		$lines.Add("--- calculated ---")
+		$lines.Add("=== Calculated fields ($($calcFields.Count)) ===")
 		foreach ($cf in $calcFields) {
 			$cfPath = $cf.SelectSingleNode("s:dataPath", $ns).InnerText
 			$cfExpr = $cf.SelectSingleNode("s:expression", $ns).InnerText
+			$cfTitle = $cf.SelectSingleNode("s:title", $ns)
+			$titleStr = ""
+			if ($cfTitle) {
+				$t = Get-MLText $cfTitle
+				if ($t) { $titleStr = "  `"$t`"" }
+			}
+
 			$cfRestrict = $cf.SelectSingleNode("s:useRestriction", $ns)
 			$restrictStr = ""
 			if ($cfRestrict) {
@@ -793,15 +839,15 @@ elseif ($Mode -eq "fields") {
 				}
 				if ($parts.Count -gt 0) { $restrictStr = "  restrict:" + ($parts -join ",") }
 			}
-			$lines.Add("  $cfPath = $cfExpr$restrictStr")
+			$lines.Add("  $cfPath = $cfExpr$restrictStr$titleStr")
 		}
+		$lines.Add("")
 	}
 
-	# Total fields
+	# Total fields (resources)
 	$totalFields = $root.SelectNodes("s:totalField", $ns)
 	if ($totalFields.Count -gt 0) {
-		$lines.Add("")
-		$lines.Add("--- totals ---")
+		$lines.Add("=== Resources ($($totalFields.Count)) ===")
 		foreach ($tf in $totalFields) {
 			$tfPath = $tf.SelectSingleNode("s:dataPath", $ns).InnerText
 			$tfExpr = $tf.SelectSingleNode("s:expression", $ns).InnerText
@@ -810,6 +856,10 @@ elseif ($Mode -eq "fields") {
 			if ($tfGroup) { $groupStr = " [group:$($tfGroup.InnerText)]" }
 			$lines.Add("  $tfPath = $tfExpr$groupStr")
 		}
+	}
+
+	if ($calcFields.Count -eq 0 -and $totalFields.Count -eq 0) {
+		$lines.Add("(no calculated fields or resources)")
 	}
 }
 
