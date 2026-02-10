@@ -7,6 +7,7 @@
 )
 
 $ErrorActionPreference = 'Stop'
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
 # --- Output helper (always collect, paginate at the end) ---
 $script:lines = @()
