@@ -56,35 +56,45 @@ powershell.exe -NoProfile -File .claude\skills\skd-info\scripts\skd-info.ps1 -Te
 
 ## Режимы
 
-### overview (по умолчанию) — оглавление
+### overview (по умолчанию) — карта схемы
 
-Всегда 20-50 строк. Показывает "карту" схемы для выбора дальнейших действий:
+Компактная навигационная карта (10-25 строк). Показывает структуру и подсказывает следующие шаги:
 
 ```
-=== DCS: Template.xml (361 lines) ===
+=== DCS: ОсновнаяСхемаКомпоновкиДанных (362 lines) ===
 
 Sources: ИсточникДанных1 (Local)
 
 Datasets:
   [Query]  НоменклатураСЦенами   7 fields, query 40 lines
-Links: (none)
-Calculated: УИД
-Totals: Цена=Максимум(Цена)
-Templates: Макет1(ТипЦен/Header)
+Calculated: 1
+Totals: 1
+Templates: 1 templates, 1 group bindings
 Params: (none)
 
 Variants:
-  [1] НоменклатураИЦены  "Номенклатура и цены"   Table  3 filters
+  [1] НоменклатураИЦены  "Номенклатура и цены"  Table(detail)  3 filters
   [2] НоменклатураБезЦен  "Номенклатура без цен"  Group(detail)  2 filters
+
+Next:
+  -Mode query             query text
+  -Mode fields            field details + calculated + totals
+  -Mode variant -Name <N> variant structure (1..2)
 ```
 
-Для DataSetUnion — дерево:
+Для DataSetUnion — дерево наборов + связи:
 ```
 Datasets:
-  [Union] РасчетНалога  35 fields
-    ├─ [Query] ДанныеПоСреднегодовой   query 120 lines
-    └─ [Query] ДанныеПоКадастровой     query 85 lines
-  [Object] ДопДанные  objectName=Таблица  4 fields
+  [Union] РасчетНалогаНаИмущество  52 fields
+    ├─ [Query] РасчетНалогаНаИмущество   51 fields, query 181 lines
+    ├─ [Query] ДанныеПоКадастровой   29 fields, query 40 lines
+    ├─ [Query] ДанныеПоСреднегодовой   34 fields, query 41 lines
+Links: РасчетНалогаНаИмущество -> СостояниеОС (2 fields)
+```
+
+Параметры разделяются на видимые/скрытые:
+```
+Params: 18 (7 visible, 11 hidden): Период, Ответственный, ...
 ```
 
 ### query — текст запроса
