@@ -1091,31 +1091,76 @@ elseif ($Mode -eq "variant") {
 
 	$variants = $root.SelectNodes("s:settingsVariant", $ns)
 
-	$targetVariant = $null
-	if ($Name) {
-		# Try by name
-		$varIdx = 0
-		foreach ($v in $variants) {
-			$varIdx++
-			$vName = $v.SelectSingleNode("dcsset:name", $ns).InnerText
-			if ($vName -eq $Name -or "$varIdx" -eq $Name) {
-				$targetVariant = $v
-				$matchIdx = $varIdx
-				break
+	if (-not $Name) {
+		# --- Variant list (map) ---
+		if ($variants.Count -eq 0) {
+			$lines.Add("=== Variants: (none) ===")
+		} else {
+			$lines.Add("=== Variants ($($variants.Count)) ===")
+			$varIdx = 0
+			foreach ($v in $variants) {
+				$varIdx++
+				$vName = $v.SelectSingleNode("dcsset:name", $ns).InnerText
+				$vPres = $v.SelectSingleNode("dcsset:presentation", $ns)
+				$vPresStr = ""
+				if ($vPres) {
+					$pt = Get-MLText $vPres
+					if ($pt) { $vPresStr = "  `"$pt`"" }
+				}
+
+				$settings = $v.SelectSingleNode("dcsset:settings", $ns)
+				$structItems = @()
+				if ($settings) {
+					foreach ($si in $settings.SelectNodes("dcsset:item", $ns)) {
+						$siType = Get-StructureItemType $si
+						$groupFields = Get-GroupFields $si
+						$groupStr = if ($groupFields.Count -gt 0) { "(" + ($groupFields -join ",") + ")" } else { "(detail)" }
+						$structItems += "$siType$groupStr"
+					}
+				}
+				if ($structItems.Count -gt 3) {
+					$grouped = $structItems | Group-Object | Sort-Object Count -Descending
+					$compactParts = @()
+					foreach ($g in $grouped) {
+						if ($g.Count -gt 1) { $compactParts += "$($g.Count)x $($g.Name)" }
+						else { $compactParts += $g.Name }
+					}
+					$structItems = $compactParts
+				}
+				$structStr = if ($structItems.Count -gt 0) { "  " + ($structItems -join ", ") } else { "" }
+
+				$filterCount = 0
+				if ($settings) {
+					$filterCount = $settings.SelectNodes("dcsset:filter/dcsset:item", $ns).Count
+				}
+				$filterStr = if ($filterCount -gt 0) { "  $filterCount filters" } else { "" }
+
+				# Selection fields
+				$selFields = @()
+				if ($settings) { $selFields = Get-SelectionFields $settings }
+				$selStr = if ($selFields.Count -gt 0) { "  sel: " + ($selFields -join ", ") } else { "" }
+
+				$lines.Add("  [$varIdx] $vName$vPresStr$structStr$filterStr")
+				if ($selStr) { $lines.Add("        $selStr") }
 			}
 		}
-		if (-not $targetVariant) {
-			Write-Error "Variant '$Name' not found"
-			exit 1
-		}
 	} else {
-		# Take first
-		$targetVariant = $variants[0]
-		$matchIdx = 1
-		if (-not $targetVariant) {
-			Write-Error "No variants found"
-			exit 1
+		# --- Variant detail ---
+
+	$targetVariant = $null
+	$varIdx = 0
+	foreach ($v in $variants) {
+		$varIdx++
+		$vName = $v.SelectSingleNode("dcsset:name", $ns).InnerText
+		if ($vName -eq $Name -or "$varIdx" -eq $Name) {
+			$targetVariant = $v
+			$matchIdx = $varIdx
+			break
 		}
+	}
+	if (-not $targetVariant) {
+		Write-Error "Variant '$Name' not found. Use -Mode variant without -Name to see list."
+		exit 1
 	}
 
 	$vName = $targetVariant.SelectSingleNode("dcsset:name", $ns).InnerText
@@ -1215,6 +1260,7 @@ elseif ($Mode -eq "variant") {
 			}
 		}
 	}
+	} # end else (variant detail)
 }
 
 # ============================================================

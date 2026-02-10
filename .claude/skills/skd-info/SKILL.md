@@ -24,7 +24,7 @@ allowed-tools:
 | Параметр     | Обязательный | По умолчанию | Описание                                          |
 |--------------|:------------:|--------------|---------------------------------------------------|
 | TemplatePath | да           | —            | Путь к Template.xml или каталогу макета            |
-| Mode         | нет          | `overview`   | Режим: `overview`, `query`, `fields`, `links`, `totals`, `params`, `variant`, `trace` |
+| Mode         | нет          | `overview`   | Режим: `overview`, `query`, `fields`, `links`, `calculated`, `resources`, `params`, `variant`, `trace` |
 | Name         | нет          | —            | Имя набора (query), поля (fields/calculated/resources/trace) или варианта (variant) |
 | Batch        | нет          | `0`          | Номер пакета запроса (0 = все). Только для query   |
 | Limit        | нет          | `150`        | Макс. строк вывода (защита от переполнения)        |
@@ -42,7 +42,7 @@ powershell.exe -NoProfile -File .claude\skills\skd-info\scripts\skd-info.ps1 -Te
 ... -Mode query -Name НоменклатураСЦенами
 ... -Mode query -Name ДанныеТ13 -Batch 3
 ... -Mode fields
-... -Mode fields -Name НаборДанных1
+... -Mode fields -Name КадастроваяСтоимость
 ... -Mode links
 ... -Mode calculated
 ... -Mode calculated -Name КоэффициентКи
@@ -202,8 +202,16 @@ Restrict: condition
   Организация                CatalogRef.Организации null             yes      -
 ```
 
-### variant — структура варианта
+### variant — варианты отчёта
 
+Без `-Name` — список вариантов:
+```
+=== Variants (2) ===
+  [1] НоменклатураИЦены  "Номенклатура и цены"  Table(detail)  3 filters
+  [2] НоменклатураБезЦен  "Номенклатура без цен"  Group(detail)  2 filters
+```
+
+С `-Name <N|имя>` — структура конкретного варианта:
 ```
 === Variant [1]: НоменклатураИЦены "Номенклатура и цены" ===
 
