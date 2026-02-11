@@ -961,7 +961,7 @@ function Insert-BeforeElement($container, $newNode, $refNode, $childIndent) {
 		$trailing = $container.LastChild
 		if ($trailing -and ($trailing.NodeType -eq 'Whitespace' -or $trailing.NodeType -eq 'SignificantWhitespace')) {
 			$container.InsertBefore($ws, $trailing) | Out-Null
-			$container.InsertBefore($newNode, $ws) | Out-Null
+			$container.InsertBefore($newNode, $trailing) | Out-Null
 		} else {
 			$container.AppendChild($ws) | Out-Null
 			$container.AppendChild($newNode) | Out-Null
@@ -1223,12 +1223,16 @@ function Get-DataSetName($dsNode) {
 }
 
 function Get-ContainerChildIndent($container) {
-	$ci = Get-ChildIndent $container
-	if (-not $container.HasChildNodes) {
-		$settingsIndent = Get-ChildIndent $container.ParentNode
-		$ci = $settingsIndent + "`t"
+	$hasElements = $false
+	foreach ($ch in $container.ChildNodes) {
+		if ($ch.NodeType -eq 'Element') { $hasElements = $true; break }
 	}
-	return $ci
+	if ($hasElements) {
+		return Get-ChildIndent $container
+	} else {
+		$parentIndent = Get-ChildIndent $container.ParentNode
+		return $parentIndent + "`t"
+	}
 }
 
 # --- 6. Load XML ---
