@@ -299,7 +299,8 @@ DataCompositionSchema
 | `dcscom:accountTypeExpression` | Выражение для определения типа счёта |
 | `dcscom:balance` | Поле является остатком |
 | `dcscom:balanceGroup` | Группа остатка |
-| `dcscom:period` | Поле — период |
+| `dcscom:periodNumber` | Номер периода (обычно `1`) |
+| `dcscom:periodType` | Тип периода (`Main`, `Additional`) |
 
 ### 4.7. Тип значения (valueType)
 

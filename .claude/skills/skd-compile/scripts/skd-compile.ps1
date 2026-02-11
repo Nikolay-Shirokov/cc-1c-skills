@@ -564,7 +564,13 @@ function Emit-Field {
 	if ($f.roles.Count -gt 0 -or $f["roleObj"]) {
 		X "$indent`t<role>"
 		foreach ($role in $f.roles) {
-			X "$indent`t`t<dcscom:$role>true</dcscom:$role>"
+			if ($role -eq "period") {
+				# @period -> periodNumber + periodType (not <dcscom:period>)
+				X "$indent`t`t<dcscom:periodNumber>1</dcscom:periodNumber>"
+				X "$indent`t`t<dcscom:periodType>Main</dcscom:periodType>"
+			} else {
+				X "$indent`t`t<dcscom:$role>true</dcscom:$role>"
+			}
 		}
 		if ($f["roleObj"]) {
 			$ro = $f["roleObj"]

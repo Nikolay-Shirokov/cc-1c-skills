@@ -183,7 +183,7 @@
 | `@dimension` | `"role": "dimension"` или `{"dimension": true}` | `<dcscom:dimension>true</dcscom:dimension>` |
 | `@account` | `"role": "account"` или `{"account": true}` | `<dcscom:account>true</dcscom:account>` |
 | `@balance` | `"role": "balance"` или `{"balance": true}` | `<dcscom:balance>true</dcscom:balance>` |
-| `@period` | `"role": "period"` или `{"period": true}` | `<dcscom:period>true</dcscom:period>` |
+| `@period` | `"role": "period"` или `{"period": true}` | `<dcscom:periodNumber>1</dcscom:periodNumber>` + `<dcscom:periodType>Main</dcscom:periodType>` |
 
 Объектная форма с доп. полями:
 ```json
