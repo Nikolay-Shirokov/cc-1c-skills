@@ -25,7 +25,7 @@ allowed-tools:
 |---------------|:------------:|-----------------|--------------------------------------------------|
 | ProcessorName | да           | —               | Имя обработки                                    |
 | TemplateName  | да           | —               | Имя макета                                       |
-| TemplateType  | да           | —               | Тип: HTML, Text, SpreadsheetDocument, BinaryData |
+| TemplateType  | да           | —               | Тип: HTML, Text, SpreadsheetDocument, BinaryData, DataCompositionSchema |
 | Synonym       | нет          | = TemplateName  | Синоним макета                                   |
 | SrcDir        | нет          | `src`           | Каталог исходников                               |
 
@@ -45,6 +45,7 @@ pwsh -NoProfile -File .claude/skills/epf-add-template/scripts/add-template.ps1 -
 | Text, текстовый документ, текст             | TextDocument        | `.txt`     | Пустой файл             |
 | SpreadsheetDocument, табличный документ, MXL | SpreadsheetDocument | `.xml`     | Минимальный spreadsheet |
 | BinaryData, двоичные данные                 | BinaryData          | `.bin`     | Пустой файл             |
+| DataCompositionSchema, СКД, схема компоновки | DataCompositionSchema | `.xml`   | Минимальная DCS-схема   |
 
 ## Конвенция именования
 

@@ -381,6 +381,14 @@ function Parse-FilterShorthand {
 		$result.viewMode = "QuickAccess"
 		$s = $s -replace '\s*@quickAccess', ''
 	}
+	if ($s -match '@normal') {
+		$result.viewMode = "Normal"
+		$s = $s -replace '\s*@normal', ''
+	}
+	if ($s -match '@inaccessible') {
+		$result.viewMode = "Inaccessible"
+		$s = $s -replace '\s*@inaccessible', ''
+	}
 
 	$s = $s.Trim()
 
@@ -751,14 +759,16 @@ function Emit-TotalFields {
 				dataPath = "$($tf.dataPath)"
 				expression = "$($tf.expression)"
 			}
-			if ($tf.group) { $parsed.group = "$($tf.group)" }
+			if ($tf.group) { $parsed.groups = @($tf.group) }
 		}
 
 		X "`t<totalField>"
 		X "`t`t<dataPath>$(Esc-Xml $parsed.dataPath)</dataPath>"
 		X "`t`t<expression>$(Esc-Xml $parsed.expression)</expression>"
-		if ($parsed.group) {
-			X "`t`t<group>$(Esc-Xml $parsed.group)</group>"
+		if ($parsed.groups) {
+			foreach ($g in $parsed.groups) {
+				X "`t`t<group>$(Esc-Xml "$g")</group>"
+			}
 		}
 		X "`t</totalField>"
 	}
@@ -1021,6 +1031,15 @@ function Emit-FilterItem {
 		X "$indent`t<dcsset:userSettingID>$(Esc-Xml $uid)</dcsset:userSettingID>"
 	}
 
+	if ($item.userSettingPresentation) {
+		X "$indent`t<dcsset:userSettingPresentation xsi:type=`"v8:LocalStringType`">"
+		X "$indent`t`t<v8:item>"
+		X "$indent`t`t`t<v8:lang>ru</v8:lang>"
+		X "$indent`t`t`t<v8:content>$(Esc-Xml "$($item.userSettingPresentation)")</v8:content>"
+		X "$indent`t`t</v8:item>"
+		X "$indent`t</dcsset:userSettingPresentation>"
+	}
+
 	X "$indent</dcsset:item>"
 }
 
@@ -1086,6 +1105,94 @@ function Emit-Order {
 		}
 	}
 	X "$indent</dcsset:order>"
+}
+
+function Emit-AppearanceValue {
+	param([string]$key, $val, [string]$indent)
+
+	X "$indent<dcscor:item xsi:type=`"dcsset:SettingsParameterValue`">"
+	if ($val -is [PSCustomObject] -and $val.use -ne $null -and $val.use -eq $false) {
+		X "$indent`t<dcscor:use>false</dcscor:use>"
+		X "$indent`t<dcscor:parameter>$(Esc-Xml $key)</dcscor:parameter>"
+		$actualVal = "$($val.value)"
+	} else {
+		X "$indent`t<dcscor:parameter>$(Esc-Xml $key)</dcscor:parameter>"
+		$actualVal = "$val"
+	}
+
+	# Auto-detect value type
+	if ($actualVal -match '^(style|web|win):') {
+		X "$indent`t<dcscor:value xsi:type=`"v8ui:Color`">$(Esc-Xml $actualVal)</dcscor:value>"
+	} elseif ($actualVal -eq "true" -or $actualVal -eq "false") {
+		X "$indent`t<dcscor:value xsi:type=`"xs:boolean`">$actualVal</dcscor:value>"
+	} elseif ($key -eq "Текст" -or $key -eq "Заголовок") {
+		X "$indent`t<dcscor:value xsi:type=`"v8:LocalStringType`">"
+		X "$indent`t`t<v8:item>"
+		X "$indent`t`t`t<v8:lang>ru</v8:lang>"
+		X "$indent`t`t`t<v8:content>$(Esc-Xml $actualVal)</v8:content>"
+		X "$indent`t`t</v8:item>"
+		X "$indent`t</dcscor:value>"
+	} else {
+		X "$indent`t<dcscor:value xsi:type=`"xs:string`">$(Esc-Xml $actualVal)</dcscor:value>"
+	}
+	X "$indent</dcscor:item>"
+}
+
+function Emit-ConditionalAppearance {
+	param($items, [string]$indent)
+
+	if (-not $items -or $items.Count -eq 0) { return }
+
+	X "$indent<dcsset:conditionalAppearance>"
+	foreach ($ca in $items) {
+		X "$indent`t<dcsset:item>"
+
+		# Selection (which fields to apply to; empty = all)
+		if ($ca.selection -and $ca.selection.Count -gt 0) {
+			X "$indent`t`t<dcsset:selection>"
+			foreach ($sel in $ca.selection) {
+				X "$indent`t`t`t<dcsset:item>"
+				X "$indent`t`t`t`t<dcsset:field>$(Esc-Xml "$sel")</dcsset:field>"
+				X "$indent`t`t`t</dcsset:item>"
+			}
+			X "$indent`t`t</dcsset:selection>"
+		} else {
+			X "$indent`t`t<dcsset:selection/>"
+		}
+
+		# Filter (reuse existing Emit-Filter logic)
+		if ($ca.filter) {
+			Emit-Filter -items $ca.filter -indent "$indent`t`t"
+		}
+
+		# Appearance (parameter-value pairs)
+		if ($ca.appearance) {
+			X "$indent`t`t<dcsset:appearance>"
+			foreach ($prop in $ca.appearance.PSObject.Properties) {
+				Emit-AppearanceValue -key $prop.Name -val $prop.Value -indent "$indent`t`t`t"
+			}
+			X "$indent`t`t</dcsset:appearance>"
+		}
+
+		# Presentation
+		if ($ca.presentation) {
+			X "$indent`t`t<dcsset:presentation xsi:type=`"xs:string`">$(Esc-Xml "$($ca.presentation)")</dcsset:presentation>"
+		}
+
+		# ViewMode
+		if ($ca.viewMode) {
+			X "$indent`t`t<dcsset:viewMode>$(Esc-Xml "$($ca.viewMode)")</dcsset:viewMode>"
+		}
+
+		# UserSettingID
+		if ($ca.userSettingID) {
+			$uid = if ("$($ca.userSettingID)" -eq "auto") { New-Guid-String } else { "$($ca.userSettingID)" }
+			X "$indent`t`t<dcsset:userSettingID>$(Esc-Xml $uid)</dcsset:userSettingID>"
+		}
+
+		X "$indent`t</dcsset:item>"
+	}
+	X "$indent</dcsset:conditionalAppearance>"
 }
 
 function Emit-OutputParameters {
@@ -1181,6 +1288,15 @@ function Emit-DataParameters {
 		if ($dp.userSettingID) {
 			$uid = if ("$($dp.userSettingID)" -eq "auto") { New-Guid-String } else { "$($dp.userSettingID)" }
 			X "$indent`t`t<dcsset:userSettingID>$(Esc-Xml $uid)</dcsset:userSettingID>"
+		}
+
+		if ($dp.userSettingPresentation) {
+			X "$indent`t`t<dcsset:userSettingPresentation xsi:type=`"v8:LocalStringType`">"
+			X "$indent`t`t`t<v8:item>"
+			X "$indent`t`t`t`t<v8:lang>ru</v8:lang>"
+			X "$indent`t`t`t`t<v8:content>$(Esc-Xml "$($dp.userSettingPresentation)")</v8:content>"
+			X "$indent`t`t`t</v8:item>"
+			X "$indent`t`t</dcsset:userSettingPresentation>"
 		}
 
 		X "$indent`t</dcscor:item>"
@@ -1432,6 +1548,11 @@ function Emit-SettingsVariants {
 		# Order (Auto items only belong at group level, not top-level settings)
 		if ($s.order) {
 			Emit-Order -items $s.order -indent "`t`t`t" -skipAuto
+		}
+
+		# ConditionalAppearance
+		if ($s.conditionalAppearance) {
+			Emit-ConditionalAppearance -items $s.conditionalAppearance -indent "`t`t`t"
 		}
 
 		# OutputParameters

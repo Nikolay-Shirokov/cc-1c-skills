@@ -94,7 +94,20 @@ powershell.exe -NoProfile -File .claude\skills\skd-compile\scripts\skd-compile.p
 ]
 ```
 
-Формат: `"Поле оператор значение @флаги"`. Значение `_` = пустое (placeholder). Флаги: `@off` (use=false), `@user` (userSettingID=auto), `@quickAccess`.
+Формат: `"Поле оператор значение @флаги"`. Значение `_` = пустое (placeholder). Флаги: `@off` (use=false), `@user` (userSettingID=auto), `@quickAccess`, `@normal`, `@inaccessible`.
+
+В объектной форме доступны: `viewMode`, `userSettingID`, `userSettingPresentation`.
+
+Группы фильтров (Or/And/Not):
+```json
+{ "group": "Or", "items": [
+  { "group": "And", "items": [
+    { "field": "Статус", "op": "=", "value": "Активен" },
+    { "field": "Сумма", "op": ">", "value": 1000 }
+  ]},
+  { "field": "Количество", "op": "filled" }
+]}
+```
 
 ### Параметры данных — shorthand
 
@@ -127,11 +140,45 @@ powershell.exe -NoProfile -File .claude\skills\skd-compile\scripts\skd-compile.p
     "selection": ["Номенклатура", "Количество", "Auto"],
     "filter": ["Организация = _ @off @user"],
     "order": ["Количество desc", "Auto"],
+    "conditionalAppearance": [
+      {
+        "filter": ["Просрочено = true"],
+        "appearance": { "ЦветТекста": "style:ПросроченныеДанныеЦвет" },
+        "presentation": "Выделять просроченные",
+        "viewMode": "Normal",
+        "userSettingID": "auto"
+      }
+    ],
     "outputParameters": { "Заголовок": "Мой отчёт" },
     "dataParameters": ["Период = LastMonth @user"],
     "structure": "Организация > details"
   }
 }]
+```
+
+### Условное оформление (conditionalAppearance)
+
+```json
+"conditionalAppearance": [
+  {
+    "selection": ["Поле1"],
+    "filter": ["Поле1 notFilled"],
+    "appearance": { "Текст": "Не указано", "ЦветТекста": "style:XXX" },
+    "presentation": "Описание",
+    "viewMode": "Normal",
+    "userSettingID": "auto"
+  }
+]
+```
+
+Типы значений appearance: `style:XXX`/`web:XXX`/`win:XXX` → Color, `true`/`false` → Boolean, параметр `Текст` → LocalStringType, прочее → String.
+
+### Итоги с привязкой к группировкам
+
+```json
+"totalFields": [
+  { "dataPath": "Кол", "expression": "Сумма(Кол)", "group": ["Группа1", "Группа1 Иерархия", "ОбщийИтог"] }
+]
 ```
 
 ## Примеры
