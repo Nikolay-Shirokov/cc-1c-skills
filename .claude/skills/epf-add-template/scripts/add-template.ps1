@@ -1,4 +1,6 @@
-﻿param(
+﻿# epf-add-template v1.0 — Add template to 1C processor
+# Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
+param(
 	[Parameter(Mandatory)]
 	[string]$ProcessorName,
 
@@ -6,7 +8,7 @@
 	[string]$TemplateName,
 
 	[Parameter(Mandatory)]
-	[ValidateSet("HTML", "Text", "SpreadsheetDocument", "BinaryData")]
+	[ValidateSet("HTML", "Text", "SpreadsheetDocument", "BinaryData", "DataCompositionSchema")]
 	[string]$TemplateType,
 
 	[string]$Synonym = $TemplateName,
@@ -23,6 +25,7 @@ $typeMap = @{
 	"Text"                = @{ TemplateType = "TextDocument";        Ext = ".txt" }
 	"SpreadsheetDocument" = @{ TemplateType = "SpreadsheetDocument"; Ext = ".xml" }
 	"BinaryData"          = @{ TemplateType = "BinaryData";          Ext = ".bin" }
+	"DataCompositionSchema" = @{ TemplateType = "DataCompositionSchema"; Ext = ".xml" }
 }
 
 $tmpl = $typeMap[$TemplateType]
@@ -110,6 +113,25 @@ switch ($TemplateType) {
 	}
 	"BinaryData" {
 		[System.IO.File]::WriteAllBytes($templateFilePath, @())
+	}
+	"DataCompositionSchema" {
+		$content = @"
+<?xml version="1.0" encoding="UTF-8"?>
+<DataCompositionSchema xmlns="http://v8.1c.ru/8.1/data-composition-system/schema"
+		xmlns:dcscom="http://v8.1c.ru/8.1/data-composition-system/common"
+		xmlns:dcscor="http://v8.1c.ru/8.1/data-composition-system/core"
+		xmlns:dcsset="http://v8.1c.ru/8.1/data-composition-system/settings"
+		xmlns:v8="http://v8.1c.ru/8.1/data/core"
+		xmlns:v8ui="http://v8.1c.ru/8.1/data/ui"
+		xmlns:xs="http://www.w3.org/2001/XMLSchema"
+		xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+	<dataSource>
+		<name>ИсточникДанных1</name>
+		<dataSourceType>Local</dataSourceType>
+	</dataSource>
+</DataCompositionSchema>
+"@
+		[System.IO.File]::WriteAllText($templateFilePath, $content, $encBom)
 	}
 }
 

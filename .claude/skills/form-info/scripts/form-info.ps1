@@ -1,4 +1,6 @@
-﻿param(
+﻿# form-info v1.0 — Analyze 1C managed form structure
+# Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
+param(
 	[Parameter(Mandatory=$true)]
 	[string]$FormPath,
 	[int]$Limit = 150,

@@ -1,4 +1,6 @@
-﻿param(
+﻿# form-edit v1.0 — Edit 1C managed form elements
+# Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
+param(
 	[Parameter(Mandatory)]
 	[string]$FormPath,
 

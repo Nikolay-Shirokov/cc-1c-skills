@@ -1,4 +1,6 @@
-﻿param(
+﻿# epf-add-help v1.0 — Add built-in help to 1C processor
+# Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
+param(
 	[Parameter(Mandatory)]
 	[string]$ProcessorName,
 

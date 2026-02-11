@@ -1,4 +1,6 @@
-﻿param(
+﻿# epf-remove-template v1.0 — Remove template from 1C processor
+# Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
+param(
 	[Parameter(Mandatory)]
 	[string]$ProcessorName,
 

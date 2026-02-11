@@ -1,4 +1,6 @@
-﻿param(
+﻿# epf-add-form v1.0 — Add managed form to 1C processor
+# Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
+param(
 	[Parameter(Mandatory)]
 	[string]$ProcessorName,
 

@@ -1,4 +1,6 @@
-﻿param(
+﻿# form-add v1.0 — Add managed form to 1C config object
+# Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
+param(
 	[Parameter(Mandatory)]
 	[string]$ObjectPath,
 

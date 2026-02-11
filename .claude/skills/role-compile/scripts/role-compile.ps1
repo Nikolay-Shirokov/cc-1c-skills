@@ -1,4 +1,6 @@
-﻿param(
+﻿# role-compile v1.0 — Compile 1C role from JSON
+# Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
+param(
 	[Parameter(Mandatory)]
 	[string]$JsonPath,
 

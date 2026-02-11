@@ -1,4 +1,6 @@
-﻿param(
+﻿# mxl-validate v1.0 — Validate 1C spreadsheet
+# Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
+param(
 	[string]$TemplatePath,
 	[string]$ProcessorName,
 	[string]$TemplateName,

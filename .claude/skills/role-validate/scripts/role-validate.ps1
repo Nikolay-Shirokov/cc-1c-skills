@@ -1,4 +1,6 @@
-﻿param(
+﻿# role-validate v1.0 — Validate 1C role structure
+# Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
+param(
 	[Parameter(Mandatory)]
 	[string]$RightsPath,
 

@@ -299,7 +299,8 @@ DataCompositionSchema
 | `dcscom:accountTypeExpression` | Выражение для определения типа счёта |
 | `dcscom:balance` | Поле является остатком |
 | `dcscom:balanceGroup` | Группа остатка |
-| `dcscom:period` | Поле — период |
+| `dcscom:periodNumber` | Номер периода (обычно `1`) |
+| `dcscom:periodType` | Тип периода (`Main`, `Additional`) |
 
 ### 4.7. Тип значения (valueType)
 
@@ -313,7 +314,15 @@ DataCompositionSchema
 </valueType>
 ```
 
-Типы: `xs:string`, `xs:dateTime`, `xs:decimal`, `xs:boolean`, ссылочные (`d4p1:CatalogRef.Номенклатура`).
+Типы: `xs:string`, `xs:dateTime`, `xs:decimal`, `xs:boolean`, ссылочные типы конфигурации.
+
+Ссылочные типы объявляются с inline namespace на элементе `<v8:Type>`:
+
+```xml
+<v8:Type xmlns:d5p1="http://v8.1c.ru/8.1/data/enterprise/current-config">d5p1:CatalogRef.Номенклатура</v8:Type>
+```
+
+Префикс (`d5p1`, `d4p1` и т.д.) — автогенерируемый, суть в URI `http://v8.1c.ru/8.1/data/enterprise/current-config`. Поддерживаются: `CatalogRef`, `DocumentRef`, `EnumRef`, `ChartOfAccountsRef`, `ChartOfCharacteristicTypesRef` и др.
 
 Квалификаторы:
 - `v8:StringQualifiers` → `v8:Length`, `v8:AllowedLength` (Fixed/Variable)
@@ -446,7 +455,28 @@ DataCompositionSchema
 |---|---|---|
 | `dataPath` | да | Путь к полю |
 | `expression` | да | Агрегатная функция: `Сумма(...)`, `Количество(...)`, `Максимум(...)`, `Минимум(...)`, `Среднее(...)` |
-| `group` | нет | Для какой группировки считать итоги |
+| `group` | нет | Имя группировки, для которой считать итоги. Без `group` — для всех группировок |
+
+### Разные формулы для разных группировок
+
+Одно поле может иметь несколько записей `totalField` с разными формулами для разных группировок:
+
+```xml
+<!-- Для группировки "ОбъектМетаданных" — агрегация самого поля -->
+<totalField>
+  <dataPath>ПравоИнтерактивное</dataPath>
+  <expression>Максимум(ПравоИнтерактивное)</expression>
+  <group>ОбъектМетаданных</group>
+</totalField>
+<!-- Для группировки "Отчет" — агрегация другого поля -->
+<totalField>
+  <dataPath>ПравоИнтерактивное</dataPath>
+  <expression>Максимум(ПравоОтчета)</expression>
+  <group>Отчет</group>
+</totalField>
+```
+
+Это позволяет вычислять ресурс по-разному в зависимости от контекста группировки.
 
 ---
 
@@ -494,7 +524,7 @@ DataCompositionSchema
 | Дата | `xs:dateTime` | `0001-01-01T00:00:00` |
 | Строка | `xs:string` | `Т13` |
 | Стандартный период | `v8:StandardPeriod` | `<v8:variant>LastMonth</v8:variant>` |
-| Ссылка | `d4p1:CatalogRef.ИмяСправочника` | `xsi:nil="true"` |
+| Ссылка | `d5p1:CatalogRef.ИмяСправочника` (с `xmlns:d5p1="http://v8.1c.ru/8.1/data/enterprise/current-config"`) | `xsi:nil="true"` |
 | null | — | `xsi:nil="true"` |
 
 Стандартные варианты периодов (`v8:StandardPeriodVariant`): `Custom`, `Today`, `ThisWeek`, `ThisMonth`, `ThisQuarter`, `ThisYear`, `LastMonth`, `LastQuarter`, `LastYear` и др.

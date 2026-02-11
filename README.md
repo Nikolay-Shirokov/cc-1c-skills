@@ -1,5 +1,7 @@
 # 1C Skills for Claude Code
 
+> **Work in progress** — проект в стадии активной разработки. Набор навыков и операций расширяется.
+
 Набор [Claude Code Skills](https://docs.anthropic.com/en/docs/claude-code/skills) для работы с артефактами 1С:Предприятия 8.3. Позволяет создавать и модифицировать обработки, макеты печатных форм и другие объекты из XML-исходников, не запоминая детали формата.
 
 ## Быстрый старт
@@ -23,6 +25,7 @@
 | Табличный документ (MXL) | 4 навыка `/mxl-*` | Анализ, создание, компиляция макетов печатных форм | [Подробнее](docs/mxl-guide.md) |
 | Управляемые формы (Form) | 6 навыков `/form-*` | Создание, анализ, генерация, модификация, валидация управляемых форм | [Подробнее](docs/form-guide.md) |
 | Роли (Role) | 3 навыка `/role-*` | Анализ прав роли, создание из JSON DSL, валидация | [Подробнее](docs/role-guide.md) |
+| Схема компоновки (СКД) | 4 навыка `/skd-*` | Анализ, генерация из JSON DSL, точечное редактирование, валидация схем компоновки данных | [Подробнее](docs/skd-guide.md) |
 | Утилиты | `/img-grid` | Наложение сетки на изображение для определения пропорций колонок | — |
 
 ## Требования
@@ -41,6 +44,8 @@
 - [Form DSL](docs/form-dsl-spec.md) — JSON-формат описания формы для `/form-compile`
 - [Роли (Rights.xml)](docs/1c-role-spec.md) — XML-формат прав роли, типы объектов, RLS
 - [Role DSL](docs/role-dsl-spec.md) — JSON-формат описания ролей для `/role-compile`
+- [Схема компоновки данных (DCS)](docs/1c-dcs-spec.md) — XML-формат DataCompositionSchema, 930 схем проанализировано
+- [SKD DSL](docs/skd-dsl-spec.md) — JSON-формат описания СКД для `/skd-compile`
 
 ## Структура репозитория
 
@@ -69,12 +74,17 @@
 ├── role-info/           # Анализ прав роли
 ├── role-compile/        # Создание роли из JSON DSL
 ├── role-validate/       # Валидация роли
+├── skd-info/            # Анализ схемы компоновки данных
+├── skd-compile/         # Компиляция СКД из JSON DSL
+├── skd-edit/            # Точечное редактирование СКД (25 операций)
+├── skd-validate/        # Валидация СКД
 └── img-grid/            # Сетка для анализа изображений
 docs/
 ├── epf-guide.md            # Гайд: внешние обработки
 ├── mxl-guide.md            # Гайд: табличный документ
 ├── form-guide.md           # Гайд: управляемые формы
 ├── role-guide.md           # Гайд: роли
+├── skd-guide.md            # Гайд: схема компоновки данных
 ├── 1c-xml-format-spec.md   # Спецификация XML-формата
 ├── 1c-form-spec.md         # Спецификация управляемых форм
 ├── 1c-help-spec.md         # Спецификация встроенной справки
@@ -82,5 +92,8 @@ docs/
 ├── 1c-spreadsheet-spec.md  # Спецификация табличного документа
 ├── mxl-dsl-spec.md         # Спецификация MXL DSL
 ├── form-dsl-spec.md        # Спецификация Form DSL
-└── 1c-role-spec.md         # Спецификация ролей (Rights.xml)
+├── 1c-role-spec.md         # Спецификация ролей (Rights.xml)
+├── 1c-dcs-spec.md          # Спецификация СКД (DataCompositionSchema)
+├── skd-dsl-spec.md         # Спецификация SKD DSL
+└── role-dsl-spec.md        # Спецификация Role DSL
 ```

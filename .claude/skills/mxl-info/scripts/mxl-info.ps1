@@ -1,4 +1,6 @@
-﻿param(
+﻿# mxl-info v1.0 — Analyze 1C spreadsheet structure
+# Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
+param(
 	[string]$TemplatePath,
 	[string]$ProcessorName,
 	[string]$TemplateName,
