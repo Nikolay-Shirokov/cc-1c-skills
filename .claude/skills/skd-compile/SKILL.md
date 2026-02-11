@@ -60,7 +60,7 @@ powershell.exe -NoProfile -File .claude\skills\skd-compile\scripts\skd-compile.p
 "Служебное: string #noFilter #noOrder"       — + ограничения
 ```
 
-Типы: `string`, `string(N)`, `decimal(D,F)`, `boolean`, `date`, `dateTime`, `CatalogRef.X`, `DocumentRef.X`, `EnumRef.X`, `StandardPeriod`.
+Типы: `string`, `string(N)`, `decimal(D,F)`, `boolean`, `date`, `dateTime`, `CatalogRef.X`, `DocumentRef.X`, `EnumRef.X`, `StandardPeriod`. Ссылочные типы (`CatalogRef`, `DocumentRef`, `EnumRef`) задают роли полей, но не эмитируются в `<valueType>` — платформа определяет их из запроса.
 
 **Синонимы типов** (русские и альтернативные): `число` = decimal, `строка` = string, `булево` = boolean, `дата` = date, `датаВремя` = dateTime, `СтандартныйПериод` = StandardPeriod, `СправочникСсылка.X` = CatalogRef.X, `ДокументСсылка.X` = DocumentRef.X, `int`/`number` = decimal, `bool` = boolean. Регистронезависимые.
 

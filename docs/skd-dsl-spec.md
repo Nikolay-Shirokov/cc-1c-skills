@@ -147,11 +147,13 @@
 | `boolean` | `xs:boolean` | — |
 | `date` | `xs:dateTime` | DateFractions=Date |
 | `dateTime` | `xs:dateTime` | DateFractions=DateTime |
-| `CatalogRef.XXX` | `cfg:CatalogRef.XXX` | — |
-| `DocumentRef.XXX` | `cfg:DocumentRef.XXX` | — |
-| `EnumRef.XXX` | `cfg:EnumRef.XXX` | — |
-| `ChartOfAccountsRef.XXX` | `cfg:ChartOfAccountsRef.XXX` | — |
+| `CatalogRef.XXX` | *(не эмитируется)* | Роль поля сохраняется, `<valueType>` опускается |
+| `DocumentRef.XXX` | *(не эмитируется)* | Платформа определяет тип из запроса |
+| `EnumRef.XXX` | *(не эмитируется)* | |
+| `ChartOfAccountsRef.XXX` | *(не эмитируется)* | |
 | `StandardPeriod` | `v8:StandardPeriod` | — |
+
+> **Ссылочные типы** (`CatalogRef.XXX`, `DocumentRef.XXX` и др.) указываются в JSON для задания ролей полей (`@dimension`, `@account` и т.д.), но **не эмитируются** в `<valueType>`. Реальные DCS-файлы 1С не содержат `cfg:` ссылок в valueType — платформа определяет типы полей автоматически из метаданных запроса. Включение `cfg:` типов приводит к ошибке XDTO при загрузке.
 
 ### Синонимы типов
 
