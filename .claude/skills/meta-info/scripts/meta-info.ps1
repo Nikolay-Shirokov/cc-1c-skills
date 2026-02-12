@@ -87,6 +87,9 @@ $typeNameMap = @{
 	"ChartOfCalculationTypes"="План видов расчёта"; "BusinessProcess"="Бизнес-процесс"
 	"Task"="Задача"; "ExchangePlan"="План обмена"; "DocumentJournal"="Журнал документов"
 	"Report"="Отчёт"; "DataProcessor"="Обработка"
+	"DefinedType"="Определяемый тип"; "CommonModule"="Общий модуль"
+	"ScheduledJob"="Регламентное задание"; "EventSubscription"="Подписка на событие"
+	"HTTPService"="HTTP-сервис"; "WebService"="Веб-сервис"
 }
 
 $refTypeMap = @{
@@ -109,6 +112,29 @@ $periodMap = @{
 
 $writeModeMap = @{
 	"Independent"="независимая"; "RecorderSubordinate"="подчинение регистратору"
+}
+
+$reuseMap = @{
+	"DontUse"="нет"; "DuringRequest"="на время вызова"; "DuringSession"="на время сеанса"
+}
+
+$eventMap = @{
+	"BeforeWrite"="ПередЗаписью"; "OnWrite"="ПриЗаписи"; "AfterWrite"="ПослеЗаписи"
+	"BeforeDelete"="ПередУдалением"; "Posting"="ОбработкаПроведения"
+	"UndoPosting"="ОбработкаУдаленияПроведения"
+	"OnReadAtServer"="ПриЧтенииНаСервере"
+	"FillCheckProcessing"="ОбработкаПроверкиЗаполнения"
+}
+
+$objectTypeMap = @{
+	"CatalogObject"="СправочникОбъект"; "DocumentObject"="ДокументОбъект"
+	"ChartOfAccountsObject"="ПланСчетовОбъект"
+	"ChartOfCharacteristicTypesObject"="ПВХОбъект"
+	"BusinessProcessObject"="БизнесПроцессОбъект"; "TaskObject"="ЗадачаОбъект"
+	"ExchangePlanObject"="ПланОбменаОбъект"
+	"InformationRegisterRecordSet"="НаборЗаписейРС"
+	"AccumulationRegisterRecordSet"="НаборЗаписейРН"
+	"AccountingRegisterRecordSet"="НаборЗаписейРБ"
 }
 
 $numberPeriodMap = @{
@@ -316,6 +342,63 @@ function Decline-Cols([int]$n) {
 	return "колонок"
 }
 
+function Format-SourceType([string]$raw) {
+	if ($raw -match '^cfg:(\w+)\.(.+)$') {
+		$prefix = $Matches[1]; $name = $Matches[2]
+		if ($objectTypeMap.ContainsKey($prefix)) { return "$($objectTypeMap[$prefix]).$name" }
+	}
+	if ($raw -match '^cfg:(.+)$') { return $Matches[1] }
+	return $raw
+}
+
+function Get-HTTPEndpoints($childObjs) {
+	$result = @()
+	foreach ($tpl in $childObjs.SelectNodes("md:URLTemplate", $ns)) {
+		$tp = $tpl.SelectSingleNode("md:Properties", $ns)
+		$tplName = $tp.SelectSingleNode("md:Name", $ns).InnerText
+		$template = $tp.SelectSingleNode("md:Template", $ns).InnerText
+		$methods = @()
+		$tplCO = $tpl.SelectSingleNode("md:ChildObjects", $ns)
+		if ($tplCO) {
+			foreach ($m in $tplCO.SelectNodes("md:Method", $ns)) {
+				$mp = $m.SelectSingleNode("md:Properties", $ns)
+				$httpMethod = $mp.SelectSingleNode("md:HTTPMethod", $ns).InnerText
+				$handler = $mp.SelectSingleNode("md:Handler", $ns).InnerText
+				$methods += @{ HTTPMethod=$httpMethod; Handler=$handler; Name=$mp.SelectSingleNode("md:Name",$ns).InnerText }
+			}
+		}
+		$result += @{ Name=$tplName; Template=$template; Methods=$methods }
+	}
+	return $result
+}
+
+function Get-WSOperations($childObjs) {
+	$result = @()
+	foreach ($op in $childObjs.SelectNodes("md:Operation", $ns)) {
+		$oprops = $op.SelectSingleNode("md:Properties", $ns)
+		$opName = $oprops.SelectSingleNode("md:Name", $ns).InnerText
+		$retType = $oprops.SelectSingleNode("md:XDTOReturningValueType", $ns)
+		$retStr = if ($retType -and $retType.InnerText) { $retType.InnerText } else { "void" }
+		$procName = $oprops.SelectSingleNode("md:ProcedureName", $ns)
+		$params = @()
+		$opCO = $op.SelectSingleNode("md:ChildObjects", $ns)
+		if ($opCO) {
+			foreach ($p in $opCO.SelectNodes("md:Parameter", $ns)) {
+				$pp = $p.SelectSingleNode("md:Properties", $ns)
+				$pName = $pp.SelectSingleNode("md:Name", $ns).InnerText
+				$pType = $pp.SelectSingleNode("md:XDTOValueType", $ns)
+				$pTypeStr = if ($pType) { $pType.InnerText } else { "?" }
+				$dir = $pp.SelectSingleNode("md:TransferDirection", $ns)
+				$dirStr = if ($dir -and $dir.InnerText -ne "In") { " [$($dir.InnerText.ToLower())]" } else { "" }
+				$params += "${pName}: ${pTypeStr}${dirStr}"
+			}
+		}
+		$paramStr = $params -join ", "
+		$result += @{ Name=$opName; Params=$paramStr; ReturnType=$retStr; ProcName=$(if ($procName) { $procName.InnerText } else { "" }) }
+	}
+	return $result
+}
+
 # --- Extract metadata ---
 $props = $typeNode.SelectSingleNode("md:Properties", $ns)
 $childObjs = $typeNode.SelectSingleNode("md:ChildObjects", $ns)
@@ -425,6 +508,60 @@ if ($Name -and $childObjs) {
 		}
 	}
 
+	# Search in HTTPService URLTemplates
+	if (-not $drillDone -and $mdType -eq "HTTPService" -and $childObjs) {
+		foreach ($tpl in $childObjs.SelectNodes("md:URLTemplate", $ns)) {
+			$tp = $tpl.SelectSingleNode("md:Properties", $ns)
+			if ($tp.SelectSingleNode("md:Name", $ns).InnerText -eq $Name) {
+				$template = $tp.SelectSingleNode("md:Template", $ns).InnerText
+				Out "Шаблон URL: $Name"
+				Out "  Путь: $template"
+				$tplCO = $tpl.SelectSingleNode("md:ChildObjects", $ns)
+				if ($tplCO) {
+					foreach ($m in $tplCO.SelectNodes("md:Method", $ns)) {
+						$mp = $m.SelectSingleNode("md:Properties", $ns)
+						$httpMethod = $mp.SelectSingleNode("md:HTTPMethod", $ns).InnerText
+						$handler = $mp.SelectSingleNode("md:Handler", $ns).InnerText
+						Out "  $httpMethod → $handler"
+					}
+				}
+				$drillDone = $true; break
+			}
+		}
+	}
+
+	# Search in WebService Operations
+	if (-not $drillDone -and $mdType -eq "WebService" -and $childObjs) {
+		foreach ($op in $childObjs.SelectNodes("md:Operation", $ns)) {
+			$oprops = $op.SelectSingleNode("md:Properties", $ns)
+			if ($oprops.SelectSingleNode("md:Name", $ns).InnerText -eq $Name) {
+				Out "Операция: $Name"
+				$retType = $oprops.SelectSingleNode("md:XDTOReturningValueType", $ns)
+				Out "  Возвращает: $(if ($retType -and $retType.InnerText) { $retType.InnerText } else { 'void' })"
+				$procName = $oprops.SelectSingleNode("md:ProcedureName", $ns)
+				if ($procName -and $procName.InnerText) { Out "  Процедура: $($procName.InnerText)" }
+				$comment = $oprops.SelectSingleNode("md:Comment", $ns)
+				if ($comment -and $comment.InnerText) { Out "  Комментарий: $($comment.InnerText)" }
+				$opCO = $op.SelectSingleNode("md:ChildObjects", $ns)
+				if ($opCO) {
+					$params = $opCO.SelectNodes("md:Parameter", $ns)
+					if ($params.Count -gt 0) {
+						Out "  Параметры:"
+						foreach ($p in $params) {
+							$pp = $p.SelectSingleNode("md:Properties", $ns)
+							$pName = $pp.SelectSingleNode("md:Name", $ns).InnerText
+							$pType = $pp.SelectSingleNode("md:XDTOValueType", $ns)
+							$dir = $pp.SelectSingleNode("md:TransferDirection", $ns)
+							$dirStr = if ($dir -and $dir.InnerText -ne "In") { " [$($dir.InnerText.ToLower())]" } else { "" }
+							Out "    ${pName}: $(if ($pType) { $pType.InnerText } else { '?' })${dirStr}"
+						}
+					}
+				}
+				$drillDone = $true; break
+			}
+		}
+	}
+
 	if (-not $drillDone) {
 		Write-Host "[ERROR] '$Name' not found in $objName"
 		exit 1
@@ -485,6 +622,104 @@ if (-not $drillDone) {
 			}
 			if ($vals.Count -gt 0) {
 				Out "Значения ($($vals.Count)): $($vals -join ', ')"
+			}
+		}
+
+		# DefinedType brief
+		if ($mdType -eq "DefinedType") {
+			$typeNode2 = $props.SelectSingleNode("md:Type", $ns)
+			if ($typeNode2) {
+				$types = @()
+				foreach ($t in $typeNode2.SelectNodes("v8:Type", $ns)) {
+					$types += Format-SingleType $t.InnerText $typeNode2
+				}
+				if ($types.Count -gt 0) {
+					Out "Типы ($($types.Count)): $($types -join ', ')"
+				}
+			}
+		}
+
+		# CommonModule brief (same as overview — already compact)
+		if ($mdType -eq "CommonModule") {
+			$flags = @()
+			if ($props.SelectSingleNode("md:Global", $ns).InnerText -eq "true") { $flags += "Глобальный" }
+			if ($props.SelectSingleNode("md:Server", $ns).InnerText -eq "true") { $flags += "Сервер" }
+			if ($props.SelectSingleNode("md:ServerCall", $ns).InnerText -eq "true") { $flags += "Вызов сервера" }
+			if ($props.SelectSingleNode("md:ClientManagedApplication", $ns).InnerText -eq "true") { $flags += "Клиент управляемое" }
+			if ($props.SelectSingleNode("md:ClientOrdinaryApplication", $ns).InnerText -eq "true") { $flags += "Обычный клиент" }
+			if ($props.SelectSingleNode("md:ExternalConnection", $ns).InnerText -eq "true") { $flags += "Внешнее соединение" }
+			if ($props.SelectSingleNode("md:Privileged", $ns).InnerText -eq "true") { $flags += "Привилегированный" }
+			$reuse = $props.SelectSingleNode("md:ReturnValuesReuse", $ns)
+			if ($reuse -and $reuse.InnerText -ne "DontUse") {
+				$reuseRu = if ($reuseMap.ContainsKey($reuse.InnerText)) { $reuseMap[$reuse.InnerText] } else { $reuse.InnerText }
+				$flags += "Повторное использование: $reuseRu"
+			}
+			if ($flags.Count -gt 0) { Out ($flags -join " | ") }
+		}
+
+		# ScheduledJob brief (same as overview — already compact)
+		if ($mdType -eq "ScheduledJob") {
+			$method = $props.SelectSingleNode("md:MethodName", $ns)
+			if ($method -and $method.InnerText) {
+				$mName = $method.InnerText
+				if ($mName -match '^CommonModule\.(.+)$') { $mName = $Matches[1] }
+				Out "Метод: $mName"
+			}
+			$sjParts = @()
+			$use = $props.SelectSingleNode("md:Use", $ns)
+			$sjParts += "Использование: $(if ($use -and $use.InnerText -eq 'true') { 'да' } else { 'нет' })"
+			$predef = $props.SelectSingleNode("md:Predefined", $ns)
+			$sjParts += "Предопределённое: $(if ($predef -and $predef.InnerText -eq 'true') { 'да' } else { 'нет' })"
+			$restartCnt = $props.SelectSingleNode("md:RestartCountOnFailure", $ns)
+			$restartInt = $props.SelectSingleNode("md:RestartIntervalOnFailure", $ns)
+			if ($restartCnt -and [int]$restartCnt.InnerText -gt 0) {
+				$sjParts += "Перезапуск: $($restartCnt.InnerText) (через $($restartInt.InnerText) сек)"
+			}
+			Out ($sjParts -join " | ")
+		}
+
+		# EventSubscription brief
+		if ($mdType -eq "EventSubscription") {
+			$esParts = @()
+			$event = $props.SelectSingleNode("md:Event", $ns)
+			if ($event -and $event.InnerText) {
+				$evRu = if ($eventMap.ContainsKey($event.InnerText)) { $eventMap[$event.InnerText] } else { $event.InnerText }
+				$esParts += "Событие: $evRu"
+			}
+			$handler = $props.SelectSingleNode("md:Handler", $ns)
+			if ($handler -and $handler.InnerText) {
+				$hName = $handler.InnerText
+				if ($hName -match '^CommonModule\.(.+)$') { $hName = $Matches[1] }
+				$esParts += "Обработчик: $hName"
+			}
+			$source = $props.SelectSingleNode("md:Source", $ns)
+			if ($source) {
+				$srcCount = $source.SelectNodes("v8:Type", $ns).Count
+				if ($srcCount -gt 0) { $esParts += "Источники: $srcCount" }
+			}
+			if ($esParts.Count -gt 0) { Out ($esParts -join " | ") }
+		}
+
+		# HTTPService brief
+		if ($mdType -eq "HTTPService") {
+			$rootURL = $props.SelectSingleNode("md:RootURL", $ns)
+			if ($rootURL -and $rootURL.InnerText) { Out "Корневой URL: /$($rootURL.InnerText)" }
+			if ($childObjs) {
+				$endpoints = @(Get-HTTPEndpoints $childObjs)
+				if ($endpoints.Count -gt 0) {
+					$totalMethods = ($endpoints | ForEach-Object { $_.Methods.Count } | Measure-Object -Sum).Sum
+					Out "Шаблоны: $($endpoints.Count) | Методы: $totalMethods"
+				}
+			}
+		}
+
+		# WebService brief
+		if ($mdType -eq "WebService") {
+			$nsUrl = $props.SelectSingleNode("md:Namespace", $ns)
+			if ($nsUrl -and $nsUrl.InnerText) { Out "Пространство имён: $($nsUrl.InnerText)" }
+			if ($childObjs) {
+				$ops = @(Get-WSOperations $childObjs)
+				if ($ops.Count -gt 0) { Out "Операции: $($ops.Count)" }
 			}
 		}
 	} else {
@@ -573,6 +808,125 @@ if (-not $drillDone) {
 				$dcsName = $mainDCS.InnerText
 				if ($dcsName -match '\.Template\.(.+)$') { $dcsName = $Matches[1] }
 				Out "Основная СКД: $dcsName"
+			}
+		}
+
+		# DefinedType: show types
+		if ($mdType -eq "DefinedType") {
+			$typeNode2 = $props.SelectSingleNode("md:Type", $ns)
+			if ($typeNode2) {
+				$types = @()
+				foreach ($t in $typeNode2.SelectNodes("v8:Type", $ns)) {
+					$types += Format-SingleType $t.InnerText $typeNode2
+				}
+				if ($types.Count -gt 0) {
+					Out "Типы ($($types.Count)):"
+					foreach ($t in $types) { Out "  $t" }
+				}
+			}
+		}
+
+		# CommonModule: show flags
+		if ($mdType -eq "CommonModule") {
+			$flags = @()
+			if ($props.SelectSingleNode("md:Global", $ns).InnerText -eq "true") { $flags += "Глобальный" }
+			if ($props.SelectSingleNode("md:Server", $ns).InnerText -eq "true") { $flags += "Сервер" }
+			if ($props.SelectSingleNode("md:ServerCall", $ns).InnerText -eq "true") { $flags += "Вызов сервера" }
+			if ($props.SelectSingleNode("md:ClientManagedApplication", $ns).InnerText -eq "true") { $flags += "Клиент управляемое" }
+			if ($props.SelectSingleNode("md:ClientOrdinaryApplication", $ns).InnerText -eq "true") { $flags += "Обычный клиент" }
+			if ($props.SelectSingleNode("md:ExternalConnection", $ns).InnerText -eq "true") { $flags += "Внешнее соединение" }
+			if ($props.SelectSingleNode("md:Privileged", $ns).InnerText -eq "true") { $flags += "Привилегированный" }
+			$reuse = $props.SelectSingleNode("md:ReturnValuesReuse", $ns)
+			if ($reuse -and $reuse.InnerText -ne "DontUse") {
+				$reuseRu = if ($reuseMap.ContainsKey($reuse.InnerText)) { $reuseMap[$reuse.InnerText] } else { $reuse.InnerText }
+				$flags += "Повторное использование: $reuseRu"
+			}
+			if ($flags.Count -gt 0) { Out ($flags -join " | ") }
+		}
+
+		# ScheduledJob: show method and flags
+		if ($mdType -eq "ScheduledJob") {
+			$method = $props.SelectSingleNode("md:MethodName", $ns)
+			if ($method -and $method.InnerText) {
+				$mName = $method.InnerText
+				if ($mName -match '^CommonModule\.(.+)$') { $mName = $Matches[1] }
+				Out "Метод: $mName"
+			}
+			$sjParts = @()
+			$use = $props.SelectSingleNode("md:Use", $ns)
+			$sjParts += "Использование: $(if ($use -and $use.InnerText -eq 'true') { 'да' } else { 'нет' })"
+			$predef = $props.SelectSingleNode("md:Predefined", $ns)
+			$sjParts += "Предопределённое: $(if ($predef -and $predef.InnerText -eq 'true') { 'да' } else { 'нет' })"
+			$restartCnt = $props.SelectSingleNode("md:RestartCountOnFailure", $ns)
+			$restartInt = $props.SelectSingleNode("md:RestartIntervalOnFailure", $ns)
+			if ($restartCnt -and [int]$restartCnt.InnerText -gt 0) {
+				$sjParts += "Перезапуск: $($restartCnt.InnerText) (через $($restartInt.InnerText) сек)"
+			}
+			Out ($sjParts -join " | ")
+		}
+
+		# EventSubscription: show event, handler, sources
+		if ($mdType -eq "EventSubscription") {
+			$event = $props.SelectSingleNode("md:Event", $ns)
+			if ($event -and $event.InnerText) {
+				$evRu = if ($eventMap.ContainsKey($event.InnerText)) { $eventMap[$event.InnerText] } else { $event.InnerText }
+				Out "Событие: $evRu"
+			}
+			$handler = $props.SelectSingleNode("md:Handler", $ns)
+			if ($handler -and $handler.InnerText) {
+				$hName = $handler.InnerText
+				if ($hName -match '^CommonModule\.(.+)$') { $hName = $Matches[1] }
+				Out "Обработчик: $hName"
+			}
+			$source = $props.SelectSingleNode("md:Source", $ns)
+			if ($source) {
+				$srcTypes = @()
+				foreach ($t in $source.SelectNodes("v8:Type", $ns)) {
+					$srcTypes += Format-SourceType $t.InnerText
+				}
+				if ($srcTypes.Count -gt 0) {
+					if ($Mode -eq "full") {
+						Out "Источники ($($srcTypes.Count)):"
+						foreach ($s in $srcTypes) { Out "  $s" }
+					} else {
+						Out "Источники ($($srcTypes.Count))"
+					}
+				}
+			}
+		}
+
+		# HTTPService: show root URL and endpoints
+		if ($mdType -eq "HTTPService") {
+			$rootURL = $props.SelectSingleNode("md:RootURL", $ns)
+			if ($rootURL -and $rootURL.InnerText) { Out "Корневой URL: /$($rootURL.InnerText)" }
+			if ($childObjs) {
+				$endpoints = @(Get-HTTPEndpoints $childObjs)
+				if ($endpoints.Count -gt 0) {
+					Out ""
+					Out "Шаблоны URL ($($endpoints.Count)):"
+					foreach ($ep in $endpoints) {
+						Out "  $($ep.Template)"
+						foreach ($m in $ep.Methods) {
+							Out "    $($m.HTTPMethod.PadRight(6)) → $($m.Handler)"
+						}
+					}
+				}
+			}
+		}
+
+		# WebService: show namespace and operations
+		if ($mdType -eq "WebService") {
+			$nsUrl = $props.SelectSingleNode("md:Namespace", $ns)
+			if ($nsUrl -and $nsUrl.InnerText) { Out "Пространство имён: $($nsUrl.InnerText)" }
+			if ($childObjs) {
+				$ops = @(Get-WSOperations $childObjs)
+				if ($ops.Count -gt 0) {
+					Out ""
+					Out "Операции ($($ops.Count)):"
+					foreach ($op in $ops) {
+						Out "  $($op.Name)($($op.Params)) → $($op.ReturnType)"
+					}
+				}
 			}
 		}
 

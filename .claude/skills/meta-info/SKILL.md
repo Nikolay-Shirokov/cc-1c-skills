@@ -38,7 +38,7 @@ powershell.exe -NoProfile -File .claude\skills\meta-info\scripts\meta-info.ps1 -
 
 ## Поддерживаемые типы объектов
 
-Справочник, Документ, Перечисление, Регистр сведений, Регистр накопления, Регистр бухгалтерии, План счетов, План видов характеристик, Бизнес-процесс, Задача, План обмена, Отчёт, Обработка, Константа, Журнал документов.
+Справочник, Документ, Перечисление, Регистр сведений, Регистр накопления, Регистр бухгалтерии, План счетов, План видов характеристик, Бизнес-процесс, Задача, План обмена, Отчёт, Обработка, Константа, Журнал документов, Определяемый тип, Общий модуль, Регламентное задание, Подписка на событие, HTTP-сервис, Веб-сервис.
 
 ## Примеры
 
@@ -57,6 +57,21 @@ powershell.exe -NoProfile -File .claude\skills\meta-info\scripts\meta-info.ps1 -
 
 # Drill-down в реквизит
 ... -ObjectPath upload\acc\Catalogs\Валюты.xml -Name ОсновнаяВалюта
+
+# Определяемый тип
+... -ObjectPath upload\acc\DefinedTypes\GLN.xml
+
+# Общий модуль
+... -ObjectPath upload\acc\CommonModules\GoogleПереводчик.xml
+
+# Регламентное задание
+... -ObjectPath upload\acc\ScheduledJobs\АвтоматическоеЗакрытиеМесяца.xml
+
+# HTTP-сервис
+... -ObjectPath upload\acc\HTTPServices\ExternalAPI.xml
+
+# Веб-сервис — drill-down в операцию
+... -ObjectPath upload\acc\WebServices\EnterpriseDataUpload_1_0_1_1.xml -Name TestConnection
 ```
 
 ## Верификация
