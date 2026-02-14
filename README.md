@@ -38,7 +38,7 @@
 
 ## Спецификации
 
-- [XML-формат выгрузки обработок](docs/1c-xml-format-spec.md) — структура XML-файлов, namespace, элементы форм
+- [XML-формат выгрузки обработок](docs/1c-epf-spec.md) — структура XML-файлов, namespace, элементы форм
 - [XML-формат внешних отчётов](docs/1c-erf-spec.md) — отличия ERF от EPF, Properties, MainDataCompositionSchema
 - [Управляемая форма](docs/1c-form-spec.md) — Form.xml, элементы, команды, реквизиты
 - [Встроенная справка](docs/1c-help-spec.md) — Help.xml, HTML-страницы, кнопка справки на форме
@@ -97,7 +97,7 @@ docs/
 ├── form-guide.md           # Гайд: управляемые формы
 ├── role-guide.md           # Гайд: роли
 ├── skd-guide.md            # Гайд: схема компоновки данных
-├── 1c-xml-format-spec.md   # Спецификация XML-формата (EPF)
+├── 1c-epf-spec.md          # Спецификация XML-формата (EPF)
 ├── 1c-erf-spec.md          # Спецификация XML-формата (ERF)
 ├── 1c-form-spec.md         # Спецификация управляемых форм
 ├── 1c-help-spec.md         # Спецификация встроенной справки

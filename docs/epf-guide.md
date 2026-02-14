@@ -171,7 +171,7 @@ src/
 
 ## Спецификации
 
-- [XML-формат выгрузки обработок](1c-xml-format-spec.md) — структура XML-файлов, namespace, элементы форм
+- [XML-формат выгрузки обработок](1c-epf-spec.md) — структура XML-файлов, namespace, элементы форм
 - [XML-формат внешних отчётов](1c-erf-spec.md) — отличия ERF от EPF, Properties, MainDataCompositionSchema
 - [Встроенная справка](1c-help-spec.md) — Help.xml, HTML-страницы, кнопка справки на форме
 - [Сборка и разборка EPF/ERF](build-spec.md) — команды `1cv8.exe`, параметры, коды возврата
