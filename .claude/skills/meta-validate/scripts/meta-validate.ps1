@@ -111,20 +111,21 @@ $generatedTypeCategories = @{
 	"InformationRegister"        = @("Record","Manager","Selection","List","RecordSet","RecordKey","RecordManager")
 	"AccumulationRegister"       = @("Record","Manager","Selection","List","RecordSet","RecordKey")
 	"AccountingRegister"         = @("Record","Manager","Selection","List","RecordSet","RecordKey","ExtDimensions")
-	"CalculationRegister"        = @("Record","Manager","Selection","List","RecordSet","RecordKey")
+	"CalculationRegister"        = @("Record","Manager","Selection","List","RecordSet","RecordKey","Recalcs")
 	"ChartOfAccounts"            = @("Object","Ref","Selection","List","Manager","ExtDimensionTypes","ExtDimensionTypesRow")
-	"ChartOfCharacteristicTypes" = @("Object","Ref","Selection","List","Manager")
-	"ChartOfCalculationTypes"    = @("Object","Ref","Selection","List","Manager","DisplacingCalculationTypes","BaseCalculationTypes","LeadingCalculationTypes")
-	"BusinessProcess"            = @("Object","Ref","Selection","List","Manager")
+	"ChartOfCharacteristicTypes" = @("Object","Ref","Selection","List","Manager","Characteristic")
+	"ChartOfCalculationTypes"    = @("Object","Ref","Selection","List","Manager","DisplacingCalculationTypes","DisplacingCalculationTypesRow","BaseCalculationTypes","BaseCalculationTypesRow","LeadingCalculationTypes","LeadingCalculationTypesRow")
+	"BusinessProcess"            = @("Object","Ref","Selection","List","Manager","RoutePointRef")
 	"Task"                       = @("Object","Ref","Selection","List","Manager")
 	"ExchangePlan"               = @("Object","Ref","Selection","List","Manager")
 	"DocumentJournal"            = @("Selection","List","Manager")
-	"Report"                     = @("Object")
-	"DataProcessor"              = @("Object")
+	"Report"                     = @("Object","Manager")
+	"DataProcessor"              = @("Object","Manager")
+	"DefinedType"                = @("DefinedType")
 }
 
 # Types that have NO InternalInfo / GeneratedType
-$typesWithoutInternalInfo = @("CommonModule","ScheduledJob","EventSubscription","DefinedType")
+$typesWithoutInternalInfo = @("CommonModule","ScheduledJob","EventSubscription")
 
 # StandardAttributes by type
 $standardAttributesByType = @{
@@ -133,10 +134,10 @@ $standardAttributesByType = @{
 	"Enum"                       = @("Order","Ref")
 	"InformationRegister"        = @("Active","LineNumber","Recorder","Period")
 	"AccumulationRegister"       = @("Active","LineNumber","Recorder","Period","RecordType")
-	"AccountingRegister"         = @("Active","Period","Recorder","LineNumber","Account","PeriodAdjustment")
-	"CalculationRegister"        = @("Active","Recorder","LineNumber","RegistrationPeriod","CalculationType","ReversingEntry")
+	"AccountingRegister"         = @("Active","Period","Recorder","LineNumber","Account")
+	"CalculationRegister"        = @("Active","Recorder","LineNumber","RegistrationPeriod","CalculationType","ReversingEntry","ActionPeriod","BegOfActionPeriod","EndOfActionPeriod","BegOfBasePeriod","EndOfBasePeriod")
 	"ChartOfAccounts"            = @("PredefinedDataName","Predefined","Ref","DeletionMark","Description","Code","Parent","Order","Type","OffBalance")
-	"ChartOfCharacteristicTypes" = @("PredefinedDataName","Predefined","Ref","DeletionMark","Description","Code","Parent","ValueType")
+	"ChartOfCharacteristicTypes" = @("PredefinedDataName","Predefined","Ref","DeletionMark","Description","Code","Parent","IsFolder","ValueType")
 	"ChartOfCalculationTypes"    = @("PredefinedDataName","Predefined","Ref","DeletionMark","Description","Code","ActionPeriodIsBasic")
 	"BusinessProcess"            = @("Ref","DeletionMark","Date","Number","Started","Completed","HeadTask")
 	"Task"                       = @("Ref","DeletionMark","Date","Number","Executed","Description","RoutePoint","BusinessProcess")
@@ -195,7 +196,7 @@ $validPropertyValues = @{
 	"HierarchyType"                  = @("HierarchyFoldersAndItems","HierarchyItemsOnly")
 	"EditType"                       = @("InDialog","InList","BothWays")
 	"WriteMode"                      = @("Independent","RecorderSubordinate")
-	"InformationRegisterPeriodicity" = @("Nonperiodical","Second","Day","Month","Quarter","Year")
+	"InformationRegisterPeriodicity" = @("Nonperiodical","Second","Day","Month","Quarter","Year","RecorderPosition")
 	"RegisterType"                   = @("Balance","Turnovers")
 	"ReturnValuesReuse"              = @("DontUse","DuringRequest","DuringSession")
 	"ReuseSessions"                  = @("DontUse","AutoUse")
@@ -470,7 +471,8 @@ if ($script:stopped) { & $finalize; exit 1 }
 if ($typesWithStdAttrs -contains $mdType) {
 	$stdAttrNode = $propsNode.SelectSingleNode("md:StandardAttributes", $ns)
 	if (-not $stdAttrNode) {
-		Report-Error "5. StandardAttributes block missing for $mdType"
+		# StandardAttributes block is optional for some types (e.g. Enum)
+		Report-OK "5. StandardAttributes: absent (optional for $mdType)"
 	} else {
 		$stdAttrs = $stdAttrNode.SelectNodes("xr:StandardAttribute", $ns)
 		$expectedStdAttrs = $standardAttributesByType[$mdType]
@@ -482,9 +484,11 @@ if ($typesWithStdAttrs -contains $mdType) {
 			if ($saName) {
 				$foundNames += $saName
 				if ($expectedStdAttrs -notcontains $saName) {
-					# AccountingRegister has dynamic ExtDimension{N}/ExtDimensionType{N} attrs
-					$isDynamic = ($mdType -eq "AccountingRegister" -and ($saName -match '^ExtDimension\d+$' -or $saName -match '^ExtDimensionType\d+$'))
-					if (-not $isDynamic) {
+					# AccountingRegister has dynamic ExtDimension{N}/ExtDimensionType{N} and optional PeriodAdjustment
+					$isDynamic = ($mdType -eq "AccountingRegister" -and ($saName -match '^ExtDimension\d+$' -or $saName -match '^ExtDimensionType\d+$' -or $saName -eq "PeriodAdjustment"))
+					# CalculationRegister has conditional period attrs
+					$isCalcDynamic = ($mdType -eq "CalculationRegister" -and $saName -in @("ActionPeriod","BegOfActionPeriod","EndOfActionPeriod","BegOfBasePeriod","EndOfBasePeriod"))
+					if (-not $isDynamic -and -not $isCalcDynamic) {
 						Report-Warn "5. Unexpected StandardAttribute '$saName' for $mdType"
 					}
 				}
@@ -612,7 +616,7 @@ if ($childObjNode) {
 
 	foreach ($kind in $elementKinds) {
 		$elements = $childObjNode.SelectNodes("md:$kind", $ns)
-		$requireType = ($kind -ne "EnumValue")
+		$requireType = ($kind -ne "EnumValue" -and $kind -ne "Column")
 		foreach ($el in $elements) {
 			if ($script:stopped) { break }
 			$ok = Check-ChildElement -node $el -kind $kind -requireType $requireType
