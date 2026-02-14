@@ -1,6 +1,6 @@
 ---
 name: skd-info
-description: Анализ структуры схемы компоновки данных 1С (СКД) — наборы, поля, параметры, варианты
+description: Анализ структуры схемы компоновки данных 1С (СКД) — наборы, поля, параметры, варианты. Используй для понимания отчёта — источник данных (запрос), доступные поля, параметры
 argument-hint: <TemplatePath> [-Mode overview|query|fields|links|calculated|resources|params|variant|templates|trace] [-Name <dataset|variant|field|group>]
 allowed-tools:
   - Bash

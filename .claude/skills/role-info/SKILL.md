@@ -1,6 +1,6 @@
 ---
 name: role-info
-description: Компактная сводка прав роли 1С из Rights.xml — объекты, права, RLS, шаблоны ограничений
+description: Компактная сводка прав роли 1С из Rights.xml — объекты, права, RLS, шаблоны ограничений. Используй для аудита прав — какие объекты и действия доступны, ограничения RLS
 argument-hint: <RightsPath>
 allowed-tools:
   - Bash
