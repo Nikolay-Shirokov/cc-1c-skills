@@ -1,4 +1,4 @@
-﻿# meta-edit v1.1 — Edit existing 1C metadata object XML (inline mode + complex properties)
+﻿# meta-edit v1.2 — Edit existing 1C metadata object XML (inline mode + complex properties + TS attribute ops)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[string]$DefinitionFile,
@@ -14,6 +14,7 @@ param(
 		"remove-attribute", "remove-ts", "remove-dimension", "remove-resource",
 		"remove-enumValue", "remove-column", "remove-form", "remove-template", "remove-command",
 		"remove-owner", "remove-registerRecord", "remove-basedOn", "remove-inputByString",
+		"add-ts-attribute", "remove-ts-attribute", "modify-ts-attribute",
 		"modify-attribute", "modify-dimension", "modify-resource",
 		"modify-enumValue", "modify-column",
 		"modify-property",
@@ -1258,6 +1259,71 @@ function Convert-InlineToDefinition([string]$operation, [string]$value) {
 		return $def
 	}
 
+	# TS attribute operations: dot notation "TSName.AttrDef"
+	if ($target -eq "ts-attribute") {
+		$items = @($value -split ';;' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+		# Group by TS name
+		$tsGroups = [ordered]@{}
+		foreach ($item in $items) {
+			$dotIdx = $item.IndexOf('.')
+			if ($dotIdx -le 0) {
+				Warn "Invalid ts-attribute format (expected TSName.AttrDef): $item"
+				continue
+			}
+			$tsName = $item.Substring(0, $dotIdx).Trim()
+			$rest = $item.Substring($dotIdx + 1).Trim()
+			if (-not $tsGroups.Contains($tsName)) {
+				$tsGroups[$tsName] = @()
+			}
+			$tsGroups[$tsName] += $rest
+		}
+
+		# Build: { modify: { tabularSections: { TSName: { add/remove/modify: ... } } } }
+		$tsModObj = New-Object PSCustomObject
+		foreach ($tsName in $tsGroups.Keys) {
+			$tsChanges = New-Object PSCustomObject
+			switch ($op) {
+				"add" {
+					$tsChanges | Add-Member -NotePropertyName "add" -NotePropertyValue $tsGroups[$tsName]
+				}
+				"remove" {
+					$tsChanges | Add-Member -NotePropertyName "remove" -NotePropertyValue $tsGroups[$tsName]
+				}
+				"modify" {
+					$attrModObj = New-Object PSCustomObject
+					foreach ($elemDef in $tsGroups[$tsName]) {
+						$colonIdx = $elemDef.IndexOf(':')
+						if ($colonIdx -le 0) {
+							Warn "Invalid modify format (expected Name: key=val): $elemDef"
+							continue
+						}
+						$elemName = $elemDef.Substring(0, $colonIdx).Trim()
+						$changesPart = $elemDef.Substring($colonIdx + 1).Trim()
+						$changesObj = New-Object PSCustomObject
+						$changePairs = Split-ByCommaOutsideParens $changesPart
+						foreach ($cp in $changePairs) {
+							$cp = $cp.Trim()
+							$eqIdx = $cp.IndexOf('=')
+							if ($eqIdx -gt 0) {
+								$ck = $cp.Substring(0, $eqIdx).Trim()
+								$cv = $cp.Substring($eqIdx + 1).Trim()
+								$changesObj | Add-Member -NotePropertyName $ck -NotePropertyValue $cv
+							}
+						}
+						$attrModObj | Add-Member -NotePropertyName $elemName -NotePropertyValue $changesObj
+					}
+					$tsChanges | Add-Member -NotePropertyName "modify" -NotePropertyValue $attrModObj
+				}
+			}
+			$tsModObj | Add-Member -NotePropertyName $tsName -NotePropertyValue $tsChanges
+		}
+		$def = New-Object PSCustomObject
+		$modifyObj = New-Object PSCustomObject
+		$modifyObj | Add-Member -NotePropertyName "tabularSections" -NotePropertyValue $tsModObj
+		$def | Add-Member -NotePropertyName "modify" -NotePropertyValue $modifyObj
+		return $def
+	}
+
 	# Target → JSON DSL child type
 	$targetMap = @{
 		"attribute" = "attributes"
@@ -1715,6 +1781,80 @@ function Modify-ChildElements($modifyDef, [string]$childType) {
 		$changes.PSObject.Properties | ForEach-Object {
 			$changeProp = $_.Name
 			$changeValue = $_.Value
+
+			# TS child attribute operations (add/remove/modify attrs inside a TabularSection)
+			if ($xmlTag -eq "TabularSection" -and $changeProp -in @("add","remove","modify")) {
+				# Find ChildObjects inside this TS element
+				$tsChildObjEl = $null
+				foreach ($gc in $el.ChildNodes) {
+					if ($gc.NodeType -eq 'Element' -and $gc.LocalName -eq "ChildObjects") {
+						$tsChildObjEl = $gc; break
+					}
+				}
+
+				switch ($changeProp) {
+					"add" {
+						if (-not $tsChildObjEl) {
+							Warn "TS '$elemName' has no ChildObjects element, cannot add attributes"
+							return
+						}
+						# Ensure ChildObjects is open (not self-closing empty)
+						$hasTsChildElements = $false
+						foreach ($ch in $tsChildObjEl.ChildNodes) {
+							if ($ch.NodeType -eq 'Element') { $hasTsChildElements = $true; break }
+						}
+						if (-not $hasTsChildElements) {
+							$tsCoIndent = Get-ChildIndent $el
+							$tsCloseWs = $script:xmlDoc.CreateWhitespace("`r`n$tsCoIndent")
+							$tsChildObjEl.AppendChild($tsCloseWs) | Out-Null
+						}
+						foreach ($attrDef in @($changeValue)) {
+							$parsed = Parse-AttributeShorthand $attrDef
+							$existing = Find-ElementByName $tsChildObjEl "Attribute" $parsed.name
+							if ($existing) {
+								Warn "Attribute '$($parsed.name)' already exists in TS '$elemName', skipping"
+								continue
+							}
+							$tsAttrIndent = Get-ChildIndent $tsChildObjEl
+							$fragmentXml = Build-AttributeFragment $parsed "tabular" $tsAttrIndent
+							$nodes = Import-Fragment $fragmentXml
+							foreach ($node in $nodes) {
+								Insert-BeforeElement $tsChildObjEl $node $null $tsAttrIndent
+							}
+							Info "Added attribute to TS '$elemName': $($parsed.name)"
+							$script:addCount++
+						}
+					}
+					"remove" {
+						if (-not $tsChildObjEl) {
+							Warn "TS '$elemName' has no ChildObjects, cannot remove attributes"
+							return
+						}
+						foreach ($attrName in @($changeValue)) {
+							$attrEl = Find-ElementByName $tsChildObjEl "Attribute" "$attrName"
+							if (-not $attrEl) {
+								Warn "Attribute '$attrName' not found in TS '$elemName', skipping"
+								continue
+							}
+							Remove-NodeWithWhitespace $attrEl
+							Info "Removed attribute from TS '$elemName': $attrName"
+							$script:removeCount++
+						}
+					}
+					"modify" {
+						if (-not $tsChildObjEl) {
+							Warn "TS '$elemName' has no ChildObjects, cannot modify attributes"
+							return
+						}
+						# Temporarily swap childObjectsEl and recurse
+						$savedChildObjEl = $script:childObjectsEl
+						$script:childObjectsEl = $tsChildObjEl
+						Modify-ChildElements $changeValue "attributes"
+						$script:childObjectsEl = $savedChildObjEl
+					}
+				}
+				return  # Skip normal property modification
+			}
 
 			switch ($changeProp) {
 				"name" {
