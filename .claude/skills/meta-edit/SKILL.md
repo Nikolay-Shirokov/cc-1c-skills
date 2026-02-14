@@ -1,7 +1,7 @@
 ---
 name: meta-edit
-description: Точечное редактирование объекта метаданных 1С (добавление/удаление/модификация реквизитов, ТЧ, измерений, ресурсов, значений перечислений, свойств объекта)
-argument-hint: <DefinitionFile> <ObjectPath> [-NoValidate]
+description: Точечное редактирование объекта метаданных 1С (добавление/удаление/модификация реквизитов, ТЧ, измерений, ресурсов, значений перечислений, свойств объекта, владельцев, движений, ввода по строке)
+argument-hint: <ObjectPath> -Operation <op> -Value "<val>" | -DefinitionFile <json> [-NoValidate]
 allowed-tools:
   - Bash
   - Read
@@ -11,23 +11,127 @@ allowed-tools:
 
 # /meta-edit — точечное редактирование метаданных 1С
 
-Атомарные операции модификации существующих XML объектов метаданных: добавление, удаление и модификация реквизитов, табличных частей, измерений, ресурсов, значений перечислений, свойств объекта.
+Атомарные операции модификации существующих XML объектов метаданных: добавление, удаление и модификация реквизитов, табличных частей, измерений, ресурсов, значений перечислений, свойств объекта, владельцев, движений по регистрам, оснований, ввода по строке.
 
-## Параметры и команда
+## Два режима работы
 
-| Параметр | Обязательный | Описание |
-|----------|:------------:|----------|
-| DefinitionFile | да | JSON-файл с операциями |
-| ObjectPath | да | XML-файл или директория объекта |
-| NoValidate | нет | Не запускать meta-validate после правки |
+### Inline mode (рекомендуется для простых операций)
+
+```powershell
+powershell.exe -NoProfile -File .claude\skills\meta-edit\scripts\meta-edit.ps1 -ObjectPath "<path>" -Operation <op> -Value "<val>"
+```
+
+### JSON mode (для сложных/комбинированных операций)
 
 ```powershell
 powershell.exe -NoProfile -File .claude\skills\meta-edit\scripts\meta-edit.ps1 -DefinitionFile "<json>" -ObjectPath "<path>"
 ```
 
+| Параметр | Описание |
+|----------|----------|
+| ObjectPath | XML-файл или директория объекта (обязательный) |
+| Operation | Inline-операция (альтернатива DefinitionFile) |
+| Value | Значение для inline-операции |
+| DefinitionFile | JSON-файл с операциями (альтернатива Operation) |
+| NoValidate | Не запускать meta-validate после правки |
+
 `ObjectPath` авторезолв: если указана директория — ищет `<dirName>.xml` в ней.
 
-## JSON DSL — три операции
+## Inline mode — операции
+
+### Batch-режим
+
+Несколько элементов через `;;`:
+```
+-Value "Комментарий: Строка(200) ;; Сумма: Число(15,2) | index"
+```
+
+### add-attribute / add-dimension / add-resource / add-column
+
+Shorthand-формат: `Имя: Тип | флаги`
+
+```powershell
+-Operation add-attribute -Value "Комментарий: Строка(200)"
+-Operation add-attribute -Value "Сумма: Число(15,2) | req, index"
+-Operation add-attribute -Value "Ном: CatalogRef.Номенклатура | req ;; Кол: Число(15,3)"
+-Operation add-dimension -Value "Организация: CatalogRef.Организации | master, mainFilter"
+```
+
+Позиционная вставка: `>> after ИмяЭлемента` или `<< before ИмяЭлемента`:
+```powershell
+-Operation add-attribute -Value "Склад: CatalogRef.Склады >> after Организация"
+```
+
+### add-ts
+
+Формат: `ИмяТЧ: Реквизит1: Тип1, Реквизит2: Тип2, ...`
+
+```powershell
+-Operation add-ts -Value "Товары: Ном: CatalogRef.Ном | req, Кол: Число(15,3), Цена: Число(15,2), Сумма: Число(15,2)"
+```
+
+### add-enumValue / add-form / add-template / add-command
+
+Просто имена (batch через `;;`):
+```powershell
+-Operation add-enumValue -Value "Значение1 ;; Значение2 ;; Значение3"
+-Operation add-form -Value "ФормаЭлемента ;; ФормаСписка"
+```
+
+### add-owner / add-registerRecord / add-basedOn
+
+Полное имя метаданных `MetaType.Name`:
+```powershell
+-Operation add-owner -Value "Catalog.Контрагенты ;; Catalog.Организации"
+-Operation add-registerRecord -Value "AccumulationRegister.ОстаткиТоваров"
+-Operation add-basedOn -Value "Document.ЗаказКлиента"
+```
+
+### add-inputByString
+
+Пути полей (префикс `MetaType.Name.` добавляется автоматически):
+```powershell
+-Operation add-inputByString -Value "StandardAttribute.Description ;; StandardAttribute.Code"
+```
+
+### remove-*
+
+Имя элемента (или несколько через `;;`):
+```powershell
+-Operation remove-attribute -Value "СтарыйРеквизит ;; ЕщёОдин"
+-Operation remove-owner -Value "Catalog.Контрагенты"
+-Operation remove-inputByString -Value "Catalog.МойСпр.StandardAttribute.Code"
+```
+
+### modify-attribute / modify-dimension / modify-resource / modify-enumValue / modify-column
+
+Формат: `ИмяЭлемента: ключ=значение, ключ=значение`
+
+Ключи: `name` (rename), `type`, `synonym`, `indexing`, `fillChecking`, `use` и др.
+
+```powershell
+-Operation modify-attribute -Value "СтароеИмя: name=НовоеИмя, type=Строка(500)"
+-Operation modify-attribute -Value "Комментарий: indexing=Index"
+```
+
+### modify-property
+
+Формат: `Ключ=Значение` (batch через `;;`):
+```powershell
+-Operation modify-property -Value "CodeLength=11 ;; DescriptionLength=150"
+-Operation modify-property -Value "Hierarchical=true"
+```
+
+### set-owners / set-registerRecords / set-basedOn / set-inputByString
+
+Заменяют **весь список** (в отличие от add/remove):
+```powershell
+-Operation set-owners -Value "Catalog.Организации ;; Catalog.Контрагенты"
+-Operation set-registerRecords -Value "AccumulationRegister.Продажи ;; AccumulationRegister.ОстаткиТоваров"
+-Operation set-inputByString -Value "StandardAttribute.Description ;; StandardAttribute.Code"
+```
+
+## JSON DSL
 
 ### add — добавить элементы
 
@@ -67,7 +171,13 @@ powershell.exe -NoProfile -File .claude\skills\meta-edit\scripts\meta-edit.ps1 -
 ```json
 {
   "modify": {
-    "properties": { "CodeLength": 11, "Hierarchical": true },
+    "properties": {
+      "CodeLength": 11,
+      "Hierarchical": true,
+      "Owners": ["Catalog.Контрагенты", "Catalog.Организации"],
+      "RegisterRecords": ["AccumulationRegister.Продажи"],
+      "InputByString": ["StandardAttribute.Description"]
+    },
     "реквизиты": {
       "Комментарий": { "type": "Строка(500)" },
       "СтароеИмя": { "name": "НовоеИмя" }
@@ -78,7 +188,7 @@ powershell.exe -NoProfile -File .claude\skills\meta-edit\scripts\meta-edit.ps1 -
 
 ### Комбинирование
 
-Все три операции можно указать в одном JSON-файле.
+Все три операции можно указать в одном JSON-файле. Для сложных сценариев (ТЧ с реквизитами + удаление + модификация) используйте JSON DSL.
 
 ### Синонимы ключей (case-insensitive)
 
@@ -103,20 +213,28 @@ powershell.exe -NoProfile -File .claude\skills\meta-edit\scripts\meta-edit.ps1 -
 
 `Строка(200)`, `Число(15,2)`, `Булево`, `Дата`, `ДатаВремя`, `ХранилищеЗначения`, `СправочникСсылка.XXX`, `ДокументСсылка.XXX`, `ПеречислениеСсылка.XXX`, `ОпределяемыйТип.XXX`.
 
-### Позиционная вставка (опционально)
+### Позиционная вставка
 
-```json
-{ "name": "Склад", "type": "CatalogRef.Склады", "after": "Организация" }
-{ "name": "Приоритет", "type": "Число(1)", "before": "Комментарий" }
-```
+JSON: `{ "name": "Склад", "type": "CatalogRef.Склады", "after": "Организация" }`
 
-Без указания — в конец группы однотипных элементов.
+Inline: `"Склад: CatalogRef.Склады >> after Организация"` или `"Склад: CatalogRef.Склады << before Комментарий"`
 
 ### Shorthand-формат реквизитов
 
 ```
 "ИмяРеквизита: Тип | req, index"
 ```
+
+## Complex properties — Owners, RegisterRecords, BasedOn, InputByString
+
+Свойства со вложенной XML-структурой (не скалярный InnerText). Поддерживаются через inline-операции `add-*` / `remove-*` / `set-*` и через JSON `modify.properties`.
+
+| Свойство | Объекты | XML-тег | Inline-значение |
+|----------|---------|---------|-----------------|
+| Owners | Catalog, ChartOfCharacteristicTypes | `<xr:Item xsi:type="xr:MDObjectRef">` | `Catalog.XXX` |
+| RegisterRecords | Document | `<xr:Item xsi:type="xr:MDObjectRef">` | `AccumulationRegister.XXX` |
+| BasedOn | Document, Catalog, BP, Task | `<xr:Item xsi:type="xr:MDObjectRef">` | `Document.XXX` |
+| InputByString | Catalog, ChartOf*, Task | `<xr:Field>` | `StandardAttribute.Description` |
 
 ## Поддерживаемые типы объектов
 
@@ -130,58 +248,55 @@ powershell.exe -NoProfile -File .claude\skills\meta-edit\scripts\meta-edit.ps1 -
 
 ## Примеры
 
-### Добавить реквизиты в справочник
+### Inline: добавить реквизиты
 
-```json
-{
-  "add": {
-    "attributes": [
-      "Комментарий: String(200)",
-      { "name": "Сумма", "type": "Number(15,2)", "indexing": "Index" }
-    ]
-  }
-}
+```powershell
+-Operation add-attribute -Value "Комментарий: String(200) ;; Сумма: Число(15,2) | index"
 ```
 
-### Добавить ТЧ в документ
+### Inline: добавить ТЧ с реквизитами
+
+```powershell
+-Operation add-ts -Value "Товары: Ном: CatalogRef.Ном | req, Кол: Число(15,3), Цена: Число(15,2)"
+```
+
+### Inline: удалить + изменить (два вызова)
+
+```powershell
+-Operation remove-attribute -Value "УстаревшийРеквизит"
+-Operation modify-attribute -Value "СтароеИмя: name=НовоеИмя, type=String(500)"
+```
+
+### Inline: владельцы справочника
+
+```powershell
+-Operation set-owners -Value "Catalog.Контрагенты ;; Catalog.Организации"
+```
+
+### Inline: движения документа
+
+```powershell
+-Operation add-registerRecord -Value "AccumulationRegister.Продажи ;; AccumulationRegister.ОстаткиТоваров"
+```
+
+### JSON: комплексное редактирование
 
 ```json
 {
   "add": {
+    "attributes": ["Комментарий: String(200)"],
     "tabularSections": [{
       "name": "Товары",
-      "attrs": [
-        "Номенклатура: CatalogRef.Номенклатура | req",
-        "Количество: Number(15,3)",
-        "Цена: Number(15,2)",
-        "Сумма: Number(15,2)"
-      ]
+      "attrs": ["Ном: CatalogRef.Ном | req", "Кол: Number(15,3)"]
     }]
-  }
-}
-```
-
-### Добавить измерения и ресурсы в регистр
-
-```json
-{
-  "add": {
-    "dimensions": ["Организация: CatalogRef.Организации | master, mainFilter"],
-    "resources": ["Сумма: Number(15,2)"]
-  }
-}
-```
-
-### Удалить + изменить
-
-```json
-{
+  },
   "remove": { "attributes": ["УстаревшийРеквизит"] },
   "modify": {
-    "properties": { "DescriptionLength": 150 },
-    "attributes": {
-      "СтароеИмя": { "name": "НовоеИмя", "type": "String(500)" }
-    }
+    "properties": {
+      "DescriptionLength": 150,
+      "Owners": ["Catalog.Контрагенты", "Catalog.Организации"]
+    },
+    "attributes": { "СтароеИмя": { "name": "НовоеИмя" } }
   }
 }
 ```
@@ -201,3 +316,7 @@ powershell.exe -NoProfile -File .claude\skills\meta-edit\scripts\meta-edit.ps1 -
 - **Изменение свойств** объекта (длина кода, иерархия и т.д.)
 - **Добавление значений** перечислений
 - **Добавление измерений/ресурсов** в регистры
+- **Управление владельцами** справочников (Owners)
+- **Управление движениями** документов (RegisterRecords)
+- **Настройка ввода по строке** (InputByString)
+- **Управление основаниями** (BasedOn)

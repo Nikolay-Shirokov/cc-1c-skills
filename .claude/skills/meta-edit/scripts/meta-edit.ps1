@@ -1,11 +1,26 @@
-﻿# meta-edit v1.0 — Edit existing 1C metadata object XML
+﻿# meta-edit v1.1 — Edit existing 1C metadata object XML (inline mode + complex properties)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
-	[Parameter(Mandatory)]
 	[string]$DefinitionFile,
 
 	[Parameter(Mandatory)]
 	[string]$ObjectPath,
+
+	# Inline mode (alternative to DefinitionFile)
+	[ValidateSet(
+		"add-attribute", "add-ts", "add-dimension", "add-resource",
+		"add-enumValue", "add-column", "add-form", "add-template", "add-command",
+		"add-owner", "add-registerRecord", "add-basedOn", "add-inputByString",
+		"remove-attribute", "remove-ts", "remove-dimension", "remove-resource",
+		"remove-enumValue", "remove-column", "remove-form", "remove-template", "remove-command",
+		"remove-owner", "remove-registerRecord", "remove-basedOn", "remove-inputByString",
+		"modify-attribute", "modify-dimension", "modify-resource",
+		"modify-enumValue", "modify-column",
+		"modify-property",
+		"set-owners", "set-registerRecords", "set-basedOn", "set-inputByString"
+	)]
+	[string]$Operation,
+	[string]$Value,
 
 	[switch]$NoValidate
 )
@@ -17,13 +32,26 @@ $ErrorActionPreference = "Stop"
 # Section 1: Parameters + loading
 # ============================================================
 
-# --- Load JSON definition ---
-if (-not (Test-Path $DefinitionFile)) {
-	Write-Error "Definition file not found: $DefinitionFile"
+# --- Mode validation ---
+if ($DefinitionFile -and $Operation) {
+	Write-Error "Cannot use both -DefinitionFile and -Operation"
 	exit 1
 }
-$jsonText = Get-Content -Raw -Encoding UTF8 $DefinitionFile
-$def = $jsonText | ConvertFrom-Json
+if (-not $DefinitionFile -and -not $Operation) {
+	Write-Error "Either -DefinitionFile or -Operation is required"
+	exit 1
+}
+
+# --- Load JSON definition (DefinitionFile mode) ---
+$def = $null
+if ($DefinitionFile) {
+	if (-not (Test-Path $DefinitionFile)) {
+		Write-Error "Definition file not found: $DefinitionFile"
+		exit 1
+	}
+	$jsonText = Get-Content -Raw -Encoding UTF8 $DefinitionFile
+	$def = $jsonText | ConvertFrom-Json
+}
 
 # --- Resolve object path ---
 if (Test-Path $ObjectPath -PathType Container) {
@@ -552,6 +580,14 @@ function Parse-AttributeShorthand {
 			name = ""; type = ""; synonym = ""; comment = ""
 			flags = @(); fillChecking = ""; indexing = ""
 			after = ""; before = ""
+		}
+		# Extract positional markers: >> after Name, << before Name
+		if ($str -match '\s*>>\s*after\s+(\S+)\s*$') {
+			$parsed.after = $Matches[1]
+			$str = ($str -replace '\s*>>\s*after\s+\S+\s*$', '').Trim()
+		} elseif ($str -match '\s*<<\s*before\s+(\S+)\s*$') {
+			$parsed.before = $Matches[1]
+			$str = ($str -replace '\s*<<\s*before\s+\S+\s*$', '').Trim()
 		}
 		# Split by | for flags
 		$parts = $str -split '\|', 2
@@ -1165,6 +1201,186 @@ function Resolve-ChildTypeKey([string]$key) {
 }
 
 # ============================================================
+# Section 9.5: Inline mode converter
+# ============================================================
+
+function Split-ByCommaOutsideParens([string]$str) {
+	$result = @()
+	$depth = 0
+	$current = ""
+	foreach ($ch in $str.ToCharArray()) {
+		if ($ch -eq '(') { $depth++ }
+		elseif ($ch -eq ')') { $depth-- }
+		if ($ch -eq ',' -and $depth -eq 0) {
+			$result += $current
+			$current = ""
+		} else {
+			$current += $ch
+		}
+	}
+	if ($current) { $result += $current }
+	return ,$result
+}
+
+function Convert-InlineToDefinition([string]$operation, [string]$value) {
+	# Parse operation: "add-attribute" → ("add", "attribute")
+	$opParts = $operation -split '-', 2
+	$op = $opParts[0]      # add, remove, modify, set
+	$target = $opParts[1]  # attribute, ts, owner, owners, property, etc.
+
+	# Complex property targets
+	$complexTargetMap = @{
+		"owner" = "Owners"; "owners" = "Owners"
+		"registerRecord" = "RegisterRecords"; "registerRecords" = "RegisterRecords"
+		"basedOn" = "BasedOn"
+		"inputByString" = "InputByString"
+	}
+
+	if ($complexTargetMap.ContainsKey($target)) {
+		$propName = $complexTargetMap[$target]
+		$values = @($value -split ';;' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+		# For InputByString, auto-prefix with MetaType.Name.
+		if ($propName -eq "InputByString") {
+			$prefix = "$($script:objType).$($script:objName)."
+			$values = @($values | ForEach-Object {
+				if ($_ -notmatch '\.') {
+					"$prefix$_"
+				} elseif ($_ -notmatch '^(Catalog|Document|InformationRegister|AccumulationRegister|AccountingRegister|CalculationRegister|ChartOfCharacteristicTypes|ChartOfCalculationTypes|ChartOfAccounts|ExchangePlan|BusinessProcess|Task|Enum|Report|DataProcessor)\.') {
+					"$prefix$_"
+				} else { $_ }
+			})
+		}
+		$def = New-Object PSCustomObject
+		$complexAction = if ($op -eq "set") { "set" } else { $op }
+		$def | Add-Member -NotePropertyName "_complex" -NotePropertyValue @(
+			@{ action = $complexAction; property = $propName; values = $values }
+		)
+		return $def
+	}
+
+	# Target → JSON DSL child type
+	$targetMap = @{
+		"attribute" = "attributes"
+		"ts" = "tabularSections"
+		"dimension" = "dimensions"
+		"resource" = "resources"
+		"enumValue" = "enumValues"
+		"column" = "columns"
+		"form" = "forms"
+		"template" = "templates"
+		"command" = "commands"
+		"property" = "properties"
+	}
+
+	$childType = $targetMap[$target]
+	if (-not $childType) {
+		Write-Error "Unknown inline target: $target"
+		exit 1
+	}
+
+	$def = New-Object PSCustomObject
+
+	switch ($op) {
+		"add" {
+			$items = @()
+			if ($childType -eq "tabularSections") {
+				# TS format: "TSName: attr1_shorthand, attr2_shorthand, ..."
+				$tsValues = @($value -split ';;' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+				foreach ($tsVal in $tsValues) {
+					$colonIdx = $tsVal.IndexOf(':')
+					if ($colonIdx -gt 0) {
+						$tsName = $tsVal.Substring(0, $colonIdx).Trim()
+						$attrsPart = $tsVal.Substring($colonIdx + 1).Trim()
+						# Split attrs by comma (paren-aware), reassemble if part doesn't start with "Name:"
+						$rawParts = Split-ByCommaOutsideParens $attrsPart
+						$attrStrs = @()
+						$current = ""
+						foreach ($rp in $rawParts) {
+							$rp = $rp.Trim()
+							if ($current -and $rp -match '^[А-Яа-яЁёA-Za-z_]\w*\s*:') {
+								$attrStrs += $current
+								$current = $rp
+							} elseif ($current) {
+								$current += ", $rp"
+							} else {
+								$current = $rp
+							}
+						}
+						if ($current) { $attrStrs += $current }
+						$items += [PSCustomObject]@{ name = $tsName; attrs = $attrStrs }
+					} else {
+						# Just a name, no attrs
+						$items += $tsVal
+					}
+				}
+			} else {
+				# Batch split by ;;
+				$items = @($value -split ';;' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+			}
+			$addObj = New-Object PSCustomObject
+			$addObj | Add-Member -NotePropertyName $childType -NotePropertyValue $items
+			$def | Add-Member -NotePropertyName "add" -NotePropertyValue $addObj
+		}
+		"remove" {
+			$items = @($value -split ';;' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+			$removeObj = New-Object PSCustomObject
+			$removeObj | Add-Member -NotePropertyName $childType -NotePropertyValue $items
+			$def | Add-Member -NotePropertyName "remove" -NotePropertyValue $removeObj
+		}
+		"modify" {
+			if ($childType -eq "properties") {
+				# "CodeLength=11 ;; DescriptionLength=150"
+				$kvPairs = @($value -split ';;' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+				$propsObj = New-Object PSCustomObject
+				foreach ($kv in $kvPairs) {
+					$eqIdx = $kv.IndexOf('=')
+					if ($eqIdx -gt 0) {
+						$k = $kv.Substring(0, $eqIdx).Trim()
+						$v = $kv.Substring($eqIdx + 1).Trim()
+						$propsObj | Add-Member -NotePropertyName $k -NotePropertyValue $v
+					} else {
+						Warn "Invalid property format (expected Key=Value): $kv"
+					}
+				}
+				$modifyObj = New-Object PSCustomObject
+				$modifyObj | Add-Member -NotePropertyName "properties" -NotePropertyValue $propsObj
+				$def | Add-Member -NotePropertyName "modify" -NotePropertyValue $modifyObj
+			} else {
+				# "ElementName: key=val, key=val ;; Element2: key=val"
+				$elemDefs = @($value -split ';;' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+				$childModObj = New-Object PSCustomObject
+				foreach ($elemDef in $elemDefs) {
+					$colonIdx = $elemDef.IndexOf(':')
+					if ($colonIdx -le 0) {
+						Warn "Invalid modify format (expected Name: key=val): $elemDef"
+						continue
+					}
+					$elemName = $elemDef.Substring(0, $colonIdx).Trim()
+					$changesPart = $elemDef.Substring($colonIdx + 1).Trim()
+					$changesObj = New-Object PSCustomObject
+					$changePairs = Split-ByCommaOutsideParens $changesPart
+					foreach ($cp in $changePairs) {
+						$cp = $cp.Trim()
+						$eqIdx = $cp.IndexOf('=')
+						if ($eqIdx -gt 0) {
+							$ck = $cp.Substring(0, $eqIdx).Trim()
+							$cv = $cp.Substring($eqIdx + 1).Trim()
+							$changesObj | Add-Member -NotePropertyName $ck -NotePropertyValue $cv
+						}
+					}
+					$childModObj | Add-Member -NotePropertyName $elemName -NotePropertyValue $changesObj
+				}
+				$modifyObj = New-Object PSCustomObject
+				$modifyObj | Add-Member -NotePropertyName $childType -NotePropertyValue $childModObj
+				$def | Add-Member -NotePropertyName "modify" -NotePropertyValue $modifyObj
+			}
+		}
+	}
+
+	return $def
+}
+
+# ============================================================
 # Section 10: ADD operations
 # ============================================================
 
@@ -1443,6 +1659,18 @@ function Modify-Properties($propsDef) {
 			return
 		}
 
+		# Complex property: Owners, RegisterRecords, BasedOn, InputByString
+		if ($script:complexPropertyMap.ContainsKey($propName)) {
+			$valuesList = @()
+			if ($propValue -is [array]) {
+				$valuesList = @($propValue | ForEach-Object { "$_" })
+			} else {
+				$valuesList = @("$propValue" -split ';;' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+			}
+			Set-ComplexProperty $propName $valuesList
+			return
+		}
+
 		# Handle boolean values
 		$valueStr = "$propValue"
 		if ($propValue -is [bool]) {
@@ -1648,11 +1876,195 @@ function Process-Modify($modifyDef) {
 }
 
 # ============================================================
+# Section 12.5: Complex property helpers
+# ============================================================
+
+$script:complexPropertyMap = @{
+	"Owners"          = @{ tag = "xr:Item"; attr = 'xsi:type="xr:MDObjectRef"' }
+	"RegisterRecords" = @{ tag = "xr:Item"; attr = 'xsi:type="xr:MDObjectRef"' }
+	"BasedOn"         = @{ tag = "xr:Item"; attr = 'xsi:type="xr:MDObjectRef"' }
+	"InputByString"   = @{ tag = "xr:Field"; attr = $null }
+}
+
+function Find-PropertyElement([string]$propName) {
+	foreach ($child in $script:propertiesEl.ChildNodes) {
+		if ($child.NodeType -eq 'Element' -and $child.LocalName -eq $propName) {
+			return $child
+		}
+	}
+	return $null
+}
+
+function Get-ComplexPropertyValues([System.Xml.XmlElement]$propEl) {
+	$values = @()
+	foreach ($child in $propEl.ChildNodes) {
+		if ($child.NodeType -eq 'Element') {
+			$values += $child.InnerText.Trim()
+		}
+	}
+	return $values
+}
+
+function Add-ComplexPropertyItem([string]$propertyName, [string[]]$values) {
+	$mapEntry = $script:complexPropertyMap[$propertyName]
+	if (-not $mapEntry) { Warn "Unknown complex property: $propertyName"; return }
+
+	$propEl = Find-PropertyElement $propertyName
+	if (-not $propEl) {
+		Warn "Property element '$propertyName' not found in Properties"
+		return
+	}
+
+	# Get existing values to check duplicates
+	$existing = Get-ComplexPropertyValues $propEl
+
+	$indent = Get-ChildIndent $script:propertiesEl
+	$childIndent = "$indent`t"
+
+	# Check if element is self-closing (empty)
+	$isEmpty = $true
+	foreach ($ch in $propEl.ChildNodes) {
+		if ($ch.NodeType -eq 'Element') { $isEmpty = $false; break }
+	}
+
+	# If self-closing / empty, add closing whitespace
+	if ($isEmpty -and $propEl.ChildNodes.Count -eq 0) {
+		$closeWs = $script:xmlDoc.CreateWhitespace("`r`n$indent")
+		$propEl.AppendChild($closeWs) | Out-Null
+	}
+
+	foreach ($val in $values) {
+		if ($val -in $existing) {
+			Warn "$propertyName already contains '$val', skipping"
+			continue
+		}
+		$tag = $mapEntry.tag
+		$attrStr = $mapEntry.attr
+		if ($attrStr) {
+			$fragXml = "<$tag $attrStr>$(Esc-Xml $val)</$tag>"
+		} else {
+			$fragXml = "<$tag>$(Esc-Xml $val)</$tag>"
+		}
+		$nodes = Import-Fragment $fragXml
+		foreach ($node in $nodes) {
+			Insert-BeforeElement $propEl $node $null $childIndent
+		}
+		Info "Added $propertyName item: $val"
+		$script:addCount++
+	}
+}
+
+function Remove-ComplexPropertyItem([string]$propertyName, [string[]]$values) {
+	$propEl = Find-PropertyElement $propertyName
+	if (-not $propEl) {
+		Warn "Property element '$propertyName' not found in Properties"
+		return
+	}
+
+	foreach ($val in $values) {
+		$found = $false
+		foreach ($child in @($propEl.ChildNodes)) {
+			if ($child.NodeType -eq 'Element' -and $child.InnerText.Trim() -eq $val) {
+				Remove-NodeWithWhitespace $child
+				Info "Removed $propertyName item: $val"
+				$script:removeCount++
+				$found = $true
+				break
+			}
+		}
+		if (-not $found) {
+			Warn "$propertyName item '$val' not found, skipping"
+		}
+	}
+
+	# Collapse if empty
+	$hasElements = $false
+	foreach ($ch in $propEl.ChildNodes) {
+		if ($ch.NodeType -eq 'Element') { $hasElements = $true; break }
+	}
+	if (-not $hasElements) {
+		while ($propEl.HasChildNodes) {
+			$propEl.RemoveChild($propEl.FirstChild) | Out-Null
+		}
+	}
+}
+
+function Set-ComplexProperty([string]$propertyName, [string[]]$values) {
+	$mapEntry = $script:complexPropertyMap[$propertyName]
+	if (-not $mapEntry) { Warn "Unknown complex property: $propertyName"; return }
+
+	$propEl = Find-PropertyElement $propertyName
+	if (-not $propEl) {
+		Warn "Property element '$propertyName' not found in Properties"
+		return
+	}
+
+	$indent = Get-ChildIndent $script:propertiesEl
+	$childIndent = "$indent`t"
+
+	# Remove all existing children
+	while ($propEl.HasChildNodes) {
+		$propEl.RemoveChild($propEl.FirstChild) | Out-Null
+	}
+
+	if ($values.Count -eq 0) {
+		# Leave self-closing
+		Info "Cleared $propertyName"
+		$script:modifyCount++
+		return
+	}
+
+	# Add closing whitespace
+	$closeWs = $script:xmlDoc.CreateWhitespace("`r`n$indent")
+	$propEl.AppendChild($closeWs) | Out-Null
+
+	# Add each value
+	foreach ($val in $values) {
+		$tag = $mapEntry.tag
+		$attrStr = $mapEntry.attr
+		if ($attrStr) {
+			$fragXml = "<$tag $attrStr>$(Esc-Xml $val)</$tag>"
+		} else {
+			$fragXml = "<$tag>$(Esc-Xml $val)</$tag>"
+		}
+		$nodes = Import-Fragment $fragXml
+		foreach ($node in $nodes) {
+			Insert-BeforeElement $propEl $node $null $childIndent
+		}
+	}
+	$count = $values.Count
+	Info "Set $propertyName`: $count items"
+	$script:modifyCount++
+}
+
+# ============================================================
 # Section 13: Main processing
 # ============================================================
 
+# --- Inline mode conversion ---
+if ($Operation) {
+	$def = Convert-InlineToDefinition $Operation $Value
+}
+if (-not $def) {
+	Write-Error "No definition loaded"
+	exit 1
+}
+
+# --- Process complex property operations ---
+if ($def.PSObject.Properties.Match("_complex").Count -gt 0 -and $def._complex) {
+	foreach ($cop in $def._complex) {
+		switch ($cop.action) {
+			"add"    { Add-ComplexPropertyItem $cop.property $cop.values }
+			"remove" { Remove-ComplexPropertyItem $cop.property $cop.values }
+			"set"    { Set-ComplexProperty $cop.property $cop.values }
+		}
+	}
+}
+
+# --- Process standard operations ---
 $def.PSObject.Properties | ForEach-Object {
 	$prop = $_
+	if ($prop.Name -eq "_complex") { return }
 	$opKey = Resolve-OperationKey $prop.Name
 	if (-not $opKey) {
 		Warn "Unknown operation: $($prop.Name)"
