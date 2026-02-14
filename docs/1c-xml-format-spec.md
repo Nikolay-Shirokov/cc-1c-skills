@@ -3,6 +3,8 @@
 Формат: XML-выгрузка внешней обработки (ExternalDataProcessor) из конфигуратора 1С:Предприятие 8.3.
 Версия формата: `2.17`.
 
+> **Связанная спецификация**: Для внешних отчётов (ExternalReport / ERF) см. [1c-erf-spec.md](1c-erf-spec.md). Формат отчётов основан на формате обработок с дополнительными свойствами для СКД и вариантов.
+
 ## 1. Структура каталогов
 
 ```
@@ -28,11 +30,12 @@
 ```
 
 Обработка может содержать:
+- 0..N реквизитов объекта (описаны в корневом XML)
+- 0..N табличных частей (описаны в корневом XML)
 - 0..N форм (каталог `Forms/`)
 - 0..N макетов (каталог `Templates/`)
 - 0..1 модуль объекта (`Ext/ObjectModule.bsl`)
 - 0..1 встроенная справка (`Ext/Help.xml` + `Ext/Help/<язык>.html`), см. [1c-help-spec.md](1c-help-spec.md)
-- 0..N табличных частей (описаны в корневом XML)
 
 ## 2. Пространства имён XML
 
@@ -132,6 +135,8 @@ xmlns="http://v8.1c.ru/8.3/xcf/logform"
             <AuxiliaryForm/>
         </Properties>
         <ChildObjects>
+            <!-- Реквизиты объекта (опционально) -->
+            <Attribute uuid="<UUID>">...</Attribute>
             <!-- Табличные части (опционально) -->
             <TabularSection uuid="<UUID>">...</TabularSection>
             <!-- Формы -->
@@ -151,7 +156,101 @@ xmlns="http://v8.1c.ru/8.3/xcf/logform"
 | `ObjectId`, `TypeId`, `ValueId` | Уникальные UUID, генерируются при создании |
 | `DefaultForm` | Полный путь: `ExternalDataProcessor.<Имя>.Form.<ИмяФормы>` |
 | `<Form>`, `<Template>` | Только имена (без путей), соответствуют именам подкаталогов в `Forms/` и `Templates/` |
+| `<Attribute>` | Реквизиты объекта обработки (полное описание с типами) |
 | `<TabularSection>` | Полное описание табличных частей объекта (включая реквизиты ТЧ с типами) |
+
+### Порядок элементов в ChildObjects
+
+Порядок дочерних объектов **фиксирован**:
+
+1. `<Attribute>` — реквизиты объекта (0..N)
+2. `<TabularSection>` — табличные части (0..N)
+3. `<Form>` — формы (0..N)
+4. `<Template>` — макеты (0..N)
+
+### Реквизиты объекта
+
+Если обработка имеет реквизиты объекта, они описываются в `<ChildObjects>` корневого файла:
+
+```xml
+<Attribute uuid="<UUID>">
+    <Properties>
+        <Name><ИмяРеквизита></Name>
+        <Synonym/>
+        <Comment/>
+        <Type>
+            <v8:Type>xs:string</v8:Type>
+            <v8:StringQualifiers>
+                <v8:Length>10</v8:Length>
+                <v8:AllowedLength>Variable</v8:AllowedLength>
+            </v8:StringQualifiers>
+        </Type>
+        <PasswordMode>false</PasswordMode>
+        <Format/>
+        <EditFormat/>
+        <ToolTip/>
+        <MarkNegatives>false</MarkNegatives>
+        <Mask/>
+        <MultiLine>false</MultiLine>
+        <ExtendedEdit>false</ExtendedEdit>
+        <MinValue xsi:nil="true"/>
+        <MaxValue xsi:nil="true"/>
+        <FillChecking>DontCheck</FillChecking>
+        <ChoiceFoldersAndItems>Items</ChoiceFoldersAndItems>
+        <ChoiceParameterLinks/>
+        <ChoiceParameters/>
+        <QuickChoice>Auto</QuickChoice>
+        <CreateOnInput>Auto</CreateOnInput>
+        <ChoiceForm/>
+        <LinkByType/>
+        <ChoiceHistoryOnInput>Auto</ChoiceHistoryOnInput>
+    </Properties>
+</Attribute>
+```
+
+#### Свойства реквизита объекта (полный перечень)
+
+Порядок фиксирован:
+
+| Свойство | Тип | Описание | Значение по умолчанию |
+|----------|-----|----------|----------------------|
+| `Name` | string | Имя реквизита | — |
+| `Synonym` | LocalString | Синоним (отображаемое имя) | — |
+| `Comment` | string | Комментарий | пустой |
+| `Type` | TypeDescription | Тип данных | — |
+| `PasswordMode` | boolean | Режим пароля | `false` |
+| `Format` | string | Формат вывода | пустой |
+| `EditFormat` | string | Формат редактирования | пустой |
+| `ToolTip` | LocalString | Подсказка | пустой |
+| `MarkNegatives` | boolean | Выделять отрицательные | `false` |
+| `Mask` | string | Маска ввода | пустой |
+| `MultiLine` | boolean | Многострочный | `false` |
+| `ExtendedEdit` | boolean | Расширенное редактирование | `false` |
+| `MinValue` | any | Минимальное значение | `xsi:nil="true"` |
+| `MaxValue` | any | Максимальное значение | `xsi:nil="true"` |
+| `FillChecking` | enum | Проверка заполнения | `DontCheck` |
+| `ChoiceFoldersAndItems` | enum | Выбор групп и элементов | `Items` |
+| `ChoiceParameterLinks` | list | Связи параметров выбора | пустой |
+| `ChoiceParameters` | list | Параметры выбора | пустой |
+| `QuickChoice` | enum | Быстрый выбор | `Auto` |
+| `CreateOnInput` | enum | Создание при вводе | `Auto` |
+| `ChoiceForm` | string | Форма выбора | пустой |
+| `LinkByType` | ref | Связь по типу | пустой |
+| `ChoiceHistoryOnInput` | enum | История выбора при вводе | `Auto` |
+
+#### Типы реквизитов
+
+| v8:Type | Описание | Квалификаторы |
+|---------|----------|---------------|
+| `xs:string` | Строка | `v8:StringQualifiers`: `Length`, `AllowedLength` (Variable/Fixed) |
+| `xs:boolean` | Булево | — |
+| `xs:decimal` | Число | `v8:NumberQualifiers`: `Digits`, `FractionDigits`, `AllowedSign` (Any/Nonnegative) |
+| `xs:dateTime` | Дата | `v8:DateQualifiers`: `DateFractions` (Date/Time/DateTime) |
+| `cfg:CatalogRef.<Имя>` | Ссылка на справочник | — |
+| `cfg:DocumentRef.<Имя>` | Ссылка на документ | — |
+| `cfg:EnumRef.<Имя>` | Ссылка на перечисление | — |
+
+> **Примечание**: Ссылочные типы (`cfg:CatalogRef.*` и т.д.) работают **только** при наличии в информационной базе конфигурации с соответствующими объектами.
 
 ### Табличные части объекта
 
@@ -185,13 +284,37 @@ xmlns="http://v8.1c.ru/8.3/xcf/logform"
         <Attribute uuid="<UUID>">
             <Properties>
                 <Name><ИмяРеквизита></Name>
+                <Synonym/>
+                <Comment/>
                 <Type>...</Type>
-                <!-- Остальные свойства -->
+                <PasswordMode>false</PasswordMode>
+                <Format/>
+                <EditFormat/>
+                <ToolTip/>
+                <MarkNegatives>false</MarkNegatives>
+                <Mask/>
+                <MultiLine>false</MultiLine>
+                <ExtendedEdit>false</ExtendedEdit>
+                <MinValue xsi:nil="true"/>
+                <MaxValue xsi:nil="true"/>
+                <FillFromFillingValue>false</FillFromFillingValue>
+                <FillValue xsi:nil="true"/>
+                <FillChecking>DontCheck</FillChecking>
+                <ChoiceFoldersAndItems>Items</ChoiceFoldersAndItems>
+                <ChoiceParameterLinks/>
+                <ChoiceParameters/>
+                <QuickChoice>Auto</QuickChoice>
+                <CreateOnInput>Auto</CreateOnInput>
+                <ChoiceForm/>
+                <LinkByType/>
+                <ChoiceHistoryOnInput>Auto</ChoiceHistoryOnInput>
             </Properties>
         </Attribute>
     </ChildObjects>
 </TabularSection>
 ```
+
+> **Важно**: Реквизиты табличных частей имеют 2 дополнительных свойства по сравнению с реквизитами объекта: `FillFromFillingValue` и `FillValue`. Они вставляются между `MaxValue` и `FillChecking`.
 
 ## 4. Метаданные формы (`Forms/<Имя>.xml`)
 
@@ -247,6 +370,7 @@ xmlns="http://v8.1c.ru/8.3/xcf/logform"
 | Значение `TemplateType` | Расширение файла тела | Описание |
 |---|---|---|
 | `SpreadsheetDocument` | `.xml` | Табличный документ (MXL в XML) |
+| `DataCompositionSchema` | `.xml` | Схема компоновки данных (СКД), см. [1c-dcs-spec.md](1c-dcs-spec.md) |
 | `HTMLDocument` | `.html` | HTML-документ |
 | `TextDocument` | `.txt` | Текстовый документ |
 | `BinaryData` | `.bin` | Двоичные данные |
@@ -640,9 +764,11 @@ xmlns="http://v8.1c.ru/8.3/xcf/logform"
 
 ## 10. Чеклист для создания новой обработки
 
-1. Сгенерировать UUID для каждого объекта (обработка, формы, макеты, ТЧ)
+1. Сгенерировать UUID для каждого объекта (обработка, реквизиты, формы, макеты, ТЧ)
 2. Создать структуру каталогов (раздел 1)
-3. Создать корневой XML (раздел 3) с правильными ChildObjects
+3. Создать корневой XML (раздел 3) с правильными ChildObjects:
+   - Порядок: Attribute → TabularSection → Form → Template
+   - GeneratedType для ТЧ: `DataProcessorTabularSection.<Имя>.<ТЧ>` (не `ExternalDataProcessorTabularSection`!)
 4. Для каждой формы:
    - Создать `<Имя>.xml` (раздел 4)
    - Создать `Form.xml` (раздел 6) — проверить пространство имён!
