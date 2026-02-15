@@ -13,8 +13,6 @@
 | `Ext/` | Модули, интерфейс, начальная страница | [1c-configuration-spec.md § 4](1c-configuration-spec.md#4-ext--корневой-каталог-конфигурации) |
 | `Languages/` | Языки конфигурации | [1c-configuration-spec.md § 5](1c-configuration-spec.md#5-языки-languages) |
 
-**Навыки:** `/cf-info` (анализ), `/cf-init` (создание), `/cf-validate` (валидация), `/cf-edit` (редактирование)
-
 ---
 
 ## 2. Объекты метаданных
