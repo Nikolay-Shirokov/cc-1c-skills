@@ -577,7 +577,7 @@ function Emit-TabularStandardAttributes {
 
 function Emit-Attribute {
 	param([string]$indent, $parsed, [string]$context)
-	# $context: "catalog", "document", "tabular", "register"
+	# $context: "catalog", "document", "object", "processor", "tabular", "processor-tabular", "register"
 	$uuid = New-Guid-String
 	X "$indent<Attribute uuid=`"$uuid`">"
 	X "$indent`t<Properties>"
@@ -607,13 +607,13 @@ function Emit-Attribute {
 	X "$indent`t`t<MinValue xsi:nil=`"true`"/>"
 	X "$indent`t`t<MaxValue xsi:nil=`"true`"/>"
 
-	# FillFromFillingValue — not for tabular section attributes
-	if ($context -ne "tabular") {
+	# FillFromFillingValue — not for tabular/processor (non-stored objects don't have these)
+	if ($context -notin @("tabular", "processor")) {
 		X "$indent`t`t<FillFromFillingValue>false</FillFromFillingValue>"
 	}
 
-	# FillValue — not for tabular section attributes
-	if ($context -ne "tabular") {
+	# FillValue — not for tabular/processor
+	if ($context -notin @("tabular", "processor")) {
 		Emit-FillValue "$indent`t`t" $typeStr
 	}
 
@@ -632,20 +632,22 @@ function Emit-Attribute {
 	X "$indent`t`t<LinkByType/>"
 	X "$indent`t`t<ChoiceHistoryOnInput>Auto</ChoiceHistoryOnInput>"
 
-	# Use — only for catalog/document top-level attributes
-	if ($context -eq "catalog" -or $context -eq "document") {
+	# Use — only for catalog top-level attributes
+	if ($context -eq "catalog") {
 		X "$indent`t`t<Use>ForItem</Use>"
 	}
 
-	# Indexing
-	$indexing = "DontIndex"
-	if ($parsed.flags -contains "index") { $indexing = "Index" }
-	if ($parsed.flags -contains "indexadditional") { $indexing = "IndexWithAdditionalOrder" }
-	if ($parsed.indexing) { $indexing = $parsed.indexing }
-	X "$indent`t`t<Indexing>$indexing</Indexing>"
+	# Indexing/FullTextSearch/DataHistory — not for non-stored objects (processor, processor-tabular)
+	if ($context -notin @("processor", "processor-tabular")) {
+		$indexing = "DontIndex"
+		if ($parsed.flags -contains "index") { $indexing = "Index" }
+		if ($parsed.flags -contains "indexadditional") { $indexing = "IndexWithAdditionalOrder" }
+		if ($parsed.indexing) { $indexing = $parsed.indexing }
+		X "$indent`t`t<Indexing>$indexing</Indexing>"
 
-	X "$indent`t`t<FullTextSearch>Use</FullTextSearch>"
-	X "$indent`t`t<DataHistory>Use</DataHistory>"
+		X "$indent`t`t<FullTextSearch>Use</FullTextSearch>"
+		X "$indent`t`t<DataHistory>Use</DataHistory>"
+	}
 
 	X "$indent`t</Properties>"
 	X "$indent</Attribute>"
@@ -688,10 +690,11 @@ function Emit-TabularSection {
 	}
 	X "$indent`t</Properties>"
 
+	$tsContext = if ($objectType -in @("DataProcessor","Report")) { "processor-tabular" } else { "tabular" }
 	X "$indent`t<ChildObjects>"
 	foreach ($col in $columns) {
 		$parsed = Parse-AttributeShorthand $col
-		Emit-Attribute "$indent`t`t" $parsed "tabular"
+		Emit-Attribute "$indent`t`t" $parsed $tsContext
 	}
 	X "$indent`t</ChildObjects>"
 
@@ -2447,6 +2450,7 @@ if ($objType -in $typesWithAttrTS) {
 		$context = switch ($objType) {
 			"Catalog"  { "catalog" }
 			"Document" { "document" }
+			{ $_ -in @("DataProcessor","Report") } { "processor" }
 			default    { "object" }
 		}
 		foreach ($a in $attrs) {

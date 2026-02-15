@@ -716,8 +716,10 @@ Ext/                               # Расширение конфигураци
 |---|---|---|
 | `Indexing` | enum | `DontIndex` \| `Index` \| `IndexWithAdditionalOrder` |
 | `ChoiceFoldersAndItems` | enum | `Items` \| `Folders` \| `FoldersAndItems` |
-| `Use` | enum | `ForItem` \| `ForFolder` \| `ForFolderAndItem` (только для иерарх. справочников) |
+| `Use` | enum | `ForItem` \| `ForFolder` \| `ForFolderAndItem` (только для справочников) |
 | `FillFromFillingValue` | boolean | Заполнять из значения по умолчанию |
+
+> **Различие хранимых и нехранимых объектов**: Свойства `Indexing`, `FullTextSearch`, `DataHistory`, `FillFromFillingValue`, `FillValue` присутствуют только у **хранимых** объектов (Catalog, Document, ExchangePlan, ChartOf*, BusinessProcess, Task). У объектов DataProcessor и Report (как в конфигурации, так и внешних EPF/ERF) эти свойства **отсутствуют**. Свойство `Use` есть только у справочников (Catalog).
 
 ### 6.2. Табличная часть (TabularSection)
 
@@ -749,7 +751,10 @@ Ext/                               # Расширение конфигураци
     <ChildObjects>
         <Attribute uuid="...">
             <!-- Реквизиты-колонки таблицы: формат как у обычных реквизитов,
-                 но без FillFromFillingValue, FillValue, Use -->
+                 но без FillFromFillingValue, FillValue, Use.
+                 У нехранимых объектов (DataProcessor, Report) реквизиты ТЧ
+                 содержат FillFromFillingValue и FillValue, но не содержат
+                 Indexing, FullTextSearch, DataHistory -->
         </Attribute>
     </ChildObjects>
 </TabularSection>

@@ -660,6 +660,7 @@ function Get-AttributeContext {
 		"Catalog" { return "catalog" }
 		"Document" { return "document" }
 		{ $_ -in @("InformationRegister","AccumulationRegister","AccountingRegister","CalculationRegister") } { return "register" }
+		{ $_ -in @("DataProcessor","Report","ExternalDataProcessor","ExternalReport") } { return "processor" }
 		default { return "object" }
 	}
 }
@@ -698,8 +699,8 @@ function Build-AttributeFragment {
 	$sb.AppendLine("$indent`t`t<MinValue xsi:nil=`"true`"/>") | Out-Null
 	$sb.AppendLine("$indent`t`t<MaxValue xsi:nil=`"true`"/>") | Out-Null
 
-	# FillFromFillingValue — for catalog/document/object contexts
-	if ($context -ne "register") {
+	# FillFromFillingValue/FillValue — not for register, tabular (config TS), or processor (non-stored top-level)
+	if ($context -notin @("register", "tabular", "processor")) {
 		$sb.AppendLine("$indent`t`t<FillFromFillingValue>false</FillFromFillingValue>") | Out-Null
 		$sb.AppendLine($(Build-FillValueXml "$indent`t`t" $typeStr)) | Out-Null
 	}
@@ -719,20 +720,22 @@ function Build-AttributeFragment {
 	$sb.AppendLine("$indent`t`t<LinkByType/>") | Out-Null
 	$sb.AppendLine("$indent`t`t<ChoiceHistoryOnInput>Auto</ChoiceHistoryOnInput>") | Out-Null
 
-	# Use — catalog/document only
-	if ($context -eq "catalog" -or $context -eq "document") {
+	# Use — catalog only
+	if ($context -eq "catalog") {
 		$sb.AppendLine("$indent`t`t<Use>ForItem</Use>") | Out-Null
 	}
 
-	# Indexing
-	$indexing = "DontIndex"
-	if ($parsed.flags -contains "index") { $indexing = "Index" }
-	if ($parsed.flags -contains "indexadditional") { $indexing = "IndexWithAdditionalOrder" }
-	if ($parsed.indexing) { $indexing = $parsed.indexing }
-	$sb.AppendLine("$indent`t`t<Indexing>$indexing</Indexing>") | Out-Null
+	# Indexing/FullTextSearch/DataHistory — not for non-stored objects (processor, processor-tabular)
+	if ($context -notin @("processor", "processor-tabular")) {
+		$indexing = "DontIndex"
+		if ($parsed.flags -contains "index") { $indexing = "Index" }
+		if ($parsed.flags -contains "indexadditional") { $indexing = "IndexWithAdditionalOrder" }
+		if ($parsed.indexing) { $indexing = $parsed.indexing }
+		$sb.AppendLine("$indent`t`t<Indexing>$indexing</Indexing>") | Out-Null
 
-	$sb.AppendLine("$indent`t`t<FullTextSearch>Use</FullTextSearch>") | Out-Null
-	$sb.AppendLine("$indent`t`t<DataHistory>Use</DataHistory>") | Out-Null
+		$sb.AppendLine("$indent`t`t<FullTextSearch>Use</FullTextSearch>") | Out-Null
+		$sb.AppendLine("$indent`t`t<DataHistory>Use</DataHistory>") | Out-Null
+	}
 
 	$sb.AppendLine("$indent`t</Properties>") | Out-Null
 	$sb.Append("$indent</Attribute>") | Out-Null
@@ -804,8 +807,8 @@ function Build-TabularSectionFragment {
 	$sb.AppendLine("$indent`t`t`t</xr:StandardAttribute>") | Out-Null
 	$sb.AppendLine("$indent`t`t</StandardAttributes>") | Out-Null
 
-	# Use — catalog/document only
-	if ($objType -in @("Catalog","Document")) {
+	# Use — catalog only
+	if ($objType -eq "Catalog") {
 		$sb.AppendLine("$indent`t`t<Use>ForItem</Use>") | Out-Null
 	}
 
@@ -817,11 +820,12 @@ function Build-TabularSectionFragment {
 	elseif ($tsDef.attributes) { $columns = @($tsDef.attributes) }
 	elseif ($tsDef.реквизиты) { $columns = @($tsDef.реквизиты) }
 
+	$tsAttrContext = if ($script:objType -in @("DataProcessor","Report","ExternalDataProcessor","ExternalReport")) { "processor-tabular" } else { "tabular" }
 	if ($columns.Count -gt 0) {
 		$sb.AppendLine("$indent`t<ChildObjects>") | Out-Null
 		foreach ($col in $columns) {
 			$colParsed = Parse-AttributeShorthand $col
-			$sb.AppendLine($(Build-AttributeFragment $colParsed "tabular" "$indent`t`t")) | Out-Null
+			$sb.AppendLine($(Build-AttributeFragment $colParsed $tsAttrContext "$indent`t`t")) | Out-Null
 		}
 		$sb.AppendLine("$indent`t</ChildObjects>") | Out-Null
 	} else {
@@ -1816,7 +1820,8 @@ function Modify-ChildElements($modifyDef, [string]$childType) {
 								continue
 							}
 							$tsAttrIndent = Get-ChildIndent $tsChildObjEl
-							$fragmentXml = Build-AttributeFragment $parsed "tabular" $tsAttrIndent
+							$tsAttrContext = if ($script:objType -in @("DataProcessor","Report","ExternalDataProcessor","ExternalReport")) { "processor-tabular" } else { "tabular" }
+							$fragmentXml = Build-AttributeFragment $parsed $tsAttrContext $tsAttrIndent
 							$nodes = Import-Fragment $fragmentXml
 							$savedCO = $script:childObjectsEl
 							$script:childObjectsEl = $tsChildObjEl
