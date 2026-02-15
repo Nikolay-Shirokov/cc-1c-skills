@@ -1,6 +1,6 @@
 ---
 name: cf-init
-description: Создать пустую конфигурацию 1С (scaffold XML-исходников) — Configuration.xml, Languages/
+description: Создать пустую конфигурацию 1С (scaffold XML-исходников). Используй когда нужно начать новую конфигурацию с нуля
 argument-hint: <Name> [-Synonym <name>] [-OutputDir src]
 allowed-tools:
   - Bash

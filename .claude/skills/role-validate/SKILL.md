@@ -1,6 +1,6 @@
 ---
 name: role-validate
-description: Валидация структурной корректности роли 1С (Rights.xml) — формат, права, RLS, шаблоны
+description: Валидация роли 1С. Используй после создания или модификации роли для проверки корректности
 argument-hint: <RightsPath>
 allowed-tools:
   - Bash

@@ -1,6 +1,6 @@
 ---
 name: interface-validate
-description: Валидация структурной корректности командного интерфейса 1С (CommandInterface.xml) — формат, секции, ссылки на команды, дубликаты
+description: Валидация командного интерфейса 1С. Используй после настройки командного интерфейса подсистемы для проверки корректности
 argument-hint: <CIPath> [-MaxErrors 30]
 allowed-tools:
   - Bash

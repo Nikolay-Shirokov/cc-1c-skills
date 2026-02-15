@@ -1,6 +1,6 @@
 ---
 name: skd-compile
-description: Компиляция схемы компоновки данных 1С (СКД) — Template.xml из компактного JSON-определения
+description: Компиляция схемы компоновки данных 1С (СКД) из компактного JSON-определения. Используй когда нужно создать СКД с нуля
 argument-hint: <JsonPath> <OutputPath>
 allowed-tools:
   - Bash

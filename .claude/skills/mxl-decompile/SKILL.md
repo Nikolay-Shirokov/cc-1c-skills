@@ -1,6 +1,6 @@
 ---
 name: mxl-decompile
-description: Декомпиляция табличного документа (MXL) в JSON-определение
+description: Декомпиляция табличного документа (MXL) в JSON-определение. Используй когда нужно получить редактируемое описание существующего макета
 argument-hint: <TemplatePath> [OutputPath]
 allowed-tools:
   - Bash

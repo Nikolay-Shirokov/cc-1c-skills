@@ -1,6 +1,6 @@
 ---
 name: form-validate
-description: Валидация структурной корректности управляемой формы 1С (Form.xml)
+description: Валидация управляемой формы 1С. Используй после создания или модификации формы для проверки корректности
 argument-hint: <FormPath>
 allowed-tools:
   - Bash

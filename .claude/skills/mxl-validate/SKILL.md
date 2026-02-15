@@ -1,6 +1,6 @@
 ---
 name: mxl-validate
-description: Валидация структурной корректности макета табличного документа (MXL)
+description: Валидация макета табличного документа (MXL). Используй после создания или модификации макета для проверки корректности
 argument-hint: <TemplatePath> или <ProcessorName> <TemplateName>
 allowed-tools:
   - Bash

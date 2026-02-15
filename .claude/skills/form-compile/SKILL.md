@@ -1,6 +1,6 @@
 ---
 name: form-compile
-description: Компиляция управляемой формы 1С (Form.xml) из компактного JSON-определения
+description: Компиляция управляемой формы 1С из компактного JSON-определения. Используй когда нужно создать форму с нуля по описанию элементов
 argument-hint: <JsonPath> <OutputPath>
 allowed-tools:
   - Bash

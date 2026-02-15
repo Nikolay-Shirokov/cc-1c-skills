@@ -1,6 +1,6 @@
 ---
 name: skd-validate
-description: Валидация структурной корректности схемы компоновки данных 1С (СКД) — Template.xml
+description: Валидация схемы компоновки данных 1С (СКД). Используй после создания или модификации СКД для проверки корректности
 argument-hint: <TemplatePath> [-MaxErrors 20]
 allowed-tools:
   - Bash
