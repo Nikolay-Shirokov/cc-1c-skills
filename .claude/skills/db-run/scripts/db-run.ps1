@@ -102,32 +102,35 @@ if (-not $InfoBasePath -and (-not $InfoBaseServer -or -not $InfoBaseRef)) {
     exit 1
 }
 
-# --- Build arguments ---
-$arguments = @("ENTERPRISE")
+# --- Build arguments as single string ---
+# Note: Start-Process without -NoNewWindow uses ShellExecute.
+# Passing ArgumentList as array can corrupt Cyrillic when ShellExecute
+# re-joins elements. Single string avoids this.
+$argString = "ENTERPRISE"
 
 if ($InfoBaseServer -and $InfoBaseRef) {
-    $arguments += "/S", "`"$InfoBaseServer/$InfoBaseRef`""
+    $argString += " /S `"$InfoBaseServer/$InfoBaseRef`""
 } else {
-    $arguments += "/F", "`"$InfoBasePath`""
+    $argString += " /F `"$InfoBasePath`""
 }
 
-if ($UserName) { $arguments += "/N`"$UserName`"" }
-if ($Password) { $arguments += "/P`"$Password`"" }
+if ($UserName) { $argString += " /N`"$UserName`"" }
+if ($Password) { $argString += " /P`"$Password`"" }
 
 # --- Optional params ---
 if ($Execute) {
-    $arguments += "/Execute", "`"$Execute`""
+    $argString += " /Execute `"$Execute`""
 }
 if ($CParam) {
-    $arguments += "/C", "`"$CParam`""
+    $argString += " /C `"$CParam`""
 }
 if ($URL) {
-    $arguments += "/URL", "`"$URL`""
+    $argString += " /URL `"$URL`""
 }
 
-$arguments += "/DisableStartupDialogs"
+$argString += " /DisableStartupDialogs"
 
 # --- Execute (background, no wait) ---
-Write-Host "Running: 1cv8.exe $($arguments -join ' ')"
-Start-Process -FilePath $V8Path -ArgumentList $arguments
+Write-Host "Running: 1cv8.exe $argString"
+Start-Process -FilePath $V8Path -ArgumentList $argString
 Write-Host "1C:Enterprise launched" -ForegroundColor Green
