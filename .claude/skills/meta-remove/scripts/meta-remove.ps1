@@ -219,11 +219,13 @@ foreach ($ext in $searchExtensions) {
 			}
 			if ($skip) { continue }
 		}
+		# Skip auto-cleaned files (Configuration.xml, ConfigDumpInfo.xml, Subsystems)
+		$relPath = $file.FullName.Substring($ConfigDir.Length + 1)
+		if ($relPath -eq "Configuration.xml" -or $relPath -eq "ConfigDumpInfo.xml" -or $relPath.StartsWith("Subsystems")) { continue }
 
 		$content = [System.IO.File]::ReadAllText($file.FullName, [System.Text.Encoding]::UTF8)
 		foreach ($pat in $searchPatterns) {
 			if ($content.Contains($pat)) {
-				$relPath = $file.FullName.Substring($ConfigDir.Length + 1)
 				$references += @{ File = $relPath; Pattern = $pat }
 				break  # one match per file is enough
 			}
