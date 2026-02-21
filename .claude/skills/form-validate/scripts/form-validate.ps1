@@ -76,6 +76,9 @@ if ($parentDir) {
 Write-Host "=== Validation: $formName ==="
 Write-Host ""
 
+# Early BaseForm detection (used in Check 5 to skip base element DataPath validation)
+$hasBaseForm = ($root.SelectSingleNode("f:BaseForm", $nsMgr) -ne $null)
+
 # --- Check 1: Root element and version ---
 
 if ($root.LocalName -ne "Form") {
@@ -297,6 +300,7 @@ if (-not $stopped) {
 if (-not $stopped) {
 	$pathErrors = 0
 	$pathChecked = 0
+	$pathBaseSkipped = 0
 
 	foreach ($el in $allElements) {
 		if ($stopped) { break }
@@ -307,6 +311,11 @@ if (-not $stopped) {
 		# Skip companion elements
 		if ($tag -in @("ContextMenu", "ExtendedTooltip", "AutoCommandBar", "SearchStringAddition", "ViewStatusAddition", "SearchControlAddition")) {
 			continue
+		}
+
+		# In borrowed forms, skip DataPath check for base elements (id < 1000000)
+		if ($hasBaseForm -and $el.Id) {
+			try { if ([int]$el.Id -lt 1000000) { $pathBaseSkipped++; continue } } catch {}
 		}
 
 		$dpNode = $node.SelectSingleNode("f:DataPath", $nsMgr)
@@ -328,9 +337,15 @@ if (-not $stopped) {
 		}
 	}
 
-	if ($pathErrors -eq 0 -and $pathChecked -gt 0) {
-		Report-OK "DataPath references: $pathChecked paths checked"
-	} elseif ($pathChecked -eq 0) {
+	$pathMsg = ""
+	if ($pathChecked -gt 0) { $pathMsg = "$pathChecked paths checked" }
+	if ($pathBaseSkipped -gt 0) {
+		$skipNote = "$pathBaseSkipped base skipped"
+		$pathMsg = if ($pathMsg) { "$pathMsg, $skipNote" } else { $skipNote }
+	}
+	if ($pathErrors -eq 0 -and $pathMsg) {
+		Report-OK "DataPath references: $pathMsg"
+	} elseif ($pathErrors -eq 0) {
 		Report-OK "DataPath references: none"
 	}
 }
