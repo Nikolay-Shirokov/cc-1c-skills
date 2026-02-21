@@ -16,10 +16,21 @@ if (-not [System.IO.Path]::IsPathRooted($SubsystemPath)) {
 if (Test-Path $SubsystemPath -PathType Container) {
 	$dirName = Split-Path $SubsystemPath -Leaf
 	$candidate = Join-Path $SubsystemPath "$dirName.xml"
+	$sibling = Join-Path (Split-Path $SubsystemPath) "$dirName.xml"
 	if (Test-Path $candidate) { $SubsystemPath = $candidate }
+	elseif (Test-Path $sibling) { $SubsystemPath = $sibling }
 	else {
 		Write-Host "[ERROR] No $dirName.xml found in directory: $SubsystemPath"
 		exit 1
+	}
+}
+# File not found — check Dir/Name/Name.xml → Dir/Name.xml
+if (-not (Test-Path $SubsystemPath)) {
+	$fn = [System.IO.Path]::GetFileNameWithoutExtension($SubsystemPath)
+	$pd = Split-Path $SubsystemPath
+	if ($fn -eq (Split-Path $pd -Leaf)) {
+		$c = Join-Path (Split-Path $pd) "$fn.xml"
+		if (Test-Path $c) { $SubsystemPath = $c }
 	}
 }
 if (-not (Test-Path $SubsystemPath)) {

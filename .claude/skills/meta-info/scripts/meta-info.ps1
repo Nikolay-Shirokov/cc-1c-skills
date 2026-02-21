@@ -22,12 +22,15 @@ if (-not [System.IO.Path]::IsPathRooted($ObjectPath)) {
 	$ObjectPath = Join-Path (Get-Location).Path $ObjectPath
 }
 
-# Directory -> find XML inside
+# Directory -> find XML inside or as sibling
 if (Test-Path $ObjectPath -PathType Container) {
 	$dirName = Split-Path $ObjectPath -Leaf
 	$candidate = Join-Path $ObjectPath "$dirName.xml"
+	$sibling = Join-Path (Split-Path $ObjectPath) "$dirName.xml"
 	if (Test-Path $candidate) {
 		$ObjectPath = $candidate
+	} elseif (Test-Path $sibling) {
+		$ObjectPath = $sibling
 	} else {
 		$xmlFiles = @(Get-ChildItem $ObjectPath -Filter "*.xml" -File | Select-Object -First 1)
 		if ($xmlFiles.Count -gt 0) {
@@ -39,6 +42,16 @@ if (Test-Path $ObjectPath -PathType Container) {
 	}
 }
 
+# File not found — check Dir/Name/Name.xml → Dir/Name.xml (common LLM mistake)
+if (-not (Test-Path $ObjectPath)) {
+	$fileName = [System.IO.Path]::GetFileNameWithoutExtension($ObjectPath)
+	$parentDir = Split-Path $ObjectPath
+	$parentDirName = Split-Path $parentDir -Leaf
+	if ($fileName -eq $parentDirName) {
+		$candidate = Join-Path (Split-Path $parentDir) "$fileName.xml"
+		if (Test-Path $candidate) { $ObjectPath = $candidate }
+	}
+}
 if (-not (Test-Path $ObjectPath)) {
 	Write-Host "[ERROR] File not found: $ObjectPath"
 	exit 1
