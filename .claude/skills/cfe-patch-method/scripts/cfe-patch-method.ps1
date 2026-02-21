@@ -157,6 +157,21 @@ $bslCode += "$endKeyword"
 
 $bslText = ($bslCode -join "`r`n") + "`r`n"
 
+# --- Check form borrowing for .Form. paths ---
+if ($parts.Count -ge 4 -and $parts[2] -eq "Form") {
+	$formName = $parts[3]
+	$dirName = $typeDirMap[$objType]
+	$formMetaFile = Join-Path (Join-Path (Join-Path (Join-Path $ExtensionPath $dirName) $objName) "Forms") "${formName}.xml"
+	$formXmlFile = Join-Path (Join-Path (Join-Path (Join-Path (Join-Path $ExtensionPath $dirName) $objName) "Forms") $formName) "Ext/Form.xml"
+
+	if (-not (Test-Path $formMetaFile) -or -not (Test-Path $formXmlFile)) {
+		Write-Host "[WARN] Form '$formName' metadata or Form.xml not found in extension."
+		Write-Host "       Run /cfe-borrow first:"
+		Write-Host "       /cfe-borrow -ExtensionPath $ExtensionPath -ConfigPath <ConfigPath> -Object `"$objType.$objName.Form.$formName`""
+		Write-Host ""
+	}
+}
+
 # --- Check if file exists and append ---
 $bslDir = Split-Path $bslFile -Parent
 if (-not (Test-Path $bslDir)) {

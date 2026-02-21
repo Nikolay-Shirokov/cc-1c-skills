@@ -45,6 +45,11 @@ powershell.exe -NoProfile -File .claude/skills/form-info/scripts/form-info.ps1 -
 === Form: ФормаДокумента — "Реализация товаров и услуг" (Documents.РеализацияТоваровУслуг) ===
 ```
 
+Для заимствованных форм расширения (с `<BaseForm>`):
+```
+=== Form: ФормаЭлемента [EXTENSION] (Catalogs.Валюты) ===
+```
+
 Имя формы, заголовок (Title) и контекст объекта определяются из пути к файлу и XML.
 
 ### Properties — свойства формы
@@ -61,6 +66,13 @@ Properties: AutoTitle=false, WindowOpeningMode=LockOwnerWindow, CommandBarLocati
 Events:
   OnCreateAtServer -> ПриСозданииНаСервере
   OnOpen -> ПриОткрытии
+```
+
+Для расширений с callType:
+```
+Events:
+  OnCreateAtServer[After] -> Расш1_ПриСозданииПосле
+  OnOpen[Before] -> Расш1_ПриОткрытии
 ```
 
 ### Elements — дерево UI-элементов
@@ -114,7 +126,7 @@ Elements:
 
 **Привязка к команде**: `-> ИмяКоманды [cmd]` — команда формы, `-> Close [std]` — стандартная команда
 
-**События**: `{OnChange, StartChoice}` — имена обработчиков
+**События**: `{OnChange, StartChoice}` — имена обработчиков; `{OnChange[Before]}` — с callType для расширений
 
 **Заголовок**: `[title:Текст]` — только если отличается от имени элемента
 
@@ -151,7 +163,20 @@ Commands:
   Заполнить -> ЗаполнитьОбработка
 ```
 
+Для расширений с callType на Action:
+```
+Commands:
+  Подбор -> Расш1_ПодборПеред[Before], Расш1_ПодборПосле[After]
+```
+
 Формат: `Имя -> Обработчик [Сочетание]`
+
+### BaseForm (расширения)
+
+Для заимствованных форм в конце выводится:
+```
+BaseForm: present (version 2.17)
+```
 
 ## Что пропускается
 

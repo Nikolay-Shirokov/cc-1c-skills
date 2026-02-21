@@ -110,6 +110,16 @@ $script:nextElemId++
 $script:nextAttrId++
 $script:nextCmdId++
 
+# --- 4b. Auto-detect extension mode (BaseForm present) ---
+$script:isExtension = $false
+$baseForm = $root.SelectSingleNode("f:BaseForm", $nsMgr)
+if ($baseForm) {
+	$script:isExtension = $true
+	if ($script:nextAttrId -lt 1000000) { $script:nextAttrId = 1000000 }
+	if ($script:nextCmdId -lt 1000000) { $script:nextCmdId = 1000000 }
+	if ($script:nextElemId -lt 1000000) { $script:nextElemId = 1000000 }
+}
+
 function New-ElemId { $id = $script:nextElemId; $script:nextElemId++; return $id }
 function New-AttrId { $id = $script:nextAttrId; $script:nextAttrId++; return $id }
 function New-CmdId { $id = $script:nextCmdId; $script:nextCmdId++; return $id }
@@ -260,18 +270,29 @@ function Emit-Events {
 	if ($typeKey -and $script:knownEvents.ContainsKey($typeKey)) {
 		$allowed = $script:knownEvents[$typeKey]
 		foreach ($evt in $el.on) {
-			if ($allowed.Count -gt 0 -and $allowed -notcontains "$evt") {
-				Write-Host "[WARN] Unknown event '$evt' for $typeKey '$elementName'. Known: $($allowed -join ', ')"
+			$evtStr = if ($evt -is [string]) { "$evt" } else { "$($evt.event)" }
+			if ($allowed.Count -gt 0 -and $allowed -notcontains $evtStr) {
+				Write-Host "[WARN] Unknown event '$evtStr' for $typeKey '$elementName'. Known: $($allowed -join ', ')"
 			}
 		}
 	}
 
 	X "$indent<Events>"
 	foreach ($evt in $el.on) {
-		$evtName = "$evt"
-		$handler = if ($el.handlers -and $el.handlers.$evtName) { "$($el.handlers.$evtName)" }
-		else { Get-HandlerName -elementName $elementName -eventName $evtName }
-		X "$indent`t<Event name=`"$evtName`">$handler</Event>"
+		# Support both string ("OnChange") and object ({ "event": "OnChange", "callType": "After" })
+		if ($evt -is [string] -or -not $evt.event) {
+			$evtName = "$evt"
+			$handler = if ($el.handlers -and $el.handlers.$evtName) { "$($el.handlers.$evtName)" }
+			else { Get-HandlerName -elementName $elementName -eventName $evtName }
+			X "$indent`t<Event name=`"$evtName`">$handler</Event>"
+		} else {
+			$evtName = "$($evt.event)"
+			$handler = if ($evt.handler) { "$($evt.handler)" }
+			elseif ($el.handlers -and $el.handlers.$evtName) { "$($el.handlers.$evtName)" }
+			else { Get-HandlerName -elementName $elementName -eventName $evtName }
+			$callTypeAttr = if ($evt.callType) { " callType=`"$($evt.callType)`"" } else { "" }
+			X "$indent`t<Event name=`"$evtName`"$callTypeAttr>$handler</Event>"
+		}
 	}
 	X "$indent</Events>"
 }
@@ -964,7 +985,20 @@ if ($def.commands -and $def.commands.Count -gt 0) {
 		$inner = "$cmdChildIndent`t"
 
 		if ($cmd.title) { Emit-MLText -tag "Title" -text "$($cmd.title)" -indent $inner }
-		if ($cmd.action) { X "$inner<Action>$($cmd.action)</Action>" }
+
+		# Support single action with optional callType, or multiple actions
+		if ($cmd.actions) {
+			# Multiple actions: [{ "callType": "Before", "handler": "..." }, ...]
+			foreach ($act in $cmd.actions) {
+				$actHandler = "$($act.handler)"
+				$callTypeAttr = if ($act.callType) { " callType=`"$($act.callType)`"" } else { "" }
+				X "$inner<Action$callTypeAttr>$actHandler</Action>"
+			}
+		} elseif ($cmd.action) {
+			$callTypeAttr = if ($cmd.callType) { " callType=`"$($cmd.callType)`"" } else { "" }
+			X "$inner<Action$callTypeAttr>$($cmd.action)</Action>"
+		}
+
 		if ($cmd.shortcut) { X "$inner<Shortcut>$($cmd.shortcut)</Shortcut>" }
 		if ($cmd.picture) {
 			X "$inner<Picture>"
@@ -975,7 +1009,7 @@ if ($def.commands -and $def.commands.Count -gt 0) {
 		if ($cmd.representation) { X "$inner<Representation>$($cmd.representation)</Representation>" }
 
 		X "$cmdChildIndent</Command>"
-		$actionStr = if ($cmd.action) { " -> $($cmd.action)" } else { "" }
+		$actionStr = if ($cmd.action) { " -> $($cmd.action)" } elseif ($cmd.actions) { " -> $($cmd.actions.Count) action(s)" } else { "" }
 		$addedCmds += "  + ${cmdName}${actionStr} (id=$cmdId)"
 	}
 	X "</_F>"
@@ -985,6 +1019,127 @@ if ($def.commands -and $def.commands.Count -gt 0) {
 
 	foreach ($node in $importedCmds) {
 		Insert-IntoContainer -container $cmdsSection -newNode $node -afterName $null -childIndent $cmdChildIndent
+	}
+}
+
+# === 12b. Add form-level events ===
+
+$addedFormEvents = @()
+
+if ($def.formEvents -and $def.formEvents.Count -gt 0) {
+	$eventsSection = $root.SelectSingleNode("f:Events", $nsMgr)
+	if (-not $eventsSection) {
+		# Create Events section — insert after AutoCommandBar or at the beginning
+		$eventsSection = $xmlDoc.CreateElement("Events", $formNs)
+		$insertAfter = $root.SelectSingleNode("f:AutoCommandBar", $nsMgr)
+		if ($insertAfter) {
+			$refNode = $insertAfter
+			$ws = $xmlDoc.CreateWhitespace("`r`n`t")
+			# Insert before the AutoCommandBar (Events come before AutoCommandBar in 1C)
+			$root.InsertBefore($ws, $refNode) | Out-Null
+			$root.InsertBefore($eventsSection, $refNode) | Out-Null
+		} else {
+			$firstChild = $root.FirstChild
+			if ($firstChild) {
+				$ws = $xmlDoc.CreateWhitespace("`r`n`t")
+				$root.InsertBefore($eventsSection, $firstChild) | Out-Null
+				$root.InsertBefore($ws, $eventsSection) | Out-Null
+			} else {
+				$root.AppendChild($xmlDoc.CreateWhitespace("`r`n`t")) | Out-Null
+				$root.AppendChild($eventsSection) | Out-Null
+			}
+		}
+	}
+
+	$evtChildIndent = Get-ChildIndent $eventsSection
+	if (-not $evtChildIndent -or $evtChildIndent -eq "") { $evtChildIndent = "`t`t" }
+
+	# Generate event fragments
+	$script:xml = New-Object System.Text.StringBuilder 512
+	X "<_F $allNsDecl>"
+	foreach ($fe in $def.formEvents) {
+		$feName = "$($fe.name)"
+		$feHandler = "$($fe.handler)"
+		$callTypeAttr = if ($fe.callType) { " callType=`"$($fe.callType)`"" } else { "" }
+		X "$evtChildIndent<Event name=`"$feName`"$callTypeAttr>$feHandler</Event>"
+		$ctStr = if ($fe.callType) { "[$($fe.callType)]" } else { "" }
+		$addedFormEvents += "  + $feName${ctStr} -> $feHandler"
+	}
+	X "</_F>"
+
+	$fragDoc = Parse-Fragment $script:xml.ToString()
+	$importedEvents = Import-ElementNodes $fragDoc
+
+	foreach ($node in $importedEvents) {
+		Insert-IntoContainer -container $eventsSection -newNode $node -afterName $null -childIndent $evtChildIndent
+	}
+}
+
+# === 12c. Add element-level events ===
+
+$addedElemEvents = @()
+
+if ($def.elementEvents -and $def.elementEvents.Count -gt 0) {
+	if (-not $rootCI) {
+		$rootCI = $root.SelectSingleNode("f:ChildItems", $nsMgr)
+	}
+
+	foreach ($ee in $def.elementEvents) {
+		$targetName = "$($ee.element)"
+		$targetEl = Find-Element $rootCI $targetName
+		if (-not $targetEl) {
+			Write-Host "[WARN] Element '$targetName' not found — skipping elementEvent"
+			continue
+		}
+
+		# Find or create Events element within the target
+		$targetEvents = $targetEl.SelectSingleNode("f:Events", $nsMgr)
+		if (-not $targetEvents) {
+			$targetEvents = $xmlDoc.CreateElement("Events", $formNs)
+			# Insert Events before closing tag (after last property, before ChildItems if any)
+			$ciNode = $targetEl.SelectSingleNode("f:ChildItems", $nsMgr)
+			if ($ciNode) {
+				$ws = $xmlDoc.CreateWhitespace("`r`n" + (Get-ChildIndent $targetEl))
+				$targetEl.InsertBefore($ws, $ciNode) | Out-Null
+				$targetEl.InsertBefore($targetEvents, $ciNode) | Out-Null
+			} else {
+				$trailing = $targetEl.LastChild
+				if ($trailing -and ($trailing.NodeType -eq 'Whitespace' -or $trailing.NodeType -eq 'SignificantWhitespace')) {
+					$ws = $xmlDoc.CreateWhitespace("`r`n" + (Get-ChildIndent $targetEl))
+					$targetEl.InsertBefore($ws, $trailing) | Out-Null
+					$targetEl.InsertBefore($targetEvents, $trailing) | Out-Null
+				} else {
+					$targetEl.AppendChild($xmlDoc.CreateWhitespace("`r`n" + (Get-ChildIndent $targetEl))) | Out-Null
+					$targetEl.AppendChild($targetEvents) | Out-Null
+				}
+			}
+		}
+
+		$eeChildIndent = Get-ChildIndent $targetEvents
+		if (-not $eeChildIndent -or $eeChildIndent -eq "") {
+			$parentIndent = Get-ChildIndent $targetEl
+			$eeChildIndent = "$parentIndent`t"
+		}
+
+		# Create Event element
+		$eeName = "$($ee.name)"
+		$eeHandler = "$($ee.handler)"
+		$callTypeAttr = if ($ee.callType) { " callType=`"$($ee.callType)`"" } else { "" }
+
+		$script:xml = New-Object System.Text.StringBuilder 256
+		X "<_F $allNsDecl>"
+		X "$eeChildIndent<Event name=`"$eeName`"$callTypeAttr>$eeHandler</Event>"
+		X "</_F>"
+
+		$fragDoc = Parse-Fragment $script:xml.ToString()
+		$importedEE = Import-ElementNodes $fragDoc
+
+		foreach ($node in $importedEE) {
+			Insert-IntoContainer -container $targetEvents -newNode $node -afterName $null -childIndent $eeChildIndent
+		}
+
+		$ctStr = if ($ee.callType) { "[$($ee.callType)]" } else { "" }
+		$addedElemEvents += "  + $targetName.$eeName${ctStr} -> $eeHandler"
 	}
 }
 
@@ -998,6 +1153,23 @@ $enc = New-Object System.Text.UTF8Encoding($true)
 [System.IO.File]::WriteAllText($resolvedFormPath, $content, $enc)
 
 # === 14. Summary ===
+
+if ($script:isExtension) {
+	Write-Host "[EXTENSION] BaseForm detected — IDs start at 1000000+"
+	Write-Host ""
+}
+
+if ($addedFormEvents.Count -gt 0) {
+	Write-Host "Added form events:"
+	foreach ($line in $addedFormEvents) { Write-Host $line }
+	Write-Host ""
+}
+
+if ($addedElemEvents.Count -gt 0) {
+	Write-Host "Added element events:"
+	foreach ($line in $addedElemEvents) { Write-Host $line }
+	Write-Host ""
+}
 
 if ($addedElems.Count -gt 0) {
 	$posStr = ""
@@ -1023,6 +1195,8 @@ if ($addedCmds.Count -gt 0) {
 
 Write-Host "---"
 $totalParts = @()
+if ($addedFormEvents.Count -gt 0) { $totalParts += "$($addedFormEvents.Count) form event(s)" }
+if ($addedElemEvents.Count -gt 0) { $totalParts += "$($addedElemEvents.Count) element event(s)" }
 if ($addedElems.Count -gt 0) {
 	$compStr = if ($companionCount -gt 0) { " (+$companionCount companions)" } else { "" }
 	$totalParts += "$($addedElems.Count) element(s)$compStr"

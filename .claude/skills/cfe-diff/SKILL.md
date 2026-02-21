@@ -38,8 +38,17 @@ powershell.exe -NoProfile -File .claude/skills/cfe-diff/scripts/cfe-diff.ps1 -Ex
            &ИзменениеИКонтроль("РеквизитыРедактируемыеВГрупповойОбработке") — line 4 in ...
            &Перед("ЗагрузитьКурсыВалют") — line 13 in ...
            ChildObjects: 1 own attrs, 1 own TS, 3 own forms
+           Form.ФормаЭлемента (borrowed):
+             Event:OnCreateAtServer [After] -> Расш1_ПриСозданииПосле
+             Command:Подбор [Before] -> Расш1_ПодборПеред
+           Form.Расш1_МояФорма (own)
 [OWN]      Catalog.Расш5_Справочник1
 ```
+
+Для каждой формы заимствованного объекта показывается:
+- `(borrowed)` / `(own)` — заимствованная или собственная форма
+- callType-события формы и элементов
+- callType на командах
 
 ## Mode B — проверка переноса
 

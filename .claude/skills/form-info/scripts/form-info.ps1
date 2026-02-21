@@ -35,6 +35,10 @@ $ns.AddNamespace("dcsset", "http://v8.1c.ru/8.1/data-composition-system/settings
 
 $root = $xmlDoc.DocumentElement
 
+# --- Detect extension (BaseForm) ---
+$baseFormNode = $root.SelectSingleNode("d:BaseForm", $ns)
+$isExtension = ($baseFormNode -ne $null)
+
 # --- Helper: extract multilang text ---
 
 function Get-MLText($node) {
@@ -140,7 +144,10 @@ function Get-EventsStr($node) {
 	if (-not $eventsNode) { return "" }
 	$evts = @()
 	foreach ($e in $eventsNode.SelectNodes("d:Event", $ns)) {
-		$evts += $e.GetAttribute("name")
+		$eName = $e.GetAttribute("name")
+		$ct = $e.GetAttribute("callType")
+		if ($ct) { $evts += "$eName[$ct]" }
+		else { $evts += $eName }
 	}
 	if ($evts.Count -eq 0) { return "" }
 	return " {$($evts -join ', ')}"
@@ -340,7 +347,8 @@ if ($titleNode) {
 	$formTitle = Get-MLText $titleNode
 	if (-not $formTitle) { $formTitle = $titleNode.InnerText }
 }
-$header = "=== Form: $formName"
+$extMarker = if ($isExtension) { " [EXTENSION]" } else { "" }
+$header = "=== Form: $formName$extMarker"
 if ($formTitle) { $header += " — `"$formTitle`"" }
 if ($objectContext) { $header += " ($objectContext)" }
 $header += " ==="
@@ -390,7 +398,9 @@ if ($formEvents -and $formEvents.HasChildNodes) {
 	foreach ($e in $formEvents.SelectNodes("d:Event", $ns)) {
 		$eName = $e.GetAttribute("name")
 		$eHandler = $e.InnerText
-		$lines += "  $eName -> $eHandler"
+		$ct = $e.GetAttribute("callType")
+		$ctStr = if ($ct) { "[$ct]" } else { "" }
+		$lines += "  $eName${ctStr} -> $eHandler"
 	}
 }
 
@@ -491,11 +501,26 @@ if ($cmdsNode) {
 	$cmdLines = @()
 	foreach ($cmd in $cmdsNode.SelectNodes("d:Command", $ns)) {
 		$cName = $cmd.GetAttribute("name")
-		$action = $cmd.SelectSingleNode("d:Action", $ns)
 		$shortcut = $cmd.SelectSingleNode("d:Shortcut", $ns)
-
-		$actionStr = if ($action) { " -> $($action.InnerText)" } else { "" }
 		$scStr = if ($shortcut) { " [$($shortcut.InnerText)]" } else { "" }
+
+		# Collect all Action elements (may have multiple with callType)
+		$actions = $cmd.SelectNodes("d:Action", $ns)
+		if ($actions.Count -gt 1) {
+			$actParts = @()
+			foreach ($a in $actions) {
+				$ct = $a.GetAttribute("callType")
+				$ctStr = if ($ct) { "[$ct]" } else { "" }
+				$actParts += "$($a.InnerText)$ctStr"
+			}
+			$actionStr = " -> $($actParts -join ', ')"
+		} elseif ($actions.Count -eq 1) {
+			$ct = $actions[0].GetAttribute("callType")
+			$ctStr = if ($ct) { "[$ct]" } else { "" }
+			$actionStr = " -> $($actions[0].InnerText)$ctStr"
+		} else {
+			$actionStr = ""
+		}
 
 		$cmdLines += "  $cName$actionStr$scStr"
 	}
@@ -504,6 +529,15 @@ if ($cmdsNode) {
 		$lines += "Commands:"
 		$lines += $cmdLines
 	}
+}
+
+# --- BaseForm footer ---
+
+if ($isExtension) {
+	$bfVersion = $baseFormNode.GetAttribute("version")
+	$bfStr = if ($bfVersion) { "present (version $bfVersion)" } else { "present" }
+	$lines += ""
+	$lines += "BaseForm: $bfStr"
 }
 
 # --- Truncation protection ---
