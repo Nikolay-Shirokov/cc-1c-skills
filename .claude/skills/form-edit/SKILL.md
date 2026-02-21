@@ -50,6 +50,32 @@ powershell.exe -NoProfile -File .claude/skills/form-edit/scripts/form-edit.ps1 -
 }
 ```
 
+### Расширения (extension-формы)
+
+Для заимствованных форм (с `<BaseForm>`) автоматически активируется extension-режим: ID начинаются с 1000000+. Доступны дополнительные секции:
+
+```json
+{
+  "formEvents": [
+    { "name": "OnCreateAtServer", "handler": "Расш1_ПриСозданииПосле", "callType": "After" },
+    { "name": "OnOpen", "handler": "Расш1_ПриОткрытии", "callType": "Before" }
+  ],
+  "elementEvents": [
+    { "element": "Банк", "name": "OnChange", "handler": "Расш1_БанкПриИзменении", "callType": "Before" }
+  ],
+  "commands": [
+    { "name": "Подбор", "action": "Расш1_ПодборПосле", "callType": "After" },
+    { "name": "Запрос", "actions": [
+      { "callType": "Before", "handler": "Расш1_ЗапросПеред" },
+      { "callType": "After", "handler": "Расш1_ЗапросПосле" }
+    ]}
+  ],
+  "elements": [
+    { "input": "Поле", "path": "Объект.Поле", "on": [{ "event": "OnChange", "callType": "After" }] }
+  ]
+}
+```
+
 ### Позиционирование элементов
 
 | Ключ | По умолчанию | Описание |
@@ -96,19 +122,35 @@ powershell.exe -NoProfile -File .claude/skills/form-edit/scripts/form-edit.ps1 -
 
 `string`, `string(100)`, `decimal(15,2)`, `boolean`, `date`, `dateTime`, `CatalogRef.XXX`, `DocumentObject.XXX`, `ValueTable`, `DynamicList`, `Type1 | Type2` (составной).
 
+### Секции расширений
+
+| Секция | Назначение |
+|--------|-----------|
+| `formEvents` | События уровня формы с `callType` (Before/After/Override) |
+| `elementEvents` | События на существующих элементах заимствованной формы |
+| `callType` на `commands` | callType на Action команды |
+| `callType` на `on` | callType на событиях новых элементов (объектный формат) |
+
+Все extension-секции опциональны — без них навык работает как с обычными формами.
+
 ## Вывод
 
 ```
 === form-edit: Форма ===
 
+[EXTENSION] BaseForm detected — IDs start at 1000000+
+
+Added form events:
+  + OnCreateAtServer[After] -> Расш1_ПриСозданииПосле
+
 Added elements (into ГруппаШапка, after Контрагент):
   + [Input] Склад -> Объект.Склад {OnChange}
 
 Added attributes:
-  + СуммаИтого: decimal(15,2) (id=12)
+  + СуммаИтого: decimal(15,2) (id=1000000)
 
 ---
-Total: 1 element(s) (+2 companions), 1 attribute(s)
+Total: 1 form event(s), 1 element(s) (+2 companions), 1 attribute(s)
 Run /form-validate to verify.
 ```
 

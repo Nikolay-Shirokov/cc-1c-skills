@@ -249,10 +249,12 @@ $script:generatedTypes = @{
 		@{ prefix = "DocumentJournalManager";   category = "Manager" }
 	)
 	"Report" = @(
-		@{ prefix = "ReportObject"; category = "Object" }
+		@{ prefix = "ReportObject";  category = "Object" }
+		@{ prefix = "ReportManager"; category = "Manager" }
 	)
 	"DataProcessor" = @(
-		@{ prefix = "DataProcessorObject"; category = "Object" }
+		@{ prefix = "DataProcessorObject";  category = "Object" }
+		@{ prefix = "DataProcessorManager"; category = "Manager" }
 	)
 }
 
@@ -382,6 +384,300 @@ function Read-SourceObject {
 		Element = $srcEl
 		NsManager = $srcNs
 	}
+}
+
+# --- 10b. Helper: read source form UUID ---
+function Read-SourceFormUuid {
+	param([string]$typeName, [string]$objName, [string]$formName)
+
+	$dirName = $childTypeDirMap[$typeName]
+	$srcFile = Join-Path (Join-Path (Join-Path (Join-Path $cfgDir $dirName) $objName) "Forms") "${formName}.xml"
+	if (-not (Test-Path $srcFile)) {
+		Write-Error "Source form not found: $srcFile"
+		exit 1
+	}
+
+	$srcDoc = New-Object System.Xml.XmlDocument
+	$srcDoc.PreserveWhitespace = $false
+	$srcDoc.Load($srcFile)
+
+	$srcEl = $null
+	foreach ($c in $srcDoc.DocumentElement.ChildNodes) {
+		if ($c.NodeType -eq 'Element') { $srcEl = $c; break }
+	}
+	if (-not $srcEl) {
+		Write-Error "No metadata element found in source form: $srcFile"
+		exit 1
+	}
+
+	$srcUuid = $srcEl.GetAttribute("uuid")
+	if (-not $srcUuid) {
+		Write-Error "No uuid attribute on source form element: $srcFile"
+		exit 1
+	}
+
+	return $srcUuid
+}
+
+# --- 10c. Helper: borrow a form ---
+function Borrow-Form {
+	param([string]$typeName, [string]$objName, [string]$formName)
+
+	$dirName = $childTypeDirMap[$typeName]
+	$enc = New-Object System.Text.UTF8Encoding($true)
+
+	# 1. Read source form UUID
+	$formUuid = Read-SourceFormUuid $typeName $objName $formName
+	Info "  Source form UUID: $formUuid"
+
+	# 2. Read source Form.xml content
+	$srcFormXmlPath = Join-Path (Join-Path (Join-Path (Join-Path (Join-Path $cfgDir $dirName) $objName) "Forms") $formName) "Ext/Form.xml"
+	if (-not (Test-Path $srcFormXmlPath)) {
+		Write-Error "Source Form.xml not found: $srcFormXmlPath"
+		exit 1
+	}
+	$srcFormContent = [System.IO.File]::ReadAllText($srcFormXmlPath, $enc)
+
+	# 3. Generate form metadata XML (ФормаЭлемента.xml)
+	$newFormUuid = [guid]::NewGuid().ToString()
+	$formMetaSb = New-Object System.Text.StringBuilder
+	$formMetaSb.AppendLine("<?xml version=`"1.0`" encoding=`"UTF-8`"?>") | Out-Null
+	$formMetaSb.AppendLine("<MetaDataObject $($script:xmlnsDecl) version=`"2.17`">") | Out-Null
+	$formMetaSb.AppendLine("`t<Form uuid=`"${newFormUuid}`">") | Out-Null
+	$formMetaSb.AppendLine("`t`t<InternalInfo/>") | Out-Null
+	$formMetaSb.AppendLine("`t`t<Properties>") | Out-Null
+	$formMetaSb.AppendLine("`t`t`t<ObjectBelonging>Adopted</ObjectBelonging>") | Out-Null
+	$formMetaSb.AppendLine("`t`t`t<Name>${formName}</Name>") | Out-Null
+	$formMetaSb.AppendLine("`t`t`t<Comment/>") | Out-Null
+	$formMetaSb.AppendLine("`t`t`t<ExtendedConfigurationObject>${formUuid}</ExtendedConfigurationObject>") | Out-Null
+	$formMetaSb.AppendLine("`t`t`t<FormType>Managed</FormType>") | Out-Null
+	$formMetaSb.AppendLine("`t`t</Properties>") | Out-Null
+	$formMetaSb.AppendLine("`t</Form>") | Out-Null
+	$formMetaSb.Append("</MetaDataObject>") | Out-Null
+
+	# 4. Create directories
+	$formMetaDir = Join-Path (Join-Path (Join-Path $extDir $dirName) $objName) "Forms"
+	if (-not (Test-Path $formMetaDir)) {
+		New-Item -ItemType Directory -Path $formMetaDir -Force | Out-Null
+	}
+
+	# Write form metadata
+	$formMetaFile = Join-Path $formMetaDir "${formName}.xml"
+	[System.IO.File]::WriteAllText($formMetaFile, $formMetaSb.ToString(), $enc)
+	Info "  Created: $formMetaFile"
+
+	# 5. Generate Form.xml with BaseForm (visual elements only)
+	# Parse source Form.xml as XmlDocument
+	$srcFormDoc = New-Object System.Xml.XmlDocument
+	$srcFormDoc.PreserveWhitespace = $true
+	$srcFormDoc.Load($srcFormXmlPath)
+	$srcFormEl = $srcFormDoc.DocumentElement
+
+	$formVersion = $srcFormEl.GetAttribute("version")
+	if (-not $formVersion) { $formVersion = "2.17" }
+
+	# Find direct children: AutoCommandBar, ChildItems (visual elements only)
+	$srcAutoCmd = $null
+	$srcChildItems = $null
+	foreach ($fc in $srcFormEl.ChildNodes) {
+		if ($fc.NodeType -ne 'Element') { continue }
+		if ($fc.LocalName -eq 'AutoCommandBar' -and -not $srcAutoCmd) { $srcAutoCmd = $fc }
+		elseif ($fc.LocalName -eq 'ChildItems' -and -not $srcChildItems) { $srcChildItems = $fc }
+	}
+
+	# Get OuterXml and strip redundant namespace redeclarations (they're on root <Form>)
+	$nsStripPattern = '\s+xmlns(?::\w+)?="[^"]*"'
+
+	$autoCmdXml = ""
+	if ($srcAutoCmd) {
+		$autoCmdXml = $srcAutoCmd.OuterXml
+		$autoCmdXml = [regex]::Replace($autoCmdXml, $nsStripPattern, '')
+		# Replace all CommandName values with 0 (base form buttons lose command refs)
+		$autoCmdXml = [regex]::Replace($autoCmdXml, '<CommandName>[^<]*</CommandName>', '<CommandName>0</CommandName>')
+		# Replace Autofill true → false
+		$autoCmdXml = $autoCmdXml -replace '<Autofill>true</Autofill>', '<Autofill>false</Autofill>'
+	}
+
+	$childItemsXml = ""
+	if ($srcChildItems) {
+		$childItemsXml = $srcChildItems.OuterXml
+		$childItemsXml = [regex]::Replace($childItemsXml, $nsStripPattern, '')
+		# Replace all CommandName values with 0 in ChildItems too
+		$childItemsXml = [regex]::Replace($childItemsXml, '<CommandName>[^<]*</CommandName>', '<CommandName>0</CommandName>')
+	} else {
+		$childItemsXml = "<ChildItems/>"
+	}
+
+	# Extract the <Form ...> opening tag from source text (preserves namespace declarations)
+	$xmlDecl = '<?xml version="1.0" encoding="UTF-8"?>'
+	$formTag = "<Form version=`"${formVersion}`">"
+	if ($srcFormContent -match '(?s)^(<\?xml[^?]*\?>)') { $xmlDecl = $Matches[1] }
+	if ($srcFormContent -match '(<Form[^>]*>)') { $formTag = $Matches[1] }
+
+	# Build output Form.xml
+	$formXmlSb = New-Object System.Text.StringBuilder
+	$formXmlSb.Append($xmlDecl) | Out-Null
+	$formXmlSb.Append("`r`n") | Out-Null
+	$formXmlSb.Append($formTag) | Out-Null
+	$formXmlSb.Append("`r`n") | Out-Null
+
+	# Part 1: visual elements (add leading tab to first line of each block)
+	if ($autoCmdXml) {
+		$formXmlSb.Append("`t$autoCmdXml") | Out-Null
+		$formXmlSb.Append("`r`n") | Out-Null
+	}
+	$formXmlSb.Append("`t$childItemsXml") | Out-Null
+	$formXmlSb.Append("`r`n") | Out-Null
+	$formXmlSb.Append("`t<Attributes/>") | Out-Null
+	$formXmlSb.Append("`r`n") | Out-Null
+
+	# BaseForm: same visual elements, indented one more level
+	$formXmlSb.Append("`t<BaseForm version=`"${formVersion}`">") | Out-Null
+	$formXmlSb.Append("`r`n") | Out-Null
+
+	if ($autoCmdXml) {
+		# Reindent for BaseForm: first line gets 2 tabs, other lines get +1 tab
+		$acLines = $autoCmdXml -split "`r?`n"
+		for ($li = 0; $li -lt $acLines.Count; $li++) {
+			if ($li -eq 0) { $formXmlSb.Append("`t`t$($acLines[$li])") | Out-Null }
+			else { $formXmlSb.Append("`t$($acLines[$li])") | Out-Null }
+			$formXmlSb.Append("`r`n") | Out-Null
+		}
+	}
+
+	$ciLines = $childItemsXml -split "`r?`n"
+	for ($li = 0; $li -lt $ciLines.Count; $li++) {
+		if ($li -eq 0) { $formXmlSb.Append("`t`t$($ciLines[$li])") | Out-Null }
+		else { $formXmlSb.Append("`t$($ciLines[$li])") | Out-Null }
+		$formXmlSb.Append("`r`n") | Out-Null
+	}
+
+	$formXmlSb.Append("`t`t<Attributes/>") | Out-Null
+	$formXmlSb.Append("`r`n") | Out-Null
+	$formXmlSb.Append("`t</BaseForm>") | Out-Null
+	$formXmlSb.Append("`r`n") | Out-Null
+	$formXmlSb.Append("</Form>") | Out-Null
+
+	# Write Form.xml
+	$formXmlDir = Join-Path (Join-Path $formMetaDir $formName) "Ext"
+	if (-not (Test-Path $formXmlDir)) {
+		New-Item -ItemType Directory -Path $formXmlDir -Force | Out-Null
+	}
+	$formXmlFile = Join-Path $formXmlDir "Form.xml"
+	[System.IO.File]::WriteAllText($formXmlFile, $formXmlSb.ToString(), $enc)
+	Info "  Created: $formXmlFile"
+
+	# 6. Create empty Module.bsl
+	$moduleDir = Join-Path $formXmlDir "Form"
+	if (-not (Test-Path $moduleDir)) {
+		New-Item -ItemType Directory -Path $moduleDir -Force | Out-Null
+	}
+	$moduleBslFile = Join-Path $moduleDir "Module.bsl"
+	[System.IO.File]::WriteAllText($moduleBslFile, "", $enc)
+	Info "  Created: $moduleBslFile"
+
+	# 7. Register form in parent object ChildObjects
+	Register-FormInObject $typeName $objName $formName
+
+	return @($formMetaFile, $formXmlFile, $moduleBslFile)
+}
+
+# --- 10d. Helper: register form in parent object's ChildObjects ---
+function Register-FormInObject {
+	param([string]$typeName, [string]$objName, [string]$formName)
+
+	$dirName = $childTypeDirMap[$typeName]
+	$objFile = Join-Path (Join-Path $extDir $dirName) "${objName}.xml"
+
+	if (-not (Test-Path $objFile)) {
+		Warn "Parent object file not found: $objFile — form not registered in ChildObjects"
+		return
+	}
+
+	$objDoc = New-Object System.Xml.XmlDocument
+	$objDoc.PreserveWhitespace = $true
+	$objDoc.Load($objFile)
+
+	$objNs = New-Object System.Xml.XmlNamespaceManager($objDoc.NameTable)
+	$objNs.AddNamespace("md", "http://v8.1c.ru/8.3/MDClasses")
+
+	# Find the type element
+	$objEl = $null
+	foreach ($c in $objDoc.DocumentElement.ChildNodes) {
+		if ($c.NodeType -eq 'Element') { $objEl = $c; break }
+	}
+	if (-not $objEl) {
+		Warn "No type element in $objFile — form not registered"
+		return
+	}
+
+	# Find or create ChildObjects
+	$childObjs = $objEl.SelectSingleNode("md:ChildObjects", $objNs)
+	if (-not $childObjs) {
+		# Create ChildObjects element
+		$childObjs = $objDoc.CreateElement("ChildObjects", "http://v8.1c.ru/8.3/MDClasses")
+		$objEl.AppendChild($objDoc.CreateWhitespace("`r`n`t`t")) | Out-Null
+		$objEl.AppendChild($childObjs) | Out-Null
+		$objEl.AppendChild($objDoc.CreateWhitespace("`r`n`t")) | Out-Null
+	}
+
+	# Check dedup
+	foreach ($c in $childObjs.ChildNodes) {
+		if ($c.NodeType -eq 'Element' -and $c.LocalName -eq "Form" -and $c.InnerText -eq $formName) {
+			Warn "Form '$formName' already in ChildObjects of ${typeName}.${objName}"
+			return
+		}
+	}
+
+	# Expand self-closing if needed
+	if (-not $childObjs.HasChildNodes -or $childObjs.IsEmpty) {
+		$closeWs = $objDoc.CreateWhitespace("`r`n`t`t")
+		$childObjs.AppendChild($closeWs) | Out-Null
+	}
+
+	# Add <Form>formName</Form>
+	$formEl = $objDoc.CreateElement("Form", "http://v8.1c.ru/8.3/MDClasses")
+	$formEl.InnerText = $formName
+
+	$trailing = $childObjs.LastChild
+	$ws = $objDoc.CreateWhitespace("`r`n`t`t`t")
+	if ($trailing -and ($trailing.NodeType -eq 'Whitespace' -or $trailing.NodeType -eq 'SignificantWhitespace')) {
+		$childObjs.InsertBefore($ws, $trailing) | Out-Null
+		$childObjs.InsertBefore($formEl, $trailing) | Out-Null
+	} else {
+		$childObjs.AppendChild($ws) | Out-Null
+		$childObjs.AppendChild($formEl) | Out-Null
+	}
+
+	# Save object XML
+	$settings2 = New-Object System.Xml.XmlWriterSettings
+	$settings2.Encoding = New-Object System.Text.UTF8Encoding($true)
+	$settings2.Indent = $false
+	$settings2.NewLineHandling = [System.Xml.NewLineHandling]::None
+
+	$memStream2 = New-Object System.IO.MemoryStream
+	$writer2 = [System.Xml.XmlWriter]::Create($memStream2, $settings2)
+	$objDoc.Save($writer2)
+	$writer2.Flush(); $writer2.Close()
+
+	$bytes2 = $memStream2.ToArray()
+	$memStream2.Close()
+	$text2 = [System.Text.Encoding]::UTF8.GetString($bytes2)
+	if ($text2.Length -gt 0 -and $text2[0] -eq [char]0xFEFF) { $text2 = $text2.Substring(1) }
+	$text2 = $text2.Replace('encoding="utf-8"', 'encoding="UTF-8"')
+
+	$utf8Bom2 = New-Object System.Text.UTF8Encoding($true)
+	[System.IO.File]::WriteAllText($objFile, $text2, $utf8Bom2)
+	Info "  Registered form in: $objFile"
+}
+
+# --- 10e. Helper: check if object is already borrowed in extension ---
+function Test-ObjectBorrowed {
+	param([string]$typeName, [string]$objName)
+
+	$dirName = $childTypeDirMap[$typeName]
+	$objFile = Join-Path (Join-Path $extDir $dirName) "${objName}.xml"
+	return (Test-Path $objFile)
 }
 
 # --- 11. Helper: generate InternalInfo XML ---
@@ -534,11 +830,11 @@ $borrowedCount = 0
 foreach ($item in $items) {
 	$dotIdx = $item.IndexOf(".")
 	if ($dotIdx -lt 1) {
-		Write-Error "Invalid format '${item}', expected 'Type.Name'"
+		Write-Error "Invalid format '${item}', expected 'Type.Name' or 'Type.Name.Form.FormName'"
 		exit 1
 	}
 	$typeName = $item.Substring(0, $dotIdx)
-	$objName = $item.Substring($dotIdx + 1)
+	$remainder = $item.Substring($dotIdx + 1)
 
 	# Resolve Russian synonym to English type name
 	if ($synonymMap.ContainsKey($typeName)) { $typeName = $synonymMap[$typeName] }
@@ -548,34 +844,71 @@ foreach ($item in $items) {
 		exit 1
 	}
 
-	$dirName = $childTypeDirMap[$typeName]
-
-	Info "Borrowing ${typeName}.${objName}..."
-
-	# Read source object
-	$src = Read-SourceObject $typeName $objName
-	Info "  Source UUID: $($src.Uuid)"
-
-	# Build borrowed object XML
-	$borrowedXml = Build-BorrowedObjectXml $typeName $objName $src.Uuid $src.Properties
-
-	# Create directory in extension if needed
-	$targetDir = Join-Path $extDir $dirName
-	if (-not (Test-Path $targetDir)) {
-		New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
+	# Check for .Form. pattern: Type.ObjName.Form.FormName
+	$formName = $null
+	$formIdx = $remainder.IndexOf(".Form.")
+	if ($formIdx -gt 0) {
+		$objName = $remainder.Substring(0, $formIdx)
+		$formName = $remainder.Substring($formIdx + 6) # skip ".Form."
+	} else {
+		$objName = $remainder
 	}
 
-	# Write borrowed object XML with UTF-8 BOM
-	$targetFile = Join-Path $targetDir "${objName}.xml"
-	$enc = New-Object System.Text.UTF8Encoding($true)
-	[System.IO.File]::WriteAllText($targetFile, $borrowedXml, $enc)
-	Info "  Created: $targetFile"
+	$dirName = $childTypeDirMap[$typeName]
 
-	# Add to ChildObjects
-	Add-ToChildObjects $typeName $objName
+	if ($formName) {
+		# --- Form borrowing ---
+		Info "Borrowing form ${typeName}.${objName}.Form.${formName}..."
 
-	$borrowedFiles += $targetFile
-	$borrowedCount++
+		# Auto-borrow parent object if not yet borrowed
+		if (-not (Test-ObjectBorrowed $typeName $objName)) {
+			Info "  Parent object ${typeName}.${objName} not yet borrowed — borrowing first..."
+
+			$src = Read-SourceObject $typeName $objName
+			Info "  Source UUID: $($src.Uuid)"
+			$borrowedXml = Build-BorrowedObjectXml $typeName $objName $src.Uuid $src.Properties
+
+			$targetDir = Join-Path $extDir $dirName
+			if (-not (Test-Path $targetDir)) {
+				New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
+			}
+			$targetFile = Join-Path $targetDir "${objName}.xml"
+			$enc = New-Object System.Text.UTF8Encoding($true)
+			[System.IO.File]::WriteAllText($targetFile, $borrowedXml, $enc)
+			Info "  Created: $targetFile"
+
+			Add-ToChildObjects $typeName $objName
+			$borrowedFiles += $targetFile
+		}
+
+		# Borrow the form
+		$formFiles = Borrow-Form $typeName $objName $formName
+		$borrowedFiles += $formFiles
+		$borrowedCount++
+	} else {
+		# --- Object borrowing (existing logic) ---
+		Info "Borrowing ${typeName}.${objName}..."
+
+		$src = Read-SourceObject $typeName $objName
+		Info "  Source UUID: $($src.Uuid)"
+
+		$borrowedXml = Build-BorrowedObjectXml $typeName $objName $src.Uuid $src.Properties
+
+		$targetDir = Join-Path $extDir $dirName
+		if (-not (Test-Path $targetDir)) {
+			New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
+		}
+
+		$targetFile = Join-Path $targetDir "${objName}.xml"
+		$enc = New-Object System.Text.UTF8Encoding($true)
+		[System.IO.File]::WriteAllText($targetFile, $borrowedXml, $enc)
+		Info "  Created: $targetFile"
+
+		Add-ToChildObjects $typeName $objName
+
+		$borrowedFiles += $targetFile
+		$borrowedCount++
+	}
 }
 
 # --- 15. Save modified Configuration.xml ---

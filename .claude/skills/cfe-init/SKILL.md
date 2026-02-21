@@ -1,7 +1,7 @@
 ---
 name: cfe-init
 description: Создать расширение конфигурации 1С (CFE) — scaffold XML-исходников. Используй когда нужно создать новое расширение для исправления, доработки или дополнения конфигурации
-argument-hint: <Name> [-Purpose Patch|Customization|AddOn] [-CompatibilityMode Version8_3_24]
+argument-hint: <Name> [-ConfigPath <path>] [-Purpose Patch|Customization|AddOn] [-CompatibilityMode Version8_3_24]
 allowed-tools:
   - Bash
   - Read
@@ -14,13 +14,17 @@ allowed-tools:
 
 ## Подготовка
 
-Перед созданием расширения рекомендуется получить версию и режим совместимости базовой конфигурации:
+Если есть выгрузка базовой конфигурации, передай `-ConfigPath` — скрипт автоматически определит `CompatibilityMode` и UUID языка из базовой конфигурации.
 
-```
-/cf-info <ConfigPath> -Mode brief
-```
+### Авто-определение ConfigPath
 
-Это даст `CompatibilityMode` (передать в `-CompatibilityMode`) и версию конфигурации (для `-Version`, например `<ВерсияКонфигурации>.1`).
+Если пользователь не указал `-ConfigPath` — попробуй определить автоматически:
+1. Прочитай `.v8-project.json` из корня проекта
+2. Разреши целевую базу (по имени, ветке или `default` — алгоритм из `/db-list`)
+3. Если у базы есть поле `configSrc` — используй как `-ConfigPath`
+4. Если `configSrc` нет — спроси у пользователя
+
+Если `.v8-project.json` не найден и `-ConfigPath` не задан — расширение создастся с предупреждением (UUID языка = нули, CompatibilityMode по умолчанию).
 
 ## Параметры
 
@@ -34,6 +38,7 @@ allowed-tools:
 | `Version` | Версия расширения | — |
 | `Vendor` | Поставщик | — |
 | `CompatibilityMode` | Режим совместимости | `Version8_3_24` |
+| `ConfigPath` | Путь к выгрузке базовой конфигурации (авто-определяет CompatibilityMode и Language UUID) | — |
 | `NoRole` | Без основной роли | false |
 
 ## Команда
@@ -56,7 +61,10 @@ powershell.exe -NoProfile -File .claude/skills/cfe-init/scripts/cfe-init.ps1 -Na
 ## Примеры
 
 ```powershell
-# Расширение-исправление для ERP
+# Расширение для ERP с авто-определением совместимости из базовой конфигурации
+... -Name Расш1 -ConfigPath C:\WS\tasks\cfsrc\erp_8.3.24 -OutputDir src
+
+# Расширение-исправление с явным режимом совместимости
 ... -Name Расш1 -Purpose Patch -CompatibilityMode Version8_3_17 -OutputDir src
 
 # Расширение-доработка с версией

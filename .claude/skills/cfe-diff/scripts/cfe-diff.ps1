@@ -210,6 +210,63 @@ function Get-InsertionBlocks {
 	return $blocks
 }
 
+# --- Helper: analyze form for callType events and commands ---
+function Get-FormInterceptors {
+	param([string]$formXmlPath)
+
+	if (-not (Test-Path $formXmlPath)) { return $null }
+
+	$formDoc = New-Object System.Xml.XmlDocument
+	$formDoc.PreserveWhitespace = $false
+	try { $formDoc.Load($formXmlPath) } catch { return $null }
+
+	$fNs = New-Object System.Xml.XmlNamespaceManager($formDoc.NameTable)
+	$fNs.AddNamespace("f", "http://v8.1c.ru/8.3/xcf/logform")
+
+	$fRoot = $formDoc.DocumentElement
+	$baseForm = $fRoot.SelectSingleNode("f:BaseForm", $fNs)
+	$isBorrowed = ($baseForm -ne $null)
+
+	$interceptors = @()
+
+	# Form-level events with callType
+	$eventsNode = $fRoot.SelectSingleNode("f:Events", $fNs)
+	if ($eventsNode) {
+		foreach ($evt in $eventsNode.SelectNodes("f:Event", $fNs)) {
+			$ct = $evt.GetAttribute("callType")
+			if ($ct) {
+				$interceptors += "Event:$($evt.GetAttribute('name')) [$ct] -> $($evt.InnerText)"
+			}
+		}
+	}
+
+	# Element-level events with callType (scan all elements recursively)
+	$childItems = $fRoot.SelectSingleNode("f:ChildItems", $fNs)
+	if ($childItems) {
+		foreach ($evtNode in $childItems.SelectNodes(".//*[f:Events/f:Event[@callType]]", $fNs)) {
+			$elName = $evtNode.GetAttribute("name")
+			foreach ($evt in $evtNode.SelectNodes("f:Events/f:Event[@callType]", $fNs)) {
+				$ct = $evt.GetAttribute("callType")
+				$interceptors += "Element:${elName}.$($evt.GetAttribute('name')) [$ct] -> $($evt.InnerText)"
+			}
+		}
+	}
+
+	# Commands with callType on Action
+	foreach ($cmd in $fRoot.SelectNodes("f:Commands/f:Command", $fNs)) {
+		$cmdName = $cmd.GetAttribute("name")
+		foreach ($action in $cmd.SelectNodes("f:Action[@callType]", $fNs)) {
+			$ct = $action.GetAttribute("callType")
+			$interceptors += "Command:$cmdName [$ct] -> $($action.InnerText)"
+		}
+	}
+
+	return @{
+		IsBorrowed = $isBorrowed
+		Interceptors = $interceptors
+	}
+}
+
 # ============================================================
 # MODE A: Extension overview
 # ============================================================
@@ -255,6 +312,7 @@ if ($Mode -eq "A") {
 					$ownForms = 0
 					$ownTS = 0
 					$borrowedItems = 0
+					$formNames = @()
 					foreach ($c in $childObj.ChildNodes) {
 						if ($c.NodeType -ne 'Element') { continue }
 						$cProps = $c.SelectSingleNode("md:Properties", $info.ObjNs)
@@ -268,7 +326,7 @@ if ($Mode -eq "A") {
 						switch ($c.LocalName) {
 							"Attribute" { $ownAttrs++ }
 							"TabularSection" { $ownTS++ }
-							"Form" { $ownForms++ }
+							"Form" { $formNames += $c.InnerText; $ownForms++ }
 						}
 					}
 					$parts = @()
@@ -278,6 +336,27 @@ if ($Mode -eq "A") {
 					if ($borrowedItems -gt 0) { $parts += "$borrowedItems borrowed items" }
 					if ($parts.Count -gt 0) {
 						Write-Host "             ChildObjects: $($parts -join ', ')"
+					}
+
+					# Analyze forms
+					$borrowedFormCount = 0
+					$ownFormCount = 0
+					foreach ($fn in $formNames) {
+						$formXmlPath = Join-Path (Join-Path (Join-Path (Join-Path (Join-Path $ExtensionPath $info.DirName) $info.Name) "Forms") $fn) "Ext/Form.xml"
+						$fi = Get-FormInterceptors $formXmlPath
+						if (-not $fi) {
+							Write-Host "             Form.$fn (?)"
+							continue
+						}
+						$formTag = if ($fi.IsBorrowed) { "borrowed"; $borrowedFormCount++ } else { "own"; $ownFormCount++ }
+						if ($fi.Interceptors.Count -gt 0) {
+							Write-Host "             Form.$fn ($formTag):"
+							foreach ($ic in $fi.Interceptors) {
+								Write-Host "               $ic"
+							}
+						} else {
+							Write-Host "             Form.$fn ($formTag)"
+						}
 					}
 				}
 			}

@@ -257,8 +257,8 @@ Ext/                               # Расширение конфигураци
 | Task | Object, Ref, Selection, List, Manager |
 | ExchangePlan | Object, Ref, Selection, List, Manager |
 | DocumentJournal | Selection, List, Manager |
-| Report | Object |
-| DataProcessor | Object |
+| Report | Object, Manager |
+| DataProcessor | Object, Manager |
 
 Формат имени: `{ТипОбъектаEng}.{ИмяОбъекта}` (напр. `CatalogObject.Номенклатура`, `DocumentRef.АвансовыйОтчет`).
 

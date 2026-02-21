@@ -76,6 +76,9 @@ if ($parentDir) {
 Write-Host "=== Validation: $formName ==="
 Write-Host ""
 
+# Early BaseForm detection (used in Check 5 to skip base element DataPath validation)
+$hasBaseForm = ($root.SelectSingleNode("f:BaseForm", $nsMgr) -ne $null)
+
 # --- Check 1: Root element and version ---
 
 if ($root.LocalName -ne "Form") {
@@ -297,6 +300,7 @@ if (-not $stopped) {
 if (-not $stopped) {
 	$pathErrors = 0
 	$pathChecked = 0
+	$pathBaseSkipped = 0
 
 	foreach ($el in $allElements) {
 		if ($stopped) { break }
@@ -307,6 +311,11 @@ if (-not $stopped) {
 		# Skip companion elements
 		if ($tag -in @("ContextMenu", "ExtendedTooltip", "AutoCommandBar", "SearchStringAddition", "ViewStatusAddition", "SearchControlAddition")) {
 			continue
+		}
+
+		# In borrowed forms, skip DataPath check for base elements (id < 1000000)
+		if ($hasBaseForm -and $el.Id) {
+			try { if ([int]$el.Id -lt 1000000) { $pathBaseSkipped++; continue } } catch {}
 		}
 
 		$dpNode = $node.SelectSingleNode("f:DataPath", $nsMgr)
@@ -328,9 +337,15 @@ if (-not $stopped) {
 		}
 	}
 
-	if ($pathErrors -eq 0 -and $pathChecked -gt 0) {
-		Report-OK "DataPath references: $pathChecked paths checked"
-	} elseif ($pathChecked -eq 0) {
+	$pathMsg = ""
+	if ($pathChecked -gt 0) { $pathMsg = "$pathChecked paths checked" }
+	if ($pathBaseSkipped -gt 0) {
+		$skipNote = "$pathBaseSkipped base skipped"
+		$pathMsg = if ($pathMsg) { "$pathMsg, $skipNote" } else { $skipNote }
+	}
+	if ($pathErrors -eq 0 -and $pathMsg) {
+		Report-OK "DataPath references: $pathMsg"
+	} elseif ($pathErrors -eq 0) {
 		Report-OK "DataPath references: none"
 	}
 }
@@ -476,6 +491,152 @@ if (-not $stopped) {
 		} else {
 			Report-OK "Title: multilingual XML"
 		}
+	}
+}
+
+# --- Check 11: Extension-specific validations ---
+
+$baseFormNode = $root.SelectSingleNode("f:BaseForm", $nsMgr)
+$isExtension = ($baseFormNode -ne $null)
+
+if (-not $stopped -and $isExtension) {
+	# 11a. BaseForm version
+	$bfVersion = $baseFormNode.GetAttribute("version")
+	if ($bfVersion) {
+		Report-OK "BaseForm: version=$bfVersion"
+	} else {
+		Report-Warn "BaseForm: version attribute missing"
+	}
+
+	# 11b. callType values validation (Before, After, Override)
+	$validCallTypes = @("Before", "After", "Override")
+	$ctErrors = 0
+	$ctChecked = 0
+
+	# Check form-level events
+	$formEventsNode = $root.SelectSingleNode("f:Events", $nsMgr)
+	if ($formEventsNode) {
+		foreach ($evt in $formEventsNode.SelectNodes("f:Event", $nsMgr)) {
+			$ct = $evt.GetAttribute("callType")
+			if ($ct) {
+				$ctChecked++
+				if ($validCallTypes -notcontains $ct) {
+					Report-Error "Form event '$($evt.GetAttribute('name'))': invalid callType='$ct' (expected: Before, After, Override)"
+					$ctErrors++
+				}
+			}
+		}
+	}
+
+	# Check element-level events
+	foreach ($el in $allElements) {
+		if ($stopped) { break }
+		$eventsNode = $el.Node.SelectSingleNode("f:Events", $nsMgr)
+		if (-not $eventsNode) { continue }
+		foreach ($evt in $eventsNode.SelectNodes("f:Event", $nsMgr)) {
+			$ct = $evt.GetAttribute("callType")
+			if ($ct) {
+				$ctChecked++
+				if ($validCallTypes -notcontains $ct) {
+					Report-Error "[$($el.Tag)] '$($el.Name)' event '$($evt.GetAttribute('name'))': invalid callType='$ct'"
+					$ctErrors++
+				}
+			}
+		}
+	}
+
+	# Check command actions
+	foreach ($cmd in $cmdNodes) {
+		if ($stopped) { break }
+		$cmdName = $cmd.GetAttribute("name")
+		foreach ($action in $cmd.SelectNodes("f:Action", $nsMgr)) {
+			$ct = $action.GetAttribute("callType")
+			if ($ct) {
+				$ctChecked++
+				if ($validCallTypes -notcontains $ct) {
+					Report-Error "Command '$cmdName' Action: invalid callType='$ct'"
+					$ctErrors++
+				}
+			}
+		}
+	}
+
+	if (-not $stopped -and $ctErrors -eq 0 -and $ctChecked -gt 0) {
+		Report-OK "callType values: $ctChecked checked"
+	}
+
+	# 11c. Extension ID ranges — warn if extension-added attrs/commands have id < 1000000
+	# Collect BaseForm attribute names to distinguish added ones
+	$baseAttrNames = @{}
+	$baseCmdNames = @{}
+	$bfNs = New-Object System.Xml.XmlNamespaceManager($xmlDoc.NameTable)
+	$bfNs.AddNamespace("f", "http://v8.1c.ru/8.3/xcf/logform")
+	foreach ($bAttr in $baseFormNode.SelectNodes("f:Attributes/f:Attribute", $bfNs)) {
+		$baName = $bAttr.GetAttribute("name")
+		if ($baName) { $baseAttrNames[$baName] = $true }
+	}
+	foreach ($bCmd in $baseFormNode.SelectNodes("f:Commands/f:Command", $bfNs)) {
+		$bcName = $bCmd.GetAttribute("name")
+		if ($bcName) { $baseCmdNames[$bcName] = $true }
+	}
+
+	$idWarnCount = 0
+	foreach ($attr in $attrNodes) {
+		$aName = $attr.GetAttribute("name")
+		$aId = $attr.GetAttribute("id")
+		if ($aName -and -not $baseAttrNames.ContainsKey($aName) -and $aId) {
+			try {
+				$intId = [int]$aId
+				if ($intId -lt 1000000) {
+					Report-Warn "Attribute '$aName' (id=$aId): extension-added attribute has id < 1000000"
+					$idWarnCount++
+				}
+			} catch {}
+		}
+	}
+
+	foreach ($cmd in $cmdNodes) {
+		$cName = $cmd.GetAttribute("name")
+		$cId = $cmd.GetAttribute("id")
+		if ($cName -and -not $baseCmdNames.ContainsKey($cName) -and $cId) {
+			try {
+				$intId = [int]$cId
+				if ($intId -lt 1000000) {
+					Report-Warn "Command '$cName' (id=$cId): extension-added command has id < 1000000"
+					$idWarnCount++
+				}
+			} catch {}
+		}
+	}
+
+	if (-not $stopped -and $idWarnCount -eq 0) {
+		$extAttrCount = ($attrNodes | Where-Object { -not $baseAttrNames.ContainsKey($_.GetAttribute("name")) }).Count
+		$extCmdCount = ($cmdNodes | Where-Object { -not $baseCmdNames.ContainsKey($_.GetAttribute("name")) }).Count
+		if (($extAttrCount + $extCmdCount) -gt 0) {
+			Report-OK "Extension ID ranges: $extAttrCount attr(s), $extCmdCount cmd(s) — all >= 1000000"
+		}
+	}
+}
+
+# Check callType without BaseForm (structural warning)
+if (-not $stopped -and -not $isExtension) {
+	$callTypeWithoutBase = $false
+	$feNode = $root.SelectSingleNode("f:Events", $nsMgr)
+	if ($feNode) {
+		foreach ($evt in $feNode.SelectNodes("f:Event", $nsMgr)) {
+			if ($evt.GetAttribute("callType")) { $callTypeWithoutBase = $true; break }
+		}
+	}
+	if (-not $callTypeWithoutBase) {
+		foreach ($cmd in $cmdNodes) {
+			foreach ($action in $cmd.SelectNodes("f:Action", $nsMgr)) {
+				if ($action.GetAttribute("callType")) { $callTypeWithoutBase = $true; break }
+			}
+			if ($callTypeWithoutBase) { break }
+		}
+	}
+	if ($callTypeWithoutBase) {
+		Report-Warn "callType attributes found but no BaseForm — possible incorrect structure"
 	}
 }
 
