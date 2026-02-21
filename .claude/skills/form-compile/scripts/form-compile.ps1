@@ -1137,6 +1137,71 @@ if (-not (Test-Path $outDir)) {
 $enc = New-Object System.Text.UTF8Encoding($true)
 [System.IO.File]::WriteAllText($outPath, $xml.ToString(), $enc)
 
+# --- 13b. Auto-register form in parent object XML ---
+
+# Infer parent from OutputPath: .../TypePlural/ObjectName/Forms/FormName/Ext/Form.xml
+$formXmlDir   = [System.IO.Path]::GetDirectoryName($outPath)
+$formNameDir  = [System.IO.Path]::GetDirectoryName($formXmlDir)
+$formsDir     = [System.IO.Path]::GetDirectoryName($formNameDir)
+$objectDir    = [System.IO.Path]::GetDirectoryName($formsDir)
+$typePluralDir = [System.IO.Path]::GetDirectoryName($objectDir)
+
+$formName   = [System.IO.Path]::GetFileName($formNameDir)
+$objectName = [System.IO.Path]::GetFileName($objectDir)
+$formsLeaf  = [System.IO.Path]::GetFileName($formsDir)
+
+if ($formsLeaf -eq 'Forms') {
+	$objectXmlPath = Join-Path $typePluralDir "$objectName.xml"
+	if (Test-Path $objectXmlPath) {
+		$objDoc = New-Object System.Xml.XmlDocument
+		$objDoc.PreserveWhitespace = $true
+		$objDoc.Load($objectXmlPath)
+
+		$nsMgr = New-Object System.Xml.XmlNamespaceManager($objDoc.NameTable)
+		$nsMgr.AddNamespace("md", "http://v8.1c.ru/8.3/MDClasses")
+
+		$childObjects = $objDoc.SelectSingleNode("//md:ChildObjects", $nsMgr)
+		if ($childObjects) {
+			$existing = $childObjects.SelectSingleNode("md:Form[text()='$formName']", $nsMgr)
+			if (-not $existing) {
+				$formElem = $objDoc.CreateElement("Form", "http://v8.1c.ru/8.3/MDClasses")
+				$formElem.InnerText = $formName
+
+				$insertBefore = $childObjects.SelectSingleNode("md:Template", $nsMgr)
+				if (-not $insertBefore) { $insertBefore = $childObjects.SelectSingleNode("md:TabularSection", $nsMgr) }
+
+				if ($insertBefore) {
+					$childObjects.InsertBefore($formElem, $insertBefore) | Out-Null
+					$ws = $objDoc.CreateWhitespace("`n`t`t`t")
+					$childObjects.InsertBefore($ws, $insertBefore) | Out-Null
+				} else {
+					$lastChild = $childObjects.LastChild
+					if ($lastChild -and $lastChild.NodeType -eq [System.Xml.XmlNodeType]::Whitespace) {
+						$childObjects.InsertBefore($objDoc.CreateWhitespace("`n`t`t`t"), $lastChild) | Out-Null
+						$childObjects.InsertBefore($formElem, $lastChild) | Out-Null
+					} else {
+						$childObjects.AppendChild($objDoc.CreateWhitespace("`n`t`t`t")) | Out-Null
+						$childObjects.AppendChild($formElem) | Out-Null
+						$childObjects.AppendChild($objDoc.CreateWhitespace("`n`t`t")) | Out-Null
+					}
+				}
+
+				$regEnc = New-Object System.Text.UTF8Encoding($true)
+				$regSettings = New-Object System.Xml.XmlWriterSettings
+				$regSettings.Encoding = $regEnc
+				$regSettings.Indent = $false
+				$regStream = New-Object System.IO.FileStream($objectXmlPath, [System.IO.FileMode]::Create)
+				$regWriter = [System.Xml.XmlWriter]::Create($regStream, $regSettings)
+				$objDoc.Save($regWriter)
+				$regWriter.Close()
+				$regStream.Close()
+
+				Write-Host "     Registered: <Form>$formName</Form> in $objectName.xml"
+			}
+		}
+	}
+}
+
 # --- 14. Summary ---
 
 $elCount = $script:nextId - 1

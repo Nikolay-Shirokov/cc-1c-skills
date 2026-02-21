@@ -395,6 +395,12 @@ powershell.exe -NoProfile -File .claude/skills/form-compile/scripts/form-compile
 - **ID**: последовательная нумерация, AutoCommandBar = id="-1"
 - **Unknown keys**: выводится предупреждение о нераспознанных ключах
 
+## Workflow
+
+1. **Компиляция**: `/form-compile` генерирует `Form.xml` и автоматически регистрирует `<Form>` в `ChildObjects` родительского объекта (если OutputPath следует конвенции `.../TypePlural/ObjectName/Forms/FormName/Ext/Form.xml`).
+2. **Метаданные формы** (`ФормаСписка.xml`) и `Module.bsl` создаёт `/form-add`. Если `/form-add` ещё не вызывался — вызови после `/form-compile`. Он не перезаписывает существующий Form.xml.
+3. **Проверка**: `/form-validate`, `/form-info`.
+
 ## Верификация
 
 ```

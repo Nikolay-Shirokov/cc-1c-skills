@@ -537,7 +537,7 @@ function Borrow-Form {
 
 	if ($autoCmdXml) {
 		# Reindent for BaseForm: first line gets 2 tabs, other lines get +1 tab
-		$acLines = $autoCmdXml -split "`r`n"
+		$acLines = $autoCmdXml -split "`r?`n"
 		for ($li = 0; $li -lt $acLines.Count; $li++) {
 			if ($li -eq 0) { $formXmlSb.Append("`t`t$($acLines[$li])") | Out-Null }
 			else { $formXmlSb.Append("`t$($acLines[$li])") | Out-Null }
@@ -545,7 +545,7 @@ function Borrow-Form {
 		}
 	}
 
-	$ciLines = $childItemsXml -split "`r`n"
+	$ciLines = $childItemsXml -split "`r?`n"
 	for ($li = 0; $li -lt $ciLines.Count; $li++) {
 		if ($li -eq 0) { $formXmlSb.Append("`t`t$($ciLines[$li])") | Out-Null }
 		else { $formXmlSb.Append("`t$($ciLines[$li])") | Out-Null }
