@@ -249,10 +249,12 @@ $script:generatedTypes = @{
 		@{ prefix = "DocumentJournalManager";   category = "Manager" }
 	)
 	"Report" = @(
-		@{ prefix = "ReportObject"; category = "Object" }
+		@{ prefix = "ReportObject";  category = "Object" }
+		@{ prefix = "ReportManager"; category = "Manager" }
 	)
 	"DataProcessor" = @(
-		@{ prefix = "DataProcessorObject"; category = "Object" }
+		@{ prefix = "DataProcessorObject";  category = "Object" }
+		@{ prefix = "DataProcessorManager"; category = "Manager" }
 	)
 }
 
@@ -464,35 +466,96 @@ function Borrow-Form {
 	[System.IO.File]::WriteAllText($formMetaFile, $formMetaSb.ToString(), $enc)
 	Info "  Created: $formMetaFile"
 
-	# 5. Generate Form.xml with BaseForm
-	# Extract inner content from source (everything between <Form ...> and </Form>)
-	$innerContent = ""
-	$formVersion = "2.17"
-	if ($srcFormContent -match '(?s)<Form[^>]*version="([^"]*)"[^>]*>(.*)</Form>') {
-		$formVersion = $Matches[1]
-		$innerContent = $Matches[2]
-	} elseif ($srcFormContent -match '(?s)<Form[^>]*>(.*)</Form>') {
-		$innerContent = $Matches[1]
+	# 5. Generate Form.xml with BaseForm (visual elements only)
+	# Parse source Form.xml as XmlDocument
+	$srcFormDoc = New-Object System.Xml.XmlDocument
+	$srcFormDoc.PreserveWhitespace = $true
+	$srcFormDoc.Load($srcFormXmlPath)
+	$srcFormEl = $srcFormDoc.DocumentElement
+
+	$formVersion = $srcFormEl.GetAttribute("version")
+	if (-not $formVersion) { $formVersion = "2.17" }
+
+	# Find direct children: AutoCommandBar, ChildItems (visual elements only)
+	$srcAutoCmd = $null
+	$srcChildItems = $null
+	foreach ($fc in $srcFormEl.ChildNodes) {
+		if ($fc.NodeType -ne 'Element') { continue }
+		if ($fc.LocalName -eq 'AutoCommandBar' -and -not $srcAutoCmd) { $srcAutoCmd = $fc }
+		elseif ($fc.LocalName -eq 'ChildItems' -and -not $srcChildItems) { $srcChildItems = $fc }
 	}
 
-	# Build the extension Form.xml: resultant form + <BaseForm>
-	$formXmlSb = New-Object System.Text.StringBuilder
-	# Copy the original XML declaration and <Form> opening tag
-	if ($srcFormContent -match '(?s)^(.*?<Form[^>]*>)') {
-		$formXmlSb.Append($Matches[1]) | Out-Null
+	# Get OuterXml and strip redundant namespace redeclarations (they're on root <Form>)
+	$nsStripPattern = '\s+xmlns(?::\w+)?="[^"]*"'
+
+	$autoCmdXml = ""
+	if ($srcAutoCmd) {
+		$autoCmdXml = $srcAutoCmd.OuterXml
+		$autoCmdXml = [regex]::Replace($autoCmdXml, $nsStripPattern, '')
+		# Replace all CommandName values with 0 (base form buttons lose command refs)
+		$autoCmdXml = [regex]::Replace($autoCmdXml, '<CommandName>[^<]*</CommandName>', '<CommandName>0</CommandName>')
+		# Replace Autofill true → false
+		$autoCmdXml = $autoCmdXml -replace '<Autofill>true</Autofill>', '<Autofill>false</Autofill>'
 	}
-	# Resultant form content (same as source initially)
-	$formXmlSb.Append($innerContent) | Out-Null
-	# BaseForm section
-	$formXmlSb.AppendLine("`t<BaseForm version=`"${formVersion}`">") | Out-Null
-	# Inner content for BaseForm (trim leading newline)
-	$baseInner = $innerContent.TrimStart("`r", "`n")
-	$formXmlSb.Append("`t") | Out-Null
-	$formXmlSb.Append($baseInner) | Out-Null
-	# Close BaseForm — ensure it's on its own line
-	$lastChar = $formXmlSb.ToString()[-1]
-	if ($lastChar -ne "`n") { $formXmlSb.AppendLine() | Out-Null }
-	$formXmlSb.AppendLine("`t</BaseForm>") | Out-Null
+
+	$childItemsXml = ""
+	if ($srcChildItems) {
+		$childItemsXml = $srcChildItems.OuterXml
+		$childItemsXml = [regex]::Replace($childItemsXml, $nsStripPattern, '')
+		# Replace all CommandName values with 0 in ChildItems too
+		$childItemsXml = [regex]::Replace($childItemsXml, '<CommandName>[^<]*</CommandName>', '<CommandName>0</CommandName>')
+	} else {
+		$childItemsXml = "<ChildItems/>"
+	}
+
+	# Extract the <Form ...> opening tag from source text (preserves namespace declarations)
+	$xmlDecl = '<?xml version="1.0" encoding="UTF-8"?>'
+	$formTag = "<Form version=`"${formVersion}`">"
+	if ($srcFormContent -match '(?s)^(<\?xml[^?]*\?>)') { $xmlDecl = $Matches[1] }
+	if ($srcFormContent -match '(<Form[^>]*>)') { $formTag = $Matches[1] }
+
+	# Build output Form.xml
+	$formXmlSb = New-Object System.Text.StringBuilder
+	$formXmlSb.Append($xmlDecl) | Out-Null
+	$formXmlSb.Append("`r`n") | Out-Null
+	$formXmlSb.Append($formTag) | Out-Null
+	$formXmlSb.Append("`r`n") | Out-Null
+
+	# Part 1: visual elements (add leading tab to first line of each block)
+	if ($autoCmdXml) {
+		$formXmlSb.Append("`t$autoCmdXml") | Out-Null
+		$formXmlSb.Append("`r`n") | Out-Null
+	}
+	$formXmlSb.Append("`t$childItemsXml") | Out-Null
+	$formXmlSb.Append("`r`n") | Out-Null
+	$formXmlSb.Append("`t<Attributes/>") | Out-Null
+	$formXmlSb.Append("`r`n") | Out-Null
+
+	# BaseForm: same visual elements, indented one more level
+	$formXmlSb.Append("`t<BaseForm version=`"${formVersion}`">") | Out-Null
+	$formXmlSb.Append("`r`n") | Out-Null
+
+	if ($autoCmdXml) {
+		# Reindent for BaseForm: first line gets 2 tabs, other lines get +1 tab
+		$acLines = $autoCmdXml -split "`r`n"
+		for ($li = 0; $li -lt $acLines.Count; $li++) {
+			if ($li -eq 0) { $formXmlSb.Append("`t`t$($acLines[$li])") | Out-Null }
+			else { $formXmlSb.Append("`t$($acLines[$li])") | Out-Null }
+			$formXmlSb.Append("`r`n") | Out-Null
+		}
+	}
+
+	$ciLines = $childItemsXml -split "`r`n"
+	for ($li = 0; $li -lt $ciLines.Count; $li++) {
+		if ($li -eq 0) { $formXmlSb.Append("`t`t$($ciLines[$li])") | Out-Null }
+		else { $formXmlSb.Append("`t$($ciLines[$li])") | Out-Null }
+		$formXmlSb.Append("`r`n") | Out-Null
+	}
+
+	$formXmlSb.Append("`t`t<Attributes/>") | Out-Null
+	$formXmlSb.Append("`r`n") | Out-Null
+	$formXmlSb.Append("`t</BaseForm>") | Out-Null
+	$formXmlSb.Append("`r`n") | Out-Null
 	$formXmlSb.Append("</Form>") | Out-Null
 
 	# Write Form.xml

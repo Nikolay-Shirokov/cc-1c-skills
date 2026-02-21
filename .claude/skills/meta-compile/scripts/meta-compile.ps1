@@ -478,10 +478,12 @@ $script:generatedTypes = @{
 		@{ prefix = "DocumentJournalManager";   category = "Manager" }
 	)
 	"Report" = @(
-		@{ prefix = "ReportObject"; category = "Object" }
+		@{ prefix = "ReportObject";  category = "Object" }
+		@{ prefix = "ReportManager"; category = "Manager" }
 	)
 	"DataProcessor" = @(
-		@{ prefix = "DataProcessorObject"; category = "Object" }
+		@{ prefix = "DataProcessorObject";  category = "Object" }
+		@{ prefix = "DataProcessorManager"; category = "Manager" }
 	)
 }
 

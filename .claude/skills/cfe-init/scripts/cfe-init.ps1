@@ -11,6 +11,7 @@ param(
 	[string]$Version,
 	[string]$Vendor,
 	[string]$CompatibilityMode = "Version8_3_24",
+	[string]$ConfigPath,
 	[switch]$NoRole
 )
 
@@ -32,6 +33,57 @@ $cfgFile = Join-Path $OutputDir "Configuration.xml"
 if (Test-Path $cfgFile) {
 	Write-Error "Configuration.xml already exists: $cfgFile"
 	exit 1
+}
+
+# --- Resolve ConfigPath ---
+$baseLangUuid = "00000000-0000-0000-0000-000000000000"
+if ($ConfigPath) {
+	if (-not [System.IO.Path]::IsPathRooted($ConfigPath)) {
+		$ConfigPath = Join-Path (Get-Location).Path $ConfigPath
+	}
+	if (Test-Path $ConfigPath -PathType Container) {
+		$candidate = Join-Path $ConfigPath "Configuration.xml"
+		if (Test-Path $candidate) { $ConfigPath = $candidate }
+		else { Write-Error "No Configuration.xml in config directory: $ConfigPath"; exit 1 }
+	}
+	if (-not (Test-Path $ConfigPath)) { Write-Error "Config file not found: $ConfigPath"; exit 1 }
+	$cfgDir = Split-Path (Resolve-Path $ConfigPath).Path -Parent
+
+	# 3a. Read Language UUID from base config
+	$baseLangFile = Join-Path (Join-Path $cfgDir "Languages") "Русский.xml"
+	if (Test-Path $baseLangFile) {
+		$baseLangDoc = New-Object System.Xml.XmlDocument
+		$baseLangDoc.PreserveWhitespace = $false
+		$baseLangDoc.Load($baseLangFile)
+		$langEl = $null
+		foreach ($c in $baseLangDoc.DocumentElement.ChildNodes) {
+			if ($c.NodeType -eq 'Element' -and $c.LocalName -eq 'Language') { $langEl = $c; break }
+		}
+		if ($langEl) {
+			$baseLangUuid = $langEl.GetAttribute("uuid")
+			Write-Host "[INFO] Base config Language UUID: $baseLangUuid"
+		} else {
+			Write-Host "[WARN] No <Language> element in $baseLangFile"
+		}
+	} else {
+		Write-Host "[WARN] Base config language not found: $baseLangFile"
+	}
+
+	# 3b. Read CompatibilityMode from base config
+	$baseCfgDoc = New-Object System.Xml.XmlDocument
+	$baseCfgDoc.PreserveWhitespace = $false
+	$baseCfgDoc.Load((Resolve-Path $ConfigPath).Path)
+	$baseCfgNs = New-Object System.Xml.XmlNamespaceManager($baseCfgDoc.NameTable)
+	$baseCfgNs.AddNamespace("md", "http://v8.1c.ru/8.3/MDClasses")
+	$compatNode = $baseCfgDoc.SelectSingleNode("//md:Configuration/md:Properties/md:CompatibilityMode", $baseCfgNs)
+	if ($compatNode -and $compatNode.InnerText) {
+		$CompatibilityMode = $compatNode.InnerText.Trim()
+		Write-Host "[INFO] Base config CompatibilityMode: $CompatibilityMode"
+	} else {
+		Write-Host "[WARN] CompatibilityMode not found in base config, using default: $CompatibilityMode"
+	}
+} else {
+	Write-Host "[WARN] Language ExtendedConfigurationObject set to zeros. Use -ConfigPath to auto-resolve from base config, or fix manually before loading."
 }
 
 # --- Generate UUIDs ---
@@ -149,7 +201,7 @@ $langXml = @"
 			<ObjectBelonging>Adopted</ObjectBelonging>
 			<Name>Русский</Name>
 			<Comment/>
-			<ExtendedConfigurationObject>00000000-0000-0000-0000-000000000000</ExtendedConfigurationObject>
+			<ExtendedConfigurationObject>$baseLangUuid</ExtendedConfigurationObject>
 			<LanguageCode>ru</LanguageCode>
 		</Properties>
 	</Language>
@@ -201,6 +253,7 @@ Write-Host "[OK] Создано расширение: $Name"
 Write-Host "     Каталог:            $OutputDir"
 Write-Host "     Назначение:         $Purpose"
 Write-Host "     Префикс:           $NamePrefix"
+Write-Host "     Совместимость:     $CompatibilityMode"
 Write-Host "     Configuration.xml:  $cfgFile"
 Write-Host "     Languages:          $langFile"
 if (-not $NoRole) {

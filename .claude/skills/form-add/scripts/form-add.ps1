@@ -271,7 +271,11 @@ if ($Purpose -eq "List" -or $Purpose -eq "Choice") {
 "@
 }
 
-[System.IO.File]::WriteAllText($formXmlPath, $formXml, $encBom)
+if (Test-Path $formXmlPath) {
+	Write-Host "[SKIP] Form.xml already exists: $formXmlPath — not overwriting"
+} else {
+	[System.IO.File]::WriteAllText($formXmlPath, $formXml, $encBom)
+}
 
 # --- 3c. Module.bsl ---
 
@@ -304,7 +308,11 @@ $moduleBsl = @"
 #КонецОбласти
 "@
 
-[System.IO.File]::WriteAllText($modulePath, $moduleBsl, $encBom)
+if (Test-Path $modulePath) {
+	Write-Host "[SKIP] Module.bsl already exists: $modulePath — not overwriting"
+} else {
+	[System.IO.File]::WriteAllText($modulePath, $moduleBsl, $encBom)
+}
 
 # --- Фаза 4: Регистрация в родительском объекте ---
 
