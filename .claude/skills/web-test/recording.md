@@ -122,27 +122,31 @@ await showTitleSlide('Создание заказа клиента', { subtitle:
 await wait(4);
 await hideTitleSlide();
 
-// Steps with captions
+// Steps: caption → pause → action
 await showCaption('Шаг 1. Переходим в раздел «Продажи»');
+await wait(1.5);
 await navigateSection('Продажи');
-await wait(1);
 
 await showCaption('Шаг 2. Открываем заказы клиентов');
+await wait(1.5);
 await openCommand('Заказы клиентов');
-await wait(1);
 
 await showCaption('Шаг 3. Создаём новый заказ');
+await wait(1.5);
 await clickElement('Создать');
-await wait(2);
+await wait(2); // wait for form to load
 
 await showCaption('Шаг 4. Заполняем шапку');
+await wait(1.5);
 await fillFields({ 'Организация': 'Конфетпром', 'Контрагент': 'Альфа' });
-await wait(2);
+await wait(1);
 
 await hideCaption();
 const result = await stopRecording();
 console.log(`Recorded ${result.duration}s, ${(result.size / 1024 / 1024).toFixed(1)} MB`);
 ```
+
+**Caption timing**: show the caption *before* the action with a `wait(1.5)` pause — the viewer reads what will happen, then sees it happen. Add `wait()` *after* the action only when the next step needs the result to load (e.g., form opening).
 
 ## Troubleshooting
 
