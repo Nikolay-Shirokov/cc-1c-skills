@@ -2699,9 +2699,24 @@ export async function highlight(text, opts = {}) {
     }
   }
 
-  // 1. Form-scoped search (buttons, links, fields, grid rows)
-  // Priority: form elements > sections/commands — avoids false matches
-  // like "ОК" matching section "Покупки" via .includes()
+  // 1. Visible commands on the function panel (cmd_XXX_txt elements)
+  // Must be checked BEFORE form search: when the section content panel
+  // is showing, the form behind it is hidden but detectFormScript still
+  // finds it, and form buttons match before commands.
+  if (!elId) {
+    elId = await page.evaluate(`(() => {
+      const norm = s => (s?.trim().replace(/\\u00a0/g, ' ') || '').replace(/ё/gi, 'е');
+      const target = ${JSON.stringify(normYo(text.toLowerCase()))};
+      const cmds = [...document.querySelectorAll('[id^="cmd_"][id$="_txt"]')].filter(e => e.offsetWidth > 0);
+      if (cmds.length === 0) return null;
+      let el = cmds.find(e => norm(e.innerText).toLowerCase() === target);
+      if (!el) el = cmds.find(e => norm(e.innerText).toLowerCase().startsWith(target));
+      if (!el) el = cmds.find(e => norm(e.innerText).toLowerCase().includes(target));
+      return el ? el.id : null;
+    })()`);
+  }
+
+  // 2. Form-scoped search (buttons, links, fields, grid rows)
   if (!elId) {
     const formNum = await page.evaluate(detectFormScript());
     if (formNum !== null) {
@@ -2744,24 +2759,16 @@ export async function highlight(text, opts = {}) {
     }
   }
 
-  // 2. Fallback: section or command (outside form scope)
+  // 3. Fallback: sections (sidebar navigation)
   if (!elId) {
     elId = await page.evaluate(`(() => {
       const norm = s => (s?.trim().replace(/\\u00a0/g, ' ') || '').replace(/ё/gi, 'е');
       const target = ${JSON.stringify(normYo(text.toLowerCase()))};
-      // Sections (exact → startsWith → includes)
       const secs = [...document.querySelectorAll('[id^="themesCell_theme_"]')];
       let el = secs.find(e => norm(e.innerText).toLowerCase() === target);
       if (!el) el = secs.find(e => norm(e.innerText).toLowerCase().startsWith(target));
       if (!el) el = secs.find(e => norm(e.innerText).toLowerCase().includes(target));
-      if (el) return el.id;
-      // Commands (exact → startsWith → includes)
-      const cmds = [...document.querySelectorAll('[id^="cmd_"][id$="_txt"]')].filter(e => e.offsetWidth > 0);
-      el = cmds.find(e => norm(e.innerText).toLowerCase() === target);
-      if (!el) el = cmds.find(e => norm(e.innerText).toLowerCase().startsWith(target));
-      if (!el) el = cmds.find(e => norm(e.innerText).toLowerCase().includes(target));
-      if (el) return el.id;
-      return null;
+      return el ? el.id : null;
     })()`);
   }
 
