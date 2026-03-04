@@ -388,3 +388,4 @@ On error (auto-screenshot taken):
 - **Clipboard paste** — all text fields filled via Ctrl+V (triggers 1C events properly)
 - **Cyrillic in bash** — use `cat <<'SCRIPT' | node $RUN exec -` to avoid escaping issues
 - **Non-breaking spaces** — 1C uses `\u00a0` instead of regular spaces. All matching is normalized internally
+- **Section panel display** — `navigateSection()` works with any panel position (side, top) but requires "Picture and text" or "Text" display mode. Icon-only mode is not supported — API cannot read section names from icons alone

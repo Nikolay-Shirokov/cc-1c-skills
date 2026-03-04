@@ -320,7 +320,11 @@ export async function navigateSection(name) {
   await dismissPendingErrors();
   if (highlightMode) try { await highlight(name); await page.waitForTimeout(500); await unhighlight(); } catch {}
   const result = await page.evaluate(navigateSectionScript(name));
-  if (result?.error) throw new Error(`navigateSection: "${name}" not found. Available: ${result.available?.join(', ') || 'none'}`);
+  if (result?.error) {
+    const avail = result.available?.filter(Boolean);
+    if (avail?.length === 0) throw new Error(`navigateSection: "${name}" not found. Section panel is in icon-only mode — text labels are hidden. Switch to "Text" or "Picture and text" display mode in 1C settings (View → Section Panel → Display Mode)`);
+    throw new Error(`navigateSection: "${name}" not found. Available: ${avail?.join(', ') || 'none'}`);
+  }
 
   await waitForStable();
   const { sections, commands } = await page.evaluate(`({
