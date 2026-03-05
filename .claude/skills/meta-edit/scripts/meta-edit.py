@@ -1971,6 +1971,13 @@ def save_xml(tree, path):
     xml_bytes = etree.tostring(tree, xml_declaration=True, encoding="UTF-8")
     # Fix encoding quotes: encoding='UTF-8' -> encoding="UTF-8"
     xml_bytes = xml_bytes.replace(b"encoding='UTF-8'", b'encoding="UTF-8"')
+    # Fix d5p1 namespace declarations stripped by lxml (it treats them as unused
+    # because d5p1: appears only in text content, not in element/attribute names)
+    xml_bytes = re.sub(
+        b'(<v8:Type)(?! xmlns:d5p1)(>d5p1:)',
+        b'\\1 xmlns:d5p1="http://v8.1c.ru/8.1/data/enterprise/current-config"\\2',
+        xml_bytes
+    )
     with open(path, "wb") as f:
         f.write(b"\xef\xbb\xbf")
         f.write(xml_bytes)

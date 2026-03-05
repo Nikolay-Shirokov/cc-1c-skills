@@ -11,7 +11,7 @@ import uuid
 import xml.etree.ElementTree as ET
 
 sys.stdout.reconfigure(encoding="utf-8")
-    sys.stderr.reconfigure(encoding="utf-8")
+sys.stderr.reconfigure(encoding="utf-8")
 
 # ---------------------------------------------------------------------------
 # Inline utilities
@@ -207,6 +207,12 @@ def resolve_type_str(type_str):
 def emit_type_content(indent, type_str):
     if not type_str:
         return
+    # Composite type: "Type1 + Type2 + Type3"
+    if ' + ' in type_str:
+        parts = [p.strip() for p in type_str.split('+')]
+        for part in parts:
+            emit_type_content(indent, part)
+        return
     type_str = resolve_type_str(type_str)
     # Boolean
     if type_str == 'Boolean':
@@ -254,10 +260,10 @@ def emit_type_content(indent, type_str):
         dt_name = m.group(1)
         X(f'{indent}<v8:TypeSet>cfg:DefinedType.{dt_name}</v8:TypeSet>')
         return
-    # Reference types
+    # Reference types — use local xmlns declaration for 1C compatibility
     m = re.match(r'^(CatalogRef|DocumentRef|EnumRef|ChartOfAccountsRef|ChartOfCharacteristicTypesRef|ChartOfCalculationTypesRef|ExchangePlanRef|BusinessProcessRef|TaskRef)\.(.+)$', type_str)
     if m:
-        X(f'{indent}<v8:Type>cfg:{type_str}</v8:Type>')
+        X(f'{indent}<v8:Type xmlns:d5p1="http://v8.1c.ru/8.1/data/enterprise/current-config">d5p1:{type_str}</v8:Type>')
         return
     # Fallback
     X(f'{indent}<v8:Type>{type_str}</v8:Type>')
@@ -1066,7 +1072,7 @@ def emit_defined_type_properties(indent):
         for vt in value_types:
             resolved = resolve_type_str(str(vt))
             if re.match(r'^(CatalogRef|DocumentRef|EnumRef|ChartOfAccountsRef|ChartOfCharacteristicTypesRef|ChartOfCalculationTypesRef|ExchangePlanRef|BusinessProcessRef|TaskRef)\.', resolved):
-                X(f'{i}\t<v8:Type>cfg:{resolved}</v8:Type>')
+                X(f'{i}\t<v8:Type xmlns:d5p1="http://v8.1c.ru/8.1/data/enterprise/current-config">d5p1:{resolved}</v8:Type>')
             elif resolved == 'Boolean':
                 X(f'{i}\t<v8:Type>xs:boolean</v8:Type>')
             elif re.match(r'^String', resolved):
@@ -1155,7 +1161,7 @@ def emit_event_subscription_properties(indent):
         X(f'{i}<Source>')
         for src in sources:
             resolved = resolve_type_str(str(src))
-            X(f'{i}\t<v8:Type>cfg:{resolved}</v8:Type>')
+            X(f'{i}\t<v8:Type xmlns:d5p1="http://v8.1c.ru/8.1/data/enterprise/current-config">d5p1:{resolved}</v8:Type>')
         X(f'{i}</Source>')
     else:
         X(f'{i}<Source/>')

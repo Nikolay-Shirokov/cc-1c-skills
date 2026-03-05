@@ -198,6 +198,15 @@ function Emit-TypeContent {
 	param([string]$indent, [string]$typeStr)
 	if (-not $typeStr) { return }
 
+	# Composite type: "Type1 + Type2 + Type3"
+	if ($typeStr.Contains(' + ')) {
+		$parts = $typeStr -split '\s*\+\s*'
+		foreach ($part in $parts) {
+			Emit-TypeContent $indent $part.Trim()
+		}
+		return
+	}
+
 	$typeStr = Resolve-TypeStr $typeStr
 
 	# Boolean
@@ -254,9 +263,9 @@ function Emit-TypeContent {
 		return
 	}
 
-	# Reference types: CatalogRef.XXX, DocumentRef.XXX, etc.
+	# Reference types — use local xmlns declaration for 1C compatibility
 	if ($typeStr -match '^(CatalogRef|DocumentRef|EnumRef|ChartOfAccountsRef|ChartOfCharacteristicTypesRef|ChartOfCalculationTypesRef|ExchangePlanRef|BusinessProcessRef|TaskRef)\.(.+)$') {
-		X "$indent<v8:Type>cfg:$typeStr</v8:Type>"
+		X "$indent<v8:Type xmlns:d5p1=`"http://v8.1c.ru/8.1/data/enterprise/current-config`">d5p1:$typeStr</v8:Type>"
 		return
 	}
 
@@ -1237,7 +1246,7 @@ function Emit-DefinedTypeProperties {
 		foreach ($vt in $valueTypes) {
 			$resolved = Resolve-TypeStr "$vt"
 			if ($resolved -match '^(CatalogRef|DocumentRef|EnumRef|ChartOfAccountsRef|ChartOfCharacteristicTypesRef|ChartOfCalculationTypesRef|ExchangePlanRef|BusinessProcessRef|TaskRef)\.') {
-				X "$i`t<v8:Type>cfg:$resolved</v8:Type>"
+				X "$i`t<v8:Type xmlns:d5p1=`"http://v8.1c.ru/8.1/data/enterprise/current-config`">d5p1:$resolved</v8:Type>"
 			} elseif ($resolved -eq "Boolean") {
 				X "$i`t<v8:Type>xs:boolean</v8:Type>"
 			} elseif ($resolved -match '^String') {
@@ -1342,7 +1351,7 @@ function Emit-EventSubscriptionProperties {
 		X "$i<Source>"
 		foreach ($src in $sources) {
 			$resolved = Resolve-TypeStr "$src"
-			X "$i`t<v8:Type>cfg:$resolved</v8:Type>"
+			X "$i`t<v8:Type xmlns:d5p1=`"http://v8.1c.ru/8.1/data/enterprise/current-config`">d5p1:$resolved</v8:Type>"
 		}
 		X "$i</Source>"
 	} else {
