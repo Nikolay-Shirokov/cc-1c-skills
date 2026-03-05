@@ -58,6 +58,49 @@ function Emit-MLText {
 
 # --- 5. Type emitter ---
 
+$script:formTypeSynonyms = New-Object System.Collections.Hashtable
+$script:formTypeSynonyms["строка"]   = "string"
+$script:formTypeSynonyms["число"]    = "decimal"
+$script:formTypeSynonyms["булево"]   = "boolean"
+$script:formTypeSynonyms["дата"]     = "date"
+$script:formTypeSynonyms["датавремя"]= "dateTime"
+$script:formTypeSynonyms["number"]   = "decimal"
+$script:formTypeSynonyms["bool"]     = "boolean"
+$script:formTypeSynonyms["справочникссылка"]            = "CatalogRef"
+$script:formTypeSynonyms["справочникобъект"]            = "CatalogObject"
+$script:formTypeSynonyms["документссылка"]              = "DocumentRef"
+$script:formTypeSynonyms["документобъект"]              = "DocumentObject"
+$script:formTypeSynonyms["перечислениессылка"]           = "EnumRef"
+$script:formTypeSynonyms["плансчетовссылка"]             = "ChartOfAccountsRef"
+$script:formTypeSynonyms["планвидовхарактеристикссылка"] = "ChartOfCharacteristicTypesRef"
+$script:formTypeSynonyms["планвидоврасчётассылка"]        = "ChartOfCalculationTypesRef"
+$script:formTypeSynonyms["планвидоврасчетассылка"]        = "ChartOfCalculationTypesRef"
+$script:formTypeSynonyms["планобменассылка"]              = "ExchangePlanRef"
+$script:formTypeSynonyms["бизнеспроцессссылка"]           = "BusinessProcessRef"
+$script:formTypeSynonyms["задачассылка"]                  = "TaskRef"
+$script:formTypeSynonyms["определяемыйтип"]             = "DefinedType"
+
+function Resolve-TypeStr {
+	param([string]$typeStr)
+	if (-not $typeStr) { return $typeStr }
+	if ($typeStr -match '^([^(]+)\((.+)\)$') {
+		$base = $Matches[1].Trim(); $params = $Matches[2]
+		$r = $script:formTypeSynonyms[$base.ToLower()]
+		if ($r) { return "$r($params)" }
+		return $typeStr
+	}
+	if ($typeStr.Contains('.')) {
+		$i = $typeStr.IndexOf('.')
+		$prefix = $typeStr.Substring(0, $i); $suffix = $typeStr.Substring($i)
+		$r = $script:formTypeSynonyms[$prefix.ToLower()]
+		if ($r) { return "$r$suffix" }
+		return $typeStr
+	}
+	$r = $script:formTypeSynonyms[$typeStr.ToLower()]
+	if ($r) { return $r }
+	return $typeStr
+}
+
 function Emit-Type {
 	param($typeStr, [string]$indent)
 
@@ -68,8 +111,8 @@ function Emit-Type {
 
 	$typeString = "$typeStr"
 
-	# Composite type: "Type1 | Type2"
-	$parts = $typeString -split '\s*\|\s*'
+	# Composite type: "Type1 | Type2" or "Type1 + Type2"
+	$parts = $typeString -split '\s*[|+]\s*'
 
 	X "$indent<Type>"
 	foreach ($part in $parts) {
@@ -81,6 +124,8 @@ function Emit-Type {
 
 function Emit-SingleType {
 	param([string]$typeStr, [string]$indent)
+
+	$typeStr = Resolve-TypeStr $typeStr
 
 	# boolean
 	if ($typeStr -eq "boolean") {

@@ -189,12 +189,47 @@ def X(text):
 
 # --- Type emitter ---
 
+_FORM_TYPE_SYNONYMS = {
+    "строка": "string", "число": "decimal", "булево": "boolean",
+    "дата": "date", "датавремя": "dateTime",
+    "number": "decimal", "bool": "boolean",
+    "справочникссылка": "CatalogRef", "справочникобъект": "CatalogObject",
+    "документссылка": "DocumentRef", "документобъект": "DocumentObject",
+    "перечислениессылка": "EnumRef",
+    "плансчетовссылка": "ChartOfAccountsRef",
+    "планвидовхарактеристикссылка": "ChartOfCharacteristicTypesRef",
+    "планвидоврасчётассылка": "ChartOfCalculationTypesRef",
+    "планвидоврасчетассылка": "ChartOfCalculationTypesRef",
+    "планобменассылка": "ExchangePlanRef",
+    "бизнеспроцессссылка": "BusinessProcessRef",
+    "задачассылка": "TaskRef",
+    "определяемыйтип": "DefinedType",
+}
+
+
+def resolve_type_str(type_str):
+    if not type_str:
+        return type_str
+    m = re.match(r'^([^(]+)\((.+)\)$', type_str)
+    if m:
+        base, params = m.group(1).strip(), m.group(2)
+        r = _FORM_TYPE_SYNONYMS.get(base.lower())
+        return f"{r}({params})" if r else type_str
+    if '.' in type_str:
+        i = type_str.index('.')
+        prefix, suffix = type_str[:i], type_str[i:]
+        r = _FORM_TYPE_SYNONYMS.get(prefix.lower())
+        return f"{r}{suffix}" if r else type_str
+    r = _FORM_TYPE_SYNONYMS.get(type_str.lower())
+    return r if r else type_str
+
+
 def emit_type(type_str, indent):
     if not type_str:
         X(f"{indent}<Type/>")
         return
     type_string = str(type_str)
-    parts = [p.strip() for p in type_string.split("|")]
+    parts = [p.strip() for p in re.split(r'[|+]', type_string)]
     X(f"{indent}<Type>")
     for part in parts:
         emit_single_type(part, indent + "\t")
@@ -202,6 +237,7 @@ def emit_type(type_str, indent):
 
 
 def emit_single_type(type_str, indent):
+    type_str = resolve_type_str(type_str)
     if type_str == "boolean":
         X(f"{indent}<v8:Type>xs:boolean</v8:Type>")
         return
