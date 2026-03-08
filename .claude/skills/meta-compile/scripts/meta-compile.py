@@ -296,6 +296,17 @@ def emit_fill_value(indent, type_str):
 # 5. Attribute shorthand parser
 # ---------------------------------------------------------------------------
 
+def build_type_str(obj):
+    t = str(obj.get('valueType') or obj.get('type') or '')
+    if t and '(' not in t:
+        if t == 'String' and obj.get('length'):
+            t = f"String({obj['length']})"
+        elif t == 'Number' and obj.get('length'):
+            prec = obj.get('precision', 0)
+            nn = ',nonneg' if obj.get('nonneg') or obj.get('nonnegative') else ''
+            t = f"Number({obj['length']},{prec}{nn})"
+    return t
+
 def parse_attribute_shorthand(val):
     if isinstance(val, str):
         parsed = {
@@ -320,18 +331,9 @@ def parse_attribute_shorthand(val):
         return parsed
     # Object form
     name = str(val.get('name', ''))
-    # Build type string combining type + length/precision from separate JSON fields
-    type_str = str(val['type']) if val.get('type') else ''
-    if type_str and '(' not in type_str:
-        if type_str == 'String' and val.get('length'):
-            type_str = f"String({val['length']})"
-        elif type_str == 'Number' and val.get('length'):
-            prec = val.get('precision', 0)
-            nn = ',nonneg' if val.get('nonneg') or val.get('nonnegative') else ''
-            type_str = f"Number({val['length']},{prec}{nn})"
     return {
         'name': name,
-        'type': type_str,
+        'type': build_type_str(val),
         'synonym': str(val['synonym']) if val.get('synonym') else split_camel_case(name),
         'comment': str(val['comment']) if val.get('comment') else '',
         'flags': list(val.get('flags', [])),
@@ -1023,15 +1025,8 @@ def emit_constant_properties(indent):
     X(f'{i}<Name>{esc_xml(obj_name)}</Name>')
     emit_mltext(i, 'Synonym', synonym)
     X(f'{i}<Comment/>')
-    # Type — combine valueType + length/precision from separate JSON fields
-    value_type = str(defn['valueType']) if defn.get('valueType') else 'String'
-    if value_type and '(' not in value_type:
-        if value_type == 'String' and defn.get('length'):
-            value_type = f"String({defn['length']})"
-        elif value_type == 'Number' and defn.get('length'):
-            prec = defn.get('precision', 0)
-            nn = ',nonneg' if defn.get('nonneg') or defn.get('nonnegative') else ''
-            value_type = f"Number({defn['length']},{prec}{nn})"
+    # Type
+    value_type = build_type_str(defn) or 'String'
     emit_value_type(i, value_type)
     X(f'{i}<UseStandardCommands>true</UseStandardCommands>')
     X(f'{i}<DefaultForm/>')

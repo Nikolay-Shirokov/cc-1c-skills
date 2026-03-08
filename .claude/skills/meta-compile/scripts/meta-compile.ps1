@@ -311,6 +311,21 @@ function Emit-FillValue {
 
 # --- 5. Attribute shorthand parser ---
 
+function Build-TypeStr {
+	param($obj)
+	$t = if ($obj.valueType) { "$($obj.valueType)" } elseif ($obj.type) { "$($obj.type)" } else { "" }
+	if ($t -and -not $t.Contains('(')) {
+		if ($t -eq "String" -and $obj.length) {
+			$t = "String($($obj.length))"
+		} elseif ($t -eq "Number" -and $obj.length) {
+			$p = if ($obj.precision) { $obj.precision } else { 0 }
+			$nn = if ($obj.nonneg -or $obj.nonnegative) { ",nonneg" } else { "" }
+			$t = "Number($($obj.length),$p$nn)"
+		}
+	}
+	return $t
+}
+
 function Parse-AttributeShorthand {
 	param($val)
 
@@ -345,20 +360,9 @@ function Parse-AttributeShorthand {
 
 	# Object form
 	$name = "$($val.name)"
-	# Build type string combining type + length/precision from separate JSON fields
-	$typeStr = if ($val.type) { "$($val.type)" } else { "" }
-	if ($typeStr -and -not $typeStr.Contains('(')) {
-		if ($typeStr -eq "String" -and $val.length) {
-			$typeStr = "String($($val.length))"
-		} elseif ($typeStr -eq "Number" -and $val.length) {
-			$prec = if ($val.precision) { $val.precision } else { 0 }
-			$nn = if ($val.nonneg -or $val.nonnegative) { ",nonneg" } else { "" }
-			$typeStr = "Number($($val.length),$prec$nn)"
-		}
-	}
 	return @{
 		name    = $name
-		type    = $typeStr
+		type    = Build-TypeStr $val
 		synonym = if ($val.synonym) { "$($val.synonym)" } else { Split-CamelCase $name }
 		comment = if ($val.comment) { "$($val.comment)" } else { "" }
 		flags   = @(if ($val.flags) { $val.flags } else { @() })
@@ -1150,17 +1154,9 @@ function Emit-ConstantProperties {
 	Emit-MLText $i "Synonym" $synonym
 	X "$i<Comment/>"
 
-	# Type — combine valueType + length/precision from separate JSON fields
-	$valueType = if ($def.valueType) { "$($def.valueType)" } else { "String" }
-	if ($valueType -and -not $valueType.Contains('(')) {
-		if ($valueType -eq "String" -and $def.length) {
-			$valueType = "String($($def.length))"
-		} elseif ($valueType -eq "Number" -and $def.length) {
-			$p = if ($def.precision) { $def.precision } else { 0 }
-			$nn = if ($def.nonneg -or $def.nonnegative) { ",nonneg" } else { "" }
-			$valueType = "Number($($def.length),$p$nn)"
-		}
-	}
+	# Type
+	$valueType = Build-TypeStr $def
+	if (-not $valueType) { $valueType = "String" }
 	Emit-ValueType $i $valueType
 
 	X "$i<UseStandardCommands>true</UseStandardCommands>"
