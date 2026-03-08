@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
-# meta-compile v1.0 — Compile 1C metadata object from JSON
+# meta-compile v1.1 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
 import json
 import os
 import re
+import subprocess
 import sys
+import tempfile
 import uuid
 import xml.etree.ElementTree as ET
 
@@ -80,6 +82,27 @@ with open(json_path, 'r', encoding='utf-8-sig') as f:
     json_text = f.read()
 
 defn = json.loads(json_text)
+
+# --- Batch mode: JSON array of objects ---
+if isinstance(defn, list):
+    batch_ok = 0
+    batch_fail = 0
+    for idx, item in enumerate(defn, 1):
+        tmp_fd, tmp_path = tempfile.mkstemp(suffix='.json', prefix=f'meta-compile-batch-{idx}-')
+        try:
+            with os.fdopen(tmp_fd, 'w', encoding='utf-8') as f:
+                json.dump(item, f, ensure_ascii=False, indent=2)
+            rc = subprocess.call([sys.executable, __file__, '-JsonPath', tmp_path, '-OutputDir', output_dir])
+            if rc == 0:
+                batch_ok += 1
+            else:
+                batch_fail += 1
+        finally:
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)
+    print()
+    print(f"=== Batch: {len(defn)} objects, {batch_ok} compiled, {batch_fail} failed ===")
+    sys.exit(1 if batch_fail > 0 else 0)
 
 # Normalize field synonyms: accept "objectType" as alias for "type"
 if not defn.get('type') and defn.get('objectType'):

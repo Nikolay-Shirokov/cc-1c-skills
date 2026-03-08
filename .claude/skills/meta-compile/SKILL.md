@@ -17,7 +17,7 @@ allowed-tools:
 
 | Параметр | Описание |
 |----------|----------|
-| `JsonPath` | Путь к JSON-определению объекта |
+| `JsonPath` | Путь к JSON-определению объекта (один объект `{...}` или массив `[{...}, ...]`) |
 | `OutputDir` | Корневая директория выгрузки конфигурации (где `Catalogs/`, `Documents/` и т.д.) |
 
 ```powershell
@@ -168,6 +168,18 @@ Constant (Константа), DefinedType (ОпределяемыйТип), Com
 ```json
 { "type": "BusinessProcess", "name": "Задание", "attributes": ["Описание: String(200)"] }
 ```
+
+### Batch — массив объектов в одном файле
+
+```json
+[
+  { "type": "Enum", "name": "Статусы", "values": ["Новый", "Закрыт"] },
+  { "type": "Catalog", "name": "Валюты" },
+  { "type": "Constant", "name": "ОсновнаяВалюта", "valueType": "CatalogRef.Валюты" }
+]
+```
+
+Каждый элемент массива компилируется отдельно. Итоговый вывод: `=== Batch: 3 objects, 3 compiled, 0 failed ===`.
 
 ## Что генерируется
 

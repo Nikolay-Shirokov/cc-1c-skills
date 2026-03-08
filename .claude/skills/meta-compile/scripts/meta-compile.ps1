@@ -1,4 +1,4 @@
-﻿# meta-compile v1.0 — Compile 1C metadata object from JSON
+﻿# meta-compile v1.1 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -20,6 +20,28 @@ if (-not (Test-Path $JsonPath)) {
 
 $json = Get-Content -Raw -Encoding UTF8 $JsonPath
 $def = $json | ConvertFrom-Json
+
+# --- Batch mode: JSON array of objects ---
+if ($def -is [array] -or ($null -ne $def -and $def.GetType().BaseType.Name -eq 'Array')) {
+	$batchOk = 0
+	$batchFail = 0
+	$idx = 0
+	foreach ($item in $def) {
+		$idx++
+		$tmpJson = Join-Path ([System.IO.Path]::GetTempPath()) "meta-compile-batch-$idx.json"
+		try {
+			$item | ConvertTo-Json -Depth 20 | Set-Content -Encoding UTF8 $tmpJson
+			$proc = Start-Process -FilePath "powershell.exe" -ArgumentList "-NoProfile -File `"$PSCommandPath`" -JsonPath `"$tmpJson`" -OutputDir `"$OutputDir`"" -NoNewWindow -Wait -PassThru
+			if ($proc.ExitCode -eq 0) { $batchOk++ } else { $batchFail++ }
+		} finally {
+			Remove-Item $tmpJson -Force -ErrorAction SilentlyContinue
+		}
+	}
+	Write-Host ""
+	Write-Host "=== Batch: $idx objects, $batchOk compiled, $batchFail failed ==="
+	if ($batchFail -gt 0) { exit 1 }
+	exit 0
+}
 
 # Normalize field synonyms: accept "objectType" as alias for "type"
 if (-not $def.type -and $def.objectType) {
