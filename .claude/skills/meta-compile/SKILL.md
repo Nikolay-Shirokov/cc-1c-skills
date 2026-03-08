@@ -13,6 +13,13 @@ allowed-tools:
 
 Принимает JSON-определение объекта метаданных → генерирует XML + модули в структуре выгрузки конфигурации + регистрирует в Configuration.xml.
 
+## Порядок работы
+
+1. Составь JSON по синтаксису и примерам ниже → запиши во временный файл
+2. Запусти скрипт meta-compile
+3. Если нужно изменить созданный объект — `/meta-edit`
+4. Если нужно проверить — `/meta-validate`
+
 ## Команда
 
 ```powershell
@@ -116,8 +123,3 @@ powershell.exe -NoProfile -File .claude/skills/meta-compile/scripts/meta-compile
 - `{TypePlural}/{Name}/Ext/*.bsl` — модули (ObjectModule, RecordSetModule, Module — зависит от типа)
 - `Configuration.xml` — автоматическая регистрация в `<ChildObjects>`
 
-## Верификация
-
-```
-/meta-validate <OutputDir>/<TypePlural>/<Name>.xml
-```
