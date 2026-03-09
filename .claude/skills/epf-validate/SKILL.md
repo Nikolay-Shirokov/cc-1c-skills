@@ -15,11 +15,9 @@ allowed-tools:
 ## Использование
 
 ```
-/epf-validate <ObjectPath>
-/epf-validate src/МояОбработка        — авторезолв в <dir>/<dir>.xml
+/epf-validate src/МояОбработка
+/epf-validate src/МояОбработка/МояОбработка.xml
 ```
-
-`ObjectPath` авторезолв: если указана директория — ищет `<dirName>/<dirName>.xml`.
 
 ## Параметры
 
@@ -33,7 +31,7 @@ allowed-tools:
 ## Команда
 
 ```powershell
-powershell.exe -NoProfile -File .claude/skills/epf-validate/scripts/epf-validate.ps1 -ObjectPath "<путь_к_обработке>"
+powershell.exe -NoProfile -File .claude/skills/epf-validate/scripts/epf-validate.ps1 -ObjectPath "src/МояОбработка"
 ```
 
 ## Проверки

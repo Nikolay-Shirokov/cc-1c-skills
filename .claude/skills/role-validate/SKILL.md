@@ -31,7 +31,7 @@ allowed-tools:
 ## Команда
 
 ```powershell
-powershell.exe -NoProfile -File .claude/skills/role-validate/scripts/role-validate.ps1 -RightsPath "<Roles/ИмяРоли>"
+powershell.exe -NoProfile -File .claude/skills/role-validate/scripts/role-validate.ps1 -RightsPath "Roles/МояРоль"
 ```
 
 ## Проверки

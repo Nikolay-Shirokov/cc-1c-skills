@@ -1,7 +1,7 @@
 ---
 name: erf-validate
 description: Валидация внешнего отчёта 1С (ERF). Используй после создания или модификации отчёта для проверки корректности
-argument-hint: <ObjectPath> [-MaxErrors 30]
+argument-hint: <ObjectPath> [-Detailed] [-MaxErrors 30]
 allowed-tools:
   - Bash
   - Read
@@ -17,26 +17,26 @@ allowed-tools:
 ## Использование
 
 ```
-/erf-validate <ObjectPath>
+/erf-validate src/МойОтчёт
+/erf-validate src/МойОтчёт/МойОтчёт.xml
 ```
 
 ## Параметры
 
-| Параметр   | Обязательный | По умолчанию | Описание                                      |
-|------------|:------------:|--------------|-------------------------------------------------|
-| ObjectPath | да           | —            | Путь к корневому XML или каталогу отчёта        |
-| MaxErrors  | нет          | 30           | Остановиться после N ошибок                     |
-| OutFile    | нет          | —            | Записать результат в файл (UTF-8 BOM)           |
-
-`ObjectPath` авторезолв: если указана директория — ищет `<dirName>/<dirName>.xml`.
+| Параметр   | Обяз. | Умолч. | Описание                                      |
+|------------|:-----:|---------|-------------------------------------------------|
+| ObjectPath | да    | —       | Путь к корневому XML или каталогу отчёта        |
+| Detailed   | нет   | —       | Показывать [OK] для каждой проверки             |
+| MaxErrors  | нет   | 30      | Остановиться после N ошибок                     |
+| OutFile    | нет   | —       | Записать результат в файл (UTF-8 BOM)           |
 
 ## Команда
 
 ```powershell
-powershell.exe -NoProfile -File .claude/skills/epf-validate/scripts/epf-validate.ps1 -ObjectPath "<путь>"
+powershell.exe -NoProfile -File .claude/skills/epf-validate/scripts/epf-validate.ps1 -ObjectPath "src/МойОтчёт"
 ```
 
-## Выполняемые проверки
+## Проверки
 
 | #  | Проверка                                              | Серьёзность  |
 |----|-------------------------------------------------------|--------------|
@@ -51,38 +51,4 @@ powershell.exe -NoProfile -File .claude/skills/epf-validate/scripts/epf-validate
 | 9  | Файлы: формы (.xml + Ext/Form.xml), макеты            | ERROR        |
 | 10 | Дескрипторы форм: корневая структура, uuid, Name, FormType | ERROR / WARN |
 
-## Вывод
-
-```
-=== Validation: ERF.МойОтчёт ===
-
-[OK]    1. Root structure: MetaDataObject/ExternalReport, version 2.17
-[OK]    2. InternalInfo: ClassId correct, 1 GeneratedType
-[OK]    3. Properties: Name="МойОтчёт", Synonym present, MainDCS set
-[OK]    4. ChildObjects: Form(1), Template(1)
-[OK]    5. Cross-references: DefaultForm, MainDCS valid
-[OK]    6. Attributes: none
-[OK]    7. TabularSections: none
-[OK]    8. Name uniqueness: 2 names, all unique
-[OK]    9. File existence: 4 files verified
-[OK]    10. Form descriptors: 1 checked
-
-=== Result: 0 errors, 0 warnings ===
-```
-
-Код возврата: 0 = все проверки пройдены, 1 = есть ошибки.
-
-## Верификация
-
-```
-/erf-init <Name> --with-skd        — создать отчёт с СКД
-/erf-validate src/<Name>.xml        — проверить результат
-/erf-build <Name>                   — собрать ERF
-```
-
-## Когда использовать
-
-- **После `/erf-init`**: проверить scaffold
-- **После добавления формы/макета/СКД**: убедиться что ChildObjects и MainDCS корректны
-- **После ручного редактирования XML**: выявить структурные ошибки до сборки
-- **При отладке сборки**: найти причину ошибки Designer
+Exit code: 0 = OK, 1 = есть ошибки. По умолчанию краткий вывод. `-Detailed` для поштучной детализации.

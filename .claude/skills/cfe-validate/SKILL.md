@@ -15,11 +15,9 @@ allowed-tools:
 ## Использование
 
 ```
-/cfe-validate <ExtensionPath>
-/cfe-validate src                        — каталог расширения
+/cfe-validate src
+/cfe-validate src/Configuration.xml
 ```
-
-`ExtensionPath` авторезолв: если указана директория — ищет `Configuration.xml`.
 
 ## Параметры
 
@@ -33,7 +31,7 @@ allowed-tools:
 ## Команда
 
 ```powershell
-powershell.exe -NoProfile -File .claude/skills/cfe-validate/scripts/cfe-validate.ps1 -ExtensionPath "<путь>"
+powershell.exe -NoProfile -File .claude/skills/cfe-validate/scripts/cfe-validate.ps1 -ExtensionPath "src"
 ```
 
 ## Проверки (9 шагов)

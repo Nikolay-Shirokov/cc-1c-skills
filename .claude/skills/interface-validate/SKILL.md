@@ -15,7 +15,7 @@ allowed-tools:
 ## Использование
 
 ```
-/interface-validate <CIPath>
+/interface-validate Subsystems/Продажи
 /interface-validate Subsystems/Продажи/Ext/CommandInterface.xml
 ```
 
@@ -31,7 +31,7 @@ allowed-tools:
 ## Команда
 
 ```powershell
-powershell.exe -NoProfile -File ".claude/skills/interface-validate/scripts/interface-validate.ps1" -CIPath "<Subsystems/ИмяПодсистемы>"
+powershell.exe -NoProfile -File ".claude/skills/interface-validate/scripts/interface-validate.ps1" -CIPath "Subsystems/Продажи"
 ```
 
 ## Проверки (13)

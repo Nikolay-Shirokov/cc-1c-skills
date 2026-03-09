@@ -15,11 +15,9 @@ allowed-tools:
 ## Использование
 
 ```
-/cf-validate <ConfigPath>
-/cf-validate upload/cfempty              — каталог выгрузки
+/cf-validate upload/cfempty
+/cf-validate upload/cfempty/Configuration.xml
 ```
-
-`ConfigPath` авторезолв: если указана директория — ищет `Configuration.xml`.
 
 ## Параметры
 
@@ -33,7 +31,7 @@ allowed-tools:
 ## Команда
 
 ```powershell
-powershell.exe -NoProfile -File .claude/skills/cf-validate/scripts/cf-validate.ps1 -ConfigPath "<путь>"
+powershell.exe -NoProfile -File .claude/skills/cf-validate/scripts/cf-validate.ps1 -ConfigPath "upload/cfempty"
 ```
 
 ## Проверки

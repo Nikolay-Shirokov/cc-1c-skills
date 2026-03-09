@@ -15,8 +15,8 @@ allowed-tools:
 ## Использование
 
 ```
-/skd-validate <TemplatePath>
-/skd-validate path/to/Ext/Template.xml
+/skd-validate src/МойОтчёт/Templates/ОсновнаяСхема
+/skd-validate Catalogs/Номенклатура/Templates/СКД/Ext/Template.xml
 ```
 
 ## Параметры
@@ -31,7 +31,7 @@ allowed-tools:
 ## Команда
 
 ```powershell
-powershell.exe -NoProfile -File .claude/skills/skd-validate/scripts/skd-validate.ps1 -TemplatePath "<.../Templates/ИмяМакета>"
+powershell.exe -NoProfile -File .claude/skills/skd-validate/scripts/skd-validate.ps1 -TemplatePath "src/МойОтчёт/Templates/ОсновнаяСхема"
 ```
 
 ## Проверки (~30)

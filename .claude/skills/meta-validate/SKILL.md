@@ -15,11 +15,9 @@ allowed-tools:
 ## Использование
 
 ```
-/meta-validate <ObjectPath>
-/meta-validate path1.xml|path2.xml     — batch mode
+/meta-validate Catalogs/Номенклатура/Номенклатура.xml
+/meta-validate Catalogs/Банки|Documents/Заказ     — batch mode
 ```
-
-`ObjectPath` авторезолв: если указана директория — ищет `<dirName>/<dirName>.xml`.
 
 ## Параметры
 
@@ -33,7 +31,7 @@ allowed-tools:
 ## Команда
 
 ```powershell
-powershell.exe -NoProfile -File .claude/skills/meta-validate/scripts/meta-validate.ps1 -ObjectPath "<Catalogs/ИмяСправочника/ИмяСправочника.xml>"
+powershell.exe -NoProfile -File .claude/skills/meta-validate/scripts/meta-validate.ps1 -ObjectPath "Catalogs/Номенклатура/Номенклатура.xml"
 ```
 
 ## Поддерживаемые типы (23)

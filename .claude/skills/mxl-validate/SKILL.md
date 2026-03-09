@@ -30,7 +30,7 @@ allowed-tools:
 ## Команда
 
 ```powershell
-powershell.exe -NoProfile -File .claude/skills/mxl-validate/scripts/mxl-validate.ps1 -TemplatePath "<.../Templates/ИмяМакета>"
+powershell.exe -NoProfile -File .claude/skills/mxl-validate/scripts/mxl-validate.ps1 -TemplatePath "Catalogs/Номенклатура/Templates/Макет"
 ```
 
 ## Проверки

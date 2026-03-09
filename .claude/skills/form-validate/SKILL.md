@@ -15,7 +15,7 @@ allowed-tools:
 ## Использование
 
 ```
-/form-validate <FormPath>
+/form-validate Catalogs/Номенклатура/Forms/ФормаЭлемента
 /form-validate src/МояОбработка/Forms/Форма/Ext/Form.xml
 ```
 
@@ -30,7 +30,7 @@ allowed-tools:
 ## Команда
 
 ```powershell
-powershell.exe -NoProfile -File .claude/skills/form-validate/scripts/form-validate.ps1 -FormPath "<.../Forms/ИмяФормы>"
+powershell.exe -NoProfile -File .claude/skills/form-validate/scripts/form-validate.ps1 -FormPath "Catalogs/Номенклатура/Forms/ФормаЭлемента"
 ```
 
 ## Проверки
