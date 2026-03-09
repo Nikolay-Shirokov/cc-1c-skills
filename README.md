@@ -13,7 +13,6 @@
 ```
 МойПроект/
 ├── .claude/skills/    ← скопировать из этого репозитория
-├── src/               ← исходники (создаются навыками)
 └── ...
 ```
 
@@ -52,11 +51,14 @@
 Навыки построены на открытом стандарте [Agent Skills](https://agentskills.io/specification) и совместимы с любой платформой, поддерживающей этот формат. Скрипт `switch.py` копирует навыки в нужный каталог с перезаписью путей:
 
 ```bash
-python scripts/switch.py                           # интерактивный режим (пошаговый диалог)
-python scripts/switch.py cursor                    # скопировать навыки для Cursor
-python scripts/switch.py cursor --runtime python   # Cursor + Python-рантайм
-python scripts/switch.py --undo cursor             # удалить копию
+python scripts/switch.py                                       # интерактивный режим
+python scripts/switch.py cursor                                # скопировать навыки для Cursor
+python scripts/switch.py cursor --runtime python               # Cursor + Python-рантайм
+python scripts/switch.py claude-code --project-dir /my/proj    # установить в другой проект
+python scripts/switch.py --undo cursor                         # удалить копию
 ```
+
+Если репозиторий склонирован внутрь проекта (например, в `tools/cc-1c-skills`), используйте `--project-dir` для установки навыков в целевой проект. Обновление — `git pull` и повторный запуск.
 
 Поддерживаемые платформы:
 
