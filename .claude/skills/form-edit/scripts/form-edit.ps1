@@ -1078,11 +1078,18 @@ if ($def.formEvents -and $def.formEvents.Count -gt 0) {
 		$eventsSection = $xmlDoc.CreateElement("Events", $formNs)
 		$insertAfter = $root.SelectSingleNode("f:AutoCommandBar", $nsMgr)
 		if ($insertAfter) {
-			$refNode = $insertAfter
-			$ws = $xmlDoc.CreateWhitespace("`r`n`t")
-			# Insert before the AutoCommandBar (Events come before AutoCommandBar in 1C)
-			$root.InsertBefore($ws, $refNode) | Out-Null
-			$root.InsertBefore($eventsSection, $refNode) | Out-Null
+			# Insert after AutoCommandBar (Events come after AutoCommandBar in 1C)
+			$ws1 = $xmlDoc.CreateWhitespace("`r`n`t")
+			$ws2 = $xmlDoc.CreateWhitespace("`r`n`t")
+			if ($insertAfter.NextSibling) {
+				$root.InsertBefore($ws1, $insertAfter.NextSibling) | Out-Null
+				$root.InsertBefore($eventsSection, $ws1) | Out-Null
+				$root.InsertBefore($ws2, $eventsSection) | Out-Null
+			} else {
+				$root.AppendChild($xmlDoc.CreateWhitespace("`r`n`t")) | Out-Null
+				$root.AppendChild($eventsSection) | Out-Null
+				$root.AppendChild($xmlDoc.CreateWhitespace("`r`n")) | Out-Null
+			}
 		} else {
 			$firstChild = $root.FirstChild
 			if ($firstChild) {

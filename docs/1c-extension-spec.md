@@ -356,71 +356,84 @@ Enums/                             # Перечисления
 
 #### 5.4.2. Структура Form.xml заимствованной формы
 
-Form.xml заимствованной формы — **двухчастный файл**: Part 1 (результирующая форма) и BaseForm (исходная форма). Обе части содержат **только визуальные элементы** — атрибуты, события, параметры и команды базовой конфигурации **НЕ включаются**.
+Form.xml заимствованной формы — **двухчастный файл**: Part 1 (результирующая форма) и BaseForm (исходная форма). Существуют **два варианта** в зависимости от наличия модификаций модуля формы.
+
+##### Вариант A — Минимальная форма (чистое заимствование)
+
+Когда форма заимствована без модификации модуля — Form.xml содержит **только свойства формы**, AutoCommandBar без кнопок и пустые Attributes. **Нет ChildItems**. Обе секции (Part 1 и BaseForm) идентичны.
 
 ```xml
 <Form xmlns="http://v8.1c.ru/8.3/xcf/logform" ... version="2.17">
-
-  <!-- ═══ ЧАСТЬ 1: Результирующая форма (база + изменения расширения) ═══ -->
+  <AutoTitle>false</AutoTitle>
+  <AutoTime>CurrentOrLast</AutoTime>
+  <!-- ... другие свойства формы ... -->
   <AutoCommandBar name="ФормаКоманднаяПанель" id="-1">
-    <ChildItems>
-      <!-- Базовые кнопки: CommandName заменён на 0 -->
-      <Button name="ФормаОбработкаЗагрузитьИзФайла" id="51">
-        <CommandName>0</CommandName>
-        ...
-      </Button>
-      <!-- Кнопки, добавленные расширением: CommandName указывает на команду -->
-      <Button name="ФормаНоваяКоманда" id="159">
-        <CommandName>Form.Command.НоваяКоманда</CommandName>
-        ...
-      </Button>
-    </ChildItems>
+    <Autofill>false</Autofill>
   </AutoCommandBar>
-  <ChildItems>
-    <!-- Все визуальные элементы: базовые + добавленные расширением -->
-  </ChildItems>
-  <Attributes/>  <!-- пустой, ИЛИ только реквизиты расширения (id ≥ 1000000) -->
-  <!-- Events — только обработчики расширения с callType (если есть) -->
-  <Events>
-    <Event name="OnCreateAtServer" callType="After">Расш1_ПриСозданииПосле</Event>
-  </Events>
-  <!-- Commands — только команды расширения (id ≥ 1000000, если есть) -->
-  <Commands>
-    <Command name="НоваяКоманда" id="1000000">
-      <Action callType="Override">Расш1_НоваяКомандаВместо</Action>
-    </Command>
-  </Commands>
+  <Attributes/>
+  <!-- Events, Commands — только расширения (если есть) -->
 
-  <!-- ═══ ЧАСТЬ 2: Исходная форма из базовой конфигурации ═══ -->
   <BaseForm version="2.17">
+    <AutoTitle>false</AutoTitle>
+    <AutoTime>CurrentOrLast</AutoTime>
+    <!-- те же свойства -->
     <AutoCommandBar name="ФормаКоманднаяПанель" id="-1">
-      <ChildItems>
-        <!-- Только базовые кнопки, все CommandName = 0 -->
-        <Button name="ФормаОбработкаЗагрузитьИзФайла" id="51">
-          <CommandName>0</CommandName>
-          ...
-        </Button>
-      </ChildItems>
+      <Autofill>false</Autofill>
     </AutoCommandBar>
-    <ChildItems>
-      <!-- Только визуальные элементы базовой конфигурации -->
-    </ChildItems>
-    <Attributes/>  <!-- всегда пустой -->
-    <!-- НЕТ Events, Commands, Parameters -->
+    <Attributes/>
   </BaseForm>
-
 </Form>
 ```
 
-**Ключевые правила:**
+##### Вариант B — Полная форма (заимствование процедуры модуля через `ИзменениеИКонтроль`)
 
-1. **Часть 1** (до `<BaseForm>`) — **результирующая форма**. Содержит визуальные элементы (AutoCommandBar + ChildItems) из базовой конфигурации плюс элементы расширения. Атрибуты базовой конфигурации (DynamicList, QueryText и др.) **не включаются** — только реквизиты расширения (id ≥ 1000000) или пустой `<Attributes/>`. Events и Commands — только добавленные расширением (с `callType`).
+Когда в расширении заимствуется процедура из модуля формы, Конфигуратор выгружает **полное дерево ChildItems** с применением правил очистки.
 
-2. **Часть 2** (`<BaseForm>`) — **визуальный снимок исходной формы**. Содержит только AutoCommandBar + ChildItems + пустой `<Attributes/>`. НЕ содержит Events, Commands, Parameters. Все `<CommandName>` в кнопках заменены на `0`. Платформа использует BaseForm для контроля совместимости при обновлении конфигурации.
+```xml
+<Form xmlns="http://v8.1c.ru/8.3/xcf/logform" ... version="2.17">
+  <AutoTitle>false</AutoTitle>
+  <!-- свойства формы -->
+  <AutoCommandBar name="ФормаКоманднаяПанель" id="-1">
+    <Autofill>false</Autofill>
+    <!-- Без ChildItems (кнопки удалены) -->
+  </AutoCommandBar>
+  <ChildItems>
+    <!-- Полное дерево визуальных элементов -->
+  </ChildItems>
+  <Attributes/>
+  <!-- Events, Commands — только расширения -->
 
-3. **Правило `<CommandName>0</CommandName>`**: во всех кнопках базовой формы (как в Part 1, так и в BaseForm) значение `<CommandName>` заменяется на `0`. Ссылки на команды конфигурации не сохраняются. Только кнопки, добавленные расширением, сохраняют ссылку на команду (напр. `Form.Command.XXX`).
+  <BaseForm version="2.17">
+    <!-- Идентичная копия (свойства + AutoCommandBar + ChildItems + Attributes) -->
+  </BaseForm>
+</Form>
+```
 
-4. Элемент `<BaseForm>` всегда идёт **последним** в `<Form>` и имеет атрибут `version`.
+**Ключевые правила (для обоих вариантов):**
+
+1. **Свойства формы** — элементы между `<Form>` и `<AutoCommandBar>` (напр. `AutoTitle`, `AutoTime`, `UsePostingMode`, `RepostOnWrite`, `WindowOpeningMode`, `Customizable`, `CommandBarLocation`) копируются из исходной формы в обе секции.
+
+2. **AutoCommandBar** — присутствует всегда с `id="-1"`, но без `<ChildItems>` (кнопки удаляются). `<Autofill>` = `false`.
+
+3. **Attributes** — пустой `<Attributes/>` в обеих секциях. Атрибуты базовой конфигурации **не включаются**. Реквизиты расширения (id ≥ 1000000) добавляются только в Part 1.
+
+4. **BaseForm** — последний элемент в `<Form>`, атрибут `version`. В BaseForm **нет** Events, Commands, Parameters.
+
+5. **DataPath: удаление** (вариант B) — все `<DataPath>` из базовых элементов удаляются в обеих секциях. DataPath ссылается на реквизиты, не включённые в расширение.
+
+6. **TitleDataPath: удаление** (вариант B) — все `<TitleDataPath>` удаляются (напр. `Объект.Товары.RowsCount` — путь недействителен без базовых атрибутов).
+
+7. **TypeLink: удаление** (вариант B) — блоки `<TypeLink>` с `<xr:DataPath>Items.*</xr:DataPath>` удаляются (человекочитаемые пути, которые нельзя преобразовать в UUID-формат Конфигуратора).
+
+8. **Events элементов: удаление** (вариант B) — все `<Events>` внутри визуальных элементов удаляются в обеих секциях. Обработчики расширения добавляются через `elementEvents` в Part 1 с `callType`.
+
+9. **Picture stripping** (вариант B) — блоки `<Picture>` с `<xr:Ref>CommonPicture.XXX</xr:Ref>` удаляются, если `CommonPicture.XXX` **не заимствован** в расширение. Сам элемент PictureDecoration остаётся, только `<Picture>` убирается. `StdPicture.Print` сохраняется, остальные StdPicture удаляются.
+
+10. **Авто-заимствование CommonPictures** — при заимствовании формы автоматически заимствуются все CommonPictures, на которые ссылаются элементы формы.
+
+11. **Авто-заимствование StyleItems** — элементы формы ссылаются на StyleItems через `<Font ref="style:XXX" kind="StyleItem"/>` и `<BackColor>style:XXX</BackColor>`. Все такие StyleItems должны быть заимствованы. Стандартные стили (NormalTextFont, AccentColor, FormBackColor и др.) не имеют файлов и автоматически пропускаются.
+
+12. **Авто-заимствование Enums + EnumValues** — `<ChoiceParameters>` могут содержать `<Value xsi:type="xr:DesignTimeRef">Enum.XXX.EnumValue.YYY</Value>`. Перечисление `Enum.XXX` заимствуется вместе с конкретными `EnumValue` (borrowed с `ExtendedConfigurationObject` указывающим на UUID оригинального значения).
 
 #### 5.4.3. Нумерация ID элементов
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# cfe-validate v1.1 — Validate 1C configuration extension XML structure (CFE)
+# cfe-validate v1.2 — Validate 1C configuration extension XML structure (CFE)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 """Validates extension Configuration.xml: root, InternalInfo, extension properties, ChildObjects, borrowed objects."""
 import sys, os, argparse, re
@@ -392,7 +392,7 @@ def main():
     else:
         check5_ok = True
         total_count = 0
-        type_counts = {}
+        child_object_index = {}
         duplicates = {}
         type_first_index = {}
         last_type_order = -1
@@ -420,20 +420,20 @@ def main():
                         order_ok = False
                     last_type_order = type_idx
 
-            if type_name not in type_counts:
-                type_counts[type_name] = {}
-            if obj_name_val in type_counts[type_name]:
+            if type_name not in child_object_index:
+                child_object_index[type_name] = {}
+            if obj_name_val in child_object_index[type_name]:
                 dup_key = f'{type_name}.{obj_name_val}'
                 if dup_key not in duplicates:
                     r.error(f'5. Duplicate: {dup_key}')
                     duplicates[dup_key] = True
                     check5_ok = False
             else:
-                type_counts[type_name][obj_name_val] = True
+                child_object_index[type_name][obj_name_val] = True
 
             total_count += 1
 
-        type_count = len(type_counts)
+        type_count = len(child_object_index)
         if check5_ok:
             order_info = ', order correct' if order_ok else ''
             r.ok(f'5. ChildObjects: {type_count} types, {total_count} objects{order_info}')
@@ -529,11 +529,43 @@ def main():
         r.finalize(out_file)
         sys.exit(1)
 
-    # --- Check 9: Borrowed objects validation ---
+    # --- Check 9: Borrowed objects + Check 10: Sub-items ---
+    MD = NS['md']
+    XR = NS['xr']
+    enum_values_index = {}
+    form_list = []
+
+    def validate_borrowed_sub_item(check_num, context, sub_type, sub_item):
+        """Validate a borrowed Attribute/EnumValue/TabularSection sub-item."""
+        sub_props = sub_item.find(f'{{{MD}}}Properties')
+        if sub_props is None:
+            r.error(f'{check_num}. {context}: {sub_type} missing Properties')
+            return False
+        ok = True
+        sub_ob = sub_props.find(f'{{{MD}}}ObjectBelonging')
+        if sub_ob is None or (sub_ob.text or '') != 'Adopted':
+            r.error(f"{check_num}. {context}: {sub_type} ObjectBelonging must be 'Adopted'")
+            ok = False
+        sub_name = sub_props.find(f'{{{MD}}}Name')
+        if sub_name is None or not (sub_name.text or ''):
+            r.error(f'{check_num}. {context}: {sub_type} missing Name')
+            ok = False
+        sub_ext = sub_props.find(f'{{{MD}}}ExtendedConfigurationObject')
+        sub_name_val = (sub_name.text or '') if sub_name is not None else '?'
+        if sub_ext is None or not (sub_ext.text or ''):
+            r.error(f'{check_num}. {context}: {sub_type}.{sub_name_val} missing ExtendedConfigurationObject')
+            ok = False
+        elif not GUID_PATTERN.match(sub_ext.text):
+            r.error(f'{check_num}. {context}: {sub_type}.{sub_name_val} invalid ExtendedConfigurationObject')
+            ok = False
+        return ok
+
     if child_obj_node is not None:
         borrowed_count = 0
         borrowed_ok_count = 0
         check9_ok = True
+        check10_ok = True
+        sub_item_count = 0
 
         for child in child_obj_node:
             if not isinstance(child.tag, str):
@@ -552,7 +584,6 @@ def main():
                 continue
 
             # Parse object XML
-            obj_doc = None
             try:
                 obj_parser = etree.XMLParser(remove_blank_text=False)
                 obj_doc = etree.parse(obj_file, obj_parser)
@@ -571,16 +602,16 @@ def main():
             if obj_el is None:
                 continue
 
-            obj_props = obj_el.find(f'{{{NS["md"]}}}Properties')
+            obj_props = obj_el.find(f'{{{MD}}}Properties')
             if obj_props is None:
                 continue
 
-            ob_node = obj_props.find(f'{{{NS["md"]}}}ObjectBelonging')
+            # --- Check 9: ObjectBelonging + ExtendedConfigurationObject ---
+            ob_node = obj_props.find(f'{{{MD}}}ObjectBelonging')
             if ob_node is not None and (ob_node.text or '') == 'Adopted':
                 borrowed_count += 1
 
-                # Check ExtendedConfigurationObject
-                ext_obj = obj_props.find(f'{{{NS["md"]}}}ExtendedConfigurationObject')
+                ext_obj = obj_props.find(f'{{{MD}}}ExtendedConfigurationObject')
                 if ext_obj is None or not (ext_obj.text or ''):
                     r.error(f'9. Borrowed {type_name}.{child_name}: missing ExtendedConfigurationObject')
                     check9_ok = False
@@ -590,13 +621,247 @@ def main():
                 else:
                     borrowed_ok_count += 1
 
+            # --- Check 10: Sub-items (Attribute, TabularSection, EnumValue, Form) ---
+            obj_child_objects = obj_el.find(f'{{{MD}}}ChildObjects')
+            if obj_child_objects is not None:
+                ctx = f'{type_name}.{child_name}'
+                for sub_item in obj_child_objects:
+                    if not isinstance(sub_item.tag, str):
+                        continue
+                    sub_type = etree.QName(sub_item.tag).localname
+
+                    if sub_type == 'Attribute':
+                        sub_item_count += 1
+                        if not validate_borrowed_sub_item('10', ctx, 'Attribute', sub_item):
+                            check10_ok = False
+
+                    elif sub_type == 'TabularSection':
+                        sub_item_count += 1
+                        if not validate_borrowed_sub_item('10', ctx, 'TabularSection', sub_item):
+                            check10_ok = False
+                        else:
+                            # Check InternalInfo GeneratedTypes
+                            ts_info = sub_item.find(f'{{{MD}}}InternalInfo')
+                            ts_name_el = sub_item.find(f'{{{MD}}}Properties/{{{MD}}}Name')
+                            ts_label = (ts_name_el.text or '?') if ts_name_el is not None else '?'
+                            if ts_info is None:
+                                r.error(f'10. {ctx}: TabularSection.{ts_label} missing InternalInfo')
+                                check10_ok = False
+                            else:
+                                gt_nodes = ts_info.findall(f'{{{XR}}}GeneratedType')
+                                has_ts = any(gt.get('category') == 'TabularSection' for gt in gt_nodes)
+                                has_tsr = any(gt.get('category') == 'TabularSectionRow' for gt in gt_nodes)
+                                if not has_ts or not has_tsr:
+                                    r.error(f'10. {ctx}: TabularSection.{ts_label} missing GeneratedType (need TabularSection + TabularSectionRow)')
+                                    check10_ok = False
+                            # Recurse into TS ChildObjects/Attribute
+                            ts_child_objs = sub_item.find(f'{{{MD}}}ChildObjects')
+                            if ts_child_objs is not None:
+                                for ts_attr in ts_child_objs:
+                                    if not isinstance(ts_attr.tag, str):
+                                        continue
+                                    if etree.QName(ts_attr.tag).localname != 'Attribute':
+                                        continue
+                                    sub_item_count += 1
+                                    if not validate_borrowed_sub_item('10', f'{ctx}.ТЧ.{ts_label}', 'Attribute', ts_attr):
+                                        check10_ok = False
+
+                    elif sub_type == 'EnumValue' and type_name == 'Enum':
+                        sub_item_count += 1
+                        if validate_borrowed_sub_item('10', ctx, 'EnumValue', sub_item):
+                            ev_name = sub_item.find(f'{{{MD}}}Properties/{{{MD}}}Name')
+                            if ev_name is not None and (ev_name.text or ''):
+                                if child_name not in enum_values_index:
+                                    enum_values_index[child_name] = {}
+                                enum_values_index[child_name][ev_name.text] = True
+                        else:
+                            check10_ok = False
+
+                    elif sub_type == 'Form':
+                        form_name = sub_item.text or ''
+                        if form_name:
+                            form_meta_file = os.path.join(config_dir, dir_name, child_name, 'Forms', form_name + '.xml')
+                            if not os.path.exists(form_meta_file):
+                                r.error(f'10. {ctx}: Form.{form_name} metadata file missing')
+                                check10_ok = False
+                            form_list.append({
+                                'TypeName': type_name, 'ObjName': child_name,
+                                'FormName': form_name, 'DirName': dir_name,
+                            })
+                            sub_item_count += 1
+
             if r.stopped:
                 break
 
         if borrowed_count == 0:
-            pass  # no borrowed objects
+            r.ok('9. Borrowed objects: none found')
         elif check9_ok:
             r.ok(f'9. Borrowed objects: {borrowed_ok_count}/{borrowed_count} validated')
+
+        if sub_item_count == 0:
+            r.ok('10. Sub-items: none found')
+        elif check10_ok:
+            r.ok(f'10. Sub-items: {sub_item_count} validated (Attributes, TabularSections, EnumValues, Forms)')
+
+    if r.stopped:
+        r.finalize(out_file)
+        sys.exit(1)
+
+    # --- Check 11: Borrowed form structure ---
+    borrowed_forms_with_tree = []
+    check11_ok = True
+    form_count = 0
+
+    for fi in form_list:
+        form_count += 1
+        form_base = os.path.join(config_dir, fi['DirName'], fi['ObjName'], 'Forms', fi['FormName'])
+        form_meta_file = os.path.join(os.path.dirname(form_base), fi['FormName'] + '.xml')
+        form_xml_file = os.path.join(form_base, 'Ext', 'Form.xml')
+        module_bsl_file = os.path.join(form_base, 'Ext', 'Form', 'Module.bsl')
+        ctx = f"{fi['TypeName']}.{fi['ObjName']}.Form.{fi['FormName']}"
+
+        # Validate form metadata XML
+        if os.path.exists(form_meta_file):
+            try:
+                fm_doc = etree.parse(form_meta_file, etree.XMLParser(remove_blank_text=False))
+                fm_root = fm_doc.getroot()
+                fm_el = None
+                for c in fm_root:
+                    if isinstance(c.tag, str):
+                        fm_el = c
+                        break
+                if fm_el is not None:
+                    fm_props = fm_el.find(f'{{{MD}}}Properties')
+                    if fm_props is not None:
+                        fm_ob = fm_props.find(f'{{{MD}}}ObjectBelonging')
+                        is_borrowed = fm_ob is not None and (fm_ob.text or '') == 'Adopted'
+                        if is_borrowed:
+                            fm_ext = fm_props.find(f'{{{MD}}}ExtendedConfigurationObject')
+                            if fm_ext is None or not (fm_ext.text or '') or not GUID_PATTERN.match(fm_ext.text or ''):
+                                r.error(f'11. {ctx}: invalid/missing ExtendedConfigurationObject')
+                                check11_ok = False
+                        fm_type = fm_props.find(f'{{{MD}}}FormType')
+                        if fm_type is not None and (fm_type.text or '') != 'Managed':
+                            r.error(f"11. {ctx}: FormType must be 'Managed', got '{fm_type.text}'")
+                            check11_ok = False
+            except etree.XMLSyntaxError as e:
+                r.warn(f'11. {ctx}: Cannot parse metadata: {e}')
+
+        # Form.xml must exist
+        if not os.path.exists(form_xml_file):
+            r.error(f'11. {ctx}: Ext/Form.xml missing')
+            check11_ok = False
+            continue
+
+        # Module.bsl should exist
+        if not os.path.exists(module_bsl_file):
+            r.warn(f'11. {ctx}: Ext/Form/Module.bsl missing')
+
+        # Read Form.xml as raw text for BaseForm checks
+        with open(form_xml_file, 'r', encoding='utf-8-sig') as f:
+            form_raw_text = f.read()
+
+        if '<BaseForm' in form_raw_text:
+            if not re.search(r'<BaseForm[^>]+version=', form_raw_text):
+                r.warn(f'11. {ctx}: <BaseForm> missing version attribute')
+            borrowed_forms_with_tree.append({
+                'Path': form_xml_file, 'RawText': form_raw_text, 'Context': ctx,
+            })
+
+    if form_count == 0:
+        r.ok('11. Borrowed forms: none found')
+    elif check11_ok:
+        bf_count = len(borrowed_forms_with_tree)
+        r.ok(f'11. Borrowed forms: {form_count} validated ({bf_count} with BaseForm)')
+
+    if r.stopped:
+        r.finalize(out_file)
+        sys.exit(1)
+
+    # --- Check 12: Form dependency references ---
+    PLATFORM_STYLE_ITEMS = {
+        'TableHeaderBackColor', 'AccentColor', 'NormalTextFont',
+        'FormBackColor', 'ToolTipBackColor', 'BorderColor',
+        'FieldBackColor', 'FieldTextColor', 'ButtonBackColor',
+        'ButtonTextColor', 'AlternateRowColor', 'SpecialTextColor',
+        'TextFont', 'ImportantColor', 'FormTextColor',
+        'SmallTextFont', 'ExtraLargeTextFont', 'LargeTextFont',
+        'NormalTextColor', 'GroupHeaderBackColor', 'GroupHeaderFont',
+        'ErrorColor', 'SuccessColor', 'WarningColor',
+    }
+    check12_ok = True
+    dep_check_count = 0
+
+    for bf in borrowed_forms_with_tree:
+        raw = bf['RawText']
+        ctx = bf['Context']
+        missing_items = []
+
+        # CommonPicture references
+        cp_refs = {}
+        for m in re.finditer(r'<xr:Ref>CommonPicture\.(\w+)</xr:Ref>', raw):
+            cp_refs[m.group(1)] = True
+        cp_index = child_object_index.get('CommonPicture', {})
+        for cp_name in cp_refs:
+            dep_check_count += 1
+            if cp_name not in cp_index:
+                missing_items.append(f'CommonPicture.{cp_name}')
+
+        # StyleItem references
+        si_refs = {}
+        for m in re.finditer(r'style:([A-Za-z\u0410-\u044F\u0401\u0451_][A-Za-z0-9\u0410-\u044F\u0401\u0451_]*)', raw):
+            si_refs[m.group(1)] = True
+        si_index = child_object_index.get('StyleItem', {})
+        for si_name in si_refs:
+            dep_check_count += 1
+            if si_name in PLATFORM_STYLE_ITEMS:
+                continue
+            if si_name not in si_index:
+                missing_items.append(f'StyleItem.{si_name}')
+
+        # Enum DesignTimeRef references
+        enum_refs = {}
+        for m in re.finditer(r'xr:DesignTimeRef">Enum\.(\w+)\.EnumValue\.(\w+)', raw):
+            e_key = f'{m.group(1)}.{m.group(2)}'
+            enum_refs[e_key] = {'Enum': m.group(1), 'Value': m.group(2)}
+        e_index = child_object_index.get('Enum', {})
+        for entry in enum_refs.values():
+            dep_check_count += 1
+            if entry['Enum'] not in e_index:
+                missing_items.append(f"Enum.{entry['Enum']}")
+            elif entry['Enum'] not in enum_values_index or entry['Value'] not in enum_values_index.get(entry['Enum'], {}):
+                missing_items.append(f"Enum.{entry['Enum']}.EnumValue.{entry['Value']}")
+
+        for mi in missing_items:
+            r.warn(f'12. {ctx}: references {mi} not borrowed in extension')
+            check12_ok = False
+
+    if len(borrowed_forms_with_tree) == 0:
+        r.ok('12. Form dependencies: no borrowed forms with tree')
+    elif check12_ok:
+        r.ok(f'12. Form dependencies: {dep_check_count} references checked')
+
+    if r.stopped:
+        r.finalize(out_file)
+        sys.exit(1)
+
+    # --- Check 13: TypeLink with human-readable paths ---
+    check13_ok = True
+    type_link_count = 0
+
+    for bf in borrowed_forms_with_tree:
+        raw = bf['RawText']
+        ctx = bf['Context']
+        matches = re.findall(r'<TypeLink>\s*<xr:DataPath>Items\.[^<]*</xr:DataPath>', raw)
+        if matches:
+            type_link_count += len(matches)
+            r.warn(f'13. {ctx}: {len(matches)} TypeLink(s) with human-readable Items.* DataPath (should be stripped)')
+            check13_ok = False
+
+    if len(borrowed_forms_with_tree) == 0:
+        r.ok('13. TypeLink: no borrowed forms with tree')
+    elif check13_ok:
+        r.ok('13. TypeLink: clean')
 
     # --- Final output ---
     r.finalize(out_file)

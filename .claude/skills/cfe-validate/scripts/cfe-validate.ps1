@@ -1,4 +1,4 @@
-﻿# cfe-validate v1.1 — Validate 1C configuration extension structure (CFE)
+﻿# cfe-validate v1.2 — Validate 1C configuration extension structure (CFE)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -389,7 +389,7 @@ if (-not $childObjNode) {
 } else {
 	$check5Ok = $true
 	$totalCount = 0
-	$typeCounts = @{}
+	$script:childObjectIndex = @{}
 	$duplicates = @{}
 	$typeFirstIndex = @{}
 	$lastTypeOrder = -1
@@ -415,21 +415,21 @@ if (-not $childObjNode) {
 			}
 		}
 
-		if (-not $typeCounts.ContainsKey($typeName)) { $typeCounts[$typeName] = @{} }
-		if ($typeCounts[$typeName].ContainsKey($objNameVal)) {
+		if (-not $script:childObjectIndex.ContainsKey($typeName)) { $script:childObjectIndex[$typeName] = @{} }
+		if ($script:childObjectIndex[$typeName].ContainsKey($objNameVal)) {
 			if (-not $duplicates.ContainsKey("$typeName.$objNameVal")) {
 				Report-Error "5. Duplicate: $typeName.$objNameVal"
 				$duplicates["$typeName.$objNameVal"] = $true
 				$check5Ok = $false
 			}
 		} else {
-			$typeCounts[$typeName][$objNameVal] = $true
+			$script:childObjectIndex[$typeName][$objNameVal] = $true
 		}
 
 		$totalCount++
 	}
 
-	$typeCount = $typeCounts.Count
+	$typeCount = $script:childObjectIndex.Count
 	if ($check5Ok) {
 		$orderInfo = if ($orderOk) { ", order correct" } else { "" }
 		Report-OK "5. ChildObjects: $typeCount types, $totalCount objects${orderInfo}"
@@ -533,11 +533,46 @@ if ($childObjNode) {
 
 if ($script:stopped) { & $finalize; exit 1 }
 
-# --- Check 9: Borrowed objects validation ---
+# --- Check 9: Borrowed objects validation + Check 10: Sub-items ---
+$script:enumValuesIndex = @{}
+$script:formList = @()
+
+# Helper: validate a borrowed Attribute/EnumValue sub-item
+function Validate-BorrowedSubItem {
+	param([string]$checkNum, [string]$context, [string]$subType, $subItem, $nsm)
+	$subProps = $subItem.SelectSingleNode("md:Properties", $nsm)
+	if (-not $subProps) {
+		Report-Error "${checkNum}. ${context}: ${subType} missing Properties"
+		return $false
+	}
+	$ok = $true
+	$subOb = $subProps.SelectSingleNode("md:ObjectBelonging", $nsm)
+	if (-not $subOb -or $subOb.InnerText -ne "Adopted") {
+		Report-Error "${checkNum}. ${context}: ${subType} ObjectBelonging must be 'Adopted'"
+		$ok = $false
+	}
+	$subName = $subProps.SelectSingleNode("md:Name", $nsm)
+	if (-not $subName -or -not $subName.InnerText) {
+		Report-Error "${checkNum}. ${context}: ${subType} missing Name"
+		$ok = $false
+	}
+	$subExt = $subProps.SelectSingleNode("md:ExtendedConfigurationObject", $nsm)
+	if (-not $subExt -or -not $subExt.InnerText) {
+		Report-Error "${checkNum}. ${context}: ${subType}.$($subName.InnerText) missing ExtendedConfigurationObject"
+		$ok = $false
+	} elseif ($subExt.InnerText -notmatch $guidPattern) {
+		Report-Error "${checkNum}. ${context}: ${subType}.$($subName.InnerText) invalid ExtendedConfigurationObject"
+		$ok = $false
+	}
+	return $ok
+}
+
 if ($childObjNode) {
 	$borrowedCount = 0
 	$borrowedOk = 0
 	$check9Ok = $true
+	$check10Ok = $true
+	$subItemCount = 0
 
 	foreach ($child in $childObjNode.ChildNodes) {
 		if ($child.NodeType -ne 'Element') { continue }
@@ -577,11 +612,11 @@ if ($childObjNode) {
 		$objProps = $objEl.SelectSingleNode("md:Properties", $objNs)
 		if (-not $objProps) { continue }
 
+		# --- Check 9: ObjectBelonging + ExtendedConfigurationObject ---
 		$obNode = $objProps.SelectSingleNode("md:ObjectBelonging", $objNs)
 		if ($obNode -and $obNode.InnerText -eq "Adopted") {
 			$borrowedCount++
 
-			# Check ExtendedConfigurationObject
 			$extObj = $objProps.SelectSingleNode("md:ExtendedConfigurationObject", $objNs)
 			if (-not $extObj -or -not $extObj.InnerText) {
 				Report-Error "9. Borrowed ${typeName}.${childName}: missing ExtendedConfigurationObject"
@@ -594,6 +629,90 @@ if ($childObjNode) {
 			}
 		}
 
+		# --- Check 10: Sub-items (Attribute, TabularSection, EnumValue, Form) ---
+		$objChildObjects = $objEl.SelectSingleNode("md:ChildObjects", $objNs)
+		if ($objChildObjects) {
+			$ctx = "${typeName}.${childName}"
+			foreach ($subItem in $objChildObjects.ChildNodes) {
+				if ($subItem.NodeType -ne 'Element') { continue }
+				$subType = $subItem.LocalName
+
+				if ($subType -eq "Attribute") {
+					$subItemCount++
+					if (-not (Validate-BorrowedSubItem "10" $ctx "Attribute" $subItem $objNs)) {
+						$check10Ok = $false
+					}
+				}
+				elseif ($subType -eq "TabularSection") {
+					$subItemCount++
+					if (-not (Validate-BorrowedSubItem "10" $ctx "TabularSection" $subItem $objNs)) {
+						$check10Ok = $false
+					} else {
+						# Check InternalInfo GeneratedTypes
+						$tsInfo = $subItem.SelectSingleNode("md:InternalInfo", $objNs)
+						$tsName = $subItem.SelectSingleNode("md:Properties/md:Name", $objNs)
+						$tsLabel = if ($tsName) { $tsName.InnerText } else { "?" }
+						if (-not $tsInfo) {
+							Report-Error "10. ${ctx}: TabularSection.${tsLabel} missing InternalInfo"
+							$check10Ok = $false
+						} else {
+							$gtNodes = $tsInfo.SelectNodes("xr:GeneratedType", $objNs)
+							$hasTSCat = $false; $hasTSRCat = $false
+							foreach ($gt in $gtNodes) {
+								$cat = $gt.GetAttribute("category")
+								if ($cat -eq "TabularSection") { $hasTSCat = $true }
+								if ($cat -eq "TabularSectionRow") { $hasTSRCat = $true }
+							}
+							if (-not $hasTSCat -or -not $hasTSRCat) {
+								Report-Error "10. ${ctx}: TabularSection.${tsLabel} missing GeneratedType (need TabularSection + TabularSectionRow)"
+								$check10Ok = $false
+							}
+						}
+						# Recurse into TS ChildObjects/Attribute
+						$tsChildObjs = $subItem.SelectSingleNode("md:ChildObjects", $objNs)
+						if ($tsChildObjs) {
+							foreach ($tsAttr in $tsChildObjs.ChildNodes) {
+								if ($tsAttr.NodeType -ne 'Element' -or $tsAttr.LocalName -ne "Attribute") { continue }
+								$subItemCount++
+								if (-not (Validate-BorrowedSubItem "10" "${ctx}.ТЧ.${tsLabel}" "Attribute" $tsAttr $objNs)) {
+									$check10Ok = $false
+								}
+							}
+						}
+					}
+				}
+				elseif ($subType -eq "EnumValue" -and $typeName -eq "Enum") {
+					$subItemCount++
+					if (Validate-BorrowedSubItem "10" $ctx "EnumValue" $subItem $objNs) {
+						$evName = $subItem.SelectSingleNode("md:Properties/md:Name", $objNs)
+						if ($evName -and $evName.InnerText) {
+							if (-not $script:enumValuesIndex.ContainsKey($childName)) {
+								$script:enumValuesIndex[$childName] = @{}
+							}
+							$script:enumValuesIndex[$childName][$evName.InnerText] = $true
+						}
+					} else {
+						$check10Ok = $false
+					}
+				}
+				elseif ($subType -eq "Form") {
+					$formName = $subItem.InnerText
+					if ($formName) {
+						$formMetaFile = Join-Path (Join-Path (Join-Path (Join-Path $configDir $dirName) $childName) "Forms") "${formName}.xml"
+						if (-not (Test-Path $formMetaFile)) {
+							Report-Error "10. ${ctx}: Form.${formName} metadata file missing"
+							$check10Ok = $false
+						}
+						$script:formList += @{
+							TypeName = $typeName; ObjName = $childName
+							FormName = $formName; DirName = $dirName
+						}
+						$subItemCount++
+					}
+				}
+			}
+		}
+
 		if ($script:stopped) { break }
 	}
 
@@ -602,6 +721,197 @@ if ($childObjNode) {
 	} elseif ($check9Ok) {
 		Report-OK "9. Borrowed objects: $borrowedOk/$borrowedCount validated"
 	}
+
+	if ($subItemCount -eq 0) {
+		Report-OK "10. Sub-items: none found"
+	} elseif ($check10Ok) {
+		Report-OK "10. Sub-items: $subItemCount validated (Attributes, TabularSections, EnumValues, Forms)"
+	}
+}
+
+if ($script:stopped) { & $finalize; exit 1 }
+
+# --- Check 11: Borrowed form structure ---
+$script:borrowedFormsWithTree = @()
+$check11Ok = $true
+$formCount = 0
+
+foreach ($fi in $script:formList) {
+	$formCount++
+	$formBase = Join-Path (Join-Path (Join-Path (Join-Path $configDir $fi.DirName) $fi.ObjName) "Forms") $fi.FormName
+	$formMetaFile = Join-Path (Split-Path $formBase -Parent) "$($fi.FormName).xml"
+	$formXmlFile = Join-Path (Join-Path $formBase "Ext") "Form.xml"
+	$moduleBslFile = Join-Path (Join-Path (Join-Path $formBase "Ext") "Form") "Module.bsl"
+	$ctx = "$($fi.TypeName).$($fi.ObjName).Form.$($fi.FormName)"
+
+	# Validate form metadata XML
+	if (Test-Path $formMetaFile) {
+		try {
+			$fmDoc = New-Object System.Xml.XmlDocument
+			$fmDoc.PreserveWhitespace = $false
+			$fmDoc.Load($formMetaFile)
+			$fmNs = New-Object System.Xml.XmlNamespaceManager($fmDoc.NameTable)
+			$fmNs.AddNamespace("md", "http://v8.1c.ru/8.3/MDClasses")
+
+			$fmEl = $null
+			foreach ($c in $fmDoc.DocumentElement.ChildNodes) {
+				if ($c.NodeType -eq 'Element') { $fmEl = $c; break }
+			}
+			if ($fmEl) {
+				$fmProps = $fmEl.SelectSingleNode("md:Properties", $fmNs)
+				if ($fmProps) {
+					$fmOb = $fmProps.SelectSingleNode("md:ObjectBelonging", $fmNs)
+					$isBorrowed = $fmOb -and $fmOb.InnerText -eq "Adopted"
+					if ($isBorrowed) {
+						$fmExt = $fmProps.SelectSingleNode("md:ExtendedConfigurationObject", $fmNs)
+						if (-not $fmExt -or $fmExt.InnerText -notmatch $guidPattern) {
+							Report-Error "11. ${ctx}: invalid/missing ExtendedConfigurationObject"
+							$check11Ok = $false
+						}
+					}
+					$fmType = $fmProps.SelectSingleNode("md:FormType", $fmNs)
+					if ($fmType -and $fmType.InnerText -ne "Managed") {
+						Report-Error "11. ${ctx}: FormType must be 'Managed', got '$($fmType.InnerText)'"
+						$check11Ok = $false
+					}
+				}
+			}
+		} catch {
+			Report-Warn "11. ${ctx}: Cannot parse metadata: $($_.Exception.Message)"
+		}
+	}
+
+	# Form.xml must exist
+	if (-not (Test-Path $formXmlFile)) {
+		Report-Error "11. ${ctx}: Ext/Form.xml missing"
+		$check11Ok = $false
+		continue
+	}
+
+	# Module.bsl should exist
+	if (-not (Test-Path $moduleBslFile)) {
+		Report-Warn "11. ${ctx}: Ext/Form/Module.bsl missing"
+	}
+
+	# Read Form.xml as raw text for BaseForm checks
+	$formRawText = [System.IO.File]::ReadAllText($formXmlFile, [System.Text.Encoding]::UTF8)
+
+	if ($formRawText -match '<BaseForm') {
+		# Check BaseForm has version
+		if ($formRawText -notmatch '<BaseForm[^>]+version=') {
+			Report-Warn "11. ${ctx}: <BaseForm> missing version attribute"
+		}
+
+		$script:borrowedFormsWithTree += @{
+			Path = $formXmlFile; RawText = $formRawText; Context = $ctx
+		}
+	}
+}
+
+if ($formCount -eq 0) {
+	Report-OK "11. Borrowed forms: none found"
+} elseif ($check11Ok) {
+	$bfCount = $script:borrowedFormsWithTree.Count
+	Report-OK "11. Borrowed forms: $formCount validated ($bfCount with BaseForm)"
+}
+
+if ($script:stopped) { & $finalize; exit 1 }
+
+# --- Check 12: Form dependency references ---
+$platformStyleItems = @{
+	"TableHeaderBackColor"=$true; "AccentColor"=$true; "NormalTextFont"=$true
+	"FormBackColor"=$true; "ToolTipBackColor"=$true; "BorderColor"=$true
+	"FieldBackColor"=$true; "FieldTextColor"=$true; "ButtonBackColor"=$true
+	"ButtonTextColor"=$true; "AlternateRowColor"=$true; "SpecialTextColor"=$true
+	"TextFont"=$true; "ImportantColor"=$true; "FormTextColor"=$true
+	"SmallTextFont"=$true; "ExtraLargeTextFont"=$true; "LargeTextFont"=$true
+	"NormalTextColor"=$true; "GroupHeaderBackColor"=$true; "GroupHeaderFont"=$true
+	"ErrorColor"=$true; "SuccessColor"=$true; "WarningColor"=$true
+}
+$check12Ok = $true
+$depCheckCount = 0
+
+foreach ($bf in $script:borrowedFormsWithTree) {
+	$raw = $bf.RawText
+	$ctx = $bf.Context
+	$missingItems = @()
+
+	# CommonPicture references
+	$cpRefs = @{}
+	foreach ($m in [regex]::Matches($raw, '<xr:Ref>CommonPicture\.(\w+)</xr:Ref>')) {
+		$cpRefs[$m.Groups[1].Value] = $true
+	}
+	$cpIndex = $script:childObjectIndex["CommonPicture"]
+	foreach ($cpName in $cpRefs.Keys) {
+		$depCheckCount++
+		if (-not $cpIndex -or -not $cpIndex.ContainsKey($cpName)) {
+			$missingItems += "CommonPicture.${cpName}"
+		}
+	}
+
+	# StyleItem references
+	$siRefs = @{}
+	foreach ($m in [regex]::Matches($raw, 'style:([A-Za-z\u0410-\u044F\u0401\u0451_][A-Za-z0-9\u0410-\u044F\u0401\u0451_]*)')) {
+		$siRefs[$m.Groups[1].Value] = $true
+	}
+	$siIndex = $script:childObjectIndex["StyleItem"]
+	foreach ($siName in $siRefs.Keys) {
+		$depCheckCount++
+		if ($platformStyleItems.ContainsKey($siName)) { continue }
+		if (-not $siIndex -or -not $siIndex.ContainsKey($siName)) {
+			$missingItems += "StyleItem.${siName}"
+		}
+	}
+
+	# Enum DesignTimeRef references
+	$enumRefs = @{}
+	foreach ($m in [regex]::Matches($raw, 'xr:DesignTimeRef">Enum\.(\w+)\.EnumValue\.(\w+)')) {
+		$eKey = "$($m.Groups[1].Value).$($m.Groups[2].Value)"
+		$enumRefs[$eKey] = @{ Enum = $m.Groups[1].Value; Value = $m.Groups[2].Value }
+	}
+	$eIndex = $script:childObjectIndex["Enum"]
+	foreach ($entry in $enumRefs.Values) {
+		$depCheckCount++
+		if (-not $eIndex -or -not $eIndex.ContainsKey($entry.Enum)) {
+			$missingItems += "Enum.$($entry.Enum)"
+		} elseif (-not $script:enumValuesIndex.ContainsKey($entry.Enum) -or -not $script:enumValuesIndex[$entry.Enum].ContainsKey($entry.Value)) {
+			$missingItems += "Enum.$($entry.Enum).EnumValue.$($entry.Value)"
+		}
+	}
+
+	foreach ($mi in $missingItems) {
+		Report-Warn "12. ${ctx}: references ${mi} not borrowed in extension"
+		$check12Ok = $false
+	}
+}
+
+if ($script:borrowedFormsWithTree.Count -eq 0) {
+	Report-OK "12. Form dependencies: no borrowed forms with tree"
+} elseif ($check12Ok) {
+	Report-OK "12. Form dependencies: $depCheckCount references checked"
+}
+
+if ($script:stopped) { & $finalize; exit 1 }
+
+# --- Check 13: TypeLink with human-readable paths ---
+$check13Ok = $true
+$typeLinkCount = 0
+
+foreach ($bf in $script:borrowedFormsWithTree) {
+	$raw = $bf.RawText
+	$ctx = $bf.Context
+	$matches = [regex]::Matches($raw, '<TypeLink>\s*<xr:DataPath>Items\.[^<]*</xr:DataPath>')
+	if ($matches.Count -gt 0) {
+		$typeLinkCount += $matches.Count
+		Report-Warn "13. ${ctx}: $($matches.Count) TypeLink(s) with human-readable Items.* DataPath (should be stripped)"
+		$check13Ok = $false
+	}
+}
+
+if ($script:borrowedFormsWithTree.Count -eq 0) {
+	Report-OK "13. TypeLink: no borrowed forms with tree"
+} elseif ($check13Ok) {
+	Report-OK "13. TypeLink: clean"
 }
 
 # --- Final output ---

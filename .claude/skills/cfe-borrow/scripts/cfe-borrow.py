@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# cfe-borrow v1.0 — Borrow objects from configuration into extension (CFE)
+# cfe-borrow v1.1 — Borrow objects from configuration into extension (CFE)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -652,18 +652,26 @@ def main():
         form_version = src_form_el.get("version", "2.17")
 
         src_auto_cmd = None
-        src_child_items = None
+        form_props = []
+        reached_visual = False
         for fc in src_form_el:
             if not isinstance(fc.tag, str):
                 continue
             ln = localname(fc)
             if ln == "AutoCommandBar" and src_auto_cmd is None:
+                reached_visual = True
                 src_auto_cmd = fc
-            elif ln == "ChildItems" and src_child_items is None:
-                src_child_items = fc
+                continue
+            if ln in ("ChildItems", "Events", "Attributes", "Commands", "Parameters"):
+                reached_visual = True
+                continue
+            if not reached_visual:
+                # Form-level properties before AutoCommandBar (WindowOpeningMode, AutoFillCheck, etc.)
+                form_props.append(etree.tostring(fc, encoding="unicode"))
 
         ns_strip_pattern = re.compile(r'\s+xmlns(?::\w+)?="[^"]*"')
 
+        # AutoCommandBar: keep ChildItems (buttons with CommandName→0), Autofill→false
         auto_cmd_xml = ""
         if src_auto_cmd is not None:
             auto_cmd_xml = etree.tostring(src_auto_cmd, encoding="unicode")
@@ -671,15 +679,151 @@ def main():
             auto_cmd_xml = re.sub(r'<CommandName>[^<]*</CommandName>', '<CommandName>0</CommandName>', auto_cmd_xml)
             auto_cmd_xml = auto_cmd_xml.replace('<Autofill>true</Autofill>', '<Autofill>false</Autofill>')
 
+        # ChildItems: copy full tree, clean up base-config references
         child_items_xml = ""
+        src_child_items = None
+        for fc in src_form_el:
+            if isinstance(fc.tag, str) and localname(fc) == "ChildItems":
+                src_child_items = fc
+                break
+
         if src_child_items is not None:
             child_items_xml = etree.tostring(src_child_items, encoding="unicode")
             child_items_xml = ns_strip_pattern.sub("", child_items_xml)
+            # Replace all CommandName values with 0
             child_items_xml = re.sub(r'<CommandName>[^<]*</CommandName>', '<CommandName>0</CommandName>', child_items_xml)
-        else:
-            child_items_xml = "<ChildItems/>"
+            # Strip DataPath
+            child_items_xml = re.sub(r'\s*<DataPath>[^<]*</DataPath>', '', child_items_xml)
+            # Strip TitleDataPath
+            child_items_xml = re.sub(r'\s*<TitleDataPath>[^<]*</TitleDataPath>', '', child_items_xml)
+            # Strip TypeLink blocks with human-readable DataPath (Items.XXX)
+            child_items_xml = re.sub(r'\s*<TypeLink>\s*<xr:DataPath>Items\.[^<]*</xr:DataPath>.*?</TypeLink>', '', child_items_xml, flags=re.DOTALL)
+            # Strip element-level Events
+            child_items_xml = re.sub(r'\s*<Events>.*?</Events>', '', child_items_xml, flags=re.DOTALL)
 
-        # Extract source form opening tag
+            # Auto-borrow referenced CommonPictures
+            pic_refs = re.findall(r'<xr:Ref>CommonPicture\.(\w+)</xr:Ref>', child_items_xml)
+            referenced_pictures = {name: True for name in pic_refs}
+
+            auto_borrowed_pics = []
+            for pic_name in referenced_pictures:
+                if not test_object_borrowed("CommonPicture", pic_name):
+                    pic_src_file = os.path.join(cfg_dir, "CommonPictures", f"{pic_name}.xml")
+                    if os.path.isfile(pic_src_file):
+                        src = read_source_object("CommonPicture", pic_name)
+                        borrowed_xml = build_borrowed_object_xml("CommonPicture", pic_name, src["Uuid"], src["Properties"])
+                        target_dir = os.path.join(ext_dir, "CommonPictures")
+                        os.makedirs(target_dir, exist_ok=True)
+                        target_file = os.path.join(target_dir, f"{pic_name}.xml")
+                        save_text_bom(target_file, borrowed_xml)
+                        add_to_child_objects("CommonPicture", pic_name)
+                        auto_borrowed_pics.append(pic_name)
+                        info(f"  Auto-borrowed: CommonPicture.{pic_name}")
+                    else:
+                        warn(f"  CommonPicture.{pic_name} not found in source config — will strip from form")
+
+            # Collect all borrowed CommonPictures for Picture stripping
+            borrowed_pic_set = set()
+            for co_child in child_objs_el:
+                if isinstance(co_child.tag, str) and localname(co_child) == "CommonPicture":
+                    borrowed_pic_set.add((co_child.text or "").strip())
+
+            # Strip <Picture> blocks referencing non-borrowed CommonPictures (reverse order)
+            pic_block_pattern = re.compile(r'\s*<Picture>\s*<xr:Ref>CommonPicture\.(\w+)</xr:Ref>.*?</Picture>', re.DOTALL)
+            pic_matches = list(pic_block_pattern.finditer(child_items_xml))
+            for pm in reversed(pic_matches):
+                cp_name = pm.group(1)
+                if cp_name not in borrowed_pic_set:
+                    child_items_xml = child_items_xml[:pm.start()] + child_items_xml[pm.end():]
+            # Strip StdPicture blocks (except Print)
+            child_items_xml = re.sub(r'\s*<Picture>\s*<xr:Ref>StdPicture\.(?!Print\b)\w+</xr:Ref>.*?</Picture>', '', child_items_xml, flags=re.DOTALL)
+
+            # Auto-borrow StyleItems referenced in ChildItems
+            referenced_styles = set()
+            for m in re.finditer(r'ref="style:(\w+)"[^>]*kind="StyleItem"', child_items_xml):
+                referenced_styles.add(m.group(1))
+            for m in re.finditer(r'>style:(\w+)</\w+>', child_items_xml):
+                referenced_styles.add(m.group(1))
+
+            for style_name in referenced_styles:
+                if not test_object_borrowed("StyleItem", style_name):
+                    style_src_file = os.path.join(cfg_dir, "StyleItems", f"{style_name}.xml")
+                    if os.path.isfile(style_src_file):
+                        src = read_source_object("StyleItem", style_name)
+                        borrowed_xml = build_borrowed_object_xml("StyleItem", style_name, src["Uuid"], src["Properties"])
+                        target_dir = os.path.join(ext_dir, "StyleItems")
+                        os.makedirs(target_dir, exist_ok=True)
+                        target_file = os.path.join(target_dir, f"{style_name}.xml")
+                        save_text_bom(target_file, borrowed_xml)
+                        add_to_child_objects("StyleItem", style_name)
+                        info(f"  Auto-borrowed: StyleItem.{style_name}")
+                    else:
+                        warn(f"  StyleItem.{style_name} not found in source config")
+
+            # Auto-borrow Enums + EnumValues referenced via DesignTimeRef
+            referenced_enum_values = {}  # enum_name -> set of value_names
+            for m in re.finditer(r'xr:DesignTimeRef">Enum\.(\w+)\.EnumValue\.(\w+)', child_items_xml):
+                e_name, ev_name = m.group(1), m.group(2)
+                if e_name not in referenced_enum_values:
+                    referenced_enum_values[e_name] = set()
+                referenced_enum_values[e_name].add(ev_name)
+
+            for enum_name, needed_values in referenced_enum_values.items():
+                if not test_object_borrowed("Enum", enum_name):
+                    enum_src_file = os.path.join(cfg_dir, "Enums", f"{enum_name}.xml")
+                    if os.path.isfile(enum_src_file):
+                        # Read source Enum to find EnumValue UUIDs
+                        src_enum_tree = etree.parse(enum_src_file, etree.XMLParser(remove_blank_text=False))
+                        src_enum_root = src_enum_tree.getroot()
+                        src_enum_el = None
+                        for cn in src_enum_root:
+                            if isinstance(cn.tag, str):
+                                src_enum_el = cn
+                                break
+
+                        # Find needed EnumValues
+                        ev_xmls = []
+                        for ev_node in src_enum_el.iter():
+                            if isinstance(ev_node.tag, str) and localname(ev_node) == "EnumValue":
+                                ev_uuid = ev_node.get("uuid", "")
+                                name_el = None
+                                for props in ev_node:
+                                    if isinstance(props.tag, str) and localname(props) == "Properties":
+                                        for prop in props:
+                                            if isinstance(prop.tag, str) and localname(prop) == "Name":
+                                                name_el = prop
+                                                break
+                                if name_el is not None and (name_el.text or "").strip() in needed_values:
+                                    new_ev_uuid = str(uuid.uuid4())
+                                    ev_xmls.append(
+                                        f'\t\t\t<EnumValue uuid="{new_ev_uuid}">\n'
+                                        f'\t\t\t\t<InternalInfo/>\n'
+                                        f'\t\t\t\t<Properties>\n'
+                                        f'\t\t\t\t\t<ObjectBelonging>Adopted</ObjectBelonging>\n'
+                                        f'\t\t\t\t\t<Name>{name_el.text.strip()}</Name>\n'
+                                        f'\t\t\t\t\t<Comment/>\n'
+                                        f'\t\t\t\t\t<ExtendedConfigurationObject>{ev_uuid}</ExtendedConfigurationObject>\n'
+                                        f'\t\t\t\t</Properties>\n'
+                                        f'\t\t\t</EnumValue>'
+                                    )
+
+                        # Build borrowed Enum with EnumValues
+                        src_obj = read_source_object("Enum", enum_name)
+                        borrowed_xml = build_borrowed_object_xml("Enum", enum_name, src_obj["Uuid"], src_obj["Properties"])
+                        if ev_xmls:
+                            ev_block = "\n".join(ev_xmls)
+                            borrowed_xml = borrowed_xml.replace("<ChildObjects/>", f"<ChildObjects>\n{ev_block}\n\t\t</ChildObjects>")
+
+                        target_dir = os.path.join(ext_dir, "Enums")
+                        os.makedirs(target_dir, exist_ok=True)
+                        target_file = os.path.join(target_dir, f"{enum_name}.xml")
+                        save_text_bom(target_file, borrowed_xml)
+                        add_to_child_objects("Enum", enum_name)
+                        info(f"  Auto-borrowed: Enum.{enum_name} (with {len(ev_xmls)} EnumValue(s))")
+                    else:
+                        warn(f"  Enum.{enum_name} not found in source config")
+
+        # Extract the <Form ...> opening tag from source text
         xml_decl = '<?xml version="1.0" encoding="UTF-8"?>'
         form_tag = f'<Form version="{form_version}">'
         m_decl = re.search(r'^(<\?xml[^?]*\?>)', src_form_content)
@@ -696,14 +840,22 @@ def main():
         parts.append(form_tag)
         parts.append("\r\n")
 
+        # Part 1: form properties + AutoCommandBar + ChildItems
+        for prop_xml in form_props:
+            prop_xml_clean = ns_strip_pattern.sub("", prop_xml)
+            parts.append(f"\t{prop_xml_clean}\r\n")
         if auto_cmd_xml:
             parts.append(f"\t{auto_cmd_xml}\r\n")
-        parts.append(f"\t{child_items_xml}\r\n")
+        if child_items_xml:
+            parts.append(f"\t{child_items_xml}\r\n")
         parts.append("\t<Attributes/>\r\n")
 
-        # BaseForm
+        # BaseForm: same content, indented one more level
         parts.append(f'\t<BaseForm version="{form_version}">\r\n')
 
+        for prop_xml in form_props:
+            prop_xml_clean = ns_strip_pattern.sub("", prop_xml)
+            parts.append(f"\t\t{prop_xml_clean}\r\n")
         if auto_cmd_xml:
             ac_lines = auto_cmd_xml.split("\n")
             for li, line in enumerate(ac_lines):
@@ -712,14 +864,14 @@ def main():
                 else:
                     parts.append(f"\t{line}")
                 parts.append("\r\n")
-
-        ci_lines = child_items_xml.split("\n")
-        for li, line in enumerate(ci_lines):
-            if li == 0:
-                parts.append(f"\t\t{line}")
-            else:
-                parts.append(f"\t{line}")
-            parts.append("\r\n")
+        if child_items_xml:
+            ci_lines = child_items_xml.split("\n")
+            for li, line in enumerate(ci_lines):
+                if li == 0:
+                    parts.append(f"\t\t{line}")
+                else:
+                    parts.append(f"\t{line}")
+                parts.append("\r\n")
 
         parts.append("\t\t<Attributes/>\r\n")
         parts.append("\t</BaseForm>\r\n")

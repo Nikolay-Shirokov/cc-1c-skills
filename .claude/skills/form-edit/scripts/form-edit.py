@@ -1162,7 +1162,15 @@ form_events_list = defn.get("formEvents") or []
 if form_events_list:
     events_section = root.find("f:Events", NS)
     if events_section is None:
-        events_section = etree.SubElement(root, f"{{{FORM_NS}}}Events")
+        events_section = etree.Element(f"{{{FORM_NS}}}Events")
+        # Insert after AutoCommandBar (Events come after AutoCommandBar in 1C)
+        acb_node = root.find("f:AutoCommandBar", NS)
+        if acb_node is not None:
+            acb_idx = list(root).index(acb_node)
+            acb_node.tail = (acb_node.tail or "") + "\r\n\t"
+            root.insert(acb_idx + 1, events_section)
+        else:
+            root.append(events_section)
 
     evt_child_indent = get_child_indent(events_section)
     if not evt_child_indent:

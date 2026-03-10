@@ -1,4 +1,4 @@
-﻿# cfe-borrow v1.0 — Borrow objects from configuration into extension (CFE)
+﻿# cfe-borrow v1.1 — Borrow objects from configuration into extension (CFE)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)][string]$ExtensionPath,
@@ -476,36 +476,209 @@ function Borrow-Form {
 	$formVersion = $srcFormEl.GetAttribute("version")
 	if (-not $formVersion) { $formVersion = "2.17" }
 
-	# Find direct children: AutoCommandBar, ChildItems (visual elements only)
+	# Find direct children: form properties, AutoCommandBar, ChildItems
 	$srcAutoCmd = $null
 	$srcChildItems = $null
+	$formProps = @()
+	$reachedVisual = $false
 	foreach ($fc in $srcFormEl.ChildNodes) {
 		if ($fc.NodeType -ne 'Element') { continue }
-		if ($fc.LocalName -eq 'AutoCommandBar' -and -not $srcAutoCmd) { $srcAutoCmd = $fc }
-		elseif ($fc.LocalName -eq 'ChildItems' -and -not $srcChildItems) { $srcChildItems = $fc }
+		if ($fc.LocalName -eq 'AutoCommandBar' -and -not $srcAutoCmd) {
+			$reachedVisual = $true; $srcAutoCmd = $fc; continue
+		}
+		if ($fc.LocalName -eq 'ChildItems' -and -not $srcChildItems) {
+			$reachedVisual = $true; $srcChildItems = $fc; continue
+		}
+		if ($fc.LocalName -eq 'Events' -or $fc.LocalName -eq 'Attributes' -or $fc.LocalName -eq 'Commands' -or $fc.LocalName -eq 'Parameters') {
+			$reachedVisual = $true; continue
+		}
+		if (-not $reachedVisual) {
+			$formProps += $fc.OuterXml
+		}
 	}
 
 	# Get OuterXml and strip redundant namespace redeclarations (they're on root <Form>)
 	$nsStripPattern = '\s+xmlns(?::\w+)?="[^"]*"'
 
+	# AutoCommandBar: keep ChildItems (buttons with CommandName→0), Autofill→false
 	$autoCmdXml = ""
 	if ($srcAutoCmd) {
 		$autoCmdXml = $srcAutoCmd.OuterXml
 		$autoCmdXml = [regex]::Replace($autoCmdXml, $nsStripPattern, '')
-		# Replace all CommandName values with 0 (base form buttons lose command refs)
 		$autoCmdXml = [regex]::Replace($autoCmdXml, '<CommandName>[^<]*</CommandName>', '<CommandName>0</CommandName>')
-		# Replace Autofill true → false
 		$autoCmdXml = $autoCmdXml -replace '<Autofill>true</Autofill>', '<Autofill>false</Autofill>'
 	}
 
+	# ChildItems: copy full tree, clean up base-config references
 	$childItemsXml = ""
 	if ($srcChildItems) {
 		$childItemsXml = $srcChildItems.OuterXml
 		$childItemsXml = [regex]::Replace($childItemsXml, $nsStripPattern, '')
-		# Replace all CommandName values with 0 in ChildItems too
+		# Replace all CommandName values with 0
 		$childItemsXml = [regex]::Replace($childItemsXml, '<CommandName>[^<]*</CommandName>', '<CommandName>0</CommandName>')
-	} else {
-		$childItemsXml = "<ChildItems/>"
+		# Strip DataPath (references base form attributes not in extension)
+		$childItemsXml = [regex]::Replace($childItemsXml, '\s*<DataPath>[^<]*</DataPath>', '')
+		# Strip TitleDataPath (e.g. Объект.Товары.RowsCount — invalid without base attributes)
+		$childItemsXml = [regex]::Replace($childItemsXml, '\s*<TitleDataPath>[^<]*</TitleDataPath>', '')
+		# Strip TypeLink blocks with human-readable DataPath (Items.XXX — can't convert to UUID)
+		$childItemsXml = [regex]::Replace($childItemsXml, '(?s)\s*<TypeLink>\s*<xr:DataPath>Items\.[^<]*</xr:DataPath>.*?</TypeLink>', '')
+		# Strip element-level Events (base form handlers not in extension)
+		$childItemsXml = [regex]::Replace($childItemsXml, '(?s)\s*<Events>.*?</Events>', '')
+
+		# Collect CommonPicture references from ChildItems
+		$picRefs = [regex]::Matches($childItemsXml, '<xr:Ref>CommonPicture\.(\w+)</xr:Ref>')
+		$referencedPictures = @{}
+		foreach ($m in $picRefs) { $referencedPictures[$m.Groups[1].Value] = $true }
+
+		# Auto-borrow referenced CommonPictures (if not already borrowed)
+		$autoBorrowedPics = @()
+		foreach ($picName in $referencedPictures.Keys) {
+			if (-not (Test-ObjectBorrowed "CommonPicture" $picName)) {
+				$picSrcFile = Join-Path (Join-Path $cfgDir "CommonPictures") "${picName}.xml"
+				if (Test-Path $picSrcFile) {
+					$src = Read-SourceObject "CommonPicture" $picName
+					$borrowedXml = Build-BorrowedObjectXml "CommonPicture" $picName $src.Uuid $src.Properties
+					$targetDir = Join-Path $extDir "CommonPictures"
+					if (-not (Test-Path $targetDir)) {
+						New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
+					}
+					$targetFile = Join-Path $targetDir "${picName}.xml"
+					$encBom = New-Object System.Text.UTF8Encoding($true)
+					[System.IO.File]::WriteAllText($targetFile, $borrowedXml, $encBom)
+					Add-ToChildObjects "CommonPicture" $picName
+					$autoBorrowedPics += $picName
+					$borrowedFiles += $targetFile
+					Info "  Auto-borrowed: CommonPicture.${picName}"
+				} else {
+					Warn "  CommonPicture.${picName} not found in source config — will strip from form"
+				}
+			}
+		}
+
+		# Collect all borrowed CommonPictures (including previously borrowed)
+		$borrowedPicSet = @{}
+		$nsMgr2 = New-Object System.Xml.XmlNamespaceManager($script:xmlDoc.NameTable)
+		$nsMgr2.AddNamespace("md", $script:mdNs)
+		$picNodes = $script:xmlDoc.SelectNodes("//md:ChildObjects/md:CommonPicture", $nsMgr2)
+		foreach ($pn in $picNodes) { $borrowedPicSet[$pn.InnerText] = $true }
+
+		# Strip <Picture> blocks referencing non-borrowed CommonPictures
+		$picBlockPattern = '(?s)\s*<Picture>\s*<xr:Ref>CommonPicture\.(\w+)</xr:Ref>.*?</Picture>'
+		$picMatches = [regex]::Matches($childItemsXml, $picBlockPattern)
+		# Process in reverse order to preserve positions
+		for ($mi = $picMatches.Count - 1; $mi -ge 0; $mi--) {
+			$pm = $picMatches[$mi]
+			$cpName = $pm.Groups[1].Value
+			if (-not $borrowedPicSet.ContainsKey($cpName)) {
+				$childItemsXml = $childItemsXml.Remove($pm.Index, $pm.Length)
+			}
+		}
+		# Strip StdPicture blocks (except Print)
+		$childItemsXml = [regex]::Replace($childItemsXml, '(?s)\s*<Picture>\s*<xr:Ref>StdPicture\.(?!Print\b)\w+</xr:Ref>.*?</Picture>', '')
+
+		# Auto-borrow StyleItems referenced in ChildItems
+		# Pattern 1: <Font ref="style:XXX" kind="StyleItem"/>, <TitleFont ref="style:XXX" ... kind="StyleItem"/>
+		# Pattern 2: <BackColor>style:XXX</BackColor>, <TextColor>style:XXX</TextColor>, etc.
+		$referencedStyles = @{}
+		$styleRefs1 = [regex]::Matches($childItemsXml, 'ref="style:(\w+)"[^>]*kind="StyleItem"')
+		foreach ($m in $styleRefs1) { $referencedStyles[$m.Groups[1].Value] = $true }
+		$styleRefs2 = [regex]::Matches($childItemsXml, '>style:(\w+)</\w+>')
+		foreach ($m in $styleRefs2) { $referencedStyles[$m.Groups[1].Value] = $true }
+
+		foreach ($styleName in $referencedStyles.Keys) {
+			if (-not (Test-ObjectBorrowed "StyleItem" $styleName)) {
+				$styleSrcFile = Join-Path (Join-Path $cfgDir "StyleItems") "${styleName}.xml"
+				if (Test-Path $styleSrcFile) {
+					$src = Read-SourceObject "StyleItem" $styleName
+					$borrowedXml = Build-BorrowedObjectXml "StyleItem" $styleName $src.Uuid $src.Properties
+					$targetDir = Join-Path $extDir "StyleItems"
+					if (-not (Test-Path $targetDir)) {
+						New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
+					}
+					$targetFile = Join-Path $targetDir "${styleName}.xml"
+					$encBom = New-Object System.Text.UTF8Encoding($true)
+					[System.IO.File]::WriteAllText($targetFile, $borrowedXml, $encBom)
+					Add-ToChildObjects "StyleItem" $styleName
+					$borrowedFiles += $targetFile
+					Info "  Auto-borrowed: StyleItem.${styleName}"
+				} else {
+					Warn "  StyleItem.${styleName} not found in source config"
+				}
+			}
+		}
+		# Auto-borrow Enums + EnumValues referenced via DesignTimeRef in ChoiceParameters
+		# Collect Enum -> [EnumValue names] map
+		$dtRefs = [regex]::Matches($childItemsXml, 'xr:DesignTimeRef">Enum\.(\w+)\.EnumValue\.(\w+)')
+		$referencedEnumValues = @{}
+		foreach ($m in $dtRefs) {
+			$eName = $m.Groups[1].Value
+			$evName = $m.Groups[2].Value
+			if (-not $referencedEnumValues.ContainsKey($eName)) { $referencedEnumValues[$eName] = @{} }
+			$referencedEnumValues[$eName][$evName] = $true
+		}
+
+		foreach ($enumName in $referencedEnumValues.Keys) {
+			if (-not (Test-ObjectBorrowed "Enum" $enumName)) {
+				$enumSrcFile = Join-Path (Join-Path $cfgDir "Enums") "${enumName}.xml"
+				if (Test-Path $enumSrcFile) {
+					# Read source Enum to get UUID and EnumValue UUIDs
+					$srcParser = New-Object System.Xml.XmlDocument
+					$srcParser.PreserveWhitespace = $true
+					$srcParser.Load($enumSrcFile)
+					$srcEnumEl = $null
+					foreach ($cn in $srcParser.DocumentElement.ChildNodes) {
+						if ($cn.NodeType -eq 'Element') { $srcEnumEl = $cn; break }
+					}
+					$srcEnumUuid = $srcEnumEl.GetAttribute("uuid")
+
+					# Find source EnumValues by name
+					$enumValueXmls = @()
+					$neededValues = $referencedEnumValues[$enumName]
+					$srcNsMgr = New-Object System.Xml.XmlNamespaceManager($srcParser.NameTable)
+					$srcNsMgr.AddNamespace("md", $script:mdNs)
+					$srcEvNodes = $srcEnumEl.SelectNodes("md:ChildObjects/md:EnumValue", $srcNsMgr)
+					foreach ($evNode in $srcEvNodes) {
+						$evUuid = $evNode.GetAttribute("uuid")
+						$evNameNode = $evNode.SelectSingleNode("md:Properties/md:Name", $srcNsMgr)
+						if ($evNameNode -and $neededValues.ContainsKey($evNameNode.InnerText)) {
+							$newEvUuid = [guid]::NewGuid().ToString()
+							$enumValueXmls += @"
+			<EnumValue uuid="${newEvUuid}">
+				<InternalInfo/>
+				<Properties>
+					<ObjectBelonging>Adopted</ObjectBelonging>
+					<Name>$($evNameNode.InnerText)</Name>
+					<Comment/>
+					<ExtendedConfigurationObject>${evUuid}</ExtendedConfigurationObject>
+				</Properties>
+			</EnumValue>
+"@
+						}
+					}
+
+					# Build borrowed Enum with EnumValues in ChildObjects
+					$src = Read-SourceObject "Enum" $enumName
+					$borrowedXml = Build-BorrowedObjectXml "Enum" $enumName $src.Uuid $src.Properties
+					if ($enumValueXmls.Count -gt 0) {
+						$evBlock = ($enumValueXmls -join "`r`n")
+						$borrowedXml = $borrowedXml -replace '<ChildObjects/>', "<ChildObjects>`r`n${evBlock}`r`n`t`t</ChildObjects>"
+					}
+
+					$targetDir = Join-Path $extDir "Enums"
+					if (-not (Test-Path $targetDir)) {
+						New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
+					}
+					$targetFile = Join-Path $targetDir "${enumName}.xml"
+					$encBom = New-Object System.Text.UTF8Encoding($true)
+					[System.IO.File]::WriteAllText($targetFile, $borrowedXml, $encBom)
+					Add-ToChildObjects "Enum" $enumName
+					$borrowedFiles += $targetFile
+					Info "  Auto-borrowed: Enum.${enumName} (with $($enumValueXmls.Count) EnumValue(s))"
+				} else {
+					Warn "  Enum.${enumName} not found in source config"
+				}
+			}
+		}
 	}
 
 	# Extract the <Form ...> opening tag from source text (preserves namespace declarations)
@@ -521,22 +694,31 @@ function Borrow-Form {
 	$formXmlSb.Append($formTag) | Out-Null
 	$formXmlSb.Append("`r`n") | Out-Null
 
-	# Part 1: visual elements (add leading tab to first line of each block)
+	# Part 1: form properties + AutoCommandBar + ChildItems
+	foreach ($propXml in $formProps) {
+		$propXml = [regex]::Replace($propXml, $nsStripPattern, '')
+		$formXmlSb.Append("`t$propXml`r`n") | Out-Null
+	}
 	if ($autoCmdXml) {
 		$formXmlSb.Append("`t$autoCmdXml") | Out-Null
 		$formXmlSb.Append("`r`n") | Out-Null
 	}
-	$formXmlSb.Append("`t$childItemsXml") | Out-Null
-	$formXmlSb.Append("`r`n") | Out-Null
+	if ($childItemsXml) {
+		$formXmlSb.Append("`t$childItemsXml") | Out-Null
+		$formXmlSb.Append("`r`n") | Out-Null
+	}
 	$formXmlSb.Append("`t<Attributes/>") | Out-Null
 	$formXmlSb.Append("`r`n") | Out-Null
 
-	# BaseForm: same visual elements, indented one more level
+	# BaseForm: same content, indented one more level
 	$formXmlSb.Append("`t<BaseForm version=`"${formVersion}`">") | Out-Null
 	$formXmlSb.Append("`r`n") | Out-Null
 
+	foreach ($propXml in $formProps) {
+		$propXml = [regex]::Replace($propXml, $nsStripPattern, '')
+		$formXmlSb.Append("`t`t$propXml`r`n") | Out-Null
+	}
 	if ($autoCmdXml) {
-		# Reindent for BaseForm: first line gets 2 tabs, other lines get +1 tab
 		$acLines = $autoCmdXml -split "`r?`n"
 		for ($li = 0; $li -lt $acLines.Count; $li++) {
 			if ($li -eq 0) { $formXmlSb.Append("`t`t$($acLines[$li])") | Out-Null }
@@ -544,12 +726,14 @@ function Borrow-Form {
 			$formXmlSb.Append("`r`n") | Out-Null
 		}
 	}
-
-	$ciLines = $childItemsXml -split "`r?`n"
-	for ($li = 0; $li -lt $ciLines.Count; $li++) {
-		if ($li -eq 0) { $formXmlSb.Append("`t`t$($ciLines[$li])") | Out-Null }
-		else { $formXmlSb.Append("`t$($ciLines[$li])") | Out-Null }
-		$formXmlSb.Append("`r`n") | Out-Null
+	if ($childItemsXml) {
+		# Reindent ChildItems for BaseForm (+1 tab level)
+		$ciLines = $childItemsXml -split "`r?`n"
+		for ($li = 0; $li -lt $ciLines.Count; $li++) {
+			if ($li -eq 0) { $formXmlSb.Append("`t`t$($ciLines[$li])") | Out-Null }
+			else { $formXmlSb.Append("`t$($ciLines[$li])") | Out-Null }
+			$formXmlSb.Append("`r`n") | Out-Null
+		}
 	}
 
 	$formXmlSb.Append("`t`t<Attributes/>") | Out-Null

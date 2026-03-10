@@ -205,7 +205,7 @@ def main():
 
     if os.path.isfile(bsl_file):
         # Append to existing file
-        with open(bsl_file, "r", encoding="utf-8-sig") as f:
+        with open(bsl_file, "r", encoding="utf-8-sig", newline="") as f:
             existing = f.read()
 
         separator = "\r\n"
@@ -213,11 +213,11 @@ def main():
             separator = "\r\n\r\n"
         new_content = existing + separator + bsl_text
 
-        with open(bsl_file, "w", encoding="utf-8-sig") as f:
+        with open(bsl_file, "w", encoding="utf-8-sig", newline="") as f:
             f.write(new_content)
         print("[OK] \u0414\u043e\u0431\u0430\u0432\u043b\u0435\u043d \u043f\u0435\u0440\u0435\u0445\u0432\u0430\u0442\u0447\u0438\u043a \u0432 \u0441\u0443\u0449\u0435\u0441\u0442\u0432\u0443\u044e\u0449\u0438\u0439 \u0444\u0430\u0439\u043b")  # Добавлен перехватчик в существующий файл
     else:
-        with open(bsl_file, "w", encoding="utf-8-sig") as f:
+        with open(bsl_file, "w", encoding="utf-8-sig", newline="") as f:
             f.write(bsl_text)
         print("[OK] \u0421\u043e\u0437\u0434\u0430\u043d \u0444\u0430\u0439\u043b \u043c\u043e\u0434\u0443\u043b\u044f")  # Создан файл модуля
 

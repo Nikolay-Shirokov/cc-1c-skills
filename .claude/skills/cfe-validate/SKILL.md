@@ -28,7 +28,7 @@ powershell.exe -NoProfile -File .claude/skills/cfe-validate/scripts/cfe-validate
 powershell.exe -NoProfile -File .claude/skills/cfe-validate/scripts/cfe-validate.ps1 -ExtensionPath "src/Configuration.xml"
 ```
 
-## Проверки (9 шагов)
+## Проверки (13 шагов)
 
 | # | Проверка | Уровень |
 |---|----------|---------|
@@ -41,5 +41,9 @@ powershell.exe -NoProfile -File .claude/skills/cfe-validate/scripts/cfe-validate
 | 7 | Файлы языков существуют | WARN |
 | 8 | Каталоги объектов существуют | WARN |
 | 9 | Заимствованные объекты: ObjectBelonging=Adopted, ExtendedConfigurationObject UUID | ERROR/WARN |
+| 10 | Sub-items: Attribute, TabularSection (InternalInfo + вложенные), EnumValue, Form-ссылки | ERROR |
+| 11 | Заимствованные формы: метаданные, Form.xml, Module.bsl, BaseForm version | ERROR/WARN |
+| 12 | Зависимости форм: CommonPicture, StyleItem (с whitelist платформенных), Enum DesignTimeRef | WARN |
+| 13 | TypeLink: human-readable Items.* DataPath (должны быть удалены) | WARN |
 
 Exit code: 0 = OK, 1 = есть ошибки. По умолчанию краткий вывод. `-Detailed` для поштучной детализации.
