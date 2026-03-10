@@ -652,7 +652,6 @@ def main():
         form_version = src_form_el.get("version", "2.17")
 
         src_auto_cmd = None
-        src_child_items = None
         form_props = []
         reached_visual = False
         for fc in src_form_el:
@@ -663,9 +662,8 @@ def main():
                 reached_visual = True
                 src_auto_cmd = fc
                 continue
-            if ln == "ChildItems" and src_child_items is None:
+            if ln in ("ChildItems", "Events", "Attributes", "Commands", "Parameters"):
                 reached_visual = True
-                src_child_items = fc
                 continue
             if not reached_visual:
                 # Form-level properties before AutoCommandBar (WindowOpeningMode, AutoFillCheck, etc.)
@@ -673,27 +671,15 @@ def main():
 
         ns_strip_pattern = re.compile(r'\s+xmlns(?::\w+)?="[^"]*"')
 
+        # AutoCommandBar: copy only properties (Autofill etc.), strip ChildItems
         auto_cmd_xml = ""
         if src_auto_cmd is not None:
             auto_cmd_xml = etree.tostring(src_auto_cmd, encoding="unicode")
             auto_cmd_xml = ns_strip_pattern.sub("", auto_cmd_xml)
-            auto_cmd_xml = re.sub(r'<CommandName>[^<]*</CommandName>', '<CommandName>0</CommandName>', auto_cmd_xml)
+            # Strip ChildItems from AutoCommandBar (buttons will appear from base form at runtime)
+            auto_cmd_xml = re.sub(r'\s*<ChildItems>.*?</ChildItems>', '', auto_cmd_xml, flags=re.DOTALL)
+            # Replace Autofill true -> false
             auto_cmd_xml = auto_cmd_xml.replace('<Autofill>true</Autofill>', '<Autofill>false</Autofill>')
-            # Strip DataPath (references base form attributes not present in extension)
-            auto_cmd_xml = re.sub(r'\s*<DataPath>[^<]*</DataPath>', '', auto_cmd_xml)
-            # Strip element-level Events (base form event handlers not present in extension)
-            auto_cmd_xml = re.sub(r'\s*<Events>.*?</Events>', '', auto_cmd_xml, flags=re.DOTALL)
-
-        child_items_xml = ""
-        if src_child_items is not None:
-            child_items_xml = etree.tostring(src_child_items, encoding="unicode")
-            child_items_xml = ns_strip_pattern.sub("", child_items_xml)
-            child_items_xml = re.sub(r'<CommandName>[^<]*</CommandName>', '<CommandName>0</CommandName>', child_items_xml)
-            # Strip DataPath and element-level Events
-            child_items_xml = re.sub(r'\s*<DataPath>[^<]*</DataPath>', '', child_items_xml)
-            child_items_xml = re.sub(r'\s*<Events>.*?</Events>', '', child_items_xml, flags=re.DOTALL)
-        else:
-            child_items_xml = "<ChildItems/>"
 
         # Extract source form opening tag
         xml_decl = '<?xml version="1.0" encoding="UTF-8"?>'
@@ -712,16 +698,15 @@ def main():
         parts.append(form_tag)
         parts.append("\r\n")
 
-        # Form properties (WindowOpeningMode, AutoFillCheck, etc.)
+        # Part 1: form properties + AutoCommandBar (no ChildItems — they come from base form at runtime)
         for prop_xml in form_props:
             prop_xml_clean = ns_strip_pattern.sub("", prop_xml)
             parts.append(f"\t{prop_xml_clean}\r\n")
         if auto_cmd_xml:
             parts.append(f"\t{auto_cmd_xml}\r\n")
-        parts.append(f"\t{child_items_xml}\r\n")
         parts.append("\t<Attributes/>\r\n")
 
-        # BaseForm
+        # BaseForm: same properties + AutoCommandBar (no ChildItems)
         parts.append(f'\t<BaseForm version="{form_version}">\r\n')
 
         for prop_xml in form_props:
@@ -735,14 +720,6 @@ def main():
                 else:
                     parts.append(f"\t{line}")
                 parts.append("\r\n")
-
-        ci_lines = child_items_xml.split("\n")
-        for li, line in enumerate(ci_lines):
-            if li == 0:
-                parts.append(f"\t\t{line}")
-            else:
-                parts.append(f"\t{line}")
-            parts.append("\r\n")
 
         parts.append("\t\t<Attributes/>\r\n")
         parts.append("\t</BaseForm>\r\n")
