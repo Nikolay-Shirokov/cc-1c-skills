@@ -905,12 +905,16 @@ export function checkErrorsScript() {
     }
 
     // Single-button modal: error dialog with pressDefault + staticText
+    // Skip forms with input fields — those are data entry forms (e.g. register record),
+    // not error dialogs. Real error modals only have staticText + buttons.
     if (!result.confirmation) {
       for (const [fn, buttons] of Object.entries(formButtons)) {
         const p = 'form' + fn + '_';
         const elCount = document.querySelectorAll('[id^="' + p + '"]').length;
         if (elCount > 100) continue;
         if (buttons.length !== 1 || !buttons[0].classList.contains('pressDefault')) continue;
+        const hasInputs = document.querySelectorAll('input.editInput[id^="' + p + '"]').length > 0;
+        if (hasInputs) continue;
         const texts = [...document.querySelectorAll('[id^="' + p + '"].staticText')]
           .filter(el => el.offsetWidth > 0)
           .map(el => el.innerText?.trim())
