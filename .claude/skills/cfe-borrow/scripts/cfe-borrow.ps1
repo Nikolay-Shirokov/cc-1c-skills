@@ -509,6 +509,8 @@ function Borrow-Form {
 		$autoCmdXml = $autoCmdXml -replace '<Autofill>true</Autofill>', '<Autofill>false</Autofill>'
 		# Strip ExcludedCommand (references to standard commands invalid in extension)
 		$autoCmdXml = [regex]::Replace($autoCmdXml, '\s*<ExcludedCommand>[^<]*</ExcludedCommand>', '')
+		# Strip DataPath in AutoCommandBar buttons (e.g. Объект.Ref — invalid in extension)
+		$autoCmdXml = [regex]::Replace($autoCmdXml, '\s*<DataPath>[^<]*</DataPath>', '')
 	}
 
 	# ChildItems: copy full tree, clean up base-config references

@@ -2955,7 +2955,29 @@ export async function screenshot() {
 /** Wait for a specified number of seconds. */
 export async function wait(seconds) {
   ensureConnected();
-  await page.waitForTimeout(seconds * 1000);
+  let ms = seconds * 1000;
+  // Credit system: if showCaption already waited for TTS, subtract that time
+  if (recorder && recorder.captionCredit) {
+    const elapsed = Date.now() - recorder.captionCredit.at;
+    const credit = Math.max(0, recorder.captionCredit.waitedMs - elapsed);
+    ms = Math.max(0, ms - credit);
+    recorder.captionCredit = null;
+  }
+  if (ms > 0) {
+    // During recording, split long waits into chunks and flush frames
+    // to keep video timeline in sync (CDP may not send frames for static pages)
+    if (recorder?._flushFrames && ms > 1000) {
+      let remaining = ms;
+      while (remaining > 0) {
+        const chunk = Math.min(remaining, 1000);
+        await page.waitForTimeout(chunk);
+        remaining -= chunk;
+        recorder._flushFrames();
+      }
+    } else {
+      await page.waitForTimeout(ms);
+    }
+  }
   return await getFormState();
 }
 
@@ -3031,7 +3053,7 @@ export async function startRecording(outputPath, opts = {}) {
         // Fill the gap with duplicates of the previous frame
         const gap = now - lastFrameTime;
         const dupes = Math.round(gap / frameDuration) - 1;
-        for (let i = 0; i < dupes && i < fps * 2; i++) {
+        for (let i = 0; i < dupes && i < fps * 30; i++) {
           ffmpeg.stdin.write(lastFrameBuf);
           framesWritten++;
         }
@@ -3054,7 +3076,23 @@ export async function startRecording(outputPath, opts = {}) {
     everyNthFrame: 1
   });
 
-  recorder = { cdp, ffmpeg, startTime: Date.now(), outputPath: resolvedPath, ffmpegError: '', captions: [], videoTimeMs: 0 };
+  // Expose a frame-writing helper on the recorder object.
+  // During static periods (e.g. smart TTS pauses), CDP may not send screencast
+  // frames. Call _flushFrames() to fill the gap with duplicates of the last frame,
+  // keeping video timeline in sync with wall-clock time.
+  const _flushFrames = () => {
+    if (!lastFrameBuf || !lastFrameTime || ffmpeg.stdin.destroyed) return;
+    const now = Date.now();
+    const gap = now - lastFrameTime;
+    const dupes = Math.round(gap / frameDuration);
+    for (let i = 0; i < dupes; i++) {
+      ffmpeg.stdin.write(lastFrameBuf);
+      if (recorder) recorder.videoTimeMs += frameDuration;
+    }
+    if (dupes > 0) lastFrameTime = now;
+  };
+
+  recorder = { cdp, ffmpeg, startTime: Date.now(), outputPath: resolvedPath, ffmpegError: '', captions: [], videoTimeMs: 0, _flushFrames };
   // Redirect stderr accumulation to the recorder object
   ffmpeg.stderr.removeAllListeners('data');
   ffmpeg.stderr.on('data', d => { recorder.ffmpegError += d.toString(); });
@@ -3068,6 +3106,9 @@ export async function stopRecording() {
   if (!recorder) throw new Error('Not recording. Call startRecording() first.');
 
   const { cdp, ffmpeg, startTime, outputPath } = recorder;
+
+  // Final frame flush: write remaining frames to cover the gap since the last screencast frame
+  if (recorder._flushFrames) recorder._flushFrames();
 
   // Stop CDP screencast
   try { await cdp.send('Page.stopScreencast'); } catch {}
@@ -3131,10 +3172,13 @@ export async function showCaption(text, opts = {}) {
   ensureConnected();
 
   // Collect caption for TTS narration if recording
+  let smartWaitMs = 0;
   if (recorder && text.trim() && opts.speech !== false) {
     const speech = typeof opts.speech === 'string' ? opts.speech : text;
     // Use video timeline position (accounts for frame duplication) instead of wall-clock
     recorder.captions.push({ text, speech, time: Math.round(recorder.videoTimeMs) });
+    // Estimate TTS duration and wait so the video has enough screen time for voiceover
+    smartWaitMs = Math.max(2000, speech.length * 100);
   }
   const position = opts.position || 'bottom';
   const fontSize = opts.fontSize || 24;
@@ -3160,6 +3204,20 @@ export async function showCaption(text, opts = {}) {
     el.style.color = color;
     el.textContent = text;
   }, { text, position, fontSize, bg, color });
+
+  // Smart TTS wait: pause for estimated speech duration so video has enough screen time.
+  // Split into chunks and flush frames periodically — CDP doesn't send screencast frames
+  // for static pages, so we must write duplicate frames to keep video timeline in sync.
+  if (smartWaitMs > 0) {
+    let remaining = smartWaitMs;
+    while (remaining > 0) {
+      const chunk = Math.min(remaining, 1000);
+      await page.waitForTimeout(chunk);
+      remaining -= chunk;
+      if (recorder?._flushFrames) recorder._flushFrames();
+    }
+    recorder.captionCredit = { waitedMs: smartWaitMs, at: Date.now() };
+  }
 }
 
 /** Remove the caption overlay from the page. */
@@ -3293,12 +3351,17 @@ export async function addNarration(videoPath, opts = {}) {
       ffmpegInputs.push('-i', ttsFile);
       const filters = [];
 
-      // Speed up TTS if it's longer than gap to next caption
+      // Speed up TTS slightly if it's longer than gap to next caption (max 1.3x)
       if (i < captions.length - 1) {
         const maxDuration = (captions[i + 1].time - captions[i].time) / 1000;
         if (ttsDuration > maxDuration && maxDuration > 0.1) {
-          const tempo = Math.min(ttsDuration / maxDuration, 2.5);
-          filters.push(`atempo=${tempo.toFixed(4)}`);
+          const tempo = ttsDuration / maxDuration;
+          if (tempo <= 1.3) {
+            filters.push(`atempo=${tempo.toFixed(4)}`);
+          } else {
+            // Too fast — let audio overlap instead of distorting
+            warnings.push(`Caption ${i + 1}/${captions.length}: TTS ${ttsDuration.toFixed(1)}s > gap ${maxDuration.toFixed(1)}s (need ${Math.round(ttsDuration - maxDuration)}s more pause)`);
+          }
         }
       }
 
@@ -3309,15 +3372,20 @@ export async function addNarration(videoPath, opts = {}) {
 
       const label = `a${i}`;
       mixLabels.push(`[${label}]`);
-      filterParts.push(`[${i}]${filters.length ? filters.join(',') : 'acopy'}[${label}]`);
+      // Input indices are shifted by 1 because silence reference is input [0]
+      filterParts.push(`[${i + 1}]${filters.length ? filters.join(',') : 'acopy'}[${label}]`);
     }
 
+    // Generate a silence reference track as input [0] so amix runs for full video duration
+    const silencePath = pathJoin(tempDir, 'silence.mp3');
+    generateSilence(silencePath, Math.ceil(videoDuration), ffmpegPath);
+
     const filterComplex = filterParts.join(';') + ';' +
-      mixLabels.join('') + `amix=inputs=${captions.length}:normalize=0`;
+      `[0]${mixLabels.join('')}amix=inputs=${captions.length + 1}:normalize=0:duration=first`;
 
     const narrationPath = pathJoin(tempDir, 'narration.mp3');
     execFileSync(ffmpegPath, [
-      '-y', ...ffmpegInputs,
+      '-y', '-i', silencePath, ...ffmpegInputs,
       '-filter_complex', filterComplex,
       '-t', String(Math.ceil(videoDuration)),
       '-c:a', 'libmp3lame', '-b:a', '128k', narrationPath,
@@ -3328,7 +3396,8 @@ export async function addNarration(videoPath, opts = {}) {
       '-y', '-i', videoPath, '-i', narrationPath,
       '-c:v', 'copy', '-c:a', 'aac', '-b:a', '128k',
       '-map', '0:v:0', '-map', '1:a:0',
-      '-shortest', '-movflags', '+faststart', outputPath,
+      '-t', String(Math.ceil(videoDuration)),
+      '-movflags', '+faststart', outputPath,
     ], { stdio: 'pipe', timeout: 120000 });
 
     const stats = statSync(outputPath);

@@ -680,6 +680,8 @@ def main():
             auto_cmd_xml = auto_cmd_xml.replace('<Autofill>true</Autofill>', '<Autofill>false</Autofill>')
             # Strip ExcludedCommand (references to standard commands invalid in extension)
             auto_cmd_xml = re.sub(r'\s*<ExcludedCommand>[^<]*</ExcludedCommand>', '', auto_cmd_xml)
+            # Strip DataPath in AutoCommandBar buttons (e.g. Объект.Ref — invalid in extension)
+            auto_cmd_xml = re.sub(r'\s*<DataPath>[^<]*</DataPath>', '', auto_cmd_xml)
 
         # ChildItems: copy full tree, clean up base-config references
         child_items_xml = ""
