@@ -2055,13 +2055,19 @@ export async function fillTableRow(fields, { tab, add, row } = {}) {
     }
     prevCellId = cell.id;
 
-    // Fuzzy match cell name to user field: exact → suffix → includes
+    // Fuzzy match cell name to user field: exact → suffix → includes → no-space includes
     const cellLower = cell.fullName.toLowerCase();
     let matchedKey = null;
     for (const [key, info] of pending) {
       if (info.filled) continue;
       const kl = key.toLowerCase();
       if (cellLower === kl || cellLower.endsWith(kl) || cellLower.includes(kl)) {
+        matchedKey = key;
+        break;
+      }
+      // CamelCase cell names have no spaces — try matching without spaces
+      const klNoSpace = kl.replace(/\s+/g, '');
+      if (klNoSpace && (cellLower.endsWith(klNoSpace) || cellLower.includes(klNoSpace))) {
         matchedKey = key;
         break;
       }
