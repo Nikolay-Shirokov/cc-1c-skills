@@ -26,7 +26,7 @@ allowed-tools:
 powershell.exe -NoProfile -File .claude/skills/cfe-validate/scripts/cfe-validate.ps1 -ExtensionPath src
 ```
 
-## Проверки (9 шагов)
+## Проверки (10 шагов)
 
 | # | Проверка | Уровень |
 |---|----------|---------|
@@ -39,6 +39,7 @@ powershell.exe -NoProfile -File .claude/skills/cfe-validate/scripts/cfe-validate
 | 7 | Файлы языков существуют | WARN |
 | 8 | Каталоги объектов существуют | WARN |
 | 9 | Заимствованные объекты: ObjectBelonging=Adopted, ExtendedConfigurationObject UUID | ERROR/WARN |
+| 10 | Заимствованные sub-items: Attribute, TabularSection, EnumValue с явными borrowed-метаданными | ERROR |
 
 ## Пример вывода
 
