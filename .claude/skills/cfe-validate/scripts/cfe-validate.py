@@ -518,11 +518,47 @@ def main():
         r.finalize(out_file)
         sys.exit(1)
 
+    def validate_borrowed_sub_item(check_num, context, sub_type, sub_item):
+        sub_props = sub_item.find(f'{{{NS["md"]}}}Properties')
+        if sub_props is None:
+            r.error(f'{check_num}. {context}: {sub_type} missing Properties')
+            return False
+        ok = True
+        sub_ob = sub_props.find(f'{{{NS["md"]}}}ObjectBelonging')
+        if sub_ob is None or (sub_ob.text or '') != 'Adopted':
+            r.error(f"{check_num}. {context}: {sub_type} ObjectBelonging must be 'Adopted'")
+            ok = False
+        sub_name = sub_props.find(f'{{{NS["md"]}}}Name')
+        if sub_name is None or not (sub_name.text or ''):
+            r.error(f'{check_num}. {context}: {sub_type} missing Name')
+            ok = False
+        sub_ext = sub_props.find(f'{{{NS["md"]}}}ExtendedConfigurationObject')
+        sub_name_val = (sub_name.text or '') if sub_name is not None else '?'
+        if sub_ext is None or not (sub_ext.text or ''):
+            r.error(f'{check_num}. {context}: {sub_type}.{sub_name_val} missing ExtendedConfigurationObject')
+            ok = False
+        elif not GUID_PATTERN.match(sub_ext.text):
+            r.error(f'{check_num}. {context}: {sub_type}.{sub_name_val} invalid ExtendedConfigurationObject')
+            ok = False
+        return ok
+
+    def borrowed_metadata_declared(sub_item):
+        sub_props = sub_item.find(f'{{{NS["md"]}}}Properties')
+        if sub_props is None:
+            return False
+        sub_ob = sub_props.find(f'{{{NS["md"]}}}ObjectBelonging')
+        if sub_ob is not None and (sub_ob.text or ''):
+            return True
+        sub_ext = sub_props.find(f'{{{NS["md"]}}}ExtendedConfigurationObject')
+        return sub_ext is not None and bool(sub_ext.text or '')
+
     # --- Check 9: Borrowed objects validation ---
     if child_obj_node is not None:
         borrowed_count = 0
         borrowed_ok_count = 0
         check9_ok = True
+        borrowed_sub_item_count = 0
+        check10_ok = True
 
         for child in child_obj_node:
             if not isinstance(child.tag, str):
@@ -565,7 +601,8 @@ def main():
                 continue
 
             ob_node = obj_props.find(f'{{{NS["md"]}}}ObjectBelonging')
-            if ob_node is not None and (ob_node.text or '') == 'Adopted':
+            is_borrowed_object = ob_node is not None and (ob_node.text or '') == 'Adopted'
+            if is_borrowed_object:
                 borrowed_count += 1
 
                 # Check ExtendedConfigurationObject
@@ -579,6 +616,46 @@ def main():
                 else:
                     borrowed_ok_count += 1
 
+            obj_child_objects = obj_el.find(f'{{{NS["md"]}}}ChildObjects')
+            if obj_child_objects is not None:
+                ctx = f'{type_name}.{child_name}'
+                for sub_item in obj_child_objects:
+                    if not isinstance(sub_item.tag, str):
+                        continue
+                    sub_type = etree.QName(sub_item.tag).localname
+
+                    if sub_type in ('Attribute', 'TabularSection'):
+                        if not is_borrowed_object or not borrowed_metadata_declared(sub_item):
+                            continue
+                        borrowed_sub_item_count += 1
+                        if not validate_borrowed_sub_item('10', ctx, sub_type, sub_item):
+                            check10_ok = False
+                        if sub_type != 'TabularSection':
+                            continue
+                        ts_props = sub_item.find(f'{{{NS["md"]}}}Properties')
+                        ts_name = ts_props.find(f'{{{NS["md"]}}}Name') if ts_props is not None else None
+                        ts_label = (ts_name.text or '?') if ts_name is not None else '?'
+                        ts_child_objects = sub_item.find(f'{{{NS["md"]}}}ChildObjects')
+                        if ts_child_objects is None:
+                            continue
+                        for ts_attr in ts_child_objects:
+                            if not isinstance(ts_attr.tag, str):
+                                continue
+                            if etree.QName(ts_attr.tag).localname != 'Attribute':
+                                continue
+                            if not borrowed_metadata_declared(ts_attr):
+                                continue
+                            borrowed_sub_item_count += 1
+                            if not validate_borrowed_sub_item('10', f'{ctx}.ТЧ.{ts_label}', 'Attribute', ts_attr):
+                                check10_ok = False
+
+                    elif sub_type == 'EnumValue' and type_name == 'Enum':
+                        if not is_borrowed_object or not borrowed_metadata_declared(sub_item):
+                            continue
+                        borrowed_sub_item_count += 1
+                        if not validate_borrowed_sub_item('10', ctx, 'EnumValue', sub_item):
+                            check10_ok = False
+
             if r.stopped:
                 break
 
@@ -586,6 +663,11 @@ def main():
             r.ok('9. Borrowed objects: none found')
         elif check9_ok:
             r.ok(f'9. Borrowed objects: {borrowed_ok_count}/{borrowed_count} validated')
+
+        if borrowed_sub_item_count == 0:
+            r.ok('10. Borrowed sub-items: none found')
+        elif check10_ok:
+            r.ok(f'10. Borrowed sub-items: {borrowed_sub_item_count} validated')
 
     # --- Final output ---
     r.finalize(out_file)

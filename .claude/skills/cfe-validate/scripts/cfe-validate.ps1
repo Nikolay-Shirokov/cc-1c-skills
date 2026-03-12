@@ -527,11 +527,66 @@ if ($childObjNode) {
 
 if ($script:stopped) { & $finalize; exit 1 }
 
-# --- Check 9: Borrowed objects validation ---
+function Test-BorrowedMetadataDeclared {
+	param([System.Xml.XmlNode]$SubItem, [System.Xml.XmlNamespaceManager]$Ns)
+
+	$subProps = $SubItem.SelectSingleNode("md:Properties", $Ns)
+	if (-not $subProps) { return $false }
+
+	$subOb = $subProps.SelectSingleNode("md:ObjectBelonging", $Ns)
+	if ($subOb -and $subOb.InnerText) { return $true }
+
+	$subExt = $subProps.SelectSingleNode("md:ExtendedConfigurationObject", $Ns)
+	return [bool]($subExt -and $subExt.InnerText)
+}
+
+function Test-BorrowedSubItem {
+	param(
+		[string]$CheckNum,
+		[string]$Context,
+		[string]$SubType,
+		[System.Xml.XmlNode]$SubItem,
+		[System.Xml.XmlNamespaceManager]$Ns
+	)
+
+	$subProps = $SubItem.SelectSingleNode("md:Properties", $Ns)
+	if (-not $subProps) {
+		Report-Error "${CheckNum}. ${Context}: ${SubType} missing Properties"
+		return $false
+	}
+
+	$ok = $true
+	$subOb = $subProps.SelectSingleNode("md:ObjectBelonging", $Ns)
+	if (-not $subOb -or $subOb.InnerText -ne "Adopted") {
+		Report-Error "${CheckNum}. ${Context}: ${SubType} ObjectBelonging must be 'Adopted'"
+		$ok = $false
+	}
+
+	$subName = $subProps.SelectSingleNode("md:Name", $Ns)
+	$subNameVal = if ($subName -and $subName.InnerText) { $subName.InnerText } else { "?" }
+	if (-not $subName -or -not $subName.InnerText) {
+		Report-Error "${CheckNum}. ${Context}: ${SubType} missing Name"
+		$ok = $false
+	}
+
+	$subExt = $subProps.SelectSingleNode("md:ExtendedConfigurationObject", $Ns)
+	if (-not $subExt -or -not $subExt.InnerText) {
+		Report-Error "${CheckNum}. ${Context}: ${SubType}.${subNameVal} missing ExtendedConfigurationObject"
+		$ok = $false
+	} elseif ($subExt.InnerText -notmatch $guidPattern) {
+		Report-Error "${CheckNum}. ${Context}: ${SubType}.${subNameVal} invalid ExtendedConfigurationObject"
+		$ok = $false
+	}
+
+	return $ok
+}
+
 if ($childObjNode) {
 	$borrowedCount = 0
 	$borrowedOk = 0
 	$check9Ok = $true
+	$borrowedSubItemCount = 0
+	$check10Ok = $true
 
 	foreach ($child in $childObjNode.ChildNodes) {
 		if ($child.NodeType -ne 'Element') { continue }
@@ -572,7 +627,8 @@ if ($childObjNode) {
 		if (-not $objProps) { continue }
 
 		$obNode = $objProps.SelectSingleNode("md:ObjectBelonging", $objNs)
-		if ($obNode -and $obNode.InnerText -eq "Adopted") {
+		$isBorrowedObject = $obNode -and $obNode.InnerText -eq "Adopted"
+		if ($isBorrowedObject) {
 			$borrowedCount++
 
 			# Check ExtendedConfigurationObject
@@ -588,6 +644,47 @@ if ($childObjNode) {
 			}
 		}
 
+		$objChildObjects = $objEl.SelectSingleNode("md:ChildObjects", $objNs)
+		if ($objChildObjects) {
+			$ctx = "${typeName}.${childName}"
+			foreach ($subItem in $objChildObjects.ChildNodes) {
+				if ($subItem.NodeType -ne 'Element') { continue }
+				$subType = $subItem.LocalName
+
+				if ($subType -eq "Attribute" -or $subType -eq "TabularSection") {
+					if (-not $isBorrowedObject -or -not (Test-BorrowedMetadataDeclared $subItem $objNs)) { continue }
+					$borrowedSubItemCount++
+					if (-not (Test-BorrowedSubItem "10" $ctx $subType $subItem $objNs)) {
+						$check10Ok = $false
+					}
+
+					if ($subType -ne "TabularSection") { continue }
+
+					$tsProps = $subItem.SelectSingleNode("md:Properties", $objNs)
+					$tsName = if ($tsProps) { $tsProps.SelectSingleNode("md:Name", $objNs) } else { $null }
+					$tsLabel = if ($tsName -and $tsName.InnerText) { $tsName.InnerText } else { "?" }
+					$tsChildObjects = $subItem.SelectSingleNode("md:ChildObjects", $objNs)
+					if (-not $tsChildObjects) { continue }
+
+					foreach ($tsAttr in $tsChildObjects.ChildNodes) {
+						if ($tsAttr.NodeType -ne 'Element' -or $tsAttr.LocalName -ne "Attribute") { continue }
+						if (-not (Test-BorrowedMetadataDeclared $tsAttr $objNs)) { continue }
+						$borrowedSubItemCount++
+						if (-not (Test-BorrowedSubItem "10" "${ctx}.ТЧ.${tsLabel}" "Attribute" $tsAttr $objNs)) {
+							$check10Ok = $false
+						}
+					}
+				}
+				elseif ($subType -eq "EnumValue" -and $typeName -eq "Enum") {
+					if (-not $isBorrowedObject -or -not (Test-BorrowedMetadataDeclared $subItem $objNs)) { continue }
+					$borrowedSubItemCount++
+					if (-not (Test-BorrowedSubItem "10" $ctx "EnumValue" $subItem $objNs)) {
+						$check10Ok = $false
+					}
+				}
+			}
+		}
+
 		if ($script:stopped) { break }
 	}
 
@@ -595,6 +692,12 @@ if ($childObjNode) {
 		Report-OK "9. Borrowed objects: none found"
 	} elseif ($check9Ok) {
 		Report-OK "9. Borrowed objects: $borrowedOk/$borrowedCount validated"
+	}
+
+	if ($borrowedSubItemCount -eq 0) {
+		Report-OK "10. Borrowed sub-items: none found"
+	} elseif ($check10Ok) {
+		Report-OK "10. Borrowed sub-items: $borrowedSubItemCount validated"
 	}
 }
 
