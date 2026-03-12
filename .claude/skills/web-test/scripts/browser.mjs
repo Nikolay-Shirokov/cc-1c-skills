@@ -2963,7 +2963,21 @@ export async function wait(seconds) {
     ms = Math.max(0, ms - credit);
     recorder.captionCredit = null;
   }
-  if (ms > 0) await page.waitForTimeout(ms);
+  if (ms > 0) {
+    // During recording, split long waits into chunks and flush frames
+    // to keep video timeline in sync (CDP may not send frames for static pages)
+    if (recorder?._flushFrames && ms > 1000) {
+      let remaining = ms;
+      while (remaining > 0) {
+        const chunk = Math.min(remaining, 1000);
+        await page.waitForTimeout(chunk);
+        remaining -= chunk;
+        recorder._flushFrames();
+      }
+    } else {
+      await page.waitForTimeout(ms);
+    }
+  }
   return await getFormState();
 }
 
@@ -3039,7 +3053,7 @@ export async function startRecording(outputPath, opts = {}) {
         // Fill the gap with duplicates of the previous frame
         const gap = now - lastFrameTime;
         const dupes = Math.round(gap / frameDuration) - 1;
-        for (let i = 0; i < dupes && i < fps * 2; i++) {
+        for (let i = 0; i < dupes && i < fps * 30; i++) {
           ffmpeg.stdin.write(lastFrameBuf);
           framesWritten++;
         }
@@ -3062,7 +3076,23 @@ export async function startRecording(outputPath, opts = {}) {
     everyNthFrame: 1
   });
 
-  recorder = { cdp, ffmpeg, startTime: Date.now(), outputPath: resolvedPath, ffmpegError: '', captions: [], videoTimeMs: 0 };
+  // Expose a frame-writing helper on the recorder object.
+  // During static periods (e.g. smart TTS pauses), CDP may not send screencast
+  // frames. Call _flushFrames() to fill the gap with duplicates of the last frame,
+  // keeping video timeline in sync with wall-clock time.
+  const _flushFrames = () => {
+    if (!lastFrameBuf || !lastFrameTime || ffmpeg.stdin.destroyed) return;
+    const now = Date.now();
+    const gap = now - lastFrameTime;
+    const dupes = Math.round(gap / frameDuration);
+    for (let i = 0; i < dupes; i++) {
+      ffmpeg.stdin.write(lastFrameBuf);
+      if (recorder) recorder.videoTimeMs += frameDuration;
+    }
+    if (dupes > 0) lastFrameTime = now;
+  };
+
+  recorder = { cdp, ffmpeg, startTime: Date.now(), outputPath: resolvedPath, ffmpegError: '', captions: [], videoTimeMs: 0, _flushFrames };
   // Redirect stderr accumulation to the recorder object
   ffmpeg.stderr.removeAllListeners('data');
   ffmpeg.stderr.on('data', d => { recorder.ffmpegError += d.toString(); });
@@ -3076,6 +3106,9 @@ export async function stopRecording() {
   if (!recorder) throw new Error('Not recording. Call startRecording() first.');
 
   const { cdp, ffmpeg, startTime, outputPath } = recorder;
+
+  // Final frame flush: write remaining frames to cover the gap since the last screencast frame
+  if (recorder._flushFrames) recorder._flushFrames();
 
   // Stop CDP screencast
   try { await cdp.send('Page.stopScreencast'); } catch {}
@@ -3172,9 +3205,17 @@ export async function showCaption(text, opts = {}) {
     el.textContent = text;
   }, { text, position, fontSize, bg, color });
 
-  // Smart TTS wait: pause for estimated speech duration so video has enough screen time
+  // Smart TTS wait: pause for estimated speech duration so video has enough screen time.
+  // Split into chunks and flush frames periodically — CDP doesn't send screencast frames
+  // for static pages, so we must write duplicate frames to keep video timeline in sync.
   if (smartWaitMs > 0) {
-    await page.waitForTimeout(smartWaitMs);
+    let remaining = smartWaitMs;
+    while (remaining > 0) {
+      const chunk = Math.min(remaining, 1000);
+      await page.waitForTimeout(chunk);
+      remaining -= chunk;
+      if (recorder?._flushFrames) recorder._flushFrames();
+    }
     recorder.captionCredit = { waitedMs: smartWaitMs, at: Date.now() };
   }
 }
