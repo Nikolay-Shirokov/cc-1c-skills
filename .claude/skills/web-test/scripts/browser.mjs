@@ -1434,7 +1434,7 @@ export async function fillFields(fields) {
   const formData = await page.evaluate(readFormScript(formNum));
   const failed = results.filter(r => r.error);
   if (failed.length > 0) {
-    const details = failed.map(f => `  ${f.field}: ${f.error}${f.available ? ' (available: ' + f.available.join(', ') + ')' : ''}`).join('\n');
+    const details = failed.map(f => `  ${f.field}: ${f.message || f.error}${f.available ? ' (available: ' + f.available.join(', ') + ')' : ''}`).join('\n');
     throw new Error(`fillFields: ${failed.length} of ${results.length} field(s) failed:\n${details}`);
   }
   return { filled: results, form: formData };
