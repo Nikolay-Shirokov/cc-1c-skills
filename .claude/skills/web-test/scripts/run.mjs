@@ -24,12 +24,14 @@ import { fileURLToPath } from 'url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SESSION_FILE = resolve(__dirname, '..', '.browser-session.json');
 
-const [,, cmd, ...args] = process.argv;
+const [,, cmd, ...rawArgs] = process.argv;
+const flags = { noRecord: rawArgs.includes('--no-record') };
+const args = rawArgs.filter(a => !a.startsWith('--'));
 
 switch (cmd) {
   case 'start':  await cmdStart(args[0]); break;
   case 'run':    await cmdRun(args[0], args[1]); break;
-  case 'exec':   await cmdExec(args[0]); break;
+  case 'exec':   await cmdExec(args[0], flags); break;
   case 'shot':   await cmdShot(args[0]); break;
   case 'stop':   await cmdStop(); break;
   case 'status': cmdStatus(); break;
@@ -196,12 +198,17 @@ async function cmdRun(url, fileOrDash) {
 // exec: send script to running server
 // ============================================================
 
-async function cmdExec(fileOrDash) {
-  if (!fileOrDash) die('Usage: node src/run.mjs exec <file|->');
+async function cmdExec(fileOrDash, flags = {}) {
+  if (!fileOrDash) die('Usage: node src/run.mjs exec <file|-> [--no-record]');
 
-  const code = fileOrDash === '-'
+  let code = fileOrDash === '-'
     ? await readStdin()
     : readFileSync(resolve(fileOrDash), 'utf-8');
+
+  if (flags.noRecord) {
+    // Inject no-op record() before user code
+    code = 'async function record() {} // --no-record\n' + code;
+  }
 
   const sess = loadSession();
   const result = await new Promise((resolve, reject) => {
@@ -322,10 +329,13 @@ function usage() {
   die(`Usage: node src/run.mjs <command> [args]
 
 Commands:
-  start <url>            Launch browser and connect to 1C web client
-  run <url> <file|->     Autonomous: connect, execute script, disconnect
-  exec <file|->          Execute script (file path or - for stdin)
-  shot [file]            Take screenshot (default: shot.png)
-  stop                   Logout and close browser
-  status                 Check session status`);
+  start <url>              Launch browser and connect to 1C web client
+  run <url> <file|->       Autonomous: connect, execute script, disconnect
+  exec <file|-> [options]  Execute script (file path or - for stdin)
+  shot [file]              Take screenshot (default: shot.png)
+  stop                     Logout and close browser
+  status                   Check session status
+
+Options for exec:
+  --no-record              Skip video recording (record() becomes no-op)`);
 }

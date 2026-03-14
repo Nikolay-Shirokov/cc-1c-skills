@@ -66,6 +66,9 @@ const form = await getFormState();
 console.log(JSON.stringify(form, null, 2));
 SCRIPT
 
+# 2b. Execute without video recording (for debugging/testing)
+cat script.js | node $RUN exec - --no-record
+
 # 3. Screenshot
 node $RUN shot result.png
 
@@ -193,7 +196,7 @@ Sections + all open tabs.
 
 ### Actions
 
-#### `clickElement(text, { dblclick?, table? })` → form state
+#### `clickElement(text, { dblclick?, table?, toggle? })` → form state
 Click button, hyperlink, tab, or grid row (fuzzy match).
 
 - `table` — scope button search to a specific grid's command panel (by name from `tables[]`):
@@ -210,7 +213,11 @@ Click button, hyperlink, tab, or grid row (fuzzy match).
   // r.submenu = ['Расширенный поиск', 'Настройки', ...]
   await clickElement('Расширенный поиск');
   ```
-- Handles tree nodes: clicking a tree icon expands/collapses.
+- **Tree nodes**: default click = **select** (highlight row). Use `{ toggle: true }` to **expand/collapse**:
+  ```js
+  await clickElement('ИСУ ФХД');                     // select row
+  await clickElement('ИСУ ФХД', { toggle: true });   // expand/collapse
+  ```
 
 #### `fillFields({ name: value })` → `{ filled, form }`
 Fill form fields by label (fuzzy match). Auto-detects field type.
