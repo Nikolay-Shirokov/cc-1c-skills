@@ -743,7 +743,7 @@ export function findClickTargetScript(formNum, text, { tableName, gridSelector }
           const isGroup = imgBox?.querySelector('.gridListH') !== null;
           const isParent = imgBox?.querySelector('.gridListV') !== null;
           const isTreeNode = line.querySelector('.gridBoxTree') !== null;
-          const hasChildren = imgBox?.querySelector('[tree="true"]') !== null;
+          const hasChildren = line.querySelector('[tree="true"]') !== null;
           let kind;
           if (isGroup) kind = 'gridGroup';
           else if (isParent) kind = 'gridParent';

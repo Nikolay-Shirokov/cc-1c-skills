@@ -198,7 +198,7 @@ Sections + all open tabs.
 
 ### Actions
 
-#### `clickElement(text, { dblclick?, table?, toggle? })` → form state
+#### `clickElement(text, { dblclick?, table?, expand? })` → form state
 Click button, hyperlink, tab, navigation panel link, or grid row (fuzzy match).
 
 - `table` — scope button search to a specific grid's command panel (by name from `tables[]`):
@@ -215,10 +215,10 @@ Click button, hyperlink, tab, navigation panel link, or grid row (fuzzy match).
   // r.submenu = ['Расширенный поиск', 'Настройки', ...]
   await clickElement('Расширенный поиск');
   ```
-- **Tree nodes**: default click = **select** (highlight row). Use `{ toggle: true }` to **expand/collapse**:
+- **Tree nodes**: default click = **select** (highlight row). Use `{ expand: true }` to **expand/collapse**:
   ```js
-  await clickElement('ИСУ ФХД');                     // select row
-  await clickElement('ИСУ ФХД', { toggle: true });   // expand/collapse
+  await clickElement('ИСУ ФХД');                      // select row
+  await clickElement('ИСУ ФХД', { expand: true });    // expand/collapse
   ```
 
 #### `fillFields({ name: value })` → `{ filled, form }`

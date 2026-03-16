@@ -1,4 +1,4 @@
-// web-test browser v1.3 — Playwright browser management for 1C web client
+// web-test browser v1.4 — Playwright browser management for 1C web client
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 /**
  * Playwright browser management for 1C web client.
@@ -1446,7 +1446,7 @@ export async function fillField(name, value) {
 }
 
 /** Click a button/hyperlink/tab on the current form. Use {dblclick: true} to double-click (open items from lists). */
-export async function clickElement(text, { dblclick, table, toggle } = {}) {
+export async function clickElement(text, { dblclick, table, toggle, expand } = {}) {
   ensureConnected();
   await dismissPendingErrors();
   if (highlightMode) try { await highlight(text, { table }); await page.waitForTimeout(500); await unhighlight(); } catch {}
@@ -1562,7 +1562,7 @@ export async function clickElement(text, { dblclick, table, toggle } = {}) {
     return state;
   }
   if (target.kind === 'gridTreeNode') {
-    if (toggle) {
+    if (expand || toggle) {
       // Toggle: click the tree expand/collapse icon [tree="true"]
       const treeIconCoords = await page.evaluate(`(() => {
         const p = ${JSON.stringify(`form${formNum}_`)};
@@ -1587,10 +1587,8 @@ export async function clickElement(text, { dblclick, table, toggle } = {}) {
       if (treeIconCoords) {
         await page.mouse.click(treeIconCoords.x, treeIconCoords.y);
       } else {
-        // Fallback: select row and use +/- keys
-        await page.mouse.click(target.x, target.y);
-        await page.waitForTimeout(300);
-        await page.keyboard.press('NumpadAdd');
+        // Fallback: dblclick on row (works for trees without clickable +/- icons)
+        await page.mouse.dblclick(target.x, target.y);
       }
       await waitForStable(formNum);
       const state = await getFormState();
@@ -1603,7 +1601,7 @@ export async function clickElement(text, { dblclick, table, toggle } = {}) {
     await waitForStable(formNum);
     const state = await getFormState();
     state.clicked = { kind: 'gridTreeNode', name: target.name };
-    state.hint = 'Row selected. Use { toggle: true } to expand/collapse.';
+    state.hint = 'Row selected. Use { expand: true } to expand/collapse.';
     return state;
   }
   if (target.kind === 'gridRow') {
@@ -2188,6 +2186,29 @@ export async function fillTableRow(fields, { tab, add, row, table } = {}) {
     // Click first (tree grids enter edit on single click; dblclick toggles expand/collapse).
     // Then escalate: dblclick → F4 if needed.
     await page.mouse.click(cellCoords.x, cellCoords.y);
+
+    // Check if clicked cell is a checkbox (toggle-on-click, no edit mode)
+    const checkboxInfo = await page.evaluate(`(() => {
+      const el = document.elementFromPoint(${cellCoords.x}, ${cellCoords.y});
+      const cell = el?.closest('.gridBox');
+      if (!cell) return null;
+      const chk = cell.querySelector('.checkbox');
+      if (!chk) return null;
+      const r = chk.getBoundingClientRect();
+      return { checked: chk.classList.contains('select'), x: Math.round(r.x + r.width/2), y: Math.round(r.y + r.height/2) };
+    })()`);
+    if (checkboxInfo !== null) {
+      // Checkbox cell found — click directly on the checkbox icon (not cell center)
+      const desired = ['true', 'да', '1', 'yes'].includes(String(firstVal0).toLowerCase().trim());
+      if (checkboxInfo.checked !== desired) {
+        await page.mouse.click(checkboxInfo.x, checkboxInfo.y);
+        await page.waitForTimeout(300);
+      }
+      const results = [{ field: firstKey0, ok: true, method: 'toggle', value: desired }];
+      await waitForStable(formNum);
+      return results;
+    }
+
     let inEdit = false;
     let directEditForm = null;
     for (let dw = 0; dw < 4; dw++) {
