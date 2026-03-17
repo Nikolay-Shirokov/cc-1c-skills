@@ -8,7 +8,7 @@
  */
 import { chromium } from 'playwright';
 import { spawn, execFileSync } from 'child_process';
-import { statSync, mkdirSync, existsSync as fsExistsSync, writeFileSync, readFileSync, rmSync } from 'fs';
+import { statSync, mkdirSync, existsSync as fsExistsSync, writeFileSync, readFileSync, rmSync, readdirSync } from 'fs';
 import { dirname, resolve as pathResolve, join as pathJoin, basename, extname } from 'path';
 import { tmpdir } from 'os';
 import { fileURLToPath, pathToFileURL } from 'url';
@@ -40,25 +40,87 @@ const MAX_WAIT = 10000;     // max wait for stability
 const POLL_INTERVAL = 200;  // polling interval
 const STABLE_CYCLES = 3;    // consecutive stable cycles needed
 
+// 1C browser extension ID (stable across versions, defined by key in manifest.json)
+const EXT_ID = 'pbhelknnhilelbnhfpcjlcabhmfangik';
+let persistentUserDataDir = null; // temp dir for launchPersistentContext, cleaned on disconnect
+
+/**
+ * Find the 1C browser extension in Chrome/Edge user profiles.
+ * Returns the path to the latest version, or null if not found.
+ * Can be overridden via extensionPath in .v8-project.json.
+ */
+function findExtension(overridePath) {
+  if (overridePath) {
+    try { if (statSync(overridePath).isDirectory()) return overridePath; } catch {}
+    return null;
+  }
+  const localAppData = process.env.LOCALAPPDATA;
+  if (!localAppData) return null;
+  const browsers = [
+    pathJoin(localAppData, 'Google', 'Chrome', 'User Data'),
+    pathJoin(localAppData, 'Microsoft', 'Edge', 'User Data'),
+  ];
+  for (const userData of browsers) {
+    try { if (!statSync(userData).isDirectory()) continue; } catch { continue; }
+    let profiles;
+    try { profiles = readdirSync(userData).filter(d => d === 'Default' || d.startsWith('Profile ')); } catch { continue; }
+    for (const profile of profiles) {
+      const extDir = pathJoin(userData, profile, 'Extensions', EXT_ID);
+      try { if (!statSync(extDir).isDirectory()) continue; } catch { continue; }
+      let versions;
+      try { versions = readdirSync(extDir).filter(d => /^\d/.test(d)).sort(); } catch { continue; }
+      if (versions.length > 0) {
+        const best = pathJoin(extDir, versions[versions.length - 1]);
+        try { if (statSync(pathJoin(best, 'manifest.json')).isFile()) return best; } catch {}
+      }
+    }
+  }
+  return null;
+}
+
 /** Check if browser is connected and page is usable. */
 export function isConnected() {
-  return browser?.isConnected() && page && !page.isClosed();
+  if (!browser || !page || page.isClosed()) return false;
+  // launchPersistentContext returns BrowserContext (no isConnected), launch returns Browser
+  if (typeof browser.isConnected === 'function') return browser.isConnected();
+  // For persistent context, check via context's browser()
+  return browser.browser()?.isConnected() ?? false;
 }
 
 /**
  * Open browser and navigate to 1C web client URL.
  * Waits for initialization (themesCell_theme_0 selector) and attempts to close startup modals.
  */
-export async function connect(url) {
+export async function connect(url, { extensionPath } = {}) {
   if (isConnected()) {
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: LOAD_TIMEOUT });
   } else {
-    browser = await chromium.launch({ headless: false, args: ['--start-maximized'] });
-    const context = await browser.newContext({
-      viewport: null,
-      permissions: ['clipboard-read', 'clipboard-write'],
-    });
-    page = await context.newPage();
+    const extPath = findExtension(extensionPath);
+    if (extPath) {
+      // Launch with 1C browser extension via persistent context
+      persistentUserDataDir = pathJoin(tmpdir(), 'pw-1c-ext-' + Date.now());
+      mkdirSync(persistentUserDataDir, { recursive: true });
+      const context = await chromium.launchPersistentContext(persistentUserDataDir, {
+        headless: false,
+        args: [
+          '--start-maximized',
+          '--disable-extensions-except=' + extPath,
+          '--load-extension=' + extPath,
+        ],
+        viewport: null,
+        permissions: ['clipboard-read', 'clipboard-write'],
+      });
+      browser = context; // persistent context IS the browser
+      page = context.pages()[0] || await context.newPage();
+    } else {
+      // Fallback: launch without extension
+      browser = await chromium.launch({ headless: false, args: ['--start-maximized'] });
+      const context = await browser.newContext({
+        viewport: null,
+        permissions: ['clipboard-read', 'clipboard-write'],
+      });
+      page = await context.newPage();
+    }
 
     // Capture seanceId from network requests for graceful logout
     sessionPrefix = null;
@@ -116,6 +178,11 @@ export async function disconnect() {
     page = null;
     sessionPrefix = null;
     seanceId = null;
+    // Clean up persistent user data dir
+    if (persistentUserDataDir) {
+      try { rmSync(persistentUserDataDir, { recursive: true, force: true }); } catch {}
+      persistentUserDataDir = null;
+    }
   }
 }
 
