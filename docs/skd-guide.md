@@ -125,7 +125,7 @@ Claude вызовет `/skd-info` (overview → trace → query → variant) и 
 > поля Номенклатура, Количество, Сумма. Период — параметр.
 ```
 
-Claude сформирует JSON:
+Claude сформирует JSON (запрос можно вынести в файл: `"query": "@queries/sales.sql"`):
 ```json
 {
   "dataSets": [{

@@ -1,4 +1,4 @@
-# skd-edit v1.1 — Atomic 1C DCS editor (Python port)
+# skd-edit v1.2 — Atomic 1C DCS editor (Python port)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import os
@@ -78,6 +78,25 @@ def esc_xml(s):
     return s.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('"', '&quot;')
 
 
+def resolve_query_value(val, base_dir):
+    if not val.startswith("@"):
+        return val
+    file_path = val[1:]
+    if os.path.isabs(file_path):
+        candidates = [file_path]
+    else:
+        candidates = [
+            os.path.join(base_dir, file_path),
+            os.path.join(os.getcwd(), file_path),
+        ]
+    for c in candidates:
+        if os.path.exists(c):
+            with open(c, 'r', encoding='utf-8-sig') as f:
+                return f.read().rstrip()
+    print(f"Query file not found: {file_path} (searched: {', '.join(candidates)})", file=sys.stderr)
+    sys.exit(1)
+
+
 def new_uuid():
     return str(uuid.uuid4())
 
@@ -94,6 +113,7 @@ if not os.path.exists(template_path):
     sys.exit(1)
 
 resolved_path = os.path.abspath(template_path)
+query_base_dir = os.path.dirname(resolved_path)
 
 # ── 2. Type system ──────────────────────────────────────────
 
@@ -1465,7 +1485,7 @@ elif operation == "set-query":
     if query_el is None:
         print(f"No <query> element found in dataset '{ds_name}'", file=sys.stderr)
         sys.exit(1)
-    query_el.text = value_arg
+    query_el.text = resolve_query_value(value_arg, query_base_dir)
     print(f'[OK] Query replaced in dataset "{ds_name}"')
 
 elif operation == "set-outputParameter":
@@ -1541,6 +1561,7 @@ elif operation == "add-dataSetLink":
 elif operation == "add-dataSet":
     child_indent = get_child_indent(xml_doc)
     parsed = parse_data_set_shorthand(value_arg)
+    parsed["query"] = resolve_query_value(parsed["query"], query_base_dir)
 
     if not parsed["name"]:
         count = sum(1 for ch in xml_doc if isinstance(ch.tag, str) and local_name(ch) == "dataSet" and etree.QName(ch.tag).namespace == SCH_NS)

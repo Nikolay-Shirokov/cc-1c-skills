@@ -56,6 +56,8 @@ powershell.exe -NoProfile -File .claude/skills/skd-compile/scripts/skd-compile.p
 { "name": "Продажи", "query": "ВЫБРАТЬ ...", "fields": [...] }
 ```
 
+Запрос поддерживает `@file` — ссылку на внешний .sql файл вместо inline-текста: `"query": "@queries/sales.sql"`. Путь разрешается относительно JSON-файла, затем CWD.
+
 ### Поля — shorthand
 
 ```
@@ -195,6 +197,17 @@ powershell.exe -NoProfile -File .claude/skills/skd-compile/scripts/skd-compile.p
   "dataSets": [{
     "query": "ВЫБРАТЬ Номенклатура.Наименование КАК Наименование ИЗ Справочник.Номенклатура КАК Номенклатура",
     "fields": ["Наименование"]
+  }]
+}
+```
+
+### С запросом из внешнего файла (@file)
+
+```json
+{
+  "dataSets": [{
+    "query": "@queries/sales.sql",
+    "fields": ["Номенклатура: СправочникСсылка.Номенклатура @dimension", "Количество: число(15,3)", "Сумма: число(15,2)"]
   }]
 }
 ```

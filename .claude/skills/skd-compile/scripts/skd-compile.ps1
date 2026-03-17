@@ -1,4 +1,4 @@
-﻿# skd-compile v1.0 — Compile 1C DCS from JSON
+﻿# skd-compile v1.1 — Compile 1C DCS from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[string]$DefinitionFile,
@@ -41,6 +41,9 @@ if (-not $def.dataSets -or $def.dataSets.Count -eq 0) {
 	exit 1
 }
 
+# Base directory for resolving @file references in query
+$script:queryBaseDir = if ($DefinitionFile) { [System.IO.Path]::GetDirectoryName($DefinitionFile) } else { (Get-Location).Path }
+
 # --- 2. XML helpers ---
 
 $script:xml = New-Object System.Text.StringBuilder 16384
@@ -53,6 +56,27 @@ function X {
 function Esc-Xml {
 	param([string]$s)
 	return $s.Replace('&','&amp;').Replace('<','&lt;').Replace('>','&gt;').Replace('"','&quot;')
+}
+
+function Resolve-QueryValue {
+	param([string]$val, [string]$baseDir)
+	if (-not $val.StartsWith("@")) { return $val }
+	$filePath = $val.Substring(1)
+	if ([System.IO.Path]::IsPathRooted($filePath)) {
+		$candidates = @($filePath)
+	} else {
+		$candidates = @(
+			(Join-Path $baseDir $filePath),
+			(Join-Path (Get-Location).Path $filePath)
+		)
+	}
+	foreach ($c in $candidates) {
+		if (Test-Path $c) {
+			return (Get-Content -Raw -Encoding UTF8 $c).TrimEnd()
+		}
+	}
+	Write-Error "Query file not found: $filePath (searched: $($candidates -join ', '))"
+	exit 1
 }
 
 function Emit-MLText {
@@ -672,7 +696,8 @@ function Emit-DataSet {
 
 	# Type-specific content
 	if ($dsType -eq "DataSetQuery") {
-		X "$indent`t<query>$(Esc-Xml "$($ds.query)")</query>"
+		$queryText = Resolve-QueryValue "$($ds.query)" $script:queryBaseDir
+		X "$indent`t<query>$(Esc-Xml $queryText)</query>"
 		if ($ds.autoFillFields -eq $false) {
 			X "$indent`t<autoFillFields>false</autoFillFields>"
 		}

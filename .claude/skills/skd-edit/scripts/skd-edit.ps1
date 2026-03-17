@@ -1,4 +1,4 @@
-﻿# skd-edit v1.1 — Atomic 1C DCS editor
+﻿# skd-edit v1.2 — Atomic 1C DCS editor
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -46,6 +46,29 @@ function Esc-Xml {
 	param([string]$s)
 	return $s.Replace('&','&amp;').Replace('<','&lt;').Replace('>','&gt;').Replace('"','&quot;')
 }
+
+function Resolve-QueryValue {
+	param([string]$val, [string]$baseDir)
+	if (-not $val.StartsWith("@")) { return $val }
+	$filePath = $val.Substring(1)
+	if ([System.IO.Path]::IsPathRooted($filePath)) {
+		$candidates = @($filePath)
+	} else {
+		$candidates = @(
+			(Join-Path $baseDir $filePath),
+			(Join-Path (Get-Location).Path $filePath)
+		)
+	}
+	foreach ($c in $candidates) {
+		if (Test-Path $c) {
+			return (Get-Content -Raw -Encoding UTF8 $c).TrimEnd()
+		}
+	}
+	Write-Error "Query file not found: $filePath (searched: $($candidates -join ', '))"
+	exit 1
+}
+
+$script:queryBaseDir = [System.IO.Path]::GetDirectoryName($resolvedPath)
 
 # --- 2. Type system (copied from skd-compile) ---
 
@@ -1712,7 +1735,7 @@ switch ($Operation) {
 		}
 
 		# InnerText setter handles XML escaping automatically
-		$queryEl.InnerText = $Value
+		$queryEl.InnerText = Resolve-QueryValue $Value $script:queryBaseDir
 
 		Write-Host "[OK] Query replaced in dataset `"$dsName`""
 	}
@@ -1813,6 +1836,7 @@ switch ($Operation) {
 		$childIndent = Get-ChildIndent $root
 
 		$parsed = Parse-DataSetShorthand $Value
+		$parsed.query = Resolve-QueryValue $parsed.query $script:queryBaseDir
 
 		# Auto-name if empty
 		if (-not $parsed.name) {
