@@ -122,6 +122,9 @@ export async function connect(url, { extensionPath } = {}) {
       page = await context.newPage();
     }
 
+    // Auto-accept native browser dialogs (confirm/alert from 1C scripts like vis.js)
+    page.on('dialog', dialog => dialog.accept().catch(() => {}));
+
     // Capture seanceId from network requests for graceful logout
     sessionPrefix = null;
     seanceId = null;
