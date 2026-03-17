@@ -1554,7 +1554,41 @@ export async function clickElement(text, { dblclick, table, toggle, expand } = {
 
   // Grid row targets — use coordinate click (single or double)
   if (target.kind === 'gridGroup' || target.kind === 'gridParent') {
-    // Dblclick to enter group / go up to parent
+    if (expand || toggle) {
+      // Expand/collapse group in hierarchy mode — click the triangle icon (.gridListH/.gridListV)
+      const levelIconCoords = await page.evaluate(`(() => {
+        const p = ${JSON.stringify(`form${formNum}_`)};
+        const gridSel = ${JSON.stringify(target.gridId ? '#' + target.gridId : null)};
+        const grid = gridSel ? document.querySelector(gridSel) : document.querySelector('[id^="' + p + '"].grid');
+        const body = grid?.querySelector('.gridBody');
+        if (!body) return null;
+        const lines = [...body.querySelectorAll('.gridLine')];
+        for (const line of lines) {
+          const textBoxes = [...line.querySelectorAll('.gridBoxText')].filter(b => b.offsetWidth > 0);
+          const text = textBoxes[0]?.innerText?.trim() || '';
+          if (text.toLowerCase().replace(/ё/gi, 'е') === ${JSON.stringify(target.name.toLowerCase().replace(/ё/gi, 'е'))}) {
+            const icon = line.querySelector('.gridListH, .gridListV');
+            if (icon) {
+              const r = icon.getBoundingClientRect();
+              return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) };
+            }
+          }
+        }
+        return null;
+      })()`);
+      if (levelIconCoords) {
+        await page.mouse.click(levelIconCoords.x, levelIconCoords.y);
+      } else {
+        // Fallback: dblclick (standard hierarchy navigation)
+        await page.mouse.dblclick(target.x, target.y);
+      }
+      await waitForStable(formNum);
+      const state = await getFormState();
+      state.clicked = { kind: target.kind, name: target.name, toggled: true };
+      state.hint = 'Group toggled. Use readTable to see updated list.';
+      return state;
+    }
+    // Default: dblclick to enter group / go up to parent
     await page.mouse.dblclick(target.x, target.y);
     await waitForStable(formNum);
     const state = await getFormState();
