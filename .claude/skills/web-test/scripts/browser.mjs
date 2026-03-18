@@ -21,6 +21,13 @@ import {
   switchTabScript, resolveGridScript
 } from './dom.mjs';
 
+// Project root: 4 levels up from .claude/skills/web-test/scripts/browser.mjs
+const __fn_browser = fileURLToPath(import.meta.url);
+const projectRoot = pathResolve(dirname(__fn_browser), '..', '..', '..', '..');
+
+/** Resolve a user-provided path relative to the project root (not cwd). */
+const resolveProjectPath = (p) => pathResolve(projectRoot, p);
+
 let browser = null;
 let page = null;
 let sessionPrefix = null; // e.g. "http://localhost:8081/bpdemo/ru_RU"
@@ -483,7 +490,7 @@ function normalizeE1cibUrl(url) {
 export async function openFile(filePath) {
   ensureConnected();
   await dismissPendingErrors();
-  const absPath = pathResolve(filePath);
+  const absPath = resolveProjectPath(filePath);
 
   const MAX_ATTEMPTS = 2; // 1st may trigger security dialog, 2nd is the real open
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
@@ -3764,7 +3771,7 @@ export async function startRecording(outputPath, opts = {}) {
   const ffmpegPath = resolveFfmpeg(opts.ffmpegPath);
 
   // Ensure output directory exists
-  const resolvedPath = pathResolve(outputPath);
+  const resolvedPath = resolveProjectPath(outputPath);
   mkdirSync(dirname(resolvedPath), { recursive: true });
 
   // Create CDP session for screencast
@@ -4009,6 +4016,7 @@ export function getCaptions() {
  */
 export async function addNarration(videoPath, opts = {}) {
   if (!videoPath) return { file: null, duration: 0, size: 0, captions: 0 };
+  videoPath = resolveProjectPath(videoPath);
   const ffmpegPath = resolveFfmpeg(opts.ffmpegPath);
   const ttsProvider = getTtsProvider(opts.provider || 'edge');
   const ttsOpts = { voice: opts.voice, apiKey: opts.apiKey, apiUrl: opts.apiUrl, model: opts.model };
@@ -4287,7 +4295,7 @@ export async function showImage(imagePath, opts = {}) {
   const useBlur = opts.background ? false : preset.blur;
 
   // Read image and base64-encode
-  const absPath = pathResolve(imagePath);
+  const absPath = resolveProjectPath(imagePath);
   if (!fsExistsSync(absPath)) {
     throw new Error(`showImage: file not found: ${absPath}`);
   }
@@ -4663,8 +4671,6 @@ function resolveFfmpeg(explicit) {
   catch { /* fall through */ }
 
   // 4. tools/ffmpeg/bin/ffmpeg.exe relative to project root
-  const __filename = fileURLToPath(import.meta.url);
-  const projectRoot = pathResolve(dirname(__filename), '..', '..', '..', '..');
   const localPath = pathResolve(projectRoot, 'tools', 'ffmpeg', 'bin', 'ffmpeg.exe');
   if (fsExistsSync(localPath)) {
     try { execFileSync(localPath, ['-version'], { stdio: 'ignore', timeout: 5000 }); return localPath; }
@@ -4694,8 +4700,6 @@ async function resolveEdgeTts() {
   } catch { /* fall through */ }
 
   // 2. tools/tts/ relative to project root
-  const __fn = fileURLToPath(import.meta.url);
-  const projectRoot = pathResolve(dirname(__fn), '..', '..', '..', '..');
   const localPath = pathResolve(projectRoot, 'tools', 'tts', 'node_modules', 'node-edge-tts', 'dist', 'edge-tts.js');
   if (fsExistsSync(localPath)) {
     try {
