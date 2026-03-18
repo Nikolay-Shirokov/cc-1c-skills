@@ -124,7 +124,7 @@ async function executeScript(code, { noRecord } = {}) {
       exports.startRecording = noop;
       exports.stopRecording = async () => ({ file: null, duration: 0, size: 0 });
       exports.addNarration = async () => ({ file: null, duration: 0, size: 0, captions: 0 });
-      for (const fn of ['showCaption', 'hideCaption', 'showTitleSlide', 'hideTitleSlide']) {
+      for (const fn of ['showCaption', 'hideCaption']) {
         exports[fn] = noop;
       }
       exports.isRecording = () => false;

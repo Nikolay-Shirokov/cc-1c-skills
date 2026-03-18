@@ -4223,6 +4223,128 @@ export async function hideTitleSlide() {
 }
 
 /**
+ * Show a full-screen image overlay (e.g. presentation slide screenshot).
+ * Reads the image file, base64-encodes it, and renders as a fixed overlay
+ * on the page — captured by CDP screencast automatically.
+ *
+ * Style presets:
+ *   - 'blur'  (default) — blurred+dimmed copy as background, image centered with shadow
+ *   - 'dark'  — dark background (#2a2a2a) with shadow
+ *   - 'light' — white background with shadow
+ *   - 'full'  — image covers entire screen, no padding/shadow
+ *
+ * Custom background overrides the preset (e.g. background: '#003366').
+ *
+ * @param {string} imagePath — path to the image file (PNG, JPG, etc.)
+ * @param {object} [opts]
+ * @param {'blur'|'dark'|'light'|'full'} [opts.style='blur'] — display style preset
+ * @param {string} [opts.background] — custom background color/gradient (overrides style preset)
+ * @param {boolean} [opts.shadow] — show drop shadow (default: true for blur/dark/light, false for full)
+ * @param {string|false} [opts.speech] — TTS narration text while image is shown.
+ *   Pass a string for narration, or false to skip. Omit to skip (no auto-text for images).
+ */
+export async function showImage(imagePath, opts = {}) {
+  ensureConnected();
+  const style = opts.style || 'blur';
+  const speech = opts.speech;
+
+  // Style presets
+  const presets = {
+    blur:  { bg: '#222',    fit: 'contain', shadow: true,  blur: true  },
+    dark:  { bg: '#2a2a2a', fit: 'contain', shadow: true,  blur: false },
+    light: { bg: '#ffffff', fit: 'contain', shadow: true,  blur: false },
+    full:  { bg: '#000',    fit: 'cover',   shadow: false, blur: false },
+  };
+  const preset = presets[style] || presets.blur;
+
+  const bg      = opts.background || preset.bg;
+  const fit     = preset.fit;
+  const shadow  = opts.shadow !== undefined ? opts.shadow : preset.shadow;
+  const useBlur = opts.background ? false : preset.blur;
+
+  // Read image and base64-encode
+  const absPath = pathResolve(imagePath);
+  if (!fsExistsSync(absPath)) {
+    throw new Error(`showImage: file not found: ${absPath}`);
+  }
+  const buf = readFileSync(absPath);
+  const ext = extname(absPath).toLowerCase().replace('.', '');
+  const mime = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg'
+    : ext === 'png' ? 'image/png'
+    : ext === 'gif' ? 'image/gif'
+    : ext === 'webp' ? 'image/webp'
+    : ext === 'svg' ? 'image/svg+xml'
+    : 'image/png';
+  const dataUrl = `data:${mime};base64,${buf.toString('base64')}`;
+
+  // Collect caption for TTS narration if recording
+  let smartWaitMs = 0;
+  if (recorder && speech && speech !== false) {
+    const captionText = typeof speech === 'string' ? speech : '';
+    if (captionText) {
+      recorder.captions.push({ text: captionText, speech: captionText, time: Math.round(recorder.videoTimeMs) });
+      smartWaitMs = Math.max(2000, captionText.length * 100);
+    }
+  }
+
+  // Padding: full style uses 100%, others use 92% for breathing room
+  const isFull = style === 'full';
+  const maxSize = isFull ? '100%' : '92%';
+
+  await page.evaluate(({ dataUrl, fit, bg, useBlur, shadow, maxSize, isFull }) => {
+    let div = document.getElementById('__web_test_image');
+    if (!div) {
+      div = document.createElement('div');
+      div.id = '__web_test_image';
+      document.body.appendChild(div);
+    }
+    div.style.cssText = [
+      'position:fixed', 'top:0', 'left:0', 'width:100%', 'height:100%',
+      `background:${bg}`,
+      'display:flex', 'align-items:center', 'justify-content:center',
+      'z-index:999999', 'pointer-events:none', 'overflow:hidden'
+    ].join(';');
+
+    let html = '';
+
+    // Blurred background layer: the same image stretched to cover, blurred and dimmed
+    if (useBlur) {
+      html += `<img src="${dataUrl}" style="position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;filter:blur(30px) brightness(0.5);transform:scale(1.1);" />`;
+    }
+
+    // Main image
+    const shadowCss = shadow ? 'box-shadow:0 4px 40px rgba(0,0,0,0.5);' : '';
+    const sizeCss = isFull
+      ? `width:100%;height:100%;object-fit:${fit};`
+      : `max-width:${maxSize};max-height:${maxSize};object-fit:${fit};`;
+    html += `<img src="${dataUrl}" style="position:relative;${sizeCss}${shadowCss}" />`;
+
+    div.innerHTML = html;
+  }, { dataUrl, fit, bg, useBlur, shadow, maxSize, isFull });
+
+  // Smart TTS wait (same pattern as showCaption)
+  if (smartWaitMs > 0) {
+    let remaining = smartWaitMs;
+    while (remaining > 0) {
+      const chunk = Math.min(remaining, 1000);
+      await page.waitForTimeout(chunk);
+      remaining -= chunk;
+      if (recorder?._flushFrames) recorder._flushFrames();
+    }
+    recorder.captionCredit = { waitedMs: smartWaitMs, at: Date.now() };
+  }
+}
+
+/** Remove the image overlay from the page. */
+export async function hideImage() {
+  ensureConnected();
+  await page.evaluate(() => {
+    const el = document.getElementById('__web_test_image');
+    if (el) el.remove();
+  });
+}
+
+/**
  * Highlight an element on the page (visual accent for video recordings).
  * Uses overlay div for visibility (not clipped by overflow:hidden), with
  * requestAnimationFrame tracking so it follows layout shifts (async banners etc).
