@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-compile v1.2 — Compile 1C metadata object from JSON
+# meta-compile v1.3 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -2401,10 +2401,17 @@ types_with_object_module = [
 types_with_record_set_module = [
     'InformationRegister', 'AccumulationRegister', 'AccountingRegister', 'CalculationRegister',
 ]
+types_with_manager_module = ['Report', 'DataProcessor']
 types_with_module = ['CommonModule', 'HTTPService', 'WebService']
 
 if obj_type in types_with_object_module:
     module_path = os.path.join(ext_dir, 'ObjectModule.bsl')
+    if not os.path.isfile(module_path):
+        write_utf8_bom(module_path, '')
+        modules_created.append(module_path)
+
+if obj_type in types_with_manager_module:
+    module_path = os.path.join(ext_dir, 'ManagerModule.bsl')
     if not os.path.isfile(module_path):
         write_utf8_bom(module_path, '')
         modules_created.append(module_path)

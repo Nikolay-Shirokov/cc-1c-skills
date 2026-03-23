@@ -1,4 +1,4 @@
-﻿# meta-compile v1.2 — Compile 1C metadata object from JSON
+﻿# meta-compile v1.3 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -2760,11 +2760,20 @@ $typesWithObjectModule = @("Catalog","Document","Report","DataProcessor","Exchan
 	"BusinessProcess","Task")
 # Types with RecordSetModule.bsl
 $typesWithRecordSetModule = @("InformationRegister","AccumulationRegister","AccountingRegister","CalculationRegister")
+# Types with ManagerModule.bsl
+$typesWithManagerModule = @("Report","DataProcessor")
 # Types with Module.bsl (general)
 $typesWithModule = @("CommonModule","HTTPService","WebService")
 
 if ($objType -in $typesWithObjectModule) {
 	$modulePath = Join-Path $extDir "ObjectModule.bsl"
+	if (-not (Test-Path $modulePath)) {
+		[System.IO.File]::WriteAllText($modulePath, "", $enc)
+		$modulesCreated += $modulePath
+	}
+}
+if ($objType -in $typesWithManagerModule) {
+	$modulePath = Join-Path $extDir "ManagerModule.bsl"
 	if (-not (Test-Path $modulePath)) {
 		[System.IO.File]::WriteAllText($modulePath, "", $enc)
 		$modulesCreated += $modulePath
