@@ -1,4 +1,4 @@
-﻿# skd-compile v1.1 — Compile 1C DCS from JSON
+﻿# skd-compile v1.2 — Compile 1C DCS from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[string]$DefinitionFile,
@@ -529,7 +529,7 @@ function Emit-Field {
 		$f = Parse-FieldShorthand $fieldDef
 	} else {
 		$f = @{
-			dataPath = "$($fieldDef.dataPath)"
+			dataPath = if ($fieldDef.dataPath) { "$($fieldDef.dataPath)" } elseif ($fieldDef.field) { "$($fieldDef.field)" } else { "" }
 			field = if ($fieldDef.field) { "$($fieldDef.field)" } else { "$($fieldDef.dataPath)" }
 			title = if ($fieldDef.title) { "$($fieldDef.title)" } else { "" }
 			type = if ($fieldDef.type) { Resolve-TypeStr "$($fieldDef.type)" } else { "" }
@@ -931,25 +931,286 @@ function Emit-ParamValue {
 	}
 }
 
+# === AreaTemplate DSL ===
+
+# Built-in style presets
+$script:areaStylePresets = @{
+	data = @{
+		font = 'Arial'; fontSize = 10; bold = $false; italic = $false
+		hAlign = $null; vAlign = $null; wrap = $false
+		bgColor = 'style:ReportGroup1BackColor'; textColor = $null
+		borderColor = 'style:ReportLineColor'; borders = $true
+	}
+	header = @{
+		font = 'Arial'; fontSize = 10; bold = $false; italic = $false
+		hAlign = 'Center'; vAlign = $null; wrap = $true
+		bgColor = 'style:ReportHeaderBackColor'; textColor = $null
+		borderColor = 'style:ReportLineColor'; borders = $true
+	}
+	subheader = @{
+		font = 'Arial'; fontSize = 10; bold = $false; italic = $false
+		hAlign = 'Center'; vAlign = $null; wrap = $true
+		bgColor = $null; textColor = $null
+		borderColor = 'style:ReportLineColor'; borders = $true
+	}
+	total = @{
+		font = 'Arial'; fontSize = 10; bold = $false; italic = $false
+		hAlign = $null; vAlign = $null; wrap = $false
+		bgColor = $null; textColor = $null
+		borderColor = 'style:ReportLineColor'; borders = $true
+	}
+}
+
+# Load user presets from skd-styles.json (same dir as definition or cwd)
+$script:userStylesLoaded = $false
+foreach ($stylesDir in @($script:queryBaseDir, (Get-Location).Path)) {
+	$stylesFile = Join-Path $stylesDir "skd-styles.json"
+	if (Test-Path $stylesFile) {
+		$userStyles = Get-Content -Raw -Encoding UTF8 $stylesFile | ConvertFrom-Json
+		foreach ($prop in $userStyles.PSObject.Properties) {
+			$preset = @{}
+			# Start from 'data' defaults
+			foreach ($k in $script:areaStylePresets['data'].Keys) {
+				$preset[$k] = $script:areaStylePresets['data'][$k]
+			}
+			# If overriding existing preset, start from it instead
+			if ($script:areaStylePresets.ContainsKey($prop.Name)) {
+				foreach ($k in $script:areaStylePresets[$prop.Name].Keys) {
+					$preset[$k] = $script:areaStylePresets[$prop.Name][$k]
+				}
+			}
+			# Apply user overrides
+			foreach ($up in $prop.Value.PSObject.Properties) {
+				$preset[$up.Name] = $up.Value
+			}
+			$script:areaStylePresets[$prop.Name] = $preset
+		}
+		$script:userStylesLoaded = $true
+		break
+	}
+}
+
+function Emit-ColorValue {
+	param([string]$color, [string]$indent)
+	if ($color.StartsWith('style:')) {
+		$styleName = $color.Substring(6)
+		X "$indent<dcscor:value xmlns:d8p1=`"http://v8.1c.ru/8.1/data/ui/style`" xsi:type=`"v8ui:Color`">d8p1:$styleName</dcscor:value>"
+	} else {
+		X "$indent<dcscor:value xsi:type=`"v8ui:Color`">$(Esc-Xml $color)</dcscor:value>"
+	}
+}
+
+function Emit-CellAppearance {
+	param($style, [double]$width = 0, [bool]$vMerge = $false, [double]$minHeight = 0)
+	$ind = "`t`t`t`t`t"
+	X "`t`t`t`t<dcsat:appearance>"
+	# Background color
+	if ($style.bgColor) {
+		X "$ind<dcscor:item>"
+		X "$ind`t<dcscor:parameter>ЦветФона</dcscor:parameter>"
+		Emit-ColorValue $style.bgColor "$ind`t"
+		X "$ind</dcscor:item>"
+	}
+	# Text color
+	if ($style.textColor) {
+		X "$ind<dcscor:item>"
+		X "$ind`t<dcscor:parameter>ЦветТекста</dcscor:parameter>"
+		Emit-ColorValue $style.textColor "$ind`t"
+		X "$ind</dcscor:item>"
+	}
+	# Border color + border style (4 sides)
+	if ($style.borders) {
+		if ($style.borderColor) {
+			X "$ind<dcscor:item>"
+			X "$ind`t<dcscor:parameter>ЦветГраницы</dcscor:parameter>"
+			Emit-ColorValue $style.borderColor "$ind`t"
+			X "$ind</dcscor:item>"
+		}
+		X "$ind<dcscor:item>"
+		X "$ind`t<dcscor:parameter>СтильГраницы</dcscor:parameter>"
+		X "$ind`t<dcscor:value xsi:type=`"v8ui:Line`" width=`"0`" gap=`"false`">"
+		X "$ind`t`t<v8ui:style xsi:type=`"v8ui:SpreadsheetDocumentCellLineType`">None</v8ui:style>"
+		X "$ind`t</dcscor:value>"
+		foreach ($side in @('Слева','Сверху','Справа','Снизу')) {
+			X "$ind`t<dcscor:item>"
+			X "$ind`t`t<dcscor:parameter>СтильГраницы.$side</dcscor:parameter>"
+			X "$ind`t`t<dcscor:value xsi:type=`"v8ui:Line`" width=`"1`" gap=`"false`">"
+			X "$ind`t`t`t<v8ui:style xsi:type=`"v8ui:SpreadsheetDocumentCellLineType`">Solid</v8ui:style>"
+			X "$ind`t`t</dcscor:value>"
+			X "$ind`t</dcscor:item>"
+		}
+		X "$ind</dcscor:item>"
+	}
+	# Font
+	$boldStr = if ($style.bold) { "true" } else { "false" }
+	$italicStr = if ($style.italic) { "true" } else { "false" }
+	X "$ind<dcscor:item>"
+	X "$ind`t<dcscor:parameter>Шрифт</dcscor:parameter>"
+	X "$ind`t<dcscor:value xsi:type=`"v8ui:Font`" faceName=`"$($style.font)`" height=`"$($style.fontSize)`" bold=`"$boldStr`" italic=`"$italicStr`" underline=`"false`" strikeout=`"false`" kind=`"Absolute`" scale=`"100`"/>"
+	X "$ind</dcscor:item>"
+	# Horizontal alignment
+	if ($style.hAlign) {
+		X "$ind<dcscor:item>"
+		X "$ind`t<dcscor:parameter>ГоризонтальноеПоложение</dcscor:parameter>"
+		X "$ind`t<dcscor:value xsi:type=`"v8ui:HorizontalAlign`">$(Esc-Xml $style.hAlign)</dcscor:value>"
+		X "$ind</dcscor:item>"
+	}
+	# Vertical alignment
+	if ($style.vAlign) {
+		X "$ind<dcscor:item>"
+		X "$ind`t<dcscor:parameter>ВертикальноеПоложение</dcscor:parameter>"
+		X "$ind`t<dcscor:value xsi:type=`"v8ui:VerticalAlign`">$(Esc-Xml $style.vAlign)</dcscor:value>"
+		X "$ind</dcscor:item>"
+	}
+	# Text placement (wrap)
+	if ($style.wrap) {
+		X "$ind<dcscor:item>"
+		X "$ind`t<dcscor:parameter>Размещение</dcscor:parameter>"
+		X "$ind`t<dcscor:value xsi:type=`"dcscor:DataCompositionTextPlacementType`">Wrap</dcscor:value>"
+		X "$ind</dcscor:item>"
+	}
+	# Width
+	if ($width -gt 0) {
+		X "$ind<dcscor:item>"
+		X "$ind`t<dcscor:parameter>МинимальнаяШирина</dcscor:parameter>"
+		X "$ind`t<dcscor:value xsi:type=`"xs:decimal`">$width</dcscor:value>"
+		X "$ind</dcscor:item>"
+		X "$ind<dcscor:item>"
+		X "$ind`t<dcscor:parameter>МаксимальнаяШирина</dcscor:parameter>"
+		X "$ind`t<dcscor:value xsi:type=`"xs:decimal`">$width</dcscor:value>"
+		X "$ind</dcscor:item>"
+	}
+	# Min height
+	if ($minHeight -gt 0) {
+		X "$ind<dcscor:item>"
+		X "$ind`t<dcscor:parameter>МинимальнаяВысота</dcscor:parameter>"
+		X "$ind`t<dcscor:value xsi:type=`"xs:decimal`">$minHeight</dcscor:value>"
+		X "$ind</dcscor:item>"
+	}
+	# Vertical merge
+	if ($vMerge) {
+		X "$ind<dcscor:item>"
+		X "$ind`t<dcscor:parameter>ОбъединятьПоВертикали</dcscor:parameter>"
+		X "$ind`t<dcscor:value xsi:type=`"xs:boolean`">true</dcscor:value>"
+		X "$ind</dcscor:item>"
+	}
+	X "`t`t`t`t</dcsat:appearance>"
+}
+
+function Emit-AreaTemplateDSL {
+	param($t)
+	$styleName = if ($t.style) { "$($t.style)" } else { "data" }
+	if (-not $script:areaStylePresets.ContainsKey($styleName)) {
+		Write-Warning "Unknown area style preset '$styleName', falling back to 'data'"
+		$styleName = "data"
+	}
+	$style = $script:areaStylePresets[$styleName]
+
+	$rows = @($t.rows)
+	$widths = if ($t.widths) { @($t.widths) } else { @() }
+	$minHeight = if ($t.minHeight) { [double]$t.minHeight } else { 0 }
+	$colCount = if ($widths.Count -gt 0) { $widths.Count } else { $rows[0].Count }
+
+	# Build merge map: vMerge[row][col] = $true if cell is merged with above
+	$vMerge = @{}
+	for ($r = $rows.Count - 1; $r -ge 1; $r--) {
+		$vMerge[$r] = @{}
+		for ($c = 0; $c -lt $colCount; $c++) {
+			$cellVal = $rows[$r][$c]
+			if ($cellVal -is [string] -and $cellVal -eq '|') {
+				$vMerge[$r][$c] = $true
+			}
+		}
+	}
+	if (-not $vMerge.ContainsKey(0)) { $vMerge[0] = @{} }
+
+	X "`t<template>"
+	X "`t`t<name>$(Esc-Xml "$($t.name)")</name>"
+	X "`t`t<template xmlns:dcsat=`"http://v8.1c.ru/8.1/data-composition-system/area-template`" xsi:type=`"dcsat:AreaTemplate`">"
+
+	for ($r = 0; $r -lt $rows.Count; $r++) {
+		X "`t`t`t<dcsat:item xsi:type=`"dcsat:TableRow`">"
+		for ($c = 0; $c -lt $colCount; $c++) {
+			$cellVal = $rows[$r][$c]
+			$w = if ($c -lt $widths.Count) { [double]$widths[$c] } else { 0 }
+			$isMerged = $vMerge[$r][$c] -eq $true
+			# Check if this cell starts a vertical merge (next row has "|" in same column)
+			$startsVMerge = $false
+			for ($nr = $r + 1; $nr -lt $rows.Count; $nr++) {
+				if ($vMerge[$nr][$c] -eq $true) { $startsVMerge = $true } else { break }
+			}
+
+			X "`t`t`t`t<dcsat:tableCell>"
+			if ($isMerged) {
+				# Merged cell — only appearance with vMerge flag + width
+				Emit-CellAppearance $style $w $true
+			} else {
+				# Cell value
+				if ($null -ne $cellVal -and $cellVal -ne '') {
+					$cellStr = "$cellVal"
+					if ($cellStr -match '^\{(.+)\}$') {
+						# Parameter reference
+						X "`t`t`t`t`t<dcsat:item xsi:type=`"dcsat:Field`">"
+						X "`t`t`t`t`t`t<dcsat:value xsi:type=`"dcscor:Parameter`">$(Esc-Xml $Matches[1])</dcsat:value>"
+						X "`t`t`t`t`t</dcsat:item>"
+					} else {
+						# Static text
+						X "`t`t`t`t`t<dcsat:item xsi:type=`"dcsat:Field`">"
+						X "`t`t`t`t`t`t<dcsat:value xsi:type=`"v8:LocalStringType`">"
+						X "`t`t`t`t`t`t`t<v8:item>"
+						X "`t`t`t`t`t`t`t`t<v8:lang>ru</v8:lang>"
+						X "`t`t`t`t`t`t`t`t<v8:content>$(Esc-Xml $cellStr)</v8:content>"
+						X "`t`t`t`t`t`t`t</v8:item>"
+						X "`t`t`t`t`t`t</dcsat:value>"
+						X "`t`t`t`t`t</dcsat:item>"
+					}
+				}
+				# Appearance
+				$h = if ($r -eq 0) { $minHeight } else { 0 }
+				Emit-CellAppearance $style $w $startsVMerge $h
+			}
+			X "`t`t`t`t</dcsat:tableCell>"
+		}
+		X "`t`t`t</dcsat:item>"
+	}
+
+	X "`t`t</template>"
+	# Parameters (reuse existing logic)
+	if ($t.parameters) {
+		foreach ($tp in $t.parameters) {
+			X "`t`t<parameter xmlns:dcsat=`"http://v8.1c.ru/8.1/data-composition-system/area-template`" xsi:type=`"dcsat:ExpressionAreaTemplateParameter`">"
+			X "`t`t`t<dcsat:name>$(Esc-Xml "$($tp.name)")</dcsat:name>"
+			X "`t`t`t<dcsat:expression>$(Esc-Xml "$($tp.expression)")</dcsat:expression>"
+			X "`t`t</parameter>"
+		}
+	}
+	X "`t</template>"
+}
+
 # === Templates ===
 function Emit-Templates {
 	if (-not $def.templates) { return }
 	foreach ($t in $def.templates) {
-		X "`t<template>"
-		X "`t`t<name>$(Esc-Xml "$($t.name)")</name>"
-		if ($t.template) {
-			# Raw XML content
-			X "`t`t$($t.template)"
-		}
-		if ($t.parameters) {
-			foreach ($tp in $t.parameters) {
-				X "`t`t<parameter xmlns:dcsat=`"http://v8.1c.ru/8.1/data-composition-system/area-template`" xsi:type=`"dcsat:ExpressionAreaTemplateParameter`">"
-				X "`t`t`t<dcsat:name>$(Esc-Xml "$($tp.name)")</dcsat:name>"
-				X "`t`t`t<dcsat:expression>$(Esc-Xml "$($tp.expression)")</dcsat:expression>"
-				X "`t`t</parameter>"
+		if ($t.rows) {
+			# Compact DSL mode
+			Emit-AreaTemplateDSL $t
+		} else {
+			# Raw XML mode
+			X "`t<template>"
+			X "`t`t<name>$(Esc-Xml "$($t.name)")</name>"
+			if ($t.template) {
+				X "`t`t$($t.template)"
 			}
+			if ($t.parameters) {
+				foreach ($tp in $t.parameters) {
+					X "`t`t<parameter xmlns:dcsat=`"http://v8.1c.ru/8.1/data-composition-system/area-template`" xsi:type=`"dcsat:ExpressionAreaTemplateParameter`">"
+					X "`t`t`t<dcsat:name>$(Esc-Xml "$($tp.name)")</dcsat:name>"
+					X "`t`t`t<dcsat:expression>$(Esc-Xml "$($tp.expression)")</dcsat:expression>"
+					X "`t`t</parameter>"
+				}
+			}
+			X "`t</template>"
 		}
-		X "`t</template>"
 	}
 }
 
@@ -1565,7 +1826,7 @@ function Emit-SettingsVariants {
 		X "`t<settingsVariant>"
 		X "`t`t<dcsset:name>$(Esc-Xml "$($v.name)")</dcsset:name>"
 
-		$pres = if ($v.presentation) { "$($v.presentation)" } else { "$($v.name)" }
+		$pres = if ($v.presentation) { "$($v.presentation)" } elseif ($v.title) { "$($v.title)" } else { "$($v.name)" }
 		X "`t`t<dcsset:presentation xsi:type=`"v8:LocalStringType`">"
 		X "`t`t`t<v8:item>"
 		X "`t`t`t`t<v8:lang>ru</v8:lang>"

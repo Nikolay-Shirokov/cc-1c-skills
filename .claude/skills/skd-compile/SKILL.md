@@ -31,7 +31,7 @@ powershell.exe -NoProfile -File .claude/skills/skd-compile/scripts/skd-compile.p
 
 ## JSON DSL — краткий справочник
 
-Полная спецификация: `docs/skd-dsl-spec.md`.
+Справочник ниже. Все примеры компилируемы как есть.
 
 ### Корневая структура
 
@@ -41,6 +41,8 @@ powershell.exe -NoProfile -File .claude/skills/skd-compile/scripts/skd-compile.p
   "calculatedFields": [...],
   "totalFields": [...],
   "parameters": [...],
+  "templates": [...],
+  "groupTemplates": [...],
   "dataSetLinks": [...],
   "settingsVariants": [...]
 }
@@ -58,7 +60,7 @@ powershell.exe -NoProfile -File .claude/skills/skd-compile/scripts/skd-compile.p
 
 Запрос поддерживает `@file` — ссылку на внешний .sql файл вместо inline-текста: `"query": "@queries/sales.sql"`. Путь разрешается относительно JSON-файла, затем CWD.
 
-### Поля — shorthand
+### Поля — shorthand и объектная форма
 
 ```
 "Наименование"                              — просто имя
@@ -66,6 +68,12 @@ powershell.exe -NoProfile -File .claude/skills/skd-compile/scripts/skd-compile.p
 "Организация: CatalogRef.Организации @dimension"  — + роль
 "Служебное: string #noFilter #noOrder"       — + ограничения
 ```
+
+Объектная форма — когда нужен title или другие свойства:
+```json
+{ "field": "ОстатокНаНачалоПериода", "title": "Остаток на начало периода" }
+```
+`dataPath` автоматически берётся из `field`, если не указан явно.
 
 Типы: `string`, `string(N)`, `decimal(D,F)`, `boolean`, `date`, `dateTime`, `CatalogRef.X`, `DocumentRef.X`, `EnumRef.X`, `StandardPeriod`. Ссылочные типы эмитируются с inline namespace `d5p1:` (`http://v8.1c.ru/8.1/data/enterprise/current-config`). Сборка EPF со ссылочными типами требует базу с соответствующей конфигурацией.
 
@@ -143,6 +151,7 @@ powershell.exe -NoProfile -File .claude/skills/skd-compile/scripts/skd-compile.p
 ```json
 "settingsVariants": [{
   "name": "Основной",
+  "title": "Продажи по организациям",
   "settings": {
     "selection": ["Номенклатура", "Количество", "Auto"],
     "filter": ["Организация = _ @off @user"],
@@ -185,6 +194,53 @@ powershell.exe -NoProfile -File .claude/skills/skd-compile/scripts/skd-compile.p
 ```json
 "totalFields": [
   { "dataPath": "Кол", "expression": "Сумма(Кол)", "group": ["Группа1", "Группа1 Иерархия", "ОбщийИтог"] }
+]
+```
+
+### Шаблоны вывода — компактный DSL
+
+Вместо raw XML (`template`) — табличное описание через `rows` + именованный стиль `style`:
+
+```json
+"templates": [
+  {
+    "name": "Макет1",
+    "style": "header",
+    "widths": [36, 33, 16, 17],
+    "minHeight": 24.75,
+    "rows": [
+      ["Виды кассы", "Валюта", "Остаток на начало\nпериода", "Остаток на\nконец периода"],
+      ["|", "|", "|", "|"],
+      ["К1", "К2", "К3", "К4"]
+    ]
+  },
+  {
+    "name": "Макет2",
+    "style": "data",
+    "widths": [36, 33, 16, 17],
+    "rows": [["{ВидКассы}", "{Валюта}", "{Остаток}", "{ОстатокКонец}"]],
+    "parameters": [
+      { "name": "ВидКассы", "expression": "Представление(Счет)" },
+      { "name": "Остаток", "expression": "ОстатокНаНачалоПериода" }
+    ]
+  }
+]
+```
+
+Синтаксис ячеек: `"текст"` — статика, `"{Имя}"` — параметр, `"|"` — объединение с ячейкой выше, `null` — пустая.
+
+Встроенные стили: `header` (фон, центр, перенос), `data` (фон группы), `subheader` (без фона, центр), `total` (без фона). Все — Arial 10, рамки Solid 1px, цвета через стили платформы.
+
+Пользовательские стили: файл `skd-styles.json` рядом с JSON или в корне проекта. Все допустимые ключи и формат цветов — в `examples/skd-styles.json`.
+
+Raw XML (`"template": "<...>"`) остаётся как fallback. Детект: если есть `rows` — DSL, иначе — raw.
+
+### Привязки макетов к группировкам
+
+```json
+"groupTemplates": [
+  { "groupField": "Счет", "templateType": "GroupHeader", "template": "Макет1" },
+  { "groupField": "Счет", "templateType": "Header", "template": "Макет2" }
 ]
 ```
 

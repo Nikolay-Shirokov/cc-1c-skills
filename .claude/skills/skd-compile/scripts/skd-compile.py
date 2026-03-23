@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# skd-compile v1.1 — Compile 1C DCS from JSON
+# skd-compile v1.2 — Compile 1C DCS from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import json
@@ -417,7 +417,7 @@ def emit_field(lines, field_def, indent):
         f = parse_field_shorthand(field_def)
     else:
         f = {
-            'dataPath': str(field_def.get('dataPath', '')),
+            'dataPath': str(field_def.get('dataPath', '')) or str(field_def.get('field', '')),
             'field': str(field_def.get('field', '')) or str(field_def.get('dataPath', '')),
             'title': str(field_def.get('title', '')) if field_def.get('title') else '',
             'type': resolve_type_str(str(field_def['type'])) if field_def.get('type') else '',
@@ -772,23 +772,238 @@ def emit_parameters(lines, defn):
             emit_single_param(lines, None, end_parsed)
 
 
+# === AreaTemplate DSL ===
+
+AREA_STYLE_PRESETS = {
+    'data': {
+        'font': 'Arial', 'fontSize': 10, 'bold': False, 'italic': False,
+        'hAlign': None, 'vAlign': None, 'wrap': False,
+        'bgColor': 'style:ReportGroup1BackColor', 'textColor': None,
+        'borderColor': 'style:ReportLineColor', 'borders': True,
+    },
+    'header': {
+        'font': 'Arial', 'fontSize': 10, 'bold': False, 'italic': False,
+        'hAlign': 'Center', 'vAlign': None, 'wrap': True,
+        'bgColor': 'style:ReportHeaderBackColor', 'textColor': None,
+        'borderColor': 'style:ReportLineColor', 'borders': True,
+    },
+    'subheader': {
+        'font': 'Arial', 'fontSize': 10, 'bold': False, 'italic': False,
+        'hAlign': 'Center', 'vAlign': None, 'wrap': True,
+        'bgColor': None, 'textColor': None,
+        'borderColor': 'style:ReportLineColor', 'borders': True,
+    },
+    'total': {
+        'font': 'Arial', 'fontSize': 10, 'bold': False, 'italic': False,
+        'hAlign': None, 'vAlign': None, 'wrap': False,
+        'bgColor': None, 'textColor': None,
+        'borderColor': 'style:ReportLineColor', 'borders': True,
+    },
+}
+
+
+def load_user_styles(base_dir):
+    for d in [base_dir, os.getcwd()]:
+        p = os.path.join(d, 'skd-styles.json')
+        if os.path.isfile(p):
+            with open(p, 'r', encoding='utf-8-sig') as f:
+                user_styles = json.load(f)
+            for name, overrides in user_styles.items():
+                base = dict(AREA_STYLE_PRESETS.get(name, AREA_STYLE_PRESETS['data']))
+                base.update(overrides)
+                AREA_STYLE_PRESETS[name] = base
+            return
+
+
+def _emit_color_value(lines, color, indent):
+    if color.startswith('style:'):
+        style_name = color[6:]
+        lines.append(f'{indent}<dcscor:value xmlns:d8p1="http://v8.1c.ru/8.1/data/ui/style" xsi:type="v8ui:Color">d8p1:{style_name}</dcscor:value>')
+    else:
+        lines.append(f'{indent}<dcscor:value xsi:type="v8ui:Color">{esc_xml(color)}</dcscor:value>')
+
+
+def _emit_cell_appearance(lines, style, width=0, v_merge=False, min_height=0):
+    ind = '\t\t\t\t\t'
+    lines.append('\t\t\t\t<dcsat:appearance>')
+    # Background color
+    if style.get('bgColor'):
+        lines.append(f'{ind}<dcscor:item>')
+        lines.append(f'{ind}\t<dcscor:parameter>\u0426\u0432\u0435\u0442\u0424\u043e\u043d\u0430</dcscor:parameter>')
+        _emit_color_value(lines, style['bgColor'], f'{ind}\t')
+        lines.append(f'{ind}</dcscor:item>')
+    # Text color
+    if style.get('textColor'):
+        lines.append(f'{ind}<dcscor:item>')
+        lines.append(f'{ind}\t<dcscor:parameter>\u0426\u0432\u0435\u0442\u0422\u0435\u043a\u0441\u0442\u0430</dcscor:parameter>')
+        _emit_color_value(lines, style['textColor'], f'{ind}\t')
+        lines.append(f'{ind}</dcscor:item>')
+    # Borders
+    if style.get('borders'):
+        if style.get('borderColor'):
+            lines.append(f'{ind}<dcscor:item>')
+            lines.append(f'{ind}\t<dcscor:parameter>\u0426\u0432\u0435\u0442\u0413\u0440\u0430\u043d\u0438\u0446\u044b</dcscor:parameter>')
+            _emit_color_value(lines, style['borderColor'], f'{ind}\t')
+            lines.append(f'{ind}</dcscor:item>')
+        lines.append(f'{ind}<dcscor:item>')
+        lines.append(f'{ind}\t<dcscor:parameter>\u0421\u0442\u0438\u043b\u044c\u0413\u0440\u0430\u043d\u0438\u0446\u044b</dcscor:parameter>')
+        lines.append(f'{ind}\t<dcscor:value xsi:type="v8ui:Line" width="0" gap="false">')
+        lines.append(f'{ind}\t\t<v8ui:style xsi:type="v8ui:SpreadsheetDocumentCellLineType">None</v8ui:style>')
+        lines.append(f'{ind}\t</dcscor:value>')
+        for side in ['\u0421\u043b\u0435\u0432\u0430', '\u0421\u0432\u0435\u0440\u0445\u0443', '\u0421\u043f\u0440\u0430\u0432\u0430', '\u0421\u043d\u0438\u0437\u0443']:
+            lines.append(f'{ind}\t<dcscor:item>')
+            lines.append(f'{ind}\t\t<dcscor:parameter>\u0421\u0442\u0438\u043b\u044c\u0413\u0440\u0430\u043d\u0438\u0446\u044b.{side}</dcscor:parameter>')
+            lines.append(f'{ind}\t\t<dcscor:value xsi:type="v8ui:Line" width="1" gap="false">')
+            lines.append(f'{ind}\t\t\t<v8ui:style xsi:type="v8ui:SpreadsheetDocumentCellLineType">Solid</v8ui:style>')
+            lines.append(f'{ind}\t\t</dcscor:value>')
+            lines.append(f'{ind}\t</dcscor:item>')
+        lines.append(f'{ind}</dcscor:item>')
+    # Font
+    bold_str = 'true' if style.get('bold') else 'false'
+    italic_str = 'true' if style.get('italic') else 'false'
+    lines.append(f'{ind}<dcscor:item>')
+    lines.append(f'{ind}\t<dcscor:parameter>\u0428\u0440\u0438\u0444\u0442</dcscor:parameter>')
+    lines.append(f'{ind}\t<dcscor:value xsi:type="v8ui:Font" faceName="{style["font"]}" height="{style["fontSize"]}" bold="{bold_str}" italic="{italic_str}" underline="false" strikeout="false" kind="Absolute" scale="100"/>')
+    lines.append(f'{ind}</dcscor:item>')
+    # Horizontal alignment
+    if style.get('hAlign'):
+        lines.append(f'{ind}<dcscor:item>')
+        lines.append(f'{ind}\t<dcscor:parameter>\u0413\u043e\u0440\u0438\u0437\u043e\u043d\u0442\u0430\u043b\u044c\u043d\u043e\u0435\u041f\u043e\u043b\u043e\u0436\u0435\u043d\u0438\u0435</dcscor:parameter>')
+        lines.append(f'{ind}\t<dcscor:value xsi:type="v8ui:HorizontalAlign">{esc_xml(style["hAlign"])}</dcscor:value>')
+        lines.append(f'{ind}</dcscor:item>')
+    # Vertical alignment
+    if style.get('vAlign'):
+        lines.append(f'{ind}<dcscor:item>')
+        lines.append(f'{ind}\t<dcscor:parameter>\u0412\u0435\u0440\u0442\u0438\u043a\u0430\u043b\u044c\u043d\u043e\u0435\u041f\u043e\u043b\u043e\u0436\u0435\u043d\u0438\u0435</dcscor:parameter>')
+        lines.append(f'{ind}\t<dcscor:value xsi:type="v8ui:VerticalAlign">{esc_xml(style["vAlign"])}</dcscor:value>')
+        lines.append(f'{ind}</dcscor:item>')
+    # Wrap
+    if style.get('wrap'):
+        lines.append(f'{ind}<dcscor:item>')
+        lines.append(f'{ind}\t<dcscor:parameter>\u0420\u0430\u0437\u043c\u0435\u0449\u0435\u043d\u0438\u0435</dcscor:parameter>')
+        lines.append(f'{ind}\t<dcscor:value xsi:type="dcscor:DataCompositionTextPlacementType">Wrap</dcscor:value>')
+        lines.append(f'{ind}</dcscor:item>')
+    # Width
+    if width and width > 0:
+        lines.append(f'{ind}<dcscor:item>')
+        lines.append(f'{ind}\t<dcscor:parameter>\u041c\u0438\u043d\u0438\u043c\u0430\u043b\u044c\u043d\u0430\u044f\u0428\u0438\u0440\u0438\u043d\u0430</dcscor:parameter>')
+        lines.append(f'{ind}\t<dcscor:value xsi:type="xs:decimal">{width}</dcscor:value>')
+        lines.append(f'{ind}</dcscor:item>')
+        lines.append(f'{ind}<dcscor:item>')
+        lines.append(f'{ind}\t<dcscor:parameter>\u041c\u0430\u043a\u0441\u0438\u043c\u0430\u043b\u044c\u043d\u0430\u044f\u0428\u0438\u0440\u0438\u043d\u0430</dcscor:parameter>')
+        lines.append(f'{ind}\t<dcscor:value xsi:type="xs:decimal">{width}</dcscor:value>')
+        lines.append(f'{ind}</dcscor:item>')
+    # Min height
+    if min_height and min_height > 0:
+        lines.append(f'{ind}<dcscor:item>')
+        lines.append(f'{ind}\t<dcscor:parameter>\u041c\u0438\u043d\u0438\u043c\u0430\u043b\u044c\u043d\u0430\u044f\u0412\u044b\u0441\u043e\u0442\u0430</dcscor:parameter>')
+        lines.append(f'{ind}\t<dcscor:value xsi:type="xs:decimal">{min_height}</dcscor:value>')
+        lines.append(f'{ind}</dcscor:item>')
+    # Vertical merge
+    if v_merge:
+        lines.append(f'{ind}<dcscor:item>')
+        lines.append(f'{ind}\t<dcscor:parameter>\u041e\u0431\u044a\u0435\u0434\u0438\u043d\u044f\u0442\u044c\u041f\u043e\u0412\u0435\u0440\u0442\u0438\u043a\u0430\u043b\u0438</dcscor:parameter>')
+        lines.append(f'{ind}\t<dcscor:value xsi:type="xs:boolean">true</dcscor:value>')
+        lines.append(f'{ind}</dcscor:item>')
+    lines.append('\t\t\t\t</dcsat:appearance>')
+
+
+def _emit_area_template_dsl(lines, t):
+    style_name = str(t.get('style', '')) or 'data'
+    if style_name not in AREA_STYLE_PRESETS:
+        print(f"Warning: Unknown area style preset '{style_name}', falling back to 'data'", file=sys.stderr)
+        style_name = 'data'
+    style = AREA_STYLE_PRESETS[style_name]
+
+    rows = list(t['rows'])
+    widths = list(t.get('widths', []))
+    min_height = float(t.get('minHeight', 0))
+    col_count = len(widths) if widths else len(rows[0])
+
+    # Build merge map
+    v_merge = {}
+    for r in range(len(rows) - 1, 0, -1):
+        v_merge[r] = {}
+        for c in range(col_count):
+            cell_val = rows[r][c] if c < len(rows[r]) else None
+            if isinstance(cell_val, str) and cell_val == '|':
+                v_merge[r][c] = True
+    if 0 not in v_merge:
+        v_merge[0] = {}
+
+    lines.append('\t<template>')
+    lines.append(f'\t\t<name>{esc_xml(str(t["name"]))}</name>')
+    lines.append('\t\t<template xmlns:dcsat="http://v8.1c.ru/8.1/data-composition-system/area-template" xsi:type="dcsat:AreaTemplate">')
+
+    for r in range(len(rows)):
+        lines.append('\t\t\t<dcsat:item xsi:type="dcsat:TableRow">')
+        for c in range(col_count):
+            cell_val = rows[r][c] if c < len(rows[r]) else None
+            w = float(widths[c]) if c < len(widths) else 0
+            is_merged = v_merge.get(r, {}).get(c, False)
+            # Check if this cell starts a vertical merge
+            starts_v_merge = False
+            for nr in range(r + 1, len(rows)):
+                if v_merge.get(nr, {}).get(c, False):
+                    starts_v_merge = True
+                else:
+                    break
+
+            lines.append('\t\t\t\t<dcsat:tableCell>')
+            if is_merged:
+                _emit_cell_appearance(lines, style, w, True)
+            else:
+                if cell_val is not None and str(cell_val) != '':
+                    cell_str = str(cell_val)
+                    m = re.match(r'^\{(.+)\}$', cell_str)
+                    if m:
+                        lines.append('\t\t\t\t\t<dcsat:item xsi:type="dcsat:Field">')
+                        lines.append(f'\t\t\t\t\t\t<dcsat:value xsi:type="dcscor:Parameter">{esc_xml(m.group(1))}</dcsat:value>')
+                        lines.append('\t\t\t\t\t</dcsat:item>')
+                    else:
+                        lines.append('\t\t\t\t\t<dcsat:item xsi:type="dcsat:Field">')
+                        lines.append('\t\t\t\t\t\t<dcsat:value xsi:type="v8:LocalStringType">')
+                        lines.append('\t\t\t\t\t\t\t<v8:item>')
+                        lines.append('\t\t\t\t\t\t\t\t<v8:lang>ru</v8:lang>')
+                        lines.append(f'\t\t\t\t\t\t\t\t<v8:content>{esc_xml(cell_str)}</v8:content>')
+                        lines.append('\t\t\t\t\t\t\t</v8:item>')
+                        lines.append('\t\t\t\t\t\t</dcsat:value>')
+                        lines.append('\t\t\t\t\t</dcsat:item>')
+                h = min_height if r == 0 else 0
+                _emit_cell_appearance(lines, style, w, starts_v_merge, h)
+            lines.append('\t\t\t\t</dcsat:tableCell>')
+        lines.append('\t\t\t</dcsat:item>')
+
+    lines.append('\t\t</template>')
+    if t.get('parameters'):
+        for tp in t['parameters']:
+            lines.append('\t\t<parameter xmlns:dcsat="http://v8.1c.ru/8.1/data-composition-system/area-template" xsi:type="dcsat:ExpressionAreaTemplateParameter">')
+            lines.append(f'\t\t\t<dcsat:name>{esc_xml(str(tp["name"]))}</dcsat:name>')
+            lines.append(f'\t\t\t<dcsat:expression>{esc_xml(str(tp["expression"]))}</dcsat:expression>')
+            lines.append('\t\t</parameter>')
+    lines.append('\t</template>')
+
+
 # === Templates ===
 
 def emit_templates(lines, defn):
     if not defn.get('templates'):
         return
     for t in defn['templates']:
-        lines.append('\t<template>')
-        lines.append(f'\t\t<name>{esc_xml(str(t["name"]))}</name>')
-        if t.get('template'):
-            lines.append(f'\t\t{t["template"]}')
-        if t.get('parameters'):
-            for tp in t['parameters']:
-                lines.append('\t\t<parameter xmlns:dcsat="http://v8.1c.ru/8.1/data-composition-system/area-template" xsi:type="dcsat:ExpressionAreaTemplateParameter">')
-                lines.append(f'\t\t\t<dcsat:name>{esc_xml(str(tp["name"]))}</dcsat:name>')
-                lines.append(f'\t\t\t<dcsat:expression>{esc_xml(str(tp["expression"]))}</dcsat:expression>')
-                lines.append('\t\t</parameter>')
-        lines.append('\t</template>')
+        if t.get('rows'):
+            _emit_area_template_dsl(lines, t)
+        else:
+            lines.append('\t<template>')
+            lines.append(f'\t\t<name>{esc_xml(str(t["name"]))}</name>')
+            if t.get('template'):
+                lines.append(f'\t\t{t["template"]}')
+            if t.get('parameters'):
+                for tp in t['parameters']:
+                    lines.append('\t\t<parameter xmlns:dcsat="http://v8.1c.ru/8.1/data-composition-system/area-template" xsi:type="dcsat:ExpressionAreaTemplateParameter">')
+                    lines.append(f'\t\t\t<dcsat:name>{esc_xml(str(tp["name"]))}</dcsat:name>')
+                    lines.append(f'\t\t\t<dcsat:expression>{esc_xml(str(tp["expression"]))}</dcsat:expression>')
+                    lines.append('\t\t</parameter>')
+            lines.append('\t</template>')
 
 
 # === GroupTemplates ===
@@ -1288,7 +1503,7 @@ def emit_settings_variants(lines, defn):
         lines.append('\t<settingsVariant>')
         lines.append(f'\t\t<dcsset:name>{esc_xml(str(v["name"]))}</dcsset:name>')
 
-        pres = str(v.get('presentation', '')) or str(v['name'])
+        pres = str(v.get('presentation', '')) or str(v.get('title', '')) or str(v['name'])
         lines.append('\t\t<dcsset:presentation xsi:type="v8:LocalStringType">')
         lines.append('\t\t\t<v8:item>')
         lines.append('\t\t\t\t<v8:lang>ru</v8:lang>')
@@ -1374,6 +1589,9 @@ def main():
     # Base directory for resolving @file references in query
     global query_base_dir
     query_base_dir = os.path.dirname(def_file) if args.DefinitionFile else os.getcwd()
+
+    # Load user style presets
+    load_user_styles(query_base_dir)
 
     # --- 2. Resolve defaults ---
 
