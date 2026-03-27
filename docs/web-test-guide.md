@@ -243,9 +243,9 @@ await closeForm({ save: false });
 | Функция | Описание | Возвращает |
 |---------|----------|------------|
 | `clickElement(text, {dblclick?})` | Клик по кнопке/ссылке/строке. `{dblclick: true}` для открытия из списка | form state или `{ submenu }` |
-| `fillFields({name: value})` | Заполнить поля (текст, чекбокс, радио, ссылки, DCS-фильтры) | `{ filled: [{field, ok, method}], form }` |
-| `selectValue(field, search, opts?)` | Выбрать из справочника. search: текст или `{поле: значение}`. `{ type }` для составного типа | form state с `selected` |
-| `fillTableRow(fields, {tab?, add?, row?})` | Заполнить строку. Значение: строка или `{ value, type }` для составного типа | form state |
+| `fillFields({name: value})` | Заполнить поля (текст, чекбокс, радио, ссылки, DCS-фильтры). Пустое значение (`''`/`null`) = очистка | `{ filled: [{field, ok, method}], form }` |
+| `selectValue(field, search, opts?)` | Выбрать из справочника. search: текст, `{поле: значение}` или `''`/`null` для очистки. `{ type }` для составного типа | form state с `selected` |
+| `fillTableRow(fields, {tab?, add?, row?})` | Заполнить строку. Значение: строка, `{ value, type }` для составного типа, `''`/`null` для очистки | form state |
 | `deleteTableRow(row, {tab?})` | Удалить строку по индексу | form state |
 | `closeForm({save?})` | Закрыть форму. `save: false` = "Нет", `save: true` = "Да". Возвращает `closed: true/false` | form state с `closed` |
 | `filterList(text, {field?, exact?})` | Фильтр списка. Без field = все колонки, с field = расширенный поиск | form state |
@@ -260,6 +260,7 @@ await closeForm({ save: false });
 | `'true'` / `'да'` | Чекбокс | toggle |
 | `'Оплата поставщику'` | Радио | fuzzy match по меткам |
 | `'Склад бытовой техники'` (DCS) | Фильтр отчёта | авто-включение чекбокса + заполнение |
+| `''` / `null` | Любое (кроме чекбокс/радио) | очистка через Shift+F4 |
 
 ### Утилиты
 
@@ -291,7 +292,7 @@ await closeForm({ save: false });
 | Клавиша | Контекст | Действие |
 |---------|----------|----------|
 | `F8` | Ссылочное поле | Создать новый элемент |
-| `Shift+F4` | Ссылочное поле | Очистить значение |
+| `Shift+F4` | Любое поле | Очистить значение (автоматизировано: `fillFields({ поле: '' })`) |
 | `F4` | Ссылочное поле | Форма выбора |
 | `Alt+F` | Список/таблица | Расширенный поиск |
 

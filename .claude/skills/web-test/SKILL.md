@@ -240,6 +240,7 @@ Fill form fields by label (fuzzy match). Auto-detects field type.
 | `'5000'` | Plain text | Clipboard paste |
 | `'true'` / `'да'` | Checkbox | Toggle |
 | `'Оплата поставщику'` | Radio | Fuzzy label match |
+| `''` / `null` | Any (except checkbox/radio) | Clear via Shift+F4 |
 
 **DCS report filters**: use human-readable label names. Checkbox is auto-enabled:
 ```js
@@ -250,10 +251,10 @@ await fillFields({
 ```
 
 Returns `{ filled: [{ field, ok, value, method }], form: {...} }`.
-Method is one of: `'toggle'` | `'radio'` | `'paste'` | `'dropdown'` | `'form'` | `'typeahead'`
+Method is one of: `'clear'` | `'toggle'` | `'radio'` | `'paste'` | `'dropdown'` | `'form'` | `'typeahead'`
 
 #### `selectValue(field, search, opts?)` → form state with `selected`
-Select a value from reference field via dropdown or selection form. More reliable than `fillFields` for reference fields that need exact selection from a catalog.
+Select a value from reference field via dropdown or selection form. More reliable than `fillFields` for reference fields that need exact selection from a catalog. Pass empty `search` (`''` or `null`) to clear the field (Shift+F4).
 
 `search` — string for simple search, or `{ field: value }` object for per-field advanced search:
 ```js
@@ -274,7 +275,7 @@ await selectValue('Документ', '0000-000601', { type: 'Реализаци
 Also supports DCS labels — auto-enables the paired checkbox.
 
 #### `fillTableRow(fields, opts)` → form state
-Fill table row cells via Tab navigation. Value is a plain string or `{ value, type }` for composite-type cells.
+Fill table row cells via Tab navigation. Value is a plain string, `{ value, type }` for composite-type cells, or `''`/`null` to clear (Shift+F4).
 
 | Option | Description |
 |--------|-------------|
@@ -435,7 +436,7 @@ Table matching accepts both technical name (`tables[].name`) and visual label (`
 | Key | Context | Action |
 |-----|---------|--------|
 | `F8` | Reference field focused | Create new catalog item |
-| `Shift+F4` | Reference field focused | Clear field value |
+| `Shift+F4` | Any input field focused | Clear field value (auto via `''`/`null` in fillFields/selectValue/fillTableRow) |
 | `F4` | Reference field focused | Open selection form |
 | `Alt+F` | List/table form | Open advanced search dialog |
 

@@ -1834,6 +1834,19 @@ export async function fillFields(fields) {
         await waitForStable();
       }
       const selector = `[id="${r.inputId}"]`;
+      // Clear field via Shift+F4 if value is empty (not applicable to checkbox/radio)
+      const rawValue = fields[r.field];
+      const isEmpty = rawValue === '' || rawValue === null || rawValue === undefined;
+      if (isEmpty && !r.isCheckbox && !r.isRadio) {
+        await page.click(selector);
+        await page.waitForTimeout(200);
+        await page.keyboard.press('Shift+F4');
+        await page.waitForTimeout(300);
+        await page.keyboard.press('Tab');
+        await waitForStable();
+        results.push({ field: r.field, ok: true, value: '', method: 'clear' });
+        continue;
+      }
       if (r.isCheckbox) {
         // Checkbox: compare desired with current, toggle if mismatch
         const desired = String(fields[r.field]).toLowerCase();
@@ -2314,6 +2327,27 @@ export async function selectValue(fieldName, searchText, { type } = {}) {
   if (highlightMode) try { await highlight(fieldName); await page.waitForTimeout(500); await unhighlight(); } catch {}
   try {
 
+  // === CLEAR FIELD if searchText is empty/null ===
+  if (!searchText && searchText !== 0) {
+    const inputId = await page.evaluate(`(() => {
+      const p = 'form${formNum}_';
+      const name = ${JSON.stringify(btn.fieldName)};
+      const el = document.querySelector('[id="' + p + name + '"], [id="' + p + name + '_i0"]');
+      return el ? el.id : null;
+    })()`);
+    if (inputId) {
+      await page.click(`[id="${inputId}"]`);
+      await page.waitForTimeout(200);
+      await page.keyboard.press('Shift+F4');
+      await page.waitForTimeout(300);
+      await page.keyboard.press('Tab');
+      await waitForStable();
+    }
+    if (highlightMode) try { await unhighlight(); } catch {}
+    const formData = await getFormState();
+    return { ...formData, selected: { field: fieldName, search: null, method: 'clear' } };
+  }
+
   // === COMPOSITE TYPE HANDLING ===
   // When `type` is specified, clear the field first to reset cached type,
   // then open type selection dialog, pick the type, then pick the value.
@@ -2781,7 +2815,9 @@ export async function fillTableRow(fields, { tab, add, row, table } = {}) {
 
     // Skip if cell already contains the desired value (single-field optimization)
     const firstKey0 = Object.keys(fields)[0];
-    const firstVal0 = typeof fields[firstKey0] === 'object' ? fields[firstKey0].value : String(fields[firstKey0]);
+    const rawFirstVal = fields[firstKey0];
+    const firstVal0 = rawFirstVal === null || rawFirstVal === undefined || rawFirstVal === ''
+      ? '' : (typeof rawFirstVal === 'object' ? rawFirstVal.value : String(rawFirstVal));
     let firstFieldSkipped = false;
     if (cellCoords.currentText && firstVal0 &&
         cellCoords.currentText.toLowerCase().includes(firstVal0.toLowerCase())) {
@@ -2794,6 +2830,57 @@ export async function fillTableRow(fields, { tab, add, row, table } = {}) {
     // Click first (tree grids enter edit on single click; dblclick toggles expand/collapse).
     // Then escalate: dblclick → F4 if needed.
     await page.mouse.click(cellCoords.x, cellCoords.y);
+
+    // Clear cell via Shift+F4 if value is empty
+    if (firstVal0 === '') {
+      await page.waitForTimeout(500);
+      // Check if click opened a selection form — close it first
+      let openedForm = await page.evaluate(`(() => {
+        const forms = {};
+        document.querySelectorAll('[id]').forEach(el => {
+          if (el.offsetWidth === 0 && el.offsetHeight === 0) return;
+          const m = el.id.match(/^form(\\d+)_/);
+          if (m) forms[m[1]] = true;
+        });
+        const nums = Object.keys(forms).map(Number).filter(n => n > ${formNum});
+        return nums.length > 0 ? Math.max(...nums) : null;
+      })()`);
+      if (openedForm !== null) {
+        await page.keyboard.press('Escape');
+        await page.waitForTimeout(500);
+      } else {
+        // No form opened — need to enter edit mode first (dblclick), then close any form that opens
+        await page.mouse.dblclick(cellCoords.x, cellCoords.y);
+        await page.waitForTimeout(500);
+        openedForm = await page.evaluate(`(() => {
+          const forms = {};
+          document.querySelectorAll('[id]').forEach(el => {
+            if (el.offsetWidth === 0 && el.offsetHeight === 0) return;
+            const m = el.id.match(/^form(\\d+)_/);
+            if (m) forms[m[1]] = true;
+          });
+          const nums = Object.keys(forms).map(Number).filter(n => n > ${formNum});
+          return nums.length > 0 ? Math.max(...nums) : null;
+        })()`);
+        if (openedForm !== null) {
+          await page.keyboard.press('Escape');
+          await page.waitForTimeout(500);
+        }
+      }
+      await page.keyboard.press('Shift+F4');
+      await page.waitForTimeout(300);
+      const results = [{ field: firstKey0, ok: true, method: 'clear', value: '' }];
+      // If more fields remain, process them on the same row
+      const remaining = { ...fields };
+      delete remaining[firstKey0];
+      if (Object.keys(remaining).length > 0) {
+        const more = await fillTableRow(remaining, { row, table });
+        if (Array.isArray(more)) results.push(...more);
+        else if (more?.filled) results.push(...more.filled);
+      }
+      const formData = await getFormState();
+      return { filled: results, form: formData };
+    }
 
     // Check if clicked cell is a checkbox (toggle-on-click, no edit mode)
     const checkboxInfo = await page.evaluate(`(() => {
@@ -3154,8 +3241,14 @@ export async function fillTableRow(fields, { tab, add, row, table } = {}) {
   // 4. Prepare pending fields for fuzzy matching
   const pending = new Map();
   for (const [key, val] of Object.entries(fields)) {
-    if (val && typeof val === 'object' && 'value' in val) {
-      pending.set(key, { value: String(val.value), type: val.type || null, filled: false });
+    if (val === null || val === undefined || val === '') {
+      pending.set(key, { value: '', type: null, filled: false });
+    } else if (val && typeof val === 'object' && 'value' in val) {
+      const innerVal = val.value;
+      pending.set(key, {
+        value: innerVal === null || innerVal === undefined || innerVal === '' ? '' : String(innerVal),
+        type: val.type || null, filled: false
+      });
     } else {
       pending.set(key, { value: String(val), type: null, filled: false });
     }
@@ -3267,6 +3360,18 @@ export async function fillTableRow(fields, { tab, add, row, table } = {}) {
 
     const info = pending.get(matchedKey);
     const text = info.value;
+
+    // Clear cell if value is empty (Shift+F4 = native 1C clear)
+    if (text === '') {
+      await page.keyboard.press('Shift+F4');
+      await page.waitForTimeout(300);
+      info.filled = true;
+      results.push({ field: matchedKey, cell: cell.fullName, ok: true, method: 'clear', value: '' });
+      if ([...pending.values()].every(p => p.filled)) break;
+      await page.keyboard.press('Tab');
+      await page.waitForTimeout(500);
+      continue;
+    }
 
     // If user specified a type, always clear and use type selection flow
     if (info.type) {
