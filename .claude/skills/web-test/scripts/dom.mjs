@@ -1,4 +1,4 @@
-// web-test dom v1.3 — DOM selectors and semantic mapping for 1C web client
+// web-test dom v1.4 — DOM selectors and semantic mapping for 1C web client
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 /**
  * DOM selectors and semantic mapping for 1C:Enterprise web client.
@@ -55,6 +55,8 @@ const READ_FORM_FN = `function readForm(p) {
   const formTabs = [];
   const texts = [];
   const hyperlinks = [];
+  // Normalize non-breaking spaces to regular spaces
+  const nbsp = s => (s || '').replace(/\\u00a0/g, ' ');
 
   // Fields (inputs)
   document.querySelectorAll('input.editInput[id^="' + p + '"]').forEach(el => {
@@ -62,7 +64,7 @@ const READ_FORM_FN = `function readForm(p) {
     const name = el.id.replace(p, '').replace(/_i\\d+$/, '');
     const titleEl = document.getElementById(p + name + '#title_text')
       || document.getElementById(p + name + '#title_div');
-    const label = (titleEl?.innerText?.trim() || '').replace(/\\n/g, ' ');
+    const label = nbsp((titleEl?.innerText?.trim() || '').replace(/\\n/g, ' '));
     const actions = [];
     if (document.getElementById(p + name + '_DLB')?.offsetWidth > 0) actions.push('select');
     if (document.getElementById(p + name + '_OB')?.offsetWidth > 0) actions.push('open');
@@ -85,7 +87,7 @@ const READ_FORM_FN = `function readForm(p) {
     const name = el.id.replace(p, '').replace(/_i\\d+$/, '');
     const titleEl = document.getElementById(p + name + '#title_text')
       || document.getElementById(p + name + '#title_div');
-    const label = (titleEl?.innerText?.trim() || '').replace(/\\n/g, ' ');
+    const label = nbsp((titleEl?.innerText?.trim() || '').replace(/\\n/g, ' '));
     const field = { name, value: el.value || '', type: 'textarea' };
     if (label && label !== name) field.label = label;
     if (el.readOnly) field.readonly = true;
@@ -100,7 +102,7 @@ const READ_FORM_FN = `function readForm(p) {
     if (el.offsetWidth === 0) return;
     const name = el.id.replace(p, '');
     const titleEl = document.getElementById(p + name + '#title_text');
-    const label = titleEl?.innerText?.trim() || '';
+    const label = nbsp(titleEl?.innerText?.trim() || '');
     const field = {
       name,
       value: el.classList.contains('checked') || el.classList.contains('checkboxOn') || el.classList.contains('select'),
@@ -121,13 +123,13 @@ const READ_FORM_FN = `function readForm(p) {
       const [, groupName, idx] = m;
       if (!radioGroups[groupName]) radioGroups[groupName] = [];
       const labelEl = document.getElementById(p + groupName + '#' + idx + '#radio_text');
-      const label = labelEl?.innerText?.trim() || 'option' + idx;
+      const label = nbsp(labelEl?.innerText?.trim() || 'option' + idx);
       radioGroups[groupName].push({ index: parseInt(idx), label, selected: el.classList.contains('select') });
     } else if (!id.includes('#')) {
       // Base element = option 0 (no #0#radio suffix)
       if (!radioGroups[id]) radioGroups[id] = [];
       const labelEl = document.getElementById(p + id + '#0#radio_text');
-      const label = labelEl?.innerText?.trim() || 'option0';
+      const label = nbsp(labelEl?.innerText?.trim() || 'option0');
       radioGroups[id].unshift({ index: 0, label, selected: el.classList.contains('select') });
     }
   });
@@ -151,18 +153,23 @@ const READ_FORM_FN = `function readForm(p) {
     const idName = el.id.replace(p, '');
     if (/_(?:DLB|CLR|OB|CB)$/.test(idName)) return;
     const span = el.querySelector('.submenuText') || el.querySelector('span');
-    const text = span?.textContent?.trim() || el.innerText?.trim() || '';
+    const text = nbsp(span?.textContent?.trim() || el.innerText?.trim() || '');
     if (!text && !el.classList.contains('pressCommand')) return;
     const btn = { name: text || idName };
     if (el.classList.contains('pressDefault')) btn.default = true;
     if (el.classList.contains('pressDisabled')) btn.disabled = true;
+    // Icon-only buttons: expose tooltip from DOM title attribute (1C puts title on parent .framePress)
+    if (!text) {
+      const tip = nbsp(el.title || el.parentElement?.title || '');
+      if (tip) btn.tooltip = tip;
+    }
     buttons.push(btn);
   });
 
   // Frame buttons
   document.querySelectorAll('[id^="' + p + '"].frameButton, [id^="' + p + '"] .frameButton').forEach(el => {
     if (el.offsetWidth === 0) return;
-    const text = el.innerText?.trim();
+    const text = nbsp(el.innerText?.trim() || '');
     const idName = el.id?.replace(p, '') || '';
     if (!text && !idName) return;
     buttons.push({ name: text || idName, frame: true });
@@ -682,7 +689,10 @@ export function findClickTargetScript(formNum, text, { tableName, gridSelector }
       const text = norm(span?.textContent) || norm(el.innerText);
       if (!text && !el.classList.contains('pressCommand')) return;
       const isSubmenu = /^(?:Подменю|allActions)/i.test(idName);
-      items.push({ id: el.id, name: text || idName, label: idName, kind: isSubmenu ? 'submenu' : 'button' });
+      const item = { id: el.id, name: text || idName, label: idName, kind: isSubmenu ? 'submenu' : 'button' };
+      // Icon-only buttons: use tooltip for fuzzy match (1C puts title on parent .framePress)
+      if (!text) { const tip = norm(el.title || el.parentElement?.title || ''); if (tip) item.tooltip = tip; }
+      items.push(item);
     });
 
     // Hyperlinks (staticTextHyper)
@@ -779,15 +789,17 @@ export function findClickTargetScript(formNum, text, { tableName, gridSelector }
       // Fall through to unscoped search
     }
 
-    // Fuzzy match: exact name -> exact label -> startsWith name -> startsWith label -> includes name -> includes label
+    // Fuzzy match: exact name -> exact label -> exact tooltip -> startsWith name -> startsWith label -> includes name -> includes label -> includes tooltip
     // Skip includes() for short strings (< 4 chars) to avoid false positives
     // e.g. "Да" matching "КомандаУстановитьВсе"
     let found = items.find(i => i.name.toLowerCase() === target);
     if (!found) found = items.find(i => i.label && i.label.toLowerCase() === target);
+    if (!found) found = items.find(i => i.tooltip && i.tooltip.toLowerCase() === target);
     if (!found) found = items.find(i => i.name.toLowerCase().startsWith(target));
     if (!found) found = items.find(i => i.label && i.label.toLowerCase().startsWith(target));
     if (!found && target.length >= 4) found = items.find(i => i.name.toLowerCase().includes(target));
     if (!found && target.length >= 4) found = items.find(i => i.label && i.label.toLowerCase().includes(target));
+    if (!found && target.length >= 4) found = items.find(i => i.tooltip && i.tooltip.toLowerCase().includes(target));
 
     if (found) {
       const res = { id: found.id, kind: found.kind, name: found.name };
@@ -831,7 +843,7 @@ export function findClickTargetScript(formNum, text, { tableName, gridSelector }
       }
     }
 
-    return { error: 'not_found', available: items.map(i => i.name).filter(Boolean) };
+    return { error: 'not_found', available: items.map(i => i.tooltip ? i.name + ' [' + i.tooltip + ']' : i.name).filter(Boolean) };
   })()`;
 }
 
