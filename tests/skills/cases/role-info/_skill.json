@@ -1,0 +1,11 @@
+{
+  "script": "role-info/scripts/role-info",
+  "setup": "empty-config",
+  "args": [
+    { "flag": "-RightsPath", "from": "workPath", "field": "rightsPath" }
+  ],
+  "snapshot": {
+    "root": "workDir",
+    "normalizeUuids": true
+  }
+}

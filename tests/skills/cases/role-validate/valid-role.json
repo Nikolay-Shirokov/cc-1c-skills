@@ -1,0 +1,16 @@
+{
+  "name": "Корректная роль проходит валидацию",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "Catalog", "name": "Товары" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    {
+      "script": "role-compile/scripts/role-compile",
+      "input": { "name": "Тест", "rights": [{ "object": "Catalog.Товары", "rights": ["Read"] }] },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    }
+  ],
+  "params": { "rightsPath": "Тест/Ext/Rights.xml" }
+}

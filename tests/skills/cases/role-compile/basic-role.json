@@ -1,0 +1,19 @@
+{
+  "name": "Роль с базовыми правами",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "Catalog", "name": "Товары" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    }
+  ],
+  "input": {
+    "name": "Кладовщик",
+    "rights": [
+      { "object": "Catalog.Товары", "rights": ["Read", "View"] }
+    ]
+  },
+  "expect": {
+    "files": ["Кладовщик.xml", "Кладовщик/Ext/Rights.xml"]
+  }
+}

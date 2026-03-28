@@ -1,0 +1,12 @@
+{
+  "script": "subsystem-compile/scripts/subsystem-compile",
+  "setup": "empty-config",
+  "args": [
+    { "flag": "-DefinitionFile", "from": "inputFile" },
+    { "flag": "-OutputDir", "from": "workDir" }
+  ],
+  "snapshot": {
+    "root": "workDir",
+    "normalizeUuids": true
+  }
+}

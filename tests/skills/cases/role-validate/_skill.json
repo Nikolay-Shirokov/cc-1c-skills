@@ -1,0 +1,11 @@
+{
+  "script": "role-validate/scripts/role-validate",
+  "setup": "empty-config",
+  "args": [
+    { "flag": "-RightsPath", "from": "workPath", "field": "rightsPath" }
+  ],
+  "snapshot": {
+    "root": "workDir",
+    "normalizeUuids": true
+  }
+}

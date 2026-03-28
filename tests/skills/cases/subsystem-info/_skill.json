@@ -1,0 +1,11 @@
+{
+  "script": "subsystem-info/scripts/subsystem-info",
+  "setup": "empty-config",
+  "args": [
+    { "flag": "-SubsystemPath", "from": "workPath", "field": "subsystemPath" }
+  ],
+  "snapshot": {
+    "root": "workDir",
+    "normalizeUuids": true
+  }
+}
