@@ -1,0 +1,18 @@
+{
+  "name": "Корректный регистр сведений проходит валидацию",
+  "setup": "empty-config",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "InformationRegister",
+        "name": "КурсыВалют",
+        "periodicity": "Day",
+        "dimensions": ["Валюта: CatalogRef.Валюты"],
+        "resources": ["Курс: Number(15,4)"]
+      },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    }
+  ],
+  "params": { "objectPath": "InformationRegisters/КурсыВалют" }
+}

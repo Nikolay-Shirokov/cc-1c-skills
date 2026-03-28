@@ -1,0 +1,6 @@
+{
+  "name": "Ошибка валидации: неверный корневой элемент CI",
+  "setup": "fixture:bad-root",
+  "params": { "ciPath": "Subsystems/Test/Ext/CommandInterface.xml" },
+  "expectError": true
+}

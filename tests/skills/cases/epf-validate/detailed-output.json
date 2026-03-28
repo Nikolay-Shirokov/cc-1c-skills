@@ -1,0 +1,12 @@
+{
+  "name": "Подробный вывод валидации",
+  "preRun": [
+    {
+      "script": "epf-init/scripts/init",
+      "args": { "-Name": "Тест", "-SrcDir": "{workDir}" }
+    }
+  ],
+  "params": { "objectPath": "Тест.xml" },
+  "args_extra": ["-Detailed"],
+  "expect": { "stdoutContains": "[OK]" }
+}

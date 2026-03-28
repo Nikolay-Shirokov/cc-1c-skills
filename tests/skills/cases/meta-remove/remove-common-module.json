@@ -1,0 +1,12 @@
+{
+  "name": "Удаление общего модуля",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "CommonModule", "name": "УстаревшийМодуль", "context": "server" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    }
+  ],
+  "params": { "object": "CommonModule.УстаревшийМодуль" },
+  "args_extra": ["-Force"]
+}

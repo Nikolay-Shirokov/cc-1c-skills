@@ -1,0 +1,21 @@
+{
+  "name": "Комбинированные операции: добавить + удалить",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "Catalog",
+        "name": "Товары",
+        "attributes": ["Артикул: String(25)", "Устаревший: String(10)"]
+      },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    }
+  ],
+  "params": { "objectPath": "Catalogs/Товары" },
+  "input": {
+    "operations": [
+      { "op": "add-attribute", "name": "Производитель", "type": "String", "length": 100 },
+      { "op": "remove-attribute", "name": "Устаревший" }
+    ]
+  }
+}

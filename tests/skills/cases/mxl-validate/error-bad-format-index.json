@@ -1,0 +1,6 @@
+{
+  "name": "Ошибка: индекс формата ячейки за пределами палитры",
+  "setup": "fixture:bad-format-index",
+  "params": { "templatePath": "Template.xml" },
+  "expectError": true
+}

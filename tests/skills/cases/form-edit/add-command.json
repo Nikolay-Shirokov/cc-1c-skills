@@ -1,0 +1,31 @@
+{
+  "name": "Добавление команды",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "DataProcessor", "name": "КомандыТест" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    {
+      "script": "form-add/scripts/form-add",
+      "args": { "-ObjectPath": "{workDir}/DataProcessors/КомандыТест.xml", "-FormName": "Форма" }
+    },
+    {
+      "script": "form-compile/scripts/form-compile",
+      "input": {
+        "title": "Команды",
+        "attributes": [{ "name": "Объект", "type": "ExternalDataProcessorObject.КомандыТест", "main": true }]
+      },
+      "args": { "-JsonPath": "{inputFile}", "-OutputPath": "{workDir}/DataProcessors/КомандыТест/Forms/Форма/Ext/Form.xml" }
+    }
+  ],
+  "params": { "formPath": "DataProcessors/КомандыТест/Forms/Форма/Ext/Form.xml" },
+  "input": {
+    "elements": [
+      { "button": "Выполнить", "command": "Выполнить", "defaultButton": true }
+    ],
+    "commands": [
+      { "name": "Выполнить", "action": "ВыполнитьОбработка" }
+    ]
+  }
+}

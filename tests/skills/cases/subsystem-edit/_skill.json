@@ -1,0 +1,13 @@
+{
+  "script": "subsystem-edit/scripts/subsystem-edit",
+  "setup": "empty-config",
+  "args": [
+    { "flag": "-SubsystemPath", "from": "workPath", "field": "subsystemPath" },
+    { "flag": "-DefinitionFile", "from": "inputFile" },
+    { "flag": "-NoValidate", "from": "switch" }
+  ],
+  "snapshot": {
+    "root": "workDir",
+    "normalizeUuids": true
+  }
+}

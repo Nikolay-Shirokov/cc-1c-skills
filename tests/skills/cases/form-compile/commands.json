@@ -1,0 +1,32 @@
+{
+  "name": "Форма с командами и кнопками",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "DataProcessor", "name": "Команды" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    {
+      "script": "form-add/scripts/form-add",
+      "args": { "-ObjectPath": "{workDir}/DataProcessors/Команды.xml", "-FormName": "Форма" }
+    }
+  ],
+  "params": { "outputPath": "DataProcessors/Команды/Forms/Форма/Ext/Form.xml" },
+  "input": {
+    "title": "Форма с командами",
+    "elements": [
+      { "cmdBar": "Панель", "children": [
+        { "button": "Выполнить", "command": "Выполнить", "defaultButton": true },
+        { "button": "Закрыть", "stdCommand": "Close" }
+      ]},
+      { "input": "Результат", "path": "Результат", "multiLine": true, "height": 8, "readOnly": true }
+    ],
+    "attributes": [
+      { "name": "Объект", "type": "ExternalDataProcessorObject.Команды", "main": true },
+      { "name": "Результат", "type": "string" }
+    ],
+    "commands": [
+      { "name": "Выполнить", "action": "ВыполнитьОбработка", "shortcut": "Ctrl+Enter" }
+    ]
+  }
+}

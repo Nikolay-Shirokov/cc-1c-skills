@@ -1,0 +1,7 @@
+{
+  "name": "Минимальная конфигурация (только имя)",
+  "params": { "name": "МинКонф" },
+  "expect": {
+    "files": ["Configuration.xml", "Languages/Русский.xml"]
+  }
+}

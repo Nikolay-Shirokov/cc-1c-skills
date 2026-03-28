@@ -1,0 +1,6 @@
+{
+  "name": "Предупреждение: нет набора данных",
+  "setup": "fixture:no-dataset",
+  "params": { "templatePath": "Template.xml" },
+  "expect": { "stdoutContains": "WARN" }
+}

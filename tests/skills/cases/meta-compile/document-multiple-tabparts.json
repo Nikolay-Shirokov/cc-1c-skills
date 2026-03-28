@@ -1,0 +1,29 @@
+{
+  "name": "Документ с несколькими ТЧ и реквизитами",
+  "input": {
+    "type": "Document",
+    "name": "РеализацияТоваров",
+    "registerRecords": ["AccumulationRegister.Продажи"],
+    "attributes": [
+      "Организация: CatalogRef.Организации",
+      "Контрагент: CatalogRef.Контрагенты",
+      "Склад: CatalogRef.Склады",
+      "Валюта: CatalogRef.Валюты"
+    ],
+    "tabularSections": {
+      "Товары": [
+        "Номенклатура: CatalogRef.Номенклатура",
+        "Количество: Number(15,3)",
+        "Цена: Number(15,2)",
+        "Сумма: Number(15,2)"
+      ],
+      "Услуги": [
+        "Номенклатура: CatalogRef.Номенклатура",
+        "Сумма: Number(15,2)"
+      ]
+    }
+  },
+  "expect": {
+    "files": ["Documents/РеализацияТоваров.xml"]
+  }
+}

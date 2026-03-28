@@ -1,0 +1,53 @@
+{
+  "name": "Roundtrip — макет с несколькими областями и параметрами",
+  "preRun": [
+    {
+      "script": "mxl-compile/scripts/mxl-compile",
+      "input": {
+        "columns": 4,
+        "defaultWidth": 30,
+        "fonts": {
+          "default": { "face": "Arial", "size": 10 },
+          "bold": { "face": "Arial", "size": 10, "bold": true }
+        },
+        "styles": {
+          "bordered": { "border": "all" },
+          "bordered-right": { "border": "all", "align": "right" },
+          "total": { "font": "bold", "border": "top", "align": "right" }
+        },
+        "areas": [
+          {
+            "name": "Заголовок",
+            "rows": [
+              { "height": 20, "cells": [{ "col": 1, "span": 4, "param": "Заголовок" }] }
+            ]
+          },
+          {
+            "name": "Строка",
+            "rows": [
+              { "rowStyle": "bordered", "cells": [
+                { "col": 1, "param": "Номер" },
+                { "col": 2, "param": "Товар" },
+                { "col": 3, "style": "bordered-right", "param": "Количество" },
+                { "col": 4, "style": "bordered-right", "param": "Сумма" }
+              ]}
+            ]
+          },
+          {
+            "name": "Итого",
+            "rows": [
+              { "cells": [
+                { "col": 3, "style": "total", "text": "Итого:" },
+                { "col": 4, "style": "total", "param": "Всего" }
+              ]}
+            ]
+          }
+        ]
+      },
+      "args": { "-JsonPath": "{inputFile}", "-OutputPath": "Template.xml" },
+      "cwd": "{workDir}"
+    }
+  ],
+  "params": { "templatePath": "Template.xml" },
+  "expect": { "stdoutContains": "areas" }
+}

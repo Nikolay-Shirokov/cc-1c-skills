@@ -1,0 +1,6 @@
+{
+  "name": "Ошибка валидации: неверный корневой элемент роли",
+  "setup": "fixture:bad-root",
+  "params": { "rightsPath": "BadRole/Ext/Rights.xml" },
+  "expectError": true
+}

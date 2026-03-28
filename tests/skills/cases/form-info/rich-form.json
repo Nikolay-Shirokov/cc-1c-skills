@@ -1,0 +1,46 @@
+{
+  "name": "Форма с элементами, реквизитами и командами",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "DataProcessor", "name": "Инфо" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    {
+      "script": "form-add/scripts/form-add",
+      "args": { "-ObjectPath": "{workDir}/DataProcessors/Инфо.xml", "-FormName": "Форма" }
+    },
+    {
+      "script": "form-compile/scripts/form-compile",
+      "input": {
+        "title": "Подробная форма",
+        "events": { "OnCreateAtServer": "ПриСозданииНаСервере" },
+        "elements": [
+          { "group": "horizontal", "name": "Шапка", "showTitle": true, "title": "Шапка", "children": [
+            { "input": "Организация", "path": "Организация", "on": ["OnChange"] },
+            { "input": "Период", "path": "Период" }
+          ]},
+          { "table": "Данные", "path": "Данные", "columns": [
+            { "input": "Наименование", "path": "Данные.Наименование" },
+            { "input": "Сумма", "path": "Данные.Сумма" }
+          ]},
+          { "button": "Выполнить", "command": "Выполнить" }
+        ],
+        "attributes": [
+          { "name": "Объект", "type": "ExternalDataProcessorObject.Инфо", "main": true },
+          { "name": "Организация", "type": "string" },
+          { "name": "Период", "type": "date" },
+          { "name": "Данные", "type": "ValueTable", "columns": [
+            { "name": "Наименование", "type": "string(150)" },
+            { "name": "Сумма", "type": "decimal(15,2)" }
+          ]}
+        ],
+        "commands": [
+          { "name": "Выполнить", "action": "ВыполнитьОбработка" }
+        ]
+      },
+      "args": { "-JsonPath": "{inputFile}", "-OutputPath": "{workDir}/DataProcessors/Инфо/Forms/Форма/Ext/Form.xml" }
+    }
+  ],
+  "params": { "formPath": "DataProcessors/Инфо/Forms/Форма/Ext/Form.xml" }
+}

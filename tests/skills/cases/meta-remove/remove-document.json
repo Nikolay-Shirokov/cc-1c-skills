@@ -1,0 +1,12 @@
+{
+  "name": "Удаление документа",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "Document", "name": "СтарыйДокумент" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    }
+  ],
+  "params": { "object": "Document.СтарыйДокумент" },
+  "args_extra": ["-Force"]
+}

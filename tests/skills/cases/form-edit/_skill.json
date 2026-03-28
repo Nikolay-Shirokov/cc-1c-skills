@@ -1,0 +1,12 @@
+{
+  "script": "form-edit/scripts/form-edit",
+  "setup": "empty-config",
+  "args": [
+    { "flag": "-FormPath", "from": "workPath", "field": "formPath" },
+    { "flag": "-JsonPath", "from": "inputFile" }
+  ],
+  "snapshot": {
+    "root": "workDir",
+    "normalizeUuids": true
+  }
+}

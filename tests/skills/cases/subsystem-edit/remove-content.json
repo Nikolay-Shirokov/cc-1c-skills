@@ -1,0 +1,24 @@
+{
+  "name": "Удаление объекта из состава подсистемы",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "Catalog", "name": "Товары" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "Document", "name": "Заказ" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    {
+      "script": "subsystem-compile/scripts/subsystem-compile",
+      "input": { "name": "Склад", "content": ["Catalog.Товары", "Document.Заказ"] },
+      "args": { "-DefinitionFile": "{inputFile}", "-OutputDir": "{workDir}" }
+    }
+  ],
+  "params": { "subsystemPath": "Subsystems/Склад.xml" },
+  "input": [
+    { "operation": "remove-content", "value": "Document.Заказ" }
+  ]
+}

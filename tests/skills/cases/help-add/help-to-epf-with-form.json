@@ -1,0 +1,14 @@
+{
+  "name": "Справка к обработке с формой (проверка IncludeHelpInContents)",
+  "preRun": [
+    {
+      "script": "epf-init/scripts/init",
+      "args": { "-Name": "ОбработкаСФормой", "-SrcDir": "{workDir}" }
+    },
+    {
+      "script": "epf-add-form/scripts/add-form",
+      "args": { "-ProcessorName": "ОбработкаСФормой", "-FormName": "Форма", "-SrcDir": "{workDir}" }
+    }
+  ],
+  "params": { "objectName": "ОбработкаСФормой" }
+}

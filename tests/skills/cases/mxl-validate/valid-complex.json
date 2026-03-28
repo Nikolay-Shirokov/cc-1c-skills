@@ -1,0 +1,55 @@
+{
+  "name": "Валидация корректного макета с областями и объединениями",
+  "preRun": [
+    {
+      "script": "mxl-compile/scripts/mxl-compile",
+      "input": {
+        "columns": 4,
+        "fonts": {
+          "default": { "face": "Arial", "size": 10 },
+          "bold": { "face": "Arial", "size": 10, "bold": true }
+        },
+        "styles": {
+          "bordered": { "border": "all" },
+          "header": { "font": "bold", "border": "all", "align": "center" }
+        },
+        "areas": [
+          {
+            "name": "Заголовок",
+            "rows": [
+              { "cells": [{ "col": 1, "span": 4, "style": "header", "param": "Заголовок" }] }
+            ]
+          },
+          {
+            "name": "ШапкаТаблицы",
+            "rows": [
+              { "rowStyle": "header", "cells": [
+                { "col": 1, "rowspan": 2, "text": "№" },
+                { "col": 2, "span": 2, "text": "Товар" },
+                { "col": 4, "rowspan": 2, "text": "Сумма" }
+              ]},
+              { "rowStyle": "bordered", "cells": [
+                { "col": 2, "text": "Имя" },
+                { "col": 3, "text": "Код" }
+              ]}
+            ]
+          },
+          {
+            "name": "Строка",
+            "rows": [
+              { "rowStyle": "bordered", "cells": [
+                { "col": 1, "param": "Номер" },
+                { "col": 2, "param": "Имя" },
+                { "col": 3, "param": "Код" },
+                { "col": 4, "param": "Сумма" }
+              ]}
+            ]
+          }
+        ]
+      },
+      "args": { "-JsonPath": "{inputFile}", "-OutputPath": "Template.xml" },
+      "cwd": "{workDir}"
+    }
+  ],
+  "params": { "templatePath": "Template.xml" }
+}

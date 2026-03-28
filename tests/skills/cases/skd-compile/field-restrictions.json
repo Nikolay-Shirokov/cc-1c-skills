@@ -1,0 +1,20 @@
+{
+  "name": "Поля с ограничениями и ролями",
+  "params": { "outputPath": "Template.xml" },
+  "input": {
+    "dataSets": [{
+      "name": "Основной",
+      "query": "ВЫБРАТЬ Т.Организация, Т.Период, Т.Счет, Т.Количество ИЗ Регистр КАК Т",
+      "fields": [
+        "Организация: CatalogRef.Организации @dimension",
+        "Период: date @period",
+        "Счет: CatalogRef.Счета @account",
+        "Количество: decimal(15,3) @balance",
+        "Служебное: string #noFilter #noOrder #noField"
+      ]
+    }]
+  },
+  "expect": {
+    "files": ["Template.xml"]
+  }
+}

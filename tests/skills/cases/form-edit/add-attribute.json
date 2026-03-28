@@ -1,0 +1,29 @@
+{
+  "name": "Добавление реквизита",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "DataProcessor", "name": "Реквизиты" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    {
+      "script": "form-add/scripts/form-add",
+      "args": { "-ObjectPath": "{workDir}/DataProcessors/Реквизиты.xml", "-FormName": "Форма" }
+    },
+    {
+      "script": "form-compile/scripts/form-compile",
+      "input": {
+        "title": "Реквизиты",
+        "attributes": [{ "name": "Объект", "type": "ExternalDataProcessorObject.Реквизиты", "main": true }]
+      },
+      "args": { "-JsonPath": "{inputFile}", "-OutputPath": "{workDir}/DataProcessors/Реквизиты/Forms/Форма/Ext/Form.xml" }
+    }
+  ],
+  "params": { "formPath": "DataProcessors/Реквизиты/Forms/Форма/Ext/Form.xml" },
+  "input": {
+    "attributes": [
+      { "name": "СуммаИтого", "type": "decimal(15,2)" },
+      { "name": "ДатаНачала", "type": "date" }
+    ]
+  }
+}

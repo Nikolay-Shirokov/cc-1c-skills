@@ -1,0 +1,9 @@
+{
+  "name": "Конфигурация с синонимом",
+  "params": { "name": "ТестСиноним" },
+  "args_extra": ["-Synonym", "Тестовый синоним конфигурации"],
+  "expect": {
+    "files": ["Configuration.xml", "Languages/Русский.xml"],
+    "stdoutContains": "ТестСиноним"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "name": "Добавление формы к документу",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "Document", "name": "Заказ" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    }
+  ],
+  "params": { "objectPath": "Documents/Заказ.xml", "formName": "ФормаДокумента" }
+}

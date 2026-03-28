@@ -1,0 +1,15 @@
+{
+  "name": "DryRun — показать что будет удалено",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "Catalog", "name": "Тест" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    }
+  ],
+  "params": { "object": "Catalog.Тест" },
+  "args_extra": ["-DryRun", "-Force"],
+  "expect": {
+    "stdoutContains": "FOUND"
+  }
+}

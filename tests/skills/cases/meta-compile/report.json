@@ -1,0 +1,10 @@
+{
+  "name": "Отчёт без реквизитов",
+  "input": {
+    "type": "Report",
+    "name": "ОстаткиТоваров"
+  },
+  "expect": {
+    "files": ["Reports/ОстаткиТоваров.xml", "Reports/ОстаткиТоваров/Ext/ObjectModule.bsl"]
+  }
+}

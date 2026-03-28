@@ -6,6 +6,6 @@
   ],
   "snapshot": {
     "root": "workDir",
-    "normalizeUuids": false
+    "normalizeUuids": true
   }
 }

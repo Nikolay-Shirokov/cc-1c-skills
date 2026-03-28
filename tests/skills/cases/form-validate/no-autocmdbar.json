@@ -1,0 +1,6 @@
+{
+  "name": "Ошибка: отсутствует AutoCommandBar",
+  "setup": "fixture:broken-no-autocmdbar",
+  "params": { "formPath": "DataProcessors/Bad/Forms/Форма" },
+  "expectError": true
+}

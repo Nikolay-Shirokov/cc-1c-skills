@@ -1,0 +1,20 @@
+{
+  "name": "Роль с пресетом @edit",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "Document", "name": "РеализацияТоваров" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    }
+  ],
+  "input": {
+    "name": "РедакторДокументов",
+    "synonym": "Редактор документов",
+    "objects": [
+      "Document.РеализацияТоваров: @edit"
+    ]
+  },
+  "expect": {
+    "files": ["РедакторДокументов.xml", "РедакторДокументов/Ext/Rights.xml"]
+  }
+}

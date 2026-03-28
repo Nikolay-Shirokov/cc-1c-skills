@@ -1,0 +1,15 @@
+{
+  "name": "Обзор перечисления",
+  "setup": "empty-config",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "Enum", "name": "Статусы", "values": ["Новый", "ВРаботе", "Закрыт"] },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    }
+  ],
+  "params": { "objectPath": "Enums/Статусы" },
+  "expect": {
+    "stdoutContains": "Статусы"
+  }
+}

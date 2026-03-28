@@ -1,0 +1,20 @@
+{
+  "name": "Роль с явными правами (без пресета)",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "InformationRegister", "name": "Цены" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    }
+  ],
+  "input": {
+    "name": "ПравоЦен",
+    "synonym": "Право на цены",
+    "objects": [
+      "InformationRegister.Цены: Read, Update"
+    ]
+  },
+  "expect": {
+    "files": ["ПравоЦен.xml", "ПравоЦен/Ext/Rights.xml"]
+  }
+}

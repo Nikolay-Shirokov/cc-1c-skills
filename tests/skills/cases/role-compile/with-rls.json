@@ -1,0 +1,29 @@
+{
+  "name": "Роль с RLS ограничениями",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "Catalog", "name": "Организации" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "Document", "name": "РеализацияТоваровУслуг" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    }
+  ],
+  "input": {
+    "name": "ЧтениеДокументовПоОрганизации",
+    "synonym": "Чтение документов (ограничение по организации)",
+    "objects": [
+      "Catalog.Организации: @view",
+      { "name": "Document.РеализацияТоваровУслуг", "preset": "view", "rls": { "Read": "#ДляОбъекта(\"\")" } }
+    ],
+    "templates": [
+      { "name": "ДляОбъекта(Модификатор)", "condition": "ГДЕ Организация = &ТекущаяОрганизация" }
+    ]
+  },
+  "expect": {
+    "files": ["ЧтениеДокументовПоОрганизации.xml", "ЧтениеДокументовПоОрганизации/Ext/Rights.xml"]
+  }
+}

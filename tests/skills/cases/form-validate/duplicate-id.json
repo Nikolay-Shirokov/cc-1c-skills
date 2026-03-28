@@ -1,0 +1,6 @@
+{
+  "name": "Ошибка: дублирующиеся ID элементов",
+  "setup": "fixture:broken-duplicate-id",
+  "params": { "formPath": "DataProcessors/Bad/Forms/Форма" },
+  "expectError": true
+}

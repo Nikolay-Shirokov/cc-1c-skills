@@ -1,0 +1,20 @@
+{
+  "name": "Добавление реквизита к табличной части",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "Document",
+        "name": "Заказ",
+        "tabularSections": { "Товары": ["Номенклатура: CatalogRef.Номенклатура", "Количество: Number(15,3)"] }
+      },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    }
+  ],
+  "params": { "objectPath": "Documents/Заказ" },
+  "input": {
+    "operations": [
+      { "op": "add-ts-attribute", "ts": "Товары", "name": "Цена", "type": "Number", "length": 15, "precision": 2 }
+    ]
+  }
+}

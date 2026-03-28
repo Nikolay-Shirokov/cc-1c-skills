@@ -1,0 +1,14 @@
+{
+  "name": "Добавление второй формы к обработке с существующей формой",
+  "preRun": [
+    {
+      "script": "epf-init/scripts/init",
+      "args": { "-Name": "МояОбработка", "-SrcDir": "{workDir}" }
+    },
+    {
+      "script": "epf-add-form/scripts/add-form",
+      "args": { "-ProcessorName": "МояОбработка", "-FormName": "Форма", "-SrcDir": "{workDir}" }
+    }
+  ],
+  "params": { "processorName": "МояОбработка", "formName": "ФормаНастроек" }
+}

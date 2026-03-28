@@ -1,0 +1,29 @@
+{
+  "name": "Обзор СКД с параметрами и полями",
+  "preRun": [
+    {
+      "script": "skd-compile/scripts/skd-compile",
+      "input": {
+        "dataSets": [{
+          "name": "Основной",
+          "query": "ВЫБРАТЬ Т.Номенклатура, Т.Количество, Т.Сумма ИЗ Регистр КАК Т",
+          "fields": ["Номенклатура: CatalogRef.Номенклатура @dimension", "Количество: decimal(15,3)", "Сумма: decimal(15,2)"]
+        }],
+        "totalFields": ["Количество: Сумма", "Сумма: Сумма"],
+        "parameters": ["Период: StandardPeriod = LastMonth @autoDates"],
+        "settingsVariants": [{
+          "name": "Основной",
+          "settings": {
+            "selection": ["Номенклатура", "Количество", "Сумма", "Auto"],
+            "filter": ["Организация = _ @off @user"],
+            "dataParameters": ["Период = LastMonth @user"],
+            "structure": "Организация > details"
+          }
+        }]
+      },
+      "args": { "-DefinitionFile": "{inputFile}", "-OutputPath": "{workDir}/Template.xml" }
+    }
+  ],
+  "params": { "templatePath": "Template.xml" },
+  "expect": { "stdoutContains": "Основной" }
+}

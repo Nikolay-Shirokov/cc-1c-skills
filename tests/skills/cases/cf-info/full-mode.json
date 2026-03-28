@@ -1,0 +1,5 @@
+{
+  "name": "Полный режим (full)",
+  "args_extra": ["-Mode", "full"],
+  "expect": { "stdoutContains": "TestConfig" }
+}

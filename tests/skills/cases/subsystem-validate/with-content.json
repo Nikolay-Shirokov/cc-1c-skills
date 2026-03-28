@@ -1,0 +1,16 @@
+{
+  "name": "Валидация подсистемы с контентом",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "Catalog", "name": "Товары" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    {
+      "script": "subsystem-compile/scripts/subsystem-compile",
+      "input": { "name": "Продажи", "content": ["Catalog.Товары"] },
+      "args": { "-DefinitionFile": "{inputFile}", "-OutputDir": "{workDir}" }
+    }
+  ],
+  "params": { "subsystemPath": "Subsystems/Продажи.xml" }
+}

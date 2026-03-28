@@ -1,0 +1,12 @@
+{
+  "name": "Подсистема с дочерними подсистемами",
+  "preRun": [
+    {
+      "script": "subsystem-compile/scripts/subsystem-compile",
+      "input": { "name": "Администрирование", "children": ["Настройки", "Пользователи"] },
+      "args": { "-DefinitionFile": "{inputFile}", "-OutputDir": "{workDir}" }
+    }
+  ],
+  "params": { "subsystemPath": "Subsystems/Администрирование.xml" },
+  "expect": { "stdoutContains": "Администрирование" }
+}

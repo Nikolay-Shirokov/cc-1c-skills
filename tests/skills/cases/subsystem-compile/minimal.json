@@ -1,0 +1,9 @@
+{
+  "name": "Минимальная подсистема (только name)",
+  "input": {
+    "name": "Тест"
+  },
+  "expect": {
+    "files": ["Subsystems/Тест.xml"]
+  }
+}

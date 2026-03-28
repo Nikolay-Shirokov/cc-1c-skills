@@ -1,0 +1,12 @@
+{
+  "name": "Добавление формы списка к справочнику",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "Catalog", "name": "Контрагенты" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    }
+  ],
+  "params": { "objectPath": "Catalogs/Контрагенты.xml", "formName": "ФормаСписка" },
+  "args_extra": ["-Purpose", "List"]
+}

@@ -1,0 +1,12 @@
+{
+  "name": "Корректный общий модуль проходит валидацию",
+  "setup": "empty-config",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "CommonModule", "name": "ОбщиеФункции", "context": "server" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    }
+  ],
+  "params": { "objectPath": "CommonModules/ОбщиеФункции" }
+}

@@ -1,0 +1,24 @@
+{
+  "name": "Полный пример из SKILL.md — ресурсы, параметры, структура",
+  "params": { "outputPath": "Template.xml" },
+  "input": {
+    "dataSets": [{
+      "query": "ВЫБРАТЬ Продажи.Номенклатура, Продажи.Количество, Продажи.Сумма ИЗ РегистрНакопления.Продажи КАК Продажи",
+      "fields": ["Номенклатура: СправочникСсылка.Номенклатура @dimension", "Количество: число(15,3)", "Сумма: число(15,2)"]
+    }],
+    "totalFields": ["Количество: Сумма", "Сумма: Сумма"],
+    "parameters": ["Период: СтандартныйПериод = LastMonth @autoDates"],
+    "settingsVariants": [{
+      "name": "Основной",
+      "settings": {
+        "selection": ["Номенклатура", "Количество", "Сумма", "Auto"],
+        "filter": ["Организация = _ @off @user"],
+        "dataParameters": ["Период = LastMonth @user"],
+        "structure": "Организация > details"
+      }
+    }]
+  },
+  "expect": {
+    "files": ["Template.xml"]
+  }
+}

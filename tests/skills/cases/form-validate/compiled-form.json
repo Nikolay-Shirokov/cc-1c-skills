@@ -1,0 +1,39 @@
+{
+  "name": "Скомпилированная форма с элементами проходит валидацию",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "DataProcessor", "name": "Валидация" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    {
+      "script": "form-add/scripts/form-add",
+      "args": { "-ObjectPath": "{workDir}/DataProcessors/Валидация.xml", "-FormName": "Форма" }
+    },
+    {
+      "script": "form-compile/scripts/form-compile",
+      "input": {
+        "title": "Валидация",
+        "elements": [
+          { "input": "Поле1", "path": "Поле1" },
+          { "check": "Флаг", "path": "Флаг" },
+          { "group": "horizontal", "name": "Группа", "children": [
+            { "input": "Поле2", "path": "Поле2" }
+          ]},
+          { "button": "Выполнить", "command": "Выполнить" }
+        ],
+        "attributes": [
+          { "name": "Объект", "type": "ExternalDataProcessorObject.Валидация", "main": true },
+          { "name": "Поле1", "type": "string" },
+          { "name": "Поле2", "type": "decimal(15,2)" },
+          { "name": "Флаг", "type": "boolean" }
+        ],
+        "commands": [
+          { "name": "Выполнить", "action": "ВыполнитьОбработка" }
+        ]
+      },
+      "args": { "-JsonPath": "{inputFile}", "-OutputPath": "{workDir}/DataProcessors/Валидация/Forms/Форма/Ext/Form.xml" }
+    }
+  ],
+  "params": { "formPath": "DataProcessors/Валидация/Forms/Форма" }
+}

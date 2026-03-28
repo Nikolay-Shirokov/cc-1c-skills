@@ -1,0 +1,14 @@
+{
+  "name": "Добавление дочерней подсистемы",
+  "preRun": [
+    {
+      "script": "subsystem-compile/scripts/subsystem-compile",
+      "input": { "name": "Продажи" },
+      "args": { "-DefinitionFile": "{inputFile}", "-OutputDir": "{workDir}" }
+    }
+  ],
+  "params": { "subsystemPath": "Subsystems/Продажи.xml" },
+  "input": [
+    { "operation": "add-child", "value": "Настройки" }
+  ]
+}

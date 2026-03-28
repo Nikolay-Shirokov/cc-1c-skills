@@ -1,0 +1,11 @@
+{
+  "name": "Общий модуль серверный",
+  "input": {
+    "type": "CommonModule",
+    "name": "ОбщиеФункции",
+    "context": "server"
+  },
+  "expect": {
+    "files": ["CommonModules/ОбщиеФункции.xml", "CommonModules/ОбщиеФункции/Ext/Module.bsl"]
+  }
+}

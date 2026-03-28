@@ -1,0 +1,31 @@
+{
+  "name": "Форма с реквизитами разных типов",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "DataProcessor", "name": "Типы" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    {
+      "script": "form-add/scripts/form-add",
+      "args": { "-ObjectPath": "{workDir}/DataProcessors/Типы.xml", "-FormName": "Форма" }
+    }
+  ],
+  "params": { "outputPath": "DataProcessors/Типы/Forms/Форма/Ext/Form.xml" },
+  "input": {
+    "title": "Разные типы",
+    "elements": [
+      { "input": "Строка", "path": "Строка" },
+      { "input": "Число", "path": "Число" },
+      { "input": "Дата", "path": "Дата" },
+      { "input": "Булево", "path": "Булево" }
+    ],
+    "attributes": [
+      { "name": "Объект", "type": "ExternalDataProcessorObject.Типы", "main": true },
+      { "name": "Строка", "type": "string(200)" },
+      { "name": "Число", "type": "decimal(10,0,nonneg)" },
+      { "name": "Дата", "type": "dateTime" },
+      { "name": "Булево", "type": "boolean" }
+    ]
+  }
+}

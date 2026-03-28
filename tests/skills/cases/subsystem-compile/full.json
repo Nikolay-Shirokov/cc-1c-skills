@@ -1,0 +1,28 @@
+{
+  "name": "Полная подсистема со всеми свойствами",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "Catalog", "name": "Товары" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "Report", "name": "ОтчетПоПродажам" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    }
+  ],
+  "input": {
+    "name": "Продажи",
+    "synonym": "Продажи",
+    "comment": "Раздел продаж",
+    "includeInCommandInterface": true,
+    "useOneCommand": false,
+    "explanation": "Раздел для управления продажами",
+    "content": ["Catalog.Товары", "Report.ОтчетПоПродажам"],
+    "children": ["Настройки"]
+  },
+  "expect": {
+    "files": ["Subsystems/Продажи.xml"]
+  }
+}

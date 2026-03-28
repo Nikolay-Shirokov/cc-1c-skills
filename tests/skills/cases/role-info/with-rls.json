@@ -1,0 +1,32 @@
+{
+  "name": "Обзор роли с RLS",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "Catalog", "name": "Организации" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "Document", "name": "Реализация" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    {
+      "script": "role-compile/scripts/role-compile",
+      "input": {
+        "name": "ОграниченноеЧтение",
+        "synonym": "Ограниченное чтение",
+        "objects": [
+          "Catalog.Организации: @view",
+          { "name": "Document.Реализация", "preset": "view", "rls": { "Read": "#ПоОрганизации(\"\")" } }
+        ],
+        "templates": [
+          { "name": "ПоОрганизации(Мод)", "condition": "ГДЕ Организация = &Орг" }
+        ]
+      },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    }
+  ],
+  "params": { "rightsPath": "ОграниченноеЧтение/Ext/Rights.xml" },
+  "expect": { "stdoutContains": "RLS" }
+}

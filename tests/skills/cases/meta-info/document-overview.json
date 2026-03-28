@@ -1,0 +1,20 @@
+{
+  "name": "Обзор документа с ТЧ",
+  "setup": "empty-config",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "Document",
+        "name": "Заказ",
+        "attributes": ["Контрагент: CatalogRef.Контрагенты"],
+        "tabularSections": { "Товары": ["Номенклатура: CatalogRef.Номенклатура", "Количество: Number(15,3)"] }
+      },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    }
+  ],
+  "params": { "objectPath": "Documents/Заказ" },
+  "expect": {
+    "stdoutContains": "Заказ"
+  }
+}

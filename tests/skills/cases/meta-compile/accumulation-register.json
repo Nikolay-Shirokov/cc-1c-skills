@@ -1,0 +1,13 @@
+{
+  "name": "Регистр накопления остатков",
+  "input": {
+    "type": "AccumulationRegister",
+    "name": "ОстаткиТоваров",
+    "registerType": "Balance",
+    "dimensions": ["Номенклатура: CatalogRef.Номенклатура", "Склад: CatalogRef.Склады"],
+    "resources": ["Количество: Number(15,3)"]
+  },
+  "expect": {
+    "files": ["AccumulationRegisters/ОстаткиТоваров.xml", "AccumulationRegisters/ОстаткиТоваров/Ext/RecordSetModule.bsl"]
+  }
+}

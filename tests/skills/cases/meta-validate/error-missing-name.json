@@ -1,0 +1,6 @@
+{
+  "name": "Валидатор находит ошибку: отсутствует Name",
+  "setup": "fixture:catalog-no-name",
+  "params": { "objectPath": "Catalogs/Broken.xml" },
+  "expectError": true
+}

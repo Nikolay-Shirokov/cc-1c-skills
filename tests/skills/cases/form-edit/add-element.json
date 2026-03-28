@@ -1,0 +1,34 @@
+{
+  "name": "Добавление элемента на форму",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "DataProcessor", "name": "Тест" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    {
+      "script": "form-add/scripts/form-add",
+      "args": { "-ObjectPath": "{workDir}/DataProcessors/Тест.xml", "-FormName": "Форма" }
+    },
+    {
+      "script": "form-compile/scripts/form-compile",
+      "input": {
+        "title": "Тест",
+        "attributes": [{ "name": "Объект", "type": "ExternalDataProcessorObject.Тест", "main": true }],
+        "elements": [
+          { "input": "Поле1", "path": "Поле1", "title": "Поле 1" }
+        ]
+      },
+      "args": { "-JsonPath": "{inputFile}", "-OutputPath": "{workDir}/DataProcessors/Тест/Forms/Форма/Ext/Form.xml" }
+    }
+  ],
+  "params": { "formPath": "DataProcessors/Тест/Forms/Форма/Ext/Form.xml" },
+  "input": {
+    "elements": [
+      { "input": "Поле2", "path": "Поле2", "title": "Поле 2" }
+    ],
+    "attributes": [
+      { "name": "Поле2", "type": "string(100)" }
+    ]
+  }
+}

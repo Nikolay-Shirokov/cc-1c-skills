@@ -1,0 +1,16 @@
+{
+  "name": "Валидация подсистемы с дочерними",
+  "preRun": [
+    {
+      "script": "subsystem-compile/scripts/subsystem-compile",
+      "input": { "name": "Управление", "children": ["Настройки"] },
+      "args": { "-DefinitionFile": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    {
+      "script": "subsystem-compile/scripts/subsystem-compile",
+      "input": { "name": "Настройки" },
+      "args": { "-DefinitionFile": "{inputFile}", "-OutputDir": "{workDir}", "-Parent": "{workDir}/Subsystems/Управление.xml" }
+    }
+  ],
+  "params": { "subsystemPath": "Subsystems/Управление.xml" }
+}

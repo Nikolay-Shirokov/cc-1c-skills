@@ -1,0 +1,21 @@
+{
+  "name": "Добавление фильтра в вариант",
+  "preRun": [
+    {
+      "script": "skd-compile/scripts/skd-compile",
+      "input": {
+        "dataSets": [{
+          "name": "Основной",
+          "query": "ВЫБРАТЬ Т.Организация, Т.Сумма ИЗ Регистр КАК Т",
+          "fields": ["Организация: CatalogRef.Организации @dimension", "Сумма: decimal(15,2)"]
+        }]
+      },
+      "args": { "-DefinitionFile": "{inputFile}", "-OutputPath": "{workDir}/Template.xml" }
+    }
+  ],
+  "params": {
+    "templatePath": "Template.xml",
+    "operation": "add-filter",
+    "value": "Организация = _ @off @user"
+  }
+}

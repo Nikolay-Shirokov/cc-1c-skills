@@ -1,0 +1,10 @@
+{
+  "name": "Текстовый макет к обработке",
+  "preRun": [
+    {
+      "script": "epf-init/scripts/init",
+      "args": { "-Name": "МояОбработка", "-SrcDir": "{workDir}" }
+    }
+  ],
+  "params": { "objectName": "МояОбработка", "templateName": "МакетТекст", "templateType": "Text" }
+}

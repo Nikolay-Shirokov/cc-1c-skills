@@ -1,0 +1,5 @@
+{
+  "name": "Ошибка: пустое имя конфигурации",
+  "setup": "fixture:missing-language",
+  "expectError": true
+}

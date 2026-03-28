@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Form xmlns="http://v8.1c.ru/8.3/xcf/logform" xmlns:app="http://v8.1c.ru/8.2/managed-application/core" xmlns:cfg="http://v8.1c.ru/8.1/data/enterprise/current-config" xmlns:dcscor="http://v8.1c.ru/8.1/data-composition-system/core" xmlns:dcssch="http://v8.1c.ru/8.1/data-composition-system/schema" xmlns:dcsset="http://v8.1c.ru/8.1/data-composition-system/settings" xmlns:ent="http://v8.1c.ru/8.1/data/enterprise" xmlns:lf="http://v8.1c.ru/8.2/managed-application/logform" xmlns:style="http://v8.1c.ru/8.1/data/ui/style" xmlns:sys="http://v8.1c.ru/8.1/data/ui/fonts/system" xmlns:v8="http://v8.1c.ru/8.1/data/core" xmlns:v8ui="http://v8.1c.ru/8.1/data/ui" xmlns:web="http://v8.1c.ru/8.1/data/ui/colors/web" xmlns:win="http://v8.1c.ru/8.1/data/ui/colors/windows" xmlns:xr="http://v8.1c.ru/8.3/xcf/readable" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" version="2.17">
+	<Title>
+		<v8:item>
+			<v8:lang>ru</v8:lang>
+			<v8:content>Валидация</v8:content>
+		</v8:item>
+	</Title>
+	<AutoCommandBar name="ФормаКоманднаяПанель" id="-1">
+		<HorizontalAlign>Right</HorizontalAlign>
+		<Autofill>false</Autofill>
+	</AutoCommandBar>
+	<ChildItems>
+		<InputField name="Поле1" id="1">
+			<DataPath>Поле1</DataPath>
+			<ContextMenu name="Поле1КонтекстноеМеню" id="2"/>
+			<ExtendedTooltip name="Поле1РасширеннаяПодсказка" id="3"/>
+		</InputField>
+		<CheckBoxField name="Флаг" id="4">
+			<DataPath>Флаг</DataPath>
+			<ContextMenu name="ФлагКонтекстноеМеню" id="5"/>
+			<ExtendedTooltip name="ФлагРасширеннаяПодсказка" id="6"/>
+		</CheckBoxField>
+		<UsualGroup name="Группа" id="7">
+			<Group>Horizontal</Group>
+			<ExtendedTooltip name="ГруппаРасширеннаяПодсказка" id="8"/>
+			<ChildItems>
+				<InputField name="Поле2" id="9">
+					<DataPath>Поле2</DataPath>
+					<ContextMenu name="Поле2КонтекстноеМеню" id="10"/>
+					<ExtendedTooltip name="Поле2РасширеннаяПодсказка" id="11"/>
+				</InputField>
+			</ChildItems>
+		</UsualGroup>
+		<Button name="Выполнить" id="12">
+			<CommandName>Form.Command.Выполнить</CommandName>
+			<ExtendedTooltip name="ВыполнитьРасширеннаяПодсказка" id="13"/>
+		</Button>
+	</ChildItems>
+	<Attributes>
+		<Attribute name="Объект" id="14">
+			<Type>
+				<v8:Type>cfg:ExternalDataProcessorObject.Валидация</v8:Type>
+			</Type>
+			<MainAttribute>true</MainAttribute>
+		</Attribute>
+		<Attribute name="Поле1" id="15">
+			<Type>
+				<v8:Type>xs:string</v8:Type>
+				<v8:StringQualifiers>
+					<v8:Length>0</v8:Length>
+					<v8:AllowedLength>Variable</v8:AllowedLength>
+				</v8:StringQualifiers>
+			</Type>
+		</Attribute>
+		<Attribute name="Поле2" id="16">
+			<Type>
+				<v8:Type>xs:decimal</v8:Type>
+				<v8:NumberQualifiers>
+					<v8:Digits>15</v8:Digits>
+					<v8:FractionDigits>2</v8:FractionDigits>
+					<v8:AllowedSign>Any</v8:AllowedSign>
+				</v8:NumberQualifiers>
+			</Type>
+		</Attribute>
+		<Attribute name="Флаг" id="17">
+			<Type>
+				<v8:Type>xs:boolean</v8:Type>
+			</Type>
+		</Attribute>
+	</Attributes>
+	<Commands>
+		<Command name="Выполнить" id="18">
+			<Action>ВыполнитьОбработка</Action>
+		</Command>
+	</Commands>
+</Form>

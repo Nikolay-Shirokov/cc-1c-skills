@@ -1,0 +1,11 @@
+{
+  "name": "Ошибка: несуществующий макет",
+  "preRun": [
+    {
+      "script": "epf-init/scripts/init",
+      "args": { "-Name": "МояОбработка", "-SrcDir": "{workDir}" }
+    }
+  ],
+  "params": { "objectName": "МояОбработка", "templateName": "НесуществующийМакет" },
+  "expectError": true
+}

@@ -1,0 +1,32 @@
+{
+  "name": "Валидация полной СКД — группировки, фильтры, параметры",
+  "preRun": [
+    {
+      "script": "skd-compile/scripts/skd-compile",
+      "input": {
+        "dataSets": [{
+          "query": "ВЫБРАТЬ Т.Организация, Т.Номенклатура, Т.Количество, Т.Сумма ИЗ Регистр КАК Т",
+          "fields": [
+            "Организация: CatalogRef.Организации @dimension",
+            "Номенклатура: CatalogRef.Номенклатура @dimension",
+            "Количество: decimal(15,3)",
+            "Сумма: decimal(15,2)"
+          ]
+        }],
+        "totalFields": ["Количество: Сумма", "Сумма: Сумма"],
+        "parameters": ["Период: StandardPeriod = LastMonth @autoDates"],
+        "settingsVariants": [{
+          "name": "Основной",
+          "settings": {
+            "selection": ["Организация", "Номенклатура", "Количество", "Сумма", "Auto"],
+            "filter": ["Организация = _ @off @user"],
+            "dataParameters": ["Период = LastMonth @user"],
+            "structure": "Организация > details"
+          }
+        }]
+      },
+      "args": { "-DefinitionFile": "{inputFile}", "-OutputPath": "{workDir}/Template.xml" }
+    }
+  ],
+  "params": { "templatePath": "Template.xml" }
+}

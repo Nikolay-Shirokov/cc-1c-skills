@@ -1,0 +1,19 @@
+{
+  "name": "Валидация СКД с параметрами и итогами",
+  "preRun": [
+    {
+      "script": "skd-compile/scripts/skd-compile",
+      "input": {
+        "dataSets": [{
+          "name": "Основной",
+          "query": "ВЫБРАТЬ Т.Номенклатура, Т.Количество, Т.Сумма ИЗ Регистр КАК Т",
+          "fields": ["Номенклатура: CatalogRef.Номенклатура @dimension", "Количество: decimal(15,3)", "Сумма: decimal(15,2)"]
+        }],
+        "totalFields": ["Количество: Сумма", "Сумма: Сумма"],
+        "parameters": ["Период: StandardPeriod = LastMonth @autoDates"]
+      },
+      "args": { "-DefinitionFile": "{inputFile}", "-OutputPath": "{workDir}/Template.xml" }
+    }
+  ],
+  "params": { "templatePath": "Template.xml" }
+}

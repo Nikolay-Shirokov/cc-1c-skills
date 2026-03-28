@@ -1,0 +1,43 @@
+{
+  "name": "Макет с параметрами и шаблонами",
+  "input": {
+    "columns": 3,
+    "fonts": {
+      "default": { "face": "Arial", "size": 10 },
+      "bold": { "face": "Arial", "size": 10, "bold": true }
+    },
+    "styles": {
+      "label": { "font": "bold" },
+      "bordered": { "border": "all" }
+    },
+    "areas": [
+      {
+        "name": "Шапка",
+        "rows": [
+          { "cells": [
+            { "col": 1, "style": "label", "text": "Дата:" },
+            { "col": 2, "span": 2, "template": "от [Дата] г." }
+          ]},
+          { "cells": [
+            { "col": 1, "style": "label", "text": "Номер:" },
+            { "col": 2, "span": 2, "template": "№ [Номер]" }
+          ]}
+        ]
+      },
+      {
+        "name": "Тело",
+        "rows": [
+          { "rowStyle": "bordered", "cells": [
+            { "col": 1, "param": "Позиция" },
+            { "col": 2, "param": "Товар" },
+            { "col": 3, "param": "Цена" }
+          ]}
+        ]
+      }
+    ]
+  },
+  "params": { "outputPath": "Template.xml" },
+  "expect": {
+    "files": ["Template.xml"]
+  }
+}

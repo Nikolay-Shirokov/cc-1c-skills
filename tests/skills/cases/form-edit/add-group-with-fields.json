@@ -1,0 +1,38 @@
+{
+  "name": "Добавление группы с полями",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "DataProcessor", "name": "Группа" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    {
+      "script": "form-add/scripts/form-add",
+      "args": { "-ObjectPath": "{workDir}/DataProcessors/Группа.xml", "-FormName": "Форма" }
+    },
+    {
+      "script": "form-compile/scripts/form-compile",
+      "input": {
+        "title": "Группа",
+        "attributes": [{ "name": "Объект", "type": "ExternalDataProcessorObject.Группа", "main": true }],
+        "elements": [
+          { "input": "Поле1", "path": "Поле1", "title": "Существующее поле" }
+        ]
+      },
+      "args": { "-JsonPath": "{inputFile}", "-OutputPath": "{workDir}/DataProcessors/Группа/Forms/Форма/Ext/Form.xml" }
+    }
+  ],
+  "params": { "formPath": "DataProcessors/Группа/Forms/Форма/Ext/Form.xml" },
+  "input": {
+    "elements": [
+      { "group": "horizontal", "name": "ГруппаНовая", "title": "Новая группа", "showTitle": true, "children": [
+        { "input": "Поле2", "path": "Поле2", "title": "Поле 2" },
+        { "input": "Поле3", "path": "Поле3", "title": "Поле 3" }
+      ]}
+    ],
+    "attributes": [
+      { "name": "Поле2", "type": "string" },
+      { "name": "Поле3", "type": "decimal(10,2)" }
+    ]
+  }
+}

@@ -1,0 +1,5 @@
+{
+  "name": "Краткий режим (brief)",
+  "args_extra": ["-Mode", "brief"],
+  "expect": { "stdoutContains": "TestConfig" }
+}

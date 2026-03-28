@@ -1,0 +1,13 @@
+{
+  "script": "skd-edit/scripts/skd-edit",
+  "setup": "none",
+  "args": [
+    { "flag": "-TemplatePath", "from": "workPath", "field": "templatePath" },
+    { "flag": "-Operation", "from": "case.operation" },
+    { "flag": "-Value", "from": "case.value" }
+  ],
+  "snapshot": {
+    "root": "workDir",
+    "normalizeUuids": true
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "name": "Обработка с макетом проходит валидацию",
+  "preRun": [
+    {
+      "script": "epf-init/scripts/init",
+      "args": { "-Name": "МояОбработка", "-SrcDir": "{workDir}" }
+    },
+    {
+      "script": "template-add/scripts/add-template",
+      "args": { "-ObjectName": "МояОбработка", "-TemplateName": "Макет", "-TemplateType": "SpreadsheetDocument", "-SrcDir": "{workDir}" }
+    }
+  ],
+  "params": { "objectPath": "МояОбработка.xml" }
+}

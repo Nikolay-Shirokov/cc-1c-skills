@@ -1,0 +1,20 @@
+{
+  "name": "Справочник в режиме brief",
+  "setup": "empty-config",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "Catalog",
+        "name": "Товары",
+        "attributes": ["Артикул: String(25)"]
+      },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    }
+  ],
+  "params": { "objectPath": "Catalogs/Товары" },
+  "args_extra": ["-Mode", "brief"],
+  "expect": {
+    "stdoutContains": "Товары"
+  }
+}

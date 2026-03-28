@@ -1,0 +1,6 @@
+{
+  "name": "Ошибка: битое расширение",
+  "setup": "fixture:broken-extension",
+  "params": { "extensionPath": "." },
+  "expectError": true
+}

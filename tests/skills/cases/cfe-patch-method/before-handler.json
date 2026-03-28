@@ -1,0 +1,24 @@
+{
+  "name": "Перехватчик Перед для модуля объекта",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "Catalog", "name": "Товары" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    {
+      "script": "cfe-init/scripts/cfe-init",
+      "args": { "-Name": "Тест", "-OutputDir": "{workDir}/ext", "-ConfigPath": "{workDir}" }
+    },
+    {
+      "script": "cfe-borrow/scripts/cfe-borrow",
+      "args": { "-ExtensionPath": "{workDir}/ext", "-ConfigPath": "{workDir}", "-Object": "Catalog.Товары" }
+    }
+  ],
+  "params": {
+    "extensionPath": "ext",
+    "modulePath": "Catalog.Товары.ObjectModule",
+    "methodName": "ПриЗаписи",
+    "interceptorType": "Before"
+  }
+}

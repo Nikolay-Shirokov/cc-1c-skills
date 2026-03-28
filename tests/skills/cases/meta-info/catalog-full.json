@@ -1,0 +1,21 @@
+{
+  "name": "Справочник в режиме full",
+  "setup": "empty-config",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "Catalog",
+        "name": "Товары",
+        "attributes": ["Артикул: String(25)", "Цена: Number(15,2)"],
+        "tabularSections": { "Штрихкоды": ["Штрихкод: String(128)"] }
+      },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    }
+  ],
+  "params": { "objectPath": "Catalogs/Товары" },
+  "args_extra": ["-Mode", "full"],
+  "expect": {
+    "stdoutContains": "Товары"
+  }
+}

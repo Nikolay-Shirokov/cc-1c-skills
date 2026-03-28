@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<MetaDataObject xmlns="http://v8.1c.ru/8.3/MDClasses" xmlns:xr="http://v8.1c.ru/8.3/xcf/readable" xmlns:v8="http://v8.1c.ru/8.1/data/core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" version="2.17">
+	<Configuration uuid="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee">
+		<InternalInfo>
+			<xr:ContainedObject>
+				<xr:ClassId>9cd510cd-abfc-11d4-9434-004095e12fc7</xr:ClassId>
+				<xr:ObjectId>11111111-2222-3333-4444-555555555555</xr:ObjectId>
+			</xr:ContainedObject>
+		</InternalInfo>
+		<Properties>
+			<Name></Name>
+			<CompatibilityMode>Version8_3_24</CompatibilityMode>
+		</Properties>
+		<ChildObjects/>
+	</Configuration>
+</MetaDataObject>

@@ -1,0 +1,24 @@
+{
+  "name": "Перехватчик ИзменениеИКонтроль для общего модуля",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "CommonModule", "name": "ОбщийМодуль1", "properties": { "Server": true } },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    {
+      "script": "cfe-init/scripts/cfe-init",
+      "args": { "-Name": "Тест", "-OutputDir": "{workDir}/ext", "-ConfigPath": "{workDir}" }
+    },
+    {
+      "script": "cfe-borrow/scripts/cfe-borrow",
+      "args": { "-ExtensionPath": "{workDir}/ext", "-ConfigPath": "{workDir}", "-Object": "CommonModule.ОбщийМодуль1" }
+    }
+  ],
+  "params": {
+    "extensionPath": "ext",
+    "modulePath": "CommonModule.ОбщийМодуль1",
+    "methodName": "ПолучитьДанные",
+    "interceptorType": "ModificationAndControl"
+  }
+}

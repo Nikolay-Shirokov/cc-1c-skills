@@ -1,0 +1,63 @@
+{
+  "name": "Макет с горизонтальными областями — шапка, строка, итого",
+  "input": {
+    "columns": 4,
+    "defaultWidth": 30,
+    "fonts": {
+      "default": { "face": "Arial", "size": 10 },
+      "bold": { "face": "Arial", "size": 10, "bold": true },
+      "header": { "face": "Arial", "size": 14, "bold": true }
+    },
+    "styles": {
+      "header": { "font": "header", "align": "center" },
+      "bordered": { "border": "all" },
+      "bordered-right": { "border": "all", "align": "right" },
+      "total-right": { "font": "bold", "border": "top", "align": "right" }
+    },
+    "areas": [
+      {
+        "name": "Заголовок",
+        "rows": [
+          { "height": 20, "cells": [
+            { "col": 1, "span": 4, "style": "header", "param": "ТекстЗаголовка" }
+          ]}
+        ]
+      },
+      {
+        "name": "ШапкаТаблицы",
+        "rows": [
+          { "rowStyle": "bordered", "cells": [
+            { "col": 1, "text": "№" },
+            { "col": 2, "text": "Наименование" },
+            { "col": 3, "text": "Кол-во" },
+            { "col": 4, "text": "Сумма" }
+          ]}
+        ]
+      },
+      {
+        "name": "Строка",
+        "rows": [
+          { "rowStyle": "bordered", "cells": [
+            { "col": 1, "param": "НомерСтроки" },
+            { "col": 2, "param": "Товар", "detail": "Номенклатура" },
+            { "col": 3, "style": "bordered-right", "param": "Количество" },
+            { "col": 4, "style": "bordered-right", "param": "Сумма" }
+          ]}
+        ]
+      },
+      {
+        "name": "Итого",
+        "rows": [
+          { "cells": [
+            { "col": 3, "style": "total-right", "text": "Итого:" },
+            { "col": 4, "style": "total-right", "param": "Всего" }
+          ]}
+        ]
+      }
+    ]
+  },
+  "params": { "outputPath": "Template.xml" },
+  "expect": {
+    "files": ["Template.xml"]
+  }
+}

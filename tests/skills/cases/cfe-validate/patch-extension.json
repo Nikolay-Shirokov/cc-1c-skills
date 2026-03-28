@@ -1,0 +1,10 @@
+{
+  "name": "Расширение Patch проходит валидацию",
+  "preRun": [
+    {
+      "script": "cfe-init/scripts/cfe-init",
+      "args": { "-Name": "Исправление", "-OutputDir": "{workDir}/ext", "-ConfigPath": "{workDir}", "-Purpose": "Patch" }
+    }
+  ],
+  "params": { "extensionPath": "ext" }
+}

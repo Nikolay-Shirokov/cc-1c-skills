@@ -1,0 +1,21 @@
+{
+  "name": "Добавление параметра с @autoDates",
+  "preRun": [
+    {
+      "script": "skd-compile/scripts/skd-compile",
+      "input": {
+        "dataSets": [{
+          "name": "Основной",
+          "query": "ВЫБРАТЬ Т.Наименование ИЗ Справочник.Номенклатура КАК Т",
+          "fields": ["Наименование"]
+        }]
+      },
+      "args": { "-DefinitionFile": "{inputFile}", "-OutputPath": "{workDir}/Template.xml" }
+    }
+  ],
+  "params": {
+    "templatePath": "Template.xml",
+    "operation": "add-parameter",
+    "value": "Период: StandardPeriod = LastMonth @autoDates"
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "name": "Валидация СКД с несколькими наборами данных",
+  "preRun": [
+    {
+      "script": "skd-compile/scripts/skd-compile",
+      "input": {
+        "dataSets": [
+          {
+            "name": "Продажи",
+            "query": "ВЫБРАТЬ Т.Номенклатура, Т.Количество ИЗ Регистр КАК Т",
+            "fields": ["Номенклатура", "Количество: decimal(15,3)"]
+          },
+          {
+            "name": "Остатки",
+            "query": "ВЫБРАТЬ Т.Номенклатура, Т.Остаток ИЗ Регистр КАК Т",
+            "fields": ["Номенклатура", "Остаток: decimal(15,3)"]
+          }
+        ],
+        "dataSetLinks": [
+          { "source": "Продажи", "dest": "Остатки", "sourceExpr": "Номенклатура", "destExpr": "Номенклатура" }
+        ]
+      },
+      "args": { "-DefinitionFile": "{inputFile}", "-OutputPath": "{workDir}/Template.xml" }
+    }
+  ],
+  "params": { "templatePath": "Template.xml" }
+}

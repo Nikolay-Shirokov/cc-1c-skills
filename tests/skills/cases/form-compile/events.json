@@ -1,0 +1,29 @@
+{
+  "name": "Форма с событиями формы и элементов",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "DataProcessor", "name": "События" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    {
+      "script": "form-add/scripts/form-add",
+      "args": { "-ObjectPath": "{workDir}/DataProcessors/События.xml", "-FormName": "Форма" }
+    }
+  ],
+  "params": { "outputPath": "DataProcessors/События/Forms/Форма/Ext/Form.xml" },
+  "input": {
+    "title": "События",
+    "events": { "OnCreateAtServer": "ПриСозданииНаСервере", "OnOpen": "ПриОткрытии" },
+    "elements": [
+      { "input": "Организация", "path": "Организация", "on": ["OnChange", "StartChoice"] },
+      { "input": "Период", "path": "Период", "handlers": { "OnChange": "ПериодПриИзменении" } },
+      { "label": "Подсказка", "title": "Нажмите для перехода", "hyperlink": true, "on": ["Click"] }
+    ],
+    "attributes": [
+      { "name": "Объект", "type": "ExternalDataProcessorObject.События", "main": true },
+      { "name": "Организация", "type": "string" },
+      { "name": "Период", "type": "date" }
+    ]
+  }
+}

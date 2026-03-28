@@ -1,0 +1,11 @@
+{
+  "name": "Подсистема с includeInCommandInterface=false",
+  "input": {
+    "name": "Служебная",
+    "synonym": "Служебная подсистема",
+    "includeInCommandInterface": false
+  },
+  "expect": {
+    "files": ["Subsystems/Служебная.xml"]
+  }
+}

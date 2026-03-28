@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<WrongRootElement xmlns="http://v8.1c.ru/8.1/data-composition-system/schema">
+  <dataSource>
+    <name>ИсточникДанных1</name>
+    <dataSourceType>Local</dataSourceType>
+  </dataSource>
+</WrongRootElement>

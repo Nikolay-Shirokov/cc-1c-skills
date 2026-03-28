@@ -1,0 +1,38 @@
+{
+  "name": "Roundtrip — макет с объединёнными ячейками",
+  "preRun": [
+    {
+      "script": "mxl-compile/scripts/mxl-compile",
+      "input": {
+        "columns": 3,
+        "fonts": {
+          "default": { "face": "Arial", "size": 10 },
+          "bold": { "face": "Arial", "size": 12, "bold": true }
+        },
+        "styles": {
+          "bordered": { "border": "all" },
+          "header": { "font": "bold", "border": "all", "align": "center" }
+        },
+        "areas": [
+          {
+            "name": "Шапка",
+            "rows": [
+              { "rowStyle": "bordered", "cells": [
+                { "col": 1, "rowspan": 2, "style": "header", "text": "№" },
+                { "col": 2, "span": 2, "style": "header", "text": "Данные" }
+              ]},
+              { "rowStyle": "bordered", "cells": [
+                { "col": 2, "text": "Имя" },
+                { "col": 3, "text": "Код" }
+              ]}
+            ]
+          }
+        ]
+      },
+      "args": { "-JsonPath": "{inputFile}", "-OutputPath": "Template.xml" },
+      "cwd": "{workDir}"
+    }
+  ],
+  "params": { "templatePath": "Template.xml" },
+  "expect": { "stdoutContains": "columns" }
+}

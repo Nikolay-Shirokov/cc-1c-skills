@@ -1,0 +1,8 @@
+{
+  "name": "Конфигурация с CompatibilityMode",
+  "params": { "name": "ТестСовместимость" },
+  "args_extra": ["-CompatibilityMode", "Version8_3_17"],
+  "expect": {
+    "files": ["Configuration.xml", "Languages/Русский.xml"]
+  }
+}

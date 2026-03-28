@@ -1,34 +1,34 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <MetaDataObject xmlns="http://v8.1c.ru/8.3/MDClasses" xmlns:app="http://v8.1c.ru/8.2/managed-application/core" xmlns:cfg="http://v8.1c.ru/8.1/data/enterprise/current-config" xmlns:cmi="http://v8.1c.ru/8.2/managed-application/cmi" xmlns:ent="http://v8.1c.ru/8.1/data/enterprise" xmlns:lf="http://v8.1c.ru/8.2/managed-application/logform" xmlns:style="http://v8.1c.ru/8.1/data/ui/style" xmlns:sys="http://v8.1c.ru/8.1/data/ui/fonts/system" xmlns:v8="http://v8.1c.ru/8.1/data/core" xmlns:v8ui="http://v8.1c.ru/8.1/data/ui" xmlns:web="http://v8.1c.ru/8.1/data/ui/colors/web" xmlns:win="http://v8.1c.ru/8.1/data/ui/colors/windows" xmlns:xen="http://v8.1c.ru/8.3/xcf/enums" xmlns:xpr="http://v8.1c.ru/8.3/xcf/predef" xmlns:xr="http://v8.1c.ru/8.3/xcf/readable" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" version="2.17">
-	<Configuration uuid="2d804df1-d8aa-482b-8aad-ae3f0e51a382">
+	<Configuration uuid="490dc2d2-5fc6-4378-80e3-e44e3e997a26">
 		<InternalInfo>
 			<xr:ContainedObject>
 				<xr:ClassId>9cd510cd-abfc-11d4-9434-004095e12fc7</xr:ClassId>
-				<xr:ObjectId>2145bb60-cbf8-459a-aa10-bea7f44e3f2f</xr:ObjectId>
+				<xr:ObjectId>8613c9b5-714f-4db3-ba57-92944d83f3e6</xr:ObjectId>
 			</xr:ContainedObject>
 			<xr:ContainedObject>
 				<xr:ClassId>9fcd25a0-4822-11d4-9414-008048da11f9</xr:ClassId>
-				<xr:ObjectId>6a26f594-55f0-4be3-ac78-98f735640668</xr:ObjectId>
+				<xr:ObjectId>52c8688f-9020-459e-b2ff-acf11197aa37</xr:ObjectId>
 			</xr:ContainedObject>
 			<xr:ContainedObject>
 				<xr:ClassId>e3687481-0a87-462c-a166-9f34594f9bba</xr:ClassId>
-				<xr:ObjectId>7a4686f3-b998-4656-8cba-2dd53cca2c29</xr:ObjectId>
+				<xr:ObjectId>6302d246-62c8-4400-9fc2-16ec7bbb4c26</xr:ObjectId>
 			</xr:ContainedObject>
 			<xr:ContainedObject>
 				<xr:ClassId>9de14907-ec23-4a07-96f0-85521cb6b53b</xr:ClassId>
-				<xr:ObjectId>1078616c-b4eb-469d-a25c-2ff8b13eeb1e</xr:ObjectId>
+				<xr:ObjectId>8d278abf-2004-4056-abeb-af728d4fa9a7</xr:ObjectId>
 			</xr:ContainedObject>
 			<xr:ContainedObject>
 				<xr:ClassId>51f2d5d8-ea4d-4064-8892-82951750031e</xr:ClassId>
-				<xr:ObjectId>db007a87-7b0a-416f-bf30-ccf10c265e5e</xr:ObjectId>
+				<xr:ObjectId>ae8c947e-0c04-49b2-b33a-a7914b52e5bd</xr:ObjectId>
 			</xr:ContainedObject>
 			<xr:ContainedObject>
 				<xr:ClassId>e68182ea-4237-4383-967f-90c1e3370bc7</xr:ClassId>
-				<xr:ObjectId>de40bd20-2175-4d6f-a131-e4ba036aaf5f</xr:ObjectId>
+				<xr:ObjectId>686d04c2-0d6f-4a5c-ad74-db5a8c6381f5</xr:ObjectId>
 			</xr:ContainedObject>
 			<xr:ContainedObject>
 				<xr:ClassId>fb282519-d103-4dd3-bc12-cb271d631dfc</xr:ClassId>
-				<xr:ObjectId>b26c5d95-9559-4a74-bdde-db40d73f3596</xr:ObjectId>
+				<xr:ObjectId>dd62b6ff-7ce1-41eb-a111-48079672630c</xr:ObjectId>
 			</xr:ContainedObject>
 		</InternalInfo>
 		<Properties>

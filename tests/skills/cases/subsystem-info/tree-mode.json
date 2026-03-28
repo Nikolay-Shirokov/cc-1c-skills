@@ -1,0 +1,18 @@
+{
+  "name": "Режим tree — дерево подсистем",
+  "preRun": [
+    {
+      "script": "subsystem-compile/scripts/subsystem-compile",
+      "input": { "name": "Продажи", "children": ["Оптовые"] },
+      "args": { "-DefinitionFile": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    {
+      "script": "subsystem-compile/scripts/subsystem-compile",
+      "input": { "name": "Оптовые" },
+      "args": { "-DefinitionFile": "{inputFile}", "-OutputDir": "{workDir}", "-Parent": "{workDir}/Subsystems/Продажи.xml" }
+    }
+  ],
+  "params": { "subsystemPath": "Subsystems" },
+  "args_extra": ["-Mode", "tree"],
+  "expect": { "stdoutContains": "Продажи" }
+}

@@ -1,0 +1,21 @@
+{
+  "name": "Добавление вычисляемого поля",
+  "preRun": [
+    {
+      "script": "skd-compile/scripts/skd-compile",
+      "input": {
+        "dataSets": [{
+          "name": "Основной",
+          "query": "ВЫБРАТЬ Т.Цена, Т.Закупка ИЗ Регистр КАК Т",
+          "fields": ["Цена: decimal(15,2)", "Закупка: decimal(15,2)"]
+        }]
+      },
+      "args": { "-DefinitionFile": "{inputFile}", "-OutputPath": "{workDir}/Template.xml" }
+    }
+  ],
+  "params": {
+    "templatePath": "Template.xml",
+    "operation": "add-calculated-field",
+    "value": "Маржа = Цена - Закупка"
+  }
+}

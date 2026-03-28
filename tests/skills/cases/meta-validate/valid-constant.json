@@ -1,0 +1,12 @@
+{
+  "name": "Корректная константа проходит валидацию",
+  "setup": "empty-config",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "Constant", "name": "ОсновнаяВалюта", "valueType": "CatalogRef.Валюты" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    }
+  ],
+  "params": { "objectPath": "Constants/ОсновнаяВалюта" }
+}

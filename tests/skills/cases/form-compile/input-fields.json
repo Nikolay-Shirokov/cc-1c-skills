@@ -1,0 +1,35 @@
+{
+  "name": "Форма с разными полями ввода",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "DataProcessor", "name": "ПоляВвода" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    {
+      "script": "form-add/scripts/form-add",
+      "args": { "-ObjectPath": "{workDir}/DataProcessors/ПоляВвода.xml", "-FormName": "Форма" }
+    }
+  ],
+  "params": { "outputPath": "DataProcessors/ПоляВвода/Forms/Форма/Ext/Form.xml" },
+  "input": {
+    "title": "Поля ввода",
+    "elements": [
+      { "input": "ОбычноеПоле", "path": "ОбычноеПоле", "title": "Обычное поле" },
+      { "input": "МногострочноеПоле", "path": "МногострочноеПоле", "multiLine": true, "height": 5, "title": "Комментарий" },
+      { "input": "ПолеПароля", "path": "ПолеПароля", "passwordMode": true, "title": "Пароль" },
+      { "input": "ПолеСКнопками", "path": "ПолеСКнопками", "choiceButton": true, "clearButton": true, "title": "Выбор" },
+      { "input": "ПолеПодсказка", "path": "ПолеПодсказка", "inputHint": "Введите значение...", "title": "Подсказка" },
+      { "check": "Флаг", "path": "Флаг", "title": "Включено" }
+    ],
+    "attributes": [
+      { "name": "Объект", "type": "ExternalDataProcessorObject.ПоляВвода", "main": true },
+      { "name": "ОбычноеПоле", "type": "string(100)" },
+      { "name": "МногострочноеПоле", "type": "string" },
+      { "name": "ПолеПароля", "type": "string(50)" },
+      { "name": "ПолеСКнопками", "type": "string" },
+      { "name": "ПолеПодсказка", "type": "string" },
+      { "name": "Флаг", "type": "boolean" }
+    ]
+  }
+}

@@ -1,0 +1,5 @@
+{
+  "name": "Ошибка: битый XML",
+  "setup": "fixture:bad-xml",
+  "expectError": true
+}

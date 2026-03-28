@@ -1,0 +1,23 @@
+{
+  "name": "Подсистема с контентом (content)",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "Catalog", "name": "Товары" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "Document", "name": "Заказ" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    }
+  ],
+  "input": {
+    "name": "Продажи",
+    "synonym": "Продажи",
+    "content": ["Catalog.Товары", "Document.Заказ"]
+  },
+  "expect": {
+    "files": ["Subsystems/Продажи.xml"]
+  }
+}

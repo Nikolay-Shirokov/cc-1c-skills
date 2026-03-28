@@ -1,0 +1,46 @@
+{
+  "name": "Макет с объединёнными ячейками (span + rowspan)",
+  "input": {
+    "columns": 4,
+    "fonts": {
+      "default": { "face": "Arial", "size": 10 },
+      "bold": { "face": "Arial", "size": 12, "bold": true }
+    },
+    "styles": {
+      "bordered": { "border": "all" },
+      "bordered-center": { "border": "all", "align": "center" },
+      "header": { "font": "bold", "border": "all", "align": "center" }
+    },
+    "areas": [
+      {
+        "name": "Шапка",
+        "rows": [
+          { "rowStyle": "bordered", "cells": [
+            { "col": 1, "rowspan": 2, "style": "header", "text": "№ п/п" },
+            { "col": 2, "span": 2, "style": "header", "text": "Товар" },
+            { "col": 4, "rowspan": 2, "style": "header", "text": "Итого" }
+          ]},
+          { "rowStyle": "bordered", "cells": [
+            { "col": 2, "style": "bordered-center", "text": "Наименование" },
+            { "col": 3, "style": "bordered-center", "text": "Артикул" }
+          ]}
+        ]
+      },
+      {
+        "name": "Строка",
+        "rows": [
+          { "rowStyle": "bordered", "cells": [
+            { "col": 1, "style": "bordered-center", "param": "Номер" },
+            { "col": 2, "param": "Наименование" },
+            { "col": 3, "param": "Артикул" },
+            { "col": 4, "param": "Итого" }
+          ]}
+        ]
+      }
+    ]
+  },
+  "params": { "outputPath": "Template.xml" },
+  "expect": {
+    "files": ["Template.xml"]
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "name": "Замена текста запроса",
+  "preRun": [
+    {
+      "script": "skd-compile/scripts/skd-compile",
+      "input": {
+        "dataSets": [{
+          "name": "Основной",
+          "query": "ВЫБРАТЬ 1 КАК Поле",
+          "fields": ["Поле"]
+        }]
+      },
+      "args": { "-DefinitionFile": "{inputFile}", "-OutputPath": "{workDir}/Template.xml" }
+    }
+  ],
+  "params": {
+    "templatePath": "Template.xml",
+    "operation": "set-query",
+    "value": "ВЫБРАТЬ Т.Наименование, Т.Код ИЗ Справочник.Номенклатура КАК Т"
+  }
+}

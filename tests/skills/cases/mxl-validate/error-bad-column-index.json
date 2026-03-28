@@ -1,0 +1,6 @@
+{
+  "name": "Ошибка: индекс колонки ячейки за пределами размера",
+  "setup": "fixture:bad-column-index",
+  "params": { "templatePath": "Template.xml" },
+  "expectError": true
+}

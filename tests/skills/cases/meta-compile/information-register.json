@@ -1,0 +1,13 @@
+{
+  "name": "Регистр сведений с периодичностью",
+  "input": {
+    "type": "InformationRegister",
+    "name": "КурсыВалют",
+    "periodicity": "Day",
+    "dimensions": ["Валюта: CatalogRef.Валюты | master, mainFilter, denyIncomplete"],
+    "resources": ["Курс: Number(15,4)", "Кратность: Number(10,0)"]
+  },
+  "expect": {
+    "files": ["InformationRegisters/КурсыВалют.xml", "InformationRegisters/КурсыВалют/Ext/RecordSetModule.bsl"]
+  }
+}

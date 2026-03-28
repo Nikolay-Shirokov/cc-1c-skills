@@ -1,0 +1,12 @@
+{
+  "name": "Удаление перечисления",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "Enum", "name": "Устаревшее", "values": ["Значение1"] },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    }
+  ],
+  "params": { "object": "Enum.Устаревшее" },
+  "args_extra": ["-Force"]
+}

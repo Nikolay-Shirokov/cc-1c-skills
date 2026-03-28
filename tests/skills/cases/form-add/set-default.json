@@ -1,0 +1,12 @@
+{
+  "name": "Добавление формы с set-default",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "Document", "name": "Счет" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    }
+  ],
+  "params": { "objectPath": "Documents/Счет.xml", "formName": "ФормаДокумента" },
+  "args_extra": ["-SetDefault"]
+}

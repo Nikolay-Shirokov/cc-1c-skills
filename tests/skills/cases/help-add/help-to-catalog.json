@@ -1,0 +1,15 @@
+{
+  "name": "Справка к справочнику конфигурации",
+  "preRun": [
+    {
+      "script": "cf-init/scripts/cf-init",
+      "args": { "-Name": "ТестКонф", "-OutputDir": "{workDir}" }
+    },
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "Catalog", "name": "Номенклатура" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    }
+  ],
+  "params": { "objectName": "Catalogs/Номенклатура" }
+}

@@ -1,0 +1,6 @@
+{
+  "name": "Ошибка: пустой dataPath поля",
+  "setup": "fixture:empty-field",
+  "params": { "templatePath": "Template.xml" },
+  "expectError": true
+}

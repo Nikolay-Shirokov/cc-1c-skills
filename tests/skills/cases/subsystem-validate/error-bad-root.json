@@ -1,0 +1,6 @@
+{
+  "name": "Ошибка валидации: неверный корневой элемент",
+  "setup": "fixture:bad-root",
+  "params": { "subsystemPath": "Subsystems/Bad.xml" },
+  "expectError": true
+}

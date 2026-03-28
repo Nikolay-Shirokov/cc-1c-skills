@@ -1,0 +1,7 @@
+{
+  "name": "Ошибка: объект не существует",
+  "params": { "object": "Catalog.НесуществующийОбъект" },
+  "expect": {
+    "stdoutContains": "not found"
+  }
+}

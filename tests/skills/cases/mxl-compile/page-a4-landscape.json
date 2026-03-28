@@ -1,0 +1,47 @@
+{
+  "name": "Макет A4 альбомная с пропорциональными ширинами",
+  "input": {
+    "columns": 5,
+    "page": "A4-landscape",
+    "columnWidths": { "1": "1x", "2": "3x", "3": "1x", "4": "1x", "5": "1x" },
+    "fonts": {
+      "default": { "face": "Arial", "size": 10 },
+      "bold": { "face": "Arial", "size": 10, "bold": true }
+    },
+    "styles": {
+      "bordered": { "border": "all" },
+      "bordered-center": { "border": "all", "align": "center" },
+      "header": { "font": "bold", "border": "all", "align": "center" }
+    },
+    "areas": [
+      {
+        "name": "ШапкаТаблицы",
+        "rows": [
+          { "rowStyle": "header", "cells": [
+            { "col": 1, "text": "№" },
+            { "col": 2, "text": "Описание" },
+            { "col": 3, "text": "Ед." },
+            { "col": 4, "text": "Кол-во" },
+            { "col": 5, "text": "Сумма" }
+          ]}
+        ]
+      },
+      {
+        "name": "Строка",
+        "rows": [
+          { "rowStyle": "bordered", "cells": [
+            { "col": 1, "style": "bordered-center", "param": "Номер" },
+            { "col": 2, "param": "Описание" },
+            { "col": 3, "style": "bordered-center", "param": "ЕдИзм" },
+            { "col": 4, "style": "bordered-center", "param": "Количество" },
+            { "col": 5, "param": "Сумма" }
+          ]}
+        ]
+      }
+    ]
+  },
+  "params": { "outputPath": "Template.xml" },
+  "expect": {
+    "files": ["Template.xml"]
+  }
+}

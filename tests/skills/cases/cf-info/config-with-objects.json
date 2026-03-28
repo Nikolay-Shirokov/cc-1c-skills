@@ -1,0 +1,11 @@
+{
+  "name": "Конфигурация с объектами",
+  "preRun": [
+    {
+      "script": "cf-edit/scripts/cf-edit",
+      "input": [{ "operation": "add-childObject", "value": "Catalog.Товары ;; Document.Заказ ;; Enum.Статусы" }],
+      "args": { "-ConfigPath": "{workDir}", "-DefinitionFile": "{inputFile}" }
+    }
+  ],
+  "expect": { "stdoutContains": "Справочники" }
+}

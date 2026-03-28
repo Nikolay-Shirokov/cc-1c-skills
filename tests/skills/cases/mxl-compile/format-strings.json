@@ -1,0 +1,40 @@
+{
+  "name": "Макет с форматными строками",
+  "input": {
+    "columns": 4,
+    "styles": {
+      "bordered": { "border": "all" },
+      "number": { "border": "all", "align": "right", "format": "ЧЦ=15; ЧДЦ=2" },
+      "date": { "border": "all", "align": "center", "format": "ДФ=dd.MM.yyyy" },
+      "bordered-center": { "border": "all", "align": "center" }
+    },
+    "areas": [
+      {
+        "name": "ШапкаТаблицы",
+        "rows": [
+          { "rowStyle": "bordered-center", "cells": [
+            { "col": 1, "text": "Дата" },
+            { "col": 2, "text": "Товар" },
+            { "col": 3, "text": "Кол-во" },
+            { "col": 4, "text": "Цена" }
+          ]}
+        ]
+      },
+      {
+        "name": "Строка",
+        "rows": [
+          { "rowStyle": "bordered", "cells": [
+            { "col": 1, "style": "date", "param": "Дата" },
+            { "col": 2, "param": "Товар" },
+            { "col": 3, "style": "number", "param": "Количество" },
+            { "col": 4, "style": "number", "param": "Цена" }
+          ]}
+        ]
+      }
+    ]
+  },
+  "params": { "outputPath": "Template.xml" },
+  "expect": {
+    "files": ["Template.xml"]
+  }
+}

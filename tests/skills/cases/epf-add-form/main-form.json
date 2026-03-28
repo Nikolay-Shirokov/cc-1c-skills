@@ -1,0 +1,15 @@
+{
+  "name": "Добавление основной формы с флагом --main",
+  "preRun": [
+    {
+      "script": "epf-init/scripts/init",
+      "args": { "-Name": "МояОбработка", "-SrcDir": "{workDir}" }
+    },
+    {
+      "script": "epf-add-form/scripts/add-form",
+      "args": { "-ProcessorName": "МояОбработка", "-FormName": "Форма1", "-SrcDir": "{workDir}" }
+    }
+  ],
+  "params": { "processorName": "МояОбработка", "formName": "ФормаОсновная" },
+  "args_extra": ["-Main"]
+}

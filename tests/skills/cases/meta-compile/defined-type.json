@@ -1,0 +1,11 @@
+{
+  "name": "Определяемый тип составной",
+  "input": {
+    "type": "DefinedType",
+    "name": "ДенежныеСредства",
+    "valueTypes": ["CatalogRef.БанковскиеСчета", "CatalogRef.Кассы"]
+  },
+  "expect": {
+    "files": ["DefinedTypes/ДенежныеСредства.xml"]
+  }
+}

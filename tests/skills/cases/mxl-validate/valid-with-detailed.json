@@ -1,0 +1,28 @@
+{
+  "name": "Валидация с флагом -Detailed",
+  "preRun": [
+    {
+      "script": "mxl-compile/scripts/mxl-compile",
+      "input": {
+        "columns": 2,
+        "styles": { "bordered": { "border": "all" } },
+        "areas": [
+          {
+            "name": "Данные",
+            "rows": [
+              { "rowStyle": "bordered", "cells": [
+                { "col": 1, "param": "Ключ" },
+                { "col": 2, "param": "Значение" }
+              ]}
+            ]
+          }
+        ]
+      },
+      "args": { "-JsonPath": "{inputFile}", "-OutputPath": "Template.xml" },
+      "cwd": "{workDir}"
+    }
+  ],
+  "params": { "templatePath": "Template.xml" },
+  "args_extra": ["-Detailed"],
+  "expect": { "stdoutContains": "OK" }
+}

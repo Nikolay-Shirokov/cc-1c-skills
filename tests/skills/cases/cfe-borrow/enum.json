@@ -1,0 +1,15 @@
+{
+  "name": "Заимствование перечисления",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "Enum", "name": "ВидыОплат", "values": ["Наличные", "Безналичные"] },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    {
+      "script": "cfe-init/scripts/cfe-init",
+      "args": { "-Name": "Тест", "-OutputDir": "{workDir}/ext", "-ConfigPath": "{workDir}" }
+    }
+  ],
+  "params": { "extensionPath": "ext", "object": "Enum.ВидыОплат" }
+}

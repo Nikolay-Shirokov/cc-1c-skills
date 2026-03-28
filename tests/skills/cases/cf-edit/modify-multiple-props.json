@@ -1,0 +1,6 @@
+{
+  "name": "Изменение нескольких свойств",
+  "input": [
+    { "operation": "modify-property", "value": "Version=1.2.3.4 ;; Vendor=ТестПоставщик" }
+  ]
+}

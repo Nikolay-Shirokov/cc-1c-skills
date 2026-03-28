@@ -1,0 +1,5 @@
+{
+  "name": "Ошибка: файл не найден",
+  "params": { "templatePath": "nonexistent/Template.xml" },
+  "expectError": true
+}

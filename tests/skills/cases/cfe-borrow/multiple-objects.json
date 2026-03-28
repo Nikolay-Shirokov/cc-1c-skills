@@ -1,0 +1,20 @@
+{
+  "name": "Заимствование нескольких объектов",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "Catalog", "name": "Товары" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "Enum", "name": "Статусы", "values": ["Новый", "Закрыт"] },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    {
+      "script": "cfe-init/scripts/cfe-init",
+      "args": { "-Name": "Тест", "-OutputDir": "{workDir}/ext", "-ConfigPath": "{workDir}" }
+    }
+  ],
+  "params": { "extensionPath": "ext", "object": "Catalog.Товары ;; Enum.Статусы" }
+}

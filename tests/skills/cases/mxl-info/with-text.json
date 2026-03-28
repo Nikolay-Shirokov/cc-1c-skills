@@ -1,0 +1,49 @@
+{
+  "name": "Макет с -WithText — текст и шаблоны",
+  "preRun": [
+    {
+      "script": "mxl-compile/scripts/mxl-compile",
+      "input": {
+        "columns": 3,
+        "areas": [
+          {
+            "name": "Шапка",
+            "rows": [
+              { "cells": [
+                { "col": 1, "text": "Номер:" },
+                { "col": 2, "span": 2, "template": "№ [Номер] от [Дата]" }
+              ]}
+            ]
+          },
+          {
+            "name": "ШапкаТаблицы",
+            "rows": [
+              { "cells": [
+                { "col": 1, "text": "Код" },
+                { "col": 2, "text": "Наименование" },
+                { "col": 3, "text": "Сумма" }
+              ]}
+            ]
+          },
+          {
+            "name": "Строка",
+            "rows": [
+              { "cells": [
+                { "col": 1, "param": "Код" },
+                { "col": 2, "param": "Наименование" },
+                { "col": 3, "param": "Сумма" }
+              ]}
+            ]
+          }
+        ]
+      },
+      "args": { "-JsonPath": "{inputFile}", "-OutputPath": "Template.xml" },
+      "cwd": "{workDir}"
+    }
+  ],
+  "params": { "templatePath": "Template.xml" },
+  "args_extra": ["-WithText"],
+  "expect": {
+    "stdoutContains": "Text"
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "name": "Roundtrip — макет с шаблонами (template)",
+  "preRun": [
+    {
+      "script": "mxl-compile/scripts/mxl-compile",
+      "input": {
+        "columns": 2,
+        "areas": [
+          {
+            "name": "Документ",
+            "rows": [
+              { "cells": [
+                { "col": 1, "text": "Накладная:" },
+                { "col": 2, "template": "№ [Номер] от [Дата]" }
+              ]}
+            ]
+          }
+        ]
+      },
+      "args": { "-JsonPath": "{inputFile}", "-OutputPath": "Template.xml" },
+      "cwd": "{workDir}"
+    }
+  ],
+  "params": { "templatePath": "Template.xml" },
+  "expect": { "stdoutContains": "areas" }
+}

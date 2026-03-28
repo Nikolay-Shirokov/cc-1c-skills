@@ -1,0 +1,15 @@
+{
+  "name": "Batch — несколько объектов в одном файле",
+  "input": [
+    { "type": "Enum", "name": "Статусы", "values": ["Новый", "Закрыт"] },
+    { "type": "Catalog", "name": "Валюты" },
+    { "type": "Constant", "name": "ОсновнаяВалюта", "valueType": "CatalogRef.Валюты" }
+  ],
+  "expect": {
+    "files": [
+      "Enums/Статусы.xml",
+      "Catalogs/Валюты.xml",
+      "Constants/ОсновнаяВалюта.xml"
+    ]
+  }
+}

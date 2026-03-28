@@ -1,0 +1,33 @@
+{
+  "name": "СКД с фильтрами в варианте",
+  "params": { "outputPath": "Template.xml" },
+  "input": {
+    "dataSets": [{
+      "name": "Основной",
+      "query": "ВЫБРАТЬ Продажи.Организация, Продажи.Номенклатура, Продажи.Статус, Продажи.Сумма ИЗ РегистрНакопления.Продажи КАК Продажи",
+      "fields": [
+        "Организация: CatalogRef.Организации @dimension",
+        "Номенклатура",
+        "Статус: string",
+        "Сумма: decimal(15,2)"
+      ]
+    }],
+    "settingsVariants": [{
+      "name": "Основной",
+      "settings": {
+        "selection": ["Организация", "Номенклатура", "Статус", "Сумма", "Auto"],
+        "filter": [
+          "Организация = _ @off @user",
+          "Статус filled",
+          "Сумма > 0"
+        ],
+        "dataParameters": ["Период = LastMonth @user"],
+        "structure": "details"
+      }
+    }],
+    "parameters": ["Период: StandardPeriod = LastMonth @autoDates"]
+  },
+  "expect": {
+    "files": ["Template.xml"]
+  }
+}

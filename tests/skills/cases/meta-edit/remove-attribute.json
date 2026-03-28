@@ -1,0 +1,20 @@
+{
+  "name": "Удаление реквизита из справочника",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "Catalog",
+        "name": "Контрагенты",
+        "attributes": ["ИНН: String(12)", "Устаревший: String(50)"]
+      },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    }
+  ],
+  "params": { "objectPath": "Catalogs/Контрагенты" },
+  "input": {
+    "operations": [
+      { "op": "remove-attribute", "name": "Устаревший" }
+    ]
+  }
+}

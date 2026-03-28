@@ -1,0 +1,30 @@
+{
+  "name": "Макет с заданными ширинами колонок",
+  "input": {
+    "columns": 6,
+    "defaultWidth": 20,
+    "columnWidths": { "1": 10, "2-4": 40, "5,6": 30 },
+    "styles": {
+      "bordered": { "border": "all" }
+    },
+    "areas": [
+      {
+        "name": "Данные",
+        "rows": [
+          { "rowStyle": "bordered", "cells": [
+            { "col": 1, "text": "№" },
+            { "col": 2, "text": "Кол А" },
+            { "col": 3, "text": "Кол Б" },
+            { "col": 4, "text": "Кол В" },
+            { "col": 5, "text": "Итог 1" },
+            { "col": 6, "text": "Итог 2" }
+          ]}
+        ]
+      }
+    ]
+  },
+  "params": { "outputPath": "Template.xml" },
+  "expect": {
+    "files": ["Template.xml"]
+  }
+}

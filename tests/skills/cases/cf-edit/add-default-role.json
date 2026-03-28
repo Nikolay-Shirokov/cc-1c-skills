@@ -1,0 +1,13 @@
+{
+  "name": "Добавление роли по умолчанию",
+  "preRun": [
+    {
+      "script": "cf-edit/scripts/cf-edit",
+      "input": [{ "operation": "add-childObject", "value": "Role.ПолныеПрава" }],
+      "args": { "-ConfigPath": "{workDir}", "-DefinitionFile": "{inputFile}" }
+    }
+  ],
+  "input": [
+    { "operation": "add-defaultRole", "value": "ПолныеПрава" }
+  ]
+}

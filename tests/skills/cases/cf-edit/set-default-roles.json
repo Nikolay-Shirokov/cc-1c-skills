@@ -1,0 +1,13 @@
+{
+  "name": "Замена списка ролей по умолчанию",
+  "preRun": [
+    {
+      "script": "cf-edit/scripts/cf-edit",
+      "input": [{ "operation": "add-childObject", "value": "Role.ПолныеПрава ;; Role.Администратор" }],
+      "args": { "-ConfigPath": "{workDir}", "-DefinitionFile": "{inputFile}" }
+    }
+  ],
+  "input": [
+    { "operation": "set-defaultRoles", "value": "ПолныеПрава ;; Администратор" }
+  ]
+}

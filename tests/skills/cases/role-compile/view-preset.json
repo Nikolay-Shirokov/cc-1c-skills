@@ -1,0 +1,26 @@
+{
+  "name": "Роль с пресетом @view",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "Catalog", "name": "Номенклатура" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "DataProcessor", "name": "Загрузка" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    }
+  ],
+  "input": {
+    "name": "ЧтениеНоменклатуры",
+    "synonym": "Чтение номенклатуры",
+    "objects": [
+      "Catalog.Номенклатура: @view",
+      "DataProcessor.Загрузка: @view"
+    ]
+  },
+  "expect": {
+    "files": ["ЧтениеНоменклатуры.xml", "ЧтениеНоменклатуры/Ext/Rights.xml"]
+  }
+}

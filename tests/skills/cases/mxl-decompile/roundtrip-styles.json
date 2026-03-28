@@ -1,0 +1,37 @@
+{
+  "name": "Roundtrip — макет с разными стилями",
+  "preRun": [
+    {
+      "script": "mxl-compile/scripts/mxl-compile",
+      "input": {
+        "columns": 3,
+        "fonts": {
+          "default": { "face": "Arial", "size": 10 },
+          "bold": { "face": "Arial", "size": 10, "bold": true },
+          "italic": { "face": "Arial", "size": 10, "italic": true }
+        },
+        "styles": {
+          "bold-center": { "font": "bold", "align": "center", "border": "all" },
+          "italic-right": { "font": "italic", "align": "right" },
+          "bordered": { "border": "all" }
+        },
+        "areas": [
+          {
+            "name": "Тест",
+            "rows": [
+              { "cells": [
+                { "col": 1, "style": "bold-center", "text": "Жирный" },
+                { "col": 2, "style": "italic-right", "text": "Курсив" },
+                { "col": 3, "style": "bordered", "text": "Обычный" }
+              ]}
+            ]
+          }
+        ]
+      },
+      "args": { "-JsonPath": "{inputFile}", "-OutputPath": "Template.xml" },
+      "cwd": "{workDir}"
+    }
+  ],
+  "params": { "templatePath": "Template.xml" },
+  "expect": { "stdoutContains": "fonts" }
+}

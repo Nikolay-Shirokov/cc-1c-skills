@@ -1,0 +1,18 @@
+{
+  "name": "Минимальная форма — только заголовок",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "DataProcessor", "name": "Минимальная" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    {
+      "script": "form-add/scripts/form-add",
+      "args": { "-ObjectPath": "{workDir}/DataProcessors/Минимальная.xml", "-FormName": "Форма" }
+    }
+  ],
+  "params": { "outputPath": "DataProcessors/Минимальная/Forms/Форма/Ext/Form.xml" },
+  "input": {
+    "title": "Минимальная форма"
+  }
+}

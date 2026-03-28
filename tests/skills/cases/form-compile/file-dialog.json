@@ -1,0 +1,40 @@
+{
+  "name": "Диалог загрузки файла (паттерн из SKILL.md)",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "DataProcessor", "name": "ЗагрузкаИзФайла" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    {
+      "script": "form-add/scripts/form-add",
+      "args": { "-ObjectPath": "{workDir}/DataProcessors/ЗагрузкаИзФайла.xml", "-FormName": "Форма" }
+    }
+  ],
+  "params": { "outputPath": "DataProcessors/ЗагрузкаИзФайла/Forms/Форма/Ext/Form.xml" },
+  "input": {
+    "title": "Загрузка из файла",
+    "properties": { "autoTitle": false },
+    "events": { "OnCreateAtServer": "ПриСозданииНаСервере" },
+    "elements": [
+      { "group": "horizontal", "name": "ГруппаФайл", "children": [
+        { "input": "ИмяФайла", "path": "ИмяФайла", "title": "Файл", "inputHint": "Выберите файл...", "choiceButton": true, "on": ["StartChoice"] },
+        { "check": "ПерваяСтрокаЗаголовок", "path": "ПерваяСтрокаЗаголовок" }
+      ]},
+      { "input": "Результат", "path": "Результат", "multiLine": true, "height": 8, "readOnly": true, "title": "Лог" },
+      { "group": "horizontal", "name": "ГруппаКнопок", "children": [
+        { "button": "Загрузить", "command": "Загрузить", "defaultButton": true },
+        { "button": "Закрыть", "stdCommand": "Close" }
+      ]}
+    ],
+    "attributes": [
+      { "name": "Объект", "type": "ExternalDataProcessorObject.ЗагрузкаИзФайла", "main": true },
+      { "name": "ИмяФайла", "type": "string" },
+      { "name": "ПерваяСтрокаЗаголовок", "type": "boolean" },
+      { "name": "Результат", "type": "string" }
+    ],
+    "commands": [
+      { "name": "Загрузить", "action": "ЗагрузитьОбработка", "shortcut": "Ctrl+Enter" }
+    ]
+  }
+}

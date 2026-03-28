@@ -1,0 +1,10 @@
+{
+  "name": "Добавление формы с произвольным именем",
+  "preRun": [
+    {
+      "script": "epf-init/scripts/init",
+      "args": { "-Name": "ЗагрузкаДанных", "-SrcDir": "{workDir}" }
+    }
+  ],
+  "params": { "processorName": "ЗагрузкаДанных", "formName": "ФормаНастроек" }
+}

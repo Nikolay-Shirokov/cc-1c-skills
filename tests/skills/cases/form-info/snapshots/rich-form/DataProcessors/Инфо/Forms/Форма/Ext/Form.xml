@@ -1,0 +1,123 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Form xmlns="http://v8.1c.ru/8.3/xcf/logform" xmlns:app="http://v8.1c.ru/8.2/managed-application/core" xmlns:cfg="http://v8.1c.ru/8.1/data/enterprise/current-config" xmlns:dcscor="http://v8.1c.ru/8.1/data-composition-system/core" xmlns:dcssch="http://v8.1c.ru/8.1/data-composition-system/schema" xmlns:dcsset="http://v8.1c.ru/8.1/data-composition-system/settings" xmlns:ent="http://v8.1c.ru/8.1/data/enterprise" xmlns:lf="http://v8.1c.ru/8.2/managed-application/logform" xmlns:style="http://v8.1c.ru/8.1/data/ui/style" xmlns:sys="http://v8.1c.ru/8.1/data/ui/fonts/system" xmlns:v8="http://v8.1c.ru/8.1/data/core" xmlns:v8ui="http://v8.1c.ru/8.1/data/ui" xmlns:web="http://v8.1c.ru/8.1/data/ui/colors/web" xmlns:win="http://v8.1c.ru/8.1/data/ui/colors/windows" xmlns:xr="http://v8.1c.ru/8.3/xcf/readable" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" version="2.17">
+	<Title>
+		<v8:item>
+			<v8:lang>ru</v8:lang>
+			<v8:content>Подробная форма</v8:content>
+		</v8:item>
+	</Title>
+	<AutoCommandBar name="ФормаКоманднаяПанель" id="-1">
+		<HorizontalAlign>Right</HorizontalAlign>
+		<Autofill>false</Autofill>
+	</AutoCommandBar>
+	<Events>
+		<Event name="OnCreateAtServer">ПриСозданииНаСервере</Event>
+	</Events>
+	<ChildItems>
+		<UsualGroup name="Шапка" id="1">
+			<Title>
+				<v8:item>
+					<v8:lang>ru</v8:lang>
+					<v8:content>Шапка</v8:content>
+				</v8:item>
+			</Title>
+			<Group>Horizontal</Group>
+			<ExtendedTooltip name="ШапкаРасширеннаяПодсказка" id="2"/>
+			<ChildItems>
+				<InputField name="Организация" id="3">
+					<DataPath>Организация</DataPath>
+					<ContextMenu name="ОрганизацияКонтекстноеМеню" id="4"/>
+					<ExtendedTooltip name="ОрганизацияРасширеннаяПодсказка" id="5"/>
+					<Events>
+						<Event name="OnChange">ОрганизацияПриИзменении</Event>
+					</Events>
+				</InputField>
+				<InputField name="Период" id="6">
+					<DataPath>Период</DataPath>
+					<ContextMenu name="ПериодКонтекстноеМеню" id="7"/>
+					<ExtendedTooltip name="ПериодРасширеннаяПодсказка" id="8"/>
+				</InputField>
+			</ChildItems>
+		</UsualGroup>
+		<Table name="Данные" id="9">
+			<DataPath>Данные</DataPath>
+			<ContextMenu name="ДанныеКонтекстноеМеню" id="10"/>
+			<AutoCommandBar name="ДанныеКоманднаяПанель" id="11"/>
+			<SearchStringAddition name="ДанныеСтрокаПоиска" id="12"/>
+			<ViewStatusAddition name="ДанныеСостояниеПросмотра" id="13"/>
+			<SearchControlAddition name="ДанныеУправлениеПоиском" id="14"/>
+			<ChildItems>
+				<InputField name="Наименование" id="15">
+					<DataPath>Данные.Наименование</DataPath>
+					<ContextMenu name="НаименованиеКонтекстноеМеню" id="16"/>
+					<ExtendedTooltip name="НаименованиеРасширеннаяПодсказка" id="17"/>
+				</InputField>
+				<InputField name="Сумма" id="18">
+					<DataPath>Данные.Сумма</DataPath>
+					<ContextMenu name="СуммаКонтекстноеМеню" id="19"/>
+					<ExtendedTooltip name="СуммаРасширеннаяПодсказка" id="20"/>
+				</InputField>
+			</ChildItems>
+		</Table>
+		<Button name="Выполнить" id="21">
+			<CommandName>Form.Command.Выполнить</CommandName>
+			<ExtendedTooltip name="ВыполнитьРасширеннаяПодсказка" id="22"/>
+		</Button>
+	</ChildItems>
+	<Attributes>
+		<Attribute name="Объект" id="23">
+			<Type>
+				<v8:Type>cfg:ExternalDataProcessorObject.Инфо</v8:Type>
+			</Type>
+			<MainAttribute>true</MainAttribute>
+		</Attribute>
+		<Attribute name="Организация" id="24">
+			<Type>
+				<v8:Type>xs:string</v8:Type>
+				<v8:StringQualifiers>
+					<v8:Length>0</v8:Length>
+					<v8:AllowedLength>Variable</v8:AllowedLength>
+				</v8:StringQualifiers>
+			</Type>
+		</Attribute>
+		<Attribute name="Период" id="25">
+			<Type>
+				<v8:Type>xs:dateTime</v8:Type>
+				<v8:DateQualifiers>
+					<v8:DateFractions>Date</v8:DateFractions>
+				</v8:DateQualifiers>
+			</Type>
+		</Attribute>
+		<Attribute name="Данные" id="26">
+			<Type>
+				<v8:Type>v8:ValueTable</v8:Type>
+			</Type>
+			<Columns>
+				<Column name="Наименование" id="27">
+					<Type>
+						<v8:Type>xs:string</v8:Type>
+						<v8:StringQualifiers>
+							<v8:Length>150</v8:Length>
+							<v8:AllowedLength>Variable</v8:AllowedLength>
+						</v8:StringQualifiers>
+					</Type>
+				</Column>
+				<Column name="Сумма" id="28">
+					<Type>
+						<v8:Type>xs:decimal</v8:Type>
+						<v8:NumberQualifiers>
+							<v8:Digits>15</v8:Digits>
+							<v8:FractionDigits>2</v8:FractionDigits>
+							<v8:AllowedSign>Any</v8:AllowedSign>
+						</v8:NumberQualifiers>
+					</Type>
+				</Column>
+			</Columns>
+		</Attribute>
+	</Attributes>
+	<Commands>
+		<Command name="Выполнить" id="29">
+			<Action>ВыполнитьОбработка</Action>
+		</Command>
+	</Commands>
+</Form>

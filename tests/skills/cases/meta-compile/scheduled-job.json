@@ -1,0 +1,11 @@
+{
+  "name": "Регламентное задание",
+  "input": {
+    "type": "ScheduledJob",
+    "name": "ОбменДанными",
+    "methodName": "ОбменДаннымиСервер.Выполнить"
+  },
+  "expect": {
+    "files": ["ScheduledJobs/ОбменДанными.xml"]
+  }
+}

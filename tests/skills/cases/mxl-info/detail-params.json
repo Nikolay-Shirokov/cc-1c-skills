@@ -1,0 +1,32 @@
+{
+  "name": "Макет с параметрами расшифровки (detail)",
+  "preRun": [
+    {
+      "script": "mxl-compile/scripts/mxl-compile",
+      "input": {
+        "columns": 3,
+        "styles": {
+          "bordered": { "border": "all" }
+        },
+        "areas": [
+          {
+            "name": "Строка",
+            "rows": [
+              { "rowStyle": "bordered", "cells": [
+                { "col": 1, "param": "НомерСтроки" },
+                { "col": 2, "param": "Товар", "detail": "Номенклатура" },
+                { "col": 3, "param": "Сумма" }
+              ]}
+            ]
+          }
+        ]
+      },
+      "args": { "-JsonPath": "{inputFile}", "-OutputPath": "Template.xml" },
+      "cwd": "{workDir}"
+    }
+  ],
+  "params": { "templatePath": "Template.xml" },
+  "expect": {
+    "stdoutContains": "detail"
+  }
+}

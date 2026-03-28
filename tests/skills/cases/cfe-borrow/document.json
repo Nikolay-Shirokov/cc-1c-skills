@@ -1,0 +1,15 @@
+{
+  "name": "Заимствование документа",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "Document", "name": "ПриходТоваров" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    {
+      "script": "cfe-init/scripts/cfe-init",
+      "args": { "-Name": "Тест", "-OutputDir": "{workDir}/ext", "-ConfigPath": "{workDir}" }
+    }
+  ],
+  "params": { "extensionPath": "ext", "object": "Document.ПриходТоваров" }
+}

@@ -1,0 +1,29 @@
+{
+  "name": "CI с размещением и видимостью",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "Catalog", "name": "Товары" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "Document", "name": "Заказ" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    {
+      "script": "subsystem-compile/scripts/subsystem-compile",
+      "input": { "name": "Склад", "content": ["Catalog.Товары", "Document.Заказ"] },
+      "args": { "-DefinitionFile": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    {
+      "script": "interface-edit/scripts/interface-edit",
+      "input": [
+        { "operation": "place", "value": "{\"command\": \"Catalog.Товары\", \"group\": \"NavigationPanel.Important\"}" },
+        { "operation": "hide", "value": "Document.Заказ.StandardCommand.OpenList" }
+      ],
+      "args": { "-CIPath": "{workDir}/Subsystems/Склад/CommandInterface", "-DefinitionFile": "{inputFile}", "-CreateIfMissing": true }
+    }
+  ],
+  "params": { "ciPath": "Subsystems/Склад/CommandInterface" }
+}

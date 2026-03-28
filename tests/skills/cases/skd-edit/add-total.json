@@ -1,0 +1,21 @@
+{
+  "name": "Добавление итога",
+  "preRun": [
+    {
+      "script": "skd-compile/scripts/skd-compile",
+      "input": {
+        "dataSets": [{
+          "name": "Основной",
+          "query": "ВЫБРАТЬ Т.Номенклатура, Т.Количество ИЗ Регистр КАК Т",
+          "fields": ["Номенклатура", "Количество: decimal(15,3)"]
+        }]
+      },
+      "args": { "-DefinitionFile": "{inputFile}", "-OutputPath": "{workDir}/Template.xml" }
+    }
+  ],
+  "params": {
+    "templatePath": "Template.xml",
+    "operation": "add-total",
+    "value": "Количество: Сумма"
+  }
+}

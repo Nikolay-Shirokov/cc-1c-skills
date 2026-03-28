@@ -1,0 +1,11 @@
+{
+  "name": "Константа с типом-ссылкой",
+  "input": {
+    "type": "Constant",
+    "name": "ОсновнаяВалюта",
+    "valueType": "CatalogRef.Валюты"
+  },
+  "expect": {
+    "files": ["Constants/ОсновнаяВалюта.xml"]
+  }
+}

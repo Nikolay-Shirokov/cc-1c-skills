@@ -1,0 +1,17 @@
+{
+  "name": "Изменение свойств объекта",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "Catalog", "name": "Организации" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    }
+  ],
+  "params": { "objectPath": "Catalogs/Организации" },
+  "input": {
+    "operations": [
+      { "op": "modify-property", "name": "CodeLength", "value": "11" },
+      { "op": "modify-property", "name": "DescriptionLength", "value": "150" }
+    ]
+  }
+}

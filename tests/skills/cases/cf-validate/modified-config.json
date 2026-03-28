@@ -1,0 +1,10 @@
+{
+  "name": "Модифицированная конфигурация проходит валидацию",
+  "preRun": [
+    {
+      "script": "cf-edit/scripts/cf-edit",
+      "input": [{ "operation": "modify-property", "value": "Version=1.0.0 ;; Vendor=Тест" }],
+      "args": { "-ConfigPath": "{workDir}", "-DefinitionFile": "{inputFile}" }
+    }
+  ]
+}

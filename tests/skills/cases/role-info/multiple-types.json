@@ -1,0 +1,34 @@
+{
+  "name": "Обзор роли с разными типами объектов",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "Catalog", "name": "Товары" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "Document", "name": "Продажа" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "InformationRegister", "name": "Цены" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    {
+      "script": "role-compile/scripts/role-compile",
+      "input": {
+        "name": "Комплексная",
+        "objects": [
+          "Catalog.Товары: @view",
+          "Document.Продажа: @edit",
+          "InformationRegister.Цены: Read, Update"
+        ]
+      },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    }
+  ],
+  "params": { "rightsPath": "Комплексная/Ext/Rights.xml" },
+  "expect": { "stdoutContains": "Catalog" }
+}

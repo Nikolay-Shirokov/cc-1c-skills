@@ -1,0 +1,34 @@
+{
+  "name": "Форма с группами и командной панелью",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "DataProcessor", "name": "СГруппами" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    {
+      "script": "form-add/scripts/form-add",
+      "args": { "-ObjectPath": "{workDir}/DataProcessors/СГруппами.xml", "-FormName": "Форма" }
+    }
+  ],
+  "params": { "outputPath": "DataProcessors/СГруппами/Forms/Форма/Ext/Form.xml" },
+  "input": {
+    "title": "Группы",
+    "elements": [
+      { "cmdBar": "КоманднаяПанель", "autofill": true },
+      { "group": "horizontal", "name": "ГруппаШапка", "showTitle": true, "title": "Шапка", "children": [
+        { "input": "Поле1", "path": "Поле1", "title": "Поле 1" },
+        { "input": "Поле2", "path": "Поле2", "title": "Поле 2" }
+      ]},
+      { "group": "vertical", "name": "ГруппаПодвал", "children": [
+        { "input": "Поле3", "path": "Поле3", "title": "Поле 3" }
+      ]}
+    ],
+    "attributes": [
+      { "name": "Объект", "type": "ExternalDataProcessorObject.СГруппами", "main": true },
+      { "name": "Поле1", "type": "string" },
+      { "name": "Поле2", "type": "decimal(15,2)" },
+      { "name": "Поле3", "type": "date" }
+    ]
+  }
+}

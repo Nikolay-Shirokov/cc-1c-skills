@@ -1,0 +1,6 @@
+{
+  "name": "Ошибка: height меньше максимального индекса строки",
+  "setup": "fixture:bad-height",
+  "params": { "templatePath": "Template.xml" },
+  "expectError": true
+}

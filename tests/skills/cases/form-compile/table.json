@@ -1,0 +1,33 @@
+{
+  "name": "Форма с таблицей",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "DataProcessor", "name": "Таблица" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    {
+      "script": "form-add/scripts/form-add",
+      "args": { "-ObjectPath": "{workDir}/DataProcessors/Таблица.xml", "-FormName": "Форма" }
+    }
+  ],
+  "params": { "outputPath": "DataProcessors/Таблица/Forms/Форма/Ext/Form.xml" },
+  "input": {
+    "title": "Просмотр данных",
+    "elements": [
+      { "table": "Данные", "path": "Данные", "changeRowSet": true, "columns": [
+        { "input": "Дата", "path": "Данные.Дата" },
+        { "input": "Сумма", "path": "Данные.Сумма" },
+        { "input": "Комментарий", "path": "Данные.Комментарий" }
+      ]}
+    ],
+    "attributes": [
+      { "name": "Объект", "type": "ExternalDataProcessorObject.Таблица", "main": true },
+      { "name": "Данные", "type": "ValueTable", "columns": [
+        { "name": "Дата", "type": "date" },
+        { "name": "Сумма", "type": "decimal(15,2)" },
+        { "name": "Комментарий", "type": "string(200)" }
+      ]}
+    ]
+  }
+}

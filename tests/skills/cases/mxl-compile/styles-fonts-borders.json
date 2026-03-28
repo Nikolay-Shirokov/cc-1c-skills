@@ -1,0 +1,92 @@
+{
+  "name": "Макет с разными стилями — шрифты, границы, выравнивание",
+  "input": {
+    "columns": 5,
+    "defaultWidth": 25,
+    "fonts": {
+      "default": { "face": "Arial", "size": 10 },
+      "bold": { "face": "Arial", "size": 10, "bold": true },
+      "italic": { "face": "Arial", "size": 10, "italic": true },
+      "header": { "face": "Times New Roman", "size": 14, "bold": true },
+      "small": { "face": "Arial", "size": 8 },
+      "underlined": { "face": "Arial", "size": 10, "underline": true }
+    },
+    "styles": {
+      "header-center": { "font": "header", "align": "center" },
+      "bold-left": { "font": "bold", "border": "bottom" },
+      "italic-right": { "font": "italic", "align": "right" },
+      "bordered": { "border": "all" },
+      "bordered-center": { "border": "all", "align": "center" },
+      "bordered-right": { "border": "all", "align": "right" },
+      "thick-border": { "border": "all", "borderWidth": "thick", "font": "bold" },
+      "top-bottom": { "border": "top,bottom" },
+      "small-note": { "font": "small", "align": "center" },
+      "underlined-left": { "font": "underlined" },
+      "wrap-cell": { "border": "all", "wrap": true }
+    },
+    "areas": [
+      {
+        "name": "Заголовок",
+        "rows": [
+          { "height": 25, "cells": [
+            { "col": 1, "span": 5, "style": "header-center", "text": "НАКЛАДНАЯ" }
+          ]}
+        ]
+      },
+      {
+        "name": "Подпись",
+        "rows": [
+          { "cells": [
+            { "col": 1, "span": 2, "style": "bold-left", "text": "Поставщик:" },
+            { "col": 3, "span": 3, "style": "underlined-left", "param": "Поставщик" }
+          ]}
+        ]
+      },
+      {
+        "name": "ШапкаТаблицы",
+        "rows": [
+          { "rowStyle": "thick-border", "cells": [
+            { "col": 1, "text": "№" },
+            { "col": 2, "text": "Товар" },
+            { "col": 3, "text": "Кол-во" },
+            { "col": 4, "text": "Цена" },
+            { "col": 5, "text": "Сумма" }
+          ]}
+        ]
+      },
+      {
+        "name": "Строка",
+        "rows": [
+          { "rowStyle": "bordered", "cells": [
+            { "col": 1, "style": "bordered-center", "param": "НомерСтроки" },
+            { "col": 2, "style": "wrap-cell", "param": "Товар" },
+            { "col": 3, "style": "bordered-right", "param": "Количество" },
+            { "col": 4, "style": "bordered-right", "param": "Цена" },
+            { "col": 5, "style": "bordered-right", "param": "Сумма" }
+          ]}
+        ]
+      },
+      {
+        "name": "Итого",
+        "rows": [
+          { "cells": [
+            { "col": 4, "style": "top-bottom", "text": "Итого:" },
+            { "col": 5, "style": "top-bottom", "param": "Всего" }
+          ]}
+        ]
+      },
+      {
+        "name": "Примечание",
+        "rows": [
+          { "cells": [
+            { "col": 1, "span": 5, "style": "small-note", "text": "* Цены указаны без НДС" }
+          ]}
+        ]
+      }
+    ]
+  },
+  "params": { "outputPath": "Template.xml" },
+  "expect": {
+    "files": ["Template.xml"]
+  }
+}

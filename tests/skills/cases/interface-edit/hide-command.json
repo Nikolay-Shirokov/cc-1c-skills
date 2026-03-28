@@ -1,0 +1,24 @@
+{
+  "name": "Скрытие команды в интерфейсе",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "Catalog", "name": "Товары" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    {
+      "script": "subsystem-compile/scripts/subsystem-compile",
+      "input": { "name": "Склад", "content": ["Catalog.Товары"] },
+      "args": { "-DefinitionFile": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    {
+      "script": "interface-edit/scripts/interface-edit",
+      "input": [{ "operation": "place", "value": "{\"command\": \"Catalog.Товары\", \"group\": \"NavigationPanel.Important\"}" }],
+      "args": { "-CIPath": "{workDir}/Subsystems/Склад/CommandInterface", "-DefinitionFile": "{inputFile}", "-CreateIfMissing": true }
+    }
+  ],
+  "params": { "ciPath": "Subsystems/Склад/CommandInterface" },
+  "input": [
+    { "operation": "hide", "value": "Catalog.Товары.StandardCommand.OpenList" }
+  ]
+}

@@ -1,0 +1,6 @@
+{
+  "name": "Добавление объектов в конфигурацию",
+  "input": [
+    { "operation": "add-childObject", "value": "Catalog.Товары ;; Document.ПриходТоваров" }
+  ]
+}

@@ -1,0 +1,37 @@
+{
+  "name": "Макет с пустыми строками (empty)",
+  "input": {
+    "columns": 3,
+    "fonts": {
+      "default": { "face": "Arial", "size": 10 },
+      "bold": { "face": "Arial", "size": 12, "bold": true }
+    },
+    "styles": {
+      "header": { "font": "bold", "align": "center" },
+      "bordered": { "border": "all" }
+    },
+    "areas": [
+      {
+        "name": "Заголовок",
+        "rows": [
+          { "cells": [{ "col": 1, "span": 3, "style": "header", "text": "Отчёт" }] },
+          { "empty": 2 }
+        ]
+      },
+      {
+        "name": "Данные",
+        "rows": [
+          { "rowStyle": "bordered", "cells": [
+            { "col": 1, "param": "Код" },
+            { "col": 2, "param": "Имя" },
+            { "col": 3, "param": "Значение" }
+          ]}
+        ]
+      }
+    ]
+  },
+  "params": { "outputPath": "Template.xml" },
+  "expect": {
+    "files": ["Template.xml"]
+  }
+}

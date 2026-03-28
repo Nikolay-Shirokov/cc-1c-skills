@@ -1,0 +1,16 @@
+{
+  "name": "Валидация с -Detailed показывает все проверки",
+  "setup": "empty-config",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "Catalog", "name": "Тест", "attributes": ["Имя: String(50)"] },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    }
+  ],
+  "params": { "objectPath": "Catalogs/Тест" },
+  "args_extra": ["-Detailed"],
+  "expect": {
+    "stdoutContains": "[OK]"
+  }
+}

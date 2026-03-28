@@ -1,0 +1,10 @@
+{
+  "name": "Макет HTML к обработке",
+  "preRun": [
+    {
+      "script": "epf-init/scripts/init",
+      "args": { "-Name": "МояОбработка", "-SrcDir": "{workDir}" }
+    }
+  ],
+  "params": { "objectName": "МояОбработка", "templateName": "МакетHTML", "templateType": "HTML" }
+}

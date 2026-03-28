@@ -1,0 +1,108 @@
+{
+  "name": "Печатная форма — шапка + реквизиты + таблица + подвал",
+  "input": {
+    "columns": 10,
+    "page": "A4-portrait",
+    "columnWidths": { "1": "1x", "2-8": "1x", "9": "1x", "10": "1x" },
+    "fonts": {
+      "default": { "face": "Arial", "size": 10 },
+      "bold": { "face": "Arial", "size": 10, "bold": true },
+      "header": { "face": "Arial", "size": 14, "bold": true },
+      "small": { "face": "Arial", "size": 8 }
+    },
+    "styles": {
+      "title": { "font": "header", "align": "center" },
+      "label": { "font": "bold" },
+      "bordered": { "border": "all" },
+      "bordered-right": { "border": "all", "align": "right" },
+      "bordered-center": { "border": "all", "align": "center" },
+      "total-label": { "font": "bold", "align": "right" },
+      "total-value": { "font": "bold", "border": "top", "align": "right" },
+      "sign-line": { "border": "bottom" },
+      "small-center": { "font": "small", "align": "center" }
+    },
+    "areas": [
+      {
+        "name": "Заголовок",
+        "rows": [
+          { "height": 20, "cells": [
+            { "col": 1, "span": 10, "style": "title", "param": "ТекстЗаголовка" }
+          ]},
+          {},
+          { "cells": [
+            { "col": 1, "span": 3, "style": "label", "text": "Организация:" },
+            { "col": 4, "span": 7, "param": "Организация" }
+          ]},
+          { "cells": [
+            { "col": 1, "span": 3, "style": "label", "text": "Контрагент:" },
+            { "col": 4, "span": 7, "param": "Контрагент" }
+          ]}
+        ]
+      },
+      {
+        "name": "ШапкаТаблицы",
+        "rows": [
+          { "rowStyle": "bordered", "cells": [
+            { "col": 1, "style": "bordered-center", "text": "№" },
+            { "col": 2, "span": 5, "style": "bordered-center", "text": "Наименование" },
+            { "col": 7, "style": "bordered-center", "text": "Ед." },
+            { "col": 8, "style": "bordered-center", "text": "Кол-во" },
+            { "col": 9, "style": "bordered-center", "text": "Цена" },
+            { "col": 10, "style": "bordered-center", "text": "Сумма" }
+          ]}
+        ]
+      },
+      {
+        "name": "Строка",
+        "rows": [
+          { "rowStyle": "bordered", "cells": [
+            { "col": 1, "style": "bordered-center", "param": "НомерСтроки" },
+            { "col": 2, "span": 5, "param": "Товар", "detail": "Номенклатура" },
+            { "col": 7, "style": "bordered-center", "param": "ЕдИзм" },
+            { "col": 8, "style": "bordered-right", "param": "Количество" },
+            { "col": 9, "style": "bordered-right", "param": "Цена" },
+            { "col": 10, "style": "bordered-right", "param": "Сумма" }
+          ]}
+        ]
+      },
+      {
+        "name": "Итого",
+        "rows": [
+          { "cells": [
+            { "col": 8, "span": 2, "style": "total-label", "text": "Итого:" },
+            { "col": 10, "style": "total-value", "param": "ИтогоСумма" }
+          ]},
+          { "cells": [
+            { "col": 8, "span": 2, "style": "total-label", "text": "В т.ч. НДС:" },
+            { "col": 10, "style": "total-value", "param": "ИтогоНДС" }
+          ]}
+        ]
+      },
+      {
+        "name": "Подвал",
+        "rows": [
+          { "empty": 2 },
+          { "cells": [
+            { "col": 1, "span": 3, "style": "label", "text": "Отпустил:" },
+            { "col": 4, "span": 3, "style": "sign-line", "param": "Отпустил" }
+          ]},
+          { "cells": [
+            { "col": 4, "span": 3, "style": "small-center", "text": "(подпись)" }
+          ]},
+          {},
+          { "cells": [
+            { "col": 1, "span": 3, "style": "label", "text": "Получил:" },
+            { "col": 4, "span": 3, "style": "sign-line", "param": "Получил" }
+          ]},
+          { "cells": [
+            { "col": 4, "span": 3, "style": "small-center", "text": "(подпись)" }
+          ]}
+        ]
+      }
+    ]
+  },
+  "params": { "outputPath": "Template.xml" },
+  "expect": {
+    "files": ["Template.xml"]
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "name": "Обработка с реквизитом",
+  "input": {
+    "type": "DataProcessor",
+    "name": "ЗагрузкаДанных",
+    "attributes": ["ПутьКФайлу: String(500)"]
+  },
+  "expect": {
+    "files": ["DataProcessors/ЗагрузкаДанных.xml", "DataProcessors/ЗагрузкаДанных/Ext/ObjectModule.bsl"]
+  }
+}

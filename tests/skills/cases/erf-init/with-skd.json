@@ -1,0 +1,8 @@
+{
+  "name": "Отчёт с СКД",
+  "params": { "name": "ОтчётСКД" },
+  "args_extra": ["-WithSKD"],
+  "expect": {
+    "files": ["ОтчётСКД.xml"]
+  }
+}

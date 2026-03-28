@@ -1,0 +1,35 @@
+{
+  "name": "Форма с таблицей проходит валидацию",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "DataProcessor", "name": "ВалТабл" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    {
+      "script": "form-add/scripts/form-add",
+      "args": { "-ObjectPath": "{workDir}/DataProcessors/ВалТабл.xml", "-FormName": "Форма" }
+    },
+    {
+      "script": "form-compile/scripts/form-compile",
+      "input": {
+        "title": "Таблица",
+        "elements": [
+          { "table": "Данные", "path": "Данные", "columns": [
+            { "input": "Наименование", "path": "Данные.Наименование" },
+            { "input": "Количество", "path": "Данные.Количество" }
+          ]}
+        ],
+        "attributes": [
+          { "name": "Объект", "type": "ExternalDataProcessorObject.ВалТабл", "main": true },
+          { "name": "Данные", "type": "ValueTable", "columns": [
+            { "name": "Наименование", "type": "string(150)" },
+            { "name": "Количество", "type": "decimal(10,3)" }
+          ]}
+        ]
+      },
+      "args": { "-JsonPath": "{inputFile}", "-OutputPath": "{workDir}/DataProcessors/ВалТабл/Forms/Форма/Ext/Form.xml" }
+    }
+  ],
+  "params": { "formPath": "DataProcessors/ВалТабл/Forms/Форма" }
+}

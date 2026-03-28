@@ -1,0 +1,24 @@
+{
+  "name": "Валидация роли с RLS",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "Document", "name": "Продажа" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    {
+      "script": "role-compile/scripts/role-compile",
+      "input": {
+        "name": "СОграничениями",
+        "objects": [
+          { "name": "Document.Продажа", "preset": "view", "rls": { "Read": "#Шаблон(\"\")" } }
+        ],
+        "templates": [
+          { "name": "Шаблон(Мод)", "condition": "ГДЕ Поле = &Параметр" }
+        ]
+      },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    }
+  ],
+  "params": { "rightsPath": "СОграничениями/Ext/Rights.xml" }
+}

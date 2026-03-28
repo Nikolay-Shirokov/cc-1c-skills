@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CommandInterface xmlns="http://v8.1c.ru/8.3/xcf/extrnprops" xmlns:xr="http://v8.1c.ru/8.3/xcf/readable" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" version="2.17">
+	<SubsystemsOrder>
+	<Subsystem>Subsystem.Продажи.Subsystem.Розничные</Subsystem>
+	<Subsystem>Subsystem.Продажи.Subsystem.Оптовые</Subsystem>
+	</SubsystemsOrder>
+</CommandInterface>

@@ -1,0 +1,17 @@
+{
+  "name": "Корректный документ проходит валидацию",
+  "setup": "empty-config",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "Document",
+        "name": "ПриходнаяНакладная",
+        "attributes": ["Склад: String(100)"],
+        "tabularSections": { "Товары": ["Номенклатура: String(150)", "Количество: Number(15,3)"] }
+      },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    }
+  ],
+  "params": { "objectPath": "Documents/ПриходнаяНакладная" }
+}
