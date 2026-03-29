@@ -12,6 +12,7 @@
       { "dataPath": "Наценка", "title": "Наценка, %", "expression": "(Цена - Закупка) / Закупка * 100", "valueType": "decimal(10,2)" }
     ]
   },
+  "validatePath": "Template.xml",
   "expect": {
     "files": ["Template.xml"]
   }

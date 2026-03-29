@@ -2,6 +2,7 @@
   "name": "Обработка с синонимом",
   "params": { "name": "ЗагрузкаДанных" },
   "args_extra": ["-Synonym", "Загрузка данных из Excel"],
+  "validatePath": "ЗагрузкаДанных",
   "expect": {
     "files": ["ЗагрузкаДанных.xml"]
   }

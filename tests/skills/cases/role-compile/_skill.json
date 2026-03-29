@@ -8,5 +8,6 @@
   "snapshot": {
     "root": "workDir",
     "normalizeUuids": true
-  }
+  },
+  "postValidate": { "script": "role-validate/scripts/role-validate", "flag": "-RightsPath", "pathFrom": "validatePath" }
 }

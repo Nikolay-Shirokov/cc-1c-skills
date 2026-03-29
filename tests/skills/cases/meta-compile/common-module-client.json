@@ -5,6 +5,7 @@
     "name": "КлиентскиеФункции",
     "context": "client"
   },
+  "validatePath": "CommonModules/КлиентскиеФункции",
   "expect": {
     "files": ["CommonModules/КлиентскиеФункции.xml", "CommonModules/КлиентскиеФункции/Ext/Module.bsl"]
   }

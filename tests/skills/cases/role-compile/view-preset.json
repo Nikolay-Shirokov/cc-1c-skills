@@ -32,6 +32,7 @@
       "DataProcessor.Загрузка: @view"
     ]
   },
+  "validatePath": "Roles/ЧтениеНоменклатуры",
   "expect": {
     "files": [
       "Roles/ЧтениеНоменклатуры.xml",

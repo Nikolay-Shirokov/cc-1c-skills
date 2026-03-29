@@ -2,6 +2,7 @@
   "name": "Расширение-исправление (Patch)",
   "params": { "name": "Исправление", "outputDir": "ext" },
   "args_extra": ["-Purpose", "Patch"],
+  "validatePath": "ext",
   "expect": {
     "files": ["ext/Configuration.xml"]
   }

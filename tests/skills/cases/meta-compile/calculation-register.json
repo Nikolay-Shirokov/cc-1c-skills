@@ -10,6 +10,7 @@
     "dimensions": ["Сотрудник: CatalogRef.Сотрудники"],
     "resources": ["Результат: Number(15,2)", "ОтработаноДней: Number(5,0)"]
   },
+  "validatePath": "CalculationRegisters/Начисления",
   "expect": {
     "files": ["CalculationRegisters/Начисления.xml", "CalculationRegisters/Начисления/Ext/RecordSetModule.bsl"]
   }

@@ -6,5 +6,6 @@
       "args": { "-Name": "ЗагрузкаДанных", "-SrcDir": "{workDir}" }
     }
   ],
-  "params": { "processorName": "ЗагрузкаДанных", "formName": "ФормаНастроек" }
+  "params": { "processorName": "ЗагрузкаДанных", "formName": "ФормаНастроек" },
+  "validatePath": "ЗагрузкаДанных"
 }

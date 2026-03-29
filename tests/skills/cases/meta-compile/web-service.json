@@ -17,6 +17,7 @@
       }
     }
   },
+  "validatePath": "WebServices/СервисОбмена",
   "expect": {
     "files": ["WebServices/СервисОбмена.xml", "WebServices/СервисОбмена/Ext/Module.bsl"]
   }

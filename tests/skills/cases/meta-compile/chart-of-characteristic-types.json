@@ -7,6 +7,7 @@
     "valueTypes": ["String(200)", "Number(15,2)", "Boolean", "Date"],
     "attributes": ["НаборСвойств: String(100)"]
   },
+  "validatePath": "ChartsOfCharacteristicTypes/ДополнительныеРеквизитыИСведения",
   "expect": {
     "files": ["ChartsOfCharacteristicTypes/ДополнительныеРеквизитыИСведения.xml", "ChartsOfCharacteristicTypes/ДополнительныеРеквизитыИСведения/Ext/ObjectModule.bsl"]
   }

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// skill-test-runner v0.3 — Snapshot-based regression tests for 1C skill scripts
-// Usage: node tests/skills/runner.mjs [filter] [--update-snapshots] [--runtime python] [--json report.json] [--concurrency N]
+// skill-test-runner v0.4 — Snapshot-based regression tests for 1C skill scripts
+// Usage: node tests/skills/runner.mjs [filter] [--update-snapshots] [--runtime python] [--json report.json] [--concurrency N] [--with-validation]
 
 import { execFileSync, execFile } from 'child_process';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, readFileSync, writeFileSync,
@@ -19,7 +19,7 @@ const CACHE     = resolve(ROOT, '.cache');
 // ─── CLI args ───────────────────────────────────────────────────────────────
 
 function parseArgs(argv) {
-  const args = { filter: null, updateSnapshots: false, runtime: 'powershell', jsonReport: null, verbose: false, concurrency: cpus().length };
+  const args = { filter: null, updateSnapshots: false, runtime: 'powershell', jsonReport: null, verbose: false, concurrency: cpus().length, withValidation: false };
   const rest = argv.slice(2);
   for (let i = 0; i < rest.length; i++) {
     const a = rest[i];
@@ -28,6 +28,7 @@ function parseArgs(argv) {
     if (a === '--json' && rest[i + 1]) { args.jsonReport = rest[++i]; continue; }
     if (a === '--verbose' || a === '-v') { args.verbose = true; continue; }
     if (a === '--concurrency' && rest[i + 1]) { args.concurrency = parseInt(rest[++i], 10) || 1; continue; }
+    if (a === '--with-validation') { args.withValidation = true; continue; }
     if (!a.startsWith('--') && !args.filter) { args.filter = a.replace(/\\/g, '/'); continue; }
   }
   return args;
@@ -389,6 +390,49 @@ function updateSnapshot(workDir, snapshotDir, snapshotConfig) {
   }
 }
 
+// ─── Post-run validation ─────────────────────────────────────────────────────
+
+function resolveValidatePath(postValidate, caseData, workDir) {
+  const pathFrom = postValidate.pathFrom || 'validatePath';
+  if (pathFrom === 'workDir') return workDir;
+  const relPath = caseData[pathFrom] || caseData.params?.[pathFrom];
+  if (!relPath) return null; // no path — skip validation for this case
+  const full = join(workDir, relPath);
+  // For flat metadata objects (e.g. DefinedTypes/X) the path is a file, not a dir
+  if (!existsSync(full) && existsSync(full + '.xml')) return full + '.xml';
+  return full;
+}
+
+function runPostValidation(postValidate, caseData, workDir, runtime) {
+  const targetPath = resolveValidatePath(postValidate, caseData, workDir);
+  if (!targetPath) return null; // no validatePath in case — skip silently
+
+  const script = resolveScript(postValidate.script, runtime);
+  const args = [postValidate.flag, targetPath];
+  try {
+    execSkillRaw(runtime, script, args);
+    return null; // validation passed
+  } catch (e) {
+    const detail = e.stderr?.trim() || e.stdout?.trim() || e.message;
+    return `Validation failed (${postValidate.script}):\n${detail.substring(0, 500)}`;
+  }
+}
+
+async function runPostValidationAsync(postValidate, caseData, workDir, runtime) {
+  const targetPath = resolveValidatePath(postValidate, caseData, workDir);
+  if (!targetPath) return null;
+
+  const script = resolveScript(postValidate.script, runtime);
+  const args = [postValidate.flag, targetPath];
+  try {
+    await execSkillAsync(runtime, script, args);
+    return null;
+  } catch (e) {
+    const detail = e.stderr?.trim() || e.stdout?.trim() || e.message;
+    return `Validation failed (${postValidate.script}):\n${detail.substring(0, 500)}`;
+  }
+}
+
 // ─── Run a single case ──────────────────────────────────────────────────────
 
 async function runCaseAsync(testCase, opts) {
@@ -494,8 +538,15 @@ async function runCaseAsync(testCase, opts) {
       }
     }
 
+    // Post-run validation (on real output, before cleanup)
+    let validationError = null;
+    if (opts.withValidation && !caseData.expectError && !caseData.skipValidation && exitCode === 0 && skillConfig.postValidate) {
+      validationError = await runPostValidationAsync(skillConfig.postValidate, caseData, workDir, opts.runtime);
+      if (validationError) errors.push(validationError);
+    }
+
     const elapsed = ((performance.now() - t0) / 1000).toFixed(1);
-    return { id: testCase.id, skill: testCase.skillDir, name: testCase.name, passed: errors.length === 0, errors, elapsed: `${elapsed}s`, snapshotUpdated: opts.updateSnapshots && !caseData.expectError && !workspace.readOnly };
+    return { id: testCase.id, skill: testCase.skillDir, name: testCase.name, passed: errors.length === 0, errors, elapsed: `${elapsed}s`, snapshotUpdated: opts.updateSnapshots && !caseData.expectError && !workspace.readOnly, validationError: !!validationError };
   } catch (e) {
     const elapsed = ((performance.now() - t0) / 1000).toFixed(1);
     return { id: testCase.id, skill: testCase.skillDir, name: testCase.name, passed: false, errors: [`Runner error: ${e.message}`], elapsed: `${elapsed}s` };
@@ -643,6 +694,13 @@ function runCase(testCase, opts) {
       }
     }
 
+    // Post-run validation (on real output, before cleanup)
+    let validationError = null;
+    if (opts.withValidation && !caseData.expectError && !caseData.skipValidation && exitCode === 0 && skillConfig.postValidate) {
+      validationError = runPostValidation(skillConfig.postValidate, caseData, workDir, opts.runtime);
+      if (validationError) errors.push(validationError);
+    }
+
     const elapsed = ((performance.now() - t0) / 1000).toFixed(1);
     return {
       id: testCase.id,
@@ -652,6 +710,7 @@ function runCase(testCase, opts) {
       errors,
       elapsed: `${elapsed}s`,
       snapshotUpdated: opts.updateSnapshots && !caseData.expectError && !workspace.readOnly,
+      validationError: !!validationError,
     };
 
   } catch (e) {
@@ -696,8 +755,8 @@ function printReport(results, opts, wallTime) {
       // Verbose: show every case with id
       console.log(`  ${skill}`);
       for (const r of cases) {
-        const icon = r.skipped ? '\u25CB' : r.passed ? '\u2713' : '\u2717';
-        const suffix = r.skipped ? ' [skipped]' : r.snapshotUpdated ? ' [snapshot updated]' : '';
+        const icon = r.skipped ? '\u25CB' : r.passed ? '\u2713' : r.validationError ? '\u2717' : '\u2717';
+        const suffix = r.skipped ? ' [skipped]' : r.snapshotUpdated ? ' [snapshot updated]' : r.validationError ? ' [VFAIL]' : '';
         console.log(`    ${icon} ${r.name} (${r.elapsed})  ${r.id}${suffix}`);
         if (!r.passed) {
           for (const err of r.errors) {
@@ -727,10 +786,12 @@ function printReport(results, opts, wallTime) {
   }
 
   const cpuTime = results.reduce((s, r) => s + parseFloat(r.elapsed), 0).toFixed(1);
+  const vfails = results.filter(r => r.validationError).length;
   console.log('');
   const skippedStr = skipped.length > 0 ? ` | Skipped: ${skipped.length}` : '';
+  const vfailStr = vfails > 0 ? ` | VFail: ${vfails}` : '';
   const timeStr = wallTime ? `${wallTime}s wall, ${cpuTime}s cpu` : `${cpuTime}s`;
-  console.log(`  Passed: ${passed.length} | Failed: ${failed.length}${skippedStr} | Total: ${results.length} | Time: ${timeStr}`);
+  console.log(`  Passed: ${passed.length} | Failed: ${failed.length}${vfailStr}${skippedStr} | Total: ${results.length} | Time: ${timeStr}`);
   console.log('');
 
   if (opts.jsonReport) {
@@ -776,47 +837,190 @@ async function runPool(cases, opts) {
   return results;
 }
 
+// ─── Integration tests ──────────────────────────────────────────────────────
+
+const INTEGRATION = resolve(ROOT, 'integration');
+
+async function discoverIntegration(filter) {
+  if (!existsSync(INTEGRATION)) return [];
+  const results = [];
+  for (const file of readdirSync(INTEGRATION)) {
+    if (!file.endsWith('.test.mjs')) continue;
+    const testName = file.replace(/\.test\.mjs$/, '');
+    const id = `integration/${testName}`;
+    if (filter && !id.startsWith(filter) && !id.includes(filter)) continue;
+    const mod = await import(`file://${join(INTEGRATION, file).replace(/\\/g, '/')}`);
+    results.push({ id, name: mod.name || testName, steps: mod.steps || [], file, cache: mod.cache, setup: mod.setup || 'empty-config' });
+  }
+  return results;
+}
+
+async function runIntegrationTest(test, opts) {
+  const t0 = performance.now();
+  const stepResults = [];
+  let workspace = null;
+
+  try {
+    // Start from configured fixture or empty workspace
+    const fixturePath = test.setup === 'none' ? null : ensureSetup(test.setup, opts.runtime, CASES);
+    workspace = createWorkspace(fixturePath, false);
+    const workDir = workspace.path;
+
+    for (let i = 0; i < test.steps.length; i++) {
+      const step = test.steps[i];
+      const stepT0 = performance.now();
+
+      // Write input if provided
+      let inputFile = null;
+      if (step.input) {
+        inputFile = join(workDir, '__input.json');
+        writeFileSync(inputFile, JSON.stringify(step.input, null, 2), 'utf8');
+      }
+
+      // Resolve args: replace {workDir} and {inputFile}
+      const script = resolveScript(step.script, opts.runtime);
+      const args = [];
+      for (const [flag, value] of Object.entries(step.args || {})) {
+        args.push(flag);
+        if (value === true) continue; // switch
+        args.push(String(value)
+          .replace('{workDir}', workDir)
+          .replace('{inputFile}', inputFile || ''));
+      }
+
+      // Execute
+      let stdout = '', stderr = '';
+      try {
+        stdout = await execSkillAsync(opts.runtime, script, args);
+      } catch (e) {
+        const detail = e.stderr?.trim() || e.stdout?.trim() || e.message;
+        stepResults.push({ name: step.name, passed: false, error: `Step ${i + 1} failed: ${detail.substring(0, 500)}` });
+        break; // stop on first failure
+      }
+
+      if (inputFile && existsSync(inputFile)) rmSync(inputFile);
+
+      // Post-step validation
+      if (opts.withValidation && step.validate) {
+        const valScript = resolveScript(step.validate.script, opts.runtime);
+        let valPath = workDir;
+        if (step.validate.path) {
+          valPath = join(workDir, step.validate.path);
+          if (!existsSync(valPath) && existsSync(valPath + '.xml')) valPath += '.xml';
+        }
+        try {
+          await execSkillAsync(opts.runtime, valScript, [step.validate.flag, valPath]);
+        } catch (e) {
+          const detail = e.stderr?.trim() || e.stdout?.trim() || e.message;
+          stepResults.push({ name: step.name, passed: false, error: `Validation: ${detail.substring(0, 500)}` });
+          break;
+        }
+      }
+
+      const stepElapsed = ((performance.now() - stepT0) / 1000).toFixed(1);
+      stepResults.push({ name: step.name, passed: true, elapsed: `${stepElapsed}s` });
+    }
+
+    // Cache result if configured
+    if (test.cache && stepResults.every(s => s.passed)) {
+      const cachePath = join(CACHE, test.cache);
+      if (existsSync(cachePath)) rmSync(cachePath, { recursive: true, force: true });
+      cpSync(workDir, cachePath, { recursive: true });
+    }
+
+    const allPassed = stepResults.every(s => s.passed);
+    const elapsed = ((performance.now() - t0) / 1000).toFixed(1);
+    return { id: test.id, name: test.name, passed: allPassed, steps: stepResults, elapsed: `${elapsed}s`, errors: allPassed ? [] : stepResults.filter(s => !s.passed).map(s => s.error) };
+  } catch (e) {
+    const elapsed = ((performance.now() - t0) / 1000).toFixed(1);
+    return { id: test.id, name: test.name, passed: false, steps: stepResults, elapsed: `${elapsed}s`, errors: [`Runner error: ${e.message}`] };
+  } finally {
+    if (workspace) cleanupWorkspace(workspace);
+  }
+}
+
+function printIntegrationReport(results, opts) {
+  console.log('');
+  for (const r of results) {
+    const icon = r.passed ? '\u2713' : '\u2717';
+    console.log(`  ${icon} ${r.name} (${r.elapsed})  ${r.id}`);
+    for (const step of r.steps) {
+      const sIcon = step.passed ? '\u2713' : '\u2717';
+      console.log(`    ${sIcon} ${step.name}${step.elapsed ? ` (${step.elapsed})` : ''}`);
+      if (!step.passed) {
+        for (const line of step.error.split('\n')) {
+          console.log(`      ${line}`);
+        }
+      }
+    }
+  }
+  const passed = results.filter(r => r.passed).length;
+  const failed = results.filter(r => !r.passed).length;
+  console.log('');
+  console.log(`  Integration: Passed: ${passed} | Failed: ${failed} | Total: ${results.length}`);
+  console.log('');
+  return failed === 0;
+}
+
 // ─── Main ───────────────────────────────────────────────────────────────────
 
 async function main() {
   const opts = parseArgs(process.argv);
-  const cases = discoverCases(opts.filter);
-
-  if (cases.length === 0) {
-    console.log('No test cases found.' + (opts.filter ? ` Filter: "${opts.filter}"` : ''));
-    process.exit(0);
-  }
-
-  const parallel = opts.concurrency > 1;
-  const modeStr = parallel ? `${opts.concurrency} workers` : 'sequential';
-  console.log(`\nRunning ${cases.length} test(s)... [runtime: ${opts.runtime}, ${modeStr}]`);
-
-  // Ensure cache dir exists
   mkdirSync(CACHE, { recursive: true });
 
-  // Pre-warm shared fixtures before parallel run
-  const setups = new Set(cases.map(c => c.caseData.setup || c.skillConfig.setup || 'none'));
-  for (const setup of setups) {
-    if (setup === 'empty-config' || setup === 'base-config') {
-      try { ensureSetup(setup, opts.runtime, CASES); } catch {}
+  const isIntegrationFilter = opts.filter && opts.filter.startsWith('integration');
+
+  // Run integration tests if filter matches or no filter (run both)
+  let integrationOk = true;
+  if (isIntegrationFilter || !opts.filter) {
+    const integrationTests = await discoverIntegration(opts.filter);
+    if (integrationTests.length > 0) {
+      const valStr = opts.withValidation ? ', +validation' : '';
+      console.log(`\nRunning ${integrationTests.length} integration test(s)... [runtime: ${opts.runtime}${valStr}]`);
+      const integrationResults = [];
+      for (const test of integrationTests) {
+        integrationResults.push(await runIntegrationTest(test, opts));
+      }
+      integrationOk = printIntegrationReport(integrationResults, opts);
     }
   }
 
-  const wallStart = performance.now();
-  let results;
+  // Run unit cases (skip if filter is purely integration)
+  let casesOk = true;
+  if (!isIntegrationFilter) {
+    const cases = discoverCases(opts.filter);
+    if (cases.length > 0) {
+      const parallel = opts.concurrency > 1;
+      const modeStr = parallel ? `${opts.concurrency} workers` : 'sequential';
+      const valStr = opts.withValidation ? ', +validation' : '';
+      console.log(`\nRunning ${cases.length} test(s)... [runtime: ${opts.runtime}, ${modeStr}${valStr}]`);
 
-  if (parallel) {
-    results = await runPool(cases, opts);
-  } else {
-    results = [];
-    for (const tc of cases) {
-      results.push(await runCaseAsync(tc, opts));
+      // Pre-warm shared fixtures before parallel run
+      const setups = new Set(cases.map(c => c.caseData.setup || c.skillConfig.setup || 'none'));
+      for (const setup of setups) {
+        if (setup === 'empty-config' || setup === 'base-config') {
+          try { ensureSetup(setup, opts.runtime, CASES); } catch {}
+        }
+      }
+
+      const wallStart = performance.now();
+      let results;
+      if (parallel) {
+        results = await runPool(cases, opts);
+      } else {
+        results = [];
+        for (const tc of cases) {
+          results.push(await runCaseAsync(tc, opts));
+        }
+      }
+      const wallTime = ((performance.now() - wallStart) / 1000).toFixed(1);
+      casesOk = printReport(results, opts, wallTime);
+    } else if (opts.filter && !isIntegrationFilter) {
+      console.log('No test cases found.' + (opts.filter ? ` Filter: "${opts.filter}"` : ''));
     }
   }
 
-  const wallTime = ((performance.now() - wallStart) / 1000).toFixed(1);
-  const allPassed = printReport(results, opts, wallTime);
-  process.exit(allPassed ? 0 : 1);
+  process.exit(integrationOk && casesOk ? 0 : 1);
 }
 
 main();

@@ -1,4 +1,5 @@
 {
   "name": "Минимальный справочник — только type и name",
-  "input": { "type": "Catalog", "name": "А" }
+  "input": { "type": "Catalog", "name": "А" },
+  "validatePath": "Catalogs/А"
 }

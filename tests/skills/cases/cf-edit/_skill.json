@@ -8,5 +8,6 @@
   "snapshot": {
     "root": "workDir",
     "normalizeUuids": true
-  }
+  },
+  "postValidate": { "script": "cf-validate/scripts/cf-validate", "flag": "-ConfigPath", "pathFrom": "workDir" }
 }

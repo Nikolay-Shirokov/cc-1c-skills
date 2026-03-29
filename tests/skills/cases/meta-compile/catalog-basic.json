@@ -1,6 +1,7 @@
 {
   "name": "Простой справочник без реквизитов",
   "input": { "type": "Catalog", "name": "Валюты" },
+  "validatePath": "Catalogs/Валюты",
   "expect": {
     "files": ["Catalogs/Валюты.xml", "Catalogs/Валюты/Ext/ObjectModule.bsl"]
   }

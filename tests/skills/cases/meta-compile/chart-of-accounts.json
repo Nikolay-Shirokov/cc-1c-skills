@@ -9,6 +9,7 @@
     "accountingFlags": ["Валютный", "Количественный"],
     "extDimensionAccountingFlags": ["СуммовойУчет"]
   },
+  "validatePath": "ChartsOfAccounts/Хозрасчетный",
   "expect": {
     "files": ["ChartsOfAccounts/Хозрасчетный.xml", "ChartsOfAccounts/Хозрасчетный/Ext/ObjectModule.bsl"]
   }

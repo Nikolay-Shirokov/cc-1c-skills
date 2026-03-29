@@ -7,5 +7,6 @@
       "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
     }
   ],
-  "params": { "objectPath": "DataProcessors/МояОбработка.xml", "formName": "Форма" }
+  "params": { "objectPath": "DataProcessors/МояОбработка.xml", "formName": "Форма" },
+  "validatePath": "DataProcessors/МояОбработка/Forms/Форма"
 }

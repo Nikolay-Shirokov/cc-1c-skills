@@ -9,5 +9,6 @@
   "snapshot": {
     "root": "workDir",
     "normalizeUuids": true
-  }
+  },
+  "postValidate": { "script": "interface-validate/scripts/interface-validate", "flag": "-CIPath", "pathFrom": "ciPath" }
 }

@@ -12,6 +12,7 @@
     }
   ],
   "params": { "outputPath": "DataProcessors/Минимальная/Forms/Форма/Ext/Form.xml" },
+  "validatePath": "DataProcessors/Минимальная/Forms/Форма/Ext/Form.xml",
   "input": {
     "title": "Минимальная форма"
   }

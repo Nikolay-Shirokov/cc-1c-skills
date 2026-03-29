@@ -12,6 +12,7 @@
     }
   ],
   "params": { "outputPath": "DataProcessors/Команды/Forms/Форма/Ext/Form.xml" },
+  "validatePath": "DataProcessors/Команды/Forms/Форма/Ext/Form.xml",
   "input": {
     "title": "Форма с командами",
     "elements": [

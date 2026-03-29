@@ -5,6 +5,7 @@
     "name": "ЗагрузкаДанных",
     "attributes": ["ПутьКФайлу: String(500)"]
   },
+  "validatePath": "DataProcessors/ЗагрузкаДанных",
   "expect": {
     "files": ["DataProcessors/ЗагрузкаДанных.xml", "DataProcessors/ЗагрузкаДанных/Ext/ObjectModule.bsl"]
   }

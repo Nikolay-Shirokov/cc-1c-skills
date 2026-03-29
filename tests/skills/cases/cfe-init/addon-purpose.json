@@ -2,6 +2,7 @@
   "name": "Расширение-дополнение (AddOn)",
   "params": { "name": "Дополнение", "outputDir": "ext" },
   "args_extra": ["-Purpose", "AddOn"],
+  "validatePath": "ext",
   "expect": {
     "files": ["ext/Configuration.xml"]
   }

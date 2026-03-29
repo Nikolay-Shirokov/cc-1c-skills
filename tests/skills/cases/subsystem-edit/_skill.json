@@ -9,5 +9,6 @@
   "snapshot": {
     "root": "workDir",
     "normalizeUuids": true
-  }
+  },
+  "postValidate": { "script": "subsystem-validate/scripts/subsystem-validate", "flag": "-SubsystemPath", "pathFrom": "subsystemPath" }
 }

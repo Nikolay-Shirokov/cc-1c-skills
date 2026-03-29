@@ -9,6 +9,8 @@
       "Контрагент"
     ]
   },
+  "validatePath": "DocumentJournals/ЖурналСкладскихДокументов",
+  "skipValidation": true,
   "expect": {
     "files": ["DocumentJournals/ЖурналСкладскихДокументов.xml"]
   }

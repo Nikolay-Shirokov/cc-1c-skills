@@ -3,6 +3,7 @@
   "input": {
     "name": "Пустая"
   },
+  "validatePath": "Roles/Пустая",
   "expect": {
     "files": [
       "Roles/Пустая.xml",

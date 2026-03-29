@@ -12,6 +12,7 @@
     }
   ],
   "params": { "outputPath": "DataProcessors/ПоляВвода/Forms/Форма/Ext/Form.xml" },
+  "validatePath": "DataProcessors/ПоляВвода/Forms/Форма/Ext/Form.xml",
   "input": {
     "title": "Поля ввода",
     "elements": [

@@ -19,6 +19,7 @@
       "Catalog.Товары: Read View"
     ]
   },
+  "validatePath": "Roles/Кладовщик",
   "expect": {
     "files": [
       "Roles/Кладовщик.xml",

@@ -7,5 +7,6 @@
       "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
     }
   ],
-  "params": { "objectPath": "Documents/Заказ.xml", "formName": "ФормаДокумента" }
+  "params": { "objectPath": "Documents/Заказ.xml", "formName": "ФормаДокумента" },
+  "validatePath": "Documents/Заказ/Forms/ФормаДокумента"
 }

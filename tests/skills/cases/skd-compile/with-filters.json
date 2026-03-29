@@ -27,6 +27,7 @@
     }],
     "parameters": ["Период: StandardPeriod = LastMonth @autoDates"]
   },
+  "validatePath": "Template.xml",
   "expect": {
     "files": ["Template.xml"]
   }

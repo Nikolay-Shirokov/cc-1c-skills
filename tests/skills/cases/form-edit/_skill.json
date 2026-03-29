@@ -8,5 +8,6 @@
   "snapshot": {
     "root": "workDir",
     "normalizeUuids": true
-  }
+  },
+  "postValidate": { "script": "form-validate/scripts/form-validate", "flag": "-FormPath", "pathFrom": "formPath" }
 }

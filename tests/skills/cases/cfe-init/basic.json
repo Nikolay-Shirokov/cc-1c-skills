@@ -1,6 +1,7 @@
 {
   "name": "Пустое расширение",
   "params": { "name": "МоёРасширение", "outputDir": "ext" },
+  "validatePath": "ext",
   "expect": {
     "files": ["ext/Configuration.xml"]
   }

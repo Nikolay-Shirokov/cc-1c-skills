@@ -9,6 +9,7 @@
     }],
     "parameters": ["Период: СтандартныйПериод = LastMonth @autoDates", "Организация: CatalogRef.Организации"]
   },
+  "validatePath": "Template.xml",
   "expect": {
     "files": ["Template.xml"]
   }

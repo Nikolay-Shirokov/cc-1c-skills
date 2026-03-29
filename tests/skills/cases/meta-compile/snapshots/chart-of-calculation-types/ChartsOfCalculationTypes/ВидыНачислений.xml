@@ -62,7 +62,7 @@
 			<CodeAllowedLength>Variable</CodeAllowedLength>
 			<DescriptionLength>50</DescriptionLength>
 			<DefaultPresentation>AsDescription</DefaultPresentation>
-			<DependenceOnCalculationTypes>NotDependOnCalculationTypes</DependenceOnCalculationTypes>
+			<DependenceOnCalculationTypes>DontUse</DependenceOnCalculationTypes>
 			<BaseCalculationTypes/>
 			<ActionPeriodUse>true</ActionPeriodUse>
 			<StandardAttributes>

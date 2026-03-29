@@ -5,6 +5,7 @@
     "name": "ОбщиеФункции",
     "context": "server"
   },
+  "validatePath": "CommonModules/ОбщиеФункции",
   "expect": {
     "files": ["CommonModules/ОбщиеФункции.xml", "CommonModules/ОбщиеФункции/Ext/Module.bsl"]
   }

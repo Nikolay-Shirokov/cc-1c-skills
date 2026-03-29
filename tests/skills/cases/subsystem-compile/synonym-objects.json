@@ -12,6 +12,7 @@
     "synonym": "Склад",
     "objects": ["Catalogs.Товары"]
   },
+  "validatePath": "Subsystems/Склад",
   "expect": {
     "files": ["Subsystems/Склад.xml"]
   }

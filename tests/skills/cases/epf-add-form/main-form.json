@@ -11,5 +11,6 @@
     }
   ],
   "params": { "processorName": "МояОбработка", "formName": "ФормаОсновная" },
-  "args_extra": ["-Main"]
+  "args_extra": ["-Main"],
+  "validatePath": "МояОбработка"
 }

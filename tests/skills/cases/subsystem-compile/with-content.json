@@ -17,6 +17,7 @@
     "synonym": "Продажи",
     "content": ["Catalog.Товары", "Document.Заказ"]
   },
+  "validatePath": "Subsystems/Продажи",
   "expect": {
     "files": ["Subsystems/Продажи.xml"]
   }

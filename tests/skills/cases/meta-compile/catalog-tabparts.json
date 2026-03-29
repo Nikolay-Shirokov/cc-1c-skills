@@ -15,6 +15,7 @@
       }
     ]
   },
+  "validatePath": "Catalogs/Товары",
   "expect": {
     "files": ["Catalogs/Товары.xml", "Catalogs/Товары/Ext/ObjectModule.bsl"]
   }

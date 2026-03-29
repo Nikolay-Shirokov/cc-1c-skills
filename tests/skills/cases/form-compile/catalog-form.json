@@ -12,6 +12,7 @@
     }
   ],
   "params": { "outputPath": "Catalogs/Товары/Forms/ФормаЭлемента/Ext/Form.xml" },
+  "validatePath": "Catalogs/Товары/Forms/ФормаЭлемента/Ext/Form.xml",
   "input": {
     "title": "Товар",
     "attributes": [

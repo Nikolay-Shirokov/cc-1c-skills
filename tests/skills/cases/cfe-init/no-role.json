@@ -2,6 +2,7 @@
   "name": "Расширение без роли",
   "params": { "name": "БезРоли", "outputDir": "ext" },
   "args_extra": ["-NoRole"],
+  "validatePath": "ext",
   "expect": {
     "files": ["ext/Configuration.xml"]
   }

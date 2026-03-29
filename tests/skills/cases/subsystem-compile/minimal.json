@@ -3,6 +3,7 @@
   "input": {
     "name": "Тест"
   },
+  "validatePath": "Subsystems/Тест",
   "expect": {
     "files": ["Subsystems/Тест.xml"]
   }

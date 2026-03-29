@@ -22,6 +22,7 @@
     "content": ["Catalog.Товары", "Report.ОтчетПоПродажам"],
     "children": ["Настройки"]
   },
+  "validatePath": "Subsystems/Продажи",
   "expect": {
     "files": ["Subsystems/Продажи.xml"]
   }

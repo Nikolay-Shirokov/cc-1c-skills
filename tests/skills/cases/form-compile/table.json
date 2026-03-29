@@ -12,6 +12,7 @@
     }
   ],
   "params": { "outputPath": "DataProcessors/Таблица/Forms/Форма/Ext/Form.xml" },
+  "validatePath": "DataProcessors/Таблица/Forms/Форма/Ext/Form.xml",
   "input": {
     "title": "Просмотр данных",
     "elements": [

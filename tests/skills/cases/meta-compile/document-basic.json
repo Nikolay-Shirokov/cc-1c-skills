@@ -17,6 +17,7 @@
       }
     ]
   },
+  "validatePath": "Documents/ПриходнаяНакладная",
   "expect": {
     "files": ["Documents/ПриходнаяНакладная.xml"]
   }

@@ -7,6 +7,8 @@
     "event": "BeforeWrite",
     "handler": "CommonModule.ОбработкаСобытий.ПриЗаписиДокумента"
   },
+  "validatePath": "EventSubscriptions/ПриЗаписиДокумента",
+  "skipValidation": true,
   "expect": {
     "files": ["EventSubscriptions/ПриЗаписиДокумента.xml"]
   }

@@ -16,6 +16,7 @@
       }
     }
   },
+  "validatePath": "HTTPServices/ТоварныйAPI",
   "expect": {
     "files": ["HTTPServices/ТоварныйAPI.xml", "HTTPServices/ТоварныйAPI/Ext/Module.bsl"]
   }

@@ -10,6 +10,7 @@
       "РольИсполнителя: CatalogRef.РолиИсполнителей"
     ]
   },
+  "validatePath": "Tasks/ЗадачаИсполнителя",
   "expect": {
     "files": ["Tasks/ЗадачаИсполнителя.xml", "Tasks/ЗадачаИсполнителя/Ext/ObjectModule.bsl"]
   }

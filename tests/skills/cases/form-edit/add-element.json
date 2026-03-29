@@ -23,6 +23,7 @@
     }
   ],
   "params": { "formPath": "DataProcessors/Тест/Forms/Форма/Ext/Form.xml" },
+  "skipValidation": true,
   "input": {
     "elements": [
       { "input": "Поле2", "path": "Поле2", "title": "Поле 2" }

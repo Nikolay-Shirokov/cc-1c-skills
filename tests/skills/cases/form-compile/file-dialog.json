@@ -12,6 +12,7 @@
     }
   ],
   "params": { "outputPath": "DataProcessors/ЗагрузкаИзФайла/Forms/Форма/Ext/Form.xml" },
+  "validatePath": "DataProcessors/ЗагрузкаИзФайла/Forms/Форма/Ext/Form.xml",
   "input": {
     "title": "Загрузка из файла",
     "properties": { "autoTitle": false },

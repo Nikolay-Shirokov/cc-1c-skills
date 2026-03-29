@@ -20,6 +20,7 @@
       "Document.РеализацияТоваров: @edit"
     ]
   },
+  "validatePath": "Roles/РедакторДокументов",
   "expect": {
     "files": [
       "Roles/РедакторДокументов.xml",

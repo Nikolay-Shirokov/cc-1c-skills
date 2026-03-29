@@ -9,6 +9,7 @@
     "resources": ["Сумма: Number(15,2)"],
     "attributes": ["Содержание: String(200)"]
   },
+  "validatePath": "AccountingRegisters/Хозрасчетный",
   "expect": {
     "files": ["AccountingRegisters/Хозрасчетный.xml", "AccountingRegisters/Хозрасчетный/Ext/RecordSetModule.bsl"]
   }

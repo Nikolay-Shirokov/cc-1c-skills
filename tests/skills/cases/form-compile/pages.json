@@ -12,6 +12,7 @@
     }
   ],
   "params": { "outputPath": "DataProcessors/Мастер/Forms/Форма/Ext/Form.xml" },
+  "validatePath": "DataProcessors/Мастер/Forms/Форма/Ext/Form.xml",
   "input": {
     "title": "Мастер настройки",
     "properties": { "autoTitle": false },

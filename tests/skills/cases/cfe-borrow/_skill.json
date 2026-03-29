@@ -9,5 +9,6 @@
   "snapshot": {
     "root": "workDir",
     "normalizeUuids": true
-  }
+  },
+  "postValidate": { "script": "cfe-validate/scripts/cfe-validate", "flag": "-ExtensionPath", "pathFrom": "extensionPath" }
 }

@@ -20,6 +20,7 @@
       "InformationRegister.Цены: Read, Update"
     ]
   },
+  "validatePath": "Roles/ПравоЦен",
   "expect": {
     "files": [
       "Roles/ПравоЦен.xml",

@@ -5,6 +5,7 @@
     "name": "ОсновнаяВалюта",
     "valueType": "CatalogRef.Валюты"
   },
+  "validatePath": "Constants/ОсновнаяВалюта",
   "expect": {
     "files": ["Constants/ОсновнаяВалюта.xml"]
   }

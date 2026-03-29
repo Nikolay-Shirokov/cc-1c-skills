@@ -6,9 +6,10 @@
     "codeLength": 5,
     "descriptionLength": 50,
     "actionPeriodUse": true,
-    "dependenceOnCalculationTypes": "NotDependOnCalculationTypes",
+    "dependenceOnCalculationTypes": "DontUse",
     "attributes": ["Формула: String(200)"]
   },
+  "validatePath": "ChartsOfCalculationTypes/ВидыНачислений",
   "expect": {
     "files": ["ChartsOfCalculationTypes/ВидыНачислений.xml", "ChartsOfCalculationTypes/ВидыНачислений/Ext/ObjectModule.bsl"]
   }

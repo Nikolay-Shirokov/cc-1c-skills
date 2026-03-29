@@ -16,6 +16,7 @@
       }
     ]
   },
+  "validatePath": "ExchangePlans/ОбменСФилиалами",
   "expect": {
     "files": [
       "ExchangePlans/ОбменСФилиалами.xml",

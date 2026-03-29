@@ -14,6 +14,7 @@
       ]
     }]
   },
+  "validatePath": "Template.xml",
   "expect": {
     "files": ["Template.xml"]
   }

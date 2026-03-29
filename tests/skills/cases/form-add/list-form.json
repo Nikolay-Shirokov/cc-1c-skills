@@ -8,5 +8,6 @@
     }
   ],
   "params": { "objectPath": "Catalogs/Контрагенты.xml", "formName": "ФормаСписка" },
-  "args_extra": ["-Purpose", "List"]
+  "args_extra": ["-Purpose", "List"],
+  "validatePath": "Catalogs/Контрагенты/Forms/ФормаСписка"
 }

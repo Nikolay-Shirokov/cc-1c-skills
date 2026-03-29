@@ -23,6 +23,7 @@
       ]
     }
   },
+  "validatePath": "Documents/РеализацияТоваров",
   "expect": {
     "files": ["Documents/РеализацияТоваров.xml"]
   }

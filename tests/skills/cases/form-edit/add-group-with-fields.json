@@ -23,6 +23,7 @@
     }
   ],
   "params": { "formPath": "DataProcessors/Группа/Forms/Форма/Ext/Form.xml" },
+  "skipValidation": true,
   "input": {
     "elements": [
       { "group": "horizontal", "name": "ГруппаНовая", "title": "Новая группа", "showTitle": true, "children": [

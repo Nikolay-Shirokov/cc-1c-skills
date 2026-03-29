@@ -2,6 +2,7 @@
   "name": "Отчёт с синонимом",
   "params": { "name": "АнализПродаж" },
   "args_extra": ["-Synonym", "Анализ продаж"],
+  "validatePath": "АнализПродаж",
   "expect": {
     "files": ["АнализПродаж.xml"]
   }

@@ -8,5 +8,10 @@
   "snapshot": {
     "root": "workDir",
     "normalizeUuids": true
+  },
+  "postValidate": {
+    "script": "skd-validate/scripts/skd-validate",
+    "flag": "-TemplatePath",
+    "pathFrom": "validatePath"
   }
 }

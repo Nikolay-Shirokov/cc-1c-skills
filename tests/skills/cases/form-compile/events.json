@@ -12,6 +12,7 @@
     }
   ],
   "params": { "outputPath": "DataProcessors/События/Forms/Форма/Ext/Form.xml" },
+  "validatePath": "DataProcessors/События/Forms/Форма/Ext/Form.xml",
   "input": {
     "title": "События",
     "events": { "OnCreateAtServer": "ПриСозданииНаСервере", "OnOpen": "ПриОткрытии" },

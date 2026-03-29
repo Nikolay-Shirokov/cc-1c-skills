@@ -18,6 +18,7 @@
       { "source": "Продажи", "dest": "Остатки", "sourceExpr": "Номенклатура", "destExpr": "Номенклатура" }
     ]
   },
+  "validatePath": "Template.xml",
   "expect": {
     "files": ["Template.xml"]
   }

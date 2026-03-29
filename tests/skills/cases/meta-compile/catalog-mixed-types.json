@@ -13,6 +13,7 @@
       "Статус: EnumRef.СтатусыКонтрагентов"
     ]
   },
+  "validatePath": "Catalogs/Контрагенты",
   "expect": {
     "files": ["Catalogs/Контрагенты.xml"]
   }

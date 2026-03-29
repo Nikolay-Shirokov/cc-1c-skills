@@ -86,6 +86,7 @@
     ]
   },
   "params": { "outputPath": "Template.xml" },
+  "validatePath": "Template.xml",
   "expect": {
     "files": ["Template.xml"]
   }

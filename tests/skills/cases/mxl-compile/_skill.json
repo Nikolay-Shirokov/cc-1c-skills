@@ -9,5 +9,10 @@
   "snapshot": {
     "root": "workDir",
     "normalizeUuids": false
+  },
+  "postValidate": {
+    "script": "mxl-validate/scripts/mxl-validate",
+    "flag": "-TemplatePath",
+    "pathFrom": "validatePath"
   }
 }

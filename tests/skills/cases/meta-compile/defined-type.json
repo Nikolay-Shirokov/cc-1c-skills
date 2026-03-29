@@ -5,6 +5,7 @@
     "name": "ДенежныеСредства",
     "valueTypes": ["CatalogRef.БанковскиеСчета", "CatalogRef.Кассы"]
   },
+  "validatePath": "DefinedTypes/ДенежныеСредства",
   "expect": {
     "files": ["DefinedTypes/ДенежныеСредства.xml"]
   }

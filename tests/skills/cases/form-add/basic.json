@@ -7,5 +7,6 @@
       "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
     }
   ],
-  "params": { "objectPath": "Catalogs/Товары.xml", "formName": "ФормаЭлемента" }
+  "params": { "objectPath": "Catalogs/Товары.xml", "formName": "ФормаЭлемента" },
+  "validatePath": "Catalogs/Товары/Forms/ФормаЭлемента"
 }

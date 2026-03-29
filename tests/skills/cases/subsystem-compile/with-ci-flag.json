@@ -5,6 +5,7 @@
     "synonym": "Служебная подсистема",
     "includeInCommandInterface": false
   },
+  "validatePath": "Subsystems/Служебная",
   "expect": {
     "files": ["Subsystems/Служебная.xml"]
   }

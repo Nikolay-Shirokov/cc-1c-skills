@@ -8,5 +8,6 @@
     }
   ],
   "params": { "objectPath": "Documents/Счет.xml", "formName": "ФормаДокумента" },
-  "args_extra": ["-SetDefault"]
+  "args_extra": ["-SetDefault"],
+  "validatePath": "Documents/Счет/Forms/ФормаДокумента"
 }

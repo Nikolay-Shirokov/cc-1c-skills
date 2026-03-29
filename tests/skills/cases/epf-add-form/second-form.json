@@ -10,5 +10,6 @@
       "args": { "-ProcessorName": "МояОбработка", "-FormName": "Форма", "-SrcDir": "{workDir}" }
     }
   ],
-  "params": { "processorName": "МояОбработка", "formName": "ФормаНастроек" }
+  "params": { "processorName": "МояОбработка", "formName": "ФормаНастроек" },
+  "validatePath": "МояОбработка"
 }

@@ -5,6 +5,7 @@
     "synonym": "Администрирование",
     "children": ["Настройки", "Пользователи"]
   },
+  "validatePath": "Subsystems/Администрирование",
   "expect": {
     "files": ["Subsystems/Администрирование.xml"]
   }
