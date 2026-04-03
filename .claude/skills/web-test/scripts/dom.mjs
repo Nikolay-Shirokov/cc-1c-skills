@@ -1,4 +1,4 @@
-// web-test dom v1.4 — DOM selectors and semantic mapping for 1C web client
+// web-test dom v1.5 — DOM selectors and semantic mapping for 1C web client
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 /**
  * DOM selectors and semantic mapping for 1C:Enterprise web client.
@@ -14,7 +14,7 @@
  *  When modalSurface is visible — prefer the highest-numbered form (modal dialog). */
 const DETECT_FORM_FN = `function detectForm() {
   const counts = {};
-  document.querySelectorAll('input.editInput[id], a.press[id]').forEach(el => {
+  document.querySelectorAll('input.editInput[id], textarea[id], a.press[id]').forEach(el => {
     if (el.offsetWidth === 0) return;
     const m = el.id.match(/^form(\\d+)_/);
     if (m) counts[m[1]] = (counts[m[1]] || 0) + 1;
@@ -36,7 +36,7 @@ const DETECT_FORM_FN = `function detectForm() {
  *  Works even when the open-windows tab bar is hidden. */
 const DETECT_FORMS_FN = `function detectForms() {
   const counts = {};
-  document.querySelectorAll('input.editInput[id], a.press[id]').forEach(el => {
+  document.querySelectorAll('input.editInput[id], textarea[id], a.press[id]').forEach(el => {
     if (el.offsetWidth === 0) return;
     const m = el.id.match(/^form(\\d+)_/);
     if (m) counts[m[1]] = (counts[m[1]] || 0) + 1;
@@ -1153,7 +1153,7 @@ export function checkErrorsScript() {
         const elCount = document.querySelectorAll('[id^="' + p + '"]').length;
         if (elCount > 100) continue;
         if (buttons.length !== 1 || !buttons[0].classList.contains('pressDefault')) continue;
-        const hasInputs = document.querySelectorAll('input.editInput[id^="' + p + '"]').length > 0;
+        const hasInputs = document.querySelectorAll('input.editInput[id^="' + p + '"], textarea[id^="' + p + '"]').length > 0;
         if (hasInputs) continue;
         const texts = [...document.querySelectorAll('[id^="' + p + '"].staticText')]
           .filter(el => el.offsetWidth > 0)

@@ -812,7 +812,7 @@ function normalizeE1cibUrl(url) {
 export async function openFile(filePath) {
   ensureConnected();
   await dismissPendingErrors();
-  const absPath = resolveProjectPath(filePath);
+  const absPath = resolveProjectPath(filePath.replace(/\\/g, '/'));
 
   const MAX_ATTEMPTS = 2; // 1st may trigger security dialog, 2nd is the real open
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {

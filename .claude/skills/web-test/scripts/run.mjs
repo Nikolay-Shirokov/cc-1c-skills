@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// web-test run v1.2 — CLI runner for 1C web client automation
+// web-test run v1.3 — CLI runner for 1C web client automation
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 /**
  * CLI runner for 1C web client automation.
@@ -167,6 +167,10 @@ async function executeScript(code, { noRecord } = {}) {
         return result;
       };
     }
+
+    // Normalize Windows backslash paths to prevent JS parse errors
+    // (e.g. C:\Users\... → \u triggers "Invalid Unicode escape sequence")
+    code = code.replace(/[A-Za-z]:\\[^\s'"`;\n)}\]]+/g, m => m.replace(/\\/g, '/'));
 
     const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
     const fn = new AsyncFunction(...Object.keys(exports), code);
