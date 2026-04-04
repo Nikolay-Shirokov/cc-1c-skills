@@ -1056,7 +1056,7 @@ function buildSpreadsheetMapping(allCells) {
   // Find header rows
   let detailIdx = -1;
   for (let i = firstDataIdx - 1; i >= 0; i--) {
-    if (nonEmpty(rows[i]) >= 3) { detailIdx = i; break; }
+    if (nonEmpty(rows[i]) >= Math.min(3, maxCol + 1)) { detailIdx = i; break; }
   }
   if (detailIdx === -1) return null; // no headers detected
 
