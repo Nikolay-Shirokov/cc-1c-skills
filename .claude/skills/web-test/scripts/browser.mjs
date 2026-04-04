@@ -1124,6 +1124,66 @@ function buildSpreadsheetMapping(allCells) {
 }
 
 /**
+ * Scroll SpreadsheetDocument to make a cell visible using arrow keys.
+ * Uses native platform scroll — keeps headers, data, and scrollbar synchronized.
+ * Clicks a visible cell for focus, then ArrowRight/ArrowLeft to bring target into view.
+ */
+async function scrollSpreadsheetToCell(frame, physRow, physCol) {
+  const getRect = async () => frame.evaluate(`(() => {
+    const el = document.querySelector('div.R${physRow}C${physCol}');
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    const vw = document.documentElement.clientWidth || document.body.clientWidth;
+    return { left: r.left, right: r.right, vw };
+  })()`);
+
+  let rect = await getRect();
+  if (!rect) return;
+  const isFullyVisible = (r) => r.left >= 0 && r.right <= r.vw;
+  if (isFullyVisible(rect)) return;
+
+  // Click a visible cell to establish focus.
+  // For ArrowRight: click leftmost visible cell (maximum room to scroll right).
+  // For ArrowLeft: click leftmost visible cell too (NOT rightmost — re-clicking breaks scroll context).
+  const direction = rect.right > rect.vw ? 'ArrowRight' : 'ArrowLeft';
+  const vpWidth = await page.evaluate('window.innerWidth');
+  const allCellLocs = frame.locator('div[x]');
+  const cellCount = await allCellLocs.count();
+  const candidates = [];
+  for (let ci = 0; ci < cellCount; ci++) {
+    const box = await allCellLocs.nth(ci).boundingBox();
+    if (box && box.x >= 0 && (box.x + box.width) <= vpWidth && box.width > 5) {
+      candidates.push({ ci, box });
+    }
+  }
+  if (candidates.length > 0) {
+    candidates.sort((a, b) => a.box.x - b.box.x);
+    const pick = candidates[0]; // always leftmost — safest for focus
+    await page.mouse.click(pick.box.x + pick.box.width / 2, pick.box.y + pick.box.height / 2);
+    await page.waitForTimeout(100);
+  }
+
+  // Arrow keys until cell is fully visible or we're stuck at document edge.
+  let prevCx = (rect.left + rect.right) / 2;
+  let scrollStarted = false;
+  for (let i = 0; i < 100; i++) {
+    await page.keyboard.press(direction);
+    await page.waitForTimeout(50);
+    rect = await getRect();
+    if (!rect) break;
+    if (isFullyVisible(rect)) break;
+    const cx = (rect.left + rect.right) / 2;
+    if (Math.abs(cx - prevCx) >= 1) {
+      scrollStarted = true;
+    } else if (scrollStarted) {
+      break; // scroll was moving, now stopped — reached document edge
+    }
+    prevCx = cx;
+  }
+  await page.waitForTimeout(200);
+}
+
+/**
  * Click a cell in SpreadsheetDocument by logical coordinates.
  * target: { row: number|'totals'|{colName: value}, column: string }
  * Internal helper — called from clickElement when first arg is an object.
@@ -1186,9 +1246,10 @@ async function clickSpreadsheetCell(target, { dblclick: dbl, modifier } = {}) {
   // Get bounding box and click via page.mouse (bypasses mxlCurrBody overlay)
   const frame = page.frames()[frameIndex];
   const cellDiv = frame.locator(`div.R${physRow}C${physCol}`).first();
-  // Scroll cell into view — pure DOM call, not blocked by mxlCurrBody overlay
-  await frame.evaluate(`document.querySelector('div.R${physRow}C${physCol}')?.scrollIntoView({ block: 'center', inline: 'center' })`);
-  await page.waitForTimeout(200);
+  // Scroll cell into view using arrow keys — the only reliable way to scroll
+  // 1C SpreadsheetDocument without desynchronizing headers, data, and scrollbar.
+  // First click a visible cell to focus the spreadsheet, then arrow-key to target.
+  await scrollSpreadsheetToCell(frame, physRow, physCol);
   const box = await cellDiv.boundingBox();
   if (!box) throw new Error(`clickElement: cell R${physRow}C${physCol} not visible (no bounding box).`);
 
@@ -1236,9 +1297,8 @@ async function findSpreadsheetCellByText(formNum, searchText) {
   if (!frameIndex) return null;
 
   const frame = page.frames()[frameIndex];
-  // Scroll cell into view before measuring
-  await frame.evaluate(`document.querySelector('div.R${found.cell.r}C${found.cell.c}')?.scrollIntoView({ block: 'center', inline: 'center' })`);
-  await page.waitForTimeout(200);
+  // Scroll cell into view using native arrow-key mechanism
+  await scrollSpreadsheetToCell(frame, found.cell.r, found.cell.c);
   const cellDiv = frame.locator(`div.R${found.cell.r}C${found.cell.c}`).first();
   const box = await cellDiv.boundingBox();
   if (!box) return null;
