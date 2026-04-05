@@ -361,8 +361,8 @@ async function cmdTest(rawArgs) {
   }
 
   // Load config if exists
-  const testDir = existsSync(testPath) && readdirSync(testPath, { withFileTypes: true }).length >= 0
-    ? testPath : dirname(testPath);
+  const isFile = testPath.endsWith('.test.mjs');
+  const testDir = isFile ? dirname(testPath) : testPath;
   const configPath = resolve(testDir, 'webtest.config.mjs');
   let config = {};
   if (existsSync(configPath)) {
