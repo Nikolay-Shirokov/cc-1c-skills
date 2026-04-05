@@ -16,7 +16,7 @@
 			<Explanation/>
 			<Picture/>
 			<Content>
-				<xr:Item xsi:type="xr:MDObjectRef">Catalogs.Товары</xr:Item>
+				<xr:Item xsi:type="xr:MDObjectRef">Catalog.Товары</xr:Item>
 			</Content>
 		</Properties>
 		<ChildObjects/>
