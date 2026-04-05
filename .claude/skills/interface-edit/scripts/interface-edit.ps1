@@ -1,4 +1,4 @@
-﻿# interface-edit v1.1 — Edit 1C CommandInterface.xml
+﻿# interface-edit v1.2 — Edit 1C CommandInterface.xml
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)][string]$CIPath,
@@ -202,9 +202,59 @@ function Find-CommandByName($section, [string]$cmdName) {
 	return $null
 }
 
+# --- Command name normalization (plural/Russian type prefix → singular English) ---
+$script:typeNormMap = @{
+	"Catalogs"="Catalog"; "Documents"="Document"; "Enums"="Enum"; "Constants"="Constant"
+	"Reports"="Report"; "DataProcessors"="DataProcessor"
+	"InformationRegisters"="InformationRegister"; "AccumulationRegisters"="AccumulationRegister"
+	"AccountingRegisters"="AccountingRegister"; "CalculationRegisters"="CalculationRegister"
+	"ChartsOfAccounts"="ChartOfAccounts"; "ChartsOfCharacteristicTypes"="ChartOfCharacteristicTypes"
+	"ChartsOfCalculationTypes"="ChartOfCalculationTypes"
+	"BusinessProcesses"="BusinessProcess"; "Tasks"="Task"
+	"ExchangePlans"="ExchangePlan"; "DocumentJournals"="DocumentJournal"
+	"CommonModules"="CommonModule"; "CommonCommands"="CommonCommand"
+	"CommonForms"="CommonForm"; "CommonPictures"="CommonPicture"
+	"CommonTemplates"="CommonTemplate"; "CommonAttributes"="CommonAttribute"
+	"CommandGroups"="CommandGroup"; "Roles"="Role"
+	"Subsystems"="Subsystem"; "StyleItems"="StyleItem"
+	# Russian singular
+	"Справочник"="Catalog"; "Документ"="Document"; "Перечисление"="Enum"
+	"Константа"="Constant"; "Отчёт"="Report"; "Отчет"="Report"; "Обработка"="DataProcessor"
+	"РегистрСведений"="InformationRegister"; "РегистрНакопления"="AccumulationRegister"
+	"РегистрБухгалтерии"="AccountingRegister"
+	"ПланСчетов"="ChartOfAccounts"; "ПланВидовХарактеристик"="ChartOfCharacteristicTypes"
+	"БизнесПроцесс"="BusinessProcess"; "Задача"="Task"
+	"ПланОбмена"="ExchangePlan"; "ЖурналДокументов"="DocumentJournal"
+	"ОбщийМодуль"="CommonModule"; "ОбщаяКоманда"="CommonCommand"
+	"ОбщаяФорма"="CommonForm"; "Подсистема"="Subsystem"
+	# Russian plural
+	"Справочники"="Catalog"; "Документы"="Document"; "Перечисления"="Enum"
+	"Константы"="Constant"; "Отчёты"="Report"; "Отчеты"="Report"; "Обработки"="DataProcessor"
+	"РегистрыСведений"="InformationRegister"; "РегистрыНакопления"="AccumulationRegister"
+	"РегистрыБухгалтерии"="AccountingRegister"
+	"ПланыСчетов"="ChartOfAccounts"; "ПланыВидовХарактеристик"="ChartOfCharacteristicTypes"
+	"БизнесПроцессы"="BusinessProcess"; "Задачи"="Task"
+	"ПланыОбмена"="ExchangePlan"; "ЖурналыДокументов"="DocumentJournal"
+	"Подсистемы"="Subsystem"
+}
+
+function Normalize-CmdName([string]$name) {
+	if (-not $name -or -not $name.Contains('.')) { return $name }
+	$dotIdx = $name.IndexOf('.')
+	$first = $name.Substring(0, $dotIdx)
+	$rest = $name.Substring($dotIdx)
+	if ($script:typeNormMap.ContainsKey($first)) {
+		$normalized = "$($script:typeNormMap[$first])$rest"
+		if ($normalized -ne $name) { Write-Host "[NORM] Command: $name -> $normalized" }
+		return $normalized
+	}
+	return $name
+}
+
 # --- Operations ---
 
 function Do-Hide([string[]]$commands) {
+	$commands = @($commands | ForEach-Object { Normalize-CmdName $_ })
 	$section = Ensure-Section "CommandsVisibility"
 	$sectionIndent = Get-ChildIndent $section
 
@@ -244,6 +294,7 @@ function Do-Hide([string[]]$commands) {
 }
 
 function Do-Show([string[]]$commands) {
+	$commands = @($commands | ForEach-Object { Normalize-CmdName $_ })
 	$section = $null
 	foreach ($child in $root.ChildNodes) {
 		if ($child.NodeType -eq 'Element' -and $child.LocalName -eq "CommandsVisibility") {
@@ -292,7 +343,7 @@ function Do-Show([string[]]$commands) {
 
 function Do-Place([string]$jsonVal) {
 	$def = $jsonVal | ConvertFrom-Json
-	$cmdName = "$($def.command)"
+	$cmdName = Normalize-CmdName "$($def.command)"
 	$groupName = "$($def.group)"
 	if (-not $cmdName -or -not $groupName) { Write-Error "place requires {command, group}"; exit 1 }
 
@@ -326,7 +377,7 @@ function Do-Place([string]$jsonVal) {
 function Do-Order([string]$jsonVal) {
 	$def = $jsonVal | ConvertFrom-Json
 	$groupName = "$($def.group)"
-	$commands = @($def.commands | ForEach-Object { "$_" })
+	$commands = @($def.commands | ForEach-Object { Normalize-CmdName "$_" })
 	if (-not $groupName -or $commands.Count -eq 0) { Write-Error "order requires {group, commands:[...]}"; exit 1 }
 
 	$section = Ensure-Section "CommandsOrder"

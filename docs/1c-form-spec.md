@@ -958,7 +958,19 @@ ChildItems
 | `cfg:BusinessProcessRef.<Имя>` | — | Ссылка на бизнес-процесс |
 | `cfg:TaskRef.<Имя>` | — | Ссылка на задачу |
 | `cfg:InformationRegisterRecordSet.<Имя>` | — | Набор записей регистра сведений |
+| `cfg:InformationRegisterRecordManager.<Имя>` | — | Менеджер записи регистра сведений |
 | `cfg:AccumulationRegisterRecordSet.<Имя>` | — | Набор записей регистра накопления |
+| `cfg:AccountingRegisterRecordSet.<Имя>` | — | Набор записей регистра бухгалтерии |
+| `cfg:ChartOfAccountsObject.<Имя>` | — | Объект плана счетов |
+| `cfg:ChartOfCharacteristicTypesObject.<Имя>` | — | Объект ПВХ |
+| `cfg:ChartOfCalculationTypesObject.<Имя>` | — | Объект плана видов расчёта |
+| `cfg:ExchangePlanObject.<Имя>` | — | Объект плана обмена |
+| `cfg:BusinessProcessObject.<Имя>` | — | Объект бизнес-процесса |
+| `cfg:TaskObject.<Имя>` | — | Объект задачи |
+| `cfg:ConstantsSet` | — | Набор констант |
+| `cfg:DataProcessorObject.<Имя>` | — | Объект обработки |
+| `cfg:ReportObject.<Имя>` | — | Объект отчёта |
+| `cfg:DynamicList` | — | Динамический список |
 
 #### Платформенные типы (v8:*)
 
@@ -971,6 +983,12 @@ ChildItems
 | `v8:Universal` | Произвольный тип |
 | `v8:FixedArray` | Фиксированный массив |
 | `v8:FixedStructure` | Фиксированная структура |
+| `v8:FillChecking` | Проверка заполнения |
+| `v8:Null` | Null |
+| `v8:StandardPeriod` | Стандартный период |
+| `v8:StandardBeginningDate` | Стандартная начальная дата |
+| `v8:Type` | Тип |
+| `v8:UUID` | Уникальный идентификатор |
 
 #### UI-типы (v8ui:*)
 
@@ -980,6 +998,9 @@ ChildItems
 | `v8ui:Picture` | Картинка |
 | `v8ui:Color` | Цвет |
 | `v8ui:Font` | Шрифт |
+| `v8ui:SizeChangeMode` | Режим изменения размера |
+| `v8ui:VerticalAlign` | Вертикальное выравнивание |
+| `v8ui:HorizontalAlign` | Горизонтальное выравнивание |
 
 #### Типы СКД (dcs*:*)
 
@@ -988,6 +1009,21 @@ ChildItems
 | `dcsset:DataCompositionSettings` | Настройки СКД |
 | `dcssch:DataCompositionSchema` | Схема СКД |
 | `dcscor:DataCompositionComparisonType` | Тип сравнения СКД |
+| `dcsset:Filter` | Отбор СКД |
+| `dcsset:SettingsComposer` | Компоновщик настроек |
+| `dcsset:DataCompositionFieldPlacement` | Размещение поля СКД |
+| `dcscor:DataCompositionGroupType` | Тип группировки |
+| `dcscor:DataCompositionPeriodAdditionType` | Тип дополнения периода |
+| `dcscor:DataCompositionSortDirection` | Направление сортировки |
+| `dcscor:Field` | Поле СКД |
+
+#### Типы предприятия (ent:*)
+
+| Тип | Описание |
+|-----|----------|
+| `ent:AccountType` | Тип счёта (Активный/Пассивный/АктивноПассивный) |
+| `ent:AccumulationRecordType` | Тип движения регистра накопления (Приход/Расход) |
+| `ent:AccountingRecordType` | Тип бухгалтерской записи |
 
 #### Пустой тип
 

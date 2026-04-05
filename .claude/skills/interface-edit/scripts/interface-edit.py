@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# interface-edit v1.1 — Edit 1C CommandInterface.xml
+# interface-edit v1.2 — Edit 1C CommandInterface.xml
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -101,6 +101,56 @@ def save_xml_bom(tree, path):
     with open(path, "wb") as f:
         f.write(b"\xef\xbb\xbf")
         f.write(xml_bytes)
+
+
+TYPE_NORM_MAP = {
+    'Catalogs': 'Catalog', 'Documents': 'Document', 'Enums': 'Enum',
+    'Constants': 'Constant', 'Reports': 'Report', 'DataProcessors': 'DataProcessor',
+    'InformationRegisters': 'InformationRegister', 'AccumulationRegisters': 'AccumulationRegister',
+    'AccountingRegisters': 'AccountingRegister', 'CalculationRegisters': 'CalculationRegister',
+    'ChartsOfAccounts': 'ChartOfAccounts', 'ChartsOfCharacteristicTypes': 'ChartOfCharacteristicTypes',
+    'ChartsOfCalculationTypes': 'ChartOfCalculationTypes',
+    'BusinessProcesses': 'BusinessProcess', 'Tasks': 'Task',
+    'ExchangePlans': 'ExchangePlan', 'DocumentJournals': 'DocumentJournal',
+    'CommonModules': 'CommonModule', 'CommonCommands': 'CommonCommand',
+    'CommonForms': 'CommonForm', 'CommonPictures': 'CommonPicture',
+    'CommonTemplates': 'CommonTemplate', 'CommonAttributes': 'CommonAttribute',
+    'CommandGroups': 'CommandGroup', 'Roles': 'Role',
+    'Subsystems': 'Subsystem', 'StyleItems': 'StyleItem',
+    # Russian singular
+    'Справочник': 'Catalog', 'Документ': 'Document', 'Перечисление': 'Enum',
+    'Константа': 'Constant', 'Отчёт': 'Report', 'Отчет': 'Report', 'Обработка': 'DataProcessor',
+    'РегистрСведений': 'InformationRegister', 'РегистрНакопления': 'AccumulationRegister',
+    'РегистрБухгалтерии': 'AccountingRegister',
+    'ПланСчетов': 'ChartOfAccounts', 'ПланВидовХарактеристик': 'ChartOfCharacteristicTypes',
+    'БизнесПроцесс': 'BusinessProcess', 'Задача': 'Task',
+    'ПланОбмена': 'ExchangePlan', 'ЖурналДокументов': 'DocumentJournal',
+    'ОбщийМодуль': 'CommonModule', 'ОбщаяКоманда': 'CommonCommand',
+    'ОбщаяФорма': 'CommonForm', 'Подсистема': 'Subsystem',
+    # Russian plural
+    'Справочники': 'Catalog', 'Документы': 'Document', 'Перечисления': 'Enum',
+    'Константы': 'Constant', 'Отчёты': 'Report', 'Отчеты': 'Report', 'Обработки': 'DataProcessor',
+    'РегистрыСведений': 'InformationRegister', 'РегистрыНакопления': 'AccumulationRegister',
+    'РегистрыБухгалтерии': 'AccountingRegister',
+    'ПланыСчетов': 'ChartOfAccounts', 'ПланыВидовХарактеристик': 'ChartOfCharacteristicTypes',
+    'БизнесПроцессы': 'BusinessProcess', 'Задачи': 'Task',
+    'ПланыОбмена': 'ExchangePlan', 'ЖурналыДокументов': 'DocumentJournal',
+    'Подсистемы': 'Subsystem',
+}
+
+
+def normalize_cmd_name(name):
+    if not name or '.' not in name:
+        return name
+    dot_idx = name.index('.')
+    first = name[:dot_idx]
+    rest = name[dot_idx:]
+    if first in TYPE_NORM_MAP:
+        normalized = TYPE_NORM_MAP[first] + rest
+        if normalized != name:
+            print(f'[NORM] Command: {name} -> {normalized}')
+        return normalized
+    return name
 
 
 def find_command_by_name(section, cmd_name):
@@ -207,6 +257,7 @@ def main():
 
     def do_hide(commands):
         nonlocal add_count, modify_count
+        commands = [normalize_cmd_name(c) for c in commands]
         section = ensure_section("CommandsVisibility")
         section_indent = get_child_indent(section)
 
@@ -238,6 +289,7 @@ def main():
 
     def do_show(commands):
         nonlocal add_count, modify_count
+        commands = [normalize_cmd_name(c) for c in commands]
         section = None
         for child in root:
             if isinstance(child.tag, str) and localname(child) == "CommandsVisibility":
@@ -277,7 +329,7 @@ def main():
     def do_place(json_val):
         nonlocal add_count, modify_count
         defn = json_val if isinstance(json_val, dict) else json.loads(json_val)
-        cmd_name = str(defn["command"])
+        cmd_name = normalize_cmd_name(str(defn["command"]))
         group_name = str(defn["group"])
         if not cmd_name or not group_name:
             print("place requires {command, group}", file=sys.stderr)
@@ -306,7 +358,7 @@ def main():
         nonlocal add_count, remove_count
         defn = json_val if isinstance(json_val, dict) else json.loads(json_val)
         group_name = str(defn["group"])
-        commands = [str(c) for c in defn["commands"]]
+        commands = [normalize_cmd_name(str(c)) for c in defn["commands"]]
         if not group_name or not commands:
             print("order requires {group, commands:[...]}", file=sys.stderr)
             sys.exit(1)

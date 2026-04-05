@@ -1,4 +1,4 @@
-﻿# subsystem-validate v1.1 — Validate 1C subsystem XML structure
+﻿# subsystem-validate v1.2 — Validate 1C subsystem XML structure
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)][string]$SubsystemPath,
@@ -64,6 +64,19 @@ function Report-Warn([string]$msg) {
 
 $guidPattern = '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
 $identPattern = '^[A-Za-z\u0410-\u042F\u0401\u0430-\u044F\u0451_][A-Za-z0-9\u0410-\u042F\u0401\u0430-\u044F\u0451_]*$'
+
+# Known plural forms that are NOT valid in subsystem Content (platform expects singular)
+$knownPluralTypes = @(
+	"Catalogs","Documents","Enums","Constants","Reports","DataProcessors"
+	"InformationRegisters","AccumulationRegisters","AccountingRegisters","CalculationRegisters"
+	"ChartsOfAccounts","ChartsOfCharacteristicTypes","ChartsOfCalculationTypes"
+	"BusinessProcesses","Tasks","ExchangePlans","DocumentJournals"
+	"CommonModules","CommonCommands","CommonForms","CommonPictures","CommonTemplates"
+	"CommonAttributes","CommandGroups","Roles","SessionParameters","FilterCriteria"
+	"XDTOPackages","WebServices","HTTPServices","WSReferences","EventSubscriptions"
+	"ScheduledJobs","SettingsStorages","FunctionalOptions","FunctionalOptionsParameters"
+	"DefinedTypes","DocumentNumerators","Sequences","Subsystems","StyleItems","IntegrationServices"
+)
 
 # --- 1. XML well-formedness + root structure ---
 $xmlDoc = $null
@@ -189,6 +202,13 @@ if (-not $script:stopped) {
 			if ($text -notmatch '^[A-Za-z]+\..+$' -and $text -notmatch $guidPattern) {
 				Report-Error "6. Content item `"$text`": invalid format (expected Type.Name or UUID)"
 				$contentOk = $false
+			}
+			if ($text -match '^([A-Za-z]+)\.') {
+				$typePart = $Matches[1]
+				if ($typePart -in $knownPluralTypes) {
+					Report-Error "6. Content item `"$text`": uses plural form `"$typePart`" (platform requires singular, e.g. Catalog not Catalogs)"
+					$contentOk = $false
+				}
 			}
 		}
 		if ($contentOk) { Report-OK "6. Content: $($xrItems.Count) items, all valid MDObjectRef format" }

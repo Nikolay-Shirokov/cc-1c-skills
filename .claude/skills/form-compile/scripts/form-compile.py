@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# form-compile v1.0 — Compile 1C managed form from JSON
+# form-compile v1.1 — Compile 1C managed form from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import json
@@ -202,10 +202,26 @@ DCS_MAP = {
 
 CFG_REF_PATTERN = re.compile(
     r'^(CatalogRef|CatalogObject|DocumentRef|DocumentObject|EnumRef|'
-    r'ChartOfAccountsRef|ChartOfCharacteristicTypesRef|ChartOfCalculationTypesRef|'
-    r'ExchangePlanRef|BusinessProcessRef|TaskRef|'
-    r'InformationRegisterRecordSet|AccumulationRegisterRecordSet|DataProcessorObject)\.'
+    r'ChartOfAccountsRef|ChartOfAccountsObject|ChartOfCharacteristicTypesRef|ChartOfCharacteristicTypesObject|'
+    r'ChartOfCalculationTypesRef|ChartOfCalculationTypesObject|'
+    r'ExchangePlanRef|ExchangePlanObject|BusinessProcessRef|BusinessProcessObject|TaskRef|TaskObject|'
+    r'InformationRegisterRecordSet|InformationRegisterRecordManager|'
+    r'AccumulationRegisterRecordSet|AccountingRegisterRecordSet|'
+    r'ConstantsSet|DataProcessorObject|ReportObject)\.'
 )
+
+KNOWN_INVALID_TYPES = {
+    'FormDataStructure': 'Runtime type. Use cfg:*Object.XXX (e.g. CatalogObject.XXX)',
+    'FormDataCollection': 'Runtime type. Use ValueTable',
+    'FormDataTree': 'Runtime type. Use ValueTree',
+    'FormDataTreeItem': 'Runtime type, not valid in XML',
+    'FormDataCollectionItem': 'Runtime type, not valid in XML',
+    'FormGroup': 'UI element type, not a data type',
+    'FormField': 'UI element type, not a data type',
+    'FormButton': 'UI element type, not a data type',
+    'FormDecoration': 'UI element type, not a data type',
+    'FormTable': 'UI element type, not a data type',
+}
 
 
 _FORM_TYPE_SYNONYMS = {
@@ -312,10 +328,14 @@ def emit_single_type(lines, type_str, indent):
         lines.append(f'{indent}<v8:Type>cfg:{type_str}</v8:Type>')
         return
 
-    # Fallback
+    # Fallback with validation
+    if type_str in KNOWN_INVALID_TYPES:
+        print(f"WARNING: Type '{type_str}': {KNOWN_INVALID_TYPES[type_str]}", file=sys.stderr)
     if '.' in type_str:
         lines.append(f'{indent}<v8:Type>cfg:{type_str}</v8:Type>')
     else:
+        if type_str not in KNOWN_INVALID_TYPES:
+            print(f"WARNING: Unrecognized bare type '{type_str}' — will be emitted without namespace prefix", file=sys.stderr)
         lines.append(f'{indent}<v8:Type>{type_str}</v8:Type>')
 
 

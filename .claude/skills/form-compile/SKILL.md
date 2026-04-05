@@ -241,6 +241,8 @@ powershell.exe -NoProfile -File .claude/skills/form-compile/scripts/form-compile
 
 ### Система типов
 
+**Примитивные:**
+
 | DSL                    | XML                                    |
 |------------------------|----------------------------------------|
 | `"string"` / `"string(100)"` | `xs:string` + StringQualifiers  |
@@ -248,11 +250,38 @@ powershell.exe -NoProfile -File .claude/skills/form-compile/scripts/form-compile
 | `"decimal(10,0,nonneg)"` | с AllowedSign=Nonnegative           |
 | `"boolean"`            | `xs:boolean`                          |
 | `"date"` / `"dateTime"` / `"time"` | `xs:dateTime` + DateFractions |
-| `"CatalogRef.XXX"`    | `cfg:CatalogRef.XXX`                   |
-| `"DocumentRef.XXX"`   | `cfg:DocumentRef.XXX`                  |
-| `"ValueTable"`         | `v8:ValueTable`                       |
-| `"ValueList"`          | `v8:ValueListType`                    |
-| `"Type1 \| Type2"`    | составной тип                          |
+
+**Ссылочные и объектные (`cfg:Prefix.Name`):**
+
+| DSL | Описание |
+|-----|----------|
+| `"CatalogRef.XXX"` / `"CatalogObject.XXX"` | Справочник |
+| `"DocumentRef.XXX"` / `"DocumentObject.XXX"` | Документ |
+| `"EnumRef.XXX"` | Перечисление |
+| `"DataProcessorObject.XXX"` / `"ReportObject.XXX"` | Обработка / Отчёт |
+| `"InformationRegisterRecordSet.XXX"` | Набор записей регистра сведений |
+| `"AccumulationRegisterRecordSet.XXX"` | Набор записей регистра накопления |
+| `"DynamicList"` | Динамический список |
+
+Также допустимы: `ChartOfAccountsRef/Object`, `ChartOfCharacteristicTypesRef/Object`, `ChartOfCalculationTypesRef/Object`, `ExchangePlanRef/Object`, `BusinessProcessRef/Object`, `TaskRef/Object`, `AccountingRegisterRecordSet`, `InformationRegisterRecordManager`, `ConstantsSet`.
+
+**Платформенные:**
+
+| DSL | XML |
+|-----|-----|
+| `"ValueTable"` | `v8:ValueTable` |
+| `"ValueTree"` | `v8:ValueTree` |
+| `"ValueList"` | `v8:ValueListType` |
+| `"TypeDescription"` | `v8:TypeDescription` |
+| `"UUID"` | `v8:UUID` |
+| `"FormattedString"` | `v8ui:FormattedString` |
+| `"Picture"` / `"Color"` / `"Font"` | `v8ui:*` |
+| `"DataCompositionSettings"` | `dcsset:DataCompositionSettings` |
+| `"Type1 \| Type2"` | составной тип (несколько `<v8:Type>`) |
+
+**Недопустимые типы (XDTO-ошибка при загрузке):**
+
+> `FormDataStructure`, `FormDataCollection`, `FormDataTree` — runtime-типы 1С, не существуют в XML-схеме. Вместо них используйте `CatalogObject.XXX`, `DocumentObject.XXX`, `DataProcessorObject.XXX`, `ValueTable`, `ValueTree`.
 
 ## Связки: элемент + реквизит
 

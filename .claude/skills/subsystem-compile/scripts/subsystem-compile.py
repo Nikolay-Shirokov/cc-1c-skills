@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# subsystem-compile v1.1 — Create 1C subsystem from JSON definition
+# subsystem-compile v1.2 — Create 1C subsystem from JSON definition
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import json
@@ -88,7 +88,88 @@ def main():
     if not os.path.isabs(output_dir):
         output_dir = os.path.join(os.getcwd(), output_dir)
 
-    # --- 2. Resolve defaults ---
+    # --- 2. Content type normalization (plural→singular, Russian→English) ---
+    CONTENT_TYPE_MAP = {
+        # Plural English → Singular
+        'Catalogs': 'Catalog', 'Documents': 'Document', 'Enums': 'Enum',
+        'Constants': 'Constant', 'Reports': 'Report', 'DataProcessors': 'DataProcessor',
+        'InformationRegisters': 'InformationRegister', 'AccumulationRegisters': 'AccumulationRegister',
+        'AccountingRegisters': 'AccountingRegister', 'CalculationRegisters': 'CalculationRegister',
+        'ChartsOfAccounts': 'ChartOfAccounts', 'ChartsOfCharacteristicTypes': 'ChartOfCharacteristicTypes',
+        'ChartsOfCalculationTypes': 'ChartOfCalculationTypes',
+        'BusinessProcesses': 'BusinessProcess', 'Tasks': 'Task',
+        'ExchangePlans': 'ExchangePlan', 'DocumentJournals': 'DocumentJournal',
+        'CommonModules': 'CommonModule', 'CommonCommands': 'CommonCommand',
+        'CommonForms': 'CommonForm', 'CommonPictures': 'CommonPicture',
+        'CommonTemplates': 'CommonTemplate', 'CommonAttributes': 'CommonAttribute',
+        'CommandGroups': 'CommandGroup', 'Roles': 'Role',
+        'SessionParameters': 'SessionParameter', 'FilterCriteria': 'FilterCriterion',
+        'XDTOPackages': 'XDTOPackage', 'WebServices': 'WebService',
+        'HTTPServices': 'HTTPService', 'WSReferences': 'WSReference',
+        'EventSubscriptions': 'EventSubscription', 'ScheduledJobs': 'ScheduledJob',
+        'SettingsStorages': 'SettingsStorage', 'FunctionalOptions': 'FunctionalOption',
+        'FunctionalOptionsParameters': 'FunctionalOptionsParameter',
+        'DefinedTypes': 'DefinedType', 'DocumentNumerators': 'DocumentNumerator',
+        'Sequences': 'Sequence', 'Subsystems': 'Subsystem',
+        'StyleItems': 'StyleItem', 'IntegrationServices': 'IntegrationService',
+        # Russian singular → English
+        'Справочник': 'Catalog', 'Каталог': 'Catalog', 'Документ': 'Document',
+        'Перечисление': 'Enum', 'Константа': 'Constant',
+        'Отчёт': 'Report', 'Отчет': 'Report', 'Обработка': 'DataProcessor',
+        'РегистрСведений': 'InformationRegister', 'РегистрНакопления': 'AccumulationRegister',
+        'РегистрБухгалтерии': 'AccountingRegister',
+        'РегистрРасчёта': 'CalculationRegister', 'РегистрРасчета': 'CalculationRegister',
+        'ПланСчетов': 'ChartOfAccounts', 'ПланВидовХарактеристик': 'ChartOfCharacteristicTypes',
+        'ПланВидовРасчёта': 'ChartOfCalculationTypes', 'ПланВидовРасчета': 'ChartOfCalculationTypes',
+        'БизнесПроцесс': 'BusinessProcess', 'Задача': 'Task',
+        'ПланОбмена': 'ExchangePlan', 'ЖурналДокументов': 'DocumentJournal',
+        'ОбщийМодуль': 'CommonModule', 'ОбщаяКоманда': 'CommonCommand',
+        'ОбщаяФорма': 'CommonForm', 'ОбщаяКартинка': 'CommonPicture',
+        'ОбщийМакет': 'CommonTemplate', 'ОбщийРеквизит': 'CommonAttribute',
+        'ГруппаКоманд': 'CommandGroup', 'Роль': 'Role',
+        'ПараметрСеанса': 'SessionParameter', 'КритерийОтбора': 'FilterCriterion',
+        'ПакетXDTO': 'XDTOPackage', 'ВебСервис': 'WebService',
+        'HTTPСервис': 'HTTPService', 'WSСсылка': 'WSReference',
+        'ПодпискаНаСобытие': 'EventSubscription', 'РегламентноеЗадание': 'ScheduledJob',
+        'ХранилищеНастроек': 'SettingsStorage', 'ФункциональнаяОпция': 'FunctionalOption',
+        'ПараметрФункциональныхОпций': 'FunctionalOptionsParameter',
+        'ОпределяемыйТип': 'DefinedType', 'НумераторДокументов': 'DocumentNumerator',
+        'Последовательность': 'Sequence', 'Подсистема': 'Subsystem',
+        'ЭлементСтиля': 'StyleItem', 'СервисИнтеграции': 'IntegrationService',
+        # Russian plural → English
+        'Справочники': 'Catalog', 'Документы': 'Document', 'Перечисления': 'Enum',
+        'Константы': 'Constant', 'Отчёты': 'Report', 'Отчеты': 'Report',
+        'Обработки': 'DataProcessor', 'РегистрыСведений': 'InformationRegister',
+        'РегистрыНакопления': 'AccumulationRegister', 'РегистрыБухгалтерии': 'AccountingRegister',
+        'РегистрыРасчёта': 'CalculationRegister', 'РегистрыРасчета': 'CalculationRegister',
+        'ПланыСчетов': 'ChartOfAccounts', 'ПланыВидовХарактеристик': 'ChartOfCharacteristicTypes',
+        'ПланыВидовРасчёта': 'ChartOfCalculationTypes', 'ПланыВидовРасчета': 'ChartOfCalculationTypes',
+        'БизнесПроцессы': 'BusinessProcess', 'Задачи': 'Task',
+        'ПланыОбмена': 'ExchangePlan', 'ЖурналыДокументов': 'DocumentJournal',
+        'ОбщиеМодули': 'CommonModule', 'ОбщиеКоманды': 'CommonCommand',
+        'ОбщиеФормы': 'CommonForm', 'ОбщиеКартинки': 'CommonPicture',
+        'ОбщиеМакеты': 'CommonTemplate', 'ОбщиеРеквизиты': 'CommonAttribute',
+        'ГруппыКоманд': 'CommandGroup', 'Роли': 'Role',
+        'ПараметрыСеанса': 'SessionParameter', 'КритерииОтбора': 'FilterCriterion',
+        'ПакетыXDTO': 'XDTOPackage', 'ВебСервисы': 'WebService',
+        'HTTPСервисы': 'HTTPService', 'WSСсылки': 'WSReference',
+        'ПодпискиНаСобытия': 'EventSubscription', 'РегламентныеЗадания': 'ScheduledJob',
+        'ХранилищаНастроек': 'SettingsStorage', 'ФункциональныеОпции': 'FunctionalOption',
+        'ОпределяемыеТипы': 'DefinedType', 'Подсистемы': 'Subsystem',
+        'ЭлементыСтиля': 'StyleItem', 'СервисыИнтеграции': 'IntegrationService',
+    }
+
+    def normalize_content_ref(ref):
+        if not ref or '.' not in ref:
+            return ref
+        dot_idx = ref.index('.')
+        type_part = ref[:dot_idx]
+        name_part = ref[dot_idx + 1:]
+        if type_part in CONTENT_TYPE_MAP:
+            type_part = CONTENT_TYPE_MAP[type_part]
+        return f'{type_part}.{name_part}'
+
+    # --- 3. Resolve defaults ---
     synonym = str(defn['synonym']) if defn.get('synonym') else split_camel_case(obj_name)
     comment = str(defn['comment']) if defn.get('comment') else ''
     include_help_in_contents = 'true'
@@ -102,9 +183,17 @@ def main():
         defn['content'] = defn['objects']
 
     content_items = []
+    normalized_count = 0
     if defn.get('content'):
         for c in defn['content']:
-            content_items.append(str(c))
+            raw = str(c)
+            normalized = normalize_content_ref(raw)
+            if normalized != raw:
+                print(f'[NORM] Content: {raw} -> {normalized}')
+                normalized_count += 1
+            content_items.append(normalized)
+    if normalized_count > 0:
+        print(f'[INFO] Normalized {normalized_count} content reference(s) to singular English form')
 
     children = []
     if defn.get('children'):

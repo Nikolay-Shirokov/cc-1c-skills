@@ -1,4 +1,4 @@
-﻿# subsystem-edit v1.0 — Edit existing 1C subsystem XML
+﻿# subsystem-edit v1.1 — Edit existing 1C subsystem XML
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)][string]$SubsystemPath,
@@ -11,6 +11,86 @@ param(
 
 $ErrorActionPreference = "Stop"
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+
+# --- Content type normalization (plural→singular, Russian→English) ---
+$script:contentTypeMap = @{
+	"Catalogs"="Catalog"; "Documents"="Document"; "Enums"="Enum"; "Constants"="Constant"
+	"Reports"="Report"; "DataProcessors"="DataProcessor"
+	"InformationRegisters"="InformationRegister"; "AccumulationRegisters"="AccumulationRegister"
+	"AccountingRegisters"="AccountingRegister"; "CalculationRegisters"="CalculationRegister"
+	"ChartsOfAccounts"="ChartOfAccounts"; "ChartsOfCharacteristicTypes"="ChartOfCharacteristicTypes"
+	"ChartsOfCalculationTypes"="ChartOfCalculationTypes"
+	"BusinessProcesses"="BusinessProcess"; "Tasks"="Task"
+	"ExchangePlans"="ExchangePlan"; "DocumentJournals"="DocumentJournal"
+	"CommonModules"="CommonModule"; "CommonCommands"="CommonCommand"
+	"CommonForms"="CommonForm"; "CommonPictures"="CommonPicture"
+	"CommonTemplates"="CommonTemplate"; "CommonAttributes"="CommonAttribute"
+	"CommandGroups"="CommandGroup"; "Roles"="Role"
+	"SessionParameters"="SessionParameter"; "FilterCriteria"="FilterCriterion"
+	"XDTOPackages"="XDTOPackage"; "WebServices"="WebService"
+	"HTTPServices"="HTTPService"; "WSReferences"="WSReference"
+	"EventSubscriptions"="EventSubscription"; "ScheduledJobs"="ScheduledJob"
+	"SettingsStorages"="SettingsStorage"; "FunctionalOptions"="FunctionalOption"
+	"FunctionalOptionsParameters"="FunctionalOptionsParameter"
+	"DefinedTypes"="DefinedType"; "DocumentNumerators"="DocumentNumerator"
+	"Sequences"="Sequence"; "Subsystems"="Subsystem"
+	"StyleItems"="StyleItem"; "IntegrationServices"="IntegrationService"
+	# Russian singular
+	"Справочник"="Catalog"; "Каталог"="Catalog"; "Документ"="Document"
+	"Перечисление"="Enum"; "Константа"="Constant"
+	"Отчёт"="Report"; "Отчет"="Report"; "Обработка"="DataProcessor"
+	"РегистрСведений"="InformationRegister"; "РегистрНакопления"="AccumulationRegister"
+	"РегистрБухгалтерии"="AccountingRegister"
+	"РегистрРасчёта"="CalculationRegister"; "РегистрРасчета"="CalculationRegister"
+	"ПланСчетов"="ChartOfAccounts"; "ПланВидовХарактеристик"="ChartOfCharacteristicTypes"
+	"ПланВидовРасчёта"="ChartOfCalculationTypes"; "ПланВидовРасчета"="ChartOfCalculationTypes"
+	"БизнесПроцесс"="BusinessProcess"; "Задача"="Task"
+	"ПланОбмена"="ExchangePlan"; "ЖурналДокументов"="DocumentJournal"
+	"ОбщийМодуль"="CommonModule"; "ОбщаяКоманда"="CommonCommand"
+	"ОбщаяФорма"="CommonForm"; "ОбщаяКартинка"="CommonPicture"
+	"ОбщийМакет"="CommonTemplate"; "ОбщийРеквизит"="CommonAttribute"
+	"ГруппаКоманд"="CommandGroup"; "Роль"="Role"
+	"ПараметрСеанса"="SessionParameter"; "КритерийОтбора"="FilterCriterion"
+	"ПакетXDTO"="XDTOPackage"; "ВебСервис"="WebService"
+	"HTTPСервис"="HTTPService"; "WSСсылка"="WSReference"
+	"ПодпискаНаСобытие"="EventSubscription"; "РегламентноеЗадание"="ScheduledJob"
+	"ХранилищеНастроек"="SettingsStorage"; "ФункциональнаяОпция"="FunctionalOption"
+	"ПараметрФункциональныхОпций"="FunctionalOptionsParameter"
+	"ОпределяемыйТип"="DefinedType"; "Подсистема"="Subsystem"
+	"ЭлементСтиля"="StyleItem"; "СервисИнтеграции"="IntegrationService"
+	# Russian plural
+	"Справочники"="Catalog"; "Документы"="Document"; "Перечисления"="Enum"
+	"Константы"="Constant"; "Отчёты"="Report"; "Отчеты"="Report"
+	"Обработки"="DataProcessor"; "РегистрыСведений"="InformationRegister"
+	"РегистрыНакопления"="AccumulationRegister"; "РегистрыБухгалтерии"="AccountingRegister"
+	"РегистрыРасчёта"="CalculationRegister"; "РегистрыРасчета"="CalculationRegister"
+	"ПланыСчетов"="ChartOfAccounts"; "ПланыВидовХарактеристик"="ChartOfCharacteristicTypes"
+	"ПланыВидовРасчёта"="ChartOfCalculationTypes"; "ПланыВидовРасчета"="ChartOfCalculationTypes"
+	"БизнесПроцессы"="BusinessProcess"; "Задачи"="Task"
+	"ПланыОбмена"="ExchangePlan"; "ЖурналыДокументов"="DocumentJournal"
+	"ОбщиеМодули"="CommonModule"; "ОбщиеКоманды"="CommonCommand"
+	"ОбщиеФормы"="CommonForm"; "ОбщиеКартинки"="CommonPicture"
+	"ОбщиеМакеты"="CommonTemplate"; "ОбщиеРеквизиты"="CommonAttribute"
+	"ГруппыКоманд"="CommandGroup"; "Роли"="Role"
+	"ПараметрыСеанса"="SessionParameter"; "КритерииОтбора"="FilterCriterion"
+	"ПакетыXDTO"="XDTOPackage"; "ВебСервисы"="WebService"
+	"HTTPСервисы"="HTTPService"; "WSСсылки"="WSReference"
+	"ПодпискиНаСобытия"="EventSubscription"; "РегламентныеЗадания"="ScheduledJob"
+	"ХранилищаНастроек"="SettingsStorage"; "ФункциональныеОпции"="FunctionalOption"
+	"ОпределяемыеТипы"="DefinedType"; "Подсистемы"="Subsystem"
+	"ЭлементыСтиля"="StyleItem"; "СервисыИнтеграции"="IntegrationService"
+}
+
+function Normalize-ContentRef([string]$ref) {
+	if (-not $ref -or -not $ref.Contains('.')) { return $ref }
+	$dotIdx = $ref.IndexOf('.')
+	$typePart = $ref.Substring(0, $dotIdx)
+	$namePart = $ref.Substring($dotIdx + 1)
+	if ($script:contentTypeMap.ContainsKey($typePart)) {
+		$typePart = $script:contentTypeMap[$typePart]
+	}
+	return "$typePart.$namePart"
+}
 
 # --- Mode validation ---
 if ($DefinitionFile -and $Operation) { Write-Error "Cannot use both -DefinitionFile and -Operation"; exit 1 }
@@ -194,7 +274,9 @@ function Do-AddContent([string[]]$items) {
 		$contentIndent = Get-ChildIndent $contentEl
 	}
 
-	foreach ($item in $items) {
+	foreach ($rawItem in $items) {
+		$item = Normalize-ContentRef $rawItem
+		if ($item -ne $rawItem) { Write-Host "[NORM] Content: $rawItem -> $item" }
 		if ($item -in $existing) {
 			Warn "Content already contains: $item"
 			continue

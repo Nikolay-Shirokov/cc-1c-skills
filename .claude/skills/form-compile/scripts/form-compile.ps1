@@ -1,4 +1,4 @@
-﻿# form-compile v1.0 — Compile 1C managed form from JSON
+﻿# form-compile v1.1 — Compile 1C managed form from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -79,6 +79,20 @@ $script:formTypeSynonyms["планобменассылка"]              = "Exc
 $script:formTypeSynonyms["бизнеспроцессссылка"]           = "BusinessProcessRef"
 $script:formTypeSynonyms["задачассылка"]                  = "TaskRef"
 $script:formTypeSynonyms["определяемыйтип"]             = "DefinedType"
+
+# Known invalid types (runtime/UI types that don't exist in XDTO schema)
+$script:knownInvalidTypes = @{
+	"FormDataStructure"     = "Runtime type. Use cfg:*Object.XXX (e.g. CatalogObject.XXX)"
+	"FormDataCollection"    = "Runtime type. Use ValueTable"
+	"FormDataTree"          = "Runtime type. Use ValueTree"
+	"FormDataTreeItem"      = "Runtime type, not valid in XML"
+	"FormDataCollectionItem"= "Runtime type, not valid in XML"
+	"FormGroup"             = "UI element type, not a data type"
+	"FormField"             = "UI element type, not a data type"
+	"FormButton"            = "UI element type, not a data type"
+	"FormDecoration"        = "UI element type, not a data type"
+	"FormTable"             = "UI element type, not a data type"
+}
 
 function Resolve-TypeStr {
 	param([string]$typeStr)
@@ -219,15 +233,21 @@ function Emit-SingleType {
 	}
 
 	# cfg: references (CatalogRef.XXX, DocumentObject.XXX, etc.)
-	if ($typeStr -match '^(CatalogRef|CatalogObject|DocumentRef|DocumentObject|EnumRef|ChartOfAccountsRef|ChartOfCharacteristicTypesRef|ChartOfCalculationTypesRef|ExchangePlanRef|BusinessProcessRef|TaskRef|InformationRegisterRecordSet|AccumulationRegisterRecordSet|DataProcessorObject)\.') {
+	if ($typeStr -match '^(CatalogRef|CatalogObject|DocumentRef|DocumentObject|EnumRef|ChartOfAccountsRef|ChartOfAccountsObject|ChartOfCharacteristicTypesRef|ChartOfCharacteristicTypesObject|ChartOfCalculationTypesRef|ChartOfCalculationTypesObject|ExchangePlanRef|ExchangePlanObject|BusinessProcessRef|BusinessProcessObject|TaskRef|TaskObject|InformationRegisterRecordSet|InformationRegisterRecordManager|AccumulationRegisterRecordSet|AccountingRegisterRecordSet|ConstantsSet|DataProcessorObject|ReportObject)\.') {
 		X "$indent<v8:Type>cfg:$typeStr</v8:Type>"
 		return
 	}
 
-	# Fallback: emit as-is with cfg: prefix if contains dot, otherwise v8:
+	# Fallback with validation
+	if ($script:knownInvalidTypes.ContainsKey($typeStr)) {
+		Write-Warning "Type '$typeStr': $($script:knownInvalidTypes[$typeStr])"
+	}
 	if ($typeStr.Contains('.')) {
 		X "$indent<v8:Type>cfg:$typeStr</v8:Type>"
 	} else {
+		if (-not $script:knownInvalidTypes.ContainsKey($typeStr)) {
+			Write-Warning "Unrecognized bare type '$typeStr' — will be emitted without namespace prefix"
+		}
 		X "$indent<v8:Type>$typeStr</v8:Type>"
 	}
 }

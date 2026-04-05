@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# form-validate v1.1 — Validate 1C managed form
+# form-validate v1.2 — Validate 1C managed form
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -12,6 +12,40 @@ F_NS = "http://v8.1c.ru/8.3/xcf/logform"
 V8_NS = "http://v8.1c.ru/8.1/data/core"
 
 NSMAP = {"f": F_NS, "v8": V8_NS}
+
+KNOWN_INVALID_TYPES = {
+    'FormDataStructure', 'FormDataCollection', 'FormDataTree',
+    'FormDataTreeItem', 'FormDataCollectionItem',
+    'FormGroup', 'FormField', 'FormButton', 'FormDecoration', 'FormTable',
+}
+
+VALID_CLOSED_TYPES = {
+    'xs:boolean', 'xs:string', 'xs:decimal', 'xs:dateTime', 'xs:binary',
+    'v8:FillChecking', 'v8:Null', 'v8:StandardPeriod', 'v8:StandardBeginningDate', 'v8:Type',
+    'v8:TypeDescription', 'v8:UUID', 'v8:ValueListType', 'v8:ValueTable', 'v8:ValueTree',
+    'v8:Universal', 'v8:FixedArray', 'v8:FixedStructure',
+    'v8ui:Color', 'v8ui:Font', 'v8ui:FormattedString', 'v8ui:HorizontalAlign',
+    'v8ui:Picture', 'v8ui:SizeChangeMode', 'v8ui:VerticalAlign',
+    'dcsset:DataCompositionComparisonType', 'dcsset:DataCompositionFieldPlacement',
+    'dcsset:Filter', 'dcsset:SettingsComposer', 'dcsset:DataCompositionSettings',
+    'dcssch:DataCompositionSchema',
+    'dcscor:DataCompositionComparisonType', 'dcscor:DataCompositionGroupType',
+    'dcscor:DataCompositionPeriodAdditionType', 'dcscor:DataCompositionSortDirection', 'dcscor:Field',
+    'ent:AccountType', 'ent:AccumulationRecordType', 'ent:AccountingRecordType',
+}
+
+VALID_CFG_PREFIXES = {
+    'AccountingRegisterRecordSet', 'AccumulationRegisterRecordSet',
+    'BusinessProcessObject', 'BusinessProcessRef',
+    'CatalogObject', 'CatalogRef',
+    'ChartOfAccountsObject', 'ChartOfAccountsRef',
+    'ChartOfCalculationTypesObject', 'ChartOfCalculationTypesRef',
+    'ChartOfCharacteristicTypesObject', 'ChartOfCharacteristicTypesRef',
+    'ConstantsSet', 'DataProcessorObject', 'DocumentObject', 'DocumentRef',
+    'DynamicList', 'EnumRef', 'ExchangePlanObject', 'ExchangePlanRef',
+    'InformationRegisterRecordManager', 'InformationRegisterRecordSet',
+    'ReportObject', 'TaskObject', 'TaskRef',
+}
 
 
 def localname(el):
@@ -587,6 +621,45 @@ def main():
                     break
         if call_type_without_base:
             report_warn("callType attributes found but no BaseForm \u2014 possible incorrect structure")
+
+    # --- Check 12: Type validation ---
+    if not stopped:
+        type_nodes = root.xpath('//v8:Type', namespaces={'v8': V8_NS})
+        type_error_count = 0
+        type_warn_count = 0
+        type_count = len(type_nodes)
+
+        for tn in type_nodes:
+            if stopped:
+                break
+            tv = (tn.text or "").strip()
+            if not tv:
+                continue
+
+            if tv in KNOWN_INVALID_TYPES:
+                report_error(f'12. Type "{tv}": invalid runtime/UI type (not valid in XDTO schema)')
+                type_error_count += 1
+            elif tv in VALID_CLOSED_TYPES:
+                pass  # OK
+            elif tv.startswith("cfg:"):
+                suffix = tv[4:]  # after "cfg:"
+                prefix = suffix.split(".")[0]
+                if prefix in VALID_CFG_PREFIXES or suffix == "DynamicList":
+                    pass  # OK
+                else:
+                    report_warn(f'12. Type "{tv}": unrecognized cfg prefix')
+                    type_warn_count += 1
+            elif ":" in tv:
+                pass  # unknown namespace, pass through
+            else:
+                report_warn(f'12. Type "{tv}": bare type without namespace prefix')
+                type_warn_count += 1
+
+        if type_error_count == 0 and type_warn_count == 0:
+            if type_count > 0:
+                report_ok(f'12. Types: {type_count} values, all valid')
+            else:
+                report_ok('12. Types: no type values to check')
 
     # --- Finalize ---
     checks = ok_count + errors + warnings
