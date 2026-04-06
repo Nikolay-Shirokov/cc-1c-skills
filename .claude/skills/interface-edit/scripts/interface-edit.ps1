@@ -1,4 +1,4 @@
-﻿# interface-edit v1.2 — Edit 1C CommandInterface.xml
+﻿# interface-edit v1.3 — Edit 1C CommandInterface.xml
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)][string]$CIPath,
@@ -23,6 +23,25 @@ if (-not [System.IO.Path]::IsPathRooted($CIPath)) {
 }
 $resolvedPath = $CIPath
 
+# --- Detect format version ---
+
+function Detect-FormatVersion([string]$dir) {
+	$d = $dir
+	while ($d) {
+		$cfgPath = Join-Path $d "Configuration.xml"
+		if (Test-Path $cfgPath) {
+			$head = [System.IO.File]::ReadAllText($cfgPath, [System.Text.Encoding]::UTF8).Substring(0, [Math]::Min(2000, (Get-Item $cfgPath).Length))
+			if ($head -match '<MetaDataObject[^>]+version="(\d+\.\d+)"') { return $Matches[1] }
+		}
+		$parent = Split-Path $d -Parent
+		if ($parent -eq $d) { break }
+		$d = $parent
+	}
+	return "2.17"
+}
+
+$formatVersion = Detect-FormatVersion ([System.IO.Path]::GetDirectoryName($CIPath))
+
 # --- Namespaces ---
 $script:ciNs = "http://v8.1c.ru/8.3/xcf/extrnprops"
 $script:xrNs = "http://v8.1c.ru/8.3/xcf/readable"
@@ -42,7 +61,7 @@ if (-not (Test-Path $CIPath)) {
 	xmlns:xr="$($script:xrNs)"
 	xmlns:xs="$($script:xsNs)"
 	xmlns:xsi="$($script:xsiNs)"
-	version="2.17">
+	version="$formatVersion">
 </CommandInterface>
 "@
 		$utf8Bom = New-Object System.Text.UTF8Encoding($true)

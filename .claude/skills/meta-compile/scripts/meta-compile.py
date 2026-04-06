@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-compile v1.6 — Compile 1C metadata object from JSON
+# meta-compile v1.7 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -2203,13 +2203,34 @@ def emit_addressing_attribute(indent, addr_def):
 xmlns_decl = 'xmlns="http://v8.1c.ru/8.3/MDClasses" xmlns:app="http://v8.1c.ru/8.2/managed-application/core" xmlns:cfg="http://v8.1c.ru/8.1/data/enterprise/current-config" xmlns:cmi="http://v8.1c.ru/8.2/managed-application/cmi" xmlns:ent="http://v8.1c.ru/8.1/data/enterprise" xmlns:lf="http://v8.1c.ru/8.2/managed-application/logform" xmlns:style="http://v8.1c.ru/8.1/data/ui/style" xmlns:sys="http://v8.1c.ru/8.1/data/ui/fonts/system" xmlns:v8="http://v8.1c.ru/8.1/data/core" xmlns:v8ui="http://v8.1c.ru/8.1/data/ui" xmlns:web="http://v8.1c.ru/8.1/data/ui/colors/web" xmlns:win="http://v8.1c.ru/8.1/data/ui/colors/windows" xmlns:xen="http://v8.1c.ru/8.3/xcf/enums" xmlns:xpr="http://v8.1c.ru/8.3/xcf/predef" xmlns:xr="http://v8.1c.ru/8.3/xcf/readable" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"'
 
 # ---------------------------------------------------------------------------
+# 14a. Detect format version from existing Configuration.xml
+# ---------------------------------------------------------------------------
+
+def detect_format_version(d):
+    while d:
+        cfg_path = os.path.join(d, "Configuration.xml")
+        if os.path.isfile(cfg_path):
+            with open(cfg_path, "r", encoding="utf-8-sig") as f:
+                head = f.read(2000)
+            m = re.search(r'<MetaDataObject[^>]+version="(\d+\.\d+)"', head)
+            if m:
+                return m.group(1)
+        parent = os.path.dirname(d)
+        if parent == d:
+            break
+        d = parent
+    return "2.17"
+
+format_version = detect_format_version(output_dir)
+
+# ---------------------------------------------------------------------------
 # 15. Main assembler
 # ---------------------------------------------------------------------------
 
 obj_uuid = new_uuid()
 
 X('<?xml version="1.0" encoding="UTF-8"?>')
-X(f'<MetaDataObject {xmlns_decl} version="2.17">')
+X(f'<MetaDataObject {xmlns_decl} version="{format_version}">')
 X(f'\t<{obj_type} uuid="{obj_uuid}">')
 
 # InternalInfo
@@ -2529,7 +2550,7 @@ if obj_type == 'ExchangePlan':
     content_path = os.path.join(ext_dir, 'Content.xml')
     if not os.path.isfile(content_path):
         ensure_ext_dir()
-        content_xml = '<?xml version="1.0" encoding="UTF-8"?>\r\n<ExchangePlanContent xmlns="http://v8.1c.ru/8.3/xcf/extrnprops" xmlns:xr="http://v8.1c.ru/8.3/xcf/readable" version="2.17"/>\r\n'
+        content_xml = f'<?xml version="1.0" encoding="UTF-8"?>\r\n<ExchangePlanContent xmlns="http://v8.1c.ru/8.3/xcf/extrnprops" xmlns:xr="http://v8.1c.ru/8.3/xcf/readable" version="{format_version}"/>\r\n'
         write_utf8_bom(content_path, content_xml)
         modules_created.append(content_path)
 
@@ -2537,7 +2558,7 @@ if obj_type == 'BusinessProcess':
     flowchart_path = os.path.join(ext_dir, 'Flowchart.xml')
     if not os.path.isfile(flowchart_path):
         ensure_ext_dir()
-        flowchart_xml = '<?xml version="1.0" encoding="UTF-8"?>\r\n<Flowchart xmlns="http://v8.1c.ru/8.3/MDClasses" version="2.17"/>\r\n'
+        flowchart_xml = f'<?xml version="1.0" encoding="UTF-8"?>\r\n<Flowchart xmlns="http://v8.1c.ru/8.3/MDClasses" version="{format_version}"/>\r\n'
         write_utf8_bom(flowchart_path, flowchart_xml)
         modules_created.append(flowchart_path)
 

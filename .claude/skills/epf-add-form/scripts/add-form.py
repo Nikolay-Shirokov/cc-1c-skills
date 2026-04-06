@@ -1,15 +1,32 @@
 #!/usr/bin/env python3
-# add-form v1.0 — Add managed form to 1C external data processor
+# add-form v1.1 — Add managed form to 1C external data processor
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
 import os
+import re
 import sys
 import uuid
 
 from lxml import etree
 
 NSMAP = {"md": "http://v8.1c.ru/8.3/MDClasses"}
+
+
+def detect_format_version(d):
+    while d:
+        cfg_path = os.path.join(d, "Configuration.xml")
+        if os.path.isfile(cfg_path):
+            with open(cfg_path, "r", encoding="utf-8-sig") as f:
+                head = f.read(2000)
+            m = re.search(r'<MetaDataObject[^>]+version="(\d+\.\d+)"', head)
+            if m:
+                return m.group(1)
+        parent = os.path.dirname(d)
+        if parent == d:
+            break
+        d = parent
+    return "2.17"
 
 
 def save_xml_with_bom(tree, path):
@@ -45,6 +62,8 @@ def main():
     synonym = args.Synonym if args.Synonym is not None else form_name
     is_main = args.Main
     src_dir = args.SrcDir
+
+    format_version = detect_format_version(os.path.abspath(src_dir))
 
     # --- Checks ---
 
@@ -92,7 +111,7 @@ def main():
         ' xmlns:xr="http://v8.1c.ru/8.3/xcf/readable"'
         ' xmlns:xs="http://www.w3.org/2001/XMLSchema"'
         ' xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"'
-        ' version="2.17">\n'
+        f' version="{format_version}">\n'
         f'\t<Form uuid="{form_uuid}">\n'
         '\t\t<Properties>\n'
         f'\t\t\t<Name>{form_name}</Name>\n'
@@ -139,7 +158,7 @@ def main():
         ' xmlns:xr="http://v8.1c.ru/8.3/xcf/readable"'
         ' xmlns:xs="http://www.w3.org/2001/XMLSchema"'
         ' xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"'
-        ' version="2.17">\n'
+        f' version="{format_version}">\n'
         '\t<AutoCommandBar name="\u0424\u043e\u0440\u043c\u0430\u041a\u043e\u043c\u0430\u043d\u0434\u043d\u0430\u044f\u041f\u0430\u043d\u0435\u043b\u044c" id="-1">\n'
         '\t\t<Autofill>true</Autofill>\n'
         '\t</AutoCommandBar>\n'

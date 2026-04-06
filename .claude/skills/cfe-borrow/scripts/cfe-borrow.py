@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# cfe-borrow v1.2 — Borrow objects from configuration into extension (CFE)
+# cfe-borrow v1.3 — Borrow objects from configuration into extension (CFE)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -254,6 +254,22 @@ XMLNS_DECL = (
 )
 
 
+def detect_format_version(d):
+    while d:
+        cfg_path = os.path.join(d, "Configuration.xml")
+        if os.path.isfile(cfg_path):
+            with open(cfg_path, "r", encoding="utf-8-sig") as f:
+                head = f.read(2000)
+            m = re.search(r'<MetaDataObject[^>]+version="(\d+\.\d+)"', head)
+            if m:
+                return m.group(1)
+        parent = os.path.dirname(d)
+        if parent == d:
+            break
+        d = parent
+    return "2.17"
+
+
 def get_child_indent(container):
     if container.text and "\n" in container.text:
         after_nl = container.text.rsplit("\n", 1)[-1]
@@ -364,6 +380,8 @@ def main():
         sys.exit(1)
     cfg_resolved = os.path.abspath(cfg_path)
     cfg_dir = os.path.dirname(cfg_resolved)
+
+    format_version = detect_format_version(ext_dir)
 
     # --- 2. Load extension Configuration.xml ---
     xml_parser = etree.XMLParser(remove_blank_text=False)
@@ -501,7 +519,7 @@ def main():
 
         lines = []
         lines.append('<?xml version="1.0" encoding="UTF-8"?>')
-        lines.append(f'<MetaDataObject {XMLNS_DECL} version="2.17">')
+        lines.append(f'<MetaDataObject {XMLNS_DECL} version="{format_version}">')
         lines.append(f'\t<{type_name} uuid="{new_uuid_val}">')
         lines.append(internal_info_xml)
         lines.append("\t\t<Properties>")
@@ -1086,7 +1104,7 @@ def main():
         new_form_uuid = new_guid()
         form_meta_lines = [
             '<?xml version="1.0" encoding="UTF-8"?>',
-            f'<MetaDataObject {XMLNS_DECL} version="2.17">',
+            f'<MetaDataObject {XMLNS_DECL} version="{format_version}">',
             f'\t<Form uuid="{new_form_uuid}">',
             '\t\t<InternalInfo/>',
             '\t\t<Properties>',
@@ -1113,7 +1131,7 @@ def main():
         src_form_tree = etree.parse(src_form_xml_path, src_form_parser)
         src_form_el = src_form_tree.getroot()
 
-        form_version = src_form_el.get("version", "2.17")
+        form_version = src_form_el.get("version", format_version)
 
         src_auto_cmd = None
         form_props = []

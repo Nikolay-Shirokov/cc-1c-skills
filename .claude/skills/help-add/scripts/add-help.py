@@ -1,14 +1,31 @@
 #!/usr/bin/env python3
-# add-help v1.2 — Add built-in help to 1C object
+# add-help v1.3 — Add built-in help to 1C object
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
 import os
+import re
 import sys
 
 from lxml import etree
 
 NSMAP = {"md": "http://v8.1c.ru/8.3/MDClasses"}
+
+
+def detect_format_version(d):
+    while d:
+        cfg_path = os.path.join(d, "Configuration.xml")
+        if os.path.isfile(cfg_path):
+            with open(cfg_path, "r", encoding="utf-8-sig") as f:
+                head = f.read(2000)
+            m = re.search(r'<MetaDataObject[^>]+version="(\d+\.\d+)"', head)
+            if m:
+                return m.group(1)
+        parent = os.path.dirname(d)
+        if parent == d:
+            break
+        d = parent
+    return "2.17"
 
 
 def save_xml_with_bom(tree, path):
@@ -41,6 +58,8 @@ def main():
     lang = args.Lang
     src_dir = args.SrcDir
 
+    format_version = detect_format_version(os.path.abspath(src_dir))
+
     # --- Checks ---
 
     object_dir = os.path.join(src_dir, object_name)
@@ -62,7 +81,7 @@ def main():
         '<Help xmlns="http://v8.1c.ru/8.3/xcf/extrnprops"'
         ' xmlns:xs="http://www.w3.org/2001/XMLSchema"'
         ' xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"'
-        ' version="2.17">\n'
+        f' version="{format_version}">\n'
         f'\t<Page>{lang}</Page>\n'
         '</Help>'
     )

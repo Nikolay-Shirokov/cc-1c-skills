@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# role-compile v1.3 — Compile 1C role from JSON
+# role-compile v1.4 — Compile 1C role from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import json
@@ -7,6 +7,22 @@ import os
 import re
 import sys
 import uuid
+
+
+def detect_format_version(d):
+    while d:
+        cfg_path = os.path.join(d, "Configuration.xml")
+        if os.path.isfile(cfg_path):
+            with open(cfg_path, "r", encoding="utf-8-sig") as f:
+                head = f.read(2000)
+            m = re.search(r'<MetaDataObject[^>]+version="(\d+\.\d+)"', head)
+            if m:
+                return m.group(1)
+        parent = os.path.dirname(d)
+        if parent == d:
+            break
+        d = parent
+    return "2.17"
 
 
 def esc_xml(s):
@@ -459,6 +475,9 @@ def main():
     if not defn.get('objects') and defn.get('rights'):
         defn['objects'] = defn['rights']
 
+    out_dir_resolved = args.OutputDir if os.path.isabs(args.OutputDir) else os.path.join(os.getcwd(), args.OutputDir)
+    format_version = detect_format_version(out_dir_resolved)
+
     # --- 2. Parse all object entries ---
     parsed_objects = []
     if defn.get('objects'):
@@ -490,7 +509,7 @@ def main():
     lines.append('        xmlns:xr="http://v8.1c.ru/8.3/xcf/readable"')
     lines.append('        xmlns:xs="http://www.w3.org/2001/XMLSchema"')
     lines.append('        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"')
-    lines.append('        version="2.17">')
+    lines.append(f'        version="{format_version}">')
     lines.append(f'    <Role uuid="{uid}">')
     lines.append('        <Properties>')
     lines.append(f'            <Name>{role_name}</Name>')
@@ -516,7 +535,7 @@ def main():
     lines.append('<Rights xmlns="http://v8.1c.ru/8.2/roles"')
     lines.append('        xmlns:xs="http://www.w3.org/2001/XMLSchema"')
     lines.append('        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"')
-    lines.append('        xsi:type="Rights" version="2.17">')
+    lines.append(f'        xsi:type="Rights" version="{format_version}">')
 
     # Global flags
     sfno = str(defn['setForNewObjects']).lower() if defn.get('setForNewObjects') is not None else 'false'

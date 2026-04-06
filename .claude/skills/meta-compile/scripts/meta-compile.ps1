@@ -1,4 +1,4 @@
-﻿# meta-compile v1.6 — Compile 1C metadata object from JSON
+﻿# meta-compile v1.7 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -2540,13 +2540,32 @@ function Emit-AddressingAttribute {
 
 $script:xmlnsDecl = 'xmlns="http://v8.1c.ru/8.3/MDClasses" xmlns:app="http://v8.1c.ru/8.2/managed-application/core" xmlns:cfg="http://v8.1c.ru/8.1/data/enterprise/current-config" xmlns:cmi="http://v8.1c.ru/8.2/managed-application/cmi" xmlns:ent="http://v8.1c.ru/8.1/data/enterprise" xmlns:lf="http://v8.1c.ru/8.2/managed-application/logform" xmlns:style="http://v8.1c.ru/8.1/data/ui/style" xmlns:sys="http://v8.1c.ru/8.1/data/ui/fonts/system" xmlns:v8="http://v8.1c.ru/8.1/data/core" xmlns:v8ui="http://v8.1c.ru/8.1/data/ui" xmlns:web="http://v8.1c.ru/8.1/data/ui/colors/web" xmlns:win="http://v8.1c.ru/8.1/data/ui/colors/windows" xmlns:xen="http://v8.1c.ru/8.3/xcf/enums" xmlns:xpr="http://v8.1c.ru/8.3/xcf/predef" xmlns:xr="http://v8.1c.ru/8.3/xcf/readable" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"'
 
+# --- 14a. Detect format version from existing Configuration.xml ---
+
+function Detect-FormatVersion([string]$dir) {
+	$d = $dir
+	while ($d) {
+		$cfgPath = Join-Path $d "Configuration.xml"
+		if (Test-Path $cfgPath) {
+			$head = [System.IO.File]::ReadAllText($cfgPath, [System.Text.Encoding]::UTF8).Substring(0, [Math]::Min(2000, (Get-Item $cfgPath).Length))
+			if ($head -match '<MetaDataObject[^>]+version="(\d+\.\d+)"') { return $Matches[1] }
+		}
+		$parent = Split-Path $d -Parent
+		if ($parent -eq $d) { break }
+		$d = $parent
+	}
+	return "2.17"
+}
+
+$script:formatVersion = Detect-FormatVersion $OutputDir
+
 # --- 15. Main assembler ---
 
 $uuid = New-Guid-String
 
 # XML declaration
 X '<?xml version="1.0" encoding="UTF-8"?>'
-X "<MetaDataObject $($script:xmlnsDecl) version=`"2.17`">"
+X "<MetaDataObject $($script:xmlnsDecl) version=`"$($script:formatVersion)`">"
 X "`t<$objType uuid=`"$uuid`">"
 
 # InternalInfo
@@ -2908,7 +2927,7 @@ if ($objType -eq "ExchangePlan") {
 	$contentPath = Join-Path $extDir "Content.xml"
 	if (-not (Test-Path $contentPath)) {
 		Ensure-ExtDir
-		$contentXml = "<?xml version=`"1.0`" encoding=`"UTF-8`"?>`r`n<ExchangePlanContent xmlns=`"http://v8.1c.ru/8.3/xcf/extrnprops`" xmlns:xr=`"http://v8.1c.ru/8.3/xcf/readable`" version=`"2.17`"/>`r`n"
+		$contentXml = "<?xml version=`"1.0`" encoding=`"UTF-8`"?>`r`n<ExchangePlanContent xmlns=`"http://v8.1c.ru/8.3/xcf/extrnprops`" xmlns:xr=`"http://v8.1c.ru/8.3/xcf/readable`" version=`"$($script:formatVersion)`"/>`r`n"
 		[System.IO.File]::WriteAllText($contentPath, $contentXml, $enc)
 		$modulesCreated += $contentPath
 	}
@@ -2917,7 +2936,7 @@ if ($objType -eq "BusinessProcess") {
 	$flowchartPath = Join-Path $extDir "Flowchart.xml"
 	if (-not (Test-Path $flowchartPath)) {
 		Ensure-ExtDir
-		$flowchartXml = "<?xml version=`"1.0`" encoding=`"UTF-8`"?>`r`n<Flowchart xmlns=`"http://v8.1c.ru/8.3/MDClasses`" version=`"2.17`"/>`r`n"
+		$flowchartXml = "<?xml version=`"1.0`" encoding=`"UTF-8`"?>`r`n<Flowchart xmlns=`"http://v8.1c.ru/8.3/MDClasses`" version=`"$($script:formatVersion)`"/>`r`n"
 		[System.IO.File]::WriteAllText($flowchartPath, $flowchartXml, $enc)
 		$modulesCreated += $flowchartPath
 	}

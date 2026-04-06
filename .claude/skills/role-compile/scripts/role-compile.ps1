@@ -1,4 +1,4 @@
-﻿# role-compile v1.3 — Compile 1C role from JSON
+﻿# role-compile v1.4 — Compile 1C role from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -505,6 +505,26 @@ if ($def.objects) {
 	}
 }
 
+# --- Detect format version ---
+
+function Detect-FormatVersion([string]$dir) {
+	$d = $dir
+	while ($d) {
+		$cfgPath = Join-Path $d "Configuration.xml"
+		if (Test-Path $cfgPath) {
+			$head = [System.IO.File]::ReadAllText($cfgPath, [System.Text.Encoding]::UTF8).Substring(0, [Math]::Min(2000, (Get-Item $cfgPath).Length))
+			if ($head -match '<MetaDataObject[^>]+version="(\d+\.\d+)"') { return $Matches[1] }
+		}
+		$parent = Split-Path $d -Parent
+		if ($parent -eq $d) { break }
+		$d = $parent
+	}
+	return "2.17"
+}
+
+$resolvedOutputDir = if ([System.IO.Path]::IsPathRooted($OutputDir)) { $OutputDir } else { Join-Path (Get-Location) $OutputDir }
+$formatVersion = Detect-FormatVersion $resolvedOutputDir
+
 # --- 8. Generate UUID ---
 
 $uuid = [guid]::NewGuid().ToString()
@@ -531,7 +551,7 @@ X '        xmlns:xpr="http://v8.1c.ru/8.3/xcf/predef"'
 X '        xmlns:xr="http://v8.1c.ru/8.3/xcf/readable"'
 X '        xmlns:xs="http://www.w3.org/2001/XMLSchema"'
 X '        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"'
-X '        version="2.17">'
+X '        version="$formatVersion">'
 X "    <Role uuid=`"$uuid`">"
 X '        <Properties>'
 X "            <Name>$roleName</Name>"
@@ -560,7 +580,7 @@ X '<?xml version="1.0" encoding="UTF-8"?>'
 X '<Rights xmlns="http://v8.1c.ru/8.2/roles"'
 X '        xmlns:xs="http://www.w3.org/2001/XMLSchema"'
 X '        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"'
-X '        xsi:type="Rights" version="2.17">'
+X "        xsi:type=`"Rights`" version=`"$formatVersion`">"
 
 # Global flags (defaults match typical 1C roles)
 $sfno = if ($null -ne $def.setForNewObjects) { "$($def.setForNewObjects)".ToLower() } else { "false" }

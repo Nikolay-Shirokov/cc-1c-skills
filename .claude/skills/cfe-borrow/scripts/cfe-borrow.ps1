@@ -1,4 +1,4 @@
-﻿# cfe-borrow v1.2 — Borrow objects from configuration into extension (CFE)
+﻿# cfe-borrow v1.3 — Borrow objects from configuration into extension (CFE)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)][string]$ExtensionPath,
@@ -316,6 +316,25 @@ function Expand-SelfClosingElement($container, $parentIndent) {
 	}
 }
 
+# --- 7b. Detect format version ---
+
+function Detect-FormatVersion([string]$dir) {
+	$d = $dir
+	while ($d) {
+		$cfgPath = Join-Path $d "Configuration.xml"
+		if (Test-Path $cfgPath) {
+			$head = [System.IO.File]::ReadAllText($cfgPath, [System.Text.Encoding]::UTF8).Substring(0, [Math]::Min(2000, (Get-Item $cfgPath).Length))
+			if ($head -match '<MetaDataObject[^>]+version="(\d+\.\d+)"') { return $Matches[1] }
+		}
+		$parent = Split-Path $d -Parent
+		if ($parent -eq $d) { break }
+		$d = $parent
+	}
+	return "2.17"
+}
+
+$script:formatVersion = Detect-FormatVersion $extDir
+
 # --- 8. Namespaces declaration for object XML ---
 $script:xmlnsDecl = 'xmlns="http://v8.1c.ru/8.3/MDClasses" xmlns:app="http://v8.1c.ru/8.2/managed-application/core" xmlns:cfg="http://v8.1c.ru/8.1/data/enterprise/current-config" xmlns:cmi="http://v8.1c.ru/8.2/managed-application/cmi" xmlns:ent="http://v8.1c.ru/8.1/data/enterprise" xmlns:lf="http://v8.1c.ru/8.2/managed-application/logform" xmlns:style="http://v8.1c.ru/8.1/data/ui/style" xmlns:sys="http://v8.1c.ru/8.1/data/ui/fonts/system" xmlns:v8="http://v8.1c.ru/8.1/data/core" xmlns:v8ui="http://v8.1c.ru/8.1/data/ui" xmlns:web="http://v8.1c.ru/8.1/data/ui/colors/web" xmlns:win="http://v8.1c.ru/8.1/data/ui/colors/windows" xmlns:xen="http://v8.1c.ru/8.3/xcf/enums" xmlns:xpr="http://v8.1c.ru/8.3/xcf/predef" xmlns:xr="http://v8.1c.ru/8.3/xcf/readable" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"'
 
@@ -466,7 +485,7 @@ function Borrow-Form {
 	$newFormUuid = [guid]::NewGuid().ToString()
 	$formMetaSb = New-Object System.Text.StringBuilder
 	$formMetaSb.AppendLine("<?xml version=`"1.0`" encoding=`"UTF-8`"?>") | Out-Null
-	$formMetaSb.AppendLine("<MetaDataObject $($script:xmlnsDecl) version=`"2.17`">") | Out-Null
+	$formMetaSb.AppendLine("<MetaDataObject $($script:xmlnsDecl) version=`"$($script:formatVersion)`">") | Out-Null
 	$formMetaSb.AppendLine("`t<Form uuid=`"${newFormUuid}`">") | Out-Null
 	$formMetaSb.AppendLine("`t`t<InternalInfo/>") | Out-Null
 	$formMetaSb.AppendLine("`t`t<Properties>") | Out-Null
@@ -498,7 +517,7 @@ function Borrow-Form {
 	$srcFormEl = $srcFormDoc.DocumentElement
 
 	$formVersion = $srcFormEl.GetAttribute("version")
-	if (-not $formVersion) { $formVersion = "2.17" }
+	if (-not $formVersion) { $formVersion = $script:formatVersion }
 
 	# Find direct children: form properties, AutoCommandBar, ChildItems
 	$srcAutoCmd = $null
@@ -1529,7 +1548,7 @@ function Build-BorrowedObjectXml {
 
 	$sb = New-Object System.Text.StringBuilder
 	$sb.AppendLine("<?xml version=`"1.0`" encoding=`"UTF-8`"?>") | Out-Null
-	$sb.AppendLine("<MetaDataObject $($script:xmlnsDecl) version=`"2.17`">") | Out-Null
+	$sb.AppendLine("<MetaDataObject $($script:xmlnsDecl) version=`"$($script:formatVersion)`">") | Out-Null
 	$sb.AppendLine("`t<${typeName} uuid=`"${newUuid}`">") | Out-Null
 
 	# InternalInfo

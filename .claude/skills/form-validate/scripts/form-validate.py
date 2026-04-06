@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# form-validate v1.3 — Validate 1C managed form
+# form-validate v1.4 — Validate 1C managed form
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -161,10 +161,10 @@ def main():
         report_error(f"Root element is '{localname(root)}', expected 'Form'")
     else:
         version = root.get("version", "")
-        if version == "2.17":
+        if version in ("2.17", "2.20"):
             report_ok(f"Root element: Form version={version}")
         elif version:
-            report_warn(f"Form version='{version}' (expected 2.17)")
+            report_warn(f"Form version='{version}' (expected 2.17 or 2.20)")
         else:
             report_warn("Form version attribute missing")
 

@@ -1,13 +1,30 @@
 #!/usr/bin/env python3
-# interface-edit v1.2 — Edit 1C CommandInterface.xml
+# interface-edit v1.3 — Edit 1C CommandInterface.xml
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 from lxml import etree
+
+def detect_format_version(d):
+    while d:
+        cfg_path = os.path.join(d, "Configuration.xml")
+        if os.path.isfile(cfg_path):
+            with open(cfg_path, "r", encoding="utf-8-sig") as f:
+                head = f.read(2000)
+            m = re.search(r'<MetaDataObject[^>]+version="(\d+\.\d+)"', head)
+            if m:
+                return m.group(1)
+        parent = os.path.dirname(d)
+        if parent == d:
+            break
+        d = parent
+    return "2.17"
+
 
 CI_NS = "http://v8.1c.ru/8.3/xcf/extrnprops"
 XR_NS = "http://v8.1c.ru/8.3/xcf/readable"
@@ -181,6 +198,10 @@ def main():
         print("Either -DefinitionFile or -Operation is required", file=sys.stderr)
         sys.exit(1)
 
+    # --- Detect format version ---
+    ci_dir = os.path.dirname(os.path.abspath(args.CIPath))
+    format_version = detect_format_version(ci_dir)
+
     # --- Resolve path ---
     ci_path = args.CIPath
     if not os.path.isabs(ci_path):
@@ -199,7 +220,7 @@ def main():
                 f'\txmlns:xr="{XR_NS}"\n'
                 f'\txmlns:xs="{XS_NS}"\n'
                 f'\txmlns:xsi="{XSI_NS}"\n'
-                f'\tversion="2.17">\n'
+                f'\tversion="{format_version}">\n'
                 f'</CommandInterface>'
             )
             with open(ci_path, "w", encoding="utf-8-sig") as fh:

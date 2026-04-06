@@ -1,4 +1,4 @@
-﻿# form-validate v1.3 — Validate 1C managed form
+﻿# form-validate v1.4 — Validate 1C managed form
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -126,10 +126,10 @@ if ($root.LocalName -ne "Form") {
 	Report-Error "Root element is '$($root.LocalName)', expected 'Form'"
 } else {
 	$version = $root.GetAttribute("version")
-	if ($version -eq "2.17") {
+	if ($version -eq "2.17" -or $version -eq "2.20") {
 		Report-OK "Root element: Form version=$version"
 	} elseif ($version) {
-		Report-Warn "Form version='$version' (expected 2.17)"
+		Report-Warn "Form version='$version' (expected 2.17 or 2.20)"
 	} else {
 		Report-Warn "Form version attribute missing"
 	}
