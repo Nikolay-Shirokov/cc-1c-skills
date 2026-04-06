@@ -18,7 +18,7 @@ VALID_OPS = [
     "add-dataParameter", "add-order", "add-selection", "add-dataSetLink",
     "add-dataSet", "add-variant", "add-conditionalAppearance",
     "set-query", "patch-query", "set-outputParameter", "set-structure",
-    "modify-field", "modify-filter", "modify-dataParameter",
+    "modify-field", "modify-filter", "modify-dataParameter", "modify-parameter",
     "clear-selection", "clear-order", "clear-filter",
     "remove-field", "remove-total", "remove-calculated-field", "remove-parameter", "remove-filter",
 ]
@@ -1434,6 +1434,68 @@ elif operation == "add-parameter":
         print(f'[OK] Parameter "{parsed["name"]}" added')
         if parsed.get("autoDates"):
             print('[OK] Auto-parameters "\u0414\u0430\u0442\u0430\u041d\u0430\u0447\u0430\u043b\u0430", "\u0414\u0430\u0442\u0430\u041e\u043a\u043e\u043d\u0447\u0430\u043d\u0438\u044f" added')
+
+elif operation == "modify-parameter":
+    for val in values:
+        parts = val.split(None, 1)
+        param_name = parts[0].strip()
+        rest = parts[1].strip() if len(parts) > 1 else ""
+
+        param_el = find_element_by_child_value(xml_doc, "parameter", "name", param_name, SCH_NS)
+        if param_el is None:
+            print(f'[WARN] Parameter "{param_name}" not found -- skipped')
+            continue
+
+        child_indent = get_child_indent(param_el)
+
+        if rest.startswith("availableValue="):
+            av_rest = rest[len("availableValue="):]
+            av_parts = av_rest.split(" presentation=", 1)
+            av_value = av_parts[0].strip()
+            av_presentation = av_parts[1].strip() if len(av_parts) > 1 else ""
+
+            av_type = "xs:string"
+            if re.match(r'^(Перечисление|Справочник|ПланСчетов|Документ|ПланВидовХарактеристик|ПланВидовРасчета)\.', av_value):
+                av_type = "dcscor:DesignTimeValue"
+
+            av_lines = [f"{child_indent}<availableValue>"]
+            av_lines.append(f'{child_indent}\t<value xsi:type="{av_type}">{esc_xml(av_value)}</value>')
+            if av_presentation:
+                av_lines.append(f'{child_indent}\t<presentation xsi:type="v8:LocalStringType">')
+                av_lines.append(f"{child_indent}\t\t<v8:item>")
+                av_lines.append(f"{child_indent}\t\t\t<v8:lang>ru</v8:lang>")
+                av_lines.append(f"{child_indent}\t\t\t<v8:content>{esc_xml(av_presentation)}</v8:content>")
+                av_lines.append(f"{child_indent}\t\t</v8:item>")
+                av_lines.append(f"{child_indent}\t</presentation>")
+            av_lines.append(f"{child_indent}</availableValue>")
+            frag_xml = "\r\n".join(av_lines)
+
+            ref_node = None
+            for tag in ["denyIncompleteValues", "use"]:
+                found = param_el.find(tag)
+                if found is not None:
+                    ref_node = found
+                    break
+            nodes = import_fragment(xml_doc, frag_xml)
+            for node in nodes:
+                insert_before_element(param_el, node, ref_node, child_indent)
+            print(f'[OK] Parameter "{param_name}": availableValue added')
+        else:
+            for m in re.finditer(r'(\w+)=(\S+)', rest):
+                key, value = m.group(1), m.group(2)
+                existing = param_el.find(key)
+                if existing is not None:
+                    existing.text = value
+                    print(f'[OK] Parameter "{param_name}": {key} updated to {value}')
+                else:
+                    frag_xml = f"{child_indent}<{key}>{esc_xml(value)}</{key}>"
+                    nodes = import_fragment(xml_doc, frag_xml)
+                    for node in nodes:
+                        last_child = list(param_el)[-1] if len(param_el) else None
+                        if last_child is not None:
+                            last_child.tail = (last_child.tail or "") + "\r\n" + child_indent
+                        param_el.append(node)
+                    print(f'[OK] Parameter "{param_name}": {key}={value} added')
 
 elif operation == "add-filter":
     settings = resolve_variant_settings()

@@ -886,6 +886,33 @@ function Emit-SingleParam {
 		X "`t`t<valueListAllowed>true</valueListAllowed>"
 	}
 
+	# AvailableValues
+	if ($p -isnot [string] -and $p.availableValues) {
+		foreach ($av in $p.availableValues) {
+			$avVal = "$($av.value)"
+			$avType = "xs:string"
+			if ($avVal -match '^(Перечисление|Справочник|ПланСчетов|Документ|ПланВидовХарактеристик|ПланВидовРасчета)\.') {
+				$avType = "dcscor:DesignTimeValue"
+			}
+			X "`t`t<availableValue>"
+			X "`t`t`t<value xsi:type=`"$avType`">$(Esc-Xml $avVal)</value>"
+			if ($av.presentation) {
+				X "`t`t`t<presentation xsi:type=`"v8:LocalStringType`">"
+				X "`t`t`t`t<v8:item>"
+				X "`t`t`t`t`t<v8:lang>ru</v8:lang>"
+				X "`t`t`t`t`t<v8:content>$(Esc-Xml "$($av.presentation)")</v8:content>"
+				X "`t`t`t`t</v8:item>"
+				X "`t`t`t</presentation>"
+			}
+			X "`t`t</availableValue>"
+		}
+	}
+
+	# DenyIncompleteValues
+	if ($p -isnot [string] -and $p.denyIncompleteValues -eq $true) {
+		X "`t`t<denyIncompleteValues>true</denyIncompleteValues>"
+	}
+
 	# Use
 	if ($p -isnot [string] -and $p.use) {
 		X "`t`t<use>$(Esc-Xml "$($p.use)")</use>"

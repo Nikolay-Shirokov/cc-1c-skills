@@ -754,6 +754,28 @@ def emit_single_param(lines, p, parsed):
     if parsed.get('valueListAllowed'):
         lines.append('\t\t<valueListAllowed>true</valueListAllowed>')
 
+    # AvailableValues
+    if p is not None and not isinstance(p, str) and p.get('availableValues'):
+        for av in p['availableValues']:
+            av_val = str(av.get('value', ''))
+            av_type = 'xs:string'
+            if re.match(r'^(Перечисление|Справочник|ПланСчетов|Документ|ПланВидовХарактеристик|ПланВидовРасчета)\.', av_val):
+                av_type = 'dcscor:DesignTimeValue'
+            lines.append('\t\t<availableValue>')
+            lines.append(f'\t\t\t<value xsi:type="{av_type}">{esc_xml(av_val)}</value>')
+            if av.get('presentation'):
+                lines.append('\t\t\t<presentation xsi:type="v8:LocalStringType">')
+                lines.append('\t\t\t\t<v8:item>')
+                lines.append('\t\t\t\t\t<v8:lang>ru</v8:lang>')
+                lines.append(f'\t\t\t\t\t<v8:content>{esc_xml(str(av["presentation"]))}</v8:content>')
+                lines.append('\t\t\t\t</v8:item>')
+                lines.append('\t\t\t</presentation>')
+            lines.append('\t\t</availableValue>')
+
+    # DenyIncompleteValues
+    if p is not None and not isinstance(p, str) and p.get('denyIncompleteValues') is True:
+        lines.append('\t\t<denyIncompleteValues>true</denyIncompleteValues>')
+
     # Use
     if p is not None and not isinstance(p, str) and p.get('use'):
         lines.append(f'\t\t<use>{esc_xml(str(p["use"]))}</use>')

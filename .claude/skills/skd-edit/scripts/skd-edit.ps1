@@ -10,7 +10,7 @@ param(
 		"add-dataParameter","add-order","add-selection","add-dataSetLink",
 		"add-dataSet","add-variant","add-conditionalAppearance",
 		"set-query","patch-query","set-outputParameter","set-structure",
-		"modify-field","modify-filter","modify-dataParameter",
+		"modify-field","modify-filter","modify-dataParameter","modify-parameter",
 		"clear-selection","clear-order","clear-filter",
 		"remove-field","remove-total","remove-calculated-field","remove-parameter","remove-filter")]
 	[string]$Operation,
@@ -1651,6 +1651,109 @@ switch ($Operation) {
 			Write-Host "[OK] Parameter `"$($parsed.name)`" added"
 			if ($parsed.autoDates) {
 				Write-Host "[OK] Auto-parameters `"ДатаНачала`", `"ДатаОкончания`" added"
+			}
+		}
+	}
+
+	"modify-parameter" {
+		foreach ($val in $values) {
+			# Parse: "ParamName key=value key=value"
+			$parts = $val -split '\s+', 2
+			$paramName = $parts[0].Trim()
+			$rest = if ($parts.Count -gt 1) { $parts[1].Trim() } else { "" }
+
+			# Find parameter element
+			$paramEl = Find-ElementByChildValue $xmlDoc.DocumentElement "parameter" "name" $paramName $schNs
+			if (-not $paramEl) {
+				Write-Host "[WARN] Parameter `"$paramName`" not found — skipped"
+				continue
+			}
+
+			$childIndent = Get-ChildIndent $paramEl
+
+			# Parse key=value pairs (special handling for availableValue)
+			if ($rest -match '^availableValue=(.+)') {
+				$avRest = $rest -replace '^availableValue=', ''
+				# Parse: "Перечисление...X presentation=текст"
+				$avParts = $avRest -split '\s+presentation=', 2
+				$avValue = $avParts[0].Trim()
+				$avPresentation = if ($avParts.Count -gt 1) { $avParts[1].Trim() } else { "" }
+
+				# Detect value type
+				$avType = "xs:string"
+				if ($avValue -match '^(Перечисление|Справочник|ПланСчетов|Документ|ПланВидовХарактеристик|ПланВидовРасчета)\.') {
+					$avType = "dcscor:DesignTimeValue"
+				}
+
+				$avLines = @()
+				$avLines += "$childIndent<availableValue>"
+				$avLines += "$childIndent`t<value xsi:type=`"$avType`">$(Esc-Xml $avValue)</value>"
+				if ($avPresentation) {
+					$avLines += "$childIndent`t<presentation xsi:type=`"v8:LocalStringType`">"
+					$avLines += "$childIndent`t`t<v8:item>"
+					$avLines += "$childIndent`t`t`t<v8:lang>ru</v8:lang>"
+					$avLines += "$childIndent`t`t`t<v8:content>$(Esc-Xml $avPresentation)</v8:content>"
+					$avLines += "$childIndent`t`t</v8:item>"
+					$avLines += "$childIndent`t</presentation>"
+				}
+				$avLines += "$childIndent</availableValue>"
+				$fragXml = $avLines -join "`r`n"
+
+				# Insert before denyIncompleteValues/use or at end
+				$refNode = $null
+				foreach ($tag in @("denyIncompleteValues","use")) {
+					$found = $paramEl.SelectSingleNode($tag)
+					if ($found) { $refNode = $found; break }
+				}
+				$nodes = Import-Fragment $xmlDoc $fragXml
+				foreach ($node in $nodes) {
+					Insert-BeforeElement $paramEl $node $refNode $childIndent
+				}
+				Write-Host "[OK] Parameter `"$paramName`": availableValue added"
+			} else {
+				# Simple key=value pairs: use=Always, denyIncompleteValues=true
+				$kvPairs = [regex]::Matches($rest, '(\w+)=(\S+)')
+				foreach ($kv in $kvPairs) {
+					$key = $kv.Groups[1].Value
+					$value = $kv.Groups[2].Value
+
+					$existing = $paramEl.SelectSingleNode($key)
+					if ($existing) {
+						$existing.InnerText = $value
+						Write-Host "[OK] Parameter `"$paramName`": $key updated to $value"
+					} else {
+						# Determine insertion order
+						$afterTags = switch ($key) {
+							"denyIncompleteValues" { @("availableValue","useRestriction","availableAsField","expression","value","valueType","title","name") }
+							"use" { @("denyIncompleteValues","availableValue","useRestriction","availableAsField","expression","value","valueType","title","name") }
+							default { @("name") }
+						}
+						$refNode = $null
+						foreach ($tag in @("denyIncompleteValues","use")) {
+							if ($tag -eq $key) { continue }
+							$found = $paramEl.SelectSingleNode($tag)
+							if ($found -and ($afterTags -contains $tag -eq $false)) {
+								$refNode = $found; break
+							}
+						}
+
+						$fragXml = "$childIndent<$key>$(Esc-Xml $value)</$key>"
+						$nodes = Import-Fragment $xmlDoc $fragXml
+						foreach ($node in $nodes) {
+							# Append before closing tag (last whitespace child)
+							$lastChild = $paramEl.LastChild
+							if ($lastChild.NodeType -eq 'Whitespace' -or $lastChild.NodeType -eq 'SignificantWhitespace') {
+								$paramEl.InsertBefore($node, $lastChild) | Out-Null
+							} else {
+								$paramEl.AppendChild($node) | Out-Null
+							}
+						}
+						# Add trailing whitespace
+						$ws = $xmlDoc.CreateWhitespace("`r`n$($childIndent -replace '`t$','')")
+						$paramEl.AppendChild($ws) | Out-Null
+						Write-Host "[OK] Parameter `"$paramName`": $key=$value added"
+					}
+				}
 			}
 		}
 	}
