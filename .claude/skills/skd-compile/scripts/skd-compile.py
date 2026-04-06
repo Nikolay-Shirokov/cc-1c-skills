@@ -1696,6 +1696,8 @@ def emit_settings_variants(lines, defn):
             struct_items = s['structure']
             if isinstance(struct_items, str):
                 struct_items = parse_structure_shorthand(struct_items)
+            elif isinstance(struct_items, dict):
+                struct_items = [struct_items]
             for item in struct_items:
                 emit_structure_item(lines, item, '\t\t\t')
 

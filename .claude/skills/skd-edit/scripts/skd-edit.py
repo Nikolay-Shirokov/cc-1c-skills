@@ -411,7 +411,7 @@ def parse_order_shorthand(s):
     parts = s.split(None, 1)
     field = parts[0]
     direction = "Asc"
-    if len(parts) > 1 and re.match(r'(?i)^desc$', parts[1]):
+    if len(parts) > 1 and re.match(r'^desc$', parts[1], re.IGNORECASE):
         direction = "Desc"
     return {"field": field, "direction": direction}
 
@@ -514,7 +514,7 @@ def parse_structure_shorthand(s):
             group["name"] = name_m.group(1).strip()
             seg = re.sub(r'\s*@name=.+', '', seg).strip()
 
-        if re.match(r'^(?i)(details|\u0434\u0435\u0442\u0430\u043b\u0438)$', seg):
+        if re.match(r'^(details|\u0434\u0435\u0442\u0430\u043b\u0438)$', seg, re.IGNORECASE):
             group["groupBy"] = []
         else:
             group["groupBy"] = [seg]
@@ -1225,7 +1225,7 @@ def resolve_variant_settings():
                             break
                 if sv:
                     break
-        if not sv:
+        if sv is None:
             print(f"Variant '{variant_arg}' not found", file=sys.stderr)
             sys.exit(1)
     else:
@@ -1233,7 +1233,7 @@ def resolve_variant_settings():
             if isinstance(child.tag, str) and local_name(child) == "settingsVariant" and etree.QName(child.tag).namespace == SCH_NS:
                 sv = child
                 break
-        if not sv:
+        if sv is None:
             print("No settingsVariant found in DCS", file=sys.stderr)
             sys.exit(1)
 
@@ -1823,7 +1823,11 @@ elif operation == "add-conditionalAppearance":
 
         desc = f"{parsed['param']} = {parsed['value']}"
         if parsed.get("filter"):
-            desc += f" when {parsed['filter']['field']} {parsed['filter']['op']}"
+            flt = parsed["filter"]
+            if isinstance(flt, list):
+                desc += f" when OrGroup({len(flt)} conditions)"
+            else:
+                desc += f" when {flt['field']} {flt['op']}"
         if parsed.get("fields"):
             desc += f" for {', '.join(parsed['fields'])}"
         print(f'[OK] ConditionalAppearance "{desc}" added to variant "{var_name}"')
