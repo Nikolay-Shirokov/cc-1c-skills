@@ -1367,6 +1367,22 @@ function Emit-Selection {
 				X "$indent`t`t<dcsset:field>$(Esc-Xml $item)</dcsset:field>"
 				X "$indent`t</dcsset:item>"
 			}
+		} elseif ($item.folder) {
+			X "$indent`t<dcsset:item xsi:type=`"dcsset:SelectedItemFolder`">"
+			X "$indent`t`t<dcsset:lwsTitle>"
+			X "$indent`t`t`t<v8:item>"
+			X "$indent`t`t`t`t<v8:lang>ru</v8:lang>"
+			X "$indent`t`t`t`t<v8:content>$(Esc-Xml "$($item.folder)")</v8:content>"
+			X "$indent`t`t`t</v8:item>"
+			X "$indent`t`t</dcsset:lwsTitle>"
+			foreach ($sub in $item.items) {
+				$subName = if ($sub -is [string]) { $sub } else { "$($sub.field)" }
+				X "$indent`t`t<dcsset:item xsi:type=`"dcsset:SelectedItemField`">"
+				X "$indent`t`t`t<dcsset:field>$(Esc-Xml $subName)</dcsset:field>"
+				X "$indent`t`t</dcsset:item>"
+			}
+			X "$indent`t`t<dcsset:placement>Auto</dcsset:placement>"
+			X "$indent`t</dcsset:item>"
 		} else {
 			X "$indent`t<dcsset:item xsi:type=`"dcsset:SelectedItemField`">"
 			X "$indent`t`t<dcsset:field>$(Esc-Xml "$($item.field)")</dcsset:field>"

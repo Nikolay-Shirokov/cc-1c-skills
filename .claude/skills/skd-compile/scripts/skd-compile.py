@@ -1154,6 +1154,21 @@ def emit_selection(lines, items, indent, skip_auto=False):
                 lines.append(f'{indent}\t<dcsset:item xsi:type="dcsset:SelectedItemField">')
                 lines.append(f'{indent}\t\t<dcsset:field>{esc_xml(item)}</dcsset:field>')
                 lines.append(f'{indent}\t</dcsset:item>')
+        elif item.get('folder'):
+            lines.append(f'{indent}\t<dcsset:item xsi:type="dcsset:SelectedItemFolder">')
+            lines.append(f'{indent}\t\t<dcsset:lwsTitle>')
+            lines.append(f'{indent}\t\t\t<v8:item>')
+            lines.append(f'{indent}\t\t\t\t<v8:lang>ru</v8:lang>')
+            lines.append(f'{indent}\t\t\t\t<v8:content>{esc_xml(str(item["folder"]))}</v8:content>')
+            lines.append(f'{indent}\t\t\t</v8:item>')
+            lines.append(f'{indent}\t\t</dcsset:lwsTitle>')
+            for sub in (item.get('items') or []):
+                sub_name = str(sub.get('field', sub)) if isinstance(sub, dict) else str(sub)
+                lines.append(f'{indent}\t\t<dcsset:item xsi:type="dcsset:SelectedItemField">')
+                lines.append(f'{indent}\t\t\t<dcsset:field>{esc_xml(sub_name)}</dcsset:field>')
+                lines.append(f'{indent}\t\t</dcsset:item>')
+            lines.append(f'{indent}\t\t<dcsset:placement>Auto</dcsset:placement>')
+            lines.append(f'{indent}\t</dcsset:item>')
         else:
             lines.append(f'{indent}\t<dcsset:item xsi:type="dcsset:SelectedItemField">')
             lines.append(f'{indent}\t\t<dcsset:field>{esc_xml(str(item["field"]))}</dcsset:field>')

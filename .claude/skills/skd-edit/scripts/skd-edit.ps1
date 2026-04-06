@@ -543,6 +543,11 @@ function Parse-StructureShorthand {
 		$seg = $segments[$i].Trim()
 		$group = @{ type = "group" }
 
+		if ($seg -match '@name=(.+)') {
+			$group["name"] = $Matches[1].Trim()
+			$seg = ($seg -replace '\s*@name=.+', '').Trim()
+		}
+
 		if ($seg -match '^(?i)(details|детали)$') {
 			$group["groupBy"] = @()
 		} else {
@@ -861,6 +866,32 @@ function Build-SelectionItemFragment {
 	$lines = @()
 	if ($fieldName -eq "Auto") {
 		$lines += "$i<dcsset:item xsi:type=`"dcsset:SelectedItemAuto`"/>"
+	} elseif ($fieldName -match '^Folder\((.+)\)$') {
+		$inner = $Matches[1]
+		$colonIdx = $inner.IndexOf(':')
+		if ($colonIdx -gt 0) {
+			$title = $inner.Substring(0, $colonIdx).Trim()
+			$items = $inner.Substring($colonIdx + 1) -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ }
+		} else {
+			$title = ""
+			$items = $inner -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ }
+		}
+		$lines += "$i<dcsset:item xsi:type=`"dcsset:SelectedItemFolder`">"
+		if ($title) {
+			$lines += "$i`t<dcsset:lwsTitle>"
+			$lines += "$i`t`t<v8:item>"
+			$lines += "$i`t`t`t<v8:lang>ru</v8:lang>"
+			$lines += "$i`t`t`t<v8:content>$(Esc-Xml $title)</v8:content>"
+			$lines += "$i`t`t</v8:item>"
+			$lines += "$i`t</dcsset:lwsTitle>"
+		}
+		foreach ($item in $items) {
+			$lines += "$i`t<dcsset:item xsi:type=`"dcsset:SelectedItemField`">"
+			$lines += "$i`t`t<dcsset:field>$(Esc-Xml $item)</dcsset:field>"
+			$lines += "$i`t</dcsset:item>"
+		}
+		$lines += "$i`t<dcsset:placement>Auto</dcsset:placement>"
+		$lines += "$i</dcsset:item>"
 	} else {
 		$lines += "$i<dcsset:item xsi:type=`"dcsset:SelectedItemField`">"
 		$lines += "$i`t<dcsset:field>$(Esc-Xml $fieldName)</dcsset:field>"
@@ -1069,6 +1100,11 @@ function Build-StructureItemFragment {
 	$i = $indent
 	$lines = @()
 	$lines += "$i<dcsset:item xsi:type=`"dcsset:StructureItemGroup`">"
+
+	# name
+	if ($item["name"]) {
+		$lines += "$i`t<dcsset:name>$(Esc-Xml $item["name"])</dcsset:name>"
+	}
 
 	# groupItems
 	$groupBy = $item["groupBy"]

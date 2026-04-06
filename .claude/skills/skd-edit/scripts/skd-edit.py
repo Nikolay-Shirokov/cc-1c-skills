@@ -509,6 +509,11 @@ def parse_structure_shorthand(s):
         seg = segments[i].strip()
         group = {"type": "group"}
 
+        name_m = re.search(r'\s*@name=(.+)', seg)
+        if name_m:
+            group["name"] = name_m.group(1).strip()
+            seg = re.sub(r'\s*@name=.+', '', seg).strip()
+
         if re.match(r'^(?i)(details|\u0434\u0435\u0442\u0430\u043b\u0438)$', seg):
             group["groupBy"] = []
         else:
@@ -767,6 +772,31 @@ def build_selection_item_fragment(field_name, indent):
     i = indent
     if field_name == "Auto":
         return f'{i}<dcsset:item xsi:type="dcsset:SelectedItemAuto"/>'
+    m = re.match(r'^Folder\((.+)\)$', field_name)
+    if m:
+        inner = m.group(1)
+        colon_idx = inner.find(':')
+        if colon_idx > 0:
+            title = inner[:colon_idx].strip()
+            items = [x.strip() for x in inner[colon_idx + 1:].split(',') if x.strip()]
+        else:
+            title = ""
+            items = [x.strip() for x in inner.split(',') if x.strip()]
+        lines = [f'{i}<dcsset:item xsi:type="dcsset:SelectedItemFolder">']
+        if title:
+            lines.append(f"{i}\t<dcsset:lwsTitle>")
+            lines.append(f"{i}\t\t<v8:item>")
+            lines.append(f"{i}\t\t\t<v8:lang>ru</v8:lang>")
+            lines.append(f"{i}\t\t\t<v8:content>{esc_xml(title)}</v8:content>")
+            lines.append(f"{i}\t\t</v8:item>")
+            lines.append(f"{i}\t</dcsset:lwsTitle>")
+        for item in items:
+            lines.append(f'{i}\t<dcsset:item xsi:type="dcsset:SelectedItemField">')
+            lines.append(f"{i}\t\t<dcsset:field>{esc_xml(item)}</dcsset:field>")
+            lines.append(f"{i}\t</dcsset:item>")
+        lines.append(f"{i}\t<dcsset:placement>Auto</dcsset:placement>")
+        lines.append(f"{i}</dcsset:item>")
+        return "\r\n".join(lines)
     lines = [
         f'{i}<dcsset:item xsi:type="dcsset:SelectedItemField">',
         f"{i}\t<dcsset:field>{esc_xml(field_name)}</dcsset:field>",
@@ -943,6 +973,9 @@ def build_conditional_appearance_item_fragment(parsed, indent):
 def build_structure_item_fragment(item, indent):
     i = indent
     lines = [f'{i}<dcsset:item xsi:type="dcsset:StructureItemGroup">']
+
+    if item.get("name"):
+        lines.append(f"{i}\t<dcsset:name>{esc_xml(item['name'])}</dcsset:name>")
 
     group_by = item.get("groupBy", [])
     if not group_by:
