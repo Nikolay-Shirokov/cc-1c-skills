@@ -102,7 +102,24 @@ powershell.exe -NoProfile -File .claude/skills/skd-compile/scripts/skd-compile.p
 - `@valueList` — `<valueListAllowed>true</valueListAllowed>` — разрешает передавать список значений
 - `@hidden` — скрытый параметр: `availableAsField=false` + исключается из `"dataParameters": "auto"`
 
-Объектная форма: `hidden: true`, `valueListAllowed: true`, `availableAsField: false`.
+Объектная форма: `hidden: true`, `valueListAllowed: true`, `availableAsField: false`, `denyIncompleteValues: true`, `use: "Always"`.
+
+Список допустимых значений (availableValues):
+
+```json
+{
+  "name": "ПорядокОкругления",
+  "type": "EnumRef.Округления",
+  "value": "Перечисление.Округления.Окр1_00",
+  "use": "Always",
+  "denyIncompleteValues": true,
+  "availableValues": [
+    {"value": "Перечисление.Округления.Окр1_00", "presentation": "руб. коп"},
+    {"value": "Перечисление.Округления.Окр1", "presentation": "руб."},
+    {"value": "Перечисление.Округления.Окр1000", "presentation": "тыс. руб"}
+  ]
+}
+```
 
 В варианте настроек `"dataParameters": "auto"` автоматически генерирует записи для всех не-hidden параметров с `userSettingID`.
 
@@ -194,7 +211,13 @@ powershell.exe -NoProfile -File .claude/skills/skd-compile/scripts/skd-compile.p
 ]
 ```
 
-Типы значений appearance: `style:XXX`/`web:XXX`/`win:XXX` → Color, `true`/`false` → Boolean, параметр `Текст` → LocalStringType, прочее → String.
+Типы значений appearance: `style:XXX`/`web:XXX`/`win:XXX` → Color, `true`/`false` → Boolean, параметр `Формат`/`Текст`/`Заголовок` → LocalStringType, прочее → String.
+
+Типы значений фильтра: `Перечисление.*`/`Справочник.*`/`ПланСчетов.*`/`Документ.*` → DesignTimeValue (автодетект).
+
+OrGroup в фильтре: `{"group": "Or", "items": ["условие1", "условие2"]}`.
+
+Folder в selection: `{"folder": "Поступление", "items": ["ПолеА", "ПолеБ"]}` → SelectedItemFolder с lwsTitle и placement=Auto.
 
 ### Итоги с привязкой к группировкам
 
