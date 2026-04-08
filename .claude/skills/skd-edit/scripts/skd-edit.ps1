@@ -1,4 +1,4 @@
-﻿# skd-edit v1.6 — Atomic 1C DCS editor
+﻿# skd-edit v1.7 — Atomic 1C DCS editor
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -257,6 +257,14 @@ function Parse-CalcShorthand {
 		$s = $s -replace '\s*\[[^\]]+\]', ''
 	}
 
+	# Extract #restrictions
+	$restrict = @()
+	$restrictMatches = [regex]::Matches($s, '#(\w+)')
+	foreach ($m in $restrictMatches) {
+		$restrict += $m.Groups[1].Value
+	}
+	$s = [regex]::Replace($s, '\s*#\w+', '')
+
 	# Support "Name: Type = Expression" and "Name = Expression"
 	$eqIdx = $s.IndexOf('=')
 	if ($eqIdx -gt 0) {
@@ -267,11 +275,11 @@ function Parse-CalcShorthand {
 			$colonIdx = $left.IndexOf(':')
 			$dataPath = $left.Substring(0, $colonIdx).Trim()
 			$type = Resolve-TypeStr ($left.Substring($colonIdx + 1).Trim())
-			return @{ dataPath = $dataPath; expression = $expression; type = $type; title = $title }
+			return @{ dataPath = $dataPath; expression = $expression; type = $type; title = $title; restrict = $restrict }
 		}
-		return @{ dataPath = $left; expression = $expression; type = ""; title = $title }
+		return @{ dataPath = $left; expression = $expression; type = ""; title = $title; restrict = $restrict }
 	}
-	return @{ dataPath = $s.Trim(); expression = ""; type = ""; title = $title }
+	return @{ dataPath = $s.Trim(); expression = ""; type = ""; title = $title; restrict = $restrict }
 }
 
 function Parse-ParamShorthand {
@@ -750,6 +758,10 @@ function Build-CalcFieldFragment {
 
 	if ($parsed.title) {
 		$lines += (Build-MLTextXml -tag "title" -text $parsed.title -indent "$i`t")
+	}
+
+	if ($parsed.restrict -and $parsed.restrict.Count -gt 0) {
+		$lines += (Build-RestrictionXml -restrict $parsed.restrict -indent "$i`t")
 	}
 
 	if ($parsed.type) {

@@ -61,12 +61,15 @@ Shorthand: `"Имя [Заголовок]: тип @роль #ограничени
 
 ### add-calculated-field — добавить вычисляемое поле
 
-Shorthand: `"Имя [Заголовок]: тип = Выражение"`.
+Shorthand: `"Имя [Заголовок]: тип = Выражение #noFilter #noOrder #noGroup"`.
 
 ```
 "Маржа = Продажа - Закупка"
 "Наценка [Наценка, %]: decimal(10,2) = Маржа / Закупка * 100"
+"Служебное: string = \"\" #noFilter #noOrder #noGroup"
 ```
+
+`#noFilter`, `#noOrder`, `#noGroup`, `#noField` → `<useRestriction>` (аналогично add-field).
 
 Также добавляется в selection варианта.
 

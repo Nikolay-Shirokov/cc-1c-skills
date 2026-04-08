@@ -1,4 +1,4 @@
-# skd-edit v1.6 — Atomic 1C DCS editor (Python port)
+# skd-edit v1.7 — Atomic 1C DCS editor (Python port)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import os
@@ -265,6 +265,9 @@ def parse_calc_shorthand(s):
         title = m.group(1)
         s = re.sub(r'\s*\[[^\]]+\]', '', s)
 
+    restrict_matches = re.findall(r'#(\w+)', s)
+    s = re.sub(r'\s*#\w+', '', s)
+
     eq_idx = s.find("=")
     if eq_idx > 0:
         left = s[:eq_idx].strip()
@@ -273,9 +276,9 @@ def parse_calc_shorthand(s):
             colon_idx = left.index(":")
             data_path = left[:colon_idx].strip()
             type_str = resolve_type_str(left[colon_idx + 1:].strip())
-            return {"dataPath": data_path, "expression": expression, "type": type_str, "title": title}
-        return {"dataPath": left, "expression": expression, "type": "", "title": title}
-    return {"dataPath": s.strip(), "expression": "", "type": "", "title": title}
+            return {"dataPath": data_path, "expression": expression, "type": type_str, "title": title, "restrict": restrict_matches}
+        return {"dataPath": left, "expression": expression, "type": "", "title": title, "restrict": restrict_matches}
+    return {"dataPath": s.strip(), "expression": "", "type": "", "title": title, "restrict": restrict_matches}
 
 
 def parse_param_shorthand(s):
@@ -678,6 +681,8 @@ def build_calc_field_fragment(parsed, indent):
     ]
     if parsed.get("title"):
         lines.append(build_mltext_xml("title", parsed["title"], f"{i}\t"))
+    if parsed.get("restrict"):
+        lines.append(build_restriction_xml(parsed["restrict"], f"{i}\t"))
     if parsed.get("type"):
         lines.append(f"{i}\t<valueType>")
         lines.append(build_value_type_xml(parsed["type"], f"{i}\t\t"))
