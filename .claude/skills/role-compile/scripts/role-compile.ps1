@@ -1,4 +1,4 @@
-﻿# role-compile v1.4 — Compile 1C role from JSON
+﻿# role-compile v1.5 — Compile 1C role from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -551,7 +551,7 @@ X '        xmlns:xpr="http://v8.1c.ru/8.3/xcf/predef"'
 X '        xmlns:xr="http://v8.1c.ru/8.3/xcf/readable"'
 X '        xmlns:xs="http://www.w3.org/2001/XMLSchema"'
 X '        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"'
-X '        version="$formatVersion">'
+X "        version=`"$formatVersion`">"
 X "    <Role uuid=`"$uuid`">"
 X '        <Properties>'
 X "            <Name>$roleName</Name>"
