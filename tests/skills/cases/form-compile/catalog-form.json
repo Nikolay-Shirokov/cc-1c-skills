@@ -16,7 +16,7 @@
   "input": {
     "title": "Товар",
     "attributes": [
-      { "name": "Объект", "type": "FormDataStructure", "main": true }
+      { "name": "Объект", "type": "CatalogObject.Товары", "main": true }
     ],
     "elements": [
       { "input": "Наименование", "path": "Объект.Наименование", "title": "Наименование" },

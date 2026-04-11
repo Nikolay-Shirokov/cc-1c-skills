@@ -1,4 +1,4 @@
-﻿# form-compile v1.3 — Compile 1C managed form from JSON
+﻿# form-compile v1.4 — Compile 1C managed form from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -260,14 +260,12 @@ function Emit-SingleType {
 
 	# Fallback with validation
 	if ($script:knownInvalidTypes.ContainsKey($typeStr)) {
-		Write-Warning "Type '$typeStr': $($script:knownInvalidTypes[$typeStr])"
+		throw "Invalid form attribute type '$typeStr': $($script:knownInvalidTypes[$typeStr])"
 	}
 	if ($typeStr.Contains('.')) {
 		X "$indent<v8:Type>cfg:$typeStr</v8:Type>"
 	} else {
-		if (-not $script:knownInvalidTypes.ContainsKey($typeStr)) {
-			Write-Warning "Unrecognized bare type '$typeStr' — will be emitted without namespace prefix"
-		}
+		Write-Warning "Unrecognized bare type '$typeStr' — will be emitted without namespace prefix"
 		X "$indent<v8:Type>$typeStr</v8:Type>"
 	}
 }

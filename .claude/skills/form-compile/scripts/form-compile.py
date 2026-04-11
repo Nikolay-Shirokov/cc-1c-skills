@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# form-compile v1.2 — Compile 1C managed form from JSON
+# form-compile v1.4 — Compile 1C managed form from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import json
@@ -330,12 +330,11 @@ def emit_single_type(lines, type_str, indent):
 
     # Fallback with validation
     if type_str in KNOWN_INVALID_TYPES:
-        print(f"WARNING: Type '{type_str}': {KNOWN_INVALID_TYPES[type_str]}", file=sys.stderr)
+        raise ValueError(f"Invalid form attribute type '{type_str}': {KNOWN_INVALID_TYPES[type_str]}")
     if '.' in type_str:
         lines.append(f'{indent}<v8:Type>cfg:{type_str}</v8:Type>')
     else:
-        if type_str not in KNOWN_INVALID_TYPES:
-            print(f"WARNING: Unrecognized bare type '{type_str}' — will be emitted without namespace prefix", file=sys.stderr)
+        print(f"WARNING: Unrecognized bare type '{type_str}' — will be emitted without namespace prefix", file=sys.stderr)
         lines.append(f'{indent}<v8:Type>{type_str}</v8:Type>')
 
 

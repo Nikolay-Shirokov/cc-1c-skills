@@ -37,7 +37,7 @@
 	<Attributes>
 		<Attribute name="Объект" id="7">
 			<Type>
-				<v8:Type>FormDataStructure</v8:Type>
+				<v8:Type>cfg:CatalogObject.Товары</v8:Type>
 			</Type>
 			<MainAttribute>true</MainAttribute>
 		</Attribute>
