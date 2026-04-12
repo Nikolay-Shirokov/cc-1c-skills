@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-compile v1.9 — Compile 1C metadata object from JSON
+# meta-compile v1.10 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -196,6 +196,9 @@ valid_enum_values = {
     'ReuseSessions': ['DontUse', 'AutoUse'],
     'FillChecking': ['DontCheck', 'ShowError', 'ShowWarning'],
     'Indexing': ['DontIndex', 'Index', 'IndexWithAdditionalOrder'],
+    'SubordinationUse': ['ToItems', 'ToFolders', 'ToFoldersAndItems'],
+    'CodeSeries': ['WholeCatalog', 'WithinSubordination'],
+    'ChoiceMode': ['BothWays', 'QuickChoice', 'FromForm'],
 }
 
 def normalize_enum_value(prop_name, value):
@@ -461,6 +464,7 @@ def parse_attribute_shorthand(val):
         'flags': list(val.get('flags', [])),
         'fillChecking': str(val['fillChecking']) if val.get('fillChecking') else '',
         'indexing': str(val['indexing']) if val.get('indexing') else '',
+        'multiLine': True if val.get('multiLine') is True else False,
     }
 
 def parse_enum_value_shorthand(val):
@@ -725,7 +729,7 @@ RESERVED_ATTR_NAMES_RU = {
 
 def emit_attribute(indent, parsed, context):
     attr_name = parsed['name']
-    if attr_name in RESERVED_ATTR_NAMES or attr_name in RESERVED_ATTR_NAMES_RU:
+    if context not in ('tabular', 'processor-tabular') and (attr_name in RESERVED_ATTR_NAMES or attr_name in RESERVED_ATTR_NAMES_RU):
         print(f"WARNING: Attribute '{attr_name}' conflicts with a standard attribute name. This may cause errors when loading into 1C.", file=sys.stderr)
     uid = new_uuid()
     X(f'{indent}<Attribute uuid="{uid}">')
@@ -746,7 +750,8 @@ def emit_attribute(indent, parsed, context):
     X(f'{indent}\t\t<ToolTip/>')
     X(f'{indent}\t\t<MarkNegatives>false</MarkNegatives>')
     X(f'{indent}\t\t<Mask/>')
-    X(f'{indent}\t\t<MultiLine>false</MultiLine>')
+    multi_line = 'true' if (parsed.get('multiLine') is True or 'multiline' in parsed.get('flags', [])) else 'false'
+    X(f'{indent}\t\t<MultiLine>{multi_line}</MultiLine>')
     X(f'{indent}\t\t<ExtendedEdit>false</ExtendedEdit>')
     X(f'{indent}\t\t<MinValue xsi:nil="true"/>')
     X(f'{indent}\t\t<MaxValue xsi:nil="true"/>')
@@ -864,7 +869,8 @@ def emit_dimension(indent, parsed, register_type):
     X(f'{indent}\t\t<ToolTip/>')
     X(f'{indent}\t\t<MarkNegatives>false</MarkNegatives>')
     X(f'{indent}\t\t<Mask/>')
-    X(f'{indent}\t\t<MultiLine>false</MultiLine>')
+    multi_line = 'true' if (parsed.get('multiLine') is True or 'multiline' in parsed.get('flags', [])) else 'false'
+    X(f'{indent}\t\t<MultiLine>{multi_line}</MultiLine>')
     X(f'{indent}\t\t<ExtendedEdit>false</ExtendedEdit>')
     X(f'{indent}\t\t<MinValue xsi:nil="true"/>')
     X(f'{indent}\t\t<MaxValue xsi:nil="true"/>')
@@ -937,7 +943,8 @@ def emit_resource(indent, parsed, register_type):
     X(f'{indent}\t\t<ToolTip/>')
     X(f'{indent}\t\t<MarkNegatives>false</MarkNegatives>')
     X(f'{indent}\t\t<Mask/>')
-    X(f'{indent}\t\t<MultiLine>false</MultiLine>')
+    multi_line = 'true' if (parsed.get('multiLine') is True or 'multiline' in parsed.get('flags', [])) else 'false'
+    X(f'{indent}\t\t<MultiLine>{multi_line}</MultiLine>')
     X(f'{indent}\t\t<ExtendedEdit>false</ExtendedEdit>')
     X(f'{indent}\t\t<MinValue xsi:nil="true"/>')
     X(f'{indent}\t\t<MaxValue xsi:nil="true"/>')
@@ -979,12 +986,24 @@ def emit_catalog_properties(indent):
     hierarchy_type = get_enum_prop('HierarchyType', 'hierarchyType', 'HierarchyFoldersAndItems')
     X(f'{i}<Hierarchical>{hierarchical}</Hierarchical>')
     X(f'{i}<HierarchyType>{hierarchy_type}</HierarchyType>')
-    X(f'{i}<LimitLevelCount>false</LimitLevelCount>')
-    X(f'{i}<LevelCount>2</LevelCount>')
-    X(f'{i}<FoldersOnTop>true</FoldersOnTop>')
+    limit_level_count = 'true' if defn.get('limitLevelCount') is True else 'false'
+    level_count = str(defn['levelCount']) if defn.get('levelCount') is not None else '2'
+    folders_on_top = 'false' if defn.get('foldersOnTop') is False else 'true'
+    X(f'{i}<LimitLevelCount>{limit_level_count}</LimitLevelCount>')
+    X(f'{i}<LevelCount>{level_count}</LevelCount>')
+    X(f'{i}<FoldersOnTop>{folders_on_top}</FoldersOnTop>')
     X(f'{i}<UseStandardCommands>true</UseStandardCommands>')
-    X(f'{i}<Owners/>')
-    X(f'{i}<SubordinationUse>ToItems</SubordinationUse>')
+    owners = defn.get('owners', [])
+    if owners:
+        X(f'{i}<Owners>')
+        for owner_ref in owners:
+            full_ref = owner_ref if '.' in str(owner_ref) else f'Catalog.{owner_ref}'
+            X(f'{i}\t<xr:Item xsi:type="xr:MDObjectRef">{full_ref}</xr:Item>')
+        X(f'{i}</Owners>')
+    else:
+        X(f'{i}<Owners/>')
+    subordination_use = get_enum_prop('SubordinationUse', 'subordinationUse', 'ToItems')
+    X(f'{i}<SubordinationUse>{subordination_use}</SubordinationUse>')
     code_length = str(defn['codeLength']) if defn.get('codeLength') is not None else '9'
     description_length = str(defn['descriptionLength']) if defn.get('descriptionLength') is not None else '25'
     code_type = get_enum_prop('CodeType', 'codeType', 'String')
@@ -995,7 +1014,8 @@ def emit_catalog_properties(indent):
     X(f'{i}<DescriptionLength>{description_length}</DescriptionLength>')
     X(f'{i}<CodeType>{code_type}</CodeType>')
     X(f'{i}<CodeAllowedLength>{code_allowed_length}</CodeAllowedLength>')
-    X(f'{i}<CodeSeries>WholeCatalog</CodeSeries>')
+    code_series = get_enum_prop('CodeSeries', 'codeSeries', 'WholeCatalog')
+    X(f'{i}<CodeSeries>{code_series}</CodeSeries>')
     X(f'{i}<CheckUnique>{check_unique}</CheckUnique>')
     X(f'{i}<Autonumbering>{autonumbering}</Autonumbering>')
     default_presentation = get_enum_prop('DefaultPresentation', 'defaultPresentation', 'AsDescription')
@@ -1004,8 +1024,10 @@ def emit_catalog_properties(indent):
     X(f'{i}<Characteristics/>')
     X(f'{i}<PredefinedDataUpdate>Auto</PredefinedDataUpdate>')
     X(f'{i}<EditType>InDialog</EditType>')
-    X(f'{i}<QuickChoice>true</QuickChoice>')
-    X(f'{i}<ChoiceMode>BothWays</ChoiceMode>')
+    quick_choice = 'false' if defn.get('quickChoice') is False else 'true'
+    choice_mode = get_enum_prop('ChoiceMode', 'choiceMode', 'BothWays')
+    X(f'{i}<QuickChoice>{quick_choice}</QuickChoice>')
+    X(f'{i}<ChoiceMode>{choice_mode}</ChoiceMode>')
     X(f'{i}<InputByString>')
     X(f'{i}\t<xr:Field>Catalog.{obj_name}.StandardAttribute.Description</xr:Field>')
     X(f'{i}\t<xr:Field>Catalog.{obj_name}.StandardAttribute.Code</xr:Field>')

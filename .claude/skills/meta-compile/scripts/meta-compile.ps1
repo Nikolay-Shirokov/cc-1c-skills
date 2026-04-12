@@ -1,4 +1,4 @@
-﻿# meta-compile v1.9 — Compile 1C metadata object from JSON
+﻿# meta-compile v1.10 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -136,6 +136,9 @@ $script:validEnumValues = @{
 	"ReuseSessions"                  = @("DontUse","AutoUse")
 	"FillChecking"                   = @("DontCheck","ShowError","ShowWarning")
 	"Indexing"                       = @("DontIndex","Index","IndexWithAdditionalOrder")
+	"SubordinationUse"               = @("ToItems","ToFolders","ToFoldersAndItems")
+	"CodeSeries"                     = @("WholeCatalog","WithinSubordination")
+	"ChoiceMode"                     = @("BothWays","QuickChoice","FromForm")
 }
 
 function Normalize-EnumValue {
@@ -498,6 +501,7 @@ function Parse-AttributeShorthand {
 		flags   = @(if ($val.flags) { $val.flags } else { @() })
 		fillChecking = if ($val.fillChecking) { "$($val.fillChecking)" } else { "" }
 		indexing = if ($val.indexing) { "$($val.indexing)" } else { "" }
+		multiLine = if ($val.multiLine -eq $true) { $true } else { $false }
 	}
 }
 
@@ -760,7 +764,8 @@ function Emit-Attribute {
 	param([string]$indent, $parsed, [string]$context)
 	# $context: "catalog", "document", "object", "processor", "tabular", "processor-tabular", "register"
 	$attrName = $parsed.name
-	if ($script:reservedAttrNames.ContainsKey($attrName) -or $script:reservedAttrNames.ContainsValue($attrName)) {
+	if ($context -notin @("tabular", "processor-tabular") -and
+		($script:reservedAttrNames.ContainsKey($attrName) -or $script:reservedAttrNames.ContainsValue($attrName))) {
 		Write-Warning "Attribute '$attrName' conflicts with a standard attribute name. This may cause errors when loading into 1C."
 	}
 	$uuid = New-Guid-String
@@ -787,7 +792,8 @@ function Emit-Attribute {
 	X "$indent`t`t<ToolTip/>"
 	X "$indent`t`t<MarkNegatives>false</MarkNegatives>"
 	X "$indent`t`t<Mask/>"
-	X "$indent`t`t<MultiLine>false</MultiLine>"
+	$multiLine = if ($parsed.multiLine -eq $true -or $parsed.flags -contains "multiline") { "true" } else { "false" }
+	X "$indent`t`t<MultiLine>$multiLine</MultiLine>"
 	X "$indent`t`t<ExtendedEdit>false</ExtendedEdit>"
 	X "$indent`t`t<MinValue xsi:nil=`"true`"/>"
 	X "$indent`t`t<MaxValue xsi:nil=`"true`"/>"
@@ -931,7 +937,8 @@ function Emit-Dimension {
 	X "$indent`t`t<ToolTip/>"
 	X "$indent`t`t<MarkNegatives>false</MarkNegatives>"
 	X "$indent`t`t<Mask/>"
-	X "$indent`t`t<MultiLine>false</MultiLine>"
+	$multiLine = if ($parsed.multiLine -eq $true -or $parsed.flags -contains "multiline") { "true" } else { "false" }
+	X "$indent`t`t<MultiLine>$multiLine</MultiLine>"
 	X "$indent`t`t<ExtendedEdit>false</ExtendedEdit>"
 	X "$indent`t`t<MinValue xsi:nil=`"true`"/>"
 	X "$indent`t`t<MaxValue xsi:nil=`"true`"/>"
@@ -1024,7 +1031,8 @@ function Emit-Resource {
 	X "$indent`t`t<ToolTip/>"
 	X "$indent`t`t<MarkNegatives>false</MarkNegatives>"
 	X "$indent`t`t<Mask/>"
-	X "$indent`t`t<MultiLine>false</MultiLine>"
+	$multiLine = if ($parsed.multiLine -eq $true -or $parsed.flags -contains "multiline") { "true" } else { "false" }
+	X "$indent`t`t<MultiLine>$multiLine</MultiLine>"
 	X "$indent`t`t<ExtendedEdit>false</ExtendedEdit>"
 	X "$indent`t`t<MinValue xsi:nil=`"true`"/>"
 	X "$indent`t`t<MaxValue xsi:nil=`"true`"/>"
@@ -1078,12 +1086,25 @@ function Emit-CatalogProperties {
 	$hierarchyType = Get-EnumProp "HierarchyType" "hierarchyType" "HierarchyFoldersAndItems"
 	X "$i<Hierarchical>$hierarchical</Hierarchical>"
 	X "$i<HierarchyType>$hierarchyType</HierarchyType>"
-	X "$i<LimitLevelCount>false</LimitLevelCount>"
-	X "$i<LevelCount>2</LevelCount>"
-	X "$i<FoldersOnTop>true</FoldersOnTop>"
+	$limitLevelCount = if ($def.limitLevelCount -eq $true) { "true" } else { "false" }
+	$levelCount = if ($null -ne $def.levelCount) { "$($def.levelCount)" } else { "2" }
+	$foldersOnTop = if ($def.foldersOnTop -eq $false) { "false" } else { "true" }
+	X "$i<LimitLevelCount>$limitLevelCount</LimitLevelCount>"
+	X "$i<LevelCount>$levelCount</LevelCount>"
+	X "$i<FoldersOnTop>$foldersOnTop</FoldersOnTop>"
 	X "$i<UseStandardCommands>true</UseStandardCommands>"
-	X "$i<Owners/>"
-	X "$i<SubordinationUse>ToItems</SubordinationUse>"
+	if ($def.owners -and $def.owners.Count -gt 0) {
+		X "$i<Owners>"
+		foreach ($ownerRef in $def.owners) {
+			$fullRef = if ("$ownerRef" -match '\.') { "$ownerRef" } else { "Catalog.$ownerRef" }
+			X "$i`t<xr:Item xsi:type=`"xr:MDObjectRef`">$fullRef</xr:Item>"
+		}
+		X "$i</Owners>"
+	} else {
+		X "$i<Owners/>"
+	}
+	$subordinationUse = Get-EnumProp "SubordinationUse" "subordinationUse" "ToItems"
+	X "$i<SubordinationUse>$subordinationUse</SubordinationUse>"
 
 	$codeLength = if ($null -ne $def.codeLength) { "$($def.codeLength)" } else { "9" }
 	$descriptionLength = if ($null -ne $def.descriptionLength) { "$($def.descriptionLength)" } else { "25" }
@@ -1096,7 +1117,8 @@ function Emit-CatalogProperties {
 	X "$i<DescriptionLength>$descriptionLength</DescriptionLength>"
 	X "$i<CodeType>$codeType</CodeType>"
 	X "$i<CodeAllowedLength>$codeAllowedLength</CodeAllowedLength>"
-	X "$i<CodeSeries>WholeCatalog</CodeSeries>"
+	$codeSeries = Get-EnumProp "CodeSeries" "codeSeries" "WholeCatalog"
+	X "$i<CodeSeries>$codeSeries</CodeSeries>"
 	X "$i<CheckUnique>$checkUnique</CheckUnique>"
 	X "$i<Autonumbering>$autonumbering</Autonumbering>"
 
@@ -1107,8 +1129,10 @@ function Emit-CatalogProperties {
 	X "$i<Characteristics/>"
 	X "$i<PredefinedDataUpdate>Auto</PredefinedDataUpdate>"
 	X "$i<EditType>InDialog</EditType>"
-	X "$i<QuickChoice>true</QuickChoice>"
-	X "$i<ChoiceMode>BothWays</ChoiceMode>"
+	$quickChoice = if ($def.quickChoice -eq $false) { "false" } else { "true" }
+	$choiceMode = Get-EnumProp "ChoiceMode" "choiceMode" "BothWays"
+	X "$i<QuickChoice>$quickChoice</QuickChoice>"
+	X "$i<ChoiceMode>$choiceMode</ChoiceMode>"
 	X "$i<InputByString>"
 	X "$i`t<xr:Field>Catalog.$objName.StandardAttribute.Description</xr:Field>"
 	X "$i`t<xr:Field>Catalog.$objName.StandardAttribute.Code</xr:Field>"
