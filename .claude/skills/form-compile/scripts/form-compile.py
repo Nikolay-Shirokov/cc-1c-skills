@@ -909,42 +909,38 @@ def generate_information_register_list_dsl(meta, p):
     is_periodic = meta.get('Periodicity') and meta['Periodicity'] != 'Nonperiodical'
     is_recorder_subordinate = meta.get('WriteMode') == 'RecorderSubordinate'
 
-    columns = OrderedDict()
+    columns_list = []
     # Period
     if is_periodic:
-        columns['\u041f\u0435\u0440\u0438\u043e\u0434'] = {'element': 'labelField', 'path': '\u0421\u043f\u0438\u0441\u043e\u043a.Period'}
+        columns_list.append(OrderedDict([('labelField', '\u041f\u0435\u0440\u0438\u043e\u0434'), ('path', '\u0421\u043f\u0438\u0441\u043e\u043a.Period')]))
     # Recorder/LineNumber for subordinate registers
     if is_recorder_subordinate:
-        columns['\u0420\u0435\u0433\u0438\u0441\u0442\u0440\u0430\u0442\u043e\u0440'] = {'element': 'labelField', 'path': '\u0421\u043f\u0438\u0441\u043e\u043a.Recorder'}
-        columns['\u041d\u043e\u043c\u0435\u0440\u0421\u0442\u0440\u043e\u043a\u0438'] = {'element': 'labelField', 'path': '\u0421\u043f\u0438\u0441\u043e\u043a.LineNumber'}
+        columns_list.append(OrderedDict([('labelField', '\u0420\u0435\u0433\u0438\u0441\u0442\u0440\u0430\u0442\u043e\u0440'), ('path', '\u0421\u043f\u0438\u0441\u043e\u043a.Recorder')]))
+        columns_list.append(OrderedDict([('labelField', '\u041d\u043e\u043c\u0435\u0440\u0421\u0442\u0440\u043e\u043a\u0438'), ('path', '\u0421\u043f\u0438\u0441\u043e\u043a.LineNumber')]))
     # Dimensions
     for dim in meta.get('Dimensions', []):
         if not is_displayable_type(dim['Type']):
             continue
-        columns[dim['Name']] = {'element': 'labelField', 'path': f"\u0421\u043f\u0438\u0441\u043e\u043a.{dim['Name']}"}
+        columns_list.append(OrderedDict([('labelField', dim['Name']), ('path', f"\u0421\u043f\u0438\u0441\u043e\u043a.{dim['Name']}")]))
     # Resources
     for res in meta.get('Resources', []):
         if not is_displayable_type(res['Type']):
             continue
-        el = 'labelField'
-        if re.match(r'^xs:boolean$|^Boolean$', res['Type']):
-            el = 'checkBox'
-        columns[res['Name']] = {'element': el, 'path': f"\u0421\u043f\u0438\u0441\u043e\u043a.{res['Name']}"}
+        el_key = 'check' if re.match(r'^xs:boolean$|^Boolean$', res['Type']) else 'labelField'
+        columns_list.append(OrderedDict([(el_key, res['Name']), ('path', f"\u0421\u043f\u0438\u0441\u043e\u043a.{res['Name']}")]))
     # Attributes
     for attr in meta['Attributes']:
         if not is_displayable_type(attr['Type']):
             continue
-        el = 'labelField'
-        if re.match(r'^xs:boolean$|^Boolean$', attr['Type']):
-            el = 'checkBox'
-        columns[attr['Name']] = {'element': el, 'path': f"\u0421\u043f\u0438\u0441\u043e\u043a.{attr['Name']}"}
+        el_key = 'check' if re.match(r'^xs:boolean$|^Boolean$', attr['Type']) else 'labelField'
+        columns_list.append(OrderedDict([(el_key, attr['Name']), ('path', f"\u0421\u043f\u0438\u0441\u043e\u043a.{attr['Name']}")]))
 
     table_el = OrderedDict([
-        ('element', 'table'),
+        ('table', '\u0421\u043f\u0438\u0441\u043e\u043a'),
         ('path', '\u0421\u043f\u0438\u0441\u043e\u043a'),
-        ('commandBarLocation', 'none'),
-        ('autoCommandBar', {'autofill': False}),
-        ('columns', columns),
+        ('commandBarLocation', 'None'),
+        ('tableAutofill', False),
+        ('columns', columns_list),
     ])
 
     props = OrderedDict()
@@ -955,7 +951,7 @@ def generate_information_register_list_dsl(meta, p):
     return OrderedDict([
         ('title', meta['Synonym']),
         ('properties', props),
-        ('elements', OrderedDict([('\u0421\u043f\u0438\u0441\u043e\u043a', table_el)])),
+        ('elements', [table_el]),
         ('attributes', [
             {'name': '\u0421\u043f\u0438\u0441\u043e\u043a', 'type': 'DynamicList', 'main': True, 'settings': {'mainTable': f"InformationRegister.{meta['Name']}", 'dynamicDataRead': True}}
         ]),
@@ -974,39 +970,35 @@ def generate_accumulation_register_dsl(meta, preset_data, purpose):
 
 
 def generate_accumulation_register_list_dsl(meta, p):
-    columns = OrderedDict()
+    columns_list = []
     # AccumulationRegisters always have Period, Recorder, LineNumber
-    columns['\u041f\u0435\u0440\u0438\u043e\u0434'] = {'element': 'labelField', 'path': '\u0421\u043f\u0438\u0441\u043e\u043a.Period'}
-    columns['\u0420\u0435\u0433\u0438\u0441\u0442\u0440\u0430\u0442\u043e\u0440'] = {'element': 'labelField', 'path': '\u0421\u043f\u0438\u0441\u043e\u043a.Recorder'}
-    columns['\u041d\u043e\u043c\u0435\u0440\u0421\u0442\u0440\u043e\u043a\u0438'] = {'element': 'labelField', 'path': '\u0421\u043f\u0438\u0441\u043e\u043a.LineNumber'}
+    columns_list.append(OrderedDict([('labelField', '\u041f\u0435\u0440\u0438\u043e\u0434'), ('path', '\u0421\u043f\u0438\u0441\u043e\u043a.Period')]))
+    columns_list.append(OrderedDict([('labelField', '\u0420\u0435\u0433\u0438\u0441\u0442\u0440\u0430\u0442\u043e\u0440'), ('path', '\u0421\u043f\u0438\u0441\u043e\u043a.Recorder')]))
+    columns_list.append(OrderedDict([('labelField', '\u041d\u043e\u043c\u0435\u0440\u0421\u0442\u0440\u043e\u043a\u0438'), ('path', '\u0421\u043f\u0438\u0441\u043e\u043a.LineNumber')]))
     # Dimensions
     for dim in meta.get('Dimensions', []):
         if not is_displayable_type(dim['Type']):
             continue
-        columns[dim['Name']] = {'element': 'labelField', 'path': f"\u0421\u043f\u0438\u0441\u043e\u043a.{dim['Name']}"}
+        columns_list.append(OrderedDict([('labelField', dim['Name']), ('path', f"\u0421\u043f\u0438\u0441\u043e\u043a.{dim['Name']}")]))
     # Resources
     for res in meta.get('Resources', []):
         if not is_displayable_type(res['Type']):
             continue
-        el = 'labelField'
-        if re.match(r'^xs:boolean$|^Boolean$', res['Type']):
-            el = 'checkBox'
-        columns[res['Name']] = {'element': el, 'path': f"\u0421\u043f\u0438\u0441\u043e\u043a.{res['Name']}"}
+        el_key = 'check' if re.match(r'^xs:boolean$|^Boolean$', res['Type']) else 'labelField'
+        columns_list.append(OrderedDict([(el_key, res['Name']), ('path', f"\u0421\u043f\u0438\u0441\u043e\u043a.{res['Name']}")]))
     # Attributes
     for attr in meta['Attributes']:
         if not is_displayable_type(attr['Type']):
             continue
-        el = 'labelField'
-        if re.match(r'^xs:boolean$|^Boolean$', attr['Type']):
-            el = 'checkBox'
-        columns[attr['Name']] = {'element': el, 'path': f"\u0421\u043f\u0438\u0441\u043e\u043a.{attr['Name']}"}
+        el_key = 'check' if re.match(r'^xs:boolean$|^Boolean$', attr['Type']) else 'labelField'
+        columns_list.append(OrderedDict([(el_key, attr['Name']), ('path', f"\u0421\u043f\u0438\u0441\u043e\u043a.{attr['Name']}")]))
 
     table_el = OrderedDict([
-        ('element', 'table'),
+        ('table', '\u0421\u043f\u0438\u0441\u043e\u043a'),
         ('path', '\u0421\u043f\u0438\u0441\u043e\u043a'),
-        ('commandBarLocation', 'none'),
-        ('autoCommandBar', {'autofill': False}),
-        ('columns', columns),
+        ('commandBarLocation', 'None'),
+        ('tableAutofill', False),
+        ('columns', columns_list),
     ])
 
     props = OrderedDict()
@@ -1017,7 +1009,7 @@ def generate_accumulation_register_list_dsl(meta, p):
     return OrderedDict([
         ('title', meta['Synonym']),
         ('properties', props),
-        ('elements', OrderedDict([('\u0421\u043f\u0438\u0441\u043e\u043a', table_el)])),
+        ('elements', [table_el]),
         ('attributes', [
             {'name': '\u0421\u043f\u0438\u0441\u043e\u043a', 'type': 'DynamicList', 'main': True, 'settings': {'mainTable': f"AccumulationRegister.{meta['Name']}", 'dynamicDataRead': True}}
         ]),
