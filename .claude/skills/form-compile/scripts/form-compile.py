@@ -433,7 +433,7 @@ def generate_catalog_list_dsl(meta, p):
         columns.append(OrderedDict([('labelField', attr['Name']), ('path', f"\u0421\u043f\u0438\u0441\u043e\u043a.{attr['Name']}")]))
     # Hidden ref
     if p.get('hiddenRef', True) is not False:
-        columns.append(OrderedDict([('labelField', '\u0421\u0441\u044b\u043b\u043a\u0430'), ('path', '\u0421\u043f\u0438\u0441\u043e\u043a.Ref'), ('visible', False)]))
+        columns.append(OrderedDict([('labelField', '\u0421\u0441\u044b\u043b\u043a\u0430'), ('path', '\u0421\u043f\u0438\u0441\u043e\u043a.Ref'), ('userVisible', False)]))
 
     table_el = OrderedDict([
         ('table', '\u0421\u043f\u0438\u0441\u043e\u043a'), ('path', '\u0421\u043f\u0438\u0441\u043e\u043a'),
@@ -611,6 +611,9 @@ def generate_document_dsl(meta, preset_data, purpose):
 
 def generate_document_list_dsl(meta, p):
     columns = []
+    # Standard columns: Number + Date
+    columns.append(OrderedDict([('labelField', 'Номер'), ('path', 'Список.Number')]))
+    columns.append(OrderedDict([('labelField', 'Дата'), ('path', 'Список.Date')]))
     # All custom attributes as labelField
     for attr in meta['Attributes']:
         if not is_displayable_type(attr['Type']):
@@ -618,7 +621,7 @@ def generate_document_list_dsl(meta, p):
         columns.append(OrderedDict([('labelField', attr['Name']), ('path', f"\u0421\u043f\u0438\u0441\u043e\u043a.{attr['Name']}")]))
     # Hidden ref
     if p.get('hiddenRef', True):
-        columns.append(OrderedDict([('labelField', '\u0421\u0441\u044b\u043b\u043a\u0430'), ('path', '\u0421\u043f\u0438\u0441\u043e\u043a.Ref'), ('visible', False)]))
+        columns.append(OrderedDict([('labelField', '\u0421\u0441\u044b\u043b\u043a\u0430'), ('path', '\u0421\u043f\u0438\u0441\u043e\u043a.Ref'), ('userVisible', False)]))
 
     table_el = OrderedDict([
         ('table', '\u0421\u043f\u0438\u0441\u043e\u043a'), ('path', '\u0421\u043f\u0438\u0441\u043e\u043a'),
@@ -1343,7 +1346,7 @@ KNOWN_KEYS = {
     "group", "input", "check", "label", "labelField", "table", "pages", "page",
     "button", "picture", "picField", "calendar", "cmdBar", "popup",
     "name", "path", "title",
-    "visible", "hidden", "enabled", "disabled", "readOnly",
+    "visible", "hidden", "enabled", "disabled", "readOnly", "userVisible",
     "on", "handlers",
     "titleLocation", "representation", "width", "height",
     "horizontalStretch", "verticalStretch", "autoMaxWidth", "autoMaxHeight",
@@ -1410,6 +1413,10 @@ def emit_companion(lines, tag, name, indent):
 def emit_common_flags(lines, el, indent):
     if el.get('visible') is False or el.get('hidden') is True:
         lines.append(f"{indent}<Visible>false</Visible>")
+    if el.get('userVisible') is False:
+        lines.append(f"{indent}<UserVisible>")
+        lines.append(f"{indent}\t<xr:Common>false</xr:Common>")
+        lines.append(f"{indent}</UserVisible>")
     if el.get('enabled') is False or el.get('disabled') is True:
         lines.append(f"{indent}<Enabled>false</Enabled>")
     if el.get('readOnly') is True:
