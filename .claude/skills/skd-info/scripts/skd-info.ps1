@@ -1,4 +1,4 @@
-﻿# skd-info v1.0 — Analyze 1C DCS structure
+﻿# skd-info v1.1 — Analyze 1C DCS structure
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory=$true)]
@@ -17,6 +17,8 @@ $ErrorActionPreference = "Stop"
 
 # --- Resolve path ---
 
+$originalPath = $TemplatePath
+
 if (-not $TemplatePath.EndsWith(".xml")) {
 	$candidate = Join-Path (Join-Path $TemplatePath "Ext") "Template.xml"
 	if (Test-Path $candidate) {
@@ -24,7 +26,48 @@ if (-not $TemplatePath.EndsWith(".xml")) {
 	}
 }
 
-if (-not (Test-Path $TemplatePath)) {
+# If still not a file, try resolving from object directory (Reports/X, DataProcessors/X)
+if (-not (Test-Path $TemplatePath -PathType Leaf)) {
+	$templatesDir = Join-Path $originalPath "Templates"
+	if (Test-Path $templatesDir) {
+		$dcsTemplates = @()
+		foreach ($metaXml in (Get-ChildItem $templatesDir -Filter "*.xml" -File)) {
+			[xml]$meta = Get-Content $metaXml.FullName -Encoding UTF8
+			$tt = $meta.SelectSingleNode("//*[local-name()='TemplateType']")
+			if ($tt -and $tt.InnerText -eq "DataCompositionSchema") {
+				$tplName = [System.IO.Path]::GetFileNameWithoutExtension($metaXml.Name)
+				$tplPath = Join-Path (Join-Path (Join-Path $templatesDir $tplName) "Ext") "Template.xml"
+				if (Test-Path $tplPath) {
+					$dcsTemplates += $tplPath
+				}
+			}
+		}
+		if ($dcsTemplates.Count -eq 1) {
+			$TemplatePath = $dcsTemplates[0]
+			$resolvedMsg = (Resolve-Path $TemplatePath).Path
+			$cwd = (Get-Location).Path
+			if ($resolvedMsg.StartsWith($cwd)) {
+				$resolvedMsg = $resolvedMsg.Substring($cwd.Length + 1)
+			}
+			Write-Host "[i] Resolved: $resolvedMsg"
+		} elseif ($dcsTemplates.Count -gt 1) {
+			Write-Host "Multiple DCS templates found in: $originalPath"
+			$cwd = (Get-Location).Path
+			for ($i = 0; $i -lt $dcsTemplates.Count; $i++) {
+				$p = (Resolve-Path $dcsTemplates[$i]).Path
+				if ($p.StartsWith($cwd)) { $p = $p.Substring($cwd.Length + 1) }
+				Write-Host "  $($i+1). $p"
+			}
+			Write-Host "Specify the template path."
+			exit 1
+		} else {
+			Write-Error "No DCS templates found in: $originalPath"
+			exit 1
+		}
+	}
+}
+
+if (-not (Test-Path $TemplatePath -PathType Leaf)) {
 	Write-Error "File not found: $TemplatePath"
 	exit 1
 }
