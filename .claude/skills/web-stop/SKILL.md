@@ -1,6 +1,6 @@
 ---
 name: web-stop
-description: Остановка Apache HTTP Server. Используй когда пользователь просит остановить веб-сервер, Apache, прекратить веб-публикацию
+description: Остановка Apache HTTP Server. Используй когда нужно остановить веб-сервер, Apache, прекратить веб-публикацию — по запросу пользователя или в рамках составной задачи
 argument-hint: ""
 allowed-tools:
   - Bash

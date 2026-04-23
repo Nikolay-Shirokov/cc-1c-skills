@@ -1,6 +1,6 @@
 ---
 name: db-dump-xml
-description: Выгрузка конфигурации 1С в XML-файлы. Используй когда пользователь просит выгрузить конфигурацию в файлы, XML, исходники, DumpConfigToFiles
+description: Выгрузка конфигурации 1С в XML-файлы. Используй когда нужно выгрузить конфигурацию в файлы, XML, исходники, DumpConfigToFiles — по запросу пользователя или в рамках составной задачи
 argument-hint: "[database] [outputDir]"
 allowed-tools:
   - Bash
