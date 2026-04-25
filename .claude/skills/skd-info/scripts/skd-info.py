@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# skd-info v1.1 — Analyze 1C DCS structure
+# skd-info v1.2 — Analyze 1C DCS structure
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -1662,7 +1662,10 @@ def main():
         lines.append("")
         lines.append("--- query ---")
         lines.append("")
-        show_query()
+        if root.findall(".//s:dataSet[@xsi:type='DataSetQuery']", NSMAP):
+            show_query()
+        else:
+            lines.append("(no query datasets)")
         lines.append("")
         lines.append("--- fields ---")
         lines.append("")

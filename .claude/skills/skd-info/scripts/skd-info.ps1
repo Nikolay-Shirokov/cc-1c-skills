@@ -1,4 +1,4 @@
-﻿# skd-info v1.1 — Analyze 1C DCS structure
+﻿# skd-info v1.2 — Analyze 1C DCS structure
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory=$true)]
@@ -1349,7 +1349,8 @@ if ($Mode -eq "variant") {
 elseif ($Mode -eq "full") {
 	Show-Overview
 	$lines.Add(""); $lines.Add("--- query ---"); $lines.Add("")
-	Show-Query
+	$hasQuery = $root.SelectNodes("descendant::s:dataSet[@xsi:type='DataSetQuery']", $ns).Count -gt 0
+	if ($hasQuery) { Show-Query } else { $lines.Add("(no query datasets)") }
 	$lines.Add(""); $lines.Add("--- fields ---"); $lines.Add("")
 	Show-Fields
 	$lines.Add(""); $lines.Add("--- resources ---"); $lines.Add("")

@@ -1,0 +1,22 @@
+{
+  "name": "Полный режим на схеме без Query (только DataSetObject)",
+  "args_extra": ["-Mode", "full"],
+  "preRun": [
+    {
+      "script": "skd-compile/scripts/skd-compile",
+      "input": {
+        "dataSets": [{
+          "name": "ВнешниеДанные",
+          "objectName": "ЖурналОшибок",
+          "fields": [
+            { "field": "ТекстСообщения", "title": "Текст сообщения", "type": "string(150)" },
+            { "field": "Расшифровка", "title": "Описание", "type": "CatalogRef.Контрагенты" }
+          ]
+        }]
+      },
+      "args": { "-DefinitionFile": "{inputFile}", "-OutputPath": "{workDir}/Template.xml" }
+    }
+  ],
+  "params": { "templatePath": "Template.xml" },
+  "expect": { "stdoutContains": "ВнешниеДанные" }
+}
