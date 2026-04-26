@@ -323,7 +323,7 @@ const STANDALONE_SKILLS = new Set([
 // Standalone skills that CAN be platform-verified by wrapping their output in
 // an external report (ERF) and running erf-build — the platform parses the
 // schema and we know if it's accepted.
-const SKD_PLATFORM_VERIFY = new Set(['skd-compile']);
+const SKD_PLATFORM_VERIFY = new Set(['skd-compile', 'skd-edit']);
 
 // EPF/ERF skills — need epf-build to verify, not LoadConfigFromFiles
 const EPF_SKILLS = new Set([
@@ -524,7 +524,7 @@ async function verifyCase(skillName, caseName, skillConfig, caseData, opts) {
         log('platform-load', true, 'skipped (no v8 context)');
         return result;
       }
-      const tplName = caseData.params?.outputPath || 'Template.xml';
+      const tplName = caseData.params?.templatePath || caseData.params?.outputPath || 'Template.xml';
       const tplPath = join(workDir, tplName);
       if (!existsSync(tplPath)) {
         result.errors.push(`Output not produced at ${tplPath}`);
