@@ -1,4 +1,4 @@
-﻿# form-compile v1.7 — Compile 1C managed form from JSON or object metadata
+﻿# form-compile v1.8 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[string]$JsonPath,
@@ -1823,6 +1823,17 @@ function Emit-Companion {
 function Emit-Element {
 	param($el, [string]$indent)
 
+	# Silent synonyms: commandBar -> cmdBar, autoCommandBar -> autoCmdBar
+	# (autoCmdBar inside def.elements is normally extracted in pre-pass; this is a safety net for nested cases)
+	$synonyms = @{ "commandBar" = "cmdBar"; "autoCommandBar" = "autoCmdBar" }
+	foreach ($pair in $synonyms.GetEnumerator()) {
+		if ($null -ne $el.PSObject.Properties[$pair.Key] -and $null -eq $el.PSObject.Properties[$pair.Value]) {
+			$val = $el.($pair.Key)
+			$el.PSObject.Properties.Remove($pair.Key) | Out-Null
+			$el | Add-Member -NotePropertyName $pair.Value -NotePropertyValue $val -Force
+		}
+	}
+
 	# Determine element type from key
 	$typeKey = $null
 	$xmlTag = $null
@@ -2603,6 +2614,163 @@ function Emit-Properties {
 	}
 }
 
+# --- 11b. Pre-pass: synonyms, main attribute inference, heuristics, autoCmdBar extraction ---
+
+function Normalize-ElementSynonyms {
+	param($el)
+	if ($null -eq $el) { return }
+	$synonyms = @{ "commandBar" = "cmdBar"; "autoCommandBar" = "autoCmdBar" }
+	foreach ($pair in $synonyms.GetEnumerator()) {
+		if ($null -ne $el.PSObject.Properties[$pair.Key] -and $null -eq $el.PSObject.Properties[$pair.Value]) {
+			$val = $el.($pair.Key)
+			$el.PSObject.Properties.Remove($pair.Key) | Out-Null
+			$el | Add-Member -NotePropertyName $pair.Value -NotePropertyValue $val -Force
+		}
+	}
+	if ($el.PSObject.Properties["children"] -and $el.children) {
+		foreach ($child in $el.children) { Normalize-ElementSynonyms $child }
+	}
+	if ($el.PSObject.Properties["columns"] -and $el.columns) {
+		foreach ($child in $el.columns) { Normalize-ElementSynonyms $child }
+	}
+}
+
+function HasCmdBarRecursive {
+	param($el)
+	if ($null -eq $el) { return $false }
+	if ($el.PSObject.Properties["cmdBar"] -and $null -ne $el.cmdBar) { return $true }
+	if ($el.PSObject.Properties["children"] -and $el.children) {
+		foreach ($child in $el.children) { if (HasCmdBarRecursive $child) { return $true } }
+	}
+	if ($el.PSObject.Properties["columns"] -and $el.columns) {
+		foreach ($child in $el.columns) { if (HasCmdBarRecursive $child) { return $true } }
+	}
+	return $false
+}
+
+function ApplyDynamicListTableHeuristic {
+	param($el, [string]$listName)
+	if ($null -eq $el) { return }
+	if ($el.PSObject.Properties["table"] -and $null -ne $el.table -and "$($el.path)" -eq $listName) {
+		if ($null -eq $el.PSObject.Properties["tableAutofill"]) {
+			$el | Add-Member -NotePropertyName "tableAutofill" -NotePropertyValue $false -Force
+		}
+		if ($null -eq $el.PSObject.Properties["commandBarLocation"]) {
+			$el | Add-Member -NotePropertyName "commandBarLocation" -NotePropertyValue "None" -Force
+		}
+	}
+	if ($el.PSObject.Properties["children"] -and $el.children) {
+		foreach ($child in $el.children) { ApplyDynamicListTableHeuristic $child $listName }
+	}
+}
+
+function Test-IsObjectLikeType {
+	param([string]$type)
+	if ([string]::IsNullOrEmpty($type)) { return $false }
+	if ($type -eq "DynamicList" -or $type -eq "ConstantsSet") { return $true }
+	$objectSuffixes = @(
+		"CatalogObject", "DocumentObject", "DataProcessorObject", "ReportObject",
+		"ExternalDataProcessorObject", "ExternalReportObject", "BusinessProcessObject",
+		"TaskObject", "ChartOfAccountsObject", "ChartOfCharacteristicTypesObject",
+		"ChartOfCalculationTypesObject", "ExchangePlanObject"
+	)
+	$recordSetPrefixes = @(
+		"InformationRegisterRecordSet", "AccumulationRegisterRecordSet",
+		"AccountingRegisterRecordSet", "CalculationRegisterRecordSet",
+		"InformationRegisterRecordManager"
+	)
+	foreach ($suffix in $objectSuffixes) {
+		if ($type -like "$suffix.*") { return $true }
+	}
+	foreach ($prefix in $recordSetPrefixes) {
+		if ($type -like "$prefix.*") { return $true }
+	}
+	return $false
+}
+
+# 11b.1: Normalize synonyms recursively
+if ($def.elements) {
+	foreach ($el in $def.elements) { Normalize-ElementSynonyms $el }
+}
+
+# 11b.2: Extract autoCmdBar element from def.elements
+$script:mainAcbDef = $null
+if ($def.elements) {
+	$autoBars = @()
+	$rest = @()
+	foreach ($el in $def.elements) {
+		if ($null -ne $el.PSObject.Properties["autoCmdBar"] -and $null -ne $el.autoCmdBar) {
+			$autoBars += $el
+		} else {
+			$rest += $el
+		}
+	}
+	if ($autoBars.Count -gt 1) {
+		Write-Error "form-compile: more than one autoCmdBar in def.elements (found $($autoBars.Count)); only one allowed."
+		exit 1
+	}
+	if ($autoBars.Count -eq 1) {
+		$script:mainAcbDef = $autoBars[0]
+		# Replace def.elements with the filtered list
+		$def.PSObject.Properties.Remove("elements") | Out-Null
+		$def | Add-Member -NotePropertyName "elements" -NotePropertyValue $rest -Force
+	}
+}
+
+# 11b.3: Infer main attribute (only if no attribute has main:true)
+if ($def.attributes) {
+	$hasExplicitMain = $false
+	foreach ($attr in $def.attributes) {
+		if ($attr.main -eq $true) { $hasExplicitMain = $true; break }
+	}
+	if (-not $hasExplicitMain) {
+		$candidates = @()
+		foreach ($attr in $def.attributes) {
+			# Skip if user explicitly opted out via main:false
+			if ($null -ne $attr.PSObject.Properties["main"] -and $attr.main -eq $false) { continue }
+			if (Test-IsObjectLikeType "$($attr.type)") {
+				$candidates += $attr
+			}
+		}
+		if ($candidates.Count -eq 1) {
+			$candidates[0] | Add-Member -NotePropertyName "main" -NotePropertyValue $true -Force
+			Write-Host "[INFO] Inferred main attribute: $($candidates[0].name) ($($candidates[0].type))"
+		} elseif ($candidates.Count -gt 1) {
+			$names = ($candidates | ForEach-Object { $_.name }) -join ", "
+			Write-Host "[WARN] Multiple main-attribute candidates: $names; specify ""main"": true explicitly"
+		}
+	}
+}
+
+# 11b.4: DynamicList → table heuristic
+if ($def.attributes -and $def.elements) {
+	$mainAttr = $null
+	foreach ($attr in $def.attributes) {
+		if ($attr.main -eq $true) { $mainAttr = $attr; break }
+	}
+	if ($mainAttr -and "$($mainAttr.type)" -eq "DynamicList") {
+		foreach ($el in $def.elements) {
+			ApplyDynamicListTableHeuristic $el $mainAttr.name
+		}
+	}
+}
+
+# 11b.5: Compute main AutoCommandBar Autofill via heuristic B3
+function Compute-MainAcbAutofill {
+	if ($script:mainAcbDef) {
+		if ($null -ne $script:mainAcbDef.PSObject.Properties["autofill"]) {
+			return [bool]$script:mainAcbDef.autofill
+		}
+		return $true
+	}
+	if ($def.elements) {
+		foreach ($el in $def.elements) {
+			if (HasCmdBarRecursive $el) { return $false }
+		}
+	}
+	return $true
+}
+
 # --- 12. Main compilation ---
 
 # Title
@@ -2656,10 +2824,37 @@ if ($def.excludedCommands -and $def.excludedCommands.Count -gt 0) {
 }
 
 # 12d. AutoCommandBar (always present, id=-1)
-X "`t<AutoCommandBar name=`"ФормаКоманднаяПанель`" id=`"-1`">"
-X "`t`t<HorizontalAlign>Right</HorizontalAlign>"
-X "`t`t<Autofill>false</Autofill>"
-X "`t</AutoCommandBar>"
+$acbAutofill = Compute-MainAcbAutofill
+$acbName = "ФормаКоманднаяПанель"
+$acbHAlign = "Right"
+if ($script:mainAcbDef) {
+	if ($null -ne $script:mainAcbDef.PSObject.Properties["autoCmdBar"] -and "$($script:mainAcbDef.autoCmdBar)" -ne "") {
+		$acbName = "$($script:mainAcbDef.autoCmdBar)"
+	}
+	if ($null -ne $script:mainAcbDef.PSObject.Properties["name"] -and "$($script:mainAcbDef.name)" -ne "") {
+		$acbName = "$($script:mainAcbDef.name)"
+	}
+	if ($null -ne $script:mainAcbDef.PSObject.Properties["horizontalAlign"] -and "$($script:mainAcbDef.horizontalAlign)" -ne "") {
+		$acbHAlign = "$($script:mainAcbDef.horizontalAlign)"
+	}
+}
+$hasAcbChildren = ($script:mainAcbDef -and $script:mainAcbDef.children -and $script:mainAcbDef.children.Count -gt 0)
+$acbHasInner = ($acbHAlign -or (-not $acbAutofill) -or $hasAcbChildren)
+if ($acbHasInner) {
+	X "`t<AutoCommandBar name=`"$acbName`" id=`"-1`">"
+	if ($acbHAlign) { X "`t`t<HorizontalAlign>$acbHAlign</HorizontalAlign>" }
+	if (-not $acbAutofill) { X "`t`t<Autofill>false</Autofill>" }
+	if ($hasAcbChildren) {
+		X "`t`t<ChildItems>"
+		foreach ($child in $script:mainAcbDef.children) {
+			Emit-Element -el $child -indent "`t`t`t"
+		}
+		X "`t`t</ChildItems>"
+	}
+	X "`t</AutoCommandBar>"
+} else {
+	X "`t<AutoCommandBar name=`"$acbName`" id=`"-1`"/>"
+}
 
 # 12e. Events
 if ($def.events) {

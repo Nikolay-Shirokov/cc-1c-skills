@@ -1,0 +1,36 @@
+{
+  "name": "Синонимы commandBar/autoCommandBar нормализуются молча",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "DataProcessor", "name": "Тест" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    {
+      "script": "form-add/scripts/form-add",
+      "args": { "-ObjectPath": "{workDir}/DataProcessors/Тест.xml", "-FormName": "Форма" }
+    }
+  ],
+  "params": { "outputPath": "DataProcessors/Тест/Forms/Форма/Ext/Form.xml" },
+  "validatePath": "DataProcessors/Тест/Forms/Форма/Ext/Form.xml",
+  "input": {
+    "title": "Тест синонимов",
+    "attributes": [
+      { "name": "Объект", "type": "DataProcessorObject.Тест", "main": true },
+      { "name": "Поле", "type": "string(50)" }
+    ],
+    "elements": [
+      { "autoCommandBar": "ФормаКоманднаяПанель", "children": [
+        { "button": "Кн1", "command": "Кн1" }
+      ]},
+      { "input": "Поле", "path": "Поле" },
+      { "commandBar": "ДопПанель", "children": [
+        { "button": "Кн2", "command": "Кн2" }
+      ]}
+    ],
+    "commands": [
+      { "name": "Кн1", "action": "Кн1" },
+      { "name": "Кн2", "action": "Кн2" }
+    ]
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "name": "Форма списка с DynamicList — main выводится, главная АКП без Autofill, таблица с Autofill=false",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "Catalog", "name": "Товары", "attributes": [{ "name": "Артикул", "type": "String", "length": 25 }] },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    {
+      "script": "form-add/scripts/form-add",
+      "args": { "-ObjectPath": "{workDir}/Catalogs/Товары.xml", "-FormName": "ФормаСписка", "-Purpose": "List" }
+    }
+  ],
+  "params": { "outputPath": "Catalogs/Товары/Forms/ФормаСписка/Ext/Form.xml" },
+  "validatePath": "Catalogs/Товары/Forms/ФормаСписка/Ext/Form.xml",
+  "input": {
+    "title": "Товары",
+    "attributes": [
+      { "name": "Список", "type": "DynamicList", "settings": { "mainTable": "Catalog.Товары", "dynamicDataRead": true } }
+    ],
+    "elements": [
+      { "table": "Список", "path": "Список", "columns": [
+        { "input": "Код", "path": "Список.Code" },
+        { "input": "Наименование", "path": "Список.Description" }
+      ]}
+    ]
+  }
+}

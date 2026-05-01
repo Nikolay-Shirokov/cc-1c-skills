@@ -9,7 +9,6 @@
 	<WindowOpeningMode>LockOwnerWindow</WindowOpeningMode>
 	<AutoCommandBar name="ФормаКоманднаяПанель" id="-1">
 		<HorizontalAlign>Right</HorizontalAlign>
-		<Autofill>false</Autofill>
 	</AutoCommandBar>
 	<ChildItems>
 		<InputField name="Магазин" id="1">

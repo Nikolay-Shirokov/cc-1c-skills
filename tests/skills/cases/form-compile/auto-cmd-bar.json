@@ -1,0 +1,33 @@
+{
+  "name": "autoCmdBar — кастомные кнопки в главной АКП формы с включённым autofill",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "Catalog", "name": "Бригады" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    {
+      "script": "form-add/scripts/form-add",
+      "args": { "-ObjectPath": "{workDir}/Catalogs/Бригады.xml", "-FormName": "ФормаСписка", "-Purpose": "List" }
+    }
+  ],
+  "params": { "outputPath": "Catalogs/Бригады/Forms/ФормаСписка/Ext/Form.xml" },
+  "validatePath": "Catalogs/Бригады/Forms/ФормаСписка/Ext/Form.xml",
+  "input": {
+    "title": "Бригады",
+    "attributes": [
+      { "name": "Список", "type": "DynamicList", "main": true, "settings": { "mainTable": "Catalog.Бригады", "dynamicDataRead": true } }
+    ],
+    "elements": [
+      { "autoCmdBar": "ФормаКоманднаяПанель", "children": [
+        { "button": "ИзменитьВыделенные", "command": "ИзменитьВыделенные", "locationInCommandBar": "InAdditionalSubmenu" }
+      ]},
+      { "table": "Список", "path": "Список", "columns": [
+        { "input": "Наименование", "path": "Список.Description" }
+      ]}
+    ],
+    "commands": [
+      { "name": "ИзменитьВыделенные", "action": "ИзменитьВыделенные" }
+    ]
+  }
+}

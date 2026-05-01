@@ -9,7 +9,6 @@
 	<AutoTitle>false</AutoTitle>
 	<AutoCommandBar name="ФормаКоманднаяПанель" id="-1">
 		<HorizontalAlign>Right</HorizontalAlign>
-		<Autofill>false</Autofill>
 	</AutoCommandBar>
 	<ChildItems>
 		<Pages name="СтраницыМастера" id="1">

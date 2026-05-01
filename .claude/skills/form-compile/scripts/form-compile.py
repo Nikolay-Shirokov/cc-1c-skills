@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# form-compile v1.7 — Compile 1C managed form from JSON or object metadata
+# form-compile v1.8 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import copy
@@ -1602,6 +1602,12 @@ def emit_type(lines, type_str, indent):
 # --- Element emitters ---
 
 def emit_element(lines, el, indent):
+    # Silent synonyms (safety net; top-level autoCmdBar is normally extracted in pre-pass)
+    _synonyms = {'commandBar': 'cmdBar', 'autoCommandBar': 'autoCmdBar'}
+    for src, dst in _synonyms.items():
+        if src in el and dst not in el:
+            el[dst] = el.pop(src)
+
     type_key = None
     for key in TYPE_KEYS:
         if el.get(key) is not None:
@@ -2536,6 +2542,126 @@ def main():
         with open(json_path, 'r', encoding='utf-8-sig') as f:
             defn = json.load(f)
 
+    # --- 1b. Pre-pass: synonyms, main attribute inference, heuristics, autoCmdBar extraction ---
+    def _normalize_synonyms(el):
+        if not isinstance(el, dict):
+            return
+        synonyms = {'commandBar': 'cmdBar', 'autoCommandBar': 'autoCmdBar'}
+        for src, dst in synonyms.items():
+            if src in el and dst not in el:
+                el[dst] = el.pop(src)
+        if isinstance(el.get('children'), list):
+            for child in el['children']:
+                _normalize_synonyms(child)
+        if isinstance(el.get('columns'), list):
+            for child in el['columns']:
+                _normalize_synonyms(child)
+
+    def _has_cmd_bar_recursive(el):
+        if not isinstance(el, dict):
+            return False
+        if el.get('cmdBar') is not None:
+            return True
+        if isinstance(el.get('children'), list):
+            for child in el['children']:
+                if _has_cmd_bar_recursive(child):
+                    return True
+        if isinstance(el.get('columns'), list):
+            for child in el['columns']:
+                if _has_cmd_bar_recursive(child):
+                    return True
+        return False
+
+    def _apply_dlist_table_heuristic(el, list_name):
+        if not isinstance(el, dict):
+            return
+        if el.get('table') is not None and str(el.get('path', '')) == list_name:
+            if 'tableAutofill' not in el:
+                el['tableAutofill'] = False
+            if 'commandBarLocation' not in el:
+                el['commandBarLocation'] = 'None'
+        if isinstance(el.get('children'), list):
+            for child in el['children']:
+                _apply_dlist_table_heuristic(child, list_name)
+
+    def _is_object_like_type(t):
+        if not t:
+            return False
+        if t == 'DynamicList' or t == 'ConstantsSet':
+            return True
+        object_suffixes = (
+            'CatalogObject', 'DocumentObject', 'DataProcessorObject', 'ReportObject',
+            'ExternalDataProcessorObject', 'ExternalReportObject', 'BusinessProcessObject',
+            'TaskObject', 'ChartOfAccountsObject', 'ChartOfCharacteristicTypesObject',
+            'ChartOfCalculationTypesObject', 'ExchangePlanObject',
+        )
+        record_set_prefixes = (
+            'InformationRegisterRecordSet', 'AccumulationRegisterRecordSet',
+            'AccountingRegisterRecordSet', 'CalculationRegisterRecordSet',
+            'InformationRegisterRecordManager',
+        )
+        for s in object_suffixes:
+            if t.startswith(s + '.'):
+                return True
+        for s in record_set_prefixes:
+            if t.startswith(s + '.'):
+                return True
+        return False
+
+    # 1b.1: Normalize synonyms recursively
+    if isinstance(defn.get('elements'), list):
+        for el in defn['elements']:
+            _normalize_synonyms(el)
+
+    # 1b.2: Extract autoCmdBar element from defn['elements']
+    main_acb_def = None
+    if isinstance(defn.get('elements'), list):
+        auto_bars = [el for el in defn['elements'] if isinstance(el, dict) and el.get('autoCmdBar') is not None]
+        if len(auto_bars) > 1:
+            print(f"form-compile: more than one autoCmdBar in def.elements (found {len(auto_bars)}); only one allowed.", file=sys.stderr)
+            sys.exit(1)
+        if len(auto_bars) == 1:
+            main_acb_def = auto_bars[0]
+            defn['elements'] = [el for el in defn['elements'] if el is not main_acb_def]
+
+    # 1b.3: Infer main attribute
+    if isinstance(defn.get('attributes'), list):
+        has_explicit_main = any(a.get('main') is True for a in defn['attributes'] if isinstance(a, dict))
+        if not has_explicit_main:
+            candidates = []
+            for a in defn['attributes']:
+                if not isinstance(a, dict):
+                    continue
+                if 'main' in a and a.get('main') is False:
+                    continue
+                if _is_object_like_type(str(a.get('type', ''))):
+                    candidates.append(a)
+            if len(candidates) == 1:
+                candidates[0]['main'] = True
+                print(f"[INFO] Inferred main attribute: {candidates[0].get('name')} ({candidates[0].get('type')})")
+            elif len(candidates) > 1:
+                names = ', '.join(c.get('name', '') for c in candidates)
+                print(f"[WARN] Multiple main-attribute candidates: {names}; specify \"main\": true explicitly")
+
+    # 1b.4: DynamicList → table heuristic
+    if isinstance(defn.get('attributes'), list) and isinstance(defn.get('elements'), list):
+        main_attr = next((a for a in defn['attributes'] if isinstance(a, dict) and a.get('main') is True), None)
+        if main_attr and str(main_attr.get('type', '')) == 'DynamicList':
+            for el in defn['elements']:
+                _apply_dlist_table_heuristic(el, main_attr.get('name', ''))
+
+    # 1b.5: Compute main AutoCommandBar Autofill (B3)
+    def _compute_main_acb_autofill():
+        if main_acb_def is not None:
+            if 'autofill' in main_acb_def:
+                return bool(main_acb_def.get('autofill'))
+            return True
+        if isinstance(defn.get('elements'), list):
+            for el in defn['elements']:
+                if _has_cmd_bar_recursive(el):
+                    return False
+        return True
+
     # --- 2. Main compilation ---
     _next_id = 0
     lines = []
@@ -2563,10 +2689,33 @@ def main():
         lines.append('\t</CommandSet>')
 
     # AutoCommandBar (always present, id=-1)
-    lines.append('\t<AutoCommandBar name="\u0424\u043e\u0440\u043c\u0430\u041a\u043e\u043c\u0430\u043d\u0434\u043d\u0430\u044f\u041f\u0430\u043d\u0435\u043b\u044c" id="-1">')
-    lines.append('\t\t<HorizontalAlign>Right</HorizontalAlign>')
-    lines.append('\t\t<Autofill>false</Autofill>')
-    lines.append('\t</AutoCommandBar>')
+    acb_autofill = _compute_main_acb_autofill()
+    acb_name = '\u0424\u043e\u0440\u043c\u0430\u041a\u043e\u043c\u0430\u043d\u0434\u043d\u0430\u044f\u041f\u0430\u043d\u0435\u043b\u044c'
+    acb_halign = 'Right'
+    if main_acb_def is not None:
+        v = main_acb_def.get('autoCmdBar')
+        if v:
+            acb_name = str(v)
+        if main_acb_def.get('name'):
+            acb_name = str(main_acb_def['name'])
+        if main_acb_def.get('horizontalAlign'):
+            acb_halign = str(main_acb_def['horizontalAlign'])
+    has_acb_children = bool(main_acb_def and isinstance(main_acb_def.get('children'), list) and len(main_acb_def['children']) > 0)
+    has_inner = bool(acb_halign) or (not acb_autofill) or has_acb_children
+    if has_inner:
+        lines.append(f'\t<AutoCommandBar name="{acb_name}" id="-1">')
+        if acb_halign:
+            lines.append(f'\t\t<HorizontalAlign>{acb_halign}</HorizontalAlign>')
+        if not acb_autofill:
+            lines.append('\t\t<Autofill>false</Autofill>')
+        if has_acb_children:
+            lines.append('\t\t<ChildItems>')
+            for child in main_acb_def['children']:
+                emit_element(lines, child, '\t\t\t')
+            lines.append('\t\t</ChildItems>')
+        lines.append('\t</AutoCommandBar>')
+    else:
+        lines.append(f'\t<AutoCommandBar name="{acb_name}" id="-1"/>')
 
     # Events
     if defn.get('events'):
