@@ -163,7 +163,7 @@ export const steps = [
     input: {
       title: 'Контрагент',
       attributes: [
-        { name: 'Объект', type: 'FormDataStructure', main: true },
+        { name: 'Объект', type: 'CatalogObject.Контрагенты', main: true },
       ],
       elements: [
         { input: 'Наименование', path: 'Объект.Description', title: 'Наименование' },
@@ -188,7 +188,7 @@ export const steps = [
     input: {
       title: 'Номенклатура',
       attributes: [
-        { name: 'Объект', type: 'FormDataStructure', main: true },
+        { name: 'Объект', type: 'CatalogObject.Номенклатура', main: true },
       ],
       elements: [
         { pages: 'Страницы', children: [
@@ -222,7 +222,7 @@ export const steps = [
     input: {
       title: 'Приходная накладная',
       attributes: [
-        { name: 'Объект', type: 'FormDataStructure', main: true },
+        { name: 'Объект', type: 'DocumentObject.ПриходнаяНакладная', main: true },
       ],
       elements: [
         { input: 'Контрагент', path: 'Объект.Контрагент', title: 'Контрагент' },
