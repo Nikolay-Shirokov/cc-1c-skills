@@ -1,4 +1,4 @@
-﻿# form-info v1.2 — Analyze 1C managed form structure
+﻿# form-info v1.3 — Analyze 1C managed form structure
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory=$true)]
@@ -436,6 +436,62 @@ if ($formEvents -and $formEvents.HasChildNodes) {
 	}
 }
 
+# --- Main AutoCommandBar (form's id=-1 panel) ---
+
+function Format-MainAcb($acbNode) {
+	if (-not $acbNode) { return @() }
+	$result = @()
+	$autofillNode = $acbNode.SelectSingleNode("d:Autofill", $ns)
+	$autofill = $true
+	if ($autofillNode -and $autofillNode.InnerText -eq "false") { $autofill = $false }
+	$halignNode = $acbNode.SelectSingleNode("d:HorizontalAlign", $ns)
+	$flags = @()
+	$flags += if ($autofill) { "autofill" } else { "no-autofill" }
+	if ($halignNode) { $flags += "align=$($halignNode.InnerText)" }
+	$header = "AutoCommandBar [$($flags -join ', ')]"
+	$childItemsNode = $acbNode.SelectSingleNode("d:ChildItems", $ns)
+	$buttons = @()
+	if ($childItemsNode) {
+		foreach ($btn in $childItemsNode.ChildNodes) {
+			if ($btn.NodeType -ne "Element") { continue }
+			if ($skipElements.ContainsKey($btn.LocalName)) { continue }
+			$bName = $btn.GetAttribute("name")
+			$cmdNode = $btn.SelectSingleNode("d:CommandName", $ns)
+			$cmdRef = if ($cmdNode) { $cmdNode.InnerText } else { "" }
+			$locNode = $btn.SelectSingleNode("d:LocationInCommandBar", $ns)
+			$locStr = if ($locNode) { " [$($locNode.InnerText)]" } else { "" }
+			$tag = Get-ElementTag $btn
+			if ($cmdRef) {
+				$buttons += "  $tag $bName -> $cmdRef$locStr"
+			} else {
+				$buttons += "  $tag $bName$locStr"
+			}
+		}
+	}
+	if ($buttons.Count -eq 0 -and $autofill -and -not $halignNode) {
+		# Default empty panel — terse one-liner
+		return @("AutoCommandBar [autofill]")
+	}
+	$result += $header
+	$result += $buttons
+	return $result
+}
+
+# Determine position from CommandBarLocation form property
+$cbLocNode = $root.SelectSingleNode("d:CommandBarLocation", $ns)
+$cbLoc = if ($cbLocNode) { $cbLocNode.InnerText } else { "Auto" }
+$mainAcbNode = $root.SelectSingleNode("d:AutoCommandBar", $ns)
+$acbLines = @()
+if ($cbLoc -ne "None" -and $mainAcbNode) {
+	$acbLines = Format-MainAcb $mainAcbNode
+}
+
+# AutoCommandBar above Elements (Auto/Top)
+if ($acbLines.Count -gt 0 -and ($cbLoc -eq "Auto" -or $cbLoc -eq "Top")) {
+	$lines += ""
+	$lines += $acbLines
+}
+
 # --- Element tree ---
 
 $childItems = $root.SelectSingleNode("d:ChildItems", $ns)
@@ -444,6 +500,12 @@ if ($childItems) {
 	$lines += "Elements:"
 	Build-Tree $childItems "  " $false
 	$lines += $treeLines.ToArray()
+}
+
+# AutoCommandBar below Elements (Bottom)
+if ($acbLines.Count -gt 0 -and $cbLoc -eq "Bottom") {
+	$lines += ""
+	$lines += $acbLines
 }
 
 # --- Attributes ---

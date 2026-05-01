@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# form-info v1.2 — Analyze 1C managed form structure
+# form-info v1.3 — Analyze 1C managed form structure
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -484,6 +484,50 @@ def main():
             ct_str = f"[{ct}]" if ct else ""
             lines.append(f"  {e_name}{ct_str} -> {e_handler}")
 
+    # --- Main AutoCommandBar (form's id=-1 panel) ---
+    def format_main_acb(acb_node):
+        if acb_node is None:
+            return []
+        autofill_node = acb_node.find("d:Autofill", NSMAP)
+        autofill = not (autofill_node is not None and autofill_node.text == "false")
+        halign_node = acb_node.find("d:HorizontalAlign", NSMAP)
+        flags = ["autofill" if autofill else "no-autofill"]
+        if halign_node is not None and halign_node.text:
+            flags.append(f"align={halign_node.text}")
+        ci_node = acb_node.find("d:ChildItems", NSMAP)
+        buttons = []
+        if ci_node is not None:
+            for btn in ci_node:
+                if not isinstance(btn.tag, str):
+                    continue
+                ln = etree.QName(btn).localname
+                if ln in SKIP_ELEMENTS:
+                    continue
+                b_name = btn.get("name", "")
+                cmd_node = btn.find("d:CommandName", NSMAP)
+                cmd_ref = cmd_node.text if cmd_node is not None and cmd_node.text else ""
+                loc_node = btn.find("d:LocationInCommandBar", NSMAP)
+                loc_str = f" [{loc_node.text}]" if loc_node is not None and loc_node.text else ""
+                tag = get_element_tag(btn)
+                if cmd_ref:
+                    buttons.append(f"  {tag} {b_name} -> {cmd_ref}{loc_str}")
+                else:
+                    buttons.append(f"  {tag} {b_name}{loc_str}")
+        if not buttons and autofill and halign_node is None:
+            return ["AutoCommandBar [autofill]"]
+        return [f"AutoCommandBar [{', '.join(flags)}]"] + buttons
+
+    cb_loc_node = root.find("d:CommandBarLocation", NSMAP)
+    cb_loc = cb_loc_node.text if cb_loc_node is not None and cb_loc_node.text else "Auto"
+    main_acb_node = root.find("d:AutoCommandBar", NSMAP)
+    acb_lines = []
+    if cb_loc != "None" and main_acb_node is not None:
+        acb_lines = format_main_acb(main_acb_node)
+
+    if acb_lines and cb_loc in ("Auto", "Top"):
+        lines.append("")
+        lines.extend(acb_lines)
+
     # --- Element tree ---
     tree_state = {"has_collapsed": False}
     child_items = root.find("d:ChildItems", NSMAP)
@@ -493,6 +537,10 @@ def main():
         tree_lines = []
         build_tree(child_items, "  ", tree_lines, expand, tree_state)
         lines.extend(tree_lines)
+
+    if acb_lines and cb_loc == "Bottom":
+        lines.append("")
+        lines.extend(acb_lines)
 
     # --- Attributes ---
     attrs_node = root.find("d:Attributes", NSMAP)
