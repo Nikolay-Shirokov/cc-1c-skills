@@ -196,8 +196,14 @@ function createWorkspace(fixturePath, readOnly) {
 }
 
 function cleanupWorkspace(ws) {
-  if (!ws.readOnly) {
-    rmSync(ws.path, { recursive: true, force: true });
+  if (ws.readOnly) return;
+  // On Windows, file handles from db-update (1cv8) may linger briefly after the
+  // process exits — rmSync then throws EBUSY. Retry a few times, then swallow:
+  // a leaked tmp dir is preferable to crashing the entire runner.
+  try {
+    rmSync(ws.path, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  } catch (e) {
+    console.warn(`Warning: failed to clean workspace ${ws.path}: ${e.message}`);
   }
 }
 
