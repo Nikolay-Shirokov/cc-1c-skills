@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# cf-edit v1.1 — Edit 1C configuration root (Configuration.xml)
+# cf-edit v1.2 — Edit 1C configuration root (Configuration.xml)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -7,6 +7,7 @@ import json
 import os
 import subprocess
 import sys
+import uuid as _uuid
 from html import escape as html_escape
 from lxml import etree
 
@@ -161,7 +162,7 @@ def main():
     parser = argparse.ArgumentParser(description="Edit 1C configuration root (Configuration.xml)", allow_abbrev=False)
     parser.add_argument("-ConfigPath", "-Path", required=True)
     parser.add_argument("-DefinitionFile", default=None)
-    parser.add_argument("-Operation", default=None, choices=["modify-property", "add-childObject", "remove-childObject", "add-defaultRole", "remove-defaultRole", "set-defaultRoles"])
+    parser.add_argument("-Operation", default=None, choices=["modify-property", "add-childObject", "remove-childObject", "add-defaultRole", "remove-defaultRole", "set-defaultRoles", "set-panels"])
     parser.add_argument("-Value", default=None)
     parser.add_argument("-NoValidate", action="store_true")
     args = parser.parse_args()
@@ -493,6 +494,93 @@ def main():
         modify_count += 1
         info(f"Set DefaultRoles: {len(items)} roles")
 
+    # --- set-panels (writes Ext/ClientApplicationInterface.xml from scratch) ---
+    PANEL_UUIDS = {
+        "sections":  "b553047f-c9aa-4157-978d-448ecad24248",
+        "open":      "cbab57f2-a0f3-4f0a-89ea-4cb19570ab75",
+        "favorites": "13322b22-3960-4d68-93a6-fe2dd7f28ca3",
+        "history":   "c933ac92-92cd-459d-81cc-e0c8a83ced99",
+        "functions": "b2735bd3-d822-4430-ba59-c9e869693b24",
+    }
+
+    def build_panel_entry_xml(entry, indent):
+        if isinstance(entry, str):
+            if entry not in PANEL_UUIDS:
+                allowed = ", ".join(sorted(PANEL_UUIDS.keys()))
+                print(f"Unknown panel alias '{entry}'. Allowed: {allowed}", file=sys.stderr)
+                sys.exit(1)
+            inst = str(_uuid.uuid4())
+            return f'{indent}<panel id="{inst}">\r\n{indent}\t<uuid>{PANEL_UUIDS[entry]}</uuid>\r\n{indent}</panel>'
+        if isinstance(entry, dict) and "group" in entry:
+            children = entry["group"]
+            if not children:
+                print("group must contain at least one entry", file=sys.stderr)
+                sys.exit(1)
+            gid = str(_uuid.uuid4())
+            inner = ""
+            for child in children:
+                child_xml = build_panel_entry_xml(child, indent + "\t\t")
+                inner += f"{indent}\t<group>\r\n{child_xml}\r\n{indent}\t</group>\r\n"
+            return f'{indent}<group id="{gid}">\r\n{inner}{indent}</group>'
+        print(f"Panel entry must be string alias or {{group:[...]}}, got: {entry!r}", file=sys.stderr)
+        sys.exit(1)
+
+    def do_set_panels(value):
+        nonlocal modify_count
+        layout = value
+        if isinstance(layout, str):
+            try:
+                layout = json.loads(layout)
+            except json.JSONDecodeError:
+                print(f"set-panels value must be valid JSON object", file=sys.stderr)
+                sys.exit(1)
+        if not isinstance(layout, dict) or not layout:
+            print("set-panels value must be non-empty object", file=sys.stderr)
+            sys.exit(1)
+
+        sides = ("top", "left", "right", "bottom")
+        # Reject unknown side keys
+        for k in layout.keys():
+            if k not in sides:
+                print(f"Unknown side '{k}'. Allowed: {', '.join(sides)}", file=sys.stderr)
+                sys.exit(1)
+
+        body_parts = []
+        for side in sides:
+            entries = layout.get(side)
+            if entries is None:
+                continue
+            if not isinstance(entries, list):
+                entries = [entries]
+            for entry in entries:
+                entry_xml = build_panel_entry_xml(entry, "\t\t")
+                body_parts.append(f"\t<{side}>\r\n{entry_xml}\r\n\t</{side}>")
+        body = "\r\n".join(body_parts)
+        body_block = body + "\r\n" if body else ""
+        declarations = (
+            '\t<panelDef id="b553047f-c9aa-4157-978d-448ecad24248"/>\r\n'
+            '\t<panelDef id="13322b22-3960-4d68-93a6-fe2dd7f28ca3"/>\r\n'
+            '\t<panelDef id="c933ac92-92cd-459d-81cc-e0c8a83ced99"/>\r\n'
+            '\t<panelDef id="cbab57f2-a0f3-4f0a-89ea-4cb19570ab75"/>\r\n'
+            '\t<panelDef id="b2735bd3-d822-4430-ba59-c9e869693b24"/>'
+        )
+        cai_xml = (
+            '<?xml version="1.0" encoding="UTF-8"?>\r\n'
+            '<ClientApplicationInterface xmlns="http://v8.1c.ru/8.2/managed-application/core" '
+            'xmlns:xs="http://www.w3.org/2001/XMLSchema" '
+            'xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" '
+            'xsi:type="InterfaceLayouter">\r\n'
+            f'{body_block}{declarations}\r\n'
+            '</ClientApplicationInterface>'
+        )
+        ext_dir = os.path.join(config_dir, "Ext")
+        os.makedirs(ext_dir, exist_ok=True)
+        cai_path = os.path.join(ext_dir, "ClientApplicationInterface.xml")
+        with open(cai_path, "w", encoding="utf-8-sig", newline="") as fh:
+            fh.write(cai_xml)
+        modify_count += 1
+        info(f"Wrote panel layout: {cai_path}")
+
     # --- Execute operations ---
     operations = []
     if args.DefinitionFile:
@@ -513,17 +601,19 @@ def main():
         op_value = op.get("value", args.Value or "")
 
         if op_name == "modify-property":
-            do_modify_property(op_value)
+            do_modify_property(op_value if isinstance(op_value, str) else str(op_value))
         elif op_name == "add-childObject":
-            do_add_child_object(op_value)
+            do_add_child_object(op_value if isinstance(op_value, str) else str(op_value))
         elif op_name == "remove-childObject":
-            do_remove_child_object(op_value)
+            do_remove_child_object(op_value if isinstance(op_value, str) else str(op_value))
         elif op_name == "add-defaultRole":
-            do_add_default_role(op_value)
+            do_add_default_role(op_value if isinstance(op_value, str) else str(op_value))
         elif op_name == "remove-defaultRole":
-            do_remove_default_role(op_value)
+            do_remove_default_role(op_value if isinstance(op_value, str) else str(op_value))
         elif op_name == "set-defaultRoles":
-            do_set_default_roles(op_value)
+            do_set_default_roles(op_value if isinstance(op_value, str) else str(op_value))
+        elif op_name == "set-panels":
+            do_set_panels(op_value)
         else:
             print(f"Unknown operation: {op_name}", file=sys.stderr)
             sys.exit(1)

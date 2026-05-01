@@ -1,6 +1,6 @@
 ---
 name: cf-edit
-description: Точечное редактирование конфигурации 1С. Используй когда нужно изменить свойства конфигурации, добавить или удалить объект из состава, настроить роли по умолчанию
+description: Точечное редактирование конфигурации 1С. Используй когда нужно изменить свойства конфигурации, добавить или удалить объект из состава, настроить роли по умолчанию, поменять раскладку панелей
 argument-hint: -ConfigPath <path> -Operation <op> -Value <value>
 allowed-tools:
   - Bash
@@ -37,6 +37,7 @@ powershell.exe -NoProfile -File .claude/skills/cf-edit/scripts/cf-edit.ps1 -Conf
 | `add-defaultRole` | `Role.Name` или `Name` | Добавить роль по умолчанию |
 | `remove-defaultRole` | `Role.Name` или `Name` | Удалить роль по умолчанию |
 | `set-defaultRoles` | Имена через `;;` | Заменить список ролей по умолчанию |
+| `set-panels` | JSON-объект (см. [reference.md](reference.md)) | Перезаписать `Ext/ClientApplicationInterface.xml` (раскладка панелей) |
 
 Допустимые значения свойств, формат DefinitionFile (JSON), каноничный порядок: [reference.md](reference.md)
 

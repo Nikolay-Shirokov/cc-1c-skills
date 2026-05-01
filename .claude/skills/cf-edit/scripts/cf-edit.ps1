@@ -1,9 +1,9 @@
-﻿# cf-edit v1.1 — Edit 1C configuration root (Configuration.xml)
+﻿# cf-edit v1.2 — Edit 1C configuration root (Configuration.xml)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)][Alias('Path')][string]$ConfigPath,
 	[string]$DefinitionFile,
-	[ValidateSet("modify-property","add-childObject","remove-childObject","add-defaultRole","remove-defaultRole","set-defaultRoles")]
+	[ValidateSet("modify-property","add-childObject","remove-childObject","add-defaultRole","remove-defaultRole","set-defaultRoles","set-panels")]
 	[string]$Operation,
 	[string]$Value,
 	[switch]$NoValidate
@@ -444,6 +444,108 @@ function Do-RemoveDefaultRole([string]$batchVal) {
 	}
 }
 
+# --- Operation: set-panels ---
+$script:panelUuids = @{
+	"sections"  = "b553047f-c9aa-4157-978d-448ecad24248"
+	"open"      = "cbab57f2-a0f3-4f0a-89ea-4cb19570ab75"
+	"favorites" = "13322b22-3960-4d68-93a6-fe2dd7f28ca3"
+	"history"   = "c933ac92-92cd-459d-81cc-e0c8a83ced99"
+	"functions" = "b2735bd3-d822-4430-ba59-c9e869693b24"
+}
+
+function Build-PanelEntryXml($entry, [string]$indent) {
+	# String alias -> <panel><uuid>...</uuid></panel>
+	if ($entry -is [string]) {
+		if (-not $script:panelUuids.ContainsKey($entry)) {
+			Write-Error "Unknown panel alias '$entry'. Allowed: $(($script:panelUuids.Keys | Sort-Object) -join ', ')"
+			exit 1
+		}
+		$u = $script:panelUuids[$entry]
+		$instId = [guid]::NewGuid().ToString()
+		return "$indent<panel id=`"$instId`">`r`n$indent`t<uuid>$u</uuid>`r`n$indent</panel>"
+	}
+	# Object {group: [...]} -> <group id=""><group><panel/></group>...</group> (stack)
+	if ($entry.PSObject.Properties['group']) {
+		$children = $entry.group
+		if (-not $children -or $children.Count -eq 0) {
+			Write-Error "group must contain at least one entry"
+			exit 1
+		}
+		$gid = [guid]::NewGuid().ToString()
+		$inner = ""
+		foreach ($child in $children) {
+			$childXml = Build-PanelEntryXml $child "$indent`t`t"
+			$inner += "$indent`t<group>`r`n$childXml`r`n$indent`t</group>`r`n"
+		}
+		return "$indent<group id=`"$gid`">`r`n$inner$indent</group>"
+	}
+	Write-Error "Panel entry must be a string alias or object {group:[...]}, got: $($entry | ConvertTo-Json -Compress)"
+	exit 1
+}
+
+function Do-SetPanels($valArg) {
+	# Accept string (JSON), PSCustomObject, or hashtable
+	$layout = $valArg
+	if ($layout -is [string]) {
+		try { $layout = $layout | ConvertFrom-Json } catch {
+			Write-Error "set-panels value must be valid JSON object, got: $valArg"
+			exit 1
+		}
+	}
+	if (-not $layout) {
+		Write-Error "set-panels value is empty"
+		exit 1
+	}
+
+	$sides = @("top","left","right","bottom")
+	$bodyParts = @()
+	foreach ($side in $sides) {
+		$entries = $null
+		if ($layout.PSObject.Properties[$side]) { $entries = $layout.$side }
+		if ($null -eq $entries) { continue }
+		# Normalize to array
+		if ($entries -isnot [System.Array] -and $entries -isnot [System.Collections.IList]) {
+			$entries = @($entries)
+		}
+		foreach ($entry in $entries) {
+			$entryXml = Build-PanelEntryXml $entry "`t`t"
+			$bodyParts += "`t<$side>`r`n$entryXml`r`n`t</$side>"
+		}
+	}
+
+	# Reject unknown side keys (catches typos like "Top" vs "top")
+	foreach ($prop in $layout.PSObject.Properties) {
+		if ($sides -notcontains $prop.Name) {
+			Write-Error "Unknown side '$($prop.Name)'. Allowed: $($sides -join ', ')"
+			exit 1
+		}
+	}
+
+	$body = $bodyParts -join "`r`n"
+	$declarations = @"
+	<panelDef id="b553047f-c9aa-4157-978d-448ecad24248"/>
+	<panelDef id="13322b22-3960-4d68-93a6-fe2dd7f28ca3"/>
+	<panelDef id="c933ac92-92cd-459d-81cc-e0c8a83ced99"/>
+	<panelDef id="cbab57f2-a0f3-4f0a-89ea-4cb19570ab75"/>
+	<panelDef id="b2735bd3-d822-4430-ba59-c9e869693b24"/>
+"@
+	$bodyBlock = if ($body) { "$body`r`n" } else { "" }
+	$caiXml = @"
+<?xml version="1.0" encoding="UTF-8"?>
+<ClientApplicationInterface xmlns="http://v8.1c.ru/8.2/managed-application/core" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:type="InterfaceLayouter">
+$bodyBlock$declarations
+</ClientApplicationInterface>
+"@
+
+	$extDir = Join-Path $script:configDir "Ext"
+	if (-not (Test-Path $extDir)) { New-Item -ItemType Directory -Path $extDir -Force | Out-Null }
+	$caiPath = Join-Path $extDir "ClientApplicationInterface.xml"
+	$utf8Bom = New-Object System.Text.UTF8Encoding($true)
+	[System.IO.File]::WriteAllText($caiPath, $caiXml, $utf8Bom)
+	$script:modifyCount++
+	Info "Wrote panel layout: $caiPath"
+}
+
 # --- Operation: set-defaultRoles ---
 function Do-SetDefaultRoles([string]$batchVal) {
 	$items = Parse-BatchValue $batchVal
@@ -508,15 +610,18 @@ if ($DefinitionFile) {
 
 foreach ($op in $operations) {
 	$opName = if ($op.operation) { "$($op.operation)" } else { "$Operation" }
-	$opValue = if ($op.value) { "$($op.value)" } else { "$Value" }
+	# Pass value through as-is (object or string); set-panels needs object form
+	$opValue = if ($null -ne $op.value) { $op.value } else { $Value }
+	$opValueStr = if ($opValue -is [string]) { $opValue } else { "$opValue" }
 
 	switch ($opName) {
-		"modify-property"    { Do-ModifyProperty $opValue }
-		"add-childObject"    { Do-AddChildObject $opValue }
-		"remove-childObject" { Do-RemoveChildObject $opValue }
-		"add-defaultRole"    { Do-AddDefaultRole $opValue }
-		"remove-defaultRole" { Do-RemoveDefaultRole $opValue }
-		"set-defaultRoles"   { Do-SetDefaultRoles $opValue }
+		"modify-property"    { Do-ModifyProperty $opValueStr }
+		"add-childObject"    { Do-AddChildObject $opValueStr }
+		"remove-childObject" { Do-RemoveChildObject $opValueStr }
+		"add-defaultRole"    { Do-AddDefaultRole $opValueStr }
+		"remove-defaultRole" { Do-RemoveDefaultRole $opValueStr }
+		"set-defaultRoles"   { Do-SetDefaultRoles $opValueStr }
+		"set-panels"         { Do-SetPanels $opValue }
 		default              { Write-Error "Unknown operation: $opName"; exit 1 }
 	}
 }

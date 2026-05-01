@@ -1,0 +1,14 @@
+{
+  "name": "Установить раскладку панелей (top/left/right стек/bottom)",
+  "input": [
+    {
+      "operation": "set-panels",
+      "value": {
+        "top": ["open"],
+        "left": ["sections"],
+        "right": [{ "group": ["favorites", "history"] }],
+        "bottom": ["functions"]
+      }
+    }
+  ]
+}
