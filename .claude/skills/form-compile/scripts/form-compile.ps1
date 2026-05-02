@@ -1,4 +1,4 @@
-﻿# form-compile v1.11 — Compile 1C managed form from JSON or object metadata
+﻿# form-compile v1.12 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[string]$JsonPath,
@@ -2805,17 +2805,26 @@ if ($formTitle) {
 }
 
 # 12b. Properties (skip 'title' — handled above as multilingual)
+# When form-level Title is set, default autoTitle=false (≈95% of ERP forms do this;
+# otherwise platform appends synonym → "Title: Synonym" double-titles).
+$propsClone = New-Object PSObject
+$hasAutoTitle = $false
 if ($def.properties) {
-	$propsClone = New-Object PSObject
+	foreach ($p in $def.properties.PSObject.Properties) {
+		if ($p.Name -eq "autoTitle") { $hasAutoTitle = $true }
+	}
+}
+if ($formTitle -and -not $hasAutoTitle) {
+	$propsClone | Add-Member -NotePropertyName "autoTitle" -NotePropertyValue $false
+}
+if ($def.properties) {
 	foreach ($p in $def.properties.PSObject.Properties) {
 		if ($p.Name -ne "title") {
 			$propsClone | Add-Member -NotePropertyName $p.Name -NotePropertyValue $p.Value
 		}
 	}
-	Emit-Properties -props $propsClone -indent "`t"
-} else {
-	Emit-Properties -props $null -indent "`t"
 }
+Emit-Properties -props $propsClone -indent "`t"
 
 # 12c. CommandSet (excluded commands)
 if ($def.excludedCommands -and $def.excludedCommands.Count -gt 0) {

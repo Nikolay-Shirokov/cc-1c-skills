@@ -6,6 +6,7 @@
 			<v8:content>Поля ввода</v8:content>
 		</v8:item>
 	</Title>
+	<AutoTitle>false</AutoTitle>
 	<AutoCommandBar name="ФормаКоманднаяПанель" id="-1"/>
 	<ChildItems>
 		<InputField name="ОбычноеПоле" id="1">

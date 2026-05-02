@@ -6,6 +6,7 @@
 			<v8:content>Тест синонимов</v8:content>
 		</v8:item>
 	</Title>
+	<AutoTitle>false</AutoTitle>
 	<AutoCommandBar name="ФормаКоманднаяПанель" id="-1">
 		<ChildItems>
 			<Button name="Кн1" id="1">

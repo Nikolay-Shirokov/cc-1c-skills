@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# form-compile v1.11 — Compile 1C managed form from JSON or object metadata
+# form-compile v1.12 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import copy
@@ -2681,9 +2681,16 @@ def main():
         emit_mltext(lines, '\t', 'Title', str(form_title))
 
     # Properties (skip 'title' — handled above)
-    if defn.get('properties'):
-        props_clone = {k: v for k, v in defn['properties'].items() if k != 'title'}
-        emit_properties(lines, props_clone, '\t')
+    # When form-level Title is set, default autoTitle=false (≈95% of ERP forms do this;
+    # otherwise platform appends synonym → "Title: Synonym" double-titles).
+    props_src = defn.get('properties') or {}
+    props_clone = OrderedDict()
+    if form_title and 'autoTitle' not in props_src:
+        props_clone['autoTitle'] = False
+    for k, v in props_src.items():
+        if k != 'title':
+            props_clone[k] = v
+    emit_properties(lines, props_clone, '\t')
 
     # CommandSet (excluded commands)
     if defn.get('excludedCommands') and len(defn['excludedCommands']) > 0:
