@@ -1,4 +1,4 @@
-﻿# form-compile v1.12 — Compile 1C managed form from JSON or object metadata
+﻿# form-compile v1.13 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[string]$JsonPath,
@@ -1926,10 +1926,34 @@ function Emit-CommonFlags {
 	if ($el.readOnly -eq $true) { X "$indent<ReadOnly>true</ReadOnly>" }
 }
 
+function Title-FromName {
+	param([string]$name)
+	if (-not $name) { return '' }
+	$s = [regex]::Replace($name, '([А-ЯA-Z])([А-ЯA-Z][а-яa-z])', '$1 $2')
+	$s = [regex]::Replace($s, '([а-яa-z0-9])([А-ЯA-Z])', '$1 $2')
+	$parts = $s -split ' '
+	if ($parts.Count -eq 0) { return $s }
+	$out = New-Object System.Collections.ArrayList
+	[void]$out.Add($parts[0])
+	for ($i = 1; $i -lt $parts.Count; $i++) {
+		$p = $parts[$i]
+		if ($p.Length -gt 1 -and $p -ceq $p.ToUpper()) {
+			[void]$out.Add($p)
+		} else {
+			[void]$out.Add($p.ToLower())
+		}
+	}
+	return ($out -join ' ')
+}
+
 function Emit-Title {
-	param($el, [string]$name, [string]$indent)
-	if ($el.title) {
-		Emit-MLText -tag "Title" -text "$($el.title)" -indent $indent
+	param($el, [string]$name, [string]$indent, [switch]$auto)
+	$title = $el.title
+	if (-not $title -and $auto -and $name) {
+		$title = Title-FromName -name $name
+	}
+	if ($title) {
+		Emit-MLText -tag "Title" -text "$title" -indent $indent
 	}
 }
 
@@ -2001,7 +2025,7 @@ function Emit-Input {
 
 	if ($el.path) { X "$inner<DataPath>$($el.path)</DataPath>" }
 
-	Emit-Title -el $el -name $name -indent $inner
+	Emit-Title -el $el -name $name -indent $inner -auto:(-not $el.path)
 	Emit-CommonFlags -el $el -indent $inner
 
 	if ($el.titleLocation) {
@@ -2052,7 +2076,7 @@ function Emit-Check {
 
 	if ($el.path) { X "$inner<DataPath>$($el.path)</DataPath>" }
 
-	Emit-Title -el $el -name $name -indent $inner
+	Emit-Title -el $el -name $name -indent $inner -auto:(-not $el.path)
 	Emit-CommonFlags -el $el -indent $inner
 
 	$tl = if ($el.titleLocation) { "$($el.titleLocation)" } else { "Right" }
@@ -2073,12 +2097,13 @@ function Emit-Label {
 	X "$indent<LabelDecoration name=`"$name`" id=`"$id`">"
 	$inner = "$indent`t"
 
-	if ($el.title) {
+	$labelTitle = if ($el.title) { "$($el.title)" } else { Title-FromName -name $name }
+	if ($labelTitle) {
 		$formatted = if ($el.hyperlink -eq $true) { "true" } else { "false" }
 		X "$inner<Title formatted=`"$formatted`">"
 		X "$inner`t<v8:item>"
 		X "$inner`t`t<v8:lang>ru</v8:lang>"
-		X "$inner`t`t<v8:content>$(Esc-Xml "$($el.title)")</v8:content>"
+		X "$inner`t`t<v8:content>$(Esc-Xml "$labelTitle")</v8:content>"
 		X "$inner`t</v8:item>"
 		X "$inner</Title>"
 	}
@@ -2108,7 +2133,7 @@ function Emit-LabelField {
 
 	if ($el.path) { X "$inner<DataPath>$($el.path)</DataPath>" }
 
-	Emit-Title -el $el -name $name -indent $inner
+	Emit-Title -el $el -name $name -indent $inner -auto:(-not $el.path)
 	Emit-CommonFlags -el $el -indent $inner
 
 	if ($el.hyperlink -eq $true) { X "$inner<Hyperlink>true</Hyperlink>" }
@@ -2130,7 +2155,7 @@ function Emit-Table {
 
 	if ($el.path) { X "$inner<DataPath>$($el.path)</DataPath>" }
 
-	Emit-Title -el $el -name $name -indent $inner
+	Emit-Title -el $el -name $name -indent $inner -auto:(-not $el.path)
 	Emit-CommonFlags -el $el -indent $inner
 
 	if ($el.representation) {
@@ -2219,7 +2244,7 @@ function Emit-Page {
 	X "$indent<Page name=`"$name`" id=`"$id`">"
 	$inner = "$indent`t"
 
-	Emit-Title -el $el -name $name -indent $inner
+	Emit-Title -el $el -name $name -indent $inner -auto
 	Emit-CommonFlags -el $el -indent $inner
 
 	if ($el.group) {
@@ -2278,7 +2303,8 @@ function Emit-Button {
 		}
 	}
 
-	Emit-Title -el $el -name $name -indent $inner
+	$btnAuto = -not ($el.command -or $el.stdCommand)
+	Emit-Title -el $el -name $name -indent $inner -auto:$btnAuto
 	Emit-CommonFlags -el $el -indent $inner
 
 	if ($el.defaultButton -eq $true) { X "$inner<DefaultButton>true</DefaultButton>" }
@@ -2368,7 +2394,7 @@ function Emit-Calendar {
 
 	if ($el.path) { X "$inner<DataPath>$($el.path)</DataPath>" }
 
-	Emit-Title -el $el -name $name -indent $inner
+	Emit-Title -el $el -name $name -indent $inner -auto:(-not $el.path)
 	Emit-CommonFlags -el $el -indent $inner
 
 	# Companions
@@ -2408,7 +2434,7 @@ function Emit-Popup {
 	X "$indent<Popup name=`"$name`" id=`"$id`">"
 	$inner = "$indent`t"
 
-	Emit-Title -el $el -name $name -indent $inner
+	Emit-Title -el $el -name $name -indent $inner -auto
 	Emit-CommonFlags -el $el -indent $inner
 
 	if ($el.picture) {
@@ -2449,8 +2475,9 @@ function Emit-Attributes {
 		X "$indent`t<Attribute name=`"$attrName`" id=`"$attrId`">"
 		$inner = "$indent`t`t"
 
-		if ($attr.title) {
-			Emit-MLText -tag "Title" -text "$($attr.title)" -indent $inner
+		$attrTitle = if ($attr.title) { "$($attr.title)" } elseif ($attr.main -ne $true) { Title-FromName -name $attrName } else { '' }
+		if ($attrTitle) {
+			Emit-MLText -tag "Title" -text "$attrTitle" -indent $inner
 		}
 
 		# Type
@@ -2542,8 +2569,9 @@ function Emit-Commands {
 		X "$indent`t<Command name=`"$($cmd.name)`" id=`"$cmdId`">"
 		$inner = "$indent`t`t"
 
-		if ($cmd.title) {
-			Emit-MLText -tag "Title" -text "$($cmd.title)" -indent $inner
+		$cmdTitle = if ($cmd.title) { "$($cmd.title)" } else { Title-FromName -name "$($cmd.name)" }
+		if ($cmdTitle) {
+			Emit-MLText -tag "Title" -text "$cmdTitle" -indent $inner
 		}
 
 		if ($cmd.action) {

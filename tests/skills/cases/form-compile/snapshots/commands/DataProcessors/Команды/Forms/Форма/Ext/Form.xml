@@ -41,6 +41,12 @@
 			<MainAttribute>true</MainAttribute>
 		</Attribute>
 		<Attribute name="Результат" id="10">
+			<Title>
+				<v8:item>
+					<v8:lang>ru</v8:lang>
+					<v8:content>Результат</v8:content>
+				</v8:item>
+			</Title>
 			<Type>
 				<v8:Type>xs:string</v8:Type>
 				<v8:StringQualifiers>
@@ -52,6 +58,12 @@
 	</Attributes>
 	<Commands>
 		<Command name="Выполнить" id="11">
+			<Title>
+				<v8:item>
+					<v8:lang>ru</v8:lang>
+					<v8:content>Выполнить</v8:content>
+				</v8:item>
+			</Title>
 			<Action>ВыполнитьОбработка</Action>
 			<Shortcut>Ctrl+Enter</Shortcut>
 		</Command>

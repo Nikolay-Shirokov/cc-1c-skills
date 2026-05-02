@@ -51,6 +51,12 @@
 	</Attributes>
 	<Commands>
 		<Command name="ИзменитьВыделенные" id="13">
+			<Title>
+				<v8:item>
+					<v8:lang>ru</v8:lang>
+					<v8:content>Изменить выделенные</v8:content>
+				</v8:item>
+			</Title>
 			<Action>ИзменитьВыделенные</Action>
 		</Command>
 	</Commands>

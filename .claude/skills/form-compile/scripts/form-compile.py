@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# form-compile v1.12 — Compile 1C managed form from JSON or object metadata
+# form-compile v1.13 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import copy
@@ -1414,9 +1414,27 @@ def emit_common_flags(lines, el, indent):
         lines.append(f"{indent}<ReadOnly>true</ReadOnly>")
 
 
-def emit_title(lines, el, name, indent):
-    if el.get('title'):
-        emit_mltext(lines, indent, 'Title', str(el['title']))
+def title_from_name(name):
+    """СуммаДокумента → 'Сумма документа'. НДСВключен → 'НДС включен'."""
+    if not name:
+        return ''
+    s = re.sub(r'([А-ЯA-Z])([А-ЯA-Z][а-яa-z])', r'\1 \2', name)
+    s = re.sub(r'([а-яa-z0-9])([А-ЯA-Z])', r'\1 \2', s)
+    parts = s.split(' ')
+    if not parts:
+        return s
+    out = [parts[0]]
+    for p in parts[1:]:
+        out.append(p if (len(p) > 1 and p.isupper()) else p.lower())
+    return ' '.join(out)
+
+
+def emit_title(lines, el, name, indent, auto=False):
+    title = el.get('title')
+    if not title and auto and name:
+        title = title_from_name(name)
+    if title:
+        emit_mltext(lines, indent, 'Title', str(title))
 
 
 # --- Type emitter ---
@@ -1712,7 +1730,7 @@ def emit_input(lines, el, name, eid, indent):
     if el.get('path'):
         lines.append(f'{inner}<DataPath>{el["path"]}</DataPath>')
 
-    emit_title(lines, el, name, inner)
+    emit_title(lines, el, name, inner, auto=not el.get('path'))
     emit_common_flags(lines, el, inner)
 
     if el.get('titleLocation'):
@@ -1768,7 +1786,7 @@ def emit_check(lines, el, name, eid, indent):
     if el.get('path'):
         lines.append(f'{inner}<DataPath>{el["path"]}</DataPath>')
 
-    emit_title(lines, el, name, inner)
+    emit_title(lines, el, name, inner, auto=not el.get('path'))
     emit_common_flags(lines, el, inner)
 
     tl = el.get('titleLocation') or 'Right'
@@ -1787,12 +1805,13 @@ def emit_label(lines, el, name, eid, indent):
     lines.append(f'{indent}<LabelDecoration name="{name}" id="{eid}">')
     inner = f'{indent}\t'
 
-    if el.get('title'):
+    label_title = el.get('title') or title_from_name(name)
+    if label_title:
         formatted = 'true' if el.get('hyperlink') is True else 'false'
         lines.append(f'{inner}<Title formatted="{formatted}">')
         lines.append(f'{inner}\t<v8:item>')
         lines.append(f'{inner}\t\t<v8:lang>ru</v8:lang>')
-        lines.append(f'{inner}\t\t<v8:content>{esc_xml(str(el["title"]))}</v8:content>')
+        lines.append(f'{inner}\t\t<v8:content>{esc_xml(str(label_title))}</v8:content>')
         lines.append(f'{inner}\t</v8:item>')
         lines.append(f'{inner}</Title>')
 
@@ -1825,7 +1844,7 @@ def emit_label_field(lines, el, name, eid, indent):
     if el.get('path'):
         lines.append(f'{inner}<DataPath>{el["path"]}</DataPath>')
 
-    emit_title(lines, el, name, inner)
+    emit_title(lines, el, name, inner, auto=not el.get('path'))
     emit_common_flags(lines, el, inner)
 
     if el.get('hyperlink') is True:
@@ -1847,7 +1866,7 @@ def emit_table(lines, el, name, eid, indent):
     if el.get('path'):
         lines.append(f'{inner}<DataPath>{el["path"]}</DataPath>')
 
-    emit_title(lines, el, name, inner)
+    emit_title(lines, el, name, inner, auto=not el.get('path'))
     emit_common_flags(lines, el, inner)
 
     if el.get('representation'):
@@ -1935,7 +1954,7 @@ def emit_page(lines, el, name, eid, indent):
     lines.append(f'{indent}<Page name="{name}" id="{eid}">')
     inner = f'{indent}\t'
 
-    emit_title(lines, el, name, inner)
+    emit_title(lines, el, name, inner, auto=True)
     emit_common_flags(lines, el, inner)
 
     if el.get('group'):
@@ -1983,7 +2002,7 @@ def emit_button(lines, el, name, eid, indent):
         else:
             lines.append(f'{inner}<CommandName>Form.StandardCommand.{sc}</CommandName>')
 
-    emit_title(lines, el, name, inner)
+    emit_title(lines, el, name, inner, auto=not (el.get('command') or el.get('stdCommand')))
     emit_common_flags(lines, el, inner)
 
     if el.get('defaultButton') is True:
@@ -2071,7 +2090,7 @@ def emit_calendar(lines, el, name, eid, indent):
     if el.get('path'):
         lines.append(f'{inner}<DataPath>{el["path"]}</DataPath>')
 
-    emit_title(lines, el, name, inner)
+    emit_title(lines, el, name, inner, auto=not el.get('path'))
     emit_common_flags(lines, el, inner)
 
     # Companions
@@ -2106,7 +2125,7 @@ def emit_popup(lines, el, name, eid, indent):
     lines.append(f'{indent}<Popup name="{name}" id="{eid}">')
     inner = f'{indent}\t'
 
-    emit_title(lines, el, name, inner)
+    emit_title(lines, el, name, inner, auto=True)
     emit_common_flags(lines, el, inner)
 
     if el.get('picture'):
@@ -2142,8 +2161,11 @@ def emit_attributes(lines, attrs, indent):
         lines.append(f'{indent}\t<Attribute name="{attr_name}" id="{attr_id}">')
         inner = f'{indent}\t\t'
 
-        if attr.get('title'):
-            emit_mltext(lines, inner, 'Title', str(attr['title']))
+        attr_title = attr.get('title')
+        if not attr_title and attr.get('main') is not True:
+            attr_title = title_from_name(attr_name)
+        if attr_title:
+            emit_mltext(lines, inner, 'Title', str(attr_title))
 
         # Type
         if attr.get('type'):
@@ -2223,8 +2245,9 @@ def emit_commands(lines, cmds, indent):
         lines.append(f'{indent}\t<Command name="{cmd["name"]}" id="{cmd_id}">')
         inner = f'{indent}\t\t'
 
-        if cmd.get('title'):
-            emit_mltext(lines, inner, 'Title', str(cmd['title']))
+        cmd_title = cmd.get('title') or title_from_name(str(cmd['name']))
+        if cmd_title:
+            emit_mltext(lines, inner, 'Title', str(cmd_title))
 
         if cmd.get('action'):
             lines.append(f'{inner}<Action>{cmd["action"]}</Action>')

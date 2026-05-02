@@ -38,6 +38,12 @@
 			<MainAttribute>true</MainAttribute>
 		</Attribute>
 		<Attribute name="Поле" id="10">
+			<Title>
+				<v8:item>
+					<v8:lang>ru</v8:lang>
+					<v8:content>Поле</v8:content>
+				</v8:item>
+			</Title>
 			<Type>
 				<v8:Type>xs:string</v8:Type>
 				<v8:StringQualifiers>
@@ -49,9 +55,21 @@
 	</Attributes>
 	<Commands>
 		<Command name="Кн1" id="11">
+			<Title>
+				<v8:item>
+					<v8:lang>ru</v8:lang>
+					<v8:content>Кн1</v8:content>
+				</v8:item>
+			</Title>
 			<Action>Кн1</Action>
 		</Command>
 		<Command name="Кн2" id="12">
+			<Title>
+				<v8:item>
+					<v8:lang>ru</v8:lang>
+					<v8:content>Кн2</v8:content>
+				</v8:item>
+			</Title>
 			<Action>Кн2</Action>
 		</Command>
 	</Commands>
