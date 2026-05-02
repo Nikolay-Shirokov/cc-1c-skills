@@ -38,6 +38,7 @@
 				</InputField>
 				<CheckBoxField name="ПерваяСтрокаЗаголовок" id="6">
 					<DataPath>ПерваяСтрокаЗаголовок</DataPath>
+					<TitleLocation>Right</TitleLocation>
 					<ContextMenu name="ПерваяСтрокаЗаголовокКонтекстноеМеню" id="7"/>
 					<ExtendedTooltip name="ПерваяСтрокаЗаголовокРасширеннаяПодсказка" id="8"/>
 				</CheckBoxField>

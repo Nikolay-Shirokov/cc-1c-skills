@@ -81,6 +81,7 @@
 					<v8:content>Включено</v8:content>
 				</v8:item>
 			</Title>
+			<TitleLocation>Right</TitleLocation>
 			<ContextMenu name="ФлагКонтекстноеМеню" id="17"/>
 			<ExtendedTooltip name="ФлагРасширеннаяПодсказка" id="18"/>
 		</CheckBoxField>

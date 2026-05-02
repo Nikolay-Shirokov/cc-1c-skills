@@ -1,4 +1,4 @@
-﻿# form-compile v1.10 — Compile 1C managed form from JSON or object metadata
+﻿# form-compile v1.11 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[string]$JsonPath,
@@ -2055,9 +2055,8 @@ function Emit-Check {
 	Emit-Title -el $el -name $name -indent $inner
 	Emit-CommonFlags -el $el -indent $inner
 
-	if ($el.titleLocation) {
-		X "$inner<TitleLocation>$($el.titleLocation)</TitleLocation>"
-	}
+	$tl = if ($el.titleLocation) { "$($el.titleLocation)" } else { "Right" }
+	X "$inner<TitleLocation>$tl</TitleLocation>"
 
 	# Companions
 	Emit-Companion -tag "ContextMenu" -name "${name}КонтекстноеМеню" -indent $inner

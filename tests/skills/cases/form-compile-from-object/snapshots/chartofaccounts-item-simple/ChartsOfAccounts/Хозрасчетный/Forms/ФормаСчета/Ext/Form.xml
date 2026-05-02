@@ -53,6 +53,7 @@
 		</InputField>
 		<CheckBoxField name="Забалансовый" id="16">
 			<DataPath>Объект.OffBalance</DataPath>
+			<TitleLocation>Right</TitleLocation>
 			<ContextMenu name="ЗабалансовыйКонтекстноеМеню" id="17"/>
 			<ExtendedTooltip name="ЗабалансовыйРасширеннаяПодсказка" id="18"/>
 		</CheckBoxField>
@@ -68,11 +69,13 @@
 			<ChildItems>
 				<CheckBoxField name="Валютный" id="21">
 					<DataPath>Объект.Валютный</DataPath>
+					<TitleLocation>Right</TitleLocation>
 					<ContextMenu name="ВалютныйКонтекстноеМеню" id="22"/>
 					<ExtendedTooltip name="ВалютныйРасширеннаяПодсказка" id="23"/>
 				</CheckBoxField>
 				<CheckBoxField name="Количественный" id="24">
 					<DataPath>Объект.Количественный</DataPath>
+					<TitleLocation>Right</TitleLocation>
 					<ContextMenu name="КоличественныйКонтекстноеМеню" id="25"/>
 					<ExtendedTooltip name="КоличественныйРасширеннаяПодсказка" id="26"/>
 				</CheckBoxField>
@@ -93,16 +96,19 @@
 				</InputField>
 				<CheckBoxField name="ТолькоОбороты" id="36">
 					<DataPath>Объект.ExtDimensionTypes.TurnoversOnly</DataPath>
+					<TitleLocation>Right</TitleLocation>
 					<ContextMenu name="ТолькоОборотыКонтекстноеМеню" id="37"/>
 					<ExtendedTooltip name="ТолькоОборотыРасширеннаяПодсказка" id="38"/>
 				</CheckBoxField>
 				<CheckBoxField name="Валютный" id="39">
 					<DataPath>Объект.ExtDimensionTypes.Валютный</DataPath>
+					<TitleLocation>Right</TitleLocation>
 					<ContextMenu name="ВалютныйКонтекстноеМеню" id="40"/>
 					<ExtendedTooltip name="ВалютныйРасширеннаяПодсказка" id="41"/>
 				</CheckBoxField>
 				<CheckBoxField name="Количественный" id="42">
 					<DataPath>Объект.ExtDimensionTypes.Количественный</DataPath>
+					<TitleLocation>Right</TitleLocation>
 					<ContextMenu name="КоличественныйКонтекстноеМеню" id="43"/>
 					<ExtendedTooltip name="КоличественныйРасширеннаяПодсказка" id="44"/>
 				</CheckBoxField>

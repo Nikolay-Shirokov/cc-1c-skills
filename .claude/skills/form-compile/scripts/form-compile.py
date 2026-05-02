@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# form-compile v1.10 — Compile 1C managed form from JSON or object metadata
+# form-compile v1.11 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import copy
@@ -1771,8 +1771,8 @@ def emit_check(lines, el, name, eid, indent):
     emit_title(lines, el, name, inner)
     emit_common_flags(lines, el, inner)
 
-    if el.get('titleLocation'):
-        lines.append(f'{inner}<TitleLocation>{el["titleLocation"]}</TitleLocation>')
+    tl = el.get('titleLocation') or 'Right'
+    lines.append(f'{inner}<TitleLocation>{tl}</TitleLocation>')
 
     # Companions
     emit_companion(lines, 'ContextMenu', f'{name}\u041a\u043e\u043d\u0442\u0435\u043a\u0441\u0442\u043d\u043e\u0435\u041c\u0435\u043d\u044e', inner)
