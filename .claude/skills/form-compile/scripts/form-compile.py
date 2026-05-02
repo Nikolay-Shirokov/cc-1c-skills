@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# form-compile v1.9 — Compile 1C managed form from JSON or object metadata
+# form-compile v1.10 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import copy
@@ -2153,7 +2153,11 @@ def emit_attributes(lines, attrs, indent):
 
         if attr.get('main') is True:
             lines.append(f'{inner}<MainAttribute>true</MainAttribute>')
-        if attr.get('savedData') is True:
+        main_saved = False
+        if attr.get('main') is True and attr.get('type'):
+            t = str(attr['type'])
+            main_saved = bool(re.match(r'^(CatalogObject|DocumentObject|ChartOfAccountsObject|ChartOfCalculationTypesObject|ChartOfCharacteristicTypesObject|ExchangePlanObject|BusinessProcessObject|TaskObject)\.', t)) or ('RecordManager.' in t)
+        if attr.get('savedData') is True or main_saved:
             lines.append(f'{inner}<SavedData>true</SavedData>')
         if attr.get('fillChecking'):
             lines.append(f'{inner}<FillChecking>{attr["fillChecking"]}</FillChecking>')

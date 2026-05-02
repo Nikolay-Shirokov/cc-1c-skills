@@ -50,6 +50,7 @@
 				<v8:Type>cfg:ChartOfCharacteristicTypesObject.ВидыНоменклатуры</v8:Type>
 			</Type>
 			<MainAttribute>true</MainAttribute>
+			<SavedData>true</SavedData>
 		</Attribute>
 	</Attributes>
 </Form>

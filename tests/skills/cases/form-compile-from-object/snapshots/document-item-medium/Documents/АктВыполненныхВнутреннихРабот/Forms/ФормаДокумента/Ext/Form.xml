@@ -242,6 +242,7 @@
 				<v8:Type>cfg:DocumentObject.АктВыполненныхВнутреннихРабот</v8:Type>
 			</Type>
 			<MainAttribute>true</MainAttribute>
+			<SavedData>true</SavedData>
 		</Attribute>
 	</Attributes>
 </Form>
