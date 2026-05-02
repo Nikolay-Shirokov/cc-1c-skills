@@ -111,6 +111,7 @@
 										</InputField>
 										<CheckBoxField name="Исправление" id="46">
 											<DataPath>Объект.Исправление</DataPath>
+											<TitleLocation>Right</TitleLocation>
 											<ContextMenu name="ИсправлениеКонтекстноеМеню" id="47"/>
 											<ExtendedTooltip name="ИсправлениеРасширеннаяПодсказка" id="48"/>
 										</CheckBoxField>
@@ -242,6 +243,7 @@
 				<v8:Type>cfg:DocumentObject.АктВыполненныхВнутреннихРабот</v8:Type>
 			</Type>
 			<MainAttribute>true</MainAttribute>
+			<SavedData>true</SavedData>
 		</Attribute>
 	</Attributes>
 </Form>

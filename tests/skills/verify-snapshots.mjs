@@ -23,11 +23,30 @@ const REPORT_DIR = resolve(REPO_ROOT, 'debug/snapshot-verify');
 
 // ─── CLI args ───────────────────────────────────────────────────────────────
 
+function printHelp() {
+  console.log(`verify-snapshots — Platform verification of skill test snapshots
+
+Reruns skill scripts from test-case DSL, then loads results into 1C platform.
+
+Usage:
+  node tests/skills/verify-snapshots.mjs [options]
+
+Options:
+  --skill <name>           Run only cases for the given skill (e.g. form-compile)
+  --case <name>            Run only the case with this name
+  --runtime <ps|python>    Which script port to run (default: powershell)
+  --keep                   Keep generated work directories on disk after run
+  -v, --verbose            Verbose output
+  -h, --help, /?           Show this help and exit
+`);
+}
+
 function parseArgs(argv) {
-  const args = { skill: null, caseName: null, runtime: 'powershell', keep: false, verbose: false };
+  const args = { skill: null, caseName: null, runtime: 'powershell', keep: false, verbose: false, help: false };
   const rest = argv.slice(2);
   for (let i = 0; i < rest.length; i++) {
     const a = rest[i];
+    if (a === '-h' || a === '--help' || a === '/?' || a === '/help' || a === '?') { args.help = true; continue; }
     if (a === '--skill' && rest[i + 1]) { args.skill = rest[++i]; continue; }
     if (a === '--case' && rest[i + 1]) { args.caseName = rest[++i]; continue; }
     if (a === '--runtime' && rest[i + 1]) { args.runtime = rest[++i]; continue; }
@@ -1034,6 +1053,7 @@ function writeReport(results) {
 
 async function main() {
   const opts = parseArgs(process.argv);
+  if (opts.help) { printHelp(); return; }
 
   const v8ctx = loadV8Context();
   if (!v8ctx) {

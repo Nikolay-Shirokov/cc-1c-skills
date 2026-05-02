@@ -6,11 +6,13 @@
 			<v8:content>Товары</v8:content>
 		</v8:item>
 	</Title>
+	<AutoTitle>false</AutoTitle>
 	<AutoCommandBar name="ФормаКоманднаяПанель" id="-1"/>
 	<ChildItems>
 		<Table name="Список" id="1">
 			<DataPath>Список</DataPath>
 			<CommandBarLocation>None</CommandBarLocation>
+			<RowPictureDataPath>Список.DefaultPicture</RowPictureDataPath>
 			<ContextMenu name="СписокКонтекстноеМеню" id="2"/>
 			<AutoCommandBar name="СписокКоманднаяПанель" id="3">
 				<Autofill>false</Autofill>

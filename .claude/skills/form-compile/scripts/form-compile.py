@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# form-compile v1.9 — Compile 1C managed form from JSON or object metadata
+# form-compile v1.15 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import copy
@@ -625,6 +625,7 @@ def generate_document_list_dsl(meta, p):
 
     table_el = OrderedDict([
         ('table', '\u0421\u043f\u0438\u0441\u043e\u043a'), ('path', '\u0421\u043f\u0438\u0441\u043e\u043a'),
+        ('rowPictureDataPath', '\u0421\u043f\u0438\u0441\u043e\u043a.DefaultPicture'),
         ('commandBarLocation', 'None'),
         ('tableAutofill', False),
         ('columns', columns),
@@ -938,6 +939,7 @@ def generate_information_register_list_dsl(meta, p):
     table_el = OrderedDict([
         ('table', '\u0421\u043f\u0438\u0441\u043e\u043a'),
         ('path', '\u0421\u043f\u0438\u0441\u043e\u043a'),
+        ('rowPictureDataPath', '\u0421\u043f\u0438\u0441\u043e\u043a.DefaultPicture'),
         ('commandBarLocation', 'None'),
         ('tableAutofill', False),
         ('columns', columns_list),
@@ -996,6 +998,7 @@ def generate_accumulation_register_list_dsl(meta, p):
     table_el = OrderedDict([
         ('table', '\u0421\u043f\u0438\u0441\u043e\u043a'),
         ('path', '\u0421\u043f\u0438\u0441\u043e\u043a'),
+        ('rowPictureDataPath', '\u0421\u043f\u0438\u0441\u043e\u043a.DefaultPicture'),
         ('commandBarLocation', 'None'),
         ('tableAutofill', False),
         ('columns', columns_list),
@@ -1414,9 +1417,27 @@ def emit_common_flags(lines, el, indent):
         lines.append(f"{indent}<ReadOnly>true</ReadOnly>")
 
 
-def emit_title(lines, el, name, indent):
-    if el.get('title'):
-        emit_mltext(lines, indent, 'Title', str(el['title']))
+def title_from_name(name):
+    """СуммаДокумента → 'Сумма документа'. НДСВключен → 'НДС включен'."""
+    if not name:
+        return ''
+    s = re.sub(r'([А-ЯA-Z])([А-ЯA-Z][а-яa-z])', r'\1 \2', name)
+    s = re.sub(r'([а-яa-z0-9])([А-ЯA-Z])', r'\1 \2', s)
+    parts = s.split(' ')
+    if not parts:
+        return s
+    out = [parts[0]]
+    for p in parts[1:]:
+        out.append(p if (len(p) > 1 and p.isupper()) else p.lower())
+    return ' '.join(out)
+
+
+def emit_title(lines, el, name, indent, auto=False):
+    title = el.get('title')
+    if not title and auto and name:
+        title = title_from_name(name)
+    if title:
+        emit_mltext(lines, indent, 'Title', str(title))
 
 
 # --- Type emitter ---
@@ -1712,7 +1733,7 @@ def emit_input(lines, el, name, eid, indent):
     if el.get('path'):
         lines.append(f'{inner}<DataPath>{el["path"]}</DataPath>')
 
-    emit_title(lines, el, name, inner)
+    emit_title(lines, el, name, inner, auto=not el.get('path'))
     emit_common_flags(lines, el, inner)
 
     if el.get('titleLocation'):
@@ -1736,7 +1757,10 @@ def emit_input(lines, el, name, eid, indent):
         lines.append(f'{inner}<AutoMarkIncomplete>true</AutoMarkIncomplete>')
     if el.get('skipOnInput') is True:
         lines.append(f'{inner}<SkipOnInput>true</SkipOnInput>')
-    if el.get('autoMaxWidth') is False:
+    if 'autoMaxWidth' in el:
+        if el['autoMaxWidth'] is False:
+            lines.append(f'{inner}<AutoMaxWidth>false</AutoMaxWidth>')
+    elif el.get('multiLine') is True:
         lines.append(f'{inner}<AutoMaxWidth>false</AutoMaxWidth>')
     if el.get('autoMaxHeight') is False:
         lines.append(f'{inner}<AutoMaxHeight>false</AutoMaxHeight>')
@@ -1768,11 +1792,11 @@ def emit_check(lines, el, name, eid, indent):
     if el.get('path'):
         lines.append(f'{inner}<DataPath>{el["path"]}</DataPath>')
 
-    emit_title(lines, el, name, inner)
+    emit_title(lines, el, name, inner, auto=not el.get('path'))
     emit_common_flags(lines, el, inner)
 
-    if el.get('titleLocation'):
-        lines.append(f'{inner}<TitleLocation>{el["titleLocation"]}</TitleLocation>')
+    tl = el.get('titleLocation') or 'Right'
+    lines.append(f'{inner}<TitleLocation>{tl}</TitleLocation>')
 
     # Companions
     emit_companion(lines, 'ContextMenu', f'{name}\u041a\u043e\u043d\u0442\u0435\u043a\u0441\u0442\u043d\u043e\u0435\u041c\u0435\u043d\u044e', inner)
@@ -1787,12 +1811,13 @@ def emit_label(lines, el, name, eid, indent):
     lines.append(f'{indent}<LabelDecoration name="{name}" id="{eid}">')
     inner = f'{indent}\t'
 
-    if el.get('title'):
+    label_title = el.get('title') or title_from_name(name)
+    if label_title:
         formatted = 'true' if el.get('hyperlink') is True else 'false'
         lines.append(f'{inner}<Title formatted="{formatted}">')
         lines.append(f'{inner}\t<v8:item>')
         lines.append(f'{inner}\t\t<v8:lang>ru</v8:lang>')
-        lines.append(f'{inner}\t\t<v8:content>{esc_xml(str(el["title"]))}</v8:content>')
+        lines.append(f'{inner}\t\t<v8:content>{esc_xml(str(label_title))}</v8:content>')
         lines.append(f'{inner}\t</v8:item>')
         lines.append(f'{inner}</Title>')
 
@@ -1825,7 +1850,7 @@ def emit_label_field(lines, el, name, eid, indent):
     if el.get('path'):
         lines.append(f'{inner}<DataPath>{el["path"]}</DataPath>')
 
-    emit_title(lines, el, name, inner)
+    emit_title(lines, el, name, inner, auto=not el.get('path'))
     emit_common_flags(lines, el, inner)
 
     if el.get('hyperlink') is True:
@@ -1847,7 +1872,7 @@ def emit_table(lines, el, name, eid, indent):
     if el.get('path'):
         lines.append(f'{inner}<DataPath>{el["path"]}</DataPath>')
 
-    emit_title(lines, el, name, inner)
+    emit_title(lines, el, name, inner, auto=not el.get('path'))
     emit_common_flags(lines, el, inner)
 
     if el.get('representation'):
@@ -1935,7 +1960,7 @@ def emit_page(lines, el, name, eid, indent):
     lines.append(f'{indent}<Page name="{name}" id="{eid}">')
     inner = f'{indent}\t'
 
-    emit_title(lines, el, name, inner)
+    emit_title(lines, el, name, inner, auto=True)
     emit_common_flags(lines, el, inner)
 
     if el.get('group'):
@@ -1983,7 +2008,7 @@ def emit_button(lines, el, name, eid, indent):
         else:
             lines.append(f'{inner}<CommandName>Form.StandardCommand.{sc}</CommandName>')
 
-    emit_title(lines, el, name, inner)
+    emit_title(lines, el, name, inner, auto=not (el.get('command') or el.get('stdCommand')))
     emit_common_flags(lines, el, inner)
 
     if el.get('defaultButton') is True:
@@ -2071,7 +2096,7 @@ def emit_calendar(lines, el, name, eid, indent):
     if el.get('path'):
         lines.append(f'{inner}<DataPath>{el["path"]}</DataPath>')
 
-    emit_title(lines, el, name, inner)
+    emit_title(lines, el, name, inner, auto=not el.get('path'))
     emit_common_flags(lines, el, inner)
 
     # Companions
@@ -2106,7 +2131,7 @@ def emit_popup(lines, el, name, eid, indent):
     lines.append(f'{indent}<Popup name="{name}" id="{eid}">')
     inner = f'{indent}\t'
 
-    emit_title(lines, el, name, inner)
+    emit_title(lines, el, name, inner, auto=True)
     emit_common_flags(lines, el, inner)
 
     if el.get('picture'):
@@ -2142,8 +2167,11 @@ def emit_attributes(lines, attrs, indent):
         lines.append(f'{indent}\t<Attribute name="{attr_name}" id="{attr_id}">')
         inner = f'{indent}\t\t'
 
-        if attr.get('title'):
-            emit_mltext(lines, inner, 'Title', str(attr['title']))
+        attr_title = attr.get('title')
+        if not attr_title and attr.get('main') is not True:
+            attr_title = title_from_name(attr_name)
+        if attr_title:
+            emit_mltext(lines, inner, 'Title', str(attr_title))
 
         # Type
         if attr.get('type'):
@@ -2153,7 +2181,11 @@ def emit_attributes(lines, attrs, indent):
 
         if attr.get('main') is True:
             lines.append(f'{inner}<MainAttribute>true</MainAttribute>')
-        if attr.get('savedData') is True:
+        main_saved = False
+        if attr.get('main') is True and attr.get('type'):
+            t = str(attr['type'])
+            main_saved = bool(re.match(r'^(CatalogObject|DocumentObject|ChartOfAccountsObject|ChartOfCalculationTypesObject|ChartOfCharacteristicTypesObject|ExchangePlanObject|BusinessProcessObject|TaskObject)\.', t)) or ('RecordManager.' in t)
+        if attr.get('savedData') is True or main_saved:
             lines.append(f'{inner}<SavedData>true</SavedData>')
         if attr.get('fillChecking'):
             lines.append(f'{inner}<FillChecking>{attr["fillChecking"]}</FillChecking>')
@@ -2219,8 +2251,9 @@ def emit_commands(lines, cmds, indent):
         lines.append(f'{indent}\t<Command name="{cmd["name"]}" id="{cmd_id}">')
         inner = f'{indent}\t\t'
 
-        if cmd.get('title'):
-            emit_mltext(lines, inner, 'Title', str(cmd['title']))
+        cmd_title = cmd.get('title') or title_from_name(str(cmd['name']))
+        if cmd_title:
+            emit_mltext(lines, inner, 'Title', str(cmd_title))
 
         if cmd.get('action'):
             lines.append(f'{inner}<Action>{cmd["action"]}</Action>')
@@ -2572,7 +2605,7 @@ def main():
                     return True
         return False
 
-    def _apply_dlist_table_heuristic(el, list_name):
+    def _apply_dlist_table_heuristic(el, list_name, has_main_table):
         if not isinstance(el, dict):
             return
         if el.get('table') is not None and str(el.get('path', '')) == list_name:
@@ -2580,9 +2613,12 @@ def main():
                 el['tableAutofill'] = False
             if 'commandBarLocation' not in el:
                 el['commandBarLocation'] = 'None'
+            # DefaultPicture доступен только если у DynamicList есть основная таблица
+            if has_main_table and not el.get('rowPictureDataPath'):
+                el['rowPictureDataPath'] = f'{list_name}.DefaultPicture'
         if isinstance(el.get('children'), list):
             for child in el['children']:
-                _apply_dlist_table_heuristic(child, list_name)
+                _apply_dlist_table_heuristic(child, list_name, has_main_table)
 
     def _is_object_like_type(t):
         if not t:
@@ -2647,8 +2683,10 @@ def main():
     if isinstance(defn.get('attributes'), list) and isinstance(defn.get('elements'), list):
         main_attr = next((a for a in defn['attributes'] if isinstance(a, dict) and a.get('main') is True), None)
         if main_attr and str(main_attr.get('type', '')) == 'DynamicList':
+            settings = main_attr.get('settings') or {}
+            has_mt = bool(isinstance(settings, dict) and settings.get('mainTable'))
             for el in defn['elements']:
-                _apply_dlist_table_heuristic(el, main_attr.get('name', ''))
+                _apply_dlist_table_heuristic(el, main_attr.get('name', ''), has_mt)
 
     # 1b.5: Compute main AutoCommandBar Autofill (B3)
     def _compute_main_acb_autofill():
@@ -2677,9 +2715,16 @@ def main():
         emit_mltext(lines, '\t', 'Title', str(form_title))
 
     # Properties (skip 'title' — handled above)
-    if defn.get('properties'):
-        props_clone = {k: v for k, v in defn['properties'].items() if k != 'title'}
-        emit_properties(lines, props_clone, '\t')
+    # When form-level Title is set, default autoTitle=false (≈95% of ERP forms do this;
+    # otherwise platform appends synonym → "Title: Synonym" double-titles).
+    props_src = defn.get('properties') or {}
+    props_clone = OrderedDict()
+    if form_title and 'autoTitle' not in props_src:
+        props_clone['autoTitle'] = False
+    for k, v in props_src.items():
+        if k != 'title':
+            props_clone[k] = v
+    emit_properties(lines, props_clone, '\t')
 
     # CommandSet (excluded commands)
     if defn.get('excludedCommands') and len(defn['excludedCommands']) > 0:

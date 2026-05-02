@@ -1,4 +1,4 @@
-﻿# form-compile v1.9 — Compile 1C managed form from JSON or object metadata
+﻿# form-compile v1.15 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[string]$JsonPath,
@@ -668,6 +668,7 @@ function Generate-DocumentListDSL($meta, [hashtable]$p) {
 
 	$tableEl = [ordered]@{
 		table = "Список"; path = "Список"
+		rowPictureDataPath = "Список.DefaultPicture"
 		commandBarLocation = "None"
 		tableAutofill = $false
 		columns = $columns
@@ -1003,6 +1004,7 @@ function Generate-InformationRegisterListDSL($meta, [hashtable]$p) {
 
 	$tableEl = [ordered]@{
 		table = "Список"; path = "Список"
+		rowPictureDataPath = "Список.DefaultPicture"
 		commandBarLocation = "None"
 		tableAutofill = $false
 		columns = $columns
@@ -1060,6 +1062,7 @@ function Generate-AccumulationRegisterListDSL($meta, [hashtable]$p) {
 
 	$tableEl = [ordered]@{
 		table = "Список"; path = "Список"
+		rowPictureDataPath = "Список.DefaultPicture"
 		commandBarLocation = "None"
 		tableAutofill = $false
 		columns = $columns
@@ -1926,10 +1929,34 @@ function Emit-CommonFlags {
 	if ($el.readOnly -eq $true) { X "$indent<ReadOnly>true</ReadOnly>" }
 }
 
+function Title-FromName {
+	param([string]$name)
+	if (-not $name) { return '' }
+	$s = [regex]::Replace($name, '([А-ЯA-Z])([А-ЯA-Z][а-яa-z])', '$1 $2')
+	$s = [regex]::Replace($s, '([а-яa-z0-9])([А-ЯA-Z])', '$1 $2')
+	$parts = $s -split ' '
+	if ($parts.Count -eq 0) { return $s }
+	$out = New-Object System.Collections.ArrayList
+	[void]$out.Add($parts[0])
+	for ($i = 1; $i -lt $parts.Count; $i++) {
+		$p = $parts[$i]
+		if ($p.Length -gt 1 -and $p -ceq $p.ToUpper()) {
+			[void]$out.Add($p)
+		} else {
+			[void]$out.Add($p.ToLower())
+		}
+	}
+	return ($out -join ' ')
+}
+
 function Emit-Title {
-	param($el, [string]$name, [string]$indent)
-	if ($el.title) {
-		Emit-MLText -tag "Title" -text "$($el.title)" -indent $indent
+	param($el, [string]$name, [string]$indent, [switch]$auto)
+	$title = $el.title
+	if (-not $title -and $auto -and $name) {
+		$title = Title-FromName -name $name
+	}
+	if ($title) {
+		Emit-MLText -tag "Title" -text "$title" -indent $indent
 	}
 }
 
@@ -2001,7 +2028,7 @@ function Emit-Input {
 
 	if ($el.path) { X "$inner<DataPath>$($el.path)</DataPath>" }
 
-	Emit-Title -el $el -name $name -indent $inner
+	Emit-Title -el $el -name $name -indent $inner -auto:(-not $el.path)
 	Emit-CommonFlags -el $el -indent $inner
 
 	if ($el.titleLocation) {
@@ -2024,7 +2051,12 @@ function Emit-Input {
 	if ($el.dropListButton -eq $true) { X "$inner<DropListButton>true</DropListButton>" }
 	if ($el.markIncomplete -eq $true) { X "$inner<AutoMarkIncomplete>true</AutoMarkIncomplete>" }
 	if ($el.skipOnInput -eq $true) { X "$inner<SkipOnInput>true</SkipOnInput>" }
-	if ($el.autoMaxWidth -eq $false) { X "$inner<AutoMaxWidth>false</AutoMaxWidth>" }
+	$hasAmw = $el.PSObject.Properties.Name -contains 'autoMaxWidth'
+	if ($hasAmw) {
+		if ($el.autoMaxWidth -eq $false) { X "$inner<AutoMaxWidth>false</AutoMaxWidth>" }
+	} elseif ($el.multiLine -eq $true) {
+		X "$inner<AutoMaxWidth>false</AutoMaxWidth>"
+	}
 	if ($el.autoMaxHeight -eq $false) { X "$inner<AutoMaxHeight>false</AutoMaxHeight>" }
 	if ($el.width) { X "$inner<Width>$($el.width)</Width>" }
 	if ($el.height) { X "$inner<Height>$($el.height)</Height>" }
@@ -2052,12 +2084,11 @@ function Emit-Check {
 
 	if ($el.path) { X "$inner<DataPath>$($el.path)</DataPath>" }
 
-	Emit-Title -el $el -name $name -indent $inner
+	Emit-Title -el $el -name $name -indent $inner -auto:(-not $el.path)
 	Emit-CommonFlags -el $el -indent $inner
 
-	if ($el.titleLocation) {
-		X "$inner<TitleLocation>$($el.titleLocation)</TitleLocation>"
-	}
+	$tl = if ($el.titleLocation) { "$($el.titleLocation)" } else { "Right" }
+	X "$inner<TitleLocation>$tl</TitleLocation>"
 
 	# Companions
 	Emit-Companion -tag "ContextMenu" -name "${name}КонтекстноеМеню" -indent $inner
@@ -2074,12 +2105,13 @@ function Emit-Label {
 	X "$indent<LabelDecoration name=`"$name`" id=`"$id`">"
 	$inner = "$indent`t"
 
-	if ($el.title) {
+	$labelTitle = if ($el.title) { "$($el.title)" } else { Title-FromName -name $name }
+	if ($labelTitle) {
 		$formatted = if ($el.hyperlink -eq $true) { "true" } else { "false" }
 		X "$inner<Title formatted=`"$formatted`">"
 		X "$inner`t<v8:item>"
 		X "$inner`t`t<v8:lang>ru</v8:lang>"
-		X "$inner`t`t<v8:content>$(Esc-Xml "$($el.title)")</v8:content>"
+		X "$inner`t`t<v8:content>$(Esc-Xml "$labelTitle")</v8:content>"
 		X "$inner`t</v8:item>"
 		X "$inner</Title>"
 	}
@@ -2109,7 +2141,7 @@ function Emit-LabelField {
 
 	if ($el.path) { X "$inner<DataPath>$($el.path)</DataPath>" }
 
-	Emit-Title -el $el -name $name -indent $inner
+	Emit-Title -el $el -name $name -indent $inner -auto:(-not $el.path)
 	Emit-CommonFlags -el $el -indent $inner
 
 	if ($el.hyperlink -eq $true) { X "$inner<Hyperlink>true</Hyperlink>" }
@@ -2131,7 +2163,7 @@ function Emit-Table {
 
 	if ($el.path) { X "$inner<DataPath>$($el.path)</DataPath>" }
 
-	Emit-Title -el $el -name $name -indent $inner
+	Emit-Title -el $el -name $name -indent $inner -auto:(-not $el.path)
 	Emit-CommonFlags -el $el -indent $inner
 
 	if ($el.representation) {
@@ -2220,7 +2252,7 @@ function Emit-Page {
 	X "$indent<Page name=`"$name`" id=`"$id`">"
 	$inner = "$indent`t"
 
-	Emit-Title -el $el -name $name -indent $inner
+	Emit-Title -el $el -name $name -indent $inner -auto
 	Emit-CommonFlags -el $el -indent $inner
 
 	if ($el.group) {
@@ -2279,7 +2311,8 @@ function Emit-Button {
 		}
 	}
 
-	Emit-Title -el $el -name $name -indent $inner
+	$btnAuto = -not ($el.command -or $el.stdCommand)
+	Emit-Title -el $el -name $name -indent $inner -auto:$btnAuto
 	Emit-CommonFlags -el $el -indent $inner
 
 	if ($el.defaultButton -eq $true) { X "$inner<DefaultButton>true</DefaultButton>" }
@@ -2369,7 +2402,7 @@ function Emit-Calendar {
 
 	if ($el.path) { X "$inner<DataPath>$($el.path)</DataPath>" }
 
-	Emit-Title -el $el -name $name -indent $inner
+	Emit-Title -el $el -name $name -indent $inner -auto:(-not $el.path)
 	Emit-CommonFlags -el $el -indent $inner
 
 	# Companions
@@ -2409,7 +2442,7 @@ function Emit-Popup {
 	X "$indent<Popup name=`"$name`" id=`"$id`">"
 	$inner = "$indent`t"
 
-	Emit-Title -el $el -name $name -indent $inner
+	Emit-Title -el $el -name $name -indent $inner -auto
 	Emit-CommonFlags -el $el -indent $inner
 
 	if ($el.picture) {
@@ -2450,8 +2483,9 @@ function Emit-Attributes {
 		X "$indent`t<Attribute name=`"$attrName`" id=`"$attrId`">"
 		$inner = "$indent`t`t"
 
-		if ($attr.title) {
-			Emit-MLText -tag "Title" -text "$($attr.title)" -indent $inner
+		$attrTitle = if ($attr.title) { "$($attr.title)" } elseif ($attr.main -ne $true) { Title-FromName -name $attrName } else { '' }
+		if ($attrTitle) {
+			Emit-MLText -tag "Title" -text "$attrTitle" -indent $inner
 		}
 
 		# Type
@@ -2464,7 +2498,11 @@ function Emit-Attributes {
 		if ($attr.main -eq $true) {
 			X "$inner<MainAttribute>true</MainAttribute>"
 		}
-		if ($attr.savedData -eq $true) {
+		$mainSaved = $false
+		if ($attr.main -eq $true -and $attr.type) {
+			$mainSaved = ("$($attr.type)") -match '^(CatalogObject|DocumentObject|ChartOfAccountsObject|ChartOfCalculationTypesObject|ChartOfCharacteristicTypesObject|ExchangePlanObject|BusinessProcessObject|TaskObject)\.' -or ("$($attr.type)") -match 'RecordManager\.'
+		}
+		if ($attr.savedData -eq $true -or $mainSaved) {
 			X "$inner<SavedData>true</SavedData>"
 		}
 		if ($attr.fillChecking) {
@@ -2539,8 +2577,9 @@ function Emit-Commands {
 		X "$indent`t<Command name=`"$($cmd.name)`" id=`"$cmdId`">"
 		$inner = "$indent`t`t"
 
-		if ($cmd.title) {
-			Emit-MLText -tag "Title" -text "$($cmd.title)" -indent $inner
+		$cmdTitle = if ($cmd.title) { "$($cmd.title)" } else { Title-FromName -name "$($cmd.name)" }
+		if ($cmdTitle) {
+			Emit-MLText -tag "Title" -text "$cmdTitle" -indent $inner
 		}
 
 		if ($cmd.action) {
@@ -2649,7 +2688,7 @@ function HasCmdBarRecursive {
 }
 
 function ApplyDynamicListTableHeuristic {
-	param($el, [string]$listName)
+	param($el, [string]$listName, [bool]$hasMainTable)
 	if ($null -eq $el) { return }
 	if ($el.PSObject.Properties["table"] -and $null -ne $el.table -and "$($el.path)" -eq $listName) {
 		if ($null -eq $el.PSObject.Properties["tableAutofill"]) {
@@ -2658,9 +2697,13 @@ function ApplyDynamicListTableHeuristic {
 		if ($null -eq $el.PSObject.Properties["commandBarLocation"]) {
 			$el | Add-Member -NotePropertyName "commandBarLocation" -NotePropertyValue "None" -Force
 		}
+		# DefaultPicture доступен только если у DynamicList есть основная таблица
+		if ($hasMainTable -and ($null -eq $el.PSObject.Properties["rowPictureDataPath"] -or [string]::IsNullOrEmpty("$($el.rowPictureDataPath)"))) {
+			$el | Add-Member -NotePropertyName "rowPictureDataPath" -NotePropertyValue "$listName.DefaultPicture" -Force
+		}
 	}
 	if ($el.PSObject.Properties["children"] -and $el.children) {
-		foreach ($child in $el.children) { ApplyDynamicListTableHeuristic $child $listName }
+		foreach ($child in $el.children) { ApplyDynamicListTableHeuristic $child $listName $hasMainTable }
 	}
 }
 
@@ -2749,8 +2792,17 @@ if ($def.attributes -and $def.elements) {
 		if ($attr.main -eq $true) { $mainAttr = $attr; break }
 	}
 	if ($mainAttr -and "$($mainAttr.type)" -eq "DynamicList") {
+		$mt = $null
+		if ($mainAttr.PSObject.Properties["settings"] -and $null -ne $mainAttr.settings) {
+			if ($mainAttr.settings -is [hashtable]) {
+				if ($mainAttr.settings.ContainsKey("mainTable")) { $mt = $mainAttr.settings["mainTable"] }
+			} elseif ($mainAttr.settings.PSObject.Properties["mainTable"]) {
+				$mt = $mainAttr.settings.mainTable
+			}
+		}
+		$hasMt = -not [string]::IsNullOrEmpty("$mt")
 		foreach ($el in $def.elements) {
-			ApplyDynamicListTableHeuristic $el $mainAttr.name
+			ApplyDynamicListTableHeuristic $el $mainAttr.name $hasMt
 		}
 	}
 }
@@ -2802,17 +2854,26 @@ if ($formTitle) {
 }
 
 # 12b. Properties (skip 'title' — handled above as multilingual)
+# When form-level Title is set, default autoTitle=false (≈95% of ERP forms do this;
+# otherwise platform appends synonym → "Title: Synonym" double-titles).
+$propsClone = New-Object PSObject
+$hasAutoTitle = $false
 if ($def.properties) {
-	$propsClone = New-Object PSObject
+	foreach ($p in $def.properties.PSObject.Properties) {
+		if ($p.Name -eq "autoTitle") { $hasAutoTitle = $true }
+	}
+}
+if ($formTitle -and -not $hasAutoTitle) {
+	$propsClone | Add-Member -NotePropertyName "autoTitle" -NotePropertyValue $false
+}
+if ($def.properties) {
 	foreach ($p in $def.properties.PSObject.Properties) {
 		if ($p.Name -ne "title") {
 			$propsClone | Add-Member -NotePropertyName $p.Name -NotePropertyValue $p.Value
 		}
 	}
-	Emit-Properties -props $propsClone -indent "`t"
-} else {
-	Emit-Properties -props $null -indent "`t"
 }
+Emit-Properties -props $propsClone -indent "`t"
 
 # 12c. CommandSet (excluded commands)
 if ($def.excludedCommands -and $def.excludedCommands.Count -gt 0) {

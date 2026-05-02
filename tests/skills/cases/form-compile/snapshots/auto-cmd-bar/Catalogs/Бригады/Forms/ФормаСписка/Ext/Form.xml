@@ -6,6 +6,7 @@
 			<v8:content>Бригады</v8:content>
 		</v8:item>
 	</Title>
+	<AutoTitle>false</AutoTitle>
 	<AutoCommandBar name="ФормаКоманднаяПанель" id="-1">
 		<ChildItems>
 			<Button name="ИзменитьВыделенные" id="1">
@@ -19,6 +20,7 @@
 		<Table name="Список" id="3">
 			<DataPath>Список</DataPath>
 			<CommandBarLocation>None</CommandBarLocation>
+			<RowPictureDataPath>Список.DefaultPicture</RowPictureDataPath>
 			<ContextMenu name="СписокКонтекстноеМеню" id="4"/>
 			<AutoCommandBar name="СписокКоманднаяПанель" id="5">
 				<Autofill>false</Autofill>
@@ -50,6 +52,12 @@
 	</Attributes>
 	<Commands>
 		<Command name="ИзменитьВыделенные" id="13">
+			<Title>
+				<v8:item>
+					<v8:lang>ru</v8:lang>
+					<v8:content>Изменить выделенные</v8:content>
+				</v8:item>
+			</Title>
 			<Action>ИзменитьВыделенные</Action>
 		</Command>
 	</Commands>

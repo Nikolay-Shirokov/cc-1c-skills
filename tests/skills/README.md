@@ -14,9 +14,22 @@ node tests/skills/runner.mjs --verbose                          # подробн
 node tests/skills/runner.mjs --update-snapshots                 # обновить эталоны
 node tests/skills/runner.mjs --runtime python                   # запуск на PY-версиях
 node tests/skills/runner.mjs --json report.json                 # JSON-отчёт
+node tests/skills/runner.mjs --concurrency 4                    # ограничить параллельность
+node tests/skills/runner.mjs --with-validation                  # + платформенная валидация
+node tests/skills/runner.mjs --help                             # полный список опций
 ```
 
 Exit code: 0 = все прошли, 1 = есть падения.
+
+### Платформенная верификация снапшотов
+
+```bash
+node tests/skills/verify-snapshots.mjs --skill form-compile     # один навык
+node tests/skills/verify-snapshots.mjs --case table             # один кейс
+node tests/skills/verify-snapshots.mjs --help                   # полный список опций
+```
+
+Перепрогоняет навык из DSL кейса и грузит результат в 1С — отлавливает случаи, когда снапшоты обновили, но платформа уже не принимает выход.
 
 ## Что делать при падении
 
@@ -194,7 +207,8 @@ node tests/skills/runner.mjs cases/meta-compile/enum --update-snapshots  # од�
 
 ```
 tests/skills/
-  runner.mjs              # тест-раннер
+  runner.mjs              # тест-раннер (snapshot-сравнение)
+  verify-snapshots.mjs    # платформенная верификация снапшотов
   README.md               # этот файл
   .cache/                 # кэш фикстур (в .gitignore)
   cases/

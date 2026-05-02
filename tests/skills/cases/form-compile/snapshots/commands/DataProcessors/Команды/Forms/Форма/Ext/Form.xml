@@ -6,6 +6,7 @@
 			<v8:content>Форма с командами</v8:content>
 		</v8:item>
 	</Title>
+	<AutoTitle>false</AutoTitle>
 	<AutoCommandBar name="ФормаКоманднаяПанель" id="-1">
 		<Autofill>false</Autofill>
 	</AutoCommandBar>
@@ -27,6 +28,7 @@
 			<DataPath>Результат</DataPath>
 			<ReadOnly>true</ReadOnly>
 			<MultiLine>true</MultiLine>
+			<AutoMaxWidth>false</AutoMaxWidth>
 			<Height>8</Height>
 			<ContextMenu name="РезультатКонтекстноеМеню" id="7"/>
 			<ExtendedTooltip name="РезультатРасширеннаяПодсказка" id="8"/>
@@ -40,6 +42,12 @@
 			<MainAttribute>true</MainAttribute>
 		</Attribute>
 		<Attribute name="Результат" id="10">
+			<Title>
+				<v8:item>
+					<v8:lang>ru</v8:lang>
+					<v8:content>Результат</v8:content>
+				</v8:item>
+			</Title>
 			<Type>
 				<v8:Type>xs:string</v8:Type>
 				<v8:StringQualifiers>
@@ -51,6 +59,12 @@
 	</Attributes>
 	<Commands>
 		<Command name="Выполнить" id="11">
+			<Title>
+				<v8:item>
+					<v8:lang>ru</v8:lang>
+					<v8:content>Выполнить</v8:content>
+				</v8:item>
+			</Title>
 			<Action>ВыполнитьОбработка</Action>
 			<Shortcut>Ctrl+Enter</Shortcut>
 		</Command>

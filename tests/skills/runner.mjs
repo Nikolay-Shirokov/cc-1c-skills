@@ -18,11 +18,32 @@ const CACHE     = resolve(ROOT, '.cache');
 
 // ─── CLI args ───────────────────────────────────────────────────────────────
 
+function printHelp() {
+  console.log(`skill-test-runner — Snapshot-based regression tests for 1C skill scripts
+
+Usage:
+  node tests/skills/runner.mjs [filter] [options]
+
+Arguments:
+  filter                  Substring to match case id (e.g. "form-compile" or "form-compile/table")
+
+Options:
+  --update-snapshots      Overwrite snapshot files with current actual output
+  --runtime <ps|python>   Which script port to run (default: powershell)
+  --json <path>           Write JSON report to <path>
+  --concurrency <N>       Number of parallel workers (default: cpu count)
+  --with-validation       Run platform validation (1cv8 design checks) after compile
+  -v, --verbose           Verbose output
+  -h, --help, /?          Show this help and exit
+`);
+}
+
 function parseArgs(argv) {
-  const args = { filter: null, updateSnapshots: false, runtime: 'powershell', jsonReport: null, verbose: false, concurrency: cpus().length, withValidation: false };
+  const args = { filter: null, updateSnapshots: false, runtime: 'powershell', jsonReport: null, verbose: false, concurrency: cpus().length, withValidation: false, help: false };
   const rest = argv.slice(2);
   for (let i = 0; i < rest.length; i++) {
     const a = rest[i];
+    if (a === '-h' || a === '--help' || a === '/?' || a === '/help' || a === '?') { args.help = true; continue; }
     if (a === '--update-snapshots') { args.updateSnapshots = true; continue; }
     if (a === '--runtime' && rest[i + 1]) { args.runtime = rest[++i]; continue; }
     if (a === '--json' && rest[i + 1]) { args.jsonReport = rest[++i]; continue; }
@@ -1042,6 +1063,7 @@ function printIntegrationReport(results, opts) {
 
 async function main() {
   const opts = parseArgs(process.argv);
+  if (opts.help) { printHelp(); return; }
   mkdirSync(CACHE, { recursive: true });
 
   // Load platform context for platform-dependent tests
