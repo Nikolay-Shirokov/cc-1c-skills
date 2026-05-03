@@ -426,7 +426,7 @@
 			</StandardTabularSections>
 			<Characteristics />
 			<PredefinedDataUpdate>Auto</PredefinedDataUpdate>
-			<QuickChoice>true</QuickChoice>
+			<QuickChoice>false</QuickChoice>
 			<ChoiceMode>BothWays</ChoiceMode>
 			<InputByString>
 				<xr:Field>ChartOfAccounts.Хозрасчетный.StandardAttribute.Description</xr:Field>
