@@ -1199,6 +1199,7 @@ ChildItems
 | Popup | ~40% |
 | PictureDecoration | ~40% |
 | PictureField | ~15% |
+| RadioButtonField | ~8.5% |
 | CalendarField | ~5% |
 
 ---
@@ -1207,7 +1208,6 @@ ChildItems
 
 Следующие элементы управления существуют в платформе, но не использованы в БП 3.0:
 
-- `RadioButtonField`
 - `TrackBarField`
 - `ProgressBarField`
 - `TextDocumentField`
