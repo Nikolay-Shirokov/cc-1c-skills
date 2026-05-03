@@ -199,6 +199,35 @@
 | `path` | string | DataPath |
 | `titleLocation` | string | Расположение заголовка |
 
+#### radio — RadioButtonField
+
+```json
+{
+  "radio": "СпособКурса",
+  "path": "Объект.СпособУстановкиКурса",
+  "radioButtonType": "Auto",
+  "choiceList": [
+    { "value": "Enum.СпособыКурса.EnumValue.Авто",   "presentation": "автоматически" },
+    { "value": "Enum.СпособыКурса.EnumValue.Ручной", "presentation": { "ru": "вручную", "en": "manual" } }
+  ]
+}
+```
+
+| Свойство | Тип | Описание |
+|----------|-----|----------|
+| `path` | string | DataPath |
+| `radioButtonType` | string | `Auto` (по умолчанию), `RadioButtons`, `Tumbler` |
+| `columnsCount` | int | Число колонок раскладки |
+| `titleLocation` | string | Расположение заголовка (компилятор подставляет `None`, если не задан) |
+| `choiceList` | array | Варианты выбора: массив `{ value, presentation }` |
+
+`choiceList[*]`:
+
+| Свойство | Тип | Описание |
+|----------|-----|----------|
+| `value` | string/number/bool | Значение варианта. Для перечисления — `"Enum.ИмяТипа.EnumValue.ИмяЗначения"` (xsi:type автоматически: `xr:DesignTimeRef` / `xs:string` / `xs:decimal` / `xs:boolean`) |
+| `presentation` | string или object | Текст рядом с переключателем. Строка → ru; объект `{ru, en, ...}` → мультиязык. Если не задано — выводится из имени значения |
+
 #### label — LabelDecoration
 
 ```json
@@ -437,6 +466,7 @@ Pages поддерживает `pagesRepresentation`: `None`, `TabsOnTop`, `Tabs
 | UsualGroup | ExtendedTooltip |
 | InputField | ContextMenu, ExtendedTooltip |
 | CheckBoxField | ContextMenu, ExtendedTooltip |
+| RadioButtonField | ContextMenu, ExtendedTooltip |
 | LabelDecoration | ContextMenu, ExtendedTooltip |
 | LabelField | ContextMenu, ExtendedTooltip |
 | PictureDecoration | ContextMenu, ExtendedTooltip |
