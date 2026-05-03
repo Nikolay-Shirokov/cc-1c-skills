@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# form-compile v1.18 — Compile 1C managed form from JSON or object metadata
+# form-compile v1.19 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import copy
@@ -1350,7 +1350,7 @@ KNOWN_KEYS = {
     "multiLine", "passwordMode", "choiceButton", "clearButton",
     "spinButton", "dropListButton", "markIncomplete", "skipOnInput", "inputHint",
     "hyperlink",
-    "showTitle", "united",
+    "showTitle", "united", "collapsed",
     "children", "columns",
     "changeRowSet", "changeRowOrder", "header", "footer",
     "commandBarLocation", "searchStringLocation",
@@ -1833,6 +1833,8 @@ def emit_group(lines, el, name, eid, indent):
     if group_val == 'collapsible':
         lines.append(f'{inner}<Group>Vertical</Group>')
         lines.append(f'{inner}<Behavior>Collapsible</Behavior>')
+        if el.get('collapsed') is True:
+            lines.append(f'{inner}<Collapsed>true</Collapsed>')
 
     # Representation
     if el.get('representation'):

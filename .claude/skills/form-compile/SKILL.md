@@ -183,7 +183,8 @@ powershell.exe -NoProfile -File .claude/skills/form-compile/scripts/form-compile
 | Ключ | Описание |
 |------|----------|
 | `showTitle: true` | Показывать заголовок группы |
-| `united: false` | Не объединять рамку |
+| `united: false` | Левый край полей ввода выравнивается только в пределах этой группы (по умолчанию `true` — сквозное выравнивание по самому длинному заголовку, в т.ч. с соседними группами) |
+| `collapsed: true` | Только для `"group": "collapsible"` — группа создаётся свёрнутой |
 | `representation` | `"none"`, `"normal"`, `"weak"`, `"strong"` |
 | `children: [...]` | Вложенные элементы |
 
