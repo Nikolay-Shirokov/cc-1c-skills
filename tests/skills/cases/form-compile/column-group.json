@@ -1,0 +1,40 @@
+{
+  "name": "Форма с группировкой колонок таблицы",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "DataProcessor", "name": "Задачи" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    {
+      "script": "form-add/scripts/form-add",
+      "args": { "-ObjectPath": "{workDir}/DataProcessors/Задачи.xml", "-FormName": "Форма" }
+    }
+  ],
+  "params": { "outputPath": "DataProcessors/Задачи/Forms/Форма/Ext/Form.xml" },
+  "validatePath": "DataProcessors/Задачи/Forms/Форма/Ext/Form.xml",
+  "input": {
+    "title": "Список задач",
+    "elements": [
+      { "table": "Список", "path": "Список", "columns": [
+        { "input": "Наименование", "path": "Список.Наименование" },
+        { "columnGroup": "horizontal", "name": "ГруппаСрок", "title": "Срок", "children": [
+          { "input": "ДатаНачала", "path": "Список.ДатаНачала" },
+          { "input": "ДатаОкончания", "path": "Список.ДатаОкончания" }
+        ]},
+        { "columnGroup": "inCell", "name": "ГруппаИсполнитель", "showInHeader": true, "children": [
+          { "input": "Исполнитель", "path": "Список.Исполнитель" }
+        ]}
+      ]}
+    ],
+    "attributes": [
+      { "name": "Объект", "type": "DataProcessorObject.Задачи", "main": true },
+      { "name": "Список", "type": "ValueTable", "columns": [
+        { "name": "Наименование", "type": "string(150)" },
+        { "name": "ДатаНачала", "type": "date" },
+        { "name": "ДатаОкончания", "type": "date" },
+        { "name": "Исполнитель", "type": "string(100)" }
+      ]}
+    ]
+  }
+}

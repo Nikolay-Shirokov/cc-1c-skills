@@ -62,6 +62,7 @@ powershell.exe -NoProfile -File .claude/skills/form-compile/scripts/form-compile
 | DSL ключ     | XML элемент       | Значение ключа                                    |
 |--------------|-------------------|---------------------------------------------------|
 | `"group"`    | UsualGroup        | `"horizontal"` / `"vertical"` / `"alwaysHorizontal"` / `"alwaysVertical"` / `"collapsible"` |
+| `"columnGroup"` | ColumnGroup    | `"horizontal"` / `"vertical"` / `"inCell"` — только внутри `columns` таблицы |
 | `"input"`    | InputField        | имя элемента                                      |
 | `"check"`    | CheckBoxField     | имя                                               |
 | `"radio"`    | RadioButtonField  | имя                                               |
@@ -209,6 +210,35 @@ powershell.exe -NoProfile -File .claude/skills/form-compile/scripts/form-compile
 | `enableStartDrag: true` | Разрешить начало перетаскивания |
 | `rowPictureDataPath` | Путь к картинке строки (напр. `"Список.DefaultPicture"`) |
 | `tableAutofill: false` | Управление Autofill внутреннего AutoCommandBar |
+
+Колонки можно группировать через `columnGroup` (см. ниже).
+
+### Группа колонок (columnGroup)
+
+Используется только внутри `columns` таблицы. Значение ключа задаёт ориентацию: `"horizontal"`, `"vertical"`, `"inCell"` (склеивает колонки в одну ячейку шапки). Допускается вложение `columnGroup` в `columnGroup`.
+
+| Ключ | Описание |
+|------|----------|
+| `name` | Имя элемента (рекомендуется задавать явно) |
+| `title` | Заголовок группы |
+| `showTitle: false` | Скрыть заголовок |
+| `showInHeader: true/false` | Показывать ли группу в шапке таблицы |
+| `width` | Ширина |
+| `horizontalStretch: false` | Растягивание |
+| `children: [...]` | Колонки внутри группы (`input`, `labelField`, `picField`, вложенный `columnGroup` …) |
+
+```json
+{ "table": "Список", "path": "Список", "columns": [
+    { "columnGroup": "horizontal", "name": "ГруппаДата", "title": "Срок", "children": [
+        { "input": "СрокИсполнения", "path": "Список.СрокИсполнения" },
+        { "labelField": "Просрочено", "path": "Список.Просрочено" }
+    ]},
+    { "columnGroup": "inCell", "name": "ГруппаИсполнитель", "showInHeader": true, "children": [
+        { "input": "Исполнитель", "path": "Список.Исполнитель" }
+    ]},
+    { "input": "Комментарий", "path": "Список.Комментарий" }
+]}
+```
 
 ### Страницы (pages + page)
 

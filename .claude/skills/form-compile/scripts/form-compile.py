@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# form-compile v1.19 — Compile 1C managed form from JSON or object metadata
+# form-compile v1.20 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import copy
@@ -1338,8 +1338,9 @@ KNOWN_FORM_EVENTS = [
 ]
 
 KNOWN_KEYS = {
-    "group", "input", "check", "radio", "label", "labelField", "table", "pages", "page",
+    "group", "columnGroup", "input", "check", "radio", "label", "labelField", "table", "pages", "page",
     "button", "picture", "picField", "calendar", "cmdBar", "popup",
+    "showInHeader",
     "radioButtonType", "choiceList", "columnsCount",
     "name", "path", "title",
     "visible", "hidden", "enabled", "disabled", "readOnly", "userVisible",
@@ -1362,7 +1363,7 @@ KNOWN_KEYS = {
     "rowPictureDataPath", "tableAutofill",
 }
 
-TYPE_KEYS = ["group", "input", "check", "radio", "label", "labelField", "table", "pages", "page",
+TYPE_KEYS = ["columnGroup", "group", "input", "check", "radio", "label", "labelField", "table", "pages", "page",
              "button", "picture", "picField", "calendar", "cmdBar", "popup"]
 
 # Synonyms: model often writes XML name or Russian (ПолеПереключателя/RadioButtonField → radio)
@@ -1390,6 +1391,8 @@ ELEMENT_TYPE_SYNONYMS = {
     "UsualGroup": "group",
     "Группа": "group",
     "ОбычнаяГруппа": "group",
+    "ColumnGroup": "columnGroup",
+    "ГруппаКолонок": "columnGroup",
     "Pages": "pages",
     "ГруппаСтраниц": "pages",
     "Page": "page",
@@ -1787,6 +1790,7 @@ def emit_element(lines, el, indent, in_cmd_bar=False):
 
     emitters = {
         'group': emit_group,
+        'columnGroup': emit_column_group,
         'input': emit_input,
         'check': emit_check,
         'radio': emit_radio_button_field,
@@ -1868,6 +1872,43 @@ def emit_group(lines, el, name, eid, indent):
         lines.append(f'{inner}</ChildItems>')
 
     lines.append(f'{indent}</UsualGroup>')
+
+
+def emit_column_group(lines, el, name, eid, indent):
+    lines.append(f'{indent}<ColumnGroup name="{name}" id="{eid}">')
+    inner = f'{indent}\t'
+
+    emit_title(lines, el, name, inner)
+
+    group_val = str(el.get('columnGroup', ''))
+    orientation_map = {
+        'horizontal': 'Horizontal',
+        'vertical': 'Vertical',
+        'inCell': 'InCell',
+    }
+    orientation = orientation_map.get(group_val)
+    if orientation:
+        lines.append(f'{inner}<Group>{orientation}</Group>')
+
+    if el.get('showTitle') is False:
+        lines.append(f'{inner}<ShowTitle>false</ShowTitle>')
+    if el.get('showInHeader') is not None:
+        sh_val = 'true' if el['showInHeader'] else 'false'
+        lines.append(f'{inner}<ShowInHeader>{sh_val}</ShowInHeader>')
+    if el.get('width'):
+        lines.append(f'{inner}<Width>{el["width"]}</Width>')
+
+    emit_common_flags(lines, el, inner)
+
+    emit_companion(lines, 'ExtendedTooltip', f'{name}РасширеннаяПодсказка', inner)
+
+    if el.get('children') and len(el['children']) > 0:
+        lines.append(f'{inner}<ChildItems>')
+        for child in el['children']:
+            emit_element(lines, child, f'{inner}\t')
+        lines.append(f'{inner}</ChildItems>')
+
+    lines.append(f'{indent}</ColumnGroup>')
 
 
 def emit_input(lines, el, name, eid, indent):

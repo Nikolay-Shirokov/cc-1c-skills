@@ -268,7 +268,7 @@
 | Свойство | Тип | Описание |
 |----------|-----|----------|
 | `path` | string | DataPath |
-| `columns` | array | Колонки (элементы input/check/labelField/picField) |
+| `columns` | array | Колонки (элементы input/check/labelField/picField, либо `columnGroup` для группировки) |
 | `representation` | string | `List`, `Tree`, `HierarchicalList` |
 | `changeRowSet` | bool | Разрешить добавление/удаление строк |
 | `changeRowOrder` | bool | Разрешить перемещение строк |
@@ -277,6 +277,33 @@
 | `footer` | bool | Показывать подвал |
 | `commandBarLocation` | string | `None`, `Top`, `Bottom`, `Auto` |
 | `searchStringLocation` | string | `None`, `Top`, `Bottom`, `CommandBar`, `Auto` |
+
+#### columnGroup — ColumnGroup
+
+Группа колонок таблицы. Используется только внутри `columns` таблицы. Допускается вложение `columnGroup` в `columnGroup`.
+
+```json
+{ "table": "Список", "path": "Список", "columns": [
+    { "columnGroup": "horizontal", "name": "ГруппаДата", "title": "Срок", "children": [
+        { "input": "ДатаНачала", "path": "Список.ДатаНачала" },
+        { "input": "ДатаОкончания", "path": "Список.ДатаОкончания" }
+    ]},
+    { "columnGroup": "inCell", "name": "ГруппаИсполнитель", "showInHeader": true, "children": [
+        { "input": "Исполнитель", "path": "Список.Исполнитель" }
+    ]}
+]}
+```
+
+| Свойство | Тип | Описание |
+|----------|-----|----------|
+| `columnGroup` | string | Ориентация: `horizontal`, `vertical`, `inCell` (склейка колонок в одной ячейке шапки) |
+| `name` | string | Имя элемента (рекомендуется задавать явно) |
+| `title` | string/object | Заголовок группы |
+| `showTitle` | bool | Показывать заголовок |
+| `showInHeader` | bool | Показывать в шапке таблицы |
+| `width` | int | Ширина |
+| `horizontalStretch` | bool | Растягивание |
+| `children` | array | Колонки внутри группы |
 
 #### pages / page — Pages / Page
 
