@@ -52,23 +52,32 @@ export default async function({ navigateSection, openCommand, clickElement, fill
     await closeForm({ save: false });
   });
 
-  await step('radio: КатегорияЦены (RadioButtonField, представление RadioButtons)', async () => {
-    // Tumbler-представление (СпособУчёта) пока не покрыто — getFormState не
-    // возвращает Tumbler в fields[]. См. upload/web-test-bugs.md пункт «radio
-    // Tumbler не распознаётся».
+  await step('radio: КатегорияЦены (RadioButtons) через fillFields, СпособУчёта (Tumbler) через clickElement', async () => {
+    // Tumbler-представление не парсится fillFields как radio-поле (см.
+    // upload/web-test-bugs.md пункт 5). Но варианты тумблера видны в
+    // state.buttons и кликаются через clickElement — покрываем через него.
     await navigateSection('Склад');
     await openCommand('Номенклатура');
     await filterList('Товар 02');
     await clickElement('Товар 02', { dblclick: true });
 
+    // RadioButtons — fillFields с method=radio
     const result = await fillFields({ 'Категория цены': 'Оптовая' });
-    log('method: ' + result.filled[0]?.method + ', value: ' + result.filled[0]?.value);
+    log('RadioButtons method: ' + result.filled[0]?.method + ', value: ' + result.filled[0]?.value);
     assert.ok(result.filled[0]?.ok, 'КатегорияЦены fillField должна сработать');
     assert.equal(result.filled[0]?.method, 'radio', 'КатегорияЦены должна использовать method=radio');
-
-    // Note: getFormState().fields для RadioButtonField возвращает value='' —
-    // выбранный вариант проще проверить через result.filled[].value.
     assert.includes(result.filled[0]?.value || '', 'Оптовая', 'КатегорияЦены = Оптовая');
+
+    // Tumbler — варианты «По среднему» / «ФИФО» доступны как buttons
+    const before = await getFormState();
+    const tumblerButtons = (before.buttons || [])
+      .map(b => b.name || b)
+      .filter(n => n === 'По среднему' || n === 'ФИФО');
+    log('Tumbler buttons: ' + tumblerButtons.join(', '));
+    assert.equal(tumblerButtons.length, 2, 'Tumbler должен показывать оба варианта в buttons[]');
+
+    await clickElement('ФИФО');
+    log('Tumbler clicked: ФИФО');
 
     await closeForm({ save: false });
   });
