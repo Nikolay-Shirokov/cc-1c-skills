@@ -638,6 +638,17 @@ async function cmdTest(rawArgs) {
           break;
 
         } catch (e) {
+          // Screenshot on failure FIRST — before teardown/afterEach/resetState reset the UI.
+          // Otherwise the shot captures an empty desktop instead of the failure context.
+          let shotFile = e.onecError?.screenshot;
+          if (!shotFile && opts.screenshot !== 'off') {
+            try {
+              const png = await browser.screenshot();
+              shotFile = resolve(reportDir, `error-${testIdx}-${slugify(t.file.replace(/\.test\.mjs$/, ''))}.png`);
+              writeFileSync(shotFile, png);
+            } catch {}
+          }
+
           // per-test teardown (always)
           if (t.teardown) try { await t.teardown(ctx); } catch {}
           // afterEach (always)
@@ -647,16 +658,6 @@ async function cmdTest(rawArgs) {
             try { await browser.setActiveContext(cn); await resetState(ctx); } catch {}
           }
           for (const k of scopedKeys) delete ctx[k];
-
-          // Screenshot on failure (skip if strategy is 'off')
-          let shotFile = e.onecError?.screenshot;
-          if (!shotFile && opts.screenshot !== 'off') {
-            try {
-              const png = await browser.screenshot();
-              shotFile = resolve(reportDir, `error-${testIdx}-${slugify(t.file.replace(/\.test\.mjs$/, ''))}.png`);
-              writeFileSync(shotFile, png);
-            } catch {}
-          }
 
           if (videoFile) {
             try { await browser.stopRecording(); } catch {}
@@ -817,7 +818,9 @@ async function resetState(ctx) {
   for (let i = 0; i < 10; i++) {
     try {
       const state = await ctx.getFormState();
-      if (!state.form) break;
+      // form === null means no form open (desktop). form === 0 is a real background form
+      // 1C exposes in some states — must still close it to fully reset.
+      if (state.form == null) break;
       await ctx.closeForm({ save: false });
     } catch { break; }
   }
