@@ -1,8 +1,8 @@
 export const name = 'Фильтры списка: simple-search, advanced-column';
 export const tags = ['filter', 'smoke'];
-export const timeout = 60000;
+export const timeout = 120000;
 
-export default async function({ navigateSection, openCommand, filterList, unfilterList, readTable, closeForm, assert, step, log }) {
+export default async function({ navigateSection, openCommand, filterList, unfilterList, readTable, getFormState, closeForm, assert, step, log }) {
 
   await step('simple-search: filterList по тексту по всем колонкам', async () => {
     await navigateSection('Склад');
@@ -119,11 +119,31 @@ export default async function({ navigateSection, openCommand, filterList, unfilt
     await closeForm();
   });
 
-  // unfilter-specific (P1 в матрице) требует список с видимой filter-панелью
-  // (.trainItem badge). На синтетических списках Контрагенты/Номенклатура
-  // advanced filterList применяет фильтр без создания badge, поэтому
-  // unfilterList({field}) не может его найти. Откладываем до синтетики
-  // с настроенной filter-панелью (P2/P3).
+  await step('unfilter-specific: два фильтра → unfilterList({field}) снимает один badge', async () => {
+    // На синтетике advanced-filter ставит badge на filter-панель,
+    // и unfilterList({field}) снимает конкретный, оставив остальные.
+    // Покрывает 09-filter/unfilter-specific (раньше был deferred).
+    await navigateSection('Склад');
+    await openCommand('Контрагенты');
+
+    await filterList('ООО', { field: 'Наименование' });
+    const both = await filterList('123', { field: 'ИНН' });
+    log(`with 2 filters: ${JSON.stringify(both.filters)}`);
+    assert.equal(both.filters?.length, 2, 'оба badge присутствуют');
+    const names = both.filters.map(f => f.field).sort();
+    assert.deepEqual(names, ['ИНН', 'Наименование'], 'badges: Наименование + ИНН');
+
+    const s1 = await unfilterList({ field: 'ИНН' });
+    log(`after unfilter ИНН: ${JSON.stringify(s1.filters)}`);
+    assert.equal(s1.filters?.length, 1, 'остался один badge');
+    assert.equal(s1.filters?.[0]?.field, 'Наименование', 'остался Наименование');
+
+    const s2 = await unfilterList();
+    log(`after unfilter-all: ${JSON.stringify(s2.filters || [])}`);
+    assert.ok(!s2.filters || s2.filters.length === 0, 'все badge сняты');
+
+    await closeForm();
+  });
 
   await step('unfilter-all: unfilterList() убирает все фильтры', async () => {
     await navigateSection('Склад');
