@@ -1,4 +1,4 @@
-﻿# skd-edit v1.13 — Atomic 1C DCS editor
+﻿# skd-edit v1.14 — Atomic 1C DCS editor
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -11,7 +11,7 @@ param(
 		"add-dataParameter","add-order","add-selection","add-dataSetLink",
 		"add-dataSet","add-variant","add-conditionalAppearance","add-drilldown",
 		"set-query","patch-query","set-outputParameter","set-structure",
-		"modify-field","modify-filter","modify-dataParameter","modify-parameter","modify-structure",
+		"modify-field","modify-filter","modify-dataParameter","modify-parameter","modify-structure","set-field-role",
 		"rename-parameter","reorder-parameters",
 		"clear-selection","clear-order","clear-filter",
 		"remove-field","remove-total","remove-calculated-field","remove-parameter","remove-filter")]
@@ -2932,6 +2932,87 @@ switch ($Operation) {
 			}
 
 			Write-Host "[OK] Field `"$fieldName`" modified in dataset `"$dsName`""
+		}
+	}
+
+	"set-field-role" {
+		$dsNode = Resolve-DataSet
+		$dsName = Get-DataSetName $dsNode
+
+		foreach ($val in $values) {
+			# Parse shorthand: "dataPath [@flag ...] [kv=value ...]"
+			$s = $val.Trim()
+
+			# Extract @flags
+			$flags = @()
+			$flagMatches = [regex]::Matches($s, '@(\w+)')
+			foreach ($m in $flagMatches) { $flags += $m.Groups[1].Value }
+			$s = [regex]::Replace($s, '\s*@\w+', '').Trim()
+
+			# Extract kv=value (value is non-whitespace)
+			$kv = [ordered]@{}
+			$kvMatches = [regex]::Matches($s, '(\w+)=(\S+)')
+			foreach ($m in $kvMatches) { $kv[$m.Groups[1].Value] = $m.Groups[2].Value }
+			$s = [regex]::Replace($s, '\s*\w+=\S+', '').Trim()
+
+			$dataPath = $s
+			if (-not $dataPath) {
+				Write-Host "[WARN] set-field-role: empty dataPath in `"$val`""
+				continue
+			}
+
+			$fieldEl = Find-ElementByChildValue $dsNode "field" "dataPath" $dataPath $schNs
+			if (-not $fieldEl) {
+				Write-Host "[WARN] Field `"$dataPath`" not found in dataset `"$dsName`""
+				continue
+			}
+
+			$fieldIndent = Get-ChildIndent $fieldEl
+
+			# Remove existing <role>
+			$oldRole = $null
+			foreach ($ch in $fieldEl.ChildNodes) {
+				if ($ch.NodeType -eq 'Element' -and $ch.LocalName -eq 'role' -and $ch.NamespaceURI -eq $schNs) { $oldRole = $ch; break }
+			}
+			if ($oldRole) { Remove-NodeWithWhitespace $oldRole }
+
+			# Empty spec — remove only
+			if ($flags.Count -eq 0 -and $kv.Count -eq 0) {
+				Write-Host "[OK] Field `"$dataPath`" role cleared"
+				continue
+			}
+
+			# Build new <role>
+			$lines = @()
+			$lines += "$fieldIndent<role>"
+			foreach ($flag in $flags) {
+				if ($flag -eq 'period') {
+					$lines += "$fieldIndent`t<dcscom:periodNumber>1</dcscom:periodNumber>"
+					$lines += "$fieldIndent`t<dcscom:periodType>Main</dcscom:periodType>"
+				} else {
+					$lines += "$fieldIndent`t<dcscom:$flag>true</dcscom:$flag>"
+				}
+			}
+			foreach ($k in $kv.Keys) {
+				$lines += "$fieldIndent`t<dcscom:$k>$(Esc-Xml $kv[$k])</dcscom:$k>"
+			}
+			$lines += "$fieldIndent</role>"
+			$fragXml = $lines -join "`r`n"
+
+			# Insert before <valueType>, else before <inputParameters>, else at end
+			$refNode = $null
+			foreach ($ch in $fieldEl.ChildNodes) {
+				if ($ch.NodeType -eq 'Element' -and $ch.LocalName -in @('valueType','inputParameters') -and $ch.NamespaceURI -eq $schNs) { $refNode = $ch; break }
+			}
+			$nodes = Import-Fragment $xmlDoc $fragXml
+			foreach ($node in $nodes) {
+				Insert-BeforeElement $fieldEl $node $refNode $fieldIndent
+			}
+
+			$desc = @()
+			if ($flags.Count -gt 0) { $desc += ($flags | ForEach-Object { "@$_" }) -join ' ' }
+			if ($kv.Count -gt 0) { $desc += ($kv.Keys | ForEach-Object { "$_=$($kv[$_])" }) -join ' ' }
+			Write-Host "[OK] Field `"$dataPath`" role set: $($desc -join ' ')"
 		}
 	}
 

@@ -1,4 +1,4 @@
-# skd-edit v1.13 — Atomic 1C DCS editor (Python port)
+# skd-edit v1.14 — Atomic 1C DCS editor (Python port)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import os
@@ -18,7 +18,7 @@ VALID_OPS = [
     "add-dataParameter", "add-order", "add-selection", "add-dataSetLink",
     "add-dataSet", "add-variant", "add-conditionalAppearance", "add-drilldown",
     "set-query", "patch-query", "set-outputParameter", "set-structure",
-    "modify-field", "modify-filter", "modify-dataParameter", "modify-parameter", "modify-structure",
+    "modify-field", "modify-filter", "modify-dataParameter", "modify-parameter", "modify-structure", "set-field-role",
     "rename-parameter", "reorder-parameters",
     "clear-selection", "clear-order", "clear-filter",
     "remove-field", "remove-total", "remove-calculated-field", "remove-parameter", "remove-filter",
@@ -2435,6 +2435,69 @@ elif operation == "modify-field":
             insert_before_element(ds_node, node, next_sib, child_indent)
 
         print(f'[OK] Field "{field_name}" modified in dataset "{ds_name}"')
+
+elif operation == "set-field-role":
+    ds_node = resolve_data_set()
+    ds_name = get_data_set_name(ds_node)
+
+    for val in values:
+        s = val.strip()
+
+        flags = []
+        for m in re.finditer(r'@(\w+)', s):
+            flags.append(m.group(1))
+        s = re.sub(r'\s*@\w+', '', s).strip()
+
+        kv = []
+        for m in re.finditer(r'(\w+)=(\S+)', s):
+            kv.append((m.group(1), m.group(2)))
+        s = re.sub(r'\s*\w+=\S+', '', s).strip()
+
+        data_path = s
+        if not data_path:
+            print(f'[WARN] set-field-role: empty dataPath in "{val}"')
+            continue
+
+        field_el = find_element_by_child_value(ds_node, "field", "dataPath", data_path, SCH_NS)
+        if field_el is None:
+            print(f'[WARN] Field "{data_path}" not found in dataset "{ds_name}"')
+            continue
+
+        field_indent = get_child_indent(field_el)
+
+        # Remove existing <role>
+        old_role = next((ch for ch in field_el if isinstance(ch.tag, str) and local_name(ch) == "role" and etree.QName(ch.tag).namespace == SCH_NS), None)
+        if old_role is not None:
+            remove_node_with_whitespace(old_role)
+
+        # Empty spec — remove only
+        if not flags and not kv:
+            print(f'[OK] Field "{data_path}" role cleared')
+            continue
+
+        # Build new <role>
+        lines = [f"{field_indent}<role>"]
+        for flag in flags:
+            if flag == "period":
+                lines.append(f"{field_indent}\t<dcscom:periodNumber>1</dcscom:periodNumber>")
+                lines.append(f"{field_indent}\t<dcscom:periodType>Main</dcscom:periodType>")
+            else:
+                lines.append(f"{field_indent}\t<dcscom:{flag}>true</dcscom:{flag}>")
+        for k, v in kv:
+            lines.append(f"{field_indent}\t<dcscom:{k}>{esc_xml(v)}</dcscom:{k}>")
+        lines.append(f"{field_indent}</role>")
+        frag_xml = "\r\n".join(lines)
+
+        ref_node = next((ch for ch in field_el if isinstance(ch.tag, str) and local_name(ch) in ("valueType", "inputParameters") and etree.QName(ch.tag).namespace == SCH_NS), None)
+        for node in import_fragment(xml_doc, frag_xml):
+            insert_before_element(field_el, node, ref_node, field_indent)
+
+        parts = []
+        if flags:
+            parts.append(" ".join(f"@{f}" for f in flags))
+        if kv:
+            parts.append(" ".join(f"{k}={v}" for k, v in kv))
+        print(f'[OK] Field "{data_path}" role set: {" ".join(parts)}')
 
 elif operation == "remove-field":
     ds_node = resolve_data_set()
