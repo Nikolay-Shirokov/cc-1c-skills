@@ -14,32 +14,22 @@
 	<dataSet xsi:type="DataSetQuery">
 		<name>Основной</name>
 		<field xsi:type="DataSetFieldField">
-			<dataPath>Сумма</dataPath>
-			<field>Сумма</field>
+			<dataPath>Поле1</dataPath>
+			<field>Поле1</field>
 			<valueType>
 				<v8:Type>xs:decimal</v8:Type>
 				<v8:NumberQualifiers>
-					<v8:Digits>15</v8:Digits>
-					<v8:FractionDigits>2</v8:FractionDigits>
+					<v8:Digits>1</v8:Digits>
+					<v8:FractionDigits>0</v8:FractionDigits>
 					<v8:AllowedSign>Any</v8:AllowedSign>
 				</v8:NumberQualifiers>
 			</valueType>
 		</field>
 		<dataSource>ИсточникДанных1</dataSource>
-		<query>ВЫБРАТЬ Т.Сумма ИЗ Регистр КАК Т</query>
-	</dataSet><parameter>
-		<name>ПериодОтчета</name>
-		<valueType>
-			<v8:Type>v8:StandardPeriod</v8:Type>
-		</valueType>
-		<value xsi:type="v8:StandardPeriod">
-			<v8:variant xsi:type="v8:StandardPeriodVariant">LastMonth</v8:variant>
-			<v8:startDate>0001-01-01T00:00:00</v8:startDate>
-			<v8:endDate>0001-01-01T00:00:00</v8:endDate>
-		</value>
-	</parameter>
+		<query>ВЫБРАТЬ 1 КАК Поле1</query>
+	</dataSet>
 	<parameter>
-		<name>ПланСчетовМеждународный</name>
+		<name>ПарСтрока</name>
 		<valueType>
 			<v8:Type>xs:string</v8:Type>
 			<v8:StringQualifiers>
@@ -50,35 +40,34 @@
 		<value xsi:type="xs:string"/>
 	</parameter>
 	<parameter>
-		<name>ПорядокОкругленияСумм</name>
+		<name>ПарДата</name>
 		<valueType>
-			<v8:Type>xs:string</v8:Type>
-			<v8:StringQualifiers>
-				<v8:Length>0</v8:Length>
-				<v8:AllowedLength>Variable</v8:AllowedLength>
-			</v8:StringQualifiers>
+			<v8:Type>xs:dateTime</v8:Type>
+			<v8:DateQualifiers>
+				<v8:DateFractions>Date</v8:DateFractions>
+			</v8:DateQualifiers>
 		</valueType>
-		<value xsi:type="xs:string"/>
+		<value xsi:type="xs:dateTime">0001-01-01T00:00:00</value>
 	</parameter>
 	<parameter>
-		<name>Организация</name>
+		<name>ПарЧисло</name>
 		<valueType>
-			<v8:Type>xs:string</v8:Type>
-			<v8:StringQualifiers>
-				<v8:Length>0</v8:Length>
-				<v8:AllowedLength>Variable</v8:AllowedLength>
-			</v8:StringQualifiers>
+			<v8:Type>xs:decimal</v8:Type>
+			<v8:NumberQualifiers>
+				<v8:Digits>10</v8:Digits>
+				<v8:FractionDigits>2</v8:FractionDigits>
+				<v8:AllowedSign>Any</v8:AllowedSign>
+			</v8:NumberQualifiers>
 		</valueType>
-		<value xsi:type="xs:string"/>
+		<value xsi:type="xs:decimal">0</value>
 	</parameter>
 	<parameter>
-		<name>ПрекращаемаяДеятельность</name>
+		<name>ПарСсылка</name>
 		<valueType>
-			<v8:Type>xs:boolean</v8:Type>
+			<v8:Type xmlns:d5p1="http://v8.1c.ru/8.1/data/enterprise/current-config">d5p1:CatalogRef.Номенклатура</v8:Type>
 		</valueType>
-		<value xsi:type="xs:boolean">false</value>
+		<value xsi:nil="true"/>
 	</parameter>
-	
 	<settingsVariant>
 		<dcsset:name>Основной</dcsset:name>
 		<dcsset:presentation xsi:type="v8:LocalStringType">

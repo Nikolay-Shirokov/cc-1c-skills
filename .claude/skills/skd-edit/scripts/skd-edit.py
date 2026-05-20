@@ -1,4 +1,4 @@
-# skd-edit v1.22 — Atomic 1C DCS editor (Python port)
+# skd-edit v1.23 — Atomic 1C DCS editor (Python port)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import os
@@ -335,7 +335,7 @@ def parse_calc_shorthand(s):
 
 
 def parse_param_shorthand(s):
-    result = {"name": "", "type": "", "value": None, "autoDates": False, "title": None, "hidden": False, "always": False, "availableValues": []}
+    result = {"name": "", "type": "", "value": None, "autoDates": False, "title": None, "hidden": False, "always": False, "availableValues": [], "valueListAllowed": False}
 
     # Extract availableValue=... (must be before main parse — captures to end of string)
     m_av = re.search(r'\s*availableValue=(.+)$', s)
@@ -346,6 +346,10 @@ def parse_param_shorthand(s):
     if re.search(r'@autoDates', s):
         result["autoDates"] = True
         s = re.sub(r'\s*@autoDates', '', s)
+
+    if re.search(r'@valueList\b', s):
+        result["valueListAllowed"] = True
+        s = re.sub(r'\s*@valueList\b', '', s)
 
     if re.search(r'@hidden\b', s):
         result["hidden"] = True
@@ -361,12 +365,13 @@ def parse_param_shorthand(s):
         result["title"] = m.group(1).strip()
         s = re.sub(r'\s*\[[^\]]*\]\s*', ' ', s).strip()
 
-    m = re.match(r'^([^:]+):\s*(\S+)(\s*=\s*(.+))?$', s)
+    # Allow empty RHS (`= ` / `=`) as empty-value sentinel
+    m = re.match(r'^([^:]+):\s*(\S+)(\s*=\s*(.*))?$', s)
     if m:
         result["name"] = m.group(1).strip()
         result["type"] = resolve_type_str(m.group(2).strip())
-        if m.group(4):
-            result["value"] = m.group(4).strip()
+        if m.group(3) is not None:
+            result["value"] = m.group(4).strip() if m.group(4) else ""
     else:
         result["name"] = s.strip()
 
@@ -466,7 +471,7 @@ def parse_data_param_shorthand(s):
 
     s = s.strip()
 
-    m = re.match(r'^([^=]+)=\s*(.+)$', s)
+    m = re.match(r'^([^=]+)=\s*(.*)$', s)
     if m:
         result["parameter"] = m.group(1).strip()
         val_str = m.group(2).strip()
@@ -480,7 +485,10 @@ def parse_data_param_shorthand(s):
             "TillEndOfThisWeek", "TillEndOfThisTenDays", "TillEndOfThisMonth",
             "TillEndOfThisQuarter", "TillEndOfThisHalfYear", "TillEndOfThisYear",
         ]
-        if val_str in period_variants:
+        # Empty / sentinel — record as "" so caller emits xsi:nil
+        if val_str == "" or val_str == "_" or val_str.lower() == "null":
+            result["value"] = ""
+        elif val_str in period_variants:
             result["value"] = {"variant": val_str}
         else:
             result["value"] = val_str
@@ -684,8 +692,13 @@ def parse_available_value_list(s):
 def build_available_value_fragment(item, declared_type, indent):
     """Return XML lines for a single <availableValue> block."""
     lines = [f"{indent}<availableValue>"]
-    for vl in build_param_value_xml(declared_type, item["value"], f"{indent}\t"):
-        lines.append(vl)
+    if is_empty_value(item.get("value")):
+        empty_xml = build_empty_value_xml(declared_type, f"{indent}\t", "", "value", False)
+        if empty_xml:
+            lines.append(empty_xml)
+    else:
+        for vl in build_param_value_xml(declared_type, item["value"], f"{indent}\t"):
+            lines.append(vl)
     if item.get("presentation"):
         lines.append(f'{indent}\t<presentation xsi:type="v8:LocalStringType">')
         lines.append(f"{indent}\t\t<v8:item>")
@@ -702,27 +715,44 @@ def build_available_value_fragment(item, declared_type, indent):
 def build_value_type_xml(type_str, indent):
     if not type_str:
         return ""
-    type_str = resolve_type_str(type_str)
+
+    # Composite: list/tuple → concatenate per-type fragments
+    if isinstance(type_str, (list, tuple)):
+        parts = []
+        for t in type_str:
+            p = build_value_type_xml(str(t), indent)
+            if p:
+                parts.append(p)
+        return "\n".join(parts)
+
+    type_str = resolve_type_str(str(type_str))
     lines = []
 
     if type_str == "boolean":
         lines.append(f"{indent}<v8:Type>xs:boolean</v8:Type>")
         return "\n".join(lines)
 
-    m = re.match(r'^string(\((\d+)\))?$', type_str)
+    # string, string(N), string(N,fix) — fix → AllowedLength=Fixed
+    m = re.match(r'^string(\((\d+)(,(fix|fixed))?\))?$', type_str)
     if m:
         length = m.group(2) if m.group(2) else "0"
+        al = "Fixed" if m.group(4) else "Variable"
         lines.append(f"{indent}<v8:Type>xs:string</v8:Type>")
         lines.append(f"{indent}<v8:StringQualifiers>")
         lines.append(f"{indent}\t<v8:Length>{length}</v8:Length>")
-        lines.append(f"{indent}\t<v8:AllowedLength>Variable</v8:AllowedLength>")
+        lines.append(f"{indent}\t<v8:AllowedLength>{al}</v8:AllowedLength>")
         lines.append(f"{indent}</v8:StringQualifiers>")
         return "\n".join(lines)
 
-    m = re.match(r'^decimal\((\d+),(\d+)(,nonneg)?\)$', type_str)
+    # decimal — bare = 10,2; decimal(N) = N,0
+    m = re.match(r'^decimal(\((\d+)(,(\d+))?(,nonneg)?\))?$', type_str)
     if m:
-        digits, fraction = m.group(1), m.group(2)
-        sign = "Nonnegative" if m.group(3) else "Any"
+        if not m.group(1):
+            digits, fraction, sign = "10", "2", "Any"
+        else:
+            digits = m.group(2)
+            fraction = m.group(4) if m.group(4) else "0"
+            sign = "Nonnegative" if m.group(5) else "Any"
         lines.append(f"{indent}<v8:Type>xs:decimal</v8:Type>")
         lines.append(f"{indent}<v8:NumberQualifiers>")
         lines.append(f"{indent}\t<v8:Digits>{digits}</v8:Digits>")
@@ -731,9 +761,10 @@ def build_value_type_xml(type_str, indent):
         lines.append(f"{indent}</v8:NumberQualifiers>")
         return "\n".join(lines)
 
-    m = re.match(r'^(date|dateTime)$', type_str)
+    # date / dateTime / time — all xs:dateTime
+    m = re.match(r'^(date|dateTime|time)$', type_str)
     if m:
-        fractions = "Date" if type_str == "date" else "DateTime"
+        fractions = {"date": "Date", "dateTime": "DateTime", "time": "Time"}[type_str]
         lines.append(f"{indent}<v8:Type>xs:dateTime</v8:Type>")
         lines.append(f"{indent}<v8:DateQualifiers>")
         lines.append(f"{indent}\t<v8:DateFractions>{fractions}</v8:DateFractions>")
@@ -753,6 +784,52 @@ def build_value_type_xml(type_str, indent):
         return "\n".join(lines)
 
     lines.append(f"{indent}<v8:Type>{esc_xml(type_str)}</v8:Type>")
+    return "\n".join(lines)
+
+
+def is_empty_value(v):
+    """Empty sentinel — None / '' / '_' / 'null' (case-insensitive)."""
+    if v is None:
+        return True
+    s = str(v).strip()
+    if s == "":
+        return True
+    if s == "_":
+        return True
+    if s.lower() == "null":
+        return True
+    return False
+
+
+def build_empty_value_xml(type_str, indent, tag_prefix="", tag_name="value", value_list_allowed=False):
+    """Type-aware empty <value> fragment. Returns None when valueListAllowed (omit)."""
+    if value_list_allowed:
+        return None
+    t = "" if type_str is None else str(type_str)
+    # Strip well-known XML schema prefixes so callers can pass raw <v8:Type> text
+    t = re.sub(r'^xs:', '', t)
+    t = re.sub(r'^v8:', '', t)
+    t = re.sub(r'^d\d+p\d+:', '', t)
+    pf, tn = tag_prefix, tag_name
+    lines = []
+    if t == "":
+        lines.append(f'{indent}<{pf}{tn} xsi:nil="true"/>')
+    elif t == "StandardPeriod":
+        lines.append(f'{indent}<{pf}{tn} xsi:type="v8:StandardPeriod">')
+        lines.append(f'{indent}\t<v8:variant xsi:type="v8:StandardPeriodVariant">Custom</v8:variant>')
+        lines.append(f'{indent}\t<v8:startDate>0001-01-01T00:00:00</v8:startDate>')
+        lines.append(f'{indent}\t<v8:endDate>0001-01-01T00:00:00</v8:endDate>')
+        lines.append(f'{indent}</{pf}{tn}>')
+    elif re.match(r'^string', t):
+        lines.append(f'{indent}<{pf}{tn} xsi:type="xs:string"/>')
+    elif re.match(r'^(date|time)', t):
+        lines.append(f'{indent}<{pf}{tn} xsi:type="xs:dateTime">0001-01-01T00:00:00</{pf}{tn}>')
+    elif re.match(r'^decimal', t):
+        lines.append(f'{indent}<{pf}{tn} xsi:type="xs:decimal">0</{pf}{tn}>')
+    elif t == "boolean":
+        lines.append(f'{indent}<{pf}{tn} xsi:type="xs:boolean">false</{pf}{tn}>')
+    else:
+        lines.append(f'{indent}<{pf}{tn} xsi:nil="true"/>')
     return "\n".join(lines)
 
 
@@ -934,13 +1011,22 @@ def build_param_fragment(parsed, indent):
         lines.append(build_value_type_xml(parsed["type"], f"{i}\t\t"))
         lines.append(f"{i}\t</valueType>")
 
+    vla = bool(parsed.get("valueListAllowed"))
     if parsed["value"] is not None:
-        for vl in build_param_value_xml(parsed.get("type", ""), parsed["value"], f"{i}\t"):
-            lines.append(vl)
+        if is_empty_value(parsed["value"]):
+            empty_xml = build_empty_value_xml(parsed.get("type", ""), f"{i}\t", "", "value", vla)
+            if empty_xml:
+                lines.append(empty_xml)
+        else:
+            for vl in build_param_value_xml(parsed.get("type", ""), parsed["value"], f"{i}\t"):
+                lines.append(vl)
 
     if parsed.get("hidden"):
         lines.append(f"{i}\t<useRestriction>true</useRestriction>")
         lines.append(f"{i}\t<availableAsField>false</availableAsField>")
+
+    if vla:
+        lines.append(f"{i}\t<valueListAllowed>true</valueListAllowed>")
 
     for av in parsed.get("availableValues", []) or []:
         for l in build_available_value_fragment(av, parsed.get("type", ""), f"{i}\t"):
@@ -1065,6 +1151,8 @@ def build_data_param_fragment(parsed, indent):
             lines.append(f"{i}\t\t<v8:startDate>0001-01-01T00:00:00</v8:startDate>")
             lines.append(f"{i}\t\t<v8:endDate>0001-01-01T00:00:00</v8:endDate>")
             lines.append(f"{i}\t</dcscor:value>")
+        elif is_empty_value(val):
+            lines.append(f'{i}\t<dcscor:value xsi:nil="true"/>')
         elif re.match(r'^\d{4}-\d{2}-\d{2}T', str(val)):
             lines.append(f'{i}\t<dcscor:value xsi:type="xs:dateTime">{esc_xml(str(val))}</dcscor:value>')
         elif str(val) in ("true", "false"):
@@ -1802,8 +1890,16 @@ elif operation == "modify-parameter":
                             if isinstance(tnode.tag, str) and local_name(tnode) == "Type":
                                 declared_type = re.sub(r'^d\d+p\d+:', '', (tnode.text or "").strip())
                                 break
-                    value_lines = build_param_value_xml(declared_type, value, child_indent)
-                    frag_xml = "\n".join(value_lines)
+                    # Detect valueListAllowed — empty value should be omitted when set
+                    vla_set = False
+                    vla_el = next((ch for ch in param_el if isinstance(ch.tag, str) and local_name(ch) == "valueListAllowed" and etree.QName(ch.tag).namespace == SCH_NS), None)
+                    if vla_el is not None and (vla_el.text or "").strip() == "true":
+                        vla_set = True
+                    if is_empty_value(value):
+                        frag_xml = build_empty_value_xml(declared_type, child_indent, "", "value", vla_set)
+                    else:
+                        value_lines = build_param_value_xml(declared_type, value, child_indent)
+                        frag_xml = "\n".join(value_lines)
                     was_existing = existing is not None
                     if existing is not None:
                         # Find next-element sibling as ref before removing
@@ -1812,9 +1908,10 @@ elif operation == "modify-parameter":
                         remove_node_with_whitespace(existing)
                     else:
                         ref_node = next((ch for ch in param_el if isinstance(ch.tag, str) and local_name(ch) in ("useRestriction", "availableValue", "denyIncompleteValues", "use")), None)
-                    nodes = import_fragment(xml_doc, frag_xml)
-                    for node in nodes:
-                        insert_before_element(param_el, node, ref_node, child_indent)
+                    if frag_xml:
+                        nodes = import_fragment(xml_doc, frag_xml)
+                        for node in nodes:
+                            insert_before_element(param_el, node, ref_node, child_indent)
                     verb = "updated" if was_existing else "added"
                     dirty = True; print(f'[OK] Parameter "{param_name}": value {verb} to {value}')
                 elif existing is not None:
@@ -2543,6 +2640,8 @@ elif operation == "modify-dataParameter":
                 val_lines.append(f"{item_indent}\t<v8:startDate>0001-01-01T00:00:00</v8:startDate>")
                 val_lines.append(f"{item_indent}\t<v8:endDate>0001-01-01T00:00:00</v8:endDate>")
                 val_lines.append(f"{item_indent}</dcscor:value>")
+            elif is_empty_value(pv):
+                val_lines.append(f'{item_indent}<dcscor:value xsi:nil="true"/>')
             elif re.match(r'^\d{4}-\d{2}-\d{2}T', str(pv)):
                 val_lines.append(f'{item_indent}<dcscor:value xsi:type="xs:dateTime">{esc_xml(str(pv))}</dcscor:value>')
             elif str(pv) in ("true", "false"):

@@ -1,0 +1,37 @@
+{
+  "name": "modify-dataParameter: пустые значения (sentinel-формы) → dcscor:value xsi:nil",
+  "preRun": [
+    {
+      "script": "skd-compile/scripts/skd-compile",
+      "input": {
+        "dataSets": [{
+          "name": "Основной",
+          "query": "ВЫБРАТЬ 1 КАК Поле1",
+          "fields": ["Поле1: decimal(1,0)"]
+        }],
+        "parameters": [
+          "Период: StandardPeriod = LastMonth",
+          "Организация: string = Альфа"
+        ],
+        "settingsVariants": [{
+          "name": "Основной",
+          "settings": {
+            "selection": ["Auto"],
+            "dataParameters": ["Период = LastMonth", "Организация = Альфа"],
+            "structure": "details"
+          }
+        }]
+      },
+      "args": { "-DefinitionFile": "{inputFile}", "-OutputPath": "{workDir}/Template.xml" }
+    },
+    {
+      "script": "skd-edit/scripts/skd-edit",
+      "args": { "-TemplatePath": "{workDir}/Template.xml", "-Operation": "modify-dataParameter", "-Value": "Период = _" }
+    }
+  ],
+  "params": {
+    "templatePath": "Template.xml",
+    "operation": "modify-dataParameter",
+    "value": "Организация = null"
+  }
+}

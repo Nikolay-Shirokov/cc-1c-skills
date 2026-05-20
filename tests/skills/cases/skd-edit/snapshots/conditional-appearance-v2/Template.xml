@@ -37,6 +37,7 @@
 				<v8:AllowedLength>Variable</v8:AllowedLength>
 			</v8:StringQualifiers>
 		</valueType>
+		<value xsi:type="xs:string"/>
 	</parameter>
 	<settingsVariant>
 		<dcsset:name>Основной</dcsset:name>

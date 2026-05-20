@@ -1,0 +1,21 @@
+{
+  "name": "add-parameter: пустые значения и расширенные типы (decimal bare, time, string fix, sentinels)",
+  "preRun": [
+    {
+      "script": "skd-compile/scripts/skd-compile",
+      "input": {
+        "dataSets": [{
+          "name": "Основной",
+          "query": "ВЫБРАТЬ 1 КАК Поле1",
+          "fields": ["Поле1: decimal(1,0)"]
+        }]
+      },
+      "args": { "-DefinitionFile": "{inputFile}", "-OutputPath": "{workDir}/Template.xml" }
+    }
+  ],
+  "params": {
+    "templatePath": "Template.xml",
+    "operation": "add-parameter",
+    "value": "ПарСтрока: string =;;ПарСтрокаНулл: string = null;;ПарСтрокаПодч: string = _;;ПарДата: date =;;ПарВремя: time =;;ПарВремяНепусто: time = 0001-01-01T12:30:00;;ПарДатаВремя: dateTime = _;;ПарЧислоБар: decimal =;;ПарЧислоН: decimal(8) =;;ПарБул: boolean =;;ПарПериод: StandardPeriod = _;;ПарСсылка: CatalogRef.Номенклатура = null;;ПарСтрокаФикс: string(10,fix) =;;ПарСписок: string @valueList = _"
+  }
+}

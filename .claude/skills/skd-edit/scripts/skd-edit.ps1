@@ -1,4 +1,4 @@
-﻿# skd-edit v1.22 — Atomic 1C DCS editor
+﻿# skd-edit v1.23 — Atomic 1C DCS editor
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -337,7 +337,7 @@ function Parse-CalcShorthand {
 function Parse-ParamShorthand {
 	param([string]$s)
 
-	$result = @{ name = ""; type = ""; value = $null; autoDates = $false; title = $null; hidden = $false; always = $false; availableValues = @() }
+	$result = @{ name = ""; type = ""; value = $null; autoDates = $false; title = $null; hidden = $false; always = $false; availableValues = @(); valueListAllowed = $false }
 
 	# Extract availableValue=... (must be before main parse — captures to end of string)
 	if ($s -match '\s*availableValue=(.+)$') {
@@ -348,6 +348,11 @@ function Parse-ParamShorthand {
 	if ($s -match '@autoDates') {
 		$result.autoDates = $true
 		$s = $s -replace '\s*@autoDates', ''
+	}
+
+	if ($s -match '@valueList\b') {
+		$result.valueListAllowed = $true
+		$s = $s -replace '\s*@valueList\b', ''
 	}
 
 	if ($s -match '@hidden\b') {
@@ -366,11 +371,14 @@ function Parse-ParamShorthand {
 		$s = ($s -replace '\s*\[[^\]]*\]\s*', ' ').Trim()
 	}
 
-	if ($s -match '^([^:]+):\s*(\S+)(\s*=\s*(.+))?$') {
+	# Split "Name: Type = Value" — RHS may be empty (`= ` / `=`) → treated as empty-value sentinel
+	if ($s -match '^([^:]+):\s*(\S+)(\s*=\s*(.*))?$') {
 		$result.name = $Matches[1].Trim()
 		$result.type = Resolve-TypeStr ($Matches[2].Trim())
-		if ($Matches[4]) {
-			$result.value = $Matches[4].Trim()
+		$hasEq = $null -ne $Matches[3]
+		$rhs = $Matches[4]
+		if ($hasEq) {
+			$result.value = if ($rhs) { $rhs.Trim() } else { "" }
 		}
 	} else {
 		$result.name = $s.Trim()
@@ -490,17 +498,16 @@ function Parse-DataParamShorthand {
 
 	$s = $s.Trim()
 
-	if ($s -match '^([^=]+)=\s*(.+)$') {
+	if ($s -match '^([^=]+)=\s*(.*)$') {
 		$result.parameter = $Matches[1].Trim()
 		$valStr = $Matches[2].Trim()
 
 		$periodVariants = @("Custom","Today","ThisWeek","ThisTenDays","ThisMonth","ThisQuarter","ThisHalfYear","ThisYear","FromBeginningOfThisWeek","FromBeginningOfThisTenDays","FromBeginningOfThisMonth","FromBeginningOfThisQuarter","FromBeginningOfThisHalfYear","FromBeginningOfThisYear","LastWeek","LastTenDays","LastMonth","LastQuarter","LastHalfYear","LastYear","NextDay","NextWeek","NextTenDays","NextMonth","NextQuarter","NextHalfYear","NextYear","TillEndOfThisWeek","TillEndOfThisTenDays","TillEndOfThisMonth","TillEndOfThisQuarter","TillEndOfThisHalfYear","TillEndOfThisYear")
-		if ($periodVariants -contains $valStr) {
+		# Empty / sentinel — record as "" so caller emits xsi:nil
+		if ($valStr -eq "" -or $valStr -eq "_" -or $valStr.ToLowerInvariant() -eq "null") {
+			$result.value = ""
+		} elseif ($periodVariants -contains $valStr) {
 			$result.value = @{ variant = $valStr }
-		} elseif ($valStr -match '^\d{4}-\d{2}-\d{2}T') {
-			$result.value = $valStr
-		} elseif ($valStr -eq "true" -or $valStr -eq "false") {
-			$result.value = $valStr
 		} else {
 			$result.value = $valStr
 		}
@@ -744,10 +751,21 @@ function Parse-AvailableValueList {
 # --- 4. Build-* functions (XML fragment generators) ---
 
 function Build-ValueTypeXml {
-	param([string]$typeStr, [string]$indent)
+	param($typeStr, [string]$indent)
 
 	if (-not $typeStr) { return "" }
-	$typeStr = Resolve-TypeStr $typeStr
+
+	# Composite: array of types — concatenate per-type fragments
+	if ($typeStr -is [array] -or $typeStr -is [System.Collections.IList]) {
+		$parts = @()
+		foreach ($t in $typeStr) {
+			$p = Build-ValueTypeXml -typeStr "$t" -indent $indent
+			if ($p) { $parts += $p }
+		}
+		return $parts -join "`n"
+	}
+
+	$typeStr = Resolve-TypeStr "$typeStr"
 	$lines = @()
 
 	if ($typeStr -eq "boolean") {
@@ -755,20 +773,27 @@ function Build-ValueTypeXml {
 		return $lines -join "`n"
 	}
 
-	if ($typeStr -match '^string(\((\d+)\))?$') {
+	# string, string(N), string(N,fix) — fix → AllowedLength=Fixed
+	if ($typeStr -match '^string(\((\d+)(,(fix|fixed))?\))?$') {
 		$len = if ($Matches[2]) { $Matches[2] } else { "0" }
+		$al  = if ($Matches[4]) { "Fixed" } else { "Variable" }
 		$lines += "$indent<v8:Type>xs:string</v8:Type>"
 		$lines += "$indent<v8:StringQualifiers>"
 		$lines += "$indent`t<v8:Length>$len</v8:Length>"
-		$lines += "$indent`t<v8:AllowedLength>Variable</v8:AllowedLength>"
+		$lines += "$indent`t<v8:AllowedLength>$al</v8:AllowedLength>"
 		$lines += "$indent</v8:StringQualifiers>"
 		return $lines -join "`n"
 	}
 
-	if ($typeStr -match '^decimal\((\d+),(\d+)(,nonneg)?\)$') {
-		$digits = $Matches[1]
-		$fraction = $Matches[2]
-		$sign = if ($Matches[3]) { "Nonnegative" } else { "Any" }
+	# decimal forms — bare decimal = money 10,2; decimal(N) = integer N,0
+	if ($typeStr -match '^decimal(\((\d+)(,(\d+))?(,nonneg)?\))?$') {
+		if (-not $Matches[1]) {
+			$digits = "10"; $fraction = "2"; $sign = "Any"
+		} else {
+			$digits = $Matches[2]
+			$fraction = if ($Matches[4]) { $Matches[4] } else { "0" }
+			$sign = if ($Matches[5]) { "Nonnegative" } else { "Any" }
+		}
 		$lines += "$indent<v8:Type>xs:decimal</v8:Type>"
 		$lines += "$indent<v8:NumberQualifiers>"
 		$lines += "$indent`t<v8:Digits>$digits</v8:Digits>"
@@ -778,10 +803,12 @@ function Build-ValueTypeXml {
 		return $lines -join "`n"
 	}
 
-	if ($typeStr -match '^(date|dateTime)$') {
+	# date / dateTime / time — all xs:dateTime, differ only in DateFractions
+	if ($typeStr -match '^(date|dateTime|time)$') {
 		$fractions = switch ($typeStr) {
 			"date"     { "Date" }
 			"dateTime" { "DateTime" }
+			"time"     { "Time" }
 		}
 		$lines += "$indent<v8:Type>xs:dateTime</v8:Type>"
 		$lines += "$indent<v8:DateQualifiers>"
@@ -806,6 +833,52 @@ function Build-ValueTypeXml {
 	}
 
 	$lines += "$indent<v8:Type>$(Esc-Xml $typeStr)</v8:Type>"
+	return $lines -join "`n"
+}
+
+# Sentinel-normalized empty check — null / "" / "_" / "null" (case-insensitive).
+function Test-EmptyValue {
+	param($v)
+	if ($null -eq $v) { return $true }
+	$s = "$v".Trim()
+	if ($s -eq "") { return $true }
+	if ($s -eq "_") { return $true }
+	if ($s.ToLowerInvariant() -eq "null") { return $true }
+	return $false
+}
+
+# Returns XML fragment string for a type-aware empty <value>.
+# Empty + valueListAllowed → omit entirely (returns $null).
+# tagPrefix used for dcscor: in data parameters.
+function Build-EmptyValueXml {
+	param([string]$type, [string]$indent, [string]$tagPrefix = "", [string]$tagName = "value", [bool]$valueListAllowed = $false)
+	if ($valueListAllowed) { return $null }
+	$t = if ($null -eq $type) { "" } else { "$type" }
+	# Strip well-known XML schema prefixes so callers can pass raw <v8:Type> text
+	$t = $t -replace '^xs:', '' -replace '^v8:', '' -replace '^d\d+p\d+:', ''
+	$pf = $tagPrefix
+	$tn = $tagName
+	$lines = @()
+	if ($t -eq "") {
+		$lines += "$indent<${pf}${tn} xsi:nil=`"true`"/>"
+	} elseif ($t -eq "StandardPeriod") {
+		$lines += "$indent<${pf}${tn} xsi:type=`"v8:StandardPeriod`">"
+		$lines += "$indent`t<v8:variant xsi:type=`"v8:StandardPeriodVariant`">Custom</v8:variant>"
+		$lines += "$indent`t<v8:startDate>0001-01-01T00:00:00</v8:startDate>"
+		$lines += "$indent`t<v8:endDate>0001-01-01T00:00:00</v8:endDate>"
+		$lines += "$indent</${pf}${tn}>"
+	} elseif ($t -match '^string') {
+		$lines += "$indent<${pf}${tn} xsi:type=`"xs:string`"/>"
+	} elseif ($t -match '^(date|time)') {
+		$lines += "$indent<${pf}${tn} xsi:type=`"xs:dateTime`">0001-01-01T00:00:00</${pf}${tn}>"
+	} elseif ($t -match '^decimal') {
+		$lines += "$indent<${pf}${tn} xsi:type=`"xs:decimal`">0</${pf}${tn}>"
+	} elseif ($t -eq "boolean") {
+		$lines += "$indent<${pf}${tn} xsi:type=`"xs:boolean`">false</${pf}${tn}>"
+	} else {
+		# Ref types or unknown — safe nil
+		$lines += "$indent<${pf}${tn} xsi:nil=`"true`"/>"
+	}
 	return $lines -join "`n"
 }
 
@@ -1022,8 +1095,13 @@ function Build-AvailableValueFragment {
 
 	$lines = @()
 	$lines += "$indent<availableValue>"
-	$valueLines = Build-ParamValueXml -type $declaredType -value $item.value -indent "$indent`t"
-	foreach ($vl in $valueLines) { $lines += $vl }
+	if (Test-EmptyValue $item.value) {
+		$emptyXml = Build-EmptyValueXml -type $declaredType -indent "$indent`t" -tagPrefix "" -tagName "value" -valueListAllowed $false
+		if ($emptyXml) { $lines += $emptyXml }
+	} else {
+		$valueLines = Build-ParamValueXml -type $declaredType -value $item.value -indent "$indent`t"
+		foreach ($vl in $valueLines) { $lines += $vl }
+	}
 	if ($item.presentation) {
 		$lines += "$indent`t<presentation xsi:type=`"v8:LocalStringType`">"
 		$lines += "$indent`t`t<v8:item>"
@@ -1056,14 +1134,24 @@ function Build-ParamFragment {
 		$lines += "$i`t</valueType>"
 	}
 
+	$vla = [bool]$parsed.valueListAllowed
 	if ($null -ne $parsed.value) {
-		$valueLines = Build-ParamValueXml -type $parsed.type -value $parsed.value -indent "$i`t"
-		foreach ($vl in $valueLines) { $lines += $vl }
+		if (Test-EmptyValue $parsed.value) {
+			$emptyXml = Build-EmptyValueXml -type $parsed.type -indent "$i`t" -tagPrefix "" -tagName "value" -valueListAllowed $vla
+			if ($emptyXml) { $lines += $emptyXml }
+		} else {
+			$valueLines = Build-ParamValueXml -type $parsed.type -value $parsed.value -indent "$i`t"
+			foreach ($vl in $valueLines) { $lines += $vl }
+		}
 	}
 
 	if ($parsed.hidden) {
 		$lines += "$i`t<useRestriction>true</useRestriction>"
 		$lines += "$i`t<availableAsField>false</availableAsField>"
+	}
+
+	if ($vla) {
+		$lines += "$i`t<valueListAllowed>true</valueListAllowed>"
 	}
 
 	if ($parsed.availableValues -and $parsed.availableValues.Count -gt 0) {
@@ -1207,6 +1295,8 @@ function Build-DataParamFragment {
 			$lines += "$i`t`t<v8:startDate>0001-01-01T00:00:00</v8:startDate>"
 			$lines += "$i`t`t<v8:endDate>0001-01-01T00:00:00</v8:endDate>"
 			$lines += "$i`t</dcscor:value>"
+		} elseif (Test-EmptyValue $parsed.value) {
+			$lines += "$i`t<dcscor:value xsi:nil=`"true`"/>"
 		} elseif ("$($parsed.value)" -match '^\d{4}-\d{2}-\d{2}T') {
 			$lines += "$i`t<dcscor:value xsi:type=`"xs:dateTime`">$(Esc-Xml "$($parsed.value)")</dcscor:value>"
 		} elseif ("$($parsed.value)" -eq "true" -or "$($parsed.value)" -eq "false") {
@@ -2107,8 +2197,20 @@ switch ($Operation) {
 								}
 							}
 						}
-						$valueLines = Build-ParamValueXml -type $declaredType -value $value -indent $childIndent
-						$fragXml = $valueLines -join "`n"
+						# Detect valueListAllowed flag on the parameter — empty value should be omitted
+						$vlaSet = $false
+						foreach ($ch in $paramEl.ChildNodes) {
+							if ($ch.NodeType -eq 'Element' -and $ch.LocalName -eq 'valueListAllowed' -and $ch.NamespaceURI -eq $schNs) {
+								if ($ch.InnerText.Trim() -eq 'true') { $vlaSet = $true }
+								break
+							}
+						}
+						if (Test-EmptyValue $value) {
+							$fragXml = Build-EmptyValueXml -type $declaredType -indent $childIndent -tagPrefix "" -tagName "value" -valueListAllowed $vlaSet
+						} else {
+							$valueLines = Build-ParamValueXml -type $declaredType -value $value -indent $childIndent
+							$fragXml = $valueLines -join "`n"
+						}
 
 						$wasExisting = ($null -ne $existing)
 						if ($existing) {
@@ -2127,9 +2229,11 @@ switch ($Operation) {
 								}
 							}
 						}
-						$nodes = Import-Fragment $xmlDoc $fragXml
-						foreach ($node in $nodes) {
-							Insert-BeforeElement $paramEl $node $refNode $childIndent
+						if ($fragXml) {
+							$nodes = Import-Fragment $xmlDoc $fragXml
+							foreach ($node in $nodes) {
+								Insert-BeforeElement $paramEl $node $refNode $childIndent
+							}
 						}
 						$verb = if ($wasExisting) { "updated" } else { "added" }
 						$script:Dirty = $true; Write-Host "[OK] Parameter `"$paramName`": value $verb to $value"
@@ -3072,6 +3176,8 @@ switch ($Operation) {
 					$valLines += "$itemIndent`t<v8:startDate>0001-01-01T00:00:00</v8:startDate>"
 					$valLines += "$itemIndent`t<v8:endDate>0001-01-01T00:00:00</v8:endDate>"
 					$valLines += "$itemIndent</dcscor:value>"
+				} elseif (Test-EmptyValue $parsed.value) {
+					$valLines += "$itemIndent<dcscor:value xsi:nil=`"true`"/>"
 				} elseif ("$($parsed.value)" -match '^\d{4}-\d{2}-\d{2}T') {
 					$valLines += "$itemIndent<dcscor:value xsi:type=`"xs:dateTime`">$(Esc-Xml "$($parsed.value)")</dcscor:value>"
 				} elseif ("$($parsed.value)" -eq "true" -or "$($parsed.value)" -eq "false") {

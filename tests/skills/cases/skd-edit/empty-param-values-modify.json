@@ -1,0 +1,39 @@
+{
+  "name": "modify-parameter: установка пустого значения через sentinel-формы (value=_, value=null)",
+  "preRun": [
+    {
+      "script": "skd-compile/scripts/skd-compile",
+      "input": {
+        "dataSets": [{
+          "name": "Основной",
+          "query": "ВЫБРАТЬ 1 КАК Поле1",
+          "fields": ["Поле1: decimal(1,0)"]
+        }],
+        "parameters": [
+          "ПарСтрока: string = ABC",
+          "ПарДата: date = 2025-01-15T00:00:00",
+          "ПарЧисло: decimal = 42",
+          "ПарСсылка: CatalogRef.Номенклатура = Справочник.Номенклатура.НашаОрганизация"
+        ]
+      },
+      "args": { "-DefinitionFile": "{inputFile}", "-OutputPath": "{workDir}/Template.xml" }
+    },
+    {
+      "script": "skd-edit/scripts/skd-edit",
+      "args": { "-TemplatePath": "{workDir}/Template.xml", "-Operation": "modify-parameter", "-Value": "ПарСтрока value=_" }
+    },
+    {
+      "script": "skd-edit/scripts/skd-edit",
+      "args": { "-TemplatePath": "{workDir}/Template.xml", "-Operation": "modify-parameter", "-Value": "ПарДата value=null" }
+    },
+    {
+      "script": "skd-edit/scripts/skd-edit",
+      "args": { "-TemplatePath": "{workDir}/Template.xml", "-Operation": "modify-parameter", "-Value": "ПарЧисло value=_" }
+    }
+  ],
+  "params": {
+    "templatePath": "Template.xml",
+    "operation": "modify-parameter",
+    "value": "ПарСсылка value=null"
+  }
+}
