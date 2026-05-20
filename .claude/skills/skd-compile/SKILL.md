@@ -88,7 +88,9 @@ powershell.exe -NoProfile -File "${CLAUDE_SKILL_DIR}/scripts/skd-compile.ps1" -V
 
 Многоязычный заголовок: `"title": { "ru": "...", "en": "..." }`. Применимо везде, где принимается title/presentation (поля, calculatedFields, parameters, settingsVariants, availableValues и пр.). Строка эквивалентна `{ "ru": "..." }`.
 
-Типы: `string`, `string(N)`, `decimal(D,F)`, `boolean`, `date`, `dateTime`, `CatalogRef.X`, `DocumentRef.X`, `EnumRef.X`, `StandardPeriod`. Ссылочные типы эмитируются с inline namespace `d5p1:` (`http://v8.1c.ru/8.1/data/enterprise/current-config`). Сборка EPF со ссылочными типами требует базу с соответствующей конфигурацией.
+Типы: `string`, `string(N)`, `decimal`, `decimal(D)`, `decimal(D,F)`, `boolean`, `date`, `dateTime`, `CatalogRef.X`, `DocumentRef.X`, `EnumRef.X`, `StandardPeriod`. Ссылочные типы эмитируются с inline namespace `d5p1:` (`http://v8.1c.ru/8.1/data/enterprise/current-config`). Сборка EPF со ссылочными типами требует базу с соответствующей конфигурацией.
+
+`decimal` без скобок = `10,2` (деньги по умолчанию), `decimal(N)` = `N,0` (целое); `,nonneg` в конце скобок → AllowedSign=Nonnegative.
 
 Составной тип (несколько типов значений) — массив в объектной форме: `"type": ["CatalogRef.A", "CatalogRef.B"]`. Квалификаторы (`(N)`, `(D,F)`) применяются к каждому элементу.
 

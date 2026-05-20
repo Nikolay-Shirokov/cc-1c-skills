@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# skd-compile v1.24 — Compile 1C DCS from JSON
+# skd-compile v1.25 — Compile 1C DCS from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import json
@@ -159,12 +159,20 @@ def emit_single_value_type(lines, type_str, indent):
         lines.append(f'{indent}</v8:StringQualifiers>')
         return
 
-    # decimal(D,F) or decimal(D,F,nonneg)
-    m = re.match(r'^decimal\((\d+),(\d+)(,nonneg)?\)$', type_str)
+    # decimal forms (defaults — bare decimal = money 10,2; decimal(N) = integer N,0):
+    #   decimal                       → 10,2,Any
+    #   decimal(N)                    → N,0,Any
+    #   decimal(N,nonneg)             → N,0,Nonnegative
+    #   decimal(N,M)                  → N,M,Any
+    #   decimal(N,M,nonneg)           → N,M,Nonnegative
+    m = re.match(r'^decimal(\((\d+)(,(\d+))?(,nonneg)?\))?$', type_str)
     if m:
-        digits = m.group(1)
-        fraction = m.group(2)
-        sign = 'Nonnegative' if m.group(3) else 'Any'
+        if not m.group(1):
+            digits, fraction, sign = '10', '2', 'Any'
+        else:
+            digits = m.group(2)
+            fraction = m.group(4) if m.group(4) else '0'
+            sign = 'Nonnegative' if m.group(5) else 'Any'
         lines.append(f'{indent}<v8:Type>xs:decimal</v8:Type>')
         lines.append(f'{indent}<v8:NumberQualifiers>')
         lines.append(f'{indent}\t<v8:Digits>{digits}</v8:Digits>')

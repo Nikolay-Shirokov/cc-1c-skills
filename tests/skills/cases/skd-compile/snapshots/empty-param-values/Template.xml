@@ -70,7 +70,12 @@
 	<parameter>
 		<name>ПараметрЧисло</name>
 		<valueType>
-			<v8:Type>decimal</v8:Type>
+			<v8:Type>xs:decimal</v8:Type>
+			<v8:NumberQualifiers>
+				<v8:Digits>10</v8:Digits>
+				<v8:FractionDigits>2</v8:FractionDigits>
+				<v8:AllowedSign>Any</v8:AllowedSign>
+			</v8:NumberQualifiers>
 		</valueType>
 		<value xsi:type="xs:decimal">0</value>
 	</parameter>

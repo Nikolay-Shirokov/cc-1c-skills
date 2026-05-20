@@ -1,4 +1,4 @@
-﻿# skd-compile v1.24 — Compile 1C DCS from JSON
+﻿# skd-compile v1.25 — Compile 1C DCS from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[string]$DefinitionFile,
@@ -230,11 +230,20 @@ function Emit-SingleValueType {
 		return
 	}
 
-	# decimal(D,F) or decimal(D,F,nonneg)
-	if ($typeStr -match '^decimal\((\d+),(\d+)(,nonneg)?\)$') {
-		$digits = $Matches[1]
-		$fraction = $Matches[2]
-		$sign = if ($Matches[3]) { "Nonnegative" } else { "Any" }
+	# decimal forms (defaults — bare decimal = money 10,2; decimal(N) = integer N,0):
+	#   decimal                       → 10,2,Any
+	#   decimal(N)                    → N,0,Any
+	#   decimal(N,nonneg)             → N,0,Nonnegative
+	#   decimal(N,M)                  → N,M,Any
+	#   decimal(N,M,nonneg)           → N,M,Nonnegative
+	if ($typeStr -match '^decimal(\((\d+)(,(\d+))?(,nonneg)?\))?$') {
+		if (-not $Matches[1]) {
+			$digits = "10"; $fraction = "2"; $sign = "Any"
+		} else {
+			$digits = $Matches[2]
+			$fraction = if ($Matches[4]) { $Matches[4] } else { "0" }
+			$sign = if ($Matches[5]) { "Nonnegative" } else { "Any" }
+		}
 		X "$indent<v8:Type>xs:decimal</v8:Type>"
 		X "$indent<v8:NumberQualifiers>"
 		X "$indent`t<v8:Digits>$digits</v8:Digits>"

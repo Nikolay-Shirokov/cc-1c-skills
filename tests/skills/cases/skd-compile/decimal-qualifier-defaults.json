@@ -1,0 +1,29 @@
+{
+  "name": "decimal — все формы квалификаторов (bare, (N), (N,M), nonneg, синонимы)",
+  "params": { "outputPath": "Template.xml" },
+  "input": {
+    "dataSets": [{
+      "name": "Основной",
+      "query": "ВЫБРАТЬ 1 КАК Поле1",
+      "fields": [
+        "ДеньгиПоУмолчанию: decimal",
+        "ЦелоеОдинАргумент: decimal(10)",
+        "ОбычныеДеньги: decimal(10,2)",
+        "Положительные: decimal(10,2,nonneg)",
+        "ЦелоеПоложительное: decimal(10,nonneg)",
+        "ЧислоСинонимБезАргументов: число",
+        "ЧислоСинонимЦелое: число(8)",
+        "ЧислоСинонимКоличество: число(15,3)"
+      ]
+    }],
+    "parameters": [
+      "ПараметрДеньги: decimal",
+      "ПараметрЦелое: decimal(10)",
+      "ПараметрКоличество: decimal(15,3,nonneg)"
+    ]
+  },
+  "validatePath": "Template.xml",
+  "expect": {
+    "files": ["Template.xml"]
+  }
+}
