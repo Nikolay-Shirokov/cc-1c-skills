@@ -1,4 +1,4 @@
-﻿# skd-decompile v0.7 — Decompile 1C DCS Template.xml to JSON DSL (draft)
+﻿# skd-decompile v0.8 — Decompile 1C DCS Template.xml to JSON DSL (draft)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -911,6 +911,12 @@ function Build-Selection {
 	$out = @()
 	foreach ($it in $selNode.SelectNodes("dcsset:item", $ns)) {
 		$xt = Get-LocalXsiType $it
+		# Implicit SelectedItemField: <dcsset:item> without xsi:type but with <dcsset:field> child.
+		# Платформа эмитит это в conditionalAppearance/selection.
+		if (-not $xt) {
+			$fName = Get-Text $it "dcsset:field"
+			if ($fName) { $out += $fName; continue }
+		}
 		switch ($xt) {
 			'SelectedItemAuto'   { $out += 'Auto' }
 			'SelectedItemField'  { $out += (Get-Text $it "dcsset:field") }
@@ -920,6 +926,10 @@ function Build-Selection {
 				$inner = @()
 				foreach ($sub in $it.SelectNodes("dcsset:item", $ns)) {
 					$st = Get-LocalXsiType $sub
+					if (-not $st) {
+						$subF = Get-Text $sub "dcsset:field"
+						if ($subF) { $inner += $subF; continue }
+					}
 					if ($st -eq 'SelectedItemField')      { $inner += (Get-Text $sub "dcsset:field") }
 					elseif ($st -eq 'SelectedItemAuto')   { $inner += 'Auto' }
 					else { $inner += (New-Sentinel -kind "SelectionInFolder:$st" -loc "$loc/folder" -detail 'Неизвестный тип элемента папки выбора') }
@@ -1080,16 +1090,103 @@ function Build-DataParameters {
 	return ,$entries
 }
 
+# Read groupItems -> array of field names (with periodAddition/groupType warnings)
+function Get-GroupFields {
+	param($parentNode, [string]$loc)
+	$gFields = @()
+	$gi = $parentNode.SelectSingleNode("dcsset:groupItems", $ns)
+	if (-not $gi) { return ,$gFields }
+	foreach ($gItem in $gi.SelectNodes("dcsset:item", $ns)) {
+		$gxt = Get-LocalXsiType $gItem
+		if ($gxt -eq 'GroupItemField') {
+			$gf = Get-Text $gItem "dcsset:field"
+			$pat = Get-Text $gItem "dcsset:periodAdditionType"
+			$gt = Get-Text $gItem "dcsset:groupType"
+			if (($pat -and $pat -ne 'None') -or ($gt -and $gt -ne 'Items')) {
+				$null = Add-Warning -kind 'GroupItemDetails' -loc "$loc/groupItems" -detail "Группировка $gf использует groupType=$gt, periodAdditionType=$pat — не воспроизводится в shorthand"
+			}
+			$gFields += $gf
+		} else {
+			$gFields += (New-Sentinel -kind "GroupItem:$gxt" -loc "$loc/groupItems" -detail 'Тип элемента группировки не покрыт')
+		}
+	}
+	return ,$gFields
+}
+
+# Read a {groupItems, order, selection} sub-block (for table column/row, chart point/series).
+# Skips Auto-only order/selection (they are platform defaults).
+function Build-TableAxisBlock {
+	param($node, [string]$loc, [bool]$includeName = $false)
+	$entry = [ordered]@{}
+	if ($includeName) {
+		$nm = Get-Text $node "dcsset:name"
+		if ($nm) { $entry['name'] = $nm }
+	}
+	$gf = Get-GroupFields -parentNode $node -loc $loc
+	if ($gf.Count -gt 0) { $entry['groupFields'] = $gf }
+	$ordNode = $node.SelectSingleNode("dcsset:order", $ns)
+	$ordItems = Build-Order -ordNode $ordNode -loc "$loc/order"
+	if ($ordItems.Count -gt 0 -and -not ($ordItems.Count -eq 1 -and $ordItems[0] -eq 'Auto')) {
+		$entry['order'] = $ordItems
+	}
+	$selNode = $node.SelectSingleNode("dcsset:selection", $ns)
+	$selItems = Build-Selection -selNode $selNode -loc "$loc/selection"
+	if ($selItems.Count -gt 0 -and -not ($selItems.Count -eq 1 -and $selItems[0] -eq 'Auto')) {
+		$entry['selection'] = $selItems
+	}
+	return $entry
+}
+
 # Build structure recursively. Returns array of structure items (object form).
 # Caller can later try to fold linear chain into string shorthand.
 function Build-Structure {
 	param($node, [string]$loc)
 	if (-not $node) { return @() }
 	$items = @()
+	$idx = 0
 	foreach ($it in $node.SelectNodes("dcsset:item", $ns)) {
 		$xt = Get-LocalXsiType $it
+		if ($xt -eq 'StructureItemTable') {
+			$entry = [ordered]@{ type = 'table' }
+			$nm = Get-Text $it "dcsset:name"
+			if ($nm) { $entry['name'] = $nm }
+			$cols = @()
+			foreach ($cn in $it.SelectNodes("dcsset:column", $ns)) {
+				$cols += (Build-TableAxisBlock -node $cn -loc "$loc/$idx/column")
+			}
+			if ($cols.Count -gt 0) { $entry['columns'] = $cols }
+			$rows = @()
+			foreach ($rn in $it.SelectNodes("dcsset:row", $ns)) {
+				$rows += (Build-TableAxisBlock -node $rn -loc "$loc/$idx/row" -includeName $true)
+			}
+			if ($rows.Count -gt 0) { $entry['rows'] = $rows }
+			$items += $entry
+			$idx++
+			continue
+		}
+		if ($xt -eq 'StructureItemChart') {
+			$entry = [ordered]@{ type = 'chart' }
+			$nm = Get-Text $it "dcsset:name"
+			if ($nm) { $entry['name'] = $nm }
+			$pn = $it.SelectSingleNode("dcsset:point", $ns)
+			if ($pn) { $entry['points'] = Build-TableAxisBlock -node $pn -loc "$loc/$idx/point" }
+			$sn = $it.SelectSingleNode("dcsset:series", $ns)
+			if ($sn) { $entry['series'] = Build-TableAxisBlock -node $sn -loc "$loc/$idx/series" }
+			$selN = $it.SelectSingleNode("dcsset:selection", $ns)
+			$selI = Build-Selection -selNode $selN -loc "$loc/$idx/selection"
+			if ($selI.Count -gt 0 -and -not ($selI.Count -eq 1 -and $selI[0] -eq 'Auto')) {
+				$entry['selection'] = $selI
+			}
+			$opN = $it.SelectSingleNode("dcsset:outputParameters", $ns)
+			$op = Build-OutputParameters -opNode $opN
+			if ($op -and $op.Count -gt 0) { $entry['outputParameters'] = $op }
+			$items += $entry
+			$idx++
+			continue
+		}
 		if ($xt -ne 'StructureItemGroup') {
 			$items += (New-Sentinel -kind "StructureItem:$xt" -loc $loc -detail 'Тип структуры пока не покрыт')
+			$idx++
 			continue
 		}
 		$entry = [ordered]@{}
@@ -1145,6 +1242,7 @@ function Build-Structure {
 		if ($children.Count -gt 0) { $entry['children'] = $children }
 
 		$items += $entry
+		$idx++
 	}
 	return ,$items
 }
@@ -1159,6 +1257,7 @@ function Try-StructureShorthand {
 	$cur = $items[0]
 	while ($null -ne $cur) {
 		# Disallow extras
+		if ($cur.Contains('type') -and $cur['type'] -ne 'group') { return $null }
 		if ($cur.Contains('name')) { return $null }
 		if ($cur.Contains('selection')) { return $null }
 		if ($cur.Contains('order')) { return $null }
