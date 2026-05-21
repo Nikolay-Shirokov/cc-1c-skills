@@ -1,4 +1,4 @@
-﻿# skd-compile v1.30 — Compile 1C DCS from JSON
+﻿# skd-compile v1.31 — Compile 1C DCS from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[string]$DefinitionFile,
@@ -1787,6 +1787,51 @@ function Emit-GroupTemplates {
 
 # === Settings Variants ===
 
+function Emit-SelectionItem {
+	param($item, [string]$indent)
+	if ($item -is [string]) {
+		if ($item -eq "Auto") {
+			X "$indent<dcsset:item xsi:type=`"dcsset:SelectedItemAuto`"/>"
+		} else {
+			X "$indent<dcsset:item xsi:type=`"dcsset:SelectedItemField`">"
+			X "$indent`t<dcsset:field>$(Esc-Xml $item)</dcsset:field>"
+			X "$indent</dcsset:item>"
+		}
+		return
+	}
+	if ($item.folder -or (Has-JsonProp $item 'folder')) {
+		X "$indent<dcsset:item xsi:type=`"dcsset:SelectedItemFolder`">"
+		# Optional <dcsset:field> на folder (редкий случай, для round-trip-целостности)
+		if ($item.field) {
+			X "$indent`t<dcsset:field>$(Esc-Xml "$($item.field)")</dcsset:field>"
+		}
+		X "$indent`t<dcsset:lwsTitle>"
+		X "$indent`t`t<v8:item>"
+		X "$indent`t`t`t<v8:lang>ru</v8:lang>"
+		X "$indent`t`t`t<v8:content>$(Esc-Xml "$($item.folder)")</v8:content>"
+		X "$indent`t`t</v8:item>"
+		X "$indent`t</dcsset:lwsTitle>"
+		foreach ($sub in $item.items) {
+			Emit-SelectionItem -item $sub -indent "$indent`t"
+		}
+		X "$indent`t<dcsset:placement>Auto</dcsset:placement>"
+		X "$indent</dcsset:item>"
+		return
+	}
+	# field with optional title
+	X "$indent<dcsset:item xsi:type=`"dcsset:SelectedItemField`">"
+	X "$indent`t<dcsset:field>$(Esc-Xml "$($item.field)")</dcsset:field>"
+	if ($item.title) {
+		X "$indent`t<dcsset:lwsTitle>"
+		X "$indent`t`t<v8:item>"
+		X "$indent`t`t`t<v8:lang>ru</v8:lang>"
+		X "$indent`t`t`t<v8:content>$(Esc-Xml "$($item.title)")</v8:content>"
+		X "$indent`t`t</v8:item>"
+		X "$indent`t</dcsset:lwsTitle>"
+	}
+	X "$indent</dcsset:item>"
+}
+
 function Emit-Selection {
 	param($items, [string]$indent, [switch]$skipAuto)
 
@@ -1794,45 +1839,8 @@ function Emit-Selection {
 
 	X "$indent<dcsset:selection>"
 	foreach ($item in $items) {
-		if ($item -is [string]) {
-			if ($item -eq "Auto") {
-				if (-not $skipAuto) {
-					X "$indent`t<dcsset:item xsi:type=`"dcsset:SelectedItemAuto`"/>"
-				}
-			} else {
-				X "$indent`t<dcsset:item xsi:type=`"dcsset:SelectedItemField`">"
-				X "$indent`t`t<dcsset:field>$(Esc-Xml $item)</dcsset:field>"
-				X "$indent`t</dcsset:item>"
-			}
-		} elseif ($item.folder) {
-			X "$indent`t<dcsset:item xsi:type=`"dcsset:SelectedItemFolder`">"
-			X "$indent`t`t<dcsset:lwsTitle>"
-			X "$indent`t`t`t<v8:item>"
-			X "$indent`t`t`t`t<v8:lang>ru</v8:lang>"
-			X "$indent`t`t`t`t<v8:content>$(Esc-Xml "$($item.folder)")</v8:content>"
-			X "$indent`t`t`t</v8:item>"
-			X "$indent`t`t</dcsset:lwsTitle>"
-			foreach ($sub in $item.items) {
-				$subName = if ($sub -is [string]) { $sub } else { "$($sub.field)" }
-				X "$indent`t`t<dcsset:item xsi:type=`"dcsset:SelectedItemField`">"
-				X "$indent`t`t`t<dcsset:field>$(Esc-Xml $subName)</dcsset:field>"
-				X "$indent`t`t</dcsset:item>"
-			}
-			X "$indent`t`t<dcsset:placement>Auto</dcsset:placement>"
-			X "$indent`t</dcsset:item>"
-		} else {
-			X "$indent`t<dcsset:item xsi:type=`"dcsset:SelectedItemField`">"
-			X "$indent`t`t<dcsset:field>$(Esc-Xml "$($item.field)")</dcsset:field>"
-			if ($item.title) {
-				X "$indent`t`t<dcsset:lwsTitle>"
-				X "$indent`t`t`t<v8:item>"
-				X "$indent`t`t`t`t<v8:lang>ru</v8:lang>"
-				X "$indent`t`t`t`t<v8:content>$(Esc-Xml "$($item.title)")</v8:content>"
-				X "$indent`t`t`t</v8:item>"
-				X "$indent`t`t</dcsset:lwsTitle>"
-			}
-			X "$indent`t</dcsset:item>"
-		}
+		if ($skipAuto -and ($item -is [string]) -and $item -eq 'Auto') { continue }
+		Emit-SelectionItem -item $item -indent "$indent`t"
 	}
 	X "$indent</dcsset:selection>"
 }
@@ -2368,6 +2376,21 @@ function Emit-StructureItem {
 			Emit-OutputParameters -params $item.outputParameters -indent "$indent`t"
 		}
 
+		X "$indent</dcsset:item>"
+	}
+	elseif ($type -eq "nestedObject") {
+		X "$indent<dcsset:item xsi:type=`"dcsset:StructureItemNestedObject`">"
+		if ($item.objectID) { X "$indent`t<dcsset:objectID>$(Esc-Xml "$($item.objectID)")</dcsset:objectID>" }
+		X "$indent`t<dcsset:settings>"
+		$s = $item.settings
+		if ($s) {
+			if ($s.selection)             { Emit-Selection -items $s.selection -indent "$indent`t`t" }
+			if ($s.filter)                { Emit-Filter -items $s.filter -indent "$indent`t`t" }
+			if ($s.order)                 { Emit-Order -items $s.order -indent "$indent`t`t" }
+			if ($s.conditionalAppearance) { Emit-ConditionalAppearance -items $s.conditionalAppearance -indent "$indent`t`t" }
+			if ($s.outputParameters)      { Emit-OutputParameters -params $s.outputParameters -indent "$indent`t`t" }
+		}
+		X "$indent`t</dcsset:settings>"
 		X "$indent</dcsset:item>"
 	}
 }

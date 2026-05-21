@@ -1,4 +1,4 @@
-﻿# skd-decompile v0.12 — Decompile 1C DCS Template.xml to JSON DSL (draft)
+﻿# skd-decompile v0.13 — Decompile 1C DCS Template.xml to JSON DSL (draft)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -1028,42 +1028,51 @@ function Build-FilterItem {
 	return $s
 }
 
+# Recursive helper для одного элемента selection. Возвращает либо строку (имя поля / "Auto"),
+# либо ordered hashtable ({field, title} / {folder, items: [...]} / sentinel).
+function Build-SelectionItem {
+	param($item, [string]$loc)
+	$xt = Get-LocalXsiType $item
+	# Implicit SelectedItemField: <item> без xsi:type, но с <field>
+	if (-not $xt) {
+		$fName = Get-Text $item "dcsset:field"
+		if ($fName) { return $fName }
+	}
+	switch ($xt) {
+		'SelectedItemAuto' { return 'Auto' }
+		'SelectedItemField' {
+			$fName = Get-Text $item "dcsset:field"
+			$titleNode = $item.SelectSingleNode("dcsset:lwsTitle", $ns)
+			$title = Get-MLText $titleNode
+			if ($title) { return [ordered]@{ field = $fName; title = $title } }
+			return $fName
+		}
+		'SelectedItemFolder' {
+			$titleNode = $item.SelectSingleNode("dcsset:lwsTitle", $ns)
+			$folderTitle = Get-MLText $titleNode
+			$inner = @()
+			foreach ($sub in $item.SelectNodes("dcsset:item", $ns)) {
+				$inner += (Build-SelectionItem -item $sub -loc "$loc/folder")
+			}
+			$entry = [ordered]@{ folder = $folderTitle; items = $inner }
+			# folder может также иметь свой <dcsset:field> (редко, но встречается)
+			$folderField = Get-Text $item "dcsset:field"
+			if ($folderField) { $entry['field'] = $folderField }
+			return $entry
+		}
+		default {
+			return (New-Sentinel -kind "SelectionItem:$xt" -loc $loc -detail 'Неизвестный тип элемента selection')
+		}
+	}
+}
+
 # Build selection items array
 function Build-Selection {
 	param($selNode, [string]$loc)
 	if (-not $selNode) { return @() }
 	$out = @()
 	foreach ($it in $selNode.SelectNodes("dcsset:item", $ns)) {
-		$xt = Get-LocalXsiType $it
-		# Implicit SelectedItemField: <dcsset:item> without xsi:type but with <dcsset:field> child.
-		# Платформа эмитит это в conditionalAppearance/selection.
-		if (-not $xt) {
-			$fName = Get-Text $it "dcsset:field"
-			if ($fName) { $out += $fName; continue }
-		}
-		switch ($xt) {
-			'SelectedItemAuto'   { $out += 'Auto' }
-			'SelectedItemField'  { $out += (Get-Text $it "dcsset:field") }
-			'SelectedItemFolder' {
-				$titleNode = $it.SelectSingleNode("dcsset:lwsTitle", $ns)
-				$folderTitle = Get-MLText $titleNode
-				$inner = @()
-				foreach ($sub in $it.SelectNodes("dcsset:item", $ns)) {
-					$st = Get-LocalXsiType $sub
-					if (-not $st) {
-						$subF = Get-Text $sub "dcsset:field"
-						if ($subF) { $inner += $subF; continue }
-					}
-					if ($st -eq 'SelectedItemField')      { $inner += (Get-Text $sub "dcsset:field") }
-					elseif ($st -eq 'SelectedItemAuto')   { $inner += 'Auto' }
-					else { $inner += (New-Sentinel -kind "SelectionInFolder:$st" -loc "$loc/folder" -detail 'Неизвестный тип элемента папки выбора') }
-				}
-				$out += [ordered]@{ folder = $folderTitle; items = $inner }
-			}
-			default {
-				$out += (New-Sentinel -kind "SelectionItem:$xt" -loc $loc -detail 'Неизвестный тип элемента selection')
-			}
-		}
+		$out += (Build-SelectionItem -item $it -loc $loc)
 	}
 	return ,$out
 }
@@ -1219,7 +1228,8 @@ function Build-DataParameters {
 	return ,$entries
 }
 
-# Read groupItems -> array of field names (with periodAddition/groupType warnings)
+# Read groupItems → array. Простые поля → string. С нестандартным groupType/periodAdditionType
+# → object form {field, groupType?, periodAdditionType?} (compile принимает оба варианта).
 function Get-GroupFields {
 	param($parentNode, [string]$loc)
 	$gFields = @()
@@ -1231,10 +1241,15 @@ function Get-GroupFields {
 			$gf = Get-Text $gItem "dcsset:field"
 			$pat = Get-Text $gItem "dcsset:periodAdditionType"
 			$gt = Get-Text $gItem "dcsset:groupType"
-			if (($pat -and $pat -ne 'None') -or ($gt -and $gt -ne 'Items')) {
-				$null = Add-Warning -kind 'GroupItemDetails' -loc "$loc/groupItems" -detail "Группировка $gf использует groupType=$gt, periodAdditionType=$pat — не воспроизводится в shorthand"
+			$isDefault = (-not $pat -or $pat -eq 'None') -and (-not $gt -or $gt -eq 'Items')
+			if ($isDefault) {
+				$gFields += $gf
+			} else {
+				$obj = [ordered]@{ field = $gf }
+				if ($gt -and $gt -ne 'Items') { $obj['groupType'] = $gt }
+				if ($pat -and $pat -ne 'None') { $obj['periodAdditionType'] = $pat }
+				$gFields += $obj
 			}
-			$gFields += $gf
 		} else {
 			$gFields += (New-Sentinel -kind "GroupItem:$gxt" -loc "$loc/groupItems" -detail 'Тип элемента группировки не покрыт')
 		}
@@ -1293,6 +1308,39 @@ function Build-Structure {
 			$idx++
 			continue
 		}
+		if ($xt -eq 'StructureItemNestedObject') {
+			$entry = [ordered]@{ type = 'nestedObject' }
+			$objID = Get-Text $it "dcsset:objectID"
+			if ($objID) { $entry['objectID'] = $objID }
+			$settingsNode = $it.SelectSingleNode("dcsset:settings", $ns)
+			if ($settingsNode) {
+				$nestedSettings = [ordered]@{}
+				$selNode = $settingsNode.SelectSingleNode("dcsset:selection", $ns)
+				$selI = Build-Selection -selNode $selNode -loc "$loc/$idx/nested/selection"
+				if ($selI.Count -gt 0) { $nestedSettings['selection'] = $selI }
+				$fNode = $settingsNode.SelectSingleNode("dcsset:filter", $ns)
+				if ($fNode -and $fNode.SelectNodes("dcsset:item", $ns).Count -gt 0) {
+					$fa = @()
+					foreach ($fc in $fNode.SelectNodes("dcsset:item", $ns)) { $fa += (Build-FilterItem -itemNode $fc -loc "$loc/$idx/nested/filter") }
+					$nestedSettings['filter'] = $fa
+				}
+				$oNode = $settingsNode.SelectSingleNode("dcsset:order", $ns)
+				$oI = Build-Order -ordNode $oNode -loc "$loc/$idx/nested/order"
+				if ($oI.Count -gt 0) { $nestedSettings['order'] = $oI }
+				$caNode = $settingsNode.SelectSingleNode("dcsset:conditionalAppearance", $ns)
+				if ($caNode) {
+					$ca = Build-ConditionalAppearance -caNode $caNode -loc "$loc/$idx/nested/ca"
+					if ($ca.Count -gt 0) { $nestedSettings['conditionalAppearance'] = $ca }
+				}
+				$opNode = $settingsNode.SelectSingleNode("dcsset:outputParameters", $ns)
+				$op = Build-OutputParameters -opNode $opNode
+				if ($op -and $op.Count -gt 0) { $nestedSettings['outputParameters'] = $op }
+				$entry['settings'] = $nestedSettings
+			}
+			$items += $entry
+			$idx++
+			continue
+		}
 		if ($xt -eq 'StructureItemChart') {
 			$entry = [ordered]@{ type = 'chart' }
 			$nm = Get-Text $it "dcsset:name"
@@ -1322,28 +1370,8 @@ function Build-Structure {
 		# Optional name
 		$nm = Get-Text $it "dcsset:name"
 		if ($nm) { $entry['name'] = $nm }
-		# groupItems → groupFields
-		$gi = $it.SelectSingleNode("dcsset:groupItems", $ns)
-		$gFields = @()
-		if ($gi) {
-			foreach ($gItem in $gi.SelectNodes("dcsset:item", $ns)) {
-				$gxt = Get-LocalXsiType $gItem
-				if ($gxt -eq 'GroupItemField') {
-					$gf = Get-Text $gItem "dcsset:field"
-					# Look at periodAdditionType — non-None or non-default → sentinel
-					$pat = Get-Text $gItem "dcsset:periodAdditionType"
-					$gt = Get-Text $gItem "dcsset:groupType"
-					if (($pat -and $pat -ne 'None') -or ($gt -and $gt -ne 'Items')) {
-						# Non-default grouping — record but don't fail
-						# We still emit the field; flag in warnings only
-						$null = Add-Warning -kind 'GroupItemDetails' -loc "$loc/groupItems" -detail "Группировка $gf использует groupType=$gt, periodAdditionType=$pat — не воспроизводится в shorthand"
-					}
-					$gFields += $gf
-				} else {
-					$gFields += (New-Sentinel -kind "GroupItem:$gxt" -loc "$loc/groupItems" -detail 'Тип элемента группировки не покрыт')
-				}
-			}
-		}
+		# groupItems → groupFields (через общий Get-GroupFields с object form поддержкой)
+		$gFields = Get-GroupFields -parentNode $it -loc $loc
 		if ($gFields.Count -gt 0) { $entry['groupFields'] = $gFields }
 
 		# Local selection — only emit if not "[Auto]" default
@@ -1398,6 +1426,8 @@ function Try-StructureShorthand {
 			break
 		}
 		if ($gfs.Count -ne 1) { return $null }
+		# Только простые имена-строки сворачиваем в shorthand
+		if ($gfs[0] -isnot [string]) { return $null }
 		$parts += $gfs[0]
 		$children = $cur['children']
 		if ($null -eq $children -or $children.Count -eq 0) { break }

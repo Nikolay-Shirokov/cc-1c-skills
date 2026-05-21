@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# skd-compile v1.30 — Compile 1C DCS from JSON
+# skd-compile v1.31 — Compile 1C DCS from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import json
@@ -1481,46 +1481,51 @@ def emit_group_templates(lines, defn):
 
 # === Settings Variants ===
 
+def emit_selection_item(lines, item, indent):
+    if isinstance(item, str):
+        if item == 'Auto':
+            lines.append(f'{indent}<dcsset:item xsi:type="dcsset:SelectedItemAuto"/>')
+        else:
+            lines.append(f'{indent}<dcsset:item xsi:type="dcsset:SelectedItemField">')
+            lines.append(f'{indent}\t<dcsset:field>{esc_xml(item)}</dcsset:field>')
+            lines.append(f'{indent}</dcsset:item>')
+        return
+    if 'folder' in item:
+        lines.append(f'{indent}<dcsset:item xsi:type="dcsset:SelectedItemFolder">')
+        if item.get('field'):
+            lines.append(f'{indent}\t<dcsset:field>{esc_xml(str(item["field"]))}</dcsset:field>')
+        lines.append(f'{indent}\t<dcsset:lwsTitle>')
+        lines.append(f'{indent}\t\t<v8:item>')
+        lines.append(f'{indent}\t\t\t<v8:lang>ru</v8:lang>')
+        lines.append(f'{indent}\t\t\t<v8:content>{esc_xml(str(item["folder"]))}</v8:content>')
+        lines.append(f'{indent}\t\t</v8:item>')
+        lines.append(f'{indent}\t</dcsset:lwsTitle>')
+        for sub in (item.get('items') or []):
+            emit_selection_item(lines, sub, f'{indent}\t')
+        lines.append(f'{indent}\t<dcsset:placement>Auto</dcsset:placement>')
+        lines.append(f'{indent}</dcsset:item>')
+        return
+    # field with optional title
+    lines.append(f'{indent}<dcsset:item xsi:type="dcsset:SelectedItemField">')
+    lines.append(f'{indent}\t<dcsset:field>{esc_xml(str(item["field"]))}</dcsset:field>')
+    if item.get('title'):
+        lines.append(f'{indent}\t<dcsset:lwsTitle>')
+        lines.append(f'{indent}\t\t<v8:item>')
+        lines.append(f'{indent}\t\t\t<v8:lang>ru</v8:lang>')
+        lines.append(f'{indent}\t\t\t<v8:content>{esc_xml(str(item["title"]))}</v8:content>')
+        lines.append(f'{indent}\t\t</v8:item>')
+        lines.append(f'{indent}\t</dcsset:lwsTitle>')
+    lines.append(f'{indent}</dcsset:item>')
+
+
 def emit_selection(lines, items, indent, skip_auto=False):
     if not items or len(items) == 0:
         return
-
     lines.append(f'{indent}<dcsset:selection>')
     for item in items:
-        if isinstance(item, str):
-            if item == 'Auto':
-                if not skip_auto:
-                    lines.append(f'{indent}\t<dcsset:item xsi:type="dcsset:SelectedItemAuto"/>')
-            else:
-                lines.append(f'{indent}\t<dcsset:item xsi:type="dcsset:SelectedItemField">')
-                lines.append(f'{indent}\t\t<dcsset:field>{esc_xml(item)}</dcsset:field>')
-                lines.append(f'{indent}\t</dcsset:item>')
-        elif item.get('folder'):
-            lines.append(f'{indent}\t<dcsset:item xsi:type="dcsset:SelectedItemFolder">')
-            lines.append(f'{indent}\t\t<dcsset:lwsTitle>')
-            lines.append(f'{indent}\t\t\t<v8:item>')
-            lines.append(f'{indent}\t\t\t\t<v8:lang>ru</v8:lang>')
-            lines.append(f'{indent}\t\t\t\t<v8:content>{esc_xml(str(item["folder"]))}</v8:content>')
-            lines.append(f'{indent}\t\t\t</v8:item>')
-            lines.append(f'{indent}\t\t</dcsset:lwsTitle>')
-            for sub in (item.get('items') or []):
-                sub_name = str(sub.get('field', sub)) if isinstance(sub, dict) else str(sub)
-                lines.append(f'{indent}\t\t<dcsset:item xsi:type="dcsset:SelectedItemField">')
-                lines.append(f'{indent}\t\t\t<dcsset:field>{esc_xml(sub_name)}</dcsset:field>')
-                lines.append(f'{indent}\t\t</dcsset:item>')
-            lines.append(f'{indent}\t\t<dcsset:placement>Auto</dcsset:placement>')
-            lines.append(f'{indent}\t</dcsset:item>')
-        else:
-            lines.append(f'{indent}\t<dcsset:item xsi:type="dcsset:SelectedItemField">')
-            lines.append(f'{indent}\t\t<dcsset:field>{esc_xml(str(item["field"]))}</dcsset:field>')
-            if item.get('title'):
-                lines.append(f'{indent}\t\t<dcsset:lwsTitle>')
-                lines.append(f'{indent}\t\t\t<v8:item>')
-                lines.append(f'{indent}\t\t\t\t<v8:lang>ru</v8:lang>')
-                lines.append(f'{indent}\t\t\t\t<v8:content>{esc_xml(str(item["title"]))}</v8:content>')
-                lines.append(f'{indent}\t\t\t</v8:item>')
-                lines.append(f'{indent}\t\t</dcsset:lwsTitle>')
-            lines.append(f'{indent}\t</dcsset:item>')
+        if skip_auto and isinstance(item, str) and item == 'Auto':
+            continue
+        emit_selection_item(lines, item, f'{indent}\t')
     lines.append(f'{indent}</dcsset:selection>')
 
 
@@ -1960,6 +1965,20 @@ def emit_structure_item(lines, item, indent):
         if item.get('outputParameters'):
             emit_output_parameters(lines, item['outputParameters'], f'{indent}\t')
 
+        lines.append(f'{indent}</dcsset:item>')
+
+    elif item_type == 'nestedObject':
+        lines.append(f'{indent}<dcsset:item xsi:type="dcsset:StructureItemNestedObject">')
+        if item.get('objectID'):
+            lines.append(f'{indent}\t<dcsset:objectID>{esc_xml(str(item["objectID"]))}</dcsset:objectID>')
+        lines.append(f'{indent}\t<dcsset:settings>')
+        s = item.get('settings') or {}
+        if s.get('selection'):             emit_selection(lines, s['selection'], f'{indent}\t\t')
+        if s.get('filter'):                emit_filter(lines, s['filter'], f'{indent}\t\t')
+        if s.get('order'):                 emit_order(lines, s['order'], f'{indent}\t\t')
+        if s.get('conditionalAppearance'): emit_conditional_appearance(lines, s['conditionalAppearance'], f'{indent}\t\t')
+        if s.get('outputParameters'):      emit_output_parameters(lines, s['outputParameters'], f'{indent}\t\t')
+        lines.append(f'{indent}\t</dcsset:settings>')
         lines.append(f'{indent}</dcsset:item>')
 
 

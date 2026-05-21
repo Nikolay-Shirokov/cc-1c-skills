@@ -1,0 +1,65 @@
+{
+  "name": "Структура: nestedObject + selection с вложенными folder и field-with-title + groupItem object form",
+  "preRun": [
+    {
+      "script": "skd-compile/scripts/skd-compile",
+      "input": {
+        "dataSets": [
+          {
+            "name": "DSОбъединение",
+            "items": [
+              { "name": "Часть1", "objectName": "ДанныеЧасть1" },
+              { "name": "Часть2", "objectName": "ДанныеЧасть2" }
+            ],
+            "fields": [
+              "Период: date",
+              "ВидРасчета: CatalogRef.ВидыРасчета",
+              "Сумма: decimal(15,2)",
+              "Подразделение: CatalogRef.Подразделения"
+            ]
+          }
+        ],
+        "settingsVariants": [
+          {
+            "name": "Основной",
+            "settings": {
+              "selection": [
+                "Период",
+                { "field": "Сумма", "title": "Итого" },
+                {
+                  "folder": "Группа итогов",
+                  "items": [
+                    "ВидРасчета",
+                    { "field": "Сумма", "title": "Сумма с расшифровкой" },
+                    {
+                      "folder": "Подгруппа",
+                      "items": ["Подразделение"]
+                    }
+                  ]
+                }
+              ],
+              "structure": [
+                {
+                  "name": "Группа1",
+                  "groupFields": [
+                    { "field": "Период", "periodAdditionType": "Day" },
+                    { "field": "Подразделение", "groupType": "Hierarchy" }
+                  ],
+                  "children": [
+                    { "type": "nestedObject", "objectID": "ДанныеЧасть1", "settings": {
+                        "selection": ["ВидРасчета", "Сумма"]
+                    }}
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "args": { "-DefinitionFile": "{inputFile}", "-OutputPath": "Template.xml" },
+      "cwd": "{workDir}"
+    }
+  ],
+  "params": { "templatePath": "Template.xml" },
+  "outputPath": "decompiled.json"
+}
