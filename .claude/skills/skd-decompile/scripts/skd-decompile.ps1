@@ -1,4 +1,4 @@
-﻿# skd-decompile v0.19 — Decompile 1C DCS Template.xml to JSON DSL (draft)
+﻿# skd-decompile v0.20 — Decompile 1C DCS Template.xml to JSON DSL (draft)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -133,8 +133,54 @@ function Convert-StringToJsonLiteral {
 	return $sb.ToString()
 }
 
+# Попробовать сериализовать значение полностью inline (одна строка).
+# Возвращает строку либо $null, если содержимое не помещается.
+function Try-InlineJson {
+	param($obj)
+	if ($null -eq $obj) { return 'null' }
+	if ($obj -is [bool]) { if ($obj) { return 'true' } else { return 'false' } }
+	if ($obj -is [string]) { return (Convert-StringToJsonLiteral $obj) }
+	if ($obj -is [int] -or $obj -is [long]) { return "$obj" }
+	if ($obj -is [double] -or $obj -is [single] -or $obj -is [decimal]) {
+		return ([System.Convert]::ToString($obj, [System.Globalization.CultureInfo]::InvariantCulture))
+	}
+	if ($obj -is [System.Collections.IDictionary]) {
+		if ($obj.Count -eq 0) { return '{}' }
+		$parts = @()
+		foreach ($k in $obj.Keys) {
+			$v = Try-InlineJson $obj[$k]
+			if ($null -eq $v) { return $null }
+			$parts += "$(Convert-StringToJsonLiteral "$k"): $v"
+		}
+		return '{ ' + ($parts -join ', ') + ' }'
+	}
+	if ($obj -is [System.Management.Automation.PSCustomObject]) {
+		$props = @($obj.PSObject.Properties)
+		if ($props.Count -eq 0) { return '{}' }
+		$parts = @()
+		foreach ($p in $props) {
+			$v = Try-InlineJson $p.Value
+			if ($null -eq $v) { return $null }
+			$parts += "$(Convert-StringToJsonLiteral "$($p.Name)"): $v"
+		}
+		return '{ ' + ($parts -join ', ') + ' }'
+	}
+	if ($obj -is [array] -or $obj -is [System.Collections.IList]) {
+		$items = @($obj)
+		if ($items.Count -eq 0) { return '[]' }
+		$parts = @()
+		foreach ($it in $items) {
+			$v = Try-InlineJson $it
+			if ($null -eq $v) { return $null }
+			$parts += $v
+		}
+		return '[' + ($parts -join ', ') + ']'
+	}
+	return $null
+}
+
 function ConvertTo-CompactJson {
-	param($obj, [int]$depth = 0, [string]$indentUnit = '  ')
+	param($obj, [int]$depth = 0, [string]$indentUnit = '  ', [int]$lineLimit = 120)
 	$indent = $indentUnit * $depth
 	$childIndent = $indentUnit * ($depth + 1)
 
@@ -143,16 +189,25 @@ function ConvertTo-CompactJson {
 	if ($obj -is [string]) { return (Convert-StringToJsonLiteral $obj) }
 	if ($obj -is [int] -or $obj -is [long]) { return "$obj" }
 	if ($obj -is [double] -or $obj -is [single] -or $obj -is [decimal]) {
-		# .NET ToString с invariant culture, чтобы не было запятой
 		return ([System.Convert]::ToString($obj, [System.Globalization.CultureInfo]::InvariantCulture))
 	}
-	# Hashtable / OrderedDictionary / PSCustomObject — объект
+
+	# Try inline для объектов и массивов с объектами — если помещается в lineLimit с учётом текущего indent.
+	$isContainer = ($obj -is [System.Collections.IDictionary]) -or ($obj -is [System.Management.Automation.PSCustomObject]) -or ($obj -is [array]) -or ($obj -is [System.Collections.IList])
+	if ($isContainer) {
+		$inlineAttempt = Try-InlineJson $obj
+		if ($null -ne $inlineAttempt -and ($indent.Length + $inlineAttempt.Length) -le $lineLimit) {
+			return $inlineAttempt
+		}
+	}
+
+	# Hashtable / OrderedDictionary — объект multi-line
 	if ($obj -is [System.Collections.IDictionary]) {
 		$keys = @($obj.Keys)
 		if ($keys.Count -eq 0) { return '{}' }
 		$parts = @()
 		foreach ($k in $keys) {
-			$val = ConvertTo-CompactJson -obj $obj[$k] -depth ($depth + 1) -indentUnit $indentUnit
+			$val = ConvertTo-CompactJson -obj $obj[$k] -depth ($depth + 1) -indentUnit $indentUnit -lineLimit $lineLimit
 			$parts += "$childIndent$(Convert-StringToJsonLiteral "$k"): $val"
 		}
 		return "{`n" + ($parts -join ",`n") + "`n$indent}"
@@ -162,27 +217,16 @@ function ConvertTo-CompactJson {
 		if ($props.Count -eq 0) { return '{}' }
 		$parts = @()
 		foreach ($p in $props) {
-			$val = ConvertTo-CompactJson -obj $p.Value -depth ($depth + 1) -indentUnit $indentUnit
+			$val = ConvertTo-CompactJson -obj $p.Value -depth ($depth + 1) -indentUnit $indentUnit -lineLimit $lineLimit
 			$parts += "$childIndent$(Convert-StringToJsonLiteral "$($p.Name)"): $val"
 		}
 		return "{`n" + ($parts -join ",`n") + "`n$indent}"
 	}
-	# Array / IList
+	# Array / IList multi-line
 	if ($obj -is [array] -or $obj -is [System.Collections.IList]) {
 		$items = @($obj)
 		if ($items.Count -eq 0) { return '[]' }
-		$allPrimitive = $true
-		foreach ($it in $items) {
-			if ($it -is [System.Collections.IDictionary] -or $it -is [System.Management.Automation.PSCustomObject] -or $it -is [array] -or $it -is [System.Collections.IList]) {
-				$allPrimitive = $false
-				break
-			}
-		}
-		if ($allPrimitive) {
-			$parts = @($items | ForEach-Object { ConvertTo-CompactJson -obj $_ -depth $depth -indentUnit $indentUnit })
-			return '[' + ($parts -join ', ') + ']'
-		}
-		$parts = @($items | ForEach-Object { "$childIndent$(ConvertTo-CompactJson -obj $_ -depth ($depth + 1) -indentUnit $indentUnit)" })
+		$parts = @($items | ForEach-Object { "$childIndent$(ConvertTo-CompactJson -obj $_ -depth ($depth + 1) -indentUnit $indentUnit -lineLimit $lineLimit)" })
 		return "[`n" + ($parts -join ",`n") + "`n$indent]"
 	}
 	# Fallback
@@ -784,7 +828,8 @@ $script:existingUserPresetsRaw = $null
 $script:queryFilesAccumulator = @()
 $script:queryFileNamesUsed = @{}
 
-# Если запрос ≥3 строк и есть outputPath — вынести в отдельный <name>.sql и вернуть "@<name>.sql".
+# Если запрос ≥3 строк и есть outputPath — вынести в отдельный
+# `<outputBasename>-<datasetName>.sql` (префикс защищает от коллизий имён при batch-decompile).
 # Иначе — оставить inline.
 function Maybe-ExternalizeQuery {
 	param([string]$queryText, [string]$datasetName)
@@ -793,14 +838,15 @@ function Maybe-ExternalizeQuery {
 	# Считаем строки — \r\n или \n
 	$lineCount = ([regex]::Matches($queryText, "`n")).Count + 1
 	if ($lineCount -lt 3) { return $queryText }
-	# Уникализация имени файла
-	$safeName = ($datasetName -replace '[^\w\-]', '_')
-	if (-not $safeName) { $safeName = 'query' }
-	$fileName = "$safeName.sql"
+	# Уникализация имени файла: prefix = basename outputPath (без расширения)
+	$safeDs = ($datasetName -replace '[^\w\-]', '_')
+	if (-not $safeDs) { $safeDs = 'query' }
+	$prefix = if ($script:outputBasename) { "$($script:outputBasename)-" } else { '' }
+	$fileName = "$prefix$safeDs.sql"
 	$suffix = 1
 	while ($script:queryFileNamesUsed.ContainsKey($fileName)) {
 		$suffix++
-		$fileName = "$safeName`_$suffix.sql"
+		$fileName = "$prefix$safeDs`_$suffix.sql"
 	}
 	$script:queryFileNamesUsed[$fileName] = $true
 	$script:queryFilesAccumulator += [ordered]@{ fileName = $fileName; text = $queryText }
@@ -1682,11 +1728,13 @@ function Try-StructureShorthand {
 
 # Резолв outputPath и загрузка user-стилей до обработки шаблонов
 $script:outputDir = $null
+$script:outputBasename = $null
 if ($OutputPath) {
 	if (-not [System.IO.Path]::IsPathRooted($OutputPath)) {
 		$OutputPath = Join-Path (Get-Location).Path $OutputPath
 	}
 	$script:outputDir = [System.IO.Path]::GetDirectoryName($OutputPath)
+	$script:outputBasename = [System.IO.Path]::GetFileNameWithoutExtension($OutputPath)
 	Load-UserStyles -dirPath $script:outputDir
 }
 

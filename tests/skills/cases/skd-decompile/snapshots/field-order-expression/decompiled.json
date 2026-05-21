@@ -7,11 +7,7 @@
         {
           "field": "ВидРасчета",
           "type": "CatalogRef.ВидыРасчета",
-          "orderExpression": {
-            "expression": "ЕстьNULL(ВидРасчета.Порядок, 10000)",
-            "orderType": "Asc",
-            "autoOrder": false
-          }
+          "orderExpression": { "expression": "ЕстьNULL(ВидРасчета.Порядок, 10000)", "orderType": "Asc", "autoOrder": false }
         }
       ]
     }

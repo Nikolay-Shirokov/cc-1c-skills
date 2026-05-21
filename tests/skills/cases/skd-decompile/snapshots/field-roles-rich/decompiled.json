@@ -3,7 +3,12 @@
     {
       "name": "Тест",
       "query": "ВЫБРАТЬ * ИЗ РегистрНакопления.Остатки",
-      "fields": ["Период: date @period", "Контрагент: CatalogRef.Контрагенты @dimension @required", "СуммаНач: decimal(15,2) @balance balanceGroupName=Сумма balanceType=OpeningBalance", "СуммаКон: decimal(15,2) @balance balanceGroupName=Сумма balanceType=ClosingBalance"]
+      "fields": [
+        "Период: date @period",
+        "Контрагент: CatalogRef.Контрагенты @dimension @required",
+        "СуммаНач: decimal(15,2) @balance balanceGroupName=Сумма balanceType=OpeningBalance",
+        "СуммаКон: decimal(15,2) @balance balanceGroupName=Сумма balanceType=ClosingBalance"
+      ]
     }
   ]
 }

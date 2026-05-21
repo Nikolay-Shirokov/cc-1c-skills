@@ -1,25 +1,4 @@
 {
-  "dataSets": [
-    {
-      "name": "Тест",
-      "query": "ВЫБРАТЬ * ИЗ Справочник.Сотрудники",
-      "fields": ["Поле: string"]
-    }
-  ],
-  "templates": [
-    {
-      "name": "СмешанныйМакет",
-      "style": "data",
-      "rows": [
-        [
-          "A",
-          {
-            "value": "B",
-            "style": "header"
-          },
-          "C"
-        ]
-      ]
-    }
-  ]
+  "dataSets": [{ "name": "Тест", "query": "ВЫБРАТЬ * ИЗ Справочник.Сотрудники", "fields": ["Поле: string"] }],
+  "templates": [{ "name": "СмешанныйМакет", "style": "data", "rows": [["A", { "value": "B", "style": "header" }, "C"]] }]
 }

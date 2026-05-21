@@ -5,22 +5,11 @@
       "query": "ВЫБРАТЬ * ИЗ Справочник.Сотрудники",
       "fields": [
         "Период: date",
-        {
-          "field": "СальдоНаНачалоПериода",
-          "folder": true,
-          "title": "Сальдо на начало периода"
-        },
+        { "field": "СальдоНаНачалоПериода", "folder": true, "title": "Сальдо на начало периода" },
         "СальдоНаНачалоПериода.Дт: decimal(15,2)",
         "СальдоНаНачалоПериода.Кт: decimal(15,2)"
       ]
     }
   ],
-  "settingsVariants": [
-    {
-      "name": "Основной",
-      "settings": {
-        "structure": "Auto > Период"
-      }
-    }
-  ]
+  "settingsVariants": [{ "name": "Основной", "settings": { "structure": "Auto > Период" } }]
 }

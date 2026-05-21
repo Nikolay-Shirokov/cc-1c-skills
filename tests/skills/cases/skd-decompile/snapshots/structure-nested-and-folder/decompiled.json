@@ -2,17 +2,13 @@
   "dataSets": [
     {
       "name": "DSОбъединение",
-      "items": [
-        {
-          "name": "Часть1",
-          "objectName": "ДанныеЧасть1"
-        },
-        {
-          "name": "Часть2",
-          "objectName": "ДанныеЧасть2"
-        }
-      ],
-      "fields": ["Период: date", "ВидРасчета: CatalogRef.ВидыРасчета", "Сумма: decimal(15,2)", "Подразделение: CatalogRef.Подразделения"]
+      "items": [{ "name": "Часть1", "objectName": "ДанныеЧасть1" }, { "name": "Часть2", "objectName": "ДанныеЧасть2" }],
+      "fields": [
+        "Период: date",
+        "ВидРасчета: CatalogRef.ВидыРасчета",
+        "Сумма: decimal(15,2)",
+        "Подразделение: CatalogRef.Подразделения"
+      ]
     }
   ],
   "settingsVariants": [
@@ -21,45 +17,25 @@
       "settings": {
         "selection": [
           "Период",
-          {
-            "field": "Сумма",
-            "title": "Итого"
-          },
+          { "field": "Сумма", "title": "Итого" },
           {
             "folder": "Группа итогов",
             "items": [
               "ВидРасчета",
-              {
-                "field": "Сумма",
-                "title": "Сумма с расшифровкой"
-              },
-              {
-                "folder": "Подгруппа",
-                "items": ["Подразделение"]
-              }
+              { "field": "Сумма", "title": "Сумма с расшифровкой" },
+              { "folder": "Подгруппа", "items": ["Подразделение"] }
             ]
           }
         ],
         "structure": [
           {
             "name": "Группа1",
-            "groupFields": [
-              {
-                "field": "Период",
-                "periodAdditionType": "Day"
-              },
-              {
-                "field": "Подразделение",
-                "groupType": "Hierarchy"
-              }
-            ],
+            "groupFields": [{ "field": "Период", "periodAdditionType": "Day" }, { "field": "Подразделение", "groupType": "Hierarchy" }],
             "children": [
               {
                 "type": "nestedObject",
                 "objectID": "ДанныеЧасть1",
-                "settings": {
-                  "selection": ["ВидРасчета", "Сумма"]
-                }
+                "settings": { "selection": ["ВидРасчета", "Сумма"] }
               }
             ]
           }
