@@ -1,0 +1,43 @@
+{
+  "name": "templates с built-in стилями (header/data), merge >/|, drilldown свёрткой",
+  "preRun": [
+    {
+      "script": "skd-compile/scripts/skd-compile",
+      "input": {
+        "dataSets": [{
+          "name": "Тест",
+          "query": "ВЫБРАТЬ * ИЗ Справочник.Номенклатура",
+          "fields": ["Имя: string", "Сумма: decimal(15,2)"]
+        }],
+        "templates": [
+          {
+            "name": "Шапка",
+            "style": "header",
+            "widths": [20, 30, 25, 25],
+            "rows": [
+              ["Имя", "Сумма", "Поступление", ">"],
+              ["|",   "|",    "из произв.",  "со сч.40"],
+              ["К1",  "К2",   "К3",          "К4"]
+            ]
+          },
+          {
+            "name": "Данные",
+            "style": "data",
+            "widths": [20, 30, 25, 25],
+            "rows": [["{Имя}", "{Сумма}", "{Поступление}", "{СчетПрочее}"]],
+            "parameters": [
+              { "name": "Имя", "expression": "Имя" },
+              { "name": "Сумма", "expression": "Сумма" },
+              { "name": "Поступление", "expression": "СуммаПоступления", "drilldown": "СуммаПоступления" },
+              { "name": "СчетПрочее", "expression": "СчетПрочее" }
+            ]
+          }
+        ]
+      },
+      "args": { "-DefinitionFile": "{inputFile}", "-OutputPath": "Template.xml" },
+      "cwd": "{workDir}"
+    }
+  ],
+  "params": { "templatePath": "Template.xml" },
+  "outputPath": "decompiled.json"
+}

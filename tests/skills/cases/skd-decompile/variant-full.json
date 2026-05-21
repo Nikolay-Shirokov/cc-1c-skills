@@ -1,0 +1,60 @@
+{
+  "name": "settingsVariant — selection с folder, filter Or, conditionalAppearance, structure shorthand, dataParameters auto",
+  "preRun": [
+    {
+      "script": "skd-compile/scripts/skd-compile",
+      "input": {
+        "dataSets": [{
+          "name": "Тест",
+          "query": "ВЫБРАТЬ * ИЗ Справочник.Номенклатура",
+          "fields": [
+            "Организация: CatalogRef.Организации @dimension",
+            "Номенклатура: CatalogRef.Номенклатура @dimension",
+            "Сумма: decimal(15,2)",
+            "Количество: decimal(15,3)",
+            "Статус: string"
+          ]
+        }],
+        "parameters": [
+          "Период: StandardPeriod = LastMonth @autoDates",
+          "Активные: boolean = true"
+        ],
+        "templates": [{"name": "Шапка", "style": "header", "rows": [["Орг", "Сум"]]}],
+        "groupTemplates": [{"groupName": "ДанныеОтчета", "templateType": "GroupHeader", "template": "Шапка"}],
+        "settingsVariants": [{
+          "name": "Основной",
+          "title": "Основной вариант",
+          "settings": {
+            "selection": [
+              "Организация",
+              { "folder": "Объёмы", "items": ["Сумма", "Количество"] },
+              "Auto"
+            ],
+            "filter": [
+              "Организация = _ @off @user",
+              { "group": "Or", "items": [
+                { "field": "Статус", "op": "=", "value": "Активен" },
+                { "field": "Сумма", "op": ">", "value": 1000 }
+              ]}
+            ],
+            "order": ["Сумма desc", "Auto"],
+            "conditionalAppearance": [{
+              "filter": ["Сумма > 10000"],
+              "appearance": { "ЦветТекста": "style:НегативныйТекстЦвет" },
+              "presentation": "Большие суммы",
+              "viewMode": "Normal",
+              "userSettingID": "auto"
+            }],
+            "outputParameters": { "Заголовок": "Сводка по организациям" },
+            "dataParameters": "auto",
+            "structure": "Организация > Номенклатура > details"
+          }
+        }]
+      },
+      "args": { "-DefinitionFile": "{inputFile}", "-OutputPath": "Template.xml" },
+      "cwd": "{workDir}"
+    }
+  ],
+  "params": { "templatePath": "Template.xml" },
+  "outputPath": "decompiled.json"
+}

@@ -1,0 +1,43 @@
+{
+  "name": "calculatedFields, totalFields, parameters с autoDates/valueList/hidden/availableValues",
+  "preRun": [
+    {
+      "script": "skd-compile/scripts/skd-compile",
+      "input": {
+        "dataSets": [{
+          "name": "Тест",
+          "query": "ВЫБРАТЬ * ИЗ Справочник.Номенклатура",
+          "fields": ["Цена: decimal(15,2)", "Закупка: decimal(15,2)"]
+        }],
+        "calculatedFields": [
+          "Маржа = Цена - Закупка",
+          "Наценка [Наценка, %]: decimal(10,2) = Маржа / Закупка * 100",
+          "Служебное: string = \"\" #noField #noFilter #noGroup #noOrder"
+        ],
+        "totalFields": [
+          "Цена: Сумма",
+          "Маржа: Сумма(Цена - Закупка)"
+        ],
+        "parameters": [
+          "Период [Отчетный период]: StandardPeriod = LastMonth @autoDates",
+          "Организация: CatalogRef.Организации",
+          "СписокДокументов: CatalogRef.Документы @valueList",
+          "СлужебныйПар: string @hidden",
+          {
+            "name": "ПорядокОкругления",
+            "type": "EnumRef.Округления",
+            "value": "Перечисление.Округления.Окр1",
+            "availableValues": [
+              {"value": "Перечисление.Округления.Окр1_00", "presentation": "руб. коп"},
+              {"value": "Перечисление.Округления.Окр1", "presentation": "руб."}
+            ]
+          }
+        ]
+      },
+      "args": { "-DefinitionFile": "{inputFile}", "-OutputPath": "Template.xml" },
+      "cwd": "{workDir}"
+    }
+  ],
+  "params": { "templatePath": "Template.xml" },
+  "outputPath": "decompiled.json"
+}

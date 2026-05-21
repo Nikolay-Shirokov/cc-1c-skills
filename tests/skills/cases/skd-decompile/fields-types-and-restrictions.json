@@ -1,0 +1,31 @@
+{
+  "name": "Поля: типы, роли, restrictions, multilang, appearance, composite, presentation",
+  "preRun": [
+    {
+      "script": "skd-compile/scripts/skd-compile",
+      "input": {
+        "dataSets": [{
+          "name": "Тест",
+          "query": "ВЫБРАТЬ * ИЗ Справочник.Номенклатура",
+          "fields": [
+            "Наименование",
+            "Количество: decimal(15,2)",
+            "Организация: CatalogRef.Организации @dimension",
+            "Служебное: string #noField #noFilter",
+            "СтрокаФикс: string(50,fix)",
+            "Положительное: decimal(10,nonneg)",
+            "Дата1: date",
+            { "field": "СПояснением", "title": "Поле с пояснением", "type": "decimal(15,2)", "appearance": { "ГоризонтальноеПоложение": "Right", "МинимальнаяШирина": "80" } },
+            { "field": "Многоязычное", "title": { "ru": "Русский", "en": "English" }, "type": "string" },
+            { "field": "СоставноеПоле", "type": ["CatalogRef.Организации", "CatalogRef.Валюты"] },
+            { "field": "СВыражениемПредставления", "type": "CatalogRef.Номенклатура", "presentationExpression": "Представление(СВыражениемПредставления)" }
+          ]
+        }]
+      },
+      "args": { "-DefinitionFile": "{inputFile}", "-OutputPath": "Template.xml" },
+      "cwd": "{workDir}"
+    }
+  ],
+  "params": { "templatePath": "Template.xml" },
+  "outputPath": "decompiled.json"
+}

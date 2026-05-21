@@ -15,5 +15,5 @@
     }
   ],
   "params": { "templatePath": "Template.xml" },
-  "expect": { "stdoutContains": "НаборДанных1" }
+  "outputPath": "decompiled.json"
 }

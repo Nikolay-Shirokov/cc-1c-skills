@@ -2,10 +2,11 @@
   "script": "skd-decompile/scripts/skd-decompile",
   "setup": "none",
   "args": [
-    { "flag": "-TemplatePath", "from": "workPath", "field": "templatePath" }
+    { "flag": "-TemplatePath", "from": "workPath", "field": "templatePath" },
+    { "flag": "-OutputPath", "from": "outputPath" }
   ],
   "snapshot": {
     "root": "workDir",
-    "normalizeUuids": false
+    "normalizeUuids": true
   }
 }
