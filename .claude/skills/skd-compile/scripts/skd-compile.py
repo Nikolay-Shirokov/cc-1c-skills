@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# skd-compile v1.53 — Compile 1C DCS from JSON
+# skd-compile v1.54 — Compile 1C DCS from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import json
@@ -2352,6 +2352,15 @@ def emit_settings_variants(lines, defn):
         # <dcsset:itemsViewMode> on settings — emit only if explicitly set
         if s.get('itemsViewMode'):
             lines.append(f'\t\t\t<dcsset:itemsViewMode>{esc_xml(str(s["itemsViewMode"]))}</dcsset:itemsViewMode>')
+
+        # <dcsset:additionalProperties> — key/value свойства варианта
+        if s.get('additionalProperties'):
+            lines.append('\t\t\t<dcsset:additionalProperties>')
+            for k, v in s['additionalProperties'].items():
+                lines.append(f'\t\t\t\t<v8:Property name="{esc_xml(str(k))}">')
+                lines.append(f'\t\t\t\t\t<v8:Value xsi:type="xs:string">{esc_xml(str(v))}</v8:Value>')
+                lines.append('\t\t\t\t</v8:Property>')
+            lines.append('\t\t\t</dcsset:additionalProperties>')
 
         lines.append('\t\t</dcsset:settings>')
         lines.append('\t</settingsVariant>')

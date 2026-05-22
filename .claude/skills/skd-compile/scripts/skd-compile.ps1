@@ -1,4 +1,4 @@
-﻿# skd-compile v1.53 — Compile 1C DCS from JSON
+﻿# skd-compile v1.54 — Compile 1C DCS from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[string]$DefinitionFile,
@@ -2848,6 +2848,17 @@ function Emit-SettingsVariants {
 		# <dcsset:itemsViewMode> on <dcsset:settings> — emit only if explicitly set
 		if ($s.itemsViewMode) {
 			X "`t`t`t<dcsset:itemsViewMode>$(Esc-Xml "$($s.itemsViewMode)")</dcsset:itemsViewMode>"
+		}
+
+		# <dcsset:additionalProperties> — key/value свойства варианта
+		if ($s.additionalProperties) {
+			X "`t`t`t<dcsset:additionalProperties>"
+			foreach ($prop in $s.additionalProperties.PSObject.Properties) {
+				X "`t`t`t`t<v8:Property name=`"$(Esc-Xml $prop.Name)`">"
+				X "`t`t`t`t`t<v8:Value xsi:type=`"xs:string`">$(Esc-Xml "$($prop.Value)")</v8:Value>"
+				X "`t`t`t`t</v8:Property>"
+			}
+			X "`t`t`t</dcsset:additionalProperties>"
 		}
 
 		X "`t`t</dcsset:settings>"
