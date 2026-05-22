@@ -1,4 +1,4 @@
-﻿# skd-decompile v0.45 — Decompile 1C DCS Template.xml to JSON DSL (draft)
+﻿# skd-decompile v0.46 — Decompile 1C DCS Template.xml to JSON DSL (draft)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -1819,6 +1819,21 @@ function Build-Structure {
 				$rows += (Build-TableAxisBlock -node $rn -loc "$loc/$idx/row" -includeName $true)
 			}
 			if ($rows.Count -gt 0) { $entry['rows'] = $rows }
+			# top-level selection / outputParameters / conditionalAppearance на самой
+			# таблице (отдельно от row/column)
+			$tSelN = $it.SelectSingleNode("dcsset:selection", $ns)
+			if ($tSelN) {
+				$tSelI = Build-Selection -selNode $tSelN -loc "$loc/$idx/selection"
+				if ($tSelI.Count -gt 0) { $entry['selection'] = $tSelI }
+			}
+			$tOpN = $it.SelectSingleNode("dcsset:outputParameters", $ns)
+			$tOp = Build-OutputParameters -opNode $tOpN
+			if ($tOp -and $tOp.Count -gt 0) { $entry['outputParameters'] = $tOp }
+			$tCaN = $it.SelectSingleNode("dcsset:conditionalAppearance", $ns)
+			if ($tCaN) {
+				$tCa = Build-ConditionalAppearance -caNode $tCaN -loc "$loc/$idx/ca"
+				if ($tCa.Count -gt 0) { $entry['conditionalAppearance'] = $tCa }
+			}
 			$items += $entry
 			$idx++
 			continue
