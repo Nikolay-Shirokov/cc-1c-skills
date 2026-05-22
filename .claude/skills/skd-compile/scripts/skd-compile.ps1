@@ -1,4 +1,4 @@
-﻿# skd-compile v1.52 — Compile 1C DCS from JSON
+﻿# skd-compile v1.53 — Compile 1C DCS from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[string]$DefinitionFile,
@@ -799,6 +799,9 @@ function Emit-InputParameters {
 				X "$indent`t`t<dcscor:value xsi:type=`"xs:boolean`">$vStr</dcscor:value>"
 			} elseif ($val -is [int] -or $val -is [long] -or $val -is [double] -or $val -is [decimal]) {
 				X "$indent`t`t<dcscor:value xsi:type=`"xs:decimal`">$val</dcscor:value>"
+			} elseif ($val -is [hashtable] -or $val -is [System.Collections.IDictionary] -or $val -is [PSCustomObject]) {
+				# Multilang dict {ru, en, ...} → LocalStringType
+				Emit-MLText -tag "dcscor:value" -text $val -indent "$indent`t`t"
 			} else {
 				X "$indent`t`t<dcscor:value xsi:type=`"xs:string`">$(Esc-Xml "$val")</dcscor:value>"
 			}
@@ -1314,6 +1317,11 @@ function Emit-SingleParam {
 	elseif ($parsed.use) { $useVal = "$($parsed.use)" }
 	if ($useVal) {
 		X "`t`t<use>$(Esc-Xml $useVal)</use>"
+	}
+
+	# InputParameters на параметре (ФорматРедактирования и т.п.)
+	if ($null -ne $p -and $p -isnot [string] -and $p.inputParameters) {
+		Emit-InputParameters -ip $p.inputParameters -indent "`t`t"
 	}
 
 	X "`t</parameter>"

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# skd-compile v1.52 — Compile 1C DCS from JSON
+# skd-compile v1.53 — Compile 1C DCS from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import json
@@ -605,6 +605,9 @@ def emit_input_parameters(lines, ip, indent):
                 lines.append(f'{indent}\t\t<dcscor:value xsi:type="xs:boolean">{vstr}</dcscor:value>')
             elif isinstance(val, (int, float)):
                 lines.append(f'{indent}\t\t<dcscor:value xsi:type="xs:decimal">{val}</dcscor:value>')
+            elif isinstance(val, dict):
+                # Multilang dict {ru, en, ...} → LocalStringType
+                emit_mltext(lines, f'{indent}\t\t', 'dcscor:value', val)
             else:
                 lines.append(f'{indent}\t\t<dcscor:value xsi:type="xs:string">{esc_xml(str(val))}</dcscor:value>')
         lines.append(f'{indent}\t</dcscor:item>')
@@ -1131,6 +1134,10 @@ def emit_single_param(lines, p, parsed):
         use_val = str(parsed['use'])
     if use_val:
         lines.append(f'\t\t<use>{esc_xml(use_val)}</use>')
+
+    # InputParameters на параметре (ФорматРедактирования и т.п.)
+    if p is not None and not isinstance(p, str) and p.get('inputParameters'):
+        emit_input_parameters(lines, p['inputParameters'], '\t\t')
 
     lines.append('\t</parameter>')
 
