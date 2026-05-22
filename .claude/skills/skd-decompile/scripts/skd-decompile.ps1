@@ -1,4 +1,4 @@
-﻿# skd-decompile v0.35 — Decompile 1C DCS Template.xml to JSON DSL (draft)
+﻿# skd-decompile v0.36 — Decompile 1C DCS Template.xml to JSON DSL (draft)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -1568,6 +1568,22 @@ function Build-ConditionalAppearance {
 		if ($vmN) { $entry['viewMode'] = $vmN.InnerText }
 		$usid = Get-Text $it "dcsset:userSettingID"
 		if ($usid) { $entry['userSettingID'] = 'auto' }
+		# use=false на самом condAppearance item
+		$useV = Get-Text $it "dcsset:use"
+		if ($useV -eq 'false') { $entry['use'] = $false }
+		# useInXxx — управляет где применяется правило оформления
+		# (group, hierarchicalGroup, overall, fieldsHeader, header, parameters,
+		#  filter, resourceFieldsHeader, overallHeader, overallResourceFieldsHeader)
+		$useInDontUse = @()
+		foreach ($ch in $it.ChildNodes) {
+			if ($ch.NodeType -ne 'Element' -or $ch.NamespaceURI -ne 'http://v8.1c.ru/8.1/data-composition-system/settings') { continue }
+			if ($ch.LocalName -match '^useIn(.+)$' -and $ch.InnerText -eq 'DontUse') {
+				# Преобразуем useInGroup → group, useInFieldsHeader → fieldsHeader
+				$shortName = ($matches[1]).Substring(0, 1).ToLower() + ($matches[1]).Substring(1)
+				$useInDontUse += $shortName
+			}
+		}
+		if ($useInDontUse.Count -gt 0) { $entry['useInDontUse'] = $useInDontUse }
 		$out += $entry
 		$i++
 	}
