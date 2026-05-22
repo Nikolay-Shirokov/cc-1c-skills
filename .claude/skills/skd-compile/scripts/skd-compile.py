@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# skd-compile v1.42 — Compile 1C DCS from JSON
+# skd-compile v1.44 — Compile 1C DCS from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import json
@@ -1626,6 +1626,17 @@ def emit_filter_item(lines, item, indent):
                     if parsed.get('viewMode'):
                         sub['viewMode'] = parsed['viewMode']
                 emit_filter_item(lines, sub, f'{indent}\t')
+        if item.get('presentation'):
+            emit_mltext(lines, f'{indent}\t', 'dcsset:presentation', item['presentation'])
+        # Platform always emits viewMode when userSettingID is present (implicit Normal).
+        if item.get('viewMode') or item.get('userSettingID'):
+            gvm = str(item['viewMode']) if item.get('viewMode') else 'Normal'
+            lines.append(f'{indent}\t<dcsset:viewMode>{esc_xml(gvm)}</dcsset:viewMode>')
+        if item.get('userSettingID'):
+            guid = new_uuid() if str(item['userSettingID']) == 'auto' else str(item['userSettingID'])
+            lines.append(f'{indent}\t<dcsset:userSettingID>{esc_xml(guid)}</dcsset:userSettingID>')
+        if item.get('userSettingPresentation'):
+            emit_mltext(lines, f'{indent}\t', 'dcsset:userSettingPresentation', item['userSettingPresentation'])
         lines.append(f'{indent}</dcsset:item>')
         return
 
@@ -1662,8 +1673,10 @@ def emit_filter_item(lines, item, indent):
     if item.get('presentation'):
         emit_mltext(lines, f'{indent}\t', 'dcsset:presentation', item["presentation"])
 
-    if item.get('viewMode'):
-        lines.append(f'{indent}\t<dcsset:viewMode>{esc_xml(str(item["viewMode"]))}</dcsset:viewMode>')
+    # Platform always emits viewMode when userSettingID is present (implicit Normal).
+    if item.get('viewMode') or item.get('userSettingID'):
+        vm = str(item['viewMode']) if item.get('viewMode') else 'Normal'
+        lines.append(f'{indent}\t<dcsset:viewMode>{esc_xml(vm)}</dcsset:viewMode>')
 
     if item.get('userSettingID'):
         uid = new_uuid() if str(item['userSettingID']) == 'auto' else str(item['userSettingID'])
@@ -1814,9 +1827,10 @@ def emit_conditional_appearance(lines, items, indent, block_view_mode=None):
         if ca.get('presentation'):
             lines.append(f'{indent}\t\t<dcsset:presentation xsi:type="xs:string">{esc_xml(str(ca["presentation"]))}</dcsset:presentation>')
 
-        # ViewMode
-        if ca.get('viewMode'):
-            lines.append(f'{indent}\t\t<dcsset:viewMode>{esc_xml(str(ca["viewMode"]))}</dcsset:viewMode>')
+        # Platform always emits viewMode when userSettingID is present (implicit Normal).
+        if ca.get('viewMode') or ca.get('userSettingID'):
+            cvm = str(ca['viewMode']) if ca.get('viewMode') else 'Normal'
+            lines.append(f'{indent}\t\t<dcsset:viewMode>{esc_xml(cvm)}</dcsset:viewMode>')
 
         # UserSettingID
         if ca.get('userSettingID'):
@@ -1907,8 +1921,10 @@ def emit_data_parameters(lines, items, indent):
             else:
                 lines.append(f'{indent}\t\t<dcscor:value xsi:type="xs:string">{esc_xml(str(val))}</dcscor:value>')
 
-        if dp.get('viewMode'):
-            lines.append(f'{indent}\t\t<dcsset:viewMode>{esc_xml(str(dp["viewMode"]))}</dcsset:viewMode>')
+        # Platform always emits viewMode when userSettingID is present (implicit Normal).
+        if dp.get('viewMode') or dp.get('userSettingID'):
+            dvm = str(dp['viewMode']) if dp.get('viewMode') else 'Normal'
+            lines.append(f'{indent}\t\t<dcsset:viewMode>{esc_xml(dvm)}</dcsset:viewMode>')
 
         if dp.get('userSettingID'):
             uid = new_uuid() if str(dp['userSettingID']) == 'auto' else str(dp['userSettingID'])
@@ -2028,8 +2044,15 @@ def emit_user_fields(lines, items, indent):
     lines.append(f'{indent}</dcsset:userFields>')
 
 
-def emit_table_axis_block(lines, block, indent):
-    """Shared emitter for table column/row and chart point/series."""
+def emit_table_axis_block(lines, block, indent, emit_name=True):
+    """Shared emitter for table column/row and chart point/series.
+
+    Emits name?, groupItems, filter, order, selection, outputParameters,
+    viewMode?, userSettingID?, userSettingPresentation? — each conditional on
+    presence in JSON.
+    """
+    if emit_name and block.get('name'):
+        lines.append(f'{indent}<dcsset:name>{esc_xml(str(block["name"]))}</dcsset:name>')
     gb = block.get('groupBy') or block.get('groupFields')
     emit_group_items(lines, gb, indent)
     if block.get('filter'):
@@ -2040,6 +2063,13 @@ def emit_table_axis_block(lines, block, indent):
         emit_selection(lines, block['selection'], indent)
     if block.get('outputParameters'):
         emit_output_parameters(lines, block['outputParameters'], indent)
+    if block.get('viewMode'):
+        lines.append(f'{indent}<dcsset:viewMode>{esc_xml(str(block["viewMode"]))}</dcsset:viewMode>')
+    if block.get('userSettingID'):
+        uid = new_uuid() if str(block['userSettingID']) == 'auto' else str(block['userSettingID'])
+        lines.append(f'{indent}<dcsset:userSettingID>{esc_xml(uid)}</dcsset:userSettingID>')
+    if block.get('userSettingPresentation'):
+        emit_mltext(lines, indent, 'dcsset:userSettingPresentation', block['userSettingPresentation'])
 
 
 def emit_structure_item(lines, item, indent):
@@ -2097,8 +2127,6 @@ def emit_structure_item(lines, item, indent):
         if item.get('rows'):
             for row in item['rows']:
                 lines.append(f'{indent}\t<dcsset:row>')
-                if row.get('name'):
-                    lines.append(f'{indent}\t\t<dcsset:name>{esc_xml(str(row["name"]))}</dcsset:name>')
                 emit_table_axis_block(lines, row, f'{indent}\t\t')
                 lines.append(f'{indent}\t</dcsset:row>')
 

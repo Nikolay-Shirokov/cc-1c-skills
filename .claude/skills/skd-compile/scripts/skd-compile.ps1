@@ -1,4 +1,4 @@
-﻿# skd-compile v1.42 — Compile 1C DCS from JSON
+﻿# skd-compile v1.44 — Compile 1C DCS from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[string]$DefinitionFile,
@@ -1954,6 +1954,21 @@ function Emit-FilterItem {
 				Emit-FilterItem -item $sub -indent "$indent`t"
 			}
 		}
+		if ($item.presentation) {
+			Emit-MLText -tag "dcsset:presentation" -text $item.presentation -indent "$indent`t"
+		}
+		# Platform always emits viewMode when userSettingID is present (implicit Normal).
+		if ($item.viewMode -or $item.userSettingID) {
+			$gvm = if ($item.viewMode) { "$($item.viewMode)" } else { 'Normal' }
+			X "$indent`t<dcsset:viewMode>$(Esc-Xml $gvm)</dcsset:viewMode>"
+		}
+		if ($item.userSettingID) {
+			$guid = if ("$($item.userSettingID)" -eq "auto") { New-Guid-String } else { "$($item.userSettingID)" }
+			X "$indent`t<dcsset:userSettingID>$(Esc-Xml $guid)</dcsset:userSettingID>"
+		}
+		if ($item.userSettingPresentation) {
+			Emit-MLText -tag "dcsset:userSettingPresentation" -text $item.userSettingPresentation -indent "$indent`t"
+		}
 		X "$indent</dcsset:item>"
 		return
 	}
@@ -1994,8 +2009,10 @@ function Emit-FilterItem {
 		Emit-MLText -tag "dcsset:presentation" -text $item.presentation -indent "$indent`t"
 	}
 
-	if ($item.viewMode) {
-		X "$indent`t<dcsset:viewMode>$(Esc-Xml "$($item.viewMode)")</dcsset:viewMode>"
+	# Platform always emits viewMode when userSettingID is present (implicit Normal).
+	if ($item.viewMode -or $item.userSettingID) {
+		$vm = if ($item.viewMode) { "$($item.viewMode)" } else { 'Normal' }
+		X "$indent`t<dcsset:viewMode>$(Esc-Xml $vm)</dcsset:viewMode>"
 	}
 
 	if ($item.userSettingID) {
@@ -2174,9 +2191,10 @@ function Emit-ConditionalAppearance {
 			X "$indent`t`t<dcsset:presentation xsi:type=`"xs:string`">$(Esc-Xml "$($ca.presentation)")</dcsset:presentation>"
 		}
 
-		# ViewMode
-		if ($ca.viewMode) {
-			X "$indent`t`t<dcsset:viewMode>$(Esc-Xml "$($ca.viewMode)")</dcsset:viewMode>"
+		# Platform always emits viewMode when userSettingID is present (implicit Normal).
+		if ($ca.viewMode -or $ca.userSettingID) {
+			$cvm = if ($ca.viewMode) { "$($ca.viewMode)" } else { 'Normal' }
+			X "$indent`t`t<dcsset:viewMode>$(Esc-Xml $cvm)</dcsset:viewMode>"
 		}
 
 		# UserSettingID
@@ -2296,8 +2314,10 @@ function Emit-DataParameters {
 			}
 		}
 
-		if ($dp.viewMode) {
-			X "$indent`t`t<dcsset:viewMode>$(Esc-Xml "$($dp.viewMode)")</dcsset:viewMode>"
+		# Platform always emits viewMode when userSettingID is present (implicit Normal).
+		if ($dp.viewMode -or $dp.userSettingID) {
+			$dvm = if ($dp.viewMode) { "$($dp.viewMode)" } else { 'Normal' }
+			X "$indent`t`t<dcsset:viewMode>$(Esc-Xml $dvm)</dcsset:viewMode>"
 		}
 
 		if ($dp.userSettingID) {
@@ -2448,9 +2468,15 @@ function Emit-UserFields {
 }
 
 # Shared emitter for table column/row and chart point/series.
-# Emits groupItems, filter, order, selection, outputParameters — each conditional on JSON presence.
+# Emits name?, groupItems, filter, order, selection, outputParameters, viewMode?,
+# userSettingID?, userSettingPresentation? — каждое условно по присутствию в JSON.
+# Параметр $emitName управляет тем, эмитить ли <name> внутри блока: для row caller
+# уже эмитит name отдельно (исторический порядок), для остальных — здесь.
 function Emit-TableAxisBlock {
-	param($block, [string]$indent)
+	param($block, [string]$indent, [bool]$emitName = $true)
+	if ($emitName -and $block.name) {
+		X "$indent<dcsset:name>$(Esc-Xml "$($block.name)")</dcsset:name>"
+	}
 	$gb = if ($block.groupBy) { $block.groupBy } else { $block.groupFields }
 	Emit-GroupItems -groupBy $gb -indent $indent
 	if ($block.filter) {
@@ -2464,6 +2490,16 @@ function Emit-TableAxisBlock {
 	}
 	if ($block.outputParameters) {
 		Emit-OutputParameters -params $block.outputParameters -indent $indent
+	}
+	if ($block.viewMode) {
+		X "$indent<dcsset:viewMode>$(Esc-Xml "$($block.viewMode)")</dcsset:viewMode>"
+	}
+	if ($block.userSettingID) {
+		$uid = if ("$($block.userSettingID)" -eq "auto") { New-Guid-String } else { "$($block.userSettingID)" }
+		X "$indent<dcsset:userSettingID>$(Esc-Xml $uid)</dcsset:userSettingID>"
+	}
+	if ($block.userSettingPresentation) {
+		Emit-MLText -tag "dcsset:userSettingPresentation" -text $block.userSettingPresentation -indent $indent
 	}
 }
 
@@ -2539,9 +2575,6 @@ function Emit-StructureItem {
 		if ($item.rows) {
 			foreach ($row in $item.rows) {
 				X "$indent`t<dcsset:row>"
-				if ($row.name) {
-					X "$indent`t`t<dcsset:name>$(Esc-Xml "$($row.name)")</dcsset:name>"
-				}
 				Emit-TableAxisBlock -block $row -indent "$indent`t`t"
 				X "$indent`t</dcsset:row>"
 			}
