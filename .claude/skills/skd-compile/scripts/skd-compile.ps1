@@ -1,4 +1,4 @@
-﻿# skd-compile v1.57 — Compile 1C DCS from JSON
+﻿# skd-compile v1.58 — Compile 1C DCS from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[string]$DefinitionFile,
@@ -2646,11 +2646,17 @@ function Emit-StructureItem {
 			}
 		}
 
-		# viewMode/itemsViewMode on StructureItemGroup are context-dependent —
-		# platform emits them in some shapes (top-level single group) but not always.
-		# Emit only when explicitly set in JSON (preserves bit-perfect round-trip).
+		# viewMode/itemsViewMode/userSettingID/userSettingPresentation on
+		# StructureItemGroup are context-dependent — emit only when explicitly set.
 		if ($item.viewMode) {
 			X "$indent`t<dcsset:viewMode>$(Esc-Xml "$($item.viewMode)")</dcsset:viewMode>"
+		}
+		if ($item.userSettingID) {
+			$gid = if ("$($item.userSettingID)" -eq "auto") { New-Guid-String } else { "$($item.userSettingID)" }
+			X "$indent`t<dcsset:userSettingID>$(Esc-Xml $gid)</dcsset:userSettingID>"
+		}
+		if ($item.userSettingPresentation) {
+			Emit-MLText -tag "dcsset:userSettingPresentation" -text $item.userSettingPresentation -indent "$indent`t"
 		}
 		if ($item.itemsViewMode) {
 			X "$indent`t<dcsset:itemsViewMode>$(Esc-Xml "$($item.itemsViewMode)")</dcsset:itemsViewMode>"

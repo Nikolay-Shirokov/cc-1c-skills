@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# skd-compile v1.57 — Compile 1C DCS from JSON
+# skd-compile v1.58 — Compile 1C DCS from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import json
@@ -2189,9 +2189,14 @@ def emit_structure_item(lines, item, indent):
             for child in item['children']:
                 emit_structure_item(lines, child, f'{indent}\t')
 
-        # viewMode/itemsViewMode — emit only when explicitly set (context-dependent)
+        # viewMode/itemsViewMode/userSettingID/userSettingPresentation — context-dependent
         if item.get('viewMode'):
             lines.append(f'{indent}\t<dcsset:viewMode>{esc_xml(str(item["viewMode"]))}</dcsset:viewMode>')
+        if item.get('userSettingID'):
+            gid = new_uuid() if str(item['userSettingID']) == 'auto' else str(item['userSettingID'])
+            lines.append(f'{indent}\t<dcsset:userSettingID>{esc_xml(gid)}</dcsset:userSettingID>')
+        if item.get('userSettingPresentation'):
+            emit_mltext(lines, f'{indent}\t', 'dcsset:userSettingPresentation', item['userSettingPresentation'])
         if item.get('itemsViewMode'):
             lines.append(f'{indent}\t<dcsset:itemsViewMode>{esc_xml(str(item["itemsViewMode"]))}</dcsset:itemsViewMode>')
 
