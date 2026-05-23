@@ -1,4 +1,4 @@
-﻿# skd-decompile v0.66 — Decompile 1C DCS Template.xml to JSON DSL (draft)
+﻿# skd-decompile v0.67 — Decompile 1C DCS Template.xml to JSON DSL (draft)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -2362,7 +2362,11 @@ foreach ($p in $paramsRaw) {
 		if ($q.expression -eq $startExpr) { $startMatch = $q.name }
 		elseif ($q.expression -eq $endExpr) { $endMatch = $q.name }
 	}
-	if ($startMatch -and $endMatch) {
+	# Fold ТОЛЬКО если companion-имена точно "НачалоПериода"/"КонецПериода" БЕЗ суффикса.
+	# Иначе compile (который генерирует именно эти имена + type=date + DateFractions=Date)
+	# не сможет вернуть bit-perfect для отчётов с шаблоном "Период<X>" → "НачалоПериода<X>"/
+	# "КонецПериода<X>" + DateFractions=DateTime. Оставляем как явные параметры.
+	if ($startMatch -eq 'НачалоПериода' -and $endMatch -eq 'КонецПериода') {
 		$p['autoDates'] = $true
 		$removedNames[$startMatch] = $true
 		$removedNames[$endMatch] = $true
