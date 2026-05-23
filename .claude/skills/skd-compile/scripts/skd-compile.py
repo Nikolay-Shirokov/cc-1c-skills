@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# skd-compile v1.75 — Compile 1C DCS from JSON
+# skd-compile v1.76 — Compile 1C DCS from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import json
@@ -1788,7 +1788,7 @@ def emit_filter(lines, items, indent, block_view_mode=None):
     lines.append(f'{indent}</dcsset:filter>')
 
 
-def emit_order(lines, items, indent, skip_auto=False, block_view_mode=None):
+def emit_order(lines, items, indent, skip_auto=False, block_view_mode=None, block_user_setting_id=None):
     if not items or len(items) == 0:
         return
 
@@ -1831,6 +1831,9 @@ def emit_order(lines, items, indent, skip_auto=False, block_view_mode=None):
             lines.append(f'{indent}\t</dcsset:item>')
     if block_view_mode is not None:
         lines.append(f'{indent}\t<dcsset:viewMode>{esc_xml(str(block_view_mode))}</dcsset:viewMode>')
+    if block_user_setting_id is not None:
+        uid = new_uuid() if str(block_user_setting_id) == 'auto' else str(block_user_setting_id)
+        lines.append(f'{indent}\t<dcsset:userSettingID>{esc_xml(uid)}</dcsset:userSettingID>')
     lines.append(f'{indent}</dcsset:order>')
 
 
@@ -2268,7 +2271,7 @@ def emit_structure_item(lines, item, indent):
 
         # Emit order/selection only if specified — platform doesn't always emit them on group
         if item.get('order'):
-            emit_order(lines, item['order'], f'{indent}\t')
+            emit_order(lines, item['order'], f'{indent}\t', block_view_mode=item.get('orderViewMode'), block_user_setting_id=item.get('orderUserSettingID'))
         if item.get('selection'):
             emit_selection(lines, item['selection'], f'{indent}\t')
 

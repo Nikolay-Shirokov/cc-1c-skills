@@ -1,4 +1,4 @@
-﻿# skd-decompile v0.58 — Decompile 1C DCS Template.xml to JSON DSL (draft)
+﻿# skd-decompile v0.59 — Decompile 1C DCS Template.xml to JSON DSL (draft)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -2047,6 +2047,12 @@ function Build-Structure {
 		if ($ordNode) {
 			$ordItems = Build-Order -ordNode $ordNode -loc "$loc/order"
 			if ($ordItems.Count -gt 0) { $entry['order'] = $ordItems }
+			# Block-level viewMode/userSettingID на <dcsset:order>
+			foreach ($ch in $ordNode.ChildNodes) {
+				if ($ch.NodeType -ne 'Element' -or $ch.NamespaceURI -ne 'http://v8.1c.ru/8.1/data-composition-system/settings') { continue }
+				if ($ch.LocalName -eq 'viewMode') { $entry['orderViewMode'] = $ch.InnerText }
+				elseif ($ch.LocalName -eq 'userSettingID') { $entry['orderUserSettingID'] = 'auto' }
+			}
 		}
 		# Local filter
 		$filterNode = $it.SelectSingleNode("dcsset:filter", $ns)

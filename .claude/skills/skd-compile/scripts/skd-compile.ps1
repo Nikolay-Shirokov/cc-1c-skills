@@ -1,4 +1,4 @@
-﻿# skd-compile v1.75 — Compile 1C DCS from JSON
+﻿# skd-compile v1.76 — Compile 1C DCS from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[string]$DefinitionFile,
@@ -2155,7 +2155,7 @@ function Emit-Filter {
 }
 
 function Emit-Order {
-	param($items, [string]$indent, [switch]$skipAuto, $blockViewMode = $null)
+	param($items, [string]$indent, [switch]$skipAuto, $blockViewMode = $null, $blockUserSettingID = $null)
 
 	if (-not $items -or $items.Count -eq 0) { return }
 
@@ -2201,6 +2201,10 @@ function Emit-Order {
 	}
 	if ($null -ne $blockViewMode) {
 		X "$indent`t<dcsset:viewMode>$(Esc-Xml "$blockViewMode")</dcsset:viewMode>"
+	}
+	if ($null -ne $blockUserSettingID) {
+		$uid = if ("$blockUserSettingID" -eq 'auto') { New-Guid-String } else { "$blockUserSettingID" }
+		X "$indent`t<dcsset:userSettingID>$(Esc-Xml $uid)</dcsset:userSettingID>"
 	}
 	X "$indent</dcsset:order>"
 }
@@ -2806,7 +2810,7 @@ function Emit-StructureItem {
 
 		# Emit order/selection only if specified — platform doesn't always emit them on group
 		if ($item.order) {
-			Emit-Order -items $item.order -indent "$indent`t"
+			Emit-Order -items $item.order -indent "$indent`t" -blockViewMode $item.orderViewMode -blockUserSettingID $item.orderUserSettingID
 		}
 		if ($item.selection) {
 			Emit-Selection -items $item.selection -indent "$indent`t"
