@@ -38,6 +38,7 @@
 			</v8:StringQualifiers>
 		</valueType>
 		<value xsi:type="xs:string"/>
+		<useRestriction>false</useRestriction>
 	</parameter>
 	<settingsVariant>
 		<dcsset:name>Основной</dcsset:name>

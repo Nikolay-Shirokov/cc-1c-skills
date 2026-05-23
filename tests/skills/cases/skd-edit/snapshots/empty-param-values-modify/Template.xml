@@ -38,6 +38,7 @@
 			</v8:StringQualifiers>
 		</valueType>
 		<value xsi:type="xs:string"/>
+		<useRestriction>false</useRestriction>
 	</parameter>
 	<parameter>
 		<name>ПарДата</name>
@@ -48,6 +49,7 @@
 			</v8:DateQualifiers>
 		</valueType>
 		<value xsi:type="xs:dateTime">0001-01-01T00:00:00</value>
+		<useRestriction>false</useRestriction>
 	</parameter>
 	<parameter>
 		<name>ПарЧисло</name>
@@ -60,6 +62,7 @@
 			</v8:NumberQualifiers>
 		</valueType>
 		<value xsi:type="xs:decimal">0</value>
+		<useRestriction>false</useRestriction>
 	</parameter>
 	<parameter>
 		<name>ПарСсылка</name>
@@ -67,6 +70,7 @@
 			<v8:Type xmlns:d5p1="http://v8.1c.ru/8.1/data/enterprise/current-config">d5p1:CatalogRef.Номенклатура</v8:Type>
 		</valueType>
 		<value xsi:nil="true"/>
+		<useRestriction>false</useRestriction>
 	</parameter>
 	<settingsVariant>
 		<dcsset:name>Основной</dcsset:name>

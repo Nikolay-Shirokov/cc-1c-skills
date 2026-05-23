@@ -37,6 +37,7 @@
 			<v8:startDate>0001-01-01T00:00:00</v8:startDate>
 			<v8:endDate>0001-01-01T00:00:00</v8:endDate>
 		</value>
+		<useRestriction>false</useRestriction>
 	</parameter>
 	<parameter>
 		<name>ПланСчетовМеждународный</name>
@@ -48,6 +49,7 @@
 			</v8:StringQualifiers>
 		</valueType>
 		<value xsi:type="xs:string"/>
+		<useRestriction>false</useRestriction>
 	</parameter>
 	<parameter>
 		<name>ПорядокОкругленияСумм</name>
@@ -59,6 +61,7 @@
 			</v8:StringQualifiers>
 		</valueType>
 		<value xsi:type="xs:string"/>
+		<useRestriction>false</useRestriction>
 	</parameter>
 	<parameter>
 		<name>Организация</name>
@@ -70,6 +73,7 @@
 			</v8:StringQualifiers>
 		</valueType>
 		<value xsi:type="xs:string"/>
+		<useRestriction>false</useRestriction>
 	</parameter>
 	<parameter>
 		<name>ПрекращаемаяДеятельность</name>
@@ -77,6 +81,7 @@
 			<v8:Type>xs:boolean</v8:Type>
 		</valueType>
 		<value xsi:type="xs:boolean">false</value>
+		<useRestriction>false</useRestriction>
 	</parameter>
 	
 	<settingsVariant>

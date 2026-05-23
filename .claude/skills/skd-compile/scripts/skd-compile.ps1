@@ -1,4 +1,4 @@
-﻿# skd-compile v1.70 — Compile 1C DCS from JSON
+﻿# skd-compile v1.71 — Compile 1C DCS from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[string]$DefinitionFile,
@@ -1586,8 +1586,8 @@ function Emit-ColorValue {
 
 function Emit-CellAppearance {
 	param($style, [double]$width = 0, [bool]$vMerge = $false, [bool]$hMerge = $false, [double]$minHeight = 0, $extraItems = @())
-	$ind = "`t`t`t`t`t"
-	X "`t`t`t`t<dcsat:appearance>"
+	$ind = "`t`t`t`t`t`t"
+	X "`t`t`t`t`t<dcsat:appearance>"
 	# Background color
 	if ($style.bgColor) {
 		X "$ind<dcscor:item>"
@@ -1689,7 +1689,7 @@ function Emit-CellAppearance {
 	}
 	# Extra appearance items (e.g. drilldown Расшифровка)
 	foreach ($ei in $extraItems) { X $ei }
-	X "`t`t`t`t</dcsat:appearance>"
+	X "`t`t`t`t`t</dcsat:appearance>"
 }
 
 # Cell может быть string ("text"/"{param}"/"|"/">"/null) или объектом {value, style}.
@@ -1730,7 +1730,11 @@ function Emit-AreaTemplateDSL {
 	$style = $script:areaStylePresets[$styleName]
 
 	$rows = @($t.rows)
-	$widths = if ($t.widths) { @($t.widths) } else { @() }
+	# PS-quirk: if-expression unwraps single-element @() результат
+	# (`$x = if (...) { @($arr) }` даёт скаляр при одном элементе).
+	# Используем обычный if вместо if-expression.
+	$widths = @()
+	if ($t.widths) { $widths = @($t.widths) }
 	$minHeight = if ($t.minHeight) { [double]$t.minHeight } else { 0 }
 	$colCount = if ($widths.Count -gt 0) { $widths.Count } else { $rows[0].Count }
 
@@ -1807,10 +1811,10 @@ function Emit-AreaTemplateDSL {
 						$cellExtraItems = @()
 						if ($drilldownMap.ContainsKey($paramName)) {
 							$ddVal = $drilldownMap[$paramName]
-							$cellExtraItems += "`t`t`t`t`t<dcscor:item>"
-							$cellExtraItems += "`t`t`t`t`t`t<dcscor:parameter>Расшифровка</dcscor:parameter>"
-							$cellExtraItems += "`t`t`t`t`t`t<dcscor:value xsi:type=`"dcscor:Parameter`">Расшифровка_$ddVal</dcscor:value>"
-							$cellExtraItems += "`t`t`t`t`t</dcscor:item>"
+							$cellExtraItems += "`t`t`t`t`t`t<dcscor:item>"
+							$cellExtraItems += "`t`t`t`t`t`t`t<dcscor:parameter>Расшифровка</dcscor:parameter>"
+							$cellExtraItems += "`t`t`t`t`t`t`t<dcscor:value xsi:type=`"dcscor:Parameter`">Расшифровка_$ddVal</dcscor:value>"
+							$cellExtraItems += "`t`t`t`t`t`t</dcscor:item>"
 						}
 					} else {
 						# Static text

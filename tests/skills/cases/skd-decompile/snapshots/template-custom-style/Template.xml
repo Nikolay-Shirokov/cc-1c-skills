@@ -40,58 +40,58 @@
 							</v8:item>
 						</dcsat:value>
 					</dcsat:item>
-				<dcsat:appearance>
-					<dcscor:item>
-						<dcscor:parameter>ЦветФона</dcscor:parameter>
-						<dcscor:value xmlns:d8p1="http://v8.1c.ru/8.1/data/ui/style" xsi:type="v8ui:Color">d8p1:ReportHeaderBackColor</dcscor:value>
-					</dcscor:item>
-					<dcscor:item>
-						<dcscor:parameter>ЦветГраницы</dcscor:parameter>
-						<dcscor:value xmlns:d8p1="http://v8.1c.ru/8.1/data/ui/style" xsi:type="v8ui:Color">d8p1:ReportLineColor</dcscor:value>
-					</dcscor:item>
-					<dcscor:item>
-						<dcscor:parameter>СтильГраницы</dcscor:parameter>
-						<dcscor:value xsi:type="v8ui:Line" width="0" gap="false">
-							<v8ui:style xsi:type="v8ui:SpreadsheetDocumentCellLineType">None</v8ui:style>
-						</dcscor:value>
+					<dcsat:appearance>
 						<dcscor:item>
-							<dcscor:parameter>СтильГраницы.Слева</dcscor:parameter>
-							<dcscor:value xsi:type="v8ui:Line" width="1" gap="false">
-								<v8ui:style xsi:type="v8ui:SpreadsheetDocumentCellLineType">Solid</v8ui:style>
-							</dcscor:value>
+							<dcscor:parameter>ЦветФона</dcscor:parameter>
+							<dcscor:value xmlns:d8p1="http://v8.1c.ru/8.1/data/ui/style" xsi:type="v8ui:Color">d8p1:ReportHeaderBackColor</dcscor:value>
 						</dcscor:item>
 						<dcscor:item>
-							<dcscor:parameter>СтильГраницы.Сверху</dcscor:parameter>
-							<dcscor:value xsi:type="v8ui:Line" width="1" gap="false">
-								<v8ui:style xsi:type="v8ui:SpreadsheetDocumentCellLineType">Solid</v8ui:style>
-							</dcscor:value>
+							<dcscor:parameter>ЦветГраницы</dcscor:parameter>
+							<dcscor:value xmlns:d8p1="http://v8.1c.ru/8.1/data/ui/style" xsi:type="v8ui:Color">d8p1:ReportLineColor</dcscor:value>
 						</dcscor:item>
 						<dcscor:item>
-							<dcscor:parameter>СтильГраницы.Справа</dcscor:parameter>
-							<dcscor:value xsi:type="v8ui:Line" width="1" gap="false">
-								<v8ui:style xsi:type="v8ui:SpreadsheetDocumentCellLineType">Solid</v8ui:style>
+							<dcscor:parameter>СтильГраницы</dcscor:parameter>
+							<dcscor:value xsi:type="v8ui:Line" width="0" gap="false">
+								<v8ui:style xsi:type="v8ui:SpreadsheetDocumentCellLineType">None</v8ui:style>
 							</dcscor:value>
+							<dcscor:item>
+								<dcscor:parameter>СтильГраницы.Слева</dcscor:parameter>
+								<dcscor:value xsi:type="v8ui:Line" width="1" gap="false">
+									<v8ui:style xsi:type="v8ui:SpreadsheetDocumentCellLineType">Solid</v8ui:style>
+								</dcscor:value>
+							</dcscor:item>
+							<dcscor:item>
+								<dcscor:parameter>СтильГраницы.Сверху</dcscor:parameter>
+								<dcscor:value xsi:type="v8ui:Line" width="1" gap="false">
+									<v8ui:style xsi:type="v8ui:SpreadsheetDocumentCellLineType">Solid</v8ui:style>
+								</dcscor:value>
+							</dcscor:item>
+							<dcscor:item>
+								<dcscor:parameter>СтильГраницы.Справа</dcscor:parameter>
+								<dcscor:value xsi:type="v8ui:Line" width="1" gap="false">
+									<v8ui:style xsi:type="v8ui:SpreadsheetDocumentCellLineType">Solid</v8ui:style>
+								</dcscor:value>
+							</dcscor:item>
+							<dcscor:item>
+								<dcscor:parameter>СтильГраницы.Снизу</dcscor:parameter>
+								<dcscor:value xsi:type="v8ui:Line" width="1" gap="false">
+									<v8ui:style xsi:type="v8ui:SpreadsheetDocumentCellLineType">Solid</v8ui:style>
+								</dcscor:value>
+							</dcscor:item>
 						</dcscor:item>
 						<dcscor:item>
-							<dcscor:parameter>СтильГраницы.Снизу</dcscor:parameter>
-							<dcscor:value xsi:type="v8ui:Line" width="1" gap="false">
-								<v8ui:style xsi:type="v8ui:SpreadsheetDocumentCellLineType">Solid</v8ui:style>
-							</dcscor:value>
+							<dcscor:parameter>Шрифт</dcscor:parameter>
+							<dcscor:value xsi:type="v8ui:Font" faceName="Calibri" height="11" bold="false" italic="false" underline="false" strikeout="false" kind="Absolute" scale="100"/>
 						</dcscor:item>
-					</dcscor:item>
-					<dcscor:item>
-						<dcscor:parameter>Шрифт</dcscor:parameter>
-						<dcscor:value xsi:type="v8ui:Font" faceName="Calibri" height="11" bold="false" italic="false" underline="false" strikeout="false" kind="Absolute" scale="100"/>
-					</dcscor:item>
-					<dcscor:item>
-						<dcscor:parameter>ГоризонтальноеПоложение</dcscor:parameter>
-						<dcscor:value xsi:type="v8ui:HorizontalAlign">Center</dcscor:value>
-					</dcscor:item>
-					<dcscor:item>
-						<dcscor:parameter>ВертикальноеПоложение</dcscor:parameter>
-						<dcscor:value xsi:type="v8ui:VerticalAlign">Center</dcscor:value>
-					</dcscor:item>
-				</dcsat:appearance>
+						<dcscor:item>
+							<dcscor:parameter>ГоризонтальноеПоложение</dcscor:parameter>
+							<dcscor:value xsi:type="v8ui:HorizontalAlign">Center</dcscor:value>
+						</dcscor:item>
+						<dcscor:item>
+							<dcscor:parameter>ВертикальноеПоложение</dcscor:parameter>
+							<dcscor:value xsi:type="v8ui:VerticalAlign">Center</dcscor:value>
+						</dcscor:item>
+					</dcsat:appearance>
 				</dcsat:tableCell>
 			</dcsat:item>
 		</template>

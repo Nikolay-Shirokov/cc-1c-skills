@@ -1304,8 +1304,8 @@ def _emit_color_value(lines, color, indent):
 
 
 def _emit_cell_appearance(lines, style, width=0, v_merge=False, h_merge=False, min_height=0, extra_items=None):
-    ind = '\t\t\t\t\t'
-    lines.append('\t\t\t\t<dcsat:appearance>')
+    ind = '\t\t\t\t\t\t'
+    lines.append('\t\t\t\t\t<dcsat:appearance>')
     # Background color
     if style.get('bgColor'):
         lines.append(f'{ind}<dcscor:item>')
@@ -1396,7 +1396,7 @@ def _emit_cell_appearance(lines, style, width=0, v_merge=False, h_merge=False, m
     if extra_items:
         for ei in extra_items:
             lines.append(ei)
-    lines.append('\t\t\t\t</dcsat:appearance>')
+    lines.append('\t\t\t\t\t</dcsat:appearance>')
 
 
 # Cell может быть string ("text"/"{param}"/"|"/">"/null) или объектом {value, style}.
@@ -1501,10 +1501,10 @@ def _emit_area_template_dsl(lines, t):
                         # Build drilldown appearance extra items
                         if param_name in drilldown_map:
                             dd_val = drilldown_map[param_name]
-                            cell_extra_items.append('\t\t\t\t\t<dcscor:item>')
-                            cell_extra_items.append(f'\t\t\t\t\t\t<dcscor:parameter>\u0420\u0430\u0441\u0448\u0438\u0444\u0440\u043e\u0432\u043a\u0430</dcscor:parameter>')
-                            cell_extra_items.append(f'\t\t\t\t\t\t<dcscor:value xsi:type="dcscor:Parameter">\u0420\u0430\u0441\u0448\u0438\u0444\u0440\u043e\u0432\u043a\u0430_{dd_val}</dcscor:value>')
-                            cell_extra_items.append('\t\t\t\t\t</dcscor:item>')
+                            cell_extra_items.append('\t\t\t\t\t\t<dcscor:item>')
+                            cell_extra_items.append(f'\t\t\t\t\t\t\t<dcscor:parameter>\u0420\u0430\u0441\u0448\u0438\u0444\u0440\u043e\u0432\u043a\u0430</dcscor:parameter>')
+                            cell_extra_items.append(f'\t\t\t\t\t\t\t<dcscor:value xsi:type="dcscor:Parameter">\u0420\u0430\u0441\u0448\u0438\u0444\u0440\u043e\u0432\u043a\u0430_{dd_val}</dcscor:value>')
+                            cell_extra_items.append('\t\t\t\t\t\t</dcscor:item>')
                     else:
                         lines.append('\t\t\t\t\t<dcsat:item xsi:type="dcsat:Field">')
                         emit_mltext(lines, '\t\t\t\t\t\t', 'dcsat:value', cell_str)

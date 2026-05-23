@@ -51,16 +51,16 @@
 							</v8:item>
 						</dcsat:value>
 					</dcsat:item>
-				<dcsat:appearance>
-					<dcscor:item>
-						<dcscor:parameter>МинимальнаяШирина</dcscor:parameter>
-						<dcscor:value xsi:type="xs:decimal">7</dcscor:value>
-					</dcscor:item>
-					<dcscor:item>
-						<dcscor:parameter>МаксимальнаяШирина</dcscor:parameter>
-						<dcscor:value xsi:type="xs:decimal">7</dcscor:value>
-					</dcscor:item>
-				</dcsat:appearance>
+					<dcsat:appearance>
+						<dcscor:item>
+							<dcscor:parameter>МинимальнаяШирина</dcscor:parameter>
+							<dcscor:value xsi:type="xs:decimal">7</dcscor:value>
+						</dcscor:item>
+						<dcscor:item>
+							<dcscor:parameter>МаксимальнаяШирина</dcscor:parameter>
+							<dcscor:value xsi:type="xs:decimal">7</dcscor:value>
+						</dcscor:item>
+					</dcsat:appearance>
 				</dcsat:tableCell>
 				<dcsat:tableCell>
 					<dcsat:item xsi:type="dcsat:Field">
@@ -71,16 +71,16 @@
 							</v8:item>
 						</dcsat:value>
 					</dcsat:item>
-				<dcsat:appearance>
-					<dcscor:item>
-						<dcscor:parameter>МинимальнаяШирина</dcscor:parameter>
-						<dcscor:value xsi:type="xs:decimal">7</dcscor:value>
-					</dcscor:item>
-					<dcscor:item>
-						<dcscor:parameter>МаксимальнаяШирина</dcscor:parameter>
-						<dcscor:value xsi:type="xs:decimal">7</dcscor:value>
-					</dcscor:item>
-				</dcsat:appearance>
+					<dcsat:appearance>
+						<dcscor:item>
+							<dcscor:parameter>МинимальнаяШирина</dcscor:parameter>
+							<dcscor:value xsi:type="xs:decimal">7</dcscor:value>
+						</dcscor:item>
+						<dcscor:item>
+							<dcscor:parameter>МаксимальнаяШирина</dcscor:parameter>
+							<dcscor:value xsi:type="xs:decimal">7</dcscor:value>
+						</dcscor:item>
+					</dcsat:appearance>
 				</dcsat:tableCell>
 			</dcsat:item>
 		</template>

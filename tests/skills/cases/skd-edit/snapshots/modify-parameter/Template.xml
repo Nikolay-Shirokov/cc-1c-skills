@@ -38,6 +38,7 @@
 			</v8:StringQualifiers>
 		</valueType>
 		<value xsi:type="xs:string">Окр1_00</value>
+		<useRestriction>false</useRestriction>
 		<availableValue>
 			<value xsi:type="dcscor:DesignTimeValue">Перечисление.Округления.Окр1_00</value>
 			<presentation xsi:type="v8:LocalStringType">
