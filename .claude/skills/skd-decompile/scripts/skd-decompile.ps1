@@ -1868,12 +1868,21 @@ function Build-DataParameters {
 		# Compare to top-level default
 		if ($tp -and $tp.valueDisplay -ne $vDisplay) { $canAuto = $false }
 		if (-not $tp) { $canAuto = $false }   # extra param not in top-level
-		# Object form требуется если есть viewMode / userSettingPresentation / StandardPeriod-с-датами
-		if ($stdPeriodObj -or $vmN -or $uspN) {
+		# Empty xs:string + use=false — оригинальный placeholder для disabled-параметра
+		# (используется для типа DateTime в settings; см. АнализПлановыхНачислений @1506).
+		# Сохраняем явный valueType чтобы compile эмитил <value xsi:type="xs:string"/>
+		# вместо xsi:nil.
+		$isEmptyStringPlaceholder = ($vt -eq 'string') -and (-not $valNode.InnerText) -and ($use -eq 'false')
+		if ($isEmptyStringPlaceholder) { $canAuto = $false }
+		# Object form требуется если есть viewMode / userSettingPresentation / StandardPeriod-с-датами / xs:string-placeholder
+		if ($stdPeriodObj -or $vmN -or $uspN -or $isEmptyStringPlaceholder) {
 			$obj = [ordered]@{ parameter = $pn }
 			if ($stdPeriodObj) {
 				$obj['value'] = $stdPeriodObj
 				# valueType не нужен — compile определит StandardPeriod по value.variant
+			} elseif ($isEmptyStringPlaceholder) {
+				$obj['value'] = ''
+				$obj['valueType'] = 'xs:string'
 			} elseif ($null -ne $vDisplay -and $vDisplay -ne '') {
 				# Конвертация для типизированных значений (compile различает по типу JSON)
 				if ($vt -eq 'boolean') { $obj['value'] = ($vDisplay -eq 'true') }

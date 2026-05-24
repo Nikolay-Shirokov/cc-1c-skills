@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# skd-compile v1.87 — Compile 1C DCS from JSON
+# skd-compile v1.88 — Compile 1C DCS from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import json
@@ -1010,6 +1010,8 @@ def emit_empty_value(lines, type_str, indent, tag_prefix='', value_list_allowed=
     if value_list_allowed:
         return
     t = type_str or ''
+    # Нормализация: убираем префикс xs: (валидный для valueType из decompile/DSL)
+    t_bare = t[3:] if t.startswith('xs:') else t
     pf = tag_prefix
 
     if t == '':
@@ -1020,13 +1022,13 @@ def emit_empty_value(lines, type_str, indent, tag_prefix='', value_list_allowed=
         lines.append(f'{indent}\t<v8:startDate>0001-01-01T00:00:00</v8:startDate>')
         lines.append(f'{indent}\t<v8:endDate>0001-01-01T00:00:00</v8:endDate>')
         lines.append(f'{indent}</{pf}value>')
-    elif re.match(r'^string', t):
+    elif re.match(r'^string', t_bare):
         lines.append(f'{indent}<{pf}value xsi:type="xs:string"/>')
-    elif re.match(r'^(date|time)', t):
+    elif re.match(r'^(date|time)', t_bare):
         lines.append(f'{indent}<{pf}value xsi:type="xs:dateTime">0001-01-01T00:00:00</{pf}value>')
-    elif re.match(r'^decimal', t):
+    elif re.match(r'^decimal', t_bare):
         lines.append(f'{indent}<{pf}value xsi:type="xs:decimal">0</{pf}value>')
-    elif t == 'boolean':
+    elif t_bare == 'boolean':
         lines.append(f'{indent}<{pf}value xsi:type="xs:boolean">false</{pf}value>')
     else:
         # Ref types or unknown — safe nil

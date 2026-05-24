@@ -1,4 +1,4 @@
-﻿# skd-compile v1.87 — Compile 1C DCS from JSON
+﻿# skd-compile v1.88 — Compile 1C DCS from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[string]$DefinitionFile,
@@ -1468,6 +1468,8 @@ function Emit-EmptyValue {
 
 	if ($valueListAllowed) { return }
 	$t = if ($null -eq $type) { "" } else { "$type" }
+	# Нормализация: убираем префикс xs: (валидный для valueType из decompile/DSL)
+	$tBare = if ($t -match '^xs:(.+)$') { $matches[1] } else { $t }
 	$pf = $tagPrefix
 
 	if ($t -eq "") {
@@ -1478,13 +1480,13 @@ function Emit-EmptyValue {
 		X "$indent`t<v8:startDate>0001-01-01T00:00:00</v8:startDate>"
 		X "$indent`t<v8:endDate>0001-01-01T00:00:00</v8:endDate>"
 		X "$indent</${pf}value>"
-	} elseif ($t -match '^string') {
+	} elseif ($tBare -match '^string') {
 		X "$indent<${pf}value xsi:type=`"xs:string`"/>"
-	} elseif ($t -match '^(date|time)') {
+	} elseif ($tBare -match '^(date|time)') {
 		X "$indent<${pf}value xsi:type=`"xs:dateTime`">0001-01-01T00:00:00</${pf}value>"
-	} elseif ($t -match '^decimal') {
+	} elseif ($tBare -match '^decimal') {
 		X "$indent<${pf}value xsi:type=`"xs:decimal`">0</${pf}value>"
-	} elseif ($t -eq "boolean") {
+	} elseif ($tBare -eq "boolean") {
 		X "$indent<${pf}value xsi:type=`"xs:boolean`">false</${pf}value>"
 	} else {
 		# Ref types or unknown — safe nil
