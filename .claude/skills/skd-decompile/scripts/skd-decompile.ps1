@@ -1,4 +1,4 @@
-﻿# skd-decompile v0.73 — Decompile 1C DCS Template.xml to JSON DSL (draft)
+﻿# skd-decompile v0.74 — Decompile 1C DCS Template.xml to JSON DSL (draft)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -2118,10 +2118,26 @@ function Build-Structure {
 			$entry = [ordered]@{ type = 'chart' }
 			$nm = Get-Text $it "dcsset:name"
 			if ($nm) { $entry['name'] = $nm }
-			$pn = $it.SelectSingleNode("dcsset:point", $ns)
-			if ($pn) { $entry['points'] = Build-TableAxisBlock -node $pn -loc "$loc/$idx/point" }
-			$sn = $it.SelectSingleNode("dcsset:series", $ns)
-			if ($sn) { $entry['series'] = Build-TableAxisBlock -node $sn -loc "$loc/$idx/series" }
+			# point/series — может быть несколько (multi-series диаграмма).
+			# Single → сохраняем как object (backward-compat); >1 → массив.
+			$pnList = $it.SelectNodes("dcsset:point", $ns)
+			if ($pnList.Count -eq 1) {
+				$entry['points'] = Build-TableAxisBlock -node $pnList[0] -loc "$loc/$idx/point"
+			} elseif ($pnList.Count -gt 1) {
+				$pArr = @()
+				$pi = 0
+				foreach ($p in $pnList) { $pArr += (Build-TableAxisBlock -node $p -loc "$loc/$idx/point[$pi]"); $pi++ }
+				$entry['points'] = $pArr
+			}
+			$snList = $it.SelectNodes("dcsset:series", $ns)
+			if ($snList.Count -eq 1) {
+				$entry['series'] = Build-TableAxisBlock -node $snList[0] -loc "$loc/$idx/series"
+			} elseif ($snList.Count -gt 1) {
+				$sArr = @()
+				$si = 0
+				foreach ($s in $snList) { $sArr += (Build-TableAxisBlock -node $s -loc "$loc/$idx/series[$si]"); $si++ }
+				$entry['series'] = $sArr
+			}
 			$selN = $it.SelectSingleNode("dcsset:selection", $ns)
 			$selI = Build-Selection -selNode $selN -loc "$loc/$idx/selection"
 			if ($selI.Count -gt 0 -and -not ($selI.Count -eq 1 -and $selI[0] -eq 'Auto')) {

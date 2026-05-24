@@ -1,4 +1,4 @@
-﻿# skd-compile v1.90 — Compile 1C DCS from JSON
+﻿# skd-compile v1.91 — Compile 1C DCS from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[string]$DefinitionFile,
@@ -3014,18 +3014,40 @@ function Emit-StructureItem {
 			X "$indent`t<dcsset:name>$(Esc-Xml "$($item.name)")</dcsset:name>"
 		}
 
-		# Points
+		# Points — single object или массив (multi-series диаграмма)
 		if ($item.points) {
-			X "$indent`t<dcsset:point>"
-			Emit-TableAxisBlock -block $item.points -indent "$indent`t`t"
-			X "$indent`t</dcsset:point>"
+			$pBlocks = if ($item.points -is [array] -or ($item.points -is [System.Collections.IList] -and $item.points -isnot [string])) {
+				@($item.points)
+			} else { @($item.points) }
+			# Эвристика: если это массив объектов (а не одиночный объект-с-полями) → multi.
+			$isPointsArray = ($item.points -is [array]) -or ($item.points -is [System.Collections.IList] -and $item.points -isnot [string] -and $item.points -isnot [System.Collections.IDictionary] -and $item.points -isnot [PSCustomObject])
+			if ($isPointsArray) {
+				foreach ($pb in $pBlocks) {
+					X "$indent`t<dcsset:point>"
+					Emit-TableAxisBlock -block $pb -indent "$indent`t`t"
+					X "$indent`t</dcsset:point>"
+				}
+			} else {
+				X "$indent`t<dcsset:point>"
+				Emit-TableAxisBlock -block $item.points -indent "$indent`t`t"
+				X "$indent`t</dcsset:point>"
+			}
 		}
 
-		# Series
+		# Series — single object или массив
 		if ($item.series) {
-			X "$indent`t<dcsset:series>"
-			Emit-TableAxisBlock -block $item.series -indent "$indent`t`t"
-			X "$indent`t</dcsset:series>"
+			$isSeriesArray = ($item.series -is [array]) -or ($item.series -is [System.Collections.IList] -and $item.series -isnot [string] -and $item.series -isnot [System.Collections.IDictionary] -and $item.series -isnot [PSCustomObject])
+			if ($isSeriesArray) {
+				foreach ($sb in @($item.series)) {
+					X "$indent`t<dcsset:series>"
+					Emit-TableAxisBlock -block $sb -indent "$indent`t`t"
+					X "$indent`t</dcsset:series>"
+				}
+			} else {
+				X "$indent`t<dcsset:series>"
+				Emit-TableAxisBlock -block $item.series -indent "$indent`t`t"
+				X "$indent`t</dcsset:series>"
+			}
 		}
 
 		# Selection (chart values)

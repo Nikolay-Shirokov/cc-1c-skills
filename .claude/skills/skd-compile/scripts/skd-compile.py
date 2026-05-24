@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# skd-compile v1.90 — Compile 1C DCS from JSON
+# skd-compile v1.91 — Compile 1C DCS from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import json
@@ -2418,17 +2418,23 @@ def emit_structure_item(lines, item, indent, short_group=False):
         if item.get('name'):
             lines.append(f'{indent}\t<dcsset:name>{esc_xml(str(item["name"]))}</dcsset:name>')
 
-        # Points
-        if item.get('points'):
-            lines.append(f'{indent}\t<dcsset:point>')
-            emit_table_axis_block(lines, item['points'], f'{indent}\t\t')
-            lines.append(f'{indent}\t</dcsset:point>')
+        # Points — single object или массив (multi-series диаграмма)
+        pts = item.get('points')
+        if pts:
+            pts_list = pts if isinstance(pts, list) else [pts]
+            for pb in pts_list:
+                lines.append(f'{indent}\t<dcsset:point>')
+                emit_table_axis_block(lines, pb, f'{indent}\t\t')
+                lines.append(f'{indent}\t</dcsset:point>')
 
-        # Series
-        if item.get('series'):
-            lines.append(f'{indent}\t<dcsset:series>')
-            emit_table_axis_block(lines, item['series'], f'{indent}\t\t')
-            lines.append(f'{indent}\t</dcsset:series>')
+        # Series — single object или массив
+        srs = item.get('series')
+        if srs:
+            srs_list = srs if isinstance(srs, list) else [srs]
+            for sb in srs_list:
+                lines.append(f'{indent}\t<dcsset:series>')
+                emit_table_axis_block(lines, sb, f'{indent}\t\t')
+                lines.append(f'{indent}\t</dcsset:series>')
 
         # Selection (chart values)
         emit_selection(lines, item.get('selection'), f'{indent}\t')
