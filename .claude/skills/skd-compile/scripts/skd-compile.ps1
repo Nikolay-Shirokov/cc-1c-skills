@@ -1,4 +1,4 @@
-﻿# skd-compile v1.88 — Compile 1C DCS from JSON
+﻿# skd-compile v1.89 — Compile 1C DCS from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[string]$DefinitionFile,
@@ -1991,7 +1991,8 @@ function Emit-SelectionItem {
 		foreach ($sub in $item.items) {
 			Emit-SelectionItem -item $sub -indent "$indent`t"
 		}
-		X "$indent`t<dcsset:placement>Auto</dcsset:placement>"
+		$pl = if ($item.placement) { "$($item.placement)" } else { 'Auto' }
+		X "$indent`t<dcsset:placement>$(Esc-Xml $pl)</dcsset:placement>"
 		X "$indent</dcsset:item>"
 		return
 	}

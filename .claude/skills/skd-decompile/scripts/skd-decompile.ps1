@@ -1,4 +1,4 @@
-﻿# skd-decompile v0.71 — Decompile 1C DCS Template.xml to JSON DSL (draft)
+﻿# skd-decompile v0.72 — Decompile 1C DCS Template.xml to JSON DSL (draft)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -1587,6 +1587,10 @@ function Build-SelectionItem {
 			# folder может также иметь свой <dcsset:field> (редко, но встречается)
 			$folderField = Get-Text $item "dcsset:field"
 			if ($folderField) { $entry['field'] = $folderField }
+			$plN = $item.SelectSingleNode("dcsset:placement", $ns)
+			if ($plN -and $plN.InnerText -and $plN.InnerText -ne 'Auto') {
+				$entry['placement'] = $plN.InnerText
+			}
 			return $entry
 		}
 		default {

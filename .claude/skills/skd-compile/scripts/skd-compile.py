@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# skd-compile v1.88 — Compile 1C DCS from JSON
+# skd-compile v1.89 — Compile 1C DCS from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import json
@@ -1645,7 +1645,8 @@ def emit_selection_item(lines, item, indent):
         emit_mltext(lines, f'{indent}\t', 'dcsset:lwsTitle', item['folder'], no_xsi_type=True)
         for sub in (item.get('items') or []):
             emit_selection_item(lines, sub, f'{indent}\t')
-        lines.append(f'{indent}\t<dcsset:placement>Auto</dcsset:placement>')
+        pl = str(item.get('placement') or 'Auto')
+        lines.append(f'{indent}\t<dcsset:placement>{esc_xml(pl)}</dcsset:placement>')
         lines.append(f'{indent}</dcsset:item>')
         return
     # field with optional title / use=false / viewMode
