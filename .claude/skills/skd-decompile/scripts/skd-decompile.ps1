@@ -1,4 +1,4 @@
-﻿# skd-decompile v0.86 — Decompile 1C DCS Template.xml to JSON DSL (draft)
+﻿# skd-decompile v0.87 — Decompile 1C DCS Template.xml to JSON DSL (draft)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -1578,8 +1578,12 @@ function Build-FilterItem {
 		} else {
 			$vt = Get-FilterValueWithType $rn
 			$value = $vt.value
-			# Сохраняем тип только если он не дефолтный (auto-detect compile вернёт xs:*)
-			if ($vt.type -and $vt.type -notmatch '^xs:') {
+			# Сохраняем тип только если он не дефолтный (auto-detect compile вернёт xs:*).
+			# DesignTimeValue для значений вида "Перечисление.X.Y" / "Справочник.X.Y" /
+			# "ПланСчетов.X.Y" и т.п. также auto-detect-ится — не сохраняем.
+			$autoDetectsDTV = ($vt.type -eq 'dcscor:DesignTimeValue') -and `
+				("$($vt.value)" -match '^(Перечисление|Справочник|ПланСчетов|Документ|ПланВидовХарактеристик|ПланВидовРасчета|БизнесПроцесс|Задача|РегистрСведений|ПланОбмена|Catalog|Enum|Document|ChartOfAccounts|ChartOfCharacteristicTypes|ChartOfCalculationTypes|BusinessProcess|Task|InformationRegister|ExchangePlan)\.')
+			if ($vt.type -and $vt.type -notmatch '^xs:' -and -not $autoDetectsDTV) {
 				$valueTypeAttr = $vt.type
 			}
 		}
@@ -1596,9 +1600,15 @@ function Build-FilterItem {
 		# Сохраняем raw xsi:type если все одинаковые — compile будет использовать
 		# как явный valueType (иначе авто-detect выберет DesignTimeValue для строк
 		# "Перечисление.*", но оригинал может хранить как xs:string).
+		# DesignTimeValue для значений-ref-литералов сам авто-detect-ится — не сохраняем.
 		$uniqTypes = @($rawTypes | Sort-Object -Unique)
 		if ($uniqTypes.Count -eq 1 -and $uniqTypes[0]) {
-			$valueTypeAttr = $uniqTypes[0]
+			$autoDetectsDTV = ($uniqTypes[0] -eq 'dcscor:DesignTimeValue') -and `
+				($arr.Count -gt 0) -and `
+				(@($arr | Where-Object { "$_" -notmatch '^(Перечисление|Справочник|ПланСчетов|Документ|ПланВидовХарактеристик|ПланВидовРасчета|БизнесПроцесс|Задача|РегистрСведений|ПланОбмена|Catalog|Enum|Document|ChartOfAccounts|ChartOfCharacteristicTypes|ChartOfCalculationTypes|BusinessProcess|Task|InformationRegister|ExchangePlan)\.' }).Count -eq 0)
+			if (-not $autoDetectsDTV) {
+				$valueTypeAttr = $uniqTypes[0]
+			}
 		}
 	}
 
