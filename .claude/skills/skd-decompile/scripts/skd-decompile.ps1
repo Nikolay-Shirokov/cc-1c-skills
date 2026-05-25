@@ -1,4 +1,4 @@
-﻿# skd-decompile v0.88 — Decompile 1C DCS Template.xml to JSON DSL (draft)
+﻿# skd-decompile v0.89 — Decompile 1C DCS Template.xml to JSON DSL (draft)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -248,6 +248,7 @@ function ConvertTo-CompactJson {
 function Get-Text {
 	param($node, [string]$xpath)
 	if (-not $node) { return $null }
+	if ([string]::IsNullOrEmpty($xpath)) { return $node.InnerText }
 	$n = $node.SelectSingleNode($xpath, $ns)
 	if ($n) { return $n.InnerText } else { return $null }
 }
@@ -2713,8 +2714,8 @@ foreach ($p in $paramsRaw) {
 	# Также НЕ сворачиваем если companions имеют availableAsField=false — compile
 	# auto-gen не передаёт этот атрибут (ERP-стиль без него; БСП-стиль с ним —
 	# вариативность не выразима через @autoDates флаг, пусть companions останутся явными).
-	$beginP = $paramByName[$startMatch]
-	$endP   = $paramByName[$endMatch]
+	$beginP = if ($startMatch) { $paramByName[$startMatch] } else { $null }
+	$endP   = if ($endMatch)   { $paramByName[$endMatch]   } else { $null }
 	$hasNotAField = ($beginP -and $beginP.notAField) -or ($endP -and $endP.notAField)
 	if ($startMatch -eq 'НачалоПериода' -and $endMatch -eq 'КонецПериода' -and -not $hasNotAField) {
 		$p['autoDates'] = $true

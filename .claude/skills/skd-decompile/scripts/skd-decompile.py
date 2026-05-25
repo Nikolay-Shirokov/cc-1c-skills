@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# skd-decompile v0.88 — Decompile 1C DCS Template.xml to JSON DSL (draft)
+# skd-decompile v0.89 — Decompile 1C DCS Template.xml to JSON DSL (draft)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import os
@@ -449,9 +449,11 @@ def convert_to_compact_json(obj, depth=0, indent_unit='  ', line_limit=400):
     return convert_string_to_json_literal(str(obj))
 
 
-def get_text(node, xpath):
+def get_text(node, xpath=None):
     if not node:
         return None
+    if not xpath:
+        return node.inner_text
     n = node.select_single_node(xpath)
     if n:
         return n.inner_text
@@ -2760,16 +2762,10 @@ def run(root):
     dsl_nodes = root.select_nodes("r:dataSetLink")
     for dsl_node in dsl_nodes:
         link = {}
-        link['sourceDataSet'] = get_text(dsl_node.select_single_node("r:sourceDataSet"), '.') if False else (dsl_node.select_single_node("r:sourceDataSet").inner_text if dsl_node.select_single_node("r:sourceDataSet") else None)
-        # PS code uses Get-Text $node (without xpath) — for our wrapper, just read inner_text
-        s_n = dsl_node.select_single_node("r:sourceDataSet")
-        d_n = dsl_node.select_single_node("r:destinationDataSet")
-        se_n = dsl_node.select_single_node("r:sourceExpression")
-        de_n = dsl_node.select_single_node("r:destinationExpression")
-        link['sourceDataSet'] = s_n.inner_text if s_n else None
-        link['destinationDataSet'] = d_n.inner_text if d_n else None
-        link['sourceExpression'] = se_n.inner_text if se_n else None
-        link['destinationExpression'] = de_n.inner_text if de_n else None
+        link['sourceDataSet']         = get_text(dsl_node.select_single_node("r:sourceDataSet"))
+        link['destinationDataSet']    = get_text(dsl_node.select_single_node("r:destinationDataSet"))
+        link['sourceExpression']      = get_text(dsl_node.select_single_node("r:sourceExpression"))
+        link['destinationExpression'] = get_text(dsl_node.select_single_node("r:destinationExpression"))
         p_node = dsl_node.select_single_node("r:parameter")
         if p_node:
             link['parameter'] = p_node.inner_text
