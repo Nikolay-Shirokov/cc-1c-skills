@@ -146,6 +146,7 @@ import {
   safeClick, findFieldInputId, readEdd, returnFormState,
   detectNewForm as helperDetectNewForm,
 } from './core/helpers.mjs';
+import { getGridToggleIcon, shouldClickToggle } from './table/grid-toggle.mjs';
 // Re-export only what was publicly exported before the refactor.
 // waitForStable/waitForCondition/startNetworkMonitor/closeModals/checkForErrors/
 // dismissPendingErrors are internal helpers — imported above for local use only.
@@ -1891,31 +1892,13 @@ export async function clickElement(text, { dblclick, table, toggle, expand, modi
   // Grid row targets — use coordinate click (single or double)
   if (target.kind === 'gridGroup' || target.kind === 'gridParent') {
     if (expand != null || toggle) {
-      // Expand/collapse group in hierarchy mode — click the triangle icon (.gridListH/.gridListV)
-      // expand=true: only expand (skip if already expanded), expand=false: only collapse, toggle: always click
-      const levelIconInfo = await page.evaluate(`(() => {
-        const p = ${JSON.stringify(`form${formNum}_`)};
-        const gridSel = ${JSON.stringify(target.gridId ? '#' + target.gridId : null)};
-        const grid = gridSel ? document.querySelector(gridSel) : document.querySelector('[id^="' + p + '"].grid');
-        const body = grid?.querySelector('.gridBody');
-        if (!body) return null;
-        const targetY = ${target.y};
-        const lines = [...body.querySelectorAll('.gridLine')];
-        for (const line of lines) {
-          const lr = line.getBoundingClientRect();
-          if (targetY < lr.top || targetY > lr.bottom) continue;
-          const icon = line.querySelector('.gridListH, .gridListV');
-          if (icon) {
-            const r = icon.getBoundingClientRect();
-            const isExpanded = !!icon.classList.contains('gridListV');
-            return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2), isExpanded };
-          }
-        }
-        return null;
-      })()`);
-      const shouldClick = toggle || !levelIconInfo
-        || (expand === true && !levelIconInfo.isExpanded)
-        || (expand === false && levelIconInfo.isExpanded);
+      // Expand/collapse group in hierarchy mode — click the triangle icon (.gridListH/.gridListV).
+      // expand=true: only expand (skip if already expanded), expand=false: only collapse, toggle: always click.
+      const levelIconInfo = await getGridToggleIcon(target, formNum, {
+        iconSelector: '.gridListH, .gridListV',
+        isExpandedExpr: "icon.classList.contains('gridListV')",
+      });
+      const shouldClick = shouldClickToggle(levelIconInfo, expand, toggle);
       if (shouldClick) {
         if (levelIconInfo) {
           await modClick(levelIconInfo.x, levelIconInfo.y);
@@ -1939,32 +1922,13 @@ export async function clickElement(text, { dblclick, table, toggle, expand, modi
   }
   if (target.kind === 'gridTreeNode') {
     if (expand != null || toggle) {
-      // Expand/collapse tree node — click the tree icon [tree="true"]
-      // expand=true: only expand (skip if already expanded), expand=false: only collapse, toggle: always click
-      const treeIconInfo = await page.evaluate(`(() => {
-        const p = ${JSON.stringify(`form${formNum}_`)};
-        const gridSel = ${JSON.stringify(target.gridId ? '#' + target.gridId : null)};
-        const grid = gridSel ? document.querySelector(gridSel) : document.querySelector('[id^="' + p + '"].grid');
-        const body = grid?.querySelector('.gridBody');
-        if (!body) return null;
-        const targetY = ${target.y};
-        const lines = [...body.querySelectorAll('.gridLine')];
-        for (const line of lines) {
-          const lr = line.getBoundingClientRect();
-          if (targetY < lr.top || targetY > lr.bottom) continue;
-          const treeIcon = line.querySelector('.gridBoxImg [tree="true"]');
-          if (treeIcon) {
-            const r = treeIcon.getBoundingClientRect();
-            const bg = treeIcon.style.backgroundImage || '';
-            const isExpanded = bg.includes('gx=0');
-            return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2), isExpanded };
-          }
-        }
-        return null;
-      })()`);
-      const shouldClick = toggle || !treeIconInfo
-        || (expand === true && !treeIconInfo.isExpanded)
-        || (expand === false && treeIconInfo.isExpanded);
+      // Expand/collapse tree node — click the tree icon [tree="true"].
+      // expand=true: only expand (skip if already expanded), expand=false: only collapse, toggle: always click.
+      const treeIconInfo = await getGridToggleIcon(target, formNum, {
+        iconSelector: '.gridBoxImg [tree="true"]',
+        isExpandedExpr: '(icon.style.backgroundImage || "").includes("gx=0")',
+      });
+      const shouldClick = shouldClickToggle(treeIconInfo, expand, toggle);
       if (shouldClick) {
         if (treeIconInfo) {
           await modClick(treeIconInfo.x, treeIconInfo.y);
