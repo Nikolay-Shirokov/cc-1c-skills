@@ -768,134 +768,11 @@ import {
 
 
 
-/** Fill fields on the current form via Playwright page.fill(). Returns fill results + updated form. */
-export async function fillFields(fields) {
-  ensureConnected();
-  await dismissPendingErrors();
-  const formNum = await page.evaluate(detectFormScript());
-  if (formNum === null) throw new Error('fillFields: no form found');
+// ============================================================
+// Fill fields — extracted to forms/fill.mjs
+// ============================================================
+export { fillFields, fillField } from './forms/fill.mjs';
 
-  // Resolve field names to element IDs
-  const resolved = await page.evaluate(resolveFieldsScript(formNum, fields));
-  const results = [];
-
-  for (const r of resolved) {
-    if (r.error) {
-      results.push(r);
-      continue;
-    }
-    // Auto-highlight the field input before filling
-    if (highlightMode && r.inputId) {
-      try {
-        await page.evaluate(({ id }) => {
-          const target = document.getElementById(id);
-          if (!target) return;
-          let div = document.getElementById('__web_test_highlight');
-          if (!div) { div = document.createElement('div'); div.id = '__web_test_highlight'; document.body.appendChild(div); }
-          const r = target.getBoundingClientRect();
-          div.style.cssText = 'position:fixed;pointer-events:none;z-index:999998;top:' + (r.y-4) + 'px;left:' + (r.x-4) + 'px;width:' + (r.width+8) + 'px;height:' + (r.height+8) + 'px;outline:3px solid #e74c3c;border-radius:4px;box-shadow:0 0 16px #e74c3c80';
-        }, { id: r.inputId });
-        await page.waitForTimeout(500);
-        await unhighlight();
-      } catch {}
-    }
-    try {
-      // Auto-enable DCS checkbox if resolved via label
-      if (r.dcsCheckbox && !r.dcsCheckbox.checked) {
-        await page.click(`[id="${r.dcsCheckbox.inputId}"]`);
-        await waitForStable();
-      }
-      const selector = `[id="${r.inputId}"]`;
-      // Clear field via Shift+F4 if value is empty (not applicable to checkbox/radio)
-      const rawValue = fields[r.field];
-      const isEmpty = rawValue === '' || rawValue === null || rawValue === undefined;
-      if (isEmpty && !r.isCheckbox && !r.isRadio) {
-        await page.click(selector);
-        await page.waitForTimeout(200);
-        await page.keyboard.press('Shift+F4');
-        await page.waitForTimeout(300);
-        await page.keyboard.press('Tab');
-        await waitForStable();
-        results.push({ field: r.field, ok: true, value: '', method: 'clear' });
-        continue;
-      }
-      if (r.isCheckbox) {
-        // Checkbox: compare desired with current, toggle if mismatch
-        const desired = String(fields[r.field]).toLowerCase();
-        const wantChecked = ['true', '1', 'да', 'yes', 'on'].includes(desired);
-        if (wantChecked !== r.checked) {
-          await page.click(selector);
-          await waitForStable();
-        }
-        results.push({ field: r.field, ok: true, value: String(wantChecked), method: 'toggle' });
-      } else if (r.isRadio) {
-        // Radio button: find option by label (fuzzy match) and click it
-        const desired = normYo(String(fields[r.field]).toLowerCase());
-        const opt = r.options.find(o => normYo(o.label.toLowerCase()) === desired)
-          || r.options.find(o => normYo(o.label.toLowerCase()).includes(desired));
-        if (opt) {
-          // Option 0 = base element (no suffix), options 1+ = #N#radio
-          const radioId = opt.index === 0 ? r.inputId : `${r.inputId}#${opt.index}#radio`;
-          await page.click(`[id="${radioId}"]`);
-          await waitForStable();
-          results.push({ field: r.field, ok: true, value: opt.label, method: 'radio' });
-        } else {
-          results.push({ field: r.field, error: 'option_not_found', available: r.options.map(o => o.label) });
-        }
-      } else if (r.hasSelect) {
-        // Combobox/reference with DLB: DLB-first, then paste fallback
-        const refResult = await fillReferenceField(selector, r.field, fields[r.field], formNum);
-        results.push(refResult);
-      } else if (r.hasPick && r.isDate) {
-        // Date/time field with calendar CB — use paste (calendar is not a selection form)
-        await page.click(selector);
-        await page.waitForTimeout(200);
-        await page.keyboard.press('Control+A');
-        await pasteText(fields[r.field]);
-        await page.waitForTimeout(300);
-        await page.keyboard.press('Tab');
-        await waitForStable();
-        results.push({ field: r.field, ok: true, value: String(fields[r.field]), method: 'paste' });
-      } else if (r.hasPick) {
-        // Reference field with CB (non-editable or editable ref): delegate to selectValue (F4 → selection form)
-        const svResult = await selectValue(r.field, String(fields[r.field]));
-        if (svResult?.error) {
-          results.push({ field: r.field, error: svResult.error, message: svResult.message });
-        } else {
-          results.push({ field: r.field, ok: true, value: svResult.value || String(fields[r.field]), method: svResult.method || 'form' });
-        }
-      } else {
-        // Plain field: clipboard paste + Tab to commit
-        // page.fill() sets DOM value but doesn't trigger 1C input events;
-        // clipboard paste (Ctrl+V) is a trusted event that 1C processes correctly.
-        await page.click(selector);
-        await page.waitForTimeout(200);
-        await page.keyboard.press('Control+A');
-        await pasteText(fields[r.field]);
-        await page.waitForTimeout(300);
-        await page.keyboard.press('Tab');
-        await waitForStable();
-        results.push({ field: r.field, ok: true, value: String(fields[r.field]), method: 'paste' });
-      }
-    } catch (e) {
-      results.push({ field: r.field, error: e.message });
-    }
-    if (highlightMode) try { await unhighlight(); } catch {}
-  }
-
-  const formData = await page.evaluate(readFormScript(formNum));
-  const failed = results.filter(r => r.error);
-  if (failed.length > 0) {
-    const details = failed.map(f => `  ${f.field}: ${f.message || f.error}${f.available ? ' (available: ' + f.available.join(', ') + ')' : ''}`).join('\n');
-    throw new Error(`fillFields: ${failed.length} of ${results.length} field(s) failed:\n${details}`);
-  }
-  return { filled: results, form: formData };
-}
-
-/** Convenience alias: fill a single field. Same as fillFields({ name: value }). */
-export async function fillField(name, value) {
-  return fillFields({ [name]: value });
-}
 
 /** Click a button/hyperlink/tab on the current form. Use {dblclick: true} to double-click (open items from lists).
  *  First argument can also be an object { row, column } to click a SpreadsheetDocument cell. */
@@ -1200,57 +1077,11 @@ export async function clickElement(text, { dblclick, table, toggle, expand, modi
   }
 }
 
-/**
- * Close the current form/dialog via Escape.
- * @param {Object} [opts]
- * @param {boolean} [opts.save] - Handle "Save changes?" confirmation automatically:
- *   true  → click "Да" (save and close)
- *   false → click "Нет" (discard and close)
- *   undefined → return confirmation as hint for caller to decide
- */
-export async function closeForm({ save } = {}) {
-  ensureConnected();
-  await dismissPendingErrors();
-  // If platform dialogs are open, close them instead of pressing Escape
-  const pd = await _detectPlatformDialogs();
-  if (pd.length) {
-    await _closePlatformDialogs();
-    await page.waitForTimeout(300);
-    const state = await getFormState();
-    state.closed = true;
-    state.closedPlatformDialogs = pd;
-    return state;
-  }
-  const beforeForm = await page.evaluate(detectFormScript());
-  await page.keyboard.press('Escape');
-  await waitForStable(beforeForm);
-  const state = await getFormState();
-  const err = await checkForErrors();
-  if (err?.confirmation) {
-    if (save === true || save === false) {
-      const label = save ? 'Да' : 'Нет';
-      const btnSel = `#form${err.confirmation.formNum}_container a.press.pressButton`;
-      const btns = await page.$$(btnSel);
-      for (const b of btns) {
-        const txt = (await b.textContent()).trim();
-        if (txt === label) {
-          if (recorder) await page.waitForTimeout(500); // show confirmation to viewer during recording
-          await b.click({ force: true });
-          await waitForStable(beforeForm);
-          break;
-        }
-      }
-      const afterState = await getFormState();
-      afterState.closed = afterState.form !== beforeForm;
-      return afterState;
-    }
-    state.confirmation = err.confirmation;
-    state.hint = 'Confirmation dialog shown. Click "Да" to confirm or "Нет" to cancel';
-    return state;
-  }
-  state.closed = state.form !== beforeForm;
-  return state;
-}
+// ============================================================
+// Close form — extracted to forms/close.mjs
+// ============================================================
+export { closeForm } from './forms/close.mjs';
+
 
 
 /**
