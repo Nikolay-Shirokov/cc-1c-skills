@@ -1,4 +1,4 @@
-// web-test core/helpers v1.18 — private, cross-cutting helpers used by the
+// web-test core/helpers v1.19 — private, cross-cutting helpers used by the
 // public action functions (clickElement/fillFields/selectValue/etc).
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
@@ -10,6 +10,10 @@ import {
   isInputFocusedScript,
   isInputFocusedInGridScript,
   findOpenPopupScript,
+  readEddScript,
+  isEddVisibleScript,
+  clickEddItemViaDispatchScript,
+  clickShowAllInEddScript,
 } from '../../dom.mjs';
 
 /**
@@ -112,18 +116,31 @@ export async function findOpenPopup() {
  * @returns {Promise<{visible: boolean, items?: Array<{name:string, x:number, y:number}>}>}
  */
 export async function readEdd() {
-  return await page.evaluate(`(() => {
-    const edd = document.getElementById('editDropDown');
-    if (!edd || edd.offsetWidth === 0) return { visible: false };
-    const eddTexts = [...edd.querySelectorAll('.eddText')].filter(el => el.offsetWidth > 0);
-    return {
-      visible: true,
-      items: eddTexts.map(el => {
-        const r = el.getBoundingClientRect();
-        return { name: el.innerText?.trim() || '', x: r.x + r.width / 2, y: r.y + r.height / 2 };
-      })
-    };
-  })()`);
+  return page.evaluate(readEddScript());
+}
+
+/**
+ * Thin wrapper: is the EDD popup currently visible?
+ * Lighter than `readEdd` when only presence matters.
+ */
+export async function isEddVisible() {
+  return page.evaluate(isEddVisibleScript());
+}
+
+/**
+ * Click an EDD item by name via dispatchEvent (bypasses div.surface overlays).
+ * Returns the clicked item's innerText, or `null` if no match.
+ */
+export async function clickEddItemViaDispatch(itemName) {
+  return page.evaluate(clickEddItemViaDispatchScript(itemName));
+}
+
+/**
+ * Click the "Показать все" / "Show all" link in the EDD footer.
+ * Returns boolean.
+ */
+export async function clickShowAllInEdd() {
+  return page.evaluate(clickShowAllInEddScript());
 }
 
 /**

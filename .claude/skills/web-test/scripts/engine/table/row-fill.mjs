@@ -14,6 +14,7 @@ import {
   safeClick, findFieldInputId,
   detectNewForm as helperDetectNewForm,
   isInputFocused, isInputFocusedInGrid, findOpenPopup,
+  readEdd, isEddVisible, clickEddItemViaDispatch,
 } from '../core/helpers.mjs';
 import { clickElement } from '../core/click.mjs';
 import {
@@ -427,11 +428,7 @@ export async function fillTableRow(fields, { tab, add, row, table } = {}) {
           await pasteText(info.value, { confirm: ['Control+a', 'Control+v'] });
           await page.waitForTimeout(400);
           // Dismiss EDD autocomplete if it appeared
-          const hasEdd = await page.evaluate(`(() => {
-            const edd = document.getElementById('editDropDown');
-            return edd && edd.offsetWidth > 0;
-          })()`);
-          if (hasEdd) {
+          if (await isEddVisible()) {
             await page.keyboard.press('Escape');
             await page.waitForTimeout(200);
           }
@@ -741,13 +738,8 @@ export async function fillTableRow(fields, { tab, add, row, table } = {}) {
     }
 
     // Check for EDD autocomplete (indicates reference field)
-    const eddItems = await page.evaluate(`(() => {
-      const edd = document.getElementById('editDropDown');
-      if (!edd || edd.offsetWidth === 0) return null;
-      return [...edd.querySelectorAll('.eddText')]
-        .filter(el => el.offsetWidth > 0)
-        .map(el => el.innerText?.trim() || '');
-    })()`);
+    const edd = await readEdd();
+    const eddItems = edd.visible ? edd.items.map(i => i.name) : null;
 
     if (eddItems && eddItems.length > 0) {
       // Reference field with autocomplete — click best match
@@ -763,23 +755,7 @@ export async function fillTableRow(fields, { tab, add, row, table } = {}) {
         if (!pick) pick = realItems[0];
 
         // Click EDD item via dispatchEvent (bypasses div.surface overlay)
-        const pickLower = pick.toLowerCase();
-        await page.evaluate(`(() => {
-          const edd = document.getElementById('editDropDown');
-          if (!edd) return;
-          for (const el of edd.querySelectorAll('.eddText')) {
-            if (el.offsetWidth === 0) continue;
-            if (el.innerText.trim().toLowerCase().includes(${JSON.stringify(pickLower)})) {
-              const r = el.getBoundingClientRect();
-              const opts = { bubbles:true, cancelable:true,
-                clientX: r.x + r.width/2, clientY: r.y + r.height/2 };
-              el.dispatchEvent(new MouseEvent('mousedown', opts));
-              el.dispatchEvent(new MouseEvent('mouseup', opts));
-              el.dispatchEvent(new MouseEvent('click', opts));
-              return;
-            }
-          }
-        })()`);
+        await clickEddItemViaDispatch(pick);
         await waitForStable();
         info.filled = true;
         results.push({ field: matchedKey, cell: cell.fullName, ok: true,

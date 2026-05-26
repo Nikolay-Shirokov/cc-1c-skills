@@ -17,6 +17,7 @@ import { highlight, unhighlight } from '../recording/highlight.mjs';
 import {
   safeClick, findFieldInputId, readEdd,
   detectNewForm as helperDetectNewForm,
+  clickEddItemViaDispatch, clickShowAllInEdd,
 } from '../core/helpers.mjs';
 import { pasteText } from '../core/clipboard.mjs';
 import { getFormState } from './state.mjs';
@@ -711,63 +712,9 @@ export async function selectValue(fieldName, searchText, { type } = {}) {
     return null;
   }
 
-  // Helper: click EDD item via evaluate (bypasses div.surface overlay from DLB)
-  // page.mouse.click() doesn't work here — surface intercepts pointer events.
-  // Dispatching mousedown directly on the element avoids this.
-  async function clickEddItem(itemName) {
-    return page.evaluate(`(() => {
-      const edd = document.getElementById('editDropDown');
-      if (!edd || edd.offsetWidth === 0) return null;
-      const ny = s => s.replace(/ё/gi, 'е').replace(/\\u00a0/g, ' ');
-      const target = ny(${JSON.stringify(itemName.toLowerCase())});
-      const items = [...edd.querySelectorAll('.eddText')].filter(el => el.offsetWidth > 0);
-      function clickEl(el) {
-        const r = el.getBoundingClientRect();
-        const opts = { bubbles: true, cancelable: true, clientX: r.x + r.width/2, clientY: r.y + r.height/2 };
-        el.dispatchEvent(new MouseEvent('mousedown', opts));
-        el.dispatchEvent(new MouseEvent('mouseup', opts));
-        el.dispatchEvent(new MouseEvent('click', opts));
-        return el.innerText.trim();
-      }
-      // Pass 1: exact match (prefer over partial)
-      for (const el of items) {
-        const t = ny((el.innerText?.trim() || '').toLowerCase());
-        if (t === target) return clickEl(el);
-        const stripped = t.replace(/\\s*\\([^)]*\\)\\s*$/, '');
-        if (stripped === target) return clickEl(el);
-      }
-      // Pass 2: partial match
-      for (const el of items) {
-        const t = ny((el.innerText?.trim() || '').toLowerCase());
-        if (t.includes(target) || target.includes(t.replace(/\\s*\\([^)]*\\)\\s*$/, ''))) return clickEl(el);
-      }
-      return null;
-    })()`);
-  }
-
-  // Helper: click "Показать все" in EDD footer via evaluate
-  async function clickShowAll() {
-    return page.evaluate(`(() => {
-      const edd = document.getElementById('editDropDown');
-      if (!edd || edd.offsetWidth === 0) return false;
-      let el = edd.querySelector('.eddBottom .hyperlink');
-      if (!el || el.offsetWidth === 0) {
-        const candidates = [...edd.querySelectorAll('span, div, a')]
-          .filter(e => e.offsetWidth > 0 && e.children.length === 0);
-        el = candidates.find(e => {
-          const t = (e.innerText?.trim() || '').toLowerCase();
-          return t === 'показать все' || t === 'show all';
-        });
-      }
-      if (!el) return false;
-      const r = el.getBoundingClientRect();
-      const opts = { bubbles: true, cancelable: true, clientX: r.x + r.width/2, clientY: r.y + r.height/2 };
-      el.dispatchEvent(new MouseEvent('mousedown', opts));
-      el.dispatchEvent(new MouseEvent('mouseup', opts));
-      el.dispatchEvent(new MouseEvent('click', opts));
-      return true;
-    })()`);
-  }
+  // Locals → dom-scripts in helpers.mjs (see clickEddItemViaDispatch / clickShowAllInEdd)
+  const clickEddItem = clickEddItemViaDispatch;
+  const clickShowAll = clickShowAllInEdd;
 
   // 2. Click DLB (handle funcPanel / surface overlay intercept)
   const dlbSel = `[id="${btn.buttonId}"]`;

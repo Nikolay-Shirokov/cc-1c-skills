@@ -1,4 +1,4 @@
-// web-test dom v1.11 — facade re-exporting injectable DOM scripts from dom/
+// web-test dom v1.12 — facade re-exporting injectable DOM scripts from dom/
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 /**
  * Facade: re-exports DOM selector & semantic mapping script generators.
@@ -42,6 +42,13 @@ export {
   isInputFocusedInGridScript,
   findOpenPopupScript,
 } from './dom/edit-state.mjs';
+
+export {
+  readEddScript,
+  isEddVisibleScript,
+  clickEddItemViaDispatchScript,
+  clickShowAllInEddScript,
+} from './dom/edd.mjs';
 
 export { getFormStateScript } from './dom/form-state.mjs';
 
