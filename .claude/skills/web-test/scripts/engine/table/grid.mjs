@@ -1,4 +1,4 @@
-// web-test table/grid v1.17 — Form-grid operations: read table rows, fill rows, delete rows.
+// web-test table/grid v1.18 — Form-grid operations: read table rows, fill rows, delete rows.
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 //
 // "Grid" в терминах 1С — таблица на форме (.gridLine/.gridBody/.grid в DOM):
@@ -10,7 +10,7 @@ import { detectFormScript, readTableScript, resolveGridScript } from '../../dom.
 import { dismissPendingErrors } from '../core/errors.mjs';
 import { waitForStable } from '../core/wait.mjs';
 import { clickElement } from '../core/click.mjs';
-import { getFormState } from '../forms/state.mjs';
+import { returnFormState } from '../core/helpers.mjs';
 
 /** Read structured table data with pagination. Returns columns, rows, total count. */
 export async function readTable({ maxRows = 20, offset = 0, table } = {}) {
@@ -33,7 +33,7 @@ export async function readTable({ maxRows = 20, offset = 0, table } = {}) {
  * @param {number} row - 0-based row index to delete
  * @param {Object} [options]
  * @param {string} [options.tab] - Switch to this form tab before operating
- * @returns {{ deleted, rowsBefore, rowsAfter, form }}
+ * @returns {object} form state with { deleted, rowsBefore, rowsAfter }
  */
 export async function deleteTableRow(row, { tab, table } = {}) {
   ensureConnected();
@@ -98,6 +98,5 @@ export async function deleteTableRow(row, { tab, table } = {}) {
     return body ? body.querySelectorAll('.gridLine').length : 0;
   })()`);
 
-  const formData = await getFormState();
-  return { deleted: row, rowsBefore, rowsAfter, form: formData };
+  return returnFormState({ deleted: row, rowsBefore, rowsAfter });
 }

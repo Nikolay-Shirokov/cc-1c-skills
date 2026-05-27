@@ -1,10 +1,11 @@
-// web-test spreadsheet v1.17 — readSpreadsheet + helpers for SpreadsheetDocument (отчёты, печатные формы).
+// web-test spreadsheet v1.18 — readSpreadsheet + helpers for SpreadsheetDocument (отчёты, печатные формы).
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import { page, ensureConnected } from '../core/state.mjs';
 import { detectFormScript } from '../../dom.mjs';
 import { waitForStable } from '../core/wait.mjs';
 import { getFormState } from '../forms/state.mjs';
+import { returnFormState } from '../core/helpers.mjs';
 
 // --- Spreadsheet helpers (shared by readSpreadsheet and clickElement) ---
 
@@ -442,9 +443,7 @@ export async function clickSpreadsheetCell(target, { dblclick: dbl, modifier } =
   if (modKey) await page.keyboard.up(modKey);
 
   await waitForStable();
-  const state = await getFormState();
-  state.clicked = { kind: 'spreadsheetCell', row: target.row, column: colName, ...(dbl ? { dblclick: true } : {}) };
-  return state;
+  return returnFormState({ clicked: { kind: 'spreadsheetCell', row: target.row, column: colName, ...(dbl ? { dblclick: true } : {}) } });
 }
 
 /**

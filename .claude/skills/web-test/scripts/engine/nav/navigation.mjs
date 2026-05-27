@@ -1,4 +1,4 @@
-// web-test nav/navigation v1.16 — Section navigation, openCommand, switchTab, navigateLink (Shift+F11), openFile.
+// web-test nav/navigation v1.17 — Section navigation, openCommand, switchTab, navigateLink (Shift+F11), openFile.
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import {
@@ -12,7 +12,7 @@ import {
 import { dismissPendingErrors, checkForErrors } from '../core/errors.mjs';
 import { waitForStable, waitForCondition } from '../core/wait.mjs';
 import { highlight, unhighlight } from '../recording/highlight.mjs';
-import { returnFormState } from '../core/helpers.mjs';
+import { returnFormState } from '../core/helpers.mjs';
 // Static import — ESM cycle that resolves at call time.
 import { pasteText } from '../core/clipboard.mjs';
 import { getFormState } from '../forms/state.mjs';
@@ -60,7 +60,7 @@ export async function navigateSection(name) {
     sections: ${readSectionsScript()},
     commands: ${readCommandsScript()}
   })`);
-  return { navigated: result, sections, commands };
+  return returnFormState({ navigated: result, sections, commands });
 }
 
 /** Read commands of the current section. */
@@ -88,7 +88,7 @@ export async function switchTab(name) {
   const result = await page.evaluate(switchTabScript(name));
   if (result?.error) throw new Error(`switchTab: "${name}" not found. Available: ${result.available?.join(', ') || 'none'}`);
   await waitForStable();
-  return await getFormState();
+  return returnFormState();
 }
 
 // English → Russian metadata type mapping for e1cib navigation links
@@ -206,9 +206,7 @@ export async function openFile(filePath) {
           }
         }
         // It's the real EPF form
-        const state = await getFormState();
-        state.opened = { file: absPath, attempt: attempt + 1 };
-        return state;
+        return returnFormState({ opened: { file: absPath, attempt: attempt + 1 } });
       }
       // Form didn't appear — retry
       continue;

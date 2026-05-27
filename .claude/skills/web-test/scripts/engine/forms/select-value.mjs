@@ -1,4 +1,4 @@
-// web-test forms/select-value v1.17 — Reference & composite-type value selection: selectValue, fillReferenceField, selection/type-dialog pickers.
+// web-test forms/select-value v1.18 — Reference & composite-type value selection: selectValue, fillReferenceField, selection/type-dialog pickers.
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import {
@@ -17,7 +17,7 @@ import { highlight, unhighlight } from '../recording/highlight.mjs';
 import {
   safeClick, findFieldInputId, readEdd,
   detectNewForm as helperDetectNewForm,
-  clickEddItemViaDispatch, clickShowAllInEdd,
+  clickEddItemViaDispatch, clickShowAllInEdd, returnFormState,
 } from '../core/helpers.mjs';
 import { pasteText } from '../core/clipboard.mjs';
 import { getFormState } from './state.mjs';
@@ -617,8 +617,7 @@ export async function selectValue(fieldName, searchText, { type } = {}) {
       await waitForStable();
     }
     if (highlightMode) try { await unhighlight(); } catch {}
-    const formData = await getFormState();
-    return { ...formData, selected: { field: fieldName, search: null, method: 'clear' } };
+    return returnFormState({ selected: { field: fieldName, search: null, method: 'clear' } });
   }
 
   // === COMPOSITE TYPE HANDLING ===
