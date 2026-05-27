@@ -44,10 +44,20 @@ export default async function({ navigateSection, openCommand, clickElement, sele
     //   Контрагент: 'DontUse' → typeahead-dropdown подавлен → selectValue идёт в form
     //   Менеджер:   'Auto' (дефолт) → typeahead активен → selectValue остаётся в dropdown
     // Шаг подтверждает, что флаг управляет path внутри selectValue.
+    //
+    // history наполняется per-value при выборе. Делаем warm-up через form, чтобы
+    // second pick шёл из истории — иначе isolation-прогон зависит от того,
+    // выбирали ли 'ООО Юг' в предыдущих тестах (06-document и т.д.).
     await navigateSection('Склад');
     await openCommand('Приходная накладная');
     await clickElement('Создать');
 
+    // Warm-up: первый выбор может пойти через form (если history пустая).
+    // Не делаем assertions — только наполняем историю.
+    await selectValue('Менеджер', 'ООО Юг');
+    await selectValue('Менеджер', '');  // clear, оставляем форму открытой
+
+    // Второй выбор того же значения — должен взяться из history через typeahead.
     const r = await selectValue('Менеджер', 'ООО Юг');
     log(`Менеджер (Auto): method=${r.selected?.method}`);
     assert.equal(r.selected?.method, 'dropdown',
