@@ -1,4 +1,4 @@
-// web-test cli/commands/test v1.1 — regression test runner
+// web-test cli/commands/test v1.2 — regression test runner
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import { existsSync, writeFileSync, mkdirSync } from 'fs';
 import { resolve, dirname, basename, relative } from 'path';
@@ -318,10 +318,18 @@ export async function cmdTest(rawArgs) {
           if (hooks.beforeEach) await hooks.beforeEach(ctx);
           if (t.setup) await t.setup(ctx);
 
-          await Promise.race([
-            t.fn(ctx, t.param),
-            new Promise((_, reject) => setTimeout(() => reject(new Error(`Timeout (${t.timeout}ms)`)), t.timeout)),
-          ]);
+          let timeoutTimer;
+          try {
+            await Promise.race([
+              t.fn(ctx, t.param),
+              new Promise((_, reject) => { timeoutTimer = setTimeout(() => reject(new Error(`Timeout (${t.timeout}ms)`)), t.timeout); }),
+            ]);
+          } finally {
+            // Clear the guard timer — otherwise it stays armed in the event loop and,
+            // since the success path never calls process.exit(), node can't exit until
+            // it fires (up to `timeout` ms after the last test finished).
+            clearTimeout(timeoutTimer);
+          }
 
           if (t.teardown) try { await t.teardown(ctx); } catch {}
           ctx.testResult = { status: 'passed', duration: elapsed(t0), attempts: attempt, error: null, steps };
