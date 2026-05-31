@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# form-compile v1.22 — Compile 1C managed form from JSON or object metadata
+# form-compile v1.23 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import copy
@@ -1933,6 +1933,8 @@ def emit_input(lines, el, name, eid, indent):
         lines.append(f'{inner}<PasswordMode>true</PasswordMode>')
     if el.get('choiceButton') is False:
         lines.append(f'{inner}<ChoiceButton>false</ChoiceButton>')
+    elif el.get('choiceButton') is True and 'StartChoice' in (el.get('on') or []):
+        lines.append(f'{inner}<ChoiceButton>true</ChoiceButton>')
     if el.get('clearButton') is True:
         lines.append(f'{inner}<ClearButton>true</ClearButton>')
     if el.get('spinButton') is True:

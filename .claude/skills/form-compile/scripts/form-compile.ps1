@@ -1,4 +1,4 @@
-﻿# form-compile v1.22 — Compile 1C managed form from JSON or object metadata
+﻿# form-compile v1.23 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[string]$JsonPath,
@@ -2134,6 +2134,7 @@ function Emit-Input {
 	if ($el.multiLine -eq $true) { X "$inner<MultiLine>true</MultiLine>" }
 	if ($el.passwordMode -eq $true) { X "$inner<PasswordMode>true</PasswordMode>" }
 	if ($el.choiceButton -eq $false) { X "$inner<ChoiceButton>false</ChoiceButton>" }
+	elseif ($el.choiceButton -eq $true -and ($el.on -contains 'StartChoice')) { X "$inner<ChoiceButton>true</ChoiceButton>" }
 	if ($el.clearButton -eq $true) { X "$inner<ClearButton>true</ClearButton>" }
 	if ($el.spinButton -eq $true) { X "$inner<SpinButton>true</SpinButton>" }
 	if ($el.dropListButton -eq $true) { X "$inner<DropListButton>true</DropListButton>" }

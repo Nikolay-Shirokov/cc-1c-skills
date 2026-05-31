@@ -38,6 +38,7 @@
 							<v8:content>Файл</v8:content>
 						</v8:item>
 					</Title>
+					<ChoiceButton>true</ChoiceButton>
 					<InputHint>
 						<v8:item>
 							<v8:lang>ru</v8:lang>
