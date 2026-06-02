@@ -190,9 +190,9 @@ export default async function({
 
   // ── Focus-click skip checkbox: cluster booleans on right edge, click further right ──
   await step('focus-click пропускает checkbox-ячейки при выборе focus-точки', async () => {
-    // После предыдущего шага viewport уехал вправо. Нужно сбросить — выходим из ТЧ
-    // и заходим заново через клик на Контрагент (вне грида).
-    await fillFields({ 'Комментарий': 'LongDoc' }); // вернёт к дефолтному viewport
+    // После предыдущего шага viewport уехал вправо. Нужно сбросить — выводим фокус
+    // из ТЧ кликом по полю «Комментарий» (вне грида), без перезаполнения значения.
+    await clickElement('Комментарий'); // фокус вне грида → дефолтный viewport
     await wait(0.3);
     const before = await readTable({ table: 'Товары', maxRows: 5 });
     const bools0 = {
