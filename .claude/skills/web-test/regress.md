@@ -5,8 +5,10 @@ Use this when the user asks to cover a 1C solution with automated regression tes
 The runner is the same `run.mjs`. The mode is `test`:
 
 ```bash
-node $RUN test [url] <dir|file> [flags]
+node $RUN test <dir|file>... [flags]
 ```
+
+Positional args are test paths (files and/or dirs, multiple allowed). URL is NOT positional — it comes from `webtest.config.mjs`; override with `--url=<url>`.
 
 Tests live next to the project they cover (not inside the skill). Convention: `tests/` at the project root, with `_hooks.mjs` and `webtest.config.mjs` at the suite root. Tests are ES modules with `*.test.mjs` suffix.
 
@@ -362,6 +364,7 @@ Each `params` entry becomes its own test in the report. `{key}` placeholders in 
 node $RUN test tests/<app-name>/                                       # full app suite
 node $RUN test tests/<app-name>/03-goods-receipt/                      # one feature folder
 node $RUN test tests/<app-name>/02-counterparties/01-create.test.mjs   # one file
+node $RUN test tests/<app-name>/02-x.test.mjs tests/<app-name>/05-y.test.mjs  # several files
 node $RUN test tests/<app-name>/ --tags=smoke                          # by tag (intersection)
 node $RUN test tests/<app-name>/ --grep='накладн'                      # by name regex
 node $RUN test tests/<app-name>/ --bail --retry=1                      # stop on first fail, allow 1 retry

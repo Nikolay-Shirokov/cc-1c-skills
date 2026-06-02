@@ -11,6 +11,9 @@ node .claude/skills/web-test/scripts/run.mjs test tests/web-test/
 # Один файл
 node .claude/skills/web-test/scripts/run.mjs test tests/web-test/02-crud.test.mjs
 
+# Несколько файлов (позиционные = пути к тестам, можно сколько угодно)
+node .claude/skills/web-test/scripts/run.mjs test tests/web-test/04-selectvalue.test.mjs tests/web-test/11-report.test.mjs
+
 # Несколько по фильтру тегов
 node .claude/skills/web-test/scripts/run.mjs test tests/web-test/ --tags=table,smoke
 
@@ -18,7 +21,7 @@ node .claude/skills/web-test/scripts/run.mjs test tests/web-test/ --tags=table,s
 node .claude/skills/web-test/scripts/run.mjs test tests/web-test/ --grep=multi
 ```
 
-URL не указываем — берётся из `webtest.config.mjs` (`contexts.a.url` = `http://localhost:9191/webtest-runner/ru_RU`).
+URL не передаём позиционно — берётся из `webtest.config.mjs` (`contexts.a.url` = `http://localhost:9191/webtest-runner/ru_RU`). Переопределить можно флагом `--url=<url>`.
 
 Exit code: 0 = все прошли, 1 = есть падения.
 
@@ -26,6 +29,7 @@ Exit code: 0 = все прошли, 1 = есть падения.
 
 | Флаг | Описание |
 |---|---|
+| `--url=URL` | Переопределить базовый URL (по умолчанию — из `webtest.config.mjs`) |
 | `--tags=A,B` | Запустить только тесты с одним из тегов |
 | `--grep=regex` | Фильтр по имени теста |
 | `--bail` | Остановиться на первой ошибке |
