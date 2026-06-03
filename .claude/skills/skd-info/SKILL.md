@@ -1,7 +1,7 @@
 ---
 name: skd-info
 description: Анализ структуры схемы компоновки данных 1С (СКД) — наборы, поля, параметры, варианты. Используй для понимания отчёта — источник данных (запрос), доступные поля, параметры
-argument-hint: <TemplatePath> [-Mode overview|query|fields|links|calculated|resources|params|variant|templates|trace|full] [-Name <dataset|variant|field|group>]
+argument-hint: <TemplatePath> [-Mode overview|query|fields|links|calculated|resources|params|variant|templates|trace|full] [-Name <dataset|variant|field|group>] [-Raw]
 allowed-tools:
   - Bash
   - Read
@@ -20,7 +20,8 @@ allowed-tools:
 | `Mode` | Режим анализа (по умолчанию `overview`) |
 | `Name` | Имя набора (query), поля (fields/calculated/resources/trace), варианта (variant) или группировки/поля (templates) |
 | `Batch` | Номер пакета запроса, 0 = все (только query) |
-| `Limit` / `Offset` | Пагинация (по умолчанию 150 строк) |
+| `Raw` | (только query) сырой текст запроса целиком, без заголовков/оглавления/разделителей пакетов. Для выгрузки в `.sql` и возврата через `skd-edit set-query @file` |
+| `Limit` / `Offset` | Пагинация (по умолчанию 150 строк; `-Raw` не усекается) |
 | `OutFile` | Записать результат в файл (UTF-8 BOM) |
 
 ```powershell
@@ -31,6 +32,7 @@ powershell.exe -NoProfile -File "${CLAUDE_SKILL_DIR}/scripts/skd-info.ps1" -Temp
 ```powershell
 ... -Mode query -Name НоменклатураСЦенами
 ... -Mode query -Name ДанныеТ13 -Batch 3
+... -Mode query -Name ДанныеТ13 -Raw -OutFile query.sql
 ... -Mode fields -Name КадастроваяСтоимость
 ... -Mode calculated -Name КоэффициентКи
 ... -Mode resources -Name СуммаНалога
@@ -45,7 +47,7 @@ powershell.exe -NoProfile -File "${CLAUDE_SKILL_DIR}/scripts/skd-info.ps1" -Temp
 | Режим | Без `-Name` | С `-Name` |
 |-------|-------------|-----------|
 | `overview` | Навигационная карта схемы + подсказки Next | — |
-| `query` | — | Текст запроса набора (с оглавлением батчей) |
+| `query` | — | Текст запроса набора (с оглавлением батчей); `-Raw` — чистая выгрузка для правки |
 | `fields` | Карта: имена полей по наборам | Деталь поля: набор, тип, роль, формат |
 | `links` | Все связи наборов | — |
 | `calculated` | Карта: имена вычисляемых полей | Выражение + заголовок + ограничения |
@@ -65,7 +67,10 @@ powershell.exe -NoProfile -File "${CLAUDE_SKILL_DIR}/scripts/skd-info.ps1" -Temp
 3. `query -Name <набор>` — посмотреть текст SQL-запроса
 4. `variant -Name <N>` — посмотреть группировки и фильтры варианта
 
-Подробные примеры вывода каждого режима — в `modes-reference.md`.
+Переработка запроса (round-trip): `query -Name <набор> -Raw -OutFile q.sql` →
+правка `q.sql` → `/skd-edit <tpl> -Operation set-query -Value "@q.sql"`. Флаг
+`-Raw` отдаёт запрос целиком без декораций, поэтому выгрузка ↔ возврат
+точны (включая многопакетные запросы с временными таблицами).
 
 ## Верификация
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# skd-info v1.5 — Analyze 1C DCS structure
+# skd-info v1.6 — Analyze 1C DCS structure
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -278,6 +278,7 @@ def main():
     parser.add_argument("-Limit", type=int, default=150)
     parser.add_argument("-Offset", type=int, default=0)
     parser.add_argument("-OutFile", default=None)
+    parser.add_argument("-Raw", action="store_true")
     args = parser.parse_args()
 
     # --- Resolve path ---
@@ -634,6 +635,13 @@ def main():
             sys.exit(1)
 
         raw_query = unescape_xml("".join(query_node.itertext()))
+
+        # Raw mode: emit verbatim query text only (no headers/TOC/batch split) for round-trip
+        if args.Raw:
+            for ql in raw_query.strip().split("\n"):
+                lines.append(ql.rstrip())
+            return
+
         ds_name_str = (target_ds.find("s:name", NSMAP).text or "")
 
         # Split into batches
@@ -1719,7 +1727,7 @@ def main():
             sys.exit(0)
         result = result[args.Offset:]
 
-    if len(result) > args.Limit:
+    if not args.Raw and len(result) > args.Limit:
         shown = result[:args.Limit]
         for line in shown:
             print(line)

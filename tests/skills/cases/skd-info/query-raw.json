@@ -1,0 +1,22 @@
+{
+  "name": "Raw-выгрузка многопакетного запроса без декораций",
+  "preRun": [
+    {
+      "script": "skd-compile/scripts/skd-compile",
+      "input": {
+        "dataSets": [{
+          "name": "Основной",
+          "query": "ВЫБРАТЬ 1 КАК Поле\nПОМЕСТИТЬ ВТ_Первая\n;\n////////////////////////////////////////////////////////////////////////////////\nВЫБРАТЬ Поле ИЗ ВТ_Первая КАК Т",
+          "fields": ["Поле"]
+        }]
+      },
+      "args": { "-DefinitionFile": "{inputFile}", "-OutputPath": "{workDir}/Template.xml" }
+    }
+  ],
+  "params": { "templatePath": "Template.xml" },
+  "args_extra": ["-Mode", "query", "-Name", "Основной", "-Raw"],
+  "expect": {
+    "stdoutContains": ["ПОМЕСТИТЬ ВТ_Первая", "////", "ВЫБРАТЬ Поле ИЗ ВТ_Первая"],
+    "stdoutNotContains": ["=== Query", "--- Batch", "Batch 1: lines"]
+  }
+}

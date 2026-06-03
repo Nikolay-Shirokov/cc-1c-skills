@@ -1,4 +1,4 @@
-﻿# skd-info v1.5 — Analyze 1C DCS structure
+﻿# skd-info v1.6 — Analyze 1C DCS structure
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory=$true)]
@@ -10,7 +10,8 @@ param(
 	[int]$Batch = 0,
 	[int]$Limit = 150,
 	[int]$Offset = 0,
-	[string]$OutFile
+	[string]$OutFile,
+	[switch]$Raw
 )
 
 $ErrorActionPreference = "Stop"
@@ -655,6 +656,13 @@ function Show-Query {
 	}
 
 	$rawQuery = Unescape-Xml $queryNode.InnerText
+
+	# Raw mode: emit verbatim query text only (no headers/TOC/batch split) for round-trip
+	if ($Raw) {
+		foreach ($ql in ($rawQuery.Trim() -split "`n")) { $lines.Add($ql.TrimEnd()) }
+		return
+	}
+
 	$dsNameStr = $targetDs.SelectSingleNode("s:name", $ns).InnerText
 
 	# Split into batches
@@ -1894,7 +1902,7 @@ if ($Offset -gt 0) {
 	$result = $result[$Offset..($totalLines - 1)]
 }
 
-if ($result.Count -gt $Limit) {
+if (-not $Raw -and $result.Count -gt $Limit) {
 	$shown = $result[0..($Limit - 1)]
 	foreach ($l in $shown) { Write-Host $l }
 	Write-Host ""
