@@ -1,0 +1,36 @@
+{
+  "name": "ButtonGroup в командной панели + команды с tooltip/currentRowUse",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "DataProcessor", "name": "ГруппыКнопок" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    {
+      "script": "form-add/scripts/form-add",
+      "args": { "-ObjectPath": "{workDir}/DataProcessors/ГруппыКнопок.xml", "-FormName": "Форма" }
+    }
+  ],
+  "params": { "outputPath": "DataProcessors/ГруппыКнопок/Forms/Форма/Ext/Form.xml" },
+  "validatePath": "DataProcessors/ГруппыКнопок/Forms/Форма/Ext/Form.xml",
+  "input": {
+    "title": "Группы кнопок",
+    "elements": [
+      { "cmdBar": "Панель", "children": [
+        { "button": "Выполнить", "command": "Выполнить", "defaultButton": true },
+        { "buttonGroup": "ГруппаПереместить", "title": "Переместить", "children": [
+          { "button": "Вверх", "command": "Вверх" },
+          { "button": "Вниз", "command": "Вниз" }
+        ]}
+      ]}
+    ],
+    "attributes": [
+      { "name": "Объект", "type": "DataProcessorObject.ГруппыКнопок", "main": true }
+    ],
+    "commands": [
+      { "name": "Выполнить", "action": "ВыполнитьОбработка", "tooltip": "Запустить обработку", "shortcut": "Ctrl+Enter" },
+      { "name": "Вверх", "action": "ВверхОбработка", "currentRowUse": "DontUse" },
+      { "name": "Вниз", "action": "ВнизОбработка", "currentRowUse": "DontUse" }
+    ]
+  }
+}

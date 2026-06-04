@@ -1,4 +1,4 @@
-﻿# form-compile v1.23 — Compile 1C managed form from JSON or object metadata
+﻿# form-compile v1.24 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[string]$JsonPath,
@@ -1878,7 +1878,7 @@ function Emit-Element {
 	$typeKey = $null
 	$xmlTag = $null
 
-	foreach ($key in @("columnGroup","group","input","check","radio","label","labelField","table","pages","page","button","picture","picField","calendar","cmdBar","popup")) {
+	foreach ($key in @("columnGroup","buttonGroup","group","input","check","radio","label","labelField","table","pages","page","button","picture","picField","calendar","cmdBar","popup")) {
 		if ($el.$key -ne $null) {
 			$typeKey = $key
 			break
@@ -1893,7 +1893,7 @@ function Emit-Element {
 	# Validate known keys — warn about typos and unknown properties
 	$knownKeys = @{
 		# type keys
-		"group"=1;"columnGroup"=1;"input"=1;"check"=1;"radio"=1;"label"=1;"labelField"=1;"table"=1;"pages"=1;"page"=1
+		"group"=1;"columnGroup"=1;"buttonGroup"=1;"input"=1;"check"=1;"radio"=1;"label"=1;"labelField"=1;"table"=1;"pages"=1;"page"=1
 		"button"=1;"picture"=1;"picField"=1;"calendar"=1;"cmdBar"=1;"popup"=1
 		# columnGroup-specific
 		"showInHeader"=1
@@ -1945,6 +1945,7 @@ function Emit-Element {
 	switch ($typeKey) {
 		"group"    { Emit-Group -el $el -name $name -id $id -indent $indent }
 		"columnGroup" { Emit-ColumnGroup -el $el -name $name -id $id -indent $indent }
+		"buttonGroup" { Emit-ButtonGroup -el $el -name $name -id $id -indent $indent }
 		"input"    { Emit-Input -el $el -name $name -id $id -indent $indent }
 		"check"    { Emit-Check -el $el -name $name -id $id -indent $indent }
 		"radio"    { Emit-Radio -el $el -name $name -id $id -indent $indent }
@@ -2787,6 +2788,35 @@ function Emit-CommandBar {
 	X "$indent</CommandBar>"
 }
 
+function Emit-ButtonGroup {
+	param($el, [string]$name, [int]$id, [string]$indent)
+
+	X "$indent<ButtonGroup name=`"$name`" id=`"$id`">"
+	$inner = "$indent`t"
+
+	Emit-Title -el $el -name $name -indent $inner
+
+	if ($el.representation) {
+		X "$inner<Representation>$($el.representation)</Representation>"
+	}
+
+	Emit-CommonFlags -el $el -indent $inner
+
+	# Companion: ExtendedTooltip
+	Emit-Companion -tag "ExtendedTooltip" -name "${name}РасширеннаяПодсказка" -indent $inner
+
+	# Children (кнопки в контексте командной панели)
+	if ($el.children -and $el.children.Count -gt 0) {
+		X "$inner<ChildItems>"
+		foreach ($child in $el.children) {
+			Emit-Element -el $child -indent "$inner`t" -inCmdBar $true
+		}
+		X "$inner</ChildItems>"
+	}
+
+	X "$indent</ButtonGroup>"
+}
+
 function Emit-Popup {
 	param($el, [string]$name, [int]$id, [string]$indent)
 
@@ -2933,8 +2963,16 @@ function Emit-Commands {
 			Emit-MLText -tag "Title" -text "$cmdTitle" -indent $inner
 		}
 
+		if ($cmd.tooltip) {
+			Emit-MLText -tag "ToolTip" -text "$($cmd.tooltip)" -indent $inner
+		}
+
 		if ($cmd.action) {
 			X "$inner<Action>$($cmd.action)</Action>"
+		}
+
+		if ($cmd.currentRowUse) {
+			X "$inner<CurrentRowUse>$($cmd.currentRowUse)</CurrentRowUse>"
 		}
 
 		if ($cmd.shortcut) {

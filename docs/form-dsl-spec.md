@@ -385,6 +385,42 @@ Pages поддерживает `pagesRepresentation`: `None`, `TabsOnTop`, `Tabs
 { "popup": "Печать", "picture": "StdPicture.Print", "children": [ ... ] }
 ```
 
+#### buttonGroup — ButtonGroup
+
+Группа кнопок внутри командной панели (`autoCmdBar`/`cmdBar`/`popup`). Значение ключа — имя элемента.
+
+```json
+{ "buttonGroup": "ГруппаПереместить", "title": "Переместить", "children": [
+    { "button": "ПереместитьВверх", "command": "ПереместитьВверх" },
+    { "button": "ПереместитьВниз", "command": "ПереместитьВниз" }
+] }
+```
+
+| Свойство | Тип | Описание |
+|----------|-----|----------|
+| `buttonGroup` | string | Имя элемента |
+| `title` | string/object | Заголовок группы |
+| `representation` | string | `Auto`, `Picture`, `Text`, `PictureAndText` |
+| `children` | array | Кнопки (`button`) внутри группы |
+
+#### autoCmdBar — командная панель формы
+
+Командная панель самой формы (`<AutoCommandBar id="-1">`). Задаётся как элемент в `elements`; компилятор автоматически вынимает его из дерева. Нужен только если в панель помещаются **явные** кнопки/группы или меняется выравнивание/автозаполнение — иначе панель формируется автоматически.
+
+```json
+{ "autoCmdBar": "ФормаКоманднаяПанель", "horizontalAlign": "Right", "autofill": false, "children": [
+    { "button": "ОК", "command": "ОК", "defaultButton": true },
+    { "button": "Отмена", "command": "Отмена" }
+] }
+```
+
+| Свойство | Тип | Описание |
+|----------|-----|----------|
+| `autoCmdBar` | string | Имя панели (обычно `ФормаКоманднаяПанель`) |
+| `horizontalAlign` | string | `Right`, `Left`, `Center` |
+| `autofill` | bool | `false` — отключить автозаполнение стандартными командами |
+| `children` | array | Кнопки/группы кнопок панели |
+
 ---
 
 ## 5. Attributes — реквизиты формы
@@ -443,6 +479,8 @@ Pages поддерживает `pagesRepresentation`: `None`, `TabsOnTop`, `Tabs
 | `name` | string | Имя команды (обязательно) |
 | `action` | string | Имя процедуры-обработчика |
 | `title` | string | Заголовок |
+| `tooltip` | string/object | Всплывающая подсказка команды (`<ToolTip>`) |
+| `currentRowUse` | string | Использование текущей строки: `Auto`, `DontUse`, `Use` |
 | `shortcut` | string | Клавиатурное сочетание |
 | `picture` | string | Ссылка на картинку |
 | `representation` | string | `Auto`, `Picture`, `Text`, `PictureAndText` |

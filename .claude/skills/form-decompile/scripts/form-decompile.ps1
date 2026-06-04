@@ -1,4 +1,4 @@
-﻿# form-decompile v0.2 — Decompile 1C managed Form.xml to JSON DSL (draft)
+﻿# form-decompile v0.3 — Decompile 1C managed Form.xml to JSON DSL (draft)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 # ВНИМАНИЕ: раундтрип не гарантируется. Навык исключён из авто-использования моделью.
 param(
@@ -280,7 +280,7 @@ function Decompile-Type {
 
 # --- 4. Element dispatch ---
 $ELEMENT_KEY = @{
-	'UsualGroup'='group'; 'ColumnGroup'='columnGroup'; 'InputField'='input'; 'CheckBoxField'='check';
+	'UsualGroup'='group'; 'ColumnGroup'='columnGroup'; 'ButtonGroup'='buttonGroup'; 'InputField'='input'; 'CheckBoxField'='check';
 	'RadioButtonField'='radio'; 'LabelDecoration'='label'; 'LabelField'='labelField';
 	'PictureDecoration'='picture'; 'PictureField'='picField'; 'CalendarField'='calendar';
 	'Table'='table'; 'Pages'='pages'; 'Page'='page'; 'Button'='button'; 'CommandBar'='cmdBar'; 'Popup'='popup'
@@ -455,6 +455,13 @@ function Decompile-Element {
 			$rep = Get-Child $node 'Representation'; if ($rep) { $obj['representation'] = $rep }
 			$lic = Get-Child $node 'LocationInCommandBar'; if ($lic) { $obj['locationInCommandBar'] = $lic }
 		}
+		'ButtonGroup' {
+			$obj[$key] = $name
+			Add-CommonProps $obj $node $name
+			$rep = Get-Child $node 'Representation'; if ($rep) { $obj['representation'] = $rep }
+			$kids = Decompile-Children $node
+			if ($kids) { $obj['children'] = $kids }
+		}
 		'CommandBar' {
 			$obj[$key] = $name
 			Add-CommonProps $obj $node $name
@@ -507,9 +514,25 @@ if ($evForm) {
 	if ($evMap.Count -gt 0) { $dsl['events'] = $evMap }
 }
 
-# elements
+# elements (+ форменный AutoCommandBar как autoCmdBar-элемент, если у него есть содержимое)
+$elemList = New-Object System.Collections.ArrayList
+$acb = $root.SelectSingleNode("lf:AutoCommandBar", $ns)
+if ($acb) {
+	$haln = Get-Child $acb 'HorizontalAlign'
+	$acbAutofill = Get-Child $acb 'Autofill'
+	$acbKids = Decompile-Children $acb
+	if ($haln -or ($acbAutofill -eq 'false') -or $acbKids) {
+		$acbObj = [ordered]@{}
+		$acbObj['autoCmdBar'] = $acb.GetAttribute("name")
+		if ($haln) { $acbObj['horizontalAlign'] = $haln }
+		if ($acbAutofill -eq 'false') { $acbObj['autofill'] = $false }
+		if ($acbKids) { $acbObj['children'] = $acbKids }
+		[void]$elemList.Add($acbObj)
+	}
+}
 $elements = Decompile-Children $root
-if ($elements) { $dsl['elements'] = $elements }
+if ($elements) { foreach ($e in $elements) { [void]$elemList.Add($e) } }
+if ($elemList.Count -gt 0) { $dsl['elements'] = @($elemList) }
 
 # attributes
 $attrsNode = $root.SelectSingleNode("lf:Attributes", $ns)
@@ -560,6 +583,8 @@ if ($cmdsNode) {
 		$co = [ordered]@{}; $co['name'] = $c.GetAttribute("name")
 		$act = Get-Child $c 'Action'; if ($act) { $co['action'] = $act }
 		$tNode = $c.SelectSingleNode("lf:Title", $ns); if ($tNode) { $t = Get-LangText $tNode; if ($null -ne $t) { $co['title'] = $t } }
+		$ttNode = $c.SelectSingleNode("lf:ToolTip", $ns); if ($ttNode) { $t = Get-LangText $ttNode; if ($null -ne $t) { $co['tooltip'] = $t } }
+		$cru = Get-Child $c 'CurrentRowUse'; if ($cru) { $co['currentRowUse'] = $cru }
 		$sc = Get-Child $c 'Shortcut'; if ($sc) { $co['shortcut'] = $sc }
 		$ref = $c.SelectSingleNode("lf:Picture/xr:Ref", $ns); if ($ref) { $co['picture'] = $ref.InnerText }
 		$rep = Get-Child $c 'Representation'; if ($rep) { $co['representation'] = $rep }

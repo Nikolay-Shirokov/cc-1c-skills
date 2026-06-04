@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# form-compile v1.23 — Compile 1C managed form from JSON or object metadata
+# form-compile v1.24 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import copy
@@ -1338,7 +1338,7 @@ KNOWN_FORM_EVENTS = [
 ]
 
 KNOWN_KEYS = {
-    "group", "columnGroup", "input", "check", "radio", "label", "labelField", "table", "pages", "page",
+    "group", "columnGroup", "buttonGroup", "input", "check", "radio", "label", "labelField", "table", "pages", "page",
     "button", "picture", "picField", "calendar", "cmdBar", "popup",
     "showInHeader",
     "radioButtonType", "choiceList", "columnsCount",
@@ -1364,7 +1364,7 @@ KNOWN_KEYS = {
     "rowPictureDataPath", "tableAutofill",
 }
 
-TYPE_KEYS = ["columnGroup", "group", "input", "check", "radio", "label", "labelField", "table", "pages", "page",
+TYPE_KEYS = ["columnGroup", "buttonGroup", "group", "input", "check", "radio", "label", "labelField", "table", "pages", "page",
              "button", "picture", "picField", "calendar", "cmdBar", "popup"]
 
 # Synonyms: model often writes XML name or Russian (ПолеПереключателя/RadioButtonField → radio)
@@ -1792,6 +1792,7 @@ def emit_element(lines, el, indent, in_cmd_bar=False):
     emitters = {
         'group': emit_group,
         'columnGroup': emit_column_group,
+        'buttonGroup': emit_button_group,
         'input': emit_input,
         'check': emit_check,
         'radio': emit_radio_button_field,
@@ -2452,6 +2453,30 @@ def emit_popup(lines, el, name, eid, indent):
     lines.append(f'{indent}</Popup>')
 
 
+def emit_button_group(lines, el, name, eid, indent):
+    lines.append(f'{indent}<ButtonGroup name="{name}" id="{eid}">')
+    inner = f'{indent}\t'
+
+    emit_title(lines, el, name, inner)
+
+    if el.get('representation'):
+        lines.append(f'{inner}<Representation>{el["representation"]}</Representation>')
+
+    emit_common_flags(lines, el, inner)
+
+    # Companion: ExtendedTooltip
+    emit_companion(lines, 'ExtendedTooltip', f'{name}РасширеннаяПодсказка', inner)
+
+    # Children (кнопки в контексте командной панели)
+    if el.get('children') and len(el['children']) > 0:
+        lines.append(f'{inner}<ChildItems>')
+        for child in el['children']:
+            emit_element(lines, child, f'{inner}\t', in_cmd_bar=True)
+        lines.append(f'{inner}</ChildItems>')
+
+    lines.append(f'{indent}</ButtonGroup>')
+
+
 # --- Attribute emitter ---
 
 def emit_attributes(lines, attrs, indent):
@@ -2554,8 +2579,14 @@ def emit_commands(lines, cmds, indent):
         if cmd_title:
             emit_mltext(lines, inner, 'Title', str(cmd_title))
 
+        if cmd.get('tooltip'):
+            emit_mltext(lines, inner, 'ToolTip', str(cmd['tooltip']))
+
         if cmd.get('action'):
             lines.append(f'{inner}<Action>{cmd["action"]}</Action>')
+
+        if cmd.get('currentRowUse'):
+            lines.append(f'{inner}<CurrentRowUse>{cmd["currentRowUse"]}</CurrentRowUse>')
 
         if cmd.get('shortcut'):
             lines.append(f'{inner}<Shortcut>{cmd["shortcut"]}</Shortcut>')
