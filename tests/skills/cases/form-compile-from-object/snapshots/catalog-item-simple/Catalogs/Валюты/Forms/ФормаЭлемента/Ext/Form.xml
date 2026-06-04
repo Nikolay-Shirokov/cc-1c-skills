@@ -35,6 +35,7 @@
 				</UsualGroup>
 				<CheckBoxField name="ЗагружаетсяИзИнтернета" id="11">
 					<DataPath>Объект.ЗагружаетсяИзИнтернета</DataPath>
+					<CheckBoxType>Auto</CheckBoxType>
 					<TitleLocation>Right</TitleLocation>
 					<ContextMenu name="ЗагружаетсяИзИнтернетаКонтекстноеМеню" id="12"/>
 					<ExtendedTooltip name="ЗагружаетсяИзИнтернетаРасширеннаяПодсказка" id="13"/>

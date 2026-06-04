@@ -54,6 +54,7 @@
 		</InputField>
 		<CheckBoxField name="Забалансовый" id="16">
 			<DataPath>Объект.OffBalance</DataPath>
+			<CheckBoxType>Auto</CheckBoxType>
 			<TitleLocation>Right</TitleLocation>
 			<ContextMenu name="ЗабалансовыйКонтекстноеМеню" id="17"/>
 			<ExtendedTooltip name="ЗабалансовыйРасширеннаяПодсказка" id="18"/>
@@ -70,12 +71,14 @@
 			<ChildItems>
 				<CheckBoxField name="Валютный" id="21">
 					<DataPath>Объект.Валютный</DataPath>
+					<CheckBoxType>Auto</CheckBoxType>
 					<TitleLocation>Right</TitleLocation>
 					<ContextMenu name="ВалютныйКонтекстноеМеню" id="22"/>
 					<ExtendedTooltip name="ВалютныйРасширеннаяПодсказка" id="23"/>
 				</CheckBoxField>
 				<CheckBoxField name="Количественный" id="24">
 					<DataPath>Объект.Количественный</DataPath>
+					<CheckBoxType>Auto</CheckBoxType>
 					<TitleLocation>Right</TitleLocation>
 					<ContextMenu name="КоличественныйКонтекстноеМеню" id="25"/>
 					<ExtendedTooltip name="КоличественныйРасширеннаяПодсказка" id="26"/>
@@ -118,18 +121,21 @@
 				</InputField>
 				<CheckBoxField name="ТолькоОбороты" id="42">
 					<DataPath>Объект.ExtDimensionTypes.TurnoversOnly</DataPath>
+					<CheckBoxType>Auto</CheckBoxType>
 					<TitleLocation>Right</TitleLocation>
 					<ContextMenu name="ТолькоОборотыКонтекстноеМеню" id="43"/>
 					<ExtendedTooltip name="ТолькоОборотыРасширеннаяПодсказка" id="44"/>
 				</CheckBoxField>
 				<CheckBoxField name="Валютный" id="45">
 					<DataPath>Объект.ExtDimensionTypes.Валютный</DataPath>
+					<CheckBoxType>Auto</CheckBoxType>
 					<TitleLocation>Right</TitleLocation>
 					<ContextMenu name="ВалютныйКонтекстноеМеню" id="46"/>
 					<ExtendedTooltip name="ВалютныйРасширеннаяПодсказка" id="47"/>
 				</CheckBoxField>
 				<CheckBoxField name="Количественный" id="48">
 					<DataPath>Объект.ExtDimensionTypes.Количественный</DataPath>
+					<CheckBoxType>Auto</CheckBoxType>
 					<TitleLocation>Right</TitleLocation>
 					<ContextMenu name="КоличественныйКонтекстноеМеню" id="49"/>
 					<ExtendedTooltip name="КоличественныйРасширеннаяПодсказка" id="50"/>
