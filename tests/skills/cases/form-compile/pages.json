@@ -18,7 +18,7 @@
     "properties": { "autoTitle": false },
     "elements": [
       { "pages": "СтраницыМастера", "pagesRepresentation": "None", "children": [
-        { "page": "Шаг1", "title": "Параметры", "children": [
+        { "page": "Шаг1", "title": "", "children": [
           { "input": "Параметр1", "path": "Параметр1" }
         ]},
         { "page": "Шаг2", "title": "Результат", "children": [

@@ -1,4 +1,4 @@
-﻿# form-decompile v0.4 — Decompile 1C managed Form.xml to JSON DSL (draft)
+﻿# form-decompile v0.5 — Decompile 1C managed Form.xml to JSON DSL (draft)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 # ВНИМАНИЕ: раундтрип не гарантируется. Навык исключён из авто-использования моделью.
 param(
@@ -498,6 +498,15 @@ function Decompile-Element {
 			$kids = Decompile-Children $node
 			if ($kids) { $obj['children'] = $kids }
 		}
+	}
+	# title: "" — подавление авто-вывода: для типов, где компилятор вывел бы
+	# заголовок из имени, а в оригинале <Title> отсутствует.
+	if (-not $obj.Contains('title')) {
+		$autoTitle = $false
+		if ($tag -in @('LabelDecoration','Page','Popup')) { $autoTitle = $true }
+		elseif ($tag -eq 'Button') { $autoTitle = -not ($obj.Contains('command') -or $obj.Contains('stdCommand')) }
+		elseif ($tag -in @('InputField','CheckBoxField','RadioButtonField','LabelField','Table','CalendarField')) { $autoTitle = -not $obj.Contains('path') }
+		if ($autoTitle) { $obj['title'] = '' }
 	}
 	Add-Layout $obj $node
 	return $obj

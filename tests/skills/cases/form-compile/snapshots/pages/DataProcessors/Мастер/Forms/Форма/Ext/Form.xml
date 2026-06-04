@@ -14,12 +14,6 @@
 			<ExtendedTooltip name="СтраницыМастераРасширеннаяПодсказка" id="2"/>
 			<ChildItems>
 				<Page name="Шаг1" id="3">
-					<Title>
-						<v8:item>
-							<v8:lang>ru</v8:lang>
-							<v8:content>Параметры</v8:content>
-						</v8:item>
-					</Title>
 					<ExtendedTooltip name="Шаг1РасширеннаяПодсказка" id="4"/>
 					<ChildItems>
 						<InputField name="Параметр1" id="5">

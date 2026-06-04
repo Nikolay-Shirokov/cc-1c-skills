@@ -110,7 +110,7 @@
 | Свойство | Тип | Описание |
 |----------|-----|----------|
 | `name` | string | Имя элемента (по умолчанию — из значения ключа типа) |
-| `title` | string | Заголовок |
+| `title` | string | Заголовок. **Нет ключа** → авто-вывод из имени (для page/popup/label и непривязанных полей/кнопок). **`""`** → подавить (заголовок не выводится). Непустая строка → как есть |
 | `hidden` | bool | `true` → `<Visible>false</Visible>` |
 | `disabled` | bool | `true` → `<Enabled>false</Enabled>` |
 | `readOnly` | bool | `true` → `<ReadOnly>true</ReadOnly>` |

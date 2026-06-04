@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# form-compile v1.25 — Compile 1C managed form from JSON or object metadata
+# form-compile v1.26 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import copy
@@ -1611,11 +1611,13 @@ def title_from_name(name):
 
 
 def emit_title(lines, el, name, indent, auto=False):
-    title = el.get('title')
-    if not title and auto and name:
-        title = title_from_name(name)
-    if title:
-        emit_mltext(lines, indent, 'Title', str(title))
+    # Нет ключа title → авто-вывод из имени (помощь модели).
+    # Явный title "" (или None) → подавить. Явный непустой → как есть.
+    if 'title' in el:
+        if el.get('title'):
+            emit_mltext(lines, indent, 'Title', str(el['title']))
+    elif auto and name:
+        emit_mltext(lines, indent, 'Title', title_from_name(name))
 
 
 # --- Type emitter ---
@@ -2088,7 +2090,7 @@ def emit_label(lines, el, name, eid, indent):
     lines.append(f'{indent}<LabelDecoration name="{name}" id="{eid}">')
     inner = f'{indent}\t'
 
-    label_title = el.get('title') or title_from_name(name)
+    label_title = str(el['title'] or '') if 'title' in el else title_from_name(name)
     if label_title:
         formatted = 'true' if el.get('hyperlink') is True else 'false'
         lines.append(f'{inner}<Title formatted="{formatted}">')

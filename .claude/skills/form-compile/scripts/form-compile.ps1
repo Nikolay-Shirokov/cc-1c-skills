@@ -1,4 +1,4 @@
-﻿# form-compile v1.25 — Compile 1C managed form from JSON or object metadata
+﻿# form-compile v1.26 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[string]$JsonPath,
@@ -2022,13 +2022,15 @@ function Title-FromName {
 }
 
 function Emit-Title {
+	# Нет ключа title → авто-вывод из имени (помощь модели).
+	# Явный title: "" (или null) → подавить (заголовок не эмитим).
+	# Явный непустой → эмитим как есть.
 	param($el, [string]$name, [string]$indent, [switch]$auto)
-	$title = $el.title
-	if (-not $title -and $auto -and $name) {
-		$title = Title-FromName -name $name
-	}
-	if ($title) {
-		Emit-MLText -tag "Title" -text "$title" -indent $indent
+	$hasKey = $null -ne $el.PSObject.Properties['title']
+	if ($hasKey) {
+		if ($el.title) { Emit-MLText -tag "Title" -text "$($el.title)" -indent $indent }
+	} elseif ($auto -and $name) {
+		Emit-MLText -tag "Title" -text "$(Title-FromName -name $name)" -indent $indent
 	}
 }
 
@@ -2434,7 +2436,8 @@ function Emit-Label {
 	X "$indent<LabelDecoration name=`"$name`" id=`"$id`">"
 	$inner = "$indent`t"
 
-	$labelTitle = if ($el.title) { "$($el.title)" } else { Title-FromName -name $name }
+	$hasTitleKey = $null -ne $el.PSObject.Properties['title']
+	$labelTitle = if ($hasTitleKey) { "$($el.title)" } else { Title-FromName -name $name }
 	if ($labelTitle) {
 		$formatted = if ($el.hyperlink -eq $true) { "true" } else { "false" }
 		X "$inner<Title formatted=`"$formatted`">"
