@@ -1,4 +1,4 @@
-﻿# form-decompile v0.10 — Decompile 1C managed Form.xml to JSON DSL (draft)
+﻿# form-decompile v0.11 — Decompile 1C managed Form.xml to JSON DSL (draft)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 # ВНИМАНИЕ: раундтрип не гарантируется. Навык исключён из авто-использования моделью.
 param(
@@ -231,15 +231,14 @@ function Get-Events {
 	if (-not $ev) { return $null }
 	$on = New-Object System.Collections.ArrayList
 	$handlers = [ordered]@{}
+	# `on` — полный список событий в порядке документа (контракт DSL: on = массив имён событий);
+	# `handlers` — только переопределение имени, когда обработчик не выводится из авто-суффикса.
 	foreach ($e in @($ev.SelectNodes("lf:Event", $ns))) {
 		$evName = $e.GetAttribute("name")
 		$handler = $e.InnerText
 		$auto = if ($HANDLER_SUFFIX.ContainsKey($evName) -and $elName) { "$elName$($HANDLER_SUFFIX[$evName])" } else { $null }
-		if ($auto -and $handler -eq $auto) {
-			[void]$on.Add($evName)
-		} else {
-			$handlers[$evName] = $handler
-		}
+		[void]$on.Add($evName)
+		if (-not ($auto -and $handler -eq $auto)) { $handlers[$evName] = $handler }
 	}
 	$res = [ordered]@{}
 	if ($on.Count -gt 0) { $res['on'] = @($on) }
