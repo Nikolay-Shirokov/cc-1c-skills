@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# form-compile v1.37 — Compile 1C managed form from JSON or object metadata
+# form-compile v1.38 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import copy
@@ -1367,7 +1367,7 @@ KNOWN_KEYS = {
     "multiLine", "passwordMode", "choiceButton", "clearButton",
     "spinButton", "dropListButton", "markIncomplete", "skipOnInput", "inputHint",
     "textEdit",
-    "hyperlink",
+    "hyperlink", "formatted",
     "showTitle", "united", "collapsed",
     "children", "columns",
     "changeRowSet", "changeRowOrder", "header", "footer",
@@ -2177,7 +2177,8 @@ def emit_label(lines, el, name, eid, indent):
 
     label_title = el['title'] if 'title' in el else title_from_name(name)
     if label_title:
-        formatted = 'true' if el.get('hyperlink') is True else 'false'
+        # formatted — независимое свойство (НЕ выводится из hyperlink).
+        formatted = 'true' if el.get('formatted') is True else 'false'
         lines.append(f'{inner}<Title formatted="{formatted}">')
         emit_ml_items(lines, f'{inner}\t', label_title)
         lines.append(f'{inner}</Title>')

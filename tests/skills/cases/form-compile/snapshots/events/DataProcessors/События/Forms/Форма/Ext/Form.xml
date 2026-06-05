@@ -31,7 +31,7 @@
 			</Events>
 		</InputField>
 		<LabelDecoration name="Подсказка" id="7">
-			<Title formatted="true">
+			<Title formatted="false">
 				<v8:item>
 					<v8:lang>ru</v8:lang>
 					<v8:content>Нажмите для перехода</v8:content>

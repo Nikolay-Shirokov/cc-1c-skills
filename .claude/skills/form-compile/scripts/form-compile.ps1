@@ -1,4 +1,4 @@
-﻿# form-compile v1.37 — Compile 1C managed form from JSON or object metadata
+﻿# form-compile v1.38 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[string]$JsonPath,
@@ -1974,7 +1974,7 @@ function Emit-Element {
 		"spinButton"=1;"dropListButton"=1;"markIncomplete"=1;"skipOnInput"=1;"inputHint"=1
 		"textEdit"=1
 		# label/hyperlink
-		"hyperlink"=1
+		"hyperlink"=1;"formatted"=1
 		# group-specific
 		"showTitle"=1;"united"=1;"collapsed"=1
 		# hierarchy
@@ -2527,7 +2527,8 @@ function Emit-Label {
 	$hasTitleKey = $null -ne $el.PSObject.Properties['title']
 	$labelTitle = if ($hasTitleKey) { $el.title } else { Title-FromName -name $name }
 	if ($labelTitle) {
-		$formatted = if ($el.hyperlink -eq $true) { "true" } else { "false" }
+		# formatted — независимое свойство (НЕ выводится из hyperlink): ссылка может быть не-форматированной и наоборот.
+		$formatted = if ($el.formatted -eq $true) { "true" } else { "false" }
 		X "$inner<Title formatted=`"$formatted`">"
 		Emit-MLItems -val $labelTitle -indent "$inner`t"
 		X "$inner</Title>"

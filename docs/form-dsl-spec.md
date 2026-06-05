@@ -276,6 +276,7 @@
 |----------|-----|----------|
 | `title` | string | Текст надписи |
 | `hyperlink` | bool | Режим гиперссылки |
+| `formatted` | bool | Форматированный текст (`<Title formatted="true">`). **Независим от `hyperlink`** — выводится только при `true` |
 | `width` | int | Ширина |
 | `height` | int | Высота |
 | `autoMaxWidth` | bool | Автомаксимальная ширина |

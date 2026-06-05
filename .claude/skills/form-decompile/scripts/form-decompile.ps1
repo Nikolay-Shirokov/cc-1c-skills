@@ -1,4 +1,4 @@
-﻿# form-decompile v0.17 — Decompile 1C managed Form.xml to JSON DSL (draft)
+﻿# form-decompile v0.18 — Decompile 1C managed Form.xml to JSON DSL (draft)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 # ВНИМАНИЕ: раундтрип не гарантируется. Навык исключён из авто-использования моделью.
 param(
@@ -399,6 +399,9 @@ function Decompile-Element {
 			$obj[$key] = $name
 			Add-CommonProps $obj $node $name
 			if ((Get-Child $node 'Hyperlink') -eq 'true') { $obj['hyperlink'] = $true }
+			# formatted — атрибут <Title formatted="…">, НЕЗАВИСИМ от hyperlink (true → ключ, false → опускаем)
+			$tiNode = $node.SelectSingleNode("lf:Title", $ns)
+			if ($tiNode -and $tiNode.GetAttribute('formatted') -eq 'true') { $obj['formatted'] = $true }
 		}
 		'LabelField' {
 			$obj[$key] = $name
