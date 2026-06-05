@@ -1,4 +1,4 @@
-﻿# form-decompile v0.11 — Decompile 1C managed Form.xml to JSON DSL (draft)
+﻿# form-decompile v0.12 — Decompile 1C managed Form.xml to JSON DSL (draft)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 # ВНИМАНИЕ: раундтрип не гарантируется. Навык исключён из авто-использования моделью.
 param(
@@ -212,39 +212,19 @@ function Add-TitleLocation {
 	elseif ($tl -ne $smartDefault) { $obj['titleLocation'] = $tl.ToLower() }
 }
 
-# Суффиксы авто-имён обработчиков (инверсия компилятора)
-$HANDLER_SUFFIX = @{
-	'OnChange'='ПриИзменении'; 'StartChoice'='НачалоВыбора'; 'ChoiceProcessing'='ОбработкаВыбора';
-	'AutoComplete'='АвтоПодбор'; 'Clearing'='Очистка'; 'Opening'='Открытие'; 'Click'='Нажатие';
-	'OnActivateRow'='ПриАктивизацииСтроки'; 'BeforeAddRow'='ПередНачаломДобавления';
-	'BeforeDeleteRow'='ПередУдалением'; 'BeforeRowChange'='ПередНачаломИзменения';
-	'OnStartEdit'='ПриНачалеРедактирования'; 'OnEndEdit'='ПриОкончанииРедактирования';
-	'Selection'='ВыборСтроки'; 'OnCurrentPageChange'='ПриСменеСтраницы'; 'TextEditEnd'='ОкончаниеВводаТекста';
-	'URLProcessing'='ОбработкаНавигационнойСсылки'; 'DragStart'='НачалоПеретаскивания'; 'Drag'='Перетаскивание';
-	'DragCheck'='ПроверкаПеретаскивания'; 'Drop'='Помещение'; 'AfterDeleteRow'='ПослеУдаления'
-}
-
-# Разобрать <Events> элемента → { on:[...], handlers:{...} } с учётом авто-имён
+# Разобрать <Events> элемента → упорядоченная мапа { ИмяСобытия: ИмяОбработчика }
+# в порядке документа. Имена обработчиков всегда явные (как у событий формы) —
+# единый, консистентный с form-level формат. Legacy on/handlers больше не эмитим.
 function Get-Events {
 	param($node, [string]$elName)
 	$ev = $node.SelectSingleNode("lf:Events", $ns)
 	if (-not $ev) { return $null }
-	$on = New-Object System.Collections.ArrayList
-	$handlers = [ordered]@{}
-	# `on` — полный список событий в порядке документа (контракт DSL: on = массив имён событий);
-	# `handlers` — только переопределение имени, когда обработчик не выводится из авто-суффикса.
+	$events = [ordered]@{}
 	foreach ($e in @($ev.SelectNodes("lf:Event", $ns))) {
-		$evName = $e.GetAttribute("name")
-		$handler = $e.InnerText
-		$auto = if ($HANDLER_SUFFIX.ContainsKey($evName) -and $elName) { "$elName$($HANDLER_SUFFIX[$evName])" } else { $null }
-		[void]$on.Add($evName)
-		if (-not ($auto -and $handler -eq $auto)) { $handlers[$evName] = $handler }
+		$events[$e.GetAttribute("name")] = $e.InnerText
 	}
-	$res = [ordered]@{}
-	if ($on.Count -gt 0) { $res['on'] = @($on) }
-	if ($handlers.Count -gt 0) { $res['handlers'] = $handlers }
-	if ($res.Count -eq 0) { return $null }
-	return $res
+	if ($events.Count -eq 0) { return $null }
+	return $events
 }
 
 # Общие свойства элемента (visible/enabled/readonly/title/events) → в hash
@@ -260,10 +240,7 @@ function Add-CommonProps {
 		# formatted у LabelDecoration выводится компилятором из hyperlink — отдельный ключ не нужен (#16 хвост)
 	}
 	$ev = Get-Events $node $elName
-	if ($ev) {
-		if ($ev.Contains('on')) { $obj['on'] = $ev['on'] }
-		if ($ev.Contains('handlers')) { $obj['handlers'] = $ev['handlers'] }
-	}
+	if ($ev) { $obj['events'] = $ev }
 }
 
 # --- 3. Type decompile (inverse of Emit-Type) ---

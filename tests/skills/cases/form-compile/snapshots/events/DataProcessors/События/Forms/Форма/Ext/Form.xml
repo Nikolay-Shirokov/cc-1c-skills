@@ -26,6 +26,9 @@
 			<DataPath>Период</DataPath>
 			<ContextMenu name="ПериодКонтекстноеМеню" id="5"/>
 			<ExtendedTooltip name="ПериодРасширеннаяПодсказка" id="6"/>
+			<Events>
+				<Event name="OnChange">ПериодПриИзменении</Event>
+			</Events>
 		</InputField>
 		<LabelDecoration name="Подсказка" id="7">
 			<Title formatted="true">

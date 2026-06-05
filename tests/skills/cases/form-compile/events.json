@@ -17,9 +17,9 @@
     "title": "События",
     "events": { "OnCreateAtServer": "ПриСозданииНаСервере", "OnOpen": "ПриОткрытии" },
     "elements": [
-      { "input": "Организация", "path": "Организация", "on": ["OnChange", "StartChoice"] },
-      { "input": "Период", "path": "Период", "handlers": { "OnChange": "ПериодПриИзменении" } },
-      { "label": "Подсказка", "title": "Нажмите для перехода", "hyperlink": true, "on": ["Click"] }
+      { "input": "Организация", "path": "Организация", "events": { "OnChange": "ОрганизацияПриИзменении", "StartChoice": "ОрганизацияНачалоВыбора" } },
+      { "input": "Период", "path": "Период", "events": { "OnChange": "ПериодПриИзменении" } },
+      { "label": "Подсказка", "title": "Нажмите для перехода", "hyperlink": true, "events": { "Click": null } }
     ],
     "attributes": [
       { "name": "Объект", "type": "DataProcessorObject.События", "main": true },

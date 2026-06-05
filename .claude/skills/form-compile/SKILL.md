@@ -88,10 +88,9 @@ powershell.exe -NoProfile -File "${CLAUDE_SKILL_DIR}/scripts/form-compile.ps1" -
 | `visible: false` | Скрыть (синоним: `hidden: true`) |
 | `enabled: false` | Сделать недоступным (синоним: `disabled: true`) |
 | `readOnly: true` | Только чтение |
-| `on: [...]` | События с автоименованием обработчиков |
-| `handlers: {...}` | Явное задание имён обработчиков: `{"OnChange": "МоёИмя"}` |
+| `events: {...}` | Обработчики событий: `{ "OnChange": "ИмяОбработчика" }`. Тот же формат, что у событий формы |
 
-### Допустимые имена событий (`on`)
+### Допустимые имена событий (`events`)
 
 Компилятор предупреждает о неизвестных событиях. Имена регистрозависимы — используйте точно как указано.
 
@@ -440,7 +439,7 @@ PictureField, привязанный к булеву/числу, рисует и
   "events": { "OnCreateAtServer": "ПриСозданииНаСервере" },
   "elements": [
     { "group": "horizontal", "name": "ГруппаФайл", "children": [
-      { "input": "ИмяФайла", "path": "ИмяФайла", "title": "Файл", "inputHint": "Выберите файл...", "choiceButton": true, "on": ["StartChoice"] },
+      { "input": "ИмяФайла", "path": "ИмяФайла", "title": "Файл", "inputHint": "Выберите файл...", "choiceButton": true, "events": { "StartChoice": "ИмяФайлаНачалоВыбора" } },
       { "check": "ПерваяСтрокаЗаголовок", "path": "ПерваяСтрокаЗаголовок" }
     ]},
     { "input": "Результат", "path": "Результат", "multiLine": true, "height": 8, "readOnly": true, "title": "Лог" },
@@ -500,8 +499,8 @@ PictureField, привязанный к булеву/числу, рисует и
   "title": "Просмотр данных",
   "elements": [
     { "group": "horizontal", "name": "Фильтр", "children": [
-      { "input": "Период", "path": "Период", "on": ["OnChange"] },
-      { "input": "Организация", "path": "Организация", "on": ["OnChange"] }
+      { "input": "Период", "path": "Период", "events": { "OnChange": "ПериодПриИзменении" } },
+      { "input": "Организация", "path": "Организация", "events": { "OnChange": "ОрганизацияПриИзменении" } }
     ]},
     { "table": "Данные", "path": "Данные", "changeRowSet": true, "columns": [
       { "input": "Дата", "path": "Данные.Дата" },
@@ -525,7 +524,6 @@ PictureField, привязанный к булеву/числу, рисует и
 ## Автогенерация
 
 - **Companion-элементы**: ContextMenu, ExtendedTooltip и др. создаются автоматически
-- **Обработчики событий**: `"on": ["OnChange"]` → `ОрганизацияПриИзменении`
 - **Namespace**: все 17 namespace-деклараций
 - **ID**: последовательная нумерация, AutoCommandBar = id="-1"
 - **Unknown keys**: выводится предупреждение о нераспознанных ключах

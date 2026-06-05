@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# form-compile v1.31 — Compile 1C managed form from JSON or object metadata
+# form-compile v1.32 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import copy
@@ -1356,7 +1356,7 @@ KNOWN_KEYS = {
     "radioButtonType", "choiceList", "columnsCount", "checkBoxType", "editMode",
     "name", "path", "title",
     "visible", "hidden", "enabled", "disabled", "readOnly", "userVisible",
-    "on", "handlers",
+    "events", "on", "handlers",
     "titleLocation", "representation", "width", "height",
     "horizontalStretch", "verticalStretch", "autoMaxWidth", "autoMaxHeight",
     "maxWidth", "maxHeight",
@@ -1533,26 +1533,53 @@ def get_element_name(el, type_key):
     return str(el.get(type_key, ''))
 
 
+# Собрать упорядоченный список событий элемента (имя, обработчик) из DSL.
+# Основной формат: el['events'] = { Событие: ИмяОбработчика } (None/"" → авто-имя по конвенции).
+# Legacy (принимается ради совместимости): el['on'] (массив) + el['handlers'] (переопределение имён).
+def get_event_pairs(el, element_name):
+    pairs = []
+    events = el.get('events')
+    if events:
+        for ev_name, val in events.items():
+            handler = '' if val is None else str(val)
+            if not handler:
+                handler = get_handler_name(element_name, ev_name)
+            pairs.append((ev_name, handler))
+    elif el.get('on'):
+        handlers = el.get('handlers') or {}
+        for evt in el['on']:
+            evt_name = str(evt)
+            if handlers.get(evt_name):
+                handler = str(handlers[evt_name])
+            else:
+                handler = get_handler_name(element_name, evt_name)
+            pairs.append((evt_name, handler))
+    return pairs
+
+
+# Проверить, подключено ли событие к элементу (в любом из форматов).
+def test_element_event(el, event_name):
+    events = el.get('events')
+    if events and event_name in events:
+        return True
+    return event_name in (el.get('on') or [])
+
+
 def emit_events(lines, el, element_name, indent, type_key):
-    if not el.get('on'):
+    pairs = get_event_pairs(el, element_name)
+    if not pairs:
         return
 
     # Validate event names
     if type_key and type_key in KNOWN_EVENTS:
         allowed = KNOWN_EVENTS[type_key]
-        for evt in el['on']:
-            if allowed and str(evt) not in allowed:
-                print(f"[WARN] Unknown event '{evt}' for {type_key} '{element_name}'. Known: {', '.join(allowed)}")
+        for ev_name, _ in pairs:
+            if allowed and str(ev_name) not in allowed:
+                print(f"[WARN] Unknown event '{ev_name}' for {type_key} '{element_name}'. Known: {', '.join(allowed)}")
 
     lines.append(f"{indent}<Events>")
-    for evt in el['on']:
-        evt_name = str(evt)
-        handlers = el.get('handlers')
-        if handlers and handlers.get(evt_name):
-            handler = str(handlers[evt_name])
-        else:
-            handler = get_handler_name(element_name, evt_name)
-        lines.append(f'{indent}\t<Event name="{evt_name}">{handler}</Event>')
+    for ev_name, handler in pairs:
+        lines.append(f'{indent}\t<Event name="{ev_name}">{handler}</Event>')
     lines.append(f"{indent}</Events>")
 
 
@@ -2015,7 +2042,7 @@ def emit_input(lines, el, name, eid, indent):
         lines.append(f'{inner}<PasswordMode>true</PasswordMode>')
     if el.get('choiceButton') is False:
         lines.append(f'{inner}<ChoiceButton>false</ChoiceButton>')
-    elif el.get('choiceButton') is True and 'StartChoice' in (el.get('on') or []):
+    elif el.get('choiceButton') is True and test_element_event(el, 'StartChoice'):
         lines.append(f'{inner}<ChoiceButton>true</ChoiceButton>')
     if el.get('clearButton') is True:
         lines.append(f'{inner}<ClearButton>true</ClearButton>')

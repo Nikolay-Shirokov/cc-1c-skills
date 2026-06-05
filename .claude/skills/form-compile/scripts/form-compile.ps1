@@ -1,4 +1,4 @@
-﻿# form-compile v1.31 — Compile 1C managed form from JSON or object metadata
+﻿# form-compile v1.32 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[string]$JsonPath,
@@ -1803,30 +1803,57 @@ $script:knownEvents = @{
 }
 $script:knownFormEvents = @("OnCreateAtServer","OnOpen","BeforeClose","OnClose","NotificationProcessing","ChoiceProcessing","OnReadAtServer","AfterWriteAtServer","BeforeWriteAtServer","AfterWrite","BeforeWrite","OnWriteAtServer","FillCheckProcessingAtServer","OnLoadDataFromSettingsAtServer","BeforeLoadDataFromSettingsAtServer","OnSaveDataInSettingsAtServer","ExternalEvent","OnReopen","Opening")
 
+# Собрать упорядоченный список событий элемента (имя, обработчик) из DSL.
+# Основной формат: $el.events = { Событие: ИмяОбработчика } (null/"" → авто-имя по конвенции).
+# Legacy (принимается ради совместимости): $el.on (массив) + $el.handlers (переопределение имён).
+function Get-EventPairs {
+	param($el, [string]$elementName)
+	$pairs = New-Object System.Collections.ArrayList
+	if ($el.events) {
+		foreach ($p in $el.events.PSObject.Properties) {
+			$h = "$($p.Value)"
+			if ([string]::IsNullOrEmpty($h)) { $h = Get-HandlerName -elementName $elementName -eventName $p.Name }
+			[void]$pairs.Add([pscustomobject]@{ name = $p.Name; handler = $h })
+		}
+	} elseif ($el.on) {
+		foreach ($evt in $el.on) {
+			$evtName = "$evt"
+			$h = if ($el.handlers -and $el.handlers.$evtName) { "$($el.handlers.$evtName)" } else { Get-HandlerName -elementName $elementName -eventName $evtName }
+			[void]$pairs.Add([pscustomobject]@{ name = $evtName; handler = $h })
+		}
+	}
+	return $pairs
+}
+
+# Проверить, подключено ли событие к элементу (в любом из форматов).
+function Test-ElementEvent {
+	param($el, [string]$eventName)
+	if ($el.events) {
+		foreach ($p in $el.events.PSObject.Properties) { if ($p.Name -eq $eventName) { return $true } }
+	}
+	if ($el.on -contains $eventName) { return $true }
+	return $false
+}
+
 function Emit-Events {
 	param($el, [string]$elementName, [string]$indent, [string]$typeKey)
 
-	if (-not $el.on) { return }
+	$pairs = Get-EventPairs -el $el -elementName $elementName
+	if ($pairs.Count -eq 0) { return }
 
 	# Validate event names
 	if ($typeKey -and $script:knownEvents.ContainsKey($typeKey)) {
 		$allowed = $script:knownEvents[$typeKey]
-		foreach ($evt in $el.on) {
-			if ($allowed.Count -gt 0 -and $allowed -notcontains "$evt") {
-				Write-Host "[WARN] Unknown event '$evt' for $typeKey '$elementName'. Known: $($allowed -join ', ')"
+		foreach ($pr in $pairs) {
+			if ($allowed.Count -gt 0 -and $allowed -notcontains "$($pr.name)") {
+				Write-Host "[WARN] Unknown event '$($pr.name)' for $typeKey '$elementName'. Known: $($allowed -join ', ')"
 			}
 		}
 	}
 
 	X "$indent<Events>"
-	foreach ($evt in $el.on) {
-		$evtName = "$evt"
-		$handler = if ($el.handlers -and $el.handlers.$evtName) {
-			"$($el.handlers.$evtName)"
-		} else {
-			Get-HandlerName -elementName $elementName -eventName $evtName
-		}
-		X "$indent`t<Event name=`"$evtName`">$handler</Event>"
+	foreach ($pr in $pairs) {
+		X "$indent`t<Event name=`"$($pr.name)`">$($pr.handler)</Event>"
 	}
 	X "$indent</Events>"
 }
@@ -1932,8 +1959,8 @@ function Emit-Element {
 		"name"=1;"path"=1;"title"=1
 		# visibility & state
 		"visible"=1;"hidden"=1;"enabled"=1;"disabled"=1;"readOnly"=1;"userVisible"=1
-		# events
-		"on"=1;"handlers"=1
+		# events ("events" — основной формат; on/handlers — legacy, принимаются ради совместимости)
+		"events"=1;"on"=1;"handlers"=1
 		# layout
 		"titleLocation"=1;"representation"=1;"width"=1;"height"=1
 		"horizontalStretch"=1;"verticalStretch"=1;"autoMaxWidth"=1;"autoMaxHeight"=1
@@ -2218,7 +2245,7 @@ function Emit-Input {
 	if ($el.multiLine -eq $true) { X "$inner<MultiLine>true</MultiLine>" }
 	if ($el.passwordMode -eq $true) { X "$inner<PasswordMode>true</PasswordMode>" }
 	if ($el.choiceButton -eq $false) { X "$inner<ChoiceButton>false</ChoiceButton>" }
-	elseif ($el.choiceButton -eq $true -and ($el.on -contains 'StartChoice')) { X "$inner<ChoiceButton>true</ChoiceButton>" }
+	elseif ($el.choiceButton -eq $true -and (Test-ElementEvent $el 'StartChoice')) { X "$inner<ChoiceButton>true</ChoiceButton>" }
 	if ($el.clearButton -eq $true) { X "$inner<ClearButton>true</ClearButton>" }
 	if ($el.spinButton -eq $true) { X "$inner<SpinButton>true</SpinButton>" }
 	if ($el.dropListButton -eq $true) { X "$inner<DropListButton>true</DropListButton>" }
