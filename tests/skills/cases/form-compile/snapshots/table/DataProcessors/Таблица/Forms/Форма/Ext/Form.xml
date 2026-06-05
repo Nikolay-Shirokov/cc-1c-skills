@@ -11,6 +11,7 @@
 	<ChildItems>
 		<Table name="Данные" id="1">
 			<DataPath>Данные</DataPath>
+			<TitleLocation>Top</TitleLocation>
 			<ChangeRowSet>true</ChangeRowSet>
 			<ViewStatusLocation>None</ViewStatusLocation>
 			<SearchControlLocation>None</SearchControlLocation>

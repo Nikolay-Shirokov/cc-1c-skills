@@ -1,4 +1,4 @@
-﻿# form-compile v1.33 — Compile 1C managed form from JSON or object metadata
+﻿# form-compile v1.34 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[string]$JsonPath,
@@ -2551,6 +2551,7 @@ function Emit-LabelField {
 	Emit-Title -el $el -name $name -indent $inner -auto:(-not $el.path)
 	Emit-CommonFlags -el $el -indent $inner
 
+	if ($el.titleLocation) { X "$inner<TitleLocation>$(Map-TitleLoc "$($el.titleLocation)")</TitleLocation>" }
 	if ($el.editMode) { X "$inner<EditMode>$($el.editMode)</EditMode>" }
 	# ВНИМАНИЕ: у LabelField платформенный тег именно <Hiperlink> (опечатка 1С), не <Hyperlink>.
 	if ($el.hyperlink -eq $true) { X "$inner<Hiperlink>true</Hiperlink>" }
@@ -2579,6 +2580,7 @@ function Emit-Table {
 	if ($el.representation) {
 		X "$inner<Representation>$($el.representation)</Representation>"
 	}
+	if ($el.titleLocation) { X "$inner<TitleLocation>$(Map-TitleLoc "$($el.titleLocation)")</TitleLocation>" }
 	if ($el.changeRowSet -eq $true) { X "$inner<ChangeRowSet>true</ChangeRowSet>" }
 	if ($el.changeRowOrder -eq $true) { X "$inner<ChangeRowOrder>true</ChangeRowOrder>" }
 	if ($el.height) { X "$inner<HeightInTableRows>$($el.height)</HeightInTableRows>" }
@@ -2832,6 +2834,8 @@ function Emit-PictureField {
 
 	Emit-Title -el $el -name $name -indent $inner
 	Emit-CommonFlags -el $el -indent $inner
+
+	if ($el.titleLocation) { X "$inner<TitleLocation>$(Map-TitleLoc "$($el.titleLocation)")</TitleLocation>" }
 
 	# ValuesPicture — picture (collection) used to render the field's value.
 	# Required for a Boolean-bound PictureField to actually show an icon.

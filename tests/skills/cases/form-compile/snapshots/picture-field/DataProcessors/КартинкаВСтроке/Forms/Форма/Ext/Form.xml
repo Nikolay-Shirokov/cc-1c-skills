@@ -45,6 +45,7 @@
 				</InputField>
 				<PictureField name="ТаблицаДанныхКартинка" id="16">
 					<DataPath>ТаблицаДанных.Картинка</DataPath>
+					<TitleLocation>None</TitleLocation>
 					<ValuesPicture>
 						<xr:Ref>StdPicture.Favorites</xr:Ref>
 						<xr:LoadTransparent>true</xr:LoadTransparent>

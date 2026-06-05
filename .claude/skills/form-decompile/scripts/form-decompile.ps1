@@ -1,4 +1,4 @@
-﻿# form-decompile v0.13 — Decompile 1C managed Form.xml to JSON DSL (draft)
+﻿# form-decompile v0.14 — Decompile 1C managed Form.xml to JSON DSL (draft)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 # ВНИМАНИЕ: раундтрип не гарантируется. Навык исключён из авто-использования моделью.
 param(
@@ -401,6 +401,7 @@ function Decompile-Element {
 			$obj[$key] = $name
 			$dp = Get-Child $node 'DataPath'; if ($dp) { $obj['path'] = $dp }
 			Add-CommonProps $obj $node $name
+			$tl = Get-Child $node 'TitleLocation'; if ($tl) { $obj['titleLocation'] = $tl.ToLower() }
 			$em = Get-Child $node 'EditMode'; if ($em) { $obj['editMode'] = $em }
 			# LabelField: тег <Hiperlink> (опечатка платформы), не <Hyperlink>
 			if ((Get-Child $node 'Hiperlink') -eq 'true') { $obj['hyperlink'] = $true }
@@ -416,6 +417,7 @@ function Decompile-Element {
 			$obj[$key] = $name
 			$dp = Get-Child $node 'DataPath'; if ($dp) { $obj['path'] = $dp }
 			Add-CommonProps $obj $node $name
+			$tl = Get-Child $node 'TitleLocation'; if ($tl) { $obj['titleLocation'] = $tl.ToLower() }
 			$ref = $node.SelectSingleNode("lf:ValuesPicture/xr:Ref", $ns); if ($ref) { $obj['valuesPicture'] = $ref.InnerText }
 		}
 		'CalendarField' {
@@ -433,6 +435,7 @@ function Decompile-Element {
 			$obj[$key] = $name
 			$dp = Get-Child $node 'DataPath'; if ($dp) { $obj['path'] = $dp }
 			Add-CommonProps $obj $node $name
+			$tl = Get-Child $node 'TitleLocation'; if ($tl) { $obj['titleLocation'] = $tl.ToLower() }
 			$rep = Get-Child $node 'Representation'; if ($rep) { $obj['representation'] = $rep }
 			if ((Get-Child $node 'ChangeRowSet') -eq 'true') { $obj['changeRowSet'] = $true }
 			if ((Get-Child $node 'ChangeRowOrder') -eq 'true') { $obj['changeRowOrder'] = $true }

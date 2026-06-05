@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# form-compile v1.33 — Compile 1C managed form from JSON or object metadata
+# form-compile v1.34 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import copy
@@ -2199,6 +2199,8 @@ def emit_label_field(lines, el, name, eid, indent):
     emit_title(lines, el, name, inner, auto=not el.get('path'))
     emit_common_flags(lines, el, inner)
 
+    if el.get('titleLocation'):
+        lines.append(f'{inner}<TitleLocation>{map_title_loc(el["titleLocation"])}</TitleLocation>')
     if el.get('editMode'):
         lines.append(f'{inner}<EditMode>{el["editMode"]}</EditMode>')
     # ВНИМАНИЕ: у LabelField платформенный тег <Hiperlink> (опечатка 1С), не <Hyperlink>.
@@ -2227,6 +2229,8 @@ def emit_table(lines, el, name, eid, indent):
 
     if el.get('representation'):
         lines.append(f'{inner}<Representation>{el["representation"]}</Representation>')
+    if el.get('titleLocation'):
+        lines.append(f'{inner}<TitleLocation>{map_title_loc(el["titleLocation"])}</TitleLocation>')
     if el.get('changeRowSet') is True:
         lines.append(f'{inner}<ChangeRowSet>true</ChangeRowSet>')
     if el.get('changeRowOrder') is True:
@@ -2464,6 +2468,9 @@ def emit_picture_field(lines, el, name, eid, indent):
 
     emit_title(lines, el, name, inner)
     emit_common_flags(lines, el, inner)
+
+    if el.get('titleLocation'):
+        lines.append(f'{inner}<TitleLocation>{map_title_loc(el["titleLocation"])}</TitleLocation>')
 
     # ValuesPicture \u2014 picture (collection) used to render the field's value.
     # Required for a Boolean-bound PictureField to actually show an icon.

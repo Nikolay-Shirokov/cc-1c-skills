@@ -23,6 +23,7 @@
 		</InputField>
 		<LabelField name="Ссылка" id="4">
 			<DataPath>ОбычноеПоле</DataPath>
+			<TitleLocation>Left</TitleLocation>
 			<Hiperlink>true</Hiperlink>
 			<ContextMenu name="СсылкаКонтекстноеМеню" id="5"/>
 			<ExtendedTooltip name="СсылкаРасширеннаяПодсказка" id="6"/>
