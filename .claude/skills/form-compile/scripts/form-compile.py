@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# form-compile v1.48 — Compile 1C managed form from JSON or object metadata
+# form-compile v1.49 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import copy
@@ -2084,14 +2084,16 @@ def emit_companion_panel(lines, tag, name, indent, panel):
             halign = str(panel.get('horizontalAlign'))
         children = panel.get('children')
     has_children = bool(children) and len(children) > 0
-    if autofill is None and not has_children and not halign:
+    # Платформа пишет <Autofill> только при false; true = дефолт (тег опускается).
+    emit_af_false = (autofill is False)
+    if not emit_af_false and not has_children and not halign:
         lines.append(f'{indent}<{tag} name="{name}" id="{cid}"/>')
         return
     lines.append(f'{indent}<{tag} name="{name}" id="{cid}">')
     if halign:
         lines.append(f'{indent}\t<HorizontalAlign>{halign}</HorizontalAlign>')
-    if autofill is not None:
-        lines.append(f'{indent}\t<Autofill>{"true" if autofill else "false"}</Autofill>')
+    if emit_af_false:
+        lines.append(f'{indent}\t<Autofill>false</Autofill>')
     if has_children:
         lines.append(f'{indent}\t<ChildItems>')
         for c in children:

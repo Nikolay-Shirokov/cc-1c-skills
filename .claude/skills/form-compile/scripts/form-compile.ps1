@@ -1,4 +1,4 @@
-﻿# form-compile v1.48 — Compile 1C managed form from JSON or object metadata
+﻿# form-compile v1.49 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[string]$JsonPath,
@@ -2281,13 +2281,15 @@ function Emit-CompanionPanel {
 		$children = $panel.children
 	}
 	$hasChildren = $children -and @($children).Count -gt 0
-	if ($null -eq $autofill -and -not $hasChildren -and -not $halign) {
+	# Платформа пишет <Autofill> только при false; true = дефолт (тег опускается).
+	$emitAfFalse = ($autofill -eq $false)
+	if (-not $emitAfFalse -and -not $hasChildren -and -not $halign) {
 		X "$indent<$tag name=`"$name`" id=`"$id`"/>"
 		return
 	}
 	X "$indent<$tag name=`"$name`" id=`"$id`">"
 	if ($halign) { X "$indent`t<HorizontalAlign>$halign</HorizontalAlign>" }
-	if ($null -ne $autofill) { X "$indent`t<Autofill>$(if ($autofill){'true'}else{'false'})</Autofill>" }
+	if ($emitAfFalse) { X "$indent`t<Autofill>false</Autofill>" }
 	if ($hasChildren) {
 		X "$indent`t<ChildItems>"
 		foreach ($c in @($children)) { Emit-Element -el $c -indent "$indent`t`t" -inCmdBar $true }

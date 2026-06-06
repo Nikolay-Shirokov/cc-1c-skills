@@ -1,4 +1,4 @@
-﻿# form-decompile v0.29 — Decompile 1C managed Form.xml to JSON DSL (draft)
+﻿# form-decompile v0.30 — Decompile 1C managed Form.xml to JSON DSL (draft)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 # ВНИМАНИЕ: раундтрип не гарантируется. Навык исключён из авто-использования моделью.
 param(
@@ -885,8 +885,9 @@ function Decompile-Children {
 
 # Инверсия Emit-CompanionPanel: companion-командная-панель (ContextMenu/AutoCommandBar) с контентом
 # → { autofill?, horizontalAlign?, children?[] } либо $null, если companion пустой (self-closing).
-# $isDynListTable: для дин-список-таблицы пустой AutoCommandBar с autofill=false восстановит
-# эвристика компилятора — молчим (как с tableAutofill), чтобы не плодить ключ.
+# Дин-список-таблица: компилятор-эвристика додумывает Autofill=false. Выражаем только ОТКЛОНЕНИЕ:
+#   autofill=false (нет детей) → совпадает с дефолтом → молчим;
+#   голый <AutoCommandBar/> (autofill=true по умолчанию) → маркер { autofill: true } (панель не скрыта).
 function Decompile-CompanionPanel {
 	param($node, [string]$tag, [bool]$isDynListTable = $false)
 	$p = $node.SelectSingleNode("lf:$tag", $ns)
@@ -895,8 +896,11 @@ function Decompile-CompanionPanel {
 	$halign = Get-Child $p 'HorizontalAlign'
 	$kids = Decompile-Children $p
 	$hasKids = $kids -and @($kids).Count -gt 0
+	if ($isDynListTable -and $tag -eq 'AutoCommandBar' -and -not $hasKids -and -not $halign) {
+		if ($autofillRaw -eq 'false') { return $null }            # = дефолт эвристики → молчим
+		return [ordered]@{ autofill = $true }                      # голая панель → отклонение
+	}
 	if (-not $hasKids -and $null -eq $autofillRaw -and -not $halign) { return $null }
-	if ($isDynListTable -and $tag -eq 'AutoCommandBar' -and -not $hasKids -and -not $halign -and $autofillRaw -eq 'false') { return $null }
 	$o = [ordered]@{}
 	if ($halign) { $o['horizontalAlign'] = $halign }
 	if ($autofillRaw -eq 'false') { $o['autofill'] = $false }
