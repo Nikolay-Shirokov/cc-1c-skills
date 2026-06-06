@@ -1,4 +1,4 @@
-﻿# form-decompile v0.30 — Decompile 1C managed Form.xml to JSON DSL (draft)
+﻿# form-decompile v0.31 — Decompile 1C managed Form.xml to JSON DSL (draft)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 # ВНИМАНИЕ: раундтрип не гарантируется. Навык исключён из авто-использования моделью.
 param(
@@ -1213,23 +1213,46 @@ if ($evForm) {
 	if ($evMap.Count -gt 0) { $dsl['events'] = $evMap }
 }
 
-# elements (+ форменный AutoCommandBar как autoCmdBar-элемент, если у него есть содержимое)
+# Зеркало компилятор-эвристики B3 (Compute-MainAcbAutofill): наличие cmdBar-элемента где-либо
+# в дереве → форменный AutoCommandBar autofill=false. Нужно, чтобы предсказать вывод и выразить
+# отклонение (голый корень при наличии cmdBar).
+function Test-AnyCmdBar {
+	param($list)
+	if (-not $list) { return $false }
+	foreach ($e in $list) {
+		if ($e -is [System.Collections.IDictionary] -and $e.Contains('cmdBar')) { return $true }
+		if ($e -is [System.Collections.IDictionary]) {
+			if ($e.Contains('children') -and (Test-AnyCmdBar $e['children'])) { return $true }
+			if ($e.Contains('columns') -and (Test-AnyCmdBar $e['columns'])) { return $true }
+		}
+	}
+	return $false
+}
+
+# elements (+ форменный AutoCommandBar как autoCmdBar-элемент, если у него есть содержимое/отклонение)
 $elemList = New-Object System.Collections.ArrayList
+$elements = Decompile-Children $root
+$formHasCmdBar = Test-AnyCmdBar $elements
 $acb = $root.SelectSingleNode("lf:AutoCommandBar", $ns)
 if ($acb) {
 	$haln = Get-Child $acb 'HorizontalAlign'
 	$acbAutofill = Get-Child $acb 'Autofill'
 	$acbKids = Decompile-Children $acb
+	$acbObj = $null
 	if ($haln -or ($acbAutofill -eq 'false') -or $acbKids) {
 		$acbObj = [ordered]@{}
 		$acbObj['autoCmdBar'] = $acb.GetAttribute("name")
 		if ($haln) { $acbObj['horizontalAlign'] = $haln }
 		if ($acbAutofill -eq 'false') { $acbObj['autofill'] = $false }
 		if ($acbKids) { $acbObj['children'] = $acbKids }
-		[void]$elemList.Add($acbObj)
+	} elseif ($formHasCmdBar -and $null -eq $acbAutofill) {
+		# Корень голый (autofill=true по умолчанию), но эвристика B3 дала бы false (есть cmdBar) → маркер
+		$acbObj = [ordered]@{}
+		$acbObj['autoCmdBar'] = $acb.GetAttribute("name")
+		$acbObj['autofill'] = $true
 	}
+	if ($acbObj) { [void]$elemList.Add($acbObj) }
 }
-$elements = Decompile-Children $root
 if ($elements) { foreach ($e in $elements) { [void]$elemList.Add($e) } }
 if ($elemList.Count -gt 0) { $dsl['elements'] = @($elemList) }
 
