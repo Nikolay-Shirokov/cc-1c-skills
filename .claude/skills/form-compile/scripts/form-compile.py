@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# form-compile v1.53 — Compile 1C managed form from JSON or object metadata
+# form-compile v1.54 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import copy
@@ -3331,10 +3331,32 @@ def emit_attributes(lines, attrs, indent):
             lines.append(f'{inner}<SavedData>true</SavedData>')
         if attr.get('fillChecking'):
             lines.append(f'{inner}<FillChecking>{attr["fillChecking"]}</FillChecking>')
+
+        # UseAlways: поля, всегда читаемые. Две формы DSL сливаются:
+        #  attr.useAlways[] (короткие имена) + columns с useAlways:true → <Field>ИмяРеквизита.Поле</Field>.
+        ua_fields = []
+        for e in (attr.get('useAlways') or []):
+            fld = str(e)
+            if not re.match(r'^' + re.escape(attr_name) + r'\.', fld):
+                fld = f'{attr_name}.{fld}'
+            if fld not in ua_fields:
+                ua_fields.append(fld)
+        for col in (attr.get('columns') or []):
+            if col.get('useAlways') is True:
+                fld = f'{attr_name}.{col["name"]}'
+                if fld not in ua_fields:
+                    ua_fields.append(fld)
+        if ua_fields:
+            lines.append(f'{inner}<UseAlways>')
+            for f in ua_fields:
+                lines.append(f'{inner}\t<Field>{f}</Field>')
+            lines.append(f'{inner}</UseAlways>')
+
         emit_functional_options(lines, attr.get('functionalOptions'), inner)
 
-        # Columns (for ValueTable/ValueTree)
-        if attr.get('columns') and len(attr['columns']) > 0:
+        # Columns (for ValueTable/ValueTree). Для дин-списка (есть settings) колонки НЕ эмитим —
+        # они служат лишь для формирования UseAlways.
+        if attr.get('columns') and len(attr['columns']) > 0 and not attr.get('settings'):
             lines.append(f'{inner}<Columns>')
             for col in attr['columns']:
                 col_id = new_id()

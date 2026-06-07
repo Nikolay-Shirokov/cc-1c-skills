@@ -612,6 +612,7 @@ Pages поддерживает `pagesRepresentation`: `None`, `TabsOnTop`, `Tabs
 | `view` | bool/object | Просмотр по ролям (`<View>`). См. §4.1c |
 | `edit` | bool/object | Редактирование по ролям (`<Edit>`). См. §4.1c |
 | `functionalOptions` | array | Функциональные опции (`<FunctionalOptions><Item>FunctionalOption.X</Item>…`). Массив имён; forgiving: `"X"`/`"FunctionalOption.X"`. Также у колонок (`columns[*]`) и команд (§7) |
+| `useAlways` | array | Поля, всегда читаемые (`<UseAlways><Field>Имя.Поле</Field>…`). Массив коротких имён полей (forgiving: с/без префикса `Имя.`). **Две формы**: этот массив на реквизите ИЛИ `useAlways: true` на колонке (`columns[*]`) — компилятор сливает. Для дин-списка — только массив (колонки не эмитятся, но формируют `<UseAlways>`) |
 | `savedData` | bool | Сохраняемые данные |
 | `fillChecking` | string | `Show`, `DontShow` |
 | `columns` | array | Колонки для ValueTable/ValueTree |

@@ -1,4 +1,4 @@
-﻿# form-compile v1.53 — Compile 1C managed form from JSON or object metadata
+﻿# form-compile v1.54 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[string]$JsonPath,
@@ -3657,10 +3657,36 @@ function Emit-Attributes {
 		if ($attr.fillChecking) {
 			X "$inner<FillChecking>$($attr.fillChecking)</FillChecking>"
 		}
+
+		# UseAlways: поля, всегда читаемые (дин-список/таблица). Две формы DSL сливаются:
+		#  attr.useAlways[] (короткие имена) + columns с useAlways:true → <Field>ИмяРеквизита.Поле</Field>.
+		$uaFields = New-Object System.Collections.ArrayList
+		if ($attr.useAlways) {
+			foreach ($e in @($attr.useAlways)) {
+				$fld = "$e"
+				if ($fld -notmatch "^$([regex]::Escape($attrName))\.") { $fld = "$attrName.$fld" }
+				if (-not $uaFields.Contains($fld)) { [void]$uaFields.Add($fld) }
+			}
+		}
+		if ($attr.columns) {
+			foreach ($col in $attr.columns) {
+				if ($col.useAlways -eq $true) {
+					$fld = "$attrName.$($col.name)"
+					if (-not $uaFields.Contains($fld)) { [void]$uaFields.Add($fld) }
+				}
+			}
+		}
+		if ($uaFields.Count -gt 0) {
+			X "$inner<UseAlways>"
+			foreach ($f in $uaFields) { X "$inner`t<Field>$f</Field>" }
+			X "$inner</UseAlways>"
+		}
+
 		Emit-FunctionalOptions -fo $attr.functionalOptions -indent $inner
 
-		# Columns (for ValueTable/ValueTree)
-		if ($attr.columns -and $attr.columns.Count -gt 0) {
+		# Columns (for ValueTable/ValueTree). Для дин-списка (есть settings) колонки НЕ эмитим —
+		# они служат лишь для формирования UseAlways (поля выше).
+		if ($attr.columns -and $attr.columns.Count -gt 0 -and -not $attr.settings) {
 			X "$inner<Columns>"
 			foreach ($col in $attr.columns) {
 				$colId = New-Id

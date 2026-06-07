@@ -35,8 +35,8 @@
     ],
     "attributes": [
       { "name": "Объект", "type": "DataProcessorObject.Таблица", "main": true },
-      { "name": "Данные", "type": "ValueTable", "columns": [
-        { "name": "Дата", "type": "date" },
+      { "name": "Данные", "type": "ValueTable", "useAlways": ["Сумма"], "columns": [
+        { "name": "Дата", "type": "date", "useAlways": true },
         { "name": "Сумма", "type": "decimal(15,2)" },
         { "name": "Комментарий", "type": "string(200)" },
         { "name": "Объект", "type": "AnyRef" },

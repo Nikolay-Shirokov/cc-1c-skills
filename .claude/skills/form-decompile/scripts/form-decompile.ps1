@@ -1,4 +1,4 @@
-﻿# form-decompile v0.35 — Decompile 1C managed Form.xml to JSON DSL (draft)
+﻿# form-decompile v0.36 — Decompile 1C managed Form.xml to JSON DSL (draft)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 # ВНИМАНИЕ: раундтрип не гарантируется. Навык исключён из авто-использования моделью.
 param(
@@ -1328,6 +1328,29 @@ if ($attrsNode) {
 				[void]$cols.Add($co)
 			}
 			if ($cols.Count -gt 0) { $ao['columns'] = @($cols) }
+		}
+		# UseAlways: поля, всегда читаемые. Префикс "ИмяРеквизита." снимаем.
+		# ValueTable (есть columns): useAlways:true на совпавшей колонке; остальные → массив атрибута.
+		# Дин-список/прочие (нет columns): массив useAlways на атрибуте.
+		$uaNode = $a.SelectSingleNode("lf:UseAlways", $ns)
+		if ($uaNode) {
+			$prefix = "$($ao['name'])."
+			$shorts = New-Object System.Collections.ArrayList
+			foreach ($fn in @($uaNode.SelectNodes("lf:Field", $ns))) {
+				$t = $fn.InnerText.Trim()
+				if ($t.StartsWith($prefix)) { $t = $t.Substring($prefix.Length) }
+				[void]$shorts.Add($t)
+			}
+			if ($ao.Contains('columns')) {
+				$rest = New-Object System.Collections.ArrayList
+				foreach ($s in $shorts) {
+					$col = $ao['columns'] | Where-Object { $_['name'] -eq $s } | Select-Object -First 1
+					if ($col) { $col['useAlways'] = $true } else { [void]$rest.Add($s) }
+				}
+				if ($rest.Count -gt 0) { $ao['useAlways'] = @($rest) }
+			} elseif ($shorts.Count -gt 0) {
+				$ao['useAlways'] = @($shorts)
+			}
 		}
 		# Settings динамического списка
 		$setNode = $a.SelectSingleNode("lf:Settings", $ns)

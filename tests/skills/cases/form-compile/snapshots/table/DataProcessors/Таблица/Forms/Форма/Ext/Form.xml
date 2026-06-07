@@ -106,6 +106,10 @@
 			<Type>
 				<v8:Type>v8:ValueTable</v8:Type>
 			</Type>
+			<UseAlways>
+				<Field>Данные.Сумма</Field>
+				<Field>Данные.Дата</Field>
+			</UseAlways>
 			<Columns>
 				<Column name="Дата" id="31">
 					<Type>
