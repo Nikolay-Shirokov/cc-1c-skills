@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# form-compile v1.61 — Compile 1C managed form from JSON or object metadata
+# form-compile v1.62 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import copy
@@ -3342,11 +3342,13 @@ def emit_attributes(lines, attrs, indent):
         lines.append(f'{indent}\t<Attribute name="{attr_name}" id="{attr_id}">')
         inner = f'{indent}\t\t'
 
-        attr_title = attr.get('title')
-        if not attr_title and attr.get('main') is not True:
-            attr_title = title_from_name(attr_name)
-        if attr_title:
-            emit_mltext(lines, inner, 'Title', attr_title)
+        # Title атрибута (зеркало emit_title): нет ключа → авто-вывод из имени (кроме main);
+        # title "" → подавить; непустой → эмитить как есть.
+        if 'title' in attr:
+            if attr.get('title'):
+                emit_mltext(lines, inner, 'Title', attr['title'])
+        elif attr.get('main') is not True:
+            emit_mltext(lines, inner, 'Title', title_from_name(attr_name))
 
         # Type
         if attr.get('type'):

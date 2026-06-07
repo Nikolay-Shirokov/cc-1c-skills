@@ -1,4 +1,4 @@
-﻿# form-decompile v0.42 — Decompile 1C managed Form.xml to JSON DSL (draft)
+﻿# form-decompile v0.43 — Decompile 1C managed Form.xml to JSON DSL (draft)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 # ВНИМАНИЕ: раундтрип не гарантируется. Навык исключён из авто-использования моделью.
 param(
@@ -228,6 +228,25 @@ function Get-LangText {
 	}
 	if ($map.Count -eq 1 -and $map.Contains('ru')) { return $map['ru'] }
 	return $map
+}
+
+# Авто-вывод заголовка из имени — ТОЧНОЕ зеркало Title-FromName из form-compile.
+# Нужен, чтобы опускать ru-only заголовки, которые компилятор воспроизведёт сам.
+function Title-FromName {
+	param([string]$name)
+	if (-not $name) { return '' }
+	$s = [regex]::Replace($name, '([А-ЯA-Z])([А-ЯA-Z][а-яa-z])', '$1 $2')
+	$s = [regex]::Replace($s, '([а-яa-z0-9])([А-ЯA-Z])', '$1 $2')
+	$parts = $s -split ' '
+	if ($parts.Count -eq 0) { return $s }
+	$out = New-Object System.Collections.ArrayList
+	[void]$out.Add($parts[0])
+	for ($i = 1; $i -lt $parts.Count; $i++) {
+		$p = $parts[$i]
+		if ($p.Length -gt 1 -and $p -ceq $p.ToUpper()) { [void]$out.Add($p) }
+		else { [void]$out.Add($p.ToLower()) }
+	}
+	return ($out -join ' ')
 }
 
 # Детектор «настоящей» inline-разметки форматированного текста (идентичен form-compile!).
@@ -1343,7 +1362,19 @@ if ($attrsNode) {
 		if ((Get-Child $a 'MainAttribute') -eq 'true') { $ao['main'] = $true }
 		$vw = Decompile-XrFlag $a 'View'; if ($null -ne $vw) { $ao['view'] = $vw }
 		$ed = Decompile-XrFlag $a 'Edit'; if ($null -ne $ed) { $ao['edit'] = $ed }
-		$tNode = $a.SelectSingleNode("lf:Title", $ns); if ($tNode) { $t = Get-LangText $tNode; if ($null -ne $t) { $ao['title'] = $t } }
+		# Title атрибута. Компилятор для не-main атрибута без ключа title додумывает заголовок
+		# из имени. Поэтому: нет <Title> → суппресс-маркер ''; ru-only == авто-вывод → опускаем
+		# ключ (компилятор воспроизведёт); иначе → явный заголовок.
+		$isMain = $ao.Contains('main')
+		$tNode = $a.SelectSingleNode("lf:Title", $ns)
+		if ($tNode) {
+			$t = Get-LangText $tNode
+			if ($null -ne $t) {
+				if ($isMain -or -not ($t -is [string]) -or $t -ne (Title-FromName $ao['name'])) { $ao['title'] = $t }
+			}
+		} elseif (-not $isMain) {
+			$ao['title'] = ''
+		}
 		if ((Get-Child $a 'SavedData') -eq 'true') { $ao['savedData'] = $true }
 		$fc = Get-Child $a 'FillChecking'; if ($fc) { $ao['fillChecking'] = $fc }
 		$afo = Decompile-FunctionalOptions $a; if ($afo) { $ao['functionalOptions'] = $afo }

@@ -623,7 +623,7 @@ Pages поддерживает `pagesRepresentation`: `None`, `TabsOnTop`, `Tabs
 | `name` | string | Имя реквизита (обязательно) |
 | `type` | string | Тип (shorthand) |
 | `main` | bool | Основной реквизит формы |
-| `title` | string | Заголовок |
+| `title` | string/object | Заголовок. **Нет ключа** → авто-вывод из имени (как у элементов; кроме `main`). **`""`** → подавить (`<Title>` не эмитится — так платформа и хранит реквизит без синонима). Строка → ru; объект `{ru,en}` → мультиязычный. Декомпилятор опускает ключ, когда ru-заголовок совпадает с авто-выводом из имени |
 | `view` | bool/object | Просмотр по ролям (`<View>`). См. §4.1c |
 | `edit` | bool/object | Редактирование по ролям (`<Edit>`). См. §4.1c |
 | `functionalOptions` | array | Функциональные опции (`<FunctionalOptions><Item>FunctionalOption.X</Item>…`). Массив имён; forgiving: `"X"`/`"FunctionalOption.X"`. Также у колонок (`columns[*]`) и команд (§7) |
