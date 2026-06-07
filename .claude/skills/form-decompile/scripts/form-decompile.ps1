@@ -1,4 +1,4 @@
-﻿# form-decompile v0.39 — Decompile 1C managed Form.xml to JSON DSL (draft)
+﻿# form-decompile v0.40 — Decompile 1C managed Form.xml to JSON DSL (draft)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 # ВНИМАНИЕ: раундтрип не гарантируется. Навык исключён из авто-использования моделью.
 param(
@@ -748,8 +748,9 @@ function Add-Layout {
 	$mh = Get-Child $node 'MaxHeight'; if ($mh) { $obj['maxHeight'] = [int]$mh }
 	$w = Get-Child $node 'Width'; if ($w) { $obj['width'] = [int]$w }
 	$h = Get-Child $node 'Height'; if ($h) { $obj['height'] = [int]$h }
-	if ((Get-Child $node 'HorizontalStretch') -eq 'true') { $obj['horizontalStretch'] = $true }
-	if ((Get-Child $node 'VerticalStretch') -eq 'true') { $obj['verticalStretch'] = $true }
+	# Stretch: захват фактического значения (true И false — платформа эмитит явное)
+	$hs = Get-Child $node 'HorizontalStretch'; if ($null -ne $hs) { $obj['horizontalStretch'] = ($hs -eq 'true') }
+	$vs = Get-Child $node 'VerticalStretch'; if ($null -ne $vs) { $obj['verticalStretch'] = ($vs -eq 'true') }
 	$gha = Get-Child $node 'GroupHorizontalAlign'; if ($gha) { $obj['groupHorizontalAlign'] = $gha }
 	$gva = Get-Child $node 'GroupVerticalAlign'; if ($gva) { $obj['groupVerticalAlign'] = $gva }
 	$ha = Get-Child $node 'HorizontalAlign'; if ($ha) { $obj['horizontalAlign'] = $ha }

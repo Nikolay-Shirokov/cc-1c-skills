@@ -25,6 +25,8 @@
 			</ToolTip>
 			<ToolTipRepresentation>ShowBottom</ToolTipRepresentation>
 			<EditMode>EnterOnInput</EditMode>
+			<HorizontalStretch>false</HorizontalStretch>
+			<VerticalStretch>false</VerticalStretch>
 			<ContextMenu name="ОбычноеПолеКонтекстноеМеню" id="2"/>
 			<ExtendedTooltip name="ОбычноеПолеРасширеннаяПодсказка" id="3"/>
 		</InputField>

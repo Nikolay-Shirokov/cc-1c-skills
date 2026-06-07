@@ -1,4 +1,4 @@
-﻿# form-compile v1.57 — Compile 1C managed form from JSON or object metadata
+﻿# form-compile v1.58 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[string]$JsonPath,
@@ -2568,8 +2568,8 @@ function Emit-Layout {
 	if ($null -ne $el.maxHeight) { X "$indent<MaxHeight>$($el.maxHeight)</MaxHeight>" }
 	if ($el.width) { X "$indent<Width>$($el.width)</Width>" }
 	if (-not $skipHeight -and $el.height) { X "$indent<Height>$($el.height)</Height>" }
-	if ($el.horizontalStretch -eq $true) { X "$indent<HorizontalStretch>true</HorizontalStretch>" }
-	if ($el.verticalStretch -eq $true) { X "$indent<VerticalStretch>true</VerticalStretch>" }
+	if ($null -ne $el.horizontalStretch) { X "$indent<HorizontalStretch>$(if ($el.horizontalStretch){'true'}else{'false'})</HorizontalStretch>" }
+	if ($null -ne $el.verticalStretch) { X "$indent<VerticalStretch>$(if ($el.verticalStretch){'true'}else{'false'})</VerticalStretch>" }
 	if ($el.groupHorizontalAlign) { X "$indent<GroupHorizontalAlign>$($el.groupHorizontalAlign)</GroupHorizontalAlign>" }
 	if ($el.groupVerticalAlign) { X "$indent<GroupVerticalAlign>$($el.groupVerticalAlign)</GroupVerticalAlign>" }
 	if ($el.horizontalAlign) { X "$indent<HorizontalAlign>$($el.horizontalAlign)</HorizontalAlign>" }

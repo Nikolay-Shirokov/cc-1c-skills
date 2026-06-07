@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# form-compile v1.57 — Compile 1C managed form from JSON or object metadata
+# form-compile v1.58 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import copy
@@ -2232,10 +2232,10 @@ def emit_layout(lines, el, indent, skip_height=False, multi_line_default=False):
         lines.append(f"{indent}<Width>{el['width']}</Width>")
     if not skip_height and el.get('height'):
         lines.append(f"{indent}<Height>{el['height']}</Height>")
-    if el.get('horizontalStretch') is True:
-        lines.append(f"{indent}<HorizontalStretch>true</HorizontalStretch>")
-    if el.get('verticalStretch') is True:
-        lines.append(f"{indent}<VerticalStretch>true</VerticalStretch>")
+    if el.get('horizontalStretch') is not None:
+        lines.append(f'{indent}<HorizontalStretch>{"true" if el["horizontalStretch"] else "false"}</HorizontalStretch>')
+    if el.get('verticalStretch') is not None:
+        lines.append(f'{indent}<VerticalStretch>{"true" if el["verticalStretch"] else "false"}</VerticalStretch>')
     if el.get('groupHorizontalAlign'):
         lines.append(f"{indent}<GroupHorizontalAlign>{el['groupHorizontalAlign']}</GroupHorizontalAlign>")
     if el.get('groupVerticalAlign'):

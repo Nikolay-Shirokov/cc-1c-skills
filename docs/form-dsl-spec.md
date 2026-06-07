@@ -203,8 +203,8 @@ companion-панели с собственным контентом. Оба не
 |----------|-----|----------|
 | `width` | `<Width>` | число |
 | `height` | `<Height>` | число (у `table` → `<HeightInTableRows>`, высота в строках) |
-| `horizontalStretch` | `<HorizontalStretch>` | `true` |
-| `verticalStretch` | `<VerticalStretch>` | `true` |
+| `horizontalStretch` | `<HorizontalStretch>` | `true`/`false` (эмитится явное значение; отсутствие = дефолт) |
+| `verticalStretch` | `<VerticalStretch>` | `true`/`false` (аналогично) |
 | `autoMaxWidth` | `<AutoMaxWidth>` | `false` (у `input` при `multiLine` подставляется автоматически) |
 | `autoMaxHeight` | `<AutoMaxHeight>` | `false` |
 | `maxWidth` | `<MaxWidth>` | число |
