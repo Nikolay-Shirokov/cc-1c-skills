@@ -23,6 +23,7 @@
 				</v8:item>
 			</Title>
 			<Group>Horizontal</Group>
+			<Behavior>Usual</Behavior>
 			<HorizontalStretch>true</HorizontalStretch>
 			<GroupHorizontalAlign>Right</GroupHorizontalAlign>
 			<ExtendedTooltip name="ГруппаШапкаРасширеннаяПодсказка" id="4"/>
@@ -71,6 +72,8 @@
 				</v8:item>
 			</Title>
 			<Group>Vertical</Group>
+			<Behavior>Collapsible</Behavior>
+			<Collapsed>true</Collapsed>
 			<ExtendedTooltip name="ГруппаПодвалРасширеннаяПодсказка" id="15"/>
 			<ChildItems>
 				<InputField name="Поле3" id="16">

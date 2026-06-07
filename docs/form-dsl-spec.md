@@ -272,7 +272,9 @@ companion-панели с собственным контентом. Оба не
 
 | Свойство | Тип | Описание |
 |----------|-----|----------|
-| `group` | string | Ориентация: `horizontal`, `vertical`, `alwaysHorizontal`, `alwaysVertical`, `collapsible` |
+| `group` | string | Ориентация: `horizontal`, `vertical`, `alwaysHorizontal`, `alwaysVertical`. (Legacy: `collapsible` = `vertical` + `behavior:'collapsible'`) |
+| `behavior` | string | Поведение (`<Behavior>`): `usual`, `collapsible`, `popup`. **Отсутствие = Авто** (дефолт, не эмитится). Свёртываемая/всплывающая несут доп. свойства |
+| `collapsed` | bool | Свёрнута (у `collapsible`/`popup`) |
 | `children` | array | Вложенные элементы |
 | `showTitle` | bool | Показывать заголовок группы |
 | `representation` | string | `none`, `normal`, `weak`, `strong` |

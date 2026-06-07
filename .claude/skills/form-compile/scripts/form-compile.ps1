@@ -1,4 +1,4 @@
-﻿# form-compile v1.55 — Compile 1C managed form from JSON or object metadata
+﻿# form-compile v1.56 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[string]$JsonPath,
@@ -2435,7 +2435,7 @@ function Emit-Element {
 		# label/hyperlink
 		"hyperlink"=1;"formatted"=1
 		# group-specific
-		"showTitle"=1;"united"=1;"collapsed"=1
+		"showTitle"=1;"united"=1;"collapsed"=1;"behavior"=1
 		# hierarchy
 		"children"=1;"columns"=1
 		# table-specific
@@ -2635,23 +2635,27 @@ function Emit-Group {
 
 	Emit-Title -el $el -name $name -indent $inner
 
-	# Group orientation
-	$groupVal = "$($el.group)"
+	# Group orientation (направление). Legacy: group:'collapsible' = Vertical + behavior collapsible.
+	$groupVal = "$($el.group)".ToLower()
 	$orientation = switch ($groupVal) {
 		"horizontal"       { "Horizontal" }
 		"vertical"         { "Vertical" }
-		"alwaysHorizontal" { "AlwaysHorizontal" }
-		"alwaysVertical"   { "AlwaysVertical" }
+		"alwayshorizontal" { "AlwaysHorizontal" }
+		"alwaysvertical"   { "AlwaysVertical" }
+		"collapsible"      { "Vertical" }
 		default            { $null }
 	}
 	if ($orientation) { X "$inner<Group>$orientation</Group>" }
 
-	# Behavior
-	if ($groupVal -eq "collapsible") {
-		X "$inner<Group>Vertical</Group>"
-		X "$inner<Behavior>Collapsible</Behavior>"
-		if ($el.collapsed -eq $true) { X "$inner<Collapsed>true</Collapsed>" }
+	# Behavior: ключ behavior (usual/collapsible/popup) → <Behavior>; отсутствие = Авто (не эмитим).
+	# Legacy: group:'collapsible' эквивалентно behavior:'collapsible'.
+	$behaviorVal = if ($el.behavior) { "$($el.behavior)".ToLower() } elseif ($groupVal -eq "collapsible") { "collapsible" } else { $null }
+	$bmap = @{ "usual"="Usual"; "collapsible"="Collapsible"; "popup"="PopUp" }
+	if ($behaviorVal -and $bmap.ContainsKey($behaviorVal)) {
+		X "$inner<Behavior>$($bmap[$behaviorVal])</Behavior>"
 	}
+	# Collapsed — у Collapsible и PopUp (не привязано к одному behavior)
+	if ($el.collapsed -eq $true) { X "$inner<Collapsed>true</Collapsed>" }
 
 	# Representation
 	if ($el.representation) {

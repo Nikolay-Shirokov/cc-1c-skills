@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# form-compile v1.55 — Compile 1C managed form from JSON or object metadata
+# form-compile v1.56 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import copy
@@ -1773,7 +1773,7 @@ KNOWN_KEYS = {
     "spinButton", "dropListButton", "markIncomplete", "skipOnInput", "inputHint",
     "textEdit",
     "hyperlink", "formatted",
-    "showTitle", "united", "collapsed",
+    "showTitle", "united", "collapsed", "behavior",
     "children", "columns",
     "changeRowSet", "changeRowOrder", "autoInsertNewRow", "rowFilter", "header", "footer",
     "commandBarLocation", "searchStringLocation", "viewStatusLocation", "searchControlLocation",
@@ -2545,23 +2545,27 @@ def emit_group(lines, el, name, eid, indent):
     emit_title(lines, el, name, inner)
 
     # Group orientation
-    group_val = str(el.get('group', ''))
+    # Group orientation (направление). Legacy: group:'collapsible' = Vertical + behavior collapsible.
+    group_val = str(el.get('group', '')).lower()
     orientation_map = {
         'horizontal': 'Horizontal',
         'vertical': 'Vertical',
-        'alwaysHorizontal': 'AlwaysHorizontal',
-        'alwaysVertical': 'AlwaysVertical',
+        'alwayshorizontal': 'AlwaysHorizontal',
+        'alwaysvertical': 'AlwaysVertical',
+        'collapsible': 'Vertical',
     }
     orientation = orientation_map.get(group_val)
     if orientation:
         lines.append(f'{inner}<Group>{orientation}</Group>')
 
-    # Behavior
-    if group_val == 'collapsible':
-        lines.append(f'{inner}<Group>Vertical</Group>')
-        lines.append(f'{inner}<Behavior>Collapsible</Behavior>')
-        if el.get('collapsed') is True:
-            lines.append(f'{inner}<Collapsed>true</Collapsed>')
+    # Behavior: ключ behavior (usual/collapsible/popup) → <Behavior>; отсутствие = Авто (не эмитим).
+    behavior_val = str(el['behavior']).lower() if el.get('behavior') else ('collapsible' if group_val == 'collapsible' else None)
+    bmap = {'usual': 'Usual', 'collapsible': 'Collapsible', 'popup': 'PopUp'}
+    if behavior_val and behavior_val in bmap:
+        lines.append(f'{inner}<Behavior>{bmap[behavior_val]}</Behavior>')
+    # Collapsed — у Collapsible и PopUp (не привязано к одному behavior)
+    if el.get('collapsed') is True:
+        lines.append(f'{inner}<Collapsed>true</Collapsed>')
 
     # Representation
     if el.get('representation'):

@@ -17,12 +17,12 @@
     "title": "Группы",
     "elements": [
       { "cmdBar": "КоманднаяПанель", "autofill": true },
-      { "group": "horizontal", "name": "ГруппаШапка", "showTitle": true, "title": "Шапка", "horizontalStretch": true, "groupHorizontalAlign": "Right", "children": [
+      { "group": "horizontal", "name": "ГруппаШапка", "behavior": "usual", "showTitle": true, "title": "Шапка", "horizontalStretch": true, "groupHorizontalAlign": "Right", "children": [
         { "input": "Поле1", "path": "Поле1", "title": "Поле 1", "width": 20, "skipOnInput": true },
         { "input": "Поле2", "path": "Поле2", "title": "Поле 2" },
         { "labelField": "Метка", "path": "Поле1", "groupVerticalAlign": "Center" }
       ]},
-      { "group": "vertical", "name": "ГруппаПодвал", "title": { "ru": "Подвал", "en": "Footer" }, "children": [
+      { "group": "vertical", "name": "ГруппаПодвал", "behavior": "collapsible", "collapsed": true, "title": { "ru": "Подвал", "en": "Footer" }, "children": [
         { "input": "Поле3", "path": "Поле3", "title": "Поле 3" }
       ]}
     ],

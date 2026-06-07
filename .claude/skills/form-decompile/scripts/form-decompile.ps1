@@ -1,4 +1,4 @@
-﻿# form-decompile v0.37 — Decompile 1C managed Form.xml to JSON DSL (draft)
+﻿# form-decompile v0.38 — Decompile 1C managed Form.xml to JSON DSL (draft)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 # ВНИМАНИЕ: раундтрип не гарантируется. Навык исключён из авто-использования моделью.
 param(
@@ -989,12 +989,15 @@ function Decompile-Element {
 
 	switch ($tag) {
 		'UsualGroup' {
+			# group = направление (<Group>); behavior = <Behavior> (Авто = нет тега → ключ опускаем).
 			$g = Get-Child $node 'Group'
 			$gmap = @{ 'Horizontal'='horizontal'; 'Vertical'='vertical'; 'AlwaysHorizontal'='alwaysHorizontal'; 'AlwaysVertical'='alwaysVertical' }
+			if ($g -and $gmap.ContainsKey($g)) { $obj[$key] = $gmap[$g] } else { $obj[$key] = 'vertical' }
 			$behavior = Get-Child $node 'Behavior'
-			if ($behavior -eq 'Collapsible') { $obj[$key] = 'collapsible' }
-			elseif ($g -and $gmap.ContainsKey($g)) { $obj[$key] = $gmap[$g] }
-			else { $obj[$key] = 'vertical' }
+			if ($behavior) {
+				$bmap = @{ 'Usual'='usual'; 'Collapsible'='collapsible'; 'PopUp'='popup' }
+				if ($bmap.ContainsKey($behavior)) { $obj['behavior'] = $bmap[$behavior] } else { $obj['behavior'] = $behavior }
+			}
 			$obj['name'] = $name
 			Add-CommonProps $obj $node $name
 			$rep = Get-Child $node 'Representation'
