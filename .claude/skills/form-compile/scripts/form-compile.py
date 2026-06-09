@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# form-compile v1.93 — Compile 1C managed form from JSON or object metadata
+# form-compile v1.94 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import copy
@@ -4240,7 +4240,9 @@ def emit_dl_parameters(lines, params, indent):
 
 
 def emit_attributes(lines, attrs, indent):
+    # Платформа ВСЕГДА эмитит <Attributes> (100% корпуса; 162 формы — пустой <Attributes/>).
     if not attrs or len(attrs) == 0:
+        lines.append(f'{indent}<Attributes/>')
         return
 
     lines.append(f'{indent}<Attributes>')

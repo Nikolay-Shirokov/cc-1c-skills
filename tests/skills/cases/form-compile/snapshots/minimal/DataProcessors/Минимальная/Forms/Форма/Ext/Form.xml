@@ -8,4 +8,5 @@
 	</Title>
 	<AutoTitle>false</AutoTitle>
 	<AutoCommandBar name="ФормаКоманднаяПанель" id="-1"/>
+	<Attributes/>
 </Form>

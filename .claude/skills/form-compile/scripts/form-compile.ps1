@@ -1,4 +1,4 @@
-﻿# form-compile v1.93 — Compile 1C managed form from JSON or object metadata
+﻿# form-compile v1.94 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[string]$JsonPath,
@@ -4526,7 +4526,8 @@ function Emit-DLParameters {
 function Emit-Attributes {
 	param($attrs, [string]$indent)
 
-	if (-not $attrs -or $attrs.Count -eq 0) { return }
+	# Платформа ВСЕГДА эмитит <Attributes> (100% корпуса; 162 формы — пустой <Attributes/>).
+	if (-not $attrs -or $attrs.Count -eq 0) { X "$indent<Attributes/>"; return }
 
 	X "$indent<Attributes>"
 	$seenAttrs = @{}
