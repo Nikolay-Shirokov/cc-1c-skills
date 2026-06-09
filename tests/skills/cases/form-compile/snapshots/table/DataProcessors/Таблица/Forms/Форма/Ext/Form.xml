@@ -14,6 +14,10 @@
 			<TitleLocation>Top</TitleLocation>
 			<ChangeRowSet>true</ChangeRowSet>
 			<HeightInTableRows>5</HeightInTableRows>
+			<Autofill>true</Autofill>
+			<MultipleChoice>true</MultipleChoice>
+			<SearchOnInput>Use</SearchOnInput>
+			<AutoMarkIncomplete>true</AutoMarkIncomplete>
 			<ViewStatusLocation>None</ViewStatusLocation>
 			<SearchControlLocation>None</SearchControlLocation>
 			<Height>80</Height>

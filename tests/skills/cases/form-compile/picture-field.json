@@ -20,7 +20,7 @@
         "on": ["Selection"], "handlers": { "Selection": "ТаблицаДанныхВыбор" },
         "columns": [
           { "input": "ТаблицаДанныхНоменклатура", "path": "ТаблицаДанных.Номенклатура" },
-          { "picField": "ТаблицаДанныхКартинка", "path": "ТаблицаДанных.Картинка", "titleLocation": "none", "editMode": "EnterOnInput", "headerPicture": "StdPicture.ExecuteTask", "valuesPicture": { "src": "StdPicture.FilterCriterion", "loadTransparent": true } },
+          { "picField": "ТаблицаДанныхКартинка", "path": "ТаблицаДанных.Картинка", "titleLocation": "none", "editMode": "EnterOnInput", "hyperlink": true, "shortcut": "Ctrl+S", "headerPicture": "StdPicture.ExecuteTask", "valuesPicture": { "src": "StdPicture.FilterCriterion", "loadTransparent": true } },
           { "check": "ТаблицаДанныхКартинкаФлаг", "path": "ТаблицаДанных.Картинка", "title": "Флаг", "headerPicture": { "src": "StdPicture.ClearFilter", "loadTransparent": true } }
         ]}
     ],

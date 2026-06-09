@@ -1,4 +1,4 @@
-﻿# form-decompile v0.64 — Decompile 1C managed Form.xml to JSON DSL (draft)
+﻿# form-decompile v0.65 — Decompile 1C managed Form.xml to JSON DSL (draft)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 # ВНИМАНИЕ: раундтрип не гарантируется. Навык исключён из авто-использования моделью.
 param(
@@ -1454,6 +1454,8 @@ function Decompile-Element {
 			Add-CommonProps $obj $node $name
 			$em = Get-Child $node 'EditMode'; if ($em) { $obj['editMode'] = $em }
 			$tl = Get-Child $node 'TitleLocation'; if ($tl) { $obj['titleLocation'] = $tl.ToLower() }
+			if ((Get-Child $node 'Hyperlink') -eq 'true') { $obj['hyperlink'] = $true }
+			$sct = Get-Child $node 'Shortcut'; if ($sct) { $obj['shortcut'] = $sct }
 			$vp = Get-PictureRef $node 'ValuesPicture'; if ($null -ne $vp) { $obj['valuesPicture'] = $vp }
 		}
 		'CalendarField' {
@@ -1499,6 +1501,11 @@ function Decompile-Element {
 			if ((Get-Child $node 'VerticalLines') -eq 'false') { $obj['verticalLines'] = $false }
 			if ((Get-Child $node 'HorizontalLines') -eq 'false') { $obj['horizontalLines'] = $false }
 			if ((Get-Child $node 'UseAlternationRowColor') -eq 'true') { $obj['useAlternationRowColor'] = $true }
+			# Скаляры таблицы (захват «как есть»). Autofill — СВОЁ свойство таблицы (≠ AutoCommandBar autofill).
+			$taf = Get-Child $node 'Autofill'; if ($null -ne $taf) { $obj['autofill'] = ($taf -eq 'true') }
+			if ((Get-Child $node 'MultipleChoice') -eq 'true') { $obj['multipleChoice'] = $true }
+			$soin = Get-Child $node 'SearchOnInput'; if ($soin) { $obj['searchOnInput'] = $soin }
+			if ((Get-Child $node 'AutoMarkIncomplete') -eq 'true') { $obj['markIncomplete'] = $true }
 			$itv = Get-Child $node 'InitialTreeView'; if ($itv) { $obj['initialTreeView'] = $itv }
 			$rpRef = $node.SelectSingleNode("lf:RowsPicture/xr:Ref", $ns); if ($rpRef) { $obj['rowsPicture'] = $rpRef.InnerText }
 			$rpdp = Get-Child $node 'RowPictureDataPath'

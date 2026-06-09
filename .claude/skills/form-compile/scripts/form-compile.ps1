@@ -1,4 +1,4 @@
-﻿# form-compile v1.88 — Compile 1C managed form from JSON or object metadata
+﻿# form-compile v1.89 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[string]$JsonPath,
@@ -2604,6 +2604,7 @@ function Emit-Element {
 		"excludedCommands"=1
 		"choiceMode"=1;"initialTreeView"=1;"enableDrag"=1;"enableStartDrag"=1
 		"rowPictureDataPath"=1;"tableAutofill"=1;"heightInTableRows"=1
+		"multipleChoice"=1;"searchOnInput"=1;"shortcut"=1
 		"rowSelectionMode"=1;"verticalLines"=1;"horizontalLines"=1
 		# dynamic-list table block
 		"defaultItem"=1;"useAlternationRowColor"=1;"fileDragMode"=1;"autoRefresh"=1
@@ -3781,6 +3782,11 @@ function Emit-Table {
 		X "$inner<SearchStringLocation>$($el.searchStringLocation)</SearchStringLocation>"
 	}
 	if ($el.choiceMode -eq $true) { X "$inner<ChoiceMode>true</ChoiceMode>" }
+	# Скаляры таблицы (захват «как есть»). Autofill — СВОЁ свойство таблицы (≠ AutoCommandBar autofill = tableAutofill).
+	if ($null -ne $el.autofill) { X "$inner<Autofill>$(if ($el.autofill){'true'}else{'false'})</Autofill>" }
+	if ($el.multipleChoice -eq $true) { X "$inner<MultipleChoice>true</MultipleChoice>" }
+	if ($el.searchOnInput) { X "$inner<SearchOnInput>$($el.searchOnInput)</SearchOnInput>" }
+	if ($el.markIncomplete -eq $true) { X "$inner<AutoMarkIncomplete>true</AutoMarkIncomplete>" }
 	if ($el.useAlternationRowColor -eq $true) { X "$inner<UseAlternationRowColor>true</UseAlternationRowColor>" }
 	if ($el.selectionMode) { X "$inner<SelectionMode>$($el.selectionMode)</SelectionMode>" }
 	if ($el.rowSelectionMode) { X "$inner<RowSelectionMode>$($el.rowSelectionMode)</RowSelectionMode>" }
@@ -4061,6 +4067,8 @@ function Emit-PictureField {
 	if ($el.editMode) { X "$inner<EditMode>$($el.editMode)</EditMode>" }
 	Emit-ColumnPics -el $el -indent $inner
 	if ($el.titleLocation) { X "$inner<TitleLocation>$(Map-TitleLoc "$($el.titleLocation)")</TitleLocation>" }
+	if ($el.hyperlink -eq $true) { X "$inner<Hyperlink>true</Hyperlink>" }
+	if ($el.shortcut) { X "$inner<Shortcut>$(Esc-Xml "$($el.shortcut)")</Shortcut>" }
 
 	Emit-Layout -el $el -indent $inner
 

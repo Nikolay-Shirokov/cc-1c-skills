@@ -523,6 +523,10 @@ companion-панели с собственным контентом. Оба не
 | `enableDrag` | bool | Разрешить перетаскивание из таблицы |
 | `rowFilter` | null | Отбор строк (nil-плейсхолдер `<RowFilter xsi:nil="true"/>`); значение всегда `null` |
 | `choiceMode` | bool | Режим выбора |
+| `autofill` | bool | Автозаполнение состава колонок из источника (`<Autofill>`). Своё свойство таблицы (≠ `tableAutofill` = autofill вложенной командной панели). Дефолт (нет тега) — колонки заданы явно; `true` — таблица генерирует колонки сама (ChildItems пуст). Редко (270 в корпусе, всегда `true`) |
+| `multipleChoice` | bool | Множественный выбор (`<MultipleChoice>`) |
+| `searchOnInput` | string | Поиск при вводе (`<SearchOnInput>`): `Auto`, `Use`, `DontUse` |
+| `markIncomplete` | bool | Автоотметка незаполненного (`<AutoMarkIncomplete>`); общий ключ с `input` |
 | `useAlternationRowColor` | bool | Чередование цвета строк |
 | `selectionMode` | string | Режим выделения (`SingleRow`, …) |
 | `rowSelectionMode` | string | Режим выделения строки (`Row`, …) |
@@ -674,6 +678,8 @@ Pages поддерживает `pagesRepresentation`: `None`, `TabsOnTop`, `Tabs
 |----------|-----|----------|
 | `valuesPicture` | string \| object | Картинка значения. Формат картинки-ссылки — см. §4.1 «Картинка-ссылка» |
 | `editMode` | string | Режим редактирования колонки (`EnterOnInput` и т.п.) |
+| `hyperlink` | bool | Картинка-гиперссылка (`<Hyperlink>true</Hyperlink>`) — кликабельная картинка |
+| `shortcut` | string | Сочетание клавиш (`<Shortcut>`, напр. `Ctrl+S`) |
 
 #### calendar — CalendarField
 

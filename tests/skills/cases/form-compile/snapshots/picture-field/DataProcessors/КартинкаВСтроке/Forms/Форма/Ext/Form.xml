@@ -52,6 +52,8 @@
 						<xr:LoadTransparent>false</xr:LoadTransparent>
 					</HeaderPicture>
 					<TitleLocation>None</TitleLocation>
+					<Hyperlink>true</Hyperlink>
+					<Shortcut>Ctrl+S</Shortcut>
 					<ValuesPicture>
 						<xr:Ref>StdPicture.FilterCriterion</xr:Ref>
 						<xr:LoadTransparent>true</xr:LoadTransparent>

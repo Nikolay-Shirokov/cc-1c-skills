@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# form-compile v1.88 — Compile 1C managed form from JSON or object metadata
+# form-compile v1.89 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import copy
@@ -1803,6 +1803,7 @@ KNOWN_KEYS = {
     "choiceMode", "initialTreeView", "enableDrag", "enableStartDrag",
     "rowSelectionMode", "verticalLines", "horizontalLines",
     "rowPictureDataPath", "tableAutofill", "heightInTableRows",
+    "multipleChoice", "searchOnInput", "shortcut",
     # dynamic-list table block
     "defaultItem", "useAlternationRowColor", "fileDragMode", "autoRefresh",
     "autoRefreshPeriod", "choiceFoldersAndItems", "restoreCurrentRow", "showRoot",
@@ -3484,6 +3485,15 @@ def emit_table(lines, el, name, eid, indent):
 
     if el.get('choiceMode') is True:
         lines.append(f'{inner}<ChoiceMode>true</ChoiceMode>')
+    # Скаляры таблицы (захват «как есть»). Autofill — СВОЁ свойство таблицы (≠ AutoCommandBar autofill = tableAutofill).
+    if el.get('autofill') is not None:
+        lines.append(f'{inner}<Autofill>{"true" if el["autofill"] else "false"}</Autofill>')
+    if el.get('multipleChoice') is True:
+        lines.append(f'{inner}<MultipleChoice>true</MultipleChoice>')
+    if el.get('searchOnInput'):
+        lines.append(f'{inner}<SearchOnInput>{el["searchOnInput"]}</SearchOnInput>')
+    if el.get('markIncomplete') is True:
+        lines.append(f'{inner}<AutoMarkIncomplete>true</AutoMarkIncomplete>')
     if el.get('useAlternationRowColor') is True:
         lines.append(f'{inner}<UseAlternationRowColor>true</UseAlternationRowColor>')
     if el.get('selectionMode'):
@@ -3754,6 +3764,10 @@ def emit_picture_field(lines, el, name, eid, indent):
     emit_column_pics(lines, el, inner)
     if el.get('titleLocation'):
         lines.append(f'{inner}<TitleLocation>{map_title_loc(el["titleLocation"])}</TitleLocation>')
+    if el.get('hyperlink') is True:
+        lines.append(f'{inner}<Hyperlink>true</Hyperlink>')
+    if el.get('shortcut'):
+        lines.append(f'{inner}<Shortcut>{esc_xml(str(el["shortcut"]))}</Shortcut>')
 
     emit_layout(lines, el, inner)
 
