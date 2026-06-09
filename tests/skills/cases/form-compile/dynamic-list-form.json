@@ -15,6 +15,7 @@
   "validatePath": "Catalogs/Товары/Forms/ФормаСписка/Ext/Form.xml",
   "input": {
     "title": "Товары",
+    "properties": { "saveWindowSettings": false },
     "attributes": [
       { "name": "Список", "type": "DynamicList", "useAlways": ["~Артикул", "Список.Code", "Description"], "settings": {
         "mainTable": "Catalog.Товары", "dynamicDataRead": true,

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# form-compile v1.90 — Compile 1C managed form from JSON or object metadata
+# form-compile v1.91 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import copy
@@ -4273,7 +4273,9 @@ def emit_attributes(lines, attrs, indent):
         if attr.get('main') is True and attr.get('type'):
             t = str(attr['type'])
             main_saved = bool(re.match(r'^(CatalogObject|DocumentObject|ChartOfAccountsObject|ChartOfCalculationTypesObject|ChartOfCharacteristicTypesObject|ExchangePlanObject|BusinessProcessObject|TaskObject)\.', t)) or ('RecordManager.' in t)
-        if attr.get('savedData') is True or main_saved:
+        # Явный ключ savedData побеждает (в т.ч. False → суппресс авто-вывода main_saved); нет ключа → авто.
+        emit_saved = (attr['savedData'] is True) if 'savedData' in attr else main_saved
+        if emit_saved:
             lines.append(f'{inner}<SavedData>true</SavedData>')
         # Save: сохранение значения реквизита в пользовательских настройках. true → <Field>имя</Field>;
         # строка/массив → под-поля с авто-префиксом "имя." (путь с точкой / UUID / =имя — как есть).
@@ -4361,6 +4363,10 @@ def emit_attributes(lines, attrs, indent):
             s = attr['settings']
             lines.append(f'{inner}<Settings xsi:type="DynamicList">')
             si = f'{inner}\t'
+            # Порядок платформы: AutoFillAvailableFields, ManualQuery, DynamicDataRead, QueryText, Field*, MainTable, ListSettings
+            # AutoFillAvailableFields — дефолт true; эмитим только при заданном ключе (отклонение).
+            if s.get('autoFillAvailableFields') is not None:
+                lines.append(f'{si}<AutoFillAvailableFields>{"true" if s["autoFillAvailableFields"] else "false"}</AutoFillAvailableFields>')
             # Порядок платформы: ManualQuery, DynamicDataRead, QueryText, Field*, MainTable, ListSettings
             has_query = bool(s.get('query') and str(s['query']).strip())
             mq = 'true' if (has_query or s.get('manualQuery')) else 'false'
@@ -4519,6 +4525,9 @@ def emit_properties(lines, props, indent):
             # Auto PascalCase
             xml_name = p_name[0].upper() + p_name[1:]
 
+        # Пустая строка = суппресс-маркер (напр. autoTitle:"" — не эмитить и не додумывать)
+        if isinstance(p_value, str) and p_value == '':
+            continue
         # Convert boolean to lowercase
         if isinstance(p_value, bool):
             val = 'true' if p_value else 'false'

@@ -1,4 +1,4 @@
-﻿# form-compile v1.90 — Compile 1C managed form from JSON or object metadata
+﻿# form-compile v1.91 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[string]$JsonPath,
@@ -4555,7 +4555,9 @@ function Emit-Attributes {
 		if ($attr.main -eq $true -and $attr.type) {
 			$mainSaved = ("$($attr.type)") -match '^(CatalogObject|DocumentObject|ChartOfAccountsObject|ChartOfCalculationTypesObject|ChartOfCharacteristicTypesObject|ExchangePlanObject|BusinessProcessObject|TaskObject)\.' -or ("$($attr.type)") -match 'RecordManager\.'
 		}
-		if ($attr.savedData -eq $true -or $mainSaved) {
+		# Явный ключ savedData побеждает (в т.ч. false → суппресс авто-вывода $mainSaved); нет ключа → авто.
+		$emitSaved = if ($null -ne $attr.PSObject.Properties['savedData']) { $attr.savedData -eq $true } else { $mainSaved }
+		if ($emitSaved) {
 			X "$inner<SavedData>true</SavedData>"
 		}
 		# Save: сохранение значения реквизита в пользовательских настройках. true → <Field>имя</Field>;
@@ -4655,7 +4657,9 @@ function Emit-Attributes {
 			$st = $attr.settings
 			X "$inner<Settings xsi:type=`"DynamicList`">"
 			$si = "$inner`t"
-			# Порядок платформы: ManualQuery, DynamicDataRead, QueryText, Field*, MainTable, ListSettings
+			# Порядок платформы: AutoFillAvailableFields, ManualQuery, DynamicDataRead, QueryText, Field*, MainTable, ListSettings
+			# AutoFillAvailableFields — дефолт true; эмитим только при заданном ключе (отклонение).
+			if ($null -ne $st.autoFillAvailableFields) { X "$si<AutoFillAvailableFields>$(if ($st.autoFillAvailableFields){'true'}else{'false'})</AutoFillAvailableFields>" }
 			$hasQuery = $st.query -and "$($st.query)".Trim()
 			$mq = if ($hasQuery -or $st.manualQuery -eq $true) { "true" } else { "false" }
 			X "$si<ManualQuery>$mq</ManualQuery>"
@@ -4830,6 +4834,8 @@ function Emit-Properties {
 		}
 		# Convert boolean to lowercase string (PS renders as True/False)
 		$val = $p.Value
+		# Пустая строка = суппресс-маркер (напр. autoTitle:"" — не эмитить и не додумывать)
+		if ($val -is [string] -and $val -eq '') { continue }
 		if ($val -is [bool]) {
 			$val = if ($val) { "true" } else { "false" }
 		}

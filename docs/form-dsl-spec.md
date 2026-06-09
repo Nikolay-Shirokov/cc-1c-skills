@@ -49,7 +49,8 @@
 
 | DSL ключ | XML элемент | Значения |
 |----------|-------------|----------|
-| `autoTitle` | `<AutoTitle>` | `true` / `false` |
+| `autoTitle` | `<AutoTitle>` | `true` / `false`. **При наличии `title` компилятор сам инъектит `false`** (≈95% форм). Маркер `""` подавляет инъекцию (редкие формы с title, но без `<AutoTitle>`) |
+| `saveWindowSettings` | `<SaveWindowSettings>` | `true` / `false` |
 | `windowOpeningMode` | `<WindowOpeningMode>` | `LockOwnerWindow`, `Modeless` |
 | `commandBarLocation` | `<CommandBarLocation>` | `Top`, `Bottom`, `None` |
 | `saveDataInSettings` | `<SaveDataInSettings>` | `UseList`, `Use`, `DontUse` |
@@ -768,14 +769,14 @@ Pages поддерживает `pagesRepresentation`: `None`, `TabsOnTop`, `Tabs
 |----------|-----|----------|
 | `name` | string | Имя реквизита (обязательно) |
 | `type` | string | Тип (shorthand) |
-| `main` | bool | Основной реквизит формы |
+| `main` | bool | Основной реквизит формы (`<MainAttribute>`). **`true`** → пометить главным. **`false`** → суппресс: подавить авто-вывод компилятора (эвристика «нет явного main + ровно 1 реквизит объектного типа → пометить его»). Нет ключа → авто-вывод |
 | `title` | string/object | Заголовок. **Нет ключа** → авто-вывод из имени (как у элементов; кроме `main`). **`""`** → подавить (`<Title>` не эмитится — так платформа и хранит реквизит без синонима). Строка → ru; объект `{ru,en}` → мультиязычный. Декомпилятор опускает ключ, когда ru-заголовок совпадает с авто-выводом из имени |
 | `view` | bool/object | Просмотр по ролям (`<View>`). См. §4.1c |
 | `edit` | bool/object | Редактирование по ролям (`<Edit>`). См. §4.1c |
 | `functionalOptions` | array | Функциональные опции (`<FunctionalOptions><Item>FunctionalOption.X</Item>…`). Массив имён; forgiving: `"X"`/`"FunctionalOption.X"`. Также у колонок (`columns[*]`) и команд (§7) |
 | `useAlways` | array | Поля, всегда читаемые (`<UseAlways><Field>Имя.Поле</Field>…`). Массив коротких имён полей (forgiving: с/без префикса `Имя.`). **Маркер `~`** (query-поля дин-списка): `~Остановлен` → `<Field>~Список.Остановлен</Field>` (префикс ставится ПОСЛЕ `~`; полная форма `~Список.Остановлен` тоже принимается verbatim). **Две формы**: этот массив на реквизите ИЛИ `useAlways: true` на колонке (`columns[*]`) — компилятор сливает. Для дин-списка — только массив (колонки не эмитятся, но формируют `<UseAlways>`) |
 | `valueType` | string | Тип значений у реквизита типа `ValueList` (`<Settings xsi:type="v8:TypeDescription">`). Грамматика — как у `type`, включая составной `A \| B`. **Три состояния**: нет ключа → нет `<Settings>`; `""` → пустой `<Settings…/>` (список без ограничения типа); тип → с типом. Forgiving-синонимы: `typeDescription` (≈1С «ОписаниеТипов» / XML), `описаниеТипов`, `типЗначений`. Пример: `"valueType": "CatalogRef.Контрагенты"` |
-| `savedData` | bool | Сохраняемые данные (`<SavedData>`) |
+| `savedData` | bool | Сохраняемые данные (`<SavedData>`). **`false`** → суппресс авто-вывода компилятора (main-реквизит объектного типа Catalog/Document/ChartOf*/ExchangePlan/BusinessProcess/Task Object + RecordManager → `SavedData=true`). Нет ключа → авто-вывод |
 | `save` | bool/string/array | Сохранение значения в пользовательских настройках (`<Save><Field>…`). `true` → `<Field>имя</Field>`; строка/массив строк → под-поля с авто-префиксом `имя.` (путь с точкой / UUID `1/0:…` / совпадающее с именем — берётся как есть). Нет ключа или `false` → не эмитится. Пример периода: `["Период","EndDate","StartDate","Variant"]` |
 | `fillCheck` | bool/string | Проверка заполнения реквизита (`<FillCheck>`). `true` → `ShowError` (единственное значение в схеме); строка → verbatim. Синоним `fillChecking`. (`<FillChecking>` в схеме нет — был багом) |
 | `columns` | array | Колонки для ValueTable/ValueTree (`{ name, type, title?, functionalOptions?, useAlways? }`) |
@@ -801,6 +802,7 @@ Pages поддерживает `pagesRepresentation`: `None`, `TabsOnTop`, `Tabs
 | `mainTable` | string | Основная таблица. Принимает рус-имена метаданных (`Справочник.X` → `Catalog.X`) |
 | `query` | string | Текст запроса (`ManualQuery=true`). Поддерживает `@file.sql` (путь относительно JSON) |
 | `dynamicDataRead` | bool | Динамическое считывание. **Умолчание `true`** — указывать только для отключения (`false`) |
+| `autoFillAvailableFields` | bool | Автозаполнение доступных полей (`<AutoFillAvailableFields>`). **Умолчание `true`** — указывать только для отключения (`false`; тогда поля берутся из явного запроса, не авто). Эмитится первым в `<Settings>` |
 | `fields` | array | Явные поля набора (редко): `{ field, dataPath?, title? }` — для переопределения заголовка. Обычно поля выводятся из запроса автоматически |
 | `parameters` | array | Параметры схемы запроса (`DataCompositionSchemaParameter`) — см. ниже |
 | `order` | array | Сортировка списка (см. ниже) |

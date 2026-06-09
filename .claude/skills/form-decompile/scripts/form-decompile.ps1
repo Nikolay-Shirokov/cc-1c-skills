@@ -1,4 +1,4 @@
-﻿# form-decompile v0.66 — Decompile 1C managed Form.xml to JSON DSL (draft)
+﻿# form-decompile v0.68 — Decompile 1C managed Form.xml to JSON DSL (draft)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 # ВНИМАНИЕ: раундтрип не гарантируется. Навык исключён из авто-использования моделью.
 param(
@@ -1658,7 +1658,7 @@ $titleNode = $root.SelectSingleNode("lf:Title", $ns)
 if ($titleNode) { $t = Get-LangText $titleNode; if ($null -ne $t) { $dsl['title'] = $t } }
 
 # properties (прямые скаляры под <Form>, PascalCase → camelCase)
-$KNOWN_FORM_PROPS = @('AutoTitle','WindowOpeningMode','CommandBarLocation','SaveDataInSettings','AutoSaveDataInSettings','AutoTime','UsePostingMode','RepostOnWrite','AutoURL','AutoFillCheck','Customizable','EnterKeyBehavior','VerticalScroll','Width','Height','Group','UseForFoldersAndItems')
+$KNOWN_FORM_PROPS = @('AutoTitle','WindowOpeningMode','CommandBarLocation','SaveDataInSettings','AutoSaveDataInSettings','AutoTime','UsePostingMode','RepostOnWrite','AutoURL','AutoFillCheck','Customizable','EnterKeyBehavior','VerticalScroll','Width','Height','Group','UseForFoldersAndItems','SaveWindowSettings')
 $props = [ordered]@{}
 foreach ($pn in $KNOWN_FORM_PROPS) {
 	$v = Get-Child $root $pn
@@ -1670,8 +1670,13 @@ foreach ($pn in $KNOWN_FORM_PROPS) {
 		else { $props[$camel] = $v }
 	}
 }
-# autoTitle=false при наличии title — это инъекция компилятора, опускаем (валидируем раундтрипом)
-if ($dsl.Contains('title') -and $props.Contains('autoTitle') -and $props['autoTitle'] -eq $false) { $props.Remove('autoTitle') }
+# AutoTitle при наличии title: компилятор инъектит false (~95% форм). Зеркалим:
+#  - оригинал имеет AutoTitle=false → опускаем ключ (компилятор реинъектит при наличии title);
+#  - оригинал НЕ имеет AutoTitle (редкие 5%, напр. вспом. формы) → суппресс-маркер "" (не инъектить).
+if ($dsl.Contains('title')) {
+	if (-not $props.Contains('autoTitle')) { $props['autoTitle'] = '' }
+	elseif ($props['autoTitle'] -eq $false) { $props.Remove('autoTitle') }
+}
 if ($props.Count -gt 0) { $dsl['properties'] = $props }
 
 # MobileDeviceCommandBarContent (form-level) → список имён командных панелей/кнопок
@@ -1746,10 +1751,27 @@ if ($elements) { foreach ($e in $elements) { [void]$elemList.Add($e) } }
 if ($elemList.Count -gt 0) { $dsl['elements'] = @($elemList) }
 
 # attributes
+# Объектный тип (зеркало Test-IsObjectLikeType компилятора) — кандидат на авто-main эвристики 11b.3.
+function Test-IsObjectLikeTypeDec([string]$type) {
+	if ([string]::IsNullOrEmpty($type)) { return $false }
+	if ($type -eq 'DynamicList' -or $type -eq 'ConstantsSet') { return $true }
+	return ($type -match '^(CatalogObject|DocumentObject|DataProcessorObject|ReportObject|ExternalDataProcessorObject|ExternalReportObject|BusinessProcessObject|TaskObject|ChartOfAccountsObject|ChartOfCharacteristicTypesObject|ChartOfCalculationTypesObject|ExchangePlanObject|InformationRegisterRecordSet|AccumulationRegisterRecordSet|AccountingRegisterRecordSet|CalculationRegisterRecordSet|InformationRegisterRecordManager)\.')
+}
 $attrsNode = $root.SelectSingleNode("lf:Attributes", $ns)
 if ($attrsNode) {
 	$attrs = New-Object System.Collections.ArrayList
-	foreach ($a in @($attrsNode.SelectNodes("lf:Attribute", $ns))) {
+	# Подавление авто-main (эвристика компилятора 11b.3): если НЕТ ни одного <MainAttribute> И ровно
+	# один реквизит объектного типа — компилятор пометит его main. В оригинале он НЕ main (раз тега нет)
+	# → ставим суппресс-маркер main:false. На формах с >1 объектным реквизитом / с явным main — не нужно.
+	$allAttrNodes = @($attrsNode.SelectNodes("lf:Attribute", $ns))
+	$anyMainAttr = $false; $objLikeNodes = @()
+	foreach ($an in $allAttrNodes) {
+		if ((Get-Child $an 'MainAttribute') -eq 'true') { $anyMainAttr = $true }
+		$atype = Decompile-Type ($an.SelectSingleNode("lf:Type", $ns))
+		if (Test-IsObjectLikeTypeDec "$atype") { $objLikeNodes += $an }
+	}
+	$suppressMainName = if ((-not $anyMainAttr) -and $objLikeNodes.Count -eq 1) { $objLikeNodes[0].GetAttribute("name") } else { $null }
+	foreach ($a in $allAttrNodes) {
 		$ao = [ordered]@{}
 		$ao['name'] = $a.GetAttribute("name")
 		$ty = Decompile-Type ($a.SelectSingleNode("lf:Type", $ns)); if ($ty) { $ao['type'] = $ty }
@@ -1761,12 +1783,13 @@ if ($attrsNode) {
 			$ao['valueType'] = if ($vt) { $vt } else { '' }   # пустой Settings → маркер ""
 		}
 		if ((Get-Child $a 'MainAttribute') -eq 'true') { $ao['main'] = $true }
+		elseif ($suppressMainName -and $ao['name'] -eq $suppressMainName) { $ao['main'] = $false }
 		$vw = Decompile-XrFlag $a 'View'; if ($null -ne $vw) { $ao['view'] = $vw }
 		$ed = Decompile-XrFlag $a 'Edit'; if ($null -ne $ed) { $ao['edit'] = $ed }
 		# Title атрибута. Компилятор для не-main атрибута без ключа title додумывает заголовок
 		# из имени. Поэтому: нет <Title> → суппресс-маркер ''; ru-only == авто-вывод → опускаем
 		# ключ (компилятор воспроизведёт); иначе → явный заголовок.
-		$isMain = $ao.Contains('main')
+		$isMain = ($ao['main'] -eq $true)   # именно true; main:false (суппресс-маркер) → не-main для Title
 		$tNode = $a.SelectSingleNode("lf:Title", $ns)
 		if ($tNode) {
 			$t = Get-LangText $tNode
@@ -1776,7 +1799,11 @@ if ($attrsNode) {
 		} elseif (-not $isMain) {
 			$ao['title'] = ''
 		}
+		# SavedData: компилятор додумывает true для main-реквизита объектного типа (эвристика $mainSaved:
+		# Catalog/Document/ChartOf*/ExchangePlan/BusinessProcess/Task Object + RecordManager). Если оригинал
+		# тега не имеет — ставим суппресс-маркер savedData:false (как с MainAttribute).
 		if ((Get-Child $a 'SavedData') -eq 'true') { $ao['savedData'] = $true }
+		elseif ($ao['main'] -eq $true -and "$($ao['type'])" -match '^(CatalogObject|DocumentObject|ChartOfAccountsObject|ChartOfCalculationTypesObject|ChartOfCharacteristicTypesObject|ExchangePlanObject|BusinessProcessObject|TaskObject)\.|RecordManager\.') { $ao['savedData'] = $false }
 		# Save: сохранение значения реквизита в пользовательских настройках. Один Field=имя → save:true;
 		# иначе снимаем префикс "имя." (голое имя/UUID/прочее — как есть) → строка (1) или массив.
 		$saveNode = $a.SelectSingleNode("lf:Save", $ns)
@@ -1848,6 +1875,8 @@ if ($attrsNode) {
 		$setNode = $a.SelectSingleNode("lf:Settings", $ns)
 		if ($setNode) {
 			$so = [ordered]@{}
+			# AutoFillAvailableFields — дефолт true, платформа эмитит только отклонение (false). Захват «как есть».
+			$afaf = Get-Child $setNode 'AutoFillAvailableFields'; if ($null -ne $afaf) { $so['autoFillAvailableFields'] = ($afaf -eq 'true') }
 			$mt = Get-Child $setNode 'MainTable'; if ($mt) { $so['mainTable'] = $mt }
 			$qtNode = $setNode.SelectSingleNode("lf:QueryText", $ns)
 			if ($qtNode -and $qtNode.InnerText) { $so['query'] = Maybe-ExternalizeQuery -queryText $qtNode.InnerText -listName "$($ao['name'])" }
