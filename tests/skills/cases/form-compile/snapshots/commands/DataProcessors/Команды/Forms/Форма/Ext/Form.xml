@@ -36,6 +36,7 @@
 				<Button name="Закрыть" id="5">
 					<Type>CommandBarButton</Type>
 					<CommandName>Form.StandardCommand.Close</CommandName>
+					<RepresentationInContextMenu>None</RepresentationInContextMenu>
 					<ExtendedTooltip name="ЗакрытьРасширеннаяПодсказка" id="6"/>
 				</Button>
 			</ChildItems>

@@ -19,7 +19,7 @@
     "elements": [
       { "cmdBar": "Панель", "horizontalLocation": "right", "children": [
         { "button": "Выполнить", "command": "Выполнить", "defaultButton": true },
-        { "button": "Закрыть", "stdCommand": "Close" }
+        { "button": "Закрыть", "stdCommand": "Close", "representationInContextMenu": "None" }
       ]},
       { "input": "Результат", "path": "Результат", "multiLine": true, "height": 8, "readOnly": true }
     ],

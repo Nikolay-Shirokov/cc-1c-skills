@@ -16,7 +16,7 @@
   "input": {
     "title": "Просмотр данных",
     "elements": [
-      { "table": "Данные", "path": "Данные", "changeRowSet": true, "titleLocation": "top", "height": 80, "heightInTableRows": 5, "autofill": true, "multipleChoice": true, "searchOnInput": "Use", "markIncomplete": true,
+      { "table": "Данные", "path": "Данные", "changeRowSet": true, "titleLocation": "top", "height": 80, "heightInTableRows": 5, "autofill": true, "multipleChoice": true, "searchOnInput": "Use", "markIncomplete": true, "settingsNamedItemDetailedRepresentation": false,
         "viewStatusLocation": "None", "searchControlLocation": "None",
         "excludedCommands": ["Add", "Delete", "MoveUp", "MoveDown"],
         "commandBar": { "autofill": false, "children": [

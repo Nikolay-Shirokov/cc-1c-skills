@@ -1,4 +1,4 @@
-﻿# form-compile v1.95 — Compile 1C managed form from JSON or object metadata
+﻿# form-compile v1.96 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[string]$JsonPath,
@@ -2614,6 +2614,8 @@ function Emit-Element {
 		"horizontalScrollBar"=1;"viewScalingMode"=1;"output"=1;"selectionShowMode"=1;"protection"=1
 		"edit"=1;"showGrid"=1;"showGroups"=1;"showHeaders"=1;"showRowAndColumnNames"=1;"showCellNames"=1
 		"pointerType"=1;"drawingSelectionShowMode"=1;"warningOnEditRepresentation"=1;"markingAppearance"=1
+		# report-form контекст (generic-скаляры элементов)
+		"horizontalSpacing"=1;"representationInContextMenu"=1;"settingsNamedItemDetailedRepresentation"=1
 		# columnGroup-specific
 		"showInHeader"=1
 		# radio-specific
@@ -2914,6 +2916,10 @@ $script:genericScalars = @(
 	@{ Tag='ShowRowAndColumnNames'; Key='showRowAndColumnNames'; Kind='bool' }
 	@{ Tag='ShowCellNames';       Key='showCellNames';       Kind='bool'  }
 	@{ Tag='ShowPercent';         Key='showPercent';         Kind='bool'  }
+	# Report-form контекст: интервал группы / представление кнопки в контекстном меню / детальное представление настройки таблицы
+	@{ Tag='HorizontalSpacing';   Key='horizontalSpacing';   Kind='value' }
+	@{ Tag='RepresentationInContextMenu'; Key='representationInContextMenu'; Kind='value' }
+	@{ Tag='SettingsNamedItemDetailedRepresentation'; Key='settingsNamedItemDetailedRepresentation'; Kind='bool' }
 )
 
 function Emit-GenericScalars {

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# form-compile v1.95 — Compile 1C managed form from JSON or object metadata
+# form-compile v1.96 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import copy
@@ -1835,6 +1835,8 @@ KNOWN_KEYS = {
     "horizontalScrollBar", "viewScalingMode", "output", "selectionShowMode", "protection",
     "edit", "showGrid", "showGroups", "showHeaders", "showRowAndColumnNames", "showCellNames",
     "pointerType", "drawingSelectionShowMode", "warningOnEditRepresentation", "markingAppearance",
+    # report-form контекст (generic-скаляры элементов)
+    "horizontalSpacing", "representationInContextMenu", "settingsNamedItemDetailedRepresentation",
 }
 
 # picture/picField — НИЗКИЙ приоритет: 'picture' это и тип (PictureDecoration), и свойство-иконка
@@ -2735,6 +2737,10 @@ GENERIC_SCALARS = [
     ('ShowRowAndColumnNames', 'showRowAndColumnNames', 'bool'),
     ('ShowCellNames', 'showCellNames', 'bool'),
     ('ShowPercent', 'showPercent', 'bool'),
+    # Report-form контекст: интервал группы / представление кнопки в контекстном меню / детальное представление настройки таблицы
+    ('HorizontalSpacing', 'horizontalSpacing', 'value'),
+    ('RepresentationInContextMenu', 'representationInContextMenu', 'value'),
+    ('SettingsNamedItemDetailedRepresentation', 'settingsNamedItemDetailedRepresentation', 'bool'),
 ]
 
 

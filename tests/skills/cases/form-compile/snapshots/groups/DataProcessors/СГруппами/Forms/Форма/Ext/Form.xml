@@ -29,6 +29,7 @@
 			<VerticalAlign>Top</VerticalAlign>
 			<ThroughAlign>Use</ThroughAlign>
 			<ChildItemsWidth>Equal</ChildItemsWidth>
+			<HorizontalSpacing>None</HorizontalSpacing>
 			<ExtendedTooltip name="ГруппаШапкаРасширеннаяПодсказка" id="4"/>
 			<ChildItems>
 				<InputField name="Поле1" id="5">

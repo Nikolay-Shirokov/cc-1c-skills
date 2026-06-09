@@ -67,6 +67,12 @@
 | `height` | `<Height>` | число |
 | `group` | `<Group>` | `Vertical`, `Horizontal`, `AlwaysHorizontal`, `AlwaysVertical` |
 | `useForFoldersAndItems` | `<UseForFoldersAndItems>` | `Folders`, `Items`, `FoldersAndItems` |
+| `reportResult` | `<ReportResult>` | Имя реквизита-результата (форма отчёта) |
+| `detailsData` | `<DetailsData>` | Имя реквизита данных расшифровки (форма отчёта) |
+| `reportFormType` | `<ReportFormType>` | `Main`, `Settings`, `Variant` |
+| `autoShowState` | `<AutoShowState>` | `Auto`, `DontShow`, `ShowOnComposition` |
+| `reportResultViewMode` | `<ReportResultViewMode>` | `Auto` |
+| `viewModeApplicationOnSetReportResult` | `<ViewModeApplicationOnSetReportResult>` | `Auto` |
 
 Нераспознанные ключи преобразуются с автоматическим PascalCase (первая буква в верхний регистр).
 
