@@ -1,4 +1,4 @@
-﻿# form-decompile v0.82 — Decompile 1C managed Form.xml to JSON DSL (draft)
+﻿# form-decompile v0.83 — Decompile 1C managed Form.xml to JSON DSL (draft)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 # ВНИМАНИЕ: раундтрип не гарантируется. Навык исключён из авто-использования моделью.
 param(
@@ -152,14 +152,14 @@ foreach ($el in $xmlDoc.SelectNodes("//*[local-name()='ConditionalAppearance']/*
 # (встроенная конфигурация диаграммы) пока НЕ воспроизводим → честный скип, чтобы не потерять молча.
 foreach ($s in $xmlDoc.SelectNodes("//*[local-name()='Attribute']/*[local-name()='Settings']")) {
 	$st = $s.GetAttribute("type", $NS_XSI)
-	if ($st -and $st -notmatch 'TypeDescription$' -and $st -notmatch 'DynamicList$' -and $st -notmatch 'Planner$' -and $st -notmatch 'd4p1:Chart$') {
+	if ($st -and $st -notmatch 'TypeDescription$' -and $st -notmatch 'DynamicList$' -and $st -notmatch 'Planner$' -and $st -notmatch 'd4p1:(Gantt)?Chart$') {
 		Fail-Ring3 -kind "Attribute>Settings типа '$st' (design-time конфигурация, напр. диаграмма)" -loc "Attribute/Settings"
 	}
-	# Chart с точками/осями (realPointData/realDataItems): типизированные значения (xsi:type),
-	# xsi:nil и ML с префиксом d4p1: (а не v8:) генерик-движок не сохраняет → честный скип.
-	# Частые дашборд-диаграммы (серии/легенда/оформление) поддержаны.
-	elseif ($st -match 'd4p1:Chart$' -and ($s.OuterXml -match '<d4p1:\w+ xsi:type=' -or $s.OuterXml -match '<d4p1:\w+ xsi:nil=' -or $s.OuterXml -match '<d4p1:item[ >]')) {
-		Fail-Ring3 -kind "Attribute>Settings d4p1:Chart с точками/осями (типизированные значения/d4p1-ML)" -loc "Attribute/Settings"
+	# Chart/GanttChart с точками/осями: типизированные значения (xsi:type), xsi:nil и ML с
+	# префиксом d4p1: (а не v8:) генерик-движок не сохраняет → честный скип. Частые
+	# дашборд-диаграммы/гант (серии/легенда/оформление/шкала) поддержаны.
+	elseif ($st -match 'd4p1:(Gantt)?Chart$' -and ($s.OuterXml -match '<d4p1:\w+ xsi:type=' -or $s.OuterXml -match '<d4p1:\w+ xsi:nil=' -or $s.OuterXml -match '<d4p1:item[ >]')) {
+		Fail-Ring3 -kind "Attribute>Settings $st с точками/осями (типизированные значения/d4p1-ML)" -loc "Attribute/Settings"
 	}
 }
 
@@ -2206,8 +2206,8 @@ if ($attrsNode) {
 		elseif ($setNode -and $setNode.GetAttribute("type", $NS_XSI) -match 'Planner$') {
 			$ao['planner'] = Build-PlannerSettings $setNode
 		}
-		# Chart design-time <Settings xsi:type="d4p1:Chart"> → объект chart (генерик-захват).
-		elseif ($setNode -and $setNode.GetAttribute("type", $NS_XSI) -match 'd4p1:Chart$') {
+		# Chart/GanttChart design-time <Settings xsi:type="d4p1:Chart"/"d4p1:GanttChart"> → chart (генерик).
+		elseif ($setNode -and $setNode.GetAttribute("type", $NS_XSI) -match 'd4p1:(Gantt)?Chart$') {
 			$ao['chart'] = Build-ChartSettings $setNode
 		}
 		if ((Get-Child $a 'MainAttribute') -eq 'true') { $ao['main'] = $true }

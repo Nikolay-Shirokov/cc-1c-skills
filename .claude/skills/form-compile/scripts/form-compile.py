@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# form-compile v1.106 — Compile 1C managed form from JSON or object metadata
+# form-compile v1.107 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import copy
@@ -2997,8 +2997,8 @@ def emit_chart_node(lines, name, val, ind):
     lines.append(f'{ind}<d4p1:{name}>{esc_xml(str(val))}</d4p1:{name}>')
 
 
-def emit_chart_settings(lines, chart, ind):
-    lines.append(f'{ind}<Settings xmlns:d4p1="{CHART_NS}" xsi:type="d4p1:Chart">')
+def emit_chart_settings(lines, chart, ind, ctype='d4p1:Chart'):
+    lines.append(f'{ind}<Settings xmlns:d4p1="{CHART_NS}" xsi:type="{ctype}">')
     for k in list(chart.keys()):
         emit_chart_node(lines, k, chart[k], f'{ind}\t')
     lines.append(f'{ind}</Settings>')
@@ -4774,9 +4774,10 @@ def emit_attributes(lines, attrs, indent, conditional_appearance=None):
         # Planner design-time <Settings xsi:type="pl:Planner"> (встроенный конфиг планировщика).
         if attr.get('planner') is not None:
             emit_planner_settings(lines, attr['planner'], inner)
-        # Chart design-time <Settings xsi:type="d4p1:Chart"> (встроенный конфиг диаграммы).
+        # Chart/GanttChart design-time <Settings> (тип выводится из типа реквизита).
         if attr.get('chart') is not None:
-            emit_chart_settings(lines, attr['chart'], inner)
+            ctype = 'd4p1:GanttChart' if 'GanttChart' in str(attr.get('type', '')) else 'd4p1:Chart'
+            emit_chart_settings(lines, attr['chart'], inner, ctype)
 
         if attr.get('main') is True:
             lines.append(f'{inner}<MainAttribute>true</MainAttribute>')

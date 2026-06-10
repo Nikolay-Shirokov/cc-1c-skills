@@ -1,0 +1,352 @@
+{
+  "name": "Форма с design-time диаграммой Ганта (d4p1:GanttChart Settings)",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "DataProcessor",
+        "name": "ДиаграммаГанта"
+      },
+      "args": {
+        "-JsonPath": "{inputFile}",
+        "-OutputDir": "{workDir}"
+      }
+    },
+    {
+      "script": "form-add/scripts/form-add",
+      "args": {
+        "-ObjectPath": "{workDir}/DataProcessors/ДиаграммаГанта.xml",
+        "-FormName": "Форма"
+      }
+    }
+  ],
+  "params": {
+    "outputPath": "DataProcessors/ДиаграммаГанта/Forms/Форма/Ext/Form.xml"
+  },
+  "validatePath": "DataProcessors/ДиаграммаГанта/Forms/Форма/Ext/Form.xml",
+  "input": {
+    "title": "Диаграмма Ганта",
+    "elements": [
+      {
+        "ganttChart": "Ганта",
+        "path": "Ганта",
+        "titleLocation": "none",
+        "ganttTable": {
+          "table": "ТаблицаГанта",
+          "path": "Ганта",
+          "height": 3
+        }
+      }
+    ],
+    "attributes": [
+      {
+        "name": "Объект",
+        "type": "DataProcessorObject.ДиаграммаГанта",
+        "main": true
+      },
+      {
+        "name": "Ганта",
+        "type": "d5p1:GanttChart",
+        "chart": {
+          "chart": {
+            "seriesCurId": "1",
+            "pointsCurId": "0",
+            "isSeriesDesign": true,
+            "realSeriesCount": "0",
+            "realExSeriesData": [
+              {
+                "id": "1",
+                "color": "#991919",
+                "line": {
+                  "width": 2,
+                  "gap": false,
+                  "style": "Solid"
+                },
+                "marker": "Rhomb",
+                "text": {
+                  "#": "Сводная"
+                },
+                "strIsChanged": false,
+                "isExpand": false,
+                "isIndicator": false,
+                "colorPriority": false
+              }
+            ],
+            "isPointsDesign": true,
+            "realPointCount": "0",
+            "curSeries": "-1",
+            "curPoint": "0",
+            "chartType": "Column3D",
+            "circleLabelType": "None",
+            "labelsDelimiter": ", ",
+            "labelsLocation": "Edge",
+            "lbFormat": "",
+            "lbpFormat": "",
+            "labelsColor": "style:FormTextColor",
+            "labelsFont": {
+              "kind": "AutoFont"
+            },
+            "transparentLabelsBkg": true,
+            "labelsBkgColor": "auto",
+            "labelsBorder": {
+              "width": 1,
+              "style": "Single"
+            },
+            "labelsBorderColor": "auto",
+            "circleExpandMode": "None",
+            "chart3Dcrd": "SouthWest",
+            "title": "",
+            "isShowTitle": true,
+            "isShowLegend": false,
+            "ttlBorder": {
+              "width": 0,
+              "style": "WithoutBorder"
+            },
+            "ttlBorderColor": "style:BorderColor",
+            "lgBorder": {
+              "width": 0,
+              "style": "WithoutBorder"
+            },
+            "lgBorderColor": "style:BorderColor",
+            "chBorder": {
+              "width": 1,
+              "style": "Single"
+            },
+            "chBorderColor": "style:BorderColor",
+            "transparent": false,
+            "bkgColor": "style:FieldBackColor",
+            "isTrnspTtl": false,
+            "ttlColor": "style:FieldBackColor",
+            "isTrnspLeg": false,
+            "legColor": "style:FieldBackColor",
+            "isTrnspCh": false,
+            "chColor": "style:FieldBackColor",
+            "ttlTxtColor": "style:FormTextColor",
+            "legTxtColor": "style:FormTextColor",
+            "chTxtColor": "style:FormTextColor",
+            "ttlFont": {
+              "ref": "style:TextFont",
+              "kind": "StyleItem"
+            },
+            "legFont": {
+              "ref": "style:TextFont",
+              "kind": "StyleItem"
+            },
+            "chFont": {
+              "ref": "style:TextFont",
+              "kind": "StyleItem"
+            },
+            "isShowScale": true,
+            "isShowScaleVL": true,
+            "isShowSeriesScale": true,
+            "isShowPointsScale": true,
+            "isShowValuesScale": true,
+            "vsFormat": "",
+            "xLabelsOrientation": "Auto",
+            "scaleLine": {
+              "width": 1,
+              "gap": false,
+              "style": "Solid"
+            },
+            "scaleColor": "#A9A9A9",
+            "isAutoSeriesName": true,
+            "isAutoPointName": true,
+            "maxMode": "NotDefined",
+            "maxSeries": "4",
+            "maxSeriesPrc": "30",
+            "spaceMode": "Half",
+            "baseVal": "0",
+            "isOutline": false,
+            "realPiePoint": "0",
+            "realStockSeries": "0",
+            "isLight": true,
+            "isGradient": false,
+            "isTransposition": false,
+            "hideBaseVal": false,
+            "dataTable": false,
+            "dtVerLines": true,
+            "dtHorLines": true,
+            "dtHAlign": "Right",
+            "dtFormat": "",
+            "dtKeys": true,
+            "paletteKind": "Auto",
+            "animation": "Auto",
+            "rebuildTime": "0",
+            "isTransposed": false,
+            "autoTransposition": false,
+            "legendScrollEnable": true,
+            "surfaceColor": "#A90000",
+            "radarScaleType": "Circle",
+            "gaugeValuesPresentation": "Needle",
+            "gaugeQualityBands": {
+              "useTextStr": false,
+              "useTooltipStr": false
+            },
+            "beginGaugeAngle": "0",
+            "endGaugeAngle": "180",
+            "gaugeThickness": "5",
+            "gaugeLabelsLocation": "InsideScale",
+            "gaugeLabelsArcDirection": false,
+            "gaugeBushThickness": "4",
+            "gaugeBushColor": "#A9A9A9",
+            "autoMaxValue": true,
+            "userMaxValue": "0",
+            "autoMinValue": true,
+            "userMinValue": "0",
+            "elementsIsInit": true,
+            "titleIsInit": true,
+            "legendIsInit": true,
+            "chartIsInit": true,
+            "elementsChart": {
+              "left": "0",
+              "right": "0",
+              "top": "0",
+              "bottom": "0"
+            },
+            "elementsLegend": {
+              "left": "0.913738019169329",
+              "right": "0",
+              "top": "0.0407725321888412",
+              "bottom": "0"
+            },
+            "elementsTitle": {
+              "left": "0.8328025477707",
+              "right": "0",
+              "top": "0",
+              "bottom": "0.959401709401709"
+            },
+            "borderColor": "style:BorderColor",
+            "border": {
+              "width": 1,
+              "style": "Single"
+            },
+            "dataSourceDescription": "",
+            "isDataSourceMode": false,
+            "isRandomizedNewValues": true,
+            "splineStrain": "95",
+            "translucencePercent": "0",
+            "funnelNeckHeightPercent": "10",
+            "funnelNeckWidthPercent": "10",
+            "funnelGapSumPercent": "3",
+            "multiStageLinkLine": {
+              "width": 1,
+              "gap": false,
+              "style": "Solid"
+            },
+            "multiStageLinkColor": "#000000",
+            "valuesAxis": "",
+            "pointsAxis": "",
+            "legendPlacement": "None",
+            "plotAreaPlacement": "UseCoordinates",
+            "titleAreaPlacement": "UseCoordinates"
+          },
+          "points": {
+            "testMode": false,
+            "value": {
+              "itemKey": "0",
+              "key": "0",
+              "parentKey": "0",
+              "leftKey": "0",
+              "rightKey": "0",
+              "extKey": "0",
+              "title": "",
+              "cacheKey": "0",
+              "baseData": "4294901761",
+              "font": {
+                "kind": "AutoFont"
+              },
+              "picture": ""
+            },
+            "contentCacheItem": {
+              "mainColor": "#000000",
+              "secondColor": "#000000",
+              "backColor": "auto",
+              "textColor": "auto"
+            },
+            "autoText": true,
+            "useValuesReverseBehavior": false
+          },
+          "series": {
+            "testMode": false,
+            "value": {
+              "itemKey": "0",
+              "key": "0",
+              "parentKey": "0",
+              "leftKey": "0",
+              "rightKey": "0",
+              "extKey": "0",
+              "title": "",
+              "cacheKey": "0",
+              "baseData": "4294902785"
+            },
+            "contentCacheItem": {
+              "mainColor": "#000000",
+              "secondColor": "#000000",
+              "hatchBetweenIntervalsColor": "#000000"
+            },
+            "autoText": true,
+            "useValuesReverseBehavior": false
+          },
+          "drawEmpty": true,
+          "timeScale": {
+            "placement": "Top",
+            "level": {
+              "measure": "Day",
+              "interval": "1",
+              "show": true,
+              "line": {
+                "width": 1,
+                "gap": false,
+                "style": "Dotted"
+              },
+              "scaleColor": "#C0C0C0",
+              "dayFormatRule": "MonthDayWeekDay",
+              "format": "",
+              "labels": {
+                "ticks": "0"
+              },
+              "backColor": "auto",
+              "textColor": "auto",
+              "showPereodicalLabels": true
+            },
+            "transparent": false,
+            "backColor": "style:FieldBackColor",
+            "textColor": "style:FormTextColor",
+            "currentLevel": "0"
+          },
+          "keepScaleVariant": "AllData",
+          "fixedVariantMeasure": "Month",
+          "fixedVariantInterval": "1",
+          "autoFullInterval": true,
+          "fullIntervalBegin": "2016-05-01T00:00:00",
+          "fullIntervalEnd": "2016-06-01T00:00:00",
+          "visualBegin": "2016-05-01T00:00:00",
+          "intervalDrawType": "Gradient",
+          "noneVariantChars": "3",
+          "noneVariantMeasure": "Day",
+          "verticalStretch": "None",
+          "verticalScrollEnable": true,
+          "showValueText": "None",
+          "extTitle": "",
+          "outboundColor": "#FFFFFF",
+          "backIntervals": {
+            "collection": {
+              "ticks": "0"
+            },
+            "ticks": "0"
+          },
+          "linksColor": "#000080",
+          "linksLine": {
+            "width": 1,
+            "gap": false,
+            "style": "Solid"
+          },
+          "showPointsText": "Auto",
+          "showData": "Auto",
+          "textPlacement": "Auto",
+          "intervalTextRepresentation": "Auto"
+        }
+      }
+    ]
+  }
+}

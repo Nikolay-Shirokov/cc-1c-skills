@@ -1,4 +1,4 @@
-﻿# form-compile v1.106 — Compile 1C managed form from JSON or object metadata
+﻿# form-compile v1.107 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[string]$JsonPath,
@@ -3287,8 +3287,8 @@ function Emit-ChartNode {
 	X "$ind<d4p1:$name>$(Esc-Xml "$val")</d4p1:$name>"
 }
 function Emit-ChartSettings {
-	param($chart, [string]$ind)
-	X "$ind<Settings xmlns:d4p1=`"$($script:CHART_NS)`" xsi:type=`"d4p1:Chart`">"
+	param($chart, [string]$ind, [string]$ctype = 'd4p1:Chart')
+	X "$ind<Settings xmlns:d4p1=`"$($script:CHART_NS)`" xsi:type=`"$ctype`">"
 	foreach ($k in (Get-Keys $chart)) { Emit-ChartNode $k (Get-Prop $chart $k) "$ind`t" }
 	X "$ind</Settings>"
 }
@@ -5042,9 +5042,11 @@ function Emit-Attributes {
 		if ($attr.PSObject.Properties['planner'] -and $null -ne $attr.planner) {
 			Emit-PlannerSettings -pl $attr.planner -ind $inner
 		}
-		# Chart design-time <Settings xsi:type="d4p1:Chart"> (встроенный конфиг диаграммы).
+		# Chart/GanttChart design-time <Settings xsi:type="d4p1:Chart"/"d4p1:GanttChart">.
+		# Тип Settings выводится из типа реквизита (d5p1:GanttChart → d4p1:GanttChart).
 		if ($attr.PSObject.Properties['chart'] -and $null -ne $attr.chart) {
-			Emit-ChartSettings -chart $attr.chart -ind $inner
+			$ctype = if ("$($attr.type)" -match 'GanttChart') { 'd4p1:GanttChart' } else { 'd4p1:Chart' }
+			Emit-ChartSettings -chart $attr.chart -ind $inner -ctype $ctype
 		}
 
 		if ($attr.main -eq $true) {
