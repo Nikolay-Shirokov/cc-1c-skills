@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# form-compile v1.116 — Compile 1C managed form from JSON or object metadata
+# form-compile v1.117 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import copy
@@ -1465,6 +1465,15 @@ def emit_filter_item(lines, item, indent):
                 vt = _value_type_for(v, item.get('valueType'))
                 v_str = str(v).lower() if isinstance(v, bool) else esc_xml(str(v))
                 lines.append(f'{indent}\t<dcsset:right xsi:type="{vt}">{v_str}</dcsset:right>')
+    elif val is not None and isinstance(val, dict) and re.search(r'Standard(Beginning|End)Date$', str(item.get('valueType') or '')):
+        # Стандартная дата начала/окончания: структурное значение {variant, date?}.
+        # Custom несёт <v8:date>; именованные варианты (BeginningOfThisDay/…) — без даты.
+        sd_type = re.sub(r'^v8:', '', str(item['valueType']))
+        lines.append(f'{indent}\t<dcsset:right xsi:type="v8:{sd_type}">')
+        lines.append(f'{indent}\t\t<v8:variant xsi:type="v8:{sd_type}Variant">{esc_xml(str(val.get("variant", "")))}</v8:variant>')
+        if 'date' in val:
+            lines.append(f'{indent}\t\t<v8:date>{esc_xml(str(val["date"]))}</v8:date>')
+        lines.append(f'{indent}\t</dcsset:right>')
     elif val is not None:
         vt = _value_type_for(val, item.get('valueType'))
         v_str = str(val).lower() if isinstance(val, bool) else esc_xml(str(val))

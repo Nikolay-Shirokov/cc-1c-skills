@@ -66,14 +66,17 @@
       { "name": "ФлагПлатформенный", "type": "boolean" },
       { "name": "ФлагЯвный", "type": "boolean" },
       { "name": "ФлагТумблер", "type": "boolean" },
-      { "name": "ЧисловоеПоле", "type": "number(10,2)" }
+      { "name": "ЧисловоеПоле", "type": "number(10,2)" },
+      { "name": "ДатаПоля", "type": "dateTime" }
     ],
     "conditionalAppearance": [
       { "selection": ["ОбычноеПоле"], "filter": ["ЧисловоеПоле > 100"], "appearance": { "ЦветФона": "style:FormBackColor", "Текст": "Плоский текст" },
         "presentation": { "ru": "Подсветка", "en": "Highlight" } },
       { "filter": ["ЧисловоеПоле = 0"], "appearance": { "Текст": { "ru": "Локализованный", "en": "Localized" } } },
       { "filter": ["ЧисловоеПоле < 0"], "appearance": { "Текст": "" } },
-      { "filter": ["ЧисловоеПоле = 1"], "appearance": { "Текст": { "field": "ОбычноеПоле" } } }
+      { "filter": ["ЧисловоеПоле = 1"], "appearance": { "Текст": { "field": "ОбычноеПоле" } } },
+      { "filter": [{ "field": "ДатаПоля", "op": "=", "value": { "variant": "Custom", "date": "3999-12-31T23:59:59" }, "valueType": "v8:StandardBeginningDate" }], "appearance": { "ЦветТекста": "web:Gray" } },
+      { "filter": [{ "field": "ДатаПоля", "op": ">=", "value": { "variant": "BeginningOfThisDay" }, "valueType": "v8:StandardBeginningDate" }], "appearance": { "ЦветТекста": "web:Silver" } }
     ]
   }
 }
