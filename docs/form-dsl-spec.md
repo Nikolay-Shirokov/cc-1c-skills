@@ -371,7 +371,7 @@ companion-панели с собственным контентом. Оба не
 | Свойство | Тип | Описание |
 |----------|-----|----------|
 | `path` | string | DataPath |
-| `multiLine` | bool | Многострочный режим |
+| `multiLine` | bool | Многострочный режим (`<MultiLine>`). Факт. значение: платформа эмитит и явный `false` (425 в корпусе) — захватываем true/false, отсутствие = дефолт (однострочный) |
 | `passwordMode` | bool | Режим пароля |
 | `titleLocation` | string | `none`, `left`, `right`, `top`, `bottom` |
 | `choiceButton` | bool | Показывать кнопку выбора |
@@ -698,7 +698,7 @@ Pages поддерживает `pagesRepresentation`: `None`, `TabsOnTop`, `Tabs
 | `valuesPicture` | string \| object | Картинка значения. Формат картинки-ссылки — см. §4.1 «Картинка-ссылка» |
 | `editMode` | string | Режим редактирования колонки (`EnterOnInput` и т.п.) |
 | `hyperlink` | bool | Картинка-гиперссылка (`<Hyperlink>true</Hyperlink>`) — кликабельная картинка |
-| `shortcut` | string | Сочетание клавиш (`<Shortcut>`, напр. `Ctrl+S`) |
+| `shortcut` | string | Сочетание клавиш (`<Shortcut>`, напр. `Ctrl+S`). Общий generic-скаляр любого элемента (input/group/radio/page/picField/label/table/check), не только колонки-картинки |
 
 #### calendar — CalendarField
 

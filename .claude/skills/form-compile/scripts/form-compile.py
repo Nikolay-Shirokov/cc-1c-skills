@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# form-compile v1.113 — Compile 1C managed form from JSON or object metadata
+# form-compile v1.114 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import copy
@@ -3096,6 +3096,8 @@ GENERIC_SCALARS = [
     ('ChoiceListHeight', 'choiceListHeight', 'value'),
     ('ThreeState', 'threeState', 'bool'),
     ('ScrollOnCompress', 'scrollOnCompress', 'bool'),
+    # Сочетание клавиш — общее свойство (команда — отдельный путь)
+    ('Shortcut', 'shortcut', 'value'),
 ]
 
 
@@ -3640,8 +3642,8 @@ def emit_input(lines, el, name, eid, indent):
         loc = loc_map.get(str(el['titleLocation']), str(el['titleLocation']))
         lines.append(f'{inner}<TitleLocation>{loc}</TitleLocation>')
 
-    if el.get('multiLine') is True:
-        lines.append(f'{inner}<MultiLine>true</MultiLine>')
+    if el.get('multiLine') is not None:
+        lines.append(f'{inner}<MultiLine>{"true" if el["multiLine"] else "false"}</MultiLine>')
     if el.get('passwordMode') is not None:
         lines.append(f'{inner}<PasswordMode>{"true" if el["passwordMode"] else "false"}</PasswordMode>')
     # ChoiceButton — захват «как есть» (платформа эмитит явное значение; ref-поля выводят сама,
@@ -4237,8 +4239,6 @@ def emit_picture_field(lines, el, name, eid, indent):
         lines.append(f'{inner}<TitleLocation>{map_title_loc(el["titleLocation"])}</TitleLocation>')
     if el.get('hyperlink') is True:
         lines.append(f'{inner}<Hyperlink>true</Hyperlink>')
-    if el.get('shortcut'):
-        lines.append(f'{inner}<Shortcut>{esc_xml(str(el["shortcut"]))}</Shortcut>')
 
     emit_layout(lines, el, inner)
 

@@ -17,7 +17,7 @@
     "title": "Группы",
     "elements": [
       { "cmdBar": "КоманднаяПанель", "autofill": true },
-      { "group": "horizontal", "name": "ГруппаШапка", "behavior": "usual", "showTitle": true, "title": "Шапка", "horizontalStretch": true, "groupHorizontalAlign": "Right", "throughAlign": "Use", "verticalAlign": "Top", "childItemsWidth": "Equal", "horizontalSpacing": "None", "children": [
+      { "group": "horizontal", "name": "ГруппаШапка", "behavior": "usual", "showTitle": true, "title": "Шапка", "shortcut": "Ctrl+G", "horizontalStretch": true, "groupHorizontalAlign": "Right", "throughAlign": "Use", "verticalAlign": "Top", "childItemsWidth": "Equal", "horizontalSpacing": "None", "children": [
         { "input": "Поле1", "path": "Поле1", "title": "Поле 1", "width": 20, "skipOnInput": true, "mask": "999-999" },
         { "input": "Поле2", "path": "Поле2", "title": "Поле 2" },
         { "labelField": "Метка", "path": "Поле1", "groupVerticalAlign": "Center" }

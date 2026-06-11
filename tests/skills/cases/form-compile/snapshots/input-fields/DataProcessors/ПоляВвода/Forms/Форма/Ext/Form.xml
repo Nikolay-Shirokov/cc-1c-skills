@@ -24,9 +24,11 @@
 				</v8:item>
 			</ToolTip>
 			<ToolTipRepresentation>ShowBottom</ToolTipRepresentation>
+			<MultiLine>false</MultiLine>
 			<EditMode>EnterOnInput</EditMode>
 			<HorizontalStretch>false</HorizontalStretch>
 			<VerticalStretch>false</VerticalStretch>
+			<Shortcut>Ctrl+Shift+O</Shortcut>
 			<Format>
 				<v8:item>
 					<v8:lang>ru</v8:lang>

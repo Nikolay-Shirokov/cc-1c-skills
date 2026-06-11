@@ -1,4 +1,4 @@
-﻿# form-compile v1.113 — Compile 1C managed form from JSON or object metadata
+﻿# form-compile v1.114 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[string]$JsonPath,
@@ -2978,6 +2978,8 @@ $script:genericScalars = @(
 	@{ Tag='ChoiceListHeight';      Key='choiceListHeight';      Kind='value' }
 	@{ Tag='ThreeState';            Key='threeState';            Kind='bool'  }
 	@{ Tag='ScrollOnCompress';      Key='scrollOnCompress';      Kind='bool'  }
+	# Сочетание клавиш — общее свойство (input/group/radio/page/picField/label/table/check; команда — отд. путь, §7)
+	@{ Tag='Shortcut';              Key='shortcut';              Kind='value' }
 )
 
 function Emit-GenericScalars {
@@ -3558,7 +3560,7 @@ function Emit-Input {
 		X "$inner<TitleLocation>$loc</TitleLocation>"
 	}
 
-	if ($el.multiLine -eq $true) { X "$inner<MultiLine>true</MultiLine>" }
+	if ($null -ne $el.multiLine) { X "$inner<MultiLine>$(if ($el.multiLine){'true'}else{'false'})</MultiLine>" }
 	if ($null -ne $el.passwordMode) { X "$inner<PasswordMode>$(if ($el.passwordMode){'true'}else{'false'})</PasswordMode>" }
 	# ChoiceButton — захват «как есть» (платформа эмитит явное значение; ref-поля выводят сама,
 	# декомпилятор фиксирует факт. значение). Нет ключа → не эмитим (не додумываем по событию).
@@ -4514,7 +4516,6 @@ function Emit-PictureField {
 	Emit-ColumnPics -el $el -indent $inner
 	if ($el.titleLocation) { X "$inner<TitleLocation>$(Map-TitleLoc "$($el.titleLocation)")</TitleLocation>" }
 	if ($el.hyperlink -eq $true) { X "$inner<Hyperlink>true</Hyperlink>" }
-	if ($el.shortcut) { X "$inner<Shortcut>$(Esc-Xml "$($el.shortcut)")</Shortcut>" }
 
 	Emit-Layout -el $el -indent $inner
 

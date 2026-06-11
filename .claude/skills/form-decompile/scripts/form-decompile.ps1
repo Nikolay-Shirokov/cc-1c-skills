@@ -1,4 +1,4 @@
-﻿# form-decompile v0.89 — Decompile 1C managed Form.xml to JSON DSL (draft)
+﻿# form-decompile v0.90 — Decompile 1C managed Form.xml to JSON DSL (draft)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 # ВНИМАНИЕ: раундтрип не гарантируется. Навык исключён из авто-использования моделью.
 param(
@@ -1304,6 +1304,8 @@ $GENERIC_SCALARS = @(
 	@{ Tag='ChoiceListHeight'; Key='choiceListHeight'; Kind='value' }
 	@{ Tag='ThreeState'; Key='threeState'; Kind='bool' }
 	@{ Tag='ScrollOnCompress'; Key='scrollOnCompress'; Kind='bool' }
+	# Сочетание клавиш — общее свойство элемента (команда — отдельный путь)
+	@{ Tag='Shortcut'; Key='shortcut'; Kind='value' }
 )
 
 # Захват generic-скаляров. Специфичная обработка (если ключ уже задан) — побеждает.
@@ -1561,7 +1563,8 @@ function Decompile-Element {
 			$obj[$key] = $name
 			$dp = Get-Child $node 'DataPath'; if ($dp) { $obj['path'] = $dp }
 			Add-CommonProps $obj $node $name
-			if ((Get-Child $node 'MultiLine') -eq 'true') { $obj['multiLine'] = $true }
+			# MultiLine: факт. значение (платформа эмитит и явный false — 425 в корпусе; ≠ «if true»)
+			$mlIn = Get-Child $node 'MultiLine'; if ($null -ne $mlIn) { $obj['multiLine'] = ($mlIn -eq 'true') }
 			# PasswordMode: факт. значение (платформа эмитит и false — 349/504 в корпусе; ≠ «if true»)
 			$pmIn = Get-Child $node 'PasswordMode'; if ($null -ne $pmIn) { $obj['passwordMode'] = ($pmIn -eq 'true') }
 			$mi = Get-Child $node 'AutoMarkIncomplete'; if ($null -ne $mi) { $obj['markIncomplete'] = ($mi -eq 'true') }
@@ -1669,7 +1672,6 @@ function Decompile-Element {
 			$em = Get-Child $node 'EditMode'; if ($em) { $obj['editMode'] = $em }
 			$tl = Get-Child $node 'TitleLocation'; if ($tl) { $obj['titleLocation'] = $tl.ToLower() }
 			if ((Get-Child $node 'Hyperlink') -eq 'true') { $obj['hyperlink'] = $true }
-			$sct = Get-Child $node 'Shortcut'; if ($sct) { $obj['shortcut'] = $sct }
 			$vp = Get-PictureRef $node 'ValuesPicture'; if ($null -ne $vp) { $obj['valuesPicture'] = $vp }
 			$npt = $node.SelectSingleNode("lf:NonselectedPictureText", $ns); if ($npt) { $t = Get-LangText $npt; if ($null -ne $t) { $obj['nonselectedPictureText'] = $t } }
 		}
