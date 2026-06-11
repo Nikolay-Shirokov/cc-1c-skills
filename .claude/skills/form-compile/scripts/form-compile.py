@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# form-compile v1.110 — Compile 1C managed form from JSON or object metadata
+# form-compile v1.111 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import copy
@@ -3514,6 +3514,7 @@ def emit_group(lines, el, name, eid, indent):
         'vertical': 'Vertical',
         'alwayshorizontal': 'AlwaysHorizontal',
         'alwaysvertical': 'AlwaysVertical',
+        'horizontalifpossible': 'HorizontalIfPossible',
         'collapsible': 'Vertical',
     }
     orientation = orientation_map.get(group_val)
@@ -4048,6 +4049,7 @@ def emit_page(lines, el, name, eid, indent):
             'vertical': 'Vertical',
             'alwaysHorizontal': 'AlwaysHorizontal',
             'alwaysVertical': 'AlwaysVertical',
+            'horizontalIfPossible': 'HorizontalIfPossible',
         }
         orientation = orientation_map.get(str(el['group']))
         if orientation:

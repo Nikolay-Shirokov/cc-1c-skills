@@ -65,7 +65,7 @@
 | `verticalScroll` | `<VerticalScroll>` | `useIfNecessary`, `Auto`, `AlwaysShow`, `Never` |
 | `width` | `<Width>` | число |
 | `height` | `<Height>` | число |
-| `group` | `<Group>` | `Vertical`, `Horizontal`, `AlwaysHorizontal`, `AlwaysVertical` |
+| `group` | `<Group>` | `Vertical`, `Horizontal`, `AlwaysHorizontal`, `AlwaysVertical`, `HorizontalIfPossible` |
 | `useForFoldersAndItems` | `<UseForFoldersAndItems>` | `Folders`, `Items`, `FoldersAndItems` |
 | `reportResult` | `<ReportResult>` | Имя реквизита-результата (форма отчёта) |
 | `detailsData` | `<DetailsData>` | Имя реквизита данных расшифровки (форма отчёта) |
@@ -351,7 +351,7 @@ companion-панели с собственным контентом. Оба не
 
 | Свойство | Тип | Описание |
 |----------|-----|----------|
-| `group` | string | Ориентация: `horizontal`, `vertical`, `alwaysHorizontal`, `alwaysVertical`. **`""`** → `<Group>` не эмитится (тег отсутствовал в исходнике; платформа сериализует «Группировку», только если она задана в конфигураторе — даже явный `Vertical` хранится, поэтому `""` ≠ `vertical`). Ключ обязателен как тип-маркер группы. (Legacy: `collapsible` = `vertical` + `behavior:'collapsible'`) |
+| `group` | string | Ориентация: `vertical`, `horizontalIfPossible`, `alwaysHorizontal` (страница/обычная группа); `horizontal`, `vertical`, `inCell` (группа колонок таблицы — `columnGroup`). `horizontal`/`alwaysVertical` принимаются forgiving (реальные значения в корпусе, хотя UI конфигуратора их не предлагает). **`""`** → `<Group>` не эмитится (тег отсутствовал в исходнике; платформа сериализует «Группировку», только если она задана в конфигураторе — даже явный `Vertical` хранится, поэтому `""` ≠ `vertical`). Ключ обязателен как тип-маркер группы. (Legacy: `collapsible` = `vertical` + `behavior:'collapsible'`) |
 | `behavior` | string | Поведение (`<Behavior>`): `usual`, `collapsible`, `popup`. **Отсутствие = Авто** (дефолт, не эмитится). Свёртываемая/всплывающая несут доп. свойства |
 | `collapsed` | bool | Свёрнута (у `collapsible`/`popup`) |
 | `collapsedTitle` | string/object | Заголовок свёрнутого представления (`<CollapsedRepresentationTitle>`), мультиязычный текст |

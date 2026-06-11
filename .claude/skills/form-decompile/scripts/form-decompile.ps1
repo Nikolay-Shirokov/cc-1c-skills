@@ -1,4 +1,4 @@
-﻿# form-decompile v0.86 — Decompile 1C managed Form.xml to JSON DSL (draft)
+﻿# form-decompile v0.87 — Decompile 1C managed Form.xml to JSON DSL (draft)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 # ВНИМАНИЕ: раундтрип не гарантируется. Навык исключён из авто-использования моделью.
 param(
@@ -1495,7 +1495,7 @@ function Decompile-Element {
 			# не эмитим). Платформа явно пишет Vertical в большинстве случаев, поэтому '' ≠ 'vertical'
 			# — иначе компилятор додумает <Group>Vertical</Group> там, где его нет.
 			$g = Get-Child $node 'Group'
-			$gmap = @{ 'Horizontal'='horizontal'; 'Vertical'='vertical'; 'AlwaysHorizontal'='alwaysHorizontal'; 'AlwaysVertical'='alwaysVertical' }
+			$gmap = @{ 'Horizontal'='horizontal'; 'Vertical'='vertical'; 'AlwaysHorizontal'='alwaysHorizontal'; 'AlwaysVertical'='alwaysVertical'; 'HorizontalIfPossible'='horizontalIfPossible' }
 			if ($g -and $gmap.ContainsKey($g)) { $obj[$key] = $gmap[$g] } else { $obj[$key] = '' }
 			$behavior = Get-Child $node 'Behavior'
 			if ($behavior) {
@@ -1734,7 +1734,7 @@ function Decompile-Element {
 			$obj[$key] = $name
 			Add-CommonProps $obj $node $name
 			$g = Get-Child $node 'Group'
-			$gmap = @{ 'Horizontal'='horizontal'; 'Vertical'='vertical'; 'AlwaysHorizontal'='alwaysHorizontal'; 'AlwaysVertical'='alwaysVertical' }
+			$gmap = @{ 'Horizontal'='horizontal'; 'Vertical'='vertical'; 'AlwaysHorizontal'='alwaysHorizontal'; 'AlwaysVertical'='alwaysVertical'; 'HorizontalIfPossible'='horizontalIfPossible' }
 			if ($g -and $gmap.ContainsKey($g)) { $obj['group'] = $gmap[$g] }
 			if ((Get-Child $node 'ShowTitle') -eq 'false') { $obj['showTitle'] = $false }
 			$kids = Decompile-Children $node

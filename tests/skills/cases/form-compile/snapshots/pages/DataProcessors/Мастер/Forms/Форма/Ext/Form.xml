@@ -43,7 +43,7 @@
 							<v8:content>Шаг "Результат"</v8:content>
 						</v8:item>
 					</ToolTip>
-					<Group>Horizontal</Group>
+					<Group>HorizontalIfPossible</Group>
 					<TitleDataPath>Итог</TitleDataPath>
 					<ExtendedTooltip name="Шаг2РасширеннаяПодсказка" id="9"/>
 					<ChildItems>
@@ -58,7 +58,7 @@
 			</ChildItems>
 		</Pages>
 		<UsualGroup name="Навигация" id="13">
-			<Group>Horizontal</Group>
+			<Group>HorizontalIfPossible</Group>
 			<ExtendedTooltip name="НавигацияРасширеннаяПодсказка" id="14"/>
 			<ChildItems>
 				<Button name="Назад" id="15">

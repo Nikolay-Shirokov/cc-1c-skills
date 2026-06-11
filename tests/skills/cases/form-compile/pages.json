@@ -21,11 +21,11 @@
         { "page": "Шаг1", "title": "", "showTitle": false, "children": [
           { "input": "Параметр1", "path": "Параметр1" }
         ]},
-        { "page": "Шаг2", "title": "Результат", "titleDataPath": "Итог", "tooltip": "Шаг \"Результат\"", "group": "horizontal", "children": [
+        { "page": "Шаг2", "title": "Результат", "titleDataPath": "Итог", "tooltip": "Шаг \"Результат\"", "group": "horizontalIfPossible", "children": [
           { "input": "Итог", "path": "Итог", "readOnly": true }
         ]}
       ]},
-      { "group": "horizontal", "name": "Навигация", "children": [
+      { "group": "horizontalIfPossible", "name": "Навигация", "children": [
         { "button": "Назад", "command": "Назад", "title": "< Назад" },
         { "button": "Далее", "command": "Далее", "title": "Далее >" }
       ]}
