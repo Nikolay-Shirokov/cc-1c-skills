@@ -210,12 +210,19 @@
 						<dcsset:item xsi:type="dcsset:FilterItemComparison">
 							<dcsset:left xsi:type="dcscor:Field">Code</dcsset:left>
 							<dcsset:comparisonType>Equal</dcsset:comparisonType>
+							<dcsset:presentation xsi:type="v8:LocalStringType">
+								<v8:item>
+									<v8:lang>ru</v8:lang>
+									<v8:content>Код равно</v8:content>
+								</v8:item>
+							</dcsset:presentation>
 							<dcsset:userSettingID>UUID-003</dcsset:userSettingID>
 							<dcsset:userSettingPresentation xsi:type="xs:string">Код товара</dcsset:userSettingPresentation>
 						</dcsset:item>
 						<dcsset:item xsi:type="dcsset:FilterItemComparison">
 							<dcsset:left xsi:type="dcscor:Field">Description</dcsset:left>
 							<dcsset:comparisonType>Equal</dcsset:comparisonType>
+							<dcsset:presentation xsi:type="xs:string">Имя равно</dcsset:presentation>
 							<dcsset:userSettingID>UUID-004</dcsset:userSettingID>
 							<dcsset:userSettingPresentation xsi:type="v8:LocalStringType">
 								<v8:item>
@@ -264,6 +271,12 @@
 									<dcscor:value xsi:type="v8ui:Color">web:Red</dcscor:value>
 								</dcscor:item>
 							</dcsset:appearance>
+							<dcsset:presentation xsi:type="v8:LocalStringType">
+								<v8:item>
+									<v8:lang>ru</v8:lang>
+									<v8:content>Выделение пустых</v8:content>
+								</v8:item>
+							</dcsset:presentation>
 						</dcsset:item>
 						<dcsset:viewMode>Normal</dcsset:viewMode>
 						<dcsset:userSettingID>UUID-007</dcsset:userSettingID>

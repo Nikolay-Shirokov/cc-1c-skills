@@ -34,10 +34,10 @@
         ],
         "order": [ "Description", "Code desc" ],
         "filter": [ "Артикул = _ @off @user", "Артикул like %тест%", "Description подобно %abc%",
-          { "field": "Code", "op": "=", "userSettingID": "auto", "userSettingPresentation": "Код товара" },
-          { "field": "Description", "op": "=", "userSettingID": "auto", "userSettingPresentation": { "ru": "Наименование", "en": "Name" } } ],
+          { "field": "Code", "op": "=", "userSettingID": "auto", "userSettingPresentation": "Код товара", "presentation": { "ru": "Код равно" } },
+          { "field": "Description", "op": "=", "userSettingID": "auto", "userSettingPresentation": { "ru": "Наименование", "en": "Name" }, "presentation": "Имя равно" } ],
         "dataParameters": [ "ВыборТовара @off" ],
-        "conditionalAppearance": [ { "filter": ["Артикул = _"], "appearance": { "ЦветТекста": "web:Red" } } ]
+        "conditionalAppearance": [ { "filter": ["Артикул = _"], "appearance": { "ЦветТекста": "web:Red" }, "presentation": { "ru": "Выделение пустых" } } ]
       } }
     ],
     "elements": [

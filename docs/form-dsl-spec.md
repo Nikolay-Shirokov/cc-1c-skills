@@ -1052,7 +1052,7 @@ Shorthand: `"Имя [Заголовок]: тип = Выражение #noField #
 ```
 
 - **order** — строка `"Поле"` (asc) / `"Поле desc"` (синонимы `убыв`/`desc`, `возр`/`asc`) / `"Auto"`, либо объект `{ field, direction?, use?, viewMode? }`.
-- **filter** — shorthand `"Поле оператор значение @флаги"` (`@off`, `@user`, `@quickAccess`, `@normal`, `@inaccessible`; `_` = пусто) или объект `{ field, op, value?, use?, userSettingID?, userSettingPresentation? }` или группа `{ group: "And"|"Or"|"Not", items: [...] }`. `userSettingPresentation` (кастомная подпись настройки) ведётся **по форме значения**: голая строка → `xsi:type="xs:string"`; объект `{ru,en}` → `v8:LocalStringType` (так же у `order`/`conditionalAppearance`/`dataParameters`).
+- **filter** — shorthand `"Поле оператор значение @флаги"` (`@off`, `@user`, `@quickAccess`, `@normal`, `@inaccessible`; `_` = пусто) или объект `{ field, op, value?, use?, userSettingID?, userSettingPresentation?, presentation? }` или группа `{ group: "And"|"Or"|"Not", items: [...] }`. `userSettingPresentation` (кастомная подпись настройки) и `presentation` (подпись условия/элемента) ведутся **по форме значения**: голая строка → `xsi:type="xs:string"`; объект `{ru,en}` (в т.ч. один `{ru}`) → `v8:LocalStringType` (так же у `order`/`conditionalAppearance`/`dataParameters` — и у `presentation` элемента условного оформления).
   - **Операторы:** `=` `<>` `>` `>=` `<` `<=`, `in`/`notIn`, `inHierarchy`/`inListByHierarchy`, `contains`/`notContains`, `beginsWith`/`notBeginsWith`, `like`/`notLike` (подобно; `%`-шаблон в значении, напр. `"КодВалют like %/ %"`), `filled`/`notFilled`. Регистр оператора не важен; у `like`/`notLike` есть рус. синоним `подобно`/`неподобно`.
   - **Дата в фильтре = `StandardBeginningDate`** (так платформа хранит дату-значение почти всегда — корпус 268 vs 2 `xs:dateTime`). Формы значения (от компактной к полной):
     - **голая ISO-дата** `"2020-01-01T00:00:00"` (без `valueType`) → `Custom` + эта дата. Работает и в shorthand: `"ДатаЗаказа > 2020-01-01T00:00:00"`. Это дефолт даты в фильтре.
@@ -1167,7 +1167,7 @@ Shorthand: `"Имя [Заголовок]: тип = Выражение #noField #
 - `selection` — массив имён форматируемых полей (`<dcsset:field>`).
 - `filter` — условие (filter-shorthand, как в СКД).
 - `appearance` — словарь «параметр-DCS: значение» (рус. verbatim: `ЦветТекста`/`ЦветФона`/`Шрифт`/…). Цвет → `v8ui:Color`.
-- `presentation` — мультиязык → `xsi:type="v8:LocalStringType"`.
+- `presentation` — подпись элемента оформления, **по форме значения**: голая строка → `xsi:type="xs:string"`; объект `{ru,en}` (в т.ч. один `{ru}`) → `v8:LocalStringType`. (Платформа хранит обе формы для одного ru-текста — различаем, чтобы не ломать раундтрип.)
 
 Декомпилятор/компилятор переиспользуют `Build-ConditionalAppearance`/`Emit-ConditionalAppearance` настроек списка
 (отличие — тег-обёртка `ConditionalAppearance` без `dcsset:` и без блок-мета). `scope` (привязка к области) в формах

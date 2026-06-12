@@ -1,4 +1,4 @@
-﻿# form-compile v1.142 — Compile 1C managed form from JSON or object metadata
+﻿# form-compile v1.143 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[string]$JsonPath,
@@ -1696,7 +1696,7 @@ function Emit-FilterItem {
 				Emit-FilterItem -item $sub -indent "$indent`t"
 			}
 		}
-		if ($item.presentation) { Emit-MLText -tag "dcsset:presentation" -text $item.presentation -indent "$indent`t" }
+		if ($item.presentation) { Emit-USPresentation -val $item.presentation -tag "dcsset:presentation" -indent "$indent`t" }
 		if ($item.viewMode) { X "$indent`t<dcsset:viewMode>$(Esc-Xml "$($item.viewMode)")</dcsset:viewMode>" }
 		if ($item.userSettingID) {
 			$guid = if ("$($item.userSettingID)" -eq "auto") { New-Guid-String } else { "$($item.userSettingID)" }
@@ -1777,7 +1777,7 @@ function Emit-FilterItem {
 		$vStr = if ($item.value -is [bool]) { "$($item.value)".ToLower() } else { Esc-Xml "$($item.value)" }
 		X "$indent`t<dcsset:right xsi:type=`"$vt`">$vStr</dcsset:right>"
 	}
-	if ($item.presentation) { Emit-MLText -tag "dcsset:presentation" -text $item.presentation -indent "$indent`t" }
+	if ($item.presentation) { Emit-USPresentation -val $item.presentation -tag "dcsset:presentation" -indent "$indent`t" }
 	if ($item.viewMode) { X "$indent`t<dcsset:viewMode>$(Esc-Xml "$($item.viewMode)")</dcsset:viewMode>" }
 	if ($item.userSettingID) {
 		$uid = if ("$($item.userSettingID)" -eq "auto") { New-Guid-String } else { "$($item.userSettingID)" }

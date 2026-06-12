@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# form-compile v1.142 — Compile 1C managed form from JSON or object metadata
+# form-compile v1.143 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import copy
@@ -1449,7 +1449,7 @@ def emit_filter_item(lines, item, indent):
                     sub = obj
                 emit_filter_item(lines, sub, f'{indent}\t')
         if item.get('presentation'):
-            emit_mltext(lines, f'{indent}\t', 'dcsset:presentation', item['presentation'])
+            emit_us_presentation(lines, f'{indent}\t', 'dcsset:presentation', item['presentation'])
         if item.get('viewMode'):
             lines.append(f'{indent}\t<dcsset:viewMode>{esc_xml(str(item["viewMode"]))}</dcsset:viewMode>')
         if item.get('userSettingID'):
@@ -1509,7 +1509,7 @@ def emit_filter_item(lines, item, indent):
         v_str = str(val).lower() if isinstance(val, bool) else esc_xml(str(val))
         lines.append(f'{indent}\t<dcsset:right xsi:type="{vt}">{v_str}</dcsset:right>')
     if item.get('presentation'):
-        emit_mltext(lines, f'{indent}\t', 'dcsset:presentation', item['presentation'])
+        emit_us_presentation(lines, f'{indent}\t', 'dcsset:presentation', item['presentation'])
     if item.get('viewMode'):
         lines.append(f'{indent}\t<dcsset:viewMode>{esc_xml(str(item["viewMode"]))}</dcsset:viewMode>')
     if item.get('userSettingID'):

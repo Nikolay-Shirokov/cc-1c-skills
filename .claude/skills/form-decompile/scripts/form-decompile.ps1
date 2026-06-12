@@ -1,4 +1,4 @@
-﻿# form-decompile v0.115 — Decompile 1C managed Form.xml to JSON DSL (draft)
+﻿# form-decompile v0.116 — Decompile 1C managed Form.xml to JSON DSL (draft)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 # ВНИМАНИЕ: раундтрип не гарантируется. Навык исключён из авто-использования моделью.
 param(
@@ -450,6 +450,26 @@ function Get-PresText {
 	return $null
 }
 
+# Presentation, сохраняющий ФОРМУ по xsi:type (не схлопывает ru-only LocalStringType в строку):
+# <… xsi:type="v8:LocalStringType"> → объект {lang:text} (даже один ru), иначе xs:string → плоская строка.
+# Нужно, чтобы компилятор воспроизвёл точный xsi:type (LocalStringType vs xs:string). Пустой LocalStringType → $null.
+function Get-PresByType {
+	param($node)
+	if (-not $node) { return $null }
+	$xt = $node.GetAttribute("type", $NS_XSI)
+	if ($xt -match 'LocalStringType$') {
+		$d = [ordered]@{}
+		foreach ($it in $node.SelectNodes("v8:item", $ns)) {
+			$lang = Get-Text $it "v8:lang"; $content = Get-Text $it "v8:content"
+			if ($lang) { $d[$lang] = $content }
+		}
+		if ($d.Count -gt 0) { return $d }
+		return $null
+	}
+	if ($node.InnerText) { return $node.InnerText }
+	return $null
+}
+
 # Снять namespace-префикс с xsi:type ("dcsset:Foo" → "Foo")
 function Get-LocalXsiType {
 	param($node)
@@ -583,9 +603,9 @@ function Build-FilterItem {
 		$gObj = [ordered]@{ group = $groupName; items = $items }
 		$gPresNode = $itemNode.SelectSingleNode("dcsset:presentation", $ns)
 		if ($gPresNode) {
-			$gPres = Get-MLText $gPresNode
-			if (-not $gPres) { $gPres = $gPresNode.InnerText }
-			if ($gPres) { $gObj['presentation'] = $gPres }
+			# Сохраняем форму по xsi:type (LocalStringType ru-only ≠ xs:string)
+			$gPres = Get-PresByType $gPresNode
+			if ($null -ne $gPres -and $gPres -ne '') { $gObj['presentation'] = $gPres }
 		}
 		$gVMNode = $itemNode.SelectSingleNode("dcsset:viewMode", $ns)
 		if ($gVMNode) { $gObj['viewMode'] = $gVMNode.InnerText }
@@ -654,8 +674,8 @@ function Build-FilterItem {
 	$fiPresNode = $itemNode.SelectSingleNode("dcsset:presentation", $ns)
 	$fiPres = $null
 	if ($fiPresNode) {
-		$fiPres = Get-MLText $fiPresNode
-		if (-not $fiPres) { $fiPres = $fiPresNode.InnerText }
+		# Сохраняем форму по xsi:type (LocalStringType ru-only ≠ xs:string)
+		$fiPres = Get-PresByType $fiPresNode
 	}
 
 	$flags = @()
@@ -874,9 +894,9 @@ function Build-ConditionalAppearance {
 		if ($ap -and $ap.Count -gt 0) { $entry['appearance'] = $ap }
 		$presNode = $it.SelectSingleNode("dcsset:presentation", $ns)
 		if ($presNode) {
-			$pres = Get-MLText $presNode
-			if (-not $pres) { $pres = $presNode.InnerText }
-			if ($pres) { $entry['presentation'] = $pres }
+			# Сохраняем форму по xsi:type: LocalStringType (даже ru-only) → объект → компилятор эмитит LocalStringType.
+			$pres = Get-PresByType $presNode
+			if ($null -ne $pres -and $pres -ne '') { $entry['presentation'] = $pres }
 		}
 		$vmN = $it.SelectSingleNode("dcsset:viewMode", $ns)
 		if ($vmN) { $entry['viewMode'] = $vmN.InnerText }
