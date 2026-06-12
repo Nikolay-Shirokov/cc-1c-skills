@@ -1,4 +1,4 @@
-﻿# form-decompile v1.02 — Decompile 1C managed Form.xml to JSON DSL (draft)
+﻿# form-decompile v0.103 — Decompile 1C managed Form.xml to JSON DSL (draft)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 # ВНИМАНИЕ: раундтрип не гарантируется. Навык исключён из авто-использования моделью.
 param(
@@ -277,10 +277,23 @@ function Get-LangText {
 # Get-LangText с восстановлением значимого пробела: PreserveWhitespace=false стрипает
 # <v8:content> </v8:content> → "" (неотличимо от суппресса). Платформа НЕ эмитит пустой
 # Title/ToolTip, значит исходно был пробел → возвращаем " " (как Get-MLFormattedValue).
+# Покрывает и одиночную строку (ru-only), и мультиязычную мапу (напр. декорация-разделитель
+# «Пробел» с ru+en пробелами): восстанавливаем " " в каждом языке, где content-узел есть, но пуст.
 function Get-LangTextWS {
 	param($node)
 	$t = Get-LangText $node
-	if ($t -is [string] -and $t -eq '' -and $node.SelectSingleNode("v8:item/v8:content", $ns)) { return ' ' }
+	if ($null -eq $t) { return $null }
+	if ($t -is [string]) {
+		if ($t -eq '' -and $node.SelectSingleNode("v8:item/v8:content", $ns)) { return ' ' }
+		return $t
+	}
+	foreach ($it in @($node.SelectNodes("v8:item", $ns))) {
+		$lang = $it.SelectSingleNode("v8:lang", $ns)
+		$content = $it.SelectSingleNode("v8:content", $ns)
+		if ($lang -and $content -and $t.Contains($lang.InnerText) -and $t[$lang.InnerText] -eq '') {
+			$t[$lang.InnerText] = ' '
+		}
+	}
 	return $t
 }
 
@@ -317,12 +330,10 @@ function Test-HasRealMarkup {
 function Get-MLFormattedValue {
 	param($titleNode)
 	if (-not $titleNode) { return $null }
-	$text = Get-LangText $titleNode
+	# Get-LangTextWS восстанавливает значимый пробел в <v8:content> </v8:content> (одиночный и
+	# мультиязычный случай) — иначе декорация-разделитель «Пробел» спуталась бы с суппресс-маркером "".
+	$text = Get-LangTextWS $titleNode
 	if ($null -eq $text) { return $null }
-	# Whitespace-only заголовок (декорация-разделитель): PreserveWhitespace=false стрипает значимый
-	# пробел в <v8:content> </v8:content> → пустой текст при наличии узла content. Платформа НЕ
-	# эмитит пустой Title, значит исходно был пробел — восстанавливаем (иначе спутаем с суппресс-маркером "").
-	if ($text -is [string] -and $text -eq '' -and $titleNode.SelectSingleNode("v8:item/v8:content", $ns)) { $text = ' ' }
 	$fmtAttr = ($titleNode.GetAttribute('formatted') -eq 'true')
 	if ($fmtAttr -eq (Test-HasRealMarkup $text)) { return $text }
 	$o = [ordered]@{}; $o['text'] = $text; $o['formatted'] = $fmtAttr; return $o
