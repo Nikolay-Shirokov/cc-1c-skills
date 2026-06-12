@@ -1,4 +1,4 @@
-﻿# form-decompile v0.119 — Decompile 1C managed Form.xml to JSON DSL (draft)
+﻿# form-decompile v0.120 — Decompile 1C managed Form.xml to JSON DSL (draft)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 # ВНИМАНИЕ: раундтрип не гарантируется. Навык исключён из авто-использования моделью.
 param(
@@ -2665,6 +2665,10 @@ if ($attrsNode) {
 			# AutoFillAvailableFields — дефолт true, платформа эмитит только отклонение (false). Захват «как есть».
 			$afaf = Get-Child $setNode 'AutoFillAvailableFields'; if ($null -ne $afaf) { $so['autoFillAvailableFields'] = ($afaf -eq 'true') }
 			$mt = Get-Child $setNode 'MainTable'; if ($mt) { $so['mainTable'] = $mt }
+				# Ключ набора (query-based список): KeyType (RowNumber/FieldValue/RowKey) + KeyField* (0+).
+				$kt = Get-Child $setNode 'KeyType'; if ($kt) { $so['keyType'] = $kt }
+				$kfNodes = @($setNode.SelectNodes("lf:KeyField", $ns) | ForEach-Object { $_.InnerText })
+				if ($kfNodes.Count -gt 0) { $so['keyFields'] = @($kfNodes) }
 			# AutoSaveUserSettings — авто-сохранение польз. настроек дин-списка (в корпусе только false;
 			# дефолт true → платформа эмитит отклонение). Захват факт. значения.
 			$asus = Get-Child $setNode 'AutoSaveUserSettings'; if ($null -ne $asus) { $so['autoSaveUserSettings'] = ($asus -eq 'true') }

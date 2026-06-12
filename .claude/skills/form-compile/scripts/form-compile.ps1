@@ -1,4 +1,4 @@
-﻿# form-compile v1.146 — Compile 1C managed form from JSON or object metadata
+﻿# form-compile v1.147 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[string]$JsonPath,
@@ -5685,6 +5685,10 @@ function Emit-Attributes {
 			Emit-CalcFields -calcFields $st.calculatedFields -indent $si
 			# Schema-параметры дин-списка (DataCompositionSchemaParameter) — после Field*, до MainTable.
 			Emit-DLParameters -params $st.parameters -indent $si
+			# Ключ набора (query-based список без MainTable): KeyType (RowNumber/FieldValue/RowKey)
+			# + KeyField* — после Parameter*, до MainTable. Захват/эмит факт. значений.
+			if ($st.keyType) { X "$si<KeyType>$(Esc-Xml "$($st.keyType)")</KeyType>" }
+			if ($st.keyFields) { foreach ($kf in @($st.keyFields)) { X "$si<KeyField>$(Esc-Xml "$kf")</KeyField>" } }
 			if ($st.mainTable) { X "$si<MainTable>$(Normalize-MetaTypeRef "$($st.mainTable)")</MainTable>" }
 			# AutoSaveUserSettings — после MainTable (дефолт true; эмитим только при заданном ключе = отклонении).
 			if ($null -ne $st.autoSaveUserSettings) { X "$si<AutoSaveUserSettings>$(if ($st.autoSaveUserSettings){'true'}else{'false'})</AutoSaveUserSettings>" }

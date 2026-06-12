@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# form-compile v1.146 — Compile 1C managed form from JSON or object metadata
+# form-compile v1.147 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import copy
@@ -5434,6 +5434,13 @@ def emit_attributes(lines, attrs, indent, conditional_appearance=None):
             emit_calc_fields(lines, s.get('calculatedFields'), si)
             # Schema-параметры дин-списка (DataCompositionSchemaParameter) — после Field*, до MainTable.
             emit_dl_parameters(lines, s.get('parameters'), si)
+            # Ключ набора (query-based список без MainTable): KeyType (RowNumber/FieldValue/RowKey)
+            # + KeyField* — после Parameter*, до MainTable. Захват/эмит факт. значений.
+            if s.get('keyType'):
+                lines.append(f'{si}<KeyType>{esc_xml(str(s["keyType"]))}</KeyType>')
+            if s.get('keyFields'):
+                for kf in s['keyFields']:
+                    lines.append(f'{si}<KeyField>{esc_xml(str(kf))}</KeyField>')
             if s.get('mainTable'):
                 lines.append(f'{si}<MainTable>{normalize_meta_type_ref(str(s["mainTable"]))}</MainTable>')
             # AutoSaveUserSettings — после MainTable (дефолт true; эмитим только при заданном ключе = отклонении).
