@@ -289,6 +289,17 @@
 						</Value>
 					</app:value>
 				</app:item>
+				<app:item name="Отбор.Одно">
+					<app:value xsi:type="FormChoiceListDesTimeValue">
+						<Presentation/>
+						<Value xsi:type="v8:FixedArray">
+							<v8:Value xsi:type="FormChoiceListDesTimeValue">
+								<Presentation/>
+								<Value xsi:type="xs:string">Единственный</Value>
+							</v8:Value>
+						</Value>
+					</app:value>
+				</app:item>
 				<app:item name="Отбор.БезЗначения">
 					<app:value xsi:nil="true"/>
 				</app:item>

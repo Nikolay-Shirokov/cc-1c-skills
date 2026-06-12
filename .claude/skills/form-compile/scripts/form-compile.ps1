@@ -1,4 +1,4 @@
-﻿# form-compile v1.134 — Compile 1C managed form from JSON or object metadata
+﻿# form-compile v1.135 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[string]$JsonPath,
@@ -4018,9 +4018,11 @@ function ConvertFrom-TypeLinkShorthand {
 # Внутреннее значение параметра выбора (FormChoiceListDesTimeValue): <Presentation/> + <Value>.
 # Скаляр → один Value (через Normalize-ChoiceValue); массив → v8:FixedArray из вложенных FormChoiceListDesTimeValue.
 function Emit-ChoiceParamValue {
-	param($value, [string]$indent)
+	# $isArray передаётся ЯВНО из вызывающего кода: PowerShell разворачивает одноэлементный массив
+	# при биндинге параметра ($value становится скаляром), поэтому определять массив тут — ненадёжно
+	# (1-элементный список `["X"]` эмитился бы скаляром вместо FixedArray). foreach по скаляру = 1 итерация.
+	param($value, [string]$indent, [bool]$isArray)
 	X "$indent<Presentation/>"
-	$isArray = ($value -is [System.Array]) -or ($value -is [System.Collections.IList] -and $value -isnot [string])
 	if ($isArray) {
 		X "$indent<Value xsi:type=`"v8:FixedArray`">"
 		foreach ($v in $value) {
@@ -4047,13 +4049,18 @@ function Emit-ChoiceParameters {
 	foreach ($item in @($cp)) {
 		if ($item -is [string]) { $item = ConvertFrom-ChoiceParamShorthand $item }
 		$name = Get-ElProp $item @('name','имя')
-		# Наличие ключа value (≠ значения): hashtable (shorthand) vs PSCustomObject (JSON-объект)
+		# Наличие ключа value (≠ значения) + ПРЯМОЙ доступ к значению (без Get-ElProp): его return
+		# разворачивает 1-элементный массив (PS unwrap), теряя массив-ность → FixedArray не эмитится.
+		# Индексер/member-доступ массив сохраняет; if-выражение/функция-return — нет.
+		$hasVal = $false; $val = $null
 		if ($item -is [System.Collections.IDictionary]) {
-			$hasVal = $item.Contains('value') -or $item.Contains('значение')
+			if ($item.Contains('value')) { $hasVal = $true; $val = $item['value'] }
+			elseif ($item.Contains('значение')) { $hasVal = $true; $val = $item['значение'] }
 		} else {
-			$hasVal = ($null -ne $item.PSObject.Properties['value']) -or ($null -ne $item.PSObject.Properties['значение'])
+			if ($item.PSObject.Properties['value']) { $hasVal = $true; $val = $item.PSObject.Properties['value'].Value }
+			elseif ($item.PSObject.Properties['значение']) { $hasVal = $true; $val = $item.PSObject.Properties['значение'].Value }
 		}
-		$val = Get-ElProp $item @('value','значение')
+		$valIsArray = ($val -is [System.Array]) -or ($val -is [System.Collections.IList] -and $val -isnot [string])
 		X "$indent`t<app:item name=`"$(Esc-Xml "$name")`">"
 		# Параметр выбора без значения → <app:value xsi:nil="true"/> (платформа, 13 в корпусе);
 		# со значением (в т.ч. пустой строкой) → FormChoiceListDesTimeValue.
@@ -4061,7 +4068,7 @@ function Emit-ChoiceParameters {
 			X "$indent`t`t<app:value xsi:nil=`"true`"/>"
 		} else {
 			X "$indent`t`t<app:value xsi:type=`"FormChoiceListDesTimeValue`">"
-			Emit-ChoiceParamValue -value $val -indent "$indent`t`t`t"
+			Emit-ChoiceParamValue -value $val -indent "$indent`t`t`t" -isArray $valIsArray
 			X "$indent`t`t</app:value>"
 		}
 		X "$indent`t</app:item>"
