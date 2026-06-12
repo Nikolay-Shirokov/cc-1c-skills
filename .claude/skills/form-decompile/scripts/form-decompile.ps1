@@ -1,4 +1,4 @@
-﻿# form-decompile v0.116 — Decompile 1C managed Form.xml to JSON DSL (draft)
+﻿# form-decompile v0.117 — Decompile 1C managed Form.xml to JSON DSL (draft)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 # ВНИМАНИЕ: раундтрип не гарантируется. Навык исключён из авто-использования моделью.
 param(
@@ -2124,6 +2124,9 @@ function Decompile-Element {
 		Add-Layout $etObj $etNode
 		Add-GenericScalars $etObj $etNode
 		Add-Appearance $etObj $etNode
+		# ToolTip самого компаньона (подсказка расширенной подсказки) — реальный текст (ML), не пустой Title
+		$etTT = $etNode.SelectSingleNode("lf:ToolTip", $ns)
+		if ($etTT) { $ttVal = Get-LangText $etTT; if ($null -ne $ttVal) { $etObj['tooltip'] = $ttVal } }
 		if ((Get-Child $etNode 'Visible') -eq 'false') { $etObj['hidden'] = $true }
 		if ((Get-Child $etNode 'Enabled') -eq 'false') { $etObj['disabled'] = $true }
 		if ((Get-Child $etNode 'Hyperlink') -eq 'true') { $etObj['hyperlink'] = $true }

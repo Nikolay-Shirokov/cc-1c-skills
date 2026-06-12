@@ -1,4 +1,4 @@
-﻿# form-compile v1.143 — Compile 1C managed form from JSON or object metadata
+﻿# form-compile v1.144 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[string]$JsonPath,
@@ -2547,7 +2547,7 @@ function Emit-Events {
 $script:companionStructKeys = @(
 	'width','autoMaxWidth','maxWidth','height','autoMaxHeight','maxHeight','verticalAlign','titleHeight',
 	'horizontalStretch','verticalStretch','horizontalAlign','groupHorizontalAlign','groupVerticalAlign',
-	'visible','hidden','enabled','disabled','hyperlink','events',
+	'visible','hidden','enabled','disabled','hyperlink','events','tooltip',
 	'textColor','backColor','borderColor','font','border','цветтекста','цветфона','цветрамки','шрифт','рамка'
 )
 function Test-CompanionStructured {
@@ -2596,6 +2596,8 @@ function Emit-Companion {
 		Emit-Layout -el $content -indent $inner
 		Emit-Appearance -el $content -indent $inner -profile 'decoration'
 		if ($txtPresent) { Emit-CompanionTitle -content $content -indent $inner }
+		# ToolTip компаньона (подсказка самой расширенной подсказки) — после Title (порядок схемы LabelDecoration)
+		if ($content.tooltip) { Emit-MLText -tag "ToolTip" -text $content.tooltip -indent $inner }
 		# События компаньона (ExtendedTooltip = LabelDecoration: напр. URLProcessing у hyperlink-подсказки)
 		Emit-Events -el $content -elementName $name -indent $inner -typeKey 'label'
 	} else {

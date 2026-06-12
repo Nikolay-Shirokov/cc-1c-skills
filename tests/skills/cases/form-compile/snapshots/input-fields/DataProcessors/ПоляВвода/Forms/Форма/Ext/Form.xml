@@ -52,6 +52,16 @@
 						<v8:content>Расширенная подсказка поля</v8:content>
 					</v8:item>
 				</Title>
+				<ToolTip>
+					<v8:item>
+						<v8:lang>ru</v8:lang>
+						<v8:content>Подсказка самой расширенной подсказки</v8:content>
+					</v8:item>
+					<v8:item>
+						<v8:lang>en</v8:lang>
+						<v8:content>Tooltip of the extended tooltip</v8:content>
+					</v8:item>
+				</ToolTip>
 				<Events>
 					<Event name="URLProcessing">ОбычноеПолеРасширеннаяПодсказкаОбработкаНавигационнойСсылки</Event>
 				</Events>

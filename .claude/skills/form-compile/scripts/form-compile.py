@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# form-compile v1.143 — Compile 1C managed form from JSON or object metadata
+# form-compile v1.144 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import copy
@@ -2586,7 +2586,7 @@ def resolve_ml_formatted(val):
 COMPANION_STRUCT_KEYS = {
     'width', 'autoMaxWidth', 'maxWidth', 'height', 'autoMaxHeight', 'maxHeight', 'verticalAlign', 'titleHeight',
     'horizontalStretch', 'verticalStretch', 'horizontalAlign', 'groupHorizontalAlign', 'groupVerticalAlign',
-    'visible', 'hidden', 'enabled', 'disabled', 'hyperlink', 'events',
+    'visible', 'hidden', 'enabled', 'disabled', 'hyperlink', 'events', 'tooltip',
     'textColor', 'backColor', 'borderColor', 'font', 'border', 'цветтекста', 'цветфона', 'цветрамки', 'шрифт', 'рамка',
 }
 
@@ -2615,6 +2615,9 @@ def emit_companion(lines, tag, name, indent, content=None):
         emit_appearance(lines, content, inner, 'decoration')
         if 'text' in content:
             emit_companion_title(lines, content, inner)
+        # ToolTip компаньона (подсказка самой расширенной подсказки) — после Title (порядок схемы LabelDecoration)
+        if content.get('tooltip'):
+            emit_mltext(lines, inner, 'ToolTip', content['tooltip'])
         # События компаньона (ExtendedTooltip = LabelDecoration: напр. URLProcessing у hyperlink-подсказки)
         emit_events(lines, content, name, inner, 'label')
     else:
