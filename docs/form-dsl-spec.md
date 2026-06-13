@@ -505,7 +505,7 @@ companion-панели с собственным контентом. Оба не
 | Свойство | Тип | Описание |
 |----------|-----|----------|
 | `value` | string/number/bool | Значение варианта. Для перечисления — `"Enum.ИмяТипа.EnumValue.ИмяЗначения"` (xsi:type автоматически: `xr:DesignTimeRef` / `xs:string` / `xs:decimal` / `xs:boolean`) |
-| `valueType` | string | Явный xsi:type значения, переопределяет авто-детект. Нужен для **системных перечислений** (`ent:` namespace: `ent:AccountType`=ВидСчёта, `ent:AccumulationRecordType`, `ent:HorizontalAlignment`, … — см. «Системные перечисления» в палитре типов) и иных не-примитивных типов. Напр. `{ "value": "Active", "valueType": "ent:AccountType", "presentation": "Активный" }` |
+| `valueType` | string | Явный xsi:type значения, переопределяет авто-детект. Нужен для **системных перечислений** (`ent:` namespace: `ent:AccountType`=ВидСчёта, `ent:AccumulationRecordType`, `ent:HorizontalAlignment`, … — см. «Системные перечисления» в палитре типов) и иных не-примитивных типов. Напр. `{ "value": "Active", "valueType": "ent:AccountType", "presentation": "Активный" }`. Спец-маркеры (раундтрип): **`"nil"`** → `<Value xsi:nil="true"/>` (пустое значение варианта без типа); **`"xr:DesignTimeRef"`** при значении-GUID (`GUID.GUID` — ссылка по метаданным-GUID, не по имени; named-ссылки `Enum.X.Y` авто-детектятся без ключа) |
 | `presentation` | string или object | Текст рядом с переключателем. Строка → ru; объект `{ru, en, ...}` → мультиязык. Если не задано — выводится из имени значения |
 
 #### label — LabelDecoration

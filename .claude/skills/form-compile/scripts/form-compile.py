@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# form-compile v1.157 — Compile 1C managed form from JSON or object metadata
+# form-compile v1.158 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import copy
@@ -2327,17 +2327,19 @@ def emit_choice_list(lines, el, indent):
         # valueType: явный xsi:type значения (системное перечисление ent:*, иной не-примитив) —
         # переопределяет авто-детект (normalize_choice_value вывела бы xs:string).
         vt_raw = item.get('valueType')
-        if vt_raw:
+        if vt_raw == 'nil':
+            norm = {'xsi_type': None, 'text': None, 'nil': True}
+        elif vt_raw:
             norm = {'xsi_type': str(vt_raw), 'text': '' if val_raw is None else str(val_raw)}
         else:
             norm = normalize_choice_value(val_raw)
 
         if not has_pres:
-            if norm['xsi_type'] == 'xr:DesignTimeRef':
+            if norm.get('xsi_type') == 'xr:DesignTimeRef':
                 tail = norm['text'].split('.')[-1]
                 pres_raw = title_from_name(tail)
             else:
-                pres_raw = norm['text']
+                pres_raw = norm.get('text')
 
         lines.append(f'{item_indent}<xr:Item>')
         val_indent = f'{item_indent}\t'
@@ -2345,7 +2347,8 @@ def emit_choice_list(lines, el, indent):
         lines.append(f'{val_indent}<xr:CheckState>0</xr:CheckState>')
         lines.append(f'{val_indent}<xr:Value xsi:type="FormChoiceListDesTimeValue">')
         emit_choice_presentation(lines, pres_raw, f'{val_indent}\t')
-        lines.append(f'{val_indent}\t{choice_value_tag(norm)}')
+        val_tag = '<Value xsi:nil="true"/>' if norm.get('nil') else choice_value_tag(norm)
+        lines.append(f'{val_indent}\t{val_tag}')
         lines.append(f'{val_indent}</xr:Value>')
         lines.append(f'{item_indent}</xr:Item>')
     lines.append(f'{indent}</ChoiceList>')

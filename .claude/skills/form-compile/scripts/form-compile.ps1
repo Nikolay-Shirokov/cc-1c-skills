@@ -1,4 +1,4 @@
-﻿# form-compile v1.157 — Compile 1C managed form from JSON or object metadata
+﻿# form-compile v1.158 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[string]$JsonPath,
@@ -4139,7 +4139,8 @@ function Emit-ChoiceList {
 			if ($item.Contains("valueType")) { $vtRaw = "$($item["valueType"])" }
 		} elseif ($item.PSObject.Properties["valueType"]) { $vtRaw = "$($item.valueType)" }
 
-		if ($vtRaw) { $norm = @{ XsiType = $vtRaw; Text = "$valRaw" } }
+		if ($vtRaw -eq 'nil') { $norm = @{ XsiType = $null; Text = $null; Nil = $true } }
+		elseif ($vtRaw) { $norm = @{ XsiType = $vtRaw; Text = "$valRaw" } }
 		else { $norm = Normalize-ChoiceValue -value $valRaw }
 
 		# авто-вывод presentation, если не задан
@@ -4158,7 +4159,7 @@ function Emit-ChoiceList {
 		X "$valIndent<xr:CheckState>0</xr:CheckState>"
 		X "$valIndent<xr:Value xsi:type=`"FormChoiceListDesTimeValue`">"
 		Emit-ChoicePresentation -pres $presRaw -indent "$valIndent`t"
-		X "$valIndent`t$(Get-ChoiceValueTag $norm)"
+		X "$valIndent`t$(if ($norm.Nil) { '<Value xsi:nil="true"/>' } else { Get-ChoiceValueTag $norm })"
 		X "$valIndent</xr:Value>"
 		X "$itemIndent</xr:Item>"
 	}

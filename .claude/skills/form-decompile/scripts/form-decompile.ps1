@@ -1,4 +1,4 @@
-﻿# form-decompile v0.132 — Decompile 1C managed Form.xml to JSON DSL (draft)
+﻿# form-decompile v0.133 — Decompile 1C managed Form.xml to JSON DSL (draft)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 # ВНИМАНИЕ: раундтрип не гарантируется. Навык исключён из авто-использования моделью.
 param(
@@ -1677,12 +1677,20 @@ function Decompile-ChoiceList {
 		$presNode = $it.SelectSingleNode("xr:Value/lf:Presentation", $ns)
 		$ci = [ordered]@{}
 		if ($valNode) {
-			$xsiType = $valNode.GetAttribute("type", $NS_XSI)
-			$ci['value'] = Convert-TypedValue $valNode.InnerText $xsiType
-			# Системное перечисление (ent:*) / иной не-примитивный, не-DesignTimeRef тип → сохраняем
-			# valueType (Normalize-ChoiceValue в компиляторе вывела бы xs:string и потеряла тип).
-			if ($xsiType -and $xsiType -notmatch '^xs:(string|decimal|boolean|dateTime)$' -and $xsiType -ne 'xr:DesignTimeRef') {
-				$ci['valueType'] = $xsiType
+			if ($valNode.GetAttribute("nil", $NS_XSI) -eq 'true') {
+				# nil-значение элемента choiceList — компилятор эмитит <Value xsi:nil="true"/>
+				# (иначе Convert-TypedValue вернул бы "" → typed-empty xs:string).
+				$ci['valueType'] = 'nil'
+			} else {
+				$xsiType = $valNode.GetAttribute("type", $NS_XSI)
+				$ci['value'] = Convert-TypedValue $valNode.InnerText $xsiType
+				# Системное перечисление (ent:*) / иной не-примитивный тип → сохраняем valueType
+				# (Normalize-ChoiceValue вывела бы xs:string). DesignTimeRef обычно авто-детектится
+				# компилятором по named-ref (Enum.X.Y), НО raw-ссылка по GUID (GUID.GUID) — нет → сохраняем.
+				if ($xsiType -and $xsiType -notmatch '^xs:(string|decimal|boolean|dateTime)$' -and `
+					($xsiType -ne 'xr:DesignTimeRef' -or "$($valNode.InnerText)" -match '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-')) {
+					$ci['valueType'] = $xsiType
+				}
 			}
 		}
 		# Presentation: непустой → текст/мультиязык; пустой <Presentation/> → "" — суппресс-маркер,
