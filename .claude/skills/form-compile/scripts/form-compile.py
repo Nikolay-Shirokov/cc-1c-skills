@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# form-compile v1.148 — Compile 1C managed form from JSON or object metadata
+# form-compile v1.149 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import copy
@@ -3353,6 +3353,8 @@ GENERIC_SCALARS = [
     # Равная ширина элементов (check/radio) / высота заголовка пункта (radio)
     ('EqualItemsWidth', 'equalItemsWidth', 'bool'),
     ('ItemTitleHeight', 'itemTitleHeight', 'value'),
+    # Спец-режим ввода текста (input, моб.: Email/PhoneNumber/...) — листовой enum-скаляр
+    ('SpecialTextInputMode', 'specialTextInputMode', 'value'),
 ]
 
 

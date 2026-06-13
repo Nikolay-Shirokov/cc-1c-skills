@@ -1,4 +1,4 @@
-﻿# form-decompile v0.123 — Decompile 1C managed Form.xml to JSON DSL (draft)
+﻿# form-decompile v0.124 — Decompile 1C managed Form.xml to JSON DSL (draft)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 # ВНИМАНИЕ: раундтрип не гарантируется. Навык исключён из авто-использования моделью.
 param(
@@ -1581,6 +1581,8 @@ $GENERIC_SCALARS = @(
 	# Равная ширина элементов (check/radio) / высота заголовка пункта (radio)
 	@{ Tag='EqualItemsWidth'; Key='equalItemsWidth'; Kind='bool' }
 	@{ Tag='ItemTitleHeight'; Key='itemTitleHeight'; Kind='value' }
+	# Спец-режим ввода текста (input, моб.: Email/PhoneNumber/...) — листовой enum-скаляр
+	@{ Tag='SpecialTextInputMode'; Key='specialTextInputMode'; Kind='value' }
 )
 
 # Захват generic-скаляров. Специфичная обработка (если ключ уже задан) — побеждает.
@@ -1658,7 +1660,7 @@ function Decompile-ChoiceList {
 		# Presentation: непустой → текст/мультиязык; пустой <Presentation/> → "" — суппресс-маркер,
 		# подавляет авто-вывод компилятора (иначе компилятор додумает presentation из значения).
 		if ($presNode) {
-			$p = Get-LangText $presNode
+			$p = Get-LangTextWS $presNode   # восстановление значимого пробела (whitespace-presentation)
 			if ($null -ne $p -and $p -ne '') { $ci['presentation'] = $p } else { $ci['presentation'] = '' }
 		}
 		[void]$items.Add($ci)
