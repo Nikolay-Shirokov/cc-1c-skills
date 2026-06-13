@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# form-compile v1.159 — Compile 1C managed form from JSON or object metadata
+# form-compile v1.160 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import copy
@@ -2628,7 +2628,8 @@ def emit_companion(lines, tag, name, indent, content=None):
         lines.append(f'{indent}<{tag} name="{name}" id="{cid}"/>')
         return
     inner = f'{indent}\t'
-    lines.append(f'{indent}<{tag} name="{name}" id="{cid}">')
+    # DI-Attr от собственного объекта компаньона (не от владельца) — зеркало ps1
+    lines.append(f'{indent}<{tag} name="{name}" id="{cid}"{di_attr(content if isinstance(content, dict) else None)}>')
     if isinstance(content, dict) and any(k in content for k in COMPANION_STRUCT_KEYS):
         # own-content ПЕРЕД Title (в корпусе layout-first 582 vs 10).
         emit_common_flags(lines, content, inner)
@@ -2669,7 +2670,7 @@ def emit_companion_panel(lines, tag, name, indent, panel):
     if not emit_af_false and not has_children and not halign:
         lines.append(f'{indent}<{tag} name="{name}" id="{cid}"/>')
         return
-    lines.append(f'{indent}<{tag} name="{name}" id="{cid}">')
+    lines.append(f'{indent}<{tag} name="{name}" id="{cid}"{di_attr(panel if isinstance(panel, dict) else None)}>')
     if halign:
         lines.append(f'{indent}\t<HorizontalAlign>{halign}</HorizontalAlign>')
     if emit_af_false:

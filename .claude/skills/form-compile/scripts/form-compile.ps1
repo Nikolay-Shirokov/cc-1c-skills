@@ -1,4 +1,4 @@
-﻿# form-compile v1.159 — Compile 1C managed form from JSON or object metadata
+﻿# form-compile v1.160 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[string]$JsonPath,
@@ -2606,7 +2606,9 @@ function Emit-Companion {
 		return
 	}
 	$inner = "$indent`t"
-	X "$indent<$tag name=`"$name`" id=`"$id`"$(DI-Attr $el)>"
+	# DI-Attr берём от СОБСТВЕННОГО объекта компаньона ($content), НЕ от ambient $el родителя
+	# (PowerShell dynamic scope — иначе companion наследует DisplayImportance владельца: баг).
+	X "$indent<$tag name=`"$name`" id=`"$id`"$(DI-Attr $content)>"
 	if (Test-CompanionStructured $content) {
 		# структурированная форма (own-content). Порядок как у платформы: own-content (флаги/hyperlink/
 		# layout/оформление) ПЕРЕД Title (в корпусе layout-first 582 vs 10).
@@ -2649,7 +2651,7 @@ function Emit-CompanionPanel {
 		X "$indent<$tag name=`"$name`" id=`"$id`"/>"
 		return
 	}
-	X "$indent<$tag name=`"$name`" id=`"$id`"$(DI-Attr $el)>"
+	X "$indent<$tag name=`"$name`" id=`"$id`"$(DI-Attr $panel)>"
 	if ($halign) { X "$indent`t<HorizontalAlign>$halign</HorizontalAlign>" }
 	if ($emitAfFalse) { X "$indent`t<Autofill>false</Autofill>" }
 	if ($hasChildren) {
