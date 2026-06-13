@@ -1,4 +1,4 @@
-﻿# form-decompile v0.139 — Decompile 1C managed Form.xml to JSON DSL (draft)
+﻿# form-decompile v0.140 — Decompile 1C managed Form.xml to JSON DSL (draft)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 # ВНИМАНИЕ: раундтрип не гарантируется. Навык исключён из авто-использования моделью.
 param(
@@ -144,8 +144,9 @@ function Get-ListSettingsShape {
 			} else { $shape[$tag] = $code }
 		} elseif ($tag -eq 'itemsViewMode') { $shape['itemsViewMode'] = $true }
 		elseif ($tag -eq 'itemsUserSettingID') { $shape['itemsUserSettingID'] = $true }
+		elseif ($tag -eq 'itemsUserSettingPresentation') { $shape['itemsUserSettingPresentation'] = Get-PresByType $child }   # items-уровневая подпись (форма по xsi:type)
 		elseif ($tag -eq 'item') { if ($hasGrouping) { $shape['structure'] = $true } else { return $null } }
-		else { return $null }  # dataParameters/itemsUserSettingPresentation/… → канон-fallback
+		else { return $null }  # dataParameters/… → канон-fallback
 	}
 	# Полный каноничный скелет → опускаем (компилятор регенерит)
 	if ($shape.Count -eq 5 -and $shape['filter'] -eq 'vu' -and $shape['order'] -eq 'vu' -and `

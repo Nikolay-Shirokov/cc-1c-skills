@@ -1,4 +1,4 @@
-﻿# form-compile v1.164 — Compile 1C managed form from JSON or object metadata
+﻿# form-compile v1.165 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[string]$JsonPath,
@@ -5793,6 +5793,7 @@ function Emit-Attributes {
 						'conditionalAppearance' { $bus = if ($meta -match 'u') { $script:CANON_CA_ID } else { $null }; Emit-ConditionalAppearance -items $st.conditionalAppearance -indent $lsi -blockViewMode $bvm -blockUserSettingID $bus -blockUserSettingPresentation $bpres }
 						'itemsViewMode'         { X "$lsi<dcsset:itemsViewMode>Normal</dcsset:itemsViewMode>" }
 						'itemsUserSettingID'    { X "$lsi<dcsset:itemsUserSettingID>$($script:CANON_ITEMS_ID)</dcsset:itemsUserSettingID>" }
+						'itemsUserSettingPresentation' { Emit-USPresentation -val $pv -tag "dcsset:itemsUserSettingPresentation" -indent $lsi }
 						'structure'             { Emit-ListGrouping (Get-ListGroupingValue $st) $lsi }
 					}
 				}

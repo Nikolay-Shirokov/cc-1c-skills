@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# form-compile v1.164 — Compile 1C managed form from JSON or object metadata
+# form-compile v1.165 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import copy
@@ -5570,6 +5570,8 @@ def emit_attributes(lines, attrs, indent, conditional_appearance=None):
                         lines.append(f'{lsi}<dcsset:itemsViewMode>Normal</dcsset:itemsViewMode>')
                     elif tag == 'itemsUserSettingID':
                         lines.append(f'{lsi}<dcsset:itemsUserSettingID>{CANON_ITEMS_ID}</dcsset:itemsUserSettingID>')
+                    elif tag == 'itemsUserSettingPresentation':
+                        emit_us_presentation(lines, lsi, 'dcsset:itemsUserSettingPresentation', pv)
                     elif tag == 'structure':
                         emit_list_grouping(lines, get_list_grouping_value(s), lsi)
             else:
