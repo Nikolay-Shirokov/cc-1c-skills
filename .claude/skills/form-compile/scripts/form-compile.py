@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# form-compile v1.154 — Compile 1C managed form from JSON or object metadata
+# form-compile v1.155 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import copy
@@ -2034,7 +2034,7 @@ KNOWN_KEYS = {
     "wrap", "openButton", "listChoiceMode", "showInHeader", "showInFooter",
     "extendedEditMultipleValues", "chooseType", "autoCellHeight",
     "choiceButtonRepresentation", "footerHorizontalAlign", "headerHorizontalAlign",
-    "headerDataPath", "headerFormat",
+    "headerDataPath", "headerFormat", "currentRowUse",
     "format", "editFormat", "choiceParameters", "choiceParameterLinks", "typeLink",
     "hyperlink", "formatted",
     "collapsedTitle", "showTitle", "united", "collapsed", "behavior",
@@ -4350,9 +4350,15 @@ def emit_pages(lines, el, name, eid, indent):
 
     if el.get('pagesRepresentation'):
         lines.append(f'{inner}<PagesRepresentation>{el["pagesRepresentation"]}</PagesRepresentation>')
+    # \u0418\u0441\u043f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u043d\u0438\u0435 \u0442\u0435\u043a\u0443\u0449\u0435\u0439 \u0441\u0442\u0440\u043e\u043a\u0438 (\u043f\u043e\u0441\u043b\u0435 PagesRepresentation, \u043f\u043e\u0440\u044f\u0434\u043e\u043a XSD)
+    if el.get('currentRowUse'):
+        lines.append(f'{inner}<CurrentRowUse>{el["currentRowUse"]}</CurrentRowUse>')
 
     emit_common_flags(lines, el, inner)
     emit_layout(lines, el, inner)
+
+    # \u041e\u0444\u043e\u0440\u043c\u043b\u0435\u043d\u0438\u0435 (\u0446\u0432\u0435\u0442\u0430/\u0448\u0440\u0438\u0444\u0442\u044b/\u0433\u0440\u0430\u043d\u0438\u0446\u0430) \u0437\u0430\u0433\u043e\u043b\u043e\u0432\u043a\u0430 \u0433\u0440\u0443\u043f\u043f\u044b \u0441\u0442\u0440\u0430\u043d\u0438\u0446 \u2014 TitleFont/TitleTextColor/\u2026 (\u043a\u0430\u043a \u0443 Page)
+    emit_appearance(lines, el, inner, 'field')
 
     # Companion
     emit_companion(lines, 'ExtendedTooltip', f'{name}\u0420\u0430\u0441\u0448\u0438\u0440\u0435\u043d\u043d\u0430\u044f\u041f\u043e\u0434\u0441\u043a\u0430\u0437\u043a\u0430', inner, el.get('extendedTooltip'))

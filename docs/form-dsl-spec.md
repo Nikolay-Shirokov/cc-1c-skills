@@ -223,7 +223,7 @@ companion-панели с собственным контентом. Оба не
 
 ### 4.1e. Оформление элемента (цвета / шрифты / граница)
 
-Прямые свойства оформления элемента. Ключи — англ. camelCase 1:1 с тегами; **принимаются рус. синонимы** (forgiving). Применимо к полям (input/check/radio/labelField/picField/calendar), декорациям (label/picture), кнопкам (button), группам (group/columnGroup), **страницам (page: `backColor`/`titleTextColor`/`titleFont`)**, **попапам (popup: `titleTextColor`/`titleFont`)** и таблицам (table); порядок тегов в XML — по базовому типу (профиль), компилятор расставляет сам (1С толерантна к порядку оформления внутри элемента).
+Прямые свойства оформления элемента. Ключи — англ. camelCase 1:1 с тегами; **принимаются рус. синонимы** (forgiving). Применимо к полям (input/check/radio/labelField/picField/calendar), декорациям (label/picture), кнопкам (button), группам (group/columnGroup), **страницам (page/pages: `backColor`/`titleTextColor`/`titleFont`)**, **попапам (popup: `titleTextColor`/`titleFont`)** и таблицам (table); порядок тегов в XML — по базовому типу (профиль), компилятор расставляет сам (1С толерантна к порядку оформления внутри элемента).
 
 | Ключ | Тег | Рус. синоним |
 |------|-----|--------------|
@@ -667,7 +667,7 @@ companion-панели с собственным контентом. Оба не
 Page поддерживает `group` для задания ориентации содержимого и `children` для вложенных элементов.
 Также `picture` — картинка-иконка вкладки (формат «картинка-ссылка» из §4.1: скаляр-Ref/`abs:X` или объект `{src, loadTransparent?, transparentPixel?}`, дефолт `loadTransparent=false`).
 
-Pages поддерживает `pagesRepresentation`: `None`, `TabsOnTop`, `TabsOnBottom`, `TabsOnLeft`, `TabsOnRight`.
+Pages поддерживает `pagesRepresentation`: `None`, `TabsOnTop`, `TabsOnBottom`, `TabsOnLeft`, `TabsOnRight`; `currentRowUse` (`Auto`/`DontUse`/…); оформление заголовка вкладок (`titleFont`/`titleTextColor`/`titleBackColor`/… — как у `page`).
 
 #### button — Button
 

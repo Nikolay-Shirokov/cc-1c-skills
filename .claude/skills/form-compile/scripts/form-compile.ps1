@@ -1,4 +1,4 @@
-﻿# form-compile v1.154 — Compile 1C managed form from JSON or object metadata
+﻿# form-compile v1.155 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[string]$JsonPath,
@@ -2917,7 +2917,7 @@ function Emit-Element {
 		"wrap"=1;"openButton"=1;"listChoiceMode"=1;"showInFooter"=1
 		"extendedEditMultipleValues"=1;"chooseType"=1;"autoCellHeight"=1
 		"choiceButtonRepresentation"=1;"footerHorizontalAlign"=1;"headerHorizontalAlign"=1
-		"headerDataPath"=1;"headerFormat"=1
+		"headerDataPath"=1;"headerFormat"=1;"currentRowUse"=1
 		"format"=1;"editFormat"=1;"choiceParameters"=1;"choiceParameterLinks"=1;"typeLink"=1
 		# label/hyperlink
 		"hyperlink"=1;"formatted"=1
@@ -4611,9 +4611,14 @@ function Emit-Pages {
 	if ($el.pagesRepresentation) {
 		X "$inner<PagesRepresentation>$($el.pagesRepresentation)</PagesRepresentation>"
 	}
+	# Использование текущей строки (после PagesRepresentation, порядок XSD)
+	if ($el.currentRowUse) { X "$inner<CurrentRowUse>$($el.currentRowUse)</CurrentRowUse>" }
 
 	Emit-CommonFlags -el $el -indent $inner
 	Emit-Layout -el $el -indent $inner
+
+	# Оформление (цвета/шрифты/граница) заголовка группы страниц — TitleFont/TitleTextColor/… (как у Page)
+	Emit-Appearance -el $el -indent $inner -profile 'field'
 
 	# Companion
 	Emit-Companion -tag "ExtendedTooltip" -name "${name}РасширеннаяПодсказка" -indent $inner -content $el.extendedTooltip
