@@ -1,4 +1,4 @@
-﻿# form-compile v1.147 — Compile 1C managed form from JSON or object metadata
+﻿# form-compile v1.148 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[string]$JsonPath,
@@ -1675,6 +1675,21 @@ function Parse-FilterShorthand {
 	return $result
 }
 
+# Значение типа v8:Type (напр. тип «Неопределено» = <prefix>:Undefined) ссылается на тип
+# платформы из namespace http://v8.1c.ru/8.2/data/types — платформа объявляет его ЛОКАЛЬНО
+# на теге значения (префикс авто-назначаемый: d6p1/d8p1/dN…). Без объявления QName битый.
+# Возвращает строку-атрибут ' xmlns:<pref>="…"' (перед xsi:type), либо "".
+function Get-ValueTypeNsAttr {
+	param([string]$valueType, [string]$value)
+	if ($valueType -eq 'v8:Type' -and "$value" -match '^([A-Za-z]\w*):') {
+		$pref = $Matches[1]
+		if ($pref -notin @('xs','cfg','v8','v8ui','ent','dcscor','dcsset','dcssch')) {
+			return " xmlns:$pref=`"http://v8.1c.ru/8.2/data/types`""
+		}
+	}
+	return ""
+}
+
 function Emit-FilterItem {
 	param($item, [string]$indent)
 	if ($item.group) {
@@ -1731,7 +1746,8 @@ function Emit-FilterItem {
 					else { $vt = 'xs:string' }
 				}
 				$vStr = if ($v -is [bool]) { "$v".ToLower() } else { Esc-Xml "$v" }
-				X "$indent`t<dcsset:right xsi:type=`"$vt`">$vStr</dcsset:right>"
+				$nsAttr = Get-ValueTypeNsAttr -valueType $vt -value "$v"
+				X "$indent`t<dcsset:right$nsAttr xsi:type=`"$vt`">$vStr</dcsset:right>"
 			}
 		}
 	} elseif ($null -ne $item.value -and (
@@ -1775,7 +1791,8 @@ function Emit-FilterItem {
 			else { $vt = "xs:string" }
 		}
 		$vStr = if ($item.value -is [bool]) { "$($item.value)".ToLower() } else { Esc-Xml "$($item.value)" }
-		X "$indent`t<dcsset:right xsi:type=`"$vt`">$vStr</dcsset:right>"
+		$nsAttr = Get-ValueTypeNsAttr -valueType $vt -value "$($item.value)"
+		X "$indent`t<dcsset:right$nsAttr xsi:type=`"$vt`">$vStr</dcsset:right>"
 	}
 	if ($item.presentation) { Emit-USPresentation -val $item.presentation -tag "dcsset:presentation" -indent "$indent`t" }
 	if ($item.viewMode) { X "$indent`t<dcsset:viewMode>$(Esc-Xml "$($item.viewMode)")</dcsset:viewMode>" }
@@ -5164,6 +5181,7 @@ function Emit-DLValue {
 	$valStr = if ($val -is [bool]) { if ($val) { 'true' } else { 'false' } } else { "$val" }
 	if ($type -match '^(date|dateTime|time)') { X "$indent<dcssch:value xsi:type=`"xs:dateTime`">$(Esc-Xml $valStr)</dcssch:value>" }
 	elseif ($type -eq "boolean") { X "$indent<dcssch:value xsi:type=`"xs:boolean`">$(Esc-Xml $valStr)</dcssch:value>" }
+	elseif ($type -eq 'v8:Type') { $nsAttr = Get-ValueTypeNsAttr -valueType 'v8:Type' -value $valStr; X "$indent<dcssch:value$nsAttr xsi:type=`"v8:Type`">$(Esc-Xml $valStr)</dcssch:value>" }
 	elseif ($type -match '^decimal') { X "$indent<dcssch:value xsi:type=`"xs:decimal`">$(Esc-Xml $valStr)</dcssch:value>" }
 	elseif ($type -match '^string') { X "$indent<dcssch:value xsi:type=`"xs:string`">$(Esc-Xml $valStr)</dcssch:value>" }
 	elseif ($type -match '^(CatalogRef|DocumentRef|EnumRef|ChartOfAccountsRef|ChartOfCharacteristicTypesRef|ChartOfCalculationTypesRef|BusinessProcessRef|TaskRef|ExchangePlanRef)\.') { X "$indent<dcssch:value xsi:type=`"dcscor:DesignTimeValue`">$(Esc-Xml $valStr)</dcssch:value>" }

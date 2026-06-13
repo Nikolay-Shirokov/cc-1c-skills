@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# form-compile v1.147 — Compile 1C managed form from JSON or object metadata
+# form-compile v1.148 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import copy
@@ -1425,6 +1425,17 @@ def _value_type_for(v, explicit=None):
     return 'xs:string'
 
 
+# Значение типа v8:Type (напр. тип «Неопределено» = <prefix>:Undefined) ссылается на тип
+# платформы из namespace http://v8.1c.ru/8.2/data/types — платформа объявляет его ЛОКАЛЬНО
+# на теге значения (префикс авто: d6p1/d8p1/dN…). Без объявления QName битый.
+def _value_type_ns_attr(value_type, value):
+    if value_type == 'v8:Type':
+        m = re.match(r'^([A-Za-z]\w*):', str(value))
+        if m and m.group(1) not in ('xs', 'cfg', 'v8', 'v8ui', 'ent', 'dcscor', 'dcsset', 'dcssch'):
+            return f' xmlns:{m.group(1)}="http://v8.1c.ru/8.2/data/types"'
+    return ''
+
+
 def emit_filter_item(lines, item, indent):
     if item.get('group'):
         g = str(item['group'])
@@ -1480,7 +1491,8 @@ def emit_filter_item(lines, item, indent):
             for v in val:
                 vt = _value_type_for(v, item.get('valueType'))
                 v_str = str(v).lower() if isinstance(v, bool) else esc_xml(str(v))
-                lines.append(f'{indent}\t<dcsset:right xsi:type="{vt}">{v_str}</dcsset:right>')
+                ns_attr = _value_type_ns_attr(vt, v)
+                lines.append(f'{indent}\t<dcsset:right{ns_attr} xsi:type="{vt}">{v_str}</dcsset:right>')
     elif val is not None and (
             re.search(r'Standard(Beginning|End)Date$', str(item.get('valueType') or '')) or
             (not item.get('valueType') and isinstance(val, str) and re.match(r'^\d{4}-\d{2}-\d{2}T', val))):
@@ -1507,7 +1519,8 @@ def emit_filter_item(lines, item, indent):
     elif val is not None:
         vt = _value_type_for(val, item.get('valueType'))
         v_str = str(val).lower() if isinstance(val, bool) else esc_xml(str(val))
-        lines.append(f'{indent}\t<dcsset:right xsi:type="{vt}">{v_str}</dcsset:right>')
+        ns_attr = _value_type_ns_attr(vt, val)
+        lines.append(f'{indent}\t<dcsset:right{ns_attr} xsi:type="{vt}">{v_str}</dcsset:right>')
     if item.get('presentation'):
         emit_us_presentation(lines, f'{indent}\t', 'dcsset:presentation', item['presentation'])
     if item.get('viewMode'):
@@ -4893,6 +4906,9 @@ def emit_dl_value(lines, type_str, val, indent, value_list_allowed=False):
         lines.append(f'{indent}<dcssch:value xsi:type="xs:dateTime">{esc_xml(val_str)}</dcssch:value>')
     elif t == 'boolean':
         lines.append(f'{indent}<dcssch:value xsi:type="xs:boolean">{esc_xml(val_str)}</dcssch:value>')
+    elif t == 'v8:Type':
+        ns_attr = _value_type_ns_attr('v8:Type', val_str)
+        lines.append(f'{indent}<dcssch:value{ns_attr} xsi:type="v8:Type">{esc_xml(val_str)}</dcssch:value>')
     elif re.match(r'^decimal', t):
         lines.append(f'{indent}<dcssch:value xsi:type="xs:decimal">{esc_xml(val_str)}</dcssch:value>')
     elif re.match(r'^string', t):
