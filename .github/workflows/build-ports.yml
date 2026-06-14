@@ -138,6 +138,16 @@ jobs:
             branch: port-windsurf-py
             label: Windsurf
             target_dir: .windsurf/skills
+          - platform: codeassistant
+            runtime: powershell
+            branch: port-codeassistant
+            label: Yandex Code Assistant
+            target_dir: .codeassistant/skills
+          - platform: codeassistant
+            runtime: python
+            branch: port-codeassistant-py
+            label: Yandex Code Assistant
+            target_dir: .codeassistant/skills
           - platform: agents
             runtime: powershell
             branch: port-agents

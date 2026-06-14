@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# switch.py v1.6 — Переключение навыков 1С между AI-платформами и рантаймами
+# switch.py v1.7 — Переключение навыков 1С между AI-платформами и рантаймами
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 """
 Копирует (или создаёт ссылки на) навыки из .claude/skills/ на другие AI-платформы
@@ -30,6 +30,7 @@ PLATFORMS = {
     'agents':      '.agents/skills',
     'augment':     '.augment/skills',
     'cline':       '.cline/skills',
+    'codeassistant': '.codeassistant/skills',
     'codex':       '.codex/skills',
     'cursor':      '.cursor/skills',
     'copilot':     '.github/skills',
@@ -612,11 +613,13 @@ def interactive_mode():
         ("OpenCode",       ".opencode/skills/"),
         ("Roo Code",       ".roo/skills/"),
         ("Windsurf",       ".windsurf/skills/"),
+        ("Code Assistant", ".codeassistant/skills/"),
         ("Agent Skills",   ".agents/skills/"),
     ]
     platform_keys = [
         'claude-code', 'augment', 'cline', 'cursor', 'copilot', 'kilo',
-        'kiro', 'codex', 'gemini', 'opencode', 'roo', 'windsurf', 'agents',
+        'kiro', 'codex', 'gemini', 'opencode', 'roo', 'windsurf',
+        'codeassistant', 'agents',
     ]
 
     choice = ask_choice("Для какой платформы настроить навыки?", platform_options)

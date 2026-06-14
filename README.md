@@ -104,6 +104,7 @@ python tools/cc-1c-skills/scripts/switch.py
 | OpenCode | `.opencode/skills/` | [port-opencode](https://github.com/Nikolay-Shirokov/cc-1c-skills/tree/port-opencode) | [port-opencode-py](https://github.com/Nikolay-Shirokov/cc-1c-skills/tree/port-opencode-py) |
 | Roo Code | `.roo/skills/` | [port-roo](https://github.com/Nikolay-Shirokov/cc-1c-skills/tree/port-roo) | [port-roo-py](https://github.com/Nikolay-Shirokov/cc-1c-skills/tree/port-roo-py) |
 | Windsurf | `.windsurf/skills/` | [port-windsurf](https://github.com/Nikolay-Shirokov/cc-1c-skills/tree/port-windsurf) | [port-windsurf-py](https://github.com/Nikolay-Shirokov/cc-1c-skills/tree/port-windsurf-py) |
+| Yandex Code Assistant | `.codeassistant/skills/` | [port-codeassistant](https://github.com/Nikolay-Shirokov/cc-1c-skills/tree/port-codeassistant) | [port-codeassistant-py](https://github.com/Nikolay-Shirokov/cc-1c-skills/tree/port-codeassistant-py) |
 | Agent Skills | `.agents/skills/` | [port-agents](https://github.com/Nikolay-Shirokov/cc-1c-skills/tree/port-agents) | [port-agents-py](https://github.com/Nikolay-Shirokov/cc-1c-skills/tree/port-agents-py) |
 
 Готовые ветки `port-*` пересобираются автоматически на каждое изменение в навыках. Если нужна свежая сборка прямо сейчас — соберите [локально через `switch.py`](#альтернативный-способ--собрать-локально-через-switchpy).
