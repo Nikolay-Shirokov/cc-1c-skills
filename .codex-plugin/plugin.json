@@ -1,0 +1,36 @@
+{
+  "name": "1c-skills",
+  "version": "2026.6.14+ae82412",
+  "description": "[PowerShell] Навыки для разработки на 1С:Предприятие 8.3 — абстракции над XML-форматами и CLI конфигуратора, плюс глаза и руки для тестирования через веб-клиент.",
+  "author": {
+    "name": "Nikolay Shirokov"
+  },
+  "homepage": "https://github.com/Nikolay-Shirokov/cc-1c-skills",
+  "repository": "https://github.com/Nikolay-Shirokov/cc-1c-skills",
+  "license": "MIT",
+  "keywords": [
+    "1c",
+    "1c-dev",
+    "cf",
+    "cfe",
+    "epf",
+    "erf",
+    "metadata",
+    "configuration",
+    "extension",
+    "form",
+    "report",
+    "skd",
+    "data-processor",
+    "mxl",
+    "web-client",
+    "testing",
+    "test-automation"
+  ],
+  "skills": "./.codex/skills/",
+  "interface": {
+    "displayName": "1C Skills (PowerShell)",
+    "shortDescription": "PowerShell runtime (Windows-first)",
+    "category": "Development"
+  }
+}
