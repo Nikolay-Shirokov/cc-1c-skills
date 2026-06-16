@@ -475,7 +475,7 @@ ClassId — фиксированные идентификаторы классо
 
 | Файл | Описание |
 |------|----------|
-| `ParentConfigurations.bin` | Информация о родительских конфигурациях (поставки) |
+| `ParentConfigurations.bin` | Состояние поддержки: конфигурации поставщика + пообъектные правила. Формат: [1c-support-state-spec.md](1c-support-state-spec.md) |
 | `MobileClientSignature.bin` | Подпись мобильного клиента |
 
 ---

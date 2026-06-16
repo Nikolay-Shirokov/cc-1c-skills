@@ -11,6 +11,7 @@
 | `Configuration.xml` | Свойства и состав конфигурации | [1c-configuration-spec.md § 2](1c-configuration-spec.md#2-configurationxml--корневой-файл-конфигурации) |
 | `ConfigDumpInfo.xml` | Версии объектов (служебный) | [1c-configuration-spec.md § 3](1c-configuration-spec.md#3-configdumpinfoxml--служебный-файл-выгрузки) |
 | `Ext/` | Модули, интерфейс, начальная страница | [1c-configuration-spec.md § 4](1c-configuration-spec.md#4-ext--корневой-каталог-конфигурации) |
+| `Ext/ParentConfigurations.bin` | Состояние поддержки (конфигурации поставщика, пообъектные правила) | [1c-support-state-spec.md](1c-support-state-spec.md) |
 | `Languages/` | Языки конфигурации | [1c-configuration-spec.md § 5](1c-configuration-spec.md#5-языки-languages) |
 
 ---
