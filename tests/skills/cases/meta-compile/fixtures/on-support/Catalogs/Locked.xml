@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<MetaDataObject xmlns="http://v8.1c.ru/8.3/MDClasses" xmlns:xr="http://v8.1c.ru/8.3/xcf/readable" version="2.17">
+	<Catalog uuid="22222222-2222-2222-2222-222222222222">
+		<Properties>
+			<Name>Locked</Name>
+			<Synonym/>
+			<CodeLength>9</CodeLength>
+			<DescriptionLength>25</DescriptionLength>
+		</Properties>
+		<ChildObjects/>
+	</Catalog>
+</MetaDataObject>

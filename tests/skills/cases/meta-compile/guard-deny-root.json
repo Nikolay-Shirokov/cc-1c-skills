@@ -1,0 +1,6 @@
+{
+  "name": "Guard: добавление объекта при закрытом корне (f1=0) запрещено",
+  "setup": "fixture:on-support",
+  "input": { "type": "Catalog", "name": "НовыйСправочник" },
+  "expectError": "support-guard"
+}

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<MetaDataObject xmlns="http://v8.1c.ru/8.3/MDClasses" xmlns:xr="http://v8.1c.ru/8.3/xcf/readable" version="2.17">
+	<Configuration uuid="11111111-1111-1111-1111-111111111111">
+		<Properties>
+			<Name>ТестКонфиг</Name>
+			<Vendor>ТестВендор</Vendor>
+			<Version>1.0</Version>
+		</Properties>
+		<ChildObjects>
+			<Catalog>Locked</Catalog>
+			<Catalog>Removed</Catalog>
+		</ChildObjects>
+	</Configuration>
+</MetaDataObject>

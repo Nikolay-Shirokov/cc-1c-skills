@@ -1,0 +1,6 @@
+{
+  "name": "Guard: удаление объекта на замке (f1=0) запрещено",
+  "setup": "fixture:on-support",
+  "object": "Catalog.Locked",
+  "expectError": "support-guard"
+}

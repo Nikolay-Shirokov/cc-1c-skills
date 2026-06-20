@@ -57,6 +57,7 @@
 | `v8path` | string | да | — | Путь к каталогу `bin` платформы 1С | `/db-list add` или руками |
 | `databases` | array | да | — | Список баз данных | `/db-list add` |
 | `default` | string | нет | — | `id` базы по умолчанию | `/db-list` |
+| `editingAllowedCheck` | `"deny"`/`"warn"`/`"off"` | нет | `deny` | Глобальная реакция support-guard на правку объектов на замке (см. ниже) | Руками |
 | `webPath` | string | нет | `tools/apache24` | Каталог Apache HTTP Server | Руками |
 | `ffmpegPath` | string | нет | `tools/ffmpeg/bin/ffmpeg.exe` | Путь к ffmpeg | Руками |
 | `tts` | object | нет | Edge TTS, DmitryNeural | Настройки озвучки видео | Руками |
@@ -76,7 +77,19 @@
 | `aliases` | string[] | нет | Альтернативные имена для обращения к базе | `/db-list add` или руками |
 | `branches` | string[] | нет | Git-ветки или glob-паттерны (`release/*`, `feature/*`) | Руками |
 | `configSrc` | string | нет | Каталог XML-выгрузки конфигурации | Руками |
+| `editingAllowedCheck` | `"deny"`/`"warn"`/`"off"` | нет | Override реакции support-guard для этой базы (см. ниже) | Руками |
 | `webUrl` | string | нет | URL веб-клиента для `/web-test` | Руками |
+
+### Support-guard и `editingAllowedCheck`
+
+Навыки-мутаторы (`meta-edit`, `meta-compile`, `meta-remove` и др.) перед изменением исходников проверяют состояние поддержки конфигурации (`Ext/ParentConfigurations.bin`, см. [1c-support-state-spec.md](1c-support-state-spec.md)). Если объект «на замке» поставщика (или вся конфигурация read-only, или удаляется не снятый с поддержки объект), правка по умолчанию **блокируется** — прямое изменение сломало бы обновления.
+
+Реакцию задаёт `editingAllowedCheck`:
+- `deny` (по умолчанию, в т.ч. когда поле не задано) — блокировать с диагностикой;
+- `warn` — пропускать, но писать предупреждение;
+- `off` — проверку не выполнять.
+
+Триггер проверки — наличие `ParentConfigurations.bin` (конфигурация на поддержке), а не регистрация в `.v8-project.json`. Поле лишь меняет реакцию. Берётся `databases[].editingAllowedCheck` базы, чей `configSrc` охватывает редактируемый путь; иначе — корневое `editingAllowedCheck`; иначе `deny`.
 
 ### Разрешение базы
 
