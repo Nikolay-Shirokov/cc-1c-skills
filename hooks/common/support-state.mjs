@@ -133,7 +133,7 @@ export function decideSupport(targetPath, require = 'editable') {
       if (best !== null && best === 0) {
         result.blocked = true;
         result.code = 'locked';
-        result.reason = 'объект на замке (поддержка поставщика) — прямая правка сломает обновления';
+        result.reason = 'объект на замке (поддержка поставщика) — прямое редактирование сломает обновления';
       }
     }
     return result;
