@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# db-load-xml v1.7 — Load 1C configuration from XML files
+# db-load-xml v1.8 — Load 1C configuration from XML files
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -133,9 +133,8 @@ def main():
             print("Error: ibcmd config import supports hierarchical format only (use -Format Hierarchical or 1cv8)", file=sys.stderr)
             sys.exit(1)
         if args.AllExtensions:
-            print("Error: ibcmd config import does not support -AllExtensions (use -Extension or 1cv8)", file=sys.stderr)
-            sys.exit(1)
-        if args.Mode == "Partial" or args.Files or args.ListFile:
+            arguments = ["infobase", "config", "import", "all-extensions", args.ConfigDir, f"--db-path={args.InfoBasePath}"]
+        elif args.Mode == "Partial" or args.Files or args.ListFile:
             # partial: import specific files (relative to ConfigDir)
             if args.ListFile:
                 if not os.path.isfile(args.ListFile):

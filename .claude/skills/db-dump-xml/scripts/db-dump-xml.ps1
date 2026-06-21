@@ -1,4 +1,4 @@
-﻿# db-dump-xml v1.3 — Dump 1C configuration to XML files
+﻿# db-dump-xml v1.4 — Dump 1C configuration to XML files
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 <#
 .SYNOPSIS
@@ -179,14 +179,11 @@ try {
             exit 1
         }
         if ($AllExtensions) {
-            Write-Host "Error: ibcmd config export does not support -AllExtensions (use -Extension or 1cv8)" -ForegroundColor Red
-            exit 1
-        }
-        if ($Mode -eq "UpdateInfo") {
+            $arguments = @("infobase", "config", "export", "all-extensions", "$ConfigDir", "--db-path=$InfoBasePath")
+        } elseif ($Mode -eq "UpdateInfo") {
             Write-Host "Error: ibcmd config export does not support Mode UpdateInfo; use 1cv8" -ForegroundColor Red
             exit 1
-        }
-        if ($Mode -eq "Partial") {
+        } elseif ($Mode -eq "Partial") {
             $objList = @($Objects -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
             $arguments = @("infobase", "config", "export", "objects") + $objList
             $arguments += "--out=$ConfigDir", "--db-path=$InfoBasePath"

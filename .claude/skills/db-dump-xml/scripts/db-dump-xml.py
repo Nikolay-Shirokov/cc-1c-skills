@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# db-dump-xml v1.3 — Dump 1C configuration to XML files
+# db-dump-xml v1.4 — Dump 1C configuration to XML files
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -125,12 +125,11 @@ def main():
             print("Error: ibcmd config export supports hierarchical format only (use -Format Hierarchical or 1cv8)", file=sys.stderr)
             sys.exit(1)
         if args.AllExtensions:
-            print("Error: ibcmd config export does not support -AllExtensions (use -Extension or 1cv8)", file=sys.stderr)
-            sys.exit(1)
-        if args.Mode == "UpdateInfo":
+            arguments = ["infobase", "config", "export", "all-extensions", args.ConfigDir, f"--db-path={args.InfoBasePath}"]
+        elif args.Mode == "UpdateInfo":
             print("Error: ibcmd config export does not support Mode UpdateInfo; use 1cv8", file=sys.stderr)
             sys.exit(1)
-        if args.Mode == "Partial":
+        elif args.Mode == "Partial":
             obj_list = [o.strip() for o in args.Objects.split(",") if o.strip()]
             arguments = ["infobase", "config", "export", "objects"] + obj_list
             arguments += [f"--out={args.ConfigDir}", f"--db-path={args.InfoBasePath}"]
