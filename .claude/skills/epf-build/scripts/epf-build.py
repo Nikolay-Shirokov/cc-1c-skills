@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# epf-build v1.1 — Build external data processor or report (EPF/ERF) from XML sources
+# epf-build v1.2 — Build external data processor or report (EPF/ERF) from XML sources
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -84,6 +84,10 @@ def main():
 
     # --- Resolve V8Path ---
     v8path = resolve_v8path(args.V8Path)
+    engine = "ibcmd" if os.path.basename(v8path).lower().startswith("ibcmd") else "1cv8"
+    if engine == "ibcmd" and args.InfoBaseServer and args.InfoBaseRef:
+        print("Error: ibcmd supports file infobases only (use -InfoBasePath or omit for stub)", file=sys.stderr)
+        sys.exit(1)
 
     # --- Auto-create stub database if no connection specified ---
     auto_created_base = None
@@ -117,6 +121,22 @@ def main():
     os.makedirs(temp_dir, exist_ok=True)
 
     try:
+        if engine == "ibcmd":
+            # --- ibcmd branch: build EPF/ERF via config import --out ---
+            src_dir = os.path.dirname(os.path.abspath(args.SourceFile))
+            arguments = ["infobase", "config", "import", src_dir, f"--out={args.OutputFile}", f"--db-path={args.InfoBasePath}"]
+            print(f"Running: ibcmd {' '.join(arguments)}")
+            result = subprocess.run([v8path] + arguments, capture_output=True, encoding="utf-8", errors="replace")
+            if result.returncode == 0:
+                print(f"External data processor/report built successfully: {args.OutputFile}")
+            else:
+                print(f"Error building external data processor/report (code: {result.returncode})", file=sys.stderr)
+            if result.stdout:
+                print(result.stdout)
+            if result.stderr:
+                print(result.stderr, file=sys.stderr)
+            sys.exit(result.returncode)
+
         # --- Build arguments ---
         arguments = ["DESIGNER"]
 

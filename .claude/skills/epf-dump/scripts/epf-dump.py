@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# epf-dump v1.1 — Dump external data processor or report (EPF/ERF) to XML sources
+# epf-dump v1.2 — Dump external data processor or report (EPF/ERF) to XML sources
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -90,12 +90,20 @@ def main():
 
     # --- Resolve V8Path ---
     v8path = resolve_v8path(args.V8Path)
+    engine = "ibcmd" if os.path.basename(v8path).lower().startswith("ibcmd") else "1cv8"
 
     # --- Validate database connection ---
     if not args.InfoBasePath and (not args.InfoBaseServer or not args.InfoBaseRef):
         print("Error: database connection required. Specify -InfoBasePath or -InfoBaseServer/-InfoBaseRef", file=sys.stderr)
         print("Dump in an empty database loses reference types (CatalogRef, DocumentRef, etc.) irreversibly.")
         sys.exit(1)
+    if engine == "ibcmd":
+        if not args.InfoBasePath:
+            print("Error: ibcmd supports file infobases only (use -InfoBasePath)", file=sys.stderr)
+            sys.exit(1)
+        if args.Format == "Plain":
+            print("Error: ibcmd config export supports hierarchical format only (use -Format Hierarchical or 1cv8)", file=sys.stderr)
+            sys.exit(1)
 
     # --- Validate input file ---
     if not os.path.isfile(args.InputFile):
@@ -111,6 +119,21 @@ def main():
     os.makedirs(temp_dir, exist_ok=True)
 
     try:
+        if engine == "ibcmd":
+            # --- ibcmd branch: dump EPF/ERF via config export --file ---
+            arguments = ["infobase", "config", "export", f"--file={args.InputFile}", args.OutputDir, f"--db-path={args.InfoBasePath}"]
+            print(f"Running: ibcmd {' '.join(arguments)}")
+            result = subprocess.run([v8path] + arguments, capture_output=True, encoding="utf-8", errors="replace")
+            if result.returncode == 0:
+                print(f"External data processor/report dumped successfully to: {args.OutputDir}")
+            else:
+                print(f"Error dumping external data processor/report (code: {result.returncode})", file=sys.stderr)
+            if result.stdout:
+                print(result.stdout)
+            if result.stderr:
+                print(result.stderr, file=sys.stderr)
+            sys.exit(result.returncode)
+
         # --- Build arguments ---
         arguments = ["DESIGNER"]
 
