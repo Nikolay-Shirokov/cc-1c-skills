@@ -1,4 +1,4 @@
-﻿# subsystem-edit v1.4 — Edit existing 1C subsystem XML
+﻿# subsystem-edit v1.5 — Edit existing 1C subsystem XML
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)][Alias('Path')][string]$SubsystemPath,

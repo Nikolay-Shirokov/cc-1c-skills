@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-edit v1.8 — Edit existing 1C metadata object XML (inline mode + complex properties + TS attribute ops + modify-ts)
+# meta-edit v1.9 — Edit existing 1C metadata object XML (inline mode + complex properties + TS attribute ops + modify-ts)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -2419,7 +2419,7 @@ def main():
             print()
             print("--- Running meta-validate ---")
             python_exe = sys.executable
-            subprocess.run([python_exe, validate_script, "-ObjectPath", "-Path", resolved_path])
+            subprocess.run([python_exe, validate_script, "-ObjectPath", resolved_path])
         else:
             print()
             print(f"[SKIP] meta-validate not found at: {validate_script}")

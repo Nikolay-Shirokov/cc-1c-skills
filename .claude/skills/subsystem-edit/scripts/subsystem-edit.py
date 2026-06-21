@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# subsystem-edit v1.4 — Edit existing 1C subsystem XML
+# subsystem-edit v1.5 — Edit existing 1C subsystem XML
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -764,7 +764,7 @@ def main():
         if os.path.isfile(validate_script):
             print()
             print("--- Running subsystem-validate ---")
-            subprocess.run([sys.executable, validate_script, "-SubsystemPath", "-Path", resolved_path])
+            subprocess.run([sys.executable, validate_script, "-SubsystemPath", resolved_path])
 
     # --- Summary ---
     print()

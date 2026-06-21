@@ -1,4 +1,4 @@
-# meta-validate v1.3 — Validate 1C metadata object structure (Python port)
+# meta-validate v1.4 — Validate 1C metadata object structure (Python port)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import os
@@ -31,7 +31,7 @@ if len(path_list) > 1:
     batch_ok = 0
     batch_fail = 0
     for single_path in path_list:
-        cmd = [sys.executable, __file__, "-ObjectPath", "-Path", single_path, "-MaxErrors", str(max_errors)]
+        cmd = [sys.executable, __file__, "-ObjectPath", single_path, "-MaxErrors", str(max_errors)]
         if detailed:
             cmd.append("-Detailed")
         if out_file:

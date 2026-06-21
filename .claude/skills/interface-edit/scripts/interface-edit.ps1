@@ -1,4 +1,4 @@
-﻿# interface-edit v1.5 — Edit 1C CommandInterface.xml
+﻿# interface-edit v1.6 — Edit 1C CommandInterface.xml
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)][Alias('Path')][string]$CIPath,

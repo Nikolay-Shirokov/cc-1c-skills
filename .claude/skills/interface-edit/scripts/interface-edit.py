@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# interface-edit v1.5 — Edit 1C CommandInterface.xml
+# interface-edit v1.6 — Edit 1C CommandInterface.xml
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -666,7 +666,7 @@ def main():
         if os.path.isfile(validate_script):
             print()
             print("--- Running interface-validate ---")
-            subprocess.run([sys.executable, validate_script, "-CIPath", "-Path", resolved_path])
+            subprocess.run([sys.executable, validate_script, "-CIPath", resolved_path])
 
     # --- Summary ---
     print()

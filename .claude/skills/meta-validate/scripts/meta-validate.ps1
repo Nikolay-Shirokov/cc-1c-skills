@@ -1,4 +1,4 @@
-﻿# meta-validate v1.3 — Validate 1C metadata object structure
+﻿# meta-validate v1.4 — Validate 1C metadata object structure
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
