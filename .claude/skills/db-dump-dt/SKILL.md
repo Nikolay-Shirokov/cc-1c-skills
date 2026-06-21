@@ -45,7 +45,7 @@ powershell.exe -NoProfile -File "${CLAUDE_SKILL_DIR}/scripts/db-dump-dt.ps1" <п
 
 | Параметр | Обязательный | Описание |
 |----------|:------------:|----------|
-| `-V8Path <путь>` | нет | Каталог bin платформы (или полный путь к 1cv8.exe) |
+| `-V8Path <путь>` | нет | Каталог bin платформы, или полный путь к `1cv8.exe` / `ibcmd.exe` |
 | `-InfoBasePath <путь>` | * | Файловая база |
 | `-InfoBaseServer <сервер>` | * | Сервер 1С (для серверной базы) |
 | `-InfoBaseRef <имя>` | * | Имя базы на сервере |
@@ -54,6 +54,8 @@ powershell.exe -NoProfile -File "${CLAUDE_SKILL_DIR}/scripts/db-dump-dt.ps1" <п
 | `-OutputFile <путь>` | да | Путь к выходному DT-файлу |
 
 > `*` — нужен либо `-InfoBasePath`, либо пара `-InfoBaseServer` + `-InfoBaseRef`
+>
+> Если `-V8Path` указывает на `ibcmd.exe` — выгрузка идёт через автономный сервер (быстрее, без запуска платформы); поддерживаются **только файловые базы** (`-InfoBasePath`).
 
 ## Примеры
 
