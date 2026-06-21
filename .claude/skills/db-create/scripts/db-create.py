@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# db-create v1.1 — Create 1C information base
+# db-create v1.2 — Create 1C information base
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -82,9 +82,14 @@ def main():
     args = parser.parse_args()
 
     v8path = resolve_v8path(args.V8Path)
+    engine = "ibcmd" if os.path.basename(v8path).lower().startswith("ibcmd") else "1cv8"
 
     # --- Validate connection ---
-    if not args.InfoBasePath and (not args.InfoBaseServer or not args.InfoBaseRef):
+    if engine == "ibcmd":
+        if not args.InfoBasePath:
+            print("Error: ibcmd supports file infobases only (use -InfoBasePath)", file=sys.stderr)
+            sys.exit(1)
+    elif not args.InfoBasePath and (not args.InfoBaseServer or not args.InfoBaseRef):
         print("Error: specify -InfoBasePath or -InfoBaseServer + -InfoBaseRef", file=sys.stderr)
         sys.exit(1)
 
@@ -92,6 +97,26 @@ def main():
     if args.UseTemplate and not os.path.exists(args.UseTemplate):
         print(f"Error: template file not found: {args.UseTemplate}", file=sys.stderr)
         sys.exit(1)
+
+    # --- ibcmd branch (file infobase only) ---
+    if engine == "ibcmd":
+        arguments = ["infobase", "create", f"--db-path={args.InfoBasePath}", "--create-database"]
+        if args.UseTemplate:
+            if os.path.splitext(args.UseTemplate)[1].lower() == ".dt":
+                arguments.append(f"--restore={args.UseTemplate}")
+            else:
+                arguments.extend([f"--load={args.UseTemplate}", "--apply"])
+        print(f"Running: ibcmd {' '.join(arguments)}")
+        result = subprocess.run([v8path] + arguments, capture_output=True, encoding="utf-8", errors="replace")
+        if result.returncode == 0:
+            print(f"Information base created successfully: {args.InfoBasePath}")
+        else:
+            print(f"Error creating information base (code: {result.returncode})", file=sys.stderr)
+        if result.stdout:
+            print(result.stdout)
+        if result.stderr:
+            print(result.stderr, file=sys.stderr)
+        sys.exit(result.returncode)
 
     # --- Temp dir ---
     temp_dir = os.path.join(tempfile.gettempdir(), f"db_create_{random.randint(0, 999999)}")

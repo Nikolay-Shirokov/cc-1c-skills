@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# db-load-xml v1.5 — Load 1C configuration from XML files
+# db-load-xml v1.6 — Load 1C configuration from XML files
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -106,8 +106,14 @@ def main():
     # --- Resolve V8Path ---
     v8path = resolve_v8path(args.V8Path)
 
+    engine = "ibcmd" if os.path.basename(v8path).lower().startswith("ibcmd") else "1cv8"
+
     # --- Validate connection ---
-    if not args.InfoBasePath and (not args.InfoBaseServer or not args.InfoBaseRef):
+    if engine == "ibcmd":
+        if not args.InfoBasePath:
+            print("Error: ibcmd supports file infobases only (use -InfoBasePath)", file=sys.stderr)
+            sys.exit(1)
+    elif not args.InfoBasePath and (not args.InfoBaseServer or not args.InfoBaseRef):
         print("Error: specify -InfoBasePath or -InfoBaseServer + -InfoBaseRef", file=sys.stderr)
         sys.exit(1)
 
@@ -120,6 +126,49 @@ def main():
     if args.Mode == "Partial" and not args.Files and not args.ListFile:
         print("Error: -Files or -ListFile required for Partial mode", file=sys.stderr)
         sys.exit(1)
+
+    # --- ibcmd branch (file infobase only; hierarchical full-directory import) ---
+    if engine == "ibcmd":
+        if args.Format == "Plain":
+            print("Error: ibcmd config import supports hierarchical format only (use -Format Hierarchical or 1cv8)", file=sys.stderr)
+            sys.exit(1)
+        if args.AllExtensions:
+            print("Error: ibcmd config import does not support -AllExtensions (use -Extension or 1cv8)", file=sys.stderr)
+            sys.exit(1)
+        if args.Mode == "Partial" or args.Files or args.ListFile:
+            print("Error: ibcmd config import supports full-directory import only; use 1cv8 for partial/file lists", file=sys.stderr)
+            sys.exit(1)
+        arguments = ["infobase", "config", "import", f"--db-path={args.InfoBasePath}"]
+        if args.Extension:
+            arguments.append(f"--extension={args.Extension}")
+        arguments.append(args.ConfigDir)
+        print(f"Running: ibcmd {' '.join(arguments)}")
+        result = subprocess.run([v8path] + arguments, capture_output=True, encoding="utf-8", errors="replace")
+        if result.returncode != 0:
+            print(f"Error loading configuration from files (code: {result.returncode})", file=sys.stderr)
+            if result.stdout:
+                print(result.stdout)
+            if result.stderr:
+                print(result.stderr, file=sys.stderr)
+            sys.exit(result.returncode)
+        print(f"Configuration loaded successfully from: {args.ConfigDir}")
+        if result.stdout:
+            print(result.stdout)
+        exit_code = 0
+        if args.UpdateDB:
+            apply_args = ["infobase", "config", "apply", f"--db-path={args.InfoBasePath}", "--force"]
+            print(f"Running: ibcmd {' '.join(apply_args)}")
+            ar = subprocess.run([v8path] + apply_args, capture_output=True, encoding="utf-8", errors="replace")
+            exit_code = ar.returncode
+            if exit_code == 0:
+                print("Database configuration updated successfully")
+            else:
+                print(f"Error updating database configuration (code: {exit_code})", file=sys.stderr)
+            if ar.stdout:
+                print(ar.stdout)
+            if ar.stderr:
+                print(ar.stderr, file=sys.stderr)
+        sys.exit(exit_code)
 
     # --- Temp dir ---
     temp_dir = os.path.join(tempfile.gettempdir(), f"db_load_xml_{random.randint(0, 999999)}")

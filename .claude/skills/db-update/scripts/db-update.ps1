@@ -1,4 +1,4 @@
-﻿# db-update v1.1 — Update 1C database configuration
+﻿# db-update v1.2 — Update 1C database configuration
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 <#
 .SYNOPSIS
@@ -131,8 +131,16 @@ if (-not (Test-Path $V8Path)) {
     exit 1
 }
 
+# --- Detect engine (ibcmd vs 1cv8) by exe name ---
+$engine = if ((Split-Path $V8Path -Leaf) -match '^ibcmd') { "ibcmd" } else { "1cv8" }
+
 # --- Validate connection ---
-if (-not $InfoBasePath -and (-not $InfoBaseServer -or -not $InfoBaseRef)) {
+if ($engine -eq "ibcmd") {
+    if (-not $InfoBasePath) {
+        Write-Host "Error: ibcmd supports file infobases only (use -InfoBasePath)" -ForegroundColor Red
+        exit 1
+    }
+} elseif (-not $InfoBasePath -and (-not $InfoBaseServer -or -not $InfoBaseRef)) {
     Write-Host "Error: specify -InfoBasePath or -InfoBaseServer + -InfoBaseRef" -ForegroundColor Red
     exit 1
 }
@@ -142,6 +150,29 @@ $tempDir = Join-Path $env:TEMP "db_update_$(Get-Random)"
 New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
 
 try {
+    if ($engine -eq "ibcmd") {
+        # --- ibcmd branch (file infobase only) ---
+        if ($AllExtensions) {
+            Write-Host "Error: ibcmd config apply does not support -AllExtensions (use -Extension)" -ForegroundColor Red
+            exit 1
+        }
+        $arguments = @("infobase", "config", "apply", "--db-path=$InfoBasePath", "--force")
+        if ($Dynamic -eq "+") { $arguments += "--dynamic=auto" }
+        elseif ($Dynamic -eq "-") { $arguments += "--dynamic=disable" }
+        if ($Extension) { $arguments += "--extension=$Extension" }
+        Write-Host "Running: ibcmd $($arguments -join ' ')"
+        $output = & $V8Path @arguments 2>&1
+        $exitCode = $LASTEXITCODE
+        if ($exitCode -eq 0) {
+            Write-Host "Database configuration updated successfully" -ForegroundColor Green
+        } else {
+            Write-Host "Error updating database configuration (code: $exitCode)" -ForegroundColor Red
+        }
+        if ($output) { Write-Host ($output | Out-String) }
+        exit $exitCode
+    }
+
+    # --- 1cv8 branch ---
     # --- Build arguments ---
     $arguments = @("DESIGNER")
 

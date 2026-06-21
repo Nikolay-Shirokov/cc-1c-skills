@@ -1,4 +1,4 @@
-﻿# db-dump-cf v1.1 — Dump 1C configuration to CF file
+﻿# db-dump-cf v1.2 — Dump 1C configuration to CF file
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 <#
 .SYNOPSIS
@@ -118,8 +118,16 @@ if (-not (Test-Path $V8Path)) {
     exit 1
 }
 
+# --- Detect engine (ibcmd vs 1cv8) by exe name ---
+$engine = if ((Split-Path $V8Path -Leaf) -match '^ibcmd') { "ibcmd" } else { "1cv8" }
+
 # --- Validate connection ---
-if (-not $InfoBasePath -and (-not $InfoBaseServer -or -not $InfoBaseRef)) {
+if ($engine -eq "ibcmd") {
+    if (-not $InfoBasePath) {
+        Write-Host "Error: ibcmd supports file infobases only (use -InfoBasePath)" -ForegroundColor Red
+        exit 1
+    }
+} elseif (-not $InfoBasePath -and (-not $InfoBaseServer -or -not $InfoBaseRef)) {
     Write-Host "Error: specify -InfoBasePath or -InfoBaseServer + -InfoBaseRef" -ForegroundColor Red
     exit 1
 }
@@ -135,6 +143,28 @@ $tempDir = Join-Path $env:TEMP "db_dump_cf_$(Get-Random)"
 New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
 
 try {
+    if ($engine -eq "ibcmd") {
+        # --- ibcmd branch (file infobase only) ---
+        if ($AllExtensions) {
+            Write-Host "Error: ibcmd config save does not support -AllExtensions (use -Extension)" -ForegroundColor Red
+            exit 1
+        }
+        $arguments = @("infobase", "config", "save", "--db-path=$InfoBasePath")
+        if ($Extension) { $arguments += "--extension=$Extension" }
+        $arguments += "$OutputFile"
+        Write-Host "Running: ibcmd $($arguments -join ' ')"
+        $output = & $V8Path @arguments 2>&1
+        $exitCode = $LASTEXITCODE
+        if ($exitCode -eq 0) {
+            Write-Host "Configuration dumped successfully to: $OutputFile" -ForegroundColor Green
+        } else {
+            Write-Host "Error dumping configuration (code: $exitCode)" -ForegroundColor Red
+        }
+        if ($output) { Write-Host ($output | Out-String) }
+        exit $exitCode
+    }
+
+    # --- 1cv8 branch ---
     # --- Build arguments ---
     $arguments = @("DESIGNER")
 
