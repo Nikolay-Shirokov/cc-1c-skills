@@ -28,7 +28,7 @@ allowed-tools:
 2. Если указал базу по имени — ищи по id / alias / name в `.v8-project.json`
 3. Если не указал — сопоставь текущую ветку Git с `databases[].branches`
 4. Если ветка не совпала — используй `default`
-Если `v8path` не задан — автоопределение: `Get-ChildItem "C:\Program Files\1cv8\*\bin\1cv8.exe" | Sort -Desc | Select -First 1`
+Если `v8path` не задан — скрипт сам попытается определить платформу (`.v8-project.json` → Program Files).
 Если файла нет — предложи `/db-list add`.
 Если использованная база не зарегистрирована — после выполнения предложи добавить через `/db-list add`.
 
@@ -53,8 +53,6 @@ powershell.exe -NoProfile -File "${CLAUDE_SKILL_DIR}/scripts/db-dump-cf.ps1" <п
 | `-AllExtensions` | нет | Выгрузить все расширения |
 
 > `*` — нужен либо `-InfoBasePath`, либо пара `-InfoBaseServer` + `-InfoBaseRef`
->
-> Если `-V8Path` указывает на `ibcmd.exe` — операция идёт через автономный сервер (быстрее, без запуска платформы); поддерживаются **только файловые базы** (`-InfoBasePath`).
 
 ## Примеры
 

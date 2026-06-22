@@ -29,7 +29,7 @@ allowed-tools:
 2. Если указал базу по имени — ищи по id / alias / name в `.v8-project.json`
 3. Если не указал — сопоставь текущую ветку Git с `databases[].branches`
 4. Если ветка не совпала — используй `default`
-Если `v8path` не задан — автоопределение: `Get-ChildItem "C:\Program Files\1cv8\*\bin\1cv8.exe" | Sort -Desc | Select -First 1`
+Если `v8path` не задан — скрипт сам попытается определить платформу (`.v8-project.json` → Program Files).
 Если файла нет — предложи `/db-list add`.
 Если использованная база не зарегистрирована — после выполнения предложи добавить через `/db-list add`.
 
