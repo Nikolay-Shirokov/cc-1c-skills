@@ -297,8 +297,8 @@ def main():
        xmlns:xs="http://www.w3.org/2001/XMLSchema"
        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
        base="/{app_name}"
-       ib="{ib_string}"
-       enableStandardOdata="true">
+       ib="{ib_string}">
+    <standardOdata enable="true"/>
     <ws pointEnableCommon="true"/>
     <httpServices publishByDefault="true"/>
 </point>'''

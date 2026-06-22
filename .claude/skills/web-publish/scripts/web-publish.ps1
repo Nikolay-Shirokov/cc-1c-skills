@@ -278,8 +278,8 @@ $vrdContent = @"
        xmlns:xs="http://www.w3.org/2001/XMLSchema"
        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
        base="/$AppName"
-       ib="$ibString"
-       enableStandardOdata="true">
+       ib="$ibString">
+    <standardOdata enable="true"/>
     <ws pointEnableCommon="true"/>
     <httpServices publishByDefault="true"/>
 </point>
