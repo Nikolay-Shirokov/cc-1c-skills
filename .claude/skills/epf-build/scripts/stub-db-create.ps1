@@ -1,4 +1,4 @@
-﻿# stub-db-create v1.0 — Create temp 1C infobase with metadata stubs for EPF/ERF build
+﻿# stub-db-create v1.2 — Create temp 1C infobase with metadata stubs for EPF/ERF build
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -1250,6 +1250,29 @@ $propsXml		</Properties>$childObjLine
 	if ($registerColumns.Count -gt 0) {
 		Write-Host "WARNING: Register column categories (Dimension/Resource/Attribute) are guessed. Form field bindings may not survive round-trip through a real database." -ForegroundColor Yellow
 	}
+}
+
+# --- 5a. Stub via ibcmd (one call: create [--import --apply]) ---
+$stubEngine = if ((Split-Path $V8Path -Leaf) -match '^ibcmd') { "ibcmd" } else { "1cv8" }
+if ($stubEngine -eq "ibcmd") {
+	Write-Host "Creating infobase (ibcmd): $TempBasePath"
+	$ibData = Join-Path $env:TEMP "stub_data_$(Get-Random)"
+	New-Item -ItemType Directory -Path $ibData -Force | Out-Null
+	$ibArgs = @("infobase", "create", "--db-path=$TempBasePath", "--create-database")
+	if ($hasRefTypes) { $ibArgs += "--import=$(Join-Path $TempBasePath 'cfg')", "--apply", "--force" }
+	$ibArgs += "--data=$ibData"
+	$ibOut = & $V8Path @ibArgs 2>&1
+	$ibRc = $LASTEXITCODE
+	Remove-Item -Path $ibData -Recurse -Force -ErrorAction SilentlyContinue
+	if ($ibRc -ne 0) {
+		if ($ibOut) { Write-Host ($ibOut | Out-String) }
+		Write-Error "Failed to create stub infobase (code: $ibRc)"
+		exit 1
+	}
+	if ($hasRefTypes) { Remove-Item -Path (Join-Path $TempBasePath "cfg") -Recurse -Force -ErrorAction SilentlyContinue }
+	Write-Host "[OK] Stub database created: $TempBasePath"
+	Write-Host $TempBasePath
+	exit 0
 }
 
 # --- 5. Create infobase ---

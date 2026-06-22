@@ -1,4 +1,4 @@
-﻿# epf-dump v1.1 — Dump external data processor or report (EPF/ERF) to XML sources
+﻿# epf-dump v1.3 — Dump external data processor or report (EPF/ERF) to XML sources
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 <#
 .SYNOPSIS
@@ -126,6 +126,19 @@ if (-not $InfoBasePath -and (-not $InfoBaseServer -or -not $InfoBaseRef)) {
     exit 1
 }
 
+# --- Detect engine (ibcmd vs 1cv8) by exe name ---
+$engine = if ((Split-Path $V8Path -Leaf) -match '^ibcmd') { "ibcmd" } else { "1cv8" }
+if ($engine -eq "ibcmd") {
+    if (-not $InfoBasePath) {
+        Write-Host "Error: ibcmd supports file infobases only (use -InfoBasePath)" -ForegroundColor Red
+        exit 1
+    }
+    if ($Format -eq "Plain") {
+        Write-Host "Error: ibcmd config export supports hierarchical format only (use -Format Hierarchical or 1cv8)" -ForegroundColor Red
+        exit 1
+    }
+}
+
 # --- Validate input file ---
 if (-not (Test-Path $InputFile)) {
     Write-Host "Error: input file not found: $InputFile" -ForegroundColor Red
@@ -142,6 +155,23 @@ $tempDir = Join-Path $env:TEMP "epf_dump_$(Get-Random)"
 New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
 
 try {
+    if ($engine -eq "ibcmd") {
+        # --- ibcmd branch: dump EPF/ERF via config export --file ---
+        $arguments = @("infobase", "config", "export", "--file=$InputFile", "$OutputDir", "--db-path=$InfoBasePath")
+        $arguments += "--data=$tempDir"
+        Write-Host "Running: ibcmd $($arguments -join ' ')"
+        $output = & $V8Path @arguments 2>&1
+        $exitCode = $LASTEXITCODE
+        if ($exitCode -eq 0) {
+            Write-Host "External data processor/report dumped successfully to: $OutputDir" -ForegroundColor Green
+        } else {
+            Write-Host "Error dumping external data processor/report (code: $exitCode)" -ForegroundColor Red
+        }
+        if ($output) { Write-Host ($output | Out-String) }
+        exit $exitCode
+    }
+
+    # --- 1cv8 branch ---
     # --- Build arguments ---
     $arguments = @("DESIGNER")
 

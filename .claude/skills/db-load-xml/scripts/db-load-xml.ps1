@@ -1,4 +1,4 @@
-﻿# db-load-xml v1.5 — Load 1C configuration from XML files
+﻿# db-load-xml v1.9 — Load 1C configuration from XML files
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 <#
 .SYNOPSIS
@@ -150,8 +150,16 @@ if (-not (Test-Path $V8Path)) {
     exit 1
 }
 
+# --- Detect engine (ibcmd vs 1cv8) by exe name ---
+$engine = if ((Split-Path $V8Path -Leaf) -match '^ibcmd') { "ibcmd" } else { "1cv8" }
+
 # --- Validate connection ---
-if (-not $InfoBasePath -and (-not $InfoBaseServer -or -not $InfoBaseRef)) {
+if ($engine -eq "ibcmd") {
+    if (-not $InfoBasePath) {
+        Write-Host "Error: ibcmd supports file infobases only (use -InfoBasePath)" -ForegroundColor Red
+        exit 1
+    }
+} elseif (-not $InfoBasePath -and (-not $InfoBaseServer -or -not $InfoBaseRef)) {
     Write-Host "Error: specify -InfoBasePath or -InfoBaseServer + -InfoBaseRef" -ForegroundColor Red
     exit 1
 }
@@ -173,6 +181,67 @@ $tempDir = Join-Path $env:TEMP "db_load_xml_$(Get-Random)"
 New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
 
 try {
+    if ($engine -eq "ibcmd") {
+        # --- ibcmd branch (file infobase only; hierarchical full-directory import) ---
+        if ($Format -eq "Plain") {
+            Write-Host "Error: ibcmd config import supports hierarchical format only (use -Format Hierarchical or 1cv8)" -ForegroundColor Red
+            exit 1
+        }
+        if ($AllExtensions) {
+            $arguments = @("infobase", "config", "import", "all-extensions", "$ConfigDir", "--db-path=$InfoBasePath")
+        } elseif ($Mode -eq "Partial" -or $Files -or $ListFile) {
+            # partial: import specific files (relative to ConfigDir)
+            $fileList = @()
+            if ($ListFile) {
+                if (-not (Test-Path $ListFile)) {
+                    Write-Host "Error: list file not found: $ListFile" -ForegroundColor Red
+                    exit 1
+                }
+                $fileList = @(Get-Content -Path $ListFile -Encoding UTF8 | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+            } elseif ($Files) {
+                $fileList = @($Files -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+            }
+            if ($fileList.Count -eq 0) {
+                Write-Host "Error: -Files or -ListFile required for partial import" -ForegroundColor Red
+                exit 1
+            }
+            $arguments = @("infobase", "config", "import", "files") + $fileList
+            $arguments += "--base-dir=$ConfigDir", "--db-path=$InfoBasePath"
+            if ($Extension) { $arguments += "--extension=$Extension" }
+        } else {
+            $arguments = @("infobase", "config", "import", "--db-path=$InfoBasePath")
+            if ($Extension) { $arguments += "--extension=$Extension" }
+            $arguments += "$ConfigDir"
+        }
+        $arguments += "--data=$tempDir"
+        Write-Host "Running: ibcmd $($arguments -join ' ')"
+        $output = & $V8Path @arguments 2>&1
+        $exitCode = $LASTEXITCODE
+        if ($exitCode -ne 0) {
+            Write-Host "Error loading configuration from files (code: $exitCode)" -ForegroundColor Red
+            if ($output) { Write-Host ($output | Out-String) }
+            exit $exitCode
+        }
+        Write-Host "Configuration loaded successfully from: $ConfigDir" -ForegroundColor Green
+        if ($output) { Write-Host ($output | Out-String) }
+
+        if ($UpdateDB) {
+            $applyArgs = @("infobase", "config", "apply", "--db-path=$InfoBasePath", "--force")
+            $applyArgs += "--data=$tempDir"
+            Write-Host "Running: ibcmd $($applyArgs -join ' ')"
+            $applyOut = & $V8Path @applyArgs 2>&1
+            $exitCode = $LASTEXITCODE
+            if ($exitCode -eq 0) {
+                Write-Host "Database configuration updated successfully" -ForegroundColor Green
+            } else {
+                Write-Host "Error updating database configuration (code: $exitCode)" -ForegroundColor Red
+            }
+            if ($applyOut) { Write-Host ($applyOut | Out-String) }
+        }
+        exit $exitCode
+    }
+
+    # --- 1cv8 branch ---
     # --- Build arguments ---
     $arguments = @("DESIGNER")
 

@@ -1,4 +1,4 @@
-﻿# db-load-dt v1.1 — Load 1C information base from DT file
+﻿# db-load-dt v1.3 — Load 1C information base from DT file
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 <#
 .SYNOPSIS
@@ -115,8 +115,16 @@ if (-not (Test-Path $V8Path)) {
     exit 1
 }
 
+# --- Detect engine (ibcmd vs 1cv8) by exe name ---
+$engine = if ((Split-Path $V8Path -Leaf) -match '^ibcmd') { "ibcmd" } else { "1cv8" }
+
 # --- Validate connection ---
-if (-not $InfoBasePath -and (-not $InfoBaseServer -or -not $InfoBaseRef)) {
+if ($engine -eq "ibcmd") {
+    if (-not $InfoBasePath) {
+        Write-Host "Error: ibcmd supports file infobases only (use -InfoBasePath)" -ForegroundColor Red
+        exit 1
+    }
+} elseif (-not $InfoBasePath -and (-not $InfoBaseServer -or -not $InfoBaseRef)) {
     Write-Host "Error: specify -InfoBasePath or -InfoBaseServer + -InfoBaseRef" -ForegroundColor Red
     exit 1
 }
@@ -132,6 +140,28 @@ $tempDir = Join-Path $env:TEMP "db_load_dt_$(Get-Random)"
 New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
 
 try {
+    if ($engine -eq "ibcmd") {
+        # --- ibcmd branch (file infobase only) ---
+        $arguments = @("infobase", "restore", "--db-path=$InfoBasePath")
+        if (-not (Test-Path (Join-Path $InfoBasePath "1Cv8.1CD"))) { $arguments += "--create-database" }
+        if ($UserName) { $arguments += "--user=$UserName" }
+        if ($Password) { $arguments += "--password=$Password" }
+        $arguments += "$InputFile"
+
+        $arguments += "--data=$tempDir"
+        Write-Host "Running: ibcmd $($arguments -join ' ')"
+        $output = & $V8Path @arguments 2>&1
+        $exitCode = $LASTEXITCODE
+        if ($exitCode -eq 0) {
+            Write-Host "Information base restored successfully from: $InputFile" -ForegroundColor Green
+        } else {
+            Write-Host "Error restoring information base (code: $exitCode)" -ForegroundColor Red
+        }
+        if ($output) { Write-Host ($output | Out-String) }
+        exit $exitCode
+    }
+
+    # --- 1cv8 branch ---
     # --- Build arguments ---
     $arguments = @("DESIGNER")
 

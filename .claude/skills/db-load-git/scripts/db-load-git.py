@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-# db-load-git v1.5 — Load Git changes into 1C database
+# db-load-git v1.7 — Load Git changes into 1C database
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
+import atexit
 import glob
 import json
 import os
@@ -125,9 +126,15 @@ def main():
     if not args.DryRun:
         v8path = resolve_v8path(args.V8Path)
 
-    # --- Validate connection (skip if DryRun) ---
+    # --- Detect engine + validate connection (skip if DryRun) ---
+    engine = "1cv8"
     if not args.DryRun:
-        if not args.InfoBasePath and (not args.InfoBaseServer or not args.InfoBaseRef):
+        engine = "ibcmd" if os.path.basename(v8path).lower().startswith("ibcmd") else "1cv8"
+        if engine == "ibcmd":
+            if not args.InfoBasePath:
+                print("Error: ibcmd supports file infobases only (use -InfoBasePath)", file=sys.stderr)
+                sys.exit(1)
+        elif not args.InfoBasePath and (not args.InfoBaseServer or not args.InfoBaseRef):
             print("Error: specify -InfoBasePath or -InfoBaseServer + -InfoBaseRef", file=sys.stderr)
             sys.exit(1)
 
@@ -248,6 +255,50 @@ def main():
     os.makedirs(temp_dir, exist_ok=True)
 
     try:
+        if engine == "ibcmd":
+            # --- ibcmd branch (file infobase only; import specific files) ---
+            if args.Format == "Plain":
+                print("Error: ibcmd config import supports hierarchical format only (use -Format Hierarchical or 1cv8)", file=sys.stderr)
+                sys.exit(1)
+            if args.AllExtensions:
+                print("Error: ibcmd config import does not support -AllExtensions (use -Extension or 1cv8)", file=sys.stderr)
+                sys.exit(1)
+            arguments = ["infobase", "config", "import", "files"] + config_files
+            arguments += [f"--base-dir={args.ConfigDir}", f"--db-path={args.InfoBasePath}"]
+            if args.Extension:
+                arguments.append(f"--extension={args.Extension}")
+            ib_data = tempfile.mkdtemp(prefix="ibcmd_data_")
+            atexit.register(shutil.rmtree, ib_data, ignore_errors=True)
+            arguments.append(f"--data={ib_data}")
+            print(f"Running: ibcmd {' '.join(arguments)}")
+            result = subprocess.run([v8path] + arguments, capture_output=True, encoding="utf-8", errors="replace")
+            if result.returncode != 0:
+                print(f"Error loading changes (code: {result.returncode})", file=sys.stderr)
+                if result.stdout:
+                    print(result.stdout)
+                if result.stderr:
+                    print(result.stderr, file=sys.stderr)
+                sys.exit(result.returncode)
+            print(f"Changes loaded successfully ({len(config_files)} files)")
+            if result.stdout:
+                print(result.stdout)
+            exit_code = 0
+            if args.UpdateDB:
+                apply_args = ["infobase", "config", "apply", f"--db-path={args.InfoBasePath}", "--force"]
+                apply_args.append(f"--data={ib_data}")
+                print(f"Running: ibcmd {' '.join(apply_args)}")
+                ar = subprocess.run([v8path] + apply_args, capture_output=True, encoding="utf-8", errors="replace")
+                exit_code = ar.returncode
+                if exit_code == 0:
+                    print("Database configuration updated successfully")
+                else:
+                    print(f"Error updating database configuration (code: {exit_code})", file=sys.stderr)
+                if ar.stdout:
+                    print(ar.stdout)
+                if ar.stderr:
+                    print(ar.stderr, file=sys.stderr)
+            sys.exit(exit_code)
+
         # --- Write list file (UTF-8 with BOM) ---
         list_file = os.path.join(temp_dir, "load_list.txt")
         with open(list_file, "w", encoding="utf-8-sig") as f:

@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-# db-update v1.1 — Update 1C database configuration
+# db-update v1.3 — Update 1C database configuration
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
+import atexit
 import glob
 import json
 import os
@@ -87,10 +88,43 @@ def main():
 
     v8path = resolve_v8path(args.V8Path)
 
+    engine = "ibcmd" if os.path.basename(v8path).lower().startswith("ibcmd") else "1cv8"
+
     # --- Validate connection ---
-    if not args.InfoBasePath and (not args.InfoBaseServer or not args.InfoBaseRef):
+    if engine == "ibcmd":
+        if not args.InfoBasePath:
+            print("Error: ibcmd supports file infobases only (use -InfoBasePath)", file=sys.stderr)
+            sys.exit(1)
+    elif not args.InfoBasePath and (not args.InfoBaseServer or not args.InfoBaseRef):
         print("Error: specify -InfoBasePath or -InfoBaseServer + -InfoBaseRef", file=sys.stderr)
         sys.exit(1)
+
+    # --- ibcmd branch (file infobase only) ---
+    if engine == "ibcmd":
+        if args.AllExtensions:
+            print("Error: ibcmd config apply does not support -AllExtensions (use -Extension)", file=sys.stderr)
+            sys.exit(1)
+        arguments = ["infobase", "config", "apply", f"--db-path={args.InfoBasePath}", "--force"]
+        if args.Dynamic == "+":
+            arguments.append("--dynamic=auto")
+        elif args.Dynamic == "-":
+            arguments.append("--dynamic=disable")
+        if args.Extension:
+            arguments.append(f"--extension={args.Extension}")
+        ib_data = tempfile.mkdtemp(prefix="ibcmd_data_")
+        atexit.register(shutil.rmtree, ib_data, ignore_errors=True)
+        arguments.append(f"--data={ib_data}")
+        print(f"Running: ibcmd {' '.join(arguments)}")
+        result = subprocess.run([v8path] + arguments, capture_output=True, encoding="utf-8", errors="replace")
+        if result.returncode == 0:
+            print("Database configuration updated successfully")
+        else:
+            print(f"Error updating database configuration (code: {result.returncode})", file=sys.stderr)
+        if result.stdout:
+            print(result.stdout)
+        if result.stderr:
+            print(result.stderr, file=sys.stderr)
+        sys.exit(result.returncode)
 
     # --- Temp dir ---
     temp_dir = os.path.join(tempfile.gettempdir(), f"db_update_{random.randint(0, 999999)}")

@@ -1,4 +1,4 @@
-﻿# db-load-git v1.5 — Load Git changes into 1C database
+﻿# db-load-git v1.7 — Load Git changes into 1C database
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 <#
 .SYNOPSIS
@@ -163,9 +163,16 @@ if (-not $DryRun) {
     }
 }
 
-# --- Validate connection (skip if DryRun) ---
+# --- Detect engine + validate connection (skip if DryRun) ---
+$engine = "1cv8"
 if (-not $DryRun) {
-    if (-not $InfoBasePath -and (-not $InfoBaseServer -or -not $InfoBaseRef)) {
+    $engine = if ((Split-Path $V8Path -Leaf) -match '^ibcmd') { "ibcmd" } else { "1cv8" }
+    if ($engine -eq "ibcmd") {
+        if (-not $InfoBasePath) {
+            Write-Host "Error: ibcmd supports file infobases only (use -InfoBasePath)" -ForegroundColor Red
+            exit 1
+        }
+    } elseif (-not $InfoBasePath -and (-not $InfoBaseServer -or -not $InfoBaseRef)) {
         Write-Host "Error: specify -InfoBasePath or -InfoBaseServer + -InfoBaseRef" -ForegroundColor Red
         exit 1
     }
@@ -319,6 +326,47 @@ $tempDir = Join-Path $env:TEMP "db_load_git_$(Get-Random)"
 New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
 
 try {
+    if ($engine -eq "ibcmd") {
+        # --- ibcmd branch (file infobase only; import specific files) ---
+        if ($Format -eq "Plain") {
+            Write-Host "Error: ibcmd config import supports hierarchical format only (use -Format Hierarchical or 1cv8)" -ForegroundColor Red
+            exit 1
+        }
+        if ($AllExtensions) {
+            Write-Host "Error: ibcmd config import does not support -AllExtensions (use -Extension or 1cv8)" -ForegroundColor Red
+            exit 1
+        }
+        $arguments = @("infobase", "config", "import", "files") + $configFiles
+        $arguments += "--base-dir=$ConfigDir", "--db-path=$InfoBasePath"
+        if ($Extension) { $arguments += "--extension=$Extension" }
+        $arguments += "--data=$tempDir"
+        Write-Host "Running: ibcmd $($arguments -join ' ')"
+        $output = & $V8Path @arguments 2>&1
+        $exitCode = $LASTEXITCODE
+        if ($exitCode -ne 0) {
+            Write-Host "Error loading changes (code: $exitCode)" -ForegroundColor Red
+            if ($output) { Write-Host ($output | Out-String) }
+            exit $exitCode
+        }
+        Write-Host "Changes loaded successfully ($($configFiles.Count) files)" -ForegroundColor Green
+        if ($output) { Write-Host ($output | Out-String) }
+        if ($UpdateDB) {
+            $applyArgs = @("infobase", "config", "apply", "--db-path=$InfoBasePath", "--force")
+            $applyArgs += "--data=$tempDir"
+            Write-Host "Running: ibcmd $($applyArgs -join ' ')"
+            $applyOut = & $V8Path @applyArgs 2>&1
+            $exitCode = $LASTEXITCODE
+            if ($exitCode -eq 0) {
+                Write-Host "Database configuration updated successfully" -ForegroundColor Green
+            } else {
+                Write-Host "Error updating database configuration (code: $exitCode)" -ForegroundColor Red
+            }
+            if ($applyOut) { Write-Host ($applyOut | Out-String) }
+        }
+        exit $exitCode
+    }
+
+    # --- 1cv8 branch ---
     # --- Write list file (UTF-8 with BOM) ---
     $listFile = Join-Path $tempDir "load_list.txt"
     $utf8Bom = New-Object System.Text.UTF8Encoding($true)

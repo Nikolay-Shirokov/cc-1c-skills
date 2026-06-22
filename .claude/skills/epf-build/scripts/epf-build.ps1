@@ -1,4 +1,4 @@
-﻿# epf-build v1.1 — Build external data processor or report (EPF/ERF) from XML sources
+﻿# epf-build v1.3 — Build external data processor or report (EPF/ERF) from XML sources
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 <#
 .SYNOPSIS
@@ -112,6 +112,13 @@ if (-not (Test-Path $V8Path)) {
     exit 1
 }
 
+# --- Detect engine (ibcmd vs 1cv8) by exe name ---
+$engine = if ((Split-Path $V8Path -Leaf) -match '^ibcmd') { "ibcmd" } else { "1cv8" }
+if ($engine -eq "ibcmd" -and $InfoBaseServer -and $InfoBaseRef) {
+    Write-Host "Error: ibcmd supports file infobases only (use -InfoBasePath or omit for stub)" -ForegroundColor Red
+    exit 1
+}
+
 # --- Auto-create stub database if no connection specified ---
 $autoCreatedBase = $null
 if (-not $InfoBasePath -and (-not $InfoBaseServer -or -not $InfoBaseRef)) {
@@ -146,6 +153,24 @@ $tempDir = Join-Path $env:TEMP "epf_build_$(Get-Random)"
 New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
 
 try {
+    if ($engine -eq "ibcmd") {
+        # --- ibcmd branch: build EPF/ERF via config import --out ---
+        $srcDir = Split-Path $SourceFile -Parent
+        $arguments = @("infobase", "config", "import", "$srcDir", "--out=$OutputFile", "--db-path=$InfoBasePath")
+        $arguments += "--data=$tempDir"
+        Write-Host "Running: ibcmd $($arguments -join ' ')"
+        $output = & $V8Path @arguments 2>&1
+        $exitCode = $LASTEXITCODE
+        if ($exitCode -eq 0) {
+            Write-Host "External data processor/report built successfully: $OutputFile" -ForegroundColor Green
+        } else {
+            Write-Host "Error building external data processor/report (code: $exitCode)" -ForegroundColor Red
+        }
+        if ($output) { Write-Host ($output | Out-String) }
+        exit $exitCode
+    }
+
+    # --- 1cv8 branch ---
     # --- Build arguments ---
     $arguments = @("DESIGNER")
 

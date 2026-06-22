@@ -1,4 +1,4 @@
-﻿# db-create v1.1 — Create 1C information base
+﻿# db-create v1.3 — Create 1C information base
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 <#
 .SYNOPSIS
@@ -109,8 +109,16 @@ if (-not (Test-Path $V8Path)) {
     exit 1
 }
 
+# --- Detect engine (ibcmd vs 1cv8) by exe name ---
+$engine = if ((Split-Path $V8Path -Leaf) -match '^ibcmd') { "ibcmd" } else { "1cv8" }
+
 # --- Validate connection ---
-if (-not $InfoBasePath -and (-not $InfoBaseServer -or -not $InfoBaseRef)) {
+if ($engine -eq "ibcmd") {
+    if (-not $InfoBasePath) {
+        Write-Host "Error: ibcmd supports file infobases only (use -InfoBasePath)" -ForegroundColor Red
+        exit 1
+    }
+} elseif (-not $InfoBasePath -and (-not $InfoBaseServer -or -not $InfoBaseRef)) {
     Write-Host "Error: specify -InfoBasePath or -InfoBaseServer + -InfoBaseRef" -ForegroundColor Red
     exit 1
 }
@@ -126,6 +134,30 @@ $tempDir = Join-Path $env:TEMP "db_create_$(Get-Random)"
 New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
 
 try {
+    if ($engine -eq "ibcmd") {
+        # --- ibcmd branch (file infobase only) ---
+        $arguments = @("infobase", "create", "--db-path=$InfoBasePath", "--create-database")
+        if ($UseTemplate) {
+            if ([System.IO.Path]::GetExtension($UseTemplate) -ieq ".dt") {
+                $arguments += "--restore=$UseTemplate"
+            } else {
+                $arguments += "--load=$UseTemplate", "--apply"
+            }
+        }
+        $arguments += "--data=$tempDir"
+        Write-Host "Running: ibcmd $($arguments -join ' ')"
+        $output = & $V8Path @arguments 2>&1
+        $exitCode = $LASTEXITCODE
+        if ($exitCode -eq 0) {
+            Write-Host "Information base created successfully: $InfoBasePath" -ForegroundColor Green
+        } else {
+            Write-Host "Error creating information base (code: $exitCode)" -ForegroundColor Red
+        }
+        if ($output) { Write-Host ($output | Out-String) }
+        exit $exitCode
+    }
+
+    # --- 1cv8 branch ---
     # --- Build arguments ---
     $arguments = @("CREATEINFOBASE")
 

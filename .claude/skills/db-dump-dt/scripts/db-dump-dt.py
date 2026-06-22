@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-# db-dump-dt v1.1 — Dump 1C information base to DT file
+# db-dump-dt v1.3 — Dump 1C information base to DT file
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
+import atexit
 import glob
 import json
 import os
@@ -82,9 +83,14 @@ def main():
     args = parser.parse_args()
 
     v8path = resolve_v8path(args.V8Path)
+    engine = "ibcmd" if os.path.basename(v8path).lower().startswith("ibcmd") else "1cv8"
 
     # --- Validate connection ---
-    if not args.InfoBasePath and (not args.InfoBaseServer or not args.InfoBaseRef):
+    if engine == "ibcmd":
+        if not args.InfoBasePath:
+            print("Error: ibcmd supports file infobases only (use -InfoBasePath)", file=sys.stderr)
+            sys.exit(1)
+    elif not args.InfoBasePath and (not args.InfoBaseServer or not args.InfoBaseRef):
         print("Error: specify -InfoBasePath or -InfoBaseServer + -InfoBaseRef", file=sys.stderr)
         sys.exit(1)
 
@@ -92,6 +98,29 @@ def main():
     out_dir = os.path.dirname(args.OutputFile)
     if out_dir and not os.path.isdir(out_dir):
         os.makedirs(out_dir, exist_ok=True)
+
+    # --- ibcmd branch (file infobase only) ---
+    if engine == "ibcmd":
+        arguments = ["infobase", "dump", f"--db-path={args.InfoBasePath}"]
+        if args.UserName:
+            arguments.append(f"--user={args.UserName}")
+        if args.Password:
+            arguments.append(f"--password={args.Password}")
+        arguments.append(args.OutputFile)
+        ib_data = tempfile.mkdtemp(prefix="ibcmd_data_")
+        atexit.register(shutil.rmtree, ib_data, ignore_errors=True)
+        arguments.append(f"--data={ib_data}")
+        print(f"Running: ibcmd {' '.join(arguments)}")
+        result = subprocess.run([v8path] + arguments, capture_output=True, encoding="utf-8", errors="replace")
+        if result.returncode == 0:
+            print(f"Information base dumped successfully to: {args.OutputFile}")
+        else:
+            print(f"Error dumping information base (code: {result.returncode})", file=sys.stderr)
+        if result.stdout:
+            print(result.stdout)
+        if result.stderr:
+            print(result.stderr, file=sys.stderr)
+        sys.exit(result.returncode)
 
     # --- Temp dir ---
     temp_dir = os.path.join(tempfile.gettempdir(), f"db_dump_dt_{random.randint(0, 999999)}")

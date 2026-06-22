@@ -5,6 +5,9 @@
 export const name = 'Загрузка конфигурации в платформу 1С';
 export const setup = 'none';
 export const requiresPlatform = true;
+// Engine matrix: same load path must hold on DESIGNER (1cv8) and ibcmd.
+// The ibcmd pass is skipped automatically when ibcmd.exe is not present.
+export const engines = ['1cv8', 'ibcmd'];
 
 export const steps = [
   // ── 1. Build minimal config ──

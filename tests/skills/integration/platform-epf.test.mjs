@@ -5,6 +5,9 @@
 export const name = 'Сборка и разборка внешней обработки (roundtrip)';
 export const setup = 'none';
 export const requiresPlatform = true;
+// Engine matrix: same roundtrip must hold on DESIGNER (1cv8) and ibcmd.
+// The ibcmd pass is skipped automatically when ibcmd.exe is not present.
+export const engines = ['1cv8', 'ibcmd'];
 
 export const steps = [
   // ── 1. Create EPF ──

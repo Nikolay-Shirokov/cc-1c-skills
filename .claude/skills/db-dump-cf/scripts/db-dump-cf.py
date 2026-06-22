@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-# db-dump-cf v1.1 — Dump 1C configuration to CF file
+# db-dump-cf v1.3 — Dump 1C configuration to CF file
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
+import atexit
 import glob
 import json
 import os
@@ -84,9 +85,14 @@ def main():
     args = parser.parse_args()
 
     v8path = resolve_v8path(args.V8Path)
+    engine = "ibcmd" if os.path.basename(v8path).lower().startswith("ibcmd") else "1cv8"
 
     # --- Validate connection ---
-    if not args.InfoBasePath and (not args.InfoBaseServer or not args.InfoBaseRef):
+    if engine == "ibcmd":
+        if not args.InfoBasePath:
+            print("Error: ibcmd supports file infobases only (use -InfoBasePath)", file=sys.stderr)
+            sys.exit(1)
+    elif not args.InfoBasePath and (not args.InfoBaseServer or not args.InfoBaseRef):
         print("Error: specify -InfoBasePath or -InfoBaseServer + -InfoBaseRef", file=sys.stderr)
         sys.exit(1)
 
@@ -94,6 +100,30 @@ def main():
     out_dir = os.path.dirname(args.OutputFile)
     if out_dir and not os.path.isdir(out_dir):
         os.makedirs(out_dir, exist_ok=True)
+
+    # --- ibcmd branch (file infobase only) ---
+    if engine == "ibcmd":
+        if args.AllExtensions:
+            print("Error: ibcmd config save does not support -AllExtensions (use -Extension)", file=sys.stderr)
+            sys.exit(1)
+        arguments = ["infobase", "config", "save", f"--db-path={args.InfoBasePath}"]
+        if args.Extension:
+            arguments.append(f"--extension={args.Extension}")
+        arguments.append(args.OutputFile)
+        ib_data = tempfile.mkdtemp(prefix="ibcmd_data_")
+        atexit.register(shutil.rmtree, ib_data, ignore_errors=True)
+        arguments.append(f"--data={ib_data}")
+        print(f"Running: ibcmd {' '.join(arguments)}")
+        result = subprocess.run([v8path] + arguments, capture_output=True, encoding="utf-8", errors="replace")
+        if result.returncode == 0:
+            print(f"Configuration dumped successfully to: {args.OutputFile}")
+        else:
+            print(f"Error dumping configuration (code: {result.returncode})", file=sys.stderr)
+        if result.stdout:
+            print(result.stdout)
+        if result.stderr:
+            print(result.stderr, file=sys.stderr)
+        sys.exit(result.returncode)
 
     # --- Temp dir ---
     temp_dir = os.path.join(tempfile.gettempdir(), f"db_dump_cf_{random.randint(0, 999999)}")

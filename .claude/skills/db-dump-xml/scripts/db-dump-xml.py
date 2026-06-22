@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-# db-dump-xml v1.1 — Dump 1C configuration to XML files
+# db-dump-xml v1.5 — Dump 1C configuration to XML files
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
+import atexit
 import glob
 import json
 import os
@@ -98,9 +99,14 @@ def main():
 
     # --- Resolve V8Path ---
     v8path = resolve_v8path(args.V8Path)
+    engine = "ibcmd" if os.path.basename(v8path).lower().startswith("ibcmd") else "1cv8"
 
     # --- Validate connection ---
-    if not args.InfoBasePath and (not args.InfoBaseServer or not args.InfoBaseRef):
+    if engine == "ibcmd":
+        if not args.InfoBasePath:
+            print("Error: ibcmd supports file infobases only (use -InfoBasePath)", file=sys.stderr)
+            sys.exit(1)
+    elif not args.InfoBasePath and (not args.InfoBaseServer or not args.InfoBaseRef):
         print("Error: specify -InfoBasePath or -InfoBaseServer + -InfoBaseRef", file=sys.stderr)
         sys.exit(1)
 
@@ -113,6 +119,42 @@ def main():
     if not os.path.exists(args.ConfigDir):
         os.makedirs(args.ConfigDir, exist_ok=True)
         print(f"Created output directory: {args.ConfigDir}")
+
+    # --- ibcmd branch (file infobase only; hierarchical Full/Changes) ---
+    if engine == "ibcmd":
+        if args.Format == "Plain":
+            print("Error: ibcmd config export supports hierarchical format only (use -Format Hierarchical or 1cv8)", file=sys.stderr)
+            sys.exit(1)
+        if args.AllExtensions:
+            arguments = ["infobase", "config", "export", "all-extensions", args.ConfigDir, f"--db-path={args.InfoBasePath}"]
+        elif args.Mode == "UpdateInfo":
+            print("Error: ibcmd config export does not support Mode UpdateInfo; use 1cv8", file=sys.stderr)
+            sys.exit(1)
+        elif args.Mode == "Partial":
+            obj_list = [o.strip() for o in args.Objects.split(",") if o.strip()]
+            arguments = ["infobase", "config", "export", "objects"] + obj_list
+            arguments += [f"--out={args.ConfigDir}", f"--db-path={args.InfoBasePath}"]
+            if args.Extension:
+                arguments.append(f"--extension={args.Extension}")
+        else:
+            arguments = ["infobase", "config", "export", f"--db-path={args.InfoBasePath}"]
+            if args.Extension:
+                arguments.append(f"--extension={args.Extension}")
+            arguments.append(args.ConfigDir)
+        ib_data = tempfile.mkdtemp(prefix="ibcmd_data_")
+        atexit.register(shutil.rmtree, ib_data, ignore_errors=True)
+        arguments.append(f"--data={ib_data}")
+        print(f"Running: ibcmd {' '.join(arguments)}")
+        result = subprocess.run([v8path] + arguments, capture_output=True, encoding="utf-8", errors="replace")
+        if result.returncode == 0:
+            print(f"Configuration exported successfully to: {args.ConfigDir}")
+        else:
+            print(f"Error exporting configuration (code: {result.returncode})", file=sys.stderr)
+        if result.stdout:
+            print(result.stdout)
+        if result.stderr:
+            print(result.stderr, file=sys.stderr)
+        sys.exit(result.returncode)
 
     # --- Temp dir ---
     temp_dir = os.path.join(tempfile.gettempdir(), f"db_dump_xml_{random.randint(0, 999999)}")

@@ -972,10 +972,12 @@ function loadV8Context() {
     const v8bin = proj.v8path;
     const v8exe = v8bin ? (existsSync(join(v8bin, '1cv8.exe')) ? join(v8bin, '1cv8.exe') : null) : null;
     if (!v8exe) return null;
+    const ibcmdExe = v8bin && existsSync(join(v8bin, 'ibcmd.exe')) ? join(v8bin, 'ibcmd.exe') : null;
     const defaultDb = proj.databases?.find(d => d.id === proj.default) || proj.databases?.[0];
     return {
       v8path: v8bin,
       v8exe,
+      ibcmdExe,
       dbPath: defaultDb?.path || '',
       dbUser: defaultDb?.user || '',
       dbPassword: defaultDb?.password || '',
@@ -994,20 +996,40 @@ async function discoverIntegration(filter) {
     const id = `integration/${testName}`;
     if (filter && !id.startsWith(filter) && !id.includes(filter)) continue;
     const mod = await import(`file://${join(INTEGRATION, file).replace(/\\/g, '/')}`);
-    results.push({ id, name: mod.name || testName, steps: mod.steps || [], file, cache: mod.cache, setup: mod.setup || 'empty-config', requiresPlatform: !!mod.requiresPlatform });
+    const engines = Array.isArray(mod.engines) && mod.engines.length ? mod.engines : ['1cv8'];
+    results.push({ id, name: mod.name || testName, steps: mod.steps || [], file, cache: mod.cache, setup: mod.setup || 'empty-config', requiresPlatform: !!mod.requiresPlatform, engines });
   }
   return results;
 }
 
+// Run a test once per declared engine (engine matrix). The ibcmd pass swaps
+// {v8path} → ibcmd.exe so the same steps exercise the ibcmd opt-in branch.
 async function runIntegrationTest(test, opts) {
+  const engines = test.engines && test.engines.length ? test.engines : ['1cv8'];
+  // No platform at all → single skipped result (don't multiply across engines)
+  if (test.requiresPlatform && !opts.v8ctx) {
+    return [{ id: test.id, name: test.name, passed: true, skipped: true, skipReason: 'no platform', steps: [], elapsed: '0.0s', errors: [] }];
+  }
+  const out = [];
+  const labelEngine = engines.length > 1;
+  for (const engine of engines) {
+    out.push(await runIntegrationOnce(test, opts, engine, labelEngine));
+  }
+  return out;
+}
+
+async function runIntegrationOnce(test, opts, engine, labelEngine) {
   const t0 = performance.now();
   const stepResults = [];
   let workspace = null;
+  const idSuffix = labelEngine ? ` [${engine}]` : '';
+  const id = test.id + idSuffix;
+  const name = test.name + idSuffix;
 
-  // Skip platform-dependent tests if platform unavailable
-  if (test.requiresPlatform && !opts.v8ctx) {
+  // ibcmd pass requires ibcmd.exe alongside 1cv8.exe
+  if (engine === 'ibcmd' && !opts.v8ctx?.ibcmdExe) {
     const elapsed = ((performance.now() - t0) / 1000).toFixed(1);
-    return { id: test.id, name: test.name, passed: true, skipped: true, steps: [], elapsed: `${elapsed}s`, errors: [] };
+    return { id, name, passed: true, skipped: true, skipReason: 'no ibcmd.exe', steps: [], elapsed: `${elapsed}s`, errors: [] };
   }
 
   try {
@@ -1015,17 +1037,19 @@ async function runIntegrationTest(test, opts) {
     const fixturePath = test.setup === 'none' ? null : ensureSetup(test.setup, opts.runtime, CASES);
     if (fixturePath === SKIP) {
       const elapsed = ((performance.now() - t0) / 1000).toFixed(1);
-      return { id: test.id, name: test.name, passed: true, skipped: true, steps: [], elapsed: `${elapsed}s`, errors: [] };
+      return { id, name, passed: true, skipped: true, skipReason: 'fixture unavailable', steps: [], elapsed: `${elapsed}s`, errors: [] };
     }
     workspace = createWorkspace(fixturePath, false);
     const workDir = workspace.path;
 
-    // Platform placeholders
+    // Platform placeholders. {v8path} resolves to ibcmd.exe on the ibcmd pass
+    // (engine detected by exe name) and to the bin dir otherwise (auto-resolves 1cv8.exe).
     const v8 = opts.v8ctx || {};
+    const v8pathForEngine = engine === 'ibcmd' ? (v8.ibcmdExe || '') : (v8.v8path || '');
     const replacePlaceholders = (s) => s
       .replace('{workDir}', workDir)
       .replace('{inputFile}', '')
-      .replace('{v8path}', v8.v8path || '')
+      .replace('{v8path}', v8pathForEngine)
       .replace('{v8exe}', v8.v8exe || '')
       .replace('{dbPath}', v8.dbPath || '')
       .replace('{dbUser}', v8.dbUser || '')
@@ -1047,6 +1071,41 @@ async function runIntegrationTest(test, opts) {
           stepResults.push({ name: step.name, passed: true, elapsed: `${stepElapsed}s` });
         } catch (e) {
           stepResults.push({ name: step.name, passed: false, error: `writeFile failed: ${e.message}` });
+          break;
+        }
+        continue;
+      }
+
+      // editFile step: substring replace in an existing file (e.g. inject a marker)
+      if (step.editFile) {
+        try {
+          const target = replacePlaceholders(step.editFile);
+          const abs = target.includes(':') || target.startsWith('/') ? target : join(workDir, target);
+          let txt = readFileSync(abs, 'utf8');
+          if (!txt.includes(step.replace)) throw new Error(`pattern not found: ${step.replace}`);
+          txt = txt.replace(step.replace, replacePlaceholders(step.with ?? ''));
+          writeFileSync(abs, txt, 'utf8');
+          const stepElapsed = ((performance.now() - stepT0) / 1000).toFixed(1);
+          stepResults.push({ name: step.name, passed: true, elapsed: `${stepElapsed}s` });
+        } catch (e) {
+          stepResults.push({ name: step.name, passed: false, error: `editFile failed: ${e.message}` });
+          break;
+        }
+        continue;
+      }
+
+      // assertContains step: fail unless target file contains the expected substring
+      if (step.assertContains) {
+        try {
+          const target = replacePlaceholders(step.assertContains);
+          const abs = target.includes(':') || target.startsWith('/') ? target : join(workDir, target);
+          const txt = existsSync(abs) ? readFileSync(abs, 'utf8') : '';
+          const needle = replacePlaceholders(step.expect ?? '');
+          if (!txt.includes(needle)) throw new Error(`"${needle}" not found in ${target}`);
+          const stepElapsed = ((performance.now() - stepT0) / 1000).toFixed(1);
+          stepResults.push({ name: step.name, passed: true, elapsed: `${stepElapsed}s` });
+        } catch (e) {
+          stepResults.push({ name: step.name, passed: false, error: `assert failed: ${e.message}` });
           break;
         }
         continue;
@@ -1112,10 +1171,10 @@ async function runIntegrationTest(test, opts) {
 
     const allPassed = stepResults.every(s => s.passed);
     const elapsed = ((performance.now() - t0) / 1000).toFixed(1);
-    return { id: test.id, name: test.name, passed: allPassed, steps: stepResults, elapsed: `${elapsed}s`, errors: allPassed ? [] : stepResults.filter(s => !s.passed).map(s => s.error) };
+    return { id, name, passed: allPassed, steps: stepResults, elapsed: `${elapsed}s`, errors: allPassed ? [] : stepResults.filter(s => !s.passed).map(s => s.error) };
   } catch (e) {
     const elapsed = ((performance.now() - t0) / 1000).toFixed(1);
-    return { id: test.id, name: test.name, passed: false, steps: stepResults, elapsed: `${elapsed}s`, errors: [`Runner error: ${e.message}`] };
+    return { id, name, passed: false, steps: stepResults, elapsed: `${elapsed}s`, errors: [`Runner error: ${e.message}`] };
   } finally {
     if (workspace) cleanupWorkspace(workspace);
   }
@@ -1125,7 +1184,7 @@ function printIntegrationReport(results, opts) {
   console.log('');
   for (const r of results) {
     const icon = r.skipped ? '\u25CB' : r.passed ? '\u2713' : '\u2717';
-    const suffix = r.skipped ? ' [skipped — no platform]' : '';
+    const suffix = r.skipped ? ` [skipped — ${r.skipReason || 'no platform'}]` : '';
     console.log(`  ${icon} ${r.name} (${r.elapsed})  ${r.id}${suffix}`);
     for (const step of r.steps) {
       const sIcon = step.passed ? '\u2713' : '\u2717';
@@ -1166,7 +1225,7 @@ async function main() {
       console.log(`\nRunning ${integrationTests.length} integration test(s)... [runtime: ${opts.runtime}${valStr}]`);
       const integrationResults = [];
       for (const test of integrationTests) {
-        integrationResults.push(await runIntegrationTest(test, opts));
+        integrationResults.push(...await runIntegrationTest(test, opts));
       }
       integrationOk = printIntegrationReport(integrationResults, opts);
     }

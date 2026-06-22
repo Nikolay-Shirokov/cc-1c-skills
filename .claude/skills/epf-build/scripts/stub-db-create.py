@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# stub-db-create v1.0 — Create temp 1C infobase with metadata stubs for EPF/ERF build
+# stub-db-create v1.2 — Create temp 1C infobase with metadata stubs for EPF/ERF build
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -1033,6 +1033,32 @@ def main():
         print(f'Generated stub configuration with {len(type_map)} metadata types')
         if register_columns:
             print('WARNING: Register column categories (Dimension/Resource/Attribute) are guessed. Form field bindings may not survive round-trip through a real database.')
+
+    # Stub via ibcmd (one call: create [--import --apply])
+    stub_engine = "ibcmd" if os.path.basename(args.V8Path).lower().startswith("ibcmd") else "1cv8"
+    if stub_engine == "ibcmd":
+        import shutil
+        print(f'Creating infobase (ibcmd): {temp_base}')
+        ib_data = tempfile.mkdtemp(prefix="stub_data_")
+        ib_args = [args.V8Path, 'infobase', 'create', f'--db-path={temp_base}', '--create-database']
+        if has_ref_types:
+            ib_args += [f'--import={os.path.join(temp_base, "cfg")}', '--apply', '--force']
+        ib_args.append(f'--data={ib_data}')
+        result = subprocess.run(ib_args, capture_output=True, encoding='utf-8', errors='replace')
+        shutil.rmtree(ib_data, ignore_errors=True)
+        if result.returncode != 0:
+            if result.stdout:
+                print(result.stdout)
+            if result.stderr:
+                print(result.stderr, file=sys.stderr)
+            print(f'Failed to create stub infobase (code: {result.returncode})', file=sys.stderr)
+            sys.exit(1)
+        if has_ref_types:
+            import shutil
+            shutil.rmtree(os.path.join(temp_base, 'cfg'), ignore_errors=True)
+        print(f'[OK] Stub database created: {temp_base}')
+        print(temp_base)
+        sys.exit(0)
 
     # Create infobase
     print(f'Creating infobase: {temp_base}')
