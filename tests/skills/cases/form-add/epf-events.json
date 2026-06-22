@@ -1,0 +1,13 @@
+{
+  "name": "Добавление формы к внешней обработке с -Events (привязка событий формы)",
+  "setup": "none",
+  "preRun": [
+    {
+      "script": "epf-init/scripts/init",
+      "args": { "-Name": "МояОбработка", "-SrcDir": "{workDir}" }
+    }
+  ],
+  "params": { "objectPath": "МояОбработка.xml", "formName": "Форма" },
+  "args_extra": ["-SetDefault", "-Events", "ПриСозданииНаСервере,ПриОткрытии"],
+  "validatePath": "МояОбработка/Forms/Форма"
+}

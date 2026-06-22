@@ -1,4 +1,4 @@
-﻿# form-add v1.7 — Add managed form to 1C config object
+﻿# form-add v1.8 — Add managed form to 1C config object
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -11,7 +11,13 @@ param(
 
 	[string]$Purpose = "Object",
 
-	[switch]$SetDefault
+	[switch]$SetDefault,
+
+	# Comma-separated list of form-level event handlers to wire up (Russian handler names),
+	# e.g. "ПриСозданииНаСервере,ПриОткрытии". Writes <Events> into Form.xml AND stub
+	# procedures into Module.bsl. Without this, a handler typed into the module is NOT called
+	# (the form-level event must be bound in Form.xml via its English <Event name="..."> id).
+	[string]$Events = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -268,6 +274,39 @@ switch ($Purpose) {
 	}
 }
 
+# --- Фаза 2b: Разбор событий формы ---
+# Form-level events are bound in Form.xml via their ENGLISH <Event name="..."> id, mapped to a
+# Russian handler procedure in Module.bsl. A handler typed into the module without this binding
+# is silently never called. Map: Russian handler -> @{ Xml = english id; Dir = directive; Sig = signature }.
+$eventMap = @{
+	"ПриСозданииНаСервере"   = @{ Xml = "OnCreateAtServer";   Dir = "&НаСервере";  Sig = "(Отказ, СтандартнаяОбработка)" }
+	"ПриОткрытии"            = @{ Xml = "OnOpen";              Dir = "&НаКлиенте";  Sig = "(Отказ)" }
+	"ПриПовторномОткрытии"   = @{ Xml = "OnReopen";            Dir = "&НаКлиенте";  Sig = "()" }
+	"ПриЗакрытии"            = @{ Xml = "OnClose";             Dir = "&НаКлиенте";  Sig = "(ЗавершениеРаботы)" }
+	"ПередЗакрытием"         = @{ Xml = "BeforeClose";         Dir = "&НаКлиенте";  Sig = "(Отказ, ЗавершениеРаботы, ТекстПредупреждения, СтандартнаяОбработка)" }
+	"ПриЧтенииНаСервере"     = @{ Xml = "OnReadAtServer";      Dir = "&НаСервере";  Sig = "(ТекущийОбъект)" }
+	"ПередЗаписьюНаСервере"  = @{ Xml = "BeforeWriteAtServer"; Dir = "&НаСервере";  Sig = "(Отказ, ТекущийОбъект, ПараметрыЗаписи)" }
+	"ПослеЗаписиНаСервере"   = @{ Xml = "AfterWriteAtServer";  Dir = "&НаСервере";  Sig = "(ТекущийОбъект, ПараметрыЗаписи)" }
+	"ПередЗаписью"           = @{ Xml = "BeforeWrite";         Dir = "&НаКлиенте";  Sig = "(Отказ, ПараметрыЗаписи)" }
+	"ПослеЗаписи"            = @{ Xml = "AfterWrite";          Dir = "&НаКлиенте";  Sig = "(ПараметрыЗаписи)" }
+	"ОбработкаВыбора"        = @{ Xml = "ChoiceProcessing";    Dir = "&НаКлиенте";  Sig = "(ВыбранноеЗначение, ИсточникВыбора, СтандартнаяОбработка)" }
+	"ОбработкаОповещения"    = @{ Xml = "NotificationProcessing"; Dir = "&НаКлиенте"; Sig = "(ИмяСобытия, Параметр, Источник)" }
+}
+
+$eventList = @()
+if ($Events) {
+	foreach ($raw in ($Events -split ',')) {
+		$h = $raw.Trim()
+		if (-not $h) { continue }
+		$def = $eventMap[$h]
+		if (-not $def) {
+			Write-Error "Неизвестное событие формы: '$h'. Поддерживаются: $(( $eventMap.Keys | Sort-Object ) -join ', ')"
+			exit 1
+		}
+		$eventList += @{ Handler = $h; Xml = $def.Xml; Dir = $def.Dir; Sig = $def.Sig }
+	}
+}
+
 # --- Фаза 3: Создание файлов ---
 
 $objectDir = [System.IO.Path]::ChangeExtension($objectXmlFull.Path, $null).TrimEnd('.')
@@ -425,6 +464,13 @@ if ($Purpose -eq "List" -or $Purpose -eq "Choice") {
 "@
 }
 
+# Inject <Events> binding (between </AutoCommandBar> and <ChildItems>)
+if ($eventList.Count -gt 0) {
+	$eventsInner = ($eventList | ForEach-Object { "`t`t<Event name=`"$($_.Xml)`">$($_.Handler)</Event>" }) -join "`n"
+	$eventsBlock = "`t<Events>`n$eventsInner`n`t</Events>`n"
+	$formXml = $formXml -replace "(?m)^\t<ChildItems", "$eventsBlock`t<ChildItems"
+}
+
 if (Test-Path $formXmlPath) {
 	Write-Host "[SKIP] Form.xml already exists: $formXmlPath — not overwriting"
 } else {
@@ -456,6 +502,14 @@ $moduleBsl = @"
 
 #КонецОбласти
 "@
+
+# Inject stub handlers for wired events into the ОбработчикиСобытийФормы region
+if ($eventList.Count -gt 0) {
+	$handlersBsl = ($eventList | ForEach-Object {
+		"$($_.Dir)`nПроцедура $($_.Handler)$($_.Sig)`n`t// TODO: реализация`nКонецПроцедуры"
+	}) -join "`n`n"
+	$moduleBsl = $moduleBsl -replace "#Область ОбработчикиСобытийФормы\r?\n\r?\n#КонецОбласти", "#Область ОбработчикиСобытийФормы`n`n$handlersBsl`n`n#КонецОбласти"
+}
 
 if (Test-Path $modulePath) {
 	Write-Host "[SKIP] Module.bsl already exists: $modulePath — not overwriting"
@@ -591,6 +645,9 @@ Write-Host "  Form:     $objDirName\$objBaseName\Forms\$FormName\Ext\Form.xml"
 Write-Host "  Module:   $objDirName\$objBaseName\Forms\$FormName\Ext\Form\Module.bsl"
 Write-Host ""
 Write-Host "Registered: <Form>$FormName</Form> in ChildObjects"
+if ($eventList.Count -gt 0) {
+	Write-Host "Events: $(($eventList | ForEach-Object { $_.Handler }) -join ', ') (bound in Form.xml + stubs in Module.bsl)"
+}
 if ($defaultUpdated) {
 	Write-Host "${defaultPropName}: $defaultValue"
 }

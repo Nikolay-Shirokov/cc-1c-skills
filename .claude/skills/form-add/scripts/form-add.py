@@ -219,6 +219,11 @@ def main():
     parser.add_argument("-Synonym", default=None)
     parser.add_argument("-Purpose", default="Object")
     parser.add_argument("-SetDefault", action="store_true")
+    # Comma-separated form-level event handlers (Russian names) to wire up, e.g.
+    # "ПриСозданииНаСервере,ПриОткрытии". Writes <Events> into Form.xml AND stub procedures
+    # into Module.bsl. Without this, a handler in the module is NOT called (form-level events
+    # must be bound in Form.xml via their English <Event name="..."> id).
+    parser.add_argument("-Events", default="")
     args = parser.parse_args()
 
     object_path = args.ObjectPath
@@ -226,6 +231,34 @@ def main():
     synonym = args.Synonym if args.Synonym is not None else form_name
     purpose = args.Purpose
     set_default = args.SetDefault
+    events_arg = args.Events
+
+    # Form-level events: Russian handler -> (english xml id, directive, signature).
+    # A handler in Module.bsl is silently never called unless bound in Form.xml by its english id.
+    event_map = {
+        "ПриСозданииНаСервере":  ("OnCreateAtServer",       "&НаСервере", "(Отказ, СтандартнаяОбработка)"),
+        "ПриОткрытии":           ("OnOpen",                 "&НаКлиенте", "(Отказ)"),
+        "ПриПовторномОткрытии":  ("OnReopen",               "&НаКлиенте", "()"),
+        "ПриЗакрытии":           ("OnClose",                "&НаКлиенте", "(ЗавершениеРаботы)"),
+        "ПередЗакрытием":        ("BeforeClose",            "&НаКлиенте", "(Отказ, ЗавершениеРаботы, ТекстПредупреждения, СтандартнаяОбработка)"),
+        "ПриЧтенииНаСервере":    ("OnReadAtServer",         "&НаСервере", "(ТекущийОбъект)"),
+        "ПередЗаписьюНаСервере": ("BeforeWriteAtServer",    "&НаСервере", "(Отказ, ТекущийОбъект, ПараметрыЗаписи)"),
+        "ПослеЗаписиНаСервере":  ("AfterWriteAtServer",     "&НаСервере", "(ТекущийОбъект, ПараметрыЗаписи)"),
+        "ПередЗаписью":          ("BeforeWrite",            "&НаКлиенте", "(Отказ, ПараметрыЗаписи)"),
+        "ПослеЗаписи":           ("AfterWrite",             "&НаКлиенте", "(ПараметрыЗаписи)"),
+        "ОбработкаВыбора":       ("ChoiceProcessing",       "&НаКлиенте", "(ВыбранноеЗначение, ИсточникВыбора, СтандартнаяОбработка)"),
+        "ОбработкаОповещения":   ("NotificationProcessing", "&НаКлиенте", "(ИмяСобытия, Параметр, Источник)"),
+    }
+    event_list = []
+    for raw in events_arg.split(","):
+        h = raw.strip()
+        if not h:
+            continue
+        if h not in event_map:
+            print(f"Неизвестное событие формы: '{h}'. Поддерживаются: {', '.join(sorted(event_map))}", file=sys.stderr)
+            sys.exit(1)
+        xml_name, directive, sig = event_map[h]
+        event_list.append({"handler": h, "xml": xml_name, "dir": directive, "sig": sig})
 
     # --- Phase 1: Determine object type ---
 
@@ -495,6 +528,14 @@ def main():
             '</Form>'
         )
 
+    # Inject <Events> binding (between </AutoCommandBar> and <ChildItems>)
+    if event_list:
+        events_inner = "\n".join(
+            f'\t\t<Event name="{e["xml"]}">{e["handler"]}</Event>' for e in event_list
+        )
+        events_block = f'\t<Events>\n{events_inner}\n\t</Events>\n'
+        form_xml = form_xml.replace('\t<ChildItems', events_block + '\t<ChildItems', 1)
+
     if os.path.exists(form_xml_path):
         print(f"[SKIP] Form.xml already exists: {form_xml_path} — not overwriting")
     else:
@@ -525,6 +566,18 @@ def main():
         '\n'
         '#\u041a\u043e\u043d\u0435\u0446\u041e\u0431\u043b\u0430\u0441\u0442\u0438'
     )
+
+    # Inject stub handlers for wired events into the ОбработчикиСобытийФормы region
+    if event_list:
+        handlers = "\n\n".join(
+            f'{e["dir"]}\nПроцедура {e["handler"]}{e["sig"]}\n\t// TODO: реализация\nКонецПроцедуры'
+            for e in event_list
+        )
+        module_bsl = module_bsl.replace(
+            "#Область ОбработчикиСобытийФормы\n\n#КонецОбласти",
+            "#Область ОбработчикиСобытийФормы\n\n" + handlers + "\n\n#КонецОбласти",
+            1,
+        )
 
     if os.path.exists(module_path):
         print(f"[SKIP] Module.bsl already exists: {module_path} — not overwriting")
@@ -625,6 +678,8 @@ def main():
     print(f"  Module:   {obj_dir_name}\\{obj_base_name}\\Forms\\{form_name}\\Ext\\Form\\Module.bsl")
     print()
     print(f"Registered: <Form>{form_name}</Form> in ChildObjects")
+    if event_list:
+        print(f"Events: {', '.join(e['handler'] for e in event_list)} (bound in Form.xml + stubs in Module.bsl)")
     if default_updated:
         print(f"{default_prop_name}: {default_value}")
     print()

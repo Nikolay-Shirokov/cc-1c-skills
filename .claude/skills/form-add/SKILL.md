@@ -1,7 +1,7 @@
 ---
 name: form-add
 description: Добавить пустую управляемую форму к объекту 1С. Используй когда нужно создать у объекта новую форму
-argument-hint: <ObjectPath> <FormName> [Purpose] [--set-default]
+argument-hint: <ObjectPath> <FormName> [Purpose] [--set-default] [--events ПриСозданииНаСервере,ПриОткрытии]
 allowed-tools:
   - Bash
   - Read
@@ -18,7 +18,7 @@ allowed-tools:
 ## Usage
 
 ```
-/form-add <ObjectPath> <FormName> [Purpose] [Synonym] [--set-default]
+/form-add <ObjectPath> <FormName> [Purpose] [Synonym] [--set-default] [--events <список>]
 ```
 
 | Параметр    | Обязательный | По умолчанию | Описание                                     |
@@ -28,12 +28,24 @@ allowed-tools:
 | Purpose     | нет          | Object       | Назначение: Object, List, Choice, Record      |
 | Synonym     | нет          | = FormName   | Синоним формы                                 |
 | --set-default | нет        | авто         | Установить как форму по умолчанию             |
+| --events    | нет          | —            | Список обработчиков событий формы через запятую (рус. имена). Прописывает `<Events>` в Form.xml И заглушки в Module.bsl |
 
 ## Команда
 
 ```powershell
-powershell.exe -NoProfile -File "${CLAUDE_SKILL_DIR}/scripts/form-add.ps1" -ObjectPath "<ObjectPath>" -FormName "<FormName>" [-Purpose "<Purpose>"] [-Synonym "<Synonym>"] [-SetDefault]
+powershell.exe -NoProfile -File "${CLAUDE_SKILL_DIR}/scripts/form-add.ps1" -ObjectPath "<ObjectPath>" -FormName "<FormName>" [-Purpose "<Purpose>"] [-Synonym "<Synonym>"] [-SetDefault] [-Events "ПриСозданииНаСервере,ПриОткрытии"]
 ```
+
+## События формы (`-Events`)
+
+Обработчик события формы, просто написанный в `Module.bsl`, **не вызывается** — событие должно быть привязано
+в `Form.xml` через его английский идентификатор (`<Event name="OnCreateAtServer">ПриСозданииНаСервере</Event>`).
+Параметр `-Events` принимает русские имена обработчиков, прописывает привязку в `Form.xml` и добавляет заглушки
+процедур с правильными директивами/сигнатурами в `Module.bsl`.
+
+Поддерживаемые: `ПриСозданииНаСервере`, `ПриОткрытии`, `ПриПовторномОткрытии`, `ПриЗакрытии`, `ПередЗакрытием`,
+`ПриЧтенииНаСервере`, `ПередЗаписьюНаСервере`, `ПослеЗаписиНаСервере`, `ПередЗаписью`, `ПослеЗаписи`,
+`ОбработкаВыбора`, `ОбработкаОповещения`.
 
 ## Purpose — назначение формы
 
@@ -61,6 +73,9 @@ powershell.exe -NoProfile -File "${CLAUDE_SKILL_DIR}/scripts/form-add.ps1" -Obje
 
 # Установить как форму по умолчанию
 /form-add Documents/Заказ.xml ФормаДокументаНовая --purpose Object --set-default
+
+# Форма обработки с обработчиками событий (привязка в Form.xml + заглушки в модуле)
+/form-add DataProcessors/МояОбработка.xml Форма --purpose Object --events ПриСозданииНаСервере,ПриОткрытии
 ```
 
 ## Workflow
