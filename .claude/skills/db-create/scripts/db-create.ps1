@@ -1,4 +1,4 @@
-﻿# db-create v1.3 — Create 1C information base
+﻿# db-create v1.4 — Create 1C information base
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 <#
 .SYNOPSIS

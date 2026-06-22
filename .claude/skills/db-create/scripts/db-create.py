@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# db-create v1.3 — Create 1C information base
+# db-create v1.4 — Create 1C information base
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -131,9 +131,11 @@ def main():
         arguments = ["CREATEINFOBASE"]
 
         if args.InfoBaseServer and args.InfoBaseRef:
-            arguments.append(f'Srvr="{args.InfoBaseServer}";Ref="{args.InfoBaseRef}"')
+            # No embedded quotes: subprocess quotes the whole token; 1C's argv parser
+            # strips outer quotes. Inner quotes get escaped by list2cmdline and break parsing.
+            arguments.append(f'Srvr={args.InfoBaseServer};Ref={args.InfoBaseRef}')
         else:
-            arguments.append(f'File="{args.InfoBasePath}"')
+            arguments.append(f'File={args.InfoBasePath}')
 
         # --- Template ---
         if args.UseTemplate:
