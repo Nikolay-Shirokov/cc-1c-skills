@@ -14,8 +14,8 @@
        xmlns:xs="http://www.w3.org/2001/XMLSchema"
        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
        base="/appname"
-       ib="connection-string"
-       enableStandardOdata="true">
+       ib="connection-string">
+    <standardOdata enable="true"/>
     <ws pointEnableCommon="true"/>
     <httpServices publishByDefault="true"/>
 </point>
@@ -48,9 +48,11 @@ File=&quot;C:\Bases\MyDB&quot;;Usr=&quot;Admin&quot;;Pwd=&quot;123&quot;;
 
 ### Дочерние элементы
 
-#### `enableStandardOdata` (атрибут `<point>`)
-Стандартный OData-интерфейс платформы. `enableStandardOdata="true"` открывает REST-доступ ко всем объектам.
+#### `<standardOdata>`
+Стандартный OData-интерфейс платформы. `<standardOdata enable="true"/>` открывает REST-доступ к опубликованным объектам (состав настраивается в «Настройка автоматического REST-сервиса» → вкладка «Состав»; при пустом составе сервис-документ отдаёт HTTP 404).
 URL: `/{AppName}/odata/standard.odata`
+
+> **Регистр важен.** Рабочая форма — строчная `<standardOdata enable="true"/>` (проверено E2E на 8.3.24 и 8.3.27: отдаёт HTTP 200). Заглавная `<standardOData>` из «Руководства администратора» парсером vrd **не распознаётся** → OData 404. Старый атрибут `enableStandardOdata="true"` на `<point>` (до 8.3.9) также не работает.
 
 #### `<ws>`
 Публикация SOAP web-сервисов. `pointEnableCommon="true"` публикует все сервисы из конфигурации.

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# web-publish v1.3 — Publish 1C infobase via Apache
+# web-publish v1.4 — Publish 1C infobase via Apache
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 """
@@ -297,8 +297,8 @@ def main():
        xmlns:xs="http://www.w3.org/2001/XMLSchema"
        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
        base="/{app_name}"
-       ib="{ib_string}"
-       enableStandardOdata="true">
+       ib="{ib_string}">
+    <standardOdata enable="true"/>
     <ws pointEnableCommon="true"/>
     <httpServices publishByDefault="true"/>
 </point>'''

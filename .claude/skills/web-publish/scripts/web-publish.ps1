@@ -1,4 +1,4 @@
-﻿# web-publish v1.3 — Publish 1C infobase via Apache
+﻿# web-publish v1.4 — Publish 1C infobase via Apache
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 <#
 .SYNOPSIS
@@ -278,8 +278,8 @@ $vrdContent = @"
        xmlns:xs="http://www.w3.org/2001/XMLSchema"
        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
        base="/$AppName"
-       ib="$ibString"
-       enableStandardOdata="true">
+       ib="$ibString">
+    <standardOdata enable="true"/>
     <ws pointEnableCommon="true"/>
     <httpServices publishByDefault="true"/>
 </point>
