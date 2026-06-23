@@ -1,4 +1,4 @@
-﻿# cfe-borrow v1.4 — Borrow objects from configuration into extension (CFE)
+﻿# cfe-borrow v1.5 — Borrow objects from configuration into extension (CFE)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)][string]$ExtensionPath,
@@ -506,8 +506,23 @@ function Borrow-Form {
 	}
 	$srcFormContent = [System.IO.File]::ReadAllText($srcFormXmlPath, $enc)
 
-	# 3. Generate form metadata XML (ФормаЭлемента.xml)
-	$newFormUuid = [guid]::NewGuid().ToString()
+	# 3. Generate form metadata XML (ФормаЭлемента.xml).
+	# If the wrapper was already borrowed, reuse its uuid so re-borrow is idempotent
+	# (regenerating it would churn the form's identity on every rerun).
+	$formMetaFileExisting = Join-Path (Join-Path (Join-Path (Join-Path $extDir $dirName) $objName) "Forms") "${formName}.xml"
+	$newFormUuid = ""
+	if (Test-Path $formMetaFileExisting) {
+		try {
+			$existingDoc = New-Object System.Xml.XmlDocument
+			$existingDoc.Load($formMetaFileExisting)
+			$existingFormNode = $existingDoc.DocumentElement.SelectSingleNode("*[local-name()='Form']")
+			if ($existingFormNode) {
+				$existingUuid = $existingFormNode.GetAttribute("uuid")
+				if ($existingUuid) { $newFormUuid = $existingUuid }
+			}
+		} catch { }
+	}
+	if (-not $newFormUuid) { $newFormUuid = [guid]::NewGuid().ToString() }
 	$formMetaSb = New-Object System.Text.StringBuilder
 	$formMetaSb.AppendLine("<?xml version=`"1.0`" encoding=`"UTF-8`"?>") | Out-Null
 	$formMetaSb.AppendLine("<MetaDataObject $($script:xmlnsDecl) version=`"$($script:formatVersion)`">") | Out-Null
@@ -1037,6 +1052,22 @@ function Collect-FormDataPaths {
 				if ($script:standardFields -contains $seg1) { continue }
 				$deepPaths += @{ ObjectAttr = $seg0; SubAttr = $seg1 }
 			}
+		}
+	}
+
+	# Also scan <Field>Объект.X</Field> — object attributes referenced by filter/conditional-appearance
+	# fields (and dynamic lists), not via a *DataPath binding (e.g. УдалитьЮрФизЛицо). Designer borrows these too.
+	$fieldMatches = [regex]::Matches($content, "<Field>[^<]*\bОбъект\.(\w+(?:\.\w+)*)</Field>")
+	foreach ($m in $fieldMatches) {
+		$path = $m.Groups[1].Value
+		$segments = $path.Split(".")
+		$seg0 = $segments[0]
+		if ($script:standardFields -contains $seg0) { continue }
+		$firstLevel[$seg0] = $true
+		if ($segments.Count -ge 2) {
+			$seg1 = $segments[1]
+			if ($script:standardFields -contains $seg1) { continue }
+			$deepPaths += @{ ObjectAttr = $seg0; SubAttr = $seg1 }
 		}
 	}
 

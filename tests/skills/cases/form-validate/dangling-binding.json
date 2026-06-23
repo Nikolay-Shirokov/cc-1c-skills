@@ -1,0 +1,7 @@
+{
+  "name": "Ошибка: висячая привязка данных (MultipleValueDataPath без реквизита)",
+  "setup": "fixture:broken-dangling-binding",
+  "params": { "formPath": "DataProcessors/Тест/Forms/Форма" },
+  "expectError": true,
+  "expect": { "stdoutContains": "MultipleValueDataPath" }
+}

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# cfe-borrow v1.4 — Borrow objects from configuration into extension (CFE)
+# cfe-borrow v1.5 — Borrow objects from configuration into extension (CFE)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -690,6 +690,21 @@ def main():
                         continue
                     deep_paths.append({"ObjectAttr": seg0, "SubAttr": seg1})
 
+        # Also scan <Field>Объект.X</Field> — object attributes referenced by filter/conditional-appearance
+        # fields (and dynamic lists), not via a *DataPath binding (e.g. УдалитьЮрФизЛицо). Designer borrows these too.
+        for m in re.finditer(r'<Field>[^<]*\bОбъект\.(\w+(?:\.\w+)*)</Field>', content):
+            path = m.group(1)
+            segments = path.split(".")
+            seg0 = segments[0]
+            if seg0 in STANDARD_FIELDS:
+                continue
+            first_level[seg0] = True
+            if len(segments) >= 2:
+                seg1 = segments[1]
+                if seg1 in STANDARD_FIELDS:
+                    continue
+                deep_paths.append({"ObjectAttr": seg0, "SubAttr": seg1})
+
         # Deduplicate deep paths
         seen = set()
         unique_deep = []
@@ -1138,8 +1153,22 @@ def main():
         with open(src_form_xml_path, "r", encoding="utf-8-sig") as fh:
             src_form_content = fh.read()
 
-        # 3. Generate form metadata XML
-        new_form_uuid = new_guid()
+        # 3. Generate form metadata XML.
+        # If the wrapper was already borrowed, reuse its uuid so re-borrow is idempotent
+        # (regenerating it would churn the form's identity on every rerun).
+        existing_wrapper = os.path.join(ext_dir, dir_name, obj_name, "Forms", f"{form_name}.xml")
+        new_form_uuid = ""
+        if os.path.isfile(existing_wrapper):
+            try:
+                existing_root = etree.parse(existing_wrapper).getroot()
+                for c in existing_root:
+                    if isinstance(c.tag, str) and localname(c) == "Form":
+                        new_form_uuid = c.get("uuid", "") or ""
+                        break
+            except Exception:
+                new_form_uuid = ""
+        if not new_form_uuid:
+            new_form_uuid = new_guid()
         form_meta_lines = [
             '<?xml version="1.0" encoding="UTF-8"?>',
             f'<MetaDataObject {XMLNS_DECL} version="{format_version}">',

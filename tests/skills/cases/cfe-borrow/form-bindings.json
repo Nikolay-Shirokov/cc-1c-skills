@@ -37,5 +37,6 @@
     }
   ],
   "params": { "extensionPath": "ext", "object": "Catalog.Товары.Form.ФормаЭлемента" },
-  "args_extra": ["-BorrowMainAttribute", "Form"]
+  "args_extra": ["-BorrowMainAttribute", "Form"],
+  "idempotent": true
 }
