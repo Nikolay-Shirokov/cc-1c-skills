@@ -1,4 +1,4 @@
-// web-test table/row-fill v1.23 — fillTableRow — заполнение строки табличной части/списка через Tab-навигацию и попутный выбор значений.
+// web-test table/row-fill v1.24 — fillTableRow — заполнение строки табличной части/списка через Tab-навигацию и попутный выбор значений.
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import {
@@ -515,6 +515,12 @@ export async function fillTableRow(fields, { tab, add, row, table, scroll } = {}
   let firstCellId = null;
 
   for (let iter = 0; iter < MAX_ITER; iter++) {
+    // All requested fields filled → stop. Без этого цикл табает дальше до wrap-around
+    // (обходит остаток строки впустую): ветки заполнения по составному типу/примитиву
+    // не выходили сами, что особенно заметно на широких строках (субконто/проводки).
+    // Значение последнего поля к этому моменту уже зафиксировано (commit-Tab примитива,
+    // выбор из формы, либо end-of-row commit для choice-ячейки).
+    if ([...pending.values()].every(p => p.filled)) break;
     // Read focused element (INPUT or TEXTAREA inside grid = editable cell)
     const cell = await page.evaluate(readActiveGridCellScript());
 

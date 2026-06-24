@@ -140,9 +140,12 @@ export default async function({ navigateSection, openCommand, clickElement, fill
     assert.ok(item?.ok, `ячейка Источник заполнена без ошибки: ${item?.error || ''} ${item?.message || ''}`);
 
     const t = await readTable({ table: 'Товары' });
-    log(`Источник cell='${t.rows[0]?.['Источник']}'`);
+    log(`Источник cell='${t.rows[0]?.['Источник']}' rows=${t.rows.length}`);
     assert.equal(t.rows[0]?.['Источник'], 'Север',
       'exact-preference + клик в видимую ячейку: выбран точный «Север», не «ООО Север»');
+    // Guard: после составного фила цикл не должен табать дальше до создания лишней
+    // строки (раньше ветка type→форма не выходила по «всё заполнено»).
+    assert.equal(t.rows.length, 1, 'ровно одна строка — лишние табы не создали пустую');
 
     await closeForm({ save: false });
   });
