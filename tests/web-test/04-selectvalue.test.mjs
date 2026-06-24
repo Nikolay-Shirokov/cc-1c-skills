@@ -22,18 +22,26 @@ export default async function({ navigateSection, openCommand, clickElement, sele
     await closeForm({ save: false });
   });
 
-  await step('direct-form: Контрагент → CatalogRef.Контрагенты (quickChoice=false)', async () => {
+  await step('direct-form: Контрагент → форма выбора (ШИРОКАЯ — регресс центр-X + exact-preference)', async () => {
+    // Форма выбора Контрагентов намеренно широкая (14 колонок) — строка шире окна.
+    // Старый scanGridRows целился в ЦЕНТР строки → клик в оверлей за вьюпортом →
+    // не та строка / not_selectable. Новый — в первую видимую ячейку.
+    // В справочнике есть и «ООО Север», и ровно «Север»; поиск «Север» даёт 2
+    // вхождения, «ООО Север» сортируется раньше. Багованный путь выбрал бы «ООО
+    // Север»; фикс (exact-preference + клик в видимую ячейку) обязан выбрать «Север».
     await navigateSection('Склад');
     await openCommand('Приходная накладная');
     await clickElement('Создать');
 
     const result = await selectValue('Контрагент', 'Север');
-    log(`method=${result.selected?.method}, search=${result.selected?.search}`);
+    log(`method=${result.selected?.method}, search=${result.selected?.search}, err=${result.selected?.error || ''}`);
     assert.equal(result.selected?.method, 'form', 'Должен быть метод form (через форму выбора)');
+    assert.ok(!result.selected?.error, `выбор без ошибки (было not_selectable): ${result.selected?.message || ''}`);
 
     const field = findField(result, 'Контрагент');
     log(`Контрагент value='${field?.value}'`);
-    assert.includes(field?.value || '', 'Север', 'Контрагент должен показать выбранное значение');
+    assert.equal((field?.value || '').trim(), 'Север',
+      'exact-preference + клик в видимую ячейку: выбран точный «Север», не «ООО Север»');
 
     await closeForm({ save: false });
   });

@@ -1,4 +1,4 @@
-// web-test dom/grid v1.9 — grid resolution + table reading + edit-time helpers
+// web-test dom/grid v1.10 — grid resolution + table reading + edit-time helpers
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 /**
@@ -405,14 +405,27 @@ export function getSelectedOrLastRowIndexScript(gridSelector) {
 }
 
 /**
- * Scan a form's grid for a row matching `searchLower` (case- and ё-insensitive,
- * NBSP-normalised). Match order: exact → startsWith → includes.
+ * Scan a selection-form grid for the row matching `search` and return a click
+ * point INSIDE that row's first visible text cell — NOT the row-line centre.
+ * (A wide multi-column row's centre `x = r.x + r.width/2` lands beyond the form's
+ * horizontal viewport, on an overlay, so `mouse.click` misses the row → Enter
+ * doesn't select → form stays open. That was the `not_selectable` bug.)
  *
- * When `searchLower` is empty, returns coords of the first row (fallback).
+ * `search` is either:
+ *   - a string — matched per-cell (case/ё/NBSP-insensitive), preferring
+ *     exact-cell → startsWith → includes (so "Кабель" wins over "Кабель ВВГ");
+ *   - an object `{ column: value, ... }` — each key fuzzy-resolved to a header
+ *     column, a row matches when EVERY column's cell includes its value (AND),
+ *     preferring rows where every column's cell equals its value exactly.
+ * Empty `search` → first row (fallback).
  *
- * Returns `{ rowCount, x, y, isGroup } | { rowCount: 0 } | null`.
+ * Returns:
+ *   `{ rowCount, x, y, isGroup, matchKind, visibleSample }` when found,
+ *   `{ rowCount, visibleSample, error? }` when rows present but unmatched,
+ *   `{ rowCount: 0 }` for an empty grid, or `null` when no grid.
+ * `visibleSample` = first-cell text of visible rows, for actionable error messages.
  */
-export function scanGridRowsScript(formNum, searchLower) {
+export function scanGridRowsScript(formNum, search) {
   return `(() => {
     const p = 'form${formNum}_';
     const grid = document.querySelector('[id^="' + p + '"].grid, [id^="' + p + '"] .grid');
@@ -421,22 +434,102 @@ export function scanGridRowsScript(formNum, searchLower) {
     if (!body) return null;
     const lines = [...body.querySelectorAll('.gridLine')];
     if (!lines.length) return { rowCount: 0 };
-    const searchLower = ${JSON.stringify(searchLower || '')};
-    let sel = null;
-    if (searchLower) {
-      const norm = s => (s || '').replace(/\\u00a0/g, ' ').trim().toLowerCase().replace(/ё/gi, 'е');
-      const rowData = lines.map(l => ({ el: l, text: norm(l.innerText) }));
-      sel = rowData.find(r => r.text === searchLower)?.el
-        || rowData.find(r => r.text.startsWith(searchLower))?.el
-        || rowData.find(r => r.text.includes(searchLower))?.el;
+
+    const search = ${JSON.stringify(search ?? '')};
+    const isObj = search && typeof search === 'object';
+    const norm = s => (s || '').replace(/\\u00a0/g, ' ').replace(/\\s+/g, ' ').trim().toLowerCase().replace(/ё/gi, 'е');
+    const disp = s => (s || '').replace(/\\u00a0/g, ' ').replace(/\\s+/g, ' ').trim();
+    const cellText = b => (b.querySelector('.gridBoxText') ? b.querySelector('.gridBoxText').innerText : b.innerText) || '';
+    const visCells = line => [...line.children].filter(b => b.offsetWidth > 0);
+    const visibleSample = lines.slice(0, 10)
+      .map(l => disp(l.querySelector('.gridBoxText') ? l.querySelector('.gridBoxText').innerText : ''))
+      .filter(Boolean);
+
+    let sel = null, matchKind = null;
+
+    if (!search || (isObj && !Object.keys(search).length)) {
+      sel = lines[0]; matchKind = 'first';
+    } else if (isObj) {
+      // Resolve each key to a header column (fuzzy, normalised) — mirror resolveCol.
+      const headLine = grid.querySelector('.gridHead .gridLine') || grid.querySelector('.gridHead');
+      const headers = [...(headLine ? headLine.children : [])]
+        .filter(c => c.offsetWidth > 0)
+        .map(c => {
+          const t = (c.querySelector('.gridBoxText') || c).innerText || '';
+          const title = c.getAttribute('title') || '';
+          const r = c.getBoundingClientRect();
+          return { name: disp(t) || disp(title), text: t, title, x: r.x, right: r.x + r.width };
+        })
+        .filter(h => h.name);
+      const resolveCol = name => {
+        const n = norm(name);
+        const cand = h => [h.text, h.title].filter(Boolean);
+        return headers.find(h => cand(h).some(t => norm(t) === n))
+            || headers.find(h => cand(h).some(t => norm(t).includes(n)));
+      };
+      const cellAtCol = (line, col) => visCells(line).find(b => {
+        const r = b.getBoundingClientRect();
+        const cx = r.x + r.width / 2;
+        return cx >= col.x && cx < col.right;
+      });
+      const keys = Object.keys(search);
+      const cols = {};
+      for (const k of keys) {
+        const c = resolveCol(k);
+        if (!c) return { rowCount: lines.length, error: 'filter_column_not_found', column: k, visibleSample };
+        cols[k] = c;
+      }
+      let bestRank = 0;
+      for (const line of lines) {
+        let allIncludes = true, allExact = true;
+        for (const k of keys) {
+          const v = norm(search[k]);
+          if (!v) continue;
+          const cell = cellAtCol(line, cols[k]);
+          const t = norm(cell ? cellText(cell) : '');
+          if (!t.includes(v)) { allIncludes = false; break; }
+          if (t !== v) allExact = false;
+        }
+        if (!allIncludes) continue;
+        const rank = allExact ? 2 : 1;
+        if (rank > bestRank) { bestRank = rank; sel = line; matchKind = allExact ? 'object-exact' : 'object'; if (rank === 2) break; }
+      }
     } else {
-      sel = lines[0]; // empty search → first row
+      // String: per-cell, prefer exact-cell → startsWith → includes.
+      const v = norm(search);
+      let bestRank = 0;
+      for (const line of lines) {
+        let rowRank = 0;
+        for (const b of visCells(line)) {
+          const t = norm(cellText(b));
+          if (!t) continue;
+          let r = 0;
+          if (t === v) r = 3; else if (t.startsWith(v)) r = 2; else if (t.includes(v)) r = 1;
+          if (r > rowRank) rowRank = r;
+        }
+        if (rowRank > bestRank) { bestRank = rowRank; sel = line; matchKind = rowRank === 3 ? 'exact' : rowRank === 2 ? 'startsWith' : 'includes'; if (rowRank === 3) break; }
+      }
     }
-    if (!sel) return null;
+
+    if (!sel) return { rowCount: lines.length, visibleSample };
+
+    // Click point: first visible text cell of the row (mirror findFocusCellScript)
+    // — skip checkboxes; on tree grids skip the first (expand-toggle) column.
+    // Clamp X near the left so a wide first column still lands in the viewport.
+    const isTree = !!body.querySelector('.gridBoxTree');
+    let cells = visCells(sel).map(b => ({ r: b.getBoundingClientRect(), checkbox: !!b.querySelector('.checkbox'), hasText: !!b.querySelector('.gridBoxText') }));
+    if (isTree && cells.length > 1) cells = cells.slice(1);
+    const pick = cells.find(c => !c.checkbox && c.hasText) || cells.find(c => !c.checkbox) || cells[0];
+    if (!pick) return { rowCount: lines.length, visibleSample };
+
     const imgBox = sel.querySelector('.gridBoxImg');
     const isGroup = imgBox ? !!imgBox.querySelector('.gridListH') : false;
-    const r = sel.getBoundingClientRect();
-    return { rowCount: lines.length, x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2), isGroup };
+    return {
+      rowCount: lines.length,
+      x: Math.round(pick.r.x + Math.min(pick.r.width / 2, 60)),
+      y: Math.round(pick.r.y + pick.r.height / 2),
+      isGroup, matchKind, visibleSample
+    };
   })()`;
 }
 

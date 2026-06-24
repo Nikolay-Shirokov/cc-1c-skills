@@ -120,4 +120,30 @@ export default async function({ navigateSection, openCommand, clickElement, fill
     assert.equal(t.rows[0]['Номенклатура'], 'Товар 03', 'Удалена первая (Товар 02), осталась Товар 03');
     await closeForm({ save: false });
   });
+
+  await step('composite-wide-form: ИсточникТЧ {value,type} через ШИРОКУЮ форму выбора', async () => {
+    // Прямой регресс исходного симптома: fillTableRow в составную ячейку → диалог
+    // типа → широкая форма выбора Контрагентов (14 колонок, строка шире окна).
+    // Старый scanGridRows целился в центр строки → клик в оверлей → not_selectable.
+    // Детерминированность: «ООО Север» сортируется раньше точного «Север»; багованный
+    // путь выбрал бы «ООО Север», фикс (exact-preference + клик в видимую ячейку) — «Север».
+    await navigateSection('Склад');
+    await openCommand('Приходная накладная');
+    await clickElement('Создать');
+
+    const r = await fillTableRow(
+      { 'Источник': { value: 'Север', type: 'Контрагент' } },
+      { table: 'Товары', add: true }
+    );
+    log(`composite fill: ${JSON.stringify(r.filled)}`);
+    const item = (r.filled || []).find(f => /сточник/.test(f.field || ''));
+    assert.ok(item?.ok, `ячейка Источник заполнена без ошибки: ${item?.error || ''} ${item?.message || ''}`);
+
+    const t = await readTable({ table: 'Товары' });
+    log(`Источник cell='${t.rows[0]?.['Источник']}'`);
+    assert.equal(t.rows[0]?.['Источник'], 'Север',
+      'exact-preference + клик в видимую ячейку: выбран точный «Север», не «ООО Север»');
+
+    await closeForm({ save: false });
+  });
 }

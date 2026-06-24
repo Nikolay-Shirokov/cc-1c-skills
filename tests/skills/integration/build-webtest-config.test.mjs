@@ -31,6 +31,16 @@ export const steps = [
         { name: 'Телефон', type: 'String', length: 20 },
         { name: 'Адрес', type: 'String', length: 200 },
         { name: 'КодКПП', type: 'String', length: 9 },
+        // Доп. строковые реквизиты — выводятся в широкую ФОРМУ ВЫБОРА (ниже),
+        // чтобы строка формы выбора стала шире окна выбора. Регресс бага
+        // «центр широкой строки уезжает за вьюпорт → клик мимо» (04-selectvalue).
+        { name: 'Регион', type: 'String', length: 50 },
+        { name: 'Город', type: 'String', length: 50 },
+        { name: 'Улица', type: 'String', length: 100 },
+        { name: 'БИК', type: 'String', length: 9 },
+        { name: 'ОГРН', type: 'String', length: 13 },
+        { name: 'ОКПО', type: 'String', length: 10 },
+        { name: 'ВидДеятельности', type: 'String', length: 100 },
       ],
     },
     args: { '-JsonPath': '{inputFile}', '-OutputDir': '{workDir}' },
@@ -311,6 +321,11 @@ export const steps = [
 \tСписок.Добавить(Новый Структура("Имя,ИНН", "ООО Юг", "7700000002"));
 \tСписок.Добавить(Новый Структура("Имя,ИНН", "ООО Восток", "7700000003"));
 \tСписок.Добавить(Новый Структура("Имя,ИНН", "АО Запад", "7700000004"));
+\t// Контрагент с именем ровно «Север» рядом с «ООО Север» — для детерминированного
+\t// регресса широкой формы выбора (04-selectvalue): поиск «Север» даёт 2 вхождения,
+\t// «ООО Север» сортируется раньше. Багованный клик-по-центру/эскалация выберут
+\t// «ООО Север»; фикс через exact-preference обязан выбрать точное «Север».
+\tСписок.Добавить(Новый Структура("Имя,ИНН", "Север", "7700000005"));
 \tДля Каждого Запись Из Список Цикл
 \t\tЭлемент = Справочники.Контрагенты.СоздатьЭлемент();
 \t\tЭлемент.Наименование = Запись.Имя;
@@ -570,6 +585,50 @@ export const steps = [
     },
     args: { '-JsonPath': '{inputFile}', '-OutputPath': '{workDir}/Catalogs/Контрагенты/Forms/ФормаСписка/Ext/Form.xml' },
     validate: { script: 'form-validate/scripts/form-validate', flag: '-FormPath', path: 'Catalogs/Контрагенты/Forms/ФормаСписка/Ext/Form.xml' },
+  },
+
+  // Форма ВЫБОРА Контрагенты — НАМЕРЕННО ШИРОКАЯ (14 колонок), чтобы строка была
+  // шире окна выбора. Регресс бага «центр широкой строки уезжает за вьюпорт →
+  // клик в оверлей → not_selectable» (04-selectvalue/direct-form, выбор «Север»).
+  // form-add с Purpose=Choice авто-назначает её DefaultChoiceForm → именно она
+  // открывается при выборе ссылки на Контрагента.
+  {
+    name: 'form-add: Форма выбора Контрагенты',
+    script: 'form-add/scripts/form-add',
+    args: { '-ObjectPath': '{workDir}/Catalogs/Контрагенты.xml', '-FormName': 'ФормаВыбора', '-Purpose': 'Choice' },
+  },
+  {
+    name: 'form-compile: Форма выбора Контрагенты (широкая)',
+    script: 'form-compile/scripts/form-compile',
+    input: {
+      title: 'Выбор контрагента',
+      attributes: [
+        { name: 'Список', type: 'DynamicList', main: true,
+          settings: { mainTable: 'Catalog.Контрагенты', dynamicDataRead: true } },
+      ],
+      elements: [
+        // choiceMode: true → <ChoiceMode>true</ChoiceMode> на таблице: Enter/двойной
+        // клик ПОДТВЕРЖДАЮТ выбор (а не открывают элемент). Без него форма ведёт
+        // себя как обычный список (Enter открывает элемент).
+        { table: 'Список', path: 'Список', choiceMode: true, columns: [
+          { input: 'Code', path: 'Список.Code', title: 'Код' },
+          { input: 'Description', path: 'Список.Description', title: 'Наименование' },
+          { input: 'ИНН', path: 'Список.ИНН', title: 'ИНН' },
+          { input: 'Телефон', path: 'Список.Телефон', title: 'Телефон' },
+          { input: 'Адрес', path: 'Список.Адрес', title: 'Адрес' },
+          { input: 'КодКПП', path: 'Список.КодКПП', title: 'КПП' },
+          { input: 'Регион', path: 'Список.Регион', title: 'Регион' },
+          { input: 'Город', path: 'Список.Город', title: 'Город' },
+          { input: 'Улица', path: 'Список.Улица', title: 'Улица' },
+          { input: 'БИК', path: 'Список.БИК', title: 'БИК' },
+          { input: 'ОГРН', path: 'Список.ОГРН', title: 'ОГРН' },
+          { input: 'ОКПО', path: 'Список.ОКПО', title: 'ОКПО' },
+          { input: 'ВидДеятельности', path: 'Список.ВидДеятельности', title: 'Вид деятельности' },
+        ]},
+      ],
+    },
+    args: { '-JsonPath': '{inputFile}', '-OutputPath': '{workDir}/Catalogs/Контрагенты/Forms/ФормаВыбора/Ext/Form.xml' },
+    validate: { script: 'form-validate/scripts/form-validate', flag: '-FormPath', path: 'Catalogs/Контрагенты/Forms/ФормаВыбора/Ext/Form.xml' },
   },
 
   // Форма элемента Номенклатура — 2 вкладки, все типы полей

@@ -1,4 +1,4 @@
-// web-test forms/select-value v1.24 — Reference & composite-type value selection: selectValue, fillReferenceField, selection/type-dialog pickers.
+// web-test forms/select-value v1.25 — Reference & composite-type value selection: selectValue, fillReferenceField, selection/type-dialog pickers.
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import {
@@ -25,12 +25,13 @@ import { getFormState } from './state.mjs';
 import { filterList } from '../table/filter.mjs';
 
 /**
- * Scan visible grid rows for a text match (exact → startsWith → includes).
- * Returns center coords of the matched row, or null if not found.
- * When searchLower is empty, returns coords of the first row (fallback).
+ * Scan a selection-form grid for the row matching `search` (string, or a
+ * { column: value } object for per-column matching) and return a click point
+ * inside the matched row's first visible text cell. See scanGridRowsScript for
+ * matching rules and the return shape (`{ x, y, isGroup, visibleSample, ... }`).
  */
-async function scanGridRows(formNum, searchLower) {
-  return page.evaluate(scanGridRowsScript(formNum, searchLower));
+async function scanGridRows(formNum, search) {
+  return page.evaluate(scanGridRowsScript(formNum, search));
 }
 
 /**
@@ -140,30 +141,44 @@ async function advancedSearchInline(formNum, text) {
  * @returns {{ field, ok, method }} or {{ field, error, message }}
  */
 export async function pickFromSelectionForm(selFormNum, fieldName, search, origFormNum) {
+  const isObj = !!search && typeof search === 'object';
+  // searchText (joined for objects) is only for the paste-based search steps
+  // (advancedSearchInline / simple search). Row matching uses the structured
+  // `search` via scanGridRows — no lossy join there.
   const searchText = typeof search === 'string'
-    ? search : (search ? Object.values(search).join(' ') : '');
+    ? search : (isObj ? Object.values(search).join(' ') : '');
   const searchLower = normYo((searchText || '').toLowerCase());
+  const hasSearch = isObj ? Object.keys(search).length > 0 : !!searchLower;
 
-  // Helper: try to select a row; returns result if ok, null if item wasn't selectable (group).
+  // Helper: try to select a row; returns result if ok, null if it couldn't be
+  // selected (real group row, or the click missed). Remembers why for the
+  // final error message.
   let hadUnselectableMatch = false;
+  let lastIsGroup = false;
+  let lastSample = null;
   async function trySelect(row) {
     const r = await dblclickAndVerify(row, selFormNum, fieldName);
     if (r.ok) return r;
-    hadUnselectableMatch = true; // found match but couldn't select (possibly group row or overlay)
+    hadUnselectableMatch = true; // matched but form stayed open (group row or missed click)
+    lastIsGroup = !!row.isGroup;
     return null; // form still open, try next step
+  }
+  // Run scanGridRows, remember the visible-row sample for actionable errors.
+  async function scanAndTry(searchArg) {
+    const row = await scanGridRows(selFormNum, searchArg);
+    if (row?.visibleSample) lastSample = row.visibleSample;
+    if (row?.x) return trySelect(row);
+    return null;
   }
 
   // Step 1: Scan visible rows (no filtering)
-  if (searchLower) {
-    const row = await scanGridRows(selFormNum, searchLower);
-    if (row?.x) {
-      const r = await trySelect(row);
-      if (r) return r;
-    }
+  if (hasSearch) {
+    const r = await scanAndTry(search);
+    if (r) return r;
   }
 
   // Step 2: Advanced search (Alt+F — fast, no overlay issues)
-  if (typeof search === 'object' && search) {
+  if (isObj) {
     // Per-field advanced search via filterList(val, {field})
     for (const [fld, val] of Object.entries(search)) {
       try {
@@ -180,12 +195,9 @@ export async function pickFromSelectionForm(selFormNum, fieldName, search, origF
     // Inline advanced search (Alt+F, "по части строки")
     await advancedSearchInline(selFormNum, searchText);
   }
-  if (searchLower) {
-    const row = await scanGridRows(selFormNum, searchLower);
-    if (row?.x) {
-      const r = await trySelect(row);
-      if (r) return r;
-    }
+  if (hasSearch) {
+    const r = await scanAndTry(search);
+    if (r) return r;
   }
 
   // Step 3: Fallback — simple search via search input (for forms without Alt+F support)
@@ -201,32 +213,33 @@ export async function pickFromSelectionForm(selFormNum, fieldName, search, origF
         await page.keyboard.press('Enter');
         await waitForStable(selFormNum);
       } catch { /* proceed */ }
-      const row = await scanGridRows(selFormNum, searchLower);
-      if (row?.x) {
-        const r = await trySelect(row);
-        if (r) return r;
-      }
+      const r = await scanAndTry(search);
+      if (r) return r;
     }
   }
 
   // Step 4: Empty search → pick first row; otherwise not found
-  if (!searchLower) {
-    const row = await scanGridRows(selFormNum, '');
-    if (row?.x) {
-      const r = await trySelect(row);
-      if (r) return r;
-    }
+  if (!hasSearch) {
+    const r = await scanAndTry('');
+    if (r) return r;
   }
 
   await page.keyboard.press('Escape');
   await waitForStable();
   const searchDesc = typeof search === 'string' ? '"' + search + '"' : JSON.stringify(search);
+  const candidates = lastSample && lastSample.length ? ' Visible rows: ' + lastSample.join(', ') + '.' : '';
   if (hadUnselectableMatch) {
+    if (lastIsGroup) {
+      return { field: fieldName, error: 'not_selectable',
+        message: 'Found ' + searchDesc + ' in selection form but it is a non-selectable group/folder row' };
+    }
+    // Matched a row but the selection click didn't take — the value isn't in the
+    // visible result. Tell the caller to refine rather than blame a "group".
     return { field: fieldName, error: 'not_selectable',
-      message: 'Found ' + searchDesc + ' in selection form but it is not selectable (group/folder row)' };
+      message: 'Matched ' + searchDesc + ' but the row could not be selected (not in the visible result — refine the search).' + candidates };
   }
   return { field: fieldName, error: 'not_found',
-    message: 'No matches in selection form for ' + searchDesc };
+    message: 'No matches in selection form for ' + searchDesc + '.' + candidates };
 }
 
 /**
