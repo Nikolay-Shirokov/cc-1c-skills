@@ -1,0 +1,9 @@
+{
+  "script": "db-dump-dt/scripts/db-dump-dt",
+  "setup": "none",
+  "args": [],
+  "snapshot": {
+    "root": "workDir",
+    "normalizeUuids": false
+  }
+}

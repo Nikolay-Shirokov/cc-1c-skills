@@ -156,7 +156,7 @@ def get_object_xml_from_subfile(relative_path):
 def run_git(config_dir, git_args):
     """Run a git command in config_dir and return output lines on success."""
     result = subprocess.run(
-        ["git"] + git_args,
+        ["git", "-c", "core.quotePath=false"] + git_args,
         capture_output=True,
         text=True,
         encoding="utf-8",

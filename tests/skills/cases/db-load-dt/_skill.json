@@ -1,0 +1,9 @@
+{
+  "script": "db-load-dt/scripts/db-load-dt",
+  "setup": "none",
+  "args": [],
+  "snapshot": {
+    "root": "workDir",
+    "normalizeUuids": false
+  }
+}

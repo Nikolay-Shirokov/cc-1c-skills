@@ -1,0 +1,9 @@
+{
+  "script": "db-load-git/scripts/db-load-git",
+  "setup": "none",
+  "args": [],
+  "snapshot": {
+    "root": "workDir",
+    "normalizeUuids": false
+  }
+}

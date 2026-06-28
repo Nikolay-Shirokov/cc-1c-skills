@@ -29,6 +29,11 @@ def main():
     parser.add_argument("-o", "--output", help="Output path (default: <name>-grid.<ext>)")
     args = parser.parse_args()
 
+    if args.cols <= 0:
+        parser.error("--cols must be greater than 0")
+    if args.rows < 0:
+        parser.error("--rows must be greater than or equal to 0")
+
     src = Image.open(args.image).convert("RGBA")
     sw, sh = src.size
 
@@ -36,7 +41,7 @@ def main():
     step_x = sw / cols
     rows = args.rows
     if rows == 0:
-        rows = round(sh / step_x)
+        rows = max(1, round(sh / step_x))
     step_y = sh / rows
 
     # Canvas with margins for labels

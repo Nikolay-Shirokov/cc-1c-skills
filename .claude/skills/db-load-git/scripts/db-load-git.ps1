@@ -208,28 +208,28 @@ try {
     switch ($Source) {
         "Staged" {
             Write-Host "Getting staged changes..."
-            $raw = git diff --cached --name-only --relative 2>&1
+            $raw = git -c core.quotePath=false diff --cached --name-only --relative 2>&1
             if ($LASTEXITCODE -eq 0) { $changedFiles += $raw }
         }
         "Unstaged" {
             Write-Host "Getting unstaged changes..."
-            $raw = git diff --name-only --relative 2>&1
+            $raw = git -c core.quotePath=false diff --name-only --relative 2>&1
             if ($LASTEXITCODE -eq 0) { $changedFiles += $raw }
-            $raw = git ls-files --others --exclude-standard 2>&1
+            $raw = git -c core.quotePath=false ls-files --others --exclude-standard 2>&1
             if ($LASTEXITCODE -eq 0) { $changedFiles += $raw }
         }
         "Commit" {
             Write-Host "Getting changes from $CommitRange..."
-            $raw = git diff --name-only --relative $CommitRange 2>&1
+            $raw = git -c core.quotePath=false diff --name-only --relative $CommitRange 2>&1
             if ($LASTEXITCODE -eq 0) { $changedFiles += $raw }
         }
         "All" {
             Write-Host "Getting all uncommitted changes..."
-            $raw = git diff --cached --name-only --relative 2>&1
+            $raw = git -c core.quotePath=false diff --cached --name-only --relative 2>&1
             if ($LASTEXITCODE -eq 0) { $changedFiles += $raw }
-            $raw = git diff --name-only --relative 2>&1
+            $raw = git -c core.quotePath=false diff --name-only --relative 2>&1
             if ($LASTEXITCODE -eq 0) { $changedFiles += $raw }
-            $raw = git ls-files --others --exclude-standard 2>&1
+            $raw = git -c core.quotePath=false ls-files --others --exclude-standard 2>&1
             if ($LASTEXITCODE -eq 0) { $changedFiles += $raw }
         }
     }
