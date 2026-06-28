@@ -144,6 +144,7 @@ python scripts/switch.py --runtime powershell  # вернуть на PowerShell
 
 Дополнительные зависимости Python-рантайма:
 - `lxml>=4.9.0` — для навыков, работающих с DOM (edit/validate/info)
+- `Pillow>=10.0.0` — для `/img-grid` (чтение изображений и наложение сетки)
 - `psutil>=5.9.0` — для web-навыков (управление Apache)
 
 Параметры скриптов идентичны для обоих рантаймов — переключение меняет только интерпретатор в вызовах. Подробнее: [Python Porting Guide](docs/python-porting-guide.md).
