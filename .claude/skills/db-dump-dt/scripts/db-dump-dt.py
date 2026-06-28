@@ -36,32 +36,61 @@ def _find_project_v8path():
         d = parent
 
 
+def _version_dir(p):
+    """Return version dir for both Windows bin layout and Unix platform layout."""
+    parent = os.path.dirname(p)
+    if os.path.basename(parent).lower() == "bin":
+        parent = os.path.dirname(parent)
+    return os.path.basename(parent)
+
+
 def _version_key(p):
-    """Numeric sort key from version dir name (.../1cv8/<ver>/bin/1cv8.exe)."""
-    ver = os.path.basename(os.path.dirname(os.path.dirname(p)))
-    return [int(x) for x in re.findall(r"\d+", ver)]
+    """Numeric sort key from version dir name (.../1cv8/<ver>/1cv8)."""
+    return [int(x) for x in re.findall(r"\d+", _version_dir(p))]
 
 
-def resolve_v8path(v8path):
-    """Resolve path to 1cv8.exe."""
-    if not v8path:
-        v8path = _find_project_v8path()
-    if not v8path:
-        candidates = (
+def _v8_executable_names():
+    if os.name == "nt":
+        return ["1cv8.exe", "1cv8c.exe", "ibcmd.exe"]
+    return ["1cv8", "1cv8c", "ibcmd"]
+
+
+def _v8_candidates():
+    if os.name == "nt":
+        return (
             glob.glob(r"C:\Program Files\1cv8\*\bin\1cv8.exe")
             + glob.glob(r"C:\Program Files (x86)\1cv8\*\bin\1cv8.exe")
         )
+    candidates = []
+    for exe_name in _v8_executable_names():
+        candidates.extend(glob.glob(os.path.join("/opt/1cv8", "*", exe_name)))
+    return candidates
+
+
+def resolve_v8path(v8path):
+    """Resolve path to a 1C executable."""
+    if not v8path:
+        v8path = _find_project_v8path()
+    if not v8path:
+        candidates = _v8_candidates()
         if candidates:
             v8path = max(candidates, key=_version_key)
-            ver = os.path.basename(os.path.dirname(os.path.dirname(v8path)))
-            print(f"Auto-selected platform {ver}: {v8path}")
+            print(f"Auto-selected platform {_version_dir(v8path)}: {v8path}")
         else:
-            print("Error: 1cv8.exe not found. Specify -V8Path", file=sys.stderr)
+            print("Error: 1C executable not found. Specify -V8Path", file=sys.stderr)
             sys.exit(1)
     if os.path.isdir(v8path):
-        v8path = os.path.join(v8path, "1cv8.exe")
+        for exe_name in _v8_executable_names():
+            candidate = os.path.join(v8path, exe_name)
+            if os.path.isfile(candidate):
+                v8path = candidate
+                break
+        else:
+            tried = ", ".join(_v8_executable_names())
+            print(f"Error: 1C executable not found in {v8path} (tried: {tried})", file=sys.stderr)
+            sys.exit(1)
     if not os.path.isfile(v8path):
-        print(f"Error: 1cv8.exe not found at {v8path}", file=sys.stderr)
+        print(f"Error: 1C executable not found at {v8path}", file=sys.stderr)
         sys.exit(1)
     return v8path
 
