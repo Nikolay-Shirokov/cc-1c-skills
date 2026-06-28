@@ -1,0 +1,13 @@
+{
+  "script": "form-remove/scripts/remove-form",
+  "setup": "empty-config",
+  "args": [
+    { "flag": "-ObjectName", "from": "case.objectName" },
+    { "flag": "-FormName", "from": "case.formName" },
+    { "flag": "-SrcDir", "from": "workDir" }
+  ],
+  "snapshot": {
+    "root": "workDir",
+    "normalizeUuids": true
+  }
+}

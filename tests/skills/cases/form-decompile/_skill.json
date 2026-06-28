@@ -1,0 +1,12 @@
+{
+  "script": "form-decompile/scripts/form-decompile",
+  "setup": "empty-config",
+  "args": [
+    { "flag": "-FormPath", "from": "workPath", "field": "formPath" },
+    { "flag": "-OutputPath", "from": "workPath", "field": "outputPath" }
+  ],
+  "snapshot": {
+    "root": "workDir",
+    "normalizeUuids": true
+  }
+}

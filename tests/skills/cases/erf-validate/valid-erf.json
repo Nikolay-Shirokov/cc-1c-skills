@@ -1,0 +1,12 @@
+{
+  "name": "Корректный внешний отчёт проходит валидацию",
+  "preRun": [
+    {
+      "script": "erf-init/scripts/init",
+      "args": { "-Name": "ТестовыйОтчёт", "-SrcDir": "{workDir}" }
+    }
+  ],
+  "params": { "objectPath": "ТестовыйОтчёт.xml" },
+  "args_extra": ["-Detailed"],
+  "expect": { "stdoutContains": "[OK]" }
+}

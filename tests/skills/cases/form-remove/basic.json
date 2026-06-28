@@ -1,0 +1,19 @@
+{
+  "name": "Удаление формы справочника",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "Catalog", "name": "Товары" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    {
+      "script": "form-add/scripts/form-add",
+      "args": { "-ObjectPath": "{workDir}/Catalogs/Товары.xml", "-FormName": "ФормаЭлемента" }
+    }
+  ],
+  "objectName": "Catalogs/Товары",
+  "formName": "ФормаЭлемента",
+  "expect": {
+    "stdoutContains": "Форма ФормаЭлемента удалена"
+  }
+}

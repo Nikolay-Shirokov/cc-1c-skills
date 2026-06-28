@@ -1,0 +1,29 @@
+{
+  "name": "Декомпиляция минимальной формы в JSON",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "DataProcessor", "name": "Минимальная" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    {
+      "script": "form-add/scripts/form-add",
+      "args": { "-ObjectPath": "{workDir}/DataProcessors/Минимальная.xml", "-FormName": "Форма" }
+    },
+    {
+      "script": "form-compile/scripts/form-compile",
+      "input": { "title": "Минимальная форма" },
+      "args": {
+        "-JsonPath": "{inputFile}",
+        "-OutputPath": "{workDir}/DataProcessors/Минимальная/Forms/Форма/Ext/Form.xml"
+      }
+    }
+  ],
+  "params": {
+    "formPath": "DataProcessors/Минимальная/Forms/Форма/Ext/Form.xml",
+    "outputPath": "draft.json"
+  },
+  "expect": {
+    "files": ["draft.json"]
+  }
+}

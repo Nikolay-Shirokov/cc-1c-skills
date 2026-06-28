@@ -1,6 +1,6 @@
 {
   "name": "Guard: добавление справки к объекту на замке (f1=0) запрещено",
   "setup": "fixture:on-support",
-  "objectName": "Locked",
+  "objectName": "Catalogs/Locked",
   "expectError": "support-guard"
 }

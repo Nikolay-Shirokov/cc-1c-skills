@@ -16,6 +16,45 @@ def new_uuid():
     return str(uuid.uuid4())
 
 
+def _ibcmd_timeout():
+    raw = os.environ.get("CC_1C_IBCMD_TIMEOUT", "600")
+    try:
+        timeout = float(raw)
+    except ValueError:
+        return 600.0
+    return timeout if timeout > 0 else None
+
+
+def _decode_timeout_output(value):
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", "replace")
+    return value
+
+
+def run_ibcmd_args(args):
+    timeout = _ibcmd_timeout()
+    try:
+        return subprocess.run(
+            args,
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired as exc:
+        stderr = _decode_timeout_output(exc.stderr)
+        if stderr and not stderr.endswith("\n"):
+            stderr += "\n"
+        stderr += (
+            f"Error: ibcmd timeout after {timeout:g}s. "
+            "The process may be waiting for authentication; specify credentials "
+            "or increase CC_1C_IBCMD_TIMEOUT.\n"
+        )
+        return subprocess.CompletedProcess(exc.cmd, 124, _decode_timeout_output(exc.stdout), stderr)
+
 def scan_ref_types(source_dir):
     """Scan XML files for reference/object/recordset types. Returns {metaType: {name: True}}."""
     type_map = {}
@@ -1044,7 +1083,7 @@ def main():
         if has_ref_types:
             ib_args += [f'--import={os.path.join(temp_base, "cfg")}', '--apply', '--force']
         ib_args.append(f'--data={ib_data}')
-        result = subprocess.run(ib_args, capture_output=True, encoding='utf-8', errors='replace')
+        result = run_ibcmd_args(ib_args)
         shutil.rmtree(ib_data, ignore_errors=True)
         if result.returncode != 0:
             if result.stdout:

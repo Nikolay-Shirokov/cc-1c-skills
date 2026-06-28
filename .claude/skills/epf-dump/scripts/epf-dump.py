@@ -95,6 +95,56 @@ def resolve_v8path(v8path):
     return v8path
 
 
+def _ibcmd_timeout():
+    raw = os.environ.get("CC_1C_IBCMD_TIMEOUT", "600")
+    try:
+        timeout = float(raw)
+    except ValueError:
+        return 600.0
+    return timeout if timeout > 0 else None
+
+
+def _timeout_text(timeout):
+    if timeout is None:
+        return ""
+    return (
+        f"Error: ibcmd timeout after {timeout:g}s. "
+        "The process may be waiting for authentication; specify -UserName/-Password "
+        "or increase CC_1C_IBCMD_TIMEOUT."
+    )
+
+
+def _decode_timeout_output(value):
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", "replace")
+    return value
+
+
+def run_ibcmd(v8path, arguments):
+    timeout = _ibcmd_timeout()
+    try:
+        return subprocess.run(
+            [v8path] + arguments,
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired as exc:
+        stderr = _decode_timeout_output(exc.stderr)
+        message = _timeout_text(timeout)
+        if stderr and not stderr.endswith("\n"):
+            stderr += "\n"
+        return subprocess.CompletedProcess(
+            exc.cmd,
+            124,
+            _decode_timeout_output(exc.stdout),
+            stderr + message + "\n",
+        )
+
 def main():
     sys.stdout.reconfigure(encoding="utf-8")
     sys.stderr.reconfigure(encoding="utf-8")
@@ -160,7 +210,7 @@ def main():
                 arguments.append(f"--password={args.Password}")
             arguments.append(f"--data={ib_data}")
             print(f"Running: ibcmd {' '.join(arguments)}")
-            result = subprocess.run([v8path] + arguments, capture_output=True, encoding="utf-8", errors="replace")
+            result = run_ibcmd(v8path, arguments)
             if result.returncode == 0:
                 print(f"External data processor/report dumped successfully to: {args.OutputDir}")
             else:

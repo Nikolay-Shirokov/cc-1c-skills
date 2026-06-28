@@ -1,0 +1,13 @@
+{
+  "name": "Ошибка при удалении отсутствующей формы",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "Catalog", "name": "Товары" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    }
+  ],
+  "objectName": "Catalogs/Товары",
+  "formName": "НесуществующаяФорма",
+  "expectError": "Метаданные формы не найдены"
+}

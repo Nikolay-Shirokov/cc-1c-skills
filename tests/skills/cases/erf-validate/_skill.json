@@ -1,0 +1,11 @@
+{
+  "script": "epf-validate/scripts/epf-validate",
+  "setup": "none",
+  "args": [
+    { "flag": "-ObjectPath", "from": "workPath", "field": "objectPath" }
+  ],
+  "snapshot": {
+    "root": "workDir",
+    "normalizeUuids": true
+  }
+}
