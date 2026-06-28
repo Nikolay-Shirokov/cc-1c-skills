@@ -1,4 +1,4 @@
-// web-test dom/submenu v1.0 — popup/submenu reading and clicking
+// web-test dom/submenu v1.1 — popup/submenu reading and clicking
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 /**
@@ -145,5 +145,34 @@ export function clickPopupItemScript(text) {
       }
     }
     return null;
+  })()`;
+}
+
+/**
+ * Read a platform "cloud dropdown" checkbox list (`.cloudDD`) — the inline
+ * quick-choice multi-select dropdown (e.g. a catalog with QuickChoice opened via F4).
+ * NOT handled by readSubmenuScript (which reads `.eddText`/`.cloud`/popup `a.press`).
+ *
+ * Returns `[{ text, checked, x, y }]` — `checked` from `.checkbox.select`, `x/y` =
+ * the checkbox center (click there to toggle). Toggle via page.mouse.click (a
+ * `.surface` backdrop swallows selector clicks); confirm by clicking OUTSIDE the panel.
+ * Returns `{ error: 'no_clouddd' }` when no visible `.cloudDD` panel.
+ */
+export function readCloudDDScript() {
+  return `(() => {
+    const norm = s => (s?.trim().replace(/\\u00a0/g, ' ') || '').replace(/\\s+/g, ' ').replace(/ё/gi, 'е');
+    const panel = [...document.querySelectorAll('.cloudDD')].find(p => p.offsetWidth > 0 && p.offsetHeight > 0);
+    if (!panel) return { error: 'no_clouddd' };
+    const items = [];
+    panel.querySelectorAll('.checkbox').forEach(chk => {
+      if (chk.offsetWidth === 0) return;
+      // The text label sits beside the checkbox — climb until a container has text.
+      let row = chk;
+      for (let k = 0; k < 4 && row.parentElement; k++) { row = row.parentElement; if ((row.innerText || '').trim()) break; }
+      const r = chk.getBoundingClientRect();
+      items.push({ text: norm(row.innerText || ''), checked: chk.classList.contains('select'),
+        x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) });
+    });
+    return items;
   })()`;
 }

@@ -1,4 +1,4 @@
-// web-test forms/select-value v1.25 — Reference & composite-type value selection: selectValue, fillReferenceField, selection/type-dialog pickers.
+// web-test forms/select-value v1.26 — Reference & composite-type value selection: selectValue (+ array multi-select), fillReferenceField, selection/type-dialog pickers.
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import {
@@ -6,7 +6,7 @@ import {
 } from '../core/state.mjs';
 import {
   detectFormScript, findFieldButtonScript, resolveFieldsScript,
-  readSubmenuScript, checkErrorsScript,
+  readSubmenuScript, checkErrorsScript, readCloudDDScript,
   findSearchInputScript, findNamedButtonScript, findCompareTypeRadioScript, isFormVisibleScript,
   findPatternInputIdScript, isTypeDialogScript, isNotInListCloudVisibleScript,
   findChildFormByButtonScript, readTypeDialogVisibleRowsScript,
@@ -22,7 +22,11 @@ import {
 } from '../core/helpers.mjs';
 import { pasteText } from '../core/clipboard.mjs';
 import { getFormState } from './state.mjs';
-import { filterList } from '../table/filter.mjs';
+import { filterList, unfilterList } from '../table/filter.mjs';
+import { clickElement } from '../core/click.mjs';
+import { fillTableRow } from '../table/row-fill.mjs';
+import { closeForm } from './close.mjs';
+import { readTable } from '../table/grid.mjs';
 
 /**
  * Scan a selection-form grid for the row matching `search` (string, or a
@@ -620,7 +624,255 @@ export async function fillReferenceField(selector, fieldName, value, formNum) {
  *   B) DLB opens dropdown with history — click "Показать все" or F4 to open selection form
  *   C) DLB opens a separate selection form directly — search + dblclick in grid
  */
+// Button labels for the value-list multi-select surfaces. Single source for BOTH
+// surface detection and clicking (clickElement matches a button by its technical
+// name OR tooltip), so detect and click never drift apart.
+const MULTI_BTN = {
+  uncheckAll: 'СписокСнятьФлажки',   // tooltip "Снять пометки со всех строк"
+  confirm:    'ОК',
+  podbor:     'Подбор',
+  choose:     'Выбрать',
+  yes:        'Да',
+};
+// Recognized selection surfaces a value-list field can open.
+const MULTI_SURFACE = {
+  checkboxForm:    'checkbox-form',     // modal form: all candidates as checkboxes (+ ОК)
+  poolPodbor:      'pool-podbor',       // intermediate "pool" form + Подбор
+  cloudDropdown:   'cloud-dropdown',    // inline .cloudDD quick-choice checkbox dropdown
+  catalogMultiRow: 'catalog-multirow',  // catalog selection form, Ctrl multi-row + Выбрать
+};
+
+/**
+ * Multi-select for "value-list" fields: `selectValue(field, [v1, v2, ...])`.
+ * Always REPLACE semantics (select exactly the given set). Dispatches across the
+ * 4 selection surfaces (see upload/webtest-multiselect-design.md §7a.1) — a checkbox
+ * form, an intermediate pool + Подбор catalog, an inline cloud dropdown, and a
+ * Ctrl-multi-row catalog form. Composes existing API
+ * (clickElement/fillTableRow/closeForm/filterList/readTable/getFormState).
+ * Returns flat form state + `selected: { field, values:[…selected…], notSelected?:[{value,reason}] }`.
+ * Surface name / step detail go to console (exec output) only, NOT the structured result.
+ */
+async function selectValuesMulti(fieldName, values, { type } = {}) {
+  ensureConnected();
+  await dismissPendingErrors();
+  const baseForm = await page.evaluate(detectFormScript());
+  if (baseForm === null) throw new Error('selectValue(multi): no form found');
+
+  const valStr = (el) => typeof el === 'string' ? el : String(Object.values(el)[0]);
+  const targets = values.map(v => ({ raw: v, str: valStr(v) }));
+  const selected = [], notSelected = [];
+  const eqYo = (a, b) => normYo(String(a).toLowerCase()) === normYo(String(b).toLowerCase());
+  const incYo = (hay, needle) => normYo(String(hay).toLowerCase()).includes(normYo(String(needle).toLowerCase()));
+
+  // Resolve field button (DLB→CB) + DCS-checkbox auto-enable (mirror selectValue).
+  let btn = await page.evaluate(findFieldButtonScript(baseForm, fieldName, 'DLB'));
+  if (btn?.error === 'button_not_found') btn = await page.evaluate(findFieldButtonScript(baseForm, fieldName, 'CB'));
+  if (btn?.error) {
+    return returnFormState({ selected: { field: fieldName, values: [], error: 'field_not_found',
+      notSelected: targets.map(t => ({ value: t.str, reason: 'field_not_found' })) } });
+  }
+  if (btn.dcsCheckbox) {
+    const cbSel = `[id="${btn.dcsCheckbox.inputId}"]`;
+    const isChecked = await page.$eval(cbSel, el =>
+      el.classList.contains('checked') || el.classList.contains('checkboxOn') || el.classList.contains('select')).catch(() => false);
+    if (!isChecked) { await page.click(cbSel).catch(() => {}); await waitForStable(); }
+  }
+
+  const cloudDDVisible = () => page.evaluate(`!![...document.querySelectorAll('.cloudDD')].find(p => p.offsetWidth > 0 && p.offsetHeight > 0)`);
+
+  // ── Open + detect (F4-first) ──
+  await clickElement(fieldName).catch(() => {});
+  await waitForStable(baseForm);
+  let formNum = await helperDetectNewForm(baseForm);
+  if (formNum === null) {
+    const inputId = await findFieldInputId(baseForm, btn.fieldName);
+    if (inputId) { await page.click(`[id="${inputId}"]`).catch(() => {}); await page.waitForTimeout(200); }
+    await page.keyboard.press('F4');
+    await page.waitForTimeout(ACTION_WAIT);
+    await waitForStable(baseForm);
+    formNum = await helperDetectNewForm(baseForm);
+  }
+
+  let surface = null;
+  if (formNum !== null) {
+    const fs = await getFormState();
+    const buttons = fs.buttons || [];
+    const hasButton = (label) => buttons.some(b => (b.name || '').includes(label) || (b.tooltip || '').includes(label));
+    if (hasButton(MULTI_BTN.podbor)) surface = MULTI_SURFACE.poolPodbor;
+    else if (hasButton(MULTI_BTN.choose) && !hasButton(MULTI_BTN.confirm)) surface = MULTI_SURFACE.catalogMultiRow;
+    else if (hasButton(MULTI_BTN.uncheckAll) || hasButton(MULTI_BTN.confirm)) surface = MULTI_SURFACE.checkboxForm;
+  } else if (await cloudDDVisible()) {
+    surface = MULTI_SURFACE.cloudDropdown;
+  }
+  console.log(`[selectValuesMulti] field="${fieldName}" surface=${surface} form=${formNum} values=${JSON.stringify(targets.map(t => t.str))}`);
+
+  if (!surface) {
+    return returnFormState({ selected: { field: fieldName, values: [], error: 'surface_unrecognized',
+      notSelected: targets.map(t => ({ value: t.str, reason: 'open_failed' })) } });
+  }
+
+  // ── Per-surface handlers ──
+  const ok = (v) => selected.push(v);
+  const fail = (v, reason) => notSelected.push({ value: v, reason });
+
+  // Toggle a candidate's (checkbox) in a headerless checkbox grid by its Колонка1 text.
+  async function toggleByText(text, want) {
+    let done = false;
+    try {
+      const r = await fillTableRow({ '(checkbox)': want ? 'true' : 'false' }, { row: { 'Колонка1': text } });
+      done = !!r.filled?.[0]?.ok;
+    } catch { done = false; }
+    if (!done) {
+      // off-window — narrow via search then retry
+      try { await filterList(text); } catch {}
+      try {
+        const r = await fillTableRow({ '(checkbox)': want ? 'true' : 'false' }, { row: { 'Колонка1': text } });
+        done = !!r.filled?.[0]?.ok;
+      } catch { done = false; }
+      try { await unfilterList(); } catch {}
+    }
+    return done;
+  }
+
+  // Surface: modal checkbox form listing ALL candidates. Replace = diff (touch only
+  // what changes) when the whole list is visible; bulk-uncheck + check for long lists.
+  async function selectInCheckboxForm() {
+    const t = await readTable({ maxRows: 200 });
+    const listFullyVisible = !(t.hasMore && t.hasMore.below);
+    if (listFullyVisible) {
+      const checkedNow = new Set((t.rows || []).filter(r => r['(checkbox)'] === 'true').map(r => r['Колонка1']));
+      const targetSet = new Set(targets.map(x => x.str));
+      for (const v of checkedNow) if (!targetSet.has(v)) await toggleByText(v, false);
+      for (const tg of targets) {
+        if (checkedNow.has(tg.str)) { ok(tg.str); continue; }
+        (await toggleByText(tg.str, true)) ? ok(tg.str) : fail(tg.str, 'not_in_list');
+      }
+    } else {
+      // Virtualized list — can't read full current state to diff; bulk-uncheck then check targets.
+      await clickElement(MULTI_BTN.uncheckAll).catch(() => {});
+      for (const tg of targets) (await toggleByText(tg.str, true)) ? ok(tg.str) : fail(tg.str, 'not_in_list');
+    }
+    await clickElement(MULTI_BTN.confirm);
+  }
+
+  // Surface: intermediate "pool" form (already-picked rows) + Подбор to add from a catalog.
+  // Pool rows persist, so replace = delete all rows (not uncheck). Pool may carry
+  // checkboxes (custom) or be plain rows (platform — membership itself = selected).
+  async function selectViaPool() {
+    await clearPool();
+    const poolHasCheckbox = (t) => (t.columns || []).includes('(checkbox)');
+    const isSelectedInPool = (t, v) => {
+      const row = (t.rows || []).find(r => eqYo(r['Колонка1'], v));
+      return !!row && (!poolHasCheckbox(t) || row['(checkbox)'] !== 'false');
+    };
+    let pool = await readTable({ maxRows: 200 });
+    const needPodbor = [];
+    for (const tg of targets) {
+      const existing = (pool.rows || []).find(r => eqYo(r['Колонка1'], tg.str));
+      if (existing) {
+        if (poolHasCheckbox(pool) && existing['(checkbox)'] !== 'true') {
+          (await toggleByText(tg.str, true)) ? ok(tg.str) : fail(tg.str, 'pool_mark_failed');
+        } else ok(tg.str);   // platform pool: row present = selected; or already checked
+      } else needPodbor.push(tg);
+    }
+    // Add the rest via a SINGLE Подбор session (catalog stays open in Подбор mode).
+    if (needPodbor.length) {
+      await clickElement(MULTI_BTN.podbor);
+      await waitForStable(formNum);
+      if (await helperDetectNewForm(formNum) !== null) {
+        for (const tg of needPodbor) {
+          try { await filterList(tg.str); } catch {}
+          try { await clickElement(tg.str, { dblclick: true }); } catch {}
+        }
+        await closeForm({ save: false });
+        pool = await readTable({ maxRows: 200 });
+        for (const tg of needPodbor) isSelectedInPool(pool, tg.str) ? ok(tg.str) : fail(tg.str, 'not_found_in_catalog');
+      } else {
+        needPodbor.forEach(tg => fail(tg.str, 'podbor_not_opened'));
+      }
+    }
+    await clickElement(MULTI_BTN.confirm);
+  }
+
+  // Empty the pool by selecting every row (Ctrl+A covers off-screen rows) and deleting.
+  async function clearPool() {
+    const t0 = await readTable({ maxRows: 200 });
+    if (!(t0.rows || []).length) return;
+    try { await clickElement({ row: 0, column: 'Колонка1' }); } catch {}   // focus grid (make list active)
+    await page.keyboard.press('Control+a');
+    await page.waitForTimeout(200);
+    await page.keyboard.press('Delete');
+    await waitForStable(formNum);
+    const t1 = await readTable({ maxRows: 50 });
+    if ((t1.rows || []).length) await clickElement(MULTI_BTN.uncheckAll).catch(() => {});   // fallback
+  }
+
+  // Surface: inline .cloudDD quick-choice dropdown. Coordinate clicks (a .surface
+  // backdrop swallows selector clicks); confirm by clicking OUTSIDE (never Escape/Enter/ОК).
+  async function selectInCloudDropdown() {
+    const readItems = () => page.evaluate(readCloudDDScript());
+    let items = await readItems();
+    if (!Array.isArray(items)) { targets.forEach(t => fail(t.str, 'dropdown_unreadable')); return; }
+    for (const it of items.filter(i => i.checked)) { await page.mouse.click(it.x, it.y); await page.waitForTimeout(150); }
+    for (const tg of targets) {
+      items = await readItems();
+      const it = items.find(i => eqYo(i.text, tg.str)) || items.find(i => incYo(i.text, tg.str));
+      if (!it) { fail(tg.str, 'not_in_list'); continue; }
+      if (!it.checked) { await page.mouse.click(it.x, it.y); await page.waitForTimeout(200); }
+      const after = (await readItems()).find(i => eqYo(i.text, tg.str));
+      after?.checked ? ok(tg.str) : fail(tg.str, 'not_toggled');
+    }
+    await clickOutsideCloudDropdown();
+  }
+
+  async function clickOutsideCloudDropdown() {
+    const rect = await page.evaluate(`(() => { const p = [...document.querySelectorAll('.cloudDD')].find(e => e.offsetWidth > 0); if (!p) return null; const r = p.getBoundingClientRect(); return { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height), vw: window.innerWidth }; })()`);
+    if (!rect) return;
+    const outX = (rect.x + rect.w + 80 <= rect.vw) ? rect.x + rect.w + 80 : Math.max(10, rect.x - 40);
+    await page.mouse.click(outX, rect.y + Math.round(rect.h / 2));
+    await page.waitForTimeout(300);
+  }
+
+  // Surface: catalog selection form with multi-row selection (Ctrl-click rows, then Выбрать).
+  async function selectInCatalogMultiRow() {
+    for (let i = 0; i < targets.length; i++) {
+      const tg = targets[i];
+      try {
+        await clickElement(tg.str, i === 0 ? {} : { modifier: 'ctrl' });
+        ok(tg.str);
+      } catch { fail(tg.str, 'row_not_found'); }
+    }
+    await clickElement(MULTI_BTN.choose);
+    await waitForStable(baseForm);
+    const fs = await getFormState();
+    if (fs.confirmation) await clickElement(MULTI_BTN.yes).catch(() => {});   // deletion-marked element confirm
+  }
+
+  try {
+    if (surface === MULTI_SURFACE.checkboxForm) await selectInCheckboxForm();
+    else if (surface === MULTI_SURFACE.poolPodbor) await selectViaPool();
+    else if (surface === MULTI_SURFACE.cloudDropdown) await selectInCloudDropdown();
+    else if (surface === MULTI_SURFACE.catalogMultiRow) await selectInCatalogMultiRow();
+  } catch (e) {
+    // Hard failure mid-flow — surface what we have; real 1C errors propagate via wrapper.
+    const st = await getFormState();
+    st.selected = { field: fieldName, values: selected, error: e.message,
+      notSelected: [...notSelected, ...targets.filter(t => !selected.includes(t.str) && !notSelected.some(n => n.value === t.str)).map(t => ({ value: t.str, reason: 'aborted: ' + e.message }))] };
+    const err = await checkForErrors();
+    if (err) st.errors = err;
+    return st;
+  }
+
+  await waitForStable(baseForm);
+  const selres = { field: fieldName, values: selected };
+  if (notSelected.length) selres.notSelected = notSelected;
+  return returnFormState({ selected: selres });
+}
+
 export async function selectValue(fieldName, searchText, { type } = {}) {
+  // Multi-select: an array of values → dispatch to the value-list multi handler
+  // (5 surfaces). Single-value path below is unchanged.
+  if (Array.isArray(searchText)) return selectValuesMulti(fieldName, searchText, arguments[2] || {});
   ensureConnected();
   await dismissPendingErrors();
   const formNum = await page.evaluate(detectFormScript());

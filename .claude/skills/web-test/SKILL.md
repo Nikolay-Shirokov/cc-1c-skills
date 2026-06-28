@@ -340,6 +340,22 @@ await selectValue('Документ', '0000-000601', { type: 'Реализаци
 
 Also supports DCS labels — auto-enables the paired checkbox.
 
+**Multi-select (value-list fields)** — pass an **array** to select several values at once. Works
+across all "список значений" surfaces (checkbox form, intermediate pool + Подбор, inline cloud
+dropdown, catalog multi-row select) — the right gesture is auto-detected. Always **replace**
+semantics (the field ends up with exactly the given set):
+```js
+await selectValue('Наименование компании', ['Альфа ООО', 'Бета АО']);
+// result.selected = { field: 'Наименование компании', values: ['Альфа ООО', 'Бета АО'] }
+
+// Values not offered by the field land in notSelected (the call does not throw):
+const r = await selectValue('Организации', ['Альфа ООО', 'Несуществующая']);
+// r.selected = { field: 'Организации', values: ['Альфа ООО'],
+//                notSelected: [{ value: 'Несуществующая', reason: 'not_in_list' }] }
+```
+Array elements are strings (the displayed value); objects `{ col: value }` are passed through as
+the catalog search (for surfaces that open a selection catalog).
+
 #### `fillTableRow(fields, opts)` → form state with `filled` (+ optional `notFilled`)
 Fill table row cells via Tab navigation. Value is a plain string, `{ value, type }` for composite-type cells, or `''`/`null` to clear (Shift+F4).
 

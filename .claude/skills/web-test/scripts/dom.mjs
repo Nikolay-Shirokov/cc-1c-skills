@@ -89,6 +89,7 @@ export {
 export {
   readSubmenuScript,
   clickPopupItemScript,
+  readCloudDDScript,
 } from './dom/submenu.mjs';
 
 export { checkErrorsScript } from './dom/errors.mjs';
