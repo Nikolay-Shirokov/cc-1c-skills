@@ -1,0 +1,5 @@
+{
+  "name": "Ошибка: каталог конфигурации не найден",
+  "args_extra": ["-ConfigDir", "__missing_config_dir__", "-DryRun"],
+  "expectError": true
+}

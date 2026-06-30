@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# db-load-git v1.10 — Load Git changes into 1C database
+# db-load-git v1.11 — Load Git changes into 1C database
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -110,7 +110,7 @@ def get_object_xml_from_subfile(relative_path):
 def run_git(config_dir, git_args):
     """Run a git command in config_dir and return output lines on success."""
     result = subprocess.run(
-        ["git"] + git_args,
+        ["git", "-c", "core.quotePath=false"] + git_args,
         capture_output=True,
         text=True,
         encoding="utf-8",

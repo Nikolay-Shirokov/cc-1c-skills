@@ -1,0 +1,5 @@
+{
+  "name": "Ошибка: Commit без диапазона",
+  "args_extra": ["-ConfigDir", ".", "-Source", "Commit", "-DryRun"],
+  "expectError": true
+}

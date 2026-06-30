@@ -1,4 +1,4 @@
-﻿# db-load-git v1.10 — Load Git changes into 1C database
+﻿# db-load-git v1.11 — Load Git changes into 1C database
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 # NB: *nix-раскладку платформы (/opt/1cv8/<ver>/1cv8, без .exe) знает только .py-порт — PS на *nix не исполняется.
 <#
@@ -227,6 +227,15 @@ try {
 }
 
 # --- Get changed files from Git ---
+# Все git-вызовы для сбора путей идут через один хелпер с -c core.quotePath=false,
+# иначе кириллические пути возвращаются в octal-виде и не распознаются (зеркало run_git в .py).
+function Invoke-GitLines {
+    param([string[]]$GitArgs)
+    $out = git -c core.quotePath=false @GitArgs 2>&1
+    if ($LASTEXITCODE -eq 0) { return $out }
+    return @()
+}
+
 $changedFiles = @()
 $ConfigDir = (Resolve-Path $ConfigDir).Path.TrimEnd('\')
 $configDirNormalized = $ConfigDir.Replace('\', '/')
@@ -236,29 +245,22 @@ try {
     switch ($Source) {
         "Staged" {
             Write-Host "Getting staged changes..."
-            $raw = git diff --cached --name-only --relative 2>&1
-            if ($LASTEXITCODE -eq 0) { $changedFiles += $raw }
+            $changedFiles += Invoke-GitLines -GitArgs @('diff', '--cached', '--name-only', '--relative')
         }
         "Unstaged" {
             Write-Host "Getting unstaged changes..."
-            $raw = git diff --name-only --relative 2>&1
-            if ($LASTEXITCODE -eq 0) { $changedFiles += $raw }
-            $raw = git ls-files --others --exclude-standard 2>&1
-            if ($LASTEXITCODE -eq 0) { $changedFiles += $raw }
+            $changedFiles += Invoke-GitLines -GitArgs @('diff', '--name-only', '--relative')
+            $changedFiles += Invoke-GitLines -GitArgs @('ls-files', '--others', '--exclude-standard')
         }
         "Commit" {
             Write-Host "Getting changes from $CommitRange..."
-            $raw = git diff --name-only --relative $CommitRange 2>&1
-            if ($LASTEXITCODE -eq 0) { $changedFiles += $raw }
+            $changedFiles += Invoke-GitLines -GitArgs @('diff', '--name-only', '--relative', $CommitRange)
         }
         "All" {
             Write-Host "Getting all uncommitted changes..."
-            $raw = git diff --cached --name-only --relative 2>&1
-            if ($LASTEXITCODE -eq 0) { $changedFiles += $raw }
-            $raw = git diff --name-only --relative 2>&1
-            if ($LASTEXITCODE -eq 0) { $changedFiles += $raw }
-            $raw = git ls-files --others --exclude-standard 2>&1
-            if ($LASTEXITCODE -eq 0) { $changedFiles += $raw }
+            $changedFiles += Invoke-GitLines -GitArgs @('diff', '--cached', '--name-only', '--relative')
+            $changedFiles += Invoke-GitLines -GitArgs @('diff', '--name-only', '--relative')
+            $changedFiles += Invoke-GitLines -GitArgs @('ls-files', '--others', '--exclude-standard')
         }
     }
 } finally {

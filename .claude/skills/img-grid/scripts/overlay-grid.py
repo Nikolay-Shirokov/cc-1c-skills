@@ -1,3 +1,6 @@
+#!/usr/bin/env python3
+# img-grid v1.1 — Overlay numbered grid on image
+# Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 """Overlay a numbered grid on an image to help determine column/row proportions.
 
 Usage: python overlay-grid.py <image> [-c COLS] [-r ROWS] [-o OUTPUT]
@@ -29,6 +32,11 @@ def main():
     parser.add_argument("-o", "--output", help="Output path (default: <name>-grid.<ext>)")
     args = parser.parse_args()
 
+    if args.cols <= 0:
+        parser.error("--cols must be greater than 0")
+    if args.rows < 0:
+        parser.error("--rows must be greater than or equal to 0")
+
     src = Image.open(args.image).convert("RGBA")
     sw, sh = src.size
 
@@ -36,7 +44,7 @@ def main():
     step_x = sw / cols
     rows = args.rows
     if rows == 0:
-        rows = round(sh / step_x)
+        rows = max(1, round(sh / step_x))
     step_y = sh / rows
 
     # Canvas with margins for labels

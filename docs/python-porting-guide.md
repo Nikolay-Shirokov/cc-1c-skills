@@ -109,10 +109,12 @@ Switch-параметры (`-NoValidate`) → `action='store_true'`.
 
 - **Compile/init скрипты** (строковая сборка): только stdlib
 - **DOM-скрипты** (edit/validate/info): `lxml` с `XMLParser(remove_blank_text=False)` для сохранения whitespace
+- **img-grid**: `Pillow` для чтения PNG/JPEG и отрисовки сетки поверх изображения
 - **Web-скрипты**: `psutil` для работы с процессами Apache
 
 Зависимости:
 - `lxml>=4.9.0` — ~25 DOM-скриптов
+- `Pillow>=10.0.0` — `/img-grid`
 - `psutil>=5.9.0` — 4 web-скрипта
 
 ## Работа с BOM (UTF-8)
