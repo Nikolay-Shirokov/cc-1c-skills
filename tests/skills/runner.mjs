@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// skill-test-runner v0.4 — Snapshot-based regression tests for 1C skill scripts
+// skill-test-runner v0.5 — Snapshot-based regression tests for 1C skill scripts
 // Usage: node tests/skills/runner.mjs [filter] [--update-snapshots] [--runtime python] [--json report.json] [--concurrency N] [--with-validation]
 
 import { execFileSync, execFile } from 'child_process';
@@ -970,9 +970,12 @@ function loadV8Context() {
   try {
     const proj = JSON.parse(readFileSync(projectFile, 'utf8'));
     const v8bin = proj.v8path;
-    const v8exe = v8bin ? (existsSync(join(v8bin, '1cv8.exe')) ? join(v8bin, '1cv8.exe') : null) : null;
+    // Platform executable names: Windows uses .exe; *nix (macOS/Linux) plain names.
+    const exeName = process.platform === 'win32' ? '1cv8.exe' : '1cv8';
+    const ibcmdName = process.platform === 'win32' ? 'ibcmd.exe' : 'ibcmd';
+    const v8exe = v8bin && existsSync(join(v8bin, exeName)) ? join(v8bin, exeName) : null;
     if (!v8exe) return null;
-    const ibcmdExe = v8bin && existsSync(join(v8bin, 'ibcmd.exe')) ? join(v8bin, 'ibcmd.exe') : null;
+    const ibcmdExe = v8bin && existsSync(join(v8bin, ibcmdName)) ? join(v8bin, ibcmdName) : null;
     const defaultDb = proj.databases?.find(d => d.id === proj.default) || proj.databases?.[0];
     return {
       v8path: v8bin,

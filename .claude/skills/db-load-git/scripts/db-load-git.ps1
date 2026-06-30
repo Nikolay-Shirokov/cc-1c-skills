@@ -1,5 +1,6 @@
-﻿# db-load-git v1.8 — Load Git changes into 1C database
+﻿# db-load-git v1.9 — Load Git changes into 1C database
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
+# NB: *nix-раскладку платформы (/opt/1cv8/<ver>/1cv8, без .exe) знает только .py-порт — PS на *nix не исполняется.
 <#
 .SYNOPSIS
     Загрузка изменений из Git в базу 1С
@@ -149,7 +150,7 @@ if (-not $DryRun) {
             $V8Path = $found.FullName
             Write-Host "Auto-selected platform $($found.Directory.Parent.Name): $V8Path" -ForegroundColor Yellow
         } else {
-            Write-Host "Error: 1cv8.exe not found. Specify -V8Path" -ForegroundColor Red
+            Write-Host "Error: 1C executable not found. Specify -V8Path" -ForegroundColor Red
             exit 1
         }
     }
@@ -158,7 +159,7 @@ if (-not $DryRun) {
     }
 
     if (-not (Test-Path $V8Path)) {
-        Write-Host "Error: 1cv8.exe not found at $V8Path" -ForegroundColor Red
+        Write-Host "Error: 1C executable not found at $V8Path" -ForegroundColor Red
         exit 1
     }
 }

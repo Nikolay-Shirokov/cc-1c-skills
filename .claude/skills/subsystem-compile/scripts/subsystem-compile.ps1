@@ -1,4 +1,4 @@
-﻿# subsystem-compile v1.7 — Create 1C subsystem from JSON definition
+﻿# subsystem-compile v1.8 — Create 1C subsystem from JSON definition
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[string]$DefinitionFile,

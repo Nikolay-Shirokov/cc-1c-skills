@@ -5,6 +5,7 @@
   },
   "validatePath": "Subsystems/Тест",
   "expect": {
-    "files": ["Subsystems/Тест.xml"]
+    "files": ["Subsystems/Тест.xml"],
+    "stdoutContains": "=== Validation OK: Subsystem.Тест"
   }
 }

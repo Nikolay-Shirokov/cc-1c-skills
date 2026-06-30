@@ -1,0 +1,5 @@
+{
+  "name": "Ошибка: каталог -V8Path без исполняемого 1C",
+  "args_extra": ["-V8Path", "{workDir}"],
+  "expectError": true
+}

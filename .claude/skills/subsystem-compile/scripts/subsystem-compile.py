@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-# subsystem-compile v1.7 — Create 1C subsystem from JSON definition
+# subsystem-compile v1.8 — Create 1C subsystem from JSON definition
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import json
 import os
 import re
+import subprocess
 import sys
 import uuid
 import xml.etree.ElementTree as ET
@@ -591,11 +592,11 @@ def main():
     # --- 6. Auto-validate ---
     if not args.NoValidate:
         script_dir = os.path.dirname(os.path.abspath(__file__))
-        validate_script = os.path.normpath(os.path.join(script_dir, '..', '..', 'subsystem-validate', 'scripts', 'subsystem-validate.ps1'))
-        if os.path.exists(validate_script):
+        validate_script = os.path.normpath(os.path.join(script_dir, '..', '..', 'subsystem-validate', 'scripts', 'subsystem-validate.py'))
+        if os.path.isfile(validate_script):
             print()
             print("--- Running subsystem-validate ---")
-            os.system(f'powershell.exe -NoProfile -File "{validate_script}" -SubsystemPath "{target_xml}"')
+            subprocess.run([sys.executable, validate_script, "-SubsystemPath", target_xml])
 
     # --- 7. Summary ---
     print()
