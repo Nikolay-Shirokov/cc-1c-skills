@@ -596,7 +596,12 @@ def main():
         if os.path.isfile(validate_script):
             print()
             print("--- Running subsystem-validate ---")
-            subprocess.run([sys.executable, validate_script, "-SubsystemPath", target_xml])
+            # Keep target_xml as an argv element; do not build a shell command line.
+            subprocess.run(
+                [sys.executable, validate_script, "-SubsystemPath", target_xml],
+                check=False,
+                shell=False,
+            )
 
     # --- 7. Summary ---
     print()
