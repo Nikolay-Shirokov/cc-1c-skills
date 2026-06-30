@@ -1,4 +1,4 @@
-﻿# meta-compile v1.14 — Compile 1C metadata object from JSON
+﻿# meta-compile v1.15 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -245,7 +245,7 @@ $script:validEnumValues = @{
 	"Posting"                        = @("Allow","Deny")
 	"RealTimePosting"                = @("Allow","Deny")
 	"EditType"                       = @("InDialog","InList","BothWays")
-	"HierarchyType"                  = @("HierarchyFoldersAndItems","HierarchyItemsOnly")
+	"HierarchyType"                  = @("HierarchyFoldersAndItems","HierarchyOfItems")
 	"CodeType"                       = @("String","Number")
 	"CodeAllowedLength"              = @("Variable","Fixed")
 	"NumberType"                     = @("String","Number")
@@ -257,7 +257,7 @@ $script:validEnumValues = @{
 	"FillChecking"                   = @("DontCheck","ShowError","ShowWarning")
 	"Indexing"                       = @("DontIndex","Index","IndexWithAdditionalOrder")
 	"SubordinationUse"               = @("ToItems","ToFolders","ToFoldersAndItems")
-	"CodeSeries"                     = @("WholeCatalog","WithinSubordination")
+	"CodeSeries"                     = @("WholeCatalog","WithinSubordination","WithinOwnerSubordination")
 	"ChoiceMode"                     = @("BothWays","QuickChoice","FromForm")
 }
 
