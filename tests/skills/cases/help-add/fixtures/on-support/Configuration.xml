@@ -1,2 +1,251 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<MetaDataObject xmlns="http://v8.1c.ru/8.3/MDClasses" version="2.17"><Configuration uuid="11111111-1111-1111-1111-111111111111"><Properties><Name>ТестоваяКонфигурацияСКириллицей</Name></Properties><ChildObjects/></Configuration></MetaDataObject>
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<MetaDataObject xmlns="http://v8.1c.ru/8.3/MDClasses" xmlns:app="http://v8.1c.ru/8.2/managed-application/core" xmlns:v8="http://v8.1c.ru/8.1/data/core" xmlns:xr="http://v8.1c.ru/8.3/xcf/readable" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" version="2.17">
+	<Configuration uuid="7d2b544e-4feb-4fc3-bba6-a4c5f8881029">
+		<InternalInfo>
+			<xr:ContainedObject>
+				<xr:ClassId>9cd510cd-abfc-11d4-9434-004095e12fc7</xr:ClassId>
+				<xr:ObjectId>b1062a58-3f62-4d11-8363-6c1bcc0e5d82</xr:ObjectId>
+			</xr:ContainedObject>
+			<xr:ContainedObject>
+				<xr:ClassId>9fcd25a0-4822-11d4-9414-008048da11f9</xr:ClassId>
+				<xr:ObjectId>456fb0c8-c972-48ed-8675-ce65ca46fba5</xr:ObjectId>
+			</xr:ContainedObject>
+			<xr:ContainedObject>
+				<xr:ClassId>e3687481-0a87-462c-a166-9f34594f9bba</xr:ClassId>
+				<xr:ObjectId>fd3dabc7-18b2-480d-829e-b8c69318ff92</xr:ObjectId>
+			</xr:ContainedObject>
+			<xr:ContainedObject>
+				<xr:ClassId>9de14907-ec23-4a07-96f0-85521cb6b53b</xr:ClassId>
+				<xr:ObjectId>51cd6db1-7d04-4a2d-9938-ddedd81759e5</xr:ObjectId>
+			</xr:ContainedObject>
+			<xr:ContainedObject>
+				<xr:ClassId>51f2d5d8-ea4d-4064-8892-82951750031e</xr:ClassId>
+				<xr:ObjectId>ab2707e0-f70d-4d31-800e-0ce746a90abc</xr:ObjectId>
+			</xr:ContainedObject>
+			<xr:ContainedObject>
+				<xr:ClassId>e68182ea-4237-4383-967f-90c1e3370bc7</xr:ClassId>
+				<xr:ObjectId>de5b3901-15f5-4fe2-b44d-e06dc50e182e</xr:ObjectId>
+			</xr:ContainedObject>
+			<xr:ContainedObject>
+				<xr:ClassId>fb282519-d103-4dd3-bc12-cb271d631dfc</xr:ClassId>
+				<xr:ObjectId>5fb17c21-25ef-47d1-8a48-4220d44a22b1</xr:ObjectId>
+			</xr:ContainedObject>
+		</InternalInfo>
+		<Properties>
+			<Name>TestSupportConf</Name>
+			<Synonym>
+				<v8:item>
+					<v8:lang>ru</v8:lang>
+					<v8:content>TestSupportConf</v8:content>
+				</v8:item>
+			</Synonym>
+			<Comment />
+			<NamePrefix />
+			<ConfigurationExtensionCompatibilityMode>Version8_3_24</ConfigurationExtensionCompatibilityMode>
+			<DefaultRunMode>ManagedApplication</DefaultRunMode>
+			<UsePurposes>
+				<v8:Value xsi:type="app:ApplicationUsePurpose">PlatformApplication</v8:Value>
+			</UsePurposes>
+			<ScriptVariant>Russian</ScriptVariant>
+			<DefaultRoles />
+			<Vendor />
+			<Version />
+			<UpdateCatalogAddress />
+			<IncludeHelpInContents>false</IncludeHelpInContents>
+			<UseManagedFormInOrdinaryApplication>false</UseManagedFormInOrdinaryApplication>
+			<UseOrdinaryFormInManagedApplication>false</UseOrdinaryFormInManagedApplication>
+			<AdditionalFullTextSearchDictionaries />
+			<CommonSettingsStorage />
+			<ReportsUserSettingsStorage />
+			<ReportsVariantsStorage />
+			<FormDataSettingsStorage />
+			<DynamicListsUserSettingsStorage />
+			<URLExternalDataStorage />
+			<Content />
+			<DefaultReportForm />
+			<DefaultReportVariantForm />
+			<DefaultReportSettingsForm />
+			<DefaultReportAppearanceTemplate />
+			<DefaultDynamicListSettingsForm />
+			<DefaultSearchForm />
+			<DefaultDataHistoryChangeHistoryForm />
+			<DefaultDataHistoryVersionDataForm />
+			<DefaultDataHistoryVersionDifferencesForm />
+			<DefaultCollaborationSystemUsersChoiceForm />
+			<RequiredMobileApplicationPermissions />
+			<UsedMobileApplicationFunctionalities>
+				<app:functionality>
+					<app:functionality>Biometrics</app:functionality>
+					<app:use>true</app:use>
+				</app:functionality>
+				<app:functionality>
+					<app:functionality>Location</app:functionality>
+					<app:use>false</app:use>
+				</app:functionality>
+				<app:functionality>
+					<app:functionality>BackgroundLocation</app:functionality>
+					<app:use>false</app:use>
+				</app:functionality>
+				<app:functionality>
+					<app:functionality>BluetoothPrinters</app:functionality>
+					<app:use>false</app:use>
+				</app:functionality>
+				<app:functionality>
+					<app:functionality>WiFiPrinters</app:functionality>
+					<app:use>false</app:use>
+				</app:functionality>
+				<app:functionality>
+					<app:functionality>Contacts</app:functionality>
+					<app:use>false</app:use>
+				</app:functionality>
+				<app:functionality>
+					<app:functionality>Calendars</app:functionality>
+					<app:use>false</app:use>
+				</app:functionality>
+				<app:functionality>
+					<app:functionality>PushNotifications</app:functionality>
+					<app:use>false</app:use>
+				</app:functionality>
+				<app:functionality>
+					<app:functionality>LocalNotifications</app:functionality>
+					<app:use>false</app:use>
+				</app:functionality>
+				<app:functionality>
+					<app:functionality>InAppPurchases</app:functionality>
+					<app:use>false</app:use>
+				</app:functionality>
+				<app:functionality>
+					<app:functionality>PersonalComputerFileExchange</app:functionality>
+					<app:use>false</app:use>
+				</app:functionality>
+				<app:functionality>
+					<app:functionality>Ads</app:functionality>
+					<app:use>false</app:use>
+				</app:functionality>
+				<app:functionality>
+					<app:functionality>NumberDialing</app:functionality>
+					<app:use>false</app:use>
+				</app:functionality>
+				<app:functionality>
+					<app:functionality>CallProcessing</app:functionality>
+					<app:use>false</app:use>
+				</app:functionality>
+				<app:functionality>
+					<app:functionality>CallLog</app:functionality>
+					<app:use>false</app:use>
+				</app:functionality>
+				<app:functionality>
+					<app:functionality>AutoSendSMS</app:functionality>
+					<app:use>false</app:use>
+				</app:functionality>
+				<app:functionality>
+					<app:functionality>ReceiveSMS</app:functionality>
+					<app:use>false</app:use>
+				</app:functionality>
+				<app:functionality>
+					<app:functionality>SMSLog</app:functionality>
+					<app:use>false</app:use>
+				</app:functionality>
+				<app:functionality>
+					<app:functionality>Camera</app:functionality>
+					<app:use>false</app:use>
+				</app:functionality>
+				<app:functionality>
+					<app:functionality>Microphone</app:functionality>
+					<app:use>false</app:use>
+				</app:functionality>
+				<app:functionality>
+					<app:functionality>MusicLibrary</app:functionality>
+					<app:use>false</app:use>
+				</app:functionality>
+				<app:functionality>
+					<app:functionality>PictureAndVideoLibraries</app:functionality>
+					<app:use>false</app:use>
+				</app:functionality>
+				<app:functionality>
+					<app:functionality>AudioPlaybackAndVibration</app:functionality>
+					<app:use>false</app:use>
+				</app:functionality>
+				<app:functionality>
+					<app:functionality>BackgroundAudioPlaybackAndVibration</app:functionality>
+					<app:use>false</app:use>
+				</app:functionality>
+				<app:functionality>
+					<app:functionality>InstallPackages</app:functionality>
+					<app:use>false</app:use>
+				</app:functionality>
+				<app:functionality>
+					<app:functionality>OSBackup</app:functionality>
+					<app:use>true</app:use>
+				</app:functionality>
+				<app:functionality>
+					<app:functionality>ApplicationUsageStatistics</app:functionality>
+					<app:use>false</app:use>
+				</app:functionality>
+				<app:functionality>
+					<app:functionality>BarcodeScanning</app:functionality>
+					<app:use>false</app:use>
+				</app:functionality>
+				<app:functionality>
+					<app:functionality>BackgroundAudioRecording</app:functionality>
+					<app:use>false</app:use>
+				</app:functionality>
+				<app:functionality>
+					<app:functionality>AllFilesAccess</app:functionality>
+					<app:use>false</app:use>
+				</app:functionality>
+				<app:functionality>
+					<app:functionality>Videoconferences</app:functionality>
+					<app:use>false</app:use>
+				</app:functionality>
+				<app:functionality>
+					<app:functionality>NFC</app:functionality>
+					<app:use>false</app:use>
+				</app:functionality>
+				<app:functionality>
+					<app:functionality>DocumentScanning</app:functionality>
+					<app:use>false</app:use>
+				</app:functionality>
+				<app:functionality>
+					<app:functionality>SpeechToText</app:functionality>
+					<app:use>false</app:use>
+				</app:functionality>
+				<app:functionality>
+					<app:functionality>Geofences</app:functionality>
+					<app:use>false</app:use>
+				</app:functionality>
+				<app:functionality>
+					<app:functionality>IncomingShareRequests</app:functionality>
+					<app:use>false</app:use>
+				</app:functionality>
+				<app:functionality>
+					<app:functionality>AllIncomingShareRequestsTypesProcessing</app:functionality>
+					<app:use>false</app:use>
+				</app:functionality>
+			</UsedMobileApplicationFunctionalities>
+			<StandaloneConfigurationRestrictionRoles />
+			<MobileApplicationURLs />
+			<AllowedIncomingShareRequestTypes />
+			<MainClientApplicationWindowMode>Normal</MainClientApplicationWindowMode>
+			<DefaultInterface />
+			<DefaultStyle />
+			<DefaultLanguage>Language.Русский</DefaultLanguage>
+			<BriefInformation />
+			<DetailedInformation />
+			<Copyright />
+			<VendorInformationAddress />
+			<ConfigurationInformationAddress />
+			<DataLockControlMode>Managed</DataLockControlMode>
+			<ObjectAutonumerationMode>NotAutoFree</ObjectAutonumerationMode>
+			<ModalityUseMode>DontUse</ModalityUseMode>
+			<SynchronousPlatformExtensionAndAddInCallUseMode>DontUse</SynchronousPlatformExtensionAndAddInCallUseMode>
+			<InterfaceCompatibilityMode>TaxiEnableVersion8_2</InterfaceCompatibilityMode>
+			<DatabaseTablespacesUseMode>DontUse</DatabaseTablespacesUseMode>
+			<CompatibilityMode>Version8_3_24</CompatibilityMode>
+			<DefaultConstantsForm />
+		</Properties>
+		<ChildObjects>
+			<Language>Русский</Language>
+		<Catalog>Locked</Catalog></ChildObjects>
+	</Configuration>
+</MetaDataObject>
