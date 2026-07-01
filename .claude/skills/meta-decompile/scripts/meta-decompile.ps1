@@ -1,4 +1,4 @@
-﻿# meta-decompile v0.4 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
+﻿# meta-decompile v0.5 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 #
 # Пилот: только Catalog. Инверс meta-compile (omit-on-default: ключ эмитим только
@@ -310,34 +310,51 @@ if ($childObjs) {
 	}
 }
 
-# --- Предопределённые (соседний Ext/Predefined.xml). meta-compile пока их НЕ потребляет (пробел DSL).
-# ⚠️ ЧЕРНОВАЯ/ВРЕМЕННАЯ форма `predefined` — предложение по факту корпуса, НЕ утверждённый DSL.
-# Правило: непокрытый блок проектируем в DSL СНАЧАЛА (совместно), потом переписываем этот захват под него. ---
+# --- Предопределённые (соседний Ext/Predefined.xml) → DSL predefined.
+# Плоский элемент → строка "(Код) Имя [Наименование]" (Наименование: ==авто → опустить; '' → []; иначе [текст]).
+# Группа/иерархия → object {name, [code], [description], isFolder, childItems}. codeType — из свойства каталога. ---
 $objDir = Split-Path -Parent (Resolve-Path -LiteralPath $ObjectPath).Path
 $predefPath = Join-Path (Join-Path (Join-Path $objDir $objName) 'Ext') 'Predefined.xml'
 if (Test-Path -LiteralPath $predefPath) {
 	$pdoc = New-Object System.Xml.XmlDocument
 	$pdoc.Load($predefPath)
-	function Parse-PredefItem {
+	function PredefItem-ToDsl {
 		param($itemEl)
-		$o = [ordered]@{}
-		$o['name'] = ($itemEl.SelectSingleNode("*[local-name()='Name']")).InnerText
+		$name = ($itemEl.SelectSingleNode("*[local-name()='Name']")).InnerText
 		$codeEl = $itemEl.SelectSingleNode("*[local-name()='Code']")
-		if ($codeEl -and $codeEl.InnerText) { $o['code'] = $codeEl.InnerText }
+		$code = if ($codeEl -and $codeEl.InnerText) { $codeEl.InnerText } else { '' }
 		$descEl = $itemEl.SelectSingleNode("*[local-name()='Description']")
-		if ($descEl -and $descEl.InnerText) { $o['description'] = $descEl.InnerText }
+		$desc = if ($descEl) { $descEl.InnerText } else { '' }
 		$folderEl = $itemEl.SelectSingleNode("*[local-name()='IsFolder']")
-		if ($folderEl -and $folderEl.InnerText -eq 'true') { $o['isFolder'] = $true }
+		$isFolder = ($folderEl -and $folderEl.InnerText -eq 'true')
 		$childContainer = $itemEl.SelectSingleNode("*[local-name()='ChildItems']")
-		if ($childContainer) {
-			$kids = [System.Collections.ArrayList]@()
-			foreach ($k in @($childContainer.SelectNodes("*[local-name()='Item']"))) { [void]$kids.Add((Parse-PredefItem $k)) }
-			if ($kids.Count -gt 0) { $o['children'] = $kids }
+		# ВАЖНО: обернуть весь if в @(), иначе PS распаковывает одноэлементный @(...) из if-блока
+		# обратно в узел → $kids.Count = $null → папки с ОДНИМ ребёнком теряют его.
+		$kids = @(if ($childContainer) { $childContainer.SelectNodes("*[local-name()='Item']") } else { @() })
+		$auto = Split-CamelWords $name
+
+		if (-not $isFolder -and $kids.Count -eq 0) {
+			# Плоский → компактная строка.
+			$s = if ($code) { "($code) $name" } else { $name }
+			if ($desc -eq '') { $s = "$s []" }
+			elseif ($desc -ne $auto) { $s = "$s [$desc]" }
+			return $s
+		}
+		# Группа/иерархия → объект.
+		$o = [ordered]@{ name = $name }
+		if ($code) { $o['code'] = $code }
+		if ($desc -eq '') { $o['description'] = '' }
+		elseif ($desc -ne $auto) { $o['description'] = $desc }
+		if ($isFolder) { $o['isFolder'] = $true }
+		if ($kids.Count -gt 0) {
+			$sub = [System.Collections.ArrayList]@()
+			foreach ($k in $kids) { [void]$sub.Add((PredefItem-ToDsl $k)) }
+			$o['childItems'] = $sub
 		}
 		return $o
 	}
 	$rootItems = [System.Collections.ArrayList]@()
-	foreach ($it in @($pdoc.DocumentElement.SelectNodes("*[local-name()='Item']"))) { [void]$rootItems.Add((Parse-PredefItem $it)) }
+	foreach ($it in @($pdoc.DocumentElement.SelectNodes("*[local-name()='Item']"))) { [void]$rootItems.Add((PredefItem-ToDsl $it)) }
 	if ($rootItems.Count -gt 0) { $dsl['predefined'] = $rootItems }
 }
 

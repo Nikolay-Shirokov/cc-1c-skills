@@ -181,6 +181,10 @@ def assert_edit_allowed(target_path, require):
 def esc_xml(s):
     return s.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('"', '&quot;')
 
+def esc_xml_text(s):
+    # Эскейп ТЕКСТА элемента: только & < > (кавычки в тексте 1С держит raw).
+    return s.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+
 def new_uuid():
     return str(uuid.uuid4())
 
@@ -2806,6 +2810,60 @@ if obj_type in types_with_module:
         write_utf8_bom(module_path, '')
         modules_created.append(module_path)
 
+# --- Predefined data (Ext/Predefined.xml). Элемент: "(Код) Имя [Наименование]" ИЛИ объект (+рус. синонимы).
+# Наименование: нет [..]/ключа → авто(Split-CamelCase); [] / "" → пусто; [текст]/текст → как есть.
+def resolve_predef_item(val):
+    if isinstance(val, str):
+        m = re.match(r'^\s*(?:\(([^)]*)\)\s*)?(\S+)(?:\s*\[(.*)\])?\s*$', val)
+        name = m.group(2)
+        code = m.group(1) if m.group(1) is not None else ''
+        desc = m.group(3) if m.group(3) is not None else split_camel_case(name)
+        return {'name': name, 'code': code, 'desc': desc, 'isFolder': False, 'children': []}
+    def gv(keys):
+        for k in keys:
+            if k in val:
+                return val[k]
+        return None
+    name = str(gv(['name', 'имя']) or '')
+    code_v = gv(['code', 'код'])
+    code = str(code_v) if code_v is not None else ''
+    has_desc = ('description' in val) or ('наименование' in val)
+    desc_v = gv(['description', 'наименование'])
+    desc = ('' if desc_v is None else str(desc_v)) if has_desc else split_camel_case(name)
+    is_folder = gv(['isFolder', 'группа']) is True
+    subs = gv(['childItems', 'подчиненные']) or []
+    return {'name': name, 'code': code, 'desc': desc, 'isFolder': is_folder, 'children': list(subs)}
+
+def emit_predef_item(out, val, indent, code_type):
+    r = resolve_predef_item(val)
+    out.append(f'{indent}<Item id="{new_uuid()}">')
+    out.append(f'{indent}\t<Name>{esc_xml_text(r["name"])}</Name>')
+    if not r['code']:
+        out.append(f'{indent}\t<Code/>')
+    elif code_type == 'Number':
+        out.append(f'{indent}\t<Code xsi:type="xs:decimal">{esc_xml_text(r["code"])}</Code>')
+    else:
+        out.append(f'{indent}\t<Code>{esc_xml_text(r["code"])}</Code>')
+    if r['desc'] == '':
+        out.append(f'{indent}\t<Description/>')
+    else:
+        out.append(f'{indent}\t<Description>{esc_xml_text(r["desc"])}</Description>')
+    out.append(f'{indent}\t<IsFolder>{"true" if r["isFolder"] else "false"}</IsFolder>')
+    if r['children']:
+        out.append(f'{indent}\t<ChildItems>')
+        for c in r['children']:
+            emit_predef_item(out, c, indent + '\t\t', code_type)
+        out.append(f'{indent}\t</ChildItems>')
+    out.append(f'{indent}</Item>')
+
+def build_predefined_xml(items, xsi_type, code_type):
+    out = ['<?xml version="1.0" encoding="UTF-8"?>']
+    out.append(f'<PredefinedData xmlns="http://v8.1c.ru/8.3/xcf/predef" xmlns:v8="http://v8.1c.ru/8.1/data/core" xmlns:xr="http://v8.1c.ru/8.3/xcf/readable" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:type="{xsi_type}" version="{format_version}">')
+    for it in items:
+        emit_predef_item(out, it, '\t', code_type)
+    out.append('</PredefinedData>')
+    return '\n'.join(out) + '\n'
+
 # Special files
 if obj_type == 'ExchangePlan':
     content_path = os.path.join(ext_dir, 'Content.xml')
@@ -2822,6 +2880,15 @@ if obj_type == 'BusinessProcess':
         flowchart_xml = f'<?xml version="1.0" encoding="UTF-8"?>\r\n<Flowchart xmlns="http://v8.1c.ru/8.3/MDClasses" version="{format_version}"/>\r\n'
         write_utf8_bom(flowchart_path, flowchart_xml)
         modules_created.append(flowchart_path)
+
+# Предопределённые элементы (Ext/Predefined.xml) — пока Catalog.
+if obj_type == 'Catalog' and defn.get('predefined'):
+    ensure_ext_dir()
+    cat_code_type = str(defn['codeType']) if defn.get('codeType') else 'String'
+    predef_xml = build_predefined_xml(defn['predefined'], 'CatalogPredefinedItems', cat_code_type)
+    predef_path = os.path.join(ext_dir, 'Predefined.xml')
+    write_utf8_bom(predef_path, predef_xml)
+    modules_created.append(predef_path)
 
 # ---------------------------------------------------------------------------
 # 17. Register in Configuration.xml

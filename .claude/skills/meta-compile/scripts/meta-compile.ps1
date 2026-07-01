@@ -330,6 +330,11 @@ function Esc-Xml {
 	param([string]$s)
 	return $s.Replace('&','&amp;').Replace('<','&lt;').Replace('>','&gt;').Replace('"','&quot;')
 }
+# Эскейп ТЕКСТА элемента: только & < > (кавычки в тексте 1С держит raw, экранирование только для атрибутов).
+function Esc-XmlText {
+	param([string]$s)
+	return $s.Replace('&','&amp;').Replace('<','&lt;').Replace('>','&gt;')
+}
 
 # ML-значение: строка → один <v8:item> ru; объект {lang: content} → item на язык (в порядке ключей).
 function Emit-MLItems {
@@ -3070,6 +3075,59 @@ $typesNoSubDir = @("DefinedType","ScheduledJob","EventSubscription")
 
 # Object subdirectory: {OutputDir}/{TypePlural}/{Name}/Ext/
 $objSubDir = Join-Path $typeDir $objName
+# --- Predefined data (Ext/Predefined.xml) ---
+# Элемент DSL: строка "(Код) Имя [Наименование]" ЛИБО объект (+ русские синонимы ключей).
+# Наименование: нет [..]/ключа → авто(Split-CamelCase Имени); [] / "" → пусто; [текст]/текст → как есть.
+function Resolve-PredefItem {
+	param($val)
+	if ($val -is [string]) {
+		$m = [regex]::Match($val, '^\s*(?:\(([^)]*)\)\s*)?(\S+)(?:\s*\[(.*)\])?\s*$')
+		$name = $m.Groups[2].Value
+		$code = if ($m.Groups[1].Success) { $m.Groups[1].Value } else { '' }
+		$desc = if ($m.Groups[3].Success) { $m.Groups[3].Value } else { Split-CamelCase $name }
+		return @{ name = $name; code = $code; desc = $desc; isFolder = $false; children = @() }
+	}
+	# Объектная форма + русские синонимы (прощающий ввод).
+	$gv = { param($o, [string[]]$keys) foreach ($k in $keys) { if ($o.PSObject.Properties[$k]) { return $o.$k } } return $null }
+	$name = "$(& $gv $val @('name','имя'))"
+	$codeV = & $gv $val @('code','код')
+	$code = if ($null -ne $codeV) { "$codeV" } else { '' }
+	$hasDesc = $val.PSObject.Properties['description'] -or $val.PSObject.Properties['наименование']
+	$descV = & $gv $val @('description','наименование')
+	$desc = if ($hasDesc) { "$descV" } else { Split-CamelCase $name }   # ключа нет → авто; '' → пусто
+	$folderV = & $gv $val @('isFolder','группа')
+	$isFolder = ($folderV -eq $true)
+	$subs = & $gv $val @('childItems','подчиненные')
+	return @{ name = $name; code = $code; desc = $desc; isFolder = $isFolder; children = @(if ($subs) { $subs } else { @() }) }
+}
+function Emit-PredefItem {
+	param($sb, $val, [string]$indent, [string]$codeType)
+	$r = Resolve-PredefItem $val
+	[void]$sb.Append("$indent<Item id=`"$(New-Guid-String)`">`n")
+	[void]$sb.Append("$indent`t<Name>$(Esc-XmlText $r.name)</Name>`n")
+	if (-not $r.code) { [void]$sb.Append("$indent`t<Code/>`n") }
+	elseif ($codeType -eq 'Number') { [void]$sb.Append("$indent`t<Code xsi:type=`"xs:decimal`">$(Esc-XmlText $r.code)</Code>`n") }
+	else { [void]$sb.Append("$indent`t<Code>$(Esc-XmlText $r.code)</Code>`n") }
+	if ($r.desc -eq '') { [void]$sb.Append("$indent`t<Description/>`n") }
+	else { [void]$sb.Append("$indent`t<Description>$(Esc-XmlText $r.desc)</Description>`n") }
+	[void]$sb.Append("$indent`t<IsFolder>$(if ($r.isFolder) { 'true' } else { 'false' })</IsFolder>`n")
+	if ($r.children.Count -gt 0) {
+		[void]$sb.Append("$indent`t<ChildItems>`n")
+		foreach ($c in $r.children) { Emit-PredefItem $sb $c "$indent`t`t" $codeType }
+		[void]$sb.Append("$indent`t</ChildItems>`n")
+	}
+	[void]$sb.Append("$indent</Item>`n")
+}
+function Build-PredefinedXml {
+	param($items, [string]$xsiType, [string]$codeType)
+	$sb = New-Object System.Text.StringBuilder
+	[void]$sb.Append("<?xml version=`"1.0`" encoding=`"UTF-8`"?>`n")
+	[void]$sb.Append("<PredefinedData xmlns=`"http://v8.1c.ru/8.3/xcf/predef`" xmlns:v8=`"http://v8.1c.ru/8.1/data/core`" xmlns:xr=`"http://v8.1c.ru/8.3/xcf/readable`" xmlns:xs=`"http://www.w3.org/2001/XMLSchema`" xmlns:xsi=`"http://www.w3.org/2001/XMLSchema-instance`" xsi:type=`"$xsiType`" version=`"$($script:formatVersion)`">`n")
+	foreach ($it in $items) { Emit-PredefItem $sb $it "`t" $codeType }
+	[void]$sb.Append("</PredefinedData>`n")
+	return $sb.ToString()
+}
+
 $extDir = Join-Path $objSubDir "Ext"
 
 if (-not (Test-Path $typeDir)) {
@@ -3166,6 +3224,16 @@ if ($objType -eq "BusinessProcess") {
 		[System.IO.File]::WriteAllText($flowchartPath, $flowchartXml, $enc)
 		$modulesCreated += $flowchartPath
 	}
+}
+
+# Предопределённые элементы (Ext/Predefined.xml) — пока Catalog. Пусто/нет ключа → файл не создаём.
+if ($objType -eq "Catalog" -and $def.predefined -and @($def.predefined).Count -gt 0) {
+	Ensure-ExtDir
+	$catCodeType = if ($def.codeType) { "$($def.codeType)" } else { 'String' }
+	$predefXml = Build-PredefinedXml @($def.predefined) "CatalogPredefinedItems" $catCodeType
+	$predefPath = Join-Path $extDir "Predefined.xml"
+	[System.IO.File]::WriteAllText($predefPath, $predefXml, $enc)
+	$modulesCreated += $predefPath
 }
 
 # --- 17. Register in Configuration.xml ---

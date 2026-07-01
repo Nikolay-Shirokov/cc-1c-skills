@@ -1,0 +1,15 @@
+{
+  "name": "Справочник с предопределёнными элементами",
+  "input": {
+    "type": "Catalog", "name": "ВидыКонтактов", "codeType": "Number", "codeLength": 3,
+    "predefined": [
+      "Телефон",
+      "(1) ЭлектроннаяПочта [Электронная почта]",
+      "ПустоеЗначение []",
+      { "name": "Группа1", "isFolder": true, "description": "Прочие контакты",
+        "childItems": [ "Факс", "(7) Скайп [Скайп]" ] }
+    ]
+  },
+  "validatePath": "Catalogs/ВидыКонтактов",
+  "expect": { "files": ["Catalogs/ВидыКонтактов.xml", "Catalogs/ВидыКонтактов/Ext/Predefined.xml"] }
+}
