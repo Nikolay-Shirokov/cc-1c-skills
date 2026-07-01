@@ -1,0 +1,15 @@
+{
+  "name": "Справочник с кастомизацией стандартных реквизитов",
+  "input": {
+    "type": "Catalog",
+    "name": "Контрагенты",
+    "standardAttributes": {
+      "Description": { "synonym": "Наименование контрагента" },
+      "Code": { "fillChecking": "ShowError" }
+    }
+  },
+  "validatePath": "Catalogs/Контрагенты",
+  "expect": {
+    "files": ["Catalogs/Контрагенты.xml"]
+  }
+}

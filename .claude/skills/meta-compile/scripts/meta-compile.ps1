@@ -1,4 +1,4 @@
-﻿# meta-compile v1.15 — Compile 1C metadata object from JSON
+﻿# meta-compile v1.16 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -817,13 +817,33 @@ $script:standardAttributesByType = @{
 	"DocumentJournal" = @("Type","Ref","Date","Posted","DeletionMark","Number")
 }
 
+# Профиль материализованного блока StandardAttributes (значения, которые платформа заполняет
+# автоматически при материализации блока, независимо от структуры каталога). Выведено из корпуса
+# (acc+erp: Owner.FFV=true 1592/1596, Owner.FC=ShowError 1589, Parent.FFV=true 1593, Description.FC=ShowError 1467)
+# и подтверждено синтетикой. Пока только Catalog (у прочих типов свои профили — добавим при их пилоте).
+$script:stdAttrProfile = @{
+	"Catalog" = @{
+		"Owner"       = @{ FillChecking = "ShowError"; FillFromFillingValue = "true" }
+		"Parent"      = @{ FillFromFillingValue = "true" }
+		"Description"  = @{ FillChecking = "ShowError" }
+	}
+}
+
+# $ov — hashtable переопределений (профиль + DSL) для полей: FillChecking, FillFromFillingValue,
+# Synonym, FullTextSearch, DataHistory. Прочие поля — фиксированный schema-дефолт.
 function Emit-StandardAttribute {
-	param([string]$indent, [string]$attrName)
+	param([string]$indent, [string]$attrName, $ov = $null)
+	function OvOr { param($k, $d) if ($ov -and $ov.ContainsKey($k)) { return $ov[$k] } else { return $d } }
+	$fc  = OvOr 'FillChecking' 'DontCheck'
+	$ffv = OvOr 'FillFromFillingValue' 'false'
+	$dh  = OvOr 'DataHistory' 'Use'
+	$fts = OvOr 'FullTextSearch' 'Use'
+	$syn = OvOr 'Synonym' ''
 	X "$indent<xr:StandardAttribute name=`"$attrName`">"
 	X "$indent`t<xr:LinkByType/>"
-	X "$indent`t<xr:FillChecking>DontCheck</xr:FillChecking>"
+	X "$indent`t<xr:FillChecking>$fc</xr:FillChecking>"
 	X "$indent`t<xr:MultiLine>false</xr:MultiLine>"
-	X "$indent`t<xr:FillFromFillingValue>false</xr:FillFromFillingValue>"
+	X "$indent`t<xr:FillFromFillingValue>$ffv</xr:FillFromFillingValue>"
 	X "$indent`t<xr:CreateOnInput>Auto</xr:CreateOnInput>"
 	X "$indent`t<xr:MaxValue xsi:nil=`"true`"/>"
 	X "$indent`t<xr:ToolTip/>"
@@ -834,12 +854,21 @@ function Emit-StandardAttribute {
 	X "$indent`t<xr:ChoiceHistoryOnInput>Auto</xr:ChoiceHistoryOnInput>"
 	X "$indent`t<xr:EditFormat/>"
 	X "$indent`t<xr:PasswordMode>false</xr:PasswordMode>"
-	X "$indent`t<xr:DataHistory>Use</xr:DataHistory>"
+	X "$indent`t<xr:DataHistory>$dh</xr:DataHistory>"
 	X "$indent`t<xr:MarkNegatives>false</xr:MarkNegatives>"
 	X "$indent`t<xr:MinValue xsi:nil=`"true`"/>"
-	X "$indent`t<xr:Synonym/>"
+	if ($syn) {
+		X "$indent`t<xr:Synonym>"
+		X "$indent`t`t<v8:item>"
+		X "$indent`t`t`t<v8:lang>ru</v8:lang>"
+		X "$indent`t`t`t<v8:content>$(Esc-Xml $syn)</v8:content>"
+		X "$indent`t`t</v8:item>"
+		X "$indent`t</xr:Synonym>"
+	} else {
+		X "$indent`t<xr:Synonym/>"
+	}
 	X "$indent`t<xr:Comment/>"
-	X "$indent`t<xr:FullTextSearch>Use</xr:FullTextSearch>"
+	X "$indent`t<xr:FullTextSearch>$fts</xr:FullTextSearch>"
 	X "$indent`t<xr:ChoiceParameterLinks/>"
 	X "$indent`t<xr:FillValue xsi:nil=`"true`"/>"
 	X "$indent`t<xr:Mask/>"
@@ -854,6 +883,34 @@ function Emit-StandardAttributes {
 	X "$indent<StandardAttributes>"
 	foreach ($a in $attrs) {
 		Emit-StandardAttribute "$indent`t" $a
+	}
+	X "$indent</StandardAttributes>"
+}
+
+# Профильный+условный эмиттер блока StandardAttributes (общий, ключёван типом).
+# Блок материализуется платформой ТОЛЬКО при кастомизации ≥1 стандартного реквизита → в DSL это
+# наличие ключа `standardAttributes` (map имяРеквизита → {synonym, fillChecking, fillFromFillingValue,
+# fullTextSearch, dataHistory}). Наличие ключа = блок включён; база = профиль типа (stdAttrProfile),
+# поверх — DSL-override. Ключа нет → блок опускаем. Пока подключён только Catalog; при пилоте прочих
+# типов: добавить их профиль в stdAttrProfile + переключить их вызов сюда (+ переснять снэпшоты).
+function Emit-StandardAttributesProfiled {
+	param([string]$indent, [string]$objectType)
+	if ($null -eq $def.standardAttributes) { return }
+	$profile = $script:stdAttrProfile[$objectType]; if (-not $profile) { $profile = @{} }
+	$attrs = $script:standardAttributesByType[$objectType]
+	X "$indent<StandardAttributes>"
+	foreach ($a in $attrs) {
+		$ov = @{}
+		if ($profile.ContainsKey($a)) { foreach ($k in $profile[$a].Keys) { $ov[$k] = $profile[$a][$k] } }
+		$d = $def.standardAttributes.$a
+		if ($d) {
+			if ($null -ne $d.synonym) { $ov['Synonym'] = "$($d.synonym)" }
+			if ($d.fillChecking) { $ov['FillChecking'] = "$($d.fillChecking)" }
+			if ($null -ne $d.fillFromFillingValue) { $ov['FillFromFillingValue'] = if ($d.fillFromFillingValue) { 'true' } else { 'false' } }
+			if ($d.fullTextSearch) { $ov['FullTextSearch'] = "$($d.fullTextSearch)" }
+			if ($d.dataHistory) { $ov['DataHistory'] = "$($d.dataHistory)" }
+		}
+		Emit-StandardAttribute "$indent`t" $a $ov
 	}
 	X "$indent</StandardAttributes>"
 }
@@ -1247,7 +1304,7 @@ function Emit-CatalogProperties {
 	$defaultPresentation = Get-EnumProp "DefaultPresentation" "defaultPresentation" "AsDescription"
 	X "$i<DefaultPresentation>$defaultPresentation</DefaultPresentation>"
 
-	Emit-StandardAttributes $i "Catalog"
+	Emit-StandardAttributesProfiled $i "Catalog"
 	X "$i<Characteristics/>"
 	X "$i<PredefinedDataUpdate>Auto</PredefinedDataUpdate>"
 	X "$i<EditType>InDialog</EditType>"

@@ -813,12 +813,29 @@ standard_attributes_by_type = {
     'DocumentJournal': ['Type', 'Ref', 'Date', 'Posted', 'DeletionMark', 'Number'],
 }
 
-def emit_standard_attribute(indent, attr_name):
+# Профиль материализованного блока StandardAttributes (см. коммент в .ps1). Пока только Catalog.
+std_attr_profile = {
+    'Catalog': {
+        'Owner': {'FillChecking': 'ShowError', 'FillFromFillingValue': 'true'},
+        'Parent': {'FillFromFillingValue': 'true'},
+        'Description': {'FillChecking': 'ShowError'},
+    }
+}
+
+# ov — dict переопределений (профиль + DSL): FillChecking, FillFromFillingValue, Synonym,
+# FullTextSearch, DataHistory. Прочие поля — фиксированный schema-дефолт.
+def emit_standard_attribute(indent, attr_name, ov=None):
+    ov = ov or {}
+    fc = ov.get('FillChecking', 'DontCheck')
+    ffv = ov.get('FillFromFillingValue', 'false')
+    dh = ov.get('DataHistory', 'Use')
+    fts = ov.get('FullTextSearch', 'Use')
+    syn = ov.get('Synonym', '')
     X(f'{indent}<xr:StandardAttribute name="{attr_name}">')
     X(f'{indent}\t<xr:LinkByType/>')
-    X(f'{indent}\t<xr:FillChecking>DontCheck</xr:FillChecking>')
+    X(f'{indent}\t<xr:FillChecking>{fc}</xr:FillChecking>')
     X(f'{indent}\t<xr:MultiLine>false</xr:MultiLine>')
-    X(f'{indent}\t<xr:FillFromFillingValue>false</xr:FillFromFillingValue>')
+    X(f'{indent}\t<xr:FillFromFillingValue>{ffv}</xr:FillFromFillingValue>')
     X(f'{indent}\t<xr:CreateOnInput>Auto</xr:CreateOnInput>')
     X(f'{indent}\t<xr:MaxValue xsi:nil="true"/>')
     X(f'{indent}\t<xr:ToolTip/>')
@@ -829,12 +846,20 @@ def emit_standard_attribute(indent, attr_name):
     X(f'{indent}\t<xr:ChoiceHistoryOnInput>Auto</xr:ChoiceHistoryOnInput>')
     X(f'{indent}\t<xr:EditFormat/>')
     X(f'{indent}\t<xr:PasswordMode>false</xr:PasswordMode>')
-    X(f'{indent}\t<xr:DataHistory>Use</xr:DataHistory>')
+    X(f'{indent}\t<xr:DataHistory>{dh}</xr:DataHistory>')
     X(f'{indent}\t<xr:MarkNegatives>false</xr:MarkNegatives>')
     X(f'{indent}\t<xr:MinValue xsi:nil="true"/>')
-    X(f'{indent}\t<xr:Synonym/>')
+    if syn:
+        X(f'{indent}\t<xr:Synonym>')
+        X(f'{indent}\t\t<v8:item>')
+        X(f'{indent}\t\t\t<v8:lang>ru</v8:lang>')
+        X(f'{indent}\t\t\t<v8:content>{esc_xml(syn)}</v8:content>')
+        X(f'{indent}\t\t</v8:item>')
+        X(f'{indent}\t</xr:Synonym>')
+    else:
+        X(f'{indent}\t<xr:Synonym/>')
     X(f'{indent}\t<xr:Comment/>')
-    X(f'{indent}\t<xr:FullTextSearch>Use</xr:FullTextSearch>')
+    X(f'{indent}\t<xr:FullTextSearch>{fts}</xr:FullTextSearch>')
     X(f'{indent}\t<xr:ChoiceParameterLinks/>')
     X(f'{indent}\t<xr:FillValue xsi:nil="true"/>')
     X(f'{indent}\t<xr:Mask/>')
@@ -848,6 +873,31 @@ def emit_standard_attributes(indent, object_type):
     X(f'{indent}<StandardAttributes>')
     for a in attrs:
         emit_standard_attribute(f'{indent}\t', a)
+    X(f'{indent}</StandardAttributes>')
+
+# Профильный+условный эмиттер блока StandardAttributes (общий, ключёван типом; см. коммент в .ps1).
+def emit_standard_attributes_profiled(indent, object_type):
+    sa = defn.get('standardAttributes')
+    if sa is None:
+        return
+    profile = std_attr_profile.get(object_type, {})
+    attrs = standard_attributes_by_type[object_type]
+    X(f'{indent}<StandardAttributes>')
+    for a in attrs:
+        ov = dict(profile.get(a, {}))
+        d = sa.get(a) if isinstance(sa, dict) else None
+        if d:
+            if d.get('synonym') is not None:
+                ov['Synonym'] = str(d['synonym'])
+            if d.get('fillChecking'):
+                ov['FillChecking'] = str(d['fillChecking'])
+            if d.get('fillFromFillingValue') is not None:
+                ov['FillFromFillingValue'] = 'true' if d['fillFromFillingValue'] else 'false'
+            if d.get('fullTextSearch'):
+                ov['FullTextSearch'] = str(d['fullTextSearch'])
+            if d.get('dataHistory'):
+                ov['DataHistory'] = str(d['dataHistory'])
+        emit_standard_attribute(f'{indent}\t', a, ov)
     X(f'{indent}</StandardAttributes>')
 
 def emit_tabular_standard_attributes(indent):
@@ -1183,7 +1233,7 @@ def emit_catalog_properties(indent):
     X(f'{i}<Autonumbering>{autonumbering}</Autonumbering>')
     default_presentation = get_enum_prop('DefaultPresentation', 'defaultPresentation', 'AsDescription')
     X(f'{i}<DefaultPresentation>{default_presentation}</DefaultPresentation>')
-    emit_standard_attributes(i, 'Catalog')
+    emit_standard_attributes_profiled(i, 'Catalog')
     X(f'{i}<Characteristics/>')
     X(f'{i}<PredefinedDataUpdate>Auto</PredefinedDataUpdate>')
     X(f'{i}<EditType>InDialog</EditType>')

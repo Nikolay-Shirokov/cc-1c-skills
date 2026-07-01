@@ -1,4 +1,4 @@
-﻿# meta-decompile v0.2 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
+﻿# meta-decompile v0.3 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 #
 # Пилот: только Catalog. Инверс meta-compile (omit-on-default: ключ эмитим только
@@ -225,6 +225,40 @@ Add-BoolProp 'quickChoice'       'QuickChoice'       $false
 Add-EnumProp 'choiceMode'        'ChoiceMode'        'BothWays'
 Add-EnumProp 'dataLockControlMode' 'DataLockControlMode' 'Automatic'
 Add-EnumProp 'fullTextSearch'    'FullTextSearch'    'Use'
+
+# --- StandardAttributes: блок есть ⟺ кастомизация ≥1 стандартного реквизита.
+# Захватываем ОТКЛОНЕНИЯ от профиля материализованного блока (профиль компилятор восстановит сам).
+# Профиль Catalog: Owner{FC=ShowError,FFV=true}, Parent{FFV=true}, Description{FC=ShowError}. ---
+$catStdProfile = @{
+	'Owner'       = @{ fillChecking = 'ShowError'; fillFromFillingValue = $true }
+	'Parent'      = @{ fillFromFillingValue = $true }
+	'Description'  = @{ fillChecking = 'ShowError' }
+}
+$saNode = $props.SelectSingleNode('md:StandardAttributes', $nsm)
+if ($saNode) {
+	$saMap = [ordered]@{}
+	foreach ($sa in @($saNode.SelectNodes('xr:StandardAttribute', $nsm))) {
+		$an = $sa.GetAttribute('name')
+		$prof = if ($catStdProfile.ContainsKey($an)) { $catStdProfile[$an] } else { @{} }
+		$ov = [ordered]@{}
+		# FillChecking (профиль или DontCheck)
+		$fcN = $sa.SelectSingleNode('xr:FillChecking', $nsm); $fc = if ($fcN) { $fcN.InnerText } else { 'DontCheck' }
+		$profFc = if ($prof.ContainsKey('fillChecking')) { $prof['fillChecking'] } else { 'DontCheck' }
+		if ($fc -ne $profFc) { $ov['fillChecking'] = $fc }
+		# FillFromFillingValue (профиль или false)
+		$ffvN = $sa.SelectSingleNode('xr:FillFromFillingValue', $nsm); $ffv = ($ffvN -and $ffvN.InnerText -eq 'true')
+		$profFfv = ($prof['fillFromFillingValue'] -eq $true)
+		if ($ffv -ne $profFfv) { $ov['fillFromFillingValue'] = $ffv }
+		# Synonym (профиль пуст)
+		$syn = Get-MLru ($sa.SelectSingleNode('xr:Synonym', $nsm))
+		if ($syn) { $ov['synonym'] = $syn }
+		# FullTextSearch / DataHistory (профиль = Use)
+		$ftsN = $sa.SelectSingleNode('xr:FullTextSearch', $nsm); if ($ftsN -and $ftsN.InnerText -ne 'Use') { $ov['fullTextSearch'] = $ftsN.InnerText }
+		$dhN = $sa.SelectSingleNode('xr:DataHistory', $nsm); if ($dhN -and $dhN.InnerText -ne 'Use') { $ov['dataHistory'] = $dhN.InnerText }
+		if ($ov.Count -gt 0) { $saMap[$an] = $ov }
+	}
+	$dsl['standardAttributes'] = $saMap   # даже пустой = блок есть (чистый профиль)
+}
 
 # --- ChildObjects: Attributes + TabularSections ---
 $childObjs = $objNode.SelectSingleNode('md:ChildObjects', $nsm)
