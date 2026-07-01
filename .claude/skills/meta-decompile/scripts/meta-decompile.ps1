@@ -1,4 +1,4 @@
-﻿# meta-decompile v0.1 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
+﻿# meta-decompile v0.2 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 #
 # Пилот: только Catalog. Инверс meta-compile (omit-on-default: ключ эмитим только
@@ -105,14 +105,15 @@ function Get-MLru {
 	if ($it) { return $it.InnerText }
 	return $null
 }
-# Авто-синоним: CamelCase → слова (инверс Split-CamelCase). Если совпадает — ключ опускаем.
+# Авто-синоним: точное зеркало Split-CamelCase из meta-compile (стр.354). Совпало → ключ опускаем.
+# ВАЖНО: логика должна совпадать байт-в-байт с компилятором, иначе ложные «синоним==авто» → диффы.
 function Split-CamelWords {
 	param([string]$name)
-	if (-not $name) { return "" }
-	$s = [regex]::Replace($name, '(?<=[а-яёa-z0-9])(?=[А-ЯЁA-Z])', ' ')
-	$s = [regex]::Replace($s, '(?<=[А-ЯЁA-Z])(?=[А-ЯЁA-Z][а-яёa-z])', ' ')
-	if ($s.Length -gt 1) { $s = $s.Substring(0,1) + $s.Substring(1).ToLower() }
-	return $s
+	if (-not $name) { return $name }
+	$result = [regex]::Replace($name, '([а-яё])([А-ЯЁ])', '$1 $2')
+	$result = [regex]::Replace($result, '([a-z])([A-Z])', '$1 $2')
+	if ($result.Length -gt 1) { $result = $result.Substring(0,1) + $result.Substring(1).ToLower() }
+	return $result
 }
 
 $objName = P 'Name'
@@ -161,8 +162,9 @@ function Get-TypeShorthand {
 	return ($parts -join ' + ')
 }
 
-# --- Реквизит → shorthand "Имя: Тип | флаги" ---
-function Attr-ToShorthand {
+# --- Реквизит → DSL: shorthand-строка "Имя: Тип | флаги" ЛИБО object-форма при кастомном синониме.
+# (Синоним ≠ авто → object {name, type, synonym, [flags]}; иначе компактный shorthand.) ---
+function Attr-ToDsl {
 	param($attrNode)
 	$ap = $attrNode.SelectSingleNode('md:Properties', $nsm)
 	$nm = ($ap.SelectSingleNode('md:Name', $nsm)).InnerText
@@ -172,6 +174,16 @@ function Attr-ToShorthand {
 	$ix = $ap.SelectSingleNode('md:Indexing', $nsm)
 	if ($ix) { if ($ix.InnerText -eq 'Index') { $flags += 'index' } elseif ($ix.InnerText -eq 'IndexWithAdditionalOrder') { $flags += 'indexAdditional' } }
 	$ml = $ap.SelectSingleNode('md:MultiLine', $nsm); if ($ml -and $ml.InnerText -eq 'true') { $flags += 'multiline' }
+
+	$syn = Get-MLru ($ap.SelectSingleNode('md:Synonym', $nsm))
+	# Кастомный синоним (есть и ≠ авто) → object-форма (shorthand его не выражает).
+	if ($syn -and $syn -ne (Split-CamelWords $nm)) {
+		$o = [ordered]@{ name = $nm }
+		if ($ts) { $o['type'] = $ts }
+		$o['synonym'] = $syn
+		if ($flags.Count -gt 0) { $o['flags'] = [System.Collections.ArrayList]@($flags) }
+		return $o
+	}
 	$head = if ($ts) { "${nm}: $ts" } else { $nm }
 	if ($flags.Count -gt 0) { return "$head | " + ($flags -join ', ') }
 	return $head
@@ -220,7 +232,7 @@ if ($childObjs) {
 	$attrs = @($childObjs.SelectNodes('md:Attribute', $nsm))
 	if ($attrs.Count -gt 0) {
 		$arr = [System.Collections.ArrayList]@()
-		foreach ($a in $attrs) { [void]$arr.Add((Attr-ToShorthand $a)) }
+		foreach ($a in $attrs) { [void]$arr.Add((Attr-ToDsl $a)) }
 		$dsl['attributes'] = $arr
 	}
 	$tsNodes = @($childObjs.SelectNodes('md:TabularSection', $nsm))
@@ -231,7 +243,7 @@ if ($childObjs) {
 			$tsName = ($tsp.SelectSingleNode('md:Name', $nsm)).InnerText
 			$tco = $ts.SelectSingleNode('md:ChildObjects', $nsm)
 			$cols = [System.Collections.ArrayList]@()
-			if ($tco) { foreach ($ca in @($tco.SelectNodes('md:Attribute', $nsm))) { [void]$cols.Add((Attr-ToShorthand $ca)) } }
+			if ($tco) { foreach ($ca in @($tco.SelectNodes('md:Attribute', $nsm))) { [void]$cols.Add((Attr-ToDsl $ca)) } }
 			$tsMap[$tsName] = $cols
 		}
 		$dsl['tabularSections'] = $tsMap
