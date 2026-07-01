@@ -331,17 +331,30 @@ function Esc-Xml {
 	return $s.Replace('&','&amp;').Replace('<','&lt;').Replace('>','&gt;').Replace('"','&quot;')
 }
 
+# ML-значение: строка → один <v8:item> ru; объект {lang: content} → item на язык (в порядке ключей).
+function Emit-MLItems {
+	param([string]$indent, $val)
+	if ($val -is [System.Collections.IDictionary]) {
+		foreach ($k in $val.Keys) {
+			X "$indent<v8:item>"; X "$indent`t<v8:lang>$k</v8:lang>"; X "$indent`t<v8:content>$(Esc-Xml "$($val[$k])")</v8:content>"; X "$indent</v8:item>"
+		}
+	} elseif ($val -is [System.Management.Automation.PSCustomObject]) {
+		foreach ($p in $val.PSObject.Properties) {
+			X "$indent<v8:item>"; X "$indent`t<v8:lang>$($p.Name)</v8:lang>"; X "$indent`t<v8:content>$(Esc-Xml "$($p.Value)")</v8:content>"; X "$indent</v8:item>"
+		}
+	} else {
+		X "$indent<v8:item>"; X "$indent`t<v8:lang>ru</v8:lang>"; X "$indent`t<v8:content>$(Esc-Xml "$val")</v8:content>"; X "$indent</v8:item>"
+	}
+}
 function Emit-MLText {
-	param([string]$indent, [string]$tag, [string]$text)
-	if (-not $text) {
+	param([string]$indent, [string]$tag, $text)
+	# Пусто (null / пустая строка) → самозакрывающийся тег.
+	if (($null -eq $text) -or (($text -is [string]) -and ($text -eq ''))) {
 		X "$indent<$tag/>"
 		return
 	}
 	X "$indent<$tag>"
-	X "$indent`t<v8:item>"
-	X "$indent`t`t<v8:lang>ru</v8:lang>"
-	X "$indent`t`t<v8:content>$(Esc-Xml $text)</v8:content>"
-	X "$indent`t</v8:item>"
+	Emit-MLItems "$indent`t" $text
 	X "$indent</$tag>"
 }
 
@@ -611,12 +624,13 @@ function Parse-AttributeShorthand {
 		return $parsed
 	}
 
-	# Object form
+	# Object form. synonym/tooltip — сквозной проброс (строка ИЛИ объект {ru,en}), НЕ стрингифаим.
 	$name = "$($val.name)"
 	return @{
 		name    = $name
 		type    = Build-TypeStr $val
-		synonym = if ($val.synonym) { "$($val.synonym)" } else { Split-CamelCase $name }
+		synonym = if ($null -ne $val.synonym) { $val.synonym } else { Split-CamelCase $name }
+		tooltip = $val.tooltip
 		comment = if ($val.comment) { "$($val.comment)" } else { "" }
 		flags   = @(if ($val.flags) { $val.flags } else { @() })
 		fillChecking = if ($val.fillChecking) { "$($val.fillChecking)" } else { "" }
@@ -962,7 +976,7 @@ function Emit-Attribute {
 	X "$indent`t`t<PasswordMode>false</PasswordMode>"
 	X "$indent`t`t<Format/>"
 	X "$indent`t`t<EditFormat/>"
-	X "$indent`t`t<ToolTip/>"
+	Emit-MLText "$indent`t`t" "ToolTip" $parsed.tooltip
 	X "$indent`t`t<MarkNegatives>false</MarkNegatives>"
 	X "$indent`t`t<Mask/>"
 	$multiLine = if ($parsed.multiLine -eq $true -or $parsed.flags -contains "multiline") { "true" } else { "false" }

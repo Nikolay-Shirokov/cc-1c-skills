@@ -197,15 +197,27 @@ lines = []
 def X(text):
     lines.append(text)
 
+# ML-значение: строка → один <v8:item> ru; dict {lang: content} → item на язык (в порядке ключей).
+def emit_ml_items(indent, val):
+    if isinstance(val, dict):
+        for k, v in val.items():
+            X(f'{indent}<v8:item>')
+            X(f'{indent}\t<v8:lang>{k}</v8:lang>')
+            X(f'{indent}\t<v8:content>{esc_xml(str(v))}</v8:content>')
+            X(f'{indent}</v8:item>')
+    else:
+        X(f'{indent}<v8:item>')
+        X(f'{indent}\t<v8:lang>ru</v8:lang>')
+        X(f'{indent}\t<v8:content>{esc_xml(str(val))}</v8:content>')
+        X(f'{indent}</v8:item>')
+
 def emit_mltext(indent, tag, text):
-    if not text:
+    # Пусто (None / '') → самозакрывающийся тег.
+    if text is None or (isinstance(text, str) and text == ''):
         X(f'{indent}<{tag}/>')
         return
     X(f'{indent}<{tag}>')
-    X(f'{indent}\t<v8:item>')
-    X(f'{indent}\t\t<v8:lang>ru</v8:lang>')
-    X(f'{indent}\t\t<v8:content>{esc_xml(text)}</v8:content>')
-    X(f'{indent}\t</v8:item>')
+    emit_ml_items(f'{indent}\t', text)
     X(f'{indent}</{tag}>')
 
 # ---------------------------------------------------------------------------
@@ -615,12 +627,13 @@ def parse_attribute_shorthand(val):
             parsed['type'] = colon_parts[1].strip()
         parsed['synonym'] = split_camel_case(parsed['name'])
         return parsed
-    # Object form
+    # Object form. synonym/tooltip — сквозной проброс (строка ИЛИ dict {ru,en}), НЕ стрингифаим.
     name = str(val.get('name', ''))
     return {
         'name': name,
         'type': build_type_str(val),
-        'synonym': str(val['synonym']) if val.get('synonym') else split_camel_case(name),
+        'synonym': val['synonym'] if val.get('synonym') is not None else split_camel_case(name),
+        'tooltip': val.get('tooltip'),
         'comment': str(val['comment']) if val.get('comment') else '',
         'flags': list(val.get('flags', [])),
         'fillChecking': str(val['fillChecking']) if val.get('fillChecking') else '',
@@ -957,7 +970,7 @@ def emit_attribute(indent, parsed, context):
     X(f'{indent}\t\t<PasswordMode>false</PasswordMode>')
     X(f'{indent}\t\t<Format/>')
     X(f'{indent}\t\t<EditFormat/>')
-    X(f'{indent}\t\t<ToolTip/>')
+    emit_mltext(f'{indent}\t\t', 'ToolTip', parsed.get('tooltip'))
     X(f'{indent}\t\t<MarkNegatives>false</MarkNegatives>')
     X(f'{indent}\t\t<Mask/>')
     multi_line = 'true' if (parsed.get('multiLine') is True or 'multiline' in parsed.get('flags', [])) else 'false'

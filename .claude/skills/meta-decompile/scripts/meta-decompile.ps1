@@ -1,4 +1,4 @@
-﻿# meta-decompile v0.3 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
+﻿# meta-decompile v0.4 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 #
 # Пилот: только Catalog. Инверс meta-compile (omit-on-default: ключ эмитим только
@@ -105,6 +105,26 @@ function Get-MLru {
 	if ($it) { return $it.InnerText }
 	return $null
 }
+# ML-значение → строка (если единственный item ru) ЛИБО [ordered]{lang:content} (мультиязычно, порядок из XML).
+# null если контента нет. Компактная строка для ru-only, объект для мультиязычных.
+function Get-MLValue {
+	param($node)
+	if (-not $node) { return $null }
+	$items = @($node.SelectNodes('v8:item', $nsm))
+	if ($items.Count -eq 0) { return $null }
+	if ($items.Count -eq 1) {
+		$lang = $items[0].SelectSingleNode('v8:lang', $nsm).InnerText
+		$content = $items[0].SelectSingleNode('v8:content', $nsm).InnerText
+		if ($lang -eq 'ru') { return $content }
+	}
+	$o = [ordered]@{}
+	foreach ($it in $items) {
+		$l = $it.SelectSingleNode('v8:lang', $nsm).InnerText
+		$c = $it.SelectSingleNode('v8:content', $nsm).InnerText
+		$o[$l] = $c
+	}
+	return $o
+}
 # Авто-синоним: точное зеркало Split-CamelCase из meta-compile (стр.354). Совпало → ключ опускаем.
 # ВАЖНО: логика должна совпадать байт-в-байт с компилятором, иначе ложные «синоним==авто» → диффы.
 function Split-CamelWords {
@@ -175,12 +195,18 @@ function Attr-ToDsl {
 	if ($ix) { if ($ix.InnerText -eq 'Index') { $flags += 'index' } elseif ($ix.InnerText -eq 'IndexWithAdditionalOrder') { $flags += 'indexAdditional' } }
 	$ml = $ap.SelectSingleNode('md:MultiLine', $nsm); if ($ml -and $ml.InnerText -eq 'true') { $flags += 'multiline' }
 
-	$syn = Get-MLru ($ap.SelectSingleNode('md:Synonym', $nsm))
-	# Кастомный синоним (есть и ≠ авто) → object-форма (shorthand его не выражает).
-	if ($syn -and $syn -ne (Split-CamelWords $nm)) {
+	# Синоним/подсказка (строка ru-only ИЛИ {ru,en}). Кастомный синоним ИЛИ наличие подсказки → object-форма.
+	$synVal = Get-MLValue ($ap.SelectSingleNode('md:Synonym', $nsm))
+	$synCustom = $false
+	if ($synVal -is [string]) { if ($synVal -ne (Split-CamelWords $nm)) { $synCustom = $true } }
+	elseif ($null -ne $synVal) { $synCustom = $true }   # {ru,en} = всегда кастом
+	$ttVal = Get-MLValue ($ap.SelectSingleNode('md:ToolTip', $nsm))
+
+	if ($synCustom -or ($null -ne $ttVal)) {
 		$o = [ordered]@{ name = $nm }
 		if ($ts) { $o['type'] = $ts }
-		$o['synonym'] = $syn
+		if ($synCustom) { $o['synonym'] = $synVal }
+		if ($null -ne $ttVal) { $o['tooltip'] = $ttVal }
 		if ($flags.Count -gt 0) { $o['flags'] = [System.Collections.ArrayList]@($flags) }
 		return $o
 	}
