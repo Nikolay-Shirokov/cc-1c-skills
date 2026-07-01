@@ -866,37 +866,35 @@ def emit_standard_attribute(indent, attr_name, ov=None):
     X(f'{indent}\t<xr:ChoiceParameters/>')
     X(f'{indent}</xr:StandardAttribute>')
 
+# Единый эмиттер блока StandardAttributes — поведение правят ДАННЫЕ, не форк кода (см. коммент в .ps1).
+# std_attr_conditional_types: типы, где блок только при кастомизации (DSL-ключ standardAttributes).
+# Прочие типы → блок всегда (текущее поведение). Миграция типа = +строчка в оба справочника + снэпшоты.
+std_attr_conditional_types = {'Catalog'}
 def emit_standard_attributes(indent, object_type):
     attrs = standard_attributes_by_type.get(object_type)
     if not attrs:
         return
-    X(f'{indent}<StandardAttributes>')
-    for a in attrs:
-        emit_standard_attribute(f'{indent}\t', a)
-    X(f'{indent}</StandardAttributes>')
-
-# Профильный+условный эмиттер блока StandardAttributes (общий, ключёван типом; см. коммент в .ps1).
-def emit_standard_attributes_profiled(indent, object_type):
+    conditional = object_type in std_attr_conditional_types
     sa = defn.get('standardAttributes')
-    if sa is None:
+    if conditional and sa is None:
         return
     profile = std_attr_profile.get(object_type, {})
-    attrs = standard_attributes_by_type[object_type]
     X(f'{indent}<StandardAttributes>')
     for a in attrs:
         ov = dict(profile.get(a, {}))
-        d = sa.get(a) if isinstance(sa, dict) else None
-        if d:
-            if d.get('synonym') is not None:
-                ov['Synonym'] = str(d['synonym'])
-            if d.get('fillChecking'):
-                ov['FillChecking'] = str(d['fillChecking'])
-            if d.get('fillFromFillingValue') is not None:
-                ov['FillFromFillingValue'] = 'true' if d['fillFromFillingValue'] else 'false'
-            if d.get('fullTextSearch'):
-                ov['FullTextSearch'] = str(d['fullTextSearch'])
-            if d.get('dataHistory'):
-                ov['DataHistory'] = str(d['dataHistory'])
+        if conditional and isinstance(sa, dict):
+            d = sa.get(a)
+            if d:
+                if d.get('synonym') is not None:
+                    ov['Synonym'] = str(d['synonym'])
+                if d.get('fillChecking'):
+                    ov['FillChecking'] = str(d['fillChecking'])
+                if d.get('fillFromFillingValue') is not None:
+                    ov['FillFromFillingValue'] = 'true' if d['fillFromFillingValue'] else 'false'
+                if d.get('fullTextSearch'):
+                    ov['FullTextSearch'] = str(d['fullTextSearch'])
+                if d.get('dataHistory'):
+                    ov['DataHistory'] = str(d['dataHistory'])
         emit_standard_attribute(f'{indent}\t', a, ov)
     X(f'{indent}</StandardAttributes>')
 
@@ -1233,7 +1231,7 @@ def emit_catalog_properties(indent):
     X(f'{i}<Autonumbering>{autonumbering}</Autonumbering>')
     default_presentation = get_enum_prop('DefaultPresentation', 'defaultPresentation', 'AsDescription')
     X(f'{i}<DefaultPresentation>{default_presentation}</DefaultPresentation>')
-    emit_standard_attributes_profiled(i, 'Catalog')
+    emit_standard_attributes(i, 'Catalog')
     X(f'{i}<Characteristics/>')
     X(f'{i}<PredefinedDataUpdate>Auto</PredefinedDataUpdate>')
     X(f'{i}<EditType>InDialog</EditType>')

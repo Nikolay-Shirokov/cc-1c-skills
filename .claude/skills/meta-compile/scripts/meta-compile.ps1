@@ -876,39 +876,34 @@ function Emit-StandardAttribute {
 	X "$indent</xr:StandardAttribute>"
 }
 
+# Единый эмиттер блока StandardAttributes — поведение правят ДАННЫЕ, не форк кода:
+#  - stdAttrConditionalTypes: типы, где блок материализуется платформой ТОЛЬКО при кастомизации
+#    ≥1 стандартного реквизита → в DSL это наличие ключа `standardAttributes`. Нет ключа → блок опущен.
+#    Прочие типы (не в множестве) → блок эмитится всегда (текущее поведение, пока их правило не выведено).
+#  - stdAttrProfile[тип]: профиль материализованного блока (пусто = schema-дефолт), поверх — DSL-override.
+# Миграция типа = добавить его в stdAttrConditionalTypes + stdAttrProfile и переснять снэпшоты; КОД НЕ ТРОГАЕМ.
+$script:stdAttrConditionalTypes = @('Catalog')
 function Emit-StandardAttributes {
 	param([string]$indent, [string]$objectType)
 	$attrs = $script:standardAttributesByType[$objectType]
 	if (-not $attrs) { return }
-	X "$indent<StandardAttributes>"
-	foreach ($a in $attrs) {
-		Emit-StandardAttribute "$indent`t" $a
-	}
-	X "$indent</StandardAttributes>"
-}
-
-# Профильный+условный эмиттер блока StandardAttributes (общий, ключёван типом).
-# Блок материализуется платформой ТОЛЬКО при кастомизации ≥1 стандартного реквизита → в DSL это
-# наличие ключа `standardAttributes` (map имяРеквизита → {synonym, fillChecking, fillFromFillingValue,
-# fullTextSearch, dataHistory}). Наличие ключа = блок включён; база = профиль типа (stdAttrProfile),
-# поверх — DSL-override. Ключа нет → блок опускаем. Пока подключён только Catalog; при пилоте прочих
-# типов: добавить их профиль в stdAttrProfile + переключить их вызов сюда (+ переснять снэпшоты).
-function Emit-StandardAttributesProfiled {
-	param([string]$indent, [string]$objectType)
-	if ($null -eq $def.standardAttributes) { return }
+	$conditional = $script:stdAttrConditionalTypes -contains $objectType
+	$sa = $def.standardAttributes
+	if ($conditional -and $null -eq $sa) { return }   # условный тип без кастомизации → блока нет
 	$profile = $script:stdAttrProfile[$objectType]; if (-not $profile) { $profile = @{} }
-	$attrs = $script:standardAttributesByType[$objectType]
 	X "$indent<StandardAttributes>"
 	foreach ($a in $attrs) {
 		$ov = @{}
 		if ($profile.ContainsKey($a)) { foreach ($k in $profile[$a].Keys) { $ov[$k] = $profile[$a][$k] } }
-		$d = $def.standardAttributes.$a
-		if ($d) {
-			if ($null -ne $d.synonym) { $ov['Synonym'] = "$($d.synonym)" }
-			if ($d.fillChecking) { $ov['FillChecking'] = "$($d.fillChecking)" }
-			if ($null -ne $d.fillFromFillingValue) { $ov['FillFromFillingValue'] = if ($d.fillFromFillingValue) { 'true' } else { 'false' } }
-			if ($d.fullTextSearch) { $ov['FullTextSearch'] = "$($d.fullTextSearch)" }
-			if ($d.dataHistory) { $ov['DataHistory'] = "$($d.dataHistory)" }
+		if ($conditional -and $sa) {
+			$d = $sa.$a
+			if ($d) {
+				if ($null -ne $d.synonym) { $ov['Synonym'] = "$($d.synonym)" }
+				if ($d.fillChecking) { $ov['FillChecking'] = "$($d.fillChecking)" }
+				if ($null -ne $d.fillFromFillingValue) { $ov['FillFromFillingValue'] = if ($d.fillFromFillingValue) { 'true' } else { 'false' } }
+				if ($d.fullTextSearch) { $ov['FullTextSearch'] = "$($d.fullTextSearch)" }
+				if ($d.dataHistory) { $ov['DataHistory'] = "$($d.dataHistory)" }
+			}
 		}
 		Emit-StandardAttribute "$indent`t" $a $ov
 	}
@@ -1304,7 +1299,7 @@ function Emit-CatalogProperties {
 	$defaultPresentation = Get-EnumProp "DefaultPresentation" "defaultPresentation" "AsDescription"
 	X "$i<DefaultPresentation>$defaultPresentation</DefaultPresentation>"
 
-	Emit-StandardAttributesProfiled $i "Catalog"
+	Emit-StandardAttributes $i "Catalog"
 	X "$i<Characteristics/>"
 	X "$i<PredefinedDataUpdate>Auto</PredefinedDataUpdate>"
 	X "$i<EditType>InDialog</EditType>"
