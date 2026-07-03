@@ -641,8 +641,13 @@ function Parse-AttributeShorthand {
 		return $parsed
 	}
 
-	# Object form. synonym/tooltip — сквозной проброс (строка ИЛИ объект {ru,en}), НЕ стрингифаим.
+	# Object form. synonym/tooltip/format/editFormat — сквозной проброс (строка ИЛИ {ru,en}), НЕ стрингифаим.
+	# fillCheck — синоним fillChecking (из формы; bool true→ShowError). quickChoice — прощаем bool (true→Use, false→DontUse).
 	$name = "$($val.name)"
+	$fc = if ($val.fillChecking) { "$($val.fillChecking)" }
+	      elseif ($null -ne $val.fillCheck) { if ($val.fillCheck -is [bool]) { if ($val.fillCheck) { 'ShowError' } else { '' } } else { "$($val.fillCheck)" } }
+	      else { "" }
+	$qc = if ($null -ne $val.quickChoice) { if ($val.quickChoice -is [bool]) { if ($val.quickChoice) { 'Use' } else { 'DontUse' } } else { "$($val.quickChoice)" } } else { "" }
 	return @{
 		name    = $name
 		type    = Build-TypeStr $val
@@ -650,10 +655,20 @@ function Parse-AttributeShorthand {
 		tooltip = $val.tooltip
 		comment = if ($val.comment) { "$($val.comment)" } else { "" }
 		flags   = @(if ($val.flags) { $val.flags } else { @() })
-		fillChecking = if ($val.fillChecking) { "$($val.fillChecking)" } else { "" }
+		fillChecking = $fc
 		indexing = if ($val.indexing) { "$($val.indexing)" } else { "" }
 		multiLine = if ($val.multiLine -eq $true) { $true } else { $false }
 		choiceHistoryOnInput = if ($val.choiceHistoryOnInput) { "$($val.choiceHistoryOnInput)" } else { "" }
+		fullTextSearch = if ($val.fullTextSearch) { "$($val.fullTextSearch)" } else { "" }
+		fillFromFillingValue = if ($val.fillFromFillingValue -eq $true) { $true } else { $false }
+		createOnInput = if ($val.createOnInput) { "$($val.createOnInput)" } else { "" }
+		quickChoice = $qc
+		dataHistory = if ($val.dataHistory) { "$($val.dataHistory)" } else { "" }
+		use = if ($val.use) { "$($val.use)" } else { "" }
+		passwordMode = if ($val.passwordMode -eq $true) { $true } else { $false }
+		format = $val.format
+		editFormat = $val.editFormat
+		mask = if ($val.mask) { "$($val.mask)" } else { "" }
 	}
 }
 
@@ -977,7 +992,7 @@ function Emit-Attribute {
 	X "$indent`t<Properties>"
 	X "$indent`t`t<Name>$(Esc-Xml $parsed.name)</Name>"
 	Emit-MLText "$indent`t`t" "Synonym" $parsed.synonym
-	X "$indent`t`t<Comment/>"
+	if ($parsed.comment) { X "$indent`t`t<Comment>$(Esc-XmlText $parsed.comment)</Comment>" } else { X "$indent`t`t<Comment/>" }
 
 	# Type
 	$typeStr = $parsed.type
@@ -990,12 +1005,13 @@ function Emit-Attribute {
 		X "$indent`t`t</Type>"
 	}
 
-	X "$indent`t`t<PasswordMode>false</PasswordMode>"
-	X "$indent`t`t<Format/>"
-	X "$indent`t`t<EditFormat/>"
+	$pwMode = if ($parsed.passwordMode -eq $true) { "true" } else { "false" }
+	X "$indent`t`t<PasswordMode>$pwMode</PasswordMode>"
+	Emit-MLText "$indent`t`t" "Format" $parsed.format
+	Emit-MLText "$indent`t`t" "EditFormat" $parsed.editFormat
 	Emit-MLText "$indent`t`t" "ToolTip" $parsed.tooltip
 	X "$indent`t`t<MarkNegatives>false</MarkNegatives>"
-	X "$indent`t`t<Mask/>"
+	if ($parsed.mask) { X "$indent`t`t<Mask>$(Esc-XmlText $parsed.mask)</Mask>" } else { X "$indent`t`t<Mask/>" }
 	$multiLine = if ($parsed.multiLine -eq $true -or $parsed.flags -contains "multiline") { "true" } else { "false" }
 	X "$indent`t`t<MultiLine>$multiLine</MultiLine>"
 	X "$indent`t`t<ExtendedEdit>false</ExtendedEdit>"
@@ -1005,7 +1021,8 @@ function Emit-Attribute {
 	# FillFromFillingValue — not for tabular/processor/chart/register-other
 	# (Chart*, AccumulationRegister/AccountingRegister/CalculationRegister don't support these)
 	if ($context -notin @("tabular", "processor", "chart", "register-other")) {
-		X "$indent`t`t<FillFromFillingValue>false</FillFromFillingValue>"
+		$ffv = if ($parsed.fillFromFillingValue -eq $true) { "true" } else { "false" }
+		X "$indent`t`t<FillFromFillingValue>$ffv</FillFromFillingValue>"
 	}
 
 	# FillValue — same restriction
@@ -1022,8 +1039,10 @@ function Emit-Attribute {
 	X "$indent`t`t<ChoiceFoldersAndItems>Items</ChoiceFoldersAndItems>"
 	X "$indent`t`t<ChoiceParameterLinks/>"
 	X "$indent`t`t<ChoiceParameters/>"
-	X "$indent`t`t<QuickChoice>Auto</QuickChoice>"
-	X "$indent`t`t<CreateOnInput>Auto</CreateOnInput>"
+	$qc = if ($parsed.quickChoice) { $parsed.quickChoice } else { "Auto" }
+	X "$indent`t`t<QuickChoice>$qc</QuickChoice>"
+	$coi = if ($parsed.createOnInput) { $parsed.createOnInput } else { "Auto" }
+	X "$indent`t`t<CreateOnInput>$coi</CreateOnInput>"
 	X "$indent`t`t<ChoiceForm/>"
 	X "$indent`t`t<LinkByType/>"
 	$chi = if ($parsed.choiceHistoryOnInput) { $parsed.choiceHistoryOnInput } else { "Auto" }
@@ -1031,7 +1050,8 @@ function Emit-Attribute {
 
 	# Use — only for catalog top-level attributes
 	if ($context -eq "catalog") {
-		X "$indent`t`t<Use>ForItem</Use>"
+		$use = if ($parsed.use) { $parsed.use } else { "ForItem" }
+		X "$indent`t`t<Use>$use</Use>"
 	}
 
 	# Indexing/FullTextSearch/DataHistory — not for non-stored objects (processor, processor-tabular)
@@ -1042,10 +1062,12 @@ function Emit-Attribute {
 		if ($parsed.indexing) { $indexing = $parsed.indexing }
 		X "$indent`t`t<Indexing>$indexing</Indexing>"
 
-		X "$indent`t`t<FullTextSearch>Use</FullTextSearch>"
+		$fts = if ($parsed.fullTextSearch) { $parsed.fullTextSearch } else { "Use" }
+		X "$indent`t`t<FullTextSearch>$fts</FullTextSearch>"
 		# DataHistory — not for Chart* types and non-InformationRegister register family
 		if ($context -notin @("chart", "register-other")) {
-			X "$indent`t`t<DataHistory>Use</DataHistory>"
+			$dh = if ($parsed.dataHistory) { $parsed.dataHistory } else { "Use" }
+			X "$indent`t`t<DataHistory>$dh</DataHistory>"
 		}
 	}
 

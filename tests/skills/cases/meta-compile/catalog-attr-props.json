@@ -1,0 +1,14 @@
+{
+  "name": "Справочник с расширенными свойствами реквизита",
+  "input": {
+    "type": "Catalog", "name": "Контрагенты", "hierarchical": true,
+    "attributes": [
+      { "name": "ИНН", "type": "String(12)", "fullTextSearch": "DontUse", "comment": "Налоговый номер",
+        "mask": "999999999999", "use": "ForFolderAndItem", "fillCheck": true },
+      { "name": "Курс", "type": "Number(15,4)", "format": "ЧДЦ=4", "editFormat": { "ru": "ЧДЦ=4" },
+        "createOnInput": "Use", "quickChoice": false, "fillFromFillingValue": true, "dataHistory": "DontUse", "passwordMode": true }
+    ]
+  },
+  "validatePath": "Catalogs/Контрагенты",
+  "expect": { "files": ["Catalogs/Контрагенты.xml"] }
+}

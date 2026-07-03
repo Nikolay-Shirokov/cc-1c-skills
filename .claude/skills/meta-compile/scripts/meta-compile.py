@@ -644,6 +644,17 @@ def parse_attribute_shorthand(val):
         return parsed
     # Object form. synonym/tooltip — сквозной проброс (строка ИЛИ dict {ru,en}), НЕ стрингифаим.
     name = str(val.get('name', ''))
+    # fillCheck — синоним fillChecking (bool true→ShowError). quickChoice — прощаем bool (true→Use, false→DontUse).
+    if val.get('fillChecking'):
+        fc = str(val['fillChecking'])
+    elif val.get('fillCheck') is not None:
+        fc = ('ShowError' if val['fillCheck'] else '') if isinstance(val['fillCheck'], bool) else str(val['fillCheck'])
+    else:
+        fc = ''
+    if val.get('quickChoice') is not None:
+        qc = ('Use' if val['quickChoice'] else 'DontUse') if isinstance(val['quickChoice'], bool) else str(val['quickChoice'])
+    else:
+        qc = ''
     return {
         'name': name,
         'type': build_type_str(val),
@@ -651,10 +662,20 @@ def parse_attribute_shorthand(val):
         'tooltip': val.get('tooltip'),
         'comment': str(val['comment']) if val.get('comment') else '',
         'flags': list(val.get('flags', [])),
-        'fillChecking': str(val['fillChecking']) if val.get('fillChecking') else '',
+        'fillChecking': fc,
         'indexing': str(val['indexing']) if val.get('indexing') else '',
         'multiLine': True if val.get('multiLine') is True else False,
         'choiceHistoryOnInput': str(val['choiceHistoryOnInput']) if val.get('choiceHistoryOnInput') else '',
+        'fullTextSearch': str(val['fullTextSearch']) if val.get('fullTextSearch') else '',
+        'fillFromFillingValue': True if val.get('fillFromFillingValue') is True else False,
+        'createOnInput': str(val['createOnInput']) if val.get('createOnInput') else '',
+        'quickChoice': qc,
+        'dataHistory': str(val['dataHistory']) if val.get('dataHistory') else '',
+        'use': str(val['use']) if val.get('use') else '',
+        'passwordMode': True if val.get('passwordMode') is True else False,
+        'format': val.get('format'),
+        'editFormat': val.get('editFormat'),
+        'mask': str(val['mask']) if val.get('mask') else '',
     }
 
 def parse_enum_value_shorthand(val):
@@ -974,7 +995,10 @@ def emit_attribute(indent, parsed, context):
     X(f'{indent}\t<Properties>')
     X(f'{indent}\t\t<Name>{esc_xml(parsed["name"])}</Name>')
     emit_mltext(f'{indent}\t\t', 'Synonym', parsed['synonym'])
-    X(f'{indent}\t\t<Comment/>')
+    if parsed.get('comment'):
+        X(f'{indent}\t\t<Comment>{esc_xml_text(parsed["comment"])}</Comment>')
+    else:
+        X(f'{indent}\t\t<Comment/>')
     type_str = parsed['type']
     if type_str:
         emit_value_type(f'{indent}\t\t', type_str)
@@ -982,12 +1006,16 @@ def emit_attribute(indent, parsed, context):
         X(f'{indent}\t\t<Type>')
         X(f'{indent}\t\t\t<v8:Type>xs:string</v8:Type>')
         X(f'{indent}\t\t</Type>')
-    X(f'{indent}\t\t<PasswordMode>false</PasswordMode>')
-    X(f'{indent}\t\t<Format/>')
-    X(f'{indent}\t\t<EditFormat/>')
+    pw_mode = 'true' if parsed.get('passwordMode') is True else 'false'
+    X(f'{indent}\t\t<PasswordMode>{pw_mode}</PasswordMode>')
+    emit_mltext(f'{indent}\t\t', 'Format', parsed.get('format'))
+    emit_mltext(f'{indent}\t\t', 'EditFormat', parsed.get('editFormat'))
     emit_mltext(f'{indent}\t\t', 'ToolTip', parsed.get('tooltip'))
     X(f'{indent}\t\t<MarkNegatives>false</MarkNegatives>')
-    X(f'{indent}\t\t<Mask/>')
+    if parsed.get('mask'):
+        X(f'{indent}\t\t<Mask>{esc_xml_text(parsed["mask"])}</Mask>')
+    else:
+        X(f'{indent}\t\t<Mask/>')
     multi_line = 'true' if (parsed.get('multiLine') is True or 'multiline' in parsed.get('flags', [])) else 'false'
     X(f'{indent}\t\t<MultiLine>{multi_line}</MultiLine>')
     X(f'{indent}\t\t<ExtendedEdit>false</ExtendedEdit>')
@@ -996,7 +1024,8 @@ def emit_attribute(indent, parsed, context):
     # FillFromFillingValue / FillValue — not for tabular/processor/chart/register-other
     # (Chart*, AccumulationRegister/AccountingRegister/CalculationRegister don't support these)
     if context not in ('tabular', 'processor', 'chart', 'register-other'):
-        X(f'{indent}\t\t<FillFromFillingValue>false</FillFromFillingValue>')
+        ffv = 'true' if parsed.get('fillFromFillingValue') is True else 'false'
+        X(f'{indent}\t\t<FillFromFillingValue>{ffv}</FillFromFillingValue>')
     if context not in ('tabular', 'processor', 'chart', 'register-other'):
         emit_fill_value(f'{indent}\t\t', type_str)
     fill_checking = 'DontCheck'
@@ -1008,14 +1037,14 @@ def emit_attribute(indent, parsed, context):
     X(f'{indent}\t\t<ChoiceFoldersAndItems>Items</ChoiceFoldersAndItems>')
     X(f'{indent}\t\t<ChoiceParameterLinks/>')
     X(f'{indent}\t\t<ChoiceParameters/>')
-    X(f'{indent}\t\t<QuickChoice>Auto</QuickChoice>')
-    X(f'{indent}\t\t<CreateOnInput>Auto</CreateOnInput>')
+    X(f'{indent}\t\t<QuickChoice>{parsed.get("quickChoice") or "Auto"}</QuickChoice>')
+    X(f'{indent}\t\t<CreateOnInput>{parsed.get("createOnInput") or "Auto"}</CreateOnInput>')
     X(f'{indent}\t\t<ChoiceForm/>')
     X(f'{indent}\t\t<LinkByType/>')
     chi = parsed.get('choiceHistoryOnInput') or 'Auto'
     X(f'{indent}\t\t<ChoiceHistoryOnInput>{chi}</ChoiceHistoryOnInput>')
     if context == 'catalog':
-        X(f'{indent}\t\t<Use>ForItem</Use>')
+        X(f'{indent}\t\t<Use>{parsed.get("use") or "ForItem"}</Use>')
     if context not in ('processor', 'processor-tabular'):
         indexing = 'DontIndex'
         if 'index' in parsed.get('flags', []):
@@ -1025,10 +1054,10 @@ def emit_attribute(indent, parsed, context):
         if parsed.get('indexing'):
             indexing = parsed['indexing']
         X(f'{indent}\t\t<Indexing>{indexing}</Indexing>')
-        X(f'{indent}\t\t<FullTextSearch>Use</FullTextSearch>')
+        X(f'{indent}\t\t<FullTextSearch>{parsed.get("fullTextSearch") or "Use"}</FullTextSearch>')
         # DataHistory — not for Chart* types and non-InformationRegister register family
         if context not in ('chart', 'register-other'):
-            X(f'{indent}\t\t<DataHistory>Use</DataHistory>')
+            X(f'{indent}\t\t<DataHistory>{parsed.get("dataHistory") or "Use"}</DataHistory>')
     X(f'{indent}\t</Properties>')
     X(f'{indent}</Attribute>')
 

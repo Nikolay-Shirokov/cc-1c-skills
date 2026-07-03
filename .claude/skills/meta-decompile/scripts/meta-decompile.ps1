@@ -1,4 +1,4 @@
-﻿# meta-decompile v0.5 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
+﻿# meta-decompile v0.6 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 #
 # Пилот: только Catalog. Инверс meta-compile (omit-on-default: ключ эмитим только
@@ -195,18 +195,37 @@ function Attr-ToDsl {
 	if ($ix) { if ($ix.InnerText -eq 'Index') { $flags += 'index' } elseif ($ix.InnerText -eq 'IndexWithAdditionalOrder') { $flags += 'indexAdditional' } }
 	$ml = $ap.SelectSingleNode('md:MultiLine', $nsm); if ($ml -and $ml.InnerText -eq 'true') { $flags += 'multiline' }
 
-	# Синоним/подсказка (строка ru-only ИЛИ {ru,en}). Кастомный синоним ИЛИ наличие подсказки → object-форма.
+	# Синоним/подсказка (строка ru-only ИЛИ {ru,en}).
 	$synVal = Get-MLValue ($ap.SelectSingleNode('md:Synonym', $nsm))
 	$synCustom = $false
 	if ($synVal -is [string]) { if ($synVal -ne (Split-CamelWords $nm)) { $synCustom = $true } }
 	elseif ($null -ne $synVal) { $synCustom = $true }   # {ru,en} = всегда кастом
 	$ttVal = Get-MLValue ($ap.SelectSingleNode('md:ToolTip', $nsm))
 
-	if ($synCustom -or ($null -ne $ttVal)) {
+	# Extra-свойства реквизита (omit-on-default). Наличие любого → object-форма.
+	# $en(tag) → InnerText узла или $null.
+	$en = { param($tag) $n = $ap.SelectSingleNode("md:$tag", $nsm); if ($n) { $n.InnerText } else { $null } }
+	$extra = [ordered]@{}
+	$v = & $en 'Comment'; if ($v) { $extra['comment'] = $v }
+	$v = & $en 'FullTextSearch'; if ($v -and $v -ne 'Use') { $extra['fullTextSearch'] = $v }
+	$v = & $en 'FillFromFillingValue'; if ($v -eq 'true') { $extra['fillFromFillingValue'] = $true }
+	$v = & $en 'CreateOnInput'; if ($v -and $v -ne 'Auto') { $extra['createOnInput'] = $v }
+	$v = & $en 'QuickChoice'; if ($v -and $v -ne 'Auto') { $extra['quickChoice'] = $v }
+	$v = & $en 'DataHistory'; if ($v -and $v -ne 'Use') { $extra['dataHistory'] = $v }
+	$v = & $en 'Use'; if ($v -and $v -ne 'ForItem') { $extra['use'] = $v }
+	$v = & $en 'PasswordMode'; if ($v -eq 'true') { $extra['passwordMode'] = $true }
+	$v = & $en 'Mask'; if ($v) { $extra['mask'] = $v }
+	$v = & $en 'ChoiceHistoryOnInput'; if ($v -and $v -ne 'Auto') { $extra['choiceHistoryOnInput'] = $v }
+	$v = & $en 'FillChecking'; if ($v -eq 'ShowWarning') { $extra['fillChecking'] = 'ShowWarning' }
+	$fmtV = Get-MLValue ($ap.SelectSingleNode('md:Format', $nsm)); if ($null -ne $fmtV) { $extra['format'] = $fmtV }
+	$efmtV = Get-MLValue ($ap.SelectSingleNode('md:EditFormat', $nsm)); if ($null -ne $efmtV) { $extra['editFormat'] = $efmtV }
+
+	if ($synCustom -or ($null -ne $ttVal) -or $extra.Count -gt 0) {
 		$o = [ordered]@{ name = $nm }
 		if ($ts) { $o['type'] = $ts }
 		if ($synCustom) { $o['synonym'] = $synVal }
 		if ($null -ne $ttVal) { $o['tooltip'] = $ttVal }
+		foreach ($k in $extra.Keys) { $o[$k] = $extra[$k] }
 		if ($flags.Count -gt 0) { $o['flags'] = [System.Collections.ArrayList]@($flags) }
 		return $o
 	}
