@@ -1,4 +1,4 @@
-﻿# meta-compile v1.22 — Compile 1C metadata object from JSON
+﻿# meta-compile v1.23 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -1138,6 +1138,35 @@ $script:reservedByContext = @{
 	"document" = @("Ref","DeletionMark","Date","Number","Posted")
 }
 
+# Стандартный реквизит текущего типа по имени (EN/RU) → EN-имя, либо $null (обычный/неизвестный).
+function Resolve-StdAttrEn {
+	param([string]$name)
+	$ctx = switch ("$objType") { 'Catalog' { 'catalog' } 'Document' { 'document' } default { $null } }
+	if (-not $ctx) { return $null }
+	$stdSet = $script:reservedByContext[$ctx]
+	foreach ($en in $stdSet) {
+		$ru = $script:reservedAttrNames[$en]
+		if (($name -ieq $en) -or ($ru -and $name -ieq $ru)) { return $en }
+	}
+	return $null
+}
+
+# Прощающий ввод пути к реквизиту САМОГО объекта (dataPath в linkByType/choiceParameterLinks):
+#   "Ссылка"/"Ref"/станд. → <Тип>.<Имя>.StandardAttribute.<EN>;  обычное имя → <Тип>.<Имя>.Attribute.<Имя>;
+#   частичное "StandardAttribute.X"/"Attribute.X" → префикс <Тип>.<Имя>;  полный путь → verbatim.
+function Expand-DataPath {
+	param([string]$dp)
+	if (-not $dp) { return $dp }
+	$s = "$dp"
+	if ($s -match '^(StandardAttribute|Attribute)\.') { return "$objType.$objName.$s" }
+	if (-not $s.Contains('.')) {
+		$en = Resolve-StdAttrEn $s
+		if ($en) { return "$objType.$objName.StandardAttribute.$en" }
+		return "$objType.$objName.Attribute.$s"
+	}
+	return $s
+}
+
 # <LinkByType> (связь по типу — тип значения реквизита-Характеристики определяется другим реквизитом).
 # Структура как <TypeLink> формы: DataPath + LinkItem. DSL `linkByType`: {dataPath, linkItem?} ИЛИ строка-путь.
 # Нет ключа → <LinkByType/> (пусто).
@@ -1150,6 +1179,7 @@ function Emit-LinkByType {
 		$li = if ($null -ne $spec.linkItem) { $spec.linkItem } elseif ($null -ne $spec.элементСвязи) { $spec.элементСвязи } else { 0 }
 	}
 	if (-not $dp) { X "$indent<LinkByType/>"; return }
+	$dp = Expand-DataPath $dp
 	X "$indent<LinkByType>"
 	X "$indent`t<xr:DataPath>$(Esc-Xml "$dp")</xr:DataPath>"
 	X "$indent`t<xr:LinkItem>$li</xr:LinkItem>"
@@ -1264,7 +1294,7 @@ function Emit-ChoiceParameterLinks {
 	foreach ($lk in @($cpl)) {
 		if ($lk -is [string]) { $lk = ConvertFrom-ChLinkShorthand $lk }
 		$name = Get-ChElProp $lk @('name','имя')
-		$dp = Get-ChElProp $lk @('dataPath','path','путь')
+		$dp = Expand-DataPath (Get-ChElProp $lk @('dataPath','path','путь'))
 		$vcRaw = Get-ChElProp $lk @('valueChange','режимИзменения')
 		$vc = 'Clear'
 		if ($vcRaw) {

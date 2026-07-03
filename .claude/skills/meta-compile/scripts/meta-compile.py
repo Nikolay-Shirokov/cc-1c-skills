@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-compile v1.22 — Compile 1C metadata object from JSON
+# meta-compile v1.23 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -1180,6 +1180,40 @@ RESERVED_BY_CONTEXT = {
     },
 }
 
+# Стандартные реквизиты по типу для разворота dataPath: [(EN, RU), ...].
+STD_ATTR_BY_TYPE = {
+    'Catalog': [('Ref', 'Ссылка'), ('DeletionMark', 'ПометкаУдаления'), ('Predefined', 'Предопределенный'),
+                ('PredefinedDataName', 'ИмяПредопределенныхДанных'), ('Code', 'Код'), ('Description', 'Наименование'),
+                ('Owner', 'Владелец'), ('Parent', 'Родитель'), ('IsFolder', 'ЭтоГруппа')],
+    'Document': [('Ref', 'Ссылка'), ('DeletionMark', 'ПометкаУдаления'), ('Date', 'Дата'), ('Number', 'Номер'),
+                 ('Posted', 'Проведен')],
+}
+
+def resolve_std_attr_en(name):
+    pairs = STD_ATTR_BY_TYPE.get(obj_type)
+    if not pairs:
+        return None
+    low = name.lower()
+    for en, ru in pairs:
+        if low == en.lower() or low == ru.lower():
+            return en
+    return None
+
+def expand_data_path(dp):
+    """Путь к реквизиту самого объекта: "Ссылка"→<Тип>.<Имя>.StandardAttribute.Ref; обычное имя→.Attribute.имя;
+    частичное StandardAttribute.X/Attribute.X→префикс; полный путь→verbatim."""
+    if not dp:
+        return dp
+    s = str(dp)
+    if re.match(r'^(StandardAttribute|Attribute)\.', s):
+        return f'{obj_type}.{obj_name}.{s}'
+    if '.' not in s:
+        en = resolve_std_attr_en(s)
+        if en:
+            return f'{obj_type}.{obj_name}.StandardAttribute.{en}'
+        return f'{obj_type}.{obj_name}.Attribute.{s}'
+    return s
+
 def emit_link_by_type(indent, spec):
     """<LinkByType> (связь по типу): DataPath + LinkItem. spec — {dataPath, linkItem?} или строка-путь; нет → <LinkByType/>."""
     if not spec:
@@ -1197,6 +1231,7 @@ def emit_link_by_type(indent, spec):
     if not dp:
         X(f'{indent}<LinkByType/>')
         return
+    dp = expand_data_path(dp)
     X(f'{indent}<LinkByType>')
     X(f'{indent}\t<xr:DataPath>{esc_xml(str(dp))}</xr:DataPath>')
     X(f'{indent}\t<xr:LinkItem>{li}</xr:LinkItem>')
@@ -1311,7 +1346,7 @@ def emit_choice_parameter_links(indent, cpl):
         if isinstance(lk, str):
             lk = convert_from_ch_link_shorthand(lk)
         name = ch_el_prop(lk, ['name', 'имя'])
-        dp = ch_el_prop(lk, ['dataPath', 'path', 'путь'])
+        dp = expand_data_path(ch_el_prop(lk, ['dataPath', 'path', 'путь']))
         vc_raw = ch_el_prop(lk, ['valueChange', 'режимИзменения'])
         vc = 'Clear'
         if vc_raw:

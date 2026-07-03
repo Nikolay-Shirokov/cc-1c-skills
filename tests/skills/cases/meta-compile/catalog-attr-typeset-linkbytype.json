@@ -6,10 +6,10 @@
     "attributes": [
       { "name": "Свойство", "type": "ChartOfCharacteristicTypesRef.ДополнительныеРеквизиты" },
       { "name": "Значение", "type": "Characteristic.ДополнительныеРеквизиты",
-        "linkByType": { "dataPath": "Catalog.ТестХарактеристик.Attribute.Свойство", "linkItem": 1 } },
+        "linkByType": { "dataPath": "Свойство", "linkItem": 1 } },
       { "name": "ЗначениеОпредТип", "type": "DefinedType.Сумма" },
       { "name": "СвязьСтрокой", "type": "Characteristic.ВидыСубконто",
-        "linkByType": "Catalog.ТестХарактеристик.Attribute.Свойство" }
+        "linkByType": "Свойство" }
     ]
   },
   "validatePath": "Catalogs/ТестХарактеристик",
