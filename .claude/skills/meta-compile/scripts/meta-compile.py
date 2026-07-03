@@ -1066,7 +1066,7 @@ def emit_attribute(indent, parsed, context):
 # 9. TabularSection emitter
 # ---------------------------------------------------------------------------
 
-def emit_tabular_section(indent, ts_name, columns, object_type, object_name):
+def emit_tabular_section(indent, ts_name, columns, object_type, object_name, ts_synonym_arg=None, ts_tooltip=None, ts_comment=None):
     uid = new_uuid()
     X(f'{indent}<TabularSection uuid="{uid}">')
     type_prefix = f'{object_type}TabularSection'
@@ -1081,12 +1081,15 @@ def emit_tabular_section(indent, ts_name, columns, object_type, object_name):
     X(f'{indent}\t\t\t<xr:ValueId>{new_uuid()}</xr:ValueId>')
     X(f'{indent}\t\t</xr:GeneratedType>')
     X(f'{indent}\t</InternalInfo>')
-    ts_synonym = split_camel_case(ts_name)
+    ts_synonym = ts_synonym_arg if ts_synonym_arg is not None else split_camel_case(ts_name)
     X(f'{indent}\t<Properties>')
     X(f'{indent}\t\t<Name>{esc_xml(ts_name)}</Name>')
     emit_mltext(f'{indent}\t\t', 'Synonym', ts_synonym)
-    X(f'{indent}\t\t<Comment/>')
-    X(f'{indent}\t\t<ToolTip/>')
+    if ts_comment:
+        X(f'{indent}\t\t<Comment>{esc_xml_text(ts_comment)}</Comment>')
+    else:
+        X(f'{indent}\t\t<Comment/>')
+    emit_mltext(f'{indent}\t\t', 'ToolTip', ts_tooltip)
     X(f'{indent}\t\t<FillChecking>DontCheck</FillChecking>')
     emit_tabular_standard_attributes(f'{indent}\t\t')
     if object_type == 'Catalog':
@@ -2598,15 +2601,20 @@ if obj_type in types_with_attr_ts:
     ts_order = []
     if defn.get('tabularSections'):
         ts_data = defn['tabularSections']
+        # Значение ТЧ: массив колонок (синоним авто) ЛИБО объект {attributes/columns, synonym, tooltip, comment}.
+        def new_ts_entry(val):
+            if isinstance(val, list):
+                return {'columns': val, 'synonym': None, 'tooltip': None, 'comment': None}
+            cols = _as_list(val.get('attributes') or val.get('columns') or [])
+            return {'columns': cols, 'synonym': val.get('synonym'), 'tooltip': val.get('tooltip'),
+                    'comment': str(val['comment']) if val.get('comment') else None}
         if isinstance(ts_data, list):
             for ts in ts_data:
-                ts_name = ts['name']
-                ts_cols = _as_list(ts.get('attributes', []))
-                ts_sections[ts_name] = ts_cols
-                ts_order.append(ts_name)
+                ts_sections[ts['name']] = new_ts_entry(ts)
+                ts_order.append(ts['name'])
         else:
             for k, v in ts_data.items():
-                ts_sections[k] = _as_list(v)
+                ts_sections[k] = new_ts_entry(v)
                 ts_order.append(k)
     # ChartOfAccounts: AccountingFlags + ExtDimensionAccountingFlags
     acct_flags = []
@@ -2637,8 +2645,8 @@ if obj_type in types_with_attr_ts:
         for a in attrs:
             emit_attribute('\t\t\t', a, context)
         for ts_name in ts_order:
-            columns = ts_sections[ts_name]
-            emit_tabular_section('\t\t\t', ts_name, columns, obj_type, obj_name)
+            e = ts_sections[ts_name]
+            emit_tabular_section('\t\t\t', ts_name, e['columns'], obj_type, obj_name, e['synonym'], e['tooltip'], e['comment'])
         for af in acct_flags:
             af_name = af['name'] if isinstance(af, dict) else str(af)
             emit_accounting_flag('\t\t\t', af_name)

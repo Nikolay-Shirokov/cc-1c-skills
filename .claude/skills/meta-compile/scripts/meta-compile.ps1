@@ -1078,7 +1078,7 @@ function Emit-Attribute {
 # --- 9. TabularSection emitter ---
 
 function Emit-TabularSection {
-	param([string]$indent, [string]$tsName, $columns, [string]$objectType, [string]$objectName)
+	param([string]$indent, [string]$tsName, $columns, [string]$objectType, [string]$objectName, $tsSynonymArg = $null, $tsTooltip = $null, $tsComment = $null)
 	$uuid = New-Guid-String
 	X "$indent<TabularSection uuid=`"$uuid`">"
 
@@ -1097,13 +1097,13 @@ function Emit-TabularSection {
 	X "$indent`t`t</xr:GeneratedType>"
 	X "$indent`t</InternalInfo>"
 
-	$tsSynonym = Split-CamelCase $tsName
+	$tsSynonym = if ($null -ne $tsSynonymArg) { $tsSynonymArg } else { Split-CamelCase $tsName }
 
 	X "$indent`t<Properties>"
 	X "$indent`t`t<Name>$(Esc-Xml $tsName)</Name>"
 	Emit-MLText "$indent`t`t" "Synonym" $tsSynonym
-	X "$indent`t`t<Comment/>"
-	X "$indent`t`t<ToolTip/>"
+	if ($tsComment) { X "$indent`t`t<Comment>$(Esc-XmlText $tsComment)</Comment>" } else { X "$indent`t`t<Comment/>" }
+	Emit-MLText "$indent`t`t" "ToolTip" $tsTooltip
 	X "$indent`t`t<FillChecking>DontCheck</FillChecking>"
 	Emit-TabularStandardAttributes "$indent`t`t"
 	# Use=ForItem only for Catalog tabular sections (Document does not have Use)
@@ -2880,17 +2880,19 @@ if ($objType -in $typesWithAttrTS) {
 	}
 	$tsSections = [ordered]@{}
 	if ($def.tabularSections) {
-		# Normalize array format: [{name:"X", attributes:[...]}, ...] → {"X": [...]}
+		# Значение ТЧ: массив колонок (синоним авто) ЛИБО объект {attributes/columns, synonym, tooltip, comment}.
+		# Нормализуем в $tsSections[name] = @{ columns; synonym; tooltip; comment }.
+		function New-TsEntry { param($val)
+			if ($val -is [array] -or $val.GetType().Name -eq 'Object[]') {
+				return @{ columns = @($val); synonym = $null; tooltip = $null; comment = $null }
+			}
+			$cols = if ($val.attributes) { @($val.attributes) } elseif ($val.columns) { @($val.columns) } else { @() }
+			return @{ columns = $cols; synonym = $val.synonym; tooltip = $val.tooltip; comment = if ($val.comment) { "$($val.comment)" } else { $null } }
+		}
 		if ($def.tabularSections -is [array] -or $def.tabularSections.GetType().Name -eq "Object[]") {
-			foreach ($ts in $def.tabularSections) {
-				$tsName = $ts.name
-				$tsCols = if ($ts.attributes) { @($ts.attributes) } else { @() }
-				$tsSections[$tsName] = $tsCols
-			}
+			foreach ($ts in $def.tabularSections) { $tsSections[$ts.name] = New-TsEntry $ts }
 		} else {
-			$def.tabularSections.PSObject.Properties | ForEach-Object {
-				$tsSections[$_.Name] = @($_.Value)
-			}
+			$def.tabularSections.PSObject.Properties | ForEach-Object { $tsSections[$_.Name] = New-TsEntry $_.Value }
 		}
 	}
 
@@ -2923,8 +2925,8 @@ if ($objType -in $typesWithAttrTS) {
 			Emit-Attribute "`t`t`t" $a $context
 		}
 		foreach ($tsName in $tsSections.Keys) {
-			$columns = $tsSections[$tsName]
-			Emit-TabularSection "`t`t`t" $tsName $columns $objType $objName
+			$tsE = $tsSections[$tsName]
+			Emit-TabularSection "`t`t`t" $tsName $tsE.columns $objType $objName $tsE.synonym $tsE.tooltip $tsE.comment
 		}
 		foreach ($af in $acctFlags) {
 			$afName = if ($af.name) { $af.name } else { "$af" }

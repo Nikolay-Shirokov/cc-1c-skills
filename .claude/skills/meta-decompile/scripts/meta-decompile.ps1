@@ -1,4 +1,4 @@
-﻿# meta-decompile v0.7 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
+﻿# meta-decompile v0.8 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 #
 # Пилот: только Catalog. Инверс meta-compile (omit-on-default: ключ эмитим только
@@ -325,7 +325,23 @@ if ($childObjs) {
 			$tco = $ts.SelectSingleNode('md:ChildObjects', $nsm)
 			$cols = [System.Collections.ArrayList]@()
 			if ($tco) { foreach ($ca in @($tco.SelectNodes('md:Attribute', $nsm))) { [void]$cols.Add((Attr-ToDsl $ca)) } }
-			$tsMap[$tsName] = $cols
+			# Синоним/подсказка/комментарий ТЧ. Кастом → объектная форма {synonym?, tooltip?, comment?, attributes}.
+			$tsSyn = Get-MLValue ($tsp.SelectSingleNode('md:Synonym', $nsm))
+			$tsSynCustom = $false
+			if ($tsSyn -is [string]) { if ($tsSyn -ne (Split-CamelWords $tsName)) { $tsSynCustom = $true } }
+			elseif ($null -ne $tsSyn) { $tsSynCustom = $true }
+			$tsTt = Get-MLValue ($tsp.SelectSingleNode('md:ToolTip', $nsm))
+			$tsCmtN = $tsp.SelectSingleNode('md:Comment', $nsm); $tsCmt = if ($tsCmtN) { $tsCmtN.InnerText } else { '' }
+			if ($tsSynCustom -or ($null -ne $tsTt) -or $tsCmt) {
+				$to = [ordered]@{}
+				if ($tsSynCustom) { $to['synonym'] = $tsSyn }
+				if ($null -ne $tsTt) { $to['tooltip'] = $tsTt }
+				if ($tsCmt) { $to['comment'] = $tsCmt }
+				$to['attributes'] = $cols
+				$tsMap[$tsName] = $to
+			} else {
+				$tsMap[$tsName] = $cols
+			}
 		}
 		$dsl['tabularSections'] = $tsMap
 	}
