@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Form xmlns="http://v8.1c.ru/8.3/xcf/logform" xmlns:v8="http://v8.1c.ru/8.1/data/core" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" version="2.17">
+	<Title>
+		<v8:item>
+			<v8:lang>ru</v8:lang>
+			<v8:content>Тест</v8:content>
+		</v8:item>
+	</Title>
+	<AutoCommandBar name="ФормаКоманднаяПанель" id="-1"/>
+	<ChildItems>
+		<Table name="Список" id="1">
+			<DataPath>Список</DataPath>
+			<ContextMenu name="СписокКонтекстноеМеню" id="2"/>
+			<AutoCommandBar name="СписокКоманднаяПанель" id="3"/>
+			<SearchStringAddition name="СписокСтрокаПоиска" id="4"/>
+			<ViewStatusAddition name="СписокСостояниеПросмотра" id="5"/>
+			<SearchControlAddition name="СписокУправлениеПоиском" id="6"/>
+			<ChildItems>
+				<InputField name="Ссылка" id="7">
+					<DataPath>Список.Ссылка</DataPath>
+					<ContextMenu name="СсылкаКонтекстноеМеню" id="8"/>
+					<ExtendedTooltip name="СсылкаРасширеннаяПодсказка" id="9"/>
+				</InputField>
+			</ChildItems>
+		</Table>
+		<InputField name="ТекущаяСсылка" id="10">
+			<DataPath>Items.Список.CurrentData.Ссылка</DataPath>
+			<ContextMenu name="ТекущаяСсылкаКонтекстноеМеню" id="11"/>
+			<ExtendedTooltip name="ТекущаяСсылкаРасширеннаяПодсказка" id="12"/>
+		</InputField>
+		<InputField name="ВыбраннаяСсылка" id="13">
+			<DataPath>~Список.Ссылка</DataPath>
+			<ContextMenu name="ВыбраннаяСсылкаКонтекстноеМеню" id="14"/>
+			<ExtendedTooltip name="ВыбраннаяСсылкаРасширеннаяПодсказка" id="15"/>
+		</InputField>
+	</ChildItems>
+	<Attributes>
+		<Attribute name="Список" id="16">
+			<Type>
+				<v8:Type>cfg:DynamicList</v8:Type>
+			</Type>
+			<MainAttribute>true</MainAttribute>
+		</Attribute>
+	</Attributes>
+</Form>

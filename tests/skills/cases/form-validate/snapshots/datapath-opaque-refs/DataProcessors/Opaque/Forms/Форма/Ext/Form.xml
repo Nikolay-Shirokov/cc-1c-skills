@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Form xmlns="http://v8.1c.ru/8.3/xcf/logform" xmlns:v8="http://v8.1c.ru/8.1/data/core" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" version="2.17">
+	<Title>
+		<v8:item>
+			<v8:lang>ru</v8:lang>
+			<v8:content>Тест</v8:content>
+		</v8:item>
+	</Title>
+	<AutoCommandBar name="ФормаКоманднаяПанель" id="-1"/>
+	<ChildItems>
+		<InputField name="ПривязкаПоUUID" id="1">
+			<DataPath>1/0:UUID-001</DataPath>
+			<ContextMenu name="ПривязкаПоUUIDКонтекстноеМеню" id="2"/>
+			<ExtendedTooltip name="ПривязкаПоUUIDРасширеннаяПодсказка" id="3"/>
+		</InputField>
+		<LabelField name="ЧисловаяПривязка" id="4">
+			<DataPath>10</DataPath>
+			<ContextMenu name="ЧисловаяПривязкаКонтекстноеМеню" id="5"/>
+			<ExtendedTooltip name="ЧисловаяПривязкаРасширеннаяПодсказка" id="6"/>
+		</LabelField>
+		<InputField name="Нормальное" id="7">
+			<DataPath>Объект.Наименование</DataPath>
+			<ContextMenu name="НормальноеКонтекстноеМеню" id="8"/>
+			<ExtendedTooltip name="НормальноеРасширеннаяПодсказка" id="9"/>
+		</InputField>
+	</ChildItems>
+	<Attributes>
+		<Attribute name="Объект" id="10">
+			<Type>
+				<v8:Type>cfg:DataProcessorObject.Opaque</v8:Type>
+			</Type>
+			<MainAttribute>true</MainAttribute>
+		</Attribute>
+	</Attributes>
+</Form>
