@@ -1,4 +1,4 @@
-﻿# meta-edit v1.9 — Edit existing 1C metadata object XML (inline mode + complex properties + TS attribute ops + modify-ts)
+﻿# meta-edit v1.10 — Edit existing 1C metadata object XML (inline mode + complex properties + TS attribute ops + modify-ts)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[string]$DefinitionFile,
@@ -890,19 +890,32 @@ $script:reservedAttrNames = @{
 	"Account"="Счет"; "ValueType"="ТипЗначения"; "ActionPeriodIsBasic"="ПериодДействияБазовый"
 }
 
+# Стандартные реквизиты по типу объекта (ключи из reservedAttrNames). Имя реквизита, совпадающее
+# с ними (англ. ИЛИ рус.), платформа не позволит — жёсткий отказ. Контексты вне карты → предупреждение.
+$script:reservedByContext = @{
+	"catalog"  = @("Ref","DeletionMark","Predefined","PredefinedDataName","Code","Description","Owner","Parent","IsFolder")
+	"document" = @("Ref","DeletionMark","Date","Number","Posted")
+}
+
 function Build-AttributeFragment {
 	param($parsed, [string]$context, [string]$indent)
 
 	if (-not $context) { $context = Get-AttributeContext }
 
-	# Check reserved attribute names
+	# Check reserved attribute names (типозависимо: catalog/document — жёсткий отказ; прочее — предупреждение)
 	$attrName = $parsed.name
-	if ($script:reservedAttrNames.ContainsKey($attrName)) {
+	$ctxReserved = $script:reservedByContext[$context]
+	if ($ctxReserved) {
+		foreach ($en in $ctxReserved) {
+			$ru = $script:reservedAttrNames[$en]
+			if (($attrName -ieq $en) -or ($ru -and $attrName -ieq $ru)) {
+				Write-Error "Имя реквизита '$attrName' зарезервировано стандартным реквизитом ($en/$ru) объекта '$context'. Выберите другое имя."
+				exit 1
+			}
+		}
+	} elseif ($context -notin @("tabular", "processor-tabular") -and
+		($script:reservedAttrNames.ContainsKey($attrName) -or ($script:reservedAttrNames.Values -contains $attrName))) {
 		Write-Warning "Attribute '$attrName' conflicts with a standard attribute name. This may cause errors when loading into 1C."
-	}
-	$ruValues = $script:reservedAttrNames.Values
-	if ($ruValues -contains $attrName) {
-		Write-Warning "Attribute '$attrName' conflicts with a standard attribute name (Russian). This may cause errors when loading into 1C."
 	}
 
 	$uuid = New-Guid-String

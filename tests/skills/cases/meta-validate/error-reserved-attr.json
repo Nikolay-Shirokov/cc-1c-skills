@@ -1,0 +1,6 @@
+{
+  "name": "Валидатор находит ошибку: имя реквизита совпадает со стандартным",
+  "setup": "fixture:catalog-reserved-attr",
+  "params": { "objectPath": "Catalogs/РезервТест.xml" },
+  "expectError": true
+}

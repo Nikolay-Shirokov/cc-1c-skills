@@ -1,4 +1,4 @@
-﻿# meta-validate v1.4 — Validate 1C metadata object structure
+﻿# meta-validate v1.5 — Validate 1C metadata object structure
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -699,17 +699,31 @@ if ($childObjNode) {
 
 if ($script:stopped) { & $finalize; exit 1 }
 
-# --- Check 7b: Reserved attribute names ---
+# --- Check 7b: Reserved attribute names (типозависимо: стандартные реквизиты ДАННОГО типа, EN+RU) ---
+# Совпадение имени собственного реквизита со стандартным (англ. или рус.) платформа не примет → ошибка.
 
-$reservedAttrNames = @(
-	"Ref","DeletionMark","Code","Description","Date","Number","Posted","Parent","Owner",
-	"IsFolder","Predefined","PredefinedDataName","Recorder","Period","LineNumber","Active",
-	"Order","Type","OffBalance","Started","Completed","HeadTask","Executed","RoutePoint",
-	"BusinessProcess","ThisNode","SentNo","ReceivedNo","CalculationType","RegistrationPeriod",
-	"ReversingEntry","Account","ValueType","ActionPeriodIsBasic"
-)
+$reservedEnRu = @{
+	"Ref"="Ссылка"; "DeletionMark"="ПометкаУдаления"; "Code"="Код"; "Description"="Наименование"
+	"Date"="Дата"; "Number"="Номер"; "Posted"="Проведен"; "Parent"="Родитель"; "Owner"="Владелец"
+	"IsFolder"="ЭтоГруппа"; "Predefined"="Предопределенный"; "PredefinedDataName"="ИмяПредопределенныхДанных"
+	"Recorder"="Регистратор"; "Period"="Период"; "LineNumber"="НомерСтроки"; "Active"="Активность"
+	"Order"="Порядок"; "Type"="Тип"; "OffBalance"="Забалансовый"; "RecordType"="ВидДвижения"
+	"Started"="Стартован"; "Completed"="Завершен"; "HeadTask"="ВедущаяЗадача"
+	"Executed"="Выполнена"; "RoutePoint"="ТочкаМаршрута"; "BusinessProcess"="БизнесПроцесс"
+	"ThisNode"="ЭтотУзел"; "SentNo"="НомерОтправленного"; "ReceivedNo"="НомерПринятого"
+	"CalculationType"="ВидРасчета"; "RegistrationPeriod"="ПериодРегистрации"; "ReversingEntry"="СторноЗапись"
+	"Account"="Счет"; "ValueType"="ТипЗначения"; "ActionPeriodIsBasic"="ПериодДействияБазовый"
+}
 
-if ($childObjNode) {
+$stdForType = $standardAttributesByType[$mdType]
+if ($childObjNode -and $stdForType) {
+	# Множество зарезервированных имён (EN + RU) в нижнем регистре.
+	$reservedSet = @{}
+	foreach ($en in $stdForType) {
+		$reservedSet[$en.ToLower()] = $true
+		$ru = $reservedEnRu[$en]
+		if ($ru) { $reservedSet[$ru.ToLower()] = $true }
+	}
 	$check7bOk = $true
 	$attrNodes = $childObjNode.SelectNodes("md:Attribute", $ns)
 	foreach ($attrNode in $attrNodes) {
@@ -718,8 +732,8 @@ if ($childObjNode) {
 			$attrNameNode = $attrProps.SelectSingleNode("md:Name", $ns)
 			if ($attrNameNode -and $attrNameNode.InnerText) {
 				$an = $attrNameNode.InnerText
-				if ($reservedAttrNames -contains $an) {
-					Report-Warn "7b. Attribute '$an' conflicts with a standard attribute name"
+				if ($reservedSet.ContainsKey($an.ToLower())) {
+					Report-Error "7b. Attribute '$an' conflicts with a standard attribute of $mdType"
 					$check7bOk = $false
 				}
 			}
@@ -728,6 +742,8 @@ if ($childObjNode) {
 	if ($check7bOk) {
 		Report-OK "7b. Reserved attribute names: no conflicts"
 	}
+} elseif ($childObjNode) {
+	Report-OK "7b. Reserved attribute names: no conflicts (no standard set for $mdType)"
 }
 
 if ($script:stopped) { & $finalize; exit 1 }

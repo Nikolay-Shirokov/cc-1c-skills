@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-edit v1.9 — Edit existing 1C metadata object XML (inline mode + complex properties + TS attribute ops + modify-ts)
+# meta-edit v1.10 — Edit existing 1C metadata object XML (inline mode + complex properties + TS attribute ops + modify-ts)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -861,14 +861,43 @@ RESERVED_ATTR_NAMES_RU = {
 }
 
 
+# Стандартные реквизиты по типу объекта (EN + RU). Совпадение имени реквизита с ними платформа
+# не позволит — жёсткий отказ. Контексты вне карты → предупреждение по плоскому списку.
+RESERVED_BY_CONTEXT = {
+    'catalog': {
+        'ref', 'ссылка',
+        'deletionmark', 'пометкаудаления',
+        'predefined', 'предопределенный',
+        'predefineddataname', 'имяпредопределенныхданных',
+        'code', 'код',
+        'description', 'наименование',
+        'owner', 'владелец',
+        'parent', 'родитель',
+        'isfolder', 'этогруппа',
+    },
+    'document': {
+        'ref', 'ссылка',
+        'deletionmark', 'пометкаудаления',
+        'date', 'дата',
+        'number', 'номер',
+        'posted', 'проведен',
+    },
+}
+
+
 def build_attribute_fragment(parsed, context, indent):
     """Build XML fragment string for an Attribute element."""
     if not context:
         context = get_attribute_context()
 
-    # Check reserved attribute names
+    # Check reserved attribute names (типозависимо: catalog/document — отказ; прочее — предупреждение)
     attr_name = parsed['name']
-    if attr_name in RESERVED_ATTR_NAMES or attr_name in RESERVED_ATTR_NAMES_RU:
+    ctx_reserved = RESERVED_BY_CONTEXT.get(context)
+    if ctx_reserved is not None:
+        if attr_name.lower() in ctx_reserved:
+            print(f"meta-edit: имя реквизита '{attr_name}' зарезервировано стандартным реквизитом объекта '{context}'. Выберите другое имя.", file=sys.stderr)
+            sys.exit(1)
+    elif context not in ('tabular', 'processor-tabular') and (attr_name in RESERVED_ATTR_NAMES or attr_name in RESERVED_ATTR_NAMES_RU):
         print(f"WARNING: Attribute '{attr_name}' conflicts with a standard attribute name. This may cause errors when loading into 1C.", file=sys.stderr)
 
     uid = new_uuid()

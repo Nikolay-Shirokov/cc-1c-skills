@@ -1,0 +1,15 @@
+{
+  "name": "Ошибка: добавление реквизита с зарезервированным именем",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "Catalog", "name": "Контрагенты" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    }
+  ],
+  "params": { "objectPath": "Catalogs/Контрагенты" },
+  "input": {
+    "add": { "attributes": ["Наименование: String(50)"] }
+  },
+  "expectError": "зарезервировано стандартным реквизитом"
+}

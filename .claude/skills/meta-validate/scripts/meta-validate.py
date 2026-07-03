@@ -1,4 +1,4 @@
-# meta-validate v1.4 — Validate 1C metadata object structure (Python port)
+# meta-validate v1.5 — Validate 1C metadata object structure (Python port)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import os
@@ -676,18 +676,30 @@ if stopped:
     finalize()
     sys.exit(1)
 
-# ── Check 7b: Reserved attribute names ───────────────────────
+# ── Check 7b: Reserved attribute names (типозависимо: стандартные ДАННОГО типа, EN+RU) ───────
+# Совпадение имени собственного реквизита со стандартным (англ. или рус.) платформа не примет → ошибка.
 
-RESERVED_ATTR_NAMES = {
-    'Ref', 'DeletionMark', 'Code', 'Description', 'Date', 'Number', 'Posted',
-    'Parent', 'Owner', 'IsFolder', 'Predefined', 'PredefinedDataName',
-    'Recorder', 'Period', 'LineNumber', 'Active', 'Order', 'Type', 'OffBalance',
-    'Started', 'Completed', 'HeadTask', 'Executed', 'RoutePoint', 'BusinessProcess',
-    'ThisNode', 'SentNo', 'ReceivedNo', 'CalculationType', 'RegistrationPeriod',
-    'ReversingEntry', 'Account', 'ValueType', 'ActionPeriodIsBasic',
+RESERVED_EN_RU = {
+    'Ref': 'Ссылка', 'DeletionMark': 'ПометкаУдаления', 'Code': 'Код', 'Description': 'Наименование',
+    'Date': 'Дата', 'Number': 'Номер', 'Posted': 'Проведен', 'Parent': 'Родитель', 'Owner': 'Владелец',
+    'IsFolder': 'ЭтоГруппа', 'Predefined': 'Предопределенный', 'PredefinedDataName': 'ИмяПредопределенныхДанных',
+    'Recorder': 'Регистратор', 'Period': 'Период', 'LineNumber': 'НомерСтроки', 'Active': 'Активность',
+    'Order': 'Порядок', 'Type': 'Тип', 'OffBalance': 'Забалансовый', 'RecordType': 'ВидДвижения',
+    'Started': 'Стартован', 'Completed': 'Завершен', 'HeadTask': 'ВедущаяЗадача',
+    'Executed': 'Выполнена', 'RoutePoint': 'ТочкаМаршрута', 'BusinessProcess': 'БизнесПроцесс',
+    'ThisNode': 'ЭтотУзел', 'SentNo': 'НомерОтправленного', 'ReceivedNo': 'НомерПринятого',
+    'CalculationType': 'ВидРасчета', 'RegistrationPeriod': 'ПериодРегистрации', 'ReversingEntry': 'СторноЗапись',
+    'Account': 'Счет', 'ValueType': 'ТипЗначения', 'ActionPeriodIsBasic': 'ПериодДействияБазовый',
 }
 
-if child_obj_node is not None:
+std_for_type = standard_attributes_by_type.get(md_type)
+if child_obj_node is not None and std_for_type:
+    reserved_set = set()
+    for en in std_for_type:
+        reserved_set.add(en.lower())
+        ru = RESERVED_EN_RU.get(en)
+        if ru:
+            reserved_set.add(ru.lower())
     check7b_ok = True
     for attr_node in find_all(child_obj_node, 'md:Attribute'):
         attr_props = find(attr_node, 'md:Properties')
@@ -695,11 +707,13 @@ if child_obj_node is not None:
             attr_name_node = find(attr_props, 'md:Name')
             if attr_name_node is not None and inner_text(attr_name_node):
                 an = inner_text(attr_name_node)
-                if an in RESERVED_ATTR_NAMES:
-                    report_warn(f"7b. Attribute '{an}' conflicts with a standard attribute name")
+                if an.lower() in reserved_set:
+                    report_error(f"7b. Attribute '{an}' conflicts with a standard attribute of {md_type}")
                     check7b_ok = False
     if check7b_ok:
         report_ok("7b. Reserved attribute names: no conflicts")
+elif child_obj_node is not None:
+    report_ok(f"7b. Reserved attribute names: no conflicts (no standard set for {md_type})")
 
 if stopped:
     finalize()
