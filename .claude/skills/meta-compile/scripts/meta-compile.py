@@ -445,6 +445,13 @@ type_synonyms = {
     'date': 'Date',
     'datetime': 'DateTime',
     'bool': 'Boolean',
+    # ValueStorage / UUID — прощающий ввод (base64Binary / рус. форма → канон).
+    'valuestorage': 'ValueStorage',
+    'base64binary': 'ValueStorage',
+    'хранилищезначений': 'ValueStorage',
+    'хранилищезначения': 'ValueStorage',
+    'uuid': 'UUID',
+    'уникальныйидентификатор': 'UUID',
     # Reference synonyms (Russian, lowercase)
     'справочникссылка': 'CatalogRef',
     'документссылка': 'DocumentRef',
@@ -557,9 +564,13 @@ def emit_type_content(indent, type_str):
         dt_name = m.group(1)
         X(f'{indent}<v8:TypeSet>cfg:DefinedType.{dt_name}</v8:TypeSet>')
         return
-    # ValueStorage
+    # ValueStorage (ХранилищеЗначения) — канон v8:ValueStorage (не xs:base64Binary).
     if type_str == 'ValueStorage':
-        X(f'{indent}<v8:Type>xs:base64Binary</v8:Type>')
+        X(f'{indent}<v8:Type>v8:ValueStorage</v8:Type>')
+        return
+    # UUID (УникальныйИдентификатор)
+    if type_str == 'UUID':
+        X(f'{indent}<v8:Type>v8:UUID</v8:Type>')
         return
 
     # Reference types — use local xmlns declaration for 1C compatibility

@@ -400,6 +400,13 @@ $script:typeSynonyms["boolean"]  = "Boolean"
 $script:typeSynonyms["date"]     = "Date"
 $script:typeSynonyms["datetime"] = "DateTime"
 $script:typeSynonyms["bool"]     = "Boolean"
+# ValueStorage / UUID — прощающий ввод (модель может написать base64Binary / рус. форму → канон).
+$script:typeSynonyms["valuestorage"]         = "ValueStorage"
+$script:typeSynonyms["base64binary"]         = "ValueStorage"
+$script:typeSynonyms["хранилищезначений"]    = "ValueStorage"
+$script:typeSynonyms["хранилищезначения"]    = "ValueStorage"
+$script:typeSynonyms["uuid"]                 = "UUID"
+$script:typeSynonyms["уникальныйидентификатор"] = "UUID"
 # Reference synonyms (Russian, lowercase)
 $script:typeSynonyms["справочникссылка"]             = "CatalogRef"
 $script:typeSynonyms["документссылка"]               = "DocumentRef"
@@ -528,9 +535,14 @@ function Emit-TypeContent {
 		return
 	}
 
-	# ValueStorage
+	# ValueStorage (ХранилищеЗначения) — канон v8:ValueStorage (не xs:base64Binary, хоть 1С и принимает оба).
 	if ($typeStr -eq "ValueStorage") {
-		X "$indent<v8:Type>xs:base64Binary</v8:Type>"
+		X "$indent<v8:Type>v8:ValueStorage</v8:Type>"
+		return
+	}
+	# UUID (УникальныйИдентификатор)
+	if ($typeStr -eq "UUID") {
+		X "$indent<v8:Type>v8:UUID</v8:Type>"
 		return
 	}
 
