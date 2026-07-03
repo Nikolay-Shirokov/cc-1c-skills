@@ -89,11 +89,11 @@
 		<ChildObjects>
 			<Attribute uuid="UUID-012">
 				<Properties>
-					<Name>Код</Name>
+					<Name>КодНастройки</Name>
 					<Synonym>
 						<v8:item>
 							<v8:lang>ru</v8:lang>
-							<v8:content>Код</v8:content>
+							<v8:content>Код настройки</v8:content>
 						</v8:item>
 					</Synonym>
 					<Comment/>

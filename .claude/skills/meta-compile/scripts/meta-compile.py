@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-compile v1.19 — Compile 1C metadata object from JSON
+# meta-compile v1.20 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -1156,9 +1156,37 @@ RESERVED_ATTR_NAMES_RU = {
     '\u041f\u0435\u0440\u0438\u043e\u0434\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u044f\u0411\u0430\u0437\u043e\u0432\u044b\u0439',
 }
 
+# Стандартные реквизиты по типу объекта (EN + RU). Совпадение имени реквизита с ними платформа
+# не позволит — жёсткий отказ. Контексты вне карты → мягкое предупреждение по плоскому списку.
+RESERVED_BY_CONTEXT = {
+    'catalog': {
+        'ref', 'ссылка',                      # Ссылка
+        'deletionmark', 'пометкаудаления',  # ПометкаУдаления
+        'predefined', 'предопределенный',  # Предопределенный
+        'predefineddataname', 'имяпредопределенныхданных',  # ИмяПредопределенныхДанных
+        'code', 'код',                                        # Код
+        'description', 'наименование',  # Наименование
+        'owner', 'владелец',          # Владелец
+        'parent', 'родитель',         # Родитель
+        'isfolder', 'этогруппа',  # ЭтоГруппа
+    },
+    'document': {
+        'ref', 'ссылка',                      # Ссылка
+        'deletionmark', 'пометкаудаления',  # ПометкаУдаления
+        'date', 'дата',                                  # Дата
+        'number', 'номер',                          # Номер
+        'posted', 'проведен',        # Проведен
+    },
+}
+
 def emit_attribute(indent, parsed, context):
     attr_name = parsed['name']
-    if context not in ('tabular', 'processor-tabular') and (attr_name in RESERVED_ATTR_NAMES or attr_name in RESERVED_ATTR_NAMES_RU):
+    ctx_reserved = RESERVED_BY_CONTEXT.get(context)
+    if ctx_reserved is not None:
+        if attr_name.lower() in ctx_reserved:
+            print(f"meta-compile: имя реквизита '{attr_name}' зарезервировано стандартным реквизитом объекта '{context}'. Выберите другое имя.", file=sys.stderr)
+            sys.exit(1)
+    elif context not in ('tabular', 'processor-tabular') and (attr_name in RESERVED_ATTR_NAMES or attr_name in RESERVED_ATTR_NAMES_RU):
         print(f"WARNING: Attribute '{attr_name}' conflicts with a standard attribute name. This may cause errors when loading into 1C.", file=sys.stderr)
     uid = new_uuid()
     X(f'{indent}<Attribute uuid="{uid}">')

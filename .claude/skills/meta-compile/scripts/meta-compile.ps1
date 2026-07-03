@@ -1,4 +1,4 @@
-﻿# meta-compile v1.19 — Compile 1C metadata object from JSON
+﻿# meta-compile v1.20 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -1129,11 +1129,27 @@ $script:reservedAttrNames = @{
 	"Account"="Счет"; "ValueType"="ТипЗначения"; "ActionPeriodIsBasic"="ПериодДействияБазовый"
 }
 
+# Стандартные реквизиты по типу объекта (ключи из reservedAttrNames). Имя реквизита, совпадающее
+# с ними (англ. ИЛИ рус.), платформа не позволит — жёсткий отказ. Контексты вне карты → мягкое предупреждение.
+$script:reservedByContext = @{
+	"catalog"  = @("Ref","DeletionMark","Predefined","PredefinedDataName","Code","Description","Owner","Parent","IsFolder")
+	"document" = @("Ref","DeletionMark","Date","Number","Posted")
+}
+
 function Emit-Attribute {
 	param([string]$indent, $parsed, [string]$context)
 	# $context: "catalog", "document", "object", "processor", "tabular", "processor-tabular", "register"
 	$attrName = $parsed.name
-	if ($context -notin @("tabular", "processor-tabular") -and
+	$ctxReserved = $script:reservedByContext[$context]
+	if ($ctxReserved) {
+		foreach ($en in $ctxReserved) {
+			$ru = $script:reservedAttrNames[$en]
+			if (($attrName -ieq $en) -or ($ru -and $attrName -ieq $ru)) {
+				Write-Error "Имя реквизита '$attrName' зарезервировано стандартным реквизитом ($en/$ru) объекта '$context'. Выберите другое имя."
+				exit 1
+			}
+		}
+	} elseif ($context -notin @("tabular", "processor-tabular") -and
 		($script:reservedAttrNames.ContainsKey($attrName) -or $script:reservedAttrNames.ContainsValue($attrName))) {
 		Write-Warning "Attribute '$attrName' conflicts with a standard attribute name. This may cause errors when loading into 1C."
 	}

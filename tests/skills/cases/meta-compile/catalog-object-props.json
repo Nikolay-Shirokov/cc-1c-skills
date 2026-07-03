@@ -16,7 +16,7 @@
     "defaultListForm": "Справочник.НастройкиОбмена.Форма.ФормаСписка",
     "defaultChoiceForm": "Справочник.НастройкиОбмена.ФормаВыбора",
     "attributes": [
-      "Код: String(9)"
+      "КодНастройки: String(9)"
     ]
   },
   "validatePath": "Catalogs/НастройкиОбмена",
