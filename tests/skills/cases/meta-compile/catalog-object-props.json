@@ -13,8 +13,8 @@
     "predefinedDataUpdate": "DontAutoUpdate",
     "searchStringModeOnInputByString": "AnyPart",
     "defaultObjectForm": "Catalog.НастройкиОбмена.Form.ФормаЭлемента",
-    "defaultListForm": "Catalog.НастройкиОбмена.Form.ФормаСписка",
-    "defaultChoiceForm": "Catalog.НастройкиОбмена.Form.ФормаВыбора",
+    "defaultListForm": "Справочник.НастройкиОбмена.Форма.ФормаСписка",
+    "defaultChoiceForm": "Справочник.НастройкиОбмена.ФормаВыбора",
     "attributes": [
       "Код: String(9)"
     ]

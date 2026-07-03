@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-compile v1.18 — Compile 1C metadata object from JSON
+# meta-compile v1.19 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -412,10 +412,27 @@ def get_bool_prop(field_name, default):
         return val
     return str(val).lower() in ('true', '1', 'да', 'истина')
 
+def normalize_form_ref(s):
+    """Прощающая нормализация ссылки на форму: рус корень, Форма→Form, короткая запись → вставка Form."""
+    if not s:
+        return s
+    parts = s.split('.')
+    if len(parts) < 3:
+        return s
+    root = fill_ref_roots.get(parts[0].lower())
+    if root:
+        parts[0] = root
+    for k in range(1, len(parts)):
+        if parts[k].lower() == 'форма':
+            parts[k] = 'Form'
+    if 'Form' not in parts and len(parts) == 3:
+        parts = [parts[0], parts[1], 'Form', parts[2]]
+    return '.'.join(parts)
+
 def emit_form_ref(i, tag, val):
     """Ссылка на форму по умолчанию: непустая → <Tag>значение</Tag>, иначе <Tag/>."""
     if val:
-        X(f'{i}<{tag}>{esc_xml(str(val))}</{tag}>')
+        X(f'{i}<{tag}>{esc_xml(normalize_form_ref(str(val)))}</{tag}>')
     else:
         X(f'{i}<{tag}/>')
 

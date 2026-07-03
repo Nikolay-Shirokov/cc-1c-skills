@@ -1,4 +1,4 @@
-﻿# meta-compile v1.18 — Compile 1C metadata object from JSON
+﻿# meta-compile v1.19 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -302,10 +302,24 @@ function Get-BoolProp {
 	return ("$val" -match '^(true|1|да|истина)$')
 }
 
+# Прощающая нормализация ссылки на форму: рус корень (Справочник→Catalog), сегмент Форма→Form,
+# короткая запись "Тип.Объект.ИмяФормы" (без Form) → вставка Form. Уже канон англ. → без изменений.
+function Normalize-FormRef {
+	param([string]$s)
+	if (-not $s) { return $s }
+	$parts = $s -split '\.'
+	if ($parts.Count -lt 3) { return $s }
+	$root = $script:fillRefRoots[$parts[0].ToLower()]
+	if ($root) { $parts[0] = $root }
+	for ($k = 1; $k -lt $parts.Count; $k++) { if ($parts[$k] -ieq 'Форма') { $parts[$k] = 'Form' } }
+	if (($parts -notcontains 'Form') -and $parts.Count -eq 3) { $parts = @($parts[0], $parts[1], 'Form', $parts[2]) }
+	return ($parts -join '.')
+}
+
 # Ссылка на форму по умолчанию: непустая → <Tag>значение</Tag>, иначе <Tag/>.
 function Emit-FormRef {
 	param([string]$i, [string]$tag, $val)
-	if ($val) { X "$i<$tag>$(Esc-Xml "$val")</$tag>" } else { X "$i<$tag/>" }
+	if ($val) { X "$i<$tag>$(Esc-Xml (Normalize-FormRef "$val"))</$tag>" } else { X "$i<$tag/>" }
 }
 
 if (-not $def.type) {
