@@ -1,4 +1,4 @@
-﻿# meta-decompile v0.9 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
+﻿# meta-decompile v0.10 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 #
 # Пилот: только Catalog. Инверс meta-compile (omit-on-default: ключ эмитим только
@@ -273,6 +273,15 @@ Add-BoolProp 'quickChoice'       'QuickChoice'       $false
 Add-EnumProp 'choiceMode'        'ChoiceMode'        'BothWays'
 Add-EnumProp 'dataLockControlMode' 'DataLockControlMode' 'Automatic'
 Add-EnumProp 'fullTextSearch'    'FullTextSearch'    'Use'
+
+# Презентации (ML, компилятор пишет пусто → omit-on-empty).
+foreach ($pp in @(
+	@('ObjectPresentation','objectPresentation'), @('ExtendedObjectPresentation','extendedObjectPresentation'),
+	@('ListPresentation','listPresentation'), @('ExtendedListPresentation','extendedListPresentation'),
+	@('Explanation','explanation'))) {
+	$pv = Get-MLValue ($props.SelectSingleNode("md:$($pp[0])", $nsm))
+	if ($null -ne $pv) { $dsl[$pp[1]] = $pv }
+}
 
 # --- StandardAttributes: блок есть ⟺ кастомизация ≥1 стандартного реквизита.
 # Захватываем ОТКЛОНЕНИЯ от профиля материализованного блока (профиль компилятор восстановит сам).

@@ -1380,11 +1380,11 @@ function Emit-CatalogProperties {
 	$fullTextSearch = Get-EnumProp "FullTextSearch" "fullTextSearch" "Use"
 	X "$i<FullTextSearch>$fullTextSearch</FullTextSearch>"
 
-	X "$i<ObjectPresentation/>"
-	X "$i<ExtendedObjectPresentation/>"
-	X "$i<ListPresentation/>"
-	X "$i<ExtendedListPresentation/>"
-	X "$i<Explanation/>"
+	Emit-MLText $i "ObjectPresentation" $def.objectPresentation
+	Emit-MLText $i "ExtendedObjectPresentation" $def.extendedObjectPresentation
+	Emit-MLText $i "ListPresentation" $def.listPresentation
+	Emit-MLText $i "ExtendedListPresentation" $def.extendedListPresentation
+	Emit-MLText $i "Explanation" $def.explanation
 	X "$i<CreateOnInput>DontUse</CreateOnInput>"
 	X "$i<ChoiceHistoryOnInput>Auto</ChoiceHistoryOnInput>"
 	X "$i<DataHistory>DontUse</DataHistory>"
@@ -1489,11 +1489,11 @@ function Emit-DocumentProperties {
 	$fullTextSearch = Get-EnumProp "FullTextSearch" "fullTextSearch" "Use"
 	X "$i<FullTextSearch>$fullTextSearch</FullTextSearch>"
 
-	X "$i<ObjectPresentation/>"
-	X "$i<ExtendedObjectPresentation/>"
-	X "$i<ListPresentation/>"
-	X "$i<ExtendedListPresentation/>"
-	X "$i<Explanation/>"
+	Emit-MLText $i "ObjectPresentation" $def.objectPresentation
+	Emit-MLText $i "ExtendedObjectPresentation" $def.extendedObjectPresentation
+	Emit-MLText $i "ListPresentation" $def.listPresentation
+	Emit-MLText $i "ExtendedListPresentation" $def.extendedListPresentation
+	Emit-MLText $i "Explanation" $def.explanation
 	X "$i<ChoiceHistoryOnInput>Auto</ChoiceHistoryOnInput>"
 	X "$i<DataHistory>DontUse</DataHistory>"
 	X "$i<UpdateDataHistoryImmediatelyAfterWrite>false</UpdateDataHistoryImmediatelyAfterWrite>"
@@ -1910,11 +1910,11 @@ function Emit-ExchangePlanProperties {
 	$fullTextSearch = Get-EnumProp "FullTextSearch" "fullTextSearch" "Use"
 	X "$i<FullTextSearch>$fullTextSearch</FullTextSearch>"
 
-	X "$i<ObjectPresentation/>"
-	X "$i<ExtendedObjectPresentation/>"
-	X "$i<ListPresentation/>"
-	X "$i<ExtendedListPresentation/>"
-	X "$i<Explanation/>"
+	Emit-MLText $i "ObjectPresentation" $def.objectPresentation
+	Emit-MLText $i "ExtendedObjectPresentation" $def.extendedObjectPresentation
+	Emit-MLText $i "ListPresentation" $def.listPresentation
+	Emit-MLText $i "ExtendedListPresentation" $def.extendedListPresentation
+	Emit-MLText $i "Explanation" $def.explanation
 	X "$i<CreateOnInput>DontUse</CreateOnInput>"
 	X "$i<ChoiceHistoryOnInput>Auto</ChoiceHistoryOnInput>"
 	X "$i<DataHistory>DontUse</DataHistory>"
@@ -2017,11 +2017,11 @@ function Emit-ChartOfCharacteristicTypesProperties {
 	$fullTextSearch = Get-EnumProp "FullTextSearch" "fullTextSearch" "Use"
 	X "$i<FullTextSearch>$fullTextSearch</FullTextSearch>"
 
-	X "$i<ObjectPresentation/>"
-	X "$i<ExtendedObjectPresentation/>"
-	X "$i<ListPresentation/>"
-	X "$i<ExtendedListPresentation/>"
-	X "$i<Explanation/>"
+	Emit-MLText $i "ObjectPresentation" $def.objectPresentation
+	Emit-MLText $i "ExtendedObjectPresentation" $def.extendedObjectPresentation
+	Emit-MLText $i "ListPresentation" $def.listPresentation
+	Emit-MLText $i "ExtendedListPresentation" $def.extendedListPresentation
+	Emit-MLText $i "Explanation" $def.explanation
 	X "$i<CreateOnInput>DontUse</CreateOnInput>"
 	X "$i<ChoiceHistoryOnInput>Auto</ChoiceHistoryOnInput>"
 	X "$i<DataHistory>DontUse</DataHistory>"
@@ -2155,11 +2155,11 @@ function Emit-ChartOfAccountsProperties {
 	$fullTextSearch = Get-EnumProp "FullTextSearch" "fullTextSearch" "Use"
 	X "$i<FullTextSearch>$fullTextSearch</FullTextSearch>"
 
-	X "$i<ObjectPresentation/>"
-	X "$i<ExtendedObjectPresentation/>"
-	X "$i<ListPresentation/>"
-	X "$i<ExtendedListPresentation/>"
-	X "$i<Explanation/>"
+	Emit-MLText $i "ObjectPresentation" $def.objectPresentation
+	Emit-MLText $i "ExtendedObjectPresentation" $def.extendedObjectPresentation
+	Emit-MLText $i "ListPresentation" $def.listPresentation
+	Emit-MLText $i "ExtendedListPresentation" $def.extendedListPresentation
+	Emit-MLText $i "Explanation" $def.explanation
 	X "$i<CreateOnInput>DontUse</CreateOnInput>"
 	X "$i<ChoiceHistoryOnInput>Auto</ChoiceHistoryOnInput>"
 	X "$i<DataHistory>DontUse</DataHistory>"
@@ -2272,11 +2272,11 @@ function Emit-ChartOfCalculationTypesProperties {
 	$fullTextSearch = Get-EnumProp "FullTextSearch" "fullTextSearch" "Use"
 	X "$i<FullTextSearch>$fullTextSearch</FullTextSearch>"
 
-	X "$i<ObjectPresentation/>"
-	X "$i<ExtendedObjectPresentation/>"
-	X "$i<ListPresentation/>"
-	X "$i<ExtendedListPresentation/>"
-	X "$i<Explanation/>"
+	Emit-MLText $i "ObjectPresentation" $def.objectPresentation
+	Emit-MLText $i "ExtendedObjectPresentation" $def.extendedObjectPresentation
+	Emit-MLText $i "ListPresentation" $def.listPresentation
+	Emit-MLText $i "ExtendedListPresentation" $def.extendedListPresentation
+	Emit-MLText $i "Explanation" $def.explanation
 	X "$i<CreateOnInput>DontUse</CreateOnInput>"
 	X "$i<ChoiceHistoryOnInput>Auto</ChoiceHistoryOnInput>"
 }
@@ -2388,11 +2388,11 @@ function Emit-BusinessProcessProperties {
 	$fullTextSearch = Get-EnumProp "FullTextSearch" "fullTextSearch" "Use"
 	X "$i<FullTextSearch>$fullTextSearch</FullTextSearch>"
 
-	X "$i<ObjectPresentation/>"
-	X "$i<ExtendedObjectPresentation/>"
-	X "$i<ListPresentation/>"
-	X "$i<ExtendedListPresentation/>"
-	X "$i<Explanation/>"
+	Emit-MLText $i "ObjectPresentation" $def.objectPresentation
+	Emit-MLText $i "ExtendedObjectPresentation" $def.extendedObjectPresentation
+	Emit-MLText $i "ListPresentation" $def.listPresentation
+	Emit-MLText $i "ExtendedListPresentation" $def.extendedListPresentation
+	Emit-MLText $i "Explanation" $def.explanation
 	X "$i<ChoiceHistoryOnInput>Auto</ChoiceHistoryOnInput>"
 	X "$i<DataHistory>DontUse</DataHistory>"
 	X "$i<UpdateDataHistoryImmediatelyAfterWrite>false</UpdateDataHistoryImmediatelyAfterWrite>"
@@ -2461,11 +2461,11 @@ function Emit-TaskProperties {
 	$fullTextSearch = Get-EnumProp "FullTextSearch" "fullTextSearch" "Use"
 	X "$i<FullTextSearch>$fullTextSearch</FullTextSearch>"
 
-	X "$i<ObjectPresentation/>"
-	X "$i<ExtendedObjectPresentation/>"
-	X "$i<ListPresentation/>"
-	X "$i<ExtendedListPresentation/>"
-	X "$i<Explanation/>"
+	Emit-MLText $i "ObjectPresentation" $def.objectPresentation
+	Emit-MLText $i "ExtendedObjectPresentation" $def.extendedObjectPresentation
+	Emit-MLText $i "ListPresentation" $def.listPresentation
+	Emit-MLText $i "ExtendedListPresentation" $def.extendedListPresentation
+	Emit-MLText $i "Explanation" $def.explanation
 	X "$i<ChoiceHistoryOnInput>Auto</ChoiceHistoryOnInput>"
 	X "$i<DataHistory>DontUse</DataHistory>"
 	X "$i<UpdateDataHistoryImmediatelyAfterWrite>false</UpdateDataHistoryImmediatelyAfterWrite>"
