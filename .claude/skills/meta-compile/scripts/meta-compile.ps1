@@ -1,4 +1,4 @@
-﻿# meta-compile v1.16 — Compile 1C metadata object from JSON
+﻿# meta-compile v1.17 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -563,33 +563,153 @@ function Emit-ValueType {
 	X "$indent</Type>"
 }
 
+# --- FillValue (значение заполнения реквизита) ---
+# Пара FillFromFillingValue+FillValue — единый блок «заполнения» (недоступен у реквизитов ТЧ).
+# Форма пустого FillValue зависит от типа реквизита (то же значение по умолчанию, что и «пустое»
+# значение типа): String→typed-empty, Number→0, всё остальное (Boolean/Date/Ref/составной/TypeSet)→nil.
+# Реальное значение задаётся ключом `fillValue` (интерпретация по типу реквизита; см. §4.2 spec).
+
+# Категория типа реквизита для выбора формы FillValue.
+function Get-FillTypeCategory {
+	param([string]$typeStr)
+	if (-not $typeStr) { return 'String' }        # реквизит без типа → неквалифиц. строка
+	if ($typeStr -match '\+') { return 'Other' }  # составной тип → nil-дефолт
+	$t = Resolve-TypeStr $typeStr
+	if ($t -match '^Boolean$')          { return 'Boolean' }
+	if ($t -match '^String(\(|$)')      { return 'String' }
+	if ($t -match '^Number(\(|$)')      { return 'Number' }
+	if ($t -match '^(Date|DateTime)$')  { return 'Date' }
+	return 'Other'                                 # ссылки, TypeSet, ValueStorage, … → nil-дефолт
+}
+
+# Прощающий ввод для ссылочных путей DTR: рус/англ корни, ПустаяСсылка/EmptyRef, ЗначениеПеречисления/EnumValue.
+$script:fillRefRoots = @{
+	'перечисление'='Enum'; 'справочник'='Catalog'; 'документ'='Document';
+	'плансчетов'='ChartOfAccounts'; 'планвидовхарактеристик'='ChartOfCharacteristicTypes';
+	'планвидоврасчета'='ChartOfCalculationTypes'; 'планвидоврасчёта'='ChartOfCalculationTypes';
+	'планобмена'='ExchangePlan'; 'бизнеспроцесс'='BusinessProcess'; 'задача'='Task';
+	'enum'='Enum'; 'catalog'='Catalog'; 'document'='Document'; 'chartofaccounts'='ChartOfAccounts';
+	'chartofcharacteristictypes'='ChartOfCharacteristicTypes'; 'chartofcalculationtypes'='ChartOfCalculationTypes';
+	'exchangeplan'='ExchangePlan'; 'businessprocess'='BusinessProcess'; 'task'='Task'
+}
+$script:fillEmptyRefWords = @('emptyref','пустаяссылка')
+$script:fillEnumValWords  = @('enumvalue','значениеперечисления')
+$script:fillBoolTrue  = @('true','истина','да')
+$script:fillBoolFalse = @('false','ложь','нет')
+# XxxRef (тип реквизита) → корень DTR-пути (для разворота короткой записи значения).
+$script:fillRefKindRoot = @{
+	'catalogref'='Catalog'; 'documentref'='Document'; 'enumref'='Enum';
+	'chartofaccountsref'='ChartOfAccounts'; 'chartofcharacteristictypesref'='ChartOfCharacteristicTypes';
+	'chartofcalculationtypesref'='ChartOfCalculationTypes'; 'exchangeplanref'='ExchangePlan';
+	'businessprocessref'='BusinessProcess'; 'taskref'='Task'
+}
+
+# Короткая запись значения ссылочного реквизита (без точки): имя разворачиваем по типу реквизита.
+# "EmptyRef"/"ПустаяСсылка" → <Root>.<Тип>.EmptyRef; для Enum — EnumValue; прочие — предопределённое.
+# $null, если развернуть нельзя (тип не одиночный ссылочный).
+function Expand-FillShortRef {
+	param([string]$s, [string]$typeStr)
+	if (-not $typeStr) { return $null }
+	if ($typeStr -match '\+') { return $null }   # составной тип — короткая форма неоднозначна
+	$t = Resolve-TypeStr $typeStr
+	if ($t -notmatch '^(\w+Ref)\.(.+)$') { return $null }
+	$root = $script:fillRefKindRoot[$Matches[1].ToLower()]
+	if (-not $root) { return $null }
+	$typeName = $Matches[2]
+	if ($script:fillEmptyRefWords -contains $s.ToLower()) { return "$root.$typeName.EmptyRef" }
+	if ($root -eq 'Enum') { return "Enum.$typeName.EnumValue.$s" }
+	return "$root.$typeName.$s"
+}
+
+# Строка → нормализованный DTR-путь ("Catalog.X.EmptyRef" / "Enum.X.EnumValue.Y" / GUID.GUID) ЛИБО $null (не ссылка).
+function Normalize-FillRef {
+	param([string]$s)
+	if ([string]::IsNullOrEmpty($s)) { return $null }
+	# Raw-ссылка по паре GUID (метаданные.значение) — всегда ссылка.
+	if ($s -match '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\.[0-9a-fA-F-]+$') { return $s }
+	$parts = $s -split '\.'
+	if ($parts.Count -lt 2) { return $null }
+	$root = $script:fillRefRoots[$parts[0].ToLower()]
+	if (-not $root) { return $null }
+	$typeName = $parts[1]
+	if ($root -eq 'Enum') {
+		if ($parts.Count -eq 2) { return $null }   # "Enum.X" — не значение
+		if ($parts.Count -eq 3) {
+			if ($script:fillEmptyRefWords -contains $parts[2].ToLower()) { return "Enum.$typeName.EmptyRef" }
+			return "Enum.$typeName.EnumValue.$($parts[2])"
+		}
+		$member = $parts[2]
+		if ($script:fillEnumValWords -contains $member.ToLower()) { $rest = $parts[3..($parts.Count-1)] -join '.' }
+		else { $rest = $parts[2..($parts.Count-1)] -join '.' }
+		return "Enum.$typeName.EnumValue.$rest"
+	}
+	# Прочие корни: переводим корень, ПустаяСсылка→EmptyRef в хвосте.
+	$tail = @($parts[1..($parts.Count-1)])
+	for ($i = 0; $i -lt $tail.Count; $i++) {
+		if ($script:fillEmptyRefWords -contains $tail[$i].ToLower()) { $tail[$i] = 'EmptyRef' }
+	}
+	return "$root." + ($tail -join '.')
+}
+
+# Строковый spec → @{ XsiType; Text }. Интерпретация по типу реквизита ($typeStr).
+function Resolve-FillValueSpec {
+	param([string]$s, [string]$typeStr)
+	$cat = Get-FillTypeCategory $typeStr
+	if ($s -eq '') { return @{ XsiType='xs:string'; Text='' } }
+	# String-реквизит: значение заполнения — всегда строковый литерал (без ref/date-детекции).
+	if ($cat -eq 'String') { return @{ XsiType='xs:string'; Text=$s } }
+	# Булевы слова (для Boolean-реквизита ИЛИ явное истина/ложь).
+	if ($cat -eq 'Boolean' -or ($script:fillBoolTrue -contains $s.ToLower()) -or ($script:fillBoolFalse -contains $s.ToLower())) {
+		if ($script:fillBoolTrue  -contains $s.ToLower()) { return @{ XsiType='xs:boolean'; Text='true' } }
+		if ($script:fillBoolFalse -contains $s.ToLower()) { return @{ XsiType='xs:boolean'; Text='false' } }
+	}
+	if ($cat -eq 'Number') { return @{ XsiType='xs:decimal'; Text=$s } }
+	# Дата: явный Date-реквизит ИЛИ ISO-паттерн. "2020-01-01" → добавить время.
+	if ($cat -eq 'Date' -or $s -match '^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}:\d{2})?$') {
+		if ($s -match '^\d{4}-\d{2}-\d{2}$') { $s = "${s}T00:00:00" }
+		return @{ XsiType='xs:dateTime'; Text=$s }
+	}
+	# Полный ссылочный путь DTR (с точкой: "Catalog.X.EmptyRef", "Enum.X.EnumValue.Y", GUID.GUID).
+	$ref = Normalize-FillRef $s
+	if ($ref) { return @{ XsiType='xr:DesignTimeRef'; Text=$ref } }
+	# Короткая запись значения ссылочного реквизита (одно имя — разворачиваем по типу).
+	$short = Expand-FillShortRef $s $typeStr
+	if ($short) { return @{ XsiType='xr:DesignTimeRef'; Text=$short } }
+	# Фолбэк — строковый литерал.
+	return @{ XsiType='xs:string'; Text=$s }
+}
+
+# Формат числа-значения без привязки к культуре (точка-разделитель).
+function Format-FillNum {
+	param($n)
+	if ($n -is [double] -or $n -is [decimal]) { return $n.ToString([System.Globalization.CultureInfo]::InvariantCulture) }
+	return "$n"
+}
+
+# $spec — значение ключа `fillValue` ($null при явном nil-override), $hasSpec — присутствует ли ключ.
 function Emit-FillValue {
-	param([string]$indent, [string]$typeStr)
-	if (-not $typeStr) {
-		X "$indent<FillValue xsi:nil=`"true`"/>"
-		return
+	param([string]$indent, [string]$typeStr, $spec, $hasSpec)
+	$cat = Get-FillTypeCategory $typeStr
+
+	if ($hasSpec -ne $true) {
+		# Значение не задано — форма по умолчанию для типа.
+		switch ($cat) {
+			'String' { X "$indent<FillValue xsi:type=`"xs:string`"/>"; return }
+			'Number' { X "$indent<FillValue xsi:type=`"xs:decimal`">0</FillValue>"; return }
+			default  { X "$indent<FillValue xsi:nil=`"true`"/>"; return }
+		}
 	}
 
-	$typeStr = Resolve-TypeStr $typeStr
-
-	if ($typeStr -eq "Boolean") {
-		X "$indent<FillValue xsi:type=`"xs:boolean`">false</FillValue>"
-		return
+	if ($null -eq $spec) { X "$indent<FillValue xsi:nil=`"true`"/>"; return }   # явный nil-override
+	if ($spec -is [bool]) {
+		X "$indent<FillValue xsi:type=`"xs:boolean`">$(if ($spec) { 'true' } else { 'false' })</FillValue>"; return
 	}
-	if ($typeStr -match '^String') {
-		X "$indent<FillValue xsi:type=`"xs:string`"/>"
-		return
+	if ($spec -is [int] -or $spec -is [long] -or $spec -is [double] -or $spec -is [decimal]) {
+		X "$indent<FillValue xsi:type=`"xs:decimal`">$(Format-FillNum $spec)</FillValue>"; return
 	}
-	if ($typeStr -match '^Number') {
-		X "$indent<FillValue xsi:type=`"xs:decimal`">0</FillValue>"
-		return
-	}
-	if ($typeStr -match '^(Date|DateTime)$') {
-		X "$indent<FillValue xsi:nil=`"true`"/>"
-		return
-	}
-	# References and others
-	X "$indent<FillValue xsi:nil=`"true`"/>"
+	$r = Resolve-FillValueSpec "$spec" $typeStr
+	if ($r.Text -eq '' -and $r.XsiType -eq 'xs:string') { X "$indent<FillValue xsi:type=`"xs:string`"/>"; return }
+	X "$indent<FillValue xsi:type=`"$($r.XsiType)`">$(Esc-XmlText $r.Text)</FillValue>"
 }
 
 # --- 5. Attribute shorthand parser ---
@@ -620,6 +740,8 @@ function Parse-AttributeShorthand {
 			synonym = ""
 			comment = ""
 			flags = @()
+			hasFillValue = $false
+			fillValue = $null
 		}
 
 		# Split by | for flags
@@ -669,6 +791,8 @@ function Parse-AttributeShorthand {
 		format = $val.format
 		editFormat = $val.editFormat
 		mask = if ($val.mask) { "$($val.mask)" } else { "" }
+		hasFillValue = ($val.PSObject -and $val.PSObject.Properties -and ($val.PSObject.Properties.Name -contains 'fillValue'))
+		fillValue = $val.fillValue
 	}
 }
 
@@ -1020,7 +1144,7 @@ function Emit-Attribute {
 
 	# FillValue — same restriction
 	if ($context -notin @("tabular", "processor", "chart", "register-other")) {
-		Emit-FillValue "$indent`t`t" $typeStr
+		Emit-FillValue "$indent`t`t" $typeStr $parsed.fillValue $parsed.hasFillValue
 	}
 
 	# FillChecking

@@ -1,0 +1,27 @@
+{
+  "name": "Значение заполнения реквизита (fillValue)",
+  "input": {
+    "type": "Catalog",
+    "name": "ТестЗаполнения",
+    "attributes": [
+      "СтрокаДефолт: String(50)",
+      { "name": "БулевоДефолт", "type": "Boolean" },
+      { "name": "БулевоИстина", "type": "Boolean", "fillValue": true },
+      { "name": "БулевоЛожь", "type": "Boolean", "fillValue": "Ложь" },
+      { "name": "СтрокаNil", "type": "String(10)", "fillValue": null },
+      { "name": "СтрокаЗначение", "type": "String(20)", "fillValue": "по умолчанию" },
+      { "name": "ЧислоЗначение", "type": "Number(15,2)", "fillValue": "1.5" },
+      { "name": "ЧислоNil", "type": "Number(10,0)", "fillValue": null },
+      { "name": "ДатаЗначение", "type": "Date", "fillValue": "0001-01-01T00:00:00" },
+      { "name": "СсылкаПустаяКратко", "type": "CatalogRef.Валюты", "fillValue": "EmptyRef" },
+      { "name": "СсылкаПустаяРус", "type": "CatalogRef.Валюты", "fillValue": "Справочник.Валюты.ПустаяСсылка" },
+      { "name": "ПеречислениеКратко", "type": "EnumRef.Периодичность", "fillValue": "Месяц" },
+      { "name": "ПеречислениеПолноРус", "type": "EnumRef.Периодичность", "fillValue": "Перечисление.Периодичность.ЗначениеПеречисления.Год" },
+      { "name": "ПредопределённоеКратко", "type": "CatalogRef.СтраныМира", "fillValue": "Россия" }
+    ]
+  },
+  "validatePath": "Catalogs/ТестЗаполнения",
+  "expect": {
+    "files": ["Catalogs/ТестЗаполнения.xml"]
+  }
+}

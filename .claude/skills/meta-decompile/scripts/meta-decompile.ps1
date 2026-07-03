@@ -1,4 +1,4 @@
-﻿# meta-decompile v0.11 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
+﻿# meta-decompile v0.12 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 #
 # Пилот: только Catalog. Инверс meta-compile (omit-on-default: ключ эмитим только
@@ -220,6 +220,36 @@ function Attr-ToDsl {
 	$v = & $en 'FillChecking'; if ($v -eq 'ShowWarning') { $extra['fillChecking'] = 'ShowWarning' }
 	$fmtV = Get-MLValue ($ap.SelectSingleNode('md:Format', $nsm)); if ($null -ne $fmtV) { $extra['format'] = $fmtV }
 	$efmtV = Get-MLValue ($ap.SelectSingleNode('md:EditFormat', $nsm)); if ($null -ne $efmtV) { $extra['editFormat'] = $efmtV }
+
+	# FillValue (значение заполнения). Форма по умолчанию зависит от типа реквизита: String→typed-empty,
+	# Number→zero, всё остальное→nil. Эмитим `fillValue` только при отклонении от дефолта (§4.2 spec).
+	# nil у String/Number → JSON null (nil-override); реальное значение → строка/bool/число/DTR-путь verbatim.
+	$fvNode = $ap.SelectSingleNode('md:FillValue', $nsm)
+	if ($fvNode) {
+		$fcat = 'Other'
+		if ($ts -match '\+') { $fcat = 'Other' }
+		elseif ($ts -match '^Boolean') { $fcat = 'Boolean' }
+		elseif ($ts -match '^String') { $fcat = 'String' }
+		elseif ($ts -match '^Number') { $fcat = 'Number' }
+		elseif ($ts -match '^(Date|DateTime)') { $fcat = 'Date' }
+		$nilAttr = $fvNode.GetAttribute('nil', 'http://www.w3.org/2001/XMLSchema-instance')
+		$xsiT = $fvNode.GetAttribute('type', 'http://www.w3.org/2001/XMLSchema-instance')
+		$fvText = $fvNode.InnerText
+		if ($nilAttr -eq 'true') {
+			if ($fcat -eq 'String' -or $fcat -eq 'Number') { $extra['fillValue'] = $null }  # nil-override
+			# иначе nil — это дефолт → пропускаем
+		} elseif ($xsiT -match 'boolean$') {
+			$extra['fillValue'] = ($fvText -eq 'true')
+		} elseif ($xsiT -match 'decimal$') {
+			if (-not ($fcat -eq 'Number' -and ($fvText -eq '0' -or $fvText -eq ''))) { $extra['fillValue'] = $fvText }
+		} elseif ($xsiT -match 'string$') {
+			if (-not ($fcat -eq 'String' -and $fvText -eq '')) { $extra['fillValue'] = $fvText }
+		} elseif ($xsiT -match 'dateTime$') {
+			$extra['fillValue'] = $fvText
+		} elseif ($xsiT -match 'DesignTimeRef$') {
+			$extra['fillValue'] = $fvText
+		}
+	}
 
 	if ($synCustom -or ($null -ne $ttVal) -or $extra.Count -gt 0) {
 		$o = [ordered]@{ name = $nm }

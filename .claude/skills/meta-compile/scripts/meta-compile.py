@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-compile v1.15 — Compile 1C metadata object from JSON
+# meta-compile v1.17 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -587,24 +587,157 @@ def emit_value_type(indent, type_str):
     emit_type_content(f'{indent}\t', type_str)
     X(f'{indent}</Type>')
 
-def emit_fill_value(indent, type_str):
+# --- FillValue (значение заполнения реквизита) ---
+# Пара FillFromFillingValue+FillValue — единый блок «заполнения» (недоступен у реквизитов ТЧ).
+# Форма пустого FillValue зависит от типа реквизита (то же значение по умолчанию, что и «пустое»
+# значение типа): String→typed-empty, Number→0, всё остальное (Boolean/Date/Ref/составной/TypeSet)→nil.
+# Реальное значение задаётся ключом `fillValue` (интерпретация по типу реквизита; см. §4.2 spec).
+
+def get_fill_type_category(type_str):
     if not type_str:
-        X(f'{indent}<FillValue xsi:nil="true"/>')
+        return 'String'          # реквизит без типа → неквалифиц. строка
+    if '+' in type_str:
+        return 'Other'           # составной тип → nil-дефолт
+    t = resolve_type_str(type_str)
+    if re.match(r'^Boolean$', t):
+        return 'Boolean'
+    if re.match(r'^String(\(|$)', t):
+        return 'String'
+    if re.match(r'^Number(\(|$)', t):
+        return 'Number'
+    if re.match(r'^(Date|DateTime)$', t):
+        return 'Date'
+    return 'Other'               # ссылки, TypeSet, ValueStorage, … → nil-дефолт
+
+# Прощающий ввод для ссылочных путей DTR: рус/англ корни, ПустаяСсылка/EmptyRef, ЗначениеПеречисления/EnumValue.
+fill_ref_roots = {
+    'перечисление': 'Enum', 'справочник': 'Catalog', 'документ': 'Document',
+    'плансчетов': 'ChartOfAccounts', 'планвидовхарактеристик': 'ChartOfCharacteristicTypes',
+    'планвидоврасчета': 'ChartOfCalculationTypes', 'планвидоврасчёта': 'ChartOfCalculationTypes',
+    'планобмена': 'ExchangePlan', 'бизнеспроцесс': 'BusinessProcess', 'задача': 'Task',
+    'enum': 'Enum', 'catalog': 'Catalog', 'document': 'Document', 'chartofaccounts': 'ChartOfAccounts',
+    'chartofcharacteristictypes': 'ChartOfCharacteristicTypes', 'chartofcalculationtypes': 'ChartOfCalculationTypes',
+    'exchangeplan': 'ExchangePlan', 'businessprocess': 'BusinessProcess', 'task': 'Task',
+}
+fill_empty_ref_words = ('emptyref', 'пустаяссылка')
+fill_enum_val_words = ('enumvalue', 'значениеперечисления')
+fill_bool_true = ('true', 'истина', 'да')
+fill_bool_false = ('false', 'ложь', 'нет')
+# XxxRef (тип реквизита) → корень DTR-пути (для разворота короткой записи значения).
+fill_ref_kind_root = {
+    'catalogref': 'Catalog', 'documentref': 'Document', 'enumref': 'Enum',
+    'chartofaccountsref': 'ChartOfAccounts', 'chartofcharacteristictypesref': 'ChartOfCharacteristicTypes',
+    'chartofcalculationtypesref': 'ChartOfCalculationTypes', 'exchangeplanref': 'ExchangePlan',
+    'businessprocessref': 'BusinessProcess', 'taskref': 'Task',
+}
+
+def normalize_fill_ref(s):
+    """Строка → нормализованный DTR-путь ЛИБО None (не ссылка)."""
+    if not s:
+        return None
+    if re.match(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\.[0-9a-fA-F-]+$', s):
+        return s
+    parts = s.split('.')
+    if len(parts) < 2:
+        return None
+    root = fill_ref_roots.get(parts[0].lower())
+    if not root:
+        return None
+    type_name = parts[1]
+    if root == 'Enum':
+        if len(parts) == 2:
+            return None
+        if len(parts) == 3:
+            if parts[2].lower() in fill_empty_ref_words:
+                return f'Enum.{type_name}.EmptyRef'
+            return f'Enum.{type_name}.EnumValue.{parts[2]}'
+        if parts[2].lower() in fill_enum_val_words:
+            rest = '.'.join(parts[3:])
+        else:
+            rest = '.'.join(parts[2:])
+        return f'Enum.{type_name}.EnumValue.{rest}'
+    tail = list(parts[1:])
+    for i in range(len(tail)):
+        if tail[i].lower() in fill_empty_ref_words:
+            tail[i] = 'EmptyRef'
+    return f'{root}.' + '.'.join(tail)
+
+def expand_fill_short_ref(s, type_str):
+    """Короткая запись значения ссылочного реквизита (без точки) → полный DTR-путь по типу, либо None."""
+    if not type_str:
+        return None
+    if '+' in type_str:          # составной тип — короткая форма неоднозначна
+        return None
+    t = resolve_type_str(type_str)
+    m = re.match(r'^(\w+Ref)\.(.+)$', t)
+    if not m:
+        return None
+    root = fill_ref_kind_root.get(m.group(1).lower())
+    if not root:
+        return None
+    type_name = m.group(2)
+    if s.lower() in fill_empty_ref_words:
+        return f'{root}.{type_name}.EmptyRef'
+    if root == 'Enum':
+        return f'Enum.{type_name}.EnumValue.{s}'
+    return f'{root}.{type_name}.{s}'
+
+def resolve_fill_value_spec(s, type_str):
+    """Строковый spec → (xsi_type, text). Интерпретация по типу реквизита."""
+    cat = get_fill_type_category(type_str)
+    if s == '':
+        return ('xs:string', '')
+    if cat == 'String':
+        return ('xs:string', s)
+    if cat == 'Boolean' or s.lower() in fill_bool_true or s.lower() in fill_bool_false:
+        if s.lower() in fill_bool_true:
+            return ('xs:boolean', 'true')
+        if s.lower() in fill_bool_false:
+            return ('xs:boolean', 'false')
+    if cat == 'Number':
+        return ('xs:decimal', s)
+    if cat == 'Date' or re.match(r'^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}:\d{2})?$', s):
+        if re.match(r'^\d{4}-\d{2}-\d{2}$', s):
+            s = f'{s}T00:00:00'
+        return ('xs:dateTime', s)
+    ref = normalize_fill_ref(s)
+    if ref:
+        return ('xr:DesignTimeRef', ref)
+    short = expand_fill_short_ref(s, type_str)
+    if short:
+        return ('xr:DesignTimeRef', short)
+    return ('xs:string', s)
+
+def format_fill_num(n):
+    if isinstance(n, bool):
+        return 'true' if n else 'false'
+    return str(n)
+
+def emit_fill_value(indent, type_str, spec, has_spec):
+    """spec — значение ключа fillValue (None при явном nil-override), has_spec — присутствует ли ключ."""
+    cat = get_fill_type_category(type_str)
+    if not has_spec:
+        if cat == 'String':
+            X(f'{indent}<FillValue xsi:type="xs:string"/>')
+        elif cat == 'Number':
+            X(f'{indent}<FillValue xsi:type="xs:decimal">0</FillValue>')
+        else:
+            X(f'{indent}<FillValue xsi:nil="true"/>')
         return
-    type_str = resolve_type_str(type_str)
-    if type_str == 'Boolean':
-        X(f'{indent}<FillValue xsi:type="xs:boolean">false</FillValue>')
+    if spec is None:
+        X(f'{indent}<FillValue xsi:nil="true"/>')       # явный nil-override
         return
-    if re.match(r'^String', type_str):
+    if isinstance(spec, bool):
+        X(f'{indent}<FillValue xsi:type="xs:boolean">{"true" if spec else "false"}</FillValue>')
+        return
+    if isinstance(spec, (int, float)):
+        X(f'{indent}<FillValue xsi:type="xs:decimal">{format_fill_num(spec)}</FillValue>')
+        return
+    xsi_type, text = resolve_fill_value_spec(str(spec), type_str)
+    if text == '' and xsi_type == 'xs:string':
         X(f'{indent}<FillValue xsi:type="xs:string"/>')
         return
-    if re.match(r'^Number', type_str):
-        X(f'{indent}<FillValue xsi:type="xs:decimal">0</FillValue>')
-        return
-    if re.match(r'^(Date|DateTime)$', type_str):
-        X(f'{indent}<FillValue xsi:nil="true"/>')
-        return
-    X(f'{indent}<FillValue xsi:nil="true"/>')
+    X(f'{indent}<FillValue xsi:type="{xsi_type}">{esc_xml_text(text)}</FillValue>')
 
 # ---------------------------------------------------------------------------
 # 5. Attribute shorthand parser
@@ -631,6 +764,8 @@ def parse_attribute_shorthand(val):
             'flags': [],
             'fillChecking': '',
             'indexing': '',
+            'hasFillValue': False,
+            'fillValue': None,
         }
         parts = val.split('|', 1)
         main_part = parts[0].strip()
@@ -677,6 +812,8 @@ def parse_attribute_shorthand(val):
         'format': val.get('format'),
         'editFormat': val.get('editFormat'),
         'mask': str(val['mask']) if val.get('mask') else '',
+        'hasFillValue': ('fillValue' in val),
+        'fillValue': val.get('fillValue'),
     }
 
 def parse_enum_value_shorthand(val):
@@ -1023,7 +1160,7 @@ def emit_attribute(indent, parsed, context):
         ffv = 'true' if parsed.get('fillFromFillingValue') is True else 'false'
         X(f'{indent}\t\t<FillFromFillingValue>{ffv}</FillFromFillingValue>')
     if context not in ('tabular', 'processor', 'chart', 'register-other'):
-        emit_fill_value(f'{indent}\t\t', type_str)
+        emit_fill_value(f'{indent}\t\t', type_str, parsed.get('fillValue'), parsed.get('hasFillValue'))
     fill_checking = 'DontCheck'
     if 'req' in parsed.get('flags', []):
         fill_checking = 'ShowError'
