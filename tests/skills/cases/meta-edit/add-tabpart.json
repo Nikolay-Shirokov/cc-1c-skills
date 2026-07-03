@@ -9,15 +9,10 @@
   ],
   "params": { "objectPath": "Catalogs/Контрагенты" },
   "input": {
-    "operations": [
-      {
-        "op": "add-ts",
-        "name": "КонтактнаяИнформация",
-        "attributes": [
-          { "name": "Тип", "type": "String", "length": 50 },
-          { "name": "Значение", "type": "String", "length": 250 }
-        ]
-      }
-    ]
+    "add": {
+      "tabularSections": [
+        { "name": "КонтактнаяИнформация", "attrs": ["Тип: String(50)", "Значение: String(250)"] }
+      ]
+    }
   }
 }

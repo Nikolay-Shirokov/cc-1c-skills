@@ -104,6 +104,30 @@
 					<Comment />
 				</Properties>
 			</EnumValue>
+			<EnumValue uuid="UUID-009">
+				<Properties>
+					<Name>ВРаботе</Name>
+					<Synonym>
+						<v8:item>
+							<v8:lang>ru</v8:lang>
+							<v8:content>Вработе</v8:content>
+						</v8:item>
+					</Synonym>
+					<Comment />
+				</Properties>
+			</EnumValue>
+			<EnumValue uuid="UUID-010">
+				<Properties>
+					<Name>Закрыт</Name>
+					<Synonym>
+						<v8:item>
+							<v8:lang>ru</v8:lang>
+							<v8:content>Закрыт</v8:content>
+						</v8:item>
+					</Synonym>
+					<Comment />
+				</Properties>
+			</EnumValue>
 		</ChildObjects>
 	</Enum>
 </MetaDataObject>

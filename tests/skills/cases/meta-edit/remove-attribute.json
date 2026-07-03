@@ -13,8 +13,6 @@
   ],
   "params": { "objectPath": "Catalogs/Контрагенты" },
   "input": {
-    "operations": [
-      { "op": "remove-attribute", "name": "Устаревший" }
-    ]
+    "remove": { "attributes": ["Устаревший"] }
   }
 }

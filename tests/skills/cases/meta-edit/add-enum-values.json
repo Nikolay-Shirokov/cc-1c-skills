@@ -9,9 +9,6 @@
   ],
   "params": { "objectPath": "Enums/Статусы" },
   "input": {
-    "operations": [
-      { "op": "add-enumValue", "name": "ВРаботе" },
-      { "op": "add-enumValue", "name": "Закрыт" }
-    ]
+    "add": { "enumValues": ["ВРаботе", "Закрыт"] }
   }
 }

@@ -9,9 +9,6 @@
   ],
   "params": { "objectPath": "Catalogs/Организации" },
   "input": {
-    "operations": [
-      { "op": "modify-property", "name": "CodeLength", "value": "11" },
-      { "op": "modify-property", "name": "DescriptionLength", "value": "150" }
-    ]
+    "modify": { "properties": { "CodeLength": 11, "DescriptionLength": 150 } }
   }
 }

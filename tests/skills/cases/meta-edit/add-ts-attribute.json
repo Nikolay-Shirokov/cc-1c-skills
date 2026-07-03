@@ -13,8 +13,10 @@
   ],
   "params": { "objectPath": "Documents/Заказ" },
   "input": {
-    "operations": [
-      { "op": "add-ts-attribute", "ts": "Товары", "name": "Цена", "type": "Number", "length": 15, "precision": 2 }
-    ]
+    "modify": {
+      "tabularSections": {
+        "Товары": { "add": ["Цена: Number(15,2)"] }
+      }
+    }
   }
 }

@@ -9,8 +9,6 @@
   ],
   "params": { "objectPath": "Catalogs/Контрагенты" },
   "input": {
-    "operations": [
-      { "op": "add-attribute", "name": "ИНН", "type": "String", "length": 12 }
-    ]
+    "add": { "attributes": ["ИНН: String(12)"] }
   }
 }

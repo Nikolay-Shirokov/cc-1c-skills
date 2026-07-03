@@ -13,8 +13,10 @@
   ],
   "params": { "objectPath": "Catalogs/Контрагенты" },
   "input": {
-    "operations": [
-      { "op": "modify-attribute", "name": "Телефон", "changes": { "name": "НомерТелефона", "type": "String", "length": 50 } }
-    ]
+    "modify": {
+      "attributes": {
+        "Телефон": { "name": "НомерТелефона", "type": "String(50)" }
+      }
+    }
   }
 }
