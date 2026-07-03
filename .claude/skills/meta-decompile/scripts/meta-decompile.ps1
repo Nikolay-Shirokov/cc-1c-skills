@@ -1,4 +1,4 @@
-﻿# meta-decompile v0.8 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
+﻿# meta-decompile v0.9 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 #
 # Пилот: только Catalog. Инверс meta-compile (omit-on-default: ключ эмитим только
@@ -115,7 +115,8 @@ function Get-MLValue {
 	if ($items.Count -eq 1) {
 		$lang = $items[0].SelectSingleNode('v8:lang', $nsm).InnerText
 		$content = $items[0].SelectSingleNode('v8:content', $nsm).InnerText
-		if ($lang -eq 'ru') { return $content }
+		# Единственный ru-item: пустое содержимое ≡ отсутствие значения → $null (иначе tooltip:"" ≠ self-close).
+		if ($lang -eq 'ru') { if ($content -eq '') { return $null } else { return $content } }
 	}
 	$o = [ordered]@{}
 	foreach ($it in $items) {
@@ -296,9 +297,11 @@ if ($saNode) {
 		$ffvN = $sa.SelectSingleNode('xr:FillFromFillingValue', $nsm); $ffv = ($ffvN -and $ffvN.InnerText -eq 'true')
 		$profFfv = ($prof['fillFromFillingValue'] -eq $true)
 		if ($ffv -ne $profFfv) { $ov['fillFromFillingValue'] = $ffv }
-		# Synonym (профиль пуст)
-		$syn = Get-MLru ($sa.SelectSingleNode('xr:Synonym', $nsm))
-		if ($syn) { $ov['synonym'] = $syn }
+		# Synonym / ToolTip (профиль пуст) — строка ru | {ru,en}
+		$syn = Get-MLValue ($sa.SelectSingleNode('xr:Synonym', $nsm))
+		if ($null -ne $syn) { $ov['synonym'] = $syn }
+		$tt = Get-MLValue ($sa.SelectSingleNode('xr:ToolTip', $nsm))
+		if ($null -ne $tt) { $ov['tooltip'] = $tt }
 		# FullTextSearch / DataHistory (профиль = Use)
 		$ftsN = $sa.SelectSingleNode('xr:FullTextSearch', $nsm); if ($ftsN -and $ftsN.InnerText -ne 'Use') { $ov['fullTextSearch'] = $ftsN.InnerText }
 		$dhN = $sa.SelectSingleNode('xr:DataHistory', $nsm); if ($dhN -and $dhN.InnerText -ne 'Use') { $ov['dataHistory'] = $dhN.InnerText }

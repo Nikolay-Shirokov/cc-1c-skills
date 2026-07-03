@@ -4,8 +4,8 @@
     "type": "Catalog",
     "name": "Контрагенты",
     "standardAttributes": {
-      "Description": { "synonym": "Наименование контрагента" },
-      "Code": { "fillChecking": "ShowError" }
+      "Description": { "synonym": { "ru": "Наименование контрагента", "en": "Counterparty name" }, "tooltip": "Полное наименование" },
+      "Code": { "fillChecking": "ShowError", "tooltip": { "ru": "Код", "en": "Code" } }
     }
   },
   "validatePath": "Catalogs/Контрагенты",

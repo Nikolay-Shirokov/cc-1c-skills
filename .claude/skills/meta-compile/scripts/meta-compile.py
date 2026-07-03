@@ -207,12 +207,12 @@ def emit_ml_items(indent, val):
         for k, v in val.items():
             X(f'{indent}<v8:item>')
             X(f'{indent}\t<v8:lang>{k}</v8:lang>')
-            X(f'{indent}\t<v8:content>{esc_xml(str(v))}</v8:content>')
+            X(f'{indent}\t<v8:content>{esc_xml_text(str(v))}</v8:content>')
             X(f'{indent}</v8:item>')
     else:
         X(f'{indent}<v8:item>')
         X(f'{indent}\t<v8:lang>ru</v8:lang>')
-        X(f'{indent}\t<v8:content>{esc_xml(str(val))}</v8:content>')
+        X(f'{indent}\t<v8:content>{esc_xml_text(str(val))}</v8:content>')
         X(f'{indent}</v8:item>')
 
 def emit_mltext(indent, tag, text):
@@ -881,6 +881,7 @@ def emit_standard_attribute(indent, attr_name, ov=None):
     dh = ov.get('DataHistory', 'Use')
     fts = ov.get('FullTextSearch', 'Use')
     syn = ov.get('Synonym', '')
+    tt = ov.get('ToolTip', '')
     X(f'{indent}<xr:StandardAttribute name="{attr_name}">')
     X(f'{indent}\t<xr:LinkByType/>')
     X(f'{indent}\t<xr:FillChecking>{fc}</xr:FillChecking>')
@@ -888,7 +889,7 @@ def emit_standard_attribute(indent, attr_name, ov=None):
     X(f'{indent}\t<xr:FillFromFillingValue>{ffv}</xr:FillFromFillingValue>')
     X(f'{indent}\t<xr:CreateOnInput>Auto</xr:CreateOnInput>')
     X(f'{indent}\t<xr:MaxValue xsi:nil="true"/>')
-    X(f'{indent}\t<xr:ToolTip/>')
+    emit_mltext(f'{indent}\t', 'xr:ToolTip', tt)
     X(f'{indent}\t<xr:ExtendedEdit>false</xr:ExtendedEdit>')
     X(f'{indent}\t<xr:Format/>')
     X(f'{indent}\t<xr:ChoiceForm/>')
@@ -899,15 +900,7 @@ def emit_standard_attribute(indent, attr_name, ov=None):
     X(f'{indent}\t<xr:DataHistory>{dh}</xr:DataHistory>')
     X(f'{indent}\t<xr:MarkNegatives>false</xr:MarkNegatives>')
     X(f'{indent}\t<xr:MinValue xsi:nil="true"/>')
-    if syn:
-        X(f'{indent}\t<xr:Synonym>')
-        X(f'{indent}\t\t<v8:item>')
-        X(f'{indent}\t\t\t<v8:lang>ru</v8:lang>')
-        X(f'{indent}\t\t\t<v8:content>{esc_xml(syn)}</v8:content>')
-        X(f'{indent}\t\t</v8:item>')
-        X(f'{indent}\t</xr:Synonym>')
-    else:
-        X(f'{indent}\t<xr:Synonym/>')
+    emit_mltext(f'{indent}\t', 'xr:Synonym', syn)
     X(f'{indent}\t<xr:Comment/>')
     X(f'{indent}\t<xr:FullTextSearch>{fts}</xr:FullTextSearch>')
     X(f'{indent}\t<xr:ChoiceParameterLinks/>')
@@ -936,7 +929,9 @@ def emit_standard_attributes(indent, object_type):
             d = sa.get(a)
             if d:
                 if d.get('synonym') is not None:
-                    ov['Synonym'] = str(d['synonym'])
+                    ov['Synonym'] = d['synonym']   # строка ИЛИ {ru,en}
+                if d.get('tooltip') is not None:
+                    ov['ToolTip'] = d['tooltip']   # строка ИЛИ {ru,en}
                 if d.get('fillChecking'):
                     ov['FillChecking'] = str(d['fillChecking'])
                 if d.get('fillFromFillingValue') is not None:

@@ -341,14 +341,14 @@ function Emit-MLItems {
 	param([string]$indent, $val)
 	if ($val -is [System.Collections.IDictionary]) {
 		foreach ($k in $val.Keys) {
-			X "$indent<v8:item>"; X "$indent`t<v8:lang>$k</v8:lang>"; X "$indent`t<v8:content>$(Esc-Xml "$($val[$k])")</v8:content>"; X "$indent</v8:item>"
+			X "$indent<v8:item>"; X "$indent`t<v8:lang>$k</v8:lang>"; X "$indent`t<v8:content>$(Esc-XmlText "$($val[$k])")</v8:content>"; X "$indent</v8:item>"
 		}
 	} elseif ($val -is [System.Management.Automation.PSCustomObject]) {
 		foreach ($p in $val.PSObject.Properties) {
-			X "$indent<v8:item>"; X "$indent`t<v8:lang>$($p.Name)</v8:lang>"; X "$indent`t<v8:content>$(Esc-Xml "$($p.Value)")</v8:content>"; X "$indent</v8:item>"
+			X "$indent<v8:item>"; X "$indent`t<v8:lang>$($p.Name)</v8:lang>"; X "$indent`t<v8:content>$(Esc-XmlText "$($p.Value)")</v8:content>"; X "$indent</v8:item>"
 		}
 	} else {
-		X "$indent<v8:item>"; X "$indent`t<v8:lang>ru</v8:lang>"; X "$indent`t<v8:content>$(Esc-Xml "$val")</v8:content>"; X "$indent</v8:item>"
+		X "$indent<v8:item>"; X "$indent`t<v8:lang>ru</v8:lang>"; X "$indent`t<v8:content>$(Esc-XmlText "$val")</v8:content>"; X "$indent</v8:item>"
 	}
 }
 function Emit-MLText {
@@ -885,6 +885,7 @@ function Emit-StandardAttribute {
 	$dh  = OvOr 'DataHistory' 'Use'
 	$fts = OvOr 'FullTextSearch' 'Use'
 	$syn = OvOr 'Synonym' ''
+	$tt  = OvOr 'ToolTip' ''
 	X "$indent<xr:StandardAttribute name=`"$attrName`">"
 	X "$indent`t<xr:LinkByType/>"
 	X "$indent`t<xr:FillChecking>$fc</xr:FillChecking>"
@@ -892,7 +893,7 @@ function Emit-StandardAttribute {
 	X "$indent`t<xr:FillFromFillingValue>$ffv</xr:FillFromFillingValue>"
 	X "$indent`t<xr:CreateOnInput>Auto</xr:CreateOnInput>"
 	X "$indent`t<xr:MaxValue xsi:nil=`"true`"/>"
-	X "$indent`t<xr:ToolTip/>"
+	Emit-MLText "$indent`t" "xr:ToolTip" $tt
 	X "$indent`t<xr:ExtendedEdit>false</xr:ExtendedEdit>"
 	X "$indent`t<xr:Format/>"
 	X "$indent`t<xr:ChoiceForm/>"
@@ -903,16 +904,7 @@ function Emit-StandardAttribute {
 	X "$indent`t<xr:DataHistory>$dh</xr:DataHistory>"
 	X "$indent`t<xr:MarkNegatives>false</xr:MarkNegatives>"
 	X "$indent`t<xr:MinValue xsi:nil=`"true`"/>"
-	if ($syn) {
-		X "$indent`t<xr:Synonym>"
-		X "$indent`t`t<v8:item>"
-		X "$indent`t`t`t<v8:lang>ru</v8:lang>"
-		X "$indent`t`t`t<v8:content>$(Esc-Xml $syn)</v8:content>"
-		X "$indent`t`t</v8:item>"
-		X "$indent`t</xr:Synonym>"
-	} else {
-		X "$indent`t<xr:Synonym/>"
-	}
+	Emit-MLText "$indent`t" "xr:Synonym" $syn
 	X "$indent`t<xr:Comment/>"
 	X "$indent`t<xr:FullTextSearch>$fts</xr:FullTextSearch>"
 	X "$indent`t<xr:ChoiceParameterLinks/>"
@@ -944,7 +936,8 @@ function Emit-StandardAttributes {
 		if ($conditional -and $sa) {
 			$d = $sa.$a
 			if ($d) {
-				if ($null -ne $d.synonym) { $ov['Synonym'] = "$($d.synonym)" }
+				if ($null -ne $d.synonym) { $ov['Synonym'] = $d.synonym }   # строка ИЛИ {ru,en}
+				if ($null -ne $d.tooltip) { $ov['ToolTip'] = $d.tooltip }   # строка ИЛИ {ru,en}
 				if ($d.fillChecking) { $ov['FillChecking'] = "$($d.fillChecking)" }
 				if ($null -ne $d.fillFromFillingValue) { $ov['FillFromFillingValue'] = if ($d.fillFromFillingValue) { 'true' } else { 'false' } }
 				if ($d.fullTextSearch) { $ov['FullTextSearch'] = "$($d.fullTextSearch)" }
