@@ -1,4 +1,4 @@
-﻿# meta-compile v1.21 — Compile 1C metadata object from JSON
+﻿# meta-compile v1.22 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -826,6 +826,8 @@ function Parse-AttributeShorthand {
 		hasFillValue = ($val.PSObject -and $val.PSObject.Properties -and ($val.PSObject.Properties.Name -contains 'fillValue'))
 		fillValue = $val.fillValue
 		linkByType = $val.linkByType
+		choiceParameterLinks = $val.choiceParameterLinks
+		choiceParameters = $val.choiceParameters
 	}
 }
 
@@ -1154,6 +1156,133 @@ function Emit-LinkByType {
 	X "$indent</LinkByType>"
 }
 
+# --- Параметры/связи выбора (порт из form-compile; структура реквизита ⟷ элемента формы совпадает) ---
+
+# Свойство из dict/PSCustomObject по списку синонимов (первый найденный, иначе $null).
+function Get-ChElProp {
+	param($obj, [string[]]$names)
+	if ($null -eq $obj) { return $null }
+	foreach ($n in $names) {
+		if ($obj -is [System.Collections.IDictionary]) { if ($obj.Contains($n)) { return $obj[$n] } }
+		elseif ($obj.PSObject -and $obj.PSObject.Properties[$n]) { return $obj.PSObject.Properties[$n].Value }
+	}
+	return $null
+}
+
+# Строковый литерал shorthand → скаляр: true/false→bool, целое/дробное→число, иначе строка.
+function ConvertTo-ChScalar {
+	param([string]$s)
+	$t = "$s".Trim()
+	if ($t -match '^(?i:true|истина)$')  { return $true }
+	if ($t -match '^(?i:false|ложь)$') { return $false }
+	if ($t -match '^-?\d+$')       { return [int]$t }
+	if ($t -match '^-?\d+\.\d+$')  { return [double]::Parse($t, [System.Globalization.CultureInfo]::InvariantCulture) }
+	return $t
+}
+
+# Значение параметра выбора → @{XsiType; Text}. Авто-детект по значению (без типа реквизита).
+function Normalize-ChoiceValue {
+	param($value)
+	if ($value -is [bool]) { return @{ XsiType='xs:boolean'; Text=$(if ($value) { 'true' } else { 'false' }) } }
+	if ($value -is [int] -or $value -is [long] -or $value -is [double] -or $value -is [decimal]) {
+		return @{ XsiType='xs:decimal'; Text=(Format-FillNum $value) }
+	}
+	$s = "$value"
+	if ($s -eq '') { return @{ XsiType='xs:string'; Text='' } }
+	if ($s -match '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$') { return @{ XsiType='xs:dateTime'; Text=$s } }
+	$ref = Normalize-FillRef $s
+	if ($ref) { return @{ XsiType='xr:DesignTimeRef'; Text=$ref } }
+	return @{ XsiType='xs:string'; Text=$s }
+}
+
+# Shorthand "name=value" | "name=v1, v2" → {name, value}. "name=path" для links.
+function ConvertFrom-ChParamShorthand {
+	param([string]$s)
+	$eq = $s.IndexOf('=')
+	if ($eq -lt 0) { return @{ name = $s.Trim() } }
+	$name = $s.Substring(0, $eq).Trim(); $rest = $s.Substring($eq + 1)
+	if ($rest -match ',') {
+		$vals = @(); foreach ($p in ($rest -split ',')) { $vals += ,(ConvertTo-ChScalar $p) }
+		return @{ name = $name; value = $vals }
+	}
+	return @{ name = $name; value = (ConvertTo-ChScalar $rest) }
+}
+function ConvertFrom-ChLinkShorthand {
+	param([string]$s)
+	$eq = $s.IndexOf('=')
+	if ($eq -lt 0) { return @{ name = $s.Trim() } }
+	$o = @{ name = $s.Substring(0, $eq).Trim() }; $rest = $s.Substring($eq + 1).Trim()
+	if ($rest -match '^(.*):(?i:(Clear|DontChange|очистить|неизменять))$') { $o['dataPath'] = $matches[1].Trim(); $o['valueChange'] = $matches[2] }
+	else { $o['dataPath'] = $rest }
+	return $o
+}
+
+# <ChoiceParameters> — [{name, value?}]. Значение ПРЯМО на app:value (xsi:type=тип); массив → v8:FixedArray
+# с детьми v8:Value; без value → app:value nil.
+function Emit-ChoiceParameters {
+	param([string]$indent, $cp)
+	if (-not $cp -or @($cp).Count -eq 0) { X "$indent<ChoiceParameters/>"; return }
+	X "$indent<ChoiceParameters>"
+	foreach ($item in @($cp)) {
+		if ($item -is [string]) { $item = ConvertFrom-ChParamShorthand $item }
+		$name = Get-ChElProp $item @('name','имя')
+		$hasVal = $false; $val = $null
+		if ($item -is [System.Collections.IDictionary]) {
+			if ($item.Contains('value')) { $hasVal = $true; $val = $item['value'] }
+			elseif ($item.Contains('значение')) { $hasVal = $true; $val = $item['значение'] }
+		} elseif ($item.PSObject) {
+			if ($item.PSObject.Properties['value']) { $hasVal = $true; $val = $item.PSObject.Properties['value'].Value }
+			elseif ($item.PSObject.Properties['значение']) { $hasVal = $true; $val = $item.PSObject.Properties['значение'].Value }
+		}
+		$valIsArray = ($val -is [System.Array]) -or ($val -is [System.Collections.IList] -and $val -isnot [string])
+		X "$indent`t<app:item name=`"$(Esc-Xml "$name")`">"
+		if (-not $hasVal) {
+			X "$indent`t`t<app:value xsi:nil=`"true`"/>"
+		} elseif ($valIsArray) {
+			X "$indent`t`t<app:value xsi:type=`"v8:FixedArray`">"
+			foreach ($v in $val) {
+				$norm = Normalize-ChoiceValue -value $v
+				if ([string]::IsNullOrEmpty($norm.Text)) { X "$indent`t`t`t<v8:Value xsi:type=`"$($norm.XsiType)`"/>" }
+				else { X "$indent`t`t`t<v8:Value xsi:type=`"$($norm.XsiType)`">$(Esc-Xml $norm.Text)</v8:Value>" }
+			}
+			X "$indent`t`t</app:value>"
+		} else {
+			$norm = Normalize-ChoiceValue -value $val
+			if ([string]::IsNullOrEmpty($norm.Text)) { X "$indent`t`t<app:value xsi:type=`"$($norm.XsiType)`"/>" }
+			else { X "$indent`t`t<app:value xsi:type=`"$($norm.XsiType)`">$(Esc-Xml $norm.Text)</app:value>" }
+		}
+		X "$indent`t</app:item>"
+	}
+	X "$indent</ChoiceParameters>"
+}
+
+# <ChoiceParameterLinks> — [{name, dataPath, valueChange?}]. valueChange дефолт Clear.
+function Emit-ChoiceParameterLinks {
+	param([string]$indent, $cpl)
+	if (-not $cpl -or @($cpl).Count -eq 0) { X "$indent<ChoiceParameterLinks/>"; return }
+	X "$indent<ChoiceParameterLinks>"
+	foreach ($lk in @($cpl)) {
+		if ($lk -is [string]) { $lk = ConvertFrom-ChLinkShorthand $lk }
+		$name = Get-ChElProp $lk @('name','имя')
+		$dp = Get-ChElProp $lk @('dataPath','path','путь')
+		$vcRaw = Get-ChElProp $lk @('valueChange','режимИзменения')
+		$vc = 'Clear'
+		if ($vcRaw) {
+			$vc = switch -Regex ("$vcRaw".ToLower()) {
+				'^(clear|очистить|очистка)$'             { 'Clear'; break }
+				'^(dontchange|неизменять|неменять|нет)$' { 'DontChange'; break }
+				default                                  { "$vcRaw" }
+			}
+		}
+		X "$indent`t<xr:Link>"
+		X "$indent`t`t<xr:Name>$(Esc-Xml "$name")</xr:Name>"
+		X "$indent`t`t<xr:DataPath xsi:type=`"xs:string`">$(Esc-Xml "$dp")</xr:DataPath>"
+		X "$indent`t`t<xr:ValueChange>$vc</xr:ValueChange>"
+		X "$indent`t</xr:Link>"
+	}
+	X "$indent</ChoiceParameterLinks>"
+}
+
 function Emit-Attribute {
 	param([string]$indent, $parsed, [string]$context)
 	# $context: "catalog", "document", "object", "processor", "tabular", "processor-tabular", "register"
@@ -1221,8 +1350,8 @@ function Emit-Attribute {
 	X "$indent`t`t<FillChecking>$fillChecking</FillChecking>"
 
 	X "$indent`t`t<ChoiceFoldersAndItems>Items</ChoiceFoldersAndItems>"
-	X "$indent`t`t<ChoiceParameterLinks/>"
-	X "$indent`t`t<ChoiceParameters/>"
+	Emit-ChoiceParameterLinks "$indent`t`t" $parsed.choiceParameterLinks
+	Emit-ChoiceParameters "$indent`t`t" $parsed.choiceParameters
 	$qc = if ($parsed.quickChoice) { $parsed.quickChoice } else { "Auto" }
 	X "$indent`t`t<QuickChoice>$qc</QuickChoice>"
 	$coi = if ($parsed.createOnInput) { $parsed.createOnInput } else { "Auto" }

@@ -1,4 +1,4 @@
-﻿# meta-decompile v0.14 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
+﻿# meta-decompile v0.15 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 #
 # Пилот: только Catalog. Инверс meta-compile (omit-on-default: ключ эмитим только
@@ -79,6 +79,7 @@ $nsm.AddNamespace('md',  'http://v8.1c.ru/8.3/MDClasses')
 $nsm.AddNamespace('v8',  'http://v8.1c.ru/8.1/data/core')
 $nsm.AddNamespace('xr',  'http://v8.1c.ru/8.3/xcf/readable')
 $nsm.AddNamespace('xsi', 'http://www.w3.org/2001/XMLSchema-instance')
+$nsm.AddNamespace('app', 'http://v8.1c.ru/8.2/managed-application/core')
 
 $rootEl = $doc.DocumentElement
 if ($rootEl.LocalName -ne 'MetaDataObject') {
@@ -183,6 +184,31 @@ function Get-TypeShorthand {
 	return ($parts -join ' + ')
 }
 
+# Скалярное значение параметра выбора (<Value xsi:type=...>) → JSON-значение (bool/число/строка).
+# string/dateTime/DesignTimeRef → строка (компилятор auto-детектит обратно).
+function Convert-ChScalarNode {
+	param($vN)
+	$xt = $vN.GetAttribute('type', 'http://www.w3.org/2001/XMLSchema-instance')
+	$txt = $vN.InnerText
+	if ($xt -match 'boolean$') { return ($txt -eq 'true') }
+	if ($xt -match 'decimal$') {
+		if ($txt -match '^-?\d+$') { return [int]$txt }
+		return [double]::Parse($txt, [System.Globalization.CultureInfo]::InvariantCulture)
+	}
+	return $txt
+}
+# app:value (тип прямо на узле) → значение ЛИБО массив (v8:FixedArray с детьми v8:Value).
+function Get-ChoiceParamValue {
+	param($valNode)
+	$xt = $valNode.GetAttribute('type', 'http://www.w3.org/2001/XMLSchema-instance')
+	if ($xt -match 'FixedArray$') {
+		$arr = [System.Collections.ArrayList]@()
+		foreach ($sub in @($valNode.SelectNodes('v8:Value', $nsm))) { [void]$arr.Add((Convert-ChScalarNode $sub)) }
+		return $arr
+	}
+	return Convert-ChScalarNode $valNode
+}
+
 # --- Реквизит → DSL: shorthand-строка "Имя: Тип | флаги" ЛИБО object-форма при кастомном синониме.
 # (Синоним ≠ авто → object {name, type, synonym, [flags]}; иначе компактный shorthand.) ---
 function Attr-ToDsl {
@@ -260,6 +286,46 @@ function Attr-ToDsl {
 			$li = if ($liN -and $liN.InnerText) { [int]$liN.InnerText } else { 0 }
 			if ($li -eq 0) { $extra['linkByType'] = $dpN.InnerText }
 			else { $extra['linkByType'] = [ordered]@{ dataPath = $dpN.InnerText; linkItem = $li } }
+		}
+	}
+
+	# ChoiceParameterLinks — [{name, dataPath, valueChange?}]. valueChange=Clear → компактно строкой "name=dataPath".
+	$cplNode = $ap.SelectSingleNode('md:ChoiceParameterLinks', $nsm)
+	if ($cplNode) {
+		$links = @($cplNode.SelectNodes('xr:Link', $nsm))
+		if ($links.Count -gt 0) {
+			$arr = [System.Collections.ArrayList]@()
+			foreach ($lk in $links) {
+				$lName = $lk.SelectSingleNode('xr:Name', $nsm).InnerText
+				$lDp = $lk.SelectSingleNode('xr:DataPath', $nsm).InnerText
+				$vcN = $lk.SelectSingleNode('xr:ValueChange', $nsm)
+				$vcv = if ($vcN) { $vcN.InnerText } else { 'Clear' }
+				if ($vcv -eq 'Clear') { [void]$arr.Add("$lName=$lDp") }
+				else { [void]$arr.Add([ordered]@{ name = $lName; dataPath = $lDp; valueChange = $vcv }) }
+			}
+			$extra['choiceParameterLinks'] = $arr
+		}
+	}
+
+	# ChoiceParameters — [{name, value?}]. app:value nil → без value; иначе типизированное значение.
+	$cpNode = $ap.SelectSingleNode('md:ChoiceParameters', $nsm)
+	if ($cpNode) {
+		$items = @($cpNode.SelectNodes('app:item', $nsm))
+		if ($items.Count -gt 0) {
+			$arr = [System.Collections.ArrayList]@()
+			foreach ($it in $items) {
+				$pName = $it.GetAttribute('name')
+				$valN = $it.SelectSingleNode('app:value', $nsm)
+				$nilAttr = if ($valN) { $valN.GetAttribute('nil', 'http://www.w3.org/2001/XMLSchema-instance') } else { '' }
+				if (-not $valN -or $nilAttr -eq 'true') {
+					[void]$arr.Add([ordered]@{ name = $pName })
+				} else {
+					$o = [ordered]@{ name = $pName }
+					$o['value'] = Get-ChoiceParamValue $valN
+					[void]$arr.Add($o)
+				}
+			}
+			$extra['choiceParameters'] = $arr
 		}
 	}
 

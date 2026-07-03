@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-compile v1.21 — Compile 1C metadata object from JSON
+# meta-compile v1.22 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -850,6 +850,8 @@ def parse_attribute_shorthand(val):
         'hasFillValue': ('fillValue' in val),
         'fillValue': val.get('fillValue'),
         'linkByType': val.get('linkByType'),
+        'choiceParameterLinks': val.get('choiceParameterLinks'),
+        'choiceParameters': val.get('choiceParameters'),
     }
 
 def parse_enum_value_shorthand(val):
@@ -1200,6 +1202,133 @@ def emit_link_by_type(indent, spec):
     X(f'{indent}\t<xr:LinkItem>{li}</xr:LinkItem>')
     X(f'{indent}</LinkByType>')
 
+# --- Параметры/связи выбора (порт из form-compile) ---
+
+def ch_el_prop(obj, names):
+    if obj is None:
+        return None
+    if isinstance(obj, dict):
+        for n in names:
+            if n in obj:
+                return obj[n]
+    return None
+
+def convert_to_ch_scalar(s):
+    t = str(s).strip()
+    if re.match(r'^(?i:true|истина)$', t):
+        return True
+    if re.match(r'^(?i:false|ложь)$', t):
+        return False
+    if re.match(r'^-?\d+$', t):
+        return int(t)
+    if re.match(r'^-?\d+\.\d+$', t):
+        return float(t)
+    return t
+
+def normalize_choice_value(value):
+    """Значение параметра выбора → (xsi_type, text). Авто-детект по значению."""
+    if isinstance(value, bool):
+        return ('xs:boolean', 'true' if value else 'false')
+    if isinstance(value, (int, float)):
+        return ('xs:decimal', format_fill_num(value))
+    s = str(value)
+    if s == '':
+        return ('xs:string', '')
+    if re.match(r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$', s):
+        return ('xs:dateTime', s)
+    ref = normalize_fill_ref(s)
+    if ref:
+        return ('xr:DesignTimeRef', ref)
+    return ('xs:string', s)
+
+def convert_from_ch_param_shorthand(s):
+    eq = s.find('=')
+    if eq < 0:
+        return {'name': s.strip()}
+    name = s[:eq].strip()
+    rest = s[eq + 1:]
+    if ',' in rest:
+        return {'name': name, 'value': [convert_to_ch_scalar(p) for p in rest.split(',')]}
+    return {'name': name, 'value': convert_to_ch_scalar(rest)}
+
+def convert_from_ch_link_shorthand(s):
+    eq = s.find('=')
+    if eq < 0:
+        return {'name': s.strip()}
+    o = {'name': s[:eq].strip()}
+    rest = s[eq + 1:].strip()
+    m = re.match(r'^(.*):(?i:(Clear|DontChange|очистить|неизменять))$', rest)
+    if m:
+        o['dataPath'] = m.group(1).strip()
+        o['valueChange'] = m.group(2)
+    else:
+        o['dataPath'] = rest
+    return o
+
+def emit_choice_parameters(indent, cp):
+    if not cp:
+        X(f'{indent}<ChoiceParameters/>')
+        return
+    if isinstance(cp, (str, dict)):
+        cp = [cp]
+    X(f'{indent}<ChoiceParameters>')
+    for item in cp:
+        if isinstance(item, str):
+            item = convert_from_ch_param_shorthand(item)
+        name = ch_el_prop(item, ['name', 'имя'])
+        has_val = isinstance(item, dict) and ('value' in item or 'значение' in item)
+        val = item.get('value', item.get('значение')) if has_val else None
+        val_is_array = isinstance(val, (list, tuple))
+        X(f'{indent}\t<app:item name="{esc_xml(str(name))}">')
+        if not has_val:
+            X(f'{indent}\t\t<app:value xsi:nil="true"/>')
+        elif val_is_array:
+            X(f'{indent}\t\t<app:value xsi:type="v8:FixedArray">')
+            for v in val:
+                xt, tx = normalize_choice_value(v)
+                if tx == '' or tx is None:
+                    X(f'{indent}\t\t\t<v8:Value xsi:type="{xt}"/>')
+                else:
+                    X(f'{indent}\t\t\t<v8:Value xsi:type="{xt}">{esc_xml(tx)}</v8:Value>')
+            X(f'{indent}\t\t</app:value>')
+        else:
+            xt, tx = normalize_choice_value(val)
+            if tx == '' or tx is None:
+                X(f'{indent}\t\t<app:value xsi:type="{xt}"/>')
+            else:
+                X(f'{indent}\t\t<app:value xsi:type="{xt}">{esc_xml(tx)}</app:value>')
+        X(f'{indent}\t</app:item>')
+    X(f'{indent}</ChoiceParameters>')
+
+def emit_choice_parameter_links(indent, cpl):
+    if not cpl:
+        X(f'{indent}<ChoiceParameterLinks/>')
+        return
+    if isinstance(cpl, (str, dict)):
+        cpl = [cpl]
+    X(f'{indent}<ChoiceParameterLinks>')
+    for lk in cpl:
+        if isinstance(lk, str):
+            lk = convert_from_ch_link_shorthand(lk)
+        name = ch_el_prop(lk, ['name', 'имя'])
+        dp = ch_el_prop(lk, ['dataPath', 'path', 'путь'])
+        vc_raw = ch_el_prop(lk, ['valueChange', 'режимИзменения'])
+        vc = 'Clear'
+        if vc_raw:
+            low = str(vc_raw).lower()
+            if re.match(r'^(clear|очистить|очистка)$', low):
+                vc = 'Clear'
+            elif re.match(r'^(dontchange|неизменять|неменять|нет)$', low):
+                vc = 'DontChange'
+            else:
+                vc = str(vc_raw)
+        X(f'{indent}\t<xr:Link>')
+        X(f'{indent}\t\t<xr:Name>{esc_xml(str(name))}</xr:Name>')
+        X(f'{indent}\t\t<xr:DataPath xsi:type="xs:string">{esc_xml(str(dp))}</xr:DataPath>')
+        X(f'{indent}\t\t<xr:ValueChange>{vc}</xr:ValueChange>')
+        X(f'{indent}\t</xr:Link>')
+    X(f'{indent}</ChoiceParameterLinks>')
+
 def emit_attribute(indent, parsed, context):
     attr_name = parsed['name']
     ctx_reserved = RESERVED_BY_CONTEXT.get(context)
@@ -1254,8 +1383,8 @@ def emit_attribute(indent, parsed, context):
         fill_checking = parsed['fillChecking']
     X(f'{indent}\t\t<FillChecking>{fill_checking}</FillChecking>')
     X(f'{indent}\t\t<ChoiceFoldersAndItems>Items</ChoiceFoldersAndItems>')
-    X(f'{indent}\t\t<ChoiceParameterLinks/>')
-    X(f'{indent}\t\t<ChoiceParameters/>')
+    emit_choice_parameter_links(f'{indent}\t\t', parsed.get('choiceParameterLinks'))
+    emit_choice_parameters(f'{indent}\t\t', parsed.get('choiceParameters'))
     X(f'{indent}\t\t<QuickChoice>{parsed.get("quickChoice") or "Auto"}</QuickChoice>')
     X(f'{indent}\t\t<CreateOnInput>{parsed.get("createOnInput") or "Auto"}</CreateOnInput>')
     X(f'{indent}\t\t<ChoiceForm/>')
