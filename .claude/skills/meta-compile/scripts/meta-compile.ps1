@@ -1,4 +1,4 @@
-﻿# meta-compile v1.17 — Compile 1C metadata object from JSON
+﻿# meta-compile v1.18 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -259,6 +259,10 @@ $script:validEnumValues = @{
 	"SubordinationUse"               = @("ToItems","ToFolders","ToFoldersAndItems")
 	"CodeSeries"                     = @("WholeCatalog","WithinSubordination","WithinOwnerSubordination")
 	"ChoiceMode"                     = @("BothWays","QuickChoice","FromForm")
+	"CreateOnInput"                  = @("Auto","Use","DontUse")
+	"ChoiceHistoryOnInput"           = @("Auto","DontUse")
+	"PredefinedDataUpdate"           = @("Auto","DontAutoUpdate","AutoUpdate")
+	"SearchStringModeOnInputByString"= @("Begin","AnyPart")
 }
 
 function Normalize-EnumValue {
@@ -287,6 +291,21 @@ function Get-EnumProp {
 	$val = $def.$fieldName
 	$raw = if ($val) { "$val" } else { $default }
 	return (Normalize-EnumValue $propName $raw)
+}
+
+# Bool object-свойство: presence-aware (иначе false-значение спутать с отсутствием). Прощаем строки.
+function Get-BoolProp {
+	param([string]$fieldName, [bool]$default)
+	$val = $def.$fieldName
+	if ($null -eq $val) { return $default }
+	if ($val -is [bool]) { return $val }
+	return ("$val" -match '^(true|1|да|истина)$')
+}
+
+# Ссылка на форму по умолчанию: непустая → <Tag>значение</Tag>, иначе <Tag/>.
+function Emit-FormRef {
+	param([string]$i, [string]$tag, $val)
+	if ($val) { X "$i<$tag>$(Esc-Xml "$val")</$tag>" } else { X "$i<$tag/>" }
 }
 
 if (-not $def.type) {
@@ -1460,7 +1479,7 @@ function Emit-CatalogProperties {
 
 	X "$i<Name>$(Esc-Xml $objName)</Name>"
 	Emit-MLText $i "Synonym" $synonym
-	X "$i<Comment/>"
+	if ($def.comment) { X "$i<Comment>$(Esc-XmlText $def.comment)</Comment>" } else { X "$i<Comment/>" }
 
 	$hierarchical = if ($def.hierarchical -eq $true) { "true" } else { "false" }
 	$hierarchyType = Get-EnumProp "HierarchyType" "hierarchyType" "HierarchyFoldersAndItems"
@@ -1472,7 +1491,8 @@ function Emit-CatalogProperties {
 	X "$i<LimitLevelCount>$limitLevelCount</LimitLevelCount>"
 	X "$i<LevelCount>$levelCount</LevelCount>"
 	X "$i<FoldersOnTop>$foldersOnTop</FoldersOnTop>"
-	X "$i<UseStandardCommands>true</UseStandardCommands>"
+	$useStdCmds = if (Get-BoolProp "useStandardCommands" $true) { "true" } else { "false" }
+	X "$i<UseStandardCommands>$useStdCmds</UseStandardCommands>"
 	if ($def.owners -and $def.owners.Count -gt 0) {
 		X "$i<Owners>"
 		foreach ($ownerRef in $def.owners) {
@@ -1507,8 +1527,8 @@ function Emit-CatalogProperties {
 
 	Emit-StandardAttributes $i "Catalog"
 	X "$i<Characteristics/>"
-	X "$i<PredefinedDataUpdate>Auto</PredefinedDataUpdate>"
-	X "$i<EditType>InDialog</EditType>"
+	X "$i<PredefinedDataUpdate>$(Get-EnumProp 'PredefinedDataUpdate' 'predefinedDataUpdate' 'Auto')</PredefinedDataUpdate>"
+	X "$i<EditType>$(Get-EnumProp 'EditType' 'editType' 'InDialog')</EditType>"
 	$quickChoice = if ($def.quickChoice -eq $true) { "true" } else { "false" }
 	$choiceMode = Get-EnumProp "ChoiceMode" "choiceMode" "BothWays"
 	X "$i<QuickChoice>$quickChoice</QuickChoice>"
@@ -1517,20 +1537,21 @@ function Emit-CatalogProperties {
 	X "$i`t<xr:Field>Catalog.$objName.StandardAttribute.Description</xr:Field>"
 	X "$i`t<xr:Field>Catalog.$objName.StandardAttribute.Code</xr:Field>"
 	X "$i</InputByString>"
-	X "$i<SearchStringModeOnInputByString>Begin</SearchStringModeOnInputByString>"
+	X "$i<SearchStringModeOnInputByString>$(Get-EnumProp 'SearchStringModeOnInputByString' 'searchStringModeOnInputByString' 'Begin')</SearchStringModeOnInputByString>"
 	X "$i<FullTextSearchOnInputByString>DontUse</FullTextSearchOnInputByString>"
 	X "$i<ChoiceDataGetModeOnInputByString>Directly</ChoiceDataGetModeOnInputByString>"
-	X "$i<DefaultObjectForm/>"
-	X "$i<DefaultFolderForm/>"
-	X "$i<DefaultListForm/>"
-	X "$i<DefaultChoiceForm/>"
-	X "$i<DefaultFolderChoiceForm/>"
-	X "$i<AuxiliaryObjectForm/>"
-	X "$i<AuxiliaryFolderForm/>"
-	X "$i<AuxiliaryListForm/>"
-	X "$i<AuxiliaryChoiceForm/>"
-	X "$i<AuxiliaryFolderChoiceForm/>"
-	X "$i<IncludeHelpInContents>false</IncludeHelpInContents>"
+	Emit-FormRef $i "DefaultObjectForm"       $def.defaultObjectForm
+	Emit-FormRef $i "DefaultFolderForm"       $def.defaultFolderForm
+	Emit-FormRef $i "DefaultListForm"         $def.defaultListForm
+	Emit-FormRef $i "DefaultChoiceForm"       $def.defaultChoiceForm
+	Emit-FormRef $i "DefaultFolderChoiceForm" $def.defaultFolderChoiceForm
+	Emit-FormRef $i "AuxiliaryObjectForm"       $def.auxiliaryObjectForm
+	Emit-FormRef $i "AuxiliaryFolderForm"       $def.auxiliaryFolderForm
+	Emit-FormRef $i "AuxiliaryListForm"         $def.auxiliaryListForm
+	Emit-FormRef $i "AuxiliaryChoiceForm"       $def.auxiliaryChoiceForm
+	Emit-FormRef $i "AuxiliaryFolderChoiceForm" $def.auxiliaryFolderChoiceForm
+	$inclHelp = if (Get-BoolProp "includeHelpInContents" $false) { "true" } else { "false" }
+	X "$i<IncludeHelpInContents>$inclHelp</IncludeHelpInContents>"
 	X "$i<BasedOn/>"
 	X "$i<DataLockFields/>"
 
@@ -1545,8 +1566,8 @@ function Emit-CatalogProperties {
 	Emit-MLText $i "ListPresentation" $def.listPresentation
 	Emit-MLText $i "ExtendedListPresentation" $def.extendedListPresentation
 	Emit-MLText $i "Explanation" $def.explanation
-	X "$i<CreateOnInput>DontUse</CreateOnInput>"
-	X "$i<ChoiceHistoryOnInput>Auto</ChoiceHistoryOnInput>"
+	X "$i<CreateOnInput>$(Get-EnumProp 'CreateOnInput' 'createOnInput' 'Use')</CreateOnInput>"
+	X "$i<ChoiceHistoryOnInput>$(Get-EnumProp 'ChoiceHistoryOnInput' 'choiceHistoryOnInput' 'Auto')</ChoiceHistoryOnInput>"
 	X "$i<DataHistory>DontUse</DataHistory>"
 	X "$i<UpdateDataHistoryImmediatelyAfterWrite>false</UpdateDataHistoryImmediatelyAfterWrite>"
 	X "$i<ExecuteAfterWriteDataHistoryVersionProcessing>false</ExecuteAfterWriteDataHistoryVersionProcessing>"

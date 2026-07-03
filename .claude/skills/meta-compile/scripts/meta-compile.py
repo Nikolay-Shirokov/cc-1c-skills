@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-compile v1.17 — Compile 1C metadata object from JSON
+# meta-compile v1.18 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -376,6 +376,10 @@ valid_enum_values = {
     'SubordinationUse': ['ToItems', 'ToFolders', 'ToFoldersAndItems'],
     'CodeSeries': ['WholeCatalog', 'WithinSubordination', 'WithinOwnerSubordination'],
     'ChoiceMode': ['BothWays', 'QuickChoice', 'FromForm'],
+    'CreateOnInput': ['Auto', 'Use', 'DontUse'],
+    'ChoiceHistoryOnInput': ['Auto', 'DontUse'],
+    'PredefinedDataUpdate': ['Auto', 'DontAutoUpdate', 'AutoUpdate'],
+    'SearchStringModeOnInputByString': ['Begin', 'AnyPart'],
 }
 
 def normalize_enum_value(prop_name, value):
@@ -398,6 +402,22 @@ def get_enum_prop(prop_name, field_name, default):
     val = defn.get(field_name)
     raw = str(val) if val else default
     return normalize_enum_value(prop_name, raw)
+
+def get_bool_prop(field_name, default):
+    """Bool object-свойство: presence-aware (иначе false спутать с отсутствием). Прощаем строки."""
+    val = defn.get(field_name)
+    if val is None:
+        return default
+    if isinstance(val, bool):
+        return val
+    return str(val).lower() in ('true', '1', 'да', 'истина')
+
+def emit_form_ref(i, tag, val):
+    """Ссылка на форму по умолчанию: непустая → <Tag>значение</Tag>, иначе <Tag/>."""
+    if val:
+        X(f'{i}<{tag}>{esc_xml(str(val))}</{tag}>')
+    else:
+        X(f'{i}<{tag}/>')
 
 if not defn.get('type'):
     print("JSON must have 'type' field", file=sys.stderr)
@@ -1418,7 +1438,10 @@ def emit_catalog_properties(indent):
     i = indent
     X(f'{i}<Name>{esc_xml(obj_name)}</Name>')
     emit_mltext(i, 'Synonym', synonym)
-    X(f'{i}<Comment/>')
+    if defn.get('comment'):
+        X(f'{i}<Comment>{esc_xml_text(str(defn["comment"]))}</Comment>')
+    else:
+        X(f'{i}<Comment/>')
     hierarchical = 'true' if defn.get('hierarchical') is True else 'false'
     hierarchy_type = get_enum_prop('HierarchyType', 'hierarchyType', 'HierarchyFoldersAndItems')
     X(f'{i}<Hierarchical>{hierarchical}</Hierarchical>')
@@ -1429,7 +1452,8 @@ def emit_catalog_properties(indent):
     X(f'{i}<LimitLevelCount>{limit_level_count}</LimitLevelCount>')
     X(f'{i}<LevelCount>{level_count}</LevelCount>')
     X(f'{i}<FoldersOnTop>{folders_on_top}</FoldersOnTop>')
-    X(f'{i}<UseStandardCommands>true</UseStandardCommands>')
+    use_std_cmds = 'true' if get_bool_prop('useStandardCommands', True) else 'false'
+    X(f'{i}<UseStandardCommands>{use_std_cmds}</UseStandardCommands>')
     owners = defn.get('owners', [])
     if owners:
         X(f'{i}<Owners>')
@@ -1459,8 +1483,8 @@ def emit_catalog_properties(indent):
     X(f'{i}<DefaultPresentation>{default_presentation}</DefaultPresentation>')
     emit_standard_attributes(i, 'Catalog')
     X(f'{i}<Characteristics/>')
-    X(f'{i}<PredefinedDataUpdate>Auto</PredefinedDataUpdate>')
-    X(f'{i}<EditType>InDialog</EditType>')
+    X(f'{i}<PredefinedDataUpdate>{get_enum_prop("PredefinedDataUpdate", "predefinedDataUpdate", "Auto")}</PredefinedDataUpdate>')
+    X(f'{i}<EditType>{get_enum_prop("EditType", "editType", "InDialog")}</EditType>')
     quick_choice = 'true' if defn.get('quickChoice') is True else 'false'
     choice_mode = get_enum_prop('ChoiceMode', 'choiceMode', 'BothWays')
     X(f'{i}<QuickChoice>{quick_choice}</QuickChoice>')
@@ -1469,20 +1493,21 @@ def emit_catalog_properties(indent):
     X(f'{i}\t<xr:Field>Catalog.{obj_name}.StandardAttribute.Description</xr:Field>')
     X(f'{i}\t<xr:Field>Catalog.{obj_name}.StandardAttribute.Code</xr:Field>')
     X(f'{i}</InputByString>')
-    X(f'{i}<SearchStringModeOnInputByString>Begin</SearchStringModeOnInputByString>')
+    X(f'{i}<SearchStringModeOnInputByString>{get_enum_prop("SearchStringModeOnInputByString", "searchStringModeOnInputByString", "Begin")}</SearchStringModeOnInputByString>')
     X(f'{i}<FullTextSearchOnInputByString>DontUse</FullTextSearchOnInputByString>')
     X(f'{i}<ChoiceDataGetModeOnInputByString>Directly</ChoiceDataGetModeOnInputByString>')
-    X(f'{i}<DefaultObjectForm/>')
-    X(f'{i}<DefaultFolderForm/>')
-    X(f'{i}<DefaultListForm/>')
-    X(f'{i}<DefaultChoiceForm/>')
-    X(f'{i}<DefaultFolderChoiceForm/>')
-    X(f'{i}<AuxiliaryObjectForm/>')
-    X(f'{i}<AuxiliaryFolderForm/>')
-    X(f'{i}<AuxiliaryListForm/>')
-    X(f'{i}<AuxiliaryChoiceForm/>')
-    X(f'{i}<AuxiliaryFolderChoiceForm/>')
-    X(f'{i}<IncludeHelpInContents>false</IncludeHelpInContents>')
+    emit_form_ref(i, 'DefaultObjectForm', defn.get('defaultObjectForm'))
+    emit_form_ref(i, 'DefaultFolderForm', defn.get('defaultFolderForm'))
+    emit_form_ref(i, 'DefaultListForm', defn.get('defaultListForm'))
+    emit_form_ref(i, 'DefaultChoiceForm', defn.get('defaultChoiceForm'))
+    emit_form_ref(i, 'DefaultFolderChoiceForm', defn.get('defaultFolderChoiceForm'))
+    emit_form_ref(i, 'AuxiliaryObjectForm', defn.get('auxiliaryObjectForm'))
+    emit_form_ref(i, 'AuxiliaryFolderForm', defn.get('auxiliaryFolderForm'))
+    emit_form_ref(i, 'AuxiliaryListForm', defn.get('auxiliaryListForm'))
+    emit_form_ref(i, 'AuxiliaryChoiceForm', defn.get('auxiliaryChoiceForm'))
+    emit_form_ref(i, 'AuxiliaryFolderChoiceForm', defn.get('auxiliaryFolderChoiceForm'))
+    incl_help = 'true' if get_bool_prop('includeHelpInContents', False) else 'false'
+    X(f'{i}<IncludeHelpInContents>{incl_help}</IncludeHelpInContents>')
     X(f'{i}<BasedOn/>')
     X(f'{i}<DataLockFields/>')
     data_lock_control_mode = get_enum_prop('DataLockControlMode', 'dataLockControlMode', 'Automatic')
@@ -1494,8 +1519,8 @@ def emit_catalog_properties(indent):
     emit_mltext(i, 'ListPresentation', defn.get('listPresentation'))
     emit_mltext(i, 'ExtendedListPresentation', defn.get('extendedListPresentation'))
     emit_mltext(i, 'Explanation', defn.get('explanation'))
-    X(f'{i}<CreateOnInput>DontUse</CreateOnInput>')
-    X(f'{i}<ChoiceHistoryOnInput>Auto</ChoiceHistoryOnInput>')
+    X(f'{i}<CreateOnInput>{get_enum_prop("CreateOnInput", "createOnInput", "Use")}</CreateOnInput>')
+    X(f'{i}<ChoiceHistoryOnInput>{get_enum_prop("ChoiceHistoryOnInput", "choiceHistoryOnInput", "Auto")}</ChoiceHistoryOnInput>')
     X(f'{i}<DataHistory>DontUse</DataHistory>')
     X(f'{i}<UpdateDataHistoryImmediatelyAfterWrite>false</UpdateDataHistoryImmediatelyAfterWrite>')
     X(f'{i}<ExecuteAfterWriteDataHistoryVersionProcessing>false</ExecuteAfterWriteDataHistoryVersionProcessing>')

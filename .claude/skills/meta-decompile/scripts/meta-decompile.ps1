@@ -1,4 +1,4 @@
-﻿# meta-decompile v0.12 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
+﻿# meta-decompile v0.13 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 #
 # Пилот: только Catalog. Инверс meta-compile (omit-on-default: ключ эмитим только
@@ -303,6 +303,26 @@ Add-BoolProp 'quickChoice'       'QuickChoice'       $false
 Add-EnumProp 'choiceMode'        'ChoiceMode'        'BothWays'
 Add-EnumProp 'dataLockControlMode' 'DataLockControlMode' 'Automatic'
 Add-EnumProp 'fullTextSearch'    'FullTextSearch'    'Use'
+Add-BoolProp 'useStandardCommands' 'UseStandardCommands' $true
+Add-EnumProp 'createOnInput'     'CreateOnInput'     'Use'
+Add-EnumProp 'editType'          'EditType'          'InDialog'
+Add-BoolProp 'includeHelpInContents' 'IncludeHelpInContents' $false
+Add-EnumProp 'choiceHistoryOnInput' 'ChoiceHistoryOnInput' 'Auto'
+Add-EnumProp 'predefinedDataUpdate' 'PredefinedDataUpdate' 'Auto'
+Add-EnumProp 'searchStringModeOnInputByString' 'SearchStringModeOnInputByString' 'Begin'
+
+# Формы по умолчанию (компилятор пишет пусто → omit-on-empty; значение = ссылка на форму verbatim).
+function Add-FormRef { param([string]$key, [string]$tag) $v = P $tag; if ($v) { $dsl[$key] = $v } }
+Add-FormRef 'defaultObjectForm'         'DefaultObjectForm'
+Add-FormRef 'defaultFolderForm'         'DefaultFolderForm'
+Add-FormRef 'defaultListForm'           'DefaultListForm'
+Add-FormRef 'defaultChoiceForm'         'DefaultChoiceForm'
+Add-FormRef 'defaultFolderChoiceForm'   'DefaultFolderChoiceForm'
+Add-FormRef 'auxiliaryObjectForm'       'AuxiliaryObjectForm'
+Add-FormRef 'auxiliaryFolderForm'       'AuxiliaryFolderForm'
+Add-FormRef 'auxiliaryListForm'         'AuxiliaryListForm'
+Add-FormRef 'auxiliaryChoiceForm'       'AuxiliaryChoiceForm'
+Add-FormRef 'auxiliaryFolderChoiceForm' 'AuxiliaryFolderChoiceForm'
 
 # Презентации (ML, компилятор пишет пусто → omit-on-empty).
 foreach ($pp in @(

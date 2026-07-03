@@ -1,0 +1,26 @@
+{
+  "name": "Object-уровневые свойства каталога",
+  "input": {
+    "type": "Catalog",
+    "name": "НастройкиОбмена",
+    "comment": "служебный справочник",
+    "useStandardCommands": false,
+    "createOnInput": "DontUse",
+    "editType": "InList",
+    "includeHelpInContents": true,
+    "defaultPresentation": "AsCode",
+    "choiceHistoryOnInput": "DontUse",
+    "predefinedDataUpdate": "DontAutoUpdate",
+    "searchStringModeOnInputByString": "AnyPart",
+    "defaultObjectForm": "Catalog.НастройкиОбмена.Form.ФормаЭлемента",
+    "defaultListForm": "Catalog.НастройкиОбмена.Form.ФормаСписка",
+    "defaultChoiceForm": "Catalog.НастройкиОбмена.Form.ФормаВыбора",
+    "attributes": [
+      "Код: String(9)"
+    ]
+  },
+  "validatePath": "Catalogs/НастройкиОбмена",
+  "expect": {
+    "files": ["Catalogs/НастройкиОбмена.xml"]
+  }
+}

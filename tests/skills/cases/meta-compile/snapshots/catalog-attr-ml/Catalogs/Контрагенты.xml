@@ -98,7 +98,7 @@
 					<v8:content>Список контрагентов организации</v8:content>
 				</v8:item>
 			</Explanation>
-			<CreateOnInput>DontUse</CreateOnInput>
+			<CreateOnInput>Use</CreateOnInput>
 			<ChoiceHistoryOnInput>Auto</ChoiceHistoryOnInput>
 			<DataHistory>DontUse</DataHistory>
 			<UpdateDataHistoryImmediatelyAfterWrite>false</UpdateDataHistoryImmediatelyAfterWrite>
