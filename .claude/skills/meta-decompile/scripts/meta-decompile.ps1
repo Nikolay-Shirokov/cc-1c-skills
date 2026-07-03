@@ -1,4 +1,4 @@
-﻿# meta-decompile v0.6 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
+﻿# meta-decompile v0.7 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 #
 # Пилот: только Catalog. Инверс meta-compile (omit-on-default: ключ эмитим только
@@ -237,8 +237,10 @@ function Attr-ToDsl {
 # === Сборка DSL ===
 $dsl = [ordered]@{ type = 'Catalog'; name = $objName }
 
-$syn = Get-MLru ($props.SelectSingleNode('md:Synonym', $nsm))
-if ($syn -and $syn -ne (Split-CamelWords $objName)) { $dsl['synonym'] = $syn }
+# Синоним объекта: строка ru-only ИЛИ {ru,en} (мультиязычно). Кастом → эмитим.
+$synVal = Get-MLValue ($props.SelectSingleNode('md:Synonym', $nsm))
+if ($synVal -is [string]) { if ($synVal -ne (Split-CamelWords $objName)) { $dsl['synonym'] = $synVal } }
+elseif ($null -ne $synVal) { $dsl['synonym'] = $synVal }
 $cmt = P 'Comment'; if ($cmt) { $dsl['comment'] = $cmt }
 
 # Свойства Catalog (omit-on-default). Порядок ключей — как удобно DSL.

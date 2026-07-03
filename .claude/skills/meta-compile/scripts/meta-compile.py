@@ -426,7 +426,8 @@ if not defn.get('name'):
 obj_name = str(defn['name'])
 
 # Auto-synonym
-synonym = str(defn['synonym']) if defn.get('synonym') else split_camel_case(obj_name)
+# Проброс без стрингификации (строка ИЛИ {ru,en} — мультиязычный синоним объекта).
+synonym = defn['synonym'] if defn.get('synonym') is not None else split_camel_case(obj_name)
 comment = str(defn['comment']) if defn.get('comment') else ''
 
 # ---------------------------------------------------------------------------
@@ -1619,7 +1620,8 @@ def emit_scheduled_job_properties(indent):
     if method_name and not method_name.startswith('CommonModule.'):
         method_name = f'CommonModule.{method_name}'
     X(f'{i}<MethodName>{esc_xml(method_name)}</MethodName>')
-    description = str(defn['description']) if defn.get('description') else synonym
+    # synonym может быть {ru,en}; Description — плоская строка, берём ru-текст.
+    description = str(defn['description']) if defn.get('description') else (synonym if isinstance(synonym, str) else '')
     X(f'{i}<Description>{esc_xml(description)}</Description>')
     key = str(defn['key']) if defn.get('key') else ''
     X(f'{i}<Key>{esc_xml(key)}</Key>')

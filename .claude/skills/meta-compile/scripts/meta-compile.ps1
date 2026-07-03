@@ -382,8 +382,8 @@ function Split-CamelCase {
 	return $result
 }
 
-# Auto-synonym
-$synonym = if ($def.synonym) { "$($def.synonym)" } else { Split-CamelCase $objName }
+# Auto-synonym. Проброс без стрингификации (строка ИЛИ {ru,en} — мультиязычный синоним объекта).
+$synonym = if ($null -ne $def.synonym) { $def.synonym } else { Split-CamelCase $objName }
 $comment = if ($def.comment) { "$($def.comment)" } else { "" }
 
 # --- 4. Type system ---
@@ -1755,7 +1755,8 @@ function Emit-ScheduledJobProperties {
 	}
 	X "$i<MethodName>$(Esc-Xml $methodName)</MethodName>"
 
-	$description = if ($def.description) { "$($def.description)" } else { $synonym }
+	# $synonym может быть {ru,en}; здесь Description — плоская строка, берём ru-текст.
+	$description = if ($def.description) { "$($def.description)" } elseif ($synonym -is [string]) { $synonym } else { "" }
 	X "$i<Description>$(Esc-Xml $description)</Description>"
 
 	$key = if ($def.key) { "$($def.key)" } else { "" }

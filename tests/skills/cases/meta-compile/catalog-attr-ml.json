@@ -2,6 +2,7 @@
   "name": "Справочник с ML-синонимом и подсказкой реквизита",
   "input": {
     "type": "Catalog", "name": "Контрагенты",
+    "synonym": { "ru": "Контрагенты", "en": "Counterparties" },
     "attributes": [
       { "name": "ИНН", "type": "String(12)", "synonym": { "ru": "ИНН", "en": "TIN" }, "tooltip": "Идентификационный номер налогоплательщика" },
       { "name": "Комментарий", "type": "String(200)", "tooltip": { "ru": "Произвольный комментарий", "en": "Free-form comment" } }
