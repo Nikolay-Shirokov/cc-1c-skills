@@ -1,0 +1,19 @@
+{
+  "name": "Реквизит-Характеристика: TypeSet + LinkByType (связь по типу)",
+  "input": {
+    "type": "Catalog",
+    "name": "ТестХарактеристик",
+    "attributes": [
+      { "name": "Свойство", "type": "ChartOfCharacteristicTypesRef.ДополнительныеРеквизиты" },
+      { "name": "Значение", "type": "Characteristic.ДополнительныеРеквизиты",
+        "linkByType": { "dataPath": "Catalog.ТестХарактеристик.Attribute.Свойство", "linkItem": 1 } },
+      { "name": "ЗначениеОпредТип", "type": "DefinedType.Сумма" },
+      { "name": "СвязьСтрокой", "type": "Characteristic.ВидыСубконто",
+        "linkByType": "Catalog.ТестХарактеристик.Attribute.Свойство" }
+    ]
+  },
+  "validatePath": "Catalogs/ТестХарактеристик",
+  "expect": {
+    "files": ["Catalogs/ТестХарактеристик.xml"]
+  }
+}

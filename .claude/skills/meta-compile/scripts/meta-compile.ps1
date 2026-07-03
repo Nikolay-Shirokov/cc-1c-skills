@@ -1,4 +1,4 @@
-﻿# meta-compile v1.20 — Compile 1C metadata object from JSON
+﻿# meta-compile v1.21 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -561,10 +561,9 @@ function Emit-TypeContent {
 		return
 	}
 
-	# DefinedType
-	if ($typeStr -match '^DefinedType\.(.+)$') {
-		$dtName = $Matches[1]
-		X "$indent<v8:TypeSet>cfg:DefinedType.$dtName</v8:TypeSet>"
+	# TypeSet — тип-множество: ОпределяемыйТип (DefinedType) ИЛИ Характеристика ПВХ (Characteristic).
+	if ($typeStr -match '^(DefinedType|Characteristic)\.(.+)$') {
+		X "$indent<v8:TypeSet>cfg:$typeStr</v8:TypeSet>"
 		return
 	}
 
@@ -826,6 +825,7 @@ function Parse-AttributeShorthand {
 		mask = if ($val.mask) { "$($val.mask)" } else { "" }
 		hasFillValue = ($val.PSObject -and $val.PSObject.Properties -and ($val.PSObject.Properties.Name -contains 'fillValue'))
 		fillValue = $val.fillValue
+		linkByType = $val.linkByType
 	}
 }
 
@@ -1136,6 +1136,24 @@ $script:reservedByContext = @{
 	"document" = @("Ref","DeletionMark","Date","Number","Posted")
 }
 
+# <LinkByType> (связь по типу — тип значения реквизита-Характеристики определяется другим реквизитом).
+# Структура как <TypeLink> формы: DataPath + LinkItem. DSL `linkByType`: {dataPath, linkItem?} ИЛИ строка-путь.
+# Нет ключа → <LinkByType/> (пусто).
+function Emit-LinkByType {
+	param([string]$indent, $spec)
+	if (-not $spec) { X "$indent<LinkByType/>"; return }
+	if ($spec -is [string]) { $dp = "$spec"; $li = 0 }
+	else {
+		$dp = if ($spec.dataPath) { "$($spec.dataPath)" } elseif ($spec.path) { "$($spec.path)" } elseif ($spec.путь) { "$($spec.путь)" } else { "" }
+		$li = if ($null -ne $spec.linkItem) { $spec.linkItem } elseif ($null -ne $spec.элементСвязи) { $spec.элементСвязи } else { 0 }
+	}
+	if (-not $dp) { X "$indent<LinkByType/>"; return }
+	X "$indent<LinkByType>"
+	X "$indent`t<xr:DataPath>$(Esc-Xml "$dp")</xr:DataPath>"
+	X "$indent`t<xr:LinkItem>$li</xr:LinkItem>"
+	X "$indent</LinkByType>"
+}
+
 function Emit-Attribute {
 	param([string]$indent, $parsed, [string]$context)
 	# $context: "catalog", "document", "object", "processor", "tabular", "processor-tabular", "register"
@@ -1210,7 +1228,7 @@ function Emit-Attribute {
 	$coi = if ($parsed.createOnInput) { $parsed.createOnInput } else { "Auto" }
 	X "$indent`t`t<CreateOnInput>$coi</CreateOnInput>"
 	X "$indent`t`t<ChoiceForm/>"
-	X "$indent`t`t<LinkByType/>"
+	Emit-LinkByType "$indent`t`t" $parsed.linkByType
 	$chi = if ($parsed.choiceHistoryOnInput) { $parsed.choiceHistoryOnInput } else { "Auto" }
 	X "$indent`t`t<ChoiceHistoryOnInput>$chi</ChoiceHistoryOnInput>"
 

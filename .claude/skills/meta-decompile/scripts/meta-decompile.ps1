@@ -1,4 +1,4 @@
-﻿# meta-decompile v0.13 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
+﻿# meta-decompile v0.14 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 #
 # Пилот: только Catalog. Инверс meta-compile (omit-on-default: ключ эмитим только
@@ -248,6 +248,18 @@ function Attr-ToDsl {
 			$extra['fillValue'] = $fvText
 		} elseif ($xsiT -match 'DesignTimeRef$') {
 			$extra['fillValue'] = $fvText
+		}
+	}
+
+	# LinkByType (связь по типу): DataPath + LinkItem. Пусто → пропускаем. linkItem=0 → компактно строкой.
+	$lbtNode = $ap.SelectSingleNode('md:LinkByType', $nsm)
+	if ($lbtNode) {
+		$dpN = $lbtNode.SelectSingleNode('xr:DataPath', $nsm)
+		if ($dpN -and $dpN.InnerText) {
+			$liN = $lbtNode.SelectSingleNode('xr:LinkItem', $nsm)
+			$li = if ($liN -and $liN.InnerText) { [int]$liN.InnerText } else { 0 }
+			if ($li -eq 0) { $extra['linkByType'] = $dpN.InnerText }
+			else { $extra['linkByType'] = [ordered]@{ dataPath = $dpN.InnerText; linkItem = $li } }
 		}
 	}
 

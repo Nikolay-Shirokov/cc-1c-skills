@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-compile v1.20 — Compile 1C metadata object from JSON
+# meta-compile v1.21 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -596,11 +596,9 @@ def emit_type_content(indent, type_str):
         X(f'{indent}\t<v8:DateFractions>DateTime</v8:DateFractions>')
         X(f'{indent}</v8:DateQualifiers>')
         return
-    # DefinedType
-    m = re.match(r'^DefinedType\.(.+)$', type_str)
-    if m:
-        dt_name = m.group(1)
-        X(f'{indent}<v8:TypeSet>cfg:DefinedType.{dt_name}</v8:TypeSet>')
+    # TypeSet — тип-множество: ОпределяемыйТип (DefinedType) ИЛИ Характеристика ПВХ (Characteristic).
+    if re.match(r'^(DefinedType|Characteristic)\.(.+)$', type_str):
+        X(f'{indent}<v8:TypeSet>cfg:{type_str}</v8:TypeSet>')
         return
     # ValueStorage (ХранилищеЗначения) — канон v8:ValueStorage (не xs:base64Binary).
     if type_str == 'ValueStorage':
@@ -851,6 +849,7 @@ def parse_attribute_shorthand(val):
         'mask': str(val['mask']) if val.get('mask') else '',
         'hasFillValue': ('fillValue' in val),
         'fillValue': val.get('fillValue'),
+        'linkByType': val.get('linkByType'),
     }
 
 def parse_enum_value_shorthand(val):
@@ -1179,6 +1178,28 @@ RESERVED_BY_CONTEXT = {
     },
 }
 
+def emit_link_by_type(indent, spec):
+    """<LinkByType> (связь по типу): DataPath + LinkItem. spec — {dataPath, linkItem?} или строка-путь; нет → <LinkByType/>."""
+    if not spec:
+        X(f'{indent}<LinkByType/>')
+        return
+    if isinstance(spec, str):
+        dp, li = spec, 0
+    else:
+        dp = str(spec.get('dataPath') or spec.get('path') or spec.get('путь') or '')
+        li = spec.get('linkItem')
+        if li is None:
+            li = spec.get('элементСвязи')
+        if li is None:
+            li = 0
+    if not dp:
+        X(f'{indent}<LinkByType/>')
+        return
+    X(f'{indent}<LinkByType>')
+    X(f'{indent}\t<xr:DataPath>{esc_xml(str(dp))}</xr:DataPath>')
+    X(f'{indent}\t<xr:LinkItem>{li}</xr:LinkItem>')
+    X(f'{indent}</LinkByType>')
+
 def emit_attribute(indent, parsed, context):
     attr_name = parsed['name']
     ctx_reserved = RESERVED_BY_CONTEXT.get(context)
@@ -1238,7 +1259,7 @@ def emit_attribute(indent, parsed, context):
     X(f'{indent}\t\t<QuickChoice>{parsed.get("quickChoice") or "Auto"}</QuickChoice>')
     X(f'{indent}\t\t<CreateOnInput>{parsed.get("createOnInput") or "Auto"}</CreateOnInput>')
     X(f'{indent}\t\t<ChoiceForm/>')
-    X(f'{indent}\t\t<LinkByType/>')
+    emit_link_by_type(f'{indent}\t\t', parsed.get('linkByType'))
     chi = parsed.get('choiceHistoryOnInput') or 'Auto'
     X(f'{indent}\t\t<ChoiceHistoryOnInput>{chi}</ChoiceHistoryOnInput>')
     if context == 'catalog':
