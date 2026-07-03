@@ -1068,6 +1068,42 @@ function Emit-Attribute {
 	X "$indent</Attribute>"
 }
 
+# --- 8b. Command emitter ---
+# $cmd — объект свойств команды. Поля (omit-on-default): synonym/tooltip (ML), comment, group,
+# commandParameterType (тип), parameterUseMode (Single), modifiesData (false), representation (Auto),
+# picture, shortcut, onMainServerUnavalableBehavior (Auto).
+function Emit-Command {
+	param([string]$indent, [string]$cmdName, $cmd)
+	X "$indent<Command uuid=`"$(New-Guid-String)`">"
+	X "$indent`t<Properties>"
+	X "$indent`t`t<Name>$(Esc-Xml $cmdName)</Name>"
+	$syn = if ($null -ne $cmd.synonym) { $cmd.synonym } else { Split-CamelCase $cmdName }
+	Emit-MLText "$indent`t`t" "Synonym" $syn
+	if ($cmd.comment) { X "$indent`t`t<Comment>$(Esc-XmlText "$($cmd.comment)")</Comment>" } else { X "$indent`t`t<Comment/>" }
+	$group = if ($cmd.group) { "$($cmd.group)" } else { "" }
+	X "$indent`t`t<Group>$group</Group>"
+	if ($cmd.commandParameterType) {
+		X "$indent`t`t<CommandParameterType>"
+		Emit-TypeContent "$indent`t`t`t" "$($cmd.commandParameterType)"
+		X "$indent`t`t</CommandParameterType>"
+	} else {
+		X "$indent`t`t<CommandParameterType/>"
+	}
+	$pum = if ($cmd.parameterUseMode) { "$($cmd.parameterUseMode)" } else { "Single" }
+	X "$indent`t`t<ParameterUseMode>$pum</ParameterUseMode>"
+	$md = if ($cmd.modifiesData -eq $true) { "true" } else { "false" }
+	X "$indent`t`t<ModifiesData>$md</ModifiesData>"
+	$rep = if ($cmd.representation) { "$($cmd.representation)" } else { "Auto" }
+	X "$indent`t`t<Representation>$rep</Representation>"
+	Emit-MLText "$indent`t`t" "ToolTip" $cmd.tooltip
+	if ($cmd.picture) { X "$indent`t`t<Picture>$(Esc-Xml "$($cmd.picture)")</Picture>" } else { X "$indent`t`t<Picture/>" }
+	if ($cmd.shortcut) { X "$indent`t`t<Shortcut>$(Esc-Xml "$($cmd.shortcut)")</Shortcut>" } else { X "$indent`t`t<Shortcut/>" }
+	$osu = if ($cmd.onMainServerUnavalableBehavior) { "$($cmd.onMainServerUnavalableBehavior)" } else { "Auto" }
+	X "$indent`t`t<OnMainServerUnavalableBehavior>$osu</OnMainServerUnavalableBehavior>"
+	X "$indent`t</Properties>"
+	X "$indent</Command>"
+}
+
 # --- 9. TabularSection emitter ---
 
 function Emit-TabularSection {
@@ -2903,7 +2939,16 @@ if ($objType -in $typesWithAttrTS) {
 		$addrAttrs = @($def.addressingAttributes)
 	}
 
-	$childCount = $attrs.Count + $tsSections.Count + $acctFlags.Count + $extDimFlags.Count + $addrAttrs.Count
+	# Commands (map имя→объект ИЛИ array [{name,...}]) — генерируем блок + CommandModule.bsl-заготовку.
+	$commands = @()
+	if ($def.commands) {
+		if ($def.commands -is [array] -or $def.commands.GetType().Name -eq 'Object[]') {
+			foreach ($c in $def.commands) { $commands += @{ name = "$($c.name)"; def = $c } }
+		} else {
+			$def.commands.PSObject.Properties | ForEach-Object { $commands += @{ name = $_.Name; def = $_.Value } }
+		}
+	}
+	$childCount = $attrs.Count + $tsSections.Count + $acctFlags.Count + $extDimFlags.Count + $addrAttrs.Count + $commands.Count
 	if ($childCount -gt 0) {
 		$hasChildren = $true
 		X "`t`t<ChildObjects>"
@@ -2931,6 +2976,9 @@ if ($objType -in $typesWithAttrTS) {
 		}
 		foreach ($aa in $addrAttrs) {
 			Emit-AddressingAttribute "`t`t`t" $aa
+		}
+		foreach ($cmd in $commands) {
+			Emit-Command "`t`t`t" $cmd.name $cmd.def
 		}
 		X "`t`t</ChildObjects>"
 	} else {
@@ -3264,6 +3312,18 @@ if ($objType -eq "Catalog" -and $def.predefined -and @($def.predefined).Count -g
 	$predefPath = Join-Path $extDir "Predefined.xml"
 	[System.IO.File]::WriteAllText($predefPath, $predefXml, $enc)
 	$modulesCreated += $predefPath
+}
+
+# Модули команд (Commands/<Имя>/Ext/CommandModule.bsl) — заготовка обработчика.
+if ($commands -and $commands.Count -gt 0) {
+	$cmdModuleStub = "&НаКлиенте`r`nПроцедура ОбработкаКоманды(ПараметрКоманды, ПараметрыВыполненияКоманды)`r`n`r`n`t// Вставьте обработчик команды.`r`n`r`nКонецПроцедуры`r`n"
+	foreach ($cmd in $commands) {
+		$cmdDir = Join-Path (Join-Path (Join-Path $objSubDir "Commands") $cmd.name) "Ext"
+		if (-not (Test-Path $cmdDir)) { New-Item -ItemType Directory -Path $cmdDir -Force | Out-Null }
+		$cmdModPath = Join-Path $cmdDir "CommandModule.bsl"
+		[System.IO.File]::WriteAllText($cmdModPath, $cmdModuleStub, $enc)
+		$modulesCreated += $cmdModPath
+	}
 }
 
 # --- 17. Register in Configuration.xml ---

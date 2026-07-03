@@ -1,4 +1,4 @@
-﻿# meta-decompile v0.10 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
+﻿# meta-decompile v0.11 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 #
 # Пилот: только Catalog. Инверс meta-compile (omit-on-default: ключ эмитим только
@@ -356,6 +356,32 @@ if ($childObjs) {
 			}
 		}
 		$dsl['tabularSections'] = $tsMap
+	}
+	# --- Commands (полноблочные <Command> в ChildObjects) → DSL commands (map имя→объект, omit-on-default).
+	# Тела модулей команд (CommandModule.bsl) — вне скоупа (как ObjectModule). ---
+	$cmdNodes = @($childObjs.SelectNodes('md:Command', $nsm))
+	if ($cmdNodes.Count -gt 0) {
+		$cmdMap = [ordered]@{}
+		foreach ($cm in $cmdNodes) {
+			$cp = $cm.SelectSingleNode('md:Properties', $nsm)
+			$cn = ($cp.SelectSingleNode('md:Name', $nsm)).InnerText
+			$o = [ordered]@{}
+			$syn = Get-MLValue ($cp.SelectSingleNode('md:Synonym', $nsm))
+			if ($syn -is [string]) { if ($syn -ne (Split-CamelWords $cn)) { $o['synonym'] = $syn } }
+			elseif ($null -ne $syn) { $o['synonym'] = $syn }
+			$cmtN = $cp.SelectSingleNode('md:Comment', $nsm); if ($cmtN -and $cmtN.InnerText) { $o['comment'] = $cmtN.InnerText }
+			$grpN = $cp.SelectSingleNode('md:Group', $nsm); if ($grpN -and $grpN.InnerText) { $o['group'] = $grpN.InnerText }
+			$cpt = Get-TypeShorthand ($cp.SelectSingleNode('md:CommandParameterType', $nsm)); if ($cpt) { $o['commandParameterType'] = $cpt }
+			$pumN = $cp.SelectSingleNode('md:ParameterUseMode', $nsm); if ($pumN -and $pumN.InnerText -ne 'Single') { $o['parameterUseMode'] = $pumN.InnerText }
+			$mdN = $cp.SelectSingleNode('md:ModifiesData', $nsm); if ($mdN -and $mdN.InnerText -eq 'true') { $o['modifiesData'] = $true }
+			$repN = $cp.SelectSingleNode('md:Representation', $nsm); if ($repN -and $repN.InnerText -ne 'Auto') { $o['representation'] = $repN.InnerText }
+			$ctt = Get-MLValue ($cp.SelectSingleNode('md:ToolTip', $nsm)); if ($null -ne $ctt) { $o['tooltip'] = $ctt }
+			$picN = $cp.SelectSingleNode('md:Picture', $nsm); if ($picN -and $picN.InnerText) { $o['picture'] = $picN.InnerText }
+			$scN = $cp.SelectSingleNode('md:Shortcut', $nsm); if ($scN -and $scN.InnerText) { $o['shortcut'] = $scN.InnerText }
+			$osuN = $cp.SelectSingleNode('md:OnMainServerUnavalableBehavior', $nsm); if ($osuN -and $osuN.InnerText -ne 'Auto') { $o['onMainServerUnavalableBehavior'] = $osuN.InnerText }
+			$cmdMap[$cn] = $o
+		}
+		$dsl['commands'] = $cmdMap
 	}
 }
 

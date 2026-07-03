@@ -1,0 +1,20 @@
+{
+  "name": "Справочник с командой",
+  "input": {
+    "type": "Catalog", "name": "Номенклатура",
+    "commands": {
+      "ПечатьЭтикеток": {
+        "synonym": { "ru": "Печать этикеток", "en": "Print labels" },
+        "group": "FormCommandBarImportant",
+        "commandParameterType": "CatalogRef.Номенклатура",
+        "parameterUseMode": "Multiple",
+        "modifiesData": true,
+        "tooltip": "Печать этикеток для выбранных товаров"
+      }
+    }
+  },
+  "validatePath": "Catalogs/Номенклатура",
+  "expect": {
+    "files": ["Catalogs/Номенклатура.xml", "Catalogs/Номенклатура/Commands/ПечатьЭтикеток/Ext/CommandModule.bsl"]
+  }
+}

@@ -1061,6 +1061,39 @@ def emit_attribute(indent, parsed, context):
 # 9. TabularSection emitter
 # ---------------------------------------------------------------------------
 
+def emit_command(indent, cmd_name, cmd):
+    X(f'{indent}<Command uuid="{new_uuid()}">')
+    X(f'{indent}\t<Properties>')
+    X(f'{indent}\t\t<Name>{esc_xml(cmd_name)}</Name>')
+    syn = cmd['synonym'] if cmd.get('synonym') is not None else split_camel_case(cmd_name)
+    emit_mltext(f'{indent}\t\t', 'Synonym', syn)
+    if cmd.get('comment'):
+        X(f'{indent}\t\t<Comment>{esc_xml_text(str(cmd["comment"]))}</Comment>')
+    else:
+        X(f'{indent}\t\t<Comment/>')
+    X(f'{indent}\t\t<Group>{cmd.get("group") or ""}</Group>')
+    if cmd.get('commandParameterType'):
+        X(f'{indent}\t\t<CommandParameterType>')
+        emit_type_content(f'{indent}\t\t\t', str(cmd['commandParameterType']))
+        X(f'{indent}\t\t</CommandParameterType>')
+    else:
+        X(f'{indent}\t\t<CommandParameterType/>')
+    X(f'{indent}\t\t<ParameterUseMode>{cmd.get("parameterUseMode") or "Single"}</ParameterUseMode>')
+    X(f'{indent}\t\t<ModifiesData>{"true" if cmd.get("modifiesData") is True else "false"}</ModifiesData>')
+    X(f'{indent}\t\t<Representation>{cmd.get("representation") or "Auto"}</Representation>')
+    emit_mltext(f'{indent}\t\t', 'ToolTip', cmd.get('tooltip'))
+    if cmd.get('picture'):
+        X(f'{indent}\t\t<Picture>{esc_xml(str(cmd["picture"]))}</Picture>')
+    else:
+        X(f'{indent}\t\t<Picture/>')
+    if cmd.get('shortcut'):
+        X(f'{indent}\t\t<Shortcut>{esc_xml(str(cmd["shortcut"]))}</Shortcut>')
+    else:
+        X(f'{indent}\t\t<Shortcut/>')
+    X(f'{indent}\t\t<OnMainServerUnavalableBehavior>{cmd.get("onMainServerUnavalableBehavior") or "Auto"}</OnMainServerUnavalableBehavior>')
+    X(f'{indent}\t</Properties>')
+    X(f'{indent}</Command>')
+
 def emit_tabular_section(indent, ts_name, columns, object_type, object_name, ts_synonym_arg=None, ts_tooltip=None, ts_comment=None):
     uid = new_uuid()
     X(f'{indent}<TabularSection uuid="{uid}">')
@@ -2579,6 +2612,7 @@ types_with_attr_ts = [
     'BusinessProcess', 'Task',
 ]
 
+commands = []   # заполняется внутри блока types_with_attr_ts; на уровне модуля для записи модулей команд
 if obj_type in types_with_attr_ts:
     def _as_list(val):
         """Normalize attributes: dict {"K":"V"} → ["K:V"], list/other → list."""
@@ -2623,7 +2657,17 @@ if obj_type in types_with_attr_ts:
     addr_attrs = []
     if obj_type == 'Task' and defn.get('addressingAttributes'):
         addr_attrs = _as_list(defn['addressingAttributes'])
-    child_count = len(attrs) + len(ts_sections) + len(acct_flags) + len(ext_dim_flags) + len(addr_attrs)
+    # Commands (map имя→объект ИЛИ array [{name,...}])
+    commands = []
+    if defn.get('commands'):
+        cd = defn['commands']
+        if isinstance(cd, list):
+            for c in cd:
+                commands.append({'name': str(c.get('name', '')), 'def': c})
+        else:
+            for k, v in cd.items():
+                commands.append({'name': k, 'def': v})
+    child_count = len(attrs) + len(ts_sections) + len(acct_flags) + len(ext_dim_flags) + len(addr_attrs) + len(commands)
     if child_count > 0:
         has_children = True
         X('\t\t<ChildObjects>')
@@ -2650,6 +2694,8 @@ if obj_type in types_with_attr_ts:
             emit_ext_dimension_accounting_flag('\t\t\t', edf_name)
         for aa in addr_attrs:
             emit_addressing_attribute('\t\t\t', aa)
+        for cmd in commands:
+            emit_command('\t\t\t', cmd['name'], cmd['def'])
         X('\t\t</ChildObjects>')
     else:
         X('\t\t<ChildObjects/>')
@@ -2934,6 +2980,16 @@ if obj_type == 'Catalog' and defn.get('predefined'):
     predef_path = os.path.join(ext_dir, 'Predefined.xml')
     write_utf8_bom(predef_path, predef_xml)
     modules_created.append(predef_path)
+
+# Модули команд (Commands/<Имя>/Ext/CommandModule.bsl) — заготовка обработчика.
+if commands:
+    cmd_module_stub = '&НаКлиенте\r\nПроцедура ОбработкаКоманды(ПараметрКоманды, ПараметрыВыполненияКоманды)\r\n\r\n\t// Вставьте обработчик команды.\r\n\r\nКонецПроцедуры\r\n'
+    for cmd in commands:
+        cmd_dir = os.path.join(obj_sub_dir, 'Commands', cmd['name'], 'Ext')
+        os.makedirs(cmd_dir, exist_ok=True)
+        cmd_mod_path = os.path.join(cmd_dir, 'CommandModule.bsl')
+        write_utf8_bom(cmd_mod_path, cmd_module_stub)
+        modules_created.append(cmd_mod_path)
 
 # ---------------------------------------------------------------------------
 # 17. Register in Configuration.xml
