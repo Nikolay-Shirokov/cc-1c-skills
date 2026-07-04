@@ -1,4 +1,4 @@
-﻿# meta-decompile v0.17 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
+﻿# meta-decompile v0.18 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 #
 # Пилот: только Catalog. Инверс meta-compile (omit-on-default: ключ эмитим только
@@ -209,6 +209,41 @@ function Get-ChoiceParamValue {
 	return Convert-ChScalarNode $valNode
 }
 
+# <ChoiceParameterLinks> → [{name,dataPath,valueChange?}] | строки "name=dataPath". $tag: 'md:...' (реквизит) | 'xr:...' (станд.).
+function Parse-ChoiceParameterLinks {
+	param($parent, [string]$tag)
+	$node = $parent.SelectSingleNode($tag, $nsm)
+	if (-not $node) { return $null }
+	$links = @($node.SelectNodes('xr:Link', $nsm))
+	if ($links.Count -eq 0) { return $null }
+	$arr = [System.Collections.ArrayList]@()
+	foreach ($lk in $links) {
+		$lName = $lk.SelectSingleNode('xr:Name', $nsm).InnerText
+		$lDp = $lk.SelectSingleNode('xr:DataPath', $nsm).InnerText
+		$vcN = $lk.SelectSingleNode('xr:ValueChange', $nsm); $vcv = if ($vcN) { $vcN.InnerText } else { 'Clear' }
+		if ($vcv -eq 'Clear') { [void]$arr.Add("$lName=$lDp") }
+		else { [void]$arr.Add([ordered]@{ name = $lName; dataPath = $lDp; valueChange = $vcv }) }
+	}
+	return $arr
+}
+# <ChoiceParameters> → [{name,value?}]. $tag: 'md:...' | 'xr:...'.
+function Parse-ChoiceParameters {
+	param($parent, [string]$tag)
+	$node = $parent.SelectSingleNode($tag, $nsm)
+	if (-not $node) { return $null }
+	$items = @($node.SelectNodes('app:item', $nsm))
+	if ($items.Count -eq 0) { return $null }
+	$arr = [System.Collections.ArrayList]@()
+	foreach ($it in $items) {
+		$pName = $it.GetAttribute('name')
+		$valN = $it.SelectSingleNode('app:value', $nsm)
+		$nilAttr = if ($valN) { $valN.GetAttribute('nil', 'http://www.w3.org/2001/XMLSchema-instance') } else { '' }
+		if (-not $valN -or $nilAttr -eq 'true') { [void]$arr.Add([ordered]@{ name = $pName }) }
+		else { $o = [ordered]@{ name = $pName }; $o['value'] = Get-ChoiceParamValue $valN; [void]$arr.Add($o) }
+	}
+	return $arr
+}
+
 # --- Реквизит → DSL: shorthand-строка "Имя: Тип | флаги" ЛИБО object-форма при кастомном синониме.
 # (Синоним ≠ авто → object {name, type, synonym, [flags]}; иначе компактный shorthand.) ---
 function Attr-ToDsl {
@@ -289,45 +324,8 @@ function Attr-ToDsl {
 		}
 	}
 
-	# ChoiceParameterLinks — [{name, dataPath, valueChange?}]. valueChange=Clear → компактно строкой "name=dataPath".
-	$cplNode = $ap.SelectSingleNode('md:ChoiceParameterLinks', $nsm)
-	if ($cplNode) {
-		$links = @($cplNode.SelectNodes('xr:Link', $nsm))
-		if ($links.Count -gt 0) {
-			$arr = [System.Collections.ArrayList]@()
-			foreach ($lk in $links) {
-				$lName = $lk.SelectSingleNode('xr:Name', $nsm).InnerText
-				$lDp = $lk.SelectSingleNode('xr:DataPath', $nsm).InnerText
-				$vcN = $lk.SelectSingleNode('xr:ValueChange', $nsm)
-				$vcv = if ($vcN) { $vcN.InnerText } else { 'Clear' }
-				if ($vcv -eq 'Clear') { [void]$arr.Add("$lName=$lDp") }
-				else { [void]$arr.Add([ordered]@{ name = $lName; dataPath = $lDp; valueChange = $vcv }) }
-			}
-			$extra['choiceParameterLinks'] = $arr
-		}
-	}
-
-	# ChoiceParameters — [{name, value?}]. app:value nil → без value; иначе типизированное значение.
-	$cpNode = $ap.SelectSingleNode('md:ChoiceParameters', $nsm)
-	if ($cpNode) {
-		$items = @($cpNode.SelectNodes('app:item', $nsm))
-		if ($items.Count -gt 0) {
-			$arr = [System.Collections.ArrayList]@()
-			foreach ($it in $items) {
-				$pName = $it.GetAttribute('name')
-				$valN = $it.SelectSingleNode('app:value', $nsm)
-				$nilAttr = if ($valN) { $valN.GetAttribute('nil', 'http://www.w3.org/2001/XMLSchema-instance') } else { '' }
-				if (-not $valN -or $nilAttr -eq 'true') {
-					[void]$arr.Add([ordered]@{ name = $pName })
-				} else {
-					$o = [ordered]@{ name = $pName }
-					$o['value'] = Get-ChoiceParamValue $valN
-					[void]$arr.Add($o)
-				}
-			}
-			$extra['choiceParameters'] = $arr
-		}
-	}
+	$cplArr = Parse-ChoiceParameterLinks $ap 'md:ChoiceParameterLinks'; if ($null -ne $cplArr) { $extra['choiceParameterLinks'] = $cplArr }
+	$cpArr = Parse-ChoiceParameters $ap 'md:ChoiceParameters'; if ($null -ne $cpArr) { $extra['choiceParameters'] = $cpArr }
 
 	if ($synCustom -or ($null -ne $ttVal) -or $extra.Count -gt 0) {
 		$o = [ordered]@{ name = $nm }
@@ -487,6 +485,14 @@ if ($saNode) {
 		# FullTextSearch / DataHistory (профиль = Use)
 		$ftsN = $sa.SelectSingleNode('xr:FullTextSearch', $nsm); if ($ftsN -and $ftsN.InnerText -ne 'Use') { $ov['fullTextSearch'] = $ftsN.InnerText }
 		$dhN = $sa.SelectSingleNode('xr:DataHistory', $nsm); if ($dhN -and $dhN.InnerText -ne 'Use') { $ov['dataHistory'] = $dhN.InnerText }
+		# FillValue (дефолт nil) — DTR-путь/строка/bool. Comment/Mask/ChoiceForm (дефолт пусто).
+		$fvN = $sa.SelectSingleNode('xr:FillValue', $nsm)
+		if ($fvN -and $fvN.GetAttribute('nil', 'http://www.w3.org/2001/XMLSchema-instance') -ne 'true') { $ov['fillValue'] = Convert-ChScalarNode $fvN }
+		$saCmt = $sa.SelectSingleNode('xr:Comment', $nsm); if ($saCmt -and $saCmt.InnerText) { $ov['comment'] = $saCmt.InnerText }
+		$saMsk = $sa.SelectSingleNode('xr:Mask', $nsm); if ($saMsk -and $saMsk.InnerText) { $ov['mask'] = $saMsk.InnerText }
+		$saCf = $sa.SelectSingleNode('xr:ChoiceForm', $nsm); if ($saCf -and $saCf.InnerText) { $ov['choiceForm'] = $saCf.InnerText }
+		$saCpl = Parse-ChoiceParameterLinks $sa 'xr:ChoiceParameterLinks'; if ($null -ne $saCpl) { $ov['choiceParameterLinks'] = $saCpl }
+		$saCp = Parse-ChoiceParameters $sa 'xr:ChoiceParameters'; if ($null -ne $saCp) { $ov['choiceParameters'] = $saCp }
 		if ($ov.Count -gt 0) { $saMap[$an] = $ov }
 	}
 	$dsl['standardAttributes'] = $saMap   # даже пустой = блок есть (чистый профиль)

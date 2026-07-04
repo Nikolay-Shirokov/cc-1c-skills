@@ -1,0 +1,20 @@
+{
+  "name": "Кастомизация стандартных реквизитов (FillValue/ChoiceParameterLinks/Comment/Mask)",
+  "input": {
+    "type": "Catalog",
+    "name": "Договоры",
+    "owners": ["Catalog.Контрагенты"],
+    "standardAttributes": {
+      "Owner": {
+        "choiceParameterLinks": [ { "name": "Отбор.Владелец", "dataPath": "Ссылка", "valueChange": "Clear" } ],
+        "choiceParameters": [ { "name": "Отбор.ЭтоГруппа", "value": false } ]
+      },
+      "Code": { "fillValue": "0000000000", "comment": "префикс кода", "mask": "!9999999999" },
+      "Description": { "fillValue": "Catalog.Контрагенты.EmptyRef" }
+    }
+  },
+  "validatePath": "Catalogs/Договоры",
+  "expect": {
+    "files": ["Catalogs/Договоры.xml"]
+  }
+}

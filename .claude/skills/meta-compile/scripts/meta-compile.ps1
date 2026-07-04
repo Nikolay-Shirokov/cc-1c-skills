@@ -1,4 +1,4 @@
-﻿# meta-compile v1.26 — Compile 1C metadata object from JSON
+﻿# meta-compile v1.27 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -1045,6 +1045,9 @@ function Emit-StandardAttribute {
 	$fts = OvOr 'FullTextSearch' 'Use'
 	$syn = OvOr 'Synonym' ''
 	$tt  = OvOr 'ToolTip' ''
+	$cf  = OvOr 'ChoiceForm' ''
+	$cmt = OvOr 'Comment' ''
+	$msk = OvOr 'Mask' ''
 	X "$indent<xr:StandardAttribute name=`"$attrName`">"
 	X "$indent`t<xr:LinkByType/>"
 	X "$indent`t<xr:FillChecking>$fc</xr:FillChecking>"
@@ -1055,7 +1058,7 @@ function Emit-StandardAttribute {
 	Emit-MLText "$indent`t" "xr:ToolTip" $tt
 	X "$indent`t<xr:ExtendedEdit>false</xr:ExtendedEdit>"
 	X "$indent`t<xr:Format/>"
-	X "$indent`t<xr:ChoiceForm/>"
+	if ($cf) { X "$indent`t<xr:ChoiceForm>$(Esc-Xml "$cf")</xr:ChoiceForm>" } else { X "$indent`t<xr:ChoiceForm/>" }
 	X "$indent`t<xr:QuickChoice>Auto</xr:QuickChoice>"
 	X "$indent`t<xr:ChoiceHistoryOnInput>Auto</xr:ChoiceHistoryOnInput>"
 	X "$indent`t<xr:EditFormat/>"
@@ -1064,12 +1067,19 @@ function Emit-StandardAttribute {
 	X "$indent`t<xr:MarkNegatives>false</xr:MarkNegatives>"
 	X "$indent`t<xr:MinValue xsi:nil=`"true`"/>"
 	Emit-MLText "$indent`t" "xr:Synonym" $syn
-	X "$indent`t<xr:Comment/>"
+	if ($cmt) { X "$indent`t<xr:Comment>$(Esc-XmlText "$cmt")</xr:Comment>" } else { X "$indent`t<xr:Comment/>" }
 	X "$indent`t<xr:FullTextSearch>$fts</xr:FullTextSearch>"
-	X "$indent`t<xr:ChoiceParameterLinks/>"
-	X "$indent`t<xr:FillValue xsi:nil=`"true`"/>"
-	X "$indent`t<xr:Mask/>"
-	X "$indent`t<xr:ChoiceParameters/>"
+	Emit-ChoiceParameterLinks "$indent`t" (OvOr 'ChoiceParameterLinks' $null) 'xr:ChoiceParameterLinks'
+	# FillValue: дефолт nil; override-значение → типизированное (Normalize-ChoiceValue: DTR-путь/строка/bool).
+	$fvRaw = OvOr 'FillValue' $null
+	if ($null -eq $fvRaw) { X "$indent`t<xr:FillValue xsi:nil=`"true`"/>" }
+	else {
+		$fvN = Normalize-ChoiceValue $fvRaw
+		if ([string]::IsNullOrEmpty($fvN.Text)) { X "$indent`t<xr:FillValue xsi:type=`"$($fvN.XsiType)`"/>" }
+		else { X "$indent`t<xr:FillValue xsi:type=`"$($fvN.XsiType)`">$(Esc-Xml $fvN.Text)</xr:FillValue>" }
+	}
+	if ($msk) { X "$indent`t<xr:Mask>$(Esc-XmlText "$msk")</xr:Mask>" } else { X "$indent`t<xr:Mask/>" }
+	Emit-ChoiceParameters "$indent`t" (OvOr 'ChoiceParameters' $null) 'xr:ChoiceParameters'
 	X "$indent</xr:StandardAttribute>"
 }
 
@@ -1101,6 +1111,12 @@ function Emit-StandardAttributes {
 				if ($null -ne $d.fillFromFillingValue) { $ov['FillFromFillingValue'] = if ($d.fillFromFillingValue) { 'true' } else { 'false' } }
 				if ($d.fullTextSearch) { $ov['FullTextSearch'] = "$($d.fullTextSearch)" }
 				if ($d.dataHistory) { $ov['DataHistory'] = "$($d.dataHistory)" }
+				if ($null -ne $d.fillValue) { $ov['FillValue'] = $d.fillValue }   # DTR-путь/строка/bool
+				if ($null -ne $d.choiceParameterLinks) { $ov['ChoiceParameterLinks'] = $d.choiceParameterLinks }
+				if ($null -ne $d.choiceParameters) { $ov['ChoiceParameters'] = $d.choiceParameters }
+				if ($d.comment) { $ov['Comment'] = "$($d.comment)" }
+				if ($d.mask) { $ov['Mask'] = "$($d.mask)" }
+				if ($d.choiceForm) { $ov['ChoiceForm'] = "$($d.choiceForm)" }
 			}
 		}
 		Emit-StandardAttribute "$indent`t" $a $ov
@@ -1274,9 +1290,9 @@ function ConvertFrom-ChLinkShorthand {
 # <ChoiceParameters> — [{name, value?}]. Значение ПРЯМО на app:value (xsi:type=тип); массив → v8:FixedArray
 # с детьми v8:Value; без value → app:value nil.
 function Emit-ChoiceParameters {
-	param([string]$indent, $cp)
-	if (-not $cp -or @($cp).Count -eq 0) { X "$indent<ChoiceParameters/>"; return }
-	X "$indent<ChoiceParameters>"
+	param([string]$indent, $cp, [string]$tag = 'ChoiceParameters')
+	if (-not $cp -or @($cp).Count -eq 0) { X "$indent<$tag/>"; return }
+	X "$indent<$tag>"
 	foreach ($item in @($cp)) {
 		if ($item -is [string]) { $item = ConvertFrom-ChParamShorthand $item }
 		$name = Get-ChElProp $item @('name','имя')
@@ -1308,14 +1324,14 @@ function Emit-ChoiceParameters {
 		}
 		X "$indent`t</app:item>"
 	}
-	X "$indent</ChoiceParameters>"
+	X "$indent</$tag>"
 }
 
 # <ChoiceParameterLinks> — [{name, dataPath, valueChange?}]. valueChange дефолт Clear.
 function Emit-ChoiceParameterLinks {
-	param([string]$indent, $cpl)
-	if (-not $cpl -or @($cpl).Count -eq 0) { X "$indent<ChoiceParameterLinks/>"; return }
-	X "$indent<ChoiceParameterLinks>"
+	param([string]$indent, $cpl, [string]$tag = 'ChoiceParameterLinks')
+	if (-not $cpl -or @($cpl).Count -eq 0) { X "$indent<$tag/>"; return }
+	X "$indent<$tag>"
 	foreach ($lk in @($cpl)) {
 		if ($lk -is [string]) { $lk = ConvertFrom-ChLinkShorthand $lk }
 		$name = Get-ChElProp $lk @('name','имя')
@@ -1335,7 +1351,7 @@ function Emit-ChoiceParameterLinks {
 		X "$indent`t`t<xr:ValueChange>$vc</xr:ValueChange>"
 		X "$indent`t</xr:Link>"
 	}
-	X "$indent</ChoiceParameterLinks>"
+	X "$indent</$tag>"
 }
 
 # --- Characteristics (привязка ПВХ «Дополнительные реквизиты и сведения») ---

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-compile v1.26 — Compile 1C metadata object from JSON
+# meta-compile v1.27 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -1057,6 +1057,9 @@ def emit_standard_attribute(indent, attr_name, ov=None):
     fts = ov.get('FullTextSearch', 'Use')
     syn = ov.get('Synonym', '')
     tt = ov.get('ToolTip', '')
+    cf = ov.get('ChoiceForm', '')
+    cmt = ov.get('Comment', '')
+    msk = ov.get('Mask', '')
     X(f'{indent}<xr:StandardAttribute name="{attr_name}">')
     X(f'{indent}\t<xr:LinkByType/>')
     X(f'{indent}\t<xr:FillChecking>{fc}</xr:FillChecking>')
@@ -1067,7 +1070,10 @@ def emit_standard_attribute(indent, attr_name, ov=None):
     emit_mltext(f'{indent}\t', 'xr:ToolTip', tt)
     X(f'{indent}\t<xr:ExtendedEdit>false</xr:ExtendedEdit>')
     X(f'{indent}\t<xr:Format/>')
-    X(f'{indent}\t<xr:ChoiceForm/>')
+    if cf:
+        X(f'{indent}\t<xr:ChoiceForm>{esc_xml(str(cf))}</xr:ChoiceForm>')
+    else:
+        X(f'{indent}\t<xr:ChoiceForm/>')
     X(f'{indent}\t<xr:QuickChoice>Auto</xr:QuickChoice>')
     X(f'{indent}\t<xr:ChoiceHistoryOnInput>Auto</xr:ChoiceHistoryOnInput>')
     X(f'{indent}\t<xr:EditFormat/>')
@@ -1076,12 +1082,26 @@ def emit_standard_attribute(indent, attr_name, ov=None):
     X(f'{indent}\t<xr:MarkNegatives>false</xr:MarkNegatives>')
     X(f'{indent}\t<xr:MinValue xsi:nil="true"/>')
     emit_mltext(f'{indent}\t', 'xr:Synonym', syn)
-    X(f'{indent}\t<xr:Comment/>')
+    if cmt:
+        X(f'{indent}\t<xr:Comment>{esc_xml_text(str(cmt))}</xr:Comment>')
+    else:
+        X(f'{indent}\t<xr:Comment/>')
     X(f'{indent}\t<xr:FullTextSearch>{fts}</xr:FullTextSearch>')
-    X(f'{indent}\t<xr:ChoiceParameterLinks/>')
-    X(f'{indent}\t<xr:FillValue xsi:nil="true"/>')
-    X(f'{indent}\t<xr:Mask/>')
-    X(f'{indent}\t<xr:ChoiceParameters/>')
+    emit_choice_parameter_links(f'{indent}\t', ov.get('ChoiceParameterLinks'), 'xr:ChoiceParameterLinks')
+    fv_raw = ov.get('FillValue', None)
+    if fv_raw is None:
+        X(f'{indent}\t<xr:FillValue xsi:nil="true"/>')
+    else:
+        fv_xt, fv_tx = normalize_choice_value(fv_raw)
+        if fv_tx == '' or fv_tx is None:
+            X(f'{indent}\t<xr:FillValue xsi:type="{fv_xt}"/>')
+        else:
+            X(f'{indent}\t<xr:FillValue xsi:type="{fv_xt}">{esc_xml(fv_tx)}</xr:FillValue>')
+    if msk:
+        X(f'{indent}\t<xr:Mask>{esc_xml_text(str(msk))}</xr:Mask>')
+    else:
+        X(f'{indent}\t<xr:Mask/>')
+    emit_choice_parameters(f'{indent}\t', ov.get('ChoiceParameters'), 'xr:ChoiceParameters')
     X(f'{indent}</xr:StandardAttribute>')
 
 # Единый эмиттер блока StandardAttributes — поведение правят ДАННЫЕ, не форк кода (см. коммент в .ps1).
@@ -1115,6 +1135,18 @@ def emit_standard_attributes(indent, object_type):
                     ov['FullTextSearch'] = str(d['fullTextSearch'])
                 if d.get('dataHistory'):
                     ov['DataHistory'] = str(d['dataHistory'])
+                if d.get('fillValue') is not None:
+                    ov['FillValue'] = d['fillValue']
+                if d.get('choiceParameterLinks') is not None:
+                    ov['ChoiceParameterLinks'] = d['choiceParameterLinks']
+                if d.get('choiceParameters') is not None:
+                    ov['ChoiceParameters'] = d['choiceParameters']
+                if d.get('comment'):
+                    ov['Comment'] = str(d['comment'])
+                if d.get('mask'):
+                    ov['Mask'] = str(d['mask'])
+                if d.get('choiceForm'):
+                    ov['ChoiceForm'] = str(d['choiceForm'])
         emit_standard_attribute(f'{indent}\t', a, ov)
     X(f'{indent}</StandardAttributes>')
 
@@ -1331,13 +1363,13 @@ def convert_from_ch_link_shorthand(s):
         o['dataPath'] = rest
     return o
 
-def emit_choice_parameters(indent, cp):
+def emit_choice_parameters(indent, cp, tag='ChoiceParameters'):
     if not cp:
-        X(f'{indent}<ChoiceParameters/>')
+        X(f'{indent}<{tag}/>')
         return
     if isinstance(cp, (str, dict)):
         cp = [cp]
-    X(f'{indent}<ChoiceParameters>')
+    X(f'{indent}<{tag}>')
     for item in cp:
         if isinstance(item, str):
             item = convert_from_ch_param_shorthand(item)
@@ -1365,15 +1397,15 @@ def emit_choice_parameters(indent, cp):
             else:
                 X(f'{indent}\t\t<app:value xsi:type="{xt}">{esc_xml(tx)}</app:value>')
         X(f'{indent}\t</app:item>')
-    X(f'{indent}</ChoiceParameters>')
+    X(f'{indent}</{tag}>')
 
-def emit_choice_parameter_links(indent, cpl):
+def emit_choice_parameter_links(indent, cpl, tag='ChoiceParameterLinks'):
     if not cpl:
-        X(f'{indent}<ChoiceParameterLinks/>')
+        X(f'{indent}<{tag}/>')
         return
     if isinstance(cpl, (str, dict)):
         cpl = [cpl]
-    X(f'{indent}<ChoiceParameterLinks>')
+    X(f'{indent}<{tag}>')
     for lk in cpl:
         if isinstance(lk, str):
             lk = convert_from_ch_link_shorthand(lk)
@@ -1394,7 +1426,7 @@ def emit_choice_parameter_links(indent, cpl):
         X(f'{indent}\t\t<xr:DataPath xsi:type="xs:string">{esc_xml(str(dp))}</xr:DataPath>')
         X(f'{indent}\t\t<xr:ValueChange>{vc}</xr:ValueChange>')
         X(f'{indent}\t</xr:Link>')
-    X(f'{indent}</ChoiceParameterLinks>')
+    X(f'{indent}</{tag}>')
 
 # --- Characteristics (привязка ПВХ «Дополнительные реквизиты и сведения») ---
 
