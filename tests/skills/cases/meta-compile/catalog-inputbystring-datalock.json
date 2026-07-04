@@ -1,0 +1,20 @@
+{
+  "name": "InputByString / DataLockFields / BasedOn каталога",
+  "input": {
+    "type": "Catalog",
+    "name": "ДоговорыКонтрагентов",
+    "codeLength": 11,
+    "descriptionLength": 100,
+    "inputByString": ["Код", "Наименование", "Контрагент"],
+    "dataLockFields": ["Организация", "Контрагент", "Владелец"],
+    "basedOn": ["Catalog.Контрагенты", "Document.ЗаказПоставщику"],
+    "attributes": [
+      "Организация: CatalogRef.Организации",
+      "Контрагент: CatalogRef.Контрагенты"
+    ]
+  },
+  "validatePath": "Catalogs/ДоговорыКонтрагентов",
+  "expect": {
+    "files": ["Catalogs/ДоговорыКонтрагентов.xml"]
+  }
+}

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-compile v1.27 — Compile 1C metadata object from JSON
+# meta-compile v1.28 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -1269,6 +1269,28 @@ def emit_link_by_type(indent, spec):
     X(f'{indent}\t<xr:LinkItem>{li}</xr:LinkItem>')
     X(f'{indent}</LinkByType>')
 
+def emit_field_block(indent, tag, fields):
+    """<Tag> со списком <xr:Field> (InputByString/DataLockFields). Пусто → self-close."""
+    arr = [f for f in (fields or []) if str(f) != '']
+    if not arr:
+        X(f'{indent}<{tag}/>')
+        return
+    X(f'{indent}<{tag}>')
+    for f in arr:
+        X(f'{indent}\t<xr:Field>{esc_xml(str(f))}</xr:Field>')
+    X(f'{indent}</{tag}>')
+
+def emit_based_on(indent, items):
+    """<BasedOn> — «ввод на основании», список MDObjectRef. Нет/пусто → self-close."""
+    arr = [it for it in (items or []) if it]
+    if not arr:
+        X(f'{indent}<BasedOn/>')
+        return
+    X(f'{indent}<BasedOn>')
+    for it in arr:
+        X(f'{indent}\t<xr:Item xsi:type="xr:MDObjectRef">{esc_xml(str(it))}</xr:Item>')
+    X(f'{indent}</BasedOn>')
+
 # --- Параметры/связи выбора (порт из form-compile) ---
 
 def ch_el_prop(obj, names):
@@ -1879,10 +1901,16 @@ def emit_catalog_properties(indent):
     choice_mode = get_enum_prop('ChoiceMode', 'choiceMode', 'BothWays')
     X(f'{i}<QuickChoice>{quick_choice}</QuickChoice>')
     X(f'{i}<ChoiceMode>{choice_mode}</ChoiceMode>')
-    X(f'{i}<InputByString>')
-    X(f'{i}\t<xr:Field>Catalog.{obj_name}.StandardAttribute.Description</xr:Field>')
-    X(f'{i}\t<xr:Field>Catalog.{obj_name}.StandardAttribute.Code</xr:Field>')
-    X(f'{i}</InputByString>')
+    # InputByString: override `inputByString` (массив имён, авто-резолв; [] = пусто) ЛИБО дефолт [Descr при D>0]+[Code при C>0].
+    if 'inputByString' in defn:
+        ib_fields = [expand_data_path(str(x)) for x in (defn.get('inputByString') or [])]
+    else:
+        ib_fields = []
+        if int(description_length) > 0:
+            ib_fields.append(f'Catalog.{obj_name}.StandardAttribute.Description')
+        if int(code_length) > 0:
+            ib_fields.append(f'Catalog.{obj_name}.StandardAttribute.Code')
+    emit_field_block(i, 'InputByString', ib_fields)
     X(f'{i}<SearchStringModeOnInputByString>{get_enum_prop("SearchStringModeOnInputByString", "searchStringModeOnInputByString", "Begin")}</SearchStringModeOnInputByString>')
     X(f'{i}<FullTextSearchOnInputByString>DontUse</FullTextSearchOnInputByString>')
     X(f'{i}<ChoiceDataGetModeOnInputByString>Directly</ChoiceDataGetModeOnInputByString>')
@@ -1898,8 +1926,9 @@ def emit_catalog_properties(indent):
     emit_form_ref(i, 'AuxiliaryFolderChoiceForm', defn.get('auxiliaryFolderChoiceForm'))
     incl_help = 'true' if get_bool_prop('includeHelpInContents', False) else 'false'
     X(f'{i}<IncludeHelpInContents>{incl_help}</IncludeHelpInContents>')
-    X(f'{i}<BasedOn/>')
-    X(f'{i}<DataLockFields/>')
+    emit_based_on(i, defn.get('basedOn'))
+    dl_fields = [expand_data_path(str(x)) for x in defn.get('dataLockFields', [])] if 'dataLockFields' in defn else []
+    emit_field_block(i, 'DataLockFields', dl_fields)
     data_lock_control_mode = get_enum_prop('DataLockControlMode', 'dataLockControlMode', 'Automatic')
     X(f'{i}<DataLockControlMode>{data_lock_control_mode}</DataLockControlMode>')
     full_text_search = get_enum_prop('FullTextSearch', 'fullTextSearch', 'Use')

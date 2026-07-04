@@ -1,4 +1,4 @@
-﻿# meta-compile v1.27 — Compile 1C metadata object from JSON
+﻿# meta-compile v1.28 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -1202,6 +1202,29 @@ function Emit-LinkByType {
 	X "$indent</LinkByType>"
 }
 
+# Есть ли ключ в $def (отличаем отсутствие от пустого массива [] = явно пусто).
+function Test-DefKey { param([string]$name) return ($def.PSObject -and $def.PSObject.Properties -and ($def.PSObject.Properties.Name -contains $name)) }
+
+# <Tag> со списком <xr:Field> (InputByString/DataLockFields). $fields — готовые полные пути. Пусто → self-close.
+function Emit-FieldBlock {
+	param([string]$indent, [string]$tag, $fields)
+	$arr = @($fields | Where-Object { "$_" -ne '' })
+	if ($arr.Count -eq 0) { X "$indent<$tag/>"; return }
+	X "$indent<$tag>"
+	foreach ($f in $arr) { X "$indent`t<xr:Field>$(Esc-Xml "$f")</xr:Field>" }
+	X "$indent</$tag>"
+}
+
+# <BasedOn> — «ввод на основании», список MDObjectRef ("Catalog.X"/"Document.Y"). Нет ключа/пусто → self-close.
+function Emit-BasedOn {
+	param([string]$indent, $items)
+	$arr = @($items | Where-Object { $_ })
+	if ($arr.Count -eq 0) { X "$indent<BasedOn/>"; return }
+	X "$indent<BasedOn>"
+	foreach ($it in $arr) { X "$indent`t<xr:Item xsi:type=`"xr:MDObjectRef`">$(Esc-Xml "$it")</xr:Item>" }
+	X "$indent</BasedOn>"
+}
+
 # --- Параметры/связи выбора (порт из form-compile; структура реквизита ⟷ элемента формы совпадает) ---
 
 # Свойство из dict/PSCustomObject по списку синонимов (первый найденный, иначе $null).
@@ -1879,10 +1902,15 @@ function Emit-CatalogProperties {
 	$choiceMode = Get-EnumProp "ChoiceMode" "choiceMode" "BothWays"
 	X "$i<QuickChoice>$quickChoice</QuickChoice>"
 	X "$i<ChoiceMode>$choiceMode</ChoiceMode>"
-	X "$i<InputByString>"
-	X "$i`t<xr:Field>Catalog.$objName.StandardAttribute.Description</xr:Field>"
-	X "$i`t<xr:Field>Catalog.$objName.StandardAttribute.Code</xr:Field>"
-	X "$i</InputByString>"
+	# InputByString: override `inputByString` (массив имён, авто-резолв; [] = пусто) ЛИБО дефолт [Descr при D>0]+[Code при C>0].
+	if (Test-DefKey 'inputByString') {
+		$ibFields = @($def.inputByString | ForEach-Object { Expand-DataPath "$_" })
+	} else {
+		$ibFields = @()
+		if ([int]$descriptionLength -gt 0) { $ibFields += "Catalog.$objName.StandardAttribute.Description" }
+		if ([int]$codeLength -gt 0)        { $ibFields += "Catalog.$objName.StandardAttribute.Code" }
+	}
+	Emit-FieldBlock $i "InputByString" $ibFields
 	X "$i<SearchStringModeOnInputByString>$(Get-EnumProp 'SearchStringModeOnInputByString' 'searchStringModeOnInputByString' 'Begin')</SearchStringModeOnInputByString>"
 	X "$i<FullTextSearchOnInputByString>DontUse</FullTextSearchOnInputByString>"
 	X "$i<ChoiceDataGetModeOnInputByString>Directly</ChoiceDataGetModeOnInputByString>"
@@ -1898,8 +1926,9 @@ function Emit-CatalogProperties {
 	Emit-FormRef $i "AuxiliaryFolderChoiceForm" $def.auxiliaryFolderChoiceForm
 	$inclHelp = if (Get-BoolProp "includeHelpInContents" $false) { "true" } else { "false" }
 	X "$i<IncludeHelpInContents>$inclHelp</IncludeHelpInContents>"
-	X "$i<BasedOn/>"
-	X "$i<DataLockFields/>"
+	Emit-BasedOn $i $def.basedOn
+	$dlFields = if (Test-DefKey 'dataLockFields') { @($def.dataLockFields | ForEach-Object { Expand-DataPath "$_" }) } else { @() }
+	Emit-FieldBlock $i "DataLockFields" $dlFields
 
 	$dataLockControlMode = Get-EnumProp "DataLockControlMode" "dataLockControlMode" "Automatic"
 	X "$i<DataLockControlMode>$dataLockControlMode</DataLockControlMode>"

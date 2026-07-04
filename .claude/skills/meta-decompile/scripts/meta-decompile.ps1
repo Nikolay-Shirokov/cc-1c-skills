@@ -1,4 +1,4 @@
-﻿# meta-decompile v0.18 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
+﻿# meta-decompile v0.19 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 #
 # Пилот: только Catalog. Инверс meta-compile (omit-on-default: ключ эмитим только
@@ -386,6 +386,40 @@ Add-BoolProp 'includeHelpInContents' 'IncludeHelpInContents' $false
 Add-EnumProp 'choiceHistoryOnInput' 'ChoiceHistoryOnInput' 'Auto'
 Add-EnumProp 'predefinedDataUpdate' 'PredefinedDataUpdate' 'Auto'
 Add-EnumProp 'searchStringModeOnInputByString' 'SearchStringModeOnInputByString' 'Begin'
+
+# Короткая форма поля: <Type>.<Name>.StandardAttribute.X / .Attribute.X → StandardAttribute.X / Attribute.X
+# (Expand-DataPath компилятора разворачивает частичную форму обратно — dogfood резолвера).
+function Short-Field { param([string]$full) if ($full -match '\.(StandardAttribute|Attribute)\.(.+)$') { return "$($Matches[1]).$($Matches[2])" } return $full }
+
+# InputByString — эмитим только при отличии от выведенного дефолта [Descr при D>0]+[Code при C>0].
+$ibNode = $props.SelectSingleNode('md:InputByString', $nsm)
+if ($ibNode) {
+	$ibActual = @($ibNode.SelectNodes('xr:Field', $nsm) | ForEach-Object { $_.InnerText })
+	$clv = P 'CodeLength'; $dlv = P 'DescriptionLength'
+	$cl = if ($clv -and $clv -ne '') { [int]$clv } else { 9 }
+	$dl = if ($dlv -and $dlv -ne '') { [int]$dlv } else { 25 }
+	$ibDef = @()
+	if ($dl -gt 0) { $ibDef += "StandardAttribute.Description" }
+	if ($cl -gt 0) { $ibDef += "StandardAttribute.Code" }
+	$ibShort = @($ibActual | ForEach-Object { Short-Field $_ })
+	$same = ($ibShort.Count -eq $ibDef.Count)
+	if ($same) { for ($k = 0; $k -lt $ibShort.Count; $k++) { if ($ibShort[$k] -ne $ibDef[$k]) { $same = $false; break } } }
+	if (-not $same) { $dsl['inputByString'] = [System.Collections.ArrayList]@($ibShort) }
+}
+
+# BasedOn — «ввод на основании», список MDObjectRef (omit-on-empty).
+$boNode = $props.SelectSingleNode('md:BasedOn', $nsm)
+if ($boNode) {
+	$boItems = @($boNode.SelectNodes('xr:Item', $nsm) | ForEach-Object { $_.InnerText })
+	if ($boItems.Count -gt 0) { $dsl['basedOn'] = [System.Collections.ArrayList]@($boItems) }
+}
+
+# DataLockFields — поля блокировки данных (omit-on-empty).
+$dlfNode = $props.SelectSingleNode('md:DataLockFields', $nsm)
+if ($dlfNode) {
+	$dlfFields = @($dlfNode.SelectNodes('xr:Field', $nsm) | ForEach-Object { Short-Field $_.InnerText })
+	if ($dlfFields.Count -gt 0) { $dsl['dataLockFields'] = [System.Collections.ArrayList]@($dlfFields) }
+}
 
 # Формы по умолчанию (компилятор пишет пусто → omit-on-empty; значение = ссылка на форму verbatim).
 function Add-FormRef { param([string]$key, [string]$tag) $v = P $tag; if ($v) { $dsl[$key] = $v } }
