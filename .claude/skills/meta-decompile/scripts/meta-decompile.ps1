@@ -1,4 +1,4 @@
-﻿# meta-decompile v0.20 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
+﻿# meta-decompile v0.21 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 #
 # Пилот: только Catalog. Инверс meta-compile (omit-on-default: ключ эмитим только
@@ -156,9 +156,12 @@ function Get-TypeShorthand {
 			switch -regex ($raw) {
 				'(^|:)boolean$'    { $parts += 'Boolean'; break }
 				'(^|:)string$'     {
-					$len = '10'
-					if ($next -and $next.LocalName -eq 'StringQualifiers') { $l = $next.SelectSingleNode('v8:Length', $nsm); if ($l) { $len = $l.InnerText } }
-					$parts += "String($len)"; break
+					$len = '10'; $al = ''
+					if ($next -and $next.LocalName -eq 'StringQualifiers') {
+						$l = $next.SelectSingleNode('v8:Length', $nsm); if ($l) { $len = $l.InnerText }
+						$aln = $next.SelectSingleNode('v8:AllowedLength', $nsm); if ($aln -and $aln.InnerText -eq 'Fixed') { $al = ',fixed' }
+					}
+					$parts += "String($len$al)"; break
 				}
 				'(^|:)decimal$'    {
 					$d = '10'; $f = '0'; $sign = ''
@@ -279,6 +282,19 @@ function Attr-ToDsl {
 	$v = & $en 'Mask'; if ($v) { $extra['mask'] = $v }
 	$v = & $en 'ChoiceHistoryOnInput'; if ($v -and $v -ne 'Auto') { $extra['choiceHistoryOnInput'] = $v }
 	$v = & $en 'FillChecking'; if ($v -eq 'ShowWarning') { $extra['fillChecking'] = 'ShowWarning' }
+	$v = & $en 'ExtendedEdit'; if ($v -eq 'true') { $extra['extendedEdit'] = $true }
+	# MinValue/MaxValue — граница диапазона (omit при nil). Тип сохраняем: xs:string→строка, xs:decimal→число.
+	foreach ($mm in @('MinValue','MaxValue')) {
+		$mn = $ap.SelectSingleNode("md:$mm", $nsm)
+		if (-not $mn) { continue }
+		if ($mn.GetAttribute('nil', 'http://www.w3.org/2001/XMLSchema-instance') -eq 'true') { continue }
+		$key = if ($mm -eq 'MinValue') { 'minValue' } else { 'maxValue' }
+		$xt = $mn.GetAttribute('type', 'http://www.w3.org/2001/XMLSchema-instance')
+		$txt = $mn.InnerText
+		if ($xt -match 'decimal|int|double|float') {
+			if ($txt -match '^-?\d+$') { $extra[$key] = [long]$txt } else { $extra[$key] = [double]$txt }
+		} else { $extra[$key] = $txt }
+	}
 	$fmtV = Get-MLValue ($ap.SelectSingleNode('md:Format', $nsm)); if ($null -ne $fmtV) { $extra['format'] = $fmtV }
 	$efmtV = Get-MLValue ($ap.SelectSingleNode('md:EditFormat', $nsm)); if ($null -ne $efmtV) { $extra['editFormat'] = $efmtV }
 

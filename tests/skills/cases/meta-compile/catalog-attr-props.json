@@ -6,7 +6,10 @@
       { "name": "ИНН", "type": "String(12)", "fullTextSearch": "DontUse", "comment": "Налоговый номер",
         "mask": "999999999999", "use": "ForFolderAndItem", "fillCheck": true },
       { "name": "Курс", "type": "Number(15,4)", "format": "ЧДЦ=4", "editFormat": { "ru": "ЧДЦ=4" },
-        "createOnInput": "Use", "quickChoice": false, "fillFromFillingValue": true, "dataHistory": "DontUse", "passwordMode": true }
+        "createOnInput": "Use", "quickChoice": false, "fillFromFillingValue": true, "dataHistory": "DontUse", "passwordMode": true },
+      { "name": "ГодЗаключения", "type": "Number(4,0,nonneg)", "minValue": 2000, "maxValue": 3999 },
+      { "name": "КодРегиона", "type": "String(3,fixed)", "minValue": "01", "maxValue": "99" },
+      { "name": "Описание", "type": "String(500)", "extendedEdit": true }
     ]
   },
   "validatePath": "Catalogs/Контрагенты",

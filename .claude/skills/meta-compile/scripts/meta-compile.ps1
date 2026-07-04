@@ -1,4 +1,4 @@
-﻿# meta-compile v1.30 — Compile 1C metadata object from JSON
+﻿# meta-compile v1.31 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -509,13 +509,14 @@ function Emit-TypeContent {
 		return
 	}
 
-	# String or String(N)
-	if ($typeStr -match '^String(\((\d+)\))?$') {
+	# String or String(N) or String(N,fixed|variable) — AllowedLength: Variable дефолт / Fixed (фикс. длина).
+	if ($typeStr -match '^String(\((\d+)(\s*,\s*(fixed|variable))?\))?$') {
 		$len = if ($Matches[2]) { $Matches[2] } else { "10" }
+		$al = if ($Matches[4] -and $Matches[4].ToLower() -eq 'fixed') { 'Fixed' } else { 'Variable' }
 		X "$indent<v8:Type>xs:string</v8:Type>"
 		X "$indent<v8:StringQualifiers>"
 		X "$indent`t<v8:Length>$len</v8:Length>"
-		X "$indent`t<v8:AllowedLength>Variable</v8:AllowedLength>"
+		X "$indent`t<v8:AllowedLength>$al</v8:AllowedLength>"
 		X "$indent</v8:StringQualifiers>"
 		return
 	}
@@ -829,6 +830,9 @@ function Parse-AttributeShorthand {
 		format = $val.format
 		editFormat = $val.editFormat
 		mask = if ($val.mask) { "$($val.mask)" } else { "" }
+		extendedEdit = if ($val.extendedEdit -eq $true) { $true } else { $false }
+		minValue = $val.minValue
+		maxValue = $val.maxValue
 		hasFillValue = ($val.PSObject -and $val.PSObject.Properties -and ($val.PSObject.Properties.Name -contains 'fillValue'))
 		fillValue = $val.fillValue
 		linkByType = $val.linkByType
@@ -1481,6 +1485,15 @@ function Emit-Characteristics {
 	X "$indent</Characteristics>"
 }
 
+# <MinValue>/<MaxValue> — граница диапазона реквизита. Нет ключа → nil (не задано). Значение типизировано
+# (зеркало form-compile): число → xs:decimal, строка → xs:string (тип сохранён декомпилятором).
+function Emit-MinMaxValue {
+	param([string]$indent, [string]$tag, $val)
+	if ($null -eq $val) { X "$indent<$tag xsi:nil=`"true`"/>"; return }
+	$t = if ($val -is [string]) { 'xs:string' } else { 'xs:decimal' }
+	X "$indent<$tag xsi:type=`"$t`">$(Esc-Xml "$val")</$tag>"
+}
+
 function Emit-Attribute {
 	param([string]$indent, $parsed, [string]$context)
 	# $context: "catalog", "document", "object", "processor", "tabular", "processor-tabular", "register"
@@ -1525,9 +1538,10 @@ function Emit-Attribute {
 	if ($parsed.mask) { X "$indent`t`t<Mask>$(Esc-XmlText $parsed.mask)</Mask>" } else { X "$indent`t`t<Mask/>" }
 	$multiLine = if ($parsed.multiLine -eq $true -or $parsed.flags -contains "multiline") { "true" } else { "false" }
 	X "$indent`t`t<MultiLine>$multiLine</MultiLine>"
-	X "$indent`t`t<ExtendedEdit>false</ExtendedEdit>"
-	X "$indent`t`t<MinValue xsi:nil=`"true`"/>"
-	X "$indent`t`t<MaxValue xsi:nil=`"true`"/>"
+	$extEdit = if ($parsed.extendedEdit -eq $true) { "true" } else { "false" }
+	X "$indent`t`t<ExtendedEdit>$extEdit</ExtendedEdit>"
+	Emit-MinMaxValue "$indent`t`t" "MinValue" $parsed.minValue
+	Emit-MinMaxValue "$indent`t`t" "MaxValue" $parsed.maxValue
 
 	# FillFromFillingValue — not for tabular/processor/chart/register-other
 	# (Chart*, AccumulationRegister/AccountingRegister/CalculationRegister don't support these)
@@ -1736,9 +1750,10 @@ function Emit-Dimension {
 	X "$indent`t`t<Mask/>"
 	$multiLine = if ($parsed.multiLine -eq $true -or $parsed.flags -contains "multiline") { "true" } else { "false" }
 	X "$indent`t`t<MultiLine>$multiLine</MultiLine>"
-	X "$indent`t`t<ExtendedEdit>false</ExtendedEdit>"
-	X "$indent`t`t<MinValue xsi:nil=`"true`"/>"
-	X "$indent`t`t<MaxValue xsi:nil=`"true`"/>"
+	$extEdit = if ($parsed.extendedEdit -eq $true) { "true" } else { "false" }
+	X "$indent`t`t<ExtendedEdit>$extEdit</ExtendedEdit>"
+	Emit-MinMaxValue "$indent`t`t" "MinValue" $parsed.minValue
+	Emit-MinMaxValue "$indent`t`t" "MaxValue" $parsed.maxValue
 
 	# InformationRegister dimensions have FillFromFillingValue
 	if ($registerType -eq "InformationRegister") {
@@ -1830,9 +1845,10 @@ function Emit-Resource {
 	X "$indent`t`t<Mask/>"
 	$multiLine = if ($parsed.multiLine -eq $true -or $parsed.flags -contains "multiline") { "true" } else { "false" }
 	X "$indent`t`t<MultiLine>$multiLine</MultiLine>"
-	X "$indent`t`t<ExtendedEdit>false</ExtendedEdit>"
-	X "$indent`t`t<MinValue xsi:nil=`"true`"/>"
-	X "$indent`t`t<MaxValue xsi:nil=`"true`"/>"
+	$extEdit = if ($parsed.extendedEdit -eq $true) { "true" } else { "false" }
+	X "$indent`t`t<ExtendedEdit>$extEdit</ExtendedEdit>"
+	Emit-MinMaxValue "$indent`t`t" "MinValue" $parsed.minValue
+	Emit-MinMaxValue "$indent`t`t" "MaxValue" $parsed.maxValue
 
 	# InformationRegister resources have FillFromFillingValue, FillValue
 	if ($registerType -eq "InformationRegister") {

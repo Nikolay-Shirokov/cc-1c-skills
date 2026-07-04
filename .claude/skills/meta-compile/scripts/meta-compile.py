@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-compile v1.30 — Compile 1C metadata object from JSON
+# meta-compile v1.31 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -550,14 +550,15 @@ def emit_type_content(indent, type_str):
     if type_str == 'Boolean':
         X(f'{indent}<v8:Type>xs:boolean</v8:Type>')
         return
-    # String or String(N)
-    m = re.match(r'^String(\((\d+)\))?$', type_str)
+    # String or String(N) or String(N,fixed|variable) — AllowedLength: Variable дефолт / Fixed (фикс. длина).
+    m = re.match(r'^String(\((\d+)(\s*,\s*(fixed|variable))?\))?$', type_str)
     if m:
         length = m.group(2) if m.group(2) else '10'
+        al = 'Fixed' if (m.group(4) and m.group(4).lower() == 'fixed') else 'Variable'
         X(f'{indent}<v8:Type>xs:string</v8:Type>')
         X(f'{indent}<v8:StringQualifiers>')
         X(f'{indent}\t<v8:Length>{length}</v8:Length>')
-        X(f'{indent}\t<v8:AllowedLength>Variable</v8:AllowedLength>')
+        X(f'{indent}\t<v8:AllowedLength>{al}</v8:AllowedLength>')
         X(f'{indent}</v8:StringQualifiers>')
         return
     # Number without params -> Number(10,0)
@@ -853,6 +854,9 @@ def parse_attribute_shorthand(val):
         'format': val.get('format'),
         'editFormat': val.get('editFormat'),
         'mask': str(val['mask']) if val.get('mask') else '',
+        'extendedEdit': True if val.get('extendedEdit') is True else False,
+        'minValue': val.get('minValue'),
+        'maxValue': val.get('maxValue'),
         'hasFillValue': ('fillValue' in val),
         'fillValue': val.get('fillValue'),
         'linkByType': val.get('linkByType'),
@@ -1552,6 +1556,14 @@ def emit_characteristics(indent, chars):
         X(f'{indent}\t</xr:Characteristic>')
     X(f'{indent}</Characteristics>')
 
+def emit_min_max_value(indent, tag, val):
+    """<MinValue>/<MaxValue> — граница диапазона. None → nil. Число → xs:decimal, строка → xs:string."""
+    if val is None:
+        X(f'{indent}<{tag} xsi:nil="true"/>')
+        return
+    t = 'xs:string' if isinstance(val, str) else 'xs:decimal'
+    X(f'{indent}<{tag} xsi:type="{t}">{esc_xml(str(val))}</{tag}>')
+
 def emit_attribute(indent, parsed, context):
     attr_name = parsed['name']
     ctx_reserved = RESERVED_BY_CONTEXT.get(context)
@@ -1589,9 +1601,10 @@ def emit_attribute(indent, parsed, context):
         X(f'{indent}\t\t<Mask/>')
     multi_line = 'true' if (parsed.get('multiLine') is True or 'multiline' in parsed.get('flags', [])) else 'false'
     X(f'{indent}\t\t<MultiLine>{multi_line}</MultiLine>')
-    X(f'{indent}\t\t<ExtendedEdit>false</ExtendedEdit>')
-    X(f'{indent}\t\t<MinValue xsi:nil="true"/>')
-    X(f'{indent}\t\t<MaxValue xsi:nil="true"/>')
+    ext_edit = 'true' if parsed.get('extendedEdit') is True else 'false'
+    X(f'{indent}\t\t<ExtendedEdit>{ext_edit}</ExtendedEdit>')
+    emit_min_max_value(f'{indent}\t\t', 'MinValue', parsed.get('minValue'))
+    emit_min_max_value(f'{indent}\t\t', 'MaxValue', parsed.get('maxValue'))
     # FillFromFillingValue / FillValue — not for tabular/processor/chart/register-other
     # (Chart*, AccumulationRegister/AccountingRegister/CalculationRegister don't support these)
     if context not in ('tabular', 'processor', 'chart', 'register-other'):
@@ -1776,9 +1789,10 @@ def emit_dimension(indent, parsed, register_type):
     X(f'{indent}\t\t<Mask/>')
     multi_line = 'true' if (parsed.get('multiLine') is True or 'multiline' in parsed.get('flags', [])) else 'false'
     X(f'{indent}\t\t<MultiLine>{multi_line}</MultiLine>')
-    X(f'{indent}\t\t<ExtendedEdit>false</ExtendedEdit>')
-    X(f'{indent}\t\t<MinValue xsi:nil="true"/>')
-    X(f'{indent}\t\t<MaxValue xsi:nil="true"/>')
+    ext_edit = 'true' if parsed.get('extendedEdit') is True else 'false'
+    X(f'{indent}\t\t<ExtendedEdit>{ext_edit}</ExtendedEdit>')
+    emit_min_max_value(f'{indent}\t\t', 'MinValue', parsed.get('minValue'))
+    emit_min_max_value(f'{indent}\t\t', 'MaxValue', parsed.get('maxValue'))
     flags = parsed.get('flags', [])
     if register_type == 'InformationRegister':
         fill_from = 'true' if 'master' in flags else 'false'
@@ -1850,9 +1864,10 @@ def emit_resource(indent, parsed, register_type):
     X(f'{indent}\t\t<Mask/>')
     multi_line = 'true' if (parsed.get('multiLine') is True or 'multiline' in parsed.get('flags', [])) else 'false'
     X(f'{indent}\t\t<MultiLine>{multi_line}</MultiLine>')
-    X(f'{indent}\t\t<ExtendedEdit>false</ExtendedEdit>')
-    X(f'{indent}\t\t<MinValue xsi:nil="true"/>')
-    X(f'{indent}\t\t<MaxValue xsi:nil="true"/>')
+    ext_edit = 'true' if parsed.get('extendedEdit') is True else 'false'
+    X(f'{indent}\t\t<ExtendedEdit>{ext_edit}</ExtendedEdit>')
+    emit_min_max_value(f'{indent}\t\t', 'MinValue', parsed.get('minValue'))
+    emit_min_max_value(f'{indent}\t\t', 'MaxValue', parsed.get('maxValue'))
     if register_type == 'InformationRegister':
         X(f'{indent}\t\t<FillFromFillingValue>false</FillFromFillingValue>')
         X(f'{indent}\t\t<FillValue xsi:nil="true"/>')
