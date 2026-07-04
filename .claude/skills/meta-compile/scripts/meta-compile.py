@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-compile v1.29 — Compile 1C metadata object from JSON
+# meta-compile v1.30 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -598,6 +598,11 @@ def emit_type_content(indent, type_str):
         return
     # TypeSet — тип-множество: ОпределяемыйТип (DefinedType) ИЛИ Характеристика ПВХ (Characteristic).
     if re.match(r'^(DefinedType|Characteristic)\.(.+)$', type_str):
+        X(f'{indent}<v8:TypeSet>cfg:{type_str}</v8:TypeSet>')
+        return
+    # Голый метатип-категория (CatalogRef/DocumentRef/…/AnyRef/AnyIBRef без имени объекта) — множество
+    # «любой объект категории» → TypeSet (а не конкретный Type с именем).
+    if re.match(r'^(CatalogRef|DocumentRef|EnumRef|ChartOfAccountsRef|ChartOfCharacteristicTypesRef|ChartOfCalculationTypesRef|ExchangePlanRef|BusinessProcessRef|TaskRef|AnyRef|AnyIBRef)$', type_str):
         X(f'{indent}<v8:TypeSet>cfg:{type_str}</v8:TypeSet>')
         return
     # ValueStorage (ХранилищеЗначения) — канон v8:ValueStorage (не xs:base64Binary).

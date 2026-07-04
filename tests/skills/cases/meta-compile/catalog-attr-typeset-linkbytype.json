@@ -9,7 +9,10 @@
         "linkByType": { "dataPath": "Свойство", "linkItem": 1 } },
       { "name": "ЗначениеОпредТип", "type": "DefinedType.Сумма" },
       { "name": "СвязьСтрокой", "type": "Characteristic.ВидыСубконто",
-        "linkByType": "Свойство" }
+        "linkByType": "Свойство" },
+      { "name": "ЛюбаяСсылка", "type": "AnyRef" },
+      { "name": "ЛюбаяСсылкаИБ", "type": "AnyIBRef" },
+      { "name": "Основание", "type": "DocumentRef + CatalogRef" }
     ]
   },
   "validatePath": "Catalogs/ТестХарактеристик",

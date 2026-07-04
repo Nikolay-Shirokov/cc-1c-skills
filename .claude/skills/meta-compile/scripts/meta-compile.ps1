@@ -1,4 +1,4 @@
-﻿# meta-compile v1.29 — Compile 1C metadata object from JSON
+﻿# meta-compile v1.30 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -563,6 +563,12 @@ function Emit-TypeContent {
 
 	# TypeSet — тип-множество: ОпределяемыйТип (DefinedType) ИЛИ Характеристика ПВХ (Characteristic).
 	if ($typeStr -match '^(DefinedType|Characteristic)\.(.+)$') {
+		X "$indent<v8:TypeSet>cfg:$typeStr</v8:TypeSet>"
+		return
+	}
+	# Голый метатип-категория (CatalogRef/DocumentRef/…/AnyRef/AnyIBRef без имени объекта) — множество
+	# «любой объект категории» → TypeSet (а не конкретный Type с именем).
+	if ($typeStr -match '^(CatalogRef|DocumentRef|EnumRef|ChartOfAccountsRef|ChartOfCharacteristicTypesRef|ChartOfCalculationTypesRef|ExchangePlanRef|BusinessProcessRef|TaskRef|AnyRef|AnyIBRef)$') {
 		X "$indent<v8:TypeSet>cfg:$typeStr</v8:TypeSet>"
 		return
 	}
