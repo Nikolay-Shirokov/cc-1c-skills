@@ -1,4 +1,4 @@
-﻿# meta-decompile v0.16 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
+﻿# meta-decompile v0.17 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 #
 # Пилот: только Catalog. Инверс meta-compile (omit-on-default: ключ эмитим только
@@ -421,14 +421,6 @@ function Shorten-CharField { param([string]$full, [string]$from)
 	}
 	return $full
 }
-function Shorten-CharFilterValue { param([string]$full, [string]$typesFrom)
-	$tp = @("$typesFrom" -split '\.')
-	if ($tp.Count -ge 2) {
-		$pref = "$($tp[0]).$($tp[1])."
-		if ($full.StartsWith($pref)) { $tail = $full.Substring($pref.Length); if (-not $tail.Contains('.')) { return $tail } }
-	}
-	return $full
-}
 $charsNode = $props.SelectSingleNode('md:Characteristics', $nsm)
 if ($charsNode) {
 	$chList = @($charsNode.SelectNodes('xr:Characteristic', $nsm))
@@ -439,18 +431,25 @@ if ($charsNode) {
 			$cv = $ch.SelectSingleNode('xr:CharacteristicValues', $nsm)
 			$tFrom = $ct.GetAttribute('from'); $vFrom = $cv.GetAttribute('from')
 			$gt = { param($n, $node) $x = $node.SelectSingleNode("xr:$n", $nsm); if ($x) { $x.InnerText } else { "" } }
+			$giv = { param($n, $node) $x = $node.SelectSingleNode("xr:$n", $nsm); if ($x -and $x.InnerText -ne '') { [int]$x.InnerText } else { -1 } }
+			$tfvNode = $ct.SelectSingleNode('xr:TypesFilterValue', $nsm)
+			$tfvNil = if ($tfvNode) { $tfvNode.GetAttribute('nil', 'http://www.w3.org/2001/XMLSchema-instance') } else { '' }
 			$types = [ordered]@{
 				from = $tFrom
 				key = Shorten-CharField (& $gt 'KeyField' $ct) $tFrom
 				filterField = Shorten-CharField (& $gt 'TypesFilterField' $ct) $tFrom
-				filterValue = Shorten-CharFilterValue (& $gt 'TypesFilterValue' $ct) $tFrom
+				filterValue = if ($tfvNil -eq 'true') { $null } else { Convert-ChScalarNode $tfvNode }
 			}
+			$dpf = & $giv 'DataPathField' $ct; if ($dpf -ne -1) { $types['dataPathField'] = $dpf }
+			$mvu = & $giv 'MultipleValuesUseField' $ct; if ($mvu -ne -1) { $types['multipleValuesUseField'] = $mvu }
 			$values = [ordered]@{
 				from = $vFrom
 				object = Shorten-CharField (& $gt 'ObjectField' $cv) $vFrom
 				type = Shorten-CharField (& $gt 'TypeField' $cv) $vFrom
 				value = Shorten-CharField (& $gt 'ValueField' $cv) $vFrom
 			}
+			$mvk = & $giv 'MultipleValuesKeyField' $cv; if ($mvk -ne -1) { $values['multipleValuesKeyField'] = $mvk }
+			$mvo = & $giv 'MultipleValuesOrderField' $cv; if ($mvo -ne -1) { $values['multipleValuesOrderField'] = $mvo }
 			[void]$chArr.Add([ordered]@{ types = $types; values = $values })
 		}
 		$dsl['characteristics'] = $chArr

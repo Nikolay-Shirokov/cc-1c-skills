@@ -69,7 +69,7 @@
 					<xr:CharacteristicTypes from="Catalog.НаборыДопРеквИСвед.TabularSection.ДополнительныеСведения">
 						<xr:KeyField>Catalog.НаборыДопРеквИСвед.TabularSection.ДополнительныеСведения.Attribute.Свойство</xr:KeyField>
 						<xr:TypesFilterField>Catalog.НаборыДопРеквИСвед.TabularSection.ДополнительныеСведения.StandardAttribute.Ref</xr:TypesFilterField>
-						<xr:TypesFilterValue xsi:type="xr:DesignTimeRef">Catalog.НаборыДопРеквИСвед.Справочник_Организации</xr:TypesFilterValue>
+						<xr:TypesFilterValue xsi:type="xs:string">Справочник_Организации</xr:TypesFilterValue>
 						<xr:DataPathField>-1</xr:DataPathField>
 						<xr:MultipleValuesUseField>-1</xr:MultipleValuesUseField>
 					</xr:CharacteristicTypes>

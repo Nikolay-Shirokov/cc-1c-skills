@@ -1,4 +1,4 @@
-﻿# meta-compile v1.25 — Compile 1C metadata object from JSON
+﻿# meta-compile v1.26 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -1377,6 +1377,7 @@ function Expand-CharField {
 	param([string]$field, [string]$from)
 	$s = "$field"
 	if (-not $s) { return $s }
+	if ($s -eq '-1') { return '-1' }   # поле не задано (empty-характеристика) — как есть
 	if ($s -match '^(StandardAttribute|Attribute|Dimension|Resource)\.') { return "$from.$s" }
 	if (-not $s.Contains('.')) {
 		$en = Resolve-CharStdEn $s
@@ -1386,15 +1387,8 @@ function Expand-CharField {
 	return $s
 }
 
-# filterValue: голый предопределённый → префикс каталога (2 сегмента) из typesFrom; полный путь → verbatim.
-function Expand-CharFilterValue {
-	param([string]$fv, [string]$typesFrom)
-	$s = "$fv"
-	if (-not $s -or $s.Contains('.')) { return $s }
-	$tp = @("$typesFrom" -split '\.')
-	if ($tp.Count -ge 2) { return "$($tp[0]).$($tp[1]).$s" }
-	return $s
-}
+# Числовое поле-флаг Characteristics (DataPathField/MultipleValues*) — дефолт -1.
+function Get-CharIntField { param($obj, [string[]]$names) $v = Get-ChElProp $obj $names; if ($null -eq $v -or "$v" -eq '') { return -1 } return [int]$v }
 
 function Emit-Characteristics {
 	param([string]$indent, $chars)
@@ -1407,24 +1401,35 @@ function Emit-Characteristics {
 		$vFrom = Normalize-CharFrom "$(Get-ChElProp $values @('from','source','источник'))"
 		$key = Expand-CharField "$(Get-ChElProp $types @('key','keyField'))" $tFrom
 		$tff = Expand-CharField "$(Get-ChElProp $types @('filterField','typesFilterField'))" $tFrom
-		$tfv = Expand-CharFilterValue "$(Get-ChElProp $types @('filterValue','typesFilterValue'))" $tFrom
 		$obj = Expand-CharField "$(Get-ChElProp $values @('object','objectField'))" $vFrom
 		$typ = Expand-CharField "$(Get-ChElProp $values @('type','typeField'))" $vFrom
 		$val = Expand-CharField "$(Get-ChElProp $values @('value','valueField'))" $vFrom
+		# числовые поля-флаги (обычно -1; иногда 0)
+		$dpf = Get-CharIntField $types @('dataPathField')
+		$mvu = Get-CharIntField $types @('multipleValuesUseField')
+		$mvk = Get-CharIntField $values @('multipleValuesKeyField')
+		$mvo = Get-CharIntField $values @('multipleValuesOrderField')
 		X "$indent`t<xr:Characteristic>"
 		X "$indent`t`t<xr:CharacteristicTypes from=`"$(Esc-Xml $tFrom)`">"
 		X "$indent`t`t`t<xr:KeyField>$(Esc-Xml $key)</xr:KeyField>"
 		X "$indent`t`t`t<xr:TypesFilterField>$(Esc-Xml $tff)</xr:TypesFilterField>"
-		X "$indent`t`t`t<xr:TypesFilterValue xsi:type=`"xr:DesignTimeRef`">$(Esc-Xml $tfv)</xr:TypesFilterValue>"
-		X "$indent`t`t`t<xr:DataPathField>-1</xr:DataPathField>"
-		X "$indent`t`t`t<xr:MultipleValuesUseField>-1</xr:MultipleValuesUseField>"
+		# filterValue: $null→nil; голое→xs:string, полный путь→DTR, bool→xs:boolean.
+		$tfvRaw = Get-ChElProp $types @('filterValue','typesFilterValue')
+		if ($null -eq $tfvRaw) { X "$indent`t`t`t<xr:TypesFilterValue xsi:nil=`"true`"/>" }
+		else {
+			$tfvN = Normalize-ChoiceValue $tfvRaw
+			if ([string]::IsNullOrEmpty($tfvN.Text)) { X "$indent`t`t`t<xr:TypesFilterValue xsi:type=`"$($tfvN.XsiType)`"/>" }
+			else { X "$indent`t`t`t<xr:TypesFilterValue xsi:type=`"$($tfvN.XsiType)`">$(Esc-Xml $tfvN.Text)</xr:TypesFilterValue>" }
+		}
+		X "$indent`t`t`t<xr:DataPathField>$dpf</xr:DataPathField>"
+		X "$indent`t`t`t<xr:MultipleValuesUseField>$mvu</xr:MultipleValuesUseField>"
 		X "$indent`t`t</xr:CharacteristicTypes>"
 		X "$indent`t`t<xr:CharacteristicValues from=`"$(Esc-Xml $vFrom)`">"
 		X "$indent`t`t`t<xr:ObjectField>$(Esc-Xml $obj)</xr:ObjectField>"
 		X "$indent`t`t`t<xr:TypeField>$(Esc-Xml $typ)</xr:TypeField>"
 		X "$indent`t`t`t<xr:ValueField>$(Esc-Xml $val)</xr:ValueField>"
-		X "$indent`t`t`t<xr:MultipleValuesKeyField>-1</xr:MultipleValuesKeyField>"
-		X "$indent`t`t`t<xr:MultipleValuesOrderField>-1</xr:MultipleValuesOrderField>"
+		X "$indent`t`t`t<xr:MultipleValuesKeyField>$mvk</xr:MultipleValuesKeyField>"
+		X "$indent`t`t`t<xr:MultipleValuesOrderField>$mvo</xr:MultipleValuesOrderField>"
 		X "$indent`t`t</xr:CharacteristicValues>"
 		X "$indent`t</xr:Characteristic>"
 	}

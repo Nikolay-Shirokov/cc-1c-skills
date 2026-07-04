@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-compile v1.25 — Compile 1C metadata object from JSON
+# meta-compile v1.26 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -1425,10 +1425,18 @@ def resolve_char_std_en(name):
         return 'Owner'
     return None
 
+def char_int_field(obj, names):
+    v = ch_el_prop(obj, names)
+    if v is None or str(v) == '':
+        return -1
+    return int(v)
+
 def expand_char_field(field, from_):
     s = str(field or '')
     if not s:
         return s
+    if s == '-1':
+        return '-1'   # поле не задано (empty-характеристика)
     if re.match(r'^(StandardAttribute|Attribute|Dimension|Resource)\.', s):
         return f'{from_}.{s}'
     if '.' not in s:
@@ -1436,15 +1444,6 @@ def expand_char_field(field, from_):
         if en:
             return f'{from_}.StandardAttribute.{en}'
         return f'{from_}.Attribute.{s}'
-    return s
-
-def expand_char_filter_value(fv, types_from):
-    s = str(fv or '')
-    if not s or '.' in s:
-        return s
-    tp = str(types_from).split('.')
-    if len(tp) >= 2:
-        return f'{tp[0]}.{tp[1]}.{s}'
     return s
 
 def emit_characteristics(indent, chars):
@@ -1459,24 +1458,36 @@ def emit_characteristics(indent, chars):
         v_from = normalize_char_from(ch_el_prop(values, ['from', 'source', 'источник']) or '')
         key = expand_char_field(ch_el_prop(types, ['key', 'keyField']), t_from)
         tff = expand_char_field(ch_el_prop(types, ['filterField', 'typesFilterField']), t_from)
-        tfv = expand_char_filter_value(ch_el_prop(types, ['filterValue', 'typesFilterValue']), t_from)
         obj = expand_char_field(ch_el_prop(values, ['object', 'objectField']), v_from)
         typ = expand_char_field(ch_el_prop(values, ['type', 'typeField']), v_from)
         val = expand_char_field(ch_el_prop(values, ['value', 'valueField']), v_from)
+        dpf = char_int_field(types, ['dataPathField'])
+        mvu = char_int_field(types, ['multipleValuesUseField'])
+        mvk = char_int_field(values, ['multipleValuesKeyField'])
+        mvo = char_int_field(values, ['multipleValuesOrderField'])
         X(f'{indent}\t<xr:Characteristic>')
         X(f'{indent}\t\t<xr:CharacteristicTypes from="{esc_xml(t_from)}">')
         X(f'{indent}\t\t\t<xr:KeyField>{esc_xml(key)}</xr:KeyField>')
         X(f'{indent}\t\t\t<xr:TypesFilterField>{esc_xml(tff)}</xr:TypesFilterField>')
-        X(f'{indent}\t\t\t<xr:TypesFilterValue xsi:type="xr:DesignTimeRef">{esc_xml(tfv)}</xr:TypesFilterValue>')
-        X(f'{indent}\t\t\t<xr:DataPathField>-1</xr:DataPathField>')
-        X(f'{indent}\t\t\t<xr:MultipleValuesUseField>-1</xr:MultipleValuesUseField>')
+        # filterValue: None→nil; голое→xs:string, полный путь→DTR, bool→xs:boolean.
+        tfv_raw = ch_el_prop(types, ['filterValue', 'typesFilterValue'])
+        if tfv_raw is None:
+            X(f'{indent}\t\t\t<xr:TypesFilterValue xsi:nil="true"/>')
+        else:
+            tfv_xt, tfv_tx = normalize_choice_value(tfv_raw)
+            if tfv_tx == '' or tfv_tx is None:
+                X(f'{indent}\t\t\t<xr:TypesFilterValue xsi:type="{tfv_xt}"/>')
+            else:
+                X(f'{indent}\t\t\t<xr:TypesFilterValue xsi:type="{tfv_xt}">{esc_xml(tfv_tx)}</xr:TypesFilterValue>')
+        X(f'{indent}\t\t\t<xr:DataPathField>{dpf}</xr:DataPathField>')
+        X(f'{indent}\t\t\t<xr:MultipleValuesUseField>{mvu}</xr:MultipleValuesUseField>')
         X(f'{indent}\t\t</xr:CharacteristicTypes>')
         X(f'{indent}\t\t<xr:CharacteristicValues from="{esc_xml(v_from)}">')
         X(f'{indent}\t\t\t<xr:ObjectField>{esc_xml(obj)}</xr:ObjectField>')
         X(f'{indent}\t\t\t<xr:TypeField>{esc_xml(typ)}</xr:TypeField>')
         X(f'{indent}\t\t\t<xr:ValueField>{esc_xml(val)}</xr:ValueField>')
-        X(f'{indent}\t\t\t<xr:MultipleValuesKeyField>-1</xr:MultipleValuesKeyField>')
-        X(f'{indent}\t\t\t<xr:MultipleValuesOrderField>-1</xr:MultipleValuesOrderField>')
+        X(f'{indent}\t\t\t<xr:MultipleValuesKeyField>{mvk}</xr:MultipleValuesKeyField>')
+        X(f'{indent}\t\t\t<xr:MultipleValuesOrderField>{mvo}</xr:MultipleValuesOrderField>')
         X(f'{indent}\t\t</xr:CharacteristicValues>')
         X(f'{indent}\t</xr:Characteristic>')
     X(f'{indent}</Characteristics>')
