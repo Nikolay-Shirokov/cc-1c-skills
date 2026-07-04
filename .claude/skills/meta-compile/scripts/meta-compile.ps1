@@ -1,4 +1,4 @@
-﻿# meta-compile v1.31 — Compile 1C metadata object from JSON
+﻿# meta-compile v1.32 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -1058,6 +1058,9 @@ function Emit-StandardAttribute {
 	$cf  = OvOr 'ChoiceForm' ''
 	$cmt = OvOr 'Comment' ''
 	$msk = OvOr 'Mask' ''
+	$fmt = OvOr 'Format' $null
+	$efmt = OvOr 'EditFormat' $null
+	$chi = OvOr 'ChoiceHistoryOnInput' 'Auto'
 	X "$indent<xr:StandardAttribute name=`"$attrName`">"
 	X "$indent`t<xr:LinkByType/>"
 	X "$indent`t<xr:FillChecking>$fc</xr:FillChecking>"
@@ -1067,11 +1070,11 @@ function Emit-StandardAttribute {
 	X "$indent`t<xr:MaxValue xsi:nil=`"true`"/>"
 	Emit-MLText "$indent`t" "xr:ToolTip" $tt
 	X "$indent`t<xr:ExtendedEdit>false</xr:ExtendedEdit>"
-	X "$indent`t<xr:Format/>"
+	Emit-MLText "$indent`t" "xr:Format" $fmt
 	if ($cf) { X "$indent`t<xr:ChoiceForm>$(Esc-Xml "$cf")</xr:ChoiceForm>" } else { X "$indent`t<xr:ChoiceForm/>" }
 	X "$indent`t<xr:QuickChoice>Auto</xr:QuickChoice>"
-	X "$indent`t<xr:ChoiceHistoryOnInput>Auto</xr:ChoiceHistoryOnInput>"
-	X "$indent`t<xr:EditFormat/>"
+	X "$indent`t<xr:ChoiceHistoryOnInput>$chi</xr:ChoiceHistoryOnInput>"
+	Emit-MLText "$indent`t" "xr:EditFormat" $efmt
 	X "$indent`t<xr:PasswordMode>false</xr:PasswordMode>"
 	X "$indent`t<xr:DataHistory>$dh</xr:DataHistory>"
 	X "$indent`t<xr:MarkNegatives>false</xr:MarkNegatives>"
@@ -1134,11 +1137,24 @@ function Emit-StandardAttributes {
 	X "$indent</StandardAttributes>"
 }
 
-# TabularSection standard attributes (just LineNumber)
+# TabularSection standard attributes (единственный — LineNumber/НомерСтроки). Блок эмитится всегда (платформа
+# опускает его лишь у редкого хвоста ТЧ — правило не выведено, см. WORKFLOW). DSL `lineNumber` на объектной форме ТЧ
+# переопределяет свойства (synonym/comment/fullTextSearch/tooltip/format/editFormat/choiceHistoryOnInput).
 function Emit-TabularStandardAttributes {
-	param([string]$indent)
+	param([string]$indent, $lineNumber = $null)
+	$ov = $null
+	if ($lineNumber) {
+		$ov = @{}
+		if ($null -ne $lineNumber.synonym)            { $ov['Synonym'] = $lineNumber.synonym }
+		if ($lineNumber.comment)                      { $ov['Comment'] = "$($lineNumber.comment)" }
+		if ($lineNumber.fullTextSearch)               { $ov['FullTextSearch'] = "$($lineNumber.fullTextSearch)" }
+		if ($null -ne $lineNumber.tooltip)            { $ov['ToolTip'] = $lineNumber.tooltip }
+		if ($null -ne $lineNumber.format)             { $ov['Format'] = $lineNumber.format }
+		if ($null -ne $lineNumber.editFormat)         { $ov['EditFormat'] = $lineNumber.editFormat }
+		if ($lineNumber.choiceHistoryOnInput)         { $ov['ChoiceHistoryOnInput'] = "$($lineNumber.choiceHistoryOnInput)" }
+	}
 	X "$indent<StandardAttributes>"
-	Emit-StandardAttribute "$indent`t" "LineNumber"
+	Emit-StandardAttribute "$indent`t" "LineNumber" $ov
 	X "$indent</StandardAttributes>"
 }
 
@@ -1662,7 +1678,7 @@ function Emit-Command {
 # --- 9. TabularSection emitter ---
 
 function Emit-TabularSection {
-	param([string]$indent, [string]$tsName, $columns, [string]$objectType, [string]$objectName, $tsSynonymArg = $null, $tsTooltip = $null, $tsComment = $null)
+	param([string]$indent, [string]$tsName, $columns, [string]$objectType, [string]$objectName, $tsSynonymArg = $null, $tsTooltip = $null, $tsComment = $null, $tsLineNumber = $null)
 	$uuid = New-Guid-String
 	X "$indent<TabularSection uuid=`"$uuid`">"
 
@@ -1689,7 +1705,7 @@ function Emit-TabularSection {
 	if ($tsComment) { X "$indent`t`t<Comment>$(Esc-XmlText $tsComment)</Comment>" } else { X "$indent`t`t<Comment/>" }
 	Emit-MLText "$indent`t`t" "ToolTip" $tsTooltip
 	X "$indent`t`t<FillChecking>DontCheck</FillChecking>"
-	Emit-TabularStandardAttributes "$indent`t`t"
+	Emit-TabularStandardAttributes "$indent`t`t" $tsLineNumber
 	# Use=ForItem only for Catalog tabular sections (Document does not have Use)
 	if ($objectType -eq "Catalog") {
 		X "$indent`t`t<Use>ForItem</Use>"
@@ -3478,10 +3494,10 @@ if ($objType -in $typesWithAttrTS) {
 		# Нормализуем в $tsSections[name] = @{ columns; synonym; tooltip; comment }.
 		function New-TsEntry { param($val)
 			if ($val -is [array] -or $val.GetType().Name -eq 'Object[]') {
-				return @{ columns = @($val); synonym = $null; tooltip = $null; comment = $null }
+				return @{ columns = @($val); synonym = $null; tooltip = $null; comment = $null; lineNumber = $null }
 			}
 			$cols = if ($val.attributes) { @($val.attributes) } elseif ($val.columns) { @($val.columns) } else { @() }
-			return @{ columns = $cols; synonym = $val.synonym; tooltip = $val.tooltip; comment = if ($val.comment) { "$($val.comment)" } else { $null } }
+			return @{ columns = $cols; synonym = $val.synonym; tooltip = $val.tooltip; comment = if ($val.comment) { "$($val.comment)" } else { $null }; lineNumber = $val.lineNumber }
 		}
 		if ($def.tabularSections -is [array] -or $def.tabularSections.GetType().Name -eq "Object[]") {
 			foreach ($ts in $def.tabularSections) { $tsSections[$ts.name] = New-TsEntry $ts }
@@ -3529,7 +3545,7 @@ if ($objType -in $typesWithAttrTS) {
 		}
 		foreach ($tsName in $tsSections.Keys) {
 			$tsE = $tsSections[$tsName]
-			Emit-TabularSection "`t`t`t" $tsName $tsE.columns $objType $objName $tsE.synonym $tsE.tooltip $tsE.comment
+			Emit-TabularSection "`t`t`t" $tsName $tsE.columns $objType $objName $tsE.synonym $tsE.tooltip $tsE.comment $tsE.lineNumber
 		}
 		foreach ($af in $acctFlags) {
 			$afName = if ($af.name) { $af.name } else { "$af" }

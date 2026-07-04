@@ -1,4 +1,4 @@
-﻿# meta-decompile v0.21 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
+﻿# meta-decompile v0.22 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 #
 # Пилот: только Catalog. Инверс meta-compile (omit-on-default: ключ эмитим только
@@ -573,11 +573,24 @@ if ($childObjs) {
 			elseif ($null -ne $tsSyn) { $tsSynCustom = $true }
 			$tsTt = Get-MLValue ($tsp.SelectSingleNode('md:ToolTip', $nsm))
 			$tsCmtN = $tsp.SelectSingleNode('md:Comment', $nsm); $tsCmt = if ($tsCmtN) { $tsCmtN.InnerText } else { '' }
-			if ($tsSynCustom -or ($null -ne $tsTt) -or $tsCmt) {
+			# Кастомизация стандартного реквизита LineNumber (НомерСтроки) — omit-on-default по каждому свойству.
+			$lnObj = [ordered]@{}
+			$lnNode = $tsp.SelectSingleNode("md:StandardAttributes/xr:StandardAttribute[@name='LineNumber']", $nsm)
+			if ($lnNode) {
+				$lnSyn = Get-MLValue ($lnNode.SelectSingleNode('xr:Synonym', $nsm)); if ($null -ne $lnSyn) { $lnObj['synonym'] = $lnSyn }
+				$lnCmtN = $lnNode.SelectSingleNode('xr:Comment', $nsm); if ($lnCmtN -and $lnCmtN.InnerText) { $lnObj['comment'] = $lnCmtN.InnerText }
+				$lnFtsN = $lnNode.SelectSingleNode('xr:FullTextSearch', $nsm); if ($lnFtsN -and $lnFtsN.InnerText -ne 'Use') { $lnObj['fullTextSearch'] = $lnFtsN.InnerText }
+				$lnTt = Get-MLValue ($lnNode.SelectSingleNode('xr:ToolTip', $nsm)); if ($null -ne $lnTt) { $lnObj['tooltip'] = $lnTt }
+				$lnFmt = Get-MLValue ($lnNode.SelectSingleNode('xr:Format', $nsm)); if ($null -ne $lnFmt) { $lnObj['format'] = $lnFmt }
+				$lnEfmt = Get-MLValue ($lnNode.SelectSingleNode('xr:EditFormat', $nsm)); if ($null -ne $lnEfmt) { $lnObj['editFormat'] = $lnEfmt }
+				$lnChiN = $lnNode.SelectSingleNode('xr:ChoiceHistoryOnInput', $nsm); if ($lnChiN -and $lnChiN.InnerText -ne 'Auto') { $lnObj['choiceHistoryOnInput'] = $lnChiN.InnerText }
+			}
+			if ($tsSynCustom -or ($null -ne $tsTt) -or $tsCmt -or $lnObj.Count -gt 0) {
 				$to = [ordered]@{}
 				if ($tsSynCustom) { $to['synonym'] = $tsSyn }
 				if ($null -ne $tsTt) { $to['tooltip'] = $tsTt }
 				if ($tsCmt) { $to['comment'] = $tsCmt }
+				if ($lnObj.Count -gt 0) { $to['lineNumber'] = $lnObj }
 				$to['attributes'] = $cols
 				$tsMap[$tsName] = $to
 			} else {

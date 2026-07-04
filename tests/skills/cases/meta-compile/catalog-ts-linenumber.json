@@ -1,0 +1,25 @@
+{
+  "name": "Кастомизация LineNumber табличной части",
+  "input": {
+    "type": "Catalog",
+    "name": "Заказы",
+    "tabularSections": {
+      "Строки": {
+        "synonym": "Строки заказа",
+        "lineNumber": {
+          "synonym": "Номер п/п",
+          "comment": "порядковый номер строки",
+          "fullTextSearch": "DontUse",
+          "tooltip": { "ru": "Порядковый номер", "en": "Sequence number" },
+          "choiceHistoryOnInput": "DontUse"
+        },
+        "attributes": [
+          "Товар: CatalogRef.Номенклатура",
+          "Количество: Number(15,3)"
+        ]
+      }
+    }
+  },
+  "validatePath": "Catalogs/Заказы",
+  "expect": { "files": ["Catalogs/Заказы.xml"] }
+}

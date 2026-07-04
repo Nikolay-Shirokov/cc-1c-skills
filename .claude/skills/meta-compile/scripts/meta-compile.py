@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-compile v1.31 — Compile 1C metadata object from JSON
+# meta-compile v1.32 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -1070,6 +1070,9 @@ def emit_standard_attribute(indent, attr_name, ov=None):
     cf = ov.get('ChoiceForm', '')
     cmt = ov.get('Comment', '')
     msk = ov.get('Mask', '')
+    fmt = ov.get('Format')
+    efmt = ov.get('EditFormat')
+    chi = ov.get('ChoiceHistoryOnInput', 'Auto')
     X(f'{indent}<xr:StandardAttribute name="{attr_name}">')
     X(f'{indent}\t<xr:LinkByType/>')
     X(f'{indent}\t<xr:FillChecking>{fc}</xr:FillChecking>')
@@ -1079,14 +1082,14 @@ def emit_standard_attribute(indent, attr_name, ov=None):
     X(f'{indent}\t<xr:MaxValue xsi:nil="true"/>')
     emit_mltext(f'{indent}\t', 'xr:ToolTip', tt)
     X(f'{indent}\t<xr:ExtendedEdit>false</xr:ExtendedEdit>')
-    X(f'{indent}\t<xr:Format/>')
+    emit_mltext(f'{indent}\t', 'xr:Format', fmt)
     if cf:
         X(f'{indent}\t<xr:ChoiceForm>{esc_xml(str(cf))}</xr:ChoiceForm>')
     else:
         X(f'{indent}\t<xr:ChoiceForm/>')
     X(f'{indent}\t<xr:QuickChoice>Auto</xr:QuickChoice>')
-    X(f'{indent}\t<xr:ChoiceHistoryOnInput>Auto</xr:ChoiceHistoryOnInput>')
-    X(f'{indent}\t<xr:EditFormat/>')
+    X(f'{indent}\t<xr:ChoiceHistoryOnInput>{chi}</xr:ChoiceHistoryOnInput>')
+    emit_mltext(f'{indent}\t', 'xr:EditFormat', efmt)
     X(f'{indent}\t<xr:PasswordMode>false</xr:PasswordMode>')
     X(f'{indent}\t<xr:DataHistory>{dh}</xr:DataHistory>')
     X(f'{indent}\t<xr:MarkNegatives>false</xr:MarkNegatives>')
@@ -1160,9 +1163,28 @@ def emit_standard_attributes(indent, object_type):
         emit_standard_attribute(f'{indent}\t', a, ov)
     X(f'{indent}</StandardAttributes>')
 
-def emit_tabular_standard_attributes(indent):
+def emit_tabular_standard_attributes(indent, line_number=None):
+    """LineNumber/НомерСтроки ТЧ. Блок эмитится всегда. DSL `lineNumber` переопределяет
+    synonym/comment/fullTextSearch/tooltip/format/editFormat/choiceHistoryOnInput."""
+    ov = None
+    if line_number:
+        ov = {}
+        if line_number.get('synonym') is not None:
+            ov['Synonym'] = line_number['synonym']
+        if line_number.get('comment'):
+            ov['Comment'] = str(line_number['comment'])
+        if line_number.get('fullTextSearch'):
+            ov['FullTextSearch'] = str(line_number['fullTextSearch'])
+        if line_number.get('tooltip') is not None:
+            ov['ToolTip'] = line_number['tooltip']
+        if line_number.get('format') is not None:
+            ov['Format'] = line_number['format']
+        if line_number.get('editFormat') is not None:
+            ov['EditFormat'] = line_number['editFormat']
+        if line_number.get('choiceHistoryOnInput'):
+            ov['ChoiceHistoryOnInput'] = str(line_number['choiceHistoryOnInput'])
     X(f'{indent}<StandardAttributes>')
-    emit_standard_attribute(f'{indent}\t', 'LineNumber')
+    emit_standard_attribute(f'{indent}\t', 'LineNumber', ov)
     X(f'{indent}</StandardAttributes>')
 
 # ---------------------------------------------------------------------------
@@ -1712,7 +1734,7 @@ def emit_command(indent, cmd_name, cmd):
     X(f'{indent}\t</Properties>')
     X(f'{indent}</Command>')
 
-def emit_tabular_section(indent, ts_name, columns, object_type, object_name, ts_synonym_arg=None, ts_tooltip=None, ts_comment=None):
+def emit_tabular_section(indent, ts_name, columns, object_type, object_name, ts_synonym_arg=None, ts_tooltip=None, ts_comment=None, ts_line_number=None):
     uid = new_uuid()
     X(f'{indent}<TabularSection uuid="{uid}">')
     type_prefix = f'{object_type}TabularSection'
@@ -1737,7 +1759,7 @@ def emit_tabular_section(indent, ts_name, columns, object_type, object_name, ts_
         X(f'{indent}\t\t<Comment/>')
     emit_mltext(f'{indent}\t\t', 'ToolTip', ts_tooltip)
     X(f'{indent}\t\t<FillChecking>DontCheck</FillChecking>')
-    emit_tabular_standard_attributes(f'{indent}\t\t')
+    emit_tabular_standard_attributes(f'{indent}\t\t', ts_line_number)
     if object_type == 'Catalog':
         X(f'{indent}\t\t<Use>ForItem</Use>')
     X(f'{indent}\t</Properties>')
@@ -3265,10 +3287,10 @@ if obj_type in types_with_attr_ts:
         # Значение ТЧ: массив колонок (синоним авто) ЛИБО объект {attributes/columns, synonym, tooltip, comment}.
         def new_ts_entry(val):
             if isinstance(val, list):
-                return {'columns': val, 'synonym': None, 'tooltip': None, 'comment': None}
+                return {'columns': val, 'synonym': None, 'tooltip': None, 'comment': None, 'lineNumber': None}
             cols = _as_list(val.get('attributes') or val.get('columns') or [])
             return {'columns': cols, 'synonym': val.get('synonym'), 'tooltip': val.get('tooltip'),
-                    'comment': str(val['comment']) if val.get('comment') else None}
+                    'comment': str(val['comment']) if val.get('comment') else None, 'lineNumber': val.get('lineNumber')}
         if isinstance(ts_data, list):
             for ts in ts_data:
                 ts_sections[ts['name']] = new_ts_entry(ts)
@@ -3317,7 +3339,7 @@ if obj_type in types_with_attr_ts:
             emit_attribute('\t\t\t', a, context)
         for ts_name in ts_order:
             e = ts_sections[ts_name]
-            emit_tabular_section('\t\t\t', ts_name, e['columns'], obj_type, obj_name, e['synonym'], e['tooltip'], e['comment'])
+            emit_tabular_section('\t\t\t', ts_name, e['columns'], obj_type, obj_name, e['synonym'], e['tooltip'], e['comment'], e.get('lineNumber'))
         for af in acct_flags:
             af_name = af['name'] if isinstance(af, dict) else str(af)
             emit_accounting_flag('\t\t\t', af_name)
