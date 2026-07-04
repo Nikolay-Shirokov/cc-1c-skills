@@ -9,7 +9,7 @@
       { "name": "Партнер", "type": "CatalogRef.Партнеры",
         "choiceParameters": "Отбор.ЭтоГруппа=false" },
       { "name": "ТипТТН", "type": "CatalogRef.ВидыТранспорта",
-        "choiceParameters": [ { "name": "Отбор.Тип", "value": ["Enum.ТипыВЕТИС.EmptyRef", "Enum.ТипыВЕТИС.EnumValue.ТТН"] } ] },
+        "choiceParameters": [ { "name": "Отбор.Тип", "type": "EnumRef.ТипыВЕТИС", "value": ["EmptyRef", "ТТН"] } ] },
       { "name": "Валюта", "type": "CatalogRef.Валюты",
         "choiceParameterLinks": "Отбор.Владелец=Ссылка" }
     ]

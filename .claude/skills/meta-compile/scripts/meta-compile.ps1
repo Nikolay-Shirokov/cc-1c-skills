@@ -1,4 +1,4 @@
-﻿# meta-compile v1.23 — Compile 1C metadata object from JSON
+﻿# meta-compile v1.24 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -1210,6 +1210,30 @@ function ConvertTo-ChScalar {
 	return $t
 }
 
+# Голое значение (без точки) + тип параметра → полный DTR-путь, либо $null. Принимает EnumRef.X / Enum.X / рус.
+function Expand-ChoiceRefValue {
+	param([string]$value, [string]$typeStr)
+	if (-not $typeStr) { return $null }
+	$t = Resolve-TypeStr $typeStr
+	$root = $null; $tn = $null
+	if ($t -match '^(\w+Ref)\.(.+)$') { $root = $script:fillRefKindRoot[$Matches[1].ToLower()]; $tn = $Matches[2] }
+	elseif ($t -match '^([^.]+)\.(.+)$') { $root = $script:fillRefRoots[$Matches[1].ToLower()]; $tn = $Matches[2] }
+	if (-not $root) { return $null }
+	if ($script:fillEmptyRefWords -contains "$value".ToLower()) { return "$root.$tn.EmptyRef" }
+	if ($root -eq 'Enum') { return "Enum.$tn.EnumValue.$value" }
+	return "$root.$tn.$value"
+}
+
+# Значение параметра выбора → @{XsiType; Text}. $typeStr (тип параметра) разворачивает голые ref-имена.
+function Normalize-ChoiceValueT {
+	param($value, [string]$typeStr)
+	if ($typeStr -and ($value -is [string]) -and (-not "$value".Contains('.'))) {
+		$ex = Expand-ChoiceRefValue "$value" $typeStr
+		if ($ex) { return @{ XsiType='xr:DesignTimeRef'; Text=$ex } }
+	}
+	return Normalize-ChoiceValue $value
+}
+
 # Значение параметра выбора → @{XsiType; Text}. Авто-детект по значению (без типа реквизита).
 function Normalize-ChoiceValue {
 	param($value)
@@ -1256,6 +1280,7 @@ function Emit-ChoiceParameters {
 	foreach ($item in @($cp)) {
 		if ($item -is [string]) { $item = ConvertFrom-ChParamShorthand $item }
 		$name = Get-ChElProp $item @('name','имя')
+		$ptype = Get-ChElProp $item @('type','тип')
 		$hasVal = $false; $val = $null
 		if ($item -is [System.Collections.IDictionary]) {
 			if ($item.Contains('value')) { $hasVal = $true; $val = $item['value'] }
@@ -1271,13 +1296,13 @@ function Emit-ChoiceParameters {
 		} elseif ($valIsArray) {
 			X "$indent`t`t<app:value xsi:type=`"v8:FixedArray`">"
 			foreach ($v in $val) {
-				$norm = Normalize-ChoiceValue -value $v
+				$norm = Normalize-ChoiceValueT $v $ptype
 				if ([string]::IsNullOrEmpty($norm.Text)) { X "$indent`t`t`t<v8:Value xsi:type=`"$($norm.XsiType)`"/>" }
 				else { X "$indent`t`t`t<v8:Value xsi:type=`"$($norm.XsiType)`">$(Esc-Xml $norm.Text)</v8:Value>" }
 			}
 			X "$indent`t`t</app:value>"
 		} else {
-			$norm = Normalize-ChoiceValue -value $val
+			$norm = Normalize-ChoiceValueT $val $ptype
 			if ([string]::IsNullOrEmpty($norm.Text)) { X "$indent`t`t<app:value xsi:type=`"$($norm.XsiType)`"/>" }
 			else { X "$indent`t`t<app:value xsi:type=`"$($norm.XsiType)`">$(Esc-Xml $norm.Text)</app:value>" }
 		}

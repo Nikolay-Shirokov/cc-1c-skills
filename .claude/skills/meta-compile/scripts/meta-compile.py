@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-compile v1.23 — Compile 1C metadata object from JSON
+# meta-compile v1.24 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -1260,6 +1260,37 @@ def convert_to_ch_scalar(s):
         return float(t)
     return t
 
+def expand_choice_ref_value(value, type_str):
+    """Голое значение (без точки) + тип параметра → полный DTR-путь, либо None. Принимает EnumRef.X / Enum.X / рус."""
+    if not type_str:
+        return None
+    t = resolve_type_str(type_str)
+    root = tn = None
+    m = re.match(r'^(\w+Ref)\.(.+)$', t)
+    if m:
+        root = fill_ref_kind_root.get(m.group(1).lower())
+        tn = m.group(2)
+    else:
+        m = re.match(r'^([^.]+)\.(.+)$', t)
+        if m:
+            root = fill_ref_roots.get(m.group(1).lower())
+            tn = m.group(2)
+    if not root:
+        return None
+    if str(value).lower() in fill_empty_ref_words:
+        return f'{root}.{tn}.EmptyRef'
+    if root == 'Enum':
+        return f'Enum.{tn}.EnumValue.{value}'
+    return f'{root}.{tn}.{value}'
+
+def normalize_choice_value_t(value, type_str):
+    """Значение параметра выбора → (xsi_type, text). type_str разворачивает голые ref-имена."""
+    if type_str and isinstance(value, str) and '.' not in value:
+        ex = expand_choice_ref_value(value, type_str)
+        if ex:
+            return ('xr:DesignTimeRef', ex)
+    return normalize_choice_value(value)
+
 def normalize_choice_value(value):
     """Значение параметра выбора → (xsi_type, text). Авто-детект по значению."""
     if isinstance(value, bool):
@@ -1311,6 +1342,7 @@ def emit_choice_parameters(indent, cp):
         if isinstance(item, str):
             item = convert_from_ch_param_shorthand(item)
         name = ch_el_prop(item, ['name', 'имя'])
+        ptype = ch_el_prop(item, ['type', 'тип'])
         has_val = isinstance(item, dict) and ('value' in item or 'значение' in item)
         val = item.get('value', item.get('значение')) if has_val else None
         val_is_array = isinstance(val, (list, tuple))
@@ -1320,14 +1352,14 @@ def emit_choice_parameters(indent, cp):
         elif val_is_array:
             X(f'{indent}\t\t<app:value xsi:type="v8:FixedArray">')
             for v in val:
-                xt, tx = normalize_choice_value(v)
+                xt, tx = normalize_choice_value_t(v, ptype)
                 if tx == '' or tx is None:
                     X(f'{indent}\t\t\t<v8:Value xsi:type="{xt}"/>')
                 else:
                     X(f'{indent}\t\t\t<v8:Value xsi:type="{xt}">{esc_xml(tx)}</v8:Value>')
             X(f'{indent}\t\t</app:value>')
         else:
-            xt, tx = normalize_choice_value(val)
+            xt, tx = normalize_choice_value_t(val, ptype)
             if tx == '' or tx is None:
                 X(f'{indent}\t\t<app:value xsi:type="{xt}"/>')
             else:
