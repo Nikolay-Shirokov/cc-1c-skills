@@ -1,4 +1,4 @@
-﻿# meta-decompile v0.19 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
+﻿# meta-decompile v0.20 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 #
 # Пилот: только Catalog. Инверс meta-compile (omit-on-default: ключ эмитим только
@@ -589,7 +589,25 @@ if ($childObjs) {
 			$mdN = $cp.SelectSingleNode('md:ModifiesData', $nsm); if ($mdN -and $mdN.InnerText -eq 'true') { $o['modifiesData'] = $true }
 			$repN = $cp.SelectSingleNode('md:Representation', $nsm); if ($repN -and $repN.InnerText -ne 'Auto') { $o['representation'] = $repN.InnerText }
 			$ctt = Get-MLValue ($cp.SelectSingleNode('md:ToolTip', $nsm)); if ($null -ne $ctt) { $o['tooltip'] = $ctt }
-			$picN = $cp.SelectSingleNode('md:Picture', $nsm); if ($picN -and $picN.InnerText) { $o['picture'] = $picN.InnerText }
+			# <Picture> — структурный блок (зеркало form-decompile Set-CommandPicture). Дефолт LoadTransparent=true:
+			# скаляр `picture` + sibling `loadTransparent:false` при отклонении; объект {src,loadTransparent?,transparentPixel} при TransparentPixel.
+			$refN = $cp.SelectSingleNode('md:Picture/xr:Ref', $nsm)
+			$absN = $cp.SelectSingleNode('md:Picture/xr:Abs', $nsm)
+			if ($refN -or $absN) {
+				$psrc = if ($refN) { $refN.InnerText } else { "abs:$($absN.InnerText)" }
+				$ltN = $cp.SelectSingleNode('md:Picture/xr:LoadTransparent', $nsm)
+				$ltFalse = ($ltN -and $ltN.InnerText -eq 'false')
+				$tpxN = $cp.SelectSingleNode('md:Picture/xr:TransparentPixel', $nsm)
+				if ($tpxN) {
+					$po = [ordered]@{ src = $psrc }
+					if ($ltFalse) { $po['loadTransparent'] = $false }
+					$po['transparentPixel'] = [ordered]@{ x = [int]$tpxN.GetAttribute('x'); y = [int]$tpxN.GetAttribute('y') }
+					$o['picture'] = $po
+				} else {
+					$o['picture'] = $psrc
+					if ($ltFalse) { $o['loadTransparent'] = $false }
+				}
+			}
 			$scN = $cp.SelectSingleNode('md:Shortcut', $nsm); if ($scN -and $scN.InnerText) { $o['shortcut'] = $scN.InnerText }
 			$osuN = $cp.SelectSingleNode('md:OnMainServerUnavalableBehavior', $nsm); if ($osuN -and $osuN.InnerText -ne 'Auto') { $o['onMainServerUnavalableBehavior'] = $osuN.InnerText }
 			$cmdMap[$cn] = $o

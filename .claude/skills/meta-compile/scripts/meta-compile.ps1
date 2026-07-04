@@ -1,4 +1,4 @@
-﻿# meta-compile v1.28 — Compile 1C metadata object from JSON
+﻿# meta-compile v1.29 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -1580,6 +1580,29 @@ function Emit-Attribute {
 	X "$indent</Attribute>"
 }
 
+# <Picture> команды — структурный блок (зеркало form-compile). Дефолт LoadTransparent=true (конвенция
+# кнопки/команды): фиксируем только false. Значение: строка-ref + sibling `loadTransparent` ЛИБО объект
+# {src, loadTransparent?, transparentPixel?}. src с префиксом "abs:" → <xr:Abs>, иначе <xr:Ref>. Нет → <Picture/>.
+function Emit-CommandPicture {
+	param([string]$indent, $cmd)
+	$pic = $cmd.picture
+	if (-not $pic) { X "$indent<Picture/>"; return }
+	$src = $null; $lt = $true; $tpx = $null
+	if ($pic -is [string]) { $src = "$pic"; if ($cmd.loadTransparent -eq $false) { $lt = $false } }
+	else {
+		$src = if ($pic.src) { "$($pic.src)" } elseif ($pic.ref) { "$($pic.ref)" } else { "" }
+		if ($pic.loadTransparent -eq $false) { $lt = $false }
+		$tpx = $pic.transparentPixel
+	}
+	if (-not $src) { X "$indent<Picture/>"; return }
+	X "$indent<Picture>"
+	if ($src -match '^abs:(.*)$') { X "$indent`t<xr:Abs>$(Esc-Xml $matches[1])</xr:Abs>" }
+	else { X "$indent`t<xr:Ref>$(Esc-Xml $src)</xr:Ref>" }
+	X "$indent`t<xr:LoadTransparent>$(if ($lt) { 'true' } else { 'false' })</xr:LoadTransparent>"
+	if ($tpx) { X "$indent`t<xr:TransparentPixel x=`"$($tpx.x)`" y=`"$($tpx.y)`"/>" }
+	X "$indent</Picture>"
+}
+
 # --- 8b. Command emitter ---
 # $cmd — объект свойств команды. Поля (omit-on-default): synonym/tooltip (ML), comment, group,
 # commandParameterType (тип), parameterUseMode (Single), modifiesData (false), representation (Auto),
@@ -1608,7 +1631,7 @@ function Emit-Command {
 	$rep = if ($cmd.representation) { "$($cmd.representation)" } else { "Auto" }
 	X "$indent`t`t<Representation>$rep</Representation>"
 	Emit-MLText "$indent`t`t" "ToolTip" $cmd.tooltip
-	if ($cmd.picture) { X "$indent`t`t<Picture>$(Esc-Xml "$($cmd.picture)")</Picture>" } else { X "$indent`t`t<Picture/>" }
+	Emit-CommandPicture "$indent`t`t" $cmd
 	if ($cmd.shortcut) { X "$indent`t`t<Shortcut>$(Esc-Xml "$($cmd.shortcut)")</Shortcut>" } else { X "$indent`t`t<Shortcut/>" }
 	$osu = if ($cmd.onMainServerUnavalableBehavior) { "$($cmd.onMainServerUnavalableBehavior)" } else { "Auto" }
 	X "$indent`t`t<OnMainServerUnavalableBehavior>$osu</OnMainServerUnavalableBehavior>"

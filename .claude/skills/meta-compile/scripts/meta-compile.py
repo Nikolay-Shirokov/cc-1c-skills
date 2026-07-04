@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-compile v1.28 — Compile 1C metadata object from JSON
+# meta-compile v1.29 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -832,7 +832,8 @@ def parse_attribute_shorthand(val):
         'synonym': val['synonym'] if val.get('synonym') is not None else split_camel_case(name),
         'tooltip': val.get('tooltip'),
         'comment': str(val['comment']) if val.get('comment') else '',
-        'flags': list(val.get('flags', [])),
+        # Лоуэркейз как в строковом пути (стр.809): проверки флагов регистронезависимы (зеркало PS -contains).
+        'flags': [str(f).strip().lower() for f in val.get('flags', [])],
         'fillChecking': fc,
         'indexing': str(val['indexing']) if val.get('indexing') else '',
         'multiLine': True if val.get('multiLine') is True else False,
@@ -1630,6 +1631,39 @@ def emit_attribute(indent, parsed, context):
 # 9. TabularSection emitter
 # ---------------------------------------------------------------------------
 
+def emit_command_picture(indent, cmd):
+    """<Picture> команды — структурный блок (зеркало form-compile). Дефолт LoadTransparent=true (конвенция
+    кнопки/команды): фиксируем только false. Значение: строка-ref + sibling loadTransparent ЛИБО объект
+    {src, loadTransparent?, transparentPixel?}. src с префиксом "abs:" → <xr:Abs>, иначе <xr:Ref>. Нет → <Picture/>."""
+    pic = cmd.get('picture')
+    if not pic:
+        X(f'{indent}<Picture/>')
+        return
+    lt = True
+    tpx = None
+    if isinstance(pic, str):
+        src = pic
+        if cmd.get('loadTransparent') is False:
+            lt = False
+    else:
+        src = str(pic.get('src') or pic.get('ref') or '')
+        if pic.get('loadTransparent') is False:
+            lt = False
+        tpx = pic.get('transparentPixel')
+    if not src:
+        X(f'{indent}<Picture/>')
+        return
+    X(f'{indent}<Picture>')
+    m = re.match(r'^abs:(.*)$', src)
+    if m:
+        X(f'{indent}\t<xr:Abs>{esc_xml(m.group(1))}</xr:Abs>')
+    else:
+        X(f'{indent}\t<xr:Ref>{esc_xml(src)}</xr:Ref>')
+    X(f'{indent}\t<xr:LoadTransparent>{"true" if lt else "false"}</xr:LoadTransparent>')
+    if tpx:
+        X(f'{indent}\t<xr:TransparentPixel x="{tpx.get("x")}" y="{tpx.get("y")}"/>')
+    X(f'{indent}</Picture>')
+
 def emit_command(indent, cmd_name, cmd):
     X(f'{indent}<Command uuid="{new_uuid()}">')
     X(f'{indent}\t<Properties>')
@@ -1651,10 +1685,7 @@ def emit_command(indent, cmd_name, cmd):
     X(f'{indent}\t\t<ModifiesData>{"true" if cmd.get("modifiesData") is True else "false"}</ModifiesData>')
     X(f'{indent}\t\t<Representation>{cmd.get("representation") or "Auto"}</Representation>')
     emit_mltext(f'{indent}\t\t', 'ToolTip', cmd.get('tooltip'))
-    if cmd.get('picture'):
-        X(f'{indent}\t\t<Picture>{esc_xml(str(cmd["picture"]))}</Picture>')
-    else:
-        X(f'{indent}\t\t<Picture/>')
+    emit_command_picture(f'{indent}\t\t', cmd)
     if cmd.get('shortcut'):
         X(f'{indent}\t\t<Shortcut>{esc_xml(str(cmd["shortcut"]))}</Shortcut>')
     else:

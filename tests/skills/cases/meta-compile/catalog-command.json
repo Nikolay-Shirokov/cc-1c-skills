@@ -9,7 +9,16 @@
         "commandParameterType": "CatalogRef.Номенклатура",
         "parameterUseMode": "Multiple",
         "modifiesData": true,
-        "tooltip": "Печать этикеток для выбранных товаров"
+        "tooltip": "Печать этикеток для выбранных товаров",
+        "picture": "StdPicture.Print"
+      },
+      "ЗагрузитьИзФайла": {
+        "synonym": "Загрузить из файла",
+        "picture": "CommonPicture.Загрузка",
+        "loadTransparent": false
+      },
+      "ОбновитьСписок": {
+        "picture": { "src": "StdPicture.Refresh", "transparentPixel": { "x": 0, "y": 0 } }
       }
     }
   },
