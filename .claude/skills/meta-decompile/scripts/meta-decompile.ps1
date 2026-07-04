@@ -1,4 +1,4 @@
-﻿# meta-decompile v0.15 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
+﻿# meta-decompile v0.16 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 #
 # Пилот: только Catalog. Инверс meta-compile (omit-on-default: ключ эмитим только
@@ -409,6 +409,52 @@ foreach ($pp in @(
 	@('Explanation','explanation'))) {
 	$pv = Get-MLValue ($props.SelectSingleNode("md:$($pp[0])", $nsm))
 	if ($null -ne $pv) { $dsl[$pp[1]] = $pv }
+}
+
+# --- Characteristics (привязка ПВХ). Короткая форма: поля bare/partial, filterValue без каталога, from полный.
+function Shorten-CharField { param([string]$full, [string]$from)
+	if ($full.StartsWith("$from.")) {
+		$rest = $full.Substring($from.Length + 1)
+		if ($rest -match '^StandardAttribute\.(Ref|Parent|Owner)$') { return $Matches[1] }  # ссылочные станд. → голое
+		if ($rest -match '^Attribute\.(.+)$') { return $Matches[1] }                        # кастом → голое
+		return $rest   # прочие StandardAttribute.X / Dimension.X / Resource.X → частичное (безопасно)
+	}
+	return $full
+}
+function Shorten-CharFilterValue { param([string]$full, [string]$typesFrom)
+	$tp = @("$typesFrom" -split '\.')
+	if ($tp.Count -ge 2) {
+		$pref = "$($tp[0]).$($tp[1])."
+		if ($full.StartsWith($pref)) { $tail = $full.Substring($pref.Length); if (-not $tail.Contains('.')) { return $tail } }
+	}
+	return $full
+}
+$charsNode = $props.SelectSingleNode('md:Characteristics', $nsm)
+if ($charsNode) {
+	$chList = @($charsNode.SelectNodes('xr:Characteristic', $nsm))
+	if ($chList.Count -gt 0) {
+		$chArr = [System.Collections.ArrayList]@()
+		foreach ($ch in $chList) {
+			$ct = $ch.SelectSingleNode('xr:CharacteristicTypes', $nsm)
+			$cv = $ch.SelectSingleNode('xr:CharacteristicValues', $nsm)
+			$tFrom = $ct.GetAttribute('from'); $vFrom = $cv.GetAttribute('from')
+			$gt = { param($n, $node) $x = $node.SelectSingleNode("xr:$n", $nsm); if ($x) { $x.InnerText } else { "" } }
+			$types = [ordered]@{
+				from = $tFrom
+				key = Shorten-CharField (& $gt 'KeyField' $ct) $tFrom
+				filterField = Shorten-CharField (& $gt 'TypesFilterField' $ct) $tFrom
+				filterValue = Shorten-CharFilterValue (& $gt 'TypesFilterValue' $ct) $tFrom
+			}
+			$values = [ordered]@{
+				from = $vFrom
+				object = Shorten-CharField (& $gt 'ObjectField' $cv) $vFrom
+				type = Shorten-CharField (& $gt 'TypeField' $cv) $vFrom
+				value = Shorten-CharField (& $gt 'ValueField' $cv) $vFrom
+			}
+			[void]$chArr.Add([ordered]@{ types = $types; values = $values })
+		}
+		$dsl['characteristics'] = $chArr
+	}
 }
 
 # --- StandardAttributes: блок есть ⟺ кастомизация ≥1 стандартного реквизита.

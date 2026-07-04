@@ -1,0 +1,21 @@
+{
+  "name": "Характеристики ПВХ (Дополнительные реквизиты и сведения)",
+  "input": {
+    "type": "Catalog",
+    "name": "Организации",
+    "characteristics": [
+      { "types":  { "from": "Справочник.НаборыДопРеквИСвед.ДополнительныеРеквизиты",
+                    "key": "Свойство", "filterField": "Ссылка", "filterValue": "Справочник_Организации" },
+        "values": { "from": "Catalog.Организации.TabularSection.ДополнительныеРеквизиты",
+                    "object": "Ссылка", "type": "Свойство", "value": "Значение" } },
+      { "types":  { "from": "Catalog.НаборыДопРеквИСвед.TabularSection.ДополнительныеСведения",
+                    "key": "Свойство", "filterField": "Ссылка", "filterValue": "Справочник_Организации" },
+        "values": { "from": "InformationRegister.ДополнительныеСведения",
+                    "object": "Dimension.Объект", "type": "Dimension.Свойство", "value": "Resource.Значение" } }
+    ]
+  },
+  "validatePath": "Catalogs/Организации",
+  "expect": {
+    "files": ["Catalogs/Организации.xml"]
+  }
+}

@@ -1,4 +1,4 @@
-﻿# meta-compile v1.24 — Compile 1C metadata object from JSON
+﻿# meta-compile v1.25 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -1338,6 +1338,99 @@ function Emit-ChoiceParameterLinks {
 	X "$indent</ChoiceParameterLinks>"
 }
 
+# --- Characteristics (привязка ПВХ «Дополнительные реквизиты и сведения») ---
+
+# from: рус. корень (Справочник→Catalog) + член (ТабличнаяЧасть→TabularSection); короткая 3-сегментная
+# "<Тип>.X.Y" → вставить TabularSection (from — всегда таблица, не реквизит). Полный путь → как есть.
+function Normalize-CharFrom {
+	param([string]$from)
+	if (-not $from) { return $from }
+	$parts = @("$from" -split '\.')
+	if ($script:objectTypeSynonyms.ContainsKey($parts[0])) { $parts[0] = $script:objectTypeSynonyms[$parts[0]] }
+	for ($i = 1; $i -lt $parts.Count; $i++) {
+		switch -Regex ($parts[$i]) {
+			'^ТабличнаяЧасть$' { $parts[$i] = 'TabularSection' }
+			'^Измерение$'      { $parts[$i] = 'Dimension' }
+			'^Ресурс$'         { $parts[$i] = 'Resource' }
+			'^Реквизит$'       { $parts[$i] = 'Attribute' }
+		}
+	}
+	if ($parts.Count -eq 3 -and $parts[0] -in @('Catalog','Document','ChartOfCharacteristicTypes','ChartOfCalculationTypes','ChartOfAccounts','ExchangePlan','BusinessProcess','Task')) {
+		$parts = @($parts[0], $parts[1], 'TabularSection', $parts[2])
+	}
+	return ($parts -join '.')
+}
+
+# Стандартный реквизит ссылочного типа в полях Characteristics: Ref/Parent/Owner (по имени EN/RU).
+# Прочие стандартные реквизиты редки в полях — их задают частичной формой StandardAttribute.X.
+function Resolve-CharStdEn {
+	param([string]$name)
+	$n = "$name".ToLower()
+	if ($n -eq 'ref' -or $n -eq 'ссылка') { return 'Ref' }
+	if ($n -eq 'parent' -or $n -eq 'родитель') { return 'Parent' }
+	if ($n -eq 'owner' -or $n -eq 'владелец') { return 'Owner' }
+	return $null
+}
+
+# Поле: голое→StandardAttribute.<EN>/Attribute.<имя>; частичное Member.X→<from>.Member.X; полный путь→verbatim.
+function Expand-CharField {
+	param([string]$field, [string]$from)
+	$s = "$field"
+	if (-not $s) { return $s }
+	if ($s -match '^(StandardAttribute|Attribute|Dimension|Resource)\.') { return "$from.$s" }
+	if (-not $s.Contains('.')) {
+		$en = Resolve-CharStdEn $s
+		if ($en) { return "$from.StandardAttribute.$en" }
+		return "$from.Attribute.$s"
+	}
+	return $s
+}
+
+# filterValue: голый предопределённый → префикс каталога (2 сегмента) из typesFrom; полный путь → verbatim.
+function Expand-CharFilterValue {
+	param([string]$fv, [string]$typesFrom)
+	$s = "$fv"
+	if (-not $s -or $s.Contains('.')) { return $s }
+	$tp = @("$typesFrom" -split '\.')
+	if ($tp.Count -ge 2) { return "$($tp[0]).$($tp[1]).$s" }
+	return $s
+}
+
+function Emit-Characteristics {
+	param([string]$indent, $chars)
+	if (-not $chars -or @($chars).Count -eq 0) { X "$indent<Characteristics/>"; return }
+	X "$indent<Characteristics>"
+	foreach ($ch in @($chars)) {
+		$types  = Get-ChElProp $ch @('types','characteristicTypes','типы')
+		$values = Get-ChElProp $ch @('values','characteristicValues','значения')
+		$tFrom = Normalize-CharFrom "$(Get-ChElProp $types @('from','source','источник'))"
+		$vFrom = Normalize-CharFrom "$(Get-ChElProp $values @('from','source','источник'))"
+		$key = Expand-CharField "$(Get-ChElProp $types @('key','keyField'))" $tFrom
+		$tff = Expand-CharField "$(Get-ChElProp $types @('filterField','typesFilterField'))" $tFrom
+		$tfv = Expand-CharFilterValue "$(Get-ChElProp $types @('filterValue','typesFilterValue'))" $tFrom
+		$obj = Expand-CharField "$(Get-ChElProp $values @('object','objectField'))" $vFrom
+		$typ = Expand-CharField "$(Get-ChElProp $values @('type','typeField'))" $vFrom
+		$val = Expand-CharField "$(Get-ChElProp $values @('value','valueField'))" $vFrom
+		X "$indent`t<xr:Characteristic>"
+		X "$indent`t`t<xr:CharacteristicTypes from=`"$(Esc-Xml $tFrom)`">"
+		X "$indent`t`t`t<xr:KeyField>$(Esc-Xml $key)</xr:KeyField>"
+		X "$indent`t`t`t<xr:TypesFilterField>$(Esc-Xml $tff)</xr:TypesFilterField>"
+		X "$indent`t`t`t<xr:TypesFilterValue xsi:type=`"xr:DesignTimeRef`">$(Esc-Xml $tfv)</xr:TypesFilterValue>"
+		X "$indent`t`t`t<xr:DataPathField>-1</xr:DataPathField>"
+		X "$indent`t`t`t<xr:MultipleValuesUseField>-1</xr:MultipleValuesUseField>"
+		X "$indent`t`t</xr:CharacteristicTypes>"
+		X "$indent`t`t<xr:CharacteristicValues from=`"$(Esc-Xml $vFrom)`">"
+		X "$indent`t`t`t<xr:ObjectField>$(Esc-Xml $obj)</xr:ObjectField>"
+		X "$indent`t`t`t<xr:TypeField>$(Esc-Xml $typ)</xr:TypeField>"
+		X "$indent`t`t`t<xr:ValueField>$(Esc-Xml $val)</xr:ValueField>"
+		X "$indent`t`t`t<xr:MultipleValuesKeyField>-1</xr:MultipleValuesKeyField>"
+		X "$indent`t`t`t<xr:MultipleValuesOrderField>-1</xr:MultipleValuesOrderField>"
+		X "$indent`t`t</xr:CharacteristicValues>"
+		X "$indent`t</xr:Characteristic>"
+	}
+	X "$indent</Characteristics>"
+}
+
 function Emit-Attribute {
 	param([string]$indent, $parsed, [string]$context)
 	# $context: "catalog", "document", "object", "processor", "tabular", "processor-tabular", "register"
@@ -1758,7 +1851,7 @@ function Emit-CatalogProperties {
 	X "$i<DefaultPresentation>$defaultPresentation</DefaultPresentation>"
 
 	Emit-StandardAttributes $i "Catalog"
-	X "$i<Characteristics/>"
+	Emit-Characteristics $i $def.characteristics
 	X "$i<PredefinedDataUpdate>$(Get-EnumProp 'PredefinedDataUpdate' 'predefinedDataUpdate' 'Auto')</PredefinedDataUpdate>"
 	X "$i<EditType>$(Get-EnumProp 'EditType' 'editType' 'InDialog')</EditType>"
 	$quickChoice = if ($def.quickChoice -eq $true) { "true" } else { "false" }

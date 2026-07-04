@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-compile v1.24 — Compile 1C metadata object from JSON
+# meta-compile v1.25 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -1396,6 +1396,91 @@ def emit_choice_parameter_links(indent, cpl):
         X(f'{indent}\t</xr:Link>')
     X(f'{indent}</ChoiceParameterLinks>')
 
+# --- Characteristics (привязка ПВХ «Дополнительные реквизиты и сведения») ---
+
+CHAR_FROM_TS_TYPES = {'Catalog', 'Document', 'ChartOfCharacteristicTypes', 'ChartOfCalculationTypes',
+                      'ChartOfAccounts', 'ExchangePlan', 'BusinessProcess', 'Task'}
+CHAR_MEMBER_RU = {'ТабличнаяЧасть': 'TabularSection', 'Измерение': 'Dimension', 'Ресурс': 'Resource', 'Реквизит': 'Attribute'}
+
+def normalize_char_from(from_):
+    if not from_:
+        return from_
+    parts = str(from_).split('.')
+    if parts[0] in object_type_synonyms:
+        parts[0] = object_type_synonyms[parts[0]]
+    for i in range(1, len(parts)):
+        if parts[i] in CHAR_MEMBER_RU:
+            parts[i] = CHAR_MEMBER_RU[parts[i]]
+    if len(parts) == 3 and parts[0] in CHAR_FROM_TS_TYPES:
+        parts = [parts[0], parts[1], 'TabularSection', parts[2]]
+    return '.'.join(parts)
+
+def resolve_char_std_en(name):
+    n = str(name).lower()
+    if n in ('ref', 'ссылка'):
+        return 'Ref'
+    if n in ('parent', 'родитель'):
+        return 'Parent'
+    if n in ('owner', 'владелец'):
+        return 'Owner'
+    return None
+
+def expand_char_field(field, from_):
+    s = str(field or '')
+    if not s:
+        return s
+    if re.match(r'^(StandardAttribute|Attribute|Dimension|Resource)\.', s):
+        return f'{from_}.{s}'
+    if '.' not in s:
+        en = resolve_char_std_en(s)
+        if en:
+            return f'{from_}.StandardAttribute.{en}'
+        return f'{from_}.Attribute.{s}'
+    return s
+
+def expand_char_filter_value(fv, types_from):
+    s = str(fv or '')
+    if not s or '.' in s:
+        return s
+    tp = str(types_from).split('.')
+    if len(tp) >= 2:
+        return f'{tp[0]}.{tp[1]}.{s}'
+    return s
+
+def emit_characteristics(indent, chars):
+    if not chars:
+        X(f'{indent}<Characteristics/>')
+        return
+    X(f'{indent}<Characteristics>')
+    for ch in chars:
+        types = ch_el_prop(ch, ['types', 'characteristicTypes', 'типы'])
+        values = ch_el_prop(ch, ['values', 'characteristicValues', 'значения'])
+        t_from = normalize_char_from(ch_el_prop(types, ['from', 'source', 'источник']) or '')
+        v_from = normalize_char_from(ch_el_prop(values, ['from', 'source', 'источник']) or '')
+        key = expand_char_field(ch_el_prop(types, ['key', 'keyField']), t_from)
+        tff = expand_char_field(ch_el_prop(types, ['filterField', 'typesFilterField']), t_from)
+        tfv = expand_char_filter_value(ch_el_prop(types, ['filterValue', 'typesFilterValue']), t_from)
+        obj = expand_char_field(ch_el_prop(values, ['object', 'objectField']), v_from)
+        typ = expand_char_field(ch_el_prop(values, ['type', 'typeField']), v_from)
+        val = expand_char_field(ch_el_prop(values, ['value', 'valueField']), v_from)
+        X(f'{indent}\t<xr:Characteristic>')
+        X(f'{indent}\t\t<xr:CharacteristicTypes from="{esc_xml(t_from)}">')
+        X(f'{indent}\t\t\t<xr:KeyField>{esc_xml(key)}</xr:KeyField>')
+        X(f'{indent}\t\t\t<xr:TypesFilterField>{esc_xml(tff)}</xr:TypesFilterField>')
+        X(f'{indent}\t\t\t<xr:TypesFilterValue xsi:type="xr:DesignTimeRef">{esc_xml(tfv)}</xr:TypesFilterValue>')
+        X(f'{indent}\t\t\t<xr:DataPathField>-1</xr:DataPathField>')
+        X(f'{indent}\t\t\t<xr:MultipleValuesUseField>-1</xr:MultipleValuesUseField>')
+        X(f'{indent}\t\t</xr:CharacteristicTypes>')
+        X(f'{indent}\t\t<xr:CharacteristicValues from="{esc_xml(v_from)}">')
+        X(f'{indent}\t\t\t<xr:ObjectField>{esc_xml(obj)}</xr:ObjectField>')
+        X(f'{indent}\t\t\t<xr:TypeField>{esc_xml(typ)}</xr:TypeField>')
+        X(f'{indent}\t\t\t<xr:ValueField>{esc_xml(val)}</xr:ValueField>')
+        X(f'{indent}\t\t\t<xr:MultipleValuesKeyField>-1</xr:MultipleValuesKeyField>')
+        X(f'{indent}\t\t\t<xr:MultipleValuesOrderField>-1</xr:MultipleValuesOrderField>')
+        X(f'{indent}\t\t</xr:CharacteristicValues>')
+        X(f'{indent}\t</xr:Characteristic>')
+    X(f'{indent}</Characteristics>')
+
 def emit_attribute(indent, parsed, context):
     attr_name = parsed['name']
     ctx_reserved = RESERVED_BY_CONTEXT.get(context)
@@ -1744,7 +1829,7 @@ def emit_catalog_properties(indent):
     default_presentation = get_enum_prop('DefaultPresentation', 'defaultPresentation', 'AsDescription')
     X(f'{i}<DefaultPresentation>{default_presentation}</DefaultPresentation>')
     emit_standard_attributes(i, 'Catalog')
-    X(f'{i}<Characteristics/>')
+    emit_characteristics(i, defn.get('characteristics'))
     X(f'{i}<PredefinedDataUpdate>{get_enum_prop("PredefinedDataUpdate", "predefinedDataUpdate", "Auto")}</PredefinedDataUpdate>')
     X(f'{i}<EditType>{get_enum_prop("EditType", "editType", "InDialog")}</EditType>')
     quick_choice = 'true' if defn.get('quickChoice') is True else 'false'
