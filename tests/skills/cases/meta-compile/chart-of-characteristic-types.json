@@ -9,8 +9,8 @@
     "standardAttributes": { "Description": { "synonym": "Свойство" } },
     "attributes": ["НаборСвойств: String(100)"],
     "predefined": [
-      { "name": "Цвет", "code": "000001", "type": "CatalogRef.ЗначенияСвойств" },
-      { "name": "Размер", "code": "000002", "type": "String(50) + Number(3,0)" },
+      "(000001) Цвет: CatalogRef.ЗначенияСвойств",
+      "(000002) Размер [Размер одежды]: String(50) + Number(3,0)",
       { "name": "Группа", "code": "000003", "isFolder": true, "type": "" }
     ]
   },

@@ -1,4 +1,4 @@
-﻿# meta-compile v1.35 — Compile 1C metadata object from JSON
+﻿# meta-compile v1.36 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -3761,11 +3761,16 @@ $objSubDir = Join-Path $typeDir $objName
 function Resolve-PredefItem {
 	param($val)
 	if ($val -is [string]) {
-		$m = [regex]::Match($val, '^\s*(?:\(([^)]*)\)\s*)?(\S+)(?:\s*\[(.*)\])?\s*$')
+		# Грамматика "(Код) Имя [Наименование]: Тип" (тип — как в полях СКД/реквизитах). Порядок разбора зеркалит
+		# Parse-CalcShorthand: сначала вынуть [Наим] (может содержать ':'), затем отделить тип по ':'.
+		$s = "$val"; $type = $null; $descRaw = $null; $hasDesc = $false
+		if ($s -match '\[(.*)\]') { $descRaw = $Matches[1]; $hasDesc = $true; $s = $s -replace '\s*\[.*\]', '' }
+		if ($s.Contains(':')) { $p = $s -split ':', 2; $s = $p[0]; $type = $p[1].Trim() }   # '' → пустой <Type/>
+		$m = [regex]::Match($s.Trim(), '^\s*(?:\(([^)]*)\)\s*)?(\S+)\s*$')
 		$name = $m.Groups[2].Value
 		$code = if ($m.Groups[1].Success) { $m.Groups[1].Value } else { '' }
-		$desc = if ($m.Groups[3].Success) { $m.Groups[3].Value } else { Split-CamelCase $name }
-		return @{ name = $name; code = $code; desc = $desc; isFolder = $false; children = @(); type = $null }
+		$desc = if ($hasDesc) { $descRaw } else { Split-CamelCase $name }
+		return @{ name = $name; code = $code; desc = $desc; isFolder = $false; children = @(); type = $type }
 	}
 	# Объектная форма + русские синонимы (прощающий ввод).
 	$gv = { param($o, [string[]]$keys) foreach ($k in $keys) { if ($o.PSObject.Properties[$k]) { return $o.$k } } return $null }

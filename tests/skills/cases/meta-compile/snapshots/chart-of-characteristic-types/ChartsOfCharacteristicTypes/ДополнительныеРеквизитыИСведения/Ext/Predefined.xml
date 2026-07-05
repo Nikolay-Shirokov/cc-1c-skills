@@ -12,7 +12,7 @@
 	<Item id="UUID-002">
 		<Name>Размер</Name>
 		<Code>000002</Code>
-		<Description>Размер</Description>
+		<Description>Размер одежды</Description>
 		<Type>
 			<v8:Type>xs:string</v8:Type>
 			<v8:StringQualifiers>

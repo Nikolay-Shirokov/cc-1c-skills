@@ -1,4 +1,4 @@
-﻿# meta-decompile v0.24 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
+﻿# meta-decompile v0.25 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 #
 # Поддержаны: Catalog, ExchangePlan, ChartOfCharacteristicTypes. Инверс meta-compile (omit-on-default: ключ эмитим только
@@ -732,11 +732,13 @@ if (Test-Path -LiteralPath $predefPath) {
 		$typeStr = if ($typeEl) { Get-TypeShorthand $typeEl } else { $null }
 		$auto = Split-CamelWords $name
 
-		if (-not $isFolder -and $kids.Count -eq 0 -and $null -eq $typeEl) {
-			# Плоский без типа → компактная строка.
+		# Компактная строка для плоских: без узла Type (Catalog) ИЛИ с непустым типом → "(Код) Имя [Наим]: Тип".
+		# Пустой <Type/> в короткую не влезает (нужен явный маркер) → object-форма с type:''.
+		if (-not $isFolder -and $kids.Count -eq 0 -and ($null -eq $typeStr -or $typeStr -ne '')) {
 			$s = if ($code) { "($code) $name" } else { $name }
 			if ($desc -eq '') { $s = "$s []" }
 			elseif ($desc -ne $auto) { $s = "$s [$desc]" }
+			if ($typeStr) { $s = "${s}: $typeStr" }
 			return $s
 		}
 		# Группа/иерархия/с типом → объект.

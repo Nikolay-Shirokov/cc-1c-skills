@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-compile v1.35 — Compile 1C metadata object from JSON
+# meta-compile v1.36 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -3583,11 +3583,25 @@ if obj_type in types_with_module:
 # Наименование: нет [..]/ключа → авто(Split-CamelCase); [] / "" → пусто; [текст]/текст → как есть.
 def resolve_predef_item(val):
     if isinstance(val, str):
-        m = re.match(r'^\s*(?:\(([^)]*)\)\s*)?(\S+)(?:\s*\[(.*)\])?\s*$', val)
+        # Грамматика "(Код) Имя [Наименование]: Тип": сначала вынуть [Наим] (может содержать ':'), затем тип по ':'.
+        s = val
+        ptype = None
+        desc_raw = None
+        has_desc = False
+        md = re.search(r'\[(.*)\]', s)
+        if md:
+            desc_raw = md.group(1)
+            has_desc = True
+            s = re.sub(r'\s*\[.*\]', '', s)
+        if ':' in s:
+            left, right = s.split(':', 1)
+            s = left
+            ptype = right.strip()   # '' → пустой <Type/>
+        m = re.match(r'^\s*(?:\(([^)]*)\)\s*)?(\S+)\s*$', s.strip())
         name = m.group(2)
         code = m.group(1) if m.group(1) is not None else ''
-        desc = m.group(3) if m.group(3) is not None else split_camel_case(name)
-        return {'name': name, 'code': code, 'desc': desc, 'isFolder': False, 'children': [], 'type': None}
+        desc = desc_raw if has_desc else split_camel_case(name)
+        return {'name': name, 'code': code, 'desc': desc, 'isFolder': False, 'children': [], 'type': ptype}
     def gv(keys):
         for k in keys:
             if k in val:
