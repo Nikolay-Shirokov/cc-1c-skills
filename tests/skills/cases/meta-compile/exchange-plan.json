@@ -3,9 +3,11 @@
   "input": {
     "type": "ExchangePlan",
     "name": "ОбменСФилиалами",
+    "comment": "обмен данными с филиалами",
     "codeLength": 9,
     "descriptionLength": 100,
     "distributedInfoBase": true,
+    "standardAttributes": { "Description": { "synonym": "Имя узла" }, "Code": { "fillChecking": "ShowError" } },
     "attributes": ["ПутьКФайлу: String(500)"],
     "tabularSections": [
       {

@@ -594,6 +594,31 @@ omit-on-empty. Поля пишутся частичной формой (`Standar
 | `attributes` | `[]` | → Attribute в ChildObjects |
 | `tabularSections` | `{}` | → TabularSection в ChildObjects |
 
+### 7.2a ExchangePlan (План обмена)
+
+Близок к Catalog (без иерархии/владельцев/кодогенерации), плюс два своих флага. Общий с Catalog слой: `synonym`,
+`comment`, `useStandardCommands`, `codeLength`/`codeAllowedLength`/`descriptionLength`, `defaultPresentation`, `editType`,
+`quickChoice`, `choiceMode`, `inputByString` (§7.1.5, дефолт [Наименование]+[Код] по длинам), формы (`defaultObjectForm`/
+`defaultListForm`/`defaultChoiceForm`/`auxiliary*`), `standardAttributes` (§7.1.1), `characteristics` (§7.1.4), `basedOn`,
+`dataLockFields`, презентации, `choiceHistoryOnInput`, `includeHelpInContents`.
+
+| Поле JSON | Умолчание | XML элемент |
+|-----------|----------|-------------|
+| `distributedInfoBase` | `false` | DistributedInfoBase (РИБ — распределённая ИБ) |
+| `includeConfigurationExtensions` | `false` | IncludeConfigurationExtensions |
+| `createOnInput` | `DontUse` | CreateOnInput *(отличие от Catalog: там `Use`)* |
+| `dataLockControlMode` | `Managed` | DataLockControlMode *(отличие от Catalog: там `Automatic`)* |
+| `dataHistory` | `DontUse` | DataHistory |
+| `updateDataHistoryImmediatelyAfterWrite` | `false` | UpdateDataHistoryImmediatelyAfterWrite |
+| `executeAfterWriteDataHistoryVersionProcessing` | `false` | ExecuteAfterWriteDataHistoryVersionProcessing |
+| `descriptionLength` | `150` | DescriptionLength *(отличие от Catalog: там `25`)* |
+| `attributes` / `tabularSections` | `[]` / `{}` | → ChildObjects |
+
+Стандартные реквизиты EP: Ref, DeletionMark, Code, Description, ThisNode, SentNo, ReceivedNo (профиль материализованного
+блока: Наименование/Код → FillChecking=ShowError). Блок **условный** (как Catalog): материализуется при кастомизации —
+ключ `standardAttributes`. Опциональный легаси-реквизит `ExchangeDate` (часть планов) поддержан как «доп.» член
+`standardAttributes` (эмитится по факту наличия ключа, вне фикс-списка).
+
 ### 7.3 Enum
 
 | Поле JSON | Умолчание | XML элемент |

@@ -1,7 +1,7 @@
-﻿# meta-decompile v0.22 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
+﻿# meta-decompile v0.23 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 #
-# Пилот: только Catalog. Инверс meta-compile (omit-on-default: ключ эмитим только
+# Поддержаны: Catalog, ExchangePlan. Инверс meta-compile (omit-on-default: ключ эмитим только
 # когда значение в XML отличается от умолчания компилятора). Неподдерживаемый тип / не-MetaDataObject
 # root → exit 3 (ring3, как form-decompile).
 param(
@@ -91,8 +91,8 @@ foreach ($c in $rootEl.ChildNodes) { if ($c.NodeType -eq 'Element') { $objNode =
 if (-not $objNode) { [Console]::Error.WriteLine("meta-decompile: пустой MetaDataObject"); exit 3 }
 $objType = $objNode.LocalName
 
-if ($objType -ne 'Catalog') {
-	[Console]::Error.WriteLine("meta-decompile: тип '$objType' пока не поддержан (пилот — только Catalog)"); exit 3
+if ($objType -notin @('Catalog', 'ExchangePlan')) {
+	[Console]::Error.WriteLine("meta-decompile: тип '$objType' пока не поддержан (Catalog, ExchangePlan)"); exit 3
 }
 
 $props = $objNode.SelectSingleNode('md:Properties', $nsm)
@@ -261,8 +261,12 @@ function Attr-ToDsl {
 	$ml = $ap.SelectSingleNode('md:MultiLine', $nsm); if ($ml -and $ml.InnerText -eq 'true') { $flags += 'multiline' }
 
 	# Синоним/подсказка (строка ru-only ИЛИ {ru,en}).
-	$synVal = Get-MLValue ($ap.SelectSingleNode('md:Synonym', $nsm))
+	$synNode = $ap.SelectSingleNode('md:Synonym', $nsm)
+	$synVal = Get-MLValue $synNode
 	$synCustom = $false
+	# Пустой <Synonym/> (узел есть, значения нет) ≠ авто-синоним из имени → явный пустой (synonym:"").
+	# У Catalog-реквизитов не встречается (0/4018), у части ExchangePlan — да.
+	$synEmpty = ($synNode -and $null -eq $synVal)
 	if ($synVal -is [string]) { if ($synVal -ne (Split-CamelWords $nm)) { $synCustom = $true } }
 	elseif ($null -ne $synVal) { $synCustom = $true }   # {ru,en} = всегда кастом
 	$ttVal = Get-MLValue ($ap.SelectSingleNode('md:ToolTip', $nsm))
@@ -343,10 +347,11 @@ function Attr-ToDsl {
 	$cplArr = Parse-ChoiceParameterLinks $ap 'md:ChoiceParameterLinks'; if ($null -ne $cplArr) { $extra['choiceParameterLinks'] = $cplArr }
 	$cpArr = Parse-ChoiceParameters $ap 'md:ChoiceParameters'; if ($null -ne $cpArr) { $extra['choiceParameters'] = $cpArr }
 
-	if ($synCustom -or ($null -ne $ttVal) -or $extra.Count -gt 0) {
+	if ($synCustom -or $synEmpty -or ($null -ne $ttVal) -or $extra.Count -gt 0) {
 		$o = [ordered]@{ name = $nm }
 		if ($ts) { $o['type'] = $ts }
 		if ($synCustom) { $o['synonym'] = $synVal }
+		elseif ($synEmpty) { $o['synonym'] = '' }
 		if ($null -ne $ttVal) { $o['tooltip'] = $ttVal }
 		foreach ($k in $extra.Keys) { $o[$k] = $extra[$k] }
 		if ($flags.Count -gt 0) { $o['flags'] = [System.Collections.ArrayList]@($flags) }
@@ -358,7 +363,7 @@ function Attr-ToDsl {
 }
 
 # === Сборка DSL ===
-$dsl = [ordered]@{ type = 'Catalog'; name = $objName }
+$dsl = [ordered]@{ type = $objType; name = $objName }
 
 # Синоним объекта: строка ru-only ИЛИ {ru,en} (мультиязычно). Кастом → эмитим.
 $synVal = Get-MLValue ($props.SelectSingleNode('md:Synonym', $nsm))
@@ -383,8 +388,12 @@ if ($ownersNode) {
 	if ($items.Count -gt 0) { $dsl['owners'] = [System.Collections.ArrayList]@($items | ForEach-Object { if ($_ -match '^Catalog\.') { ($_ -split '\.', 2)[1] } else { $_ } }) }
 }
 Add-EnumProp 'subordinationUse' 'SubordinationUse' 'ToItems'
+# Тип-зависимые дефолты (компилятор задаёт их по типу — декомпилятор обязан зеркалить, иначе omit ≠ значению).
+$descrLenDef  = if ($objType -eq 'ExchangePlan') { 150 } else { 25 }
+$createInpDef = if ($objType -eq 'ExchangePlan') { 'DontUse' } else { 'Use' }
+$dataLockDef  = if ($objType -eq 'ExchangePlan') { 'Managed' } else { 'Automatic' }
 Add-IntProp  'codeLength'        'CodeLength'        9
-Add-IntProp  'descriptionLength' 'DescriptionLength' 25
+Add-IntProp  'descriptionLength' 'DescriptionLength' $descrLenDef
 Add-EnumProp 'codeType'          'CodeType'          'String'
 Add-EnumProp 'codeAllowedLength' 'CodeAllowedLength' 'Variable'
 Add-BoolProp 'autonumbering'     'Autonumbering'     $true
@@ -393,15 +402,23 @@ Add-EnumProp 'codeSeries'        'CodeSeries'        'WholeCatalog'
 Add-EnumProp 'defaultPresentation' 'DefaultPresentation' 'AsDescription'
 Add-BoolProp 'quickChoice'       'QuickChoice'       $false
 Add-EnumProp 'choiceMode'        'ChoiceMode'        'BothWays'
-Add-EnumProp 'dataLockControlMode' 'DataLockControlMode' 'Automatic'
+Add-EnumProp 'dataLockControlMode' 'DataLockControlMode' $dataLockDef
 Add-EnumProp 'fullTextSearch'    'FullTextSearch'    'Use'
 Add-BoolProp 'useStandardCommands' 'UseStandardCommands' $true
-Add-EnumProp 'createOnInput'     'CreateOnInput'     'Use'
+Add-EnumProp 'createOnInput'     'CreateOnInput'     $createInpDef
 Add-EnumProp 'editType'          'EditType'          'InDialog'
 Add-BoolProp 'includeHelpInContents' 'IncludeHelpInContents' $false
 Add-EnumProp 'choiceHistoryOnInput' 'ChoiceHistoryOnInput' 'Auto'
 Add-EnumProp 'predefinedDataUpdate' 'PredefinedDataUpdate' 'Auto'
 Add-EnumProp 'searchStringModeOnInputByString' 'SearchStringModeOnInputByString' 'Begin'
+# ExchangePlan-специфичные свойства (у Catalog этих тегов нет → блок не трогает его).
+if ($objType -eq 'ExchangePlan') {
+	Add-BoolProp 'distributedInfoBase' 'DistributedInfoBase' $false
+	Add-BoolProp 'includeConfigurationExtensions' 'IncludeConfigurationExtensions' $false
+	Add-EnumProp 'dataHistory' 'DataHistory' 'DontUse'
+	Add-BoolProp 'updateDataHistoryImmediatelyAfterWrite' 'UpdateDataHistoryImmediatelyAfterWrite' $false
+	Add-BoolProp 'executeAfterWriteDataHistoryVersionProcessing' 'ExecuteAfterWriteDataHistoryVersionProcessing' $false
+}
 
 # Короткая форма поля: <Type>.<Name>.StandardAttribute.X / .Attribute.X → StandardAttribute.X / Attribute.X
 # (Expand-DataPath компилятора разворачивает частичную форму обратно — dogfood резолвера).
@@ -504,14 +521,32 @@ if ($charsNode) {
 	}
 }
 
-# --- StandardAttributes: блок есть ⟺ кастомизация ≥1 стандартного реквизита.
-# Захватываем ОТКЛОНЕНИЯ от профиля материализованного блока (профиль компилятор восстановит сам).
-# Профиль Catalog: Owner{FC=ShowError,FFV=true}, Parent{FFV=true}, Description{FC=ShowError}. ---
-$catStdProfile = @{
-	'Owner'       = @{ fillChecking = 'ShowError'; fillFromFillingValue = $true }
-	'Parent'      = @{ fillFromFillingValue = $true }
-	'Description'  = @{ fillChecking = 'ShowError' }
+# --- StandardAttributes: захватываем ОТКЛОНЕНИЯ от профиля материализованного блока (профиль компилятор
+# восстановит сам). Профиль зеркалит stdAttrProfile компилятора — по типу объекта.
+# Catalog: Owner{FC=ShowError,FFV=true}, Parent{FFV=true}, Description{FC=ShowError}.
+# ExchangePlan: Description{FC=ShowError}, Code{FC=ShowError} (блок всегда материализован). ---
+$stdProfileByType = @{
+	'Catalog' = @{
+		'Owner'       = @{ fillChecking = 'ShowError'; fillFromFillingValue = $true }
+		'Parent'      = @{ fillFromFillingValue = $true }
+		'Description'  = @{ fillChecking = 'ShowError' }
+	}
+	'ExchangePlan' = @{
+		'Description' = @{ fillChecking = 'ShowError' }
+		'Code'        = @{ fillChecking = 'ShowError' }
+	}
 }
+$catStdProfile = if ($stdProfileByType.ContainsKey($objType)) { $stdProfileByType[$objType] } else { @{} }
+# Фикс-список стандартных реквизитов типа (зеркало standardAttributesByType компилятора) — чтобы отличать
+# доп./опциональные (напр. ExchangeDate у ПланОбмена), которые эмитим по факту присутствия даже all-default.
+$stdFixedByType = @{
+	'Catalog'      = @('PredefinedDataName','Predefined','Ref','DeletionMark','IsFolder','Owner','Parent','Description','Code')
+	'ExchangePlan' = @('Ref','DeletionMark','Code','Description','ThisNode','SentNo','ReceivedNo')
+}
+$stdFixed = if ($stdFixedByType.ContainsKey($objType)) { $stdFixedByType[$objType] } else { @() }
+# Условные типы: блок эмитим-как-триггер даже пустым (материализуется при отклонении ≥1 реквизита от schema-default;
+# у ExchangePlan это почти всегда — Description/Code=ShowError; редкий all-default EP блок опускает).
+$stdConditionalTypes = @('Catalog', 'ExchangePlan')
 $saNode = $props.SelectSingleNode('md:StandardAttributes', $nsm)
 if ($saNode) {
 	$saMap = [ordered]@{}
@@ -543,9 +578,11 @@ if ($saNode) {
 		$saCf = $sa.SelectSingleNode('xr:ChoiceForm', $nsm); if ($saCf -and $saCf.InnerText) { $ov['choiceForm'] = $saCf.InnerText }
 		$saCpl = Parse-ChoiceParameterLinks $sa 'xr:ChoiceParameterLinks'; if ($null -ne $saCpl) { $ov['choiceParameterLinks'] = $saCpl }
 		$saCp = Parse-ChoiceParameters $sa 'xr:ChoiceParameters'; if ($null -ne $saCp) { $ov['choiceParameters'] = $saCp }
-		if ($ov.Count -gt 0) { $saMap[$an] = $ov }
+		# Доп./опциональный реквизит (не в фикс-списке) — эмитим по присутствию даже без отклонений.
+		if ($ov.Count -gt 0 -or ($stdFixed -notcontains $an)) { $saMap[$an] = $ov }
 	}
-	$dsl['standardAttributes'] = $saMap   # даже пустой = блок есть (чистый профиль)
+	# Условный тип (Catalog): пустой $saMap = триггер блока. Не-условный (ExchangePlan): блок и так эмитится → пустой не пишем.
+	if ($saMap.Count -gt 0 -or ($stdConditionalTypes -contains $objType)) { $dsl['standardAttributes'] = $saMap }
 }
 
 # --- ChildObjects: Attributes + TabularSections ---

@@ -1,4 +1,4 @@
-﻿# meta-compile v1.33 — Compile 1C metadata object from JSON
+﻿# meta-compile v1.34 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -1037,6 +1037,11 @@ $script:stdAttrProfile = @{
 		"Parent"      = @{ FillFromFillingValue = "true" }
 		"Description"  = @{ FillChecking = "ShowError" }
 	}
+	# ExchangePlan: блок материализуется всегда (не условный), Наименование/Код → FillChecking=ShowError (корпус 40/38 из 41).
+	"ExchangePlan" = @{
+		"Description" = @{ FillChecking = "ShowError" }
+		"Code"        = @{ FillChecking = "ShowError" }
+	}
 }
 
 # $ov — hashtable переопределений (профиль + DSL) для полей: FillChecking, FillFromFillingValue,
@@ -1097,7 +1102,7 @@ function Emit-StandardAttribute {
 #    Прочие типы (не в множестве) → блок эмитится всегда (текущее поведение, пока их правило не выведено).
 #  - stdAttrProfile[тип]: профиль материализованного блока (пусто = schema-дефолт), поверх — DSL-override.
 # Миграция типа = добавить его в stdAttrConditionalTypes + stdAttrProfile и переснять снэпшоты; КОД НЕ ТРОГАЕМ.
-$script:stdAttrConditionalTypes = @('Catalog')
+$script:stdAttrConditionalTypes = @('Catalog', 'ExchangePlan')
 function Emit-StandardAttributes {
 	param([string]$indent, [string]$objectType)
 	$attrs = $script:standardAttributesByType[$objectType]
@@ -1106,11 +1111,15 @@ function Emit-StandardAttributes {
 	$sa = $def.standardAttributes
 	if ($conditional -and $null -eq $sa) { return }   # условный тип без кастомизации → блока нет
 	$profile = $script:stdAttrProfile[$objectType]; if (-not $profile) { $profile = @{} }
+	# Доп. (опциональные) стандартные реквизиты вне фикс-списка типа — напр. ExchangeDate у части ПланОбмена
+	# (легаси, присутствие не выводится из свойств). Эмитим по факту наличия ключа в DSL, ПЕРЕД фикс-списком (их позиция).
+	$extra = @()
+	if ($sa) { foreach ($k in $sa.PSObject.Properties.Name) { if ($attrs -notcontains $k) { $extra += $k } } }
 	X "$indent<StandardAttributes>"
-	foreach ($a in $attrs) {
+	foreach ($a in ($extra + $attrs)) {
 		$ov = @{}
 		if ($profile.ContainsKey($a)) { foreach ($k in $profile[$a].Keys) { $ov[$k] = $profile[$a][$k] } }
-		if ($conditional -and $sa) {
+		if ($sa) {   # DSL-override применяем всегда при наличии ключа (для не-условных типов тоже, напр. ExchangePlan)
 			$d = $sa.$a
 			if ($d) {
 				if ($null -ne $d.synonym) { $ov['Synonym'] = $d.synonym }   # строка ИЛИ {ru,en}
@@ -2476,62 +2485,70 @@ function Emit-ExchangePlanProperties {
 
 	X "$i<Name>$(Esc-Xml $objName)</Name>"
 	Emit-MLText $i "Synonym" $synonym
-	X "$i<Comment/>"
-	X "$i<UseStandardCommands>true</UseStandardCommands>"
+	if ($def.comment) { X "$i<Comment>$(Esc-XmlText "$($def.comment)")</Comment>" } else { X "$i<Comment/>" }
+	$useStdCmd = if (Get-BoolProp "useStandardCommands" $true) { "true" } else { "false" }
+	X "$i<UseStandardCommands>$useStdCmd</UseStandardCommands>"
 
 	$codeLength = if ($null -ne $def.codeLength) { "$($def.codeLength)" } else { "9" }
-	$descriptionLength = if ($null -ne $def.descriptionLength) { "$($def.descriptionLength)" } else { "100" }
+	$descriptionLength = if ($null -ne $def.descriptionLength) { "$($def.descriptionLength)" } else { "150" }
 	$codeAllowedLength = Get-EnumProp "CodeAllowedLength" "codeAllowedLength" "Variable"
 
 	X "$i<CodeLength>$codeLength</CodeLength>"
 	X "$i<CodeAllowedLength>$codeAllowedLength</CodeAllowedLength>"
 	X "$i<DescriptionLength>$descriptionLength</DescriptionLength>"
-	X "$i<DefaultPresentation>AsDescription</DefaultPresentation>"
-	X "$i<EditType>InDialog</EditType>"
+	X "$i<DefaultPresentation>$(Get-EnumProp 'DefaultPresentation' 'defaultPresentation' 'AsDescription')</DefaultPresentation>"
+	X "$i<EditType>$(Get-EnumProp 'EditType' 'editType' 'InDialog')</EditType>"
+	$quickChoice = if ($def.quickChoice -eq $true) { "true" } else { "false" }
+	X "$i<QuickChoice>$quickChoice</QuickChoice>"
+	X "$i<ChoiceMode>$(Get-EnumProp 'ChoiceMode' 'choiceMode' 'BothWays')</ChoiceMode>"
+
+	# InputByString: override `inputByString` ЛИБО дефолт [Descr при D>0]+[Code при C>0] (prefix ExchangePlan).
+	if (Test-DefKey 'inputByString') {
+		$ibFields = @($def.inputByString | ForEach-Object { Expand-DataPath "$_" })
+	} else {
+		$ibFields = @()
+		if ([int]$descriptionLength -gt 0) { $ibFields += "ExchangePlan.$objName.StandardAttribute.Description" }
+		if ([int]$codeLength -gt 0)        { $ibFields += "ExchangePlan.$objName.StandardAttribute.Code" }
+	}
+	Emit-FieldBlock $i "InputByString" $ibFields
+	X "$i<SearchStringModeOnInputByString>$(Get-EnumProp 'SearchStringModeOnInputByString' 'searchStringModeOnInputByString' 'Begin')</SearchStringModeOnInputByString>"
+	X "$i<FullTextSearchOnInputByString>DontUse</FullTextSearchOnInputByString>"
+	X "$i<ChoiceDataGetModeOnInputByString>Directly</ChoiceDataGetModeOnInputByString>"
+	Emit-FormRef $i "DefaultObjectForm"   $def.defaultObjectForm
+	Emit-FormRef $i "DefaultListForm"     $def.defaultListForm
+	Emit-FormRef $i "DefaultChoiceForm"   $def.defaultChoiceForm
+	Emit-FormRef $i "AuxiliaryObjectForm" $def.auxiliaryObjectForm
+	Emit-FormRef $i "AuxiliaryListForm"   $def.auxiliaryListForm
+	Emit-FormRef $i "AuxiliaryChoiceForm" $def.auxiliaryChoiceForm
 
 	Emit-StandardAttributes $i "ExchangePlan"
+	Emit-Characteristics $i $def.characteristics
+	Emit-BasedOn $i $def.basedOn
 
 	$distributed = if ($def.distributedInfoBase -eq $true) { "true" } else { "false" }
 	$includeExt = if ($def.includeConfigurationExtensions -eq $true) { "true" } else { "false" }
 	X "$i<DistributedInfoBase>$distributed</DistributedInfoBase>"
 	X "$i<IncludeConfigurationExtensions>$includeExt</IncludeConfigurationExtensions>"
 
-	X "$i<BasedOn/>"
-	$quickChoice = if ($def.quickChoice -eq $true) { "true" } else { "false" }
-	X "$i<QuickChoice>$quickChoice</QuickChoice>"
-	X "$i<ChoiceMode>BothWays</ChoiceMode>"
-	X "$i<InputByString>"
-	X "$i`t<xr:Field>ExchangePlan.$objName.StandardAttribute.Description</xr:Field>"
-	X "$i`t<xr:Field>ExchangePlan.$objName.StandardAttribute.Code</xr:Field>"
-	X "$i</InputByString>"
-	X "$i<SearchStringModeOnInputByString>Begin</SearchStringModeOnInputByString>"
-	X "$i<FullTextSearchOnInputByString>DontUse</FullTextSearchOnInputByString>"
-	X "$i<ChoiceDataGetModeOnInputByString>Directly</ChoiceDataGetModeOnInputByString>"
-	X "$i<DefaultObjectForm/>"
-	X "$i<DefaultListForm/>"
-	X "$i<DefaultChoiceForm/>"
-	X "$i<AuxiliaryObjectForm/>"
-	X "$i<AuxiliaryListForm/>"
-	X "$i<AuxiliaryChoiceForm/>"
-	X "$i<IncludeHelpInContents>false</IncludeHelpInContents>"
-	X "$i<DataLockFields/>"
-
-	$dataLockControlMode = Get-EnumProp "DataLockControlMode" "dataLockControlMode" "Automatic"
-	X "$i<DataLockControlMode>$dataLockControlMode</DataLockControlMode>"
-
-	$fullTextSearch = Get-EnumProp "FullTextSearch" "fullTextSearch" "Use"
-	X "$i<FullTextSearch>$fullTextSearch</FullTextSearch>"
+	X "$i<CreateOnInput>$(Get-EnumProp 'CreateOnInput' 'createOnInput' 'DontUse')</CreateOnInput>"
+	X "$i<ChoiceHistoryOnInput>$(Get-EnumProp 'ChoiceHistoryOnInput' 'choiceHistoryOnInput' 'Auto')</ChoiceHistoryOnInput>"
+	$inclHelp = if (Get-BoolProp "includeHelpInContents" $false) { "true" } else { "false" }
+	X "$i<IncludeHelpInContents>$inclHelp</IncludeHelpInContents>"
+	$dlFields = if (Test-DefKey 'dataLockFields') { @($def.dataLockFields | ForEach-Object { Expand-DataPath "$_" }) } else { @() }
+	Emit-FieldBlock $i "DataLockFields" $dlFields
+	X "$i<DataLockControlMode>$(Get-EnumProp 'DataLockControlMode' 'dataLockControlMode' 'Managed')</DataLockControlMode>"
+	X "$i<FullTextSearch>$(Get-EnumProp 'FullTextSearch' 'fullTextSearch' 'Use')</FullTextSearch>"
 
 	Emit-MLText $i "ObjectPresentation" $def.objectPresentation
 	Emit-MLText $i "ExtendedObjectPresentation" $def.extendedObjectPresentation
 	Emit-MLText $i "ListPresentation" $def.listPresentation
 	Emit-MLText $i "ExtendedListPresentation" $def.extendedListPresentation
 	Emit-MLText $i "Explanation" $def.explanation
-	X "$i<CreateOnInput>DontUse</CreateOnInput>"
-	X "$i<ChoiceHistoryOnInput>Auto</ChoiceHistoryOnInput>"
-	X "$i<DataHistory>DontUse</DataHistory>"
-	X "$i<UpdateDataHistoryImmediatelyAfterWrite>false</UpdateDataHistoryImmediatelyAfterWrite>"
-	X "$i<ExecuteAfterWriteDataHistoryVersionProcessing>false</ExecuteAfterWriteDataHistoryVersionProcessing>"
+	X "$i<DataHistory>$(Get-EnumProp 'DataHistory' 'dataHistory' 'DontUse')</DataHistory>"
+	$updDH = if (Get-BoolProp "updateDataHistoryImmediatelyAfterWrite" $false) { "true" } else { "false" }
+	X "$i<UpdateDataHistoryImmediatelyAfterWrite>$updDH</UpdateDataHistoryImmediatelyAfterWrite>"
+	$execDH = if (Get-BoolProp "executeAfterWriteDataHistoryVersionProcessing" $false) { "true" } else { "false" }
+	X "$i<ExecuteAfterWriteDataHistoryVersionProcessing>$execDH</ExecuteAfterWriteDataHistoryVersionProcessing>"
 }
 
 function Emit-ChartOfCharacteristicTypesProperties {

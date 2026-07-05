@@ -32,13 +32,28 @@
 					<v8:content>Обмен сфилиалами</v8:content>
 				</v8:item>
 			</Synonym>
-			<Comment/>
+			<Comment>обмен данными с филиалами</Comment>
 			<UseStandardCommands>true</UseStandardCommands>
 			<CodeLength>9</CodeLength>
 			<CodeAllowedLength>Variable</CodeAllowedLength>
 			<DescriptionLength>100</DescriptionLength>
 			<DefaultPresentation>AsDescription</DefaultPresentation>
 			<EditType>InDialog</EditType>
+			<QuickChoice>false</QuickChoice>
+			<ChoiceMode>BothWays</ChoiceMode>
+			<InputByString>
+				<xr:Field>ExchangePlan.ОбменСФилиалами.StandardAttribute.Description</xr:Field>
+				<xr:Field>ExchangePlan.ОбменСФилиалами.StandardAttribute.Code</xr:Field>
+			</InputByString>
+			<SearchStringModeOnInputByString>Begin</SearchStringModeOnInputByString>
+			<FullTextSearchOnInputByString>DontUse</FullTextSearchOnInputByString>
+			<ChoiceDataGetModeOnInputByString>Directly</ChoiceDataGetModeOnInputByString>
+			<DefaultObjectForm/>
+			<DefaultListForm/>
+			<DefaultChoiceForm/>
+			<AuxiliaryObjectForm/>
+			<AuxiliaryListForm/>
+			<AuxiliaryChoiceForm/>
 			<StandardAttributes>
 				<xr:StandardAttribute name="Ref">
 					<xr:LinkByType/>
@@ -94,7 +109,7 @@
 				</xr:StandardAttribute>
 				<xr:StandardAttribute name="Code">
 					<xr:LinkByType/>
-					<xr:FillChecking>DontCheck</xr:FillChecking>
+					<xr:FillChecking>ShowError</xr:FillChecking>
 					<xr:MultiLine>false</xr:MultiLine>
 					<xr:FillFromFillingValue>false</xr:FillFromFillingValue>
 					<xr:CreateOnInput>Auto</xr:CreateOnInput>
@@ -120,7 +135,7 @@
 				</xr:StandardAttribute>
 				<xr:StandardAttribute name="Description">
 					<xr:LinkByType/>
-					<xr:FillChecking>DontCheck</xr:FillChecking>
+					<xr:FillChecking>ShowError</xr:FillChecking>
 					<xr:MultiLine>false</xr:MultiLine>
 					<xr:FillFromFillingValue>false</xr:FillFromFillingValue>
 					<xr:CreateOnInput>Auto</xr:CreateOnInput>
@@ -136,7 +151,12 @@
 					<xr:DataHistory>Use</xr:DataHistory>
 					<xr:MarkNegatives>false</xr:MarkNegatives>
 					<xr:MinValue xsi:nil="true"/>
-					<xr:Synonym/>
+					<xr:Synonym>
+						<v8:item>
+							<v8:lang>ru</v8:lang>
+							<v8:content>Имя узла</v8:content>
+						</v8:item>
+					</xr:Synonym>
 					<xr:Comment/>
 					<xr:FullTextSearch>Use</xr:FullTextSearch>
 					<xr:ChoiceParameterLinks/>
@@ -223,35 +243,21 @@
 					<xr:ChoiceParameters/>
 				</xr:StandardAttribute>
 			</StandardAttributes>
+			<Characteristics/>
+			<BasedOn/>
 			<DistributedInfoBase>true</DistributedInfoBase>
 			<IncludeConfigurationExtensions>false</IncludeConfigurationExtensions>
-			<BasedOn/>
-			<QuickChoice>false</QuickChoice>
-			<ChoiceMode>BothWays</ChoiceMode>
-			<InputByString>
-				<xr:Field>ExchangePlan.ОбменСФилиалами.StandardAttribute.Description</xr:Field>
-				<xr:Field>ExchangePlan.ОбменСФилиалами.StandardAttribute.Code</xr:Field>
-			</InputByString>
-			<SearchStringModeOnInputByString>Begin</SearchStringModeOnInputByString>
-			<FullTextSearchOnInputByString>DontUse</FullTextSearchOnInputByString>
-			<ChoiceDataGetModeOnInputByString>Directly</ChoiceDataGetModeOnInputByString>
-			<DefaultObjectForm/>
-			<DefaultListForm/>
-			<DefaultChoiceForm/>
-			<AuxiliaryObjectForm/>
-			<AuxiliaryListForm/>
-			<AuxiliaryChoiceForm/>
+			<CreateOnInput>DontUse</CreateOnInput>
+			<ChoiceHistoryOnInput>Auto</ChoiceHistoryOnInput>
 			<IncludeHelpInContents>false</IncludeHelpInContents>
 			<DataLockFields/>
-			<DataLockControlMode>Automatic</DataLockControlMode>
+			<DataLockControlMode>Managed</DataLockControlMode>
 			<FullTextSearch>Use</FullTextSearch>
 			<ObjectPresentation/>
 			<ExtendedObjectPresentation/>
 			<ListPresentation/>
 			<ExtendedListPresentation/>
 			<Explanation/>
-			<CreateOnInput>DontUse</CreateOnInput>
-			<ChoiceHistoryOnInput>Auto</ChoiceHistoryOnInput>
 			<DataHistory>DontUse</DataHistory>
 			<UpdateDataHistoryImmediatelyAfterWrite>false</UpdateDataHistoryImmediatelyAfterWrite>
 			<ExecuteAfterWriteDataHistoryVersionProcessing>false</ExecuteAfterWriteDataHistoryVersionProcessing>

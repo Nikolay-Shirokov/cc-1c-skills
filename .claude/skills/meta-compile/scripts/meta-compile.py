@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-compile v1.33 — Compile 1C metadata object from JSON
+# meta-compile v1.34 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -1050,7 +1050,12 @@ std_attr_profile = {
         'Owner': {'FillChecking': 'ShowError', 'FillFromFillingValue': 'true'},
         'Parent': {'FillFromFillingValue': 'true'},
         'Description': {'FillChecking': 'ShowError'},
-    }
+    },
+    # ExchangePlan: блок при кастомизации; Наименование/Код → FillChecking=ShowError (корпус 40/38 из 41).
+    'ExchangePlan': {
+        'Description': {'FillChecking': 'ShowError'},
+        'Code': {'FillChecking': 'ShowError'},
+    },
 }
 
 # ov — dict переопределений (профиль + DSL): FillChecking, FillFromFillingValue, Synonym,
@@ -1116,7 +1121,7 @@ def emit_standard_attribute(indent, attr_name, ov=None):
 # Единый эмиттер блока StandardAttributes — поведение правят ДАННЫЕ, не форк кода (см. коммент в .ps1).
 # std_attr_conditional_types: типы, где блок только при кастомизации (DSL-ключ standardAttributes).
 # Прочие типы → блок всегда (текущее поведение). Миграция типа = +строчка в оба справочника + снэпшоты.
-std_attr_conditional_types = {'Catalog'}
+std_attr_conditional_types = {'Catalog', 'ExchangePlan'}
 def emit_standard_attributes(indent, object_type):
     attrs = standard_attributes_by_type.get(object_type)
     if not attrs:
@@ -1126,10 +1131,13 @@ def emit_standard_attributes(indent, object_type):
     if conditional and sa is None:
         return
     profile = std_attr_profile.get(object_type, {})
+    # Доп. (опциональные) стандартные реквизиты вне фикс-списка — напр. ExchangeDate у части ПланОбмена
+    # (легаси, присутствие не выводится). Эмитим по факту ключа в DSL, ПЕРЕД фикс-списком (их позиция).
+    extra = [k for k in sa if k not in attrs] if isinstance(sa, dict) else []
     X(f'{indent}<StandardAttributes>')
-    for a in attrs:
+    for a in extra + list(attrs):
         ov = dict(profile.get(a, {}))
-        if conditional and isinstance(sa, dict):
+        if isinstance(sa, dict):
             d = sa.get(a)
             if d:
                 if d.get('synonym') is not None:
@@ -2407,54 +2415,62 @@ def emit_exchange_plan_properties(indent):
     i = indent
     X(f'{i}<Name>{esc_xml(obj_name)}</Name>')
     emit_mltext(i, 'Synonym', synonym)
-    X(f'{i}<Comment/>')
-    X(f'{i}<UseStandardCommands>true</UseStandardCommands>')
+    if defn.get('comment'):
+        X(f'{i}<Comment>{esc_xml_text(str(defn["comment"]))}</Comment>')
+    else:
+        X(f'{i}<Comment/>')
+    X(f'{i}<UseStandardCommands>{"true" if get_bool_prop("useStandardCommands", True) else "false"}</UseStandardCommands>')
     code_length = str(defn['codeLength']) if defn.get('codeLength') is not None else '9'
-    description_length = str(defn['descriptionLength']) if defn.get('descriptionLength') is not None else '100'
+    description_length = str(defn['descriptionLength']) if defn.get('descriptionLength') is not None else '150'
     code_allowed_length = get_enum_prop('CodeAllowedLength', 'codeAllowedLength', 'Variable')
     X(f'{i}<CodeLength>{code_length}</CodeLength>')
     X(f'{i}<CodeAllowedLength>{code_allowed_length}</CodeAllowedLength>')
     X(f'{i}<DescriptionLength>{description_length}</DescriptionLength>')
-    X(f'{i}<DefaultPresentation>AsDescription</DefaultPresentation>')
-    X(f'{i}<EditType>InDialog</EditType>')
+    X(f'{i}<DefaultPresentation>{get_enum_prop("DefaultPresentation", "defaultPresentation", "AsDescription")}</DefaultPresentation>')
+    X(f'{i}<EditType>{get_enum_prop("EditType", "editType", "InDialog")}</EditType>')
+    X(f'{i}<QuickChoice>{"true" if defn.get("quickChoice") is True else "false"}</QuickChoice>')
+    X(f'{i}<ChoiceMode>{get_enum_prop("ChoiceMode", "choiceMode", "BothWays")}</ChoiceMode>')
+    # InputByString: override `inputByString` ЛИБО дефолт [Descr при D>0]+[Code при C>0] (prefix ExchangePlan).
+    if 'inputByString' in defn:
+        ib_fields = [expand_data_path(str(x)) for x in (defn.get('inputByString') or [])]
+    else:
+        ib_fields = []
+        if int(description_length) > 0:
+            ib_fields.append(f'ExchangePlan.{obj_name}.StandardAttribute.Description')
+        if int(code_length) > 0:
+            ib_fields.append(f'ExchangePlan.{obj_name}.StandardAttribute.Code')
+    emit_field_block(i, 'InputByString', ib_fields)
+    X(f'{i}<SearchStringModeOnInputByString>{get_enum_prop("SearchStringModeOnInputByString", "searchStringModeOnInputByString", "Begin")}</SearchStringModeOnInputByString>')
+    X(f'{i}<FullTextSearchOnInputByString>DontUse</FullTextSearchOnInputByString>')
+    X(f'{i}<ChoiceDataGetModeOnInputByString>Directly</ChoiceDataGetModeOnInputByString>')
+    emit_form_ref(i, 'DefaultObjectForm', defn.get('defaultObjectForm'))
+    emit_form_ref(i, 'DefaultListForm', defn.get('defaultListForm'))
+    emit_form_ref(i, 'DefaultChoiceForm', defn.get('defaultChoiceForm'))
+    emit_form_ref(i, 'AuxiliaryObjectForm', defn.get('auxiliaryObjectForm'))
+    emit_form_ref(i, 'AuxiliaryListForm', defn.get('auxiliaryListForm'))
+    emit_form_ref(i, 'AuxiliaryChoiceForm', defn.get('auxiliaryChoiceForm'))
     emit_standard_attributes(i, 'ExchangePlan')
+    emit_characteristics(i, defn.get('characteristics'))
+    emit_based_on(i, defn.get('basedOn'))
     distributed = 'true' if defn.get('distributedInfoBase') is True else 'false'
     include_ext = 'true' if defn.get('includeConfigurationExtensions') is True else 'false'
     X(f'{i}<DistributedInfoBase>{distributed}</DistributedInfoBase>')
     X(f'{i}<IncludeConfigurationExtensions>{include_ext}</IncludeConfigurationExtensions>')
-    X(f'{i}<BasedOn/>')
-    quick_choice = 'true' if defn.get('quickChoice') is True else 'false'
-    X(f'{i}<QuickChoice>{quick_choice}</QuickChoice>')
-    X(f'{i}<ChoiceMode>BothWays</ChoiceMode>')
-    X(f'{i}<InputByString>')
-    X(f'{i}\t<xr:Field>ExchangePlan.{obj_name}.StandardAttribute.Description</xr:Field>')
-    X(f'{i}\t<xr:Field>ExchangePlan.{obj_name}.StandardAttribute.Code</xr:Field>')
-    X(f'{i}</InputByString>')
-    X(f'{i}<SearchStringModeOnInputByString>Begin</SearchStringModeOnInputByString>')
-    X(f'{i}<FullTextSearchOnInputByString>DontUse</FullTextSearchOnInputByString>')
-    X(f'{i}<ChoiceDataGetModeOnInputByString>Directly</ChoiceDataGetModeOnInputByString>')
-    X(f'{i}<DefaultObjectForm/>')
-    X(f'{i}<DefaultListForm/>')
-    X(f'{i}<DefaultChoiceForm/>')
-    X(f'{i}<AuxiliaryObjectForm/>')
-    X(f'{i}<AuxiliaryListForm/>')
-    X(f'{i}<AuxiliaryChoiceForm/>')
-    X(f'{i}<IncludeHelpInContents>false</IncludeHelpInContents>')
-    X(f'{i}<DataLockFields/>')
-    data_lock_control_mode = get_enum_prop('DataLockControlMode', 'dataLockControlMode', 'Automatic')
-    X(f'{i}<DataLockControlMode>{data_lock_control_mode}</DataLockControlMode>')
-    full_text_search = get_enum_prop('FullTextSearch', 'fullTextSearch', 'Use')
-    X(f'{i}<FullTextSearch>{full_text_search}</FullTextSearch>')
+    X(f'{i}<CreateOnInput>{get_enum_prop("CreateOnInput", "createOnInput", "DontUse")}</CreateOnInput>')
+    X(f'{i}<ChoiceHistoryOnInput>{get_enum_prop("ChoiceHistoryOnInput", "choiceHistoryOnInput", "Auto")}</ChoiceHistoryOnInput>')
+    X(f'{i}<IncludeHelpInContents>{"true" if get_bool_prop("includeHelpInContents", False) else "false"}</IncludeHelpInContents>')
+    dl_fields = [expand_data_path(str(x)) for x in defn.get('dataLockFields', [])] if 'dataLockFields' in defn else []
+    emit_field_block(i, 'DataLockFields', dl_fields)
+    X(f'{i}<DataLockControlMode>{get_enum_prop("DataLockControlMode", "dataLockControlMode", "Managed")}</DataLockControlMode>')
+    X(f'{i}<FullTextSearch>{get_enum_prop("FullTextSearch", "fullTextSearch", "Use")}</FullTextSearch>')
     emit_mltext(i, 'ObjectPresentation', defn.get('objectPresentation'))
     emit_mltext(i, 'ExtendedObjectPresentation', defn.get('extendedObjectPresentation'))
     emit_mltext(i, 'ListPresentation', defn.get('listPresentation'))
     emit_mltext(i, 'ExtendedListPresentation', defn.get('extendedListPresentation'))
     emit_mltext(i, 'Explanation', defn.get('explanation'))
-    X(f'{i}<CreateOnInput>DontUse</CreateOnInput>')
-    X(f'{i}<ChoiceHistoryOnInput>Auto</ChoiceHistoryOnInput>')
-    X(f'{i}<DataHistory>DontUse</DataHistory>')
-    X(f'{i}<UpdateDataHistoryImmediatelyAfterWrite>false</UpdateDataHistoryImmediatelyAfterWrite>')
-    X(f'{i}<ExecuteAfterWriteDataHistoryVersionProcessing>false</ExecuteAfterWriteDataHistoryVersionProcessing>')
+    X(f'{i}<DataHistory>{get_enum_prop("DataHistory", "dataHistory", "DontUse")}</DataHistory>')
+    X(f'{i}<UpdateDataHistoryImmediatelyAfterWrite>{"true" if get_bool_prop("updateDataHistoryImmediatelyAfterWrite", False) else "false"}</UpdateDataHistoryImmediatelyAfterWrite>')
+    X(f'{i}<ExecuteAfterWriteDataHistoryVersionProcessing>{"true" if get_bool_prop("executeAfterWriteDataHistoryVersionProcessing", False) else "false"}</ExecuteAfterWriteDataHistoryVersionProcessing>')
 
 def emit_chart_of_characteristic_types_properties(indent):
     i = indent
