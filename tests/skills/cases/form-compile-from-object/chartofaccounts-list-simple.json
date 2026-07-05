@@ -4,10 +4,21 @@
     {
       "script": "meta-compile/scripts/meta-compile",
       "input": {
+        "type": "ChartOfCharacteristicTypes",
+        "name": "ВидыСубконто",
+        "valueType": "String(100)",
+        "predefined": ["Номенклатура: String(100)"]
+      },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
         "type": "ChartOfAccounts",
         "name": "Хозрасчетный",
         "codeLength": 9,
         "descriptionLength": 100,
+        "extDimensionTypes": "ChartOfCharacteristicTypes.ВидыСубконто",
         "maxExtDimensionCount": 3,
         "accountingFlags": [
           { "name": "Валютный" },
