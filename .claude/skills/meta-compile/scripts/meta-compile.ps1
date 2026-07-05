@@ -1,4 +1,4 @@
-﻿# meta-compile v1.40 — Compile 1C metadata object from JSON
+﻿# meta-compile v1.41 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -1022,7 +1022,7 @@ $script:standardAttributesByType = @{
 	"CalculationRegister" = @("Active","Recorder","LineNumber","RegistrationPeriod","CalculationType","ReversingEntry")
 	"ChartOfAccounts" = @("PredefinedDataName","Order","OffBalance","Type","Description","Code","Parent","Predefined","DeletionMark","Ref")
 	"ChartOfCharacteristicTypes" = @("PredefinedDataName","Predefined","Ref","DeletionMark","Description","Code","Parent","ValueType")
-	"ChartOfCalculationTypes" = @("PredefinedDataName","Predefined","Ref","DeletionMark","Description","Code","ActionPeriodIsBasic")
+	"ChartOfCalculationTypes" = @("PredefinedDataName","Predefined","Ref","DeletionMark","ActionPeriodIsBasic","Description","Code")
 	"BusinessProcess" = @("Ref","DeletionMark","Date","Number","Started","Completed","HeadTask")
 	"Task" = @("Ref","DeletionMark","Date","Number","Executed","Description","RoutePoint","BusinessProcess")
 	"ExchangePlan" = @("Ref","DeletionMark","Code","Description","ThisNode","SentNo","ReceivedNo")
@@ -1055,6 +1055,10 @@ $script:stdAttrProfile = @{
 		"Description" = @{ FillChecking = "ShowError" }
 		"Code"        = @{ FillChecking = "ShowError" }
 		"Parent"      = @{ FillFromFillingValue = "true" }
+	}
+	# ChartOfCalculationTypes: Наименование → FillChecking=ShowError (Код здесь DontCheck).
+	"ChartOfCalculationTypes" = @{
+		"Description" = @{ FillChecking = "ShowError" }
 	}
 }
 
@@ -1116,7 +1120,7 @@ function Emit-StandardAttribute {
 #    Прочие типы (не в множестве) → блок эмитится всегда (текущее поведение, пока их правило не выведено).
 #  - stdAttrProfile[тип]: профиль материализованного блока (пусто = schema-дефолт), поверх — DSL-override.
 # Миграция типа = добавить его в stdAttrConditionalTypes + stdAttrProfile и переснять снэпшоты; КОД НЕ ТРОГАЕМ.
-$script:stdAttrConditionalTypes = @('Catalog', 'ExchangePlan', 'ChartOfCharacteristicTypes', 'ChartOfAccounts')
+$script:stdAttrConditionalTypes = @('Catalog', 'ExchangePlan', 'ChartOfCharacteristicTypes', 'ChartOfAccounts', 'ChartOfCalculationTypes')
 function Emit-StandardAttributes {
 	param([string]$indent, [string]$objectType)
 	$attrs = $script:standardAttributesByType[$objectType]
@@ -2888,82 +2892,115 @@ function Emit-AccountingRegisterProperties {
 	X "$i<Explanation/>"
 }
 
+# Стандартные ТЧ Плана видов расчёта: Ведущие/Вытесняющие/Базовые виды расчёта. Обёртка платформенно-константна
+# (Synonym с пустым lang, Comment/ToolTip/FillChecking); вложены Predefined/CalculationType(ShowError)/LineNumber.
+$script:calcTypesStdTabular = @(
+	@{ name = "LeadingCalculationTypes";    synonym = "Ведущие виды расчета" }
+	@{ name = "DisplacingCalculationTypes"; synonym = "Вытесняющие виды расчета" }
+	@{ name = "BaseCalculationTypes";       synonym = "Базовые виды расчета" }
+)
+function Emit-CalcTypesStdTabular {
+	param([string]$i)
+	X "$i<StandardTabularSections>"
+	foreach ($sts in $script:calcTypesStdTabular) {
+		X "$i`t<xr:StandardTabularSection name=`"$($sts.name)`">"
+		X "$i`t`t<xr:Synonym>"
+		X "$i`t`t`t<v8:item>"
+		X "$i`t`t`t`t<v8:lang/>"
+		X "$i`t`t`t`t<v8:content>$(Esc-XmlText $sts.synonym)</v8:content>"
+		X "$i`t`t`t</v8:item>"
+		X "$i`t`t</xr:Synonym>"
+		X "$i`t`t<xr:Comment/>"
+		X "$i`t`t<xr:ToolTip/>"
+		X "$i`t`t<xr:FillChecking>DontCheck</xr:FillChecking>"
+		X "$i`t`t<xr:StandardAttributes>"
+		foreach ($stAttr in @("Predefined","CalculationType","LineNumber")) {
+			$stOv = if ($stAttr -eq "CalculationType") { @{ FillChecking = "ShowError" } } else { $null }
+			Emit-StandardAttribute "$i`t`t`t" $stAttr $stOv
+		}
+		X "$i`t`t</xr:StandardAttributes>"
+		X "$i`t</xr:StandardTabularSection>"
+	}
+	X "$i</StandardTabularSections>"
+}
+
 function Emit-ChartOfCalculationTypesProperties {
 	param([string]$indent)
 	$i = $indent
 
 	X "$i<Name>$(Esc-Xml $objName)</Name>"
 	Emit-MLText $i "Synonym" $synonym
-	X "$i<Comment/>"
-	X "$i<UseStandardCommands>true</UseStandardCommands>"
+	if ($def.comment) { X "$i<Comment>$(Esc-XmlText "$($def.comment)")</Comment>" } else { X "$i<Comment/>" }
+	$useStdCmd = if (Get-BoolProp "useStandardCommands" $true) { "true" } else { "false" }
+	X "$i<UseStandardCommands>$useStdCmd</UseStandardCommands>"
 
-	$codeLength = if ($null -ne $def.codeLength) { "$($def.codeLength)" } else { "9" }
-	$descriptionLength = if ($null -ne $def.descriptionLength) { "$($def.descriptionLength)" } else { "25" }
-	$codeType = Get-EnumProp "CodeType" "codeType" "String"
-	$codeAllowedLength = Get-EnumProp "CodeAllowedLength" "codeAllowedLength" "Variable"
-
+	$codeLength = if ($null -ne $def.codeLength) { "$($def.codeLength)" } else { "5" }
+	$descriptionLength = if ($null -ne $def.descriptionLength) { "$($def.descriptionLength)" } else { "100" }
 	X "$i<CodeLength>$codeLength</CodeLength>"
-	X "$i<CodeType>$codeType</CodeType>"
-	X "$i<CodeAllowedLength>$codeAllowedLength</CodeAllowedLength>"
 	X "$i<DescriptionLength>$descriptionLength</DescriptionLength>"
-	X "$i<DefaultPresentation>AsDescription</DefaultPresentation>"
+	X "$i<CodeType>$(Get-EnumProp 'CodeType' 'codeType' 'String')</CodeType>"
+	X "$i<CodeAllowedLength>$(Get-EnumProp 'CodeAllowedLength' 'codeAllowedLength' 'Variable')</CodeAllowedLength>"
+	X "$i<DefaultPresentation>$(Get-EnumProp 'DefaultPresentation' 'defaultPresentation' 'AsDescription')</DefaultPresentation>"
+	X "$i<EditType>$(Get-EnumProp 'EditType' 'editType' 'InDialog')</EditType>"
+	$quickChoice = if ($def.quickChoice -eq $true) { "true" } else { "false" }
+	X "$i<QuickChoice>$quickChoice</QuickChoice>"
+	X "$i<ChoiceMode>$(Get-EnumProp 'ChoiceMode' 'choiceMode' 'BothWays')</ChoiceMode>"
 
-	$dependence = Get-EnumProp "DependenceOnCalculationTypes" "dependenceOnCalculationTypes" "DontUse"
-	X "$i<DependenceOnCalculationTypes>$dependence</DependenceOnCalculationTypes>"
+	# InputByString: override ЛИБО дефолт [Descr при D>0]+[Code при C>0].
+	if (Test-DefKey 'inputByString') {
+		$ibFields = @($def.inputByString | ForEach-Object { Expand-DataPath "$_" })
+	} else {
+		$ibFields = @()
+		if ([int]$descriptionLength -gt 0) { $ibFields += "ChartOfCalculationTypes.$objName.StandardAttribute.Description" }
+		if ([int]$codeLength -gt 0)        { $ibFields += "ChartOfCalculationTypes.$objName.StandardAttribute.Code" }
+	}
+	Emit-FieldBlock $i "InputByString" $ibFields
+	X "$i<SearchStringModeOnInputByString>$(Get-EnumProp 'SearchStringModeOnInputByString' 'searchStringModeOnInputByString' 'Begin')</SearchStringModeOnInputByString>"
+	X "$i<FullTextSearchOnInputByString>DontUse</FullTextSearchOnInputByString>"
+	X "$i<ChoiceDataGetModeOnInputByString>Directly</ChoiceDataGetModeOnInputByString>"
+	X "$i<CreateOnInput>$(Get-EnumProp 'CreateOnInput' 'createOnInput' 'DontUse')</CreateOnInput>"
+	X "$i<ChoiceHistoryOnInput>$(Get-EnumProp 'ChoiceHistoryOnInput' 'choiceHistoryOnInput' 'Auto')</ChoiceHistoryOnInput>"
+	Emit-FormRef $i "DefaultObjectForm"   $def.defaultObjectForm
+	Emit-FormRef $i "DefaultListForm"     $def.defaultListForm
+	Emit-FormRef $i "DefaultChoiceForm"   $def.defaultChoiceForm
+	Emit-FormRef $i "AuxiliaryObjectForm" $def.auxiliaryObjectForm
+	Emit-FormRef $i "AuxiliaryListForm"   $def.auxiliaryListForm
+	Emit-FormRef $i "AuxiliaryChoiceForm" $def.auxiliaryChoiceForm
+	Emit-BasedOn $i $def.basedOn
 
-	# BaseCalculationTypes
-	$baseTypes = @()
-	if ($def.baseCalculationTypes) { $baseTypes = @($def.baseCalculationTypes) }
+	X "$i<DependenceOnCalculationTypes>$(Get-EnumProp 'DependenceOnCalculationTypes' 'dependenceOnCalculationTypes' 'DontUse')</DependenceOnCalculationTypes>"
+	# BaseCalculationTypes — список ссылок на ПВР (прощающий ввод ПланВидовРасчета.X → ChartOfCalculationTypes.X).
+	$baseTypes = @(); if ($def.baseCalculationTypes) { $baseTypes = @($def.baseCalculationTypes | ForEach-Object { Resolve-TypePrefixSyn "$_" }) }
 	if ($baseTypes.Count -gt 0) {
 		X "$i<BaseCalculationTypes>"
-		foreach ($bt in $baseTypes) {
-			X "$i`t<xr:Item xsi:type=`"xr:MDObjectRef`">$bt</xr:Item>"
-		}
+		foreach ($bt in $baseTypes) { X "$i`t<xr:Item xsi:type=`"xr:MDObjectRef`">$(Esc-Xml $bt)</xr:Item>" }
 		X "$i</BaseCalculationTypes>"
-	} else {
-		X "$i<BaseCalculationTypes/>"
-	}
-
+	} else { X "$i<BaseCalculationTypes/>" }
 	$actionPeriodUse = if ($def.actionPeriodUse -eq $true) { "true" } else { "false" }
 	X "$i<ActionPeriodUse>$actionPeriodUse</ActionPeriodUse>"
 
 	Emit-StandardAttributes $i "ChartOfCalculationTypes"
-	X "$i<Characteristics/>"
-	X "$i<PredefinedDataUpdate>Auto</PredefinedDataUpdate>"
-	X "$i<EditType>InDialog</EditType>"
-	$quickChoice = if ($def.quickChoice -eq $true) { "true" } else { "false" }
-	X "$i<QuickChoice>$quickChoice</QuickChoice>"
-	X "$i<ChoiceMode>BothWays</ChoiceMode>"
-	X "$i<InputByString>"
-	X "$i`t<xr:Field>ChartOfCalculationTypes.$objName.StandardAttribute.Description</xr:Field>"
-	X "$i`t<xr:Field>ChartOfCalculationTypes.$objName.StandardAttribute.Code</xr:Field>"
-	X "$i</InputByString>"
-	X "$i<SearchStringModeOnInputByString>Begin</SearchStringModeOnInputByString>"
-	X "$i<FullTextSearchOnInputByString>DontUse</FullTextSearchOnInputByString>"
-	X "$i<ChoiceDataGetModeOnInputByString>Directly</ChoiceDataGetModeOnInputByString>"
-	X "$i<DefaultObjectForm/>"
-	X "$i<DefaultListForm/>"
-	X "$i<DefaultChoiceForm/>"
-	X "$i<AuxiliaryObjectForm/>"
-	X "$i<AuxiliaryListForm/>"
-	X "$i<AuxiliaryChoiceForm/>"
-	X "$i<IncludeHelpInContents>false</IncludeHelpInContents>"
-	X "$i<BasedOn/>"
-	X "$i<DataLockFields/>"
+	Emit-Characteristics $i $def.characteristics
+	Emit-CalcTypesStdTabular $i
 
-	$dataLockControlMode = Get-EnumProp "DataLockControlMode" "dataLockControlMode" "Automatic"
-	X "$i<DataLockControlMode>$dataLockControlMode</DataLockControlMode>"
-
-	$fullTextSearch = Get-EnumProp "FullTextSearch" "fullTextSearch" "Use"
-	X "$i<FullTextSearch>$fullTextSearch</FullTextSearch>"
+	X "$i<PredefinedDataUpdate>$(Get-EnumProp 'PredefinedDataUpdate' 'predefinedDataUpdate' 'Auto')</PredefinedDataUpdate>"
+	$inclHelp = if (Get-BoolProp "includeHelpInContents" $false) { "true" } else { "false" }
+	X "$i<IncludeHelpInContents>$inclHelp</IncludeHelpInContents>"
+	$dlFields = if (Test-DefKey 'dataLockFields') { @($def.dataLockFields | ForEach-Object { Expand-DataPath "$_" }) } else { @() }
+	Emit-FieldBlock $i "DataLockFields" $dlFields
+	X "$i<DataLockControlMode>$(Get-EnumProp 'DataLockControlMode' 'dataLockControlMode' 'Automatic')</DataLockControlMode>"
+	X "$i<FullTextSearch>$(Get-EnumProp 'FullTextSearch' 'fullTextSearch' 'Use')</FullTextSearch>"
 
 	Emit-MLText $i "ObjectPresentation" $def.objectPresentation
 	Emit-MLText $i "ExtendedObjectPresentation" $def.extendedObjectPresentation
 	Emit-MLText $i "ListPresentation" $def.listPresentation
 	Emit-MLText $i "ExtendedListPresentation" $def.extendedListPresentation
 	Emit-MLText $i "Explanation" $def.explanation
-	X "$i<CreateOnInput>DontUse</CreateOnInput>"
-	X "$i<ChoiceHistoryOnInput>Auto</ChoiceHistoryOnInput>"
+	X "$i<DataHistory>$(Get-EnumProp 'DataHistory' 'dataHistory' 'DontUse')</DataHistory>"
+	$updDH = if (Get-BoolProp "updateDataHistoryImmediatelyAfterWrite" $false) { "true" } else { "false" }
+	X "$i<UpdateDataHistoryImmediatelyAfterWrite>$updDH</UpdateDataHistoryImmediatelyAfterWrite>"
+	$execDH = if (Get-BoolProp "executeAfterWriteDataHistoryVersionProcessing" $false) { "true" } else { "false" }
+	X "$i<ExecuteAfterWriteDataHistoryVersionProcessing>$execDH</ExecuteAfterWriteDataHistoryVersionProcessing>"
 }
 
 function Emit-CalculationRegisterProperties {
@@ -3539,8 +3576,7 @@ if ($objType -in $typesWithAttrTS) {
 			"Document" { "document" }
 			{ $_ -in @("DataProcessor","Report") } { "processor" }
 			"ChartOfCharacteristicTypes" { "catalog" }   # реквизиты ПВХ структурно как у справочника (Use/FillFromFillingValue/DataHistory)
-			"ChartOfAccounts" { "account" }              # как catalog, но БЕЗ <Use> (реквизиты ПС не иерархичны как справочник)
-			"ChartOfCalculationTypes" { "chart" }
+			{ $_ -in @("ChartOfAccounts","ChartOfCalculationTypes") } { "account" }   # как catalog, но БЕЗ <Use> (реквизиты ПС/ПВР не иерархичны как справочник)
 			default    { "object" }
 		}
 		foreach ($a in $attrs) {
@@ -3895,6 +3931,33 @@ function Build-PredefinedAccountXml {
 	return $sb.ToString()
 }
 
+# --- Предопределённые ВИДЫ РАСЧЁТА (плоские: Name/Code/Description/ActionPeriodIsBase). Строка "(Код) Имя [Наим]"
+# ЛИБО объект {name, code, description, actionPeriodIsBase}. ---
+function Emit-PredefCalcType {
+	param($sb, $val, [string]$indent)
+	$r = Resolve-PredefItem $val
+	$apib = 'false'
+	if ($val -isnot [string]) {
+		$apibV = & $script:predefAccGet $val @('actionPeriodIsBase','периодДействияБазовый')
+		if ($apibV -eq $true) { $apib = 'true' }
+	}
+	[void]$sb.Append("$indent<Item id=`"$(New-Guid-String)`">`n")
+	[void]$sb.Append("$indent`t<Name>$(Esc-XmlText $r.name)</Name>`n")
+	if (-not $r.code) { [void]$sb.Append("$indent`t<Code/>`n") } else { [void]$sb.Append("$indent`t<Code>$(Esc-XmlText $r.code)</Code>`n") }
+	if ($r.desc -eq '') { [void]$sb.Append("$indent`t<Description/>`n") } else { [void]$sb.Append("$indent`t<Description>$(Esc-XmlText $r.desc)</Description>`n") }
+	[void]$sb.Append("$indent`t<ActionPeriodIsBase>$apib</ActionPeriodIsBase>`n")
+	[void]$sb.Append("$indent</Item>`n")
+}
+function Build-PredefinedCalcTypeXml {
+	param($items)
+	$sb = New-Object System.Text.StringBuilder
+	[void]$sb.Append("<?xml version=`"1.0`" encoding=`"UTF-8`"?>`n")
+	[void]$sb.Append("<PredefinedData xmlns=`"http://v8.1c.ru/8.3/xcf/predef`" xmlns:v8=`"http://v8.1c.ru/8.1/data/core`" xmlns:xr=`"http://v8.1c.ru/8.3/xcf/readable`" xmlns:xs=`"http://www.w3.org/2001/XMLSchema`" xmlns:xsi=`"http://www.w3.org/2001/XMLSchema-instance`" xsi:type=`"CalculationTypePredefinedItems`" version=`"$($script:formatVersion)`">`n")
+	foreach ($it in $items) { Emit-PredefCalcType $sb $it "`t" }
+	[void]$sb.Append("</PredefinedData>`n")
+	return $sb.ToString()
+}
+
 $extDir = Join-Path $objSubDir "Ext"
 
 if (-not (Test-Path $typeDir)) {
@@ -4002,6 +4065,12 @@ if ($objType -eq 'ChartOfAccounts' -and $def.predefined -and @($def.predefined).
 	$edfNames = @(); if ($def.extDimensionAccountingFlags) { foreach ($edf in $def.extDimensionAccountingFlags) { $edfNames += (Parse-AttributeShorthand $edf).name } }
 	$edtRef = if ($def.extDimensionTypes) { Resolve-TypePrefixSyn "$($def.extDimensionTypes)" } else { '' }
 	$predefXml = Build-PredefinedAccountXml @($def.predefined) $objName $afNames $edfNames $edtRef
+	$predefPath = Join-Path $extDir "Predefined.xml"
+	[System.IO.File]::WriteAllText($predefPath, $predefXml, $enc)
+	$modulesCreated += $predefPath
+} elseif ($objType -eq 'ChartOfCalculationTypes' -and $def.predefined -and @($def.predefined).Count -gt 0) {
+	Ensure-ExtDir
+	$predefXml = Build-PredefinedCalcTypeXml @($def.predefined)
 	$predefPath = Join-Path $extDir "Predefined.xml"
 	[System.IO.File]::WriteAllText($predefPath, $predefXml, $enc)
 	$modulesCreated += $predefPath

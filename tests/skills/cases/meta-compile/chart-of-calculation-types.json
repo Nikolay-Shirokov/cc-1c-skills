@@ -1,16 +1,22 @@
 {
-  "name": "План видов расчёта с зависимостью",
+  "name": "План видов расчёта: зависимость, базовые виды, предопределённые",
   "input": {
     "type": "ChartOfCalculationTypes",
     "name": "ВидыНачислений",
+    "synonym": { "ru": "Виды начислений", "en": "Accrual types" },
     "codeLength": 5,
-    "descriptionLength": 50,
+    "descriptionLength": 100,
+    "dependenceOnCalculationTypes": "OnActionPeriod",
     "actionPeriodUse": true,
-    "dependenceOnCalculationTypes": "DontUse",
-    "attributes": ["Формула: String(200)"]
+    "baseCalculationTypes": ["ChartOfCalculationTypes.ВидыНачислений"],
+    "attributes": ["Формула: String(200)"],
+    "predefined": [
+      "(00001) Оклад [Оклад по дням]",
+      { "name": "Премия", "code": "00002", "actionPeriodIsBase": true }
+    ]
   },
   "validatePath": "ChartsOfCalculationTypes/ВидыНачислений",
   "expect": {
-    "files": ["ChartsOfCalculationTypes/ВидыНачислений.xml", "ChartsOfCalculationTypes/ВидыНачислений/Ext/ObjectModule.bsl"]
+    "files": ["ChartsOfCalculationTypes/ВидыНачислений.xml", "ChartsOfCalculationTypes/ВидыНачислений/Ext/Predefined.xml"]
   }
 }

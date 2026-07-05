@@ -1,4 +1,4 @@
-﻿# meta-decompile v0.29 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
+﻿# meta-decompile v0.30 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 #
 # Поддержаны: Catalog, ExchangePlan, ChartOfCharacteristicTypes, ChartOfAccounts. Инверс meta-compile (omit-on-default: ключ эмитим только
@@ -91,8 +91,8 @@ foreach ($c in $rootEl.ChildNodes) { if ($c.NodeType -eq 'Element') { $objNode =
 if (-not $objNode) { [Console]::Error.WriteLine("meta-decompile: пустой MetaDataObject"); exit 3 }
 $objType = $objNode.LocalName
 
-if ($objType -notin @('Catalog', 'ExchangePlan', 'ChartOfCharacteristicTypes', 'ChartOfAccounts')) {
-	[Console]::Error.WriteLine("meta-decompile: тип '$objType' пока не поддержан (Catalog, ExchangePlan, ChartOfCharacteristicTypes, ChartOfAccounts)"); exit 3
+if ($objType -notin @('Catalog', 'ExchangePlan', 'ChartOfCharacteristicTypes', 'ChartOfAccounts', 'ChartOfCalculationTypes')) {
+	[Console]::Error.WriteLine("meta-decompile: тип '$objType' пока не поддержан (Catalog, ExchangePlan, ChartOfCharacteristicTypes, ChartOfAccounts, ChartOfCalculationTypes)"); exit 3
 }
 
 $props = $objNode.SelectSingleNode('md:Properties', $nsm)
@@ -392,13 +392,14 @@ if ($ownersNode) {
 }
 Add-EnumProp 'subordinationUse' 'SubordinationUse' 'ToItems'
 # Тип-зависимые дефолты (компилятор задаёт их по типу — декомпилятор обязан зеркалить, иначе omit ≠ значению).
-$descrLenDef  = switch ($objType) { 'ExchangePlan' { 150 } 'ChartOfCharacteristicTypes' { 100 } default { 25 } }
+$descrLenDef  = switch ($objType) { 'ExchangePlan' { 150 } 'ChartOfCharacteristicTypes' { 100 } 'ChartOfCalculationTypes' { 100 } default { 25 } }
+$codeLenDef   = if ($objType -eq 'ChartOfCalculationTypes') { 5 } else { 9 }
 $createInpDef = if ($objType -eq 'Catalog') { 'Use' } else { 'DontUse' }
-$dataLockDef  = if ($objType -in @('Catalog', 'ChartOfAccounts')) { 'Automatic' } else { 'Managed' }
+$dataLockDef  = if ($objType -in @('Catalog', 'ChartOfAccounts', 'ChartOfCalculationTypes')) { 'Automatic' } else { 'Managed' }
 $codeSeriesDef = switch ($objType) { 'ChartOfCharacteristicTypes' { 'WholeCharacteristicKind' } 'ChartOfAccounts' { 'WholeChartOfAccounts' } default { 'WholeCatalog' } }
 $checkUniqueDef = ($objType -in @('ChartOfCharacteristicTypes', 'ChartOfAccounts'))   # ПВХ/ПС дефолт true, Catalog false
 $defPresDef = if ($objType -eq 'ChartOfAccounts') { 'AsCode' } else { 'AsDescription' }   # ПС по умолчанию AsCode
-Add-IntProp  'codeLength'        'CodeLength'        9
+Add-IntProp  'codeLength'        'CodeLength'        $codeLenDef
 Add-IntProp  'descriptionLength' 'DescriptionLength' $descrLenDef
 Add-EnumProp 'codeType'          'CodeType'          'String'
 Add-EnumProp 'codeAllowedLength' 'CodeAllowedLength' 'Variable'
@@ -446,6 +447,20 @@ if ($objType -eq 'ChartOfAccounts') {
 	$cm = P 'CodeMask'; if ($cm) { $dsl['codeMask'] = $cm }
 	Add-BoolProp 'autoOrderByCode' 'AutoOrderByCode' $true
 	Add-IntProp  'orderLength' 'OrderLength' 9
+	Add-EnumProp 'dataHistory' 'DataHistory' 'DontUse'
+	Add-BoolProp 'updateDataHistoryImmediatelyAfterWrite' 'UpdateDataHistoryImmediatelyAfterWrite' $false
+	Add-BoolProp 'executeAfterWriteDataHistoryVersionProcessing' 'ExecuteAfterWriteDataHistoryVersionProcessing' $false
+}
+# ChartOfCalculationTypes-специфичные свойства.
+if ($objType -eq 'ChartOfCalculationTypes') {
+	Add-EnumProp 'dependenceOnCalculationTypes' 'DependenceOnCalculationTypes' 'DontUse'
+	Add-BoolProp 'actionPeriodUse' 'ActionPeriodUse' $false
+	# BaseCalculationTypes — список ссылок на ПВР (omit-on-empty, verbatim).
+	$bctNode = $props.SelectSingleNode('md:BaseCalculationTypes', $nsm)
+	if ($bctNode) {
+		$bctItems = @($bctNode.SelectNodes('xr:Item', $nsm) | ForEach-Object { $_.InnerText })
+		if ($bctItems.Count -gt 0) { $dsl['baseCalculationTypes'] = [System.Collections.ArrayList]@($bctItems) }
+	}
 	Add-EnumProp 'dataHistory' 'DataHistory' 'DontUse'
 	Add-BoolProp 'updateDataHistoryImmediatelyAfterWrite' 'UpdateDataHistoryImmediatelyAfterWrite' $false
 	Add-BoolProp 'executeAfterWriteDataHistoryVersionProcessing' 'ExecuteAfterWriteDataHistoryVersionProcessing' $false
@@ -575,6 +590,9 @@ $stdProfileByType = @{
 		'Code'        = @{ fillChecking = 'ShowError' }
 		'Parent'      = @{ fillFromFillingValue = $true }
 	}
+	'ChartOfCalculationTypes' = @{
+		'Description' = @{ fillChecking = 'ShowError' }
+	}
 }
 $catStdProfile = if ($stdProfileByType.ContainsKey($objType)) { $stdProfileByType[$objType] } else { @{} }
 # Фикс-список стандартных реквизитов типа (зеркало standardAttributesByType компилятора) — чтобы отличать
@@ -584,11 +602,12 @@ $stdFixedByType = @{
 	'ExchangePlan' = @('Ref','DeletionMark','Code','Description','ThisNode','SentNo','ReceivedNo')
 	'ChartOfCharacteristicTypes' = @('PredefinedDataName','Predefined','Ref','DeletionMark','Description','Code','Parent','ValueType')
 	'ChartOfAccounts' = @('PredefinedDataName','Order','OffBalance','Type','Description','Code','Parent','Predefined','DeletionMark','Ref')
+	'ChartOfCalculationTypes' = @('PredefinedDataName','Predefined','Ref','DeletionMark','ActionPeriodIsBasic','Description','Code')
 }
 $stdFixed = if ($stdFixedByType.ContainsKey($objType)) { $stdFixedByType[$objType] } else { @() }
 # Условные типы: блок эмитим-как-триггер даже пустым (материализуется при отклонении ≥1 реквизита от schema-default;
 # у ExchangePlan это почти всегда — Description/Code=ShowError; редкий all-default EP блок опускает).
-$stdConditionalTypes = @('Catalog', 'ExchangePlan', 'ChartOfCharacteristicTypes', 'ChartOfAccounts')
+$stdConditionalTypes = @('Catalog', 'ExchangePlan', 'ChartOfCharacteristicTypes', 'ChartOfAccounts', 'ChartOfCalculationTypes')
 $saNode = $props.SelectSingleNode('md:StandardAttributes', $nsm)
 if ($saNode) {
 	$saMap = [ordered]@{}
@@ -847,9 +866,32 @@ if (Test-Path -LiteralPath $predefPath) {
 			return $o
 		}
 
+		# Предопределённые ВИДЫ РАСЧЁТА (плоские): Name/Code/Description/ActionPeriodIsBase. Строка при
+		# ActionPeriodIsBase=false, объект — при true.
+		function PredefCalcType-ToDsl {
+			param($itemEl)
+			$name = ($itemEl.SelectSingleNode("*[local-name()='Name']")).InnerText
+			$codeEl = $itemEl.SelectSingleNode("*[local-name()='Code']"); $code = if ($codeEl -and $codeEl.InnerText) { $codeEl.InnerText } else { '' }
+			$descEl = $itemEl.SelectSingleNode("*[local-name()='Description']"); $desc = if ($descEl) { $descEl.InnerText } else { '' }
+			$apibEl = $itemEl.SelectSingleNode("*[local-name()='ActionPeriodIsBase']"); $apib = ($apibEl -and $apibEl.InnerText -eq 'true')
+			$auto = Split-CamelWords $name
+			if (-not $apib) {
+				$s = if ($code) { "($code) $name" } else { $name }
+				if ($desc -eq '') { $s = "$s []" } elseif ($desc -cne $auto) { $s = "$s [$desc]" }
+				return $s
+			}
+			$o = [ordered]@{ name = $name }
+			if ($code) { $o['code'] = $code }
+			if ($desc -cne $auto) { $o['description'] = $desc }
+			$o['actionPeriodIsBase'] = $true
+			return $o
+		}
+
 	$rootItems = [System.Collections.ArrayList]@()
 	if ($objType -eq 'ChartOfAccounts') {
 		foreach ($it in @($pdoc.DocumentElement.SelectNodes("*[local-name()='Item']"))) { [void]$rootItems.Add((PredefAccount-ToDsl $it)) }
+	} elseif ($objType -eq 'ChartOfCalculationTypes') {
+		foreach ($it in @($pdoc.DocumentElement.SelectNodes("*[local-name()='Item']"))) { [void]$rootItems.Add((PredefCalcType-ToDsl $it)) }
 	} else {
 		foreach ($it in @($pdoc.DocumentElement.SelectNodes("*[local-name()='Item']"))) { [void]$rootItems.Add((PredefItem-ToDsl $it)) }
 	}

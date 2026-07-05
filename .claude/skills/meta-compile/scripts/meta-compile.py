@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-compile v1.40 — Compile 1C metadata object from JSON
+# meta-compile v1.41 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -1041,7 +1041,7 @@ standard_attributes_by_type = {
     'CalculationRegister': ['Active', 'Recorder', 'LineNumber', 'RegistrationPeriod', 'CalculationType', 'ReversingEntry'],
     'ChartOfAccounts': ['PredefinedDataName', 'Order', 'OffBalance', 'Type', 'Description', 'Code', 'Parent', 'Predefined', 'DeletionMark', 'Ref'],
     'ChartOfCharacteristicTypes': ['PredefinedDataName', 'Predefined', 'Ref', 'DeletionMark', 'Description', 'Code', 'Parent', 'ValueType'],
-    'ChartOfCalculationTypes': ['PredefinedDataName', 'Predefined', 'Ref', 'DeletionMark', 'Description', 'Code', 'ActionPeriodIsBasic'],
+    'ChartOfCalculationTypes': ['PredefinedDataName', 'Predefined', 'Ref', 'DeletionMark', 'ActionPeriodIsBasic', 'Description', 'Code'],
     'BusinessProcess': ['Ref', 'DeletionMark', 'Date', 'Number', 'Started', 'Completed', 'HeadTask'],
     'Task': ['Ref', 'DeletionMark', 'Date', 'Number', 'Executed', 'Description', 'RoutePoint', 'BusinessProcess'],
     'ExchangePlan': ['Ref', 'DeletionMark', 'Code', 'Description', 'ThisNode', 'SentNo', 'ReceivedNo'],
@@ -1070,6 +1070,10 @@ std_attr_profile = {
         'Description': {'FillChecking': 'ShowError'},
         'Code': {'FillChecking': 'ShowError'},
         'Parent': {'FillFromFillingValue': 'true'},
+    },
+    # ChartOfCalculationTypes: Наименование → FillChecking=ShowError (Код здесь DontCheck).
+    'ChartOfCalculationTypes': {
+        'Description': {'FillChecking': 'ShowError'},
     },
 }
 
@@ -1136,7 +1140,7 @@ def emit_standard_attribute(indent, attr_name, ov=None):
 # Единый эмиттер блока StandardAttributes — поведение правят ДАННЫЕ, не форк кода (см. коммент в .ps1).
 # std_attr_conditional_types: типы, где блок только при кастомизации (DSL-ключ standardAttributes).
 # Прочие типы → блок всегда (текущее поведение). Миграция типа = +строчка в оба справочника + снэпшоты.
-std_attr_conditional_types = {'Catalog', 'ExchangePlan', 'ChartOfCharacteristicTypes', 'ChartOfAccounts'}
+std_attr_conditional_types = {'Catalog', 'ExchangePlan', 'ChartOfCharacteristicTypes', 'ChartOfAccounts', 'ChartOfCalculationTypes'}
 def emit_standard_attributes(indent, object_type):
     attrs = standard_attributes_by_type.get(object_type)
     if not attrs:
@@ -2765,67 +2769,101 @@ def emit_accounting_register_properties(indent):
     X(f'{i}<ExtendedListPresentation/>')
     X(f'{i}<Explanation/>')
 
+# Стандартные ТЧ ПВР: Ведущие/Вытесняющие/Базовые виды расчёта (обёртка платформенно-константна, пустой lang;
+# вложены Predefined/CalculationType(ShowError)/LineNumber).
+CALC_TYPES_STD_TABULAR = [
+    ('LeadingCalculationTypes', 'Ведущие виды расчета'),
+    ('DisplacingCalculationTypes', 'Вытесняющие виды расчета'),
+    ('BaseCalculationTypes', 'Базовые виды расчета'),
+]
+def emit_calc_types_std_tabular(i):
+    X(f'{i}<StandardTabularSections>')
+    for name, syn in CALC_TYPES_STD_TABULAR:
+        X(f'{i}\t<xr:StandardTabularSection name="{name}">')
+        X(f'{i}\t\t<xr:Synonym>')
+        X(f'{i}\t\t\t<v8:item>')
+        X(f'{i}\t\t\t\t<v8:lang/>')
+        X(f'{i}\t\t\t\t<v8:content>{esc_xml_text(syn)}</v8:content>')
+        X(f'{i}\t\t\t</v8:item>')
+        X(f'{i}\t\t</xr:Synonym>')
+        X(f'{i}\t\t<xr:Comment/>')
+        X(f'{i}\t\t<xr:ToolTip/>')
+        X(f'{i}\t\t<xr:FillChecking>DontCheck</xr:FillChecking>')
+        X(f'{i}\t\t<xr:StandardAttributes>')
+        for st_attr in ('Predefined', 'CalculationType', 'LineNumber'):
+            st_ov = {'FillChecking': 'ShowError'} if st_attr == 'CalculationType' else None
+            emit_standard_attribute(f'{i}\t\t\t', st_attr, st_ov)
+        X(f'{i}\t\t</xr:StandardAttributes>')
+        X(f'{i}\t</xr:StandardTabularSection>')
+    X(f'{i}</StandardTabularSections>')
+
 def emit_chart_of_calculation_types_properties(indent):
     i = indent
     X(f'{i}<Name>{esc_xml(obj_name)}</Name>')
     emit_mltext(i, 'Synonym', synonym)
-    X(f'{i}<Comment/>')
-    X(f'{i}<UseStandardCommands>true</UseStandardCommands>')
-    code_length = str(defn['codeLength']) if defn.get('codeLength') is not None else '9'
-    description_length = str(defn['descriptionLength']) if defn.get('descriptionLength') is not None else '25'
-    code_type = get_enum_prop('CodeType', 'codeType', 'String')
-    code_allowed_length = get_enum_prop('CodeAllowedLength', 'codeAllowedLength', 'Variable')
+    if defn.get('comment'):
+        X(f'{i}<Comment>{esc_xml_text(str(defn["comment"]))}</Comment>')
+    else:
+        X(f'{i}<Comment/>')
+    X(f'{i}<UseStandardCommands>{"true" if get_bool_prop("useStandardCommands", True) else "false"}</UseStandardCommands>')
+    code_length = str(defn['codeLength']) if defn.get('codeLength') is not None else '5'
+    description_length = str(defn['descriptionLength']) if defn.get('descriptionLength') is not None else '100'
     X(f'{i}<CodeLength>{code_length}</CodeLength>')
-    X(f'{i}<CodeType>{code_type}</CodeType>')
-    X(f'{i}<CodeAllowedLength>{code_allowed_length}</CodeAllowedLength>')
     X(f'{i}<DescriptionLength>{description_length}</DescriptionLength>')
-    X(f'{i}<DefaultPresentation>AsDescription</DefaultPresentation>')
-    dependence = get_enum_prop('DependenceOnCalculationTypes', 'dependenceOnCalculationTypes', 'DontUse')
-    X(f'{i}<DependenceOnCalculationTypes>{dependence}</DependenceOnCalculationTypes>')
-    base_types = list(defn.get('baseCalculationTypes', []))
+    X(f'{i}<CodeType>{get_enum_prop("CodeType", "codeType", "String")}</CodeType>')
+    X(f'{i}<CodeAllowedLength>{get_enum_prop("CodeAllowedLength", "codeAllowedLength", "Variable")}</CodeAllowedLength>')
+    X(f'{i}<DefaultPresentation>{get_enum_prop("DefaultPresentation", "defaultPresentation", "AsDescription")}</DefaultPresentation>')
+    X(f'{i}<EditType>{get_enum_prop("EditType", "editType", "InDialog")}</EditType>')
+    X(f'{i}<QuickChoice>{"true" if defn.get("quickChoice") is True else "false"}</QuickChoice>')
+    X(f'{i}<ChoiceMode>{get_enum_prop("ChoiceMode", "choiceMode", "BothWays")}</ChoiceMode>')
+    if 'inputByString' in defn:
+        ib_fields = [expand_data_path(str(x)) for x in (defn.get('inputByString') or [])]
+    else:
+        ib_fields = []
+        if int(description_length) > 0:
+            ib_fields.append(f'ChartOfCalculationTypes.{obj_name}.StandardAttribute.Description')
+        if int(code_length) > 0:
+            ib_fields.append(f'ChartOfCalculationTypes.{obj_name}.StandardAttribute.Code')
+    emit_field_block(i, 'InputByString', ib_fields)
+    X(f'{i}<SearchStringModeOnInputByString>{get_enum_prop("SearchStringModeOnInputByString", "searchStringModeOnInputByString", "Begin")}</SearchStringModeOnInputByString>')
+    X(f'{i}<FullTextSearchOnInputByString>DontUse</FullTextSearchOnInputByString>')
+    X(f'{i}<ChoiceDataGetModeOnInputByString>Directly</ChoiceDataGetModeOnInputByString>')
+    X(f'{i}<CreateOnInput>{get_enum_prop("CreateOnInput", "createOnInput", "DontUse")}</CreateOnInput>')
+    X(f'{i}<ChoiceHistoryOnInput>{get_enum_prop("ChoiceHistoryOnInput", "choiceHistoryOnInput", "Auto")}</ChoiceHistoryOnInput>')
+    emit_form_ref(i, 'DefaultObjectForm', defn.get('defaultObjectForm'))
+    emit_form_ref(i, 'DefaultListForm', defn.get('defaultListForm'))
+    emit_form_ref(i, 'DefaultChoiceForm', defn.get('defaultChoiceForm'))
+    emit_form_ref(i, 'AuxiliaryObjectForm', defn.get('auxiliaryObjectForm'))
+    emit_form_ref(i, 'AuxiliaryListForm', defn.get('auxiliaryListForm'))
+    emit_form_ref(i, 'AuxiliaryChoiceForm', defn.get('auxiliaryChoiceForm'))
+    emit_based_on(i, defn.get('basedOn'))
+    X(f'{i}<DependenceOnCalculationTypes>{get_enum_prop("DependenceOnCalculationTypes", "dependenceOnCalculationTypes", "DontUse")}</DependenceOnCalculationTypes>')
+    base_types = [resolve_type_prefix_syn(str(x)) for x in defn.get('baseCalculationTypes', [])]
     if base_types:
         X(f'{i}<BaseCalculationTypes>')
         for bt in base_types:
-            X(f'{i}\t<xr:Item xsi:type="xr:MDObjectRef">{bt}</xr:Item>')
+            X(f'{i}\t<xr:Item xsi:type="xr:MDObjectRef">{esc_xml(bt)}</xr:Item>')
         X(f'{i}</BaseCalculationTypes>')
     else:
         X(f'{i}<BaseCalculationTypes/>')
-    action_period_use = 'true' if defn.get('actionPeriodUse') is True else 'false'
-    X(f'{i}<ActionPeriodUse>{action_period_use}</ActionPeriodUse>')
+    X(f'{i}<ActionPeriodUse>{"true" if defn.get("actionPeriodUse") is True else "false"}</ActionPeriodUse>')
     emit_standard_attributes(i, 'ChartOfCalculationTypes')
-    X(f'{i}<Characteristics/>')
-    X(f'{i}<PredefinedDataUpdate>Auto</PredefinedDataUpdate>')
-    X(f'{i}<EditType>InDialog</EditType>')
-    quick_choice = 'true' if defn.get('quickChoice') is True else 'false'
-    X(f'{i}<QuickChoice>{quick_choice}</QuickChoice>')
-    X(f'{i}<ChoiceMode>BothWays</ChoiceMode>')
-    X(f'{i}<InputByString>')
-    X(f'{i}\t<xr:Field>ChartOfCalculationTypes.{obj_name}.StandardAttribute.Description</xr:Field>')
-    X(f'{i}\t<xr:Field>ChartOfCalculationTypes.{obj_name}.StandardAttribute.Code</xr:Field>')
-    X(f'{i}</InputByString>')
-    X(f'{i}<SearchStringModeOnInputByString>Begin</SearchStringModeOnInputByString>')
-    X(f'{i}<FullTextSearchOnInputByString>DontUse</FullTextSearchOnInputByString>')
-    X(f'{i}<ChoiceDataGetModeOnInputByString>Directly</ChoiceDataGetModeOnInputByString>')
-    X(f'{i}<DefaultObjectForm/>')
-    X(f'{i}<DefaultListForm/>')
-    X(f'{i}<DefaultChoiceForm/>')
-    X(f'{i}<AuxiliaryObjectForm/>')
-    X(f'{i}<AuxiliaryListForm/>')
-    X(f'{i}<AuxiliaryChoiceForm/>')
-    X(f'{i}<IncludeHelpInContents>false</IncludeHelpInContents>')
-    X(f'{i}<BasedOn/>')
-    X(f'{i}<DataLockFields/>')
-    data_lock_control_mode = get_enum_prop('DataLockControlMode', 'dataLockControlMode', 'Automatic')
-    X(f'{i}<DataLockControlMode>{data_lock_control_mode}</DataLockControlMode>')
-    full_text_search = get_enum_prop('FullTextSearch', 'fullTextSearch', 'Use')
-    X(f'{i}<FullTextSearch>{full_text_search}</FullTextSearch>')
+    emit_characteristics(i, defn.get('characteristics'))
+    emit_calc_types_std_tabular(i)
+    X(f'{i}<PredefinedDataUpdate>{get_enum_prop("PredefinedDataUpdate", "predefinedDataUpdate", "Auto")}</PredefinedDataUpdate>')
+    X(f'{i}<IncludeHelpInContents>{"true" if get_bool_prop("includeHelpInContents", False) else "false"}</IncludeHelpInContents>')
+    dl_fields = [expand_data_path(str(x)) for x in defn.get('dataLockFields', [])] if 'dataLockFields' in defn else []
+    emit_field_block(i, 'DataLockFields', dl_fields)
+    X(f'{i}<DataLockControlMode>{get_enum_prop("DataLockControlMode", "dataLockControlMode", "Automatic")}</DataLockControlMode>')
+    X(f'{i}<FullTextSearch>{get_enum_prop("FullTextSearch", "fullTextSearch", "Use")}</FullTextSearch>')
     emit_mltext(i, 'ObjectPresentation', defn.get('objectPresentation'))
     emit_mltext(i, 'ExtendedObjectPresentation', defn.get('extendedObjectPresentation'))
     emit_mltext(i, 'ListPresentation', defn.get('listPresentation'))
     emit_mltext(i, 'ExtendedListPresentation', defn.get('extendedListPresentation'))
     emit_mltext(i, 'Explanation', defn.get('explanation'))
-    X(f'{i}<CreateOnInput>DontUse</CreateOnInput>')
-    X(f'{i}<ChoiceHistoryOnInput>Auto</ChoiceHistoryOnInput>')
+    X(f'{i}<DataHistory>{get_enum_prop("DataHistory", "dataHistory", "DontUse")}</DataHistory>')
+    X(f'{i}<UpdateDataHistoryImmediatelyAfterWrite>{"true" if get_bool_prop("updateDataHistoryImmediatelyAfterWrite", False) else "false"}</UpdateDataHistoryImmediatelyAfterWrite>')
+    X(f'{i}<ExecuteAfterWriteDataHistoryVersionProcessing>{"true" if get_bool_prop("executeAfterWriteDataHistoryVersionProcessing", False) else "false"}</ExecuteAfterWriteDataHistoryVersionProcessing>')
 
 def emit_calculation_register_properties(indent):
     i = indent
@@ -3345,10 +3383,8 @@ if obj_type in types_with_attr_ts:
             context = 'processor'
         elif obj_type == 'ChartOfCharacteristicTypes':
             context = 'catalog'   # реквизиты ПВХ структурно как у справочника (Use/FillFromFillingValue/DataHistory)
-        elif obj_type == 'ChartOfAccounts':
-            context = 'account'   # как catalog, но БЕЗ <Use> (реквизиты ПС не иерархичны как справочник)
-        elif obj_type == 'ChartOfCalculationTypes':
-            context = 'chart'
+        elif obj_type in ('ChartOfAccounts', 'ChartOfCalculationTypes'):
+            context = 'account'   # как catalog, но БЕЗ <Use> (реквизиты ПС/ПВР не иерархичны как справочник)
         else:
             context = 'object'
         for a in attrs:
@@ -3751,6 +3787,28 @@ def build_predefined_account_xml(items, obj_nm, acct_flag_names, ext_dim_flag_na
     out.append('</PredefinedData>')
     return '\n'.join(out) + '\n'
 
+# Предопределённые ВИДЫ РАСЧЁТА (плоские: Name/Code/Description/ActionPeriodIsBase).
+def emit_predef_calc_type(out, val, indent):
+    r = resolve_predef_item(val)
+    apib = 'false'
+    if not isinstance(val, str):
+        if _predef_acc_get(val, ('actionPeriodIsBase', 'периодДействияБазовый')) is True:
+            apib = 'true'
+    out.append(f'{indent}<Item id="{new_uuid()}">')
+    out.append(f'{indent}\t<Name>{esc_xml_text(r["name"])}</Name>')
+    out.append(f'{indent}\t<Code/>' if not r['code'] else f'{indent}\t<Code>{esc_xml_text(r["code"])}</Code>')
+    out.append(f'{indent}\t<Description/>' if r['desc'] == '' else f'{indent}\t<Description>{esc_xml_text(r["desc"])}</Description>')
+    out.append(f'{indent}\t<ActionPeriodIsBase>{apib}</ActionPeriodIsBase>')
+    out.append(f'{indent}</Item>')
+
+def build_predefined_calc_type_xml(items):
+    out = ['<?xml version="1.0" encoding="UTF-8"?>']
+    out.append(f'<PredefinedData xmlns="http://v8.1c.ru/8.3/xcf/predef" xmlns:v8="http://v8.1c.ru/8.1/data/core" xmlns:xr="http://v8.1c.ru/8.3/xcf/readable" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:type="CalculationTypePredefinedItems" version="{format_version}">')
+    for it in items:
+        emit_predef_calc_type(out, it, '\t')
+    out.append('</PredefinedData>')
+    return '\n'.join(out) + '\n'
+
 # Special files
 if obj_type == 'ExchangePlan':
     content_path = os.path.join(ext_dir, 'Content.xml')
@@ -3777,6 +3835,12 @@ if obj_type == 'ChartOfAccounts' and defn.get('predefined'):
     edf_names = [parse_attribute_shorthand(edf)['name'] for edf in _as_list(defn['extDimensionAccountingFlags'])] if defn.get('extDimensionAccountingFlags') else []
     edt_ref = resolve_type_prefix_syn(str(defn['extDimensionTypes'])) if defn.get('extDimensionTypes') else ''
     predef_xml = build_predefined_account_xml(defn['predefined'], obj_name, af_names, edf_names, edt_ref)
+    predef_path = os.path.join(ext_dir, 'Predefined.xml')
+    write_utf8_bom(predef_path, predef_xml)
+    modules_created.append(predef_path)
+elif obj_type == 'ChartOfCalculationTypes' and defn.get('predefined'):
+    ensure_ext_dir()
+    predef_xml = build_predefined_calc_type_xml(defn['predefined'])
     predef_path = os.path.join(ext_dir, 'Predefined.xml')
     write_utf8_bom(predef_path, predef_xml)
     modules_created.append(predef_path)

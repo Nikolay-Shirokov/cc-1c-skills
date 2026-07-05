@@ -716,6 +716,41 @@ Split-CamelCase имени.
 ]
 ```
 
+### 7.2d ChartOfCalculationTypes (План видов расчёта)
+
+Ссылочный тип видов расчёта (без иерархии/владельцев). Общий с Catalog слой: `synonym`, `comment`,
+`useStandardCommands`, `includeHelpInContents`, коды (`codeLength`/`codeType`/`codeAllowedLength`/`descriptionLength`),
+`defaultPresentation`, `standardAttributes` (§7.1.1), `characteristics` (§7.1.4), `inputByString` (§7.1.5), формы (без
+`*Folder*`), `basedOn`, `dataLockFields`, презентации.
+
+| Поле JSON | Умолчание | XML элемент |
+|-----------|----------|-------------|
+| `codeLength` | `5` | CodeLength |
+| `descriptionLength` | `100` | DescriptionLength |
+| `codeAllowedLength` | `Variable` | CodeAllowedLength |
+| `dependenceOnCalculationTypes` | `DontUse` | DependenceOnCalculationTypes (`DontUse`/`OnPeriod`/`OnActionPeriod`) |
+| `baseCalculationTypes` | `[]` | BaseCalculationTypes (список ссылок на ПВР; `ПланВидовРасчета.X` → `ChartOfCalculationTypes.X`) |
+| `actionPeriodUse` | `false` | ActionPeriodUse (использовать период действия) |
+| `dataLockControlMode` | `Automatic` | DataLockControlMode |
+| `dataHistory` + триплет | `DontUse`/`false`/`false` | DataHistory-триплет |
+| `predefined` | `[]` | Ext/Predefined.xml — предопределённые виды расчёта |
+
+Стандартные реквизиты ПВР: PredefinedDataName, Predefined, Ref, DeletionMark, ActionPeriodIsBasic, Description, Code
+(профиль: Наименование → FillChecking=ShowError). Блок **условный** (`standardAttributes`). Всегда эмитятся три
+платформенно-константных стандартных ТЧ: **LeadingCalculationTypes** (ведущие), **DisplacingCalculationTypes**
+(вытесняющие), **BaseCalculationTypes** (базовые) — вложенный CalculationType → FillChecking=ShowError.
+
+**Предопределённые виды расчёта** — плоские (без иерархии): короткая строка `"(Код) Имя [Наименование]"` ЛИБО объект
+`{name, code, description, actionPeriodIsBase}`. `actionPeriodIsBase` (bool, дефолт false) → `<ActionPeriodIsBase>`;
+при true — объектная форма.
+
+```json
+"predefined": [
+  "(00001) Оклад [Оклад по дням]",
+  { "name": "Премия", "code": "00002", "actionPeriodIsBase": true }
+]
+```
+
 ### 7.3 Enum
 
 | Поле JSON | Умолчание | XML элемент |
@@ -977,33 +1012,7 @@ DSL для `columns` (§12).
 
 ### 7.18 ChartOfCalculationTypes
 
-| Поле JSON | Умолчание | XML элемент |
-|-----------|----------|-------------|
-| `codeLength` | `9` | CodeLength |
-| `codeType` | `String` | CodeType |
-| `codeAllowedLength` | `Variable` | CodeAllowedLength |
-| `descriptionLength` | `25` | DescriptionLength |
-| `autonumbering` | `true` | Autonumbering |
-| `checkUnique` | `false` | CheckUnique |
-| `dependenceOnCalculationTypes` | `NotUsed` | DependenceOnCalculationTypes |
-| `baseCalculationTypes` | `[]` | BaseCalculationTypes |
-| `actionPeriodUse` | `false` | ActionPeriodUse |
-| `dataLockControlMode` | `Automatic` | DataLockControlMode |
-| `fullTextSearch` | `Use` | FullTextSearch |
-| `attributes` | `[]` | → Attribute в ChildObjects |
-| `tabularSections` | `{}` | → TabularSection в ChildObjects |
-
-Значения `dependenceOnCalculationTypes`: `NotUsed`, `ExclusionAndDependence`, `ExclusionOnly`.
-
-Модули: `Ext/ObjectModule.bsl` (пустой).
-
-```json
-{
-  "type": "ChartOfCalculationTypes", "name": "Начисления",
-  "dependenceOnCalculationTypes": "ExclusionAndDependence",
-  "actionPeriodUse": true
-}
-```
+Полное описание типа (все поля, стандартные реквизиты, стандартные ТЧ, предопределённые виды расчёта) — см. **§7.2d**.
 
 ### 7.19 CalculationRegister
 

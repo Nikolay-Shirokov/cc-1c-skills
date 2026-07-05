@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<PredefinedData xmlns="http://v8.1c.ru/8.3/xcf/predef" xmlns:v8="http://v8.1c.ru/8.1/data/core" xmlns:xr="http://v8.1c.ru/8.3/xcf/readable" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:type="CalculationTypePredefinedItems" version="2.17">
+	<Item id="UUID-001">
+		<Name>Оклад</Name>
+		<Code>00001</Code>
+		<Description>Оклад по дням</Description>
+		<ActionPeriodIsBase>false</ActionPeriodIsBase>
+	</Item>
+	<Item id="UUID-002">
+		<Name>Премия</Name>
+		<Code>00002</Code>
+		<Description>Премия</Description>
+		<ActionPeriodIsBase>true</ActionPeriodIsBase>
+	</Item>
+</PredefinedData>
