@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-compile v1.38 — Compile 1C metadata object from JSON
+# meta-compile v1.39 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -662,6 +662,8 @@ fill_bool_true = ('true', 'истина', 'да')
 fill_bool_false = ('false', 'ложь', 'нет')
 # Значения платформенного перечисления ВидСчета (ent:AccountType) — FillValue реквизита Тип у Плана счетов.
 ACCOUNT_TYPE_VALUES = ('Active', 'Passive', 'ActivePassive')
+# «Только обороты» (<Turnover>) — предопределённый признак учёта субконто; токен в списке flags наравне с добавленными.
+SUBCONTO_TURNOVER_TOKENS = ('turnover', 'толькообороты', 'только обороты', 'оборотный')
 # XxxRef (тип реквизита) → корень DTR-пути (для разворота короткой записи значения).
 fill_ref_kind_root = {
     'catalogref': 'Catalog', 'documentref': 'Document', 'enumref': 'Enum',
@@ -3718,7 +3720,15 @@ def emit_predef_account(out, val, indent, obj_nm, acct_flag_names, ext_dim_flag_
                     sc_type = f'{ext_dim_types_ref}.{sc_type}'
             else:
                 sc_type = resolve_type_prefix_syn(sc_type)
+            # «Только обороты» — токен в списке flags (или отдельный ключ turnover); вынимаем из настоящих признаков.
             sc_turn = 'true' if sc_turn_v is True else 'false'
+            real_flags = []
+            for f in (sc_flags or []):
+                if str(f).strip().lower() in SUBCONTO_TURNOVER_TOKENS:
+                    sc_turn = 'true'
+                else:
+                    real_flags.append(f)
+            sc_flags = real_flags
             out.append(f'{indent}\t\t<ExtDimensionType name="{esc_xml(sc_type)}">')
             out.append(f'{indent}\t\t\t<Turnover>{sc_turn}</Turnover>')
             emit_predef_account_flags(out, f'{indent}\t\t\t', 'AccountingFlags', 'ExtDimensionAccountingFlag', obj_nm, ext_dim_flag_names, sc_flags)

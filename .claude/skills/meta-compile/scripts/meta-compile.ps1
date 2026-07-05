@@ -1,4 +1,4 @@
-﻿# meta-compile v1.38 — Compile 1C metadata object from JSON
+﻿# meta-compile v1.39 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -3809,6 +3809,9 @@ function Build-PredefinedXml {
 # --- Предопределённые СЧЕТА Плана счетов (отдельная грамматика: AccountType/OffBalance/Order/AccountingFlags/
 # ExtDimensionTypes/ChildItems). Флаги перечисляем по def-порядку списков признаков плана; в DSL — только TRUE. ---
 $script:predefAccGet = { param($o, [string[]]$keys) foreach ($k in $keys) { if ($o -is [System.Collections.IDictionary]) { if ($o.Contains($k)) { return $o[$k] } } elseif ($o.PSObject -and $o.PSObject.Properties[$k]) { return $o.$k } } return $null }
+# «Только обороты» (<Turnover>) — предопределённый признак учёта субконто. В DSL — токен в списке flags
+# наравне с добавленными признаками (ЛИБО отдельный ключ turnover). Распознаём по имени (регистронезависимо).
+$script:subcontoTurnoverTokens = @('turnover', 'толькообороты', 'только обороты', 'оборотный')
 function Emit-PredefAccountFlags {
 	param($sb, [string]$indent, [string]$tag, [string]$refKind, [string]$objName, [string[]]$flagNames, $trueSet)
 	if (-not $flagNames -or $flagNames.Count -eq 0) { [void]$sb.Append("$indent<$tag/>`n"); return }
@@ -3861,7 +3864,11 @@ function Emit-PredefAccount {
 			# Короткая запись: голое имя значения → префикс ПВХ видов субконто плана (extDimensionTypes); иначе резолв синонима.
 			if (-not $scType.Contains('.')) { if ($extDimTypesRef) { $scType = "$extDimTypesRef.$scType" } }
 			else { $scType = Resolve-TypePrefixSyn $scType }
+			# «Только обороты» — токен в списке flags (или отдельный ключ turnover); вынимаем из настоящих признаков.
 			$scTurn = if ($scTurnV -eq $true) { 'true' } else { 'false' }
+			$scFlagsReal = @()
+			foreach ($f in @($scFlags)) { if ("$f".Trim().ToLower() -in $script:subcontoTurnoverTokens) { $scTurn = 'true' } else { $scFlagsReal += $f } }
+			$scFlags = $scFlagsReal
 			[void]$sb.Append("$indent`t`t<ExtDimensionType name=`"$(Esc-Xml $scType)`">`n")
 			[void]$sb.Append("$indent`t`t`t<Turnover>$scTurn</Turnover>`n")
 			Emit-PredefAccountFlags $sb "$indent`t`t`t" 'AccountingFlags' 'ExtDimensionAccountingFlag' $objName $extDimFlagNames $scFlags
