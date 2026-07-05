@@ -1,4 +1,4 @@
-﻿# meta-compile v1.36 — Compile 1C metadata object from JSON
+﻿# meta-compile v1.37 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -257,7 +257,7 @@ $script:validEnumValues = @{
 	"FillChecking"                   = @("DontCheck","ShowError","ShowWarning")
 	"Indexing"                       = @("DontIndex","Index","IndexWithAdditionalOrder")
 	"SubordinationUse"               = @("ToItems","ToFolders","ToFoldersAndItems")
-	"CodeSeries"                     = @("WholeCatalog","WithinSubordination","WithinOwnerSubordination","WholeCharacteristicKind")
+	"CodeSeries"                     = @("WholeCatalog","WithinSubordination","WithinOwnerSubordination","WholeCharacteristicKind","WholeChartOfAccounts")
 	"ChoiceMode"                     = @("BothWays","QuickChoice","FromForm")
 	"CreateOnInput"                  = @("Auto","Use","DontUse")
 	"ChoiceHistoryOnInput"           = @("Auto","DontUse")
@@ -630,6 +630,8 @@ $script:fillEmptyRefWords = @('emptyref','пустаяссылка')
 $script:fillEnumValWords  = @('enumvalue','значениеперечисления')
 $script:fillBoolTrue  = @('true','истина','да')
 $script:fillBoolFalse = @('false','ложь','нет')
+# Значения платформенного перечисления ВидСчета (ent:AccountType) — FillValue стандартного реквизита Тип у Плана счетов.
+$script:accountTypeValues = @('Active','Passive','ActivePassive')
 # XxxRef (тип реквизита) → корень DTR-пути (для разворота короткой записи значения).
 $script:fillRefKindRoot = @{
 	'catalogref'='Catalog'; 'documentref'='Document'; 'enumref'='Enum';
@@ -1018,7 +1020,7 @@ $script:standardAttributesByType = @{
 	"AccumulationRegister" = @("Active","LineNumber","Recorder","Period")
 	"AccountingRegister" = @("Active","Period","Recorder","LineNumber","Account")
 	"CalculationRegister" = @("Active","Recorder","LineNumber","RegistrationPeriod","CalculationType","ReversingEntry")
-	"ChartOfAccounts" = @("PredefinedDataName","Predefined","Ref","DeletionMark","Description","Code","Parent","Order","Type","OffBalance")
+	"ChartOfAccounts" = @("PredefinedDataName","Order","OffBalance","Type","Description","Code","Parent","Predefined","DeletionMark","Ref")
 	"ChartOfCharacteristicTypes" = @("PredefinedDataName","Predefined","Ref","DeletionMark","Description","Code","Parent","ValueType")
 	"ChartOfCalculationTypes" = @("PredefinedDataName","Predefined","Ref","DeletionMark","Description","Code","ActionPeriodIsBasic")
 	"BusinessProcess" = @("Ref","DeletionMark","Date","Number","Started","Completed","HeadTask")
@@ -1045,6 +1047,13 @@ $script:stdAttrProfile = @{
 	# ChartOfCharacteristicTypes: Наименование → FillChecking=ShowError (21/23), Родитель → FFV=true (23/23).
 	"ChartOfCharacteristicTypes" = @{
 		"Description" = @{ FillChecking = "ShowError" }
+		"Parent"      = @{ FillFromFillingValue = "true" }
+	}
+	# ChartOfAccounts: Наименование/Код → FillChecking=ShowError (3/3), Родитель → FFV=true (3/3). Тип (АктивПассив)
+	# и FillValue Родителя (self EmptyRef) кастомизируются пообъектно → захват override, не профиль.
+	"ChartOfAccounts" = @{
+		"Description" = @{ FillChecking = "ShowError" }
+		"Code"        = @{ FillChecking = "ShowError" }
 		"Parent"      = @{ FillFromFillingValue = "true" }
 	}
 }
@@ -1107,7 +1116,7 @@ function Emit-StandardAttribute {
 #    Прочие типы (не в множестве) → блок эмитится всегда (текущее поведение, пока их правило не выведено).
 #  - stdAttrProfile[тип]: профиль материализованного блока (пусто = schema-дефолт), поверх — DSL-override.
 # Миграция типа = добавить его в stdAttrConditionalTypes + stdAttrProfile и переснять снэпшоты; КОД НЕ ТРОГАЕМ.
-$script:stdAttrConditionalTypes = @('Catalog', 'ExchangePlan', 'ChartOfCharacteristicTypes')
+$script:stdAttrConditionalTypes = @('Catalog', 'ExchangePlan', 'ChartOfCharacteristicTypes', 'ChartOfAccounts')
 function Emit-StandardAttributes {
 	param([string]$indent, [string]$objectType)
 	$attrs = $script:standardAttributesByType[$objectType]
@@ -1321,6 +1330,7 @@ function Normalize-ChoiceValue {
 	if ($s -match '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$') { return @{ XsiType='xs:dateTime'; Text=$s } }
 	$ref = Normalize-FillRef $s
 	if ($ref) { return @{ XsiType='xr:DesignTimeRef'; Text=$ref } }
+	if ($script:accountTypeValues -contains $s) { return @{ XsiType='ent:AccountType'; Text=$s } }
 	return @{ XsiType='xs:string'; Text=$s }
 }
 
@@ -1521,8 +1531,10 @@ function Emit-MinMaxValue {
 }
 
 function Emit-Attribute {
-	param([string]$indent, $parsed, [string]$context)
-	# $context: "catalog", "document", "object", "processor", "tabular", "processor-tabular", "register"
+	param([string]$indent, $parsed, [string]$context, [string]$elemTag = "Attribute")
+	# $context: "catalog", "document", "object", "processor", "tabular", "processor-tabular", "register",
+	#           "account" (реквизит Плана счетов: как catalog, но без <Use>), "account-flag" (признак учёта ПС:
+	#           как account, но без <Indexing>/<FullTextSearch>, тип по умолчанию Boolean; $elemTag = AccountingFlag/ExtDimensionAccountingFlag)
 	$attrName = $parsed.name
 	$ctxReserved = $script:reservedByContext[$context]
 	if ($ctxReserved) {
@@ -1538,7 +1550,7 @@ function Emit-Attribute {
 		Write-Warning "Attribute '$attrName' conflicts with a standard attribute name. This may cause errors when loading into 1C."
 	}
 	$uuid = New-Guid-String
-	X "$indent<Attribute uuid=`"$uuid`">"
+	X "$indent<$elemTag uuid=`"$uuid`">"
 	X "$indent`t<Properties>"
 	X "$indent`t`t<Name>$(Esc-Xml $parsed.name)</Name>"
 	Emit-MLText "$indent`t`t" "Synonym" $parsed.synonym
@@ -1548,6 +1560,11 @@ function Emit-Attribute {
 	$typeStr = $parsed.type
 	if ($typeStr) {
 		Emit-ValueType "$indent`t`t" $typeStr
+	} elseif ($context -eq "account-flag") {
+		# Признак учёта — по умолчанию Boolean.
+		X "$indent`t`t<Type>"
+		X "$indent`t`t`t<v8:Type>xs:boolean</v8:Type>"
+		X "$indent`t`t</Type>"
 	} else {
 		# Default: unqualified string
 		X "$indent`t`t<Type>"
@@ -1607,14 +1624,17 @@ function Emit-Attribute {
 
 	# Indexing/FullTextSearch/DataHistory — not for non-stored objects (processor, processor-tabular)
 	if ($context -notin @("processor", "processor-tabular")) {
-		$indexing = "DontIndex"
-		if ($parsed.flags -contains "index") { $indexing = "Index" }
-		if ($parsed.flags -contains "indexadditional") { $indexing = "IndexWithAdditionalOrder" }
-		if ($parsed.indexing) { $indexing = $parsed.indexing }
-		X "$indent`t`t<Indexing>$indexing</Indexing>"
+		# Признаки учёта ПС (account-flag) не имеют <Indexing>/<FullTextSearch>, но имеют <DataHistory>.
+		if ($context -ne "account-flag") {
+			$indexing = "DontIndex"
+			if ($parsed.flags -contains "index") { $indexing = "Index" }
+			if ($parsed.flags -contains "indexadditional") { $indexing = "IndexWithAdditionalOrder" }
+			if ($parsed.indexing) { $indexing = $parsed.indexing }
+			X "$indent`t`t<Indexing>$indexing</Indexing>"
 
-		$fts = if ($parsed.fullTextSearch) { $parsed.fullTextSearch } else { "Use" }
-		X "$indent`t`t<FullTextSearch>$fts</FullTextSearch>"
+			$fts = if ($parsed.fullTextSearch) { $parsed.fullTextSearch } else { "Use" }
+			X "$indent`t`t<FullTextSearch>$fts</FullTextSearch>"
+		}
 		# DataHistory — not for Chart* types and non-InformationRegister register family
 		if ($context -notin @("chart", "register-other")) {
 			$dh = if ($parsed.dataHistory) { $parsed.dataHistory } else { "Use" }
@@ -1623,7 +1643,7 @@ function Emit-Attribute {
 	}
 
 	X "$indent`t</Properties>"
-	X "$indent</Attribute>"
+	X "$indent</$elemTag>"
 }
 
 # <Picture> команды — структурный блок (зеркало form-compile). Дефолт LoadTransparent=true (конвенция
@@ -2721,87 +2741,111 @@ function Emit-ChartOfAccountsProperties {
 
 	X "$i<Name>$(Esc-Xml $objName)</Name>"
 	Emit-MLText $i "Synonym" $synonym
-	X "$i<Comment/>"
-	X "$i<UseStandardCommands>true</UseStandardCommands>"
+	if ($def.comment) { X "$i<Comment>$(Esc-XmlText "$($def.comment)")</Comment>" } else { X "$i<Comment/>" }
+	$useStdCmd = if (Get-BoolProp "useStandardCommands" $true) { "true" } else { "false" }
+	X "$i<UseStandardCommands>$useStdCmd</UseStandardCommands>"
+	$inclHelp = if (Get-BoolProp "includeHelpInContents" $false) { "true" } else { "false" }
+	X "$i<IncludeHelpInContents>$inclHelp</IncludeHelpInContents>"
+	Emit-BasedOn $i $def.basedOn
 
-	# ExtDimensionTypes
-	$extDimTypes = if ($def.extDimensionTypes) { "$($def.extDimensionTypes)" } else { "" }
-	if ($extDimTypes) { X "$i<ExtDimensionTypes>$extDimTypes</ExtDimensionTypes>" }
-	else { X "$i<ExtDimensionTypes/>" }
+	# ExtDimensionTypes — ссылка на ПВХ видов субконто (прощающий ввод: ПланВидовХарактеристик.X → ChartOfCharacteristicTypes.X).
+	$extDimTypes = ""
+	if ($def.extDimensionTypes) {
+		$extDimTypes = "$($def.extDimensionTypes)"
+		if ($extDimTypes.Contains('.')) {
+			$edtDot = $extDimTypes.IndexOf('.'); $edtPfx = $extDimTypes.Substring(0, $edtDot); $edtSfx = $extDimTypes.Substring($edtDot + 1)
+			if ($script:objectTypeSynonyms.ContainsKey($edtPfx)) { $edtPfx = $script:objectTypeSynonyms[$edtPfx] }
+			$extDimTypes = "$edtPfx.$edtSfx"
+		}
+	}
+	if ($extDimTypes) { X "$i<ExtDimensionTypes>$(Esc-Xml $extDimTypes)</ExtDimensionTypes>" } else { X "$i<ExtDimensionTypes/>" }
 
 	$maxExtDim = if ($null -ne $def.maxExtDimensionCount) { "$($def.maxExtDimensionCount)" } else { "3" }
 	X "$i<MaxExtDimensionCount>$maxExtDim</MaxExtDimensionCount>"
 
-	$codeMask = if ($def.codeMask) { "$($def.codeMask)" } else { "" }
-	if ($codeMask) { X "$i<CodeMask>$codeMask</CodeMask>" } else { X "$i<CodeMask/>" }
+	if ($def.codeMask) { X "$i<CodeMask>$(Esc-XmlText "$($def.codeMask)")</CodeMask>" } else { X "$i<CodeMask/>" }
 
-	$codeLength = if ($null -ne $def.codeLength) { "$($def.codeLength)" } else { "8" }
-	$descriptionLength = if ($null -ne $def.descriptionLength) { "$($def.descriptionLength)" } else { "120" }
-	$codeSeries = if ($def.codeSeries) { "$($def.codeSeries)" } else { "WholeChartOfAccounts" }
-	$autoOrder = if ($def.autoOrderByCode -eq $false) { "false" } else { "true" }
-	$orderLength = if ($null -ne $def.orderLength) { "$($def.orderLength)" } else { "5" }
-
+	$codeLength = if ($null -ne $def.codeLength) { "$($def.codeLength)" } else { "9" }
+	$descriptionLength = if ($null -ne $def.descriptionLength) { "$($def.descriptionLength)" } else { "25" }
 	X "$i<CodeLength>$codeLength</CodeLength>"
 	X "$i<DescriptionLength>$descriptionLength</DescriptionLength>"
-	X "$i<CodeSeries>$codeSeries</CodeSeries>"
-	X "$i<CheckUnique>false</CheckUnique>"
-	X "$i<DefaultPresentation>AsDescription</DefaultPresentation>"
-	X "$i<AutoOrderByCode>$autoOrder</AutoOrderByCode>"
-	X "$i<OrderLength>$orderLength</OrderLength>"
-
-	X "$i<EditType>InDialog</EditType>"
+	X "$i<CodeSeries>$(Get-EnumProp 'CodeSeries' 'codeSeries' 'WholeChartOfAccounts')</CodeSeries>"
+	$checkUnique = if ($def.checkUnique -eq $false) { "false" } else { "true" }
+	X "$i<CheckUnique>$checkUnique</CheckUnique>"
+	X "$i<DefaultPresentation>$(Get-EnumProp 'DefaultPresentation' 'defaultPresentation' 'AsCode')</DefaultPresentation>"
 
 	Emit-StandardAttributes $i "ChartOfAccounts"
+	Emit-Characteristics $i $def.characteristics
 
-	# StandardTabularSections — ExtDimensionTypes
+	# StandardTabularSections — ExtDimensionTypes (обёртка платформенно-константна: Synonym с пустым lang «Виды субконто»,
+	# Comment/ToolTip/FillChecking; вложены 4 стандартных реквизита all-default). Кастомизация — не выведена (см. WORKFLOW).
 	X "$i<StandardTabularSections>"
 	X "$i`t<xr:StandardTabularSection name=`"ExtDimensionTypes`">"
+	X "$i`t`t<xr:Synonym>"
+	X "$i`t`t`t<v8:item>"
+	X "$i`t`t`t`t<v8:lang/>"
+	X "$i`t`t`t`t<v8:content>Виды субконто</v8:content>"
+	X "$i`t`t`t</v8:item>"
+	X "$i`t`t</xr:Synonym>"
+	X "$i`t`t<xr:Comment/>"
+	X "$i`t`t<xr:ToolTip/>"
+	X "$i`t`t<xr:FillChecking>DontCheck</xr:FillChecking>"
 	X "$i`t`t<xr:StandardAttributes>"
 	foreach ($stAttr in @("TurnoversOnly","Predefined","ExtDimensionType","LineNumber")) {
-		Emit-StandardAttribute "$i`t`t`t" $stAttr
+		$stOv = if ($stAttr -eq "ExtDimensionType") { @{ FillChecking = "ShowError" } } else { $null }
+		Emit-StandardAttribute "$i`t`t`t" $stAttr $stOv
 	}
 	X "$i`t`t</xr:StandardAttributes>"
 	X "$i`t</xr:StandardTabularSection>"
 	X "$i</StandardTabularSections>"
 
-	X "$i<Characteristics/>"
-	X "$i<PredefinedDataUpdate>Auto</PredefinedDataUpdate>"
+	X "$i<PredefinedDataUpdate>$(Get-EnumProp 'PredefinedDataUpdate' 'predefinedDataUpdate' 'Auto')</PredefinedDataUpdate>"
+	X "$i<EditType>$(Get-EnumProp 'EditType' 'editType' 'InDialog')</EditType>"
 	$quickChoice = if ($def.quickChoice -eq $true) { "true" } else { "false" }
 	X "$i<QuickChoice>$quickChoice</QuickChoice>"
-	X "$i<ChoiceMode>BothWays</ChoiceMode>"
-	X "$i<InputByString>"
-	X "$i`t<xr:Field>ChartOfAccounts.$objName.StandardAttribute.Description</xr:Field>"
-	X "$i`t<xr:Field>ChartOfAccounts.$objName.StandardAttribute.Code</xr:Field>"
-	X "$i</InputByString>"
-	X "$i<SearchStringModeOnInputByString>Begin</SearchStringModeOnInputByString>"
+	X "$i<ChoiceMode>$(Get-EnumProp 'ChoiceMode' 'choiceMode' 'BothWays')</ChoiceMode>"
+
+	# InputByString: override ЛИБО дефолт [Descr при D>0]+[Code при C>0] (prefix ChartOfAccounts).
+	if (Test-DefKey 'inputByString') {
+		$ibFields = @($def.inputByString | ForEach-Object { Expand-DataPath "$_" })
+	} else {
+		$ibFields = @()
+		if ([int]$descriptionLength -gt 0) { $ibFields += "ChartOfAccounts.$objName.StandardAttribute.Description" }
+		if ([int]$codeLength -gt 0)        { $ibFields += "ChartOfAccounts.$objName.StandardAttribute.Code" }
+	}
+	Emit-FieldBlock $i "InputByString" $ibFields
+	X "$i<SearchStringModeOnInputByString>$(Get-EnumProp 'SearchStringModeOnInputByString' 'searchStringModeOnInputByString' 'Begin')</SearchStringModeOnInputByString>"
 	X "$i<FullTextSearchOnInputByString>DontUse</FullTextSearchOnInputByString>"
 	X "$i<ChoiceDataGetModeOnInputByString>Directly</ChoiceDataGetModeOnInputByString>"
-	X "$i<DefaultObjectForm/>"
-	X "$i<DefaultListForm/>"
-	X "$i<DefaultChoiceForm/>"
-	X "$i<AuxiliaryObjectForm/>"
-	X "$i<AuxiliaryListForm/>"
-	X "$i<AuxiliaryChoiceForm/>"
-	X "$i<IncludeHelpInContents>false</IncludeHelpInContents>"
-	X "$i<BasedOn/>"
-	X "$i<DataLockFields/>"
+	X "$i<CreateOnInput>$(Get-EnumProp 'CreateOnInput' 'createOnInput' 'DontUse')</CreateOnInput>"
+	X "$i<ChoiceHistoryOnInput>$(Get-EnumProp 'ChoiceHistoryOnInput' 'choiceHistoryOnInput' 'Auto')</ChoiceHistoryOnInput>"
+	Emit-FormRef $i "DefaultObjectForm"   $def.defaultObjectForm
+	Emit-FormRef $i "DefaultListForm"     $def.defaultListForm
+	Emit-FormRef $i "DefaultChoiceForm"   $def.defaultChoiceForm
+	Emit-FormRef $i "AuxiliaryObjectForm" $def.auxiliaryObjectForm
+	Emit-FormRef $i "AuxiliaryListForm"   $def.auxiliaryListForm
+	Emit-FormRef $i "AuxiliaryChoiceForm" $def.auxiliaryChoiceForm
 
-	$dataLockControlMode = Get-EnumProp "DataLockControlMode" "dataLockControlMode" "Automatic"
-	X "$i<DataLockControlMode>$dataLockControlMode</DataLockControlMode>"
+	$autoOrder = if ($def.autoOrderByCode -eq $false) { "false" } else { "true" }
+	X "$i<AutoOrderByCode>$autoOrder</AutoOrderByCode>"
+	$orderLength = if ($null -ne $def.orderLength) { "$($def.orderLength)" } else { "9" }
+	X "$i<OrderLength>$orderLength</OrderLength>"
 
-	$fullTextSearch = Get-EnumProp "FullTextSearch" "fullTextSearch" "Use"
-	X "$i<FullTextSearch>$fullTextSearch</FullTextSearch>"
+	$dlFields = if (Test-DefKey 'dataLockFields') { @($def.dataLockFields | ForEach-Object { Expand-DataPath "$_" }) } else { @() }
+	Emit-FieldBlock $i "DataLockFields" $dlFields
+	X "$i<DataLockControlMode>$(Get-EnumProp 'DataLockControlMode' 'dataLockControlMode' 'Automatic')</DataLockControlMode>"
+	X "$i<FullTextSearch>$(Get-EnumProp 'FullTextSearch' 'fullTextSearch' 'Use')</FullTextSearch>"
+	X "$i<DataHistory>$(Get-EnumProp 'DataHistory' 'dataHistory' 'DontUse')</DataHistory>"
+	$updDH = if (Get-BoolProp "updateDataHistoryImmediatelyAfterWrite" $false) { "true" } else { "false" }
+	X "$i<UpdateDataHistoryImmediatelyAfterWrite>$updDH</UpdateDataHistoryImmediatelyAfterWrite>"
+	$execDH = if (Get-BoolProp "executeAfterWriteDataHistoryVersionProcessing" $false) { "true" } else { "false" }
+	X "$i<ExecuteAfterWriteDataHistoryVersionProcessing>$execDH</ExecuteAfterWriteDataHistoryVersionProcessing>"
 
 	Emit-MLText $i "ObjectPresentation" $def.objectPresentation
 	Emit-MLText $i "ExtendedObjectPresentation" $def.extendedObjectPresentation
 	Emit-MLText $i "ListPresentation" $def.listPresentation
 	Emit-MLText $i "ExtendedListPresentation" $def.extendedListPresentation
 	Emit-MLText $i "Explanation" $def.explanation
-	X "$i<CreateOnInput>DontUse</CreateOnInput>"
-	X "$i<ChoiceHistoryOnInput>Auto</ChoiceHistoryOnInput>"
-	X "$i<DataHistory>DontUse</DataHistory>"
-	X "$i<UpdateDataHistoryImmediatelyAfterWrite>false</UpdateDataHistoryImmediatelyAfterWrite>"
-	X "$i<ExecuteAfterWriteDataHistoryVersionProcessing>false</ExecuteAfterWriteDataHistoryVersionProcessing>"
 }
 
 function Emit-AccountingRegisterProperties {
@@ -3190,74 +3234,6 @@ function Emit-Column {
 	X "$indent</Column>"
 }
 
-function Emit-AccountingFlag {
-	param([string]$indent, [string]$flagName)
-	$uuid = New-Guid-String
-	$flagSynonym = Split-CamelCase $flagName
-
-	X "$indent<AccountingFlag uuid=`"$uuid`">"
-	X "$indent`t<Properties>"
-	X "$indent`t`t<Name>$(Esc-Xml $flagName)</Name>"
-	Emit-MLText "$indent`t`t" "Synonym" $flagSynonym
-	X "$indent`t`t<Comment/>"
-	X "$indent`t`t<Type>"
-	X "$indent`t`t`t<v8:Type>xs:boolean</v8:Type>"
-	X "$indent`t`t</Type>"
-	X "$indent`t`t<PasswordMode>false</PasswordMode>"
-	X "$indent`t`t<Format/>"
-	X "$indent`t`t<EditFormat/>"
-	X "$indent`t`t<ToolTip/>"
-	X "$indent`t`t<MarkNegatives>false</MarkNegatives>"
-	X "$indent`t`t<Mask/>"
-	X "$indent`t`t<MultiLine>false</MultiLine>"
-	X "$indent`t`t<ExtendedEdit>false</ExtendedEdit>"
-	X "$indent`t`t<MinValue xsi:nil=`"true`"/>"
-	X "$indent`t`t<MaxValue xsi:nil=`"true`"/>"
-	X "$indent`t`t<FillChecking>DontCheck</FillChecking>"
-	X "$indent`t`t<ChoiceParameterLinks/>"
-	X "$indent`t`t<ChoiceParameters/>"
-	X "$indent`t`t<QuickChoice>Auto</QuickChoice>"
-	X "$indent`t`t<ChoiceForm/>"
-	X "$indent`t`t<LinkByType/>"
-	X "$indent`t`t<ChoiceHistoryOnInput>Auto</ChoiceHistoryOnInput>"
-	X "$indent`t</Properties>"
-	X "$indent</AccountingFlag>"
-}
-
-function Emit-ExtDimensionAccountingFlag {
-	param([string]$indent, [string]$flagName)
-	$uuid = New-Guid-String
-	$flagSynonym = Split-CamelCase $flagName
-
-	X "$indent<ExtDimensionAccountingFlag uuid=`"$uuid`">"
-	X "$indent`t<Properties>"
-	X "$indent`t`t<Name>$(Esc-Xml $flagName)</Name>"
-	Emit-MLText "$indent`t`t" "Synonym" $flagSynonym
-	X "$indent`t`t<Comment/>"
-	X "$indent`t`t<Type>"
-	X "$indent`t`t`t<v8:Type>xs:boolean</v8:Type>"
-	X "$indent`t`t</Type>"
-	X "$indent`t`t<PasswordMode>false</PasswordMode>"
-	X "$indent`t`t<Format/>"
-	X "$indent`t`t<EditFormat/>"
-	X "$indent`t`t<ToolTip/>"
-	X "$indent`t`t<MarkNegatives>false</MarkNegatives>"
-	X "$indent`t`t<Mask/>"
-	X "$indent`t`t<MultiLine>false</MultiLine>"
-	X "$indent`t`t<ExtendedEdit>false</ExtendedEdit>"
-	X "$indent`t`t<MinValue xsi:nil=`"true`"/>"
-	X "$indent`t`t<MaxValue xsi:nil=`"true`"/>"
-	X "$indent`t`t<FillChecking>DontCheck</FillChecking>"
-	X "$indent`t`t<ChoiceParameterLinks/>"
-	X "$indent`t`t<ChoiceParameters/>"
-	X "$indent`t`t<QuickChoice>Auto</QuickChoice>"
-	X "$indent`t`t<ChoiceForm/>"
-	X "$indent`t`t<LinkByType/>"
-	X "$indent`t`t<ChoiceHistoryOnInput>Auto</ChoiceHistoryOnInput>"
-	X "$indent`t</Properties>"
-	X "$indent</ExtDimensionAccountingFlag>"
-}
-
 function Emit-URLTemplate {
 	param([string]$indent, [string]$tmplName, $tmplDef)
 	$uuid = New-Guid-String
@@ -3526,12 +3502,13 @@ if ($objType -in $typesWithAttrTS) {
 		}
 	}
 
-	# ChartOfAccounts: AccountingFlags + ExtDimensionAccountingFlags
+	# ChartOfAccounts: AccountingFlags + ExtDimensionAccountingFlags (признаки учёта — структурно как реквизит,
+	# но без Indexing/FullTextSearch/Use; тип по умолчанию Boolean). Парсим как реквизиты.
 	$acctFlags = @()
 	$extDimFlags = @()
 	if ($objType -eq "ChartOfAccounts") {
-		if ($def.accountingFlags) { $acctFlags = @($def.accountingFlags) }
-		if ($def.extDimensionAccountingFlags) { $extDimFlags = @($def.extDimensionAccountingFlags) }
+		if ($def.accountingFlags) { foreach ($af in $def.accountingFlags) { $acctFlags += Parse-AttributeShorthand $af } }
+		if ($def.extDimensionAccountingFlags) { foreach ($edf in $def.extDimensionAccountingFlags) { $extDimFlags += Parse-AttributeShorthand $edf } }
 	}
 
 	# Task: AddressingAttributes
@@ -3558,7 +3535,8 @@ if ($objType -in $typesWithAttrTS) {
 			"Document" { "document" }
 			{ $_ -in @("DataProcessor","Report") } { "processor" }
 			"ChartOfCharacteristicTypes" { "catalog" }   # реквизиты ПВХ структурно как у справочника (Use/FillFromFillingValue/DataHistory)
-			{ $_ -in @("ChartOfAccounts","ChartOfCalculationTypes") } { "chart" }
+			"ChartOfAccounts" { "account" }              # как catalog, но БЕЗ <Use> (реквизиты ПС не иерархичны как справочник)
+			"ChartOfCalculationTypes" { "chart" }
 			default    { "object" }
 		}
 		foreach ($a in $attrs) {
@@ -3569,12 +3547,10 @@ if ($objType -in $typesWithAttrTS) {
 			Emit-TabularSection "`t`t`t" $tsName $tsE.columns $objType $objName $tsE.synonym $tsE.tooltip $tsE.comment $tsE.lineNumber
 		}
 		foreach ($af in $acctFlags) {
-			$afName = if ($af.name) { $af.name } else { "$af" }
-			Emit-AccountingFlag "`t`t`t" $afName
+			Emit-Attribute "`t`t`t" $af "account-flag" "AccountingFlag"
 		}
 		foreach ($edf in $extDimFlags) {
-			$edfName = if ($edf.name) { $edf.name } else { "$edf" }
-			Emit-ExtDimensionAccountingFlag "`t`t`t" $edfName
+			Emit-Attribute "`t`t`t" $edf "account-flag" "ExtDimensionAccountingFlag"
 		}
 		foreach ($aa in $addrAttrs) {
 			Emit-AddressingAttribute "`t`t`t" $aa
@@ -3827,6 +3803,82 @@ function Build-PredefinedXml {
 	return $sb.ToString()
 }
 
+# --- Предопределённые СЧЕТА Плана счетов (отдельная грамматика: AccountType/OffBalance/Order/AccountingFlags/
+# ExtDimensionTypes/ChildItems). Флаги перечисляем по def-порядку списков признаков плана; в DSL — только TRUE. ---
+$script:predefAccGet = { param($o, [string[]]$keys) foreach ($k in $keys) { if ($o -is [System.Collections.IDictionary]) { if ($o.Contains($k)) { return $o[$k] } } elseif ($o.PSObject -and $o.PSObject.Properties[$k]) { return $o.$k } } return $null }
+function Emit-PredefAccountFlags {
+	param($sb, [string]$indent, [string]$tag, [string]$refKind, [string]$objName, [string[]]$flagNames, $trueSet)
+	if (-not $flagNames -or $flagNames.Count -eq 0) { [void]$sb.Append("$indent<$tag/>`n"); return }
+	$set = @{}; if ($trueSet) { foreach ($t in @($trueSet)) { $set["$t"] = $true } }
+	[void]$sb.Append("$indent<$tag>`n")
+	foreach ($fn in $flagNames) {
+		$v = if ($set.ContainsKey($fn)) { 'true' } else { 'false' }
+		[void]$sb.Append("$indent`t<Flag ref=`"ChartOfAccounts.$objName.$refKind.$fn`">$v</Flag>`n")
+	}
+	[void]$sb.Append("$indent</$tag>`n")
+}
+function Emit-PredefAccount {
+	param($sb, $val, [string]$indent, [string]$objName, [string[]]$acctFlagNames, [string[]]$extDimFlagNames)
+	$gv = $script:predefAccGet
+	$name = "$(& $gv $val @('name','имя'))"
+	$codeV = & $gv $val @('code','код'); $code = if ($null -ne $codeV) { "$codeV" } else { '' }
+	$hasDesc = ($val -is [System.Collections.IDictionary] -and ($val.Contains('description') -or $val.Contains('наименование'))) -or ($val.PSObject -and ($val.PSObject.Properties['description'] -or $val.PSObject.Properties['наименование']))
+	$descV = & $gv $val @('description','наименование')
+	$desc = if ($hasDesc) { "$descV" } else { Split-CamelCase $name }
+	$acctType = "$(& $gv $val @('accountType','видСчета','вид'))"; if (-not $acctType) { $acctType = 'ActivePassive' }
+	$offV = & $gv $val @('offBalance','забалансовый'); $off = if ($offV -eq $true) { 'true' } else { 'false' }
+	$order = "$(& $gv $val @('order','порядок'))"
+	$flags = & $gv $val @('flags','признаки')
+	$subconto = & $gv $val @('subconto','extDimensionTypes','видыСубконто')
+	$children = & $gv $val @('childItems','подчиненные')
+
+	[void]$sb.Append("$indent<Item id=`"$(New-Guid-String)`">`n")
+	[void]$sb.Append("$indent`t<Name>$(Esc-XmlText $name)</Name>`n")
+	if (-not $code) { [void]$sb.Append("$indent`t<Code/>`n") } else { [void]$sb.Append("$indent`t<Code>$(Esc-XmlText $code)</Code>`n") }
+	if ($desc -eq '') { [void]$sb.Append("$indent`t<Description/>`n") } else { [void]$sb.Append("$indent`t<Description>$(Esc-XmlText $desc)</Description>`n") }
+	[void]$sb.Append("$indent`t<AccountType>$acctType</AccountType>`n")
+	[void]$sb.Append("$indent`t<OffBalance>$off</OffBalance>`n")
+	[void]$sb.Append("$indent`t<Order>$(Esc-XmlText $order)</Order>`n")
+	Emit-PredefAccountFlags $sb "$indent`t" 'AccountingFlags' 'AccountingFlag' $objName $acctFlagNames $flags
+	# ExtDimensionTypes — субконто: пусто → self-close; иначе список <ExtDimensionType name="..."> с Turnover + признаками.
+	$subArr = @(); if ($subconto) { $subArr = @($subconto) }
+	if ($subArr.Count -eq 0) { [void]$sb.Append("$indent`t<ExtDimensionTypes/>`n") }
+	else {
+		[void]$sb.Append("$indent`t<ExtDimensionTypes>`n")
+		foreach ($sc in $subArr) {
+			$scType = "$(& $gv $sc @('type','тип'))"
+			if ($scType.Contains('.')) {
+				$scDot = $scType.IndexOf('.'); $scPfx = $scType.Substring(0, $scDot); $scSfx = $scType.Substring($scDot + 1)
+				if ($script:objectTypeSynonyms.ContainsKey($scPfx)) { $scPfx = $script:objectTypeSynonyms[$scPfx] }
+				$scType = "$scPfx.$scSfx"
+			}
+			$scTurnV = & $gv $sc @('turnover','оборотный'); $scTurn = if ($scTurnV -eq $true) { 'true' } else { 'false' }
+			$scFlags = & $gv $sc @('flags','признаки')
+			[void]$sb.Append("$indent`t`t<ExtDimensionType name=`"$(Esc-Xml $scType)`">`n")
+			[void]$sb.Append("$indent`t`t`t<Turnover>$scTurn</Turnover>`n")
+			Emit-PredefAccountFlags $sb "$indent`t`t`t" 'AccountingFlags' 'ExtDimensionAccountingFlag' $objName $extDimFlagNames $scFlags
+			[void]$sb.Append("$indent`t`t</ExtDimensionType>`n")
+		}
+		[void]$sb.Append("$indent`t</ExtDimensionTypes>`n")
+	}
+	$childArr = @(); if ($children) { $childArr = @($children) }
+	if ($childArr.Count -gt 0) {
+		[void]$sb.Append("$indent`t<ChildItems>`n")
+		foreach ($c in $childArr) { Emit-PredefAccount $sb $c "$indent`t`t" $objName $acctFlagNames $extDimFlagNames }
+		[void]$sb.Append("$indent`t</ChildItems>`n")
+	}
+	[void]$sb.Append("$indent</Item>`n")
+}
+function Build-PredefinedAccountXml {
+	param($items, [string]$objName, [string[]]$acctFlagNames, [string[]]$extDimFlagNames)
+	$sb = New-Object System.Text.StringBuilder
+	[void]$sb.Append("<?xml version=`"1.0`" encoding=`"UTF-8`"?>`n")
+	[void]$sb.Append("<PredefinedData xmlns=`"http://v8.1c.ru/8.3/xcf/predef`" xmlns:v8=`"http://v8.1c.ru/8.1/data/core`" xmlns:xr=`"http://v8.1c.ru/8.3/xcf/readable`" xmlns:xs=`"http://www.w3.org/2001/XMLSchema`" xmlns:xsi=`"http://www.w3.org/2001/XMLSchema-instance`" xsi:type=`"ChartOfAccountsPredefinedItems`" version=`"$($script:formatVersion)`">`n")
+	foreach ($it in $items) { Emit-PredefAccount $sb $it "`t" $objName $acctFlagNames $extDimFlagNames }
+	[void]$sb.Append("</PredefinedData>`n")
+	return $sb.ToString()
+}
+
 $extDir = Join-Path $objSubDir "Ext"
 
 if (-not (Test-Path $typeDir)) {
@@ -3927,7 +3979,16 @@ if ($objType -eq "BusinessProcess") {
 
 # Предопределённые элементы (Ext/Predefined.xml). Root-элемент — по типу. Пусто/нет ключа → файл не создаём.
 $predefRootByType = @{ 'Catalog' = 'CatalogPredefinedItems'; 'ChartOfCharacteristicTypes' = 'PlanOfCharacteristicKindPredefinedItems' }
-if ($predefRootByType.ContainsKey($objType) -and $def.predefined -and @($def.predefined).Count -gt 0) {
+if ($objType -eq 'ChartOfAccounts' -and $def.predefined -and @($def.predefined).Count -gt 0) {
+	# Предопределённые СЧЕТА — отдельная грамматика (флаги разворачиваются по def-порядку признаков плана).
+	Ensure-ExtDir
+	$afNames = @(); if ($def.accountingFlags) { foreach ($af in $def.accountingFlags) { $afNames += (Parse-AttributeShorthand $af).name } }
+	$edfNames = @(); if ($def.extDimensionAccountingFlags) { foreach ($edf in $def.extDimensionAccountingFlags) { $edfNames += (Parse-AttributeShorthand $edf).name } }
+	$predefXml = Build-PredefinedAccountXml @($def.predefined) $objName $afNames $edfNames
+	$predefPath = Join-Path $extDir "Predefined.xml"
+	[System.IO.File]::WriteAllText($predefPath, $predefXml, $enc)
+	$modulesCreated += $predefPath
+} elseif ($predefRootByType.ContainsKey($objType) -and $def.predefined -and @($def.predefined).Count -gt 0) {
 	Ensure-ExtDir
 	$catCodeType = if ($def.codeType) { "$($def.codeType)" } else { 'String' }
 	$predefXml = Build-PredefinedXml @($def.predefined) $predefRootByType[$objType] $catCodeType

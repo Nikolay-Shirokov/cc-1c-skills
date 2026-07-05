@@ -653,6 +653,62 @@ omit-on-empty. Поля пишутся частичной формой (`Standar
 ]
 ```
 
+### 7.2c ChartOfAccounts (План счетов)
+
+Иерархический ссылочный тип бухгалтерских счетов (без папок/уровней/владельцев). Общий с Catalog слой: `synonym`,
+`comment`, `useStandardCommands`, `includeHelpInContents`, коды (`codeLength`/`descriptionLength`/`checkUnique`/
+`codeMask`), `defaultPresentation`, `standardAttributes` (§7.1.1), `characteristics` (§7.1.4), `inputByString` (§7.1.5),
+формы (без `*Folder*`), `basedOn`, `dataLockFields`, презентации.
+
+| Поле JSON | Умолчание | XML элемент |
+|-----------|----------|-------------|
+| `extDimensionTypes` | пусто | ExtDimensionTypes (ссылка на ПВХ видов субконто; `ПланВидовХарактеристик.X` → `ChartOfCharacteristicTypes.X`) |
+| `maxExtDimensionCount` | `3` | MaxExtDimensionCount (число субконто; `0` → нет субконто) |
+| `codeMask` | пусто | CodeMask (маска кода счёта) |
+| `codeSeries` | `WholeChartOfAccounts` | CodeSeries |
+| `checkUnique` | `true` | CheckUnique *(≠ Catalog `false`)* |
+| `defaultPresentation` | `AsCode` | DefaultPresentation *(≠ Catalog `AsDescription`)* |
+| `autoOrderByCode` | `true` | AutoOrderByCode |
+| `orderLength` | `9` | OrderLength |
+| `dataLockControlMode` | `Automatic` | DataLockControlMode |
+| `dataHistory` + `updateDataHistoryImmediatelyAfterWrite` + `executeAfterWriteDataHistoryVersionProcessing` | `DontUse`/`false`/`false` | DataHistory-триплет |
+| `accountingFlags` | `[]` | AccountingFlag в ChildObjects (признаки учёта — как реквизит, тип по умолчанию Boolean; §4.2) |
+| `extDimensionAccountingFlags` | `[]` | ExtDimensionAccountingFlag в ChildObjects (признаки учёта субконто; как реквизит) |
+| `predefined` | `[]` | Ext/Predefined.xml — предопределённые счета (грамматика ниже) |
+
+Стандартные реквизиты ПС: PredefinedDataName, Order, OffBalance, Type, Description, Code, Parent, Predefined,
+DeletionMark, Ref (профиль: Наименование/Код → FillChecking=ShowError, Родитель → FillFromFillingValue=true). Блок
+**условный** (`standardAttributes`). Реквизит `Type` (Тип счёта) несёт FillValue-перечисление **`ent:AccountType`** —
+значения `Active`/`Passive`/`ActivePassive` (распознаются автоматически в `fillValue`/параметрах выбора). Всегда
+эмитится вложенный блок субконто `StandardTabularSections/ExtDimensionTypes` (платформенно-константен: обёртка
+«Виды субконто», вложенный ExtDimensionType → FillChecking=ShowError).
+
+**Предопределённые счета** — отдельная грамматика (объектная форма). Признаки (`flags`) перечисляют только
+**включённые** (`true`) имена; компилятор разворачивает полный список по def-порядку `accountingFlags`/
+`extDimensionAccountingFlags` плана. `order` — вербатим (не выводится). `description` опускается при равенстве
+Split-CamelCase имени.
+
+| Поле счёта | Умолчание | XML |
+|-----------|----------|-----|
+| `name` / `code` / `description` | — / пусто / *(авто из имени)* | Name / Code / Description |
+| `accountType` | `ActivePassive` | AccountType (`Active`/`Passive`/`ActivePassive`) |
+| `offBalance` | `false` | OffBalance |
+| `order` | — | Order (строка сортировки, вербатим) |
+| `flags` | `[]` | AccountingFlags → `<Flag>` по каждому признаку плана |
+| `subconto` | `[]` | ExtDimensionTypes → `<ExtDimensionType name="…">` `{type, turnover?, flags?}` |
+| `childItems` | `[]` | ChildItems (иерархия счетов) |
+
+```json
+"predefined": [
+  { "name": "ОсновныеСредства", "code": "01", "accountType": "Active", "order": " 01",
+    "flags": ["Количественный"],
+    "subconto": [{ "type": "ChartOfCharacteristicTypes.ВидыСубконто.ОсновныеСредства", "flags": ["Суммовой"] }],
+    "childItems": [
+      { "name": "ОС в организации", "code": "01.01", "accountType": "Active", "order": " 01.01" }
+    ] }
+]
+```
+
 ### 7.3 Enum
 
 | Поле JSON | Умолчание | XML элемент |
@@ -886,35 +942,7 @@ DSL для `columns` (§12).
 
 ### 7.16 ChartOfAccounts
 
-| Поле JSON | Умолчание | XML элемент |
-|-----------|----------|-------------|
-| `extDimensionTypes` | `""` | ExtDimensionTypes (ссылка на ПВХ) |
-| `maxExtDimensionCount` | `3` | MaxExtDimensionCount |
-| `codeMask` | `""` | CodeMask |
-| `codeLength` | `8` | CodeLength |
-| `descriptionLength` | `120` | DescriptionLength |
-| `codeSeries` | `WholeChartOfAccounts` | CodeSeries |
-| `autoOrderByCode` | `true` | AutoOrderByCode |
-| `orderLength` | `5` | OrderLength |
-| `hierarchical` | `false` | Hierarchical |
-| `dataLockControlMode` | `Automatic` | DataLockControlMode |
-| `fullTextSearch` | `Use` | FullTextSearch |
-| `accountingFlags` | `[]` | → AccountingFlag в ChildObjects (§13) |
-| `extDimensionAccountingFlags` | `[]` | → ExtDimensionAccountingFlag в ChildObjects (§14) |
-| `attributes` | `[]` | → Attribute в ChildObjects |
-| `tabularSections` | `{}` | → TabularSection в ChildObjects |
-
-Модули: `Ext/ObjectModule.bsl` (пустой).
-
-```json
-{
-  "type": "ChartOfAccounts", "name": "Хозрасчетный",
-  "extDimensionTypes": "ChartOfCharacteristicTypes.ВидыСубконто", "maxExtDimensionCount": 3,
-  "codeMask": "@@@.@@.@", "codeLength": 8,
-  "accountingFlags": ["Валютный", "Количественный"],
-  "extDimensionAccountingFlags": ["Суммовой", "Валютный"]
-}
-```
+Полное описание типа (все поля, стандартные реквизиты, грамматика предопределённых счетов) — см. **§7.2c**.
 
 ### 7.17 AccountingRegister
 

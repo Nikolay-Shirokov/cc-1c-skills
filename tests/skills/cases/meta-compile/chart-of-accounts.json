@@ -1,15 +1,42 @@
 {
-  "name": "План счетов с признаками учёта",
+  "name": "План счетов: признаки учёта и предопределённые счета",
   "input": {
     "type": "ChartOfAccounts",
     "name": "Хозрасчетный",
-    "codeLength": 4,
+    "synonym": { "ru": "План счетов бухгалтерского учета", "en": "Chart of accounts" },
+    "codeLength": 8,
     "descriptionLength": 120,
+    "codeMask": "@@@.@@.@",
     "maxExtDimensionCount": 0,
-    "accountingFlags": ["Валютный", "Количественный"]
+    "checkUnique": true,
+    "accountingFlags": [
+      { "name": "Валютный", "synonym": "Валютный учет", "tooltip": "Ведется валютный учет" },
+      "Количественный"
+    ],
+    "predefined": [
+      {
+        "name": "ОсновныеСредства",
+        "code": "01",
+        "description": "Основные средства",
+        "accountType": "Active",
+        "order": " 01",
+        "flags": ["Количественный"],
+        "childItems": [
+          {
+            "name": "ОсновныеСредстваВОрганизации",
+            "code": "01.01",
+            "description": "Основные средства в организации",
+            "accountType": "Active",
+            "order": " 01.01",
+            "flags": ["Количественный"]
+          }
+        ]
+      },
+      { "name": "Служебный", "code": "000", "accountType": "ActivePassive", "order": " 00" }
+    ]
   },
   "validatePath": "ChartsOfAccounts/Хозрасчетный",
   "expect": {
-    "files": ["ChartsOfAccounts/Хозрасчетный.xml", "ChartsOfAccounts/Хозрасчетный/Ext/ObjectModule.bsl"]
+    "files": ["ChartsOfAccounts/Хозрасчетный.xml", "ChartsOfAccounts/Хозрасчетный/Ext/Predefined.xml"]
   }
 }

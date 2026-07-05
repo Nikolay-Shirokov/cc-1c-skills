@@ -1,7 +1,7 @@
-﻿# meta-decompile v0.25 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
+﻿# meta-decompile v0.26 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 #
-# Поддержаны: Catalog, ExchangePlan, ChartOfCharacteristicTypes. Инверс meta-compile (omit-on-default: ключ эмитим только
+# Поддержаны: Catalog, ExchangePlan, ChartOfCharacteristicTypes, ChartOfAccounts. Инверс meta-compile (omit-on-default: ключ эмитим только
 # когда значение в XML отличается от умолчания компилятора). Неподдерживаемый тип / не-MetaDataObject
 # root → exit 3 (ring3, как form-decompile).
 param(
@@ -91,8 +91,8 @@ foreach ($c in $rootEl.ChildNodes) { if ($c.NodeType -eq 'Element') { $objNode =
 if (-not $objNode) { [Console]::Error.WriteLine("meta-decompile: пустой MetaDataObject"); exit 3 }
 $objType = $objNode.LocalName
 
-if ($objType -notin @('Catalog', 'ExchangePlan', 'ChartOfCharacteristicTypes')) {
-	[Console]::Error.WriteLine("meta-decompile: тип '$objType' пока не поддержан (Catalog, ExchangePlan, ChartOfCharacteristicTypes)"); exit 3
+if ($objType -notin @('Catalog', 'ExchangePlan', 'ChartOfCharacteristicTypes', 'ChartOfAccounts')) {
+	[Console]::Error.WriteLine("meta-decompile: тип '$objType' пока не поддержан (Catalog, ExchangePlan, ChartOfCharacteristicTypes, ChartOfAccounts)"); exit 3
 }
 
 $props = $objNode.SelectSingleNode('md:Properties', $nsm)
@@ -394,9 +394,10 @@ Add-EnumProp 'subordinationUse' 'SubordinationUse' 'ToItems'
 # Тип-зависимые дефолты (компилятор задаёт их по типу — декомпилятор обязан зеркалить, иначе omit ≠ значению).
 $descrLenDef  = switch ($objType) { 'ExchangePlan' { 150 } 'ChartOfCharacteristicTypes' { 100 } default { 25 } }
 $createInpDef = if ($objType -eq 'Catalog') { 'Use' } else { 'DontUse' }
-$dataLockDef  = if ($objType -eq 'Catalog') { 'Automatic' } else { 'Managed' }
-$codeSeriesDef = if ($objType -eq 'ChartOfCharacteristicTypes') { 'WholeCharacteristicKind' } else { 'WholeCatalog' }
-$checkUniqueDef = ($objType -eq 'ChartOfCharacteristicTypes')   # ПВХ дефолт true, Catalog false
+$dataLockDef  = if ($objType -in @('Catalog', 'ChartOfAccounts')) { 'Automatic' } else { 'Managed' }
+$codeSeriesDef = switch ($objType) { 'ChartOfCharacteristicTypes' { 'WholeCharacteristicKind' } 'ChartOfAccounts' { 'WholeChartOfAccounts' } default { 'WholeCatalog' } }
+$checkUniqueDef = ($objType -in @('ChartOfCharacteristicTypes', 'ChartOfAccounts'))   # ПВХ/ПС дефолт true, Catalog false
+$defPresDef = if ($objType -eq 'ChartOfAccounts') { 'AsCode' } else { 'AsDescription' }   # ПС по умолчанию AsCode
 Add-IntProp  'codeLength'        'CodeLength'        9
 Add-IntProp  'descriptionLength' 'DescriptionLength' $descrLenDef
 Add-EnumProp 'codeType'          'CodeType'          'String'
@@ -404,7 +405,7 @@ Add-EnumProp 'codeAllowedLength' 'CodeAllowedLength' 'Variable'
 Add-BoolProp 'autonumbering'     'Autonumbering'     $true
 Add-BoolProp 'checkUnique'       'CheckUnique'       $checkUniqueDef
 Add-EnumProp 'codeSeries'        'CodeSeries'        $codeSeriesDef
-Add-EnumProp 'defaultPresentation' 'DefaultPresentation' 'AsDescription'
+Add-EnumProp 'defaultPresentation' 'DefaultPresentation' $defPresDef
 Add-BoolProp 'quickChoice'       'QuickChoice'       $false
 Add-EnumProp 'choiceMode'        'ChoiceMode'        'BothWays'
 Add-EnumProp 'dataLockControlMode' 'DataLockControlMode' $dataLockDef
@@ -436,6 +437,17 @@ if ($objType -eq 'ChartOfCharacteristicTypes') {
 		$vtStr = Get-TypeShorthand $vtNode
 		if ($vtStr -and $vtStr -ne 'Boolean + String(100) + Number(15,2) + DateTime') { $dsl['valueType'] = $vtStr }
 	}
+}
+# ChartOfAccounts-специфичные свойства (у Catalog этих тегов нет → блок его не трогает).
+if ($objType -eq 'ChartOfAccounts') {
+	$edt = P 'ExtDimensionTypes'; if ($edt) { $dsl['extDimensionTypes'] = $edt }
+	Add-IntProp  'maxExtDimensionCount' 'MaxExtDimensionCount' 3
+	$cm = P 'CodeMask'; if ($cm) { $dsl['codeMask'] = $cm }
+	Add-BoolProp 'autoOrderByCode' 'AutoOrderByCode' $true
+	Add-IntProp  'orderLength' 'OrderLength' 9
+	Add-EnumProp 'dataHistory' 'DataHistory' 'DontUse'
+	Add-BoolProp 'updateDataHistoryImmediatelyAfterWrite' 'UpdateDataHistoryImmediatelyAfterWrite' $false
+	Add-BoolProp 'executeAfterWriteDataHistoryVersionProcessing' 'ExecuteAfterWriteDataHistoryVersionProcessing' $false
 }
 
 # Короткая форма поля: <Type>.<Name>.StandardAttribute.X / .Attribute.X → StandardAttribute.X / Attribute.X
@@ -557,6 +569,11 @@ $stdProfileByType = @{
 		'Description' = @{ fillChecking = 'ShowError' }
 		'Parent'      = @{ fillFromFillingValue = $true }
 	}
+	'ChartOfAccounts' = @{
+		'Description' = @{ fillChecking = 'ShowError' }
+		'Code'        = @{ fillChecking = 'ShowError' }
+		'Parent'      = @{ fillFromFillingValue = $true }
+	}
 }
 $catStdProfile = if ($stdProfileByType.ContainsKey($objType)) { $stdProfileByType[$objType] } else { @{} }
 # Фикс-список стандартных реквизитов типа (зеркало standardAttributesByType компилятора) — чтобы отличать
@@ -565,11 +582,12 @@ $stdFixedByType = @{
 	'Catalog'      = @('PredefinedDataName','Predefined','Ref','DeletionMark','IsFolder','Owner','Parent','Description','Code')
 	'ExchangePlan' = @('Ref','DeletionMark','Code','Description','ThisNode','SentNo','ReceivedNo')
 	'ChartOfCharacteristicTypes' = @('PredefinedDataName','Predefined','Ref','DeletionMark','Description','Code','Parent','ValueType')
+	'ChartOfAccounts' = @('PredefinedDataName','Order','OffBalance','Type','Description','Code','Parent','Predefined','DeletionMark','Ref')
 }
 $stdFixed = if ($stdFixedByType.ContainsKey($objType)) { $stdFixedByType[$objType] } else { @() }
 # Условные типы: блок эмитим-как-триггер даже пустым (материализуется при отклонении ≥1 реквизита от schema-default;
 # у ExchangePlan это почти всегда — Description/Code=ShowError; редкий all-default EP блок опускает).
-$stdConditionalTypes = @('Catalog', 'ExchangePlan', 'ChartOfCharacteristicTypes')
+$stdConditionalTypes = @('Catalog', 'ExchangePlan', 'ChartOfCharacteristicTypes', 'ChartOfAccounts')
 $saNode = $props.SelectSingleNode('md:StandardAttributes', $nsm)
 if ($saNode) {
 	$saMap = [ordered]@{}
@@ -616,6 +634,20 @@ if ($childObjs) {
 		$arr = [System.Collections.ArrayList]@()
 		foreach ($a in $attrs) { [void]$arr.Add((Attr-ToDsl $a)) }
 		$dsl['attributes'] = $arr
+	}
+	# ChartOfAccounts: признаки учёта (AccountingFlag) и признаки учёта субконто (ExtDimensionAccountingFlag) —
+	# структурно как реквизит, захватываем тем же Attr-ToDsl (тип Boolean уходит в короткую запись).
+	$acctFlagNodes = @($childObjs.SelectNodes('md:AccountingFlag', $nsm))
+	if ($acctFlagNodes.Count -gt 0) {
+		$arr = [System.Collections.ArrayList]@()
+		foreach ($a in $acctFlagNodes) { [void]$arr.Add((Attr-ToDsl $a)) }
+		$dsl['accountingFlags'] = $arr
+	}
+	$extDimFlagNodes = @($childObjs.SelectNodes('md:ExtDimensionAccountingFlag', $nsm))
+	if ($extDimFlagNodes.Count -gt 0) {
+		$arr = [System.Collections.ArrayList]@()
+		foreach ($a in $extDimFlagNodes) { [void]$arr.Add((Attr-ToDsl $a)) }
+		$dsl['extDimensionAccountingFlags'] = $arr
 	}
 	$tsNodes = @($childObjs.SelectNodes('md:TabularSection', $nsm))
 	if ($tsNodes.Count -gt 0) {
@@ -755,8 +787,65 @@ if (Test-Path -LiteralPath $predefPath) {
 		}
 		return $o
 	}
+		# Предопределённые СЧЕТА Плана счетов — отдельная грамматика (AccountType/OffBalance/Order/AccountingFlags/
+		# ExtDimensionTypes). Флаги: захватываем только TRUE (компилятор развернёт по def-порядку признаков плана).
+		function PredefAccount-ToDsl {
+			param($itemEl)
+			$name = ($itemEl.SelectSingleNode("*[local-name()='Name']")).InnerText
+			$codeEl = $itemEl.SelectSingleNode("*[local-name()='Code']")
+			$code = if ($codeEl -and $codeEl.InnerText) { $codeEl.InnerText } else { '' }
+			$descEl = $itemEl.SelectSingleNode("*[local-name()='Description']")
+			$desc = if ($descEl) { $descEl.InnerText } else { '' }
+			$atEl = $itemEl.SelectSingleNode("*[local-name()='AccountType']")
+			$acctType = if ($atEl) { $atEl.InnerText } else { 'ActivePassive' }
+			$offEl = $itemEl.SelectSingleNode("*[local-name()='OffBalance']")
+			$off = ($offEl -and $offEl.InnerText -eq 'true')
+			$ordEl = $itemEl.SelectSingleNode("*[local-name()='Order']")
+			$order = if ($ordEl) { $ordEl.InnerText } else { '' }
+			$auto = Split-CamelWords $name
+			# TRUE-флаги (leaf после последней точки в ref).
+			$trueFlags = @()
+			foreach ($fl in @($itemEl.SelectNodes("*[local-name()='AccountingFlags']/*[local-name()='Flag']"))) {
+				if ($fl.InnerText -eq 'true') { $r = $fl.GetAttribute('ref'); $trueFlags += ($r -split '\.')[-1] }
+			}
+			# ExtDimensionTypes → subconto [{type, turnover?, flags?}].
+			$subconto = [System.Collections.ArrayList]@()
+			foreach ($edt in @($itemEl.SelectNodes("*[local-name()='ExtDimensionTypes']/*[local-name()='ExtDimensionType']"))) {
+				$so = [ordered]@{ type = $edt.GetAttribute('name') }
+				$tEl = $edt.SelectSingleNode("*[local-name()='Turnover']")
+				if ($tEl -and $tEl.InnerText -eq 'true') { $so['turnover'] = $true }
+				$stf = @()
+				foreach ($fl in @($edt.SelectNodes("*[local-name()='AccountingFlags']/*[local-name()='Flag']"))) {
+					if ($fl.InnerText -eq 'true') { $r = $fl.GetAttribute('ref'); $stf += ($r -split '\.')[-1] }
+				}
+				if ($stf.Count -gt 0) { $so['flags'] = [System.Collections.ArrayList]@($stf) }
+				[void]$subconto.Add($so)
+			}
+			$childContainer = $itemEl.SelectSingleNode("*[local-name()='ChildItems']")
+			$kids = @(if ($childContainer) { $childContainer.SelectNodes("*[local-name()='Item']") } else { @() })
+
+			$o = [ordered]@{ name = $name }
+			if ($code) { $o['code'] = $code }
+			if ($desc -ne $auto) { $o['description'] = $desc }
+			$o['accountType'] = $acctType
+			if ($off) { $o['offBalance'] = $true }
+			$o['order'] = $order
+			if ($trueFlags.Count -gt 0) { $o['flags'] = [System.Collections.ArrayList]@($trueFlags) }
+			if ($subconto.Count -gt 0) { $o['subconto'] = $subconto }
+			if ($kids.Count -gt 0) {
+				$sub = [System.Collections.ArrayList]@()
+				foreach ($k in $kids) { [void]$sub.Add((PredefAccount-ToDsl $k)) }
+				$o['childItems'] = $sub
+			}
+			return $o
+		}
+
 	$rootItems = [System.Collections.ArrayList]@()
-	foreach ($it in @($pdoc.DocumentElement.SelectNodes("*[local-name()='Item']"))) { [void]$rootItems.Add((PredefItem-ToDsl $it)) }
+	if ($objType -eq 'ChartOfAccounts') {
+		foreach ($it in @($pdoc.DocumentElement.SelectNodes("*[local-name()='Item']"))) { [void]$rootItems.Add((PredefAccount-ToDsl $it)) }
+	} else {
+		foreach ($it in @($pdoc.DocumentElement.SelectNodes("*[local-name()='Item']"))) { [void]$rootItems.Add((PredefItem-ToDsl $it)) }
+	}
 	if ($rootItems.Count -gt 0) { $dsl['predefined'] = $rootItems }
 }
 
