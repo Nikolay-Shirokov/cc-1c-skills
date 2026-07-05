@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-compile v1.34 — Compile 1C metadata object from JSON
+# meta-compile v1.35 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -374,7 +374,7 @@ valid_enum_values = {
     'FillChecking': ['DontCheck', 'ShowError', 'ShowWarning'],
     'Indexing': ['DontIndex', 'Index', 'IndexWithAdditionalOrder'],
     'SubordinationUse': ['ToItems', 'ToFolders', 'ToFoldersAndItems'],
-    'CodeSeries': ['WholeCatalog', 'WithinSubordination', 'WithinOwnerSubordination'],
+    'CodeSeries': ['WholeCatalog', 'WithinSubordination', 'WithinOwnerSubordination', 'WholeCharacteristicKind'],
     'ChoiceMode': ['BothWays', 'QuickChoice', 'FromForm'],
     'CreateOnInput': ['Auto', 'Use', 'DontUse'],
     'ChoiceHistoryOnInput': ['Auto', 'DontUse'],
@@ -952,7 +952,7 @@ generated_types = {
         {'prefix': 'ChartOfCharacteristicTypesRef', 'category': 'Ref'},
         {'prefix': 'ChartOfCharacteristicTypesSelection', 'category': 'Selection'},
         {'prefix': 'ChartOfCharacteristicTypesList', 'category': 'List'},
-        {'prefix': 'ChartOfCharacteristicTypesCharacteristic', 'category': 'Characteristic'},
+        {'prefix': 'Characteristic', 'category': 'Characteristic'},
         {'prefix': 'ChartOfCharacteristicTypesManager', 'category': 'Manager'},
     ],
     'ChartOfCalculationTypes': [
@@ -1056,6 +1056,11 @@ std_attr_profile = {
         'Description': {'FillChecking': 'ShowError'},
         'Code': {'FillChecking': 'ShowError'},
     },
+    # ChartOfCharacteristicTypes: Наименование → FillChecking=ShowError (21/23), Родитель → FFV=true (23/23).
+    'ChartOfCharacteristicTypes': {
+        'Description': {'FillChecking': 'ShowError'},
+        'Parent': {'FillFromFillingValue': 'true'},
+    },
 }
 
 # ov — dict переопределений (профиль + DSL): FillChecking, FillFromFillingValue, Synonym,
@@ -1121,7 +1126,7 @@ def emit_standard_attribute(indent, attr_name, ov=None):
 # Единый эмиттер блока StandardAttributes — поведение правят ДАННЫЕ, не форк кода (см. коммент в .ps1).
 # std_attr_conditional_types: типы, где блок только при кастомизации (DSL-ключ standardAttributes).
 # Прочие типы → блок всегда (текущее поведение). Миграция типа = +строчка в оба справочника + снэпшоты.
-std_attr_conditional_types = {'Catalog', 'ExchangePlan'}
+std_attr_conditional_types = {'Catalog', 'ExchangePlan', 'ChartOfCharacteristicTypes'}
 def emit_standard_attributes(indent, object_type):
     attrs = standard_attributes_by_type.get(object_type)
     if not attrs:
@@ -1273,6 +1278,8 @@ def expand_data_path(dp):
     if not dp:
         return dp
     s = str(dp)
+    if re.search(r'[:/]', s):
+        return s   # спец-путь (напр. 0:GUID/0:GUID в зависимостях ПВХ) — не разворачиваем
     if re.match(r'^(StandardAttribute|Attribute)\.', s):
         return f'{obj_type}.{obj_name}.{s}'
     if '.' not in s:
@@ -1764,7 +1771,7 @@ def emit_tabular_section(indent, ts_name, columns, object_type, object_name, ts_
     emit_mltext(f'{indent}\t\t', 'ToolTip', ts_tooltip)
     X(f'{indent}\t\t<FillChecking>DontCheck</FillChecking>')
     emit_tabular_standard_attributes(f'{indent}\t\t', ts_line_number)
-    if object_type == 'Catalog':
+    if object_type in ('Catalog', 'ChartOfCharacteristicTypes'):
         X(f'{indent}\t\t<Use>ForItem</Use>')
     X(f'{indent}\t</Properties>')
     ts_context = 'processor-tabular' if object_type in ('DataProcessor', 'Report') else 'tabular'
@@ -2476,29 +2483,22 @@ def emit_chart_of_characteristic_types_properties(indent):
     i = indent
     X(f'{i}<Name>{esc_xml(obj_name)}</Name>')
     emit_mltext(i, 'Synonym', synonym)
-    X(f'{i}<Comment/>')
-    X(f'{i}<UseStandardCommands>true</UseStandardCommands>')
-    code_length = str(defn['codeLength']) if defn.get('codeLength') is not None else '9'
-    description_length = str(defn['descriptionLength']) if defn.get('descriptionLength') is not None else '25'
-    code_allowed_length = get_enum_prop('CodeAllowedLength', 'codeAllowedLength', 'Variable')
-    autonumbering = 'false' if defn.get('autonumbering') is False else 'true'
-    check_unique = 'true' if defn.get('checkUnique') is True else 'false'
-    X(f'{i}<CodeLength>{code_length}</CodeLength>')
-    X(f'{i}<CodeAllowedLength>{code_allowed_length}</CodeAllowedLength>')
-    X(f'{i}<DescriptionLength>{description_length}</DescriptionLength>')
-    X(f'{i}<CheckUnique>{check_unique}</CheckUnique>')
-    X(f'{i}<Autonumbering>{autonumbering}</Autonumbering>')
-    X(f'{i}<DefaultPresentation>AsDescription</DefaultPresentation>')
-    char_ext_values = str(defn['characteristicExtValues']) if defn.get('characteristicExtValues') else ''
-    if char_ext_values:
-        X(f'{i}<CharacteristicExtValues>{char_ext_values}</CharacteristicExtValues>')
+    if defn.get('comment'):
+        X(f'{i}<Comment>{esc_xml_text(str(defn["comment"]))}</Comment>')
+    else:
+        X(f'{i}<Comment/>')
+    X(f'{i}<UseStandardCommands>{"true" if get_bool_prop("useStandardCommands", True) else "false"}</UseStandardCommands>')
+    X(f'{i}<IncludeHelpInContents>{"true" if get_bool_prop("includeHelpInContents", False) else "false"}</IncludeHelpInContents>')
+    if defn.get('characteristicExtValues'):
+        X(f'{i}<CharacteristicExtValues>{esc_xml(str(defn["characteristicExtValues"]))}</CharacteristicExtValues>')
     else:
         X(f'{i}<CharacteristicExtValues/>')
-    value_types = list(defn.get('valueTypes', []))
-    if value_types:
+    vt = defn.get('valueType')
+    if not vt and defn.get('valueTypes'):
+        vt = ' + '.join(defn['valueTypes'])
+    if vt:
         X(f'{i}<Type>')
-        for vt in value_types:
-            emit_type_content(f'{i}\t', str(vt))
+        emit_type_content(f'{i}\t', str(vt))
         X(f'{i}</Type>')
     else:
         X(f'{i}<Type>')
@@ -2519,50 +2519,60 @@ def emit_chart_of_characteristic_types_properties(indent):
         X(f'{i}\t\t<v8:DateFractions>DateTime</v8:DateFractions>')
         X(f'{i}\t</v8:DateQualifiers>')
         X(f'{i}</Type>')
-    hierarchical = 'true' if defn.get('hierarchical') is True else 'false'
-    X(f'{i}<Hierarchical>{hierarchical}</Hierarchical>')
-    X(f'{i}<FoldersOnTop>true</FoldersOnTop>')
+    X(f'{i}<Hierarchical>{"true" if defn.get("hierarchical") is True else "false"}</Hierarchical>')
+    X(f'{i}<FoldersOnTop>{"false" if defn.get("foldersOnTop") is False else "true"}</FoldersOnTop>')
+    code_length = str(defn['codeLength']) if defn.get('codeLength') is not None else '9'
+    description_length = str(defn['descriptionLength']) if defn.get('descriptionLength') is not None else '100'
+    X(f'{i}<CodeLength>{code_length}</CodeLength>')
+    X(f'{i}<CodeAllowedLength>{get_enum_prop("CodeAllowedLength", "codeAllowedLength", "Variable")}</CodeAllowedLength>')
+    X(f'{i}<DescriptionLength>{description_length}</DescriptionLength>')
+    X(f'{i}<CodeSeries>{get_enum_prop("CodeSeries", "codeSeries", "WholeCharacteristicKind")}</CodeSeries>')
+    X(f'{i}<CheckUnique>{"false" if defn.get("checkUnique") is False else "true"}</CheckUnique>')
+    X(f'{i}<Autonumbering>{"false" if defn.get("autonumbering") is False else "true"}</Autonumbering>')
+    X(f'{i}<DefaultPresentation>{get_enum_prop("DefaultPresentation", "defaultPresentation", "AsDescription")}</DefaultPresentation>')
     emit_standard_attributes(i, 'ChartOfCharacteristicTypes')
-    X(f'{i}<Characteristics/>')
-    X(f'{i}<PredefinedDataUpdate>Auto</PredefinedDataUpdate>')
-    X(f'{i}<EditType>InDialog</EditType>')
-    quick_choice = 'true' if defn.get('quickChoice') is True else 'false'
-    X(f'{i}<QuickChoice>{quick_choice}</QuickChoice>')
-    X(f'{i}<ChoiceMode>BothWays</ChoiceMode>')
-    X(f'{i}<InputByString>')
-    X(f'{i}\t<xr:Field>ChartOfCharacteristicTypes.{obj_name}.StandardAttribute.Description</xr:Field>')
-    X(f'{i}\t<xr:Field>ChartOfCharacteristicTypes.{obj_name}.StandardAttribute.Code</xr:Field>')
-    X(f'{i}</InputByString>')
-    X(f'{i}<SearchStringModeOnInputByString>Begin</SearchStringModeOnInputByString>')
-    X(f'{i}<FullTextSearchOnInputByString>DontUse</FullTextSearchOnInputByString>')
+    emit_characteristics(i, defn.get('characteristics'))
+    X(f'{i}<PredefinedDataUpdate>{get_enum_prop("PredefinedDataUpdate", "predefinedDataUpdate", "Auto")}</PredefinedDataUpdate>')
+    X(f'{i}<EditType>{get_enum_prop("EditType", "editType", "InDialog")}</EditType>')
+    X(f'{i}<QuickChoice>{"true" if defn.get("quickChoice") is True else "false"}</QuickChoice>')
+    X(f'{i}<ChoiceMode>{get_enum_prop("ChoiceMode", "choiceMode", "BothWays")}</ChoiceMode>')
+    if 'inputByString' in defn:
+        ib_fields = [expand_data_path(str(x)) for x in (defn.get('inputByString') or [])]
+    else:
+        ib_fields = []
+        if int(description_length) > 0:
+            ib_fields.append(f'ChartOfCharacteristicTypes.{obj_name}.StandardAttribute.Description')
+        if int(code_length) > 0:
+            ib_fields.append(f'ChartOfCharacteristicTypes.{obj_name}.StandardAttribute.Code')
+    emit_field_block(i, 'InputByString', ib_fields)
+    X(f'{i}<CreateOnInput>{get_enum_prop("CreateOnInput", "createOnInput", "DontUse")}</CreateOnInput>')
+    X(f'{i}<SearchStringModeOnInputByString>{get_enum_prop("SearchStringModeOnInputByString", "searchStringModeOnInputByString", "Begin")}</SearchStringModeOnInputByString>')
     X(f'{i}<ChoiceDataGetModeOnInputByString>Directly</ChoiceDataGetModeOnInputByString>')
-    X(f'{i}<DefaultObjectForm/>')
-    X(f'{i}<DefaultFolderForm/>')
-    X(f'{i}<DefaultListForm/>')
-    X(f'{i}<DefaultChoiceForm/>')
-    X(f'{i}<DefaultFolderChoiceForm/>')
-    X(f'{i}<AuxiliaryObjectForm/>')
-    X(f'{i}<AuxiliaryFolderForm/>')
-    X(f'{i}<AuxiliaryListForm/>')
-    X(f'{i}<AuxiliaryChoiceForm/>')
-    X(f'{i}<AuxiliaryFolderChoiceForm/>')
-    X(f'{i}<IncludeHelpInContents>false</IncludeHelpInContents>')
-    X(f'{i}<BasedOn/>')
-    X(f'{i}<DataLockFields/>')
-    data_lock_control_mode = get_enum_prop('DataLockControlMode', 'dataLockControlMode', 'Automatic')
-    X(f'{i}<DataLockControlMode>{data_lock_control_mode}</DataLockControlMode>')
-    full_text_search = get_enum_prop('FullTextSearch', 'fullTextSearch', 'Use')
-    X(f'{i}<FullTextSearch>{full_text_search}</FullTextSearch>')
+    X(f'{i}<FullTextSearchOnInputByString>DontUse</FullTextSearchOnInputByString>')
+    X(f'{i}<ChoiceHistoryOnInput>{get_enum_prop("ChoiceHistoryOnInput", "choiceHistoryOnInput", "Auto")}</ChoiceHistoryOnInput>')
+    emit_form_ref(i, 'DefaultObjectForm', defn.get('defaultObjectForm'))
+    emit_form_ref(i, 'DefaultFolderForm', defn.get('defaultFolderForm'))
+    emit_form_ref(i, 'DefaultListForm', defn.get('defaultListForm'))
+    emit_form_ref(i, 'DefaultChoiceForm', defn.get('defaultChoiceForm'))
+    emit_form_ref(i, 'DefaultFolderChoiceForm', defn.get('defaultFolderChoiceForm'))
+    emit_form_ref(i, 'AuxiliaryObjectForm', defn.get('auxiliaryObjectForm'))
+    emit_form_ref(i, 'AuxiliaryFolderForm', defn.get('auxiliaryFolderForm'))
+    emit_form_ref(i, 'AuxiliaryListForm', defn.get('auxiliaryListForm'))
+    emit_form_ref(i, 'AuxiliaryChoiceForm', defn.get('auxiliaryChoiceForm'))
+    emit_form_ref(i, 'AuxiliaryFolderChoiceForm', defn.get('auxiliaryFolderChoiceForm'))
+    emit_based_on(i, defn.get('basedOn'))
+    dl_fields = [expand_data_path(str(x)) for x in defn.get('dataLockFields', [])] if 'dataLockFields' in defn else []
+    emit_field_block(i, 'DataLockFields', dl_fields)
+    X(f'{i}<DataLockControlMode>{get_enum_prop("DataLockControlMode", "dataLockControlMode", "Managed")}</DataLockControlMode>')
+    X(f'{i}<FullTextSearch>{get_enum_prop("FullTextSearch", "fullTextSearch", "Use")}</FullTextSearch>')
     emit_mltext(i, 'ObjectPresentation', defn.get('objectPresentation'))
     emit_mltext(i, 'ExtendedObjectPresentation', defn.get('extendedObjectPresentation'))
     emit_mltext(i, 'ListPresentation', defn.get('listPresentation'))
     emit_mltext(i, 'ExtendedListPresentation', defn.get('extendedListPresentation'))
     emit_mltext(i, 'Explanation', defn.get('explanation'))
-    X(f'{i}<CreateOnInput>DontUse</CreateOnInput>')
-    X(f'{i}<ChoiceHistoryOnInput>Auto</ChoiceHistoryOnInput>')
-    X(f'{i}<DataHistory>DontUse</DataHistory>')
-    X(f'{i}<UpdateDataHistoryImmediatelyAfterWrite>false</UpdateDataHistoryImmediatelyAfterWrite>')
-    X(f'{i}<ExecuteAfterWriteDataHistoryVersionProcessing>false</ExecuteAfterWriteDataHistoryVersionProcessing>')
+    X(f'{i}<DataHistory>{get_enum_prop("DataHistory", "dataHistory", "DontUse")}</DataHistory>')
+    X(f'{i}<UpdateDataHistoryImmediatelyAfterWrite>{"true" if get_bool_prop("updateDataHistoryImmediatelyAfterWrite", False) else "false"}</UpdateDataHistoryImmediatelyAfterWrite>')
+    X(f'{i}<ExecuteAfterWriteDataHistoryVersionProcessing>{"true" if get_bool_prop("executeAfterWriteDataHistoryVersionProcessing", False) else "false"}</ExecuteAfterWriteDataHistoryVersionProcessing>')
 
 def emit_document_journal_properties(indent):
     i = indent
@@ -3343,7 +3353,9 @@ if obj_type in types_with_attr_ts:
             context = 'document'
         elif obj_type in ('DataProcessor', 'Report'):
             context = 'processor'
-        elif obj_type in ('ChartOfAccounts', 'ChartOfCharacteristicTypes', 'ChartOfCalculationTypes'):
+        elif obj_type == 'ChartOfCharacteristicTypes':
+            context = 'catalog'   # реквизиты ПВХ структурно как у справочника (Use/FillFromFillingValue/DataHistory)
+        elif obj_type in ('ChartOfAccounts', 'ChartOfCalculationTypes'):
             context = 'chart'
         else:
             context = 'object'
@@ -3575,7 +3587,7 @@ def resolve_predef_item(val):
         name = m.group(2)
         code = m.group(1) if m.group(1) is not None else ''
         desc = m.group(3) if m.group(3) is not None else split_camel_case(name)
-        return {'name': name, 'code': code, 'desc': desc, 'isFolder': False, 'children': []}
+        return {'name': name, 'code': code, 'desc': desc, 'isFolder': False, 'children': [], 'type': None}
     def gv(keys):
         for k in keys:
             if k in val:
@@ -3589,7 +3601,10 @@ def resolve_predef_item(val):
     desc = ('' if desc_v is None else str(desc_v)) if has_desc else split_camel_case(name)
     is_folder = gv(['isFolder', 'группа']) is True
     subs = gv(['childItems', 'подчиненные']) or []
-    return {'name': name, 'code': code, 'desc': desc, 'isFolder': is_folder, 'children': list(subs)}
+    type_v = gv(['type', 'тип'])   # тип значения характеристики (ПВХ): строка "A + B" ИЛИ массив
+    if isinstance(type_v, list):
+        type_v = ' + '.join(type_v)
+    return {'name': name, 'code': code, 'desc': desc, 'isFolder': is_folder, 'children': list(subs), 'type': type_v}
 
 def emit_predef_item(out, val, indent, code_type):
     r = resolve_predef_item(val)
@@ -3605,6 +3620,19 @@ def emit_predef_item(out, val, indent, code_type):
         out.append(f'{indent}\t<Description/>')
     else:
         out.append(f'{indent}\t<Description>{esc_xml_text(r["desc"])}</Description>')
+    # Type — тип значения предопределённой характеристики (ПВХ). None→нет блока; ''→<Type/>; 'A + B'→наполненный.
+    rt = r.get('type')
+    if rt is not None and str(rt) == '':
+        out.append(f'{indent}\t<Type/>')
+    elif rt:
+        out.append(f'{indent}\t<Type>')
+        global lines
+        saved = lines
+        lines = []
+        emit_type_content(indent + '\t\t', str(rt))
+        out.extend(lines)
+        lines = saved
+        out.append(f'{indent}\t</Type>')
     out.append(f'{indent}\t<IsFolder>{"true" if r["isFolder"] else "false"}</IsFolder>')
     if r['children']:
         out.append(f'{indent}\t<ChildItems>')
@@ -3638,11 +3666,12 @@ if obj_type == 'BusinessProcess':
         write_utf8_bom(flowchart_path, flowchart_xml)
         modules_created.append(flowchart_path)
 
-# Предопределённые элементы (Ext/Predefined.xml) — пока Catalog.
-if obj_type == 'Catalog' and defn.get('predefined'):
+# Предопределённые элементы (Ext/Predefined.xml). Root-элемент по типу.
+predef_root_by_type = {'Catalog': 'CatalogPredefinedItems', 'ChartOfCharacteristicTypes': 'PlanOfCharacteristicKindPredefinedItems'}
+if obj_type in predef_root_by_type and defn.get('predefined'):
     ensure_ext_dir()
     cat_code_type = str(defn['codeType']) if defn.get('codeType') else 'String'
-    predef_xml = build_predefined_xml(defn['predefined'], 'CatalogPredefinedItems', cat_code_type)
+    predef_xml = build_predefined_xml(defn['predefined'], predef_root_by_type[obj_type], cat_code_type)
     predef_path = os.path.join(ext_dir, 'Predefined.xml')
     write_utf8_bom(predef_path, predef_xml)
     modules_created.append(predef_path)

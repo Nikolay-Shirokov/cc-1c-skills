@@ -1,4 +1,4 @@
-﻿# meta-compile v1.34 — Compile 1C metadata object from JSON
+﻿# meta-compile v1.35 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -257,7 +257,7 @@ $script:validEnumValues = @{
 	"FillChecking"                   = @("DontCheck","ShowError","ShowWarning")
 	"Indexing"                       = @("DontIndex","Index","IndexWithAdditionalOrder")
 	"SubordinationUse"               = @("ToItems","ToFolders","ToFoldersAndItems")
-	"CodeSeries"                     = @("WholeCatalog","WithinSubordination","WithinOwnerSubordination")
+	"CodeSeries"                     = @("WholeCatalog","WithinSubordination","WithinOwnerSubordination","WholeCharacteristicKind")
 	"ChoiceMode"                     = @("BothWays","QuickChoice","FromForm")
 	"CreateOnInput"                  = @("Auto","Use","DontUse")
 	"ChoiceHistoryOnInput"           = @("Auto","DontUse")
@@ -932,7 +932,7 @@ $script:generatedTypes = @{
 		@{ prefix = "ChartOfCharacteristicTypesRef";            category = "Ref" }
 		@{ prefix = "ChartOfCharacteristicTypesSelection";      category = "Selection" }
 		@{ prefix = "ChartOfCharacteristicTypesList";           category = "List" }
-		@{ prefix = "ChartOfCharacteristicTypesCharacteristic"; category = "Characteristic" }
+		@{ prefix = "Characteristic";                          category = "Characteristic" }
 		@{ prefix = "ChartOfCharacteristicTypesManager";        category = "Manager" }
 	)
 	"ChartOfCalculationTypes" = @(
@@ -1037,10 +1037,15 @@ $script:stdAttrProfile = @{
 		"Parent"      = @{ FillFromFillingValue = "true" }
 		"Description"  = @{ FillChecking = "ShowError" }
 	}
-	# ExchangePlan: блок материализуется всегда (не условный), Наименование/Код → FillChecking=ShowError (корпус 40/38 из 41).
+	# ExchangePlan: Наименование/Код → FillChecking=ShowError (корпус 40/38 из 41).
 	"ExchangePlan" = @{
 		"Description" = @{ FillChecking = "ShowError" }
 		"Code"        = @{ FillChecking = "ShowError" }
+	}
+	# ChartOfCharacteristicTypes: Наименование → FillChecking=ShowError (21/23), Родитель → FFV=true (23/23).
+	"ChartOfCharacteristicTypes" = @{
+		"Description" = @{ FillChecking = "ShowError" }
+		"Parent"      = @{ FillFromFillingValue = "true" }
 	}
 }
 
@@ -1102,7 +1107,7 @@ function Emit-StandardAttribute {
 #    Прочие типы (не в множестве) → блок эмитится всегда (текущее поведение, пока их правило не выведено).
 #  - stdAttrProfile[тип]: профиль материализованного блока (пусто = schema-дефолт), поверх — DSL-override.
 # Миграция типа = добавить его в stdAttrConditionalTypes + stdAttrProfile и переснять снэпшоты; КОД НЕ ТРОГАЕМ.
-$script:stdAttrConditionalTypes = @('Catalog', 'ExchangePlan')
+$script:stdAttrConditionalTypes = @('Catalog', 'ExchangePlan', 'ChartOfCharacteristicTypes')
 function Emit-StandardAttributes {
 	param([string]$indent, [string]$objectType)
 	$attrs = $script:standardAttributesByType[$objectType]
@@ -1204,6 +1209,7 @@ function Expand-DataPath {
 	param([string]$dp)
 	if (-not $dp) { return $dp }
 	$s = "$dp"
+	if ($s -match '[:/]') { return $s }   # спец-путь (напр. 0:GUID/0:GUID в зависимостях ПВХ) — не разворачиваем
 	if ($s -match '^(StandardAttribute|Attribute)\.') { return "$objType.$objName.$s" }
 	if (-not $s.Contains('.')) {
 		$en = Resolve-StdAttrEn $s
@@ -1710,8 +1716,8 @@ function Emit-TabularSection {
 	Emit-MLText "$indent`t`t" "ToolTip" $tsTooltip
 	X "$indent`t`t<FillChecking>DontCheck</FillChecking>"
 	Emit-TabularStandardAttributes "$indent`t`t" $tsLineNumber
-	# Use=ForItem only for Catalog tabular sections (Document does not have Use)
-	if ($objectType -eq "Catalog") {
+	# Use=ForItem у ТЧ иерархических ссылочных типов (Catalog, ChartOfCharacteristicTypes); Document не имеет Use.
+	if ($objectType -in @("Catalog", "ChartOfCharacteristicTypes")) {
 		X "$indent`t`t<Use>ForItem</Use>"
 	}
 	X "$indent`t</Properties>"
@@ -2557,35 +2563,21 @@ function Emit-ChartOfCharacteristicTypesProperties {
 
 	X "$i<Name>$(Esc-Xml $objName)</Name>"
 	Emit-MLText $i "Synonym" $synonym
-	X "$i<Comment/>"
-	X "$i<UseStandardCommands>true</UseStandardCommands>"
+	if ($def.comment) { X "$i<Comment>$(Esc-XmlText "$($def.comment)")</Comment>" } else { X "$i<Comment/>" }
+	$useStdCmd = if (Get-BoolProp "useStandardCommands" $true) { "true" } else { "false" }
+	X "$i<UseStandardCommands>$useStdCmd</UseStandardCommands>"
+	$inclHelp = if (Get-BoolProp "includeHelpInContents" $false) { "true" } else { "false" }
+	X "$i<IncludeHelpInContents>$inclHelp</IncludeHelpInContents>"
 
-	$codeLength = if ($null -ne $def.codeLength) { "$($def.codeLength)" } else { "9" }
-	$descriptionLength = if ($null -ne $def.descriptionLength) { "$($def.descriptionLength)" } else { "25" }
-	$codeAllowedLength = Get-EnumProp "CodeAllowedLength" "codeAllowedLength" "Variable"
-	$autonumbering = if ($def.autonumbering -eq $false) { "false" } else { "true" }
-	$checkUnique = if ($def.checkUnique -eq $true) { "true" } else { "false" }
-
-	X "$i<CodeLength>$codeLength</CodeLength>"
-	X "$i<CodeAllowedLength>$codeAllowedLength</CodeAllowedLength>"
-	X "$i<DescriptionLength>$descriptionLength</DescriptionLength>"
-	X "$i<CheckUnique>$checkUnique</CheckUnique>"
-	X "$i<Autonumbering>$autonumbering</Autonumbering>"
-	X "$i<DefaultPresentation>AsDescription</DefaultPresentation>"
-
-	# CharacteristicExtValues
-	$charExtValues = if ($def.characteristicExtValues) { "$($def.characteristicExtValues)" } else { "" }
-	if ($charExtValues) { X "$i<CharacteristicExtValues>$charExtValues</CharacteristicExtValues>" }
+	# CharacteristicExtValues — ссылка на справочник доп. значений характеристик (обычно пусто).
+	if ($def.characteristicExtValues) { X "$i<CharacteristicExtValues>$(Esc-Xml "$($def.characteristicExtValues)")</CharacteristicExtValues>" }
 	else { X "$i<CharacteristicExtValues/>" }
 
-	# Type — composite type of allowed characteristic value types
-	$valueTypes = @()
-	if ($def.valueTypes) { $valueTypes = @($def.valueTypes) }
-	if ($valueTypes.Count -gt 0) {
+	# Type — тип значения характеристики (составной). DSL `valueType` строка "A + B + C" ИЛИ массив; нет ключа → дефолт.
+	$vt = $def.valueType; if (-not $vt -and $def.valueTypes) { $vt = ($def.valueTypes -join ' + ') }
+	if ($vt) {
 		X "$i<Type>"
-		foreach ($vt in $valueTypes) {
-			Emit-TypeContent "$i`t" "$vt"
-		}
+		Emit-TypeContent "$i`t" "$vt"
 		X "$i</Type>"
 	} else {
 		X "$i<Type>"
@@ -2610,52 +2602,68 @@ function Emit-ChartOfCharacteristicTypesProperties {
 
 	$hierarchical = if ($def.hierarchical -eq $true) { "true" } else { "false" }
 	X "$i<Hierarchical>$hierarchical</Hierarchical>"
-	X "$i<FoldersOnTop>true</FoldersOnTop>"
+	$foldersOnTop = if ($def.foldersOnTop -eq $false) { "false" } else { "true" }
+	X "$i<FoldersOnTop>$foldersOnTop</FoldersOnTop>"
+
+	$codeLength = if ($null -ne $def.codeLength) { "$($def.codeLength)" } else { "9" }
+	$descriptionLength = if ($null -ne $def.descriptionLength) { "$($def.descriptionLength)" } else { "100" }
+	X "$i<CodeLength>$codeLength</CodeLength>"
+	X "$i<CodeAllowedLength>$(Get-EnumProp 'CodeAllowedLength' 'codeAllowedLength' 'Variable')</CodeAllowedLength>"
+	X "$i<DescriptionLength>$descriptionLength</DescriptionLength>"
+	X "$i<CodeSeries>$(Get-EnumProp 'CodeSeries' 'codeSeries' 'WholeCharacteristicKind')</CodeSeries>"
+	$checkUnique = if ($def.checkUnique -eq $false) { "false" } else { "true" }
+	X "$i<CheckUnique>$checkUnique</CheckUnique>"
+	$autonumbering = if ($def.autonumbering -eq $false) { "false" } else { "true" }
+	X "$i<Autonumbering>$autonumbering</Autonumbering>"
+	X "$i<DefaultPresentation>$(Get-EnumProp 'DefaultPresentation' 'defaultPresentation' 'AsDescription')</DefaultPresentation>"
 
 	Emit-StandardAttributes $i "ChartOfCharacteristicTypes"
-	X "$i<Characteristics/>"
-	X "$i<PredefinedDataUpdate>Auto</PredefinedDataUpdate>"
-	X "$i<EditType>InDialog</EditType>"
+	Emit-Characteristics $i $def.characteristics
+	X "$i<PredefinedDataUpdate>$(Get-EnumProp 'PredefinedDataUpdate' 'predefinedDataUpdate' 'Auto')</PredefinedDataUpdate>"
+	X "$i<EditType>$(Get-EnumProp 'EditType' 'editType' 'InDialog')</EditType>"
 	$quickChoice = if ($def.quickChoice -eq $true) { "true" } else { "false" }
 	X "$i<QuickChoice>$quickChoice</QuickChoice>"
-	X "$i<ChoiceMode>BothWays</ChoiceMode>"
-	X "$i<InputByString>"
-	X "$i`t<xr:Field>ChartOfCharacteristicTypes.$objName.StandardAttribute.Description</xr:Field>"
-	X "$i`t<xr:Field>ChartOfCharacteristicTypes.$objName.StandardAttribute.Code</xr:Field>"
-	X "$i</InputByString>"
-	X "$i<SearchStringModeOnInputByString>Begin</SearchStringModeOnInputByString>"
-	X "$i<FullTextSearchOnInputByString>DontUse</FullTextSearchOnInputByString>"
+	X "$i<ChoiceMode>$(Get-EnumProp 'ChoiceMode' 'choiceMode' 'BothWays')</ChoiceMode>"
+
+	# InputByString: override ЛИБО дефолт [Descr при D>0]+[Code при C>0] (prefix ChartOfCharacteristicTypes).
+	if (Test-DefKey 'inputByString') {
+		$ibFields = @($def.inputByString | ForEach-Object { Expand-DataPath "$_" })
+	} else {
+		$ibFields = @()
+		if ([int]$descriptionLength -gt 0) { $ibFields += "ChartOfCharacteristicTypes.$objName.StandardAttribute.Description" }
+		if ([int]$codeLength -gt 0)        { $ibFields += "ChartOfCharacteristicTypes.$objName.StandardAttribute.Code" }
+	}
+	Emit-FieldBlock $i "InputByString" $ibFields
+	X "$i<CreateOnInput>$(Get-EnumProp 'CreateOnInput' 'createOnInput' 'DontUse')</CreateOnInput>"
+	X "$i<SearchStringModeOnInputByString>$(Get-EnumProp 'SearchStringModeOnInputByString' 'searchStringModeOnInputByString' 'Begin')</SearchStringModeOnInputByString>"
 	X "$i<ChoiceDataGetModeOnInputByString>Directly</ChoiceDataGetModeOnInputByString>"
-	X "$i<DefaultObjectForm/>"
-	X "$i<DefaultFolderForm/>"
-	X "$i<DefaultListForm/>"
-	X "$i<DefaultChoiceForm/>"
-	X "$i<DefaultFolderChoiceForm/>"
-	X "$i<AuxiliaryObjectForm/>"
-	X "$i<AuxiliaryFolderForm/>"
-	X "$i<AuxiliaryListForm/>"
-	X "$i<AuxiliaryChoiceForm/>"
-	X "$i<AuxiliaryFolderChoiceForm/>"
-	X "$i<IncludeHelpInContents>false</IncludeHelpInContents>"
-	X "$i<BasedOn/>"
-	X "$i<DataLockFields/>"
-
-	$dataLockControlMode = Get-EnumProp "DataLockControlMode" "dataLockControlMode" "Automatic"
-	X "$i<DataLockControlMode>$dataLockControlMode</DataLockControlMode>"
-
-	$fullTextSearch = Get-EnumProp "FullTextSearch" "fullTextSearch" "Use"
-	X "$i<FullTextSearch>$fullTextSearch</FullTextSearch>"
-
+	X "$i<FullTextSearchOnInputByString>DontUse</FullTextSearchOnInputByString>"
+	X "$i<ChoiceHistoryOnInput>$(Get-EnumProp 'ChoiceHistoryOnInput' 'choiceHistoryOnInput' 'Auto')</ChoiceHistoryOnInput>"
+	Emit-FormRef $i "DefaultObjectForm"       $def.defaultObjectForm
+	Emit-FormRef $i "DefaultFolderForm"       $def.defaultFolderForm
+	Emit-FormRef $i "DefaultListForm"         $def.defaultListForm
+	Emit-FormRef $i "DefaultChoiceForm"       $def.defaultChoiceForm
+	Emit-FormRef $i "DefaultFolderChoiceForm" $def.defaultFolderChoiceForm
+	Emit-FormRef $i "AuxiliaryObjectForm"       $def.auxiliaryObjectForm
+	Emit-FormRef $i "AuxiliaryFolderForm"       $def.auxiliaryFolderForm
+	Emit-FormRef $i "AuxiliaryListForm"         $def.auxiliaryListForm
+	Emit-FormRef $i "AuxiliaryChoiceForm"       $def.auxiliaryChoiceForm
+	Emit-FormRef $i "AuxiliaryFolderChoiceForm" $def.auxiliaryFolderChoiceForm
+	Emit-BasedOn $i $def.basedOn
+	$dlFields = if (Test-DefKey 'dataLockFields') { @($def.dataLockFields | ForEach-Object { Expand-DataPath "$_" }) } else { @() }
+	Emit-FieldBlock $i "DataLockFields" $dlFields
+	X "$i<DataLockControlMode>$(Get-EnumProp 'DataLockControlMode' 'dataLockControlMode' 'Managed')</DataLockControlMode>"
+	X "$i<FullTextSearch>$(Get-EnumProp 'FullTextSearch' 'fullTextSearch' 'Use')</FullTextSearch>"
 	Emit-MLText $i "ObjectPresentation" $def.objectPresentation
 	Emit-MLText $i "ExtendedObjectPresentation" $def.extendedObjectPresentation
 	Emit-MLText $i "ListPresentation" $def.listPresentation
 	Emit-MLText $i "ExtendedListPresentation" $def.extendedListPresentation
 	Emit-MLText $i "Explanation" $def.explanation
-	X "$i<CreateOnInput>DontUse</CreateOnInput>"
-	X "$i<ChoiceHistoryOnInput>Auto</ChoiceHistoryOnInput>"
-	X "$i<DataHistory>DontUse</DataHistory>"
-	X "$i<UpdateDataHistoryImmediatelyAfterWrite>false</UpdateDataHistoryImmediatelyAfterWrite>"
-	X "$i<ExecuteAfterWriteDataHistoryVersionProcessing>false</ExecuteAfterWriteDataHistoryVersionProcessing>"
+	X "$i<DataHistory>$(Get-EnumProp 'DataHistory' 'dataHistory' 'DontUse')</DataHistory>"
+	$updDH = if (Get-BoolProp "updateDataHistoryImmediatelyAfterWrite" $false) { "true" } else { "false" }
+	X "$i<UpdateDataHistoryImmediatelyAfterWrite>$updDH</UpdateDataHistoryImmediatelyAfterWrite>"
+	$execDH = if (Get-BoolProp "executeAfterWriteDataHistoryVersionProcessing" $false) { "true" } else { "false" }
+	X "$i<ExecuteAfterWriteDataHistoryVersionProcessing>$execDH</ExecuteAfterWriteDataHistoryVersionProcessing>"
 }
 
 function Emit-DocumentJournalProperties {
@@ -3549,7 +3557,8 @@ if ($objType -in $typesWithAttrTS) {
 			"Catalog"  { "catalog" }
 			"Document" { "document" }
 			{ $_ -in @("DataProcessor","Report") } { "processor" }
-			{ $_ -in @("ChartOfAccounts","ChartOfCharacteristicTypes","ChartOfCalculationTypes") } { "chart" }
+			"ChartOfCharacteristicTypes" { "catalog" }   # реквизиты ПВХ структурно как у справочника (Use/FillFromFillingValue/DataHistory)
+			{ $_ -in @("ChartOfAccounts","ChartOfCalculationTypes") } { "chart" }
 			default    { "object" }
 		}
 		foreach ($a in $attrs) {
@@ -3756,7 +3765,7 @@ function Resolve-PredefItem {
 		$name = $m.Groups[2].Value
 		$code = if ($m.Groups[1].Success) { $m.Groups[1].Value } else { '' }
 		$desc = if ($m.Groups[3].Success) { $m.Groups[3].Value } else { Split-CamelCase $name }
-		return @{ name = $name; code = $code; desc = $desc; isFolder = $false; children = @() }
+		return @{ name = $name; code = $code; desc = $desc; isFolder = $false; children = @(); type = $null }
 	}
 	# Объектная форма + русские синонимы (прощающий ввод).
 	$gv = { param($o, [string[]]$keys) foreach ($k in $keys) { if ($o.PSObject.Properties[$k]) { return $o.$k } } return $null }
@@ -3769,7 +3778,9 @@ function Resolve-PredefItem {
 	$folderV = & $gv $val @('isFolder','группа')
 	$isFolder = ($folderV -eq $true)
 	$subs = & $gv $val @('childItems','подчиненные')
-	return @{ name = $name; code = $code; desc = $desc; isFolder = $isFolder; children = @(if ($subs) { $subs } else { @() }) }
+	$typeV = & $gv $val @('type','тип')   # тип значения характеристики (ПВХ): строка "A + B" ИЛИ массив
+	if ($typeV -is [System.Array]) { $typeV = ($typeV -join ' + ') }
+	return @{ name = $name; code = $code; desc = $desc; isFolder = $isFolder; children = @(if ($subs) { $subs } else { @() }); type = $typeV }
 }
 function Emit-PredefItem {
 	param($sb, $val, [string]$indent, [string]$codeType)
@@ -3781,6 +3792,18 @@ function Emit-PredefItem {
 	else { [void]$sb.Append("$indent`t<Code>$(Esc-XmlText $r.code)</Code>`n") }
 	if ($r.desc -eq '') { [void]$sb.Append("$indent`t<Description/>`n") }
 	else { [void]$sb.Append("$indent`t<Description>$(Esc-XmlText $r.desc)</Description>`n") }
+	# Type — тип значения предопределённой характеристики (ПВХ); между Description и IsFolder.
+	# type=$null → блока нет (Catalog); type='' → пустой <Type/>; type='A + B' → наполненный.
+	if ($null -ne $r.type -and "$($r.type)" -eq '') { [void]$sb.Append("$indent`t<Type/>`n") }
+	elseif ($r.type) {
+		[void]$sb.Append("$indent`t<Type>`n")
+		$tmp = New-Object System.Text.StringBuilder
+		$saveXml = $script:xml; $script:xml = $tmp
+		Emit-TypeContent "$indent`t`t" "$($r.type)"
+		$script:xml = $saveXml
+		[void]$sb.Append(($tmp.ToString() -replace "`r`n", "`n"))
+		[void]$sb.Append("$indent`t</Type>`n")
+	}
 	[void]$sb.Append("$indent`t<IsFolder>$(if ($r.isFolder) { 'true' } else { 'false' })</IsFolder>`n")
 	if ($r.children.Count -gt 0) {
 		[void]$sb.Append("$indent`t<ChildItems>`n")
@@ -3897,11 +3920,12 @@ if ($objType -eq "BusinessProcess") {
 	}
 }
 
-# Предопределённые элементы (Ext/Predefined.xml) — пока Catalog. Пусто/нет ключа → файл не создаём.
-if ($objType -eq "Catalog" -and $def.predefined -and @($def.predefined).Count -gt 0) {
+# Предопределённые элементы (Ext/Predefined.xml). Root-элемент — по типу. Пусто/нет ключа → файл не создаём.
+$predefRootByType = @{ 'Catalog' = 'CatalogPredefinedItems'; 'ChartOfCharacteristicTypes' = 'PlanOfCharacteristicKindPredefinedItems' }
+if ($predefRootByType.ContainsKey($objType) -and $def.predefined -and @($def.predefined).Count -gt 0) {
 	Ensure-ExtDir
 	$catCodeType = if ($def.codeType) { "$($def.codeType)" } else { 'String' }
-	$predefXml = Build-PredefinedXml @($def.predefined) "CatalogPredefinedItems" $catCodeType
+	$predefXml = Build-PredefinedXml @($def.predefined) $predefRootByType[$objType] $catCodeType
 	$predefPath = Join-Path $extDir "Predefined.xml"
 	[System.IO.File]::WriteAllText($predefPath, $predefXml, $enc)
 	$modulesCreated += $predefPath

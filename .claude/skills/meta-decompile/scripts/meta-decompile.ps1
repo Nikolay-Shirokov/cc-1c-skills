@@ -1,7 +1,7 @@
-﻿# meta-decompile v0.23 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
+﻿# meta-decompile v0.24 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 #
-# Поддержаны: Catalog, ExchangePlan. Инверс meta-compile (omit-on-default: ключ эмитим только
+# Поддержаны: Catalog, ExchangePlan, ChartOfCharacteristicTypes. Инверс meta-compile (omit-on-default: ключ эмитим только
 # когда значение в XML отличается от умолчания компилятора). Неподдерживаемый тип / не-MetaDataObject
 # root → exit 3 (ring3, как form-decompile).
 param(
@@ -91,8 +91,8 @@ foreach ($c in $rootEl.ChildNodes) { if ($c.NodeType -eq 'Element') { $objNode =
 if (-not $objNode) { [Console]::Error.WriteLine("meta-decompile: пустой MetaDataObject"); exit 3 }
 $objType = $objNode.LocalName
 
-if ($objType -notin @('Catalog', 'ExchangePlan')) {
-	[Console]::Error.WriteLine("meta-decompile: тип '$objType' пока не поддержан (Catalog, ExchangePlan)"); exit 3
+if ($objType -notin @('Catalog', 'ExchangePlan', 'ChartOfCharacteristicTypes')) {
+	[Console]::Error.WriteLine("meta-decompile: тип '$objType' пока не поддержан (Catalog, ExchangePlan, ChartOfCharacteristicTypes)"); exit 3
 }
 
 $props = $objNode.SelectSingleNode('md:Properties', $nsm)
@@ -157,24 +157,27 @@ function Get-TypeShorthand {
 				'(^|:)boolean$'    { $parts += 'Boolean'; break }
 				'(^|:)string$'     {
 					$len = '10'; $al = ''
-					if ($next -and $next.LocalName -eq 'StringQualifiers') {
-						$l = $next.SelectSingleNode('v8:Length', $nsm); if ($l) { $len = $l.InnerText }
-						$aln = $next.SelectSingleNode('v8:AllowedLength', $nsm); if ($aln -and $aln.InnerText -eq 'Fixed') { $al = ',fixed' }
+					$sq = if ($next -and $next.LocalName -eq 'StringQualifiers') { $next } else { $typeNode.SelectSingleNode('v8:StringQualifiers', $nsm) }
+					if ($sq) {
+						$l = $sq.SelectSingleNode('v8:Length', $nsm); if ($l) { $len = $l.InnerText }
+						$aln = $sq.SelectSingleNode('v8:AllowedLength', $nsm); if ($aln -and $aln.InnerText -eq 'Fixed') { $al = ',fixed' }
 					}
 					$parts += "String($len$al)"; break
 				}
 				'(^|:)decimal$'    {
 					$d = '10'; $f = '0'; $sign = ''
-					if ($next -and $next.LocalName -eq 'NumberQualifiers') {
-						$dn = $next.SelectSingleNode('v8:Digits', $nsm); if ($dn) { $d = $dn.InnerText }
-						$fn = $next.SelectSingleNode('v8:FractionDigits', $nsm); if ($fn) { $f = $fn.InnerText }
-						$sn = $next.SelectSingleNode('v8:AllowedSign', $nsm); if ($sn -and $sn.InnerText -eq 'Nonnegative') { $sign = ',nonneg' }
+					$nq = if ($next -and $next.LocalName -eq 'NumberQualifiers') { $next } else { $typeNode.SelectSingleNode('v8:NumberQualifiers', $nsm) }
+					if ($nq) {
+						$dn = $nq.SelectSingleNode('v8:Digits', $nsm); if ($dn) { $d = $dn.InnerText }
+						$fn = $nq.SelectSingleNode('v8:FractionDigits', $nsm); if ($fn) { $f = $fn.InnerText }
+						$sn = $nq.SelectSingleNode('v8:AllowedSign', $nsm); if ($sn -and $sn.InnerText -eq 'Nonnegative') { $sign = ',nonneg' }
 					}
 					$parts += "Number($d,$f$sign)"; break
 				}
 				'(^|:)dateTime$'   {
 					$fr = 'DateTime'
-					if ($next -and $next.LocalName -eq 'DateQualifiers') { $dn = $next.SelectSingleNode('v8:DateFractions', $nsm); if ($dn) { $fr = $dn.InnerText } }
+					$dq = if ($next -and $next.LocalName -eq 'DateQualifiers') { $next } else { $typeNode.SelectSingleNode('v8:DateQualifiers', $nsm) }
+					if ($dq) { $dn = $dq.SelectSingleNode('v8:DateFractions', $nsm); if ($dn) { $fr = $dn.InnerText } }
 					$parts += $fr; break   # Date | DateTime
 				}
 				'(^|:)base64Binary$' { $parts += 'ValueStorage'; break }
@@ -389,16 +392,18 @@ if ($ownersNode) {
 }
 Add-EnumProp 'subordinationUse' 'SubordinationUse' 'ToItems'
 # Тип-зависимые дефолты (компилятор задаёт их по типу — декомпилятор обязан зеркалить, иначе omit ≠ значению).
-$descrLenDef  = if ($objType -eq 'ExchangePlan') { 150 } else { 25 }
-$createInpDef = if ($objType -eq 'ExchangePlan') { 'DontUse' } else { 'Use' }
-$dataLockDef  = if ($objType -eq 'ExchangePlan') { 'Managed' } else { 'Automatic' }
+$descrLenDef  = switch ($objType) { 'ExchangePlan' { 150 } 'ChartOfCharacteristicTypes' { 100 } default { 25 } }
+$createInpDef = if ($objType -eq 'Catalog') { 'Use' } else { 'DontUse' }
+$dataLockDef  = if ($objType -eq 'Catalog') { 'Automatic' } else { 'Managed' }
+$codeSeriesDef = if ($objType -eq 'ChartOfCharacteristicTypes') { 'WholeCharacteristicKind' } else { 'WholeCatalog' }
+$checkUniqueDef = ($objType -eq 'ChartOfCharacteristicTypes')   # ПВХ дефолт true, Catalog false
 Add-IntProp  'codeLength'        'CodeLength'        9
 Add-IntProp  'descriptionLength' 'DescriptionLength' $descrLenDef
 Add-EnumProp 'codeType'          'CodeType'          'String'
 Add-EnumProp 'codeAllowedLength' 'CodeAllowedLength' 'Variable'
 Add-BoolProp 'autonumbering'     'Autonumbering'     $true
-Add-BoolProp 'checkUnique'       'CheckUnique'       $false
-Add-EnumProp 'codeSeries'        'CodeSeries'        'WholeCatalog'
+Add-BoolProp 'checkUnique'       'CheckUnique'       $checkUniqueDef
+Add-EnumProp 'codeSeries'        'CodeSeries'        $codeSeriesDef
 Add-EnumProp 'defaultPresentation' 'DefaultPresentation' 'AsDescription'
 Add-BoolProp 'quickChoice'       'QuickChoice'       $false
 Add-EnumProp 'choiceMode'        'ChoiceMode'        'BothWays'
@@ -418,6 +423,19 @@ if ($objType -eq 'ExchangePlan') {
 	Add-EnumProp 'dataHistory' 'DataHistory' 'DontUse'
 	Add-BoolProp 'updateDataHistoryImmediatelyAfterWrite' 'UpdateDataHistoryImmediatelyAfterWrite' $false
 	Add-BoolProp 'executeAfterWriteDataHistoryVersionProcessing' 'ExecuteAfterWriteDataHistoryVersionProcessing' $false
+}
+# ChartOfCharacteristicTypes-специфичные свойства.
+if ($objType -eq 'ChartOfCharacteristicTypes') {
+	Add-EnumProp 'dataHistory' 'DataHistory' 'DontUse'
+	Add-BoolProp 'updateDataHistoryImmediatelyAfterWrite' 'UpdateDataHistoryImmediatelyAfterWrite' $false
+	Add-BoolProp 'executeAfterWriteDataHistoryVersionProcessing' 'ExecuteAfterWriteDataHistoryVersionProcessing' $false
+	$cev = P 'CharacteristicExtValues'; if ($cev) { $dsl['characteristicExtValues'] = $cev }
+	# Type — тип значения характеристики; valueType при отличии от дефолта (Boolean+String(100)+Number(15,2)+DateTime).
+	$vtNode = $props.SelectSingleNode('md:Type', $nsm)
+	if ($vtNode) {
+		$vtStr = Get-TypeShorthand $vtNode
+		if ($vtStr -and $vtStr -ne 'Boolean + String(100) + Number(15,2) + DateTime') { $dsl['valueType'] = $vtStr }
+	}
 }
 
 # Короткая форма поля: <Type>.<Name>.StandardAttribute.X / .Attribute.X → StandardAttribute.X / Attribute.X
@@ -535,6 +553,10 @@ $stdProfileByType = @{
 		'Description' = @{ fillChecking = 'ShowError' }
 		'Code'        = @{ fillChecking = 'ShowError' }
 	}
+	'ChartOfCharacteristicTypes' = @{
+		'Description' = @{ fillChecking = 'ShowError' }
+		'Parent'      = @{ fillFromFillingValue = $true }
+	}
 }
 $catStdProfile = if ($stdProfileByType.ContainsKey($objType)) { $stdProfileByType[$objType] } else { @{} }
 # Фикс-список стандартных реквизитов типа (зеркало standardAttributesByType компилятора) — чтобы отличать
@@ -542,11 +564,12 @@ $catStdProfile = if ($stdProfileByType.ContainsKey($objType)) { $stdProfileByTyp
 $stdFixedByType = @{
 	'Catalog'      = @('PredefinedDataName','Predefined','Ref','DeletionMark','IsFolder','Owner','Parent','Description','Code')
 	'ExchangePlan' = @('Ref','DeletionMark','Code','Description','ThisNode','SentNo','ReceivedNo')
+	'ChartOfCharacteristicTypes' = @('PredefinedDataName','Predefined','Ref','DeletionMark','Description','Code','Parent','ValueType')
 }
 $stdFixed = if ($stdFixedByType.ContainsKey($objType)) { $stdFixedByType[$objType] } else { @() }
 # Условные типы: блок эмитим-как-триггер даже пустым (материализуется при отклонении ≥1 реквизита от schema-default;
 # у ExchangePlan это почти всегда — Description/Code=ShowError; редкий all-default EP блок опускает).
-$stdConditionalTypes = @('Catalog', 'ExchangePlan')
+$stdConditionalTypes = @('Catalog', 'ExchangePlan', 'ChartOfCharacteristicTypes')
 $saNode = $props.SelectSingleNode('md:StandardAttributes', $nsm)
 if ($saNode) {
 	$saMap = [ordered]@{}
@@ -703,20 +726,25 @@ if (Test-Path -LiteralPath $predefPath) {
 		# ВАЖНО: обернуть весь if в @(), иначе PS распаковывает одноэлементный @(...) из if-блока
 		# обратно в узел → $kids.Count = $null → папки с ОДНИМ ребёнком теряют его.
 		$kids = @(if ($childContainer) { $childContainer.SelectNodes("*[local-name()='Item']") } else { @() })
+		# Type — тип значения предопределённой характеристики (ПВХ). Наличие → object-форма (в строку не влезает).
+		# Наличие узла <Type> (даже пустого <Type/>) → object-форма с ключом type ('' для пустого); нет узла (Catalog) → без.
+		$typeEl = $itemEl.SelectSingleNode("*[local-name()='Type']")
+		$typeStr = if ($typeEl) { Get-TypeShorthand $typeEl } else { $null }
 		$auto = Split-CamelWords $name
 
-		if (-not $isFolder -and $kids.Count -eq 0) {
-			# Плоский → компактная строка.
+		if (-not $isFolder -and $kids.Count -eq 0 -and $null -eq $typeEl) {
+			# Плоский без типа → компактная строка.
 			$s = if ($code) { "($code) $name" } else { $name }
 			if ($desc -eq '') { $s = "$s []" }
 			elseif ($desc -ne $auto) { $s = "$s [$desc]" }
 			return $s
 		}
-		# Группа/иерархия → объект.
+		# Группа/иерархия/с типом → объект.
 		$o = [ordered]@{ name = $name }
 		if ($code) { $o['code'] = $code }
 		if ($desc -eq '') { $o['description'] = '' }
 		elseif ($desc -ne $auto) { $o['description'] = $desc }
+		if ($null -ne $typeStr) { $o['type'] = $typeStr }
 		if ($isFolder) { $o['isFolder'] = $true }
 		if ($kids.Count -gt 0) {
 			$sub = [System.Collections.ArrayList]@()

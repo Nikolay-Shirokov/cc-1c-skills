@@ -619,6 +619,32 @@ omit-on-empty. Поля пишутся частичной формой (`Standar
 ключ `standardAttributes`. Опциональный легаси-реквизит `ExchangeDate` (часть планов) поддержан как «доп.» член
 `standardAttributes` (эмитится по факту наличия ключа, вне фикс-списка).
 
+### 7.2b ChartOfCharacteristicTypes (План видов характеристик)
+
+Иерархический ссылочный тип (папки+элементы, без уровней/подчинения). Общий с Catalog слой: `synonym`, `comment`,
+`useStandardCommands`, `includeHelpInContents`, `hierarchical`/`foldersOnTop`, коды (`codeLength`/`codeAllowedLength`/
+`descriptionLength`/`checkUnique`/`autonumbering`), `defaultPresentation`, `standardAttributes` (§7.1.1),
+`characteristics` (§7.1.4), `inputByString` (§7.1.5), формы (вкл. `*Folder*`), `basedOn`, `dataLockFields`, презентации,
+`predefined` (§7.1.2) — предопределённые виды характеристик.
+
+| Поле JSON | Умолчание | XML элемент |
+|-----------|----------|-------------|
+| `valueType` | *(любой примитив)* | Type (тип значения характеристики, составной — строка `"A + B"` или массив `valueTypes`) |
+| `characteristicExtValues` | пусто | CharacteristicExtValues (ссылка на справочник доп. значений) |
+| `createOnInput` | `DontUse` | CreateOnInput *(≠ Catalog `Use`)* |
+| `dataLockControlMode` | `Managed` | DataLockControlMode *(≠ Catalog `Automatic`)* |
+| `codeSeries` | `WholeCharacteristicKind` | CodeSeries *(≠ Catalog `WholeCatalog`)* |
+| `checkUnique` | `true` | CheckUnique *(≠ Catalog `false`)* |
+| `descriptionLength` | `100` | DescriptionLength *(≠ Catalog `25`)* |
+| `dataHistory` + `updateDataHistoryImmediatelyAfterWrite` + `executeAfterWriteDataHistoryVersionProcessing` | `DontUse`/`false`/`false` | DataHistory-триплет |
+
+Стандартные реквизиты ПВХ: PredefinedDataName, Predefined, Ref, DeletionMark, Description, Code, Parent, ValueType
+(профиль: Наименование → FillChecking=ShowError, Родитель → FillFromFillingValue=true). Блок **условный** (`standardAttributes`).
+
+**Предопределённые виды** несут **тип значения на элемент** — ключ `type` в объектной форме `predefined`-элемента
+(строка `"A + B"` или массив; `""` → пустой `<Type/>`; отсутствие ключа → без блока). Пример:
+`{"name": "Цвет", "code": "000001", "type": "CatalogRef.Цвета"}`.
+
 ### 7.3 Enum
 
 | Поле JSON | Умолчание | XML элемент |

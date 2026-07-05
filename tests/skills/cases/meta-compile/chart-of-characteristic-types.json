@@ -4,8 +4,15 @@
     "type": "ChartOfCharacteristicTypes",
     "name": "ДополнительныеРеквизитыИСведения",
     "descriptionLength": 100,
+    "hierarchical": true,
     "valueTypes": ["String(200)", "Number(15,2)", "Boolean", "Date"],
-    "attributes": ["НаборСвойств: String(100)"]
+    "standardAttributes": { "Description": { "synonym": "Свойство" } },
+    "attributes": ["НаборСвойств: String(100)"],
+    "predefined": [
+      { "name": "Цвет", "code": "000001", "type": "CatalogRef.ЗначенияСвойств" },
+      { "name": "Размер", "code": "000002", "type": "String(50) + Number(3,0)" },
+      { "name": "Группа", "code": "000003", "isFolder": true, "type": "" }
+    ]
   },
   "validatePath": "ChartsOfCharacteristicTypes/ДополнительныеРеквизитыИСведения",
   "expect": {
