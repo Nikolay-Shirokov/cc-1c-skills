@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-compile v1.37 — Compile 1C metadata object from JSON
+# meta-compile v1.38 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -2630,6 +2630,15 @@ def emit_document_journal_properties(indent):
     X(f'{i}<ExtendedListPresentation/>')
     X(f'{i}<Explanation/>')
 
+def resolve_type_prefix_syn(ref):
+    """Ссылка на объект: русский префикс типа → английский (ПланВидовХарактеристик.X → ChartOfCharacteristicTypes.X)."""
+    if ref and '.' in ref:
+        p, s = ref.split('.', 1)
+        if p in object_type_synonyms:
+            p = object_type_synonyms[p]
+        return f'{p}.{s}'
+    return ref
+
 def emit_chart_of_accounts_properties(indent):
     i = indent
     X(f'{i}<Name>{esc_xml(obj_name)}</Name>')
@@ -2642,14 +2651,7 @@ def emit_chart_of_accounts_properties(indent):
     X(f'{i}<IncludeHelpInContents>{"true" if get_bool_prop("includeHelpInContents", False) else "false"}</IncludeHelpInContents>')
     emit_based_on(i, defn.get('basedOn'))
     # ExtDimensionTypes — ссылка на ПВХ видов субконто (прощающий ввод: ПланВидовХарактеристик.X → ChartOfCharacteristicTypes.X).
-    ext_dim_types = ''
-    if defn.get('extDimensionTypes'):
-        ext_dim_types = str(defn['extDimensionTypes'])
-        if '.' in ext_dim_types:
-            edt_pfx, edt_sfx = ext_dim_types.split('.', 1)
-            if edt_pfx in object_type_synonyms:
-                edt_pfx = object_type_synonyms[edt_pfx]
-            ext_dim_types = f'{edt_pfx}.{edt_sfx}'
+    ext_dim_types = resolve_type_prefix_syn(str(defn['extDimensionTypes'])) if defn.get('extDimensionTypes') else ''
     if ext_dim_types:
         X(f'{i}<ExtDimensionTypes>{esc_xml(ext_dim_types)}</ExtDimensionTypes>')
     else:
@@ -3668,7 +3670,7 @@ def emit_predef_account_flags(out, indent, tag, ref_kind, obj_nm, flag_names, tr
         out.append(f'{indent}\t<Flag ref="ChartOfAccounts.{obj_nm}.{ref_kind}.{fn}">{v}</Flag>')
     out.append(f'{indent}</{tag}>')
 
-def emit_predef_account(out, val, indent, obj_nm, acct_flag_names, ext_dim_flag_names):
+def emit_predef_account(out, val, indent, obj_nm, acct_flag_names, ext_dim_flag_names, ext_dim_types_ref=''):
     name = str(_predef_acc_get(val, ('name', 'имя')) or '')
     code_v = _predef_acc_get(val, ('code', 'код'))
     code = str(code_v) if code_v is not None else ''
@@ -3696,14 +3698,27 @@ def emit_predef_account(out, val, indent, obj_nm, acct_flag_names, ext_dim_flag_
     else:
         out.append(f'{indent}\t<ExtDimensionTypes>')
         for sc in sub_arr:
-            sc_type = str(_predef_acc_get(sc, ('type', 'тип')) or '')
-            if '.' in sc_type:
-                sc_pfx, sc_sfx = sc_type.split('.', 1)
-                if sc_pfx in object_type_synonyms:
-                    sc_pfx = object_type_synonyms[sc_pfx]
-                sc_type = f'{sc_pfx}.{sc_sfx}'
-            sc_turn = 'true' if _predef_acc_get(sc, ('turnover', 'оборотный')) is True else 'false'
-            sc_flags = _predef_acc_get(sc, ('flags', 'признаки'))
+            # Строковая форма "Тип | Признак1, Признак2" (флаги после |, turnover=false). Объектная — {type, turnover?, flags?}.
+            if isinstance(sc, str):
+                sc_turn_v = None
+                if '|' in sc:
+                    tpart, fpart = sc.split('|', 1)
+                    sc_type = tpart.strip()
+                    sc_flags = [x.strip() for x in fpart.split(',') if x.strip()]
+                else:
+                    sc_type = sc.strip()
+                    sc_flags = None
+            else:
+                sc_type = str(_predef_acc_get(sc, ('type', 'тип')) or '')
+                sc_turn_v = _predef_acc_get(sc, ('turnover', 'толькоОбороты', 'оборотный'))
+                sc_flags = _predef_acc_get(sc, ('flags', 'признаки'))
+            # Короткая запись: голое имя значения → префикс ПВХ видов субконто плана (extDimensionTypes); иначе резолв синонима.
+            if '.' not in sc_type:
+                if ext_dim_types_ref:
+                    sc_type = f'{ext_dim_types_ref}.{sc_type}'
+            else:
+                sc_type = resolve_type_prefix_syn(sc_type)
+            sc_turn = 'true' if sc_turn_v is True else 'false'
             out.append(f'{indent}\t\t<ExtDimensionType name="{esc_xml(sc_type)}">')
             out.append(f'{indent}\t\t\t<Turnover>{sc_turn}</Turnover>')
             emit_predef_account_flags(out, f'{indent}\t\t\t', 'AccountingFlags', 'ExtDimensionAccountingFlag', obj_nm, ext_dim_flag_names, sc_flags)
@@ -3713,15 +3728,15 @@ def emit_predef_account(out, val, indent, obj_nm, acct_flag_names, ext_dim_flag_
     if child_arr:
         out.append(f'{indent}\t<ChildItems>')
         for c in child_arr:
-            emit_predef_account(out, c, f'{indent}\t\t', obj_nm, acct_flag_names, ext_dim_flag_names)
+            emit_predef_account(out, c, f'{indent}\t\t', obj_nm, acct_flag_names, ext_dim_flag_names, ext_dim_types_ref)
         out.append(f'{indent}\t</ChildItems>')
     out.append(f'{indent}</Item>')
 
-def build_predefined_account_xml(items, obj_nm, acct_flag_names, ext_dim_flag_names):
+def build_predefined_account_xml(items, obj_nm, acct_flag_names, ext_dim_flag_names, ext_dim_types_ref=''):
     out = ['<?xml version="1.0" encoding="UTF-8"?>']
     out.append(f'<PredefinedData xmlns="http://v8.1c.ru/8.3/xcf/predef" xmlns:v8="http://v8.1c.ru/8.1/data/core" xmlns:xr="http://v8.1c.ru/8.3/xcf/readable" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:type="ChartOfAccountsPredefinedItems" version="{format_version}">')
     for it in items:
-        emit_predef_account(out, it, '\t', obj_nm, acct_flag_names, ext_dim_flag_names)
+        emit_predef_account(out, it, '\t', obj_nm, acct_flag_names, ext_dim_flag_names, ext_dim_types_ref)
     out.append('</PredefinedData>')
     return '\n'.join(out) + '\n'
 
@@ -3749,7 +3764,8 @@ if obj_type == 'ChartOfAccounts' and defn.get('predefined'):
     ensure_ext_dir()
     af_names = [parse_attribute_shorthand(af)['name'] for af in _as_list(defn['accountingFlags'])] if defn.get('accountingFlags') else []
     edf_names = [parse_attribute_shorthand(edf)['name'] for edf in _as_list(defn['extDimensionAccountingFlags'])] if defn.get('extDimensionAccountingFlags') else []
-    predef_xml = build_predefined_account_xml(defn['predefined'], obj_name, af_names, edf_names)
+    edt_ref = resolve_type_prefix_syn(str(defn['extDimensionTypes'])) if defn.get('extDimensionTypes') else ''
+    predef_xml = build_predefined_account_xml(defn['predefined'], obj_name, af_names, edf_names, edt_ref)
     predef_path = os.path.join(ext_dir, 'Predefined.xml')
     write_utf8_bom(predef_path, predef_xml)
     modules_created.append(predef_path)

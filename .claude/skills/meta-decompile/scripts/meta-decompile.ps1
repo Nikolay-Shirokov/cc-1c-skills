@@ -1,4 +1,4 @@
-﻿# meta-decompile v0.26 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
+﻿# meta-decompile v0.27 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 #
 # Поддержаны: Catalog, ExchangePlan, ChartOfCharacteristicTypes, ChartOfAccounts. Инверс meta-compile (omit-on-default: ключ эмитим только
@@ -808,25 +808,36 @@ if (Test-Path -LiteralPath $predefPath) {
 			foreach ($fl in @($itemEl.SelectNodes("*[local-name()='AccountingFlags']/*[local-name()='Flag']"))) {
 				if ($fl.InnerText -eq 'true') { $r = $fl.GetAttribute('ref'); $trueFlags += ($r -split '\.')[-1] }
 			}
-			# ExtDimensionTypes → subconto [{type, turnover?, flags?}].
+			# ExtDimensionTypes → subconto. Короткая запись: срезаем префикс ПВХ видов субконто плана (extDimensionTypes).
+			# turnover=false → строка "Тип | Признак1, Признак2" (или "Тип" без признаков); turnover=true → объект.
+			$edtPfx = if ($dsl['extDimensionTypes']) { "$($dsl['extDimensionTypes'])." } else { $null }
 			$subconto = [System.Collections.ArrayList]@()
 			foreach ($edt in @($itemEl.SelectNodes("*[local-name()='ExtDimensionTypes']/*[local-name()='ExtDimensionType']"))) {
-				$so = [ordered]@{ type = $edt.GetAttribute('name') }
+				$scT = $edt.GetAttribute('name')
+				if ($edtPfx -and $scT.StartsWith($edtPfx)) { $scT = $scT.Substring($edtPfx.Length) }
 				$tEl = $edt.SelectSingleNode("*[local-name()='Turnover']")
-				if ($tEl -and $tEl.InnerText -eq 'true') { $so['turnover'] = $true }
+				$scTurn = ($tEl -and $tEl.InnerText -eq 'true')
 				$stf = @()
 				foreach ($fl in @($edt.SelectNodes("*[local-name()='AccountingFlags']/*[local-name()='Flag']"))) {
 					if ($fl.InnerText -eq 'true') { $r = $fl.GetAttribute('ref'); $stf += ($r -split '\.')[-1] }
 				}
-				if ($stf.Count -gt 0) { $so['flags'] = [System.Collections.ArrayList]@($stf) }
-				[void]$subconto.Add($so)
+				if (-not $scTurn) {
+					if ($stf.Count -gt 0) { [void]$subconto.Add("$scT | " + ($stf -join ', ')) }
+					else { [void]$subconto.Add($scT) }
+				} else {
+					$so = [ordered]@{ type = $scT; turnover = $true }
+					if ($stf.Count -gt 0) { $so['flags'] = [System.Collections.ArrayList]@($stf) }
+					[void]$subconto.Add($so)
+				}
 			}
 			$childContainer = $itemEl.SelectSingleNode("*[local-name()='ChildItems']")
 			$kids = @(if ($childContainer) { $childContainer.SelectNodes("*[local-name()='Item']") } else { @() })
 
 			$o = [ordered]@{ name = $name }
 			if ($code) { $o['code'] = $code }
-			if ($desc -ne $auto) { $o['description'] = $desc }
+			# -cne (регистрочувствительно!): PS `-ne` регистронезависим → «…ОС» == «…ос» и description ошибочно
+			# опускался, а компилятор регенерил lowercase (Split-CamelCase). Хвостовые аббревиатуры (ОС/НМА) теряли регистр.
+			if ($desc -cne $auto) { $o['description'] = $desc }
 			$o['accountType'] = $acctType
 			if ($off) { $o['offBalance'] = $true }
 			$o['order'] = $order

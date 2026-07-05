@@ -1,4 +1,4 @@
-﻿# meta-compile v1.37 — Compile 1C metadata object from JSON
+﻿# meta-compile v1.38 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -2735,6 +2735,17 @@ function Emit-DocumentJournalProperties {
 
 # --- 13d. Wave 4: ChartOfAccounts, AccountingRegister, ChartOfCalculationTypes, CalculationRegister ---
 
+# Ссылка на объект метаданных: русский префикс типа → английский (ПланВидовХарактеристик.X → ChartOfCharacteristicTypes.X).
+function Resolve-TypePrefixSyn {
+	param([string]$ref)
+	if ($ref -and $ref.Contains('.')) {
+		$d = $ref.IndexOf('.'); $p = $ref.Substring(0, $d); $s = $ref.Substring($d + 1)
+		if ($script:objectTypeSynonyms.ContainsKey($p)) { $p = $script:objectTypeSynonyms[$p] }
+		return "$p.$s"
+	}
+	return $ref
+}
+
 function Emit-ChartOfAccountsProperties {
 	param([string]$indent)
 	$i = $indent
@@ -2749,15 +2760,7 @@ function Emit-ChartOfAccountsProperties {
 	Emit-BasedOn $i $def.basedOn
 
 	# ExtDimensionTypes — ссылка на ПВХ видов субконто (прощающий ввод: ПланВидовХарактеристик.X → ChartOfCharacteristicTypes.X).
-	$extDimTypes = ""
-	if ($def.extDimensionTypes) {
-		$extDimTypes = "$($def.extDimensionTypes)"
-		if ($extDimTypes.Contains('.')) {
-			$edtDot = $extDimTypes.IndexOf('.'); $edtPfx = $extDimTypes.Substring(0, $edtDot); $edtSfx = $extDimTypes.Substring($edtDot + 1)
-			if ($script:objectTypeSynonyms.ContainsKey($edtPfx)) { $edtPfx = $script:objectTypeSynonyms[$edtPfx] }
-			$extDimTypes = "$edtPfx.$edtSfx"
-		}
-	}
+	$extDimTypes = if ($def.extDimensionTypes) { Resolve-TypePrefixSyn "$($def.extDimensionTypes)" } else { "" }
 	if ($extDimTypes) { X "$i<ExtDimensionTypes>$(Esc-Xml $extDimTypes)</ExtDimensionTypes>" } else { X "$i<ExtDimensionTypes/>" }
 
 	$maxExtDim = if ($null -ne $def.maxExtDimensionCount) { "$($def.maxExtDimensionCount)" } else { "3" }
@@ -3818,7 +3821,7 @@ function Emit-PredefAccountFlags {
 	[void]$sb.Append("$indent</$tag>`n")
 }
 function Emit-PredefAccount {
-	param($sb, $val, [string]$indent, [string]$objName, [string[]]$acctFlagNames, [string[]]$extDimFlagNames)
+	param($sb, $val, [string]$indent, [string]$objName, [string[]]$acctFlagNames, [string[]]$extDimFlagNames, [string]$extDimTypesRef = '')
 	$gv = $script:predefAccGet
 	$name = "$(& $gv $val @('name','имя'))"
 	$codeV = & $gv $val @('code','код'); $code = if ($null -ne $codeV) { "$codeV" } else { '' }
@@ -3846,14 +3849,19 @@ function Emit-PredefAccount {
 	else {
 		[void]$sb.Append("$indent`t<ExtDimensionTypes>`n")
 		foreach ($sc in $subArr) {
-			$scType = "$(& $gv $sc @('type','тип'))"
-			if ($scType.Contains('.')) {
-				$scDot = $scType.IndexOf('.'); $scPfx = $scType.Substring(0, $scDot); $scSfx = $scType.Substring($scDot + 1)
-				if ($script:objectTypeSynonyms.ContainsKey($scPfx)) { $scPfx = $script:objectTypeSynonyms[$scPfx] }
-				$scType = "$scPfx.$scSfx"
+			# Строковая форма "Тип | Признак1, Признак2" (флаги после |, turnover=false). Объектная — {type, turnover?, flags?}.
+			if ($sc -is [string]) {
+				$scTurnV = $null; $scFlags = $null; $scStr = "$sc"
+				if ($scStr.Contains('|')) {
+					$scParts = $scStr.Split('|', 2); $scType = $scParts[0].Trim()
+					$scFlags = @($scParts[1].Split(',') | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+				} else { $scType = $scStr.Trim() }
 			}
-			$scTurnV = & $gv $sc @('turnover','оборотный'); $scTurn = if ($scTurnV -eq $true) { 'true' } else { 'false' }
-			$scFlags = & $gv $sc @('flags','признаки')
+			else { $scType = "$(& $gv $sc @('type','тип'))"; $scTurnV = & $gv $sc @('turnover','толькоОбороты','оборотный'); $scFlags = & $gv $sc @('flags','признаки') }
+			# Короткая запись: голое имя значения → префикс ПВХ видов субконто плана (extDimensionTypes); иначе резолв синонима.
+			if (-not $scType.Contains('.')) { if ($extDimTypesRef) { $scType = "$extDimTypesRef.$scType" } }
+			else { $scType = Resolve-TypePrefixSyn $scType }
+			$scTurn = if ($scTurnV -eq $true) { 'true' } else { 'false' }
 			[void]$sb.Append("$indent`t`t<ExtDimensionType name=`"$(Esc-Xml $scType)`">`n")
 			[void]$sb.Append("$indent`t`t`t<Turnover>$scTurn</Turnover>`n")
 			Emit-PredefAccountFlags $sb "$indent`t`t`t" 'AccountingFlags' 'ExtDimensionAccountingFlag' $objName $extDimFlagNames $scFlags
@@ -3864,17 +3872,17 @@ function Emit-PredefAccount {
 	$childArr = @(); if ($children) { $childArr = @($children) }
 	if ($childArr.Count -gt 0) {
 		[void]$sb.Append("$indent`t<ChildItems>`n")
-		foreach ($c in $childArr) { Emit-PredefAccount $sb $c "$indent`t`t" $objName $acctFlagNames $extDimFlagNames }
+		foreach ($c in $childArr) { Emit-PredefAccount $sb $c "$indent`t`t" $objName $acctFlagNames $extDimFlagNames $extDimTypesRef }
 		[void]$sb.Append("$indent`t</ChildItems>`n")
 	}
 	[void]$sb.Append("$indent</Item>`n")
 }
 function Build-PredefinedAccountXml {
-	param($items, [string]$objName, [string[]]$acctFlagNames, [string[]]$extDimFlagNames)
+	param($items, [string]$objName, [string[]]$acctFlagNames, [string[]]$extDimFlagNames, [string]$extDimTypesRef = '')
 	$sb = New-Object System.Text.StringBuilder
 	[void]$sb.Append("<?xml version=`"1.0`" encoding=`"UTF-8`"?>`n")
 	[void]$sb.Append("<PredefinedData xmlns=`"http://v8.1c.ru/8.3/xcf/predef`" xmlns:v8=`"http://v8.1c.ru/8.1/data/core`" xmlns:xr=`"http://v8.1c.ru/8.3/xcf/readable`" xmlns:xs=`"http://www.w3.org/2001/XMLSchema`" xmlns:xsi=`"http://www.w3.org/2001/XMLSchema-instance`" xsi:type=`"ChartOfAccountsPredefinedItems`" version=`"$($script:formatVersion)`">`n")
-	foreach ($it in $items) { Emit-PredefAccount $sb $it "`t" $objName $acctFlagNames $extDimFlagNames }
+	foreach ($it in $items) { Emit-PredefAccount $sb $it "`t" $objName $acctFlagNames $extDimFlagNames $extDimTypesRef }
 	[void]$sb.Append("</PredefinedData>`n")
 	return $sb.ToString()
 }
@@ -3984,7 +3992,8 @@ if ($objType -eq 'ChartOfAccounts' -and $def.predefined -and @($def.predefined).
 	Ensure-ExtDir
 	$afNames = @(); if ($def.accountingFlags) { foreach ($af in $def.accountingFlags) { $afNames += (Parse-AttributeShorthand $af).name } }
 	$edfNames = @(); if ($def.extDimensionAccountingFlags) { foreach ($edf in $def.extDimensionAccountingFlags) { $edfNames += (Parse-AttributeShorthand $edf).name } }
-	$predefXml = Build-PredefinedAccountXml @($def.predefined) $objName $afNames $edfNames
+	$edtRef = if ($def.extDimensionTypes) { Resolve-TypePrefixSyn "$($def.extDimensionTypes)" } else { '' }
+	$predefXml = Build-PredefinedAccountXml @($def.predefined) $objName $afNames $edfNames $edtRef
 	$predefPath = Join-Path $extDir "Predefined.xml"
 	[System.IO.File]::WriteAllText($predefPath, $predefXml, $enc)
 	$modulesCreated += $predefPath

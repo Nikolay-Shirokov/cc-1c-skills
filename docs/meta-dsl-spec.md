@@ -695,14 +695,20 @@ Split-CamelCase имени.
 | `offBalance` | `false` | OffBalance |
 | `order` | — | Order (строка сортировки, вербатим) |
 | `flags` | `[]` | AccountingFlags → `<Flag>` по каждому признаку плана |
-| `subconto` | `[]` | ExtDimensionTypes → `<ExtDimensionType name="…">` `{type, turnover?, flags?}` |
+| `subconto` | `[]` | ExtDimensionTypes → `<ExtDimensionType name="…">` (вид субконто) |
 | `childItems` | `[]` | ChildItems (иерархия счетов) |
+
+**Субконто** (`subconto`) — короткая строка **`"Вид | Признак1, Признак2"`** (после `|` — включённые признаки учёта
+субконто): `type` — голое имя предопределённого значения ПВХ, компилятор разворачивает через `extDimensionTypes` плана
+(`Номенклатура` → `ChartOfCharacteristicTypes.ВидыСубконто.Номенклатура`); признаки — только TRUE, разворот по def-порядку
+`extDimensionAccountingFlags`. Объектная форма `{type, turnover?, flags?}` — когда нужен `turnover: true`
+(`<Turnover>` = «Только обороты»: субконто ведётся только по оборотам, без остатков; синоним `толькоОбороты`).
 
 ```json
 "predefined": [
   { "name": "ОсновныеСредства", "code": "01", "accountType": "Active", "order": " 01",
     "flags": ["Количественный"],
-    "subconto": [{ "type": "ChartOfCharacteristicTypes.ВидыСубконто.ОсновныеСредства", "flags": ["Суммовой"] }],
+    "subconto": ["Номенклатура | Суммовой, Валютный"],
     "childItems": [
       { "name": "ОС в организации", "code": "01.01", "accountType": "Active", "order": " 01.01" }
     ] }
