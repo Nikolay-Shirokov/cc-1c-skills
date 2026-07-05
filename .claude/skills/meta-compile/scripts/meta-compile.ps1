@@ -1,4 +1,4 @@
-﻿# meta-compile v1.32 — Compile 1C metadata object from JSON
+﻿# meta-compile v1.33 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -427,6 +427,8 @@ $script:typeSynonyms["строка"]   = "String"
 $script:typeSynonyms["булево"]   = "Boolean"
 $script:typeSynonyms["дата"]     = "Date"
 $script:typeSynonyms["датавремя"]= "DateTime"
+$script:typeSynonyms["время"]    = "Time"
+$script:typeSynonyms["time"]     = "Time"
 $script:typeSynonyms["number"]   = "Number"
 $script:typeSynonyms["string"]   = "String"
 $script:typeSynonyms["boolean"]  = "Boolean"
@@ -546,18 +548,11 @@ function Emit-TypeContent {
 		return
 	}
 
-	# Date / DateTime
-	if ($typeStr -eq "Date") {
+	# Date / DateTime / Time — общая структура xs:dateTime + DateFractions (различаются лишь составом).
+	if ($typeStr -match '^(Date|DateTime|Time)$') {
 		X "$indent<v8:Type>xs:dateTime</v8:Type>"
 		X "$indent<v8:DateQualifiers>"
-		X "$indent`t<v8:DateFractions>Date</v8:DateFractions>"
-		X "$indent</v8:DateQualifiers>"
-		return
-	}
-	if ($typeStr -eq "DateTime") {
-		X "$indent<v8:Type>xs:dateTime</v8:Type>"
-		X "$indent<v8:DateQualifiers>"
-		X "$indent`t<v8:DateFractions>DateTime</v8:DateFractions>"
+		X "$indent`t<v8:DateFractions>$typeStr</v8:DateFractions>"
 		X "$indent</v8:DateQualifiers>"
 		return
 	}

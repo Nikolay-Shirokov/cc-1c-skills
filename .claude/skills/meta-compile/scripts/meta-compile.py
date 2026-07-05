@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-compile v1.32 — Compile 1C metadata object from JSON
+# meta-compile v1.33 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -477,6 +477,8 @@ type_synonyms = {
     'булево': 'Boolean',
     'дата': 'Date',
     'датавремя': 'DateTime',
+    'время': 'Time',
+    'time': 'Time',
     'number': 'Number',
     'string': 'String',
     'boolean': 'Boolean',
@@ -584,17 +586,11 @@ def emit_type_content(indent, type_str):
         X(f'{indent}\t<v8:AllowedSign>{sign}</v8:AllowedSign>')
         X(f'{indent}</v8:NumberQualifiers>')
         return
-    # Date / DateTime
-    if type_str == 'Date':
+    # Date / DateTime / Time — общая структура xs:dateTime + DateFractions (различаются лишь составом).
+    if type_str in ('Date', 'DateTime', 'Time'):
         X(f'{indent}<v8:Type>xs:dateTime</v8:Type>')
         X(f'{indent}<v8:DateQualifiers>')
-        X(f'{indent}\t<v8:DateFractions>Date</v8:DateFractions>')
-        X(f'{indent}</v8:DateQualifiers>')
-        return
-    if type_str == 'DateTime':
-        X(f'{indent}<v8:Type>xs:dateTime</v8:Type>')
-        X(f'{indent}<v8:DateQualifiers>')
-        X(f'{indent}\t<v8:DateFractions>DateTime</v8:DateFractions>')
+        X(f'{indent}\t<v8:DateFractions>{type_str}</v8:DateFractions>')
         X(f'{indent}</v8:DateQualifiers>')
         return
     # TypeSet — тип-множество: ОпределяемыйТип (DefinedType) ИЛИ Характеристика ПВХ (Characteristic).
