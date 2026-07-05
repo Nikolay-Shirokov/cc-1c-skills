@@ -1,5 +1,17 @@
 {
-  "name": "План счетов: признаки учёта и предопределённые счета",
+  "name": "План счетов: субконто, признаки учёта и предопределённые счета",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "ChartOfCharacteristicTypes",
+        "name": "ВидыСубконто",
+        "valueType": "String(100)",
+        "predefined": ["Номенклатура: String(100)", "Склады: String(100)"]
+      },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    }
+  ],
   "input": {
     "type": "ChartOfAccounts",
     "name": "Хозрасчетный",
@@ -7,11 +19,16 @@
     "codeLength": 8,
     "descriptionLength": 120,
     "codeMask": "@@@.@@.@",
-    "maxExtDimensionCount": 0,
+    "extDimensionTypes": "ChartOfCharacteristicTypes.ВидыСубконто",
+    "maxExtDimensionCount": 2,
     "checkUnique": true,
     "accountingFlags": [
       { "name": "Валютный", "synonym": "Валютный учет", "tooltip": "Ведется валютный учет" },
       "Количественный"
+    ],
+    "extDimensionAccountingFlags": [
+      { "name": "Суммовой", "fillValue": true },
+      "Валютный"
     ],
     "predefined": [
       {
@@ -21,6 +38,7 @@
         "accountType": "Active",
         "order": " 01",
         "flags": ["Количественный"],
+        "subconto": ["Номенклатура | Суммовой"],
         "childItems": [
           {
             "name": "ОсновныеСредстваВОрганизации",
@@ -28,7 +46,8 @@
             "description": "Основные средства в организации",
             "accountType": "Active",
             "order": " 01.01",
-            "flags": ["Количественный"]
+            "flags": ["Количественный"],
+            "subconto": ["Номенклатура | Turnover, Суммовой"]
           }
         ]
       },

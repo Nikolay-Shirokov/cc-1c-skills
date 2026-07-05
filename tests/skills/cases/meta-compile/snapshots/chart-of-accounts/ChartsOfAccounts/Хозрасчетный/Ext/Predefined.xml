@@ -11,7 +11,15 @@
 			<Flag ref="ChartOfAccounts.Хозрасчетный.AccountingFlag.Валютный">false</Flag>
 			<Flag ref="ChartOfAccounts.Хозрасчетный.AccountingFlag.Количественный">true</Flag>
 		</AccountingFlags>
-		<ExtDimensionTypes/>
+		<ExtDimensionTypes>
+			<ExtDimensionType name="ChartOfCharacteristicTypes.ВидыСубконто.Номенклатура">
+				<Turnover>false</Turnover>
+				<AccountingFlags>
+					<Flag ref="ChartOfAccounts.Хозрасчетный.ExtDimensionAccountingFlag.Суммовой">true</Flag>
+					<Flag ref="ChartOfAccounts.Хозрасчетный.ExtDimensionAccountingFlag.Валютный">false</Flag>
+				</AccountingFlags>
+			</ExtDimensionType>
+		</ExtDimensionTypes>
 		<ChildItems>
 			<Item id="UUID-002">
 				<Name>ОсновныеСредстваВОрганизации</Name>
@@ -24,7 +32,15 @@
 					<Flag ref="ChartOfAccounts.Хозрасчетный.AccountingFlag.Валютный">false</Flag>
 					<Flag ref="ChartOfAccounts.Хозрасчетный.AccountingFlag.Количественный">true</Flag>
 				</AccountingFlags>
-				<ExtDimensionTypes/>
+				<ExtDimensionTypes>
+					<ExtDimensionType name="ChartOfCharacteristicTypes.ВидыСубконто.Номенклатура">
+						<Turnover>true</Turnover>
+						<AccountingFlags>
+							<Flag ref="ChartOfAccounts.Хозрасчетный.ExtDimensionAccountingFlag.Суммовой">true</Flag>
+							<Flag ref="ChartOfAccounts.Хозрасчетный.ExtDimensionAccountingFlag.Валютный">false</Flag>
+						</AccountingFlags>
+					</ExtDimensionType>
+				</ExtDimensionTypes>
 			</Item>
 		</ChildItems>
 	</Item>
