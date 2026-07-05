@@ -663,7 +663,7 @@ omit-on-empty. Поля пишутся частичной формой (`Standar
 | Поле JSON | Умолчание | XML элемент |
 |-----------|----------|-------------|
 | `extDimensionTypes` | пусто | ExtDimensionTypes (ссылка на ПВХ видов субконто; `ПланВидовХарактеристик.X` → `ChartOfCharacteristicTypes.X`) |
-| `maxExtDimensionCount` | `3` | MaxExtDimensionCount (число субконто; `0` → нет субконто) |
+| `maxExtDimensionCount` | `3` при заданном `extDimensionTypes`, иначе `0` | MaxExtDimensionCount (платформа не даёт > 0 без ПВХ видов субконто) |
 | `codeMask` | пусто | CodeMask (маска кода счёта) |
 | `codeSeries` | `WholeChartOfAccounts` | CodeSeries |
 | `checkUnique` | `true` | CheckUnique *(≠ Catalog `false`)* |

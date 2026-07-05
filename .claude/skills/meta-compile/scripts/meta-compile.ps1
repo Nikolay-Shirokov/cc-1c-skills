@@ -1,4 +1,4 @@
-﻿# meta-compile v1.39 — Compile 1C metadata object from JSON
+﻿# meta-compile v1.40 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -2763,7 +2763,8 @@ function Emit-ChartOfAccountsProperties {
 	$extDimTypes = if ($def.extDimensionTypes) { Resolve-TypePrefixSyn "$($def.extDimensionTypes)" } else { "" }
 	if ($extDimTypes) { X "$i<ExtDimensionTypes>$(Esc-Xml $extDimTypes)</ExtDimensionTypes>" } else { X "$i<ExtDimensionTypes/>" }
 
-	$maxExtDim = if ($null -ne $def.maxExtDimensionCount) { "$($def.maxExtDimensionCount)" } else { "3" }
+	# Количество субконто: без ПВХ (extDimensionTypes) платформа не даёт > 0 → дефолт 0; с ПВХ — 3.
+	$maxExtDim = if ($null -ne $def.maxExtDimensionCount) { "$($def.maxExtDimensionCount)" } elseif ($extDimTypes) { "3" } else { "0" }
 	X "$i<MaxExtDimensionCount>$maxExtDim</MaxExtDimensionCount>"
 
 	if ($def.codeMask) { X "$i<CodeMask>$(Esc-XmlText "$($def.codeMask)")</CodeMask>" } else { X "$i<CodeMask/>" }

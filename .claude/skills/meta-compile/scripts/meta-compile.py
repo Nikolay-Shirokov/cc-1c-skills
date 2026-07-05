@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-compile v1.39 — Compile 1C metadata object from JSON
+# meta-compile v1.40 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -2658,7 +2658,8 @@ def emit_chart_of_accounts_properties(indent):
         X(f'{i}<ExtDimensionTypes>{esc_xml(ext_dim_types)}</ExtDimensionTypes>')
     else:
         X(f'{i}<ExtDimensionTypes/>')
-    max_ext_dim = str(defn['maxExtDimensionCount']) if defn.get('maxExtDimensionCount') is not None else '3'
+    # Количество субконто: без ПВХ (extDimensionTypes) платформа не даёт > 0 → дефолт 0; с ПВХ — 3.
+    max_ext_dim = str(defn['maxExtDimensionCount']) if defn.get('maxExtDimensionCount') is not None else ('3' if ext_dim_types else '0')
     X(f'{i}<MaxExtDimensionCount>{max_ext_dim}</MaxExtDimensionCount>')
     if defn.get('codeMask'):
         X(f'{i}<CodeMask>{esc_xml_text(str(defn["codeMask"]))}</CodeMask>')

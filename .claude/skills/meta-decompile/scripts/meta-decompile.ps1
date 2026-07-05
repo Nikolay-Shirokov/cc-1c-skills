@@ -1,4 +1,4 @@
-﻿# meta-decompile v0.28 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
+﻿# meta-decompile v0.29 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 #
 # Поддержаны: Catalog, ExchangePlan, ChartOfCharacteristicTypes, ChartOfAccounts. Инверс meta-compile (omit-on-default: ключ эмитим только
@@ -441,7 +441,8 @@ if ($objType -eq 'ChartOfCharacteristicTypes') {
 # ChartOfAccounts-специфичные свойства (у Catalog этих тегов нет → блок его не трогает).
 if ($objType -eq 'ChartOfAccounts') {
 	$edt = P 'ExtDimensionTypes'; if ($edt) { $dsl['extDimensionTypes'] = $edt }
-	Add-IntProp  'maxExtDimensionCount' 'MaxExtDimensionCount' 3
+	# Дефолт зеркалит компилятор: с ПВХ — 3, без — 0 (платформа не даёт > 0 без ПВХ).
+	Add-IntProp  'maxExtDimensionCount' 'MaxExtDimensionCount' $(if ($edt) { 3 } else { 0 })
 	$cm = P 'CodeMask'; if ($cm) { $dsl['codeMask'] = $cm }
 	Add-BoolProp 'autoOrderByCode' 'AutoOrderByCode' $true
 	Add-IntProp  'orderLength' 'OrderLength' 9
