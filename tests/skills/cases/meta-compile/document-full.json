@@ -1,0 +1,39 @@
+{
+  "name": "Документ: движения, проведение, нумерация, кастомизация ТЧ/реквизитов",
+  "input": {
+    "type": "Document",
+    "name": "РеализацияУслуг",
+    "comment": "полный документ",
+    "numberType": "String",
+    "numberLength": 9,
+    "posting": "Allow",
+    "realTimePosting": "Allow",
+    "registerRecordsWritingOnPost": "WriteModified",
+    "registerRecords": ["AccumulationRegister.Продажи"],
+    "standardAttributes": { "Date": { "fillChecking": "ShowError" }, "Number": { "synonym": "Номер документа" } },
+    "attributes": [
+      "Контрагент: CatalogRef.Контрагенты",
+      { "name": "Сумма", "type": "Number(15,2)", "markNegatives": true },
+      { "name": "Ответственный", "type": "CatalogRef.Пользователи" }
+    ],
+    "tabularSections": [
+      {
+        "name": "Услуги",
+        "fillChecking": "ShowError",
+        "attributes": ["Номенклатура: CatalogRef.Номенклатура", "Количество: Number(10,3)"]
+      },
+      {
+        "name": "Комментарии",
+        "lineNumber": "",
+        "attributes": ["Текст: String(200)"]
+      }
+    ]
+  },
+  "validatePath": "Documents/РеализацияУслуг",
+  "expect": {
+    "files": [
+      "Documents/РеализацияУслуг.xml",
+      "Documents/РеализацияУслуг/Ext/ObjectModule.bsl"
+    ]
+  }
+}

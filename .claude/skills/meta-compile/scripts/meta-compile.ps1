@@ -1,4 +1,4 @@
-﻿# meta-compile v1.42 — Compile 1C metadata object from JSON
+﻿# meta-compile v1.43 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -828,6 +828,9 @@ function Parse-AttributeShorthand {
 		editFormat = $val.editFormat
 		mask = if ($val.mask) { "$($val.mask)" } else { "" }
 		extendedEdit = if ($val.extendedEdit -eq $true) { $true } else { $false }
+		markNegatives = if ($val.markNegatives -eq $true) { $true } else { $false }
+		choiceForm = if ($val.choiceForm) { "$($val.choiceForm)" } else { "" }
+		choiceFoldersAndItems = if ($val.choiceFoldersAndItems) { "$($val.choiceFoldersAndItems)" } else { "" }
 		minValue = $val.minValue
 		maxValue = $val.maxValue
 		hasFillValue = ($val.PSObject -and $val.PSObject.Properties -and ($val.PSObject.Properties.Name -contains 'fillValue'))
@@ -1060,6 +1063,10 @@ $script:stdAttrProfile = @{
 	"ChartOfCalculationTypes" = @{
 		"Description" = @{ FillChecking = "ShowError" }
 	}
+	# Document: Дата → FillChecking=ShowError (974/1010 доков acc+erp; дата обязательна).
+	"Document" = @{
+		"Date" = @{ FillChecking = "ShowError" }
+	}
 }
 
 # $ov — hashtable переопределений (профиль + DSL) для полей: FillChecking, FillFromFillingValue,
@@ -1120,7 +1127,7 @@ function Emit-StandardAttribute {
 #    Прочие типы (не в множестве) → блок эмитится всегда (текущее поведение, пока их правило не выведено).
 #  - stdAttrProfile[тип]: профиль материализованного блока (пусто = schema-дефолт), поверх — DSL-override.
 # Миграция типа = добавить его в stdAttrConditionalTypes + stdAttrProfile и переснять снэпшоты; КОД НЕ ТРОГАЕМ.
-$script:stdAttrConditionalTypes = @('Catalog', 'ExchangePlan', 'ChartOfCharacteristicTypes', 'ChartOfAccounts', 'ChartOfCalculationTypes')
+$script:stdAttrConditionalTypes = @('Catalog', 'ExchangePlan', 'ChartOfCharacteristicTypes', 'ChartOfAccounts', 'ChartOfCalculationTypes', 'Document')
 function Emit-StandardAttributes {
 	param([string]$indent, [string]$objectType)
 	$attrs = $script:standardAttributesByType[$objectType]
@@ -1151,6 +1158,8 @@ function Emit-StandardAttributes {
 				if ($null -ne $d.choiceParameters) { $ov['ChoiceParameters'] = $d.choiceParameters }
 				if ($d.comment) { $ov['Comment'] = "$($d.comment)" }
 				if ($d.mask) { $ov['Mask'] = "$($d.mask)" }
+				if ($null -ne $d.format) { $ov['Format'] = $d.format }         # строка ИЛИ {ru,en}
+				if ($null -ne $d.editFormat) { $ov['EditFormat'] = $d.editFormat }
 				if ($d.choiceForm) { $ov['ChoiceForm'] = "$($d.choiceForm)" }
 			}
 		}
@@ -1581,7 +1590,7 @@ function Emit-Attribute {
 	Emit-MLText "$indent`t`t" "Format" $parsed.format
 	Emit-MLText "$indent`t`t" "EditFormat" $parsed.editFormat
 	Emit-MLText "$indent`t`t" "ToolTip" $parsed.tooltip
-	X "$indent`t`t<MarkNegatives>false</MarkNegatives>"
+	X "$indent`t`t<MarkNegatives>$(if ($parsed.markNegatives -eq $true) { 'true' } else { 'false' })</MarkNegatives>"
 	if ($parsed.mask) { X "$indent`t`t<Mask>$(Esc-XmlText $parsed.mask)</Mask>" } else { X "$indent`t`t<Mask/>" }
 	$multiLine = if ($parsed.multiLine -eq $true -or $parsed.flags -contains "multiline") { "true" } else { "false" }
 	X "$indent`t`t<MultiLine>$multiLine</MultiLine>"
@@ -1608,14 +1617,14 @@ function Emit-Attribute {
 	if ($parsed.fillChecking) { $fillChecking = $parsed.fillChecking }
 	X "$indent`t`t<FillChecking>$fillChecking</FillChecking>"
 
-	X "$indent`t`t<ChoiceFoldersAndItems>Items</ChoiceFoldersAndItems>"
+	X "$indent`t`t<ChoiceFoldersAndItems>$(if ($parsed.choiceFoldersAndItems) { "$($parsed.choiceFoldersAndItems)" } else { 'Items' })</ChoiceFoldersAndItems>"
 	Emit-ChoiceParameterLinks "$indent`t`t" $parsed.choiceParameterLinks
 	Emit-ChoiceParameters "$indent`t`t" $parsed.choiceParameters
 	$qc = if ($parsed.quickChoice) { $parsed.quickChoice } else { "Auto" }
 	X "$indent`t`t<QuickChoice>$qc</QuickChoice>"
 	$coi = if ($parsed.createOnInput) { $parsed.createOnInput } else { "Auto" }
 	X "$indent`t`t<CreateOnInput>$coi</CreateOnInput>"
-	X "$indent`t`t<ChoiceForm/>"
+	if ($parsed.choiceForm) { X "$indent`t`t<ChoiceForm>$(Esc-Xml "$($parsed.choiceForm)")</ChoiceForm>" } else { X "$indent`t`t<ChoiceForm/>" }
 	Emit-LinkByType "$indent`t`t" $parsed.linkByType
 	$chi = if ($parsed.choiceHistoryOnInput) { $parsed.choiceHistoryOnInput } else { "Auto" }
 	X "$indent`t`t<ChoiceHistoryOnInput>$chi</ChoiceHistoryOnInput>"
@@ -1712,7 +1721,7 @@ function Emit-Command {
 # --- 9. TabularSection emitter ---
 
 function Emit-TabularSection {
-	param([string]$indent, [string]$tsName, $columns, [string]$objectType, [string]$objectName, $tsSynonymArg = $null, $tsTooltip = $null, $tsComment = $null, $tsLineNumber = $null)
+	param([string]$indent, [string]$tsName, $columns, [string]$objectType, [string]$objectName, $tsSynonymArg = $null, $tsTooltip = $null, $tsComment = $null, $tsLineNumber = $null, $tsFillChecking = $null)
 	$uuid = New-Guid-String
 	X "$indent<TabularSection uuid=`"$uuid`">"
 
@@ -1738,8 +1747,13 @@ function Emit-TabularSection {
 	Emit-MLText "$indent`t`t" "Synonym" $tsSynonym
 	if ($tsComment) { X "$indent`t`t<Comment>$(Esc-XmlText $tsComment)</Comment>" } else { X "$indent`t`t<Comment/>" }
 	Emit-MLText "$indent`t`t" "ToolTip" $tsTooltip
-	X "$indent`t`t<FillChecking>DontCheck</FillChecking>"
-	Emit-TabularStandardAttributes "$indent`t`t" $tsLineNumber
+	$tsFc = if ($tsFillChecking) { "$tsFillChecking" } else { "DontCheck" }
+	X "$indent`t`t<FillChecking>$tsFc</FillChecking>"
+	# TS-блок стандартных реквизитов (LineNumber) эмитим ВСЕГДА, кроме подавления `lineNumber: ""` (дом-конвенция
+	# суппресса): ~6% ТЧ исторически опускают блок (правило не выводимо — Товары all-default его имеет, соседи нет).
+	if (-not ($tsLineNumber -is [string] -and $tsLineNumber -eq '')) {
+		Emit-TabularStandardAttributes "$indent`t`t" $tsLineNumber
+	}
 	# Use=ForItem у ТЧ иерархических ссылочных типов (Catalog, ChartOfCharacteristicTypes); Document не имеет Use.
 	if ($objectType -in @("Catalog", "ChartOfCharacteristicTypes")) {
 		X "$indent`t`t<Use>ForItem</Use>"
@@ -1796,7 +1810,7 @@ function Emit-Dimension {
 	X "$indent`t`t<Format/>"
 	X "$indent`t`t<EditFormat/>"
 	X "$indent`t`t<ToolTip/>"
-	X "$indent`t`t<MarkNegatives>false</MarkNegatives>"
+	X "$indent`t`t<MarkNegatives>$(if ($parsed.markNegatives -eq $true) { 'true' } else { 'false' })</MarkNegatives>"
 	X "$indent`t`t<Mask/>"
 	$multiLine = if ($parsed.multiLine -eq $true -or $parsed.flags -contains "multiline") { "true" } else { "false" }
 	X "$indent`t`t<MultiLine>$multiLine</MultiLine>"
@@ -1816,12 +1830,12 @@ function Emit-Dimension {
 	if ($parsed.flags -contains "req") { $fillChecking = "ShowError" }
 	X "$indent`t`t<FillChecking>$fillChecking</FillChecking>"
 
-	X "$indent`t`t<ChoiceFoldersAndItems>Items</ChoiceFoldersAndItems>"
+	X "$indent`t`t<ChoiceFoldersAndItems>$(if ($parsed.choiceFoldersAndItems) { "$($parsed.choiceFoldersAndItems)" } else { 'Items' })</ChoiceFoldersAndItems>"
 	X "$indent`t`t<ChoiceParameterLinks/>"
 	X "$indent`t`t<ChoiceParameters/>"
 	X "$indent`t`t<QuickChoice>Auto</QuickChoice>"
 	X "$indent`t`t<CreateOnInput>Auto</CreateOnInput>"
-	X "$indent`t`t<ChoiceForm/>"
+	if ($parsed.choiceForm) { X "$indent`t`t<ChoiceForm>$(Esc-Xml "$($parsed.choiceForm)")</ChoiceForm>" } else { X "$indent`t`t<ChoiceForm/>" }
 	X "$indent`t`t<LinkByType/>"
 	X "$indent`t`t<ChoiceHistoryOnInput>Auto</ChoiceHistoryOnInput>"
 
@@ -1891,7 +1905,7 @@ function Emit-Resource {
 	X "$indent`t`t<Format/>"
 	X "$indent`t`t<EditFormat/>"
 	X "$indent`t`t<ToolTip/>"
-	X "$indent`t`t<MarkNegatives>false</MarkNegatives>"
+	X "$indent`t`t<MarkNegatives>$(if ($parsed.markNegatives -eq $true) { 'true' } else { 'false' })</MarkNegatives>"
 	X "$indent`t`t<Mask/>"
 	$multiLine = if ($parsed.multiLine -eq $true -or $parsed.flags -contains "multiline") { "true" } else { "false" }
 	X "$indent`t`t<MultiLine>$multiLine</MultiLine>"
@@ -1910,12 +1924,12 @@ function Emit-Resource {
 	if ($parsed.flags -contains "req") { $fillChecking = "ShowError" }
 	X "$indent`t`t<FillChecking>$fillChecking</FillChecking>"
 
-	X "$indent`t`t<ChoiceFoldersAndItems>Items</ChoiceFoldersAndItems>"
+	X "$indent`t`t<ChoiceFoldersAndItems>$(if ($parsed.choiceFoldersAndItems) { "$($parsed.choiceFoldersAndItems)" } else { 'Items' })</ChoiceFoldersAndItems>"
 	X "$indent`t`t<ChoiceParameterLinks/>"
 	X "$indent`t`t<ChoiceParameters/>"
 	X "$indent`t`t<QuickChoice>Auto</QuickChoice>"
 	X "$indent`t`t<CreateOnInput>Auto</CreateOnInput>"
-	X "$indent`t`t<ChoiceForm/>"
+	if ($parsed.choiceForm) { X "$indent`t`t<ChoiceForm>$(Esc-Xml "$($parsed.choiceForm)")</ChoiceForm>" } else { X "$indent`t`t<ChoiceForm/>" }
 	X "$indent`t`t<LinkByType/>"
 	X "$indent`t`t<ChoiceHistoryOnInput>Auto</ChoiceHistoryOnInput>"
 
@@ -2049,14 +2063,15 @@ function Emit-DocumentProperties {
 
 	X "$i<Name>$(Esc-Xml $objName)</Name>"
 	Emit-MLText $i "Synonym" $synonym
-	X "$i<Comment/>"
-	X "$i<UseStandardCommands>true</UseStandardCommands>"
-	X "$i<Numerator/>"
+	if ($def.comment) { X "$i<Comment>$(Esc-XmlText "$($def.comment)")</Comment>" } else { X "$i<Comment/>" }
+	$useStdCmd = if (Get-BoolProp "useStandardCommands" $true) { "true" } else { "false" }
+	X "$i<UseStandardCommands>$useStdCmd</UseStandardCommands>"
+	if ($def.numerator) { X "$i<Numerator>$(Esc-Xml "$($def.numerator)")</Numerator>" } else { X "$i<Numerator/>" }
 
 	$numberType = Get-EnumProp "NumberType" "numberType" "String"
 	$numberLength = if ($null -ne $def.numberLength) { "$($def.numberLength)" } else { "11" }
 	$numberAllowedLength = Get-EnumProp "NumberAllowedLength" "numberAllowedLength" "Variable"
-	$numberPeriodicity = if ($def.numberPeriodicity) { "$($def.numberPeriodicity)" } else { "Year" }
+	$numberPeriodicity = Get-EnumProp "NumberPeriodicity" "numberPeriodicity" "Year"
 	$checkUnique = if ($def.checkUnique -eq $false) { "false" } else { "true" }
 	$autonumbering = if ($def.autonumbering -eq $false) { "false" } else { "true" }
 
@@ -2068,87 +2083,77 @@ function Emit-DocumentProperties {
 	X "$i<Autonumbering>$autonumbering</Autonumbering>"
 
 	Emit-StandardAttributes $i "Document"
-	X "$i<Characteristics/>"
+	Emit-Characteristics $i $def.characteristics
+	Emit-BasedOn $i $def.basedOn
 
-	X "$i<BasedOn/>"
-	X "$i<InputByString>"
-	X "$i`t<xr:Field>Document.$objName.StandardAttribute.Number</xr:Field>"
-	X "$i</InputByString>"
-	X "$i<CreateOnInput>DontUse</CreateOnInput>"
-	X "$i<SearchStringModeOnInputByString>Begin</SearchStringModeOnInputByString>"
+	# InputByString: override `inputByString` ЛИБО дефолт [Номер].
+	if (Test-DefKey 'inputByString') {
+		$ibFields = @($def.inputByString | ForEach-Object { Expand-DataPath "$_" })
+	} else {
+		$ibFields = @("Document.$objName.StandardAttribute.Number")
+	}
+	Emit-FieldBlock $i "InputByString" $ibFields
+	X "$i<CreateOnInput>$(Get-EnumProp 'CreateOnInput' 'createOnInput' 'Use')</CreateOnInput>"
+	X "$i<SearchStringModeOnInputByString>$(Get-EnumProp 'SearchStringModeOnInputByString' 'searchStringModeOnInputByString' 'Begin')</SearchStringModeOnInputByString>"
 	X "$i<FullTextSearchOnInputByString>DontUse</FullTextSearchOnInputByString>"
 	X "$i<ChoiceDataGetModeOnInputByString>Directly</ChoiceDataGetModeOnInputByString>"
-	X "$i<DefaultObjectForm/>"
-	X "$i<DefaultListForm/>"
-	X "$i<DefaultChoiceForm/>"
-	X "$i<AuxiliaryObjectForm/>"
-	X "$i<AuxiliaryListForm/>"
-	X "$i<AuxiliaryChoiceForm/>"
+	Emit-FormRef $i "DefaultObjectForm"   $def.defaultObjectForm
+	Emit-FormRef $i "DefaultListForm"     $def.defaultListForm
+	Emit-FormRef $i "DefaultChoiceForm"   $def.defaultChoiceForm
+	Emit-FormRef $i "AuxiliaryObjectForm" $def.auxiliaryObjectForm
+	Emit-FormRef $i "AuxiliaryListForm"   $def.auxiliaryListForm
+	Emit-FormRef $i "AuxiliaryChoiceForm" $def.auxiliaryChoiceForm
 
-	$posting = Get-EnumProp "Posting" "posting" "Allow"
-	$realTimePosting = Get-EnumProp "RealTimePosting" "realTimePosting" "Deny"
-	$registerRecordsDeletion = Get-EnumProp "RegisterRecordsDeletion" "registerRecordsDeletion" "AutoDelete"
-	$registerRecordsWritingOnPost = Get-EnumProp "RegisterRecordsWritingOnPost" "registerRecordsWritingOnPost" "WriteModified"
-	$sequenceFilling = if ($def.sequenceFilling) { "$($def.sequenceFilling)" } else { "AutoFill" }
-	$postInPrivilegedMode = if ($def.postInPrivilegedMode -eq $false) { "false" } else { "true" }
-	$unpostInPrivilegedMode = if ($def.unpostInPrivilegedMode -eq $false) { "false" } else { "true" }
+	X "$i<Posting>$(Get-EnumProp 'Posting' 'posting' 'Allow')</Posting>"
+	X "$i<RealTimePosting>$(Get-EnumProp 'RealTimePosting' 'realTimePosting' 'Deny')</RealTimePosting>"
+	X "$i<RegisterRecordsDeletion>$(Get-EnumProp 'RegisterRecordsDeletion' 'registerRecordsDeletion' 'AutoDelete')</RegisterRecordsDeletion>"
+	X "$i<RegisterRecordsWritingOnPost>$(Get-EnumProp 'RegisterRecordsWritingOnPost' 'registerRecordsWritingOnPost' 'WriteSelected')</RegisterRecordsWritingOnPost>"
+	X "$i<SequenceFilling>$(Get-EnumProp 'SequenceFilling' 'sequenceFilling' 'AutoFill')</SequenceFilling>"
 
-	X "$i<Posting>$posting</Posting>"
-	X "$i<RealTimePosting>$realTimePosting</RealTimePosting>"
-	X "$i<RegisterRecordsDeletion>$registerRecordsDeletion</RegisterRecordsDeletion>"
-	X "$i<RegisterRecordsWritingOnPost>$registerRecordsWritingOnPost</RegisterRecordsWritingOnPost>"
-	X "$i<SequenceFilling>$sequenceFilling</SequenceFilling>"
-
-	# RegisterRecords
+	# RegisterRecords — движения (список MDObjectRef, синонимы типов резолвятся).
 	$regRecords = @()
 	if ($def.registerRecords) {
 		foreach ($rr in $def.registerRecords) {
 			$rrStr = "$rr"
-			# Resolve Russian synonyms in register records
 			if ($rrStr.Contains('.')) {
 				$dotIdx = $rrStr.IndexOf('.')
 				$rrPrefix = $rrStr.Substring(0, $dotIdx)
 				$rrSuffix = $rrStr.Substring($dotIdx + 1)
-				if ($script:objectTypeSynonyms.ContainsKey($rrPrefix)) {
-					$rrPrefix = $script:objectTypeSynonyms[$rrPrefix]
-				}
+				if ($script:objectTypeSynonyms.ContainsKey($rrPrefix)) { $rrPrefix = $script:objectTypeSynonyms[$rrPrefix] }
 				$regRecords += "$rrPrefix.$rrSuffix"
-			} else {
-				$regRecords += $rrStr
-			}
+			} else { $regRecords += $rrStr }
 		}
 	}
-
 	if ($regRecords.Count -gt 0) {
 		X "$i<RegisterRecords>"
-		foreach ($rr in $regRecords) {
-			X "$i`t<xr:Item xsi:type=`"xr:MDObjectRef`">$rr</xr:Item>"
-		}
+		foreach ($rr in $regRecords) { X "$i`t<xr:Item xsi:type=`"xr:MDObjectRef`">$rr</xr:Item>" }
 		X "$i</RegisterRecords>"
 	} else {
 		X "$i<RegisterRecords/>"
 	}
 
+	$postInPrivilegedMode = if ($def.postInPrivilegedMode -eq $false) { "false" } else { "true" }
+	$unpostInPrivilegedMode = if ($def.unpostInPrivilegedMode -eq $false) { "false" } else { "true" }
 	X "$i<PostInPrivilegedMode>$postInPrivilegedMode</PostInPrivilegedMode>"
 	X "$i<UnpostInPrivilegedMode>$unpostInPrivilegedMode</UnpostInPrivilegedMode>"
-	X "$i<IncludeHelpInContents>false</IncludeHelpInContents>"
-	X "$i<DataLockFields/>"
-
-	$dataLockControlMode = Get-EnumProp "DataLockControlMode" "dataLockControlMode" "Automatic"
-	X "$i<DataLockControlMode>$dataLockControlMode</DataLockControlMode>"
-
-	$fullTextSearch = Get-EnumProp "FullTextSearch" "fullTextSearch" "Use"
-	X "$i<FullTextSearch>$fullTextSearch</FullTextSearch>"
+	$inclHelp = if (Get-BoolProp "includeHelpInContents" $false) { "true" } else { "false" }
+	X "$i<IncludeHelpInContents>$inclHelp</IncludeHelpInContents>"
+	$dlFields = if (Test-DefKey 'dataLockFields') { @($def.dataLockFields | ForEach-Object { Expand-DataPath "$_" }) } else { @() }
+	Emit-FieldBlock $i "DataLockFields" $dlFields
+	X "$i<DataLockControlMode>$(Get-EnumProp 'DataLockControlMode' 'dataLockControlMode' 'Managed')</DataLockControlMode>"
+	X "$i<FullTextSearch>$(Get-EnumProp 'FullTextSearch' 'fullTextSearch' 'Use')</FullTextSearch>"
 
 	Emit-MLText $i "ObjectPresentation" $def.objectPresentation
 	Emit-MLText $i "ExtendedObjectPresentation" $def.extendedObjectPresentation
 	Emit-MLText $i "ListPresentation" $def.listPresentation
 	Emit-MLText $i "ExtendedListPresentation" $def.extendedListPresentation
 	Emit-MLText $i "Explanation" $def.explanation
-	X "$i<ChoiceHistoryOnInput>Auto</ChoiceHistoryOnInput>"
-	X "$i<DataHistory>DontUse</DataHistory>"
-	X "$i<UpdateDataHistoryImmediatelyAfterWrite>false</UpdateDataHistoryImmediatelyAfterWrite>"
-	X "$i<ExecuteAfterWriteDataHistoryVersionProcessing>false</ExecuteAfterWriteDataHistoryVersionProcessing>"
+	X "$i<ChoiceHistoryOnInput>$(Get-EnumProp 'ChoiceHistoryOnInput' 'choiceHistoryOnInput' 'Auto')</ChoiceHistoryOnInput>"
+	X "$i<DataHistory>$(Get-EnumProp 'DataHistory' 'dataHistory' 'DontUse')</DataHistory>"
+	$updDH = if (Get-BoolProp "updateDataHistoryImmediatelyAfterWrite" $false) { "true" } else { "false" }
+	X "$i<UpdateDataHistoryImmediatelyAfterWrite>$updDH</UpdateDataHistoryImmediatelyAfterWrite>"
+	$execDH = if (Get-BoolProp "executeAfterWriteDataHistoryVersionProcessing" $false) { "true" } else { "false" }
+	X "$i<ExecuteAfterWriteDataHistoryVersionProcessing>$execDH</ExecuteAfterWriteDataHistoryVersionProcessing>"
 }
 
 function Emit-EnumProperties {
@@ -3531,10 +3536,10 @@ if ($objType -in $typesWithAttrTS) {
 		# Нормализуем в $tsSections[name] = @{ columns; synonym; tooltip; comment }.
 		function New-TsEntry { param($val)
 			if ($val -is [array] -or $val.GetType().Name -eq 'Object[]') {
-				return @{ columns = @($val); synonym = $null; tooltip = $null; comment = $null; lineNumber = $null }
+				return @{ columns = @($val); synonym = $null; tooltip = $null; comment = $null; lineNumber = $null; fillChecking = $null }
 			}
 			$cols = if ($val.attributes) { @($val.attributes) } elseif ($val.columns) { @($val.columns) } else { @() }
-			return @{ columns = $cols; synonym = $val.synonym; tooltip = $val.tooltip; comment = if ($val.comment) { "$($val.comment)" } else { $null }; lineNumber = $val.lineNumber }
+			return @{ columns = $cols; synonym = $val.synonym; tooltip = $val.tooltip; comment = if ($val.comment) { "$($val.comment)" } else { $null }; lineNumber = $val.lineNumber; fillChecking = $val.fillChecking }
 		}
 		if ($def.tabularSections -is [array] -or $def.tabularSections.GetType().Name -eq "Object[]") {
 			foreach ($ts in $def.tabularSections) { $tsSections[$ts.name] = New-TsEntry $ts }
@@ -3584,7 +3589,7 @@ if ($objType -in $typesWithAttrTS) {
 		}
 		foreach ($tsName in $tsSections.Keys) {
 			$tsE = $tsSections[$tsName]
-			Emit-TabularSection "`t`t`t" $tsName $tsE.columns $objType $objName $tsE.synonym $tsE.tooltip $tsE.comment $tsE.lineNumber
+			Emit-TabularSection "`t`t`t" $tsName $tsE.columns $objType $objName $tsE.synonym $tsE.tooltip $tsE.comment $tsE.lineNumber $tsE.fillChecking
 		}
 		foreach ($af in $acctFlags) {
 			Emit-Attribute "`t`t`t" $af "account-flag" "AccountingFlag"

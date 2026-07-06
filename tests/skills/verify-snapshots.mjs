@@ -169,6 +169,21 @@ function getStructuralDeps(input) {
         }
         break;
       }
+      case 'Document':
+        // RegisterRecords (движения) ссылаются на регистры по MDObjectRef — 1С требует их существования. Стабим.
+        if (inp.registerRecords) {
+          const regSyn = { 'РегистрСведений': 'InformationRegister', 'РегистрНакопления': 'AccumulationRegister', 'РегистрБухгалтерии': 'AccountingRegister', 'РегистрРасчета': 'CalculationRegister' };
+          for (const rr of inp.registerRecords) {
+            const ref = String(rr).split(':')[0].trim();
+            const dot = ref.indexOf('.');
+            if (dot < 0) continue;
+            const t = regSyn[ref.substring(0, dot)] || ref.substring(0, dot);
+            const n = ref.substring(dot + 1);
+            const dsl = makeStubDSL(t, n);
+            if (dsl) deps.push({ type: t, name: n, dsl });
+          }
+        }
+        break;
       case 'DocumentJournal':
         if (inp.registeredDocuments) {
           for (const docRef of inp.registeredDocuments) {

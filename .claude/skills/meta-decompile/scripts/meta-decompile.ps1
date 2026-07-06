@@ -1,7 +1,7 @@
-﻿# meta-decompile v0.31 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
+﻿# meta-decompile v0.32 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 #
-# Поддержаны: Catalog, ExchangePlan, ChartOfCharacteristicTypes, ChartOfAccounts. Инверс meta-compile (omit-on-default: ключ эмитим только
+# Поддержаны: Catalog, ExchangePlan, ChartOfCharacteristicTypes, ChartOfAccounts, ChartOfCalculationTypes, Document. Инверс meta-compile (omit-on-default: ключ эмитим только
 # когда значение в XML отличается от умолчания компилятора). Неподдерживаемый тип / не-MetaDataObject
 # root → exit 3 (ring3, как form-decompile).
 param(
@@ -91,8 +91,8 @@ foreach ($c in $rootEl.ChildNodes) { if ($c.NodeType -eq 'Element') { $objNode =
 if (-not $objNode) { [Console]::Error.WriteLine("meta-decompile: пустой MetaDataObject"); exit 3 }
 $objType = $objNode.LocalName
 
-if ($objType -notin @('Catalog', 'ExchangePlan', 'ChartOfCharacteristicTypes', 'ChartOfAccounts', 'ChartOfCalculationTypes')) {
-	[Console]::Error.WriteLine("meta-decompile: тип '$objType' пока не поддержан (Catalog, ExchangePlan, ChartOfCharacteristicTypes, ChartOfAccounts, ChartOfCalculationTypes)"); exit 3
+if ($objType -notin @('Catalog', 'ExchangePlan', 'ChartOfCharacteristicTypes', 'ChartOfAccounts', 'ChartOfCalculationTypes', 'Document')) {
+	[Console]::Error.WriteLine("meta-decompile: тип '$objType' пока не поддержан (Catalog, ExchangePlan, ChartOfCharacteristicTypes, ChartOfAccounts, ChartOfCalculationTypes, Document)"); exit 3
 }
 
 $props = $objNode.SelectSingleNode('md:Properties', $nsm)
@@ -290,6 +290,9 @@ function Attr-ToDsl {
 	$v = & $en 'ChoiceHistoryOnInput'; if ($v -and $v -ne 'Auto') { $extra['choiceHistoryOnInput'] = $v }
 	$v = & $en 'FillChecking'; if ($v -eq 'ShowWarning') { $extra['fillChecking'] = 'ShowWarning' }
 	$v = & $en 'ExtendedEdit'; if ($v -eq 'true') { $extra['extendedEdit'] = $true }
+	$v = & $en 'MarkNegatives'; if ($v -eq 'true') { $extra['markNegatives'] = $true }
+	$v = & $en 'ChoiceFoldersAndItems'; if ($v -and $v -ne 'Items') { $extra['choiceFoldersAndItems'] = $v }
+	$v = & $en 'ChoiceForm'; if ($v) { $extra['choiceForm'] = $v }
 	# MinValue/MaxValue — граница диапазона (omit при nil). Тип сохраняем: xs:string→строка, xs:decimal→число.
 	foreach ($mm in @('MinValue','MaxValue')) {
 		$mn = $ap.SelectSingleNode("md:$mm", $nsm)
@@ -394,10 +397,10 @@ Add-EnumProp 'subordinationUse' 'SubordinationUse' 'ToItems'
 # Тип-зависимые дефолты (компилятор задаёт их по типу — декомпилятор обязан зеркалить, иначе omit ≠ значению).
 $descrLenDef  = switch ($objType) { 'ExchangePlan' { 150 } 'ChartOfCharacteristicTypes' { 100 } 'ChartOfCalculationTypes' { 100 } default { 25 } }
 $codeLenDef   = if ($objType -eq 'ChartOfCalculationTypes') { 5 } else { 9 }
-$createInpDef = if ($objType -eq 'Catalog') { 'Use' } else { 'DontUse' }
+$createInpDef = if ($objType -in @('Catalog', 'Document')) { 'Use' } else { 'DontUse' }
 $dataLockDef  = if ($objType -in @('Catalog', 'ChartOfAccounts', 'ChartOfCalculationTypes')) { 'Automatic' } else { 'Managed' }
 $codeSeriesDef = switch ($objType) { 'ChartOfCharacteristicTypes' { 'WholeCharacteristicKind' } 'ChartOfAccounts' { 'WholeChartOfAccounts' } default { 'WholeCatalog' } }
-$checkUniqueDef = ($objType -in @('ChartOfCharacteristicTypes', 'ChartOfAccounts'))   # ПВХ/ПС дефолт true, Catalog false
+$checkUniqueDef = ($objType -in @('ChartOfCharacteristicTypes', 'ChartOfAccounts', 'Document'))   # ПВХ/ПС/Документ дефолт true, Catalog false
 $defPresDef = if ($objType -eq 'ChartOfAccounts') { 'AsCode' } else { 'AsDescription' }   # ПС по умолчанию AsCode
 Add-IntProp  'codeLength'        'CodeLength'        $codeLenDef
 Add-IntProp  'descriptionLength' 'DescriptionLength' $descrLenDef
@@ -460,6 +463,31 @@ if ($objType -eq 'ChartOfCalculationTypes') {
 	if ($bctNode) {
 		$bctItems = @($bctNode.SelectNodes('xr:Item', $nsm) | ForEach-Object { $_.InnerText })
 		if ($bctItems.Count -gt 0) { $dsl['baseCalculationTypes'] = [System.Collections.ArrayList]@($bctItems) }
+	}
+	Add-EnumProp 'dataHistory' 'DataHistory' 'DontUse'
+	Add-BoolProp 'updateDataHistoryImmediatelyAfterWrite' 'UpdateDataHistoryImmediatelyAfterWrite' $false
+	Add-BoolProp 'executeAfterWriteDataHistoryVersionProcessing' 'ExecuteAfterWriteDataHistoryVersionProcessing' $false
+}
+# Document-специфичные свойства: нумерация, проведение, движения, DataHistory-триплет.
+if ($objType -eq 'Document') {
+	$numRef = P 'Numerator'; if ($numRef) { $dsl['numerator'] = $numRef }
+	Add-EnumProp 'numberType'          'NumberType'          'String'
+	Add-IntProp  'numberLength'        'NumberLength'        11
+	Add-EnumProp 'numberAllowedLength' 'NumberAllowedLength' 'Variable'
+	Add-EnumProp 'numberPeriodicity'   'NumberPeriodicity'   'Year'
+	# CheckUnique/Autonumbering у Document уже покрыты общим блоком (дефолты true/true совпадают).
+	Add-EnumProp 'posting'                      'Posting'                      'Allow'
+	Add-EnumProp 'realTimePosting'              'RealTimePosting'              'Deny'
+	Add-EnumProp 'registerRecordsDeletion'      'RegisterRecordsDeletion'      'AutoDelete'
+	Add-EnumProp 'registerRecordsWritingOnPost' 'RegisterRecordsWritingOnPost' 'WriteSelected'
+	Add-EnumProp 'sequenceFilling'              'SequenceFilling'              'AutoFill'
+	Add-BoolProp 'postInPrivilegedMode'         'PostInPrivilegedMode'         $true
+	Add-BoolProp 'unpostInPrivilegedMode'       'UnpostInPrivilegedMode'       $true
+	# RegisterRecords — движения (список MDObjectRef, omit-on-empty, verbatim).
+	$rrNode = $props.SelectSingleNode('md:RegisterRecords', $nsm)
+	if ($rrNode) {
+		$rrItems = @($rrNode.SelectNodes('xr:Item', $nsm) | ForEach-Object { $_.InnerText })
+		if ($rrItems.Count -gt 0) { $dsl['registerRecords'] = [System.Collections.ArrayList]@($rrItems) }
 	}
 	Add-EnumProp 'dataHistory' 'DataHistory' 'DontUse'
 	Add-BoolProp 'updateDataHistoryImmediatelyAfterWrite' 'UpdateDataHistoryImmediatelyAfterWrite' $false
@@ -593,6 +621,9 @@ $stdProfileByType = @{
 	'ChartOfCalculationTypes' = @{
 		'Description' = @{ fillChecking = 'ShowError' }
 	}
+	'Document' = @{
+		'Date' = @{ fillChecking = 'ShowError' }
+	}
 }
 $catStdProfile = if ($stdProfileByType.ContainsKey($objType)) { $stdProfileByType[$objType] } else { @{} }
 # Фикс-список стандартных реквизитов типа (зеркало standardAttributesByType компилятора) — чтобы отличать
@@ -603,11 +634,12 @@ $stdFixedByType = @{
 	'ChartOfCharacteristicTypes' = @('PredefinedDataName','Predefined','Ref','DeletionMark','Description','Code','Parent','ValueType')
 	'ChartOfAccounts' = @('PredefinedDataName','Order','OffBalance','Type','Description','Code','Parent','Predefined','DeletionMark','Ref')
 	'ChartOfCalculationTypes' = @('PredefinedDataName','Predefined','Ref','DeletionMark','ActionPeriodIsBasic','Description','Code')
+	'Document' = @('Ref','DeletionMark','Date','Number','Posted')
 }
 $stdFixed = if ($stdFixedByType.ContainsKey($objType)) { $stdFixedByType[$objType] } else { @() }
 # Условные типы: блок эмитим-как-триггер даже пустым (материализуется при отклонении ≥1 реквизита от schema-default;
 # у ExchangePlan это почти всегда — Description/Code=ShowError; редкий all-default EP блок опускает).
-$stdConditionalTypes = @('Catalog', 'ExchangePlan', 'ChartOfCharacteristicTypes', 'ChartOfAccounts', 'ChartOfCalculationTypes')
+$stdConditionalTypes = @('Catalog', 'ExchangePlan', 'ChartOfCharacteristicTypes', 'ChartOfAccounts', 'ChartOfCalculationTypes', 'Document')
 $saNode = $props.SelectSingleNode('md:StandardAttributes', $nsm)
 if ($saNode) {
 	$saMap = [ordered]@{}
@@ -636,6 +668,8 @@ if ($saNode) {
 		if ($fvN -and $fvN.GetAttribute('nil', 'http://www.w3.org/2001/XMLSchema-instance') -ne 'true') { $ov['fillValue'] = Convert-ChScalarNode $fvN }
 		$saCmt = $sa.SelectSingleNode('xr:Comment', $nsm); if ($saCmt -and $saCmt.InnerText) { $ov['comment'] = $saCmt.InnerText }
 		$saMsk = $sa.SelectSingleNode('xr:Mask', $nsm); if ($saMsk -and $saMsk.InnerText) { $ov['mask'] = $saMsk.InnerText }
+			$saFmt = Get-MLValue ($sa.SelectSingleNode('xr:Format', $nsm)); if ($null -ne $saFmt) { $ov['format'] = $saFmt }
+			$saEfmt = Get-MLValue ($sa.SelectSingleNode('xr:EditFormat', $nsm)); if ($null -ne $saEfmt) { $ov['editFormat'] = $saEfmt }
 		$saCf = $sa.SelectSingleNode('xr:ChoiceForm', $nsm); if ($saCf -and $saCf.InnerText) { $ov['choiceForm'] = $saCf.InnerText }
 		$saCpl = Parse-ChoiceParameterLinks $sa 'xr:ChoiceParameterLinks'; if ($null -ne $saCpl) { $ov['choiceParameterLinks'] = $saCpl }
 		$saCp = Parse-ChoiceParameters $sa 'xr:ChoiceParameters'; if ($null -ne $saCp) { $ov['choiceParameters'] = $saCp }
@@ -685,9 +719,15 @@ if ($childObjs) {
 			elseif ($null -ne $tsSyn) { $tsSynCustom = $true }
 			$tsTt = Get-MLValue ($tsp.SelectSingleNode('md:ToolTip', $nsm))
 			$tsCmtN = $tsp.SelectSingleNode('md:Comment', $nsm); $tsCmt = if ($tsCmtN) { $tsCmtN.InnerText } else { '' }
-			# Кастомизация стандартного реквизита LineNumber (НомерСтроки) — omit-on-default по каждому свойству.
+			# FillChecking ТЧ (обязательность заполнения; omit при DontCheck).
+			$tsFcN = $tsp.SelectSingleNode('md:FillChecking', $nsm); $tsFc = if ($tsFcN -and $tsFcN.InnerText -ne 'DontCheck') { $tsFcN.InnerText } else { '' }
+			# TS-блок стандартных реквизитов (LineNumber). Наличие блока — пер-ТЧ артефакт (~6% ТЧ его опускают,
+			# правило не выводимо). Faithful roundtrip: нет блока → маркер подавления `lineNumber: ""` (дом-конвенция);
+			# есть блок → захват кастомизации LineNumber (omit-on-default по свойству), all-default → без ключа.
 			$lnObj = [ordered]@{}
-			$lnNode = $tsp.SelectSingleNode("md:StandardAttributes/xr:StandardAttribute[@name='LineNumber']", $nsm)
+			$saTsNode = $tsp.SelectSingleNode('md:StandardAttributes', $nsm)
+			$hasBlock = ($saTsNode -and @($saTsNode.SelectNodes('xr:StandardAttribute', $nsm)).Count -gt 0)
+			$lnNode = if ($hasBlock) { $saTsNode.SelectSingleNode("xr:StandardAttribute[@name='LineNumber']", $nsm) } else { $null }
 			if ($lnNode) {
 				$lnSyn = Get-MLValue ($lnNode.SelectSingleNode('xr:Synonym', $nsm)); if ($null -ne $lnSyn) { $lnObj['synonym'] = $lnSyn }
 				$lnCmtN = $lnNode.SelectSingleNode('xr:Comment', $nsm); if ($lnCmtN -and $lnCmtN.InnerText) { $lnObj['comment'] = $lnCmtN.InnerText }
@@ -697,12 +737,13 @@ if ($childObjs) {
 				$lnEfmt = Get-MLValue ($lnNode.SelectSingleNode('xr:EditFormat', $nsm)); if ($null -ne $lnEfmt) { $lnObj['editFormat'] = $lnEfmt }
 				$lnChiN = $lnNode.SelectSingleNode('xr:ChoiceHistoryOnInput', $nsm); if ($lnChiN -and $lnChiN.InnerText -ne 'Auto') { $lnObj['choiceHistoryOnInput'] = $lnChiN.InnerText }
 			}
-			if ($tsSynCustom -or ($null -ne $tsTt) -or $tsCmt -or $lnObj.Count -gt 0) {
+			if ($tsSynCustom -or ($null -ne $tsTt) -or $tsCmt -or $tsFc -or $lnObj.Count -gt 0 -or (-not $hasBlock)) {
 				$to = [ordered]@{}
 				if ($tsSynCustom) { $to['synonym'] = $tsSyn }
 				if ($null -ne $tsTt) { $to['tooltip'] = $tsTt }
 				if ($tsCmt) { $to['comment'] = $tsCmt }
-				if ($lnObj.Count -gt 0) { $to['lineNumber'] = $lnObj }
+				if ($tsFc) { $to['fillChecking'] = $tsFc }
+				if (-not $hasBlock) { $to['lineNumber'] = '' } elseif ($lnObj.Count -gt 0) { $to['lineNumber'] = $lnObj }
 				$to['attributes'] = $cols
 				$tsMap[$tsName] = $to
 			} else {

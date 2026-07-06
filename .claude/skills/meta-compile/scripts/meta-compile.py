@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-compile v1.42 — Compile 1C metadata object from JSON
+# meta-compile v1.43 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -855,6 +855,9 @@ def parse_attribute_shorthand(val):
         'editFormat': val.get('editFormat'),
         'mask': str(val['mask']) if val.get('mask') else '',
         'extendedEdit': True if val.get('extendedEdit') is True else False,
+        'markNegatives': True if val.get('markNegatives') is True else False,
+        'choiceForm': str(val['choiceForm']) if val.get('choiceForm') else '',
+        'choiceFoldersAndItems': str(val['choiceFoldersAndItems']) if val.get('choiceFoldersAndItems') else '',
         'minValue': val.get('minValue'),
         'maxValue': val.get('maxValue'),
         'hasFillValue': ('fillValue' in val),
@@ -1075,6 +1078,10 @@ std_attr_profile = {
     'ChartOfCalculationTypes': {
         'Description': {'FillChecking': 'ShowError'},
     },
+    # Document: Дата → FillChecking=ShowError (974/1010 доков acc+erp; дата обязательна).
+    'Document': {
+        'Date': {'FillChecking': 'ShowError'},
+    },
 }
 
 # ov — dict переопределений (профиль + DSL): FillChecking, FillFromFillingValue, Synonym,
@@ -1140,7 +1147,7 @@ def emit_standard_attribute(indent, attr_name, ov=None):
 # Единый эмиттер блока StandardAttributes — поведение правят ДАННЫЕ, не форк кода (см. коммент в .ps1).
 # std_attr_conditional_types: типы, где блок только при кастомизации (DSL-ключ standardAttributes).
 # Прочие типы → блок всегда (текущее поведение). Миграция типа = +строчка в оба справочника + снэпшоты.
-std_attr_conditional_types = {'Catalog', 'ExchangePlan', 'ChartOfCharacteristicTypes', 'ChartOfAccounts', 'ChartOfCalculationTypes'}
+std_attr_conditional_types = {'Catalog', 'ExchangePlan', 'ChartOfCharacteristicTypes', 'ChartOfAccounts', 'ChartOfCalculationTypes', 'Document'}
 def emit_standard_attributes(indent, object_type):
     attrs = standard_attributes_by_type.get(object_type)
     if not attrs:
@@ -1181,6 +1188,10 @@ def emit_standard_attributes(indent, object_type):
                     ov['Comment'] = str(d['comment'])
                 if d.get('mask'):
                     ov['Mask'] = str(d['mask'])
+                if d.get('format') is not None:
+                    ov['Format'] = d['format']         # строка ИЛИ {ru,en}
+                if d.get('editFormat') is not None:
+                    ov['EditFormat'] = d['editFormat']
                 if d.get('choiceForm'):
                     ov['ChoiceForm'] = str(d['choiceForm'])
         emit_standard_attribute(f'{indent}\t', a, ov)
@@ -1650,7 +1661,7 @@ def emit_attribute(indent, parsed, context, elem_tag='Attribute'):
     emit_mltext(f'{indent}\t\t', 'Format', parsed.get('format'))
     emit_mltext(f'{indent}\t\t', 'EditFormat', parsed.get('editFormat'))
     emit_mltext(f'{indent}\t\t', 'ToolTip', parsed.get('tooltip'))
-    X(f'{indent}\t\t<MarkNegatives>false</MarkNegatives>')
+    X(f'{indent}\t\t<MarkNegatives>{"true" if parsed.get("markNegatives") is True else "false"}</MarkNegatives>')
     if parsed.get('mask'):
         X(f'{indent}\t\t<Mask>{esc_xml_text(parsed["mask"])}</Mask>')
     else:
@@ -1674,12 +1685,12 @@ def emit_attribute(indent, parsed, context, elem_tag='Attribute'):
     if parsed.get('fillChecking'):
         fill_checking = parsed['fillChecking']
     X(f'{indent}\t\t<FillChecking>{fill_checking}</FillChecking>')
-    X(f'{indent}\t\t<ChoiceFoldersAndItems>Items</ChoiceFoldersAndItems>')
+    X(f'{indent}\t\t<ChoiceFoldersAndItems>{parsed.get("choiceFoldersAndItems") or "Items"}</ChoiceFoldersAndItems>')
     emit_choice_parameter_links(f'{indent}\t\t', parsed.get('choiceParameterLinks'))
     emit_choice_parameters(f'{indent}\t\t', parsed.get('choiceParameters'))
     X(f'{indent}\t\t<QuickChoice>{parsed.get("quickChoice") or "Auto"}</QuickChoice>')
     X(f'{indent}\t\t<CreateOnInput>{parsed.get("createOnInput") or "Auto"}</CreateOnInput>')
-    X(f'{indent}\t\t<ChoiceForm/>')
+    X(f'{indent}\t\t<ChoiceForm>{esc_xml(str(parsed["choiceForm"]))}</ChoiceForm>' if parsed.get('choiceForm') else f'{indent}\t\t<ChoiceForm/>')
     emit_link_by_type(f'{indent}\t\t', parsed.get('linkByType'))
     chi = parsed.get('choiceHistoryOnInput') or 'Auto'
     X(f'{indent}\t\t<ChoiceHistoryOnInput>{chi}</ChoiceHistoryOnInput>')
@@ -1770,7 +1781,7 @@ def emit_command(indent, cmd_name, cmd):
     X(f'{indent}\t</Properties>')
     X(f'{indent}</Command>')
 
-def emit_tabular_section(indent, ts_name, columns, object_type, object_name, ts_synonym_arg=None, ts_tooltip=None, ts_comment=None, ts_line_number=None):
+def emit_tabular_section(indent, ts_name, columns, object_type, object_name, ts_synonym_arg=None, ts_tooltip=None, ts_comment=None, ts_line_number=None, ts_fill_checking=None):
     uid = new_uuid()
     X(f'{indent}<TabularSection uuid="{uid}">')
     type_prefix = f'{object_type}TabularSection'
@@ -1794,8 +1805,11 @@ def emit_tabular_section(indent, ts_name, columns, object_type, object_name, ts_
     else:
         X(f'{indent}\t\t<Comment/>')
     emit_mltext(f'{indent}\t\t', 'ToolTip', ts_tooltip)
-    X(f'{indent}\t\t<FillChecking>DontCheck</FillChecking>')
-    emit_tabular_standard_attributes(f'{indent}\t\t', ts_line_number)
+    X(f'{indent}\t\t<FillChecking>{ts_fill_checking if ts_fill_checking else "DontCheck"}</FillChecking>')
+    # TS-блок стандартных реквизитов (LineNumber) эмитим ВСЕГДА, кроме подавления `lineNumber: ""` (дом-конвенция
+    # суппресса): ~6% ТЧ исторически опускают блок (правило не выводимо — Товары all-default его имеет, соседи нет).
+    if not (isinstance(ts_line_number, str) and ts_line_number == ''):
+        emit_tabular_standard_attributes(f'{indent}\t\t', ts_line_number)
     if object_type in ('Catalog', 'ChartOfCharacteristicTypes'):
         X(f'{indent}\t\t<Use>ForItem</Use>')
     X(f'{indent}\t</Properties>')
@@ -1843,7 +1857,7 @@ def emit_dimension(indent, parsed, register_type):
     X(f'{indent}\t\t<Format/>')
     X(f'{indent}\t\t<EditFormat/>')
     X(f'{indent}\t\t<ToolTip/>')
-    X(f'{indent}\t\t<MarkNegatives>false</MarkNegatives>')
+    X(f'{indent}\t\t<MarkNegatives>{"true" if parsed.get("markNegatives") is True else "false"}</MarkNegatives>')
     X(f'{indent}\t\t<Mask/>')
     multi_line = 'true' if (parsed.get('multiLine') is True or 'multiline' in parsed.get('flags', [])) else 'false'
     X(f'{indent}\t\t<MultiLine>{multi_line}</MultiLine>')
@@ -1860,12 +1874,12 @@ def emit_dimension(indent, parsed, register_type):
     if 'req' in flags:
         fill_checking = 'ShowError'
     X(f'{indent}\t\t<FillChecking>{fill_checking}</FillChecking>')
-    X(f'{indent}\t\t<ChoiceFoldersAndItems>Items</ChoiceFoldersAndItems>')
+    X(f'{indent}\t\t<ChoiceFoldersAndItems>{parsed.get("choiceFoldersAndItems") or "Items"}</ChoiceFoldersAndItems>')
     X(f'{indent}\t\t<ChoiceParameterLinks/>')
     X(f'{indent}\t\t<ChoiceParameters/>')
     X(f'{indent}\t\t<QuickChoice>Auto</QuickChoice>')
     X(f'{indent}\t\t<CreateOnInput>Auto</CreateOnInput>')
-    X(f'{indent}\t\t<ChoiceForm/>')
+    X(f'{indent}\t\t<ChoiceForm>{esc_xml(str(parsed["choiceForm"]))}</ChoiceForm>' if parsed.get('choiceForm') else f'{indent}\t\t<ChoiceForm/>')
     X(f'{indent}\t\t<LinkByType/>')
     X(f'{indent}\t\t<ChoiceHistoryOnInput>Auto</ChoiceHistoryOnInput>')
     if register_type == 'InformationRegister':
@@ -1918,7 +1932,7 @@ def emit_resource(indent, parsed, register_type):
     X(f'{indent}\t\t<Format/>')
     X(f'{indent}\t\t<EditFormat/>')
     X(f'{indent}\t\t<ToolTip/>')
-    X(f'{indent}\t\t<MarkNegatives>false</MarkNegatives>')
+    X(f'{indent}\t\t<MarkNegatives>{"true" if parsed.get("markNegatives") is True else "false"}</MarkNegatives>')
     X(f'{indent}\t\t<Mask/>')
     multi_line = 'true' if (parsed.get('multiLine') is True or 'multiline' in parsed.get('flags', [])) else 'false'
     X(f'{indent}\t\t<MultiLine>{multi_line}</MultiLine>')
@@ -1934,12 +1948,12 @@ def emit_resource(indent, parsed, register_type):
     if 'req' in flags:
         fill_checking = 'ShowError'
     X(f'{indent}\t\t<FillChecking>{fill_checking}</FillChecking>')
-    X(f'{indent}\t\t<ChoiceFoldersAndItems>Items</ChoiceFoldersAndItems>')
+    X(f'{indent}\t\t<ChoiceFoldersAndItems>{parsed.get("choiceFoldersAndItems") or "Items"}</ChoiceFoldersAndItems>')
     X(f'{indent}\t\t<ChoiceParameterLinks/>')
     X(f'{indent}\t\t<ChoiceParameters/>')
     X(f'{indent}\t\t<QuickChoice>Auto</QuickChoice>')
     X(f'{indent}\t\t<CreateOnInput>Auto</CreateOnInput>')
-    X(f'{indent}\t\t<ChoiceForm/>')
+    X(f'{indent}\t\t<ChoiceForm>{esc_xml(str(parsed["choiceForm"]))}</ChoiceForm>' if parsed.get('choiceForm') else f'{indent}\t\t<ChoiceForm/>')
     X(f'{indent}\t\t<LinkByType/>')
     X(f'{indent}\t\t<ChoiceHistoryOnInput>Auto</ChoiceHistoryOnInput>')
     if register_type == 'InformationRegister':
@@ -2057,13 +2071,20 @@ def emit_document_properties(indent):
     i = indent
     X(f'{i}<Name>{esc_xml(obj_name)}</Name>')
     emit_mltext(i, 'Synonym', synonym)
-    X(f'{i}<Comment/>')
-    X(f'{i}<UseStandardCommands>true</UseStandardCommands>')
-    X(f'{i}<Numerator/>')
+    if defn.get('comment'):
+        X(f'{i}<Comment>{esc_xml_text(str(defn["comment"]))}</Comment>')
+    else:
+        X(f'{i}<Comment/>')
+    use_std_cmd = 'true' if get_bool_prop('useStandardCommands', True) else 'false'
+    X(f'{i}<UseStandardCommands>{use_std_cmd}</UseStandardCommands>')
+    if defn.get('numerator'):
+        X(f'{i}<Numerator>{esc_xml(str(defn["numerator"]))}</Numerator>')
+    else:
+        X(f'{i}<Numerator/>')
     number_type = get_enum_prop('NumberType', 'numberType', 'String')
     number_length = str(defn['numberLength']) if defn.get('numberLength') is not None else '11'
     number_allowed_length = get_enum_prop('NumberAllowedLength', 'numberAllowedLength', 'Variable')
-    number_periodicity = get_enum_prop('InformationRegisterPeriodicity', 'numberPeriodicity', 'Year')
+    number_periodicity = get_enum_prop('NumberPeriodicity', 'numberPeriodicity', 'Year')
     check_unique = 'false' if defn.get('checkUnique') is False else 'true'
     autonumbering = 'false' if defn.get('autonumbering') is False else 'true'
     X(f'{i}<NumberType>{number_type}</NumberType>')
@@ -2073,34 +2094,30 @@ def emit_document_properties(indent):
     X(f'{i}<CheckUnique>{check_unique}</CheckUnique>')
     X(f'{i}<Autonumbering>{autonumbering}</Autonumbering>')
     emit_standard_attributes(i, 'Document')
-    X(f'{i}<Characteristics/>')
-    X(f'{i}<BasedOn/>')
-    X(f'{i}<InputByString>')
-    X(f'{i}\t<xr:Field>Document.{obj_name}.StandardAttribute.Number</xr:Field>')
-    X(f'{i}</InputByString>')
-    X(f'{i}<CreateOnInput>DontUse</CreateOnInput>')
-    X(f'{i}<SearchStringModeOnInputByString>Begin</SearchStringModeOnInputByString>')
+    emit_characteristics(i, defn.get('characteristics'))
+    emit_based_on(i, defn.get('basedOn'))
+    # InputByString: override `inputByString` ЛИБО дефолт [Номер].
+    if 'inputByString' in defn:
+        ib_fields = [expand_data_path(str(x)) for x in (defn.get('inputByString') or [])]
+    else:
+        ib_fields = [f'Document.{obj_name}.StandardAttribute.Number']
+    emit_field_block(i, 'InputByString', ib_fields)
+    X(f'{i}<CreateOnInput>{get_enum_prop("CreateOnInput", "createOnInput", "Use")}</CreateOnInput>')
+    X(f'{i}<SearchStringModeOnInputByString>{get_enum_prop("SearchStringModeOnInputByString", "searchStringModeOnInputByString", "Begin")}</SearchStringModeOnInputByString>')
     X(f'{i}<FullTextSearchOnInputByString>DontUse</FullTextSearchOnInputByString>')
     X(f'{i}<ChoiceDataGetModeOnInputByString>Directly</ChoiceDataGetModeOnInputByString>')
-    X(f'{i}<DefaultObjectForm/>')
-    X(f'{i}<DefaultListForm/>')
-    X(f'{i}<DefaultChoiceForm/>')
-    X(f'{i}<AuxiliaryObjectForm/>')
-    X(f'{i}<AuxiliaryListForm/>')
-    X(f'{i}<AuxiliaryChoiceForm/>')
-    posting = get_enum_prop('Posting', 'posting', 'Allow')
-    real_time_posting = get_enum_prop('RealTimePosting', 'realTimePosting', 'Deny')
-    reg_records_deletion = get_enum_prop('RegisterRecordsDeletion', 'registerRecordsDeletion', 'AutoDelete')
-    reg_records_writing = get_enum_prop('RegisterRecordsWritingOnPost', 'registerRecordsWritingOnPost', 'WriteModified')
-    sequence_filling = str(defn['sequenceFilling']) if defn.get('sequenceFilling') else 'AutoFill'
-    post_in_priv = 'false' if defn.get('postInPrivilegedMode') is False else 'true'
-    unpost_in_priv = 'false' if defn.get('unpostInPrivilegedMode') is False else 'true'
-    X(f'{i}<Posting>{posting}</Posting>')
-    X(f'{i}<RealTimePosting>{real_time_posting}</RealTimePosting>')
-    X(f'{i}<RegisterRecordsDeletion>{reg_records_deletion}</RegisterRecordsDeletion>')
-    X(f'{i}<RegisterRecordsWritingOnPost>{reg_records_writing}</RegisterRecordsWritingOnPost>')
-    X(f'{i}<SequenceFilling>{sequence_filling}</SequenceFilling>')
-    # RegisterRecords
+    emit_form_ref(i, 'DefaultObjectForm', defn.get('defaultObjectForm'))
+    emit_form_ref(i, 'DefaultListForm', defn.get('defaultListForm'))
+    emit_form_ref(i, 'DefaultChoiceForm', defn.get('defaultChoiceForm'))
+    emit_form_ref(i, 'AuxiliaryObjectForm', defn.get('auxiliaryObjectForm'))
+    emit_form_ref(i, 'AuxiliaryListForm', defn.get('auxiliaryListForm'))
+    emit_form_ref(i, 'AuxiliaryChoiceForm', defn.get('auxiliaryChoiceForm'))
+    X(f'{i}<Posting>{get_enum_prop("Posting", "posting", "Allow")}</Posting>')
+    X(f'{i}<RealTimePosting>{get_enum_prop("RealTimePosting", "realTimePosting", "Deny")}</RealTimePosting>')
+    X(f'{i}<RegisterRecordsDeletion>{get_enum_prop("RegisterRecordsDeletion", "registerRecordsDeletion", "AutoDelete")}</RegisterRecordsDeletion>')
+    X(f'{i}<RegisterRecordsWritingOnPost>{get_enum_prop("RegisterRecordsWritingOnPost", "registerRecordsWritingOnPost", "WriteSelected")}</RegisterRecordsWritingOnPost>')
+    X(f'{i}<SequenceFilling>{get_enum_prop("SequenceFilling", "sequenceFilling", "AutoFill")}</SequenceFilling>')
+    # RegisterRecords — движения (список MDObjectRef, синонимы типов резолвятся).
     reg_records = []
     if defn.get('registerRecords'):
         for rr in defn['registerRecords']:
@@ -2121,23 +2138,27 @@ def emit_document_properties(indent):
         X(f'{i}</RegisterRecords>')
     else:
         X(f'{i}<RegisterRecords/>')
+    post_in_priv = 'false' if defn.get('postInPrivilegedMode') is False else 'true'
+    unpost_in_priv = 'false' if defn.get('unpostInPrivilegedMode') is False else 'true'
     X(f'{i}<PostInPrivilegedMode>{post_in_priv}</PostInPrivilegedMode>')
     X(f'{i}<UnpostInPrivilegedMode>{unpost_in_priv}</UnpostInPrivilegedMode>')
-    X(f'{i}<IncludeHelpInContents>false</IncludeHelpInContents>')
-    X(f'{i}<DataLockFields/>')
-    data_lock_control_mode = get_enum_prop('DataLockControlMode', 'dataLockControlMode', 'Automatic')
-    X(f'{i}<DataLockControlMode>{data_lock_control_mode}</DataLockControlMode>')
-    full_text_search = get_enum_prop('FullTextSearch', 'fullTextSearch', 'Use')
-    X(f'{i}<FullTextSearch>{full_text_search}</FullTextSearch>')
+    incl_help = 'true' if get_bool_prop('includeHelpInContents', False) else 'false'
+    X(f'{i}<IncludeHelpInContents>{incl_help}</IncludeHelpInContents>')
+    dl_fields = [expand_data_path(str(x)) for x in (defn.get('dataLockFields') or [])] if 'dataLockFields' in defn else []
+    emit_field_block(i, 'DataLockFields', dl_fields)
+    X(f'{i}<DataLockControlMode>{get_enum_prop("DataLockControlMode", "dataLockControlMode", "Managed")}</DataLockControlMode>')
+    X(f'{i}<FullTextSearch>{get_enum_prop("FullTextSearch", "fullTextSearch", "Use")}</FullTextSearch>')
     emit_mltext(i, 'ObjectPresentation', defn.get('objectPresentation'))
     emit_mltext(i, 'ExtendedObjectPresentation', defn.get('extendedObjectPresentation'))
     emit_mltext(i, 'ListPresentation', defn.get('listPresentation'))
     emit_mltext(i, 'ExtendedListPresentation', defn.get('extendedListPresentation'))
     emit_mltext(i, 'Explanation', defn.get('explanation'))
-    X(f'{i}<ChoiceHistoryOnInput>Auto</ChoiceHistoryOnInput>')
-    X(f'{i}<DataHistory>DontUse</DataHistory>')
-    X(f'{i}<UpdateDataHistoryImmediatelyAfterWrite>false</UpdateDataHistoryImmediatelyAfterWrite>')
-    X(f'{i}<ExecuteAfterWriteDataHistoryVersionProcessing>false</ExecuteAfterWriteDataHistoryVersionProcessing>')
+    X(f'{i}<ChoiceHistoryOnInput>{get_enum_prop("ChoiceHistoryOnInput", "choiceHistoryOnInput", "Auto")}</ChoiceHistoryOnInput>')
+    X(f'{i}<DataHistory>{get_enum_prop("DataHistory", "dataHistory", "DontUse")}</DataHistory>')
+    upd_dh = 'true' if get_bool_prop('updateDataHistoryImmediatelyAfterWrite', False) else 'false'
+    X(f'{i}<UpdateDataHistoryImmediatelyAfterWrite>{upd_dh}</UpdateDataHistoryImmediatelyAfterWrite>')
+    exec_dh = 'true' if get_bool_prop('executeAfterWriteDataHistoryVersionProcessing', False) else 'false'
+    X(f'{i}<ExecuteAfterWriteDataHistoryVersionProcessing>{exec_dh}</ExecuteAfterWriteDataHistoryVersionProcessing>')
 
 def emit_enum_properties(indent):
     i = indent
@@ -3336,10 +3357,10 @@ if obj_type in types_with_attr_ts:
         # Значение ТЧ: массив колонок (синоним авто) ЛИБО объект {attributes/columns, synonym, tooltip, comment}.
         def new_ts_entry(val):
             if isinstance(val, list):
-                return {'columns': val, 'synonym': None, 'tooltip': None, 'comment': None, 'lineNumber': None}
+                return {'columns': val, 'synonym': None, 'tooltip': None, 'comment': None, 'lineNumber': None, 'fillChecking': None}
             cols = _as_list(val.get('attributes') or val.get('columns') or [])
             return {'columns': cols, 'synonym': val.get('synonym'), 'tooltip': val.get('tooltip'),
-                    'comment': str(val['comment']) if val.get('comment') else None, 'lineNumber': val.get('lineNumber')}
+                    'comment': str(val['comment']) if val.get('comment') else None, 'lineNumber': val.get('lineNumber'), 'fillChecking': val.get('fillChecking')}
         if isinstance(ts_data, list):
             for ts in ts_data:
                 ts_sections[ts['name']] = new_ts_entry(ts)
@@ -3391,7 +3412,7 @@ if obj_type in types_with_attr_ts:
             emit_attribute('\t\t\t', a, context)
         for ts_name in ts_order:
             e = ts_sections[ts_name]
-            emit_tabular_section('\t\t\t', ts_name, e['columns'], obj_type, obj_name, e['synonym'], e['tooltip'], e['comment'], e.get('lineNumber'))
+            emit_tabular_section('\t\t\t', ts_name, e['columns'], obj_type, obj_name, e['synonym'], e['tooltip'], e['comment'], e.get('lineNumber'), e.get('fillChecking'))
         for af in acct_flags:
             emit_attribute('\t\t\t', af, 'account-flag', 'AccountingFlag')
         for edf in ext_dim_flags:
