@@ -1,4 +1,4 @@
-﻿# meta-decompile v0.36 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
+﻿# meta-decompile v0.37 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 #
 # Поддержаны: Catalog, ExchangePlan, ChartOfCharacteristicTypes, ChartOfAccounts, ChartOfCalculationTypes, Document. Инверс meta-compile (omit-on-default: ключ эмитим только
@@ -91,8 +91,8 @@ foreach ($c in $rootEl.ChildNodes) { if ($c.NodeType -eq 'Element') { $objNode =
 if (-not $objNode) { [Console]::Error.WriteLine("meta-decompile: пустой MetaDataObject"); exit 3 }
 $objType = $objNode.LocalName
 
-if ($objType -notin @('Catalog', 'ExchangePlan', 'ChartOfCharacteristicTypes', 'ChartOfAccounts', 'ChartOfCalculationTypes', 'Document')) {
-	[Console]::Error.WriteLine("meta-decompile: тип '$objType' пока не поддержан (Catalog, ExchangePlan, ChartOfCharacteristicTypes, ChartOfAccounts, ChartOfCalculationTypes, Document)"); exit 3
+if ($objType -notin @('Catalog', 'ExchangePlan', 'ChartOfCharacteristicTypes', 'ChartOfAccounts', 'ChartOfCalculationTypes', 'Document', 'InformationRegister')) {
+	[Console]::Error.WriteLine("meta-decompile: тип '$objType' пока не поддержан (Catalog, ExchangePlan, ChartOfCharacteristicTypes, ChartOfAccounts, ChartOfCalculationTypes, Document, InformationRegister)"); exit 3
 }
 
 $props = $objNode.SelectSingleNode('md:Properties', $nsm)
@@ -293,6 +293,10 @@ function Attr-ToDsl {
 	$v = & $en 'MarkNegatives'; if ($v -eq 'true') { $extra['markNegatives'] = $true }
 	$v = & $en 'ChoiceFoldersAndItems'; if ($v -and $v -ne 'Items') { $extra['choiceFoldersAndItems'] = $v }
 	$v = & $en 'ChoiceForm'; if ($v) { $extra['choiceForm'] = $v }
+	# Регистро-специфика измерения (теги присутствуют только у Dimension → безвредно для прочих).
+	$v = & $en 'Master'; if ($v -eq 'true') { $extra['master'] = $true }
+	$v = & $en 'MainFilter'; if ($v -eq 'true') { $extra['mainFilter'] = $true }
+	$v = & $en 'DenyIncompleteValues'; if ($v -eq 'true') { $extra['denyIncompleteValues'] = $true }
 	# MinValue/MaxValue — граница диапазона (omit при nil). Тип сохраняем: xs:string→строка, xs:decimal→число.
 	foreach ($mm in @('MinValue','MaxValue')) {
 		$mn = $ap.SelectSingleNode("md:$mm", $nsm)
@@ -376,9 +380,12 @@ function Attr-ToDsl {
 $dsl = [ordered]@{ type = $objType; name = $objName }
 
 # Синоним объекта: строка ru-only ИЛИ {ru,en} (мультиязычно). Кастом → эмитим.
-$synVal = Get-MLValue ($props.SelectSingleNode('md:Synonym', $nsm))
+# Пустой <Synonym/> (узел есть, значения нет) ≠ авто-синоним из имени → явный synonym:"" (иначе компилятор до-генерит из имени).
+$synNodeObj = $props.SelectSingleNode('md:Synonym', $nsm)
+$synVal = Get-MLValue $synNodeObj
 if ($synVal -is [string]) { if ($synVal -ne (Split-CamelWords $objName)) { $dsl['synonym'] = $synVal } }
 elseif ($null -ne $synVal) { $dsl['synonym'] = $synVal }
+elseif ($synNodeObj) { $dsl['synonym'] = '' }
 $cmt = P 'Comment'; if ($cmt) { $dsl['comment'] = $cmt }
 
 # Свойства Catalog (omit-on-default). Порядок ключей — как удобно DSL.
@@ -498,6 +505,17 @@ if ($objType -eq 'Document') {
 	Add-BoolProp 'updateDataHistoryImmediatelyAfterWrite' 'UpdateDataHistoryImmediatelyAfterWrite' $false
 	Add-BoolProp 'executeAfterWriteDataHistoryVersionProcessing' 'ExecuteAfterWriteDataHistoryVersionProcessing' $false
 }
+# InformationRegister-специфичные свойства: периодичность, режим записи, срезы, DataHistory-триплет.
+if ($objType -eq 'InformationRegister') {
+	Add-EnumProp 'periodicity'       'InformationRegisterPeriodicity' 'Nonperiodical'
+	Add-EnumProp 'writeMode'         'WriteMode'                      'Independent'
+	Add-BoolProp 'mainFilterOnPeriod' 'MainFilterOnPeriod'            $false
+	Add-BoolProp 'enableTotalsSliceFirst' 'EnableTotalsSliceFirst'    $false
+	Add-BoolProp 'enableTotalsSliceLast'  'EnableTotalsSliceLast'     $false
+	Add-EnumProp 'dataHistory' 'DataHistory' 'DontUse'
+	Add-BoolProp 'updateDataHistoryImmediatelyAfterWrite' 'UpdateDataHistoryImmediatelyAfterWrite' $false
+	Add-BoolProp 'executeAfterWriteDataHistoryVersionProcessing' 'ExecuteAfterWriteDataHistoryVersionProcessing' $false
+}
 
 # Короткая форма поля: <Type>.<Name>.StandardAttribute.X / .Attribute.X → StandardAttribute.X / Attribute.X
 # (Expand-DataPath компилятора разворачивает частичную форму обратно — dogfood резолвера).
@@ -545,10 +563,13 @@ Add-FormRef 'auxiliaryFolderForm'       'AuxiliaryFolderForm'
 Add-FormRef 'auxiliaryListForm'         'AuxiliaryListForm'
 Add-FormRef 'auxiliaryChoiceForm'       'AuxiliaryChoiceForm'
 Add-FormRef 'auxiliaryFolderChoiceForm' 'AuxiliaryFolderChoiceForm'
+Add-FormRef 'defaultRecordForm'         'DefaultRecordForm'
+Add-FormRef 'auxiliaryRecordForm'       'AuxiliaryRecordForm'
 
 # Презентации (ML, компилятор пишет пусто → omit-on-empty).
 foreach ($pp in @(
 	@('ObjectPresentation','objectPresentation'), @('ExtendedObjectPresentation','extendedObjectPresentation'),
+	@('RecordPresentation','recordPresentation'), @('ExtendedRecordPresentation','extendedRecordPresentation'),
 	@('ListPresentation','listPresentation'), @('ExtendedListPresentation','extendedListPresentation'),
 	@('Explanation','explanation'))) {
 	$pv = Get-MLValue ($props.SelectSingleNode("md:$($pp[0])", $nsm))
@@ -683,6 +704,10 @@ if ($saNode) {
 	}
 	# Условный тип (Catalog): пустой $saMap = триггер блока. Не-условный (ExchangePlan): блок и так эмитится → пустой не пишем.
 	if ($saMap.Count -gt 0 -or ($stdConditionalTypes -contains $objType)) { $dsl['standardAttributes'] = $saMap }
+} elseif ($objType -eq 'InformationRegister') {
+	# Регистр опускает all-default блок стандартных реквизитов (~5%, правило не выводимо) — компилятор эмитит его
+	# по дефолту, поэтому отсутствие фиксируем opt-out `standardAttributes:""` (дом-конвенция суппресса).
+	$dsl['standardAttributes'] = ''
 }
 
 # --- ChildObjects: Attributes + TabularSections ---
@@ -707,6 +732,19 @@ if ($childObjs) {
 		$arr = [System.Collections.ArrayList]@()
 		foreach ($a in $extDimFlagNodes) { [void]$arr.Add((Attr-ToDsl $a)) }
 		$dsl['extDimensionAccountingFlags'] = $arr
+	}
+	# Регистры: измерения и ресурсы — структурно как реквизит (Attr-ToDsl захватывает общий слой + регистро-специфику).
+	$dimNodes = @($childObjs.SelectNodes('md:Dimension', $nsm))
+	if ($dimNodes.Count -gt 0) {
+		$arr = [System.Collections.ArrayList]@()
+		foreach ($a in $dimNodes) { [void]$arr.Add((Attr-ToDsl $a)) }
+		$dsl['dimensions'] = $arr
+	}
+	$resNodes = @($childObjs.SelectNodes('md:Resource', $nsm))
+	if ($resNodes.Count -gt 0) {
+		$arr = [System.Collections.ArrayList]@()
+		foreach ($a in $resNodes) { [void]$arr.Add((Attr-ToDsl $a)) }
+		$dsl['resources'] = $arr
 	}
 	$tsNodes = @($childObjs.SelectNodes('md:TabularSection', $nsm))
 	if ($tsNodes.Count -gt 0) {

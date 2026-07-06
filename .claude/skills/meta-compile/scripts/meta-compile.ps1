@@ -1,4 +1,4 @@
-﻿# meta-compile v1.44 — Compile 1C metadata object from JSON
+﻿# meta-compile v1.45 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -839,6 +839,10 @@ function Parse-AttributeShorthand {
 		linkByType = $val.linkByType
 		choiceParameterLinks = $val.choiceParameterLinks
 		choiceParameters = $val.choiceParameters
+		master = if ($val.master -eq $true) { $true } else { $false }
+		mainFilter = if ($val.mainFilter -eq $true) { $true } else { $false }
+		denyIncompleteValues = if ($val.denyIncompleteValues -eq $true) { $true } else { $false }
+		useInTotals = if ($null -ne $val.useInTotals) { ($val.useInTotals -eq $true) } else { $true }
 	}
 }
 
@@ -1136,6 +1140,7 @@ function Emit-StandardAttributes {
 	$conditional = $script:stdAttrConditionalTypes -contains $objectType
 	$sa = $def.standardAttributes
 	if ($conditional -and $null -eq $sa) { return }   # условный тип без кастомизации → блока нет
+	if ($sa -is [string] -and $sa -eq '') { return }  # opt-out `standardAttributes:""` (дом-конвенция суппресса, ~5% регистров опускают all-default блок — правило не выводимо)
 	$profile = $script:stdAttrProfile[$objectType]; if (-not $profile) { $profile = @{} }
 	# Доп. (опциональные) стандартные реквизиты вне фикс-списка типа — напр. ExchangeDate у части ПланОбмена
 	# (легаси, присутствие не выводится из свойств). Эмитим по факту наличия ключа в DSL, ПЕРЕД фикс-списком (их позиция).
@@ -1603,7 +1608,9 @@ function Emit-Attribute {
 	# FillFromFillingValue — not for tabular/processor/chart/register-other
 	# (Chart*, AccumulationRegister/AccountingRegister/CalculationRegister don't support these)
 	if ($context -notin @("tabular", "processor", "chart", "register-other")) {
-		$ffv = if ($parsed.fillFromFillingValue -eq $true) { "true" } else { "false" }
+		# Флаг-shorthand `master` у ведущего измерения регистра конвенционально ставит и FillFromFillingValue=true
+		# (эргономика авторинга; декомпилятор пишет key-форму master:true + явный fillFromFillingValue → роундтрип цел).
+		$ffv = if ($parsed.fillFromFillingValue -eq $true -or ($elemTag -eq "Dimension" -and $parsed.flags -contains "master")) { "true" } else { "false" }
 		X "$indent`t`t<FillFromFillingValue>$ffv</FillFromFillingValue>"
 	}
 
@@ -1629,6 +1636,16 @@ function Emit-Attribute {
 	Emit-LinkByType "$indent`t`t" $parsed.linkByType
 	$chi = if ($parsed.choiceHistoryOnInput) { $parsed.choiceHistoryOnInput } else { "Auto" }
 	X "$indent`t`t<ChoiceHistoryOnInput>$chi</ChoiceHistoryOnInput>"
+
+	# Измерение регистра сведений: Master/MainFilter/DenyIncompleteValues (между ChoiceHistoryOnInput и Indexing).
+	if ($elemTag -eq "Dimension" -and $context -eq "register-info") {
+		$master = if ($parsed.master -eq $true -or $parsed.flags -contains "master") { "true" } else { "false" }
+		$mainFilter = if ($parsed.mainFilter -eq $true -or $parsed.flags -contains "mainfilter") { "true" } else { "false" }
+		$denyIncomplete = if ($parsed.denyIncompleteValues -eq $true -or $parsed.flags -contains "denyincomplete") { "true" } else { "false" }
+		X "$indent`t`t<Master>$master</Master>"
+		X "$indent`t`t<MainFilter>$mainFilter</MainFilter>"
+		X "$indent`t`t<DenyIncompleteValues>$denyIncomplete</DenyIncompleteValues>"
+	}
 
 	# Use — only for catalog top-level attributes
 	if ($context -eq "catalog") {
@@ -2231,48 +2248,49 @@ function Emit-InformationRegisterProperties {
 
 	X "$i<Name>$(Esc-Xml $objName)</Name>"
 	Emit-MLText $i "Synonym" $synonym
-	X "$i<Comment/>"
-	X "$i<UseStandardCommands>true</UseStandardCommands>"
-	X "$i<EditType>InDialog</EditType>"
-	X "$i<DefaultRecordForm/>"
-	X "$i<DefaultListForm/>"
-	X "$i<AuxiliaryRecordForm/>"
-	X "$i<AuxiliaryListForm/>"
+	if ($def.comment) { X "$i<Comment>$(Esc-XmlText "$($def.comment)")</Comment>" } else { X "$i<Comment/>" }
+	$useStdCmd = if (Get-BoolProp "useStandardCommands" $true) { "true" } else { "false" }
+	X "$i<UseStandardCommands>$useStdCmd</UseStandardCommands>"
+	X "$i<EditType>$(Get-EnumProp 'EditType' 'editType' 'InDialog')</EditType>"
+	Emit-FormRef $i "DefaultRecordForm"   $def.defaultRecordForm
+	Emit-FormRef $i "DefaultListForm"     $def.defaultListForm
+	Emit-FormRef $i "AuxiliaryRecordForm" $def.auxiliaryRecordForm
+	Emit-FormRef $i "AuxiliaryListForm"   $def.auxiliaryListForm
 
 	Emit-StandardAttributes $i "InformationRegister"
 
 	$periodicity = Get-EnumProp "InformationRegisterPeriodicity" "periodicity" "Nonperiodical"
 	$writeMode = Get-EnumProp "WriteMode" "writeMode" "Independent"
 
-	# MainFilterOnPeriod: auto based on periodicity unless explicitly set
-	$mainFilterOnPeriod = "false"
-	if ($null -ne $def.mainFilterOnPeriod) {
-		$mainFilterOnPeriod = if ($def.mainFilterOnPeriod -eq $true) { "true" } else { "false" }
-	} elseif ($periodicity -ne "Nonperiodical") {
-		$mainFilterOnPeriod = "true"
-	}
+	# MainFilterOnPeriod: захватывается независимо (авто-вывод из periodicity неверен — см. корпус).
+	$mainFilterOnPeriod = if (Get-BoolProp "mainFilterOnPeriod" $false) { "true" } else { "false" }
 
 	X "$i<InformationRegisterPeriodicity>$periodicity</InformationRegisterPeriodicity>"
 	X "$i<WriteMode>$writeMode</WriteMode>"
 	X "$i<MainFilterOnPeriod>$mainFilterOnPeriod</MainFilterOnPeriod>"
-	X "$i<IncludeHelpInContents>false</IncludeHelpInContents>"
+	$inclHelp = if (Get-BoolProp "includeHelpInContents" $false) { "true" } else { "false" }
+	X "$i<IncludeHelpInContents>$inclHelp</IncludeHelpInContents>"
 
-	$dataLockControlMode = Get-EnumProp "DataLockControlMode" "dataLockControlMode" "Automatic"
+	$dataLockControlMode = Get-EnumProp "DataLockControlMode" "dataLockControlMode" "Managed"
 	X "$i<DataLockControlMode>$dataLockControlMode</DataLockControlMode>"
 
 	$fullTextSearch = Get-EnumProp "FullTextSearch" "fullTextSearch" "Use"
 	X "$i<FullTextSearch>$fullTextSearch</FullTextSearch>"
 
-	X "$i<EnableTotalsSliceFirst>false</EnableTotalsSliceFirst>"
-	X "$i<EnableTotalsSliceLast>false</EnableTotalsSliceLast>"
-	X "$i<RecordPresentation/>"
-	X "$i<ExtendedRecordPresentation/>"
-	X "$i<ListPresentation/>"
-	X "$i<ExtendedListPresentation/>"
-	X "$i<Explanation/>"
-	X "$i<DataHistory>DontUse</DataHistory>"
-	X "$i<UpdateDataHistoryImmediatelyAfterWrite>false</UpdateDataHistoryImmediatelyAfterWrite>"
-	X "$i<ExecuteAfterWriteDataHistoryVersionProcessing>false</ExecuteAfterWriteDataHistoryVersionProcessing>"
+	$enTotFirst = if (Get-BoolProp "enableTotalsSliceFirst" $false) { "true" } else { "false" }
+	$enTotLast  = if (Get-BoolProp "enableTotalsSliceLast" $false) { "true" } else { "false" }
+	X "$i<EnableTotalsSliceFirst>$enTotFirst</EnableTotalsSliceFirst>"
+	X "$i<EnableTotalsSliceLast>$enTotLast</EnableTotalsSliceLast>"
+	Emit-MLText $i "RecordPresentation" $def.recordPresentation
+	Emit-MLText $i "ExtendedRecordPresentation" $def.extendedRecordPresentation
+	Emit-MLText $i "ListPresentation" $def.listPresentation
+	Emit-MLText $i "ExtendedListPresentation" $def.extendedListPresentation
+	Emit-MLText $i "Explanation" $def.explanation
+	X "$i<DataHistory>$(Get-EnumProp 'DataHistory' 'dataHistory' 'DontUse')</DataHistory>"
+	$updDH = if (Get-BoolProp "updateDataHistoryImmediatelyAfterWrite" $false) { "true" } else { "false" }
+	X "$i<UpdateDataHistoryImmediatelyAfterWrite>$updDH</UpdateDataHistoryImmediatelyAfterWrite>"
+	$execDH = if (Get-BoolProp "executeAfterWriteDataHistoryVersionProcessing" $false) { "true" } else { "false" }
+	X "$i<ExecuteAfterWriteDataHistoryVersionProcessing>$execDH</ExecuteAfterWriteDataHistoryVersionProcessing>"
 }
 
 function Emit-AccumulationRegisterProperties {
@@ -3652,21 +3670,36 @@ if ($objType -in @("InformationRegister","AccumulationRegister","AccountingRegis
 			$regAttrs += Parse-AttributeShorthand $a
 		}
 	}
+	$regCommands = @()
+	if ($def.commands) {
+		if ($def.commands -is [array] -or $def.commands.GetType().Name -eq 'Object[]') {
+			foreach ($c in $def.commands) { $regCommands += @{ name = "$($c.name)"; def = $c } }
+		} else {
+			$def.commands.PSObject.Properties | ForEach-Object { $regCommands += @{ name = $_.Name; def = $_.Value } }
+		}
+	}
 
-	if ($dims.Count -gt 0 -or $resources.Count -gt 0 -or $regAttrs.Count -gt 0) {
+	if ($dims.Count -gt 0 -or $resources.Count -gt 0 -or $regAttrs.Count -gt 0 -or $regCommands.Count -gt 0) {
 		$hasChildren = $true
 		X "`t`t<ChildObjects>"
-		foreach ($r in $resources) {
-			Emit-Resource "`t`t`t" $r $objType
-		}
-		foreach ($d in $dims) {
-			Emit-Dimension "`t`t`t" $d $objType
-		}
 		# InformationRegister.Attribute supports FillFromFillingValue/FillValue/DataHistory;
 		# AccumulationRegister/AccountingRegister/CalculationRegister.Attribute do NOT.
 		$regCtx = if ($objType -eq "InformationRegister") { "register-info" } else { "register-other" }
+		# InformationRegister: ресурсы/измерения — через богатый Emit-Attribute (общий слой object-свойств).
+		# Прочие регистры — легаси Emit-Resource/Emit-Dimension (пока не портированы).
+		foreach ($r in $resources) {
+			if ($objType -eq "InformationRegister") { Emit-Attribute "`t`t`t" $r "register-info" "Resource" }
+			else { Emit-Resource "`t`t`t" $r $objType }
+		}
+		foreach ($d in $dims) {
+			if ($objType -eq "InformationRegister") { Emit-Attribute "`t`t`t" $d "register-info" "Dimension" }
+			else { Emit-Dimension "`t`t`t" $d $objType }
+		}
 		foreach ($a in $regAttrs) {
 			Emit-Attribute "`t`t`t" $a $regCtx
+		}
+		foreach ($cmd in $regCommands) {
+			Emit-Command "`t`t`t" $cmd.name $cmd.def
 		}
 		X "`t`t</ChildObjects>"
 	} else {

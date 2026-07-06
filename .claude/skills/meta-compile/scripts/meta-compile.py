@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-compile v1.44 — Compile 1C metadata object from JSON
+# meta-compile v1.45 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -866,6 +866,10 @@ def parse_attribute_shorthand(val):
         'linkByType': val.get('linkByType'),
         'choiceParameterLinks': val.get('choiceParameterLinks'),
         'choiceParameters': val.get('choiceParameters'),
+        'master': val.get('master') is True,
+        'mainFilter': val.get('mainFilter') is True,
+        'denyIncompleteValues': val.get('denyIncompleteValues') is True,
+        'useInTotals': (val.get('useInTotals') is True) if val.get('useInTotals') is not None else True,
     }
 
 def parse_enum_value_shorthand(val):
@@ -1157,6 +1161,8 @@ def emit_standard_attributes(indent, object_type):
     sa = defn.get('standardAttributes')
     if conditional and sa is None:
         return
+    if isinstance(sa, str) and sa == '':
+        return  # opt-out `standardAttributes:""` (дом-конвенция суппресса, ~5% регистров опускают all-default блок)
     profile = std_attr_profile.get(object_type, {})
     # Доп. (опциональные) стандартные реквизиты вне фикс-списка — напр. ExchangeDate у части ПланОбмена
     # (легаси, присутствие не выводится). Эмитим по факту ключа в DSL, ПЕРЕД фикс-списком (их позиция).
@@ -1676,7 +1682,7 @@ def emit_attribute(indent, parsed, context, elem_tag='Attribute'):
     # FillFromFillingValue / FillValue — not for tabular/processor/chart/register-other
     # (Chart*, AccumulationRegister/AccountingRegister/CalculationRegister don't support these)
     if context not in ('tabular', 'processor', 'chart', 'register-other'):
-        ffv = 'true' if parsed.get('fillFromFillingValue') is True else 'false'
+        ffv = 'true' if (parsed.get('fillFromFillingValue') is True or (elem_tag == 'Dimension' and 'master' in parsed.get('flags', []))) else 'false'
         X(f'{indent}\t\t<FillFromFillingValue>{ffv}</FillFromFillingValue>')
     if context not in ('tabular', 'processor', 'chart', 'register-other'):
         emit_fill_value(f'{indent}\t\t', type_str, parsed.get('fillValue'), parsed.get('hasFillValue'))
@@ -1695,6 +1701,14 @@ def emit_attribute(indent, parsed, context, elem_tag='Attribute'):
     emit_link_by_type(f'{indent}\t\t', parsed.get('linkByType'))
     chi = parsed.get('choiceHistoryOnInput') or 'Auto'
     X(f'{indent}\t\t<ChoiceHistoryOnInput>{chi}</ChoiceHistoryOnInput>')
+    # Измерение регистра сведений: Master/MainFilter/DenyIncompleteValues (между ChoiceHistoryOnInput и Indexing).
+    if elem_tag == 'Dimension' and context == 'register-info':
+        master = 'true' if (parsed.get('master') is True or 'master' in parsed.get('flags', [])) else 'false'
+        main_filter = 'true' if (parsed.get('mainFilter') is True or 'mainfilter' in parsed.get('flags', [])) else 'false'
+        deny_incomplete = 'true' if (parsed.get('denyIncompleteValues') is True or 'denyincomplete' in parsed.get('flags', [])) else 'false'
+        X(f'{indent}\t\t<Master>{master}</Master>')
+        X(f'{indent}\t\t<MainFilter>{main_filter}</MainFilter>')
+        X(f'{indent}\t\t<DenyIncompleteValues>{deny_incomplete}</DenyIncompleteValues>')
     if context == 'catalog':
         X(f'{indent}\t\t<Use>{parsed.get("use") or "ForItem"}</Use>')
     if context not in ('processor', 'processor-tabular'):
@@ -2221,39 +2235,44 @@ def emit_information_register_properties(indent):
     i = indent
     X(f'{i}<Name>{esc_xml(obj_name)}</Name>')
     emit_mltext(i, 'Synonym', synonym)
-    X(f'{i}<Comment/>')
-    X(f'{i}<UseStandardCommands>true</UseStandardCommands>')
-    X(f'{i}<EditType>InDialog</EditType>')
-    X(f'{i}<DefaultRecordForm/>')
-    X(f'{i}<DefaultListForm/>')
-    X(f'{i}<AuxiliaryRecordForm/>')
-    X(f'{i}<AuxiliaryListForm/>')
+    if defn.get('comment'):
+        X(f'{i}<Comment>{esc_xml_text(str(defn["comment"]))}</Comment>')
+    else:
+        X(f'{i}<Comment/>')
+    use_std_cmd = 'true' if get_bool_prop('useStandardCommands', True) else 'false'
+    X(f'{i}<UseStandardCommands>{use_std_cmd}</UseStandardCommands>')
+    X(f'{i}<EditType>{get_enum_prop("EditType", "editType", "InDialog")}</EditType>')
+    emit_form_ref(i, 'DefaultRecordForm', defn.get('defaultRecordForm'))
+    emit_form_ref(i, 'DefaultListForm', defn.get('defaultListForm'))
+    emit_form_ref(i, 'AuxiliaryRecordForm', defn.get('auxiliaryRecordForm'))
+    emit_form_ref(i, 'AuxiliaryListForm', defn.get('auxiliaryListForm'))
     emit_standard_attributes(i, 'InformationRegister')
     periodicity = get_enum_prop('InformationRegisterPeriodicity', 'periodicity', 'Nonperiodical')
     write_mode = get_enum_prop('WriteMode', 'writeMode', 'Independent')
-    main_filter_on_period = 'false'
-    if defn.get('mainFilterOnPeriod') is not None:
-        main_filter_on_period = 'true' if defn['mainFilterOnPeriod'] is True else 'false'
-    elif periodicity != 'Nonperiodical':
-        main_filter_on_period = 'true'
+    main_filter_on_period = 'true' if get_bool_prop('mainFilterOnPeriod', False) else 'false'
     X(f'{i}<InformationRegisterPeriodicity>{periodicity}</InformationRegisterPeriodicity>')
     X(f'{i}<WriteMode>{write_mode}</WriteMode>')
     X(f'{i}<MainFilterOnPeriod>{main_filter_on_period}</MainFilterOnPeriod>')
-    X(f'{i}<IncludeHelpInContents>false</IncludeHelpInContents>')
-    data_lock_control_mode = get_enum_prop('DataLockControlMode', 'dataLockControlMode', 'Automatic')
+    incl_help = 'true' if get_bool_prop('includeHelpInContents', False) else 'false'
+    X(f'{i}<IncludeHelpInContents>{incl_help}</IncludeHelpInContents>')
+    data_lock_control_mode = get_enum_prop('DataLockControlMode', 'dataLockControlMode', 'Managed')
     X(f'{i}<DataLockControlMode>{data_lock_control_mode}</DataLockControlMode>')
     full_text_search = get_enum_prop('FullTextSearch', 'fullTextSearch', 'Use')
     X(f'{i}<FullTextSearch>{full_text_search}</FullTextSearch>')
-    X(f'{i}<EnableTotalsSliceFirst>false</EnableTotalsSliceFirst>')
-    X(f'{i}<EnableTotalsSliceLast>false</EnableTotalsSliceLast>')
-    X(f'{i}<RecordPresentation/>')
-    X(f'{i}<ExtendedRecordPresentation/>')
-    X(f'{i}<ListPresentation/>')
-    X(f'{i}<ExtendedListPresentation/>')
-    X(f'{i}<Explanation/>')
-    X(f'{i}<DataHistory>DontUse</DataHistory>')
-    X(f'{i}<UpdateDataHistoryImmediatelyAfterWrite>false</UpdateDataHistoryImmediatelyAfterWrite>')
-    X(f'{i}<ExecuteAfterWriteDataHistoryVersionProcessing>false</ExecuteAfterWriteDataHistoryVersionProcessing>')
+    en_tot_first = 'true' if get_bool_prop('enableTotalsSliceFirst', False) else 'false'
+    en_tot_last = 'true' if get_bool_prop('enableTotalsSliceLast', False) else 'false'
+    X(f'{i}<EnableTotalsSliceFirst>{en_tot_first}</EnableTotalsSliceFirst>')
+    X(f'{i}<EnableTotalsSliceLast>{en_tot_last}</EnableTotalsSliceLast>')
+    emit_mltext(i, 'RecordPresentation', defn.get('recordPresentation'))
+    emit_mltext(i, 'ExtendedRecordPresentation', defn.get('extendedRecordPresentation'))
+    emit_mltext(i, 'ListPresentation', defn.get('listPresentation'))
+    emit_mltext(i, 'ExtendedListPresentation', defn.get('extendedListPresentation'))
+    emit_mltext(i, 'Explanation', defn.get('explanation'))
+    X(f'{i}<DataHistory>{get_enum_prop("DataHistory", "dataHistory", "DontUse")}</DataHistory>')
+    upd_dh = 'true' if get_bool_prop('updateDataHistoryImmediatelyAfterWrite', False) else 'false'
+    X(f'{i}<UpdateDataHistoryImmediatelyAfterWrite>{upd_dh}</UpdateDataHistoryImmediatelyAfterWrite>')
+    exec_dh = 'true' if get_bool_prop('executeAfterWriteDataHistoryVersionProcessing', False) else 'false'
+    X(f'{i}<ExecuteAfterWriteDataHistoryVersionProcessing>{exec_dh}</ExecuteAfterWriteDataHistoryVersionProcessing>')
 
 def emit_accumulation_register_properties(indent):
     i = indent
@@ -3457,18 +3476,37 @@ if obj_type in ('InformationRegister', 'AccumulationRegister', 'AccountingRegist
     if defn.get('attributes'):
         for a in defn['attributes']:
             reg_attrs.append(parse_attribute_shorthand(a))
-    if dims or resources or reg_attrs:
+    reg_commands = []
+    if defn.get('commands'):
+        cd = defn['commands']
+        if isinstance(cd, list):
+            for c in cd:
+                reg_commands.append({'name': str(c.get('name', '')), 'def': c})
+        else:
+            for k, v in cd.items():
+                reg_commands.append({'name': k, 'def': v})
+    if dims or resources or reg_attrs or reg_commands:
         has_children = True
         X('\t\t<ChildObjects>')
-        for r in resources:
-            emit_resource('\t\t\t', r, obj_type)
-        for d in dims:
-            emit_dimension('\t\t\t', d, obj_type)
         # InformationRegister.Attribute supports FillFromFillingValue/FillValue/DataHistory;
         # AccumulationRegister/AccountingRegister/CalculationRegister.Attribute do NOT.
         reg_ctx = 'register-info' if obj_type == 'InformationRegister' else 'register-other'
+        # InformationRegister: ресурсы/измерения — через богатый emit_attribute (общий слой object-свойств).
+        # Прочие регистры — легаси emit_resource/emit_dimension (пока не портированы).
+        for r in resources:
+            if obj_type == 'InformationRegister':
+                emit_attribute('\t\t\t', r, 'register-info', 'Resource')
+            else:
+                emit_resource('\t\t\t', r, obj_type)
+        for d in dims:
+            if obj_type == 'InformationRegister':
+                emit_attribute('\t\t\t', d, 'register-info', 'Dimension')
+            else:
+                emit_dimension('\t\t\t', d, obj_type)
         for a in reg_attrs:
             emit_attribute('\t\t\t', a, reg_ctx)
+        for cmd in reg_commands:
+            emit_command('\t\t\t', cmd['name'], cmd['def'])
         X('\t\t</ChildObjects>')
     else:
         X('\t\t<ChildObjects/>')

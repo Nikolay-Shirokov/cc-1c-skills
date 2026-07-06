@@ -809,16 +809,28 @@ Split-CamelCase имени.
 
 | Поле JSON | Умолчание | XML элемент |
 |-----------|----------|-------------|
-| `writeMode` | `Independent` | WriteMode |
+| `writeMode` | `Independent` | WriteMode (Independent/RecorderSubordinate) |
 | `periodicity` | `Nonperiodical` | InformationRegisterPeriodicity |
-| `mainFilterOnPeriod` | авто* | MainFilterOnPeriod |
-| `dataLockControlMode` | `Automatic` | DataLockControlMode |
+| `mainFilterOnPeriod` | `false` | MainFilterOnPeriod (не выводится из `periodicity` — задаётся явно) |
+| `dataLockControlMode` | `Managed` | DataLockControlMode |
 | `fullTextSearch` | `Use` | FullTextSearch |
-| `dimensions` | `[]` | → Dimension в ChildObjects |
-| `resources` | `[]` | → Resource в ChildObjects |
+| `editType` | `InDialog` | EditType |
+| `useStandardCommands` | `true` | UseStandardCommands |
+| `enableTotalsSliceFirst` / `enableTotalsSliceLast` | `false` | EnableTotalsSlice* (срез первых/последних) |
+| `comment` | пусто | Comment |
+| `recordPresentation` / `extendedRecordPresentation` / `listPresentation` / `extendedListPresentation` / `explanation` | пусто | презентации (ML) |
+| `defaultRecordForm` / `defaultListForm` / `auxiliaryRecordForm` / `auxiliaryListForm` | пусто | *RecordForm/*ListForm (ссылка на форму) |
+| `dataHistory` (+ триплет) | `DontUse` | DataHistory / UpdateDataHistoryImmediatelyAfterWrite / ExecuteAfterWriteDataHistoryVersionProcessing |
+| `standardAttributes` | (блок всегда) | `""` — opt-out: подавить all-default блок стандартных реквизитов (~5% регистров его опускают, правило не выводимо) |
+| `dimensions` | `[]` | → Dimension в ChildObjects (богатый object-слой реквизита + `master`/`mainFilter`/`denyIncompleteValues`) |
+| `resources` | `[]` | → Resource в ChildObjects (богатый object-слой реквизита) |
 | `attributes` | `[]` | → Attribute в ChildObjects |
+| `commands` | `[]` | → Command в ChildObjects (см. §7.1.3) |
 
-\* `mainFilterOnPeriod` = `true` если `periodicity` != `Nonperiodical`, иначе `false`.
+Измерения/ресурсы РС поддерживают полный object-слой реквизита (synonym/tooltip/comment/type/fillValue/
+choiceParameters/indexing/fullTextSearch/dataHistory/…, см. §3–4). Признаки измерения — флаги shorthand
+(`master`/`mainFilter`/`denyIncomplete`) ЛИБО object-ключи (`master`/`mainFilter`/`denyIncompleteValues`: bool).
+Флаг `master` дополнительно ставит `FillFromFillingValue=true` (конвенция ведущего измерения).
 
 ### 7.6 AccumulationRegister
 
