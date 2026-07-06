@@ -1,4 +1,4 @@
-﻿# meta-decompile v0.34 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
+﻿# meta-decompile v0.35 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 #
 # Поддержаны: Catalog, ExchangePlan, ChartOfCharacteristicTypes, ChartOfAccounts, ChartOfCalculationTypes, Document. Инверс meta-compile (omit-on-default: ключ эмитим только
@@ -328,7 +328,11 @@ function Attr-ToDsl {
 		} elseif ($xsiT -match 'boolean$') {
 			$extra['fillValue'] = ($fvText -eq 'true')
 		} elseif ($xsiT -match 'decimal$') {
-			if (-not ($fcat -eq 'Number' -and ($fvText -eq '0' -or $fvText -eq ''))) { $extra['fillValue'] = $fvText }
+			# Захватываем как ЧИСЛО (не строку): на составном типе компилятор берёт xsi-тип из JSON-значения —
+			# строка "0" дала бы xs:string, число 0 → xs:decimal. У плоского Number эмиссия и так type-aware.
+			if (-not ($fcat -eq 'Number' -and ($fvText -eq '0' -or $fvText -eq ''))) {
+				$extra['fillValue'] = if ($fvText -match '^-?\d+$') { [long]$fvText } else { [double]$fvText }
+			}
 		} elseif ($xsiT -match 'string$') {
 			if (-not ($fcat -eq 'String' -and $fvText -eq '')) { $extra['fillValue'] = $fvText }
 		} elseif ($xsiT -match 'dateTime$') {
