@@ -38,7 +38,7 @@
 			<Comment/>
 			<UseStandardCommands>true</UseStandardCommands>
 			<IncludeHelpInContents>false</IncludeHelpInContents>
-			<CharacteristicExtValues/>
+			<CharacteristicExtValues>Catalog.ЗначенияСвойств</CharacteristicExtValues>
 			<Type>
 				<v8:Type>xs:string</v8:Type>
 				<v8:StringQualifiers>
@@ -56,6 +56,7 @@
 				<v8:DateQualifiers>
 					<v8:DateFractions>Date</v8:DateFractions>
 				</v8:DateQualifiers>
+				<v8:Type xmlns:d5p1="http://v8.1c.ru/8.1/data/enterprise/current-config">d5p1:CatalogRef.ЗначенияСвойств</v8:Type>
 			</Type>
 			<Hierarchical>true</Hierarchical>
 			<FoldersOnTop>true</FoldersOnTop>

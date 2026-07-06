@@ -184,6 +184,20 @@ function getStructuralDeps(input) {
           }
         }
         break;
+      case 'ChartOfCharacteristicTypes':
+        // Доп. значения характеристик (CharacteristicExtValues) — ссылка на справочник, ПОДЧИНЁННЫЙ этому ПВХ
+        // (Owner = ChartOfCharacteristicTypes.X). 1С требует такой справочник для целостности; плоский стаб не годится
+        // (тип предопределённых должен входить в тип значения ПВХ, а справочник — быть подчинён). Стабим с Owner.
+        if (inp.characteristicExtValues) {
+          const ref = String(inp.characteristicExtValues);
+          const dot = ref.indexOf('.');
+          const cn = dot >= 0 ? ref.substring(dot + 1) : ref;
+          deps.push({
+            type: 'Catalog', name: cn,
+            dsl: { type: 'Catalog', name: cn, owners: [`ChartOfCharacteristicTypes.${inp.name}`] },
+          });
+        }
+        break;
       case 'DocumentJournal':
         if (inp.registeredDocuments) {
           for (const docRef of inp.registeredDocuments) {

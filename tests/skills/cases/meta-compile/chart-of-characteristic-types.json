@@ -5,7 +5,8 @@
     "name": "ДополнительныеРеквизитыИСведения",
     "descriptionLength": 100,
     "hierarchical": true,
-    "valueTypes": ["String(200)", "Number(15,2)", "Boolean", "Date"],
+    "valueTypes": ["String(200)", "Number(15,2)", "Boolean", "Date", "CatalogRef.ЗначенияСвойств"],
+    "characteristicExtValues": "Catalog.ЗначенияСвойств",
     "standardAttributes": { "Description": { "synonym": "Свойство" } },
     "attributes": ["НаборСвойств: String(100)"],
     "predefined": [
