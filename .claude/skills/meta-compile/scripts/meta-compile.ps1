@@ -1,4 +1,4 @@
-﻿# meta-compile v1.46 — Compile 1C metadata object from JSON
+﻿# meta-compile v1.47 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -843,6 +843,11 @@ function Parse-AttributeShorthand {
 		mainFilter = if ($val.mainFilter -eq $true) { $true } else { $false }
 		denyIncompleteValues = if ($val.denyIncompleteValues -eq $true) { $true } else { $false }
 		useInTotals = if ($null -ne $val.useInTotals) { ($val.useInTotals -eq $true) } else { $true }
+		baseDimension = if ($val.baseDimension -eq $true) { $true } else { $false }
+		scheduleLink = $val.scheduleLink
+		balance = if ($val.balance -eq $true) { $true } else { $false }
+		accountingFlag = $val.accountingFlag
+		extDimensionAccountingFlag = $val.extDimensionAccountingFlag
 	}
 }
 
@@ -1092,7 +1097,18 @@ function Emit-StandardAttribute {
 	$efmt = OvOr 'EditFormat' $null
 	$chi = OvOr 'ChoiceHistoryOnInput' 'Auto'
 	X "$indent<xr:StandardAttribute name=`"$attrName`">"
-	X "$indent`t<xr:LinkByType/>"
+	# LinkByType стандартного реквизита (напр. ExtDimensionN→Account у регистра бухгалтерии). DataPath verbatim (полный).
+	$lbt = OvOr 'LinkByType' $null
+	if ($lbt) {
+		$lbtDp = if ($lbt.dataPath) { "$($lbt.dataPath)" } else { "$lbt" }
+		$lbtLi = if ($null -ne $lbt.linkItem) { $lbt.linkItem } else { 0 }
+		X "$indent`t<xr:LinkByType>"
+		X "$indent`t`t<xr:DataPath>$(Esc-Xml $lbtDp)</xr:DataPath>"
+		X "$indent`t`t<xr:LinkItem>$lbtLi</xr:LinkItem>"
+		X "$indent`t</xr:LinkByType>"
+	} else {
+		X "$indent`t<xr:LinkByType/>"
+	}
 	X "$indent`t<xr:FillChecking>$fc</xr:FillChecking>"
 	X "$indent`t<xr:MultiLine>false</xr:MultiLine>"
 	X "$indent`t<xr:FillFromFillingValue>$ffv</xr:FillFromFillingValue>"
@@ -1167,6 +1183,7 @@ function Emit-StandardAttributes {
 				if ($null -ne $d.format) { $ov['Format'] = $d.format }         # строка ИЛИ {ru,en}
 				if ($null -ne $d.editFormat) { $ov['EditFormat'] = $d.editFormat }
 				if ($d.choiceForm) { $ov['ChoiceForm'] = "$($d.choiceForm)" }
+				if ($null -ne $d.linkByType) { $ov['LinkByType'] = $d.linkByType }
 			}
 		}
 		Emit-StandardAttribute "$indent`t" $a $ov
@@ -1607,7 +1624,7 @@ function Emit-Attribute {
 
 	# FillFromFillingValue — not for tabular/processor/chart/register-other/register-accum
 	# (Chart*, AccumulationRegister/AccountingRegister/CalculationRegister don't support these)
-	if ($context -notin @("tabular", "processor", "chart", "register-other", "register-accum")) {
+	if ($context -notin @("tabular", "processor", "chart", "register-other", "register-accum", "register-calc", "register-account")) {
 		# Флаг-shorthand `master` у ведущего измерения регистра конвенционально ставит и FillFromFillingValue=true
 		# (эргономика авторинга; декомпилятор пишет key-форму master:true + явный fillFromFillingValue → роундтрип цел).
 		$ffv = if ($parsed.fillFromFillingValue -eq $true -or ($elemTag -eq "Dimension" -and $parsed.flags -contains "master")) { "true" } else { "false" }
@@ -1615,7 +1632,7 @@ function Emit-Attribute {
 	}
 
 	# FillValue — same restriction
-	if ($context -notin @("tabular", "processor", "chart", "register-other", "register-accum")) {
+	if ($context -notin @("tabular", "processor", "chart", "register-other", "register-accum", "register-calc", "register-account")) {
 		Emit-FillValue "$indent`t`t" $typeStr $parsed.fillValue $parsed.hasFillValue
 	}
 
@@ -1653,6 +1670,33 @@ function Emit-Attribute {
 		X "$indent`t`t<DenyIncompleteValues>$denyIncomplete</DenyIncompleteValues>"
 	}
 
+	# Измерение регистра расчёта: DenyIncompleteValues + BaseDimension (между ChoiceHistoryOnInput и ScheduleLink/Indexing).
+	if ($elemTag -eq "Dimension" -and $context -eq "register-calc") {
+		$denyIncomplete = if ($parsed.denyIncompleteValues -eq $true -or $parsed.flags -contains "denyincomplete") { "true" } else { "false" }
+		$baseDimension = if ($parsed.baseDimension -eq $true -or $parsed.flags -contains "base") { "true" } else { "false" }
+		X "$indent`t`t<DenyIncompleteValues>$denyIncomplete</DenyIncompleteValues>"
+		X "$indent`t`t<BaseDimension>$baseDimension</BaseDimension>"
+	}
+	# Регистр расчёта: ScheduleLink у измерений и реквизитов (НЕ ресурсов), перед Indexing. Дефолт пустой.
+	if ($context -eq "register-calc" -and $elemTag -in @("Dimension", "Attribute")) {
+		if ($parsed.scheduleLink) { X "$indent`t`t<ScheduleLink>$(Esc-Xml "$($parsed.scheduleLink)")</ScheduleLink>" }
+		else { X "$indent`t`t<ScheduleLink/>" }
+	}
+
+	# Измерение/ресурс регистра бухгалтерии: Balance + AccountingFlag (ссылка на признак учёта ПС), затем
+	# DenyIncompleteValues (измерение) / ExtDimensionAccountingFlag (ресурс). Всё между ChoiceHistoryOnInput и Indexing.
+	if ($context -eq "register-account" -and $elemTag -in @("Dimension", "Resource")) {
+		$balance = if ($parsed.balance -eq $true -or $parsed.flags -contains "balance") { "true" } else { "false" }
+		X "$indent`t`t<Balance>$balance</Balance>"
+		if ($parsed.accountingFlag) { X "$indent`t`t<AccountingFlag>$(Esc-Xml "$($parsed.accountingFlag)")</AccountingFlag>" } else { X "$indent`t`t<AccountingFlag/>" }
+		if ($elemTag -eq "Dimension") {
+			$denyIncomplete = if ($parsed.denyIncompleteValues -eq $true -or $parsed.flags -contains "denyincomplete") { "true" } else { "false" }
+			X "$indent`t`t<DenyIncompleteValues>$denyIncomplete</DenyIncompleteValues>"
+		} else {
+			if ($parsed.extDimensionAccountingFlag) { X "$indent`t`t<ExtDimensionAccountingFlag>$(Esc-Xml "$($parsed.extDimensionAccountingFlag)")</ExtDimensionAccountingFlag>" } else { X "$indent`t`t<ExtDimensionAccountingFlag/>" }
+		}
+	}
+
 	# Use — only for catalog top-level attributes
 	if ($context -eq "catalog") {
 		$use = if ($parsed.use) { $parsed.use } else { "ForItem" }
@@ -1663,8 +1707,8 @@ function Emit-Attribute {
 	if ($context -notin @("processor", "processor-tabular")) {
 		# Признаки учёта ПС (account-flag) не имеют <Indexing>/<FullTextSearch>, но имеют <DataHistory>.
 		if ($context -ne "account-flag") {
-			# Ресурс регистра накопления НЕ имеет <Indexing> (только <FullTextSearch>); измерение/реквизит — имеют.
-			if (-not ($context -eq "register-accum" -and $elemTag -eq "Resource")) {
+			# Ресурс регистра накопления/расчёта/бухгалтерии НЕ имеет <Indexing> (только <FullTextSearch>); измерение/реквизит — имеют.
+			if (-not ($context -in @("register-accum", "register-calc", "register-account") -and $elemTag -eq "Resource")) {
 				$indexing = "DontIndex"
 				if ($parsed.flags -contains "index") { $indexing = "Index" }
 				if ($parsed.flags -contains "indexadditional") { $indexing = "IndexWithAdditionalOrder" }
@@ -1681,7 +1725,7 @@ function Emit-Attribute {
 			X "$indent`t`t<UseInTotals>$useInTotals</UseInTotals>"
 		}
 		# DataHistory — not for Chart* types and non-InformationRegister register family
-		if ($context -notin @("chart", "register-other", "register-accum")) {
+		if ($context -notin @("chart", "register-other", "register-accum", "register-calc", "register-account")) {
 			$dh = if ($parsed.dataHistory) { $parsed.dataHistory } else { "Use" }
 			X "$indent`t`t<DataHistory>$dh</DataHistory>"
 		}
@@ -2902,13 +2946,14 @@ function Emit-AccountingRegisterProperties {
 
 	X "$i<Name>$(Esc-Xml $objName)</Name>"
 	Emit-MLText $i "Synonym" $synonym
-	X "$i<Comment/>"
-	X "$i<UseStandardCommands>true</UseStandardCommands>"
-	X "$i<DefaultListForm/>"
-	X "$i<AuxiliaryListForm/>"
+	if ($def.comment) { X "$i<Comment>$(Esc-XmlText "$($def.comment)")</Comment>" } else { X "$i<Comment/>" }
+	$useStdCmd = if (Get-BoolProp "useStandardCommands" $true) { "true" } else { "false" }
+	X "$i<UseStandardCommands>$useStdCmd</UseStandardCommands>"
+	$inclHelp = if (Get-BoolProp "includeHelpInContents" $false) { "true" } else { "false" }
+	X "$i<IncludeHelpInContents>$inclHelp</IncludeHelpInContents>"
 
 	$chartOfAccounts = if ($def.chartOfAccounts) { "$($def.chartOfAccounts)" } else { "" }
-	if ($chartOfAccounts) { X "$i<ChartOfAccounts>$chartOfAccounts</ChartOfAccounts>" }
+	if ($chartOfAccounts) { X "$i<ChartOfAccounts>$(Esc-Xml $chartOfAccounts)</ChartOfAccounts>" }
 	else { X "$i<ChartOfAccounts/>" }
 
 	$correspondence = if ($def.correspondence -eq $true) { "true" } else { "false" }
@@ -2917,19 +2962,23 @@ function Emit-AccountingRegisterProperties {
 	$periodAdjLen = if ($null -ne $def.periodAdjustmentLength) { "$($def.periodAdjustmentLength)" } else { "0" }
 	X "$i<PeriodAdjustmentLength>$periodAdjLen</PeriodAdjustmentLength>"
 
-	X "$i<IncludeHelpInContents>false</IncludeHelpInContents>"
+	Emit-FormRef $i "DefaultListForm"   $def.defaultListForm
+	Emit-FormRef $i "AuxiliaryListForm" $def.auxiliaryListForm
 
 	Emit-StandardAttributes $i "AccountingRegister"
 
 	$dataLockControlMode = Get-EnumProp "DataLockControlMode" "dataLockControlMode" "Automatic"
 	X "$i<DataLockControlMode>$dataLockControlMode</DataLockControlMode>"
 
+	$enableTotalsSplitting = if ($def.enableTotalsSplitting -eq $false) { "false" } else { "true" }
+	X "$i<EnableTotalsSplitting>$enableTotalsSplitting</EnableTotalsSplitting>"
+
 	$fullTextSearch = Get-EnumProp "FullTextSearch" "fullTextSearch" "Use"
 	X "$i<FullTextSearch>$fullTextSearch</FullTextSearch>"
 
-	X "$i<ListPresentation/>"
-	X "$i<ExtendedListPresentation/>"
-	X "$i<Explanation/>"
+	Emit-MLText $i "ListPresentation" $def.listPresentation
+	Emit-MLText $i "ExtendedListPresentation" $def.extendedListPresentation
+	Emit-MLText $i "Explanation" $def.explanation
 }
 
 # Стандартные ТЧ Плана видов расчёта: Ведущие/Вытесняющие/Базовые виды расчёта. Обёртка платформенно-константна
@@ -3049,14 +3098,11 @@ function Emit-CalculationRegisterProperties {
 
 	X "$i<Name>$(Esc-Xml $objName)</Name>"
 	Emit-MLText $i "Synonym" $synonym
-	X "$i<Comment/>"
-	X "$i<UseStandardCommands>true</UseStandardCommands>"
-	X "$i<DefaultListForm/>"
-	X "$i<AuxiliaryListForm/>"
-
-	$chartOfCalcTypes = if ($def.chartOfCalculationTypes) { "$($def.chartOfCalculationTypes)" } else { "" }
-	if ($chartOfCalcTypes) { X "$i<ChartOfCalculationTypes>$chartOfCalcTypes</ChartOfCalculationTypes>" }
-	else { X "$i<ChartOfCalculationTypes/>" }
+	if ($def.comment) { X "$i<Comment>$(Esc-XmlText "$($def.comment)")</Comment>" } else { X "$i<Comment/>" }
+	$useStdCmd = if (Get-BoolProp "useStandardCommands" $true) { "true" } else { "false" }
+	X "$i<UseStandardCommands>$useStdCmd</UseStandardCommands>"
+	Emit-FormRef $i "DefaultListForm"   $def.defaultListForm
+	Emit-FormRef $i "AuxiliaryListForm" $def.auxiliaryListForm
 
 	$periodicity = Get-EnumProp "InformationRegisterPeriodicity" "periodicity" "Month"
 	X "$i<Periodicity>$periodicity</Periodicity>"
@@ -3068,15 +3114,20 @@ function Emit-CalculationRegisterProperties {
 	X "$i<BasePeriod>$basePeriod</BasePeriod>"
 
 	$schedule = if ($def.schedule) { "$($def.schedule)" } else { "" }
-	if ($schedule) { X "$i<Schedule>$schedule</Schedule>" } else { X "$i<Schedule/>" }
+	if ($schedule) { X "$i<Schedule>$(Esc-Xml $schedule)</Schedule>" } else { X "$i<Schedule/>" }
 
 	$scheduleValue = if ($def.scheduleValue) { "$($def.scheduleValue)" } else { "" }
-	if ($scheduleValue) { X "$i<ScheduleValue>$scheduleValue</ScheduleValue>" } else { X "$i<ScheduleValue/>" }
+	if ($scheduleValue) { X "$i<ScheduleValue>$(Esc-Xml $scheduleValue)</ScheduleValue>" } else { X "$i<ScheduleValue/>" }
 
 	$scheduleDate = if ($def.scheduleDate) { "$($def.scheduleDate)" } else { "" }
-	if ($scheduleDate) { X "$i<ScheduleDate>$scheduleDate</ScheduleDate>" } else { X "$i<ScheduleDate/>" }
+	if ($scheduleDate) { X "$i<ScheduleDate>$(Esc-Xml $scheduleDate)</ScheduleDate>" } else { X "$i<ScheduleDate/>" }
 
-	X "$i<IncludeHelpInContents>false</IncludeHelpInContents>"
+	$chartOfCalcTypes = if ($def.chartOfCalculationTypes) { "$($def.chartOfCalculationTypes)" } else { "" }
+	if ($chartOfCalcTypes) { X "$i<ChartOfCalculationTypes>$(Esc-Xml $chartOfCalcTypes)</ChartOfCalculationTypes>" }
+	else { X "$i<ChartOfCalculationTypes/>" }
+
+	$inclHelp = if (Get-BoolProp "includeHelpInContents" $false) { "true" } else { "false" }
+	X "$i<IncludeHelpInContents>$inclHelp</IncludeHelpInContents>"
 
 	Emit-StandardAttributes $i "CalculationRegister"
 
@@ -3086,9 +3137,9 @@ function Emit-CalculationRegisterProperties {
 	$fullTextSearch = Get-EnumProp "FullTextSearch" "fullTextSearch" "Use"
 	X "$i<FullTextSearch>$fullTextSearch</FullTextSearch>"
 
-	X "$i<ListPresentation/>"
-	X "$i<ExtendedListPresentation/>"
-	X "$i<Explanation/>"
+	Emit-MLText $i "ListPresentation" $def.listPresentation
+	Emit-MLText $i "ExtendedListPresentation" $def.extendedListPresentation
+	Emit-MLText $i "Explanation" $def.explanation
 }
 
 # --- 13e. Wave 5: BusinessProcess, Task ---
@@ -3698,12 +3749,11 @@ if ($objType -in @("InformationRegister","AccumulationRegister","AccountingRegis
 	if ($dims.Count -gt 0 -or $resources.Count -gt 0 -or $regAttrs.Count -gt 0 -or $regCommands.Count -gt 0) {
 		$hasChildren = $true
 		X "`t`t<ChildObjects>"
-		# InformationRegister.Attribute supports FillFromFillingValue/FillValue/DataHistory;
-		# AccumulationRegister/AccountingRegister/CalculationRegister.Attribute do NOT.
-		$regCtx = if ($objType -eq "InformationRegister") { "register-info" } else { "register-other" }
-		# InformationRegister/AccumulationRegister: ресурсы/измерения — через богатый Emit-Attribute (общий слой
-		# object-свойств). Прочие регистры (Accounting/Calculation) — легаси Emit-Resource/Emit-Dimension (пока не портированы).
-		$dimResCtx = switch ($objType) { "InformationRegister" { "register-info" } "AccumulationRegister" { "register-accum" } default { $null } }
+		# InformationRegister.Attribute supports FillFromFillingValue/FillValue/DataHistory; прочие — нет.
+		# CalculationRegister.Attribute несёт <ScheduleLink> → отдельный контекст register-calc.
+		$regCtx = switch ($objType) { "InformationRegister" { "register-info" } "CalculationRegister" { "register-calc" } default { "register-other" } }
+		# Все семейства регистров: ресурсы/измерения — через богатый Emit-Attribute (общий слой object-свойств).
+		$dimResCtx = switch ($objType) { "InformationRegister" { "register-info" } "AccumulationRegister" { "register-accum" } "CalculationRegister" { "register-calc" } "AccountingRegister" { "register-account" } default { $null } }
 		foreach ($r in $resources) {
 			if ($dimResCtx) { Emit-Attribute "`t`t`t" $r $dimResCtx "Resource" }
 			else { Emit-Resource "`t`t`t" $r $objType }

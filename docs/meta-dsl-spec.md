@@ -854,6 +854,37 @@ choiceParameters/indexing/fullTextSearch/dataHistory/…, см. §3–4). При
 Признаки измерения — флаги shorthand (`denyIncomplete`, `nouseintotals`) ЛИБО object-ключи (`denyIncompleteValues`,
 `useInTotals`: bool, дефолт true). Ресурс РН НЕ имеет `<Indexing>` (только `<FullTextSearch>`).
 
+### 7.6a AccountingRegister (Регистр бухгалтерии)
+
+| Поле JSON | Умолчание | XML элемент |
+|-----------|----------|-------------|
+| `chartOfAccounts` | пусто | ChartOfAccounts (MDObjectRef `ChartOfAccounts.X`) |
+| `correspondence` | `false` | Correspondence (bool) |
+| `periodAdjustmentLength` | `0` | PeriodAdjustmentLength (int) |
+| `enableTotalsSplitting` | `true` | EnableTotalsSplitting |
+| `dataLockControlMode` | `Automatic` | DataLockControlMode |
+| общие (comment/useStandardCommands/includeHelpInContents/defaultListForm/auxiliaryListForm/презентации ML) | — | — |
+| `dimensions` / `resources` / `attributes` / `commands` | `[]` | → ChildObjects |
+
+Измерения/ресурсы РБ несут `balance` (bool), `accountingFlag` (ссылка `ChartOfAccounts.X.AccountingFlag.Y`);
+ресурсы дополнительно `extDimensionAccountingFlag`, измерения — `denyIncompleteValues`. Стандартные реквизиты
+ExtDimension1..N связаны с Account через `linkByType` (в блоке `standardAttributes`, §7.1.1; DataPath полный).
+
+### 7.6b CalculationRegister (Регистр расчёта)
+
+| Поле JSON | Умолчание | XML элемент |
+|-----------|----------|-------------|
+| `chartOfCalculationTypes` | пусто | ChartOfCalculationTypes (ссылка) |
+| `periodicity` | `Month` | Periodicity |
+| `actionPeriod` / `basePeriod` | `false` | ActionPeriod / BasePeriod (bool) |
+| `schedule` / `scheduleValue` / `scheduleDate` | пусто | Schedule* (ссылки на регистр-график и его поля) |
+| `dataLockControlMode` | `Automatic` | DataLockControlMode |
+| общие (comment/useStandardCommands/includeHelpInContents/defaultListForm/auxiliaryListForm/презентации ML) | — | — |
+| `dimensions` / `resources` / `attributes` / `commands` | `[]` | → ChildObjects |
+
+Измерения РР несут `denyIncompleteValues`, `baseDimension` (bool), `scheduleLink` (ссылка на измерение графика);
+реквизиты — `scheduleLink`; ресурсы — только `<FullTextSearch>` (без Indexing).
+
 ### 7.7 DefinedType
 
 | Поле JSON | Умолчание | XML элемент |

@@ -41,12 +41,12 @@
 			</Synonym>
 			<Comment/>
 			<UseStandardCommands>true</UseStandardCommands>
-			<DefaultListForm/>
-			<AuxiliaryListForm/>
+			<IncludeHelpInContents>false</IncludeHelpInContents>
 			<ChartOfAccounts>ChartOfAccounts.Хозрасчетный</ChartOfAccounts>
 			<Correspondence>true</Correspondence>
 			<PeriodAdjustmentLength>0</PeriodAdjustmentLength>
-			<IncludeHelpInContents>false</IncludeHelpInContents>
+			<DefaultListForm/>
+			<AuxiliaryListForm/>
 			<StandardAttributes>
 				<xr:StandardAttribute name="Active">
 					<xr:LinkByType/>
@@ -180,6 +180,7 @@
 				</xr:StandardAttribute>
 			</StandardAttributes>
 			<DataLockControlMode>Automatic</DataLockControlMode>
+			<EnableTotalsSplitting>true</EnableTotalsSplitting>
 			<FullTextSearch>Use</FullTextSearch>
 			<ListPresentation/>
 			<ExtendedListPresentation/>
@@ -223,6 +224,10 @@
 					<ChoiceForm/>
 					<LinkByType/>
 					<ChoiceHistoryOnInput>Auto</ChoiceHistoryOnInput>
+					<Balance>false</Balance>
+					<AccountingFlag/>
+					<ExtDimensionAccountingFlag/>
+					<FullTextSearch>Use</FullTextSearch>
 				</Properties>
 			</Resource>
 			<Dimension uuid="UUID-017">
@@ -257,6 +262,9 @@
 					<ChoiceForm/>
 					<LinkByType/>
 					<ChoiceHistoryOnInput>Auto</ChoiceHistoryOnInput>
+					<Balance>false</Balance>
+					<AccountingFlag/>
+					<DenyIncompleteValues>false</DenyIncompleteValues>
 					<Indexing>DontIndex</Indexing>
 					<FullTextSearch>Use</FullTextSearch>
 				</Properties>

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-compile v1.46 — Compile 1C metadata object from JSON
+# meta-compile v1.47 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -870,6 +870,11 @@ def parse_attribute_shorthand(val):
         'mainFilter': val.get('mainFilter') is True,
         'denyIncompleteValues': val.get('denyIncompleteValues') is True,
         'useInTotals': (val.get('useInTotals') is True) if val.get('useInTotals') is not None else True,
+        'baseDimension': val.get('baseDimension') is True,
+        'scheduleLink': val.get('scheduleLink'),
+        'balance': val.get('balance') is True,
+        'accountingFlag': val.get('accountingFlag'),
+        'extDimensionAccountingFlag': val.get('extDimensionAccountingFlag'),
     }
 
 def parse_enum_value_shorthand(val):
@@ -1106,7 +1111,17 @@ def emit_standard_attribute(indent, attr_name, ov=None):
     efmt = ov.get('EditFormat')
     chi = ov.get('ChoiceHistoryOnInput', 'Auto')
     X(f'{indent}<xr:StandardAttribute name="{attr_name}">')
-    X(f'{indent}\t<xr:LinkByType/>')
+    # LinkByType стандартного реквизита (напр. ExtDimensionN→Account у регистра бухгалтерии). DataPath verbatim.
+    lbt = ov.get('LinkByType')
+    if lbt:
+        lbt_dp = str(lbt.get('dataPath')) if isinstance(lbt, dict) else str(lbt)
+        lbt_li = lbt.get('linkItem', 0) if isinstance(lbt, dict) else 0
+        X(f'{indent}\t<xr:LinkByType>')
+        X(f'{indent}\t\t<xr:DataPath>{esc_xml(lbt_dp)}</xr:DataPath>')
+        X(f'{indent}\t\t<xr:LinkItem>{lbt_li}</xr:LinkItem>')
+        X(f'{indent}\t</xr:LinkByType>')
+    else:
+        X(f'{indent}\t<xr:LinkByType/>')
     X(f'{indent}\t<xr:FillChecking>{fc}</xr:FillChecking>')
     X(f'{indent}\t<xr:MultiLine>false</xr:MultiLine>')
     X(f'{indent}\t<xr:FillFromFillingValue>{ffv}</xr:FillFromFillingValue>')
@@ -1201,6 +1216,8 @@ def emit_standard_attributes(indent, object_type):
                     ov['EditFormat'] = d['editFormat']
                 if d.get('choiceForm'):
                     ov['ChoiceForm'] = str(d['choiceForm'])
+                if d.get('linkByType') is not None:
+                    ov['LinkByType'] = d['linkByType']
         emit_standard_attribute(f'{indent}\t', a, ov)
     X(f'{indent}</StandardAttributes>')
 
@@ -1681,10 +1698,10 @@ def emit_attribute(indent, parsed, context, elem_tag='Attribute'):
     emit_min_max_value(f'{indent}\t\t', 'MaxValue', parsed.get('maxValue'))
     # FillFromFillingValue / FillValue — not for tabular/processor/chart/register-other
     # (Chart*, AccumulationRegister/AccountingRegister/CalculationRegister don't support these)
-    if context not in ('tabular', 'processor', 'chart', 'register-other', 'register-accum'):
+    if context not in ('tabular', 'processor', 'chart', 'register-other', 'register-accum', 'register-calc', 'register-account'):
         ffv = 'true' if (parsed.get('fillFromFillingValue') is True or (elem_tag == 'Dimension' and 'master' in parsed.get('flags', []))) else 'false'
         X(f'{indent}\t\t<FillFromFillingValue>{ffv}</FillFromFillingValue>')
-    if context not in ('tabular', 'processor', 'chart', 'register-other', 'register-accum'):
+    if context not in ('tabular', 'processor', 'chart', 'register-other', 'register-accum', 'register-calc', 'register-account'):
         emit_fill_value(f'{indent}\t\t', type_str, parsed.get('fillValue'), parsed.get('hasFillValue'))
     fill_checking = 'DontCheck'
     if 'req' in parsed.get('flags', []):
@@ -1713,13 +1730,41 @@ def emit_attribute(indent, parsed, context, elem_tag='Attribute'):
     if elem_tag == 'Dimension' and context == 'register-accum':
         deny_incomplete = 'true' if (parsed.get('denyIncompleteValues') is True or 'denyincomplete' in parsed.get('flags', [])) else 'false'
         X(f'{indent}\t\t<DenyIncompleteValues>{deny_incomplete}</DenyIncompleteValues>')
+    # Измерение регистра расчёта: DenyIncompleteValues + BaseDimension.
+    if elem_tag == 'Dimension' and context == 'register-calc':
+        deny_incomplete = 'true' if (parsed.get('denyIncompleteValues') is True or 'denyincomplete' in parsed.get('flags', [])) else 'false'
+        base_dimension = 'true' if (parsed.get('baseDimension') is True or 'base' in parsed.get('flags', [])) else 'false'
+        X(f'{indent}\t\t<DenyIncompleteValues>{deny_incomplete}</DenyIncompleteValues>')
+        X(f'{indent}\t\t<BaseDimension>{base_dimension}</BaseDimension>')
+    # Регистр расчёта: ScheduleLink у измерений и реквизитов (НЕ ресурсов), перед Indexing. Дефолт пустой.
+    if context == 'register-calc' and elem_tag in ('Dimension', 'Attribute'):
+        if parsed.get('scheduleLink'):
+            X(f'{indent}\t\t<ScheduleLink>{esc_xml(str(parsed["scheduleLink"]))}</ScheduleLink>')
+        else:
+            X(f'{indent}\t\t<ScheduleLink/>')
+    # Измерение/ресурс регистра бухгалтерии: Balance + AccountingFlag, затем DenyIncompleteValues (изм.) / ExtDimensionAccountingFlag (рес.).
+    if context == 'register-account' and elem_tag in ('Dimension', 'Resource'):
+        balance = 'true' if (parsed.get('balance') is True or 'balance' in parsed.get('flags', [])) else 'false'
+        X(f'{indent}\t\t<Balance>{balance}</Balance>')
+        if parsed.get('accountingFlag'):
+            X(f'{indent}\t\t<AccountingFlag>{esc_xml(str(parsed["accountingFlag"]))}</AccountingFlag>')
+        else:
+            X(f'{indent}\t\t<AccountingFlag/>')
+        if elem_tag == 'Dimension':
+            deny_incomplete = 'true' if (parsed.get('denyIncompleteValues') is True or 'denyincomplete' in parsed.get('flags', [])) else 'false'
+            X(f'{indent}\t\t<DenyIncompleteValues>{deny_incomplete}</DenyIncompleteValues>')
+        else:
+            if parsed.get('extDimensionAccountingFlag'):
+                X(f'{indent}\t\t<ExtDimensionAccountingFlag>{esc_xml(str(parsed["extDimensionAccountingFlag"]))}</ExtDimensionAccountingFlag>')
+            else:
+                X(f'{indent}\t\t<ExtDimensionAccountingFlag/>')
     if context == 'catalog':
         X(f'{indent}\t\t<Use>{parsed.get("use") or "ForItem"}</Use>')
     if context not in ('processor', 'processor-tabular'):
         # Признаки учёта ПС (account-flag) не имеют <Indexing>/<FullTextSearch>, но имеют <DataHistory>.
         if context != 'account-flag':
             # Ресурс регистра накопления НЕ имеет <Indexing> (только <FullTextSearch>); измерение/реквизит — имеют.
-            if not (context == 'register-accum' and elem_tag == 'Resource'):
+            if not (context in ('register-accum', 'register-calc', 'register-account') and elem_tag == 'Resource'):
                 indexing = 'DontIndex'
                 if 'index' in parsed.get('flags', []):
                     indexing = 'Index'
@@ -1734,7 +1779,7 @@ def emit_attribute(indent, parsed, context, elem_tag='Attribute'):
             use_in_totals = 'false' if (parsed.get('useInTotals') is False or 'nouseintotals' in parsed.get('flags', [])) else 'true'
             X(f'{indent}\t\t<UseInTotals>{use_in_totals}</UseInTotals>')
         # DataHistory — not for Chart* types and non-InformationRegister register family
-        if context not in ('chart', 'register-other', 'register-accum'):
+        if context not in ('chart', 'register-other', 'register-accum', 'register-calc', 'register-account'):
             X(f'{indent}\t\t<DataHistory>{parsed.get("dataHistory") or "Use"}</DataHistory>')
     X(f'{indent}\t</Properties>')
     X(f'{indent}</{elem_tag}>')
@@ -2802,28 +2847,32 @@ def emit_accounting_register_properties(indent):
     i = indent
     X(f'{i}<Name>{esc_xml(obj_name)}</Name>')
     emit_mltext(i, 'Synonym', synonym)
-    X(f'{i}<Comment/>')
-    X(f'{i}<UseStandardCommands>true</UseStandardCommands>')
-    X(f'{i}<DefaultListForm/>')
-    X(f'{i}<AuxiliaryListForm/>')
+    if defn.get('comment'):
+        X(f'{i}<Comment>{esc_xml_text(str(defn["comment"]))}</Comment>')
+    else:
+        X(f'{i}<Comment/>')
+    X(f'{i}<UseStandardCommands>{"true" if get_bool_prop("useStandardCommands", True) else "false"}</UseStandardCommands>')
+    X(f'{i}<IncludeHelpInContents>{"true" if get_bool_prop("includeHelpInContents", False) else "false"}</IncludeHelpInContents>')
     chart_of_accounts = str(defn['chartOfAccounts']) if defn.get('chartOfAccounts') else ''
     if chart_of_accounts:
-        X(f'{i}<ChartOfAccounts>{chart_of_accounts}</ChartOfAccounts>')
+        X(f'{i}<ChartOfAccounts>{esc_xml(chart_of_accounts)}</ChartOfAccounts>')
     else:
         X(f'{i}<ChartOfAccounts/>')
     correspondence = 'true' if defn.get('correspondence') is True else 'false'
     X(f'{i}<Correspondence>{correspondence}</Correspondence>')
     period_adj_len = str(defn['periodAdjustmentLength']) if defn.get('periodAdjustmentLength') is not None else '0'
     X(f'{i}<PeriodAdjustmentLength>{period_adj_len}</PeriodAdjustmentLength>')
-    X(f'{i}<IncludeHelpInContents>false</IncludeHelpInContents>')
+    emit_form_ref(i, 'DefaultListForm', defn.get('defaultListForm'))
+    emit_form_ref(i, 'AuxiliaryListForm', defn.get('auxiliaryListForm'))
     emit_standard_attributes(i, 'AccountingRegister')
     data_lock_control_mode = get_enum_prop('DataLockControlMode', 'dataLockControlMode', 'Automatic')
     X(f'{i}<DataLockControlMode>{data_lock_control_mode}</DataLockControlMode>')
+    X(f'{i}<EnableTotalsSplitting>{"false" if defn.get("enableTotalsSplitting") is False else "true"}</EnableTotalsSplitting>')
     full_text_search = get_enum_prop('FullTextSearch', 'fullTextSearch', 'Use')
     X(f'{i}<FullTextSearch>{full_text_search}</FullTextSearch>')
-    X(f'{i}<ListPresentation/>')
-    X(f'{i}<ExtendedListPresentation/>')
-    X(f'{i}<Explanation/>')
+    emit_mltext(i, 'ListPresentation', defn.get('listPresentation'))
+    emit_mltext(i, 'ExtendedListPresentation', defn.get('extendedListPresentation'))
+    emit_mltext(i, 'Explanation', defn.get('explanation'))
 
 # Стандартные ТЧ ПВР: Ведущие/Вытесняющие/Базовые виды расчёта (обёртка платформенно-константна, пустой lang;
 # вложены Predefined/CalculationType(ShowError)/LineNumber).
@@ -2925,15 +2974,13 @@ def emit_calculation_register_properties(indent):
     i = indent
     X(f'{i}<Name>{esc_xml(obj_name)}</Name>')
     emit_mltext(i, 'Synonym', synonym)
-    X(f'{i}<Comment/>')
-    X(f'{i}<UseStandardCommands>true</UseStandardCommands>')
-    X(f'{i}<DefaultListForm/>')
-    X(f'{i}<AuxiliaryListForm/>')
-    chart_of_calc_types = str(defn['chartOfCalculationTypes']) if defn.get('chartOfCalculationTypes') else ''
-    if chart_of_calc_types:
-        X(f'{i}<ChartOfCalculationTypes>{chart_of_calc_types}</ChartOfCalculationTypes>')
+    if defn.get('comment'):
+        X(f'{i}<Comment>{esc_xml_text(str(defn["comment"]))}</Comment>')
     else:
-        X(f'{i}<ChartOfCalculationTypes/>')
+        X(f'{i}<Comment/>')
+    X(f'{i}<UseStandardCommands>{"true" if get_bool_prop("useStandardCommands", True) else "false"}</UseStandardCommands>')
+    emit_form_ref(i, 'DefaultListForm', defn.get('defaultListForm'))
+    emit_form_ref(i, 'AuxiliaryListForm', defn.get('auxiliaryListForm'))
     periodicity = get_enum_prop('InformationRegisterPeriodicity', 'periodicity', 'Month')
     X(f'{i}<Periodicity>{periodicity}</Periodicity>')
     action_period = 'true' if defn.get('actionPeriod') is True else 'false'
@@ -2942,28 +2989,33 @@ def emit_calculation_register_properties(indent):
     X(f'{i}<BasePeriod>{base_period}</BasePeriod>')
     schedule = str(defn['schedule']) if defn.get('schedule') else ''
     if schedule:
-        X(f'{i}<Schedule>{schedule}</Schedule>')
+        X(f'{i}<Schedule>{esc_xml(schedule)}</Schedule>')
     else:
         X(f'{i}<Schedule/>')
     schedule_value = str(defn['scheduleValue']) if defn.get('scheduleValue') else ''
     if schedule_value:
-        X(f'{i}<ScheduleValue>{schedule_value}</ScheduleValue>')
+        X(f'{i}<ScheduleValue>{esc_xml(schedule_value)}</ScheduleValue>')
     else:
         X(f'{i}<ScheduleValue/>')
     schedule_date = str(defn['scheduleDate']) if defn.get('scheduleDate') else ''
     if schedule_date:
-        X(f'{i}<ScheduleDate>{schedule_date}</ScheduleDate>')
+        X(f'{i}<ScheduleDate>{esc_xml(schedule_date)}</ScheduleDate>')
     else:
         X(f'{i}<ScheduleDate/>')
-    X(f'{i}<IncludeHelpInContents>false</IncludeHelpInContents>')
+    chart_of_calc_types = str(defn['chartOfCalculationTypes']) if defn.get('chartOfCalculationTypes') else ''
+    if chart_of_calc_types:
+        X(f'{i}<ChartOfCalculationTypes>{esc_xml(chart_of_calc_types)}</ChartOfCalculationTypes>')
+    else:
+        X(f'{i}<ChartOfCalculationTypes/>')
+    X(f'{i}<IncludeHelpInContents>{"true" if get_bool_prop("includeHelpInContents", False) else "false"}</IncludeHelpInContents>')
     emit_standard_attributes(i, 'CalculationRegister')
     data_lock_control_mode = get_enum_prop('DataLockControlMode', 'dataLockControlMode', 'Automatic')
     X(f'{i}<DataLockControlMode>{data_lock_control_mode}</DataLockControlMode>')
     full_text_search = get_enum_prop('FullTextSearch', 'fullTextSearch', 'Use')
     X(f'{i}<FullTextSearch>{full_text_search}</FullTextSearch>')
-    X(f'{i}<ListPresentation/>')
-    X(f'{i}<ExtendedListPresentation/>')
-    X(f'{i}<Explanation/>')
+    emit_mltext(i, 'ListPresentation', defn.get('listPresentation'))
+    emit_mltext(i, 'ExtendedListPresentation', defn.get('extendedListPresentation'))
+    emit_mltext(i, 'Explanation', defn.get('explanation'))
 
 def emit_business_process_properties(indent):
     i = indent
@@ -3503,12 +3555,12 @@ if obj_type in ('InformationRegister', 'AccumulationRegister', 'AccountingRegist
     if dims or resources or reg_attrs or reg_commands:
         has_children = True
         X('\t\t<ChildObjects>')
-        # InformationRegister.Attribute supports FillFromFillingValue/FillValue/DataHistory;
-        # AccumulationRegister/AccountingRegister/CalculationRegister.Attribute do NOT.
-        reg_ctx = 'register-info' if obj_type == 'InformationRegister' else 'register-other'
-        # InformationRegister/AccumulationRegister: ресурсы/измерения — через богатый emit_attribute (общий слой
-        # object-свойств). Прочие регистры (Accounting/Calculation) — легаси emit_resource/emit_dimension (не портированы).
-        dim_res_ctx = {'InformationRegister': 'register-info', 'AccumulationRegister': 'register-accum'}.get(obj_type)
+        # InformationRegister.Attribute несёт FillFromFillingValue/FillValue/DataHistory; CalculationRegister.Attribute
+        # несёт <ScheduleLink> (register-calc); прочие — register-other.
+        reg_ctx = {'InformationRegister': 'register-info', 'CalculationRegister': 'register-calc'}.get(obj_type, 'register-other')
+        # Все семейства регистров: ресурсы/измерения — через богатый emit_attribute (общий слой object-свойств).
+        dim_res_ctx = {'InformationRegister': 'register-info', 'AccumulationRegister': 'register-accum',
+                       'CalculationRegister': 'register-calc', 'AccountingRegister': 'register-account'}.get(obj_type)
         for r in resources:
             if dim_res_ctx:
                 emit_attribute('\t\t\t', r, dim_res_ctx, 'Resource')

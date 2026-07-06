@@ -1,4 +1,4 @@
-﻿# meta-decompile v0.38 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
+﻿# meta-decompile v0.39 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 #
 # Поддержаны: Catalog, ExchangePlan, ChartOfCharacteristicTypes, ChartOfAccounts, ChartOfCalculationTypes, Document. Инверс meta-compile (omit-on-default: ключ эмитим только
@@ -91,8 +91,8 @@ foreach ($c in $rootEl.ChildNodes) { if ($c.NodeType -eq 'Element') { $objNode =
 if (-not $objNode) { [Console]::Error.WriteLine("meta-decompile: пустой MetaDataObject"); exit 3 }
 $objType = $objNode.LocalName
 
-if ($objType -notin @('Catalog', 'ExchangePlan', 'ChartOfCharacteristicTypes', 'ChartOfAccounts', 'ChartOfCalculationTypes', 'Document', 'InformationRegister', 'AccumulationRegister')) {
-	[Console]::Error.WriteLine("meta-decompile: тип '$objType' пока не поддержан (Catalog, ExchangePlan, ChartOfCharacteristicTypes, ChartOfAccounts, ChartOfCalculationTypes, Document, InformationRegister, AccumulationRegister)"); exit 3
+if ($objType -notin @('Catalog', 'ExchangePlan', 'ChartOfCharacteristicTypes', 'ChartOfAccounts', 'ChartOfCalculationTypes', 'Document', 'InformationRegister', 'AccumulationRegister', 'AccountingRegister', 'CalculationRegister')) {
+	[Console]::Error.WriteLine("meta-decompile: тип '$objType' пока не поддержан (Catalog, ExchangePlan, ChartOfCharacteristicTypes, ChartOfAccounts, ChartOfCalculationTypes, Document, InformationRegister, AccumulationRegister, AccountingRegister, CalculationRegister)"); exit 3
 }
 
 $props = $objNode.SelectSingleNode('md:Properties', $nsm)
@@ -298,6 +298,11 @@ function Attr-ToDsl {
 	$v = & $en 'MainFilter'; if ($v -eq 'true') { $extra['mainFilter'] = $true }
 	$v = & $en 'DenyIncompleteValues'; if ($v -eq 'true') { $extra['denyIncompleteValues'] = $true }
 	$v = & $en 'UseInTotals'; if ($v -eq 'false') { $extra['useInTotals'] = $false }  # дефолт true → захват при false
+	$v = & $en 'BaseDimension'; if ($v -eq 'true') { $extra['baseDimension'] = $true }
+	$v = & $en 'ScheduleLink'; if ($v) { $extra['scheduleLink'] = $v }  # ссылка на измерение графика (пустой → пропуск)
+	$v = & $en 'Balance'; if ($v -eq 'true') { $extra['balance'] = $true }
+	$v = & $en 'AccountingFlag'; if ($v) { $extra['accountingFlag'] = $v }  # ссылка на признак учёта ПС (пустой → пропуск)
+	$v = & $en 'ExtDimensionAccountingFlag'; if ($v) { $extra['extDimensionAccountingFlag'] = $v }
 	# MinValue/MaxValue — граница диапазона (omit при nil). Тип сохраняем: xs:string→строка, xs:decimal→число.
 	foreach ($mm in @('MinValue','MaxValue')) {
 		$mn = $ap.SelectSingleNode("md:$mm", $nsm)
@@ -522,6 +527,23 @@ if ($objType -eq 'AccumulationRegister') {
 	Add-EnumProp 'registerType' 'RegisterType' 'Balance'
 	Add-BoolProp 'enableTotalsSplitting' 'EnableTotalsSplitting' $true
 }
+# AccountingRegister-специфичные свойства: ПС-связь, корреспонденция, коррекция периода, разделение итогов.
+if ($objType -eq 'AccountingRegister') {
+	$coa = P 'ChartOfAccounts'; if ($coa) { $dsl['chartOfAccounts'] = $coa }
+	Add-BoolProp 'correspondence' 'Correspondence' $false
+	Add-IntProp  'periodAdjustmentLength' 'PeriodAdjustmentLength' 0
+	Add-BoolProp 'enableTotalsSplitting' 'EnableTotalsSplitting' $true
+}
+# CalculationRegister-специфичные свойства: ПВР-связь, периоды расчёта, график (все ссылки/enum — verbatim).
+if ($objType -eq 'CalculationRegister') {
+	$cct = P 'ChartOfCalculationTypes'; if ($cct) { $dsl['chartOfCalculationTypes'] = $cct }
+	Add-EnumProp 'periodicity' 'Periodicity' 'Month'
+	Add-BoolProp 'actionPeriod' 'ActionPeriod' $false
+	Add-BoolProp 'basePeriod' 'BasePeriod' $false
+	$sch = P 'Schedule'; if ($sch) { $dsl['schedule'] = $sch }
+	$schv = P 'ScheduleValue'; if ($schv) { $dsl['scheduleValue'] = $schv }
+	$schd = P 'ScheduleDate'; if ($schd) { $dsl['scheduleDate'] = $schd }
+}
 
 # Короткая форма поля: <Type>.<Name>.StandardAttribute.X / .Attribute.X → StandardAttribute.X / Attribute.X
 # (Expand-DataPath компилятора разворачивает частичную форму обратно — dogfood резолвера).
@@ -705,12 +727,22 @@ if ($saNode) {
 		$saCf = $sa.SelectSingleNode('xr:ChoiceForm', $nsm); if ($saCf -and $saCf.InnerText) { $ov['choiceForm'] = $saCf.InnerText }
 		$saCpl = Parse-ChoiceParameterLinks $sa 'xr:ChoiceParameterLinks'; if ($null -ne $saCpl) { $ov['choiceParameterLinks'] = $saCpl }
 		$saCp = Parse-ChoiceParameters $sa 'xr:ChoiceParameters'; if ($null -ne $saCp) { $ov['choiceParameters'] = $saCp }
+		# LinkByType стандартного реквизита (ExtDimensionN→Account у регистра бухгалтерии). DataPath полный verbatim.
+		$saLbt = $sa.SelectSingleNode('xr:LinkByType', $nsm)
+		if ($saLbt) {
+			$saLbtDp = $saLbt.SelectSingleNode('xr:DataPath', $nsm)
+			if ($saLbtDp -and $saLbtDp.InnerText) {
+				$saLbtLi = $saLbt.SelectSingleNode('xr:LinkItem', $nsm)
+				$li = if ($saLbtLi -and $saLbtLi.InnerText) { [int]$saLbtLi.InnerText } else { 0 }
+				$ov['linkByType'] = [ordered]@{ dataPath = $saLbtDp.InnerText; linkItem = $li }
+			}
+		}
 		# Доп./опциональный реквизит (не в фикс-списке) — эмитим по присутствию даже без отклонений.
 		if ($ov.Count -gt 0 -or ($stdFixed -notcontains $an)) { $saMap[$an] = $ov }
 	}
 	# Условный тип (Catalog): пустой $saMap = триггер блока. Не-условный (ExchangePlan): блок и так эмитится → пустой не пишем.
 	if ($saMap.Count -gt 0 -or ($stdConditionalTypes -contains $objType)) { $dsl['standardAttributes'] = $saMap }
-} elseif ($objType -in @('InformationRegister', 'AccumulationRegister')) {
+} elseif ($objType -in @('InformationRegister', 'AccumulationRegister', 'AccountingRegister', 'CalculationRegister')) {
 	# Регистр опускает all-default блок стандартных реквизитов (~5-9%, правило не выводимо) — компилятор эмитит его
 	# по дефолту, поэтому отсутствие фиксируем opt-out `standardAttributes:""` (дом-конвенция суппресса).
 	$dsl['standardAttributes'] = ''

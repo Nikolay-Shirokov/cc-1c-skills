@@ -43,13 +43,13 @@
 			<UseStandardCommands>true</UseStandardCommands>
 			<DefaultListForm/>
 			<AuxiliaryListForm/>
-			<ChartOfCalculationTypes>ChartOfCalculationTypes.ВидыНачислений</ChartOfCalculationTypes>
 			<Periodicity>Month</Periodicity>
 			<ActionPeriod>false</ActionPeriod>
 			<BasePeriod>false</BasePeriod>
 			<Schedule/>
 			<ScheduleValue/>
 			<ScheduleDate/>
+			<ChartOfCalculationTypes>ChartOfCalculationTypes.ВидыНачислений</ChartOfCalculationTypes>
 			<IncludeHelpInContents>false</IncludeHelpInContents>
 			<StandardAttributes>
 				<xr:StandardAttribute name="Active">
@@ -253,6 +253,7 @@
 					<ChoiceForm/>
 					<LinkByType/>
 					<ChoiceHistoryOnInput>Auto</ChoiceHistoryOnInput>
+					<FullTextSearch>Use</FullTextSearch>
 				</Properties>
 			</Resource>
 			<Resource uuid="UUID-017">
@@ -292,6 +293,7 @@
 					<ChoiceForm/>
 					<LinkByType/>
 					<ChoiceHistoryOnInput>Auto</ChoiceHistoryOnInput>
+					<FullTextSearch>Use</FullTextSearch>
 				</Properties>
 			</Resource>
 			<Dimension uuid="UUID-018">
@@ -326,6 +328,9 @@
 					<ChoiceForm/>
 					<LinkByType/>
 					<ChoiceHistoryOnInput>Auto</ChoiceHistoryOnInput>
+					<DenyIncompleteValues>false</DenyIncompleteValues>
+					<BaseDimension>false</BaseDimension>
+					<ScheduleLink/>
 					<Indexing>DontIndex</Indexing>
 					<FullTextSearch>Use</FullTextSearch>
 				</Properties>
@@ -366,6 +371,7 @@
 					<ChoiceForm/>
 					<LinkByType/>
 					<ChoiceHistoryOnInput>Auto</ChoiceHistoryOnInput>
+					<ScheduleLink/>
 					<Indexing>DontIndex</Indexing>
 					<FullTextSearch>Use</FullTextSearch>
 				</Properties>
