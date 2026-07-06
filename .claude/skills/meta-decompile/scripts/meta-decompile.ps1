@@ -1,4 +1,4 @@
-﻿# meta-decompile v0.37 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
+﻿# meta-decompile v0.38 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 #
 # Поддержаны: Catalog, ExchangePlan, ChartOfCharacteristicTypes, ChartOfAccounts, ChartOfCalculationTypes, Document. Инверс meta-compile (omit-on-default: ключ эмитим только
@@ -91,8 +91,8 @@ foreach ($c in $rootEl.ChildNodes) { if ($c.NodeType -eq 'Element') { $objNode =
 if (-not $objNode) { [Console]::Error.WriteLine("meta-decompile: пустой MetaDataObject"); exit 3 }
 $objType = $objNode.LocalName
 
-if ($objType -notin @('Catalog', 'ExchangePlan', 'ChartOfCharacteristicTypes', 'ChartOfAccounts', 'ChartOfCalculationTypes', 'Document', 'InformationRegister')) {
-	[Console]::Error.WriteLine("meta-decompile: тип '$objType' пока не поддержан (Catalog, ExchangePlan, ChartOfCharacteristicTypes, ChartOfAccounts, ChartOfCalculationTypes, Document, InformationRegister)"); exit 3
+if ($objType -notin @('Catalog', 'ExchangePlan', 'ChartOfCharacteristicTypes', 'ChartOfAccounts', 'ChartOfCalculationTypes', 'Document', 'InformationRegister', 'AccumulationRegister')) {
+	[Console]::Error.WriteLine("meta-decompile: тип '$objType' пока не поддержан (Catalog, ExchangePlan, ChartOfCharacteristicTypes, ChartOfAccounts, ChartOfCalculationTypes, Document, InformationRegister, AccumulationRegister)"); exit 3
 }
 
 $props = $objNode.SelectSingleNode('md:Properties', $nsm)
@@ -297,6 +297,7 @@ function Attr-ToDsl {
 	$v = & $en 'Master'; if ($v -eq 'true') { $extra['master'] = $true }
 	$v = & $en 'MainFilter'; if ($v -eq 'true') { $extra['mainFilter'] = $true }
 	$v = & $en 'DenyIncompleteValues'; if ($v -eq 'true') { $extra['denyIncompleteValues'] = $true }
+	$v = & $en 'UseInTotals'; if ($v -eq 'false') { $extra['useInTotals'] = $false }  # дефолт true → захват при false
 	# MinValue/MaxValue — граница диапазона (omit при nil). Тип сохраняем: xs:string→строка, xs:decimal→число.
 	foreach ($mm in @('MinValue','MaxValue')) {
 		$mn = $ap.SelectSingleNode("md:$mm", $nsm)
@@ -516,6 +517,11 @@ if ($objType -eq 'InformationRegister') {
 	Add-BoolProp 'updateDataHistoryImmediatelyAfterWrite' 'UpdateDataHistoryImmediatelyAfterWrite' $false
 	Add-BoolProp 'executeAfterWriteDataHistoryVersionProcessing' 'ExecuteAfterWriteDataHistoryVersionProcessing' $false
 }
+# AccumulationRegister-специфичные свойства: тип регистра, разделение итогов.
+if ($objType -eq 'AccumulationRegister') {
+	Add-EnumProp 'registerType' 'RegisterType' 'Balance'
+	Add-BoolProp 'enableTotalsSplitting' 'EnableTotalsSplitting' $true
+}
 
 # Короткая форма поля: <Type>.<Name>.StandardAttribute.X / .Attribute.X → StandardAttribute.X / Attribute.X
 # (Expand-DataPath компилятора разворачивает частичную форму обратно — dogfood резолвера).
@@ -704,8 +710,8 @@ if ($saNode) {
 	}
 	# Условный тип (Catalog): пустой $saMap = триггер блока. Не-условный (ExchangePlan): блок и так эмитится → пустой не пишем.
 	if ($saMap.Count -gt 0 -or ($stdConditionalTypes -contains $objType)) { $dsl['standardAttributes'] = $saMap }
-} elseif ($objType -eq 'InformationRegister') {
-	# Регистр опускает all-default блок стандартных реквизитов (~5%, правило не выводимо) — компилятор эмитит его
+} elseif ($objType -in @('InformationRegister', 'AccumulationRegister')) {
+	# Регистр опускает all-default блок стандартных реквизитов (~5-9%, правило не выводимо) — компилятор эмитит его
 	# по дефолту, поэтому отсутствие фиксируем opt-out `standardAttributes:""` (дом-конвенция суппресса).
 	$dsl['standardAttributes'] = ''
 }

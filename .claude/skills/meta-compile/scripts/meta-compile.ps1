@@ -1,4 +1,4 @@
-﻿# meta-compile v1.45 — Compile 1C metadata object from JSON
+﻿# meta-compile v1.46 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -1605,9 +1605,9 @@ function Emit-Attribute {
 	Emit-MinMaxValue "$indent`t`t" "MinValue" $parsed.minValue
 	Emit-MinMaxValue "$indent`t`t" "MaxValue" $parsed.maxValue
 
-	# FillFromFillingValue — not for tabular/processor/chart/register-other
+	# FillFromFillingValue — not for tabular/processor/chart/register-other/register-accum
 	# (Chart*, AccumulationRegister/AccountingRegister/CalculationRegister don't support these)
-	if ($context -notin @("tabular", "processor", "chart", "register-other")) {
+	if ($context -notin @("tabular", "processor", "chart", "register-other", "register-accum")) {
 		# Флаг-shorthand `master` у ведущего измерения регистра конвенционально ставит и FillFromFillingValue=true
 		# (эргономика авторинга; декомпилятор пишет key-форму master:true + явный fillFromFillingValue → роундтрип цел).
 		$ffv = if ($parsed.fillFromFillingValue -eq $true -or ($elemTag -eq "Dimension" -and $parsed.flags -contains "master")) { "true" } else { "false" }
@@ -1615,7 +1615,7 @@ function Emit-Attribute {
 	}
 
 	# FillValue — same restriction
-	if ($context -notin @("tabular", "processor", "chart", "register-other")) {
+	if ($context -notin @("tabular", "processor", "chart", "register-other", "register-accum")) {
 		Emit-FillValue "$indent`t`t" $typeStr $parsed.fillValue $parsed.hasFillValue
 	}
 
@@ -1647,6 +1647,12 @@ function Emit-Attribute {
 		X "$indent`t`t<DenyIncompleteValues>$denyIncomplete</DenyIncompleteValues>"
 	}
 
+	# Измерение регистра накопления: DenyIncompleteValues (между ChoiceHistoryOnInput и Indexing).
+	if ($elemTag -eq "Dimension" -and $context -eq "register-accum") {
+		$denyIncomplete = if ($parsed.denyIncompleteValues -eq $true -or $parsed.flags -contains "denyincomplete") { "true" } else { "false" }
+		X "$indent`t`t<DenyIncompleteValues>$denyIncomplete</DenyIncompleteValues>"
+	}
+
 	# Use — only for catalog top-level attributes
 	if ($context -eq "catalog") {
 		$use = if ($parsed.use) { $parsed.use } else { "ForItem" }
@@ -1657,17 +1663,25 @@ function Emit-Attribute {
 	if ($context -notin @("processor", "processor-tabular")) {
 		# Признаки учёта ПС (account-flag) не имеют <Indexing>/<FullTextSearch>, но имеют <DataHistory>.
 		if ($context -ne "account-flag") {
-			$indexing = "DontIndex"
-			if ($parsed.flags -contains "index") { $indexing = "Index" }
-			if ($parsed.flags -contains "indexadditional") { $indexing = "IndexWithAdditionalOrder" }
-			if ($parsed.indexing) { $indexing = $parsed.indexing }
-			X "$indent`t`t<Indexing>$indexing</Indexing>"
+			# Ресурс регистра накопления НЕ имеет <Indexing> (только <FullTextSearch>); измерение/реквизит — имеют.
+			if (-not ($context -eq "register-accum" -and $elemTag -eq "Resource")) {
+				$indexing = "DontIndex"
+				if ($parsed.flags -contains "index") { $indexing = "Index" }
+				if ($parsed.flags -contains "indexadditional") { $indexing = "IndexWithAdditionalOrder" }
+				if ($parsed.indexing) { $indexing = $parsed.indexing }
+				X "$indent`t`t<Indexing>$indexing</Indexing>"
+			}
 
 			$fts = if ($parsed.fullTextSearch) { $parsed.fullTextSearch } else { "Use" }
 			X "$indent`t`t<FullTextSearch>$fts</FullTextSearch>"
 		}
+		# Измерение регистра накопления: UseInTotals (после FullTextSearch, дефолт true).
+		if ($elemTag -eq "Dimension" -and $context -eq "register-accum") {
+			$useInTotals = if ($parsed.useInTotals -eq $false -or $parsed.flags -contains "nouseintotals") { "false" } else { "true" }
+			X "$indent`t`t<UseInTotals>$useInTotals</UseInTotals>"
+		}
 		# DataHistory — not for Chart* types and non-InformationRegister register family
-		if ($context -notin @("chart", "register-other")) {
+		if ($context -notin @("chart", "register-other", "register-accum")) {
 			$dh = if ($parsed.dataHistory) { $parsed.dataHistory } else { "Use" }
 			X "$indent`t`t<DataHistory>$dh</DataHistory>"
 		}
@@ -2299,19 +2313,21 @@ function Emit-AccumulationRegisterProperties {
 
 	X "$i<Name>$(Esc-Xml $objName)</Name>"
 	Emit-MLText $i "Synonym" $synonym
-	X "$i<Comment/>"
-	X "$i<UseStandardCommands>true</UseStandardCommands>"
-	X "$i<DefaultListForm/>"
-	X "$i<AuxiliaryListForm/>"
+	if ($def.comment) { X "$i<Comment>$(Esc-XmlText "$($def.comment)")</Comment>" } else { X "$i<Comment/>" }
+	$useStdCmd = if (Get-BoolProp "useStandardCommands" $true) { "true" } else { "false" }
+	X "$i<UseStandardCommands>$useStdCmd</UseStandardCommands>"
+	Emit-FormRef $i "DefaultListForm"   $def.defaultListForm
+	Emit-FormRef $i "AuxiliaryListForm" $def.auxiliaryListForm
 
 	$registerType = Get-EnumProp "RegisterType" "registerType" "Balance"
 	X "$i<RegisterType>$registerType</RegisterType>"
 
-	X "$i<IncludeHelpInContents>false</IncludeHelpInContents>"
+	$inclHelp = if (Get-BoolProp "includeHelpInContents" $false) { "true" } else { "false" }
+	X "$i<IncludeHelpInContents>$inclHelp</IncludeHelpInContents>"
 
 	Emit-StandardAttributes $i "AccumulationRegister"
 
-	$dataLockControlMode = Get-EnumProp "DataLockControlMode" "dataLockControlMode" "Automatic"
+	$dataLockControlMode = Get-EnumProp "DataLockControlMode" "dataLockControlMode" "Managed"
 	X "$i<DataLockControlMode>$dataLockControlMode</DataLockControlMode>"
 
 	$fullTextSearch = Get-EnumProp "FullTextSearch" "fullTextSearch" "Use"
@@ -2320,9 +2336,9 @@ function Emit-AccumulationRegisterProperties {
 	$enableTotalsSplitting = if ($def.enableTotalsSplitting -eq $false) { "false" } else { "true" }
 	X "$i<EnableTotalsSplitting>$enableTotalsSplitting</EnableTotalsSplitting>"
 
-	X "$i<ListPresentation/>"
-	X "$i<ExtendedListPresentation/>"
-	X "$i<Explanation/>"
+	Emit-MLText $i "ListPresentation" $def.listPresentation
+	Emit-MLText $i "ExtendedListPresentation" $def.extendedListPresentation
+	Emit-MLText $i "Explanation" $def.explanation
 }
 
 # --- 13a. Wave 1: DefinedType, CommonModule, ScheduledJob, EventSubscription ---
@@ -3685,14 +3701,15 @@ if ($objType -in @("InformationRegister","AccumulationRegister","AccountingRegis
 		# InformationRegister.Attribute supports FillFromFillingValue/FillValue/DataHistory;
 		# AccumulationRegister/AccountingRegister/CalculationRegister.Attribute do NOT.
 		$regCtx = if ($objType -eq "InformationRegister") { "register-info" } else { "register-other" }
-		# InformationRegister: ресурсы/измерения — через богатый Emit-Attribute (общий слой object-свойств).
-		# Прочие регистры — легаси Emit-Resource/Emit-Dimension (пока не портированы).
+		# InformationRegister/AccumulationRegister: ресурсы/измерения — через богатый Emit-Attribute (общий слой
+		# object-свойств). Прочие регистры (Accounting/Calculation) — легаси Emit-Resource/Emit-Dimension (пока не портированы).
+		$dimResCtx = switch ($objType) { "InformationRegister" { "register-info" } "AccumulationRegister" { "register-accum" } default { $null } }
 		foreach ($r in $resources) {
-			if ($objType -eq "InformationRegister") { Emit-Attribute "`t`t`t" $r "register-info" "Resource" }
+			if ($dimResCtx) { Emit-Attribute "`t`t`t" $r $dimResCtx "Resource" }
 			else { Emit-Resource "`t`t`t" $r $objType }
 		}
 		foreach ($d in $dims) {
-			if ($objType -eq "InformationRegister") { Emit-Attribute "`t`t`t" $d "register-info" "Dimension" }
+			if ($dimResCtx) { Emit-Attribute "`t`t`t" $d $dimResCtx "Dimension" }
 			else { Emit-Dimension "`t`t`t" $d $objType }
 		}
 		foreach ($a in $regAttrs) {

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-compile v1.45 — Compile 1C metadata object from JSON
+# meta-compile v1.46 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -1681,10 +1681,10 @@ def emit_attribute(indent, parsed, context, elem_tag='Attribute'):
     emit_min_max_value(f'{indent}\t\t', 'MaxValue', parsed.get('maxValue'))
     # FillFromFillingValue / FillValue — not for tabular/processor/chart/register-other
     # (Chart*, AccumulationRegister/AccountingRegister/CalculationRegister don't support these)
-    if context not in ('tabular', 'processor', 'chart', 'register-other'):
+    if context not in ('tabular', 'processor', 'chart', 'register-other', 'register-accum'):
         ffv = 'true' if (parsed.get('fillFromFillingValue') is True or (elem_tag == 'Dimension' and 'master' in parsed.get('flags', []))) else 'false'
         X(f'{indent}\t\t<FillFromFillingValue>{ffv}</FillFromFillingValue>')
-    if context not in ('tabular', 'processor', 'chart', 'register-other'):
+    if context not in ('tabular', 'processor', 'chart', 'register-other', 'register-accum'):
         emit_fill_value(f'{indent}\t\t', type_str, parsed.get('fillValue'), parsed.get('hasFillValue'))
     fill_checking = 'DontCheck'
     if 'req' in parsed.get('flags', []):
@@ -1709,22 +1709,32 @@ def emit_attribute(indent, parsed, context, elem_tag='Attribute'):
         X(f'{indent}\t\t<Master>{master}</Master>')
         X(f'{indent}\t\t<MainFilter>{main_filter}</MainFilter>')
         X(f'{indent}\t\t<DenyIncompleteValues>{deny_incomplete}</DenyIncompleteValues>')
+    # Измерение регистра накопления: DenyIncompleteValues (между ChoiceHistoryOnInput и Indexing).
+    if elem_tag == 'Dimension' and context == 'register-accum':
+        deny_incomplete = 'true' if (parsed.get('denyIncompleteValues') is True or 'denyincomplete' in parsed.get('flags', [])) else 'false'
+        X(f'{indent}\t\t<DenyIncompleteValues>{deny_incomplete}</DenyIncompleteValues>')
     if context == 'catalog':
         X(f'{indent}\t\t<Use>{parsed.get("use") or "ForItem"}</Use>')
     if context not in ('processor', 'processor-tabular'):
         # Признаки учёта ПС (account-flag) не имеют <Indexing>/<FullTextSearch>, но имеют <DataHistory>.
         if context != 'account-flag':
-            indexing = 'DontIndex'
-            if 'index' in parsed.get('flags', []):
-                indexing = 'Index'
-            if 'indexadditional' in parsed.get('flags', []):
-                indexing = 'IndexWithAdditionalOrder'
-            if parsed.get('indexing'):
-                indexing = parsed['indexing']
-            X(f'{indent}\t\t<Indexing>{indexing}</Indexing>')
+            # Ресурс регистра накопления НЕ имеет <Indexing> (только <FullTextSearch>); измерение/реквизит — имеют.
+            if not (context == 'register-accum' and elem_tag == 'Resource'):
+                indexing = 'DontIndex'
+                if 'index' in parsed.get('flags', []):
+                    indexing = 'Index'
+                if 'indexadditional' in parsed.get('flags', []):
+                    indexing = 'IndexWithAdditionalOrder'
+                if parsed.get('indexing'):
+                    indexing = parsed['indexing']
+                X(f'{indent}\t\t<Indexing>{indexing}</Indexing>')
             X(f'{indent}\t\t<FullTextSearch>{parsed.get("fullTextSearch") or "Use"}</FullTextSearch>')
+        # Измерение регистра накопления: UseInTotals (после FullTextSearch, дефолт true).
+        if elem_tag == 'Dimension' and context == 'register-accum':
+            use_in_totals = 'false' if (parsed.get('useInTotals') is False or 'nouseintotals' in parsed.get('flags', [])) else 'true'
+            X(f'{indent}\t\t<UseInTotals>{use_in_totals}</UseInTotals>')
         # DataHistory — not for Chart* types and non-InformationRegister register family
-        if context not in ('chart', 'register-other'):
+        if context not in ('chart', 'register-other', 'register-accum'):
             X(f'{indent}\t\t<DataHistory>{parsed.get("dataHistory") or "Use"}</DataHistory>')
     X(f'{indent}\t</Properties>')
     X(f'{indent}</{elem_tag}>')
@@ -2278,23 +2288,28 @@ def emit_accumulation_register_properties(indent):
     i = indent
     X(f'{i}<Name>{esc_xml(obj_name)}</Name>')
     emit_mltext(i, 'Synonym', synonym)
-    X(f'{i}<Comment/>')
-    X(f'{i}<UseStandardCommands>true</UseStandardCommands>')
-    X(f'{i}<DefaultListForm/>')
-    X(f'{i}<AuxiliaryListForm/>')
+    if defn.get('comment'):
+        X(f'{i}<Comment>{esc_xml_text(str(defn["comment"]))}</Comment>')
+    else:
+        X(f'{i}<Comment/>')
+    use_std_cmd = 'true' if get_bool_prop('useStandardCommands', True) else 'false'
+    X(f'{i}<UseStandardCommands>{use_std_cmd}</UseStandardCommands>')
+    emit_form_ref(i, 'DefaultListForm', defn.get('defaultListForm'))
+    emit_form_ref(i, 'AuxiliaryListForm', defn.get('auxiliaryListForm'))
     register_type = get_enum_prop('RegisterType', 'registerType', 'Balance')
     X(f'{i}<RegisterType>{register_type}</RegisterType>')
-    X(f'{i}<IncludeHelpInContents>false</IncludeHelpInContents>')
+    incl_help = 'true' if get_bool_prop('includeHelpInContents', False) else 'false'
+    X(f'{i}<IncludeHelpInContents>{incl_help}</IncludeHelpInContents>')
     emit_standard_attributes(i, 'AccumulationRegister')
-    data_lock_control_mode = get_enum_prop('DataLockControlMode', 'dataLockControlMode', 'Automatic')
+    data_lock_control_mode = get_enum_prop('DataLockControlMode', 'dataLockControlMode', 'Managed')
     X(f'{i}<DataLockControlMode>{data_lock_control_mode}</DataLockControlMode>')
     full_text_search = get_enum_prop('FullTextSearch', 'fullTextSearch', 'Use')
     X(f'{i}<FullTextSearch>{full_text_search}</FullTextSearch>')
     enable_totals_splitting = 'false' if defn.get('enableTotalsSplitting') is False else 'true'
     X(f'{i}<EnableTotalsSplitting>{enable_totals_splitting}</EnableTotalsSplitting>')
-    X(f'{i}<ListPresentation/>')
-    X(f'{i}<ExtendedListPresentation/>')
-    X(f'{i}<Explanation/>')
+    emit_mltext(i, 'ListPresentation', defn.get('listPresentation'))
+    emit_mltext(i, 'ExtendedListPresentation', defn.get('extendedListPresentation'))
+    emit_mltext(i, 'Explanation', defn.get('explanation'))
 
 # --- 13a. DefinedType, CommonModule, ScheduledJob, EventSubscription ---
 
@@ -3491,16 +3506,17 @@ if obj_type in ('InformationRegister', 'AccumulationRegister', 'AccountingRegist
         # InformationRegister.Attribute supports FillFromFillingValue/FillValue/DataHistory;
         # AccumulationRegister/AccountingRegister/CalculationRegister.Attribute do NOT.
         reg_ctx = 'register-info' if obj_type == 'InformationRegister' else 'register-other'
-        # InformationRegister: ресурсы/измерения — через богатый emit_attribute (общий слой object-свойств).
-        # Прочие регистры — легаси emit_resource/emit_dimension (пока не портированы).
+        # InformationRegister/AccumulationRegister: ресурсы/измерения — через богатый emit_attribute (общий слой
+        # object-свойств). Прочие регистры (Accounting/Calculation) — легаси emit_resource/emit_dimension (не портированы).
+        dim_res_ctx = {'InformationRegister': 'register-info', 'AccumulationRegister': 'register-accum'}.get(obj_type)
         for r in resources:
-            if obj_type == 'InformationRegister':
-                emit_attribute('\t\t\t', r, 'register-info', 'Resource')
+            if dim_res_ctx:
+                emit_attribute('\t\t\t', r, dim_res_ctx, 'Resource')
             else:
                 emit_resource('\t\t\t', r, obj_type)
         for d in dims:
-            if obj_type == 'InformationRegister':
-                emit_attribute('\t\t\t', d, 'register-info', 'Dimension')
+            if dim_res_ctx:
+                emit_attribute('\t\t\t', d, dim_res_ctx, 'Dimension')
             else:
                 emit_dimension('\t\t\t', d, obj_type)
         for a in reg_attrs:

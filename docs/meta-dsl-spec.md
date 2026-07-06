@@ -836,13 +836,23 @@ choiceParameters/indexing/fullTextSearch/dataHistory/…, см. §3–4). При
 
 | Поле JSON | Умолчание | XML элемент |
 |-----------|----------|-------------|
-| `registerType` | `Balance` | RegisterType |
+| `registerType` | `Balance` | RegisterType (Balance/Turnovers) |
 | `enableTotalsSplitting` | `true` | EnableTotalsSplitting |
-| `dataLockControlMode` | `Automatic` | DataLockControlMode |
+| `dataLockControlMode` | `Managed` | DataLockControlMode |
 | `fullTextSearch` | `Use` | FullTextSearch |
-| `dimensions` | `[]` | → Dimension в ChildObjects |
-| `resources` | `[]` | → Resource в ChildObjects |
+| `useStandardCommands` | `true` | UseStandardCommands |
+| `comment` | пусто | Comment |
+| `listPresentation` / `extendedListPresentation` / `explanation` | пусто | презентации (ML) |
+| `defaultListForm` / `auxiliaryListForm` | пусто | *ListForm (ссылка на форму) |
+| `standardAttributes` | (блок всегда) | `""` — opt-out: подавить all-default блок (~9% регистров опускают) |
+| `dimensions` | `[]` | → Dimension в ChildObjects (богатый object-слой + `denyIncomplete`/`useInTotals`) |
+| `resources` | `[]` | → Resource в ChildObjects (богатый object-слой; без Indexing/DataHistory) |
 | `attributes` | `[]` | → Attribute в ChildObjects |
+| `commands` | `[]` | → Command в ChildObjects (см. §7.1.3) |
+
+Измерения/ресурсы РН поддерживают полный object-слой реквизита (synonym/tooltip/comment/type/choiceParameters/…, §3–4).
+Признаки измерения — флаги shorthand (`denyIncomplete`, `nouseintotals`) ЛИБО object-ключи (`denyIncompleteValues`,
+`useInTotals`: bool, дефолт true). Ресурс РН НЕ имеет `<Indexing>` (только `<FullTextSearch>`).
 
 ### 7.7 DefinedType
 
