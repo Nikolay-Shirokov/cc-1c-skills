@@ -1,4 +1,4 @@
-﻿# meta-decompile v0.33 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
+﻿# meta-decompile v0.34 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 #
 # Поддержаны: Catalog, ExchangePlan, ChartOfCharacteristicTypes, ChartOfAccounts, ChartOfCalculationTypes, Document. Инверс meta-compile (omit-on-default: ключ эмитим только
@@ -72,7 +72,7 @@ function Quote-Json {
 
 # --- XML загрузка + namespace manager ---
 $doc = New-Object System.Xml.XmlDocument
-$doc.PreserveWhitespace = $false
+$doc.PreserveWhitespace = $true
 $doc.Load((Resolve-Path -LiteralPath $ObjectPath).Path)
 $nsm = New-Object System.Xml.XmlNamespaceManager($doc.NameTable)
 $nsm.AddNamespace('md',  'http://v8.1c.ru/8.3/MDClasses')
