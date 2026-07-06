@@ -1,4 +1,4 @@
-﻿# meta-decompile v0.32 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
+﻿# meta-decompile v0.33 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 #
 # Поддержаны: Catalog, ExchangePlan, ChartOfCharacteristicTypes, ChartOfAccounts, ChartOfCalculationTypes, Document. Инверс meta-compile (omit-on-default: ключ эмитим только
@@ -210,7 +210,7 @@ function Get-ChoiceParamValue {
 	if ($xt -match 'FixedArray$') {
 		$arr = [System.Collections.ArrayList]@()
 		foreach ($sub in @($valNode.SelectNodes('v8:Value', $nsm))) { [void]$arr.Add((Convert-ChScalarNode $sub)) }
-		return $arr
+		return ,$arr   # унарная запятая: PS иначе разворачивает 1-элементную коллекцию при return → FixedArray станет скаляром
 	}
 	return Convert-ChScalarNode $valNode
 }
