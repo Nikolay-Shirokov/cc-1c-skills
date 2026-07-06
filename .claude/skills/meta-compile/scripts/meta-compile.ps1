@@ -1,4 +1,4 @@
-﻿# meta-compile v1.41 — Compile 1C metadata object from JSON
+﻿# meta-compile v1.42 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -4037,11 +4037,51 @@ if ($objType -in $typesWithModule) {
 }
 
 # Special files
+# --- Состав плана обмена (ExchangePlan, Ext/Content.xml). Ключ `content`/`Состав`:
+# [ "MDRef" (AutoRecord=Deny, дефолт) | "MDRef: autoRecord" (Allow) | {metadata, autoRecord} ].
+# Токен-признак autoRecord/АвтоРегистрация (или Allow/Разрешить) → авторегистрация вкл. Метаданные — MDObjectRef verbatim. ---
+function Parse-ExchangeContentItem($entry) {
+	if ($entry -is [string]) {
+		$s = "$entry"; $ref = $s; $ar = 'Deny'
+		$ci = $s.LastIndexOf(':')
+		if ($ci -ge 0) {
+			$ref = $s.Substring(0, $ci).Trim()
+			$flag = $s.Substring($ci + 1).Trim()
+			if ($flag -match '^(autoRecord|АвтоРегистрация|Allow|Разрешить)$') { $ar = 'Allow' }
+			elseif ($flag -match '^(Deny|Запретить)$') { $ar = 'Deny' }
+		}
+		return @{ metadata = $ref.Trim(); autoRecord = $ar }
+	}
+	$ref = if ($null -ne $entry.metadata) { "$($entry.metadata)" } elseif ($null -ne $entry.Метаданные) { "$($entry.Метаданные)" } elseif ($null -ne $entry.объект) { "$($entry.объект)" } else { '' }
+	$rawAr = if ($null -ne $entry.autoRecord) { $entry.autoRecord } elseif ($null -ne $entry.АвтоРегистрация) { $entry.АвтоРегистрация } else { $false }
+	$ar = 'Deny'
+	if ($rawAr -is [bool]) { if ($rawAr) { $ar = 'Allow' } }
+	elseif ("$rawAr" -match '^(Allow|Разрешить|true|autoRecord|АвтоРегистрация)$') { $ar = 'Allow' }
+	return @{ metadata = $ref.Trim(); autoRecord = $ar }
+}
 if ($objType -eq "ExchangePlan") {
 	$contentPath = Join-Path $extDir "Content.xml"
-	if (-not (Test-Path $contentPath)) {
+	$xepNs = 'xmlns="http://v8.1c.ru/8.3/xcf/extrnprops" xmlns:xr="http://v8.1c.ru/8.3/xcf/readable" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"'
+	$cItems = @()
+	$cSrc = if ($null -ne $def.content) { $def.content } elseif ($null -ne $def.Состав) { $def.Состав } else { $null }
+	if ($cSrc) { foreach ($e in @($cSrc)) { $it = Parse-ExchangeContentItem $e; if ($it.metadata) { $cItems += $it } } }
+	if ($cItems.Count -gt 0) {
 		Ensure-ExtDir
-		$contentXml = "<?xml version=`"1.0`" encoding=`"UTF-8`"?>`r`n<ExchangePlanContent xmlns=`"http://v8.1c.ru/8.3/xcf/extrnprops`" xmlns:xr=`"http://v8.1c.ru/8.3/xcf/readable`" version=`"$($script:formatVersion)`"/>`r`n"
+		$sbC = New-Object System.Text.StringBuilder
+		[void]$sbC.Append("<?xml version=`"1.0`" encoding=`"UTF-8`"?>`r`n")
+		[void]$sbC.Append("<ExchangePlanContent $xepNs version=`"$($script:formatVersion)`">`r`n")
+		foreach ($it in $cItems) {
+			[void]$sbC.Append("`t<Item>`r`n")
+			[void]$sbC.Append("`t`t<Metadata>$(Esc-Xml $it.metadata)</Metadata>`r`n")
+			[void]$sbC.Append("`t`t<AutoRecord>$($it.autoRecord)</AutoRecord>`r`n")
+			[void]$sbC.Append("`t</Item>`r`n")
+		}
+		[void]$sbC.Append("</ExchangePlanContent>`r`n")
+		[System.IO.File]::WriteAllText($contentPath, $sbC.ToString(), $enc)
+		$modulesCreated += $contentPath
+	} elseif (-not (Test-Path $contentPath)) {
+		Ensure-ExtDir
+		$contentXml = "<?xml version=`"1.0`" encoding=`"UTF-8`"?>`r`n<ExchangePlanContent $xepNs version=`"$($script:formatVersion)`"/>`r`n"
 		[System.IO.File]::WriteAllText($contentPath, $contentXml, $enc)
 		$modulesCreated += $contentPath
 	}

@@ -1,4 +1,4 @@
-﻿# meta-decompile v0.30 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
+﻿# meta-decompile v0.31 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 #
 # Поддержаны: Catalog, ExchangePlan, ChartOfCharacteristicTypes, ChartOfAccounts. Инверс meta-compile (omit-on-default: ключ эмитим только
@@ -896,6 +896,27 @@ if (Test-Path -LiteralPath $predefPath) {
 		foreach ($it in @($pdoc.DocumentElement.SelectNodes("*[local-name()='Item']"))) { [void]$rootItems.Add((PredefItem-ToDsl $it)) }
 	}
 	if ($rootItems.Count -gt 0) { $dsl['predefined'] = $rootItems }
+}
+
+# --- Состав плана обмена (соседний Ext/Content.xml) → DSL content (ExchangePlan).
+# Каждый <Item>{<Metadata>MDRef</Metadata><AutoRecord>Deny|Allow</AutoRecord>}.
+# Deny (дефолт) → строка "MDRef"; Allow → "MDRef: autoRecord". ---
+if ($objType -eq 'ExchangePlan') {
+	$contentPath = Join-Path (Join-Path (Join-Path $objDir $objName) 'Ext') 'Content.xml'
+	if (Test-Path -LiteralPath $contentPath) {
+		$cdoc = New-Object System.Xml.XmlDocument
+		$cdoc.Load($contentPath)
+		$contentItems = [System.Collections.ArrayList]@()
+		foreach ($it in @($cdoc.DocumentElement.SelectNodes("*[local-name()='Item']"))) {
+			$mdEl = $it.SelectSingleNode("*[local-name()='Metadata']")
+			if (-not $mdEl -or -not $mdEl.InnerText) { continue }
+			$ref = $mdEl.InnerText
+			$arEl = $it.SelectSingleNode("*[local-name()='AutoRecord']")
+			$ar = if ($arEl) { $arEl.InnerText } else { 'Deny' }
+			if ($ar -eq 'Allow') { [void]$contentItems.Add("${ref}: autoRecord") } else { [void]$contentItems.Add($ref) }
+		}
+		if ($contentItems.Count -gt 0) { $dsl['content'] = $contentItems }
+	}
 }
 
 # === Вывод ===

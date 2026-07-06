@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-compile v1.41 — Compile 1C metadata object from JSON
+# meta-compile v1.42 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -3810,11 +3810,62 @@ def build_predefined_calc_type_xml(items):
     return '\n'.join(out) + '\n'
 
 # Special files
+# --- Состав плана обмена (ExchangePlan, Ext/Content.xml). Ключ `content`/`Состав`:
+# [ "MDRef" (AutoRecord=Deny, дефолт) | "MDRef: autoRecord" (Allow) | {metadata, autoRecord} ]. ---
+def parse_exchange_content_item(entry):
+    if isinstance(entry, str):
+        ref, ar = entry, 'Deny'
+        ci = entry.rfind(':')
+        if ci >= 0:
+            ref = entry[:ci].strip()
+            flag = entry[ci + 1:].strip()
+            if re.match(r'^(autoRecord|АвтоРегистрация|Allow|Разрешить)$', flag, re.I):
+                ar = 'Allow'
+            elif re.match(r'^(Deny|Запретить)$', flag, re.I):
+                ar = 'Deny'
+        return {'metadata': ref.strip(), 'autoRecord': ar}
+    ref = ''
+    for k in ('metadata', 'Метаданные', 'объект'):
+        if entry.get(k) is not None:
+            ref = str(entry[k]); break
+    raw_ar = entry.get('autoRecord')
+    if raw_ar is None:
+        raw_ar = entry.get('АвтоРегистрация')
+    ar = 'Deny'
+    if isinstance(raw_ar, bool):
+        if raw_ar:
+            ar = 'Allow'
+    elif raw_ar is not None and re.match(r'^(Allow|Разрешить|true|autoRecord|АвтоРегистрация)$', str(raw_ar), re.I):
+        ar = 'Allow'
+    return {'metadata': ref.strip(), 'autoRecord': ar}
+
 if obj_type == 'ExchangePlan':
     content_path = os.path.join(ext_dir, 'Content.xml')
-    if not os.path.isfile(content_path):
+    xep_ns = 'xmlns="http://v8.1c.ru/8.3/xcf/extrnprops" xmlns:xr="http://v8.1c.ru/8.3/xcf/readable" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"'
+    c_src = defn.get('content')
+    if c_src is None:
+        c_src = defn.get('Состав')
+    c_items = []
+    if c_src:
+        for e in (c_src if isinstance(c_src, list) else [c_src]):
+            it = parse_exchange_content_item(e)
+            if it['metadata']:
+                c_items.append(it)
+    if c_items:
         ensure_ext_dir()
-        content_xml = f'<?xml version="1.0" encoding="UTF-8"?>\r\n<ExchangePlanContent xmlns="http://v8.1c.ru/8.3/xcf/extrnprops" xmlns:xr="http://v8.1c.ru/8.3/xcf/readable" version="{format_version}"/>\r\n'
+        parts = ['<?xml version="1.0" encoding="UTF-8"?>\r\n',
+                 f'<ExchangePlanContent {xep_ns} version="{format_version}">\r\n']
+        for it in c_items:
+            parts.append('\t<Item>\r\n')
+            parts.append(f'\t\t<Metadata>{esc_xml(it["metadata"])}</Metadata>\r\n')
+            parts.append(f'\t\t<AutoRecord>{it["autoRecord"]}</AutoRecord>\r\n')
+            parts.append('\t</Item>\r\n')
+        parts.append('</ExchangePlanContent>\r\n')
+        write_utf8_bom(content_path, ''.join(parts))
+        modules_created.append(content_path)
+    elif not os.path.isfile(content_path):
+        ensure_ext_dir()
+        content_xml = f'<?xml version="1.0" encoding="UTF-8"?>\r\n<ExchangePlanContent {xep_ns} version="{format_version}"/>\r\n'
         write_utf8_bom(content_path, content_xml)
         modules_created.append(content_path)
 

@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ExchangePlanContent xmlns="http://v8.1c.ru/8.3/xcf/extrnprops" xmlns:xr="http://v8.1c.ru/8.3/xcf/readable" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" version="2.17">
+	<Item>
+		<Metadata>Catalog.Организации</Metadata>
+		<AutoRecord>Deny</AutoRecord>
+	</Item>
+	<Item>
+		<Metadata>InformationRegister.Курсы</Metadata>
+		<AutoRecord>Allow</AutoRecord>
+	</Item>
+	<Item>
+		<Metadata>Document.РеализацияТоваров</Metadata>
+		<AutoRecord>Allow</AutoRecord>
+	</Item>
+	<Item>
+		<Metadata>Catalog.Номенклатура</Metadata>
+		<AutoRecord>Allow</AutoRecord>
+	</Item>
+	<Item>
+		<Metadata>Constant.ВалютаУчета</Metadata>
+		<AutoRecord>Allow</AutoRecord>
+	</Item>
+	<Item>
+		<Metadata>InformationRegister.ЦеныНоменклатуры</Metadata>
+		<AutoRecord>Deny</AutoRecord>
+	</Item>
+</ExchangePlanContent>

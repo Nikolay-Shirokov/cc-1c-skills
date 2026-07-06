@@ -619,6 +619,20 @@ omit-on-empty. Поля пишутся частичной формой (`Standar
 ключ `standardAttributes`. Опциональный легаси-реквизит `ExchangeDate` (часть планов) поддержан как «доп.» член
 `standardAttributes` (эмитится по факту наличия ключа, вне фикс-списка).
 
+**Состав плана обмена** (`content`, синоним `Состав`) — соседний `Ext/Content.xml`: список объектов-участников обмена,
+у каждого признак авторегистрации изменений на узле (AutoRecord: `Deny`=запрещена, дефолт; `Allow`=разрешена). Элемент —
+MDObjectRef (`Catalog.X`/`Document.Y`/`InformationRegister.Z`/`Constant.W`/…), пишется verbatim.
+
+| Форма записи | Смысл |
+|--------------|-------|
+| `"Catalog.Организации"` | AutoRecord=Deny (авторегистрация выкл — дефолт) |
+| `"InformationRegister.Курсы: autoRecord"` | AutoRecord=Allow — токен-признак `autoRecord`/`АвтоРегистрация` (регистронезависимо; принимается и `: Allow`/`: Разрешить`) |
+| `{ "metadata": "Document.РеализацияТоваров", "autoRecord": true }` | объектная форма: `autoRecord` — boolean (`true`=Allow) ИЛИ строка `Allow`/`Deny`/`Разрешить`/`Запретить` |
+
+Синонимы ключей объектной формы: `metadata` → `Метаданные`/`объект`, `autoRecord` → `АвтоРегистрация`. Дефолт `Deny` в
+строке опускается. Пустой/отсутствующий `content` → пустой `<ExchangePlanContent/>`. Декомпилятор пишет короткую строковую
+форму (`"Ref"` для Deny, `"Ref: autoRecord"` для Allow). Порядок элементов платформенно-произвольный (1С толерантна).
+
 ### 7.2b ChartOfCharacteristicTypes (План видов характеристик)
 
 Иерархический ссылочный тип (папки+элементы, без уровней/подчинения). Общий с Catalog слой: `synonym`, `comment`,
@@ -924,7 +938,7 @@ Split-CamelCase имени.
 | `tabularSections` | `{}` | → TabularSection в ChildObjects |
 
 Модули: `Ext/ObjectModule.bsl` (пустой).
-Дополнительно: `Ext/Content.xml` (пустой шаблон).
+Дополнительно: `Ext/Content.xml` — состав плана обмена (ключ `content`/`Состав`, см. §7.2a; пустой, если не задан).
 
 ```json
 { "type": "ExchangePlan", "name": "ОбменССайтом", "attributes": ["АдресСервера: String(200)"] }

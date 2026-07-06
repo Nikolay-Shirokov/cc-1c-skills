@@ -177,6 +177,23 @@ function getStructuralDeps(input) {
           }
         }
         break;
+      case 'ExchangePlan':
+        // Состав плана обмена (Content.xml) ссылается на объекты по MDObjectRef "Type.Name" —
+        // 1С требует их существования при загрузке. Стабим каждый.
+        if (inp.content) {
+          const entries = Array.isArray(inp.content) ? inp.content : [inp.content];
+          for (const e of entries) {
+            let ref = typeof e === 'string' ? e : (e.metadata || e['Метаданные'] || e['объект'] || '');
+            ref = String(ref).split(':')[0].trim();   // отбросить ": autoRecord"/флаг
+            const dot = ref.indexOf('.');
+            if (dot < 0) continue;
+            const t = ref.substring(0, dot);
+            const n = ref.substring(dot + 1);
+            const dsl = makeStubDSL(t, n);
+            if (dsl) deps.push({ type: t, name: n, dsl });
+          }
+        }
+        break;
     }
   }
   return deps;
@@ -189,6 +206,7 @@ function makeStubDSL(type, name) {
     case 'Catalog': return { type: 'Catalog', name };
     case 'Document': return { type: 'Document', name };
     case 'Enum': return { type: 'Enum', name, values: ['Значение1'] };
+    case 'Constant': return { type: 'Constant', name, valueType: 'Boolean' };
     case 'InformationRegister': return { type: 'InformationRegister', name, dimensions: ['Ключ: String(10)'] };
     case 'AccumulationRegister': return { type: 'AccumulationRegister', name, dimensions: ['Ключ: String(10)'], resources: ['Значение: Number(15,2)'] };
     case 'ChartOfAccounts': return { type: 'ChartOfAccounts', name, codeLength: 4, descriptionLength: 100, maxExtDimensionCount: 0 };

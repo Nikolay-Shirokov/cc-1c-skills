@@ -1,0 +1,23 @@
+{
+  "name": "План обмена с составом (content)",
+  "input": {
+    "type": "ExchangePlan",
+    "name": "ОбменСФилиаламиСоставом",
+    "comment": "обмен с явным составом",
+    "content": [
+      "Catalog.Организации",
+      "InformationRegister.Курсы: autoRecord",
+      "Document.РеализацияТоваров: АвтоРегистрация",
+      { "metadata": "Catalog.Номенклатура", "autoRecord": true },
+      { "Метаданные": "Constant.ВалютаУчета", "АвтоРегистрация": "Разрешить" },
+      { "metadata": "InformationRegister.ЦеныНоменклатуры", "autoRecord": false }
+    ]
+  },
+  "validatePath": "ExchangePlans/ОбменСФилиаламиСоставом",
+  "expect": {
+    "files": [
+      "ExchangePlans/ОбменСФилиаламиСоставом.xml",
+      "ExchangePlans/ОбменСФилиаламиСоставом/Ext/Content.xml"
+    ]
+  }
+}
