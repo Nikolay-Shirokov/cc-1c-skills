@@ -58,7 +58,7 @@
 				<xr:Field>Catalog.НастройкиОбмена.StandardAttribute.Code</xr:Field>
 			</InputByString>
 			<SearchStringModeOnInputByString>AnyPart</SearchStringModeOnInputByString>
-			<FullTextSearchOnInputByString>DontUse</FullTextSearchOnInputByString>
+			<FullTextSearchOnInputByString>Use</FullTextSearchOnInputByString>
 			<ChoiceDataGetModeOnInputByString>Directly</ChoiceDataGetModeOnInputByString>
 			<DefaultObjectForm>Catalog.НастройкиОбмена.Form.ФормаЭлемента</DefaultObjectForm>
 			<DefaultFolderForm/>

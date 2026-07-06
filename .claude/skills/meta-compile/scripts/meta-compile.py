@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-compile v1.43 — Compile 1C metadata object from JSON
+# meta-compile v1.44 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -380,6 +380,7 @@ valid_enum_values = {
     'ChoiceHistoryOnInput': ['Auto', 'DontUse'],
     'PredefinedDataUpdate': ['Auto', 'DontAutoUpdate', 'AutoUpdate'],
     'SearchStringModeOnInputByString': ['Begin', 'AnyPart'],
+    'FullTextSearchOnInputByString': ['Use', 'DontUse'],
 }
 
 def normalize_enum_value(prop_name, value):
@@ -2035,7 +2036,7 @@ def emit_catalog_properties(indent):
             ib_fields.append(f'Catalog.{obj_name}.StandardAttribute.Code')
     emit_field_block(i, 'InputByString', ib_fields)
     X(f'{i}<SearchStringModeOnInputByString>{get_enum_prop("SearchStringModeOnInputByString", "searchStringModeOnInputByString", "Begin")}</SearchStringModeOnInputByString>')
-    X(f'{i}<FullTextSearchOnInputByString>DontUse</FullTextSearchOnInputByString>')
+    X(f'{i}<FullTextSearchOnInputByString>{get_enum_prop("FullTextSearchOnInputByString", "fullTextSearchOnInputByString", "DontUse")}</FullTextSearchOnInputByString>')
     X(f'{i}<ChoiceDataGetModeOnInputByString>Directly</ChoiceDataGetModeOnInputByString>')
     emit_form_ref(i, 'DefaultObjectForm', defn.get('defaultObjectForm'))
     emit_form_ref(i, 'DefaultFolderForm', defn.get('defaultFolderForm'))
@@ -2104,7 +2105,7 @@ def emit_document_properties(indent):
     emit_field_block(i, 'InputByString', ib_fields)
     X(f'{i}<CreateOnInput>{get_enum_prop("CreateOnInput", "createOnInput", "Use")}</CreateOnInput>')
     X(f'{i}<SearchStringModeOnInputByString>{get_enum_prop("SearchStringModeOnInputByString", "searchStringModeOnInputByString", "Begin")}</SearchStringModeOnInputByString>')
-    X(f'{i}<FullTextSearchOnInputByString>DontUse</FullTextSearchOnInputByString>')
+    X(f'{i}<FullTextSearchOnInputByString>{get_enum_prop("FullTextSearchOnInputByString", "fullTextSearchOnInputByString", "DontUse")}</FullTextSearchOnInputByString>')
     X(f'{i}<ChoiceDataGetModeOnInputByString>Directly</ChoiceDataGetModeOnInputByString>')
     emit_form_ref(i, 'DefaultObjectForm', defn.get('defaultObjectForm'))
     emit_form_ref(i, 'DefaultListForm', defn.get('defaultListForm'))
@@ -2494,7 +2495,7 @@ def emit_exchange_plan_properties(indent):
             ib_fields.append(f'ExchangePlan.{obj_name}.StandardAttribute.Code')
     emit_field_block(i, 'InputByString', ib_fields)
     X(f'{i}<SearchStringModeOnInputByString>{get_enum_prop("SearchStringModeOnInputByString", "searchStringModeOnInputByString", "Begin")}</SearchStringModeOnInputByString>')
-    X(f'{i}<FullTextSearchOnInputByString>DontUse</FullTextSearchOnInputByString>')
+    X(f'{i}<FullTextSearchOnInputByString>{get_enum_prop("FullTextSearchOnInputByString", "fullTextSearchOnInputByString", "DontUse")}</FullTextSearchOnInputByString>')
     X(f'{i}<ChoiceDataGetModeOnInputByString>Directly</ChoiceDataGetModeOnInputByString>')
     emit_form_ref(i, 'DefaultObjectForm', defn.get('defaultObjectForm'))
     emit_form_ref(i, 'DefaultListForm', defn.get('defaultListForm'))
@@ -2594,7 +2595,7 @@ def emit_chart_of_characteristic_types_properties(indent):
     X(f'{i}<CreateOnInput>{get_enum_prop("CreateOnInput", "createOnInput", "DontUse")}</CreateOnInput>')
     X(f'{i}<SearchStringModeOnInputByString>{get_enum_prop("SearchStringModeOnInputByString", "searchStringModeOnInputByString", "Begin")}</SearchStringModeOnInputByString>')
     X(f'{i}<ChoiceDataGetModeOnInputByString>Directly</ChoiceDataGetModeOnInputByString>')
-    X(f'{i}<FullTextSearchOnInputByString>DontUse</FullTextSearchOnInputByString>')
+    X(f'{i}<FullTextSearchOnInputByString>{get_enum_prop("FullTextSearchOnInputByString", "fullTextSearchOnInputByString", "DontUse")}</FullTextSearchOnInputByString>')
     X(f'{i}<ChoiceHistoryOnInput>{get_enum_prop("ChoiceHistoryOnInput", "choiceHistoryOnInput", "Auto")}</ChoiceHistoryOnInput>')
     emit_form_ref(i, 'DefaultObjectForm', defn.get('defaultObjectForm'))
     emit_form_ref(i, 'DefaultFolderForm', defn.get('defaultFolderForm'))
@@ -2734,7 +2735,7 @@ def emit_chart_of_accounts_properties(indent):
             ib_fields.append(f'ChartOfAccounts.{obj_name}.StandardAttribute.Code')
     emit_field_block(i, 'InputByString', ib_fields)
     X(f'{i}<SearchStringModeOnInputByString>{get_enum_prop("SearchStringModeOnInputByString", "searchStringModeOnInputByString", "Begin")}</SearchStringModeOnInputByString>')
-    X(f'{i}<FullTextSearchOnInputByString>DontUse</FullTextSearchOnInputByString>')
+    X(f'{i}<FullTextSearchOnInputByString>{get_enum_prop("FullTextSearchOnInputByString", "fullTextSearchOnInputByString", "DontUse")}</FullTextSearchOnInputByString>')
     X(f'{i}<ChoiceDataGetModeOnInputByString>Directly</ChoiceDataGetModeOnInputByString>')
     X(f'{i}<CreateOnInput>{get_enum_prop("CreateOnInput", "createOnInput", "DontUse")}</CreateOnInput>')
     X(f'{i}<ChoiceHistoryOnInput>{get_enum_prop("ChoiceHistoryOnInput", "choiceHistoryOnInput", "Auto")}</ChoiceHistoryOnInput>')
@@ -2847,7 +2848,7 @@ def emit_chart_of_calculation_types_properties(indent):
             ib_fields.append(f'ChartOfCalculationTypes.{obj_name}.StandardAttribute.Code')
     emit_field_block(i, 'InputByString', ib_fields)
     X(f'{i}<SearchStringModeOnInputByString>{get_enum_prop("SearchStringModeOnInputByString", "searchStringModeOnInputByString", "Begin")}</SearchStringModeOnInputByString>')
-    X(f'{i}<FullTextSearchOnInputByString>DontUse</FullTextSearchOnInputByString>')
+    X(f'{i}<FullTextSearchOnInputByString>{get_enum_prop("FullTextSearchOnInputByString", "fullTextSearchOnInputByString", "DontUse")}</FullTextSearchOnInputByString>')
     X(f'{i}<ChoiceDataGetModeOnInputByString>Directly</ChoiceDataGetModeOnInputByString>')
     X(f'{i}<CreateOnInput>{get_enum_prop("CreateOnInput", "createOnInput", "DontUse")}</CreateOnInput>')
     X(f'{i}<ChoiceHistoryOnInput>{get_enum_prop("ChoiceHistoryOnInput", "choiceHistoryOnInput", "Auto")}</ChoiceHistoryOnInput>')
@@ -2961,7 +2962,7 @@ def emit_business_process_properties(indent):
     X(f'{i}</InputByString>')
     X(f'{i}<CreateOnInput>DontUse</CreateOnInput>')
     X(f'{i}<SearchStringModeOnInputByString>Begin</SearchStringModeOnInputByString>')
-    X(f'{i}<FullTextSearchOnInputByString>DontUse</FullTextSearchOnInputByString>')
+    X(f'{i}<FullTextSearchOnInputByString>{get_enum_prop("FullTextSearchOnInputByString", "fullTextSearchOnInputByString", "DontUse")}</FullTextSearchOnInputByString>')
     X(f'{i}<ChoiceDataGetModeOnInputByString>Directly</ChoiceDataGetModeOnInputByString>')
     X(f'{i}<DefaultObjectForm/>')
     X(f'{i}<DefaultListForm/>')
@@ -3028,7 +3029,7 @@ def emit_task_properties(indent):
     X(f'{i}</InputByString>')
     X(f'{i}<CreateOnInput>DontUse</CreateOnInput>')
     X(f'{i}<SearchStringModeOnInputByString>Begin</SearchStringModeOnInputByString>')
-    X(f'{i}<FullTextSearchOnInputByString>DontUse</FullTextSearchOnInputByString>')
+    X(f'{i}<FullTextSearchOnInputByString>{get_enum_prop("FullTextSearchOnInputByString", "fullTextSearchOnInputByString", "DontUse")}</FullTextSearchOnInputByString>')
     X(f'{i}<ChoiceDataGetModeOnInputByString>Directly</ChoiceDataGetModeOnInputByString>')
     X(f'{i}<DefaultObjectForm/>')
     X(f'{i}<DefaultListForm/>')

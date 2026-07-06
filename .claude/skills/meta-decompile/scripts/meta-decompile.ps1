@@ -1,4 +1,4 @@
-﻿# meta-decompile v0.35 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
+﻿# meta-decompile v0.36 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 #
 # Поддержаны: Catalog, ExchangePlan, ChartOfCharacteristicTypes, ChartOfAccounts, ChartOfCalculationTypes, Document. Инверс meta-compile (omit-on-default: ключ эмитим только
@@ -425,6 +425,7 @@ Add-BoolProp 'includeHelpInContents' 'IncludeHelpInContents' $false
 Add-EnumProp 'choiceHistoryOnInput' 'ChoiceHistoryOnInput' 'Auto'
 Add-EnumProp 'predefinedDataUpdate' 'PredefinedDataUpdate' 'Auto'
 Add-EnumProp 'searchStringModeOnInputByString' 'SearchStringModeOnInputByString' 'Begin'
+Add-EnumProp 'fullTextSearchOnInputByString' 'FullTextSearchOnInputByString' 'DontUse'
 # ExchangePlan-специфичные свойства (у Catalog этих тегов нет → блок не трогает его).
 if ($objType -eq 'ExchangePlan') {
 	Add-BoolProp 'distributedInfoBase' 'DistributedInfoBase' $false

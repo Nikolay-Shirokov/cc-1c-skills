@@ -1,4 +1,4 @@
-﻿# meta-compile v1.43 — Compile 1C metadata object from JSON
+﻿# meta-compile v1.44 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -263,6 +263,7 @@ $script:validEnumValues = @{
 	"ChoiceHistoryOnInput"           = @("Auto","DontUse")
 	"PredefinedDataUpdate"           = @("Auto","DontAutoUpdate","AutoUpdate")
 	"SearchStringModeOnInputByString"= @("Begin","AnyPart")
+	"FullTextSearchOnInputByString"  = @("Use","DontUse")
 }
 
 function Normalize-EnumValue {
@@ -2021,7 +2022,7 @@ function Emit-CatalogProperties {
 	}
 	Emit-FieldBlock $i "InputByString" $ibFields
 	X "$i<SearchStringModeOnInputByString>$(Get-EnumProp 'SearchStringModeOnInputByString' 'searchStringModeOnInputByString' 'Begin')</SearchStringModeOnInputByString>"
-	X "$i<FullTextSearchOnInputByString>DontUse</FullTextSearchOnInputByString>"
+	X "$i<FullTextSearchOnInputByString>$(Get-EnumProp 'FullTextSearchOnInputByString' 'fullTextSearchOnInputByString' 'DontUse')</FullTextSearchOnInputByString>"
 	X "$i<ChoiceDataGetModeOnInputByString>Directly</ChoiceDataGetModeOnInputByString>"
 	Emit-FormRef $i "DefaultObjectForm"       $def.defaultObjectForm
 	Emit-FormRef $i "DefaultFolderForm"       $def.defaultFolderForm
@@ -2095,7 +2096,7 @@ function Emit-DocumentProperties {
 	Emit-FieldBlock $i "InputByString" $ibFields
 	X "$i<CreateOnInput>$(Get-EnumProp 'CreateOnInput' 'createOnInput' 'Use')</CreateOnInput>"
 	X "$i<SearchStringModeOnInputByString>$(Get-EnumProp 'SearchStringModeOnInputByString' 'searchStringModeOnInputByString' 'Begin')</SearchStringModeOnInputByString>"
-	X "$i<FullTextSearchOnInputByString>DontUse</FullTextSearchOnInputByString>"
+	X "$i<FullTextSearchOnInputByString>$(Get-EnumProp 'FullTextSearchOnInputByString' 'fullTextSearchOnInputByString' 'DontUse')</FullTextSearchOnInputByString>"
 	X "$i<ChoiceDataGetModeOnInputByString>Directly</ChoiceDataGetModeOnInputByString>"
 	Emit-FormRef $i "DefaultObjectForm"   $def.defaultObjectForm
 	Emit-FormRef $i "DefaultListForm"     $def.defaultListForm
@@ -2547,7 +2548,7 @@ function Emit-ExchangePlanProperties {
 	}
 	Emit-FieldBlock $i "InputByString" $ibFields
 	X "$i<SearchStringModeOnInputByString>$(Get-EnumProp 'SearchStringModeOnInputByString' 'searchStringModeOnInputByString' 'Begin')</SearchStringModeOnInputByString>"
-	X "$i<FullTextSearchOnInputByString>DontUse</FullTextSearchOnInputByString>"
+	X "$i<FullTextSearchOnInputByString>$(Get-EnumProp 'FullTextSearchOnInputByString' 'fullTextSearchOnInputByString' 'DontUse')</FullTextSearchOnInputByString>"
 	X "$i<ChoiceDataGetModeOnInputByString>Directly</ChoiceDataGetModeOnInputByString>"
 	Emit-FormRef $i "DefaultObjectForm"   $def.defaultObjectForm
 	Emit-FormRef $i "DefaultListForm"     $def.defaultListForm
@@ -2666,7 +2667,7 @@ function Emit-ChartOfCharacteristicTypesProperties {
 	X "$i<CreateOnInput>$(Get-EnumProp 'CreateOnInput' 'createOnInput' 'DontUse')</CreateOnInput>"
 	X "$i<SearchStringModeOnInputByString>$(Get-EnumProp 'SearchStringModeOnInputByString' 'searchStringModeOnInputByString' 'Begin')</SearchStringModeOnInputByString>"
 	X "$i<ChoiceDataGetModeOnInputByString>Directly</ChoiceDataGetModeOnInputByString>"
-	X "$i<FullTextSearchOnInputByString>DontUse</FullTextSearchOnInputByString>"
+	X "$i<FullTextSearchOnInputByString>$(Get-EnumProp 'FullTextSearchOnInputByString' 'fullTextSearchOnInputByString' 'DontUse')</FullTextSearchOnInputByString>"
 	X "$i<ChoiceHistoryOnInput>$(Get-EnumProp 'ChoiceHistoryOnInput' 'choiceHistoryOnInput' 'Auto')</ChoiceHistoryOnInput>"
 	Emit-FormRef $i "DefaultObjectForm"       $def.defaultObjectForm
 	Emit-FormRef $i "DefaultFolderForm"       $def.defaultFolderForm
@@ -2828,7 +2829,7 @@ function Emit-ChartOfAccountsProperties {
 	}
 	Emit-FieldBlock $i "InputByString" $ibFields
 	X "$i<SearchStringModeOnInputByString>$(Get-EnumProp 'SearchStringModeOnInputByString' 'searchStringModeOnInputByString' 'Begin')</SearchStringModeOnInputByString>"
-	X "$i<FullTextSearchOnInputByString>DontUse</FullTextSearchOnInputByString>"
+	X "$i<FullTextSearchOnInputByString>$(Get-EnumProp 'FullTextSearchOnInputByString' 'fullTextSearchOnInputByString' 'DontUse')</FullTextSearchOnInputByString>"
 	X "$i<ChoiceDataGetModeOnInputByString>Directly</ChoiceDataGetModeOnInputByString>"
 	X "$i<CreateOnInput>$(Get-EnumProp 'CreateOnInput' 'createOnInput' 'DontUse')</CreateOnInput>"
 	X "$i<ChoiceHistoryOnInput>$(Get-EnumProp 'ChoiceHistoryOnInput' 'choiceHistoryOnInput' 'Auto')</ChoiceHistoryOnInput>"
@@ -2961,7 +2962,7 @@ function Emit-ChartOfCalculationTypesProperties {
 	}
 	Emit-FieldBlock $i "InputByString" $ibFields
 	X "$i<SearchStringModeOnInputByString>$(Get-EnumProp 'SearchStringModeOnInputByString' 'searchStringModeOnInputByString' 'Begin')</SearchStringModeOnInputByString>"
-	X "$i<FullTextSearchOnInputByString>DontUse</FullTextSearchOnInputByString>"
+	X "$i<FullTextSearchOnInputByString>$(Get-EnumProp 'FullTextSearchOnInputByString' 'fullTextSearchOnInputByString' 'DontUse')</FullTextSearchOnInputByString>"
 	X "$i<ChoiceDataGetModeOnInputByString>Directly</ChoiceDataGetModeOnInputByString>"
 	X "$i<CreateOnInput>$(Get-EnumProp 'CreateOnInput' 'createOnInput' 'DontUse')</CreateOnInput>"
 	X "$i<ChoiceHistoryOnInput>$(Get-EnumProp 'ChoiceHistoryOnInput' 'choiceHistoryOnInput' 'Auto')</ChoiceHistoryOnInput>"
@@ -3098,7 +3099,7 @@ function Emit-BusinessProcessProperties {
 	X "$i</InputByString>"
 	X "$i<CreateOnInput>DontUse</CreateOnInput>"
 	X "$i<SearchStringModeOnInputByString>Begin</SearchStringModeOnInputByString>"
-	X "$i<FullTextSearchOnInputByString>DontUse</FullTextSearchOnInputByString>"
+	X "$i<FullTextSearchOnInputByString>$(Get-EnumProp 'FullTextSearchOnInputByString' 'fullTextSearchOnInputByString' 'DontUse')</FullTextSearchOnInputByString>"
 	X "$i<ChoiceDataGetModeOnInputByString>Directly</ChoiceDataGetModeOnInputByString>"
 	X "$i<DefaultObjectForm/>"
 	X "$i<DefaultListForm/>"
@@ -3171,7 +3172,7 @@ function Emit-TaskProperties {
 	X "$i</InputByString>"
 	X "$i<CreateOnInput>DontUse</CreateOnInput>"
 	X "$i<SearchStringModeOnInputByString>Begin</SearchStringModeOnInputByString>"
-	X "$i<FullTextSearchOnInputByString>DontUse</FullTextSearchOnInputByString>"
+	X "$i<FullTextSearchOnInputByString>$(Get-EnumProp 'FullTextSearchOnInputByString' 'fullTextSearchOnInputByString' 'DontUse')</FullTextSearchOnInputByString>"
 	X "$i<ChoiceDataGetModeOnInputByString>Directly</ChoiceDataGetModeOnInputByString>"
 	X "$i<DefaultObjectForm/>"
 	X "$i<DefaultListForm/>"
