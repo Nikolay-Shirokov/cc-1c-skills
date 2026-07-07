@@ -1,4 +1,4 @@
-﻿# meta-compile v1.48 — Compile 1C metadata object from JSON
+﻿# meta-compile v1.49 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -738,6 +738,7 @@ function Emit-FillValue {
 	}
 
 	if ($null -eq $spec) { X "$indent<FillValue xsi:nil=`"true`"/>"; return }   # явный nil-override
+	if ($spec.emptyRef -eq $true) { X "$indent<FillValue xsi:type=`"xr:DesignTimeRef`"/>"; return }   # пустая ссылка (маркер декомпилятора)
 	if ($spec -is [bool]) {
 		X "$indent<FillValue xsi:type=`"xs:boolean`">$(if ($spec) { 'true' } else { 'false' })</FillValue>"; return
 	}
@@ -1133,6 +1134,7 @@ function Emit-StandardAttribute {
 	# FillValue: дефолт nil; override-значение → типизированное (Normalize-ChoiceValue: DTR-путь/строка/bool).
 	$fvRaw = OvOr 'FillValue' $null
 	if ($null -eq $fvRaw) { X "$indent`t<xr:FillValue xsi:nil=`"true`"/>" }
+	elseif ($fvRaw.emptyRef -eq $true) { X "$indent`t<xr:FillValue xsi:type=`"xr:DesignTimeRef`"/>" }
 	else {
 		$fvN = Normalize-ChoiceValue $fvRaw
 		if ([string]::IsNullOrEmpty($fvN.Text)) { X "$indent`t<xr:FillValue xsi:type=`"$($fvN.XsiType)`"/>" }
@@ -1207,6 +1209,7 @@ function Emit-TabularStandardAttributes {
 		if ($null -ne $lineNumber.format)             { $ov['Format'] = $lineNumber.format }
 		if ($null -ne $lineNumber.editFormat)         { $ov['EditFormat'] = $lineNumber.editFormat }
 		if ($lineNumber.choiceHistoryOnInput)         { $ov['ChoiceHistoryOnInput'] = "$($lineNumber.choiceHistoryOnInput)" }
+		if ($null -ne $lineNumber.fillValue)          { $ov['FillValue'] = $lineNumber.fillValue }
 	}
 	X "$indent<StandardAttributes>"
 	Emit-StandardAttribute "$indent`t" "LineNumber" $ov

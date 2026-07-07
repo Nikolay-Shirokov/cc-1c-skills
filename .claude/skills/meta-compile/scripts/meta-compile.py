@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-compile v1.48 — Compile 1C metadata object from JSON
+# meta-compile v1.49 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -769,6 +769,9 @@ def emit_fill_value(indent, type_str, spec, has_spec):
     if spec is None:
         X(f'{indent}<FillValue xsi:nil="true"/>')       # явный nil-override
         return
+    if isinstance(spec, dict) and spec.get('emptyRef') is True:
+        X(f'{indent}<FillValue xsi:type="xr:DesignTimeRef"/>')  # пустая ссылка (маркер декомпилятора)
+        return
     if isinstance(spec, bool):
         X(f'{indent}<FillValue xsi:type="xs:boolean">{"true" if spec else "false"}</FillValue>')
         return
@@ -1152,6 +1155,8 @@ def emit_standard_attribute(indent, attr_name, ov=None):
     fv_raw = ov.get('FillValue', None)
     if fv_raw is None:
         X(f'{indent}\t<xr:FillValue xsi:nil="true"/>')
+    elif isinstance(fv_raw, dict) and fv_raw.get('emptyRef') is True:
+        X(f'{indent}\t<xr:FillValue xsi:type="xr:DesignTimeRef"/>')
     else:
         fv_xt, fv_tx = normalize_choice_value(fv_raw)
         if fv_tx == '' or fv_tx is None:
@@ -1242,6 +1247,8 @@ def emit_tabular_standard_attributes(indent, line_number=None):
             ov['EditFormat'] = line_number['editFormat']
         if line_number.get('choiceHistoryOnInput'):
             ov['ChoiceHistoryOnInput'] = str(line_number['choiceHistoryOnInput'])
+        if line_number.get('fillValue') is not None:
+            ov['FillValue'] = line_number['fillValue']
     X(f'{indent}<StandardAttributes>')
     emit_standard_attribute(f'{indent}\t', 'LineNumber', ov)
     X(f'{indent}</StandardAttributes>')

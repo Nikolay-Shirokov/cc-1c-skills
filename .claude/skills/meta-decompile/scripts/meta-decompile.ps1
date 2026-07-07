@@ -1,4 +1,4 @@
-﻿# meta-decompile v0.40 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
+﻿# meta-decompile v0.41 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 #
 # Поддержаны: Catalog, ExchangePlan, ChartOfCharacteristicTypes, ChartOfAccounts, ChartOfCalculationTypes, Document. Инверс meta-compile (omit-on-default: ключ эмитим только
@@ -349,7 +349,8 @@ function Attr-ToDsl {
 		} elseif ($xsiT -match 'dateTime$') {
 			$extra['fillValue'] = $fvText
 		} elseif ($xsiT -match 'DesignTimeRef$') {
-			$extra['fillValue'] = $fvText
+			# Пустой DTR (ссылочный fillValue без значения) ≠ nil/xs:string → маркер emptyRef (иначе тип терялся в xs:string).
+			if ($fvText -eq '') { $extra['fillValue'] = [ordered]@{ emptyRef = $true } } else { $extra['fillValue'] = $fvText }
 		}
 	}
 
@@ -746,7 +747,11 @@ if ($saNode) {
 		$dhN = $sa.SelectSingleNode('xr:DataHistory', $nsm); if ($dhN -and $dhN.InnerText -ne 'Use') { $ov['dataHistory'] = $dhN.InnerText }
 		# FillValue (дефолт nil) — DTR-путь/строка/bool. Comment/Mask/ChoiceForm (дефолт пусто).
 		$fvN = $sa.SelectSingleNode('xr:FillValue', $nsm)
-		if ($fvN -and $fvN.GetAttribute('nil', 'http://www.w3.org/2001/XMLSchema-instance') -ne 'true') { $ov['fillValue'] = Convert-ChScalarNode $fvN }
+		if ($fvN -and $fvN.GetAttribute('nil', 'http://www.w3.org/2001/XMLSchema-instance') -ne 'true') {
+			$fvXt = $fvN.GetAttribute('type', 'http://www.w3.org/2001/XMLSchema-instance')
+			if ($fvXt -match 'DesignTimeRef$' -and $fvN.InnerText -eq '') { $ov['fillValue'] = [ordered]@{ emptyRef = $true } }
+			else { $ov['fillValue'] = Convert-ChScalarNode $fvN }
+		}
 		$saCmt = $sa.SelectSingleNode('xr:Comment', $nsm); if ($saCmt -and $saCmt.InnerText) { $ov['comment'] = $saCmt.InnerText }
 		$saMsk = $sa.SelectSingleNode('xr:Mask', $nsm); if ($saMsk -and $saMsk.InnerText) { $ov['mask'] = $saMsk.InnerText }
 			$saFmt = Get-MLValue ($sa.SelectSingleNode('xr:Format', $nsm)); if ($null -ne $saFmt) { $ov['format'] = $saFmt }
@@ -851,6 +856,12 @@ if ($childObjs) {
 				$lnFmt = Get-MLValue ($lnNode.SelectSingleNode('xr:Format', $nsm)); if ($null -ne $lnFmt) { $lnObj['format'] = $lnFmt }
 				$lnEfmt = Get-MLValue ($lnNode.SelectSingleNode('xr:EditFormat', $nsm)); if ($null -ne $lnEfmt) { $lnObj['editFormat'] = $lnEfmt }
 				$lnChiN = $lnNode.SelectSingleNode('xr:ChoiceHistoryOnInput', $nsm); if ($lnChiN -and $lnChiN.InnerText -ne 'Auto') { $lnObj['choiceHistoryOnInput'] = $lnChiN.InnerText }
+				# FillValue НомерСтроки: дефолт nil; редкая аномалия xs:decimal 0 → захват числом (иначе теряется в nil).
+				$lnFvN = $lnNode.SelectSingleNode('xr:FillValue', $nsm)
+				if ($lnFvN -and $lnFvN.GetAttribute('nil', 'http://www.w3.org/2001/XMLSchema-instance') -ne 'true') {
+					$lnFvT = $lnFvN.GetAttribute('type', 'http://www.w3.org/2001/XMLSchema-instance')
+					if ($lnFvT -match 'decimal$') { $lnObj['fillValue'] = if ($lnFvN.InnerText -match '^-?\d+$') { [long]$lnFvN.InnerText } else { [double]$lnFvN.InnerText } }
+				}
 			}
 			if ($tsSynCustom -or ($null -ne $tsTt) -or $tsCmt -or $tsFc -or $lnObj.Count -gt 0 -or (-not $hasBlock)) {
 				$to = [ordered]@{}
