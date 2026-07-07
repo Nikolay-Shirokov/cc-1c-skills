@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-compile v1.47 — Compile 1C metadata object from JSON
+# meta-compile v1.48 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -613,7 +613,7 @@ def emit_type_content(indent, type_str):
         return
 
     # Reference types — use local xmlns declaration for 1C compatibility
-    m = re.match(r'^(CatalogRef|DocumentRef|EnumRef|ChartOfAccountsRef|ChartOfCharacteristicTypesRef|ChartOfCalculationTypesRef|ExchangePlanRef|BusinessProcessRef|TaskRef)\.(.+)$', type_str)
+    m = re.match(r'^(CatalogRef|DocumentRef|EnumRef|ChartOfAccountsRef|ChartOfCharacteristicTypesRef|ChartOfCalculationTypesRef|ExchangePlanRef|BusinessProcessRef|BusinessProcessRoutePointRef|TaskRef)\.(.+)$', type_str)
     if m:
         X(f'{indent}<v8:Type xmlns:d5p1="http://v8.1c.ru/8.1/data/enterprise/current-config">d5p1:{type_str}</v8:Type>')
         return
@@ -875,6 +875,7 @@ def parse_attribute_shorthand(val):
         'balance': val.get('balance') is True,
         'accountingFlag': val.get('accountingFlag'),
         'extDimensionAccountingFlag': val.get('extDimensionAccountingFlag'),
+        'addressingDimension': val.get('addressingDimension'),
     }
 
 def parse_enum_value_shorthand(val):
@@ -1773,6 +1774,12 @@ def emit_attribute(indent, parsed, context, elem_tag='Attribute'):
                 if parsed.get('indexing'):
                     indexing = parsed['indexing']
                 X(f'{indent}\t\t<Indexing>{indexing}</Indexing>')
+            # Реквизит адресации задачи: AddressingDimension (между Indexing и FullTextSearch).
+            if context == 'task-addressing' and elem_tag == 'AddressingAttribute':
+                if parsed.get('addressingDimension'):
+                    X(f'{indent}\t\t<AddressingDimension>{esc_xml(str(parsed["addressingDimension"]))}</AddressingDimension>')
+                else:
+                    X(f'{indent}\t\t<AddressingDimension/>')
             X(f'{indent}\t\t<FullTextSearch>{parsed.get("fullTextSearch") or "Use"}</FullTextSearch>')
         # Измерение регистра накопления: UseInTotals (после FullTextSearch, дефолт true).
         if elem_tag == 'Dimension' and context == 'register-accum':
@@ -3021,63 +3028,70 @@ def emit_business_process_properties(indent):
     i = indent
     X(f'{i}<Name>{esc_xml(obj_name)}</Name>')
     emit_mltext(i, 'Synonym', synonym)
-    X(f'{i}<Comment/>')
-    X(f'{i}<UseStandardCommands>true</UseStandardCommands>')
-    edit_type = get_enum_prop('EditType', 'editType', 'InDialog')
-    X(f'{i}<EditType>{edit_type}</EditType>')
+    if defn.get('comment'):
+        X(f'{i}<Comment>{esc_xml_text(str(defn["comment"]))}</Comment>')
+    else:
+        X(f'{i}<Comment/>')
+    X(f'{i}<UseStandardCommands>{"true" if get_bool_prop("useStandardCommands", True) else "false"}</UseStandardCommands>')
+    X(f'{i}<EditType>{get_enum_prop("EditType", "editType", "InDialog")}</EditType>')
+    if 'inputByString' in defn:
+        ib_fields = [expand_data_path(str(x)) for x in (defn.get('inputByString') or [])]
+    else:
+        ib_fields = [f'BusinessProcess.{obj_name}.StandardAttribute.Number']
+    emit_field_block(i, 'InputByString', ib_fields)
+    X(f'{i}<CreateOnInput>{get_enum_prop("CreateOnInput", "createOnInput", "DontUse")}</CreateOnInput>')
+    X(f'{i}<SearchStringModeOnInputByString>{get_enum_prop("SearchStringModeOnInputByString", "searchStringModeOnInputByString", "Begin")}</SearchStringModeOnInputByString>')
+    X(f'{i}<ChoiceDataGetModeOnInputByString>Directly</ChoiceDataGetModeOnInputByString>')
+    X(f'{i}<FullTextSearchOnInputByString>{get_enum_prop("FullTextSearchOnInputByString", "fullTextSearchOnInputByString", "DontUse")}</FullTextSearchOnInputByString>')
+    emit_form_ref(i, 'DefaultObjectForm', defn.get('defaultObjectForm'))
+    emit_form_ref(i, 'DefaultListForm', defn.get('defaultListForm'))
+    emit_form_ref(i, 'DefaultChoiceForm', defn.get('defaultChoiceForm'))
+    emit_form_ref(i, 'AuxiliaryObjectForm', defn.get('auxiliaryObjectForm'))
+    emit_form_ref(i, 'AuxiliaryListForm', defn.get('auxiliaryListForm'))
+    emit_form_ref(i, 'AuxiliaryChoiceForm', defn.get('auxiliaryChoiceForm'))
+    X(f'{i}<ChoiceHistoryOnInput>{get_enum_prop("ChoiceHistoryOnInput", "choiceHistoryOnInput", "Auto")}</ChoiceHistoryOnInput>')
     number_type = get_enum_prop('NumberType', 'numberType', 'String')
     number_length = str(defn['numberLength']) if defn.get('numberLength') is not None else '11'
     number_allowed_length = get_enum_prop('NumberAllowedLength', 'numberAllowedLength', 'Variable')
     check_unique = 'false' if defn.get('checkUnique') is False else 'true'
-    autonumbering = 'false' if defn.get('autonumbering') is False else 'true'
     X(f'{i}<NumberType>{number_type}</NumberType>')
     X(f'{i}<NumberLength>{number_length}</NumberLength>')
     X(f'{i}<NumberAllowedLength>{number_allowed_length}</NumberAllowedLength>')
     X(f'{i}<CheckUnique>{check_unique}</CheckUnique>')
-    X(f'{i}<Autonumbering>{autonumbering}</Autonumbering>')
     emit_standard_attributes(i, 'BusinessProcess')
-    X(f'{i}<Characteristics/>')
+    emit_characteristics(i, defn.get('characteristics'))
+    X(f'{i}<Autonumbering>{"false" if defn.get("autonumbering") is False else "true"}</Autonumbering>')
+    emit_based_on(i, defn.get('basedOn'))
+    X(f'{i}<NumberPeriodicity>{get_enum_prop("NumberPeriodicity", "numberPeriodicity", "Nonperiodical")}</NumberPeriodicity>')
     task_ref = str(defn['task']) if defn.get('task') else ''
     if task_ref:
-        X(f'{i}<Task>{task_ref}</Task>')
+        X(f'{i}<Task>{esc_xml(task_ref)}</Task>')
     else:
         X(f'{i}<Task/>')
-    X(f'{i}<BasedOn/>')
-    X(f'{i}<InputByString>')
-    X(f'{i}\t<xr:Field>BusinessProcess.{obj_name}.StandardAttribute.Number</xr:Field>')
-    X(f'{i}</InputByString>')
-    X(f'{i}<CreateOnInput>DontUse</CreateOnInput>')
-    X(f'{i}<SearchStringModeOnInputByString>Begin</SearchStringModeOnInputByString>')
-    X(f'{i}<FullTextSearchOnInputByString>{get_enum_prop("FullTextSearchOnInputByString", "fullTextSearchOnInputByString", "DontUse")}</FullTextSearchOnInputByString>')
-    X(f'{i}<ChoiceDataGetModeOnInputByString>Directly</ChoiceDataGetModeOnInputByString>')
-    X(f'{i}<DefaultObjectForm/>')
-    X(f'{i}<DefaultListForm/>')
-    X(f'{i}<DefaultChoiceForm/>')
-    X(f'{i}<AuxiliaryObjectForm/>')
-    X(f'{i}<AuxiliaryListForm/>')
-    X(f'{i}<AuxiliaryChoiceForm/>')
-    X(f'{i}<IncludeHelpInContents>false</IncludeHelpInContents>')
-    X(f'{i}<DataLockFields/>')
-    data_lock_control_mode = get_enum_prop('DataLockControlMode', 'dataLockControlMode', 'Automatic')
-    X(f'{i}<DataLockControlMode>{data_lock_control_mode}</DataLockControlMode>')
-    full_text_search = get_enum_prop('FullTextSearch', 'fullTextSearch', 'Use')
-    X(f'{i}<FullTextSearch>{full_text_search}</FullTextSearch>')
+    X(f'{i}<CreateTaskInPrivilegedMode>{"true" if get_bool_prop("createTaskInPrivilegedMode", True) else "false"}</CreateTaskInPrivilegedMode>')
+    dl_fields = [expand_data_path(str(x)) for x in defn.get('dataLockFields', [])] if 'dataLockFields' in defn else []
+    emit_field_block(i, 'DataLockFields', dl_fields)
+    X(f'{i}<DataLockControlMode>{get_enum_prop("DataLockControlMode", "dataLockControlMode", "Managed")}</DataLockControlMode>')
+    X(f'{i}<IncludeHelpInContents>{"true" if get_bool_prop("includeHelpInContents", False) else "false"}</IncludeHelpInContents>')
+    X(f'{i}<FullTextSearch>{get_enum_prop("FullTextSearch", "fullTextSearch", "Use")}</FullTextSearch>')
     emit_mltext(i, 'ObjectPresentation', defn.get('objectPresentation'))
     emit_mltext(i, 'ExtendedObjectPresentation', defn.get('extendedObjectPresentation'))
     emit_mltext(i, 'ListPresentation', defn.get('listPresentation'))
     emit_mltext(i, 'ExtendedListPresentation', defn.get('extendedListPresentation'))
     emit_mltext(i, 'Explanation', defn.get('explanation'))
-    X(f'{i}<ChoiceHistoryOnInput>Auto</ChoiceHistoryOnInput>')
-    X(f'{i}<DataHistory>DontUse</DataHistory>')
-    X(f'{i}<UpdateDataHistoryImmediatelyAfterWrite>false</UpdateDataHistoryImmediatelyAfterWrite>')
-    X(f'{i}<ExecuteAfterWriteDataHistoryVersionProcessing>false</ExecuteAfterWriteDataHistoryVersionProcessing>')
+    X(f'{i}<DataHistory>{get_enum_prop("DataHistory", "dataHistory", "DontUse")}</DataHistory>')
+    X(f'{i}<UpdateDataHistoryImmediatelyAfterWrite>{"true" if get_bool_prop("updateDataHistoryImmediatelyAfterWrite", False) else "false"}</UpdateDataHistoryImmediatelyAfterWrite>')
+    X(f'{i}<ExecuteAfterWriteDataHistoryVersionProcessing>{"true" if get_bool_prop("executeAfterWriteDataHistoryVersionProcessing", False) else "false"}</ExecuteAfterWriteDataHistoryVersionProcessing>')
 
 def emit_task_properties(indent):
     i = indent
     X(f'{i}<Name>{esc_xml(obj_name)}</Name>')
     emit_mltext(i, 'Synonym', synonym)
-    X(f'{i}<Comment/>')
-    X(f'{i}<UseStandardCommands>true</UseStandardCommands>')
+    if defn.get('comment'):
+        X(f'{i}<Comment>{esc_xml_text(str(defn["comment"]))}</Comment>')
+    else:
+        X(f'{i}<Comment/>')
+    X(f'{i}<UseStandardCommands>{"true" if get_bool_prop("useStandardCommands", True) else "false"}</UseStandardCommands>')
     number_type = get_enum_prop('NumberType', 'numberType', 'String')
     number_length = str(defn['numberLength']) if defn.get('numberLength') is not None else '14'
     number_allowed_length = get_enum_prop('NumberAllowedLength', 'numberAllowedLength', 'Variable')
@@ -3092,52 +3106,43 @@ def emit_task_properties(indent):
     X(f'{i}<Autonumbering>{autonumbering}</Autonumbering>')
     X(f'{i}<TaskNumberAutoPrefix>{task_number_auto_prefix}</TaskNumberAutoPrefix>')
     X(f'{i}<DescriptionLength>{description_length}</DescriptionLength>')
-    addressing = str(defn['addressing']) if defn.get('addressing') else ''
-    if addressing:
-        X(f'{i}<Addressing>{addressing}</Addressing>')
-    else:
-        X(f'{i}<Addressing/>')
-    main_addressing = str(defn['mainAddressingAttribute']) if defn.get('mainAddressingAttribute') else ''
-    if main_addressing:
-        X(f'{i}<MainAddressingAttribute>{main_addressing}</MainAddressingAttribute>')
-    else:
-        X(f'{i}<MainAddressingAttribute/>')
-    current_performer = str(defn['currentPerformer']) if defn.get('currentPerformer') else ''
-    if current_performer:
-        X(f'{i}<CurrentPerformer>{current_performer}</CurrentPerformer>')
-    else:
-        X(f'{i}<CurrentPerformer/>')
+    X(f'{i}<Addressing>{esc_xml(str(defn["addressing"]))}</Addressing>' if defn.get('addressing') else f'{i}<Addressing/>')
+    X(f'{i}<MainAddressingAttribute>{esc_xml(str(defn["mainAddressingAttribute"]))}</MainAddressingAttribute>' if defn.get('mainAddressingAttribute') else f'{i}<MainAddressingAttribute/>')
+    X(f'{i}<CurrentPerformer>{esc_xml(str(defn["currentPerformer"]))}</CurrentPerformer>' if defn.get('currentPerformer') else f'{i}<CurrentPerformer/>')
+    emit_based_on(i, defn.get('basedOn'))
     emit_standard_attributes(i, 'Task')
-    X(f'{i}<Characteristics/>')
-    X(f'{i}<BasedOn/>')
-    X(f'{i}<InputByString>')
-    X(f'{i}\t<xr:Field>Task.{obj_name}.StandardAttribute.Number</xr:Field>')
-    X(f'{i}</InputByString>')
-    X(f'{i}<CreateOnInput>DontUse</CreateOnInput>')
-    X(f'{i}<SearchStringModeOnInputByString>Begin</SearchStringModeOnInputByString>')
+    emit_characteristics(i, defn.get('characteristics'))
+    X(f'{i}<DefaultPresentation>{get_enum_prop("DefaultPresentation", "defaultPresentation", "AsDescription")}</DefaultPresentation>')
+    X(f'{i}<EditType>{get_enum_prop("EditType", "editType", "InDialog")}</EditType>')
+    if 'inputByString' in defn:
+        ib_fields = [expand_data_path(str(x)) for x in (defn.get('inputByString') or [])]
+    else:
+        ib_fields = [f'Task.{obj_name}.StandardAttribute.Number']
+    emit_field_block(i, 'InputByString', ib_fields)
+    X(f'{i}<SearchStringModeOnInputByString>{get_enum_prop("SearchStringModeOnInputByString", "searchStringModeOnInputByString", "Begin")}</SearchStringModeOnInputByString>')
     X(f'{i}<FullTextSearchOnInputByString>{get_enum_prop("FullTextSearchOnInputByString", "fullTextSearchOnInputByString", "DontUse")}</FullTextSearchOnInputByString>')
     X(f'{i}<ChoiceDataGetModeOnInputByString>Directly</ChoiceDataGetModeOnInputByString>')
-    X(f'{i}<DefaultObjectForm/>')
-    X(f'{i}<DefaultListForm/>')
-    X(f'{i}<DefaultChoiceForm/>')
-    X(f'{i}<AuxiliaryObjectForm/>')
-    X(f'{i}<AuxiliaryListForm/>')
-    X(f'{i}<AuxiliaryChoiceForm/>')
-    X(f'{i}<IncludeHelpInContents>false</IncludeHelpInContents>')
-    X(f'{i}<DataLockFields/>')
-    data_lock_control_mode = get_enum_prop('DataLockControlMode', 'dataLockControlMode', 'Automatic')
-    X(f'{i}<DataLockControlMode>{data_lock_control_mode}</DataLockControlMode>')
-    full_text_search = get_enum_prop('FullTextSearch', 'fullTextSearch', 'Use')
-    X(f'{i}<FullTextSearch>{full_text_search}</FullTextSearch>')
+    X(f'{i}<CreateOnInput>{get_enum_prop("CreateOnInput", "createOnInput", "DontUse")}</CreateOnInput>')
+    emit_form_ref(i, 'DefaultObjectForm', defn.get('defaultObjectForm'))
+    emit_form_ref(i, 'DefaultListForm', defn.get('defaultListForm'))
+    emit_form_ref(i, 'DefaultChoiceForm', defn.get('defaultChoiceForm'))
+    emit_form_ref(i, 'AuxiliaryObjectForm', defn.get('auxiliaryObjectForm'))
+    emit_form_ref(i, 'AuxiliaryListForm', defn.get('auxiliaryListForm'))
+    emit_form_ref(i, 'AuxiliaryChoiceForm', defn.get('auxiliaryChoiceForm'))
+    X(f'{i}<ChoiceHistoryOnInput>{get_enum_prop("ChoiceHistoryOnInput", "choiceHistoryOnInput", "Auto")}</ChoiceHistoryOnInput>')
+    X(f'{i}<IncludeHelpInContents>{"true" if get_bool_prop("includeHelpInContents", False) else "false"}</IncludeHelpInContents>')
+    dl_fields = [expand_data_path(str(x)) for x in defn.get('dataLockFields', [])] if 'dataLockFields' in defn else []
+    emit_field_block(i, 'DataLockFields', dl_fields)
+    X(f'{i}<DataLockControlMode>{get_enum_prop("DataLockControlMode", "dataLockControlMode", "Managed")}</DataLockControlMode>')
+    X(f'{i}<FullTextSearch>{get_enum_prop("FullTextSearch", "fullTextSearch", "Use")}</FullTextSearch>')
     emit_mltext(i, 'ObjectPresentation', defn.get('objectPresentation'))
     emit_mltext(i, 'ExtendedObjectPresentation', defn.get('extendedObjectPresentation'))
     emit_mltext(i, 'ListPresentation', defn.get('listPresentation'))
     emit_mltext(i, 'ExtendedListPresentation', defn.get('extendedListPresentation'))
     emit_mltext(i, 'Explanation', defn.get('explanation'))
-    X(f'{i}<ChoiceHistoryOnInput>Auto</ChoiceHistoryOnInput>')
-    X(f'{i}<DataHistory>DontUse</DataHistory>')
-    X(f'{i}<UpdateDataHistoryImmediatelyAfterWrite>false</UpdateDataHistoryImmediatelyAfterWrite>')
-    X(f'{i}<ExecuteAfterWriteDataHistoryVersionProcessing>false</ExecuteAfterWriteDataHistoryVersionProcessing>')
+    X(f'{i}<DataHistory>{get_enum_prop("DataHistory", "dataHistory", "DontUse")}</DataHistory>')
+    X(f'{i}<UpdateDataHistoryImmediatelyAfterWrite>{"true" if get_bool_prop("updateDataHistoryImmediatelyAfterWrite", False) else "false"}</UpdateDataHistoryImmediatelyAfterWrite>')
+    X(f'{i}<ExecuteAfterWriteDataHistoryVersionProcessing>{"true" if get_bool_prop("executeAfterWriteDataHistoryVersionProcessing", False) else "false"}</ExecuteAfterWriteDataHistoryVersionProcessing>')
 
 def emit_http_service_properties(indent):
     i = indent
@@ -3304,41 +3309,9 @@ def emit_operation(indent, op_name, op_def):
     X(f'{indent}</Operation>')
 
 def emit_addressing_attribute(indent, addr_def):
-    uid = new_uuid()
-    name = ''
-    attr_synonym = ''
-    type_str = ''
-    addressing_dimension = ''
-    indexing = 'Index'
+    # Реквизит адресации = полный object-слой реквизита (контекст task-addressing) + AddressingDimension.
     parsed = parse_attribute_shorthand(addr_def)
-    name = parsed['name']
-    attr_synonym = parsed['synonym']
-    type_str = parsed['type']
-    if not isinstance(addr_def, str):
-        if addr_def.get('addressingDimension'):
-            addressing_dimension = str(addr_def['addressingDimension'])
-        if addr_def.get('indexing'):
-            indexing = str(addr_def['indexing'])
-    X(f'{indent}<AddressingAttribute uuid="{uid}">')
-    X(f'{indent}\t<Properties>')
-    X(f'{indent}\t\t<Name>{esc_xml(name)}</Name>')
-    emit_mltext(f'{indent}\t\t', 'Synonym', attr_synonym)
-    X(f'{indent}\t\t<Comment/>')
-    if type_str:
-        emit_value_type(f'{indent}\t\t', type_str)
-    else:
-        X(f'{indent}\t\t<Type>')
-        X(f'{indent}\t\t\t<v8:Type>xs:string</v8:Type>')
-        X(f'{indent}\t\t</Type>')
-    if addressing_dimension:
-        X(f'{indent}\t\t<AddressingDimension>{addressing_dimension}</AddressingDimension>')
-    else:
-        X(f'{indent}\t\t<AddressingDimension/>')
-    X(f'{indent}\t\t<Indexing>{indexing}</Indexing>')
-    X(f'{indent}\t\t<FullTextSearch>Use</FullTextSearch>')
-    X(f'{indent}\t\t<DataHistory>Use</DataHistory>')
-    X(f'{indent}\t</Properties>')
-    X(f'{indent}</AddressingAttribute>')
+    emit_attribute(indent, parsed, 'task-addressing', 'AddressingAttribute')
 
 # ---------------------------------------------------------------------------
 # 14. Namespaces

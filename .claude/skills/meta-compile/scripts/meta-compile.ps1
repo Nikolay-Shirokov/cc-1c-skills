@@ -1,4 +1,4 @@
-﻿# meta-compile v1.47 — Compile 1C metadata object from JSON
+﻿# meta-compile v1.48 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -582,7 +582,7 @@ function Emit-TypeContent {
 	}
 
 	# Reference types — use local xmlns declaration for 1C compatibility
-	if ($typeStr -match '^(CatalogRef|DocumentRef|EnumRef|ChartOfAccountsRef|ChartOfCharacteristicTypesRef|ChartOfCalculationTypesRef|ExchangePlanRef|BusinessProcessRef|TaskRef)\.(.+)$') {
+	if ($typeStr -match '^(CatalogRef|DocumentRef|EnumRef|ChartOfAccountsRef|ChartOfCharacteristicTypesRef|ChartOfCalculationTypesRef|ExchangePlanRef|BusinessProcessRef|BusinessProcessRoutePointRef|TaskRef)\.(.+)$') {
 		X "$indent<v8:Type xmlns:d5p1=`"http://v8.1c.ru/8.1/data/enterprise/current-config`">d5p1:$typeStr</v8:Type>"
 		return
 	}
@@ -848,6 +848,7 @@ function Parse-AttributeShorthand {
 		balance = if ($val.balance -eq $true) { $true } else { $false }
 		accountingFlag = $val.accountingFlag
 		extDimensionAccountingFlag = $val.extDimensionAccountingFlag
+		addressingDimension = $val.addressingDimension
 	}
 }
 
@@ -1716,6 +1717,10 @@ function Emit-Attribute {
 				X "$indent`t`t<Indexing>$indexing</Indexing>"
 			}
 
+			# Реквизит адресации задачи: AddressingDimension (ссылка на измерение регистра исполнителей), между Indexing и FullTextSearch.
+			if ($context -eq "task-addressing" -and $elemTag -eq "AddressingAttribute") {
+				if ($parsed.addressingDimension) { X "$indent`t`t<AddressingDimension>$(Esc-Xml "$($parsed.addressingDimension)")</AddressingDimension>" } else { X "$indent`t`t<AddressingDimension/>" }
+			}
 			$fts = if ($parsed.fullTextSearch) { $parsed.fullTextSearch } else { "Use" }
 			X "$indent`t`t<FullTextSearch>$fts</FullTextSearch>"
 		}
@@ -3150,86 +3155,81 @@ function Emit-BusinessProcessProperties {
 
 	X "$i<Name>$(Esc-Xml $objName)</Name>"
 	Emit-MLText $i "Synonym" $synonym
-	X "$i<Comment/>"
-	X "$i<UseStandardCommands>true</UseStandardCommands>"
+	if ($def.comment) { X "$i<Comment>$(Esc-XmlText "$($def.comment)")</Comment>" } else { X "$i<Comment/>" }
+	$useStdCmd = if (Get-BoolProp "useStandardCommands" $true) { "true" } else { "false" }
+	X "$i<UseStandardCommands>$useStdCmd</UseStandardCommands>"
+	X "$i<EditType>$(Get-EnumProp 'EditType' 'editType' 'InDialog')</EditType>"
 
-	$editType = Get-EnumProp "EditType" "editType" "InDialog"
-	X "$i<EditType>$editType</EditType>"
+	if (Test-DefKey 'inputByString') { $ibFields = @($def.inputByString | ForEach-Object { Expand-DataPath "$_" }) }
+	else { $ibFields = @("BusinessProcess.$objName.StandardAttribute.Number") }
+	Emit-FieldBlock $i "InputByString" $ibFields
+	X "$i<CreateOnInput>$(Get-EnumProp 'CreateOnInput' 'createOnInput' 'DontUse')</CreateOnInput>"
+	X "$i<SearchStringModeOnInputByString>$(Get-EnumProp 'SearchStringModeOnInputByString' 'searchStringModeOnInputByString' 'Begin')</SearchStringModeOnInputByString>"
+	X "$i<ChoiceDataGetModeOnInputByString>Directly</ChoiceDataGetModeOnInputByString>"
+	X "$i<FullTextSearchOnInputByString>$(Get-EnumProp 'FullTextSearchOnInputByString' 'fullTextSearchOnInputByString' 'DontUse')</FullTextSearchOnInputByString>"
+	Emit-FormRef $i "DefaultObjectForm"   $def.defaultObjectForm
+	Emit-FormRef $i "DefaultListForm"     $def.defaultListForm
+	Emit-FormRef $i "DefaultChoiceForm"   $def.defaultChoiceForm
+	Emit-FormRef $i "AuxiliaryObjectForm" $def.auxiliaryObjectForm
+	Emit-FormRef $i "AuxiliaryListForm"   $def.auxiliaryListForm
+	Emit-FormRef $i "AuxiliaryChoiceForm" $def.auxiliaryChoiceForm
+	X "$i<ChoiceHistoryOnInput>$(Get-EnumProp 'ChoiceHistoryOnInput' 'choiceHistoryOnInput' 'Auto')</ChoiceHistoryOnInput>"
 
 	$numberType = Get-EnumProp "NumberType" "numberType" "String"
 	$numberLength = if ($null -ne $def.numberLength) { "$($def.numberLength)" } else { "11" }
 	$numberAllowedLength = Get-EnumProp "NumberAllowedLength" "numberAllowedLength" "Variable"
 	$checkUnique = if ($def.checkUnique -eq $false) { "false" } else { "true" }
-	$autonumbering = if ($def.autonumbering -eq $false) { "false" } else { "true" }
-
 	X "$i<NumberType>$numberType</NumberType>"
 	X "$i<NumberLength>$numberLength</NumberLength>"
 	X "$i<NumberAllowedLength>$numberAllowedLength</NumberAllowedLength>"
 	X "$i<CheckUnique>$checkUnique</CheckUnique>"
-	X "$i<Autonumbering>$autonumbering</Autonumbering>"
 
 	Emit-StandardAttributes $i "BusinessProcess"
-	X "$i<Characteristics/>"
+	Emit-Characteristics $i $def.characteristics
 
-	$task = if ($def.task) { "$($def.task)" } else { "" }
-	if ($task) {
-		X "$i<Task>$task</Task>"
-	} else {
-		X "$i<Task/>"
-	}
+	$autonumbering = if ($def.autonumbering -eq $false) { "false" } else { "true" }
+	X "$i<Autonumbering>$autonumbering</Autonumbering>"
+	Emit-BasedOn $i $def.basedOn
+	X "$i<NumberPeriodicity>$(Get-EnumProp 'NumberPeriodicity' 'numberPeriodicity' 'Nonperiodical')</NumberPeriodicity>"
 
-	X "$i<BasedOn/>"
-	X "$i<InputByString>"
-	X "$i`t<xr:Field>BusinessProcess.$objName.StandardAttribute.Number</xr:Field>"
-	X "$i</InputByString>"
-	X "$i<CreateOnInput>DontUse</CreateOnInput>"
-	X "$i<SearchStringModeOnInputByString>Begin</SearchStringModeOnInputByString>"
-	X "$i<FullTextSearchOnInputByString>$(Get-EnumProp 'FullTextSearchOnInputByString' 'fullTextSearchOnInputByString' 'DontUse')</FullTextSearchOnInputByString>"
-	X "$i<ChoiceDataGetModeOnInputByString>Directly</ChoiceDataGetModeOnInputByString>"
-	X "$i<DefaultObjectForm/>"
-	X "$i<DefaultListForm/>"
-	X "$i<DefaultChoiceForm/>"
-	X "$i<AuxiliaryObjectForm/>"
-	X "$i<AuxiliaryListForm/>"
-	X "$i<AuxiliaryChoiceForm/>"
-	X "$i<IncludeHelpInContents>false</IncludeHelpInContents>"
-	X "$i<DataLockFields/>"
+	if ($def.task) { X "$i<Task>$(Esc-Xml "$($def.task)")</Task>" } else { X "$i<Task/>" }
+	$createTaskPriv = if (Get-BoolProp "createTaskInPrivilegedMode" $true) { "true" } else { "false" }
+	X "$i<CreateTaskInPrivilegedMode>$createTaskPriv</CreateTaskInPrivilegedMode>"
 
-	$dataLockControlMode = Get-EnumProp "DataLockControlMode" "dataLockControlMode" "Automatic"
-	X "$i<DataLockControlMode>$dataLockControlMode</DataLockControlMode>"
-
-	$fullTextSearch = Get-EnumProp "FullTextSearch" "fullTextSearch" "Use"
-	X "$i<FullTextSearch>$fullTextSearch</FullTextSearch>"
+	$dlFields = if (Test-DefKey 'dataLockFields') { @($def.dataLockFields | ForEach-Object { Expand-DataPath "$_" }) } else { @() }
+	Emit-FieldBlock $i "DataLockFields" $dlFields
+	X "$i<DataLockControlMode>$(Get-EnumProp 'DataLockControlMode' 'dataLockControlMode' 'Managed')</DataLockControlMode>"
+	$inclHelp = if (Get-BoolProp "includeHelpInContents" $false) { "true" } else { "false" }
+	X "$i<IncludeHelpInContents>$inclHelp</IncludeHelpInContents>"
+	X "$i<FullTextSearch>$(Get-EnumProp 'FullTextSearch' 'fullTextSearch' 'Use')</FullTextSearch>"
 
 	Emit-MLText $i "ObjectPresentation" $def.objectPresentation
 	Emit-MLText $i "ExtendedObjectPresentation" $def.extendedObjectPresentation
 	Emit-MLText $i "ListPresentation" $def.listPresentation
 	Emit-MLText $i "ExtendedListPresentation" $def.extendedListPresentation
 	Emit-MLText $i "Explanation" $def.explanation
-	X "$i<ChoiceHistoryOnInput>Auto</ChoiceHistoryOnInput>"
-	X "$i<DataHistory>DontUse</DataHistory>"
-	X "$i<UpdateDataHistoryImmediatelyAfterWrite>false</UpdateDataHistoryImmediatelyAfterWrite>"
-	X "$i<ExecuteAfterWriteDataHistoryVersionProcessing>false</ExecuteAfterWriteDataHistoryVersionProcessing>"
+	X "$i<DataHistory>$(Get-EnumProp 'DataHistory' 'dataHistory' 'DontUse')</DataHistory>"
+	$updDH = if (Get-BoolProp "updateDataHistoryImmediatelyAfterWrite" $false) { "true" } else { "false" }
+	X "$i<UpdateDataHistoryImmediatelyAfterWrite>$updDH</UpdateDataHistoryImmediatelyAfterWrite>"
+	$execDH = if (Get-BoolProp "executeAfterWriteDataHistoryVersionProcessing" $false) { "true" } else { "false" }
+	X "$i<ExecuteAfterWriteDataHistoryVersionProcessing>$execDH</ExecuteAfterWriteDataHistoryVersionProcessing>"
 }
 
 function Emit-TaskProperties {
 	param([string]$indent)
 	$i = $indent
-
 	X "$i<Name>$(Esc-Xml $objName)</Name>"
 	Emit-MLText $i "Synonym" $synonym
-	X "$i<Comment/>"
-	X "$i<UseStandardCommands>true</UseStandardCommands>"
-
+	if ($def.comment) { X "$i<Comment>$(Esc-XmlText "$($def.comment)")</Comment>" } else { X "$i<Comment/>" }
+	$useStdCmd = if (Get-BoolProp "useStandardCommands" $true) { "true" } else { "false" }
+	X "$i<UseStandardCommands>$useStdCmd</UseStandardCommands>"
 	$numberType = Get-EnumProp "NumberType" "numberType" "String"
 	$numberLength = if ($null -ne $def.numberLength) { "$($def.numberLength)" } else { "14" }
 	$numberAllowedLength = Get-EnumProp "NumberAllowedLength" "numberAllowedLength" "Variable"
 	$checkUnique = if ($def.checkUnique -eq $false) { "false" } else { "true" }
 	$autonumbering = if ($def.autonumbering -eq $false) { "false" } else { "true" }
-
 	$taskNumberAutoPrefix = if ($def.taskNumberAutoPrefix) { "$($def.taskNumberAutoPrefix)" } else { "BusinessProcessNumber" }
 	$descriptionLength = if ($null -ne $def.descriptionLength) { "$($def.descriptionLength)" } else { "150" }
-
 	X "$i<NumberType>$numberType</NumberType>"
 	X "$i<NumberLength>$numberLength</NumberLength>"
 	X "$i<NumberAllowedLength>$numberAllowedLength</NumberAllowedLength>"
@@ -3237,52 +3237,44 @@ function Emit-TaskProperties {
 	X "$i<Autonumbering>$autonumbering</Autonumbering>"
 	X "$i<TaskNumberAutoPrefix>$taskNumberAutoPrefix</TaskNumberAutoPrefix>"
 	X "$i<DescriptionLength>$descriptionLength</DescriptionLength>"
-
-	# Addressing
-	$addressing = if ($def.addressing) { "$($def.addressing)" } else { "" }
-	if ($addressing) { X "$i<Addressing>$addressing</Addressing>" } else { X "$i<Addressing/>" }
-
-	$mainAddressing = if ($def.mainAddressingAttribute) { "$($def.mainAddressingAttribute)" } else { "" }
-	if ($mainAddressing) { X "$i<MainAddressingAttribute>$mainAddressing</MainAddressingAttribute>" } else { X "$i<MainAddressingAttribute/>" }
-
-	$currentPerformer = if ($def.currentPerformer) { "$($def.currentPerformer)" } else { "" }
-	if ($currentPerformer) { X "$i<CurrentPerformer>$currentPerformer</CurrentPerformer>" } else { X "$i<CurrentPerformer/>" }
-
+	if ($def.addressing) { X "$i<Addressing>$(Esc-Xml "$($def.addressing)")</Addressing>" } else { X "$i<Addressing/>" }
+	if ($def.mainAddressingAttribute) { X "$i<MainAddressingAttribute>$(Esc-Xml "$($def.mainAddressingAttribute)")</MainAddressingAttribute>" } else { X "$i<MainAddressingAttribute/>" }
+	if ($def.currentPerformer) { X "$i<CurrentPerformer>$(Esc-Xml "$($def.currentPerformer)")</CurrentPerformer>" } else { X "$i<CurrentPerformer/>" }
+	Emit-BasedOn $i $def.basedOn
 	Emit-StandardAttributes $i "Task"
-	X "$i<Characteristics/>"
-
-	X "$i<BasedOn/>"
-	X "$i<InputByString>"
-	X "$i`t<xr:Field>Task.$objName.StandardAttribute.Number</xr:Field>"
-	X "$i</InputByString>"
-	X "$i<CreateOnInput>DontUse</CreateOnInput>"
-	X "$i<SearchStringModeOnInputByString>Begin</SearchStringModeOnInputByString>"
+	Emit-Characteristics $i $def.characteristics
+	X "$i<DefaultPresentation>$(Get-EnumProp 'DefaultPresentation' 'defaultPresentation' 'AsDescription')</DefaultPresentation>"
+	X "$i<EditType>$(Get-EnumProp 'EditType' 'editType' 'InDialog')</EditType>"
+	if (Test-DefKey 'inputByString') { $ibFields = @($def.inputByString | ForEach-Object { Expand-DataPath "$_" }) }
+	else { $ibFields = @("Task.$objName.StandardAttribute.Number") }
+	Emit-FieldBlock $i "InputByString" $ibFields
+	X "$i<SearchStringModeOnInputByString>$(Get-EnumProp 'SearchStringModeOnInputByString' 'searchStringModeOnInputByString' 'Begin')</SearchStringModeOnInputByString>"
 	X "$i<FullTextSearchOnInputByString>$(Get-EnumProp 'FullTextSearchOnInputByString' 'fullTextSearchOnInputByString' 'DontUse')</FullTextSearchOnInputByString>"
 	X "$i<ChoiceDataGetModeOnInputByString>Directly</ChoiceDataGetModeOnInputByString>"
-	X "$i<DefaultObjectForm/>"
-	X "$i<DefaultListForm/>"
-	X "$i<DefaultChoiceForm/>"
-	X "$i<AuxiliaryObjectForm/>"
-	X "$i<AuxiliaryListForm/>"
-	X "$i<AuxiliaryChoiceForm/>"
-	X "$i<IncludeHelpInContents>false</IncludeHelpInContents>"
-	X "$i<DataLockFields/>"
-
-	$dataLockControlMode = Get-EnumProp "DataLockControlMode" "dataLockControlMode" "Automatic"
-	X "$i<DataLockControlMode>$dataLockControlMode</DataLockControlMode>"
-
-	$fullTextSearch = Get-EnumProp "FullTextSearch" "fullTextSearch" "Use"
-	X "$i<FullTextSearch>$fullTextSearch</FullTextSearch>"
-
+	X "$i<CreateOnInput>$(Get-EnumProp 'CreateOnInput' 'createOnInput' 'DontUse')</CreateOnInput>"
+	Emit-FormRef $i "DefaultObjectForm"   $def.defaultObjectForm
+	Emit-FormRef $i "DefaultListForm"     $def.defaultListForm
+	Emit-FormRef $i "DefaultChoiceForm"   $def.defaultChoiceForm
+	Emit-FormRef $i "AuxiliaryObjectForm" $def.auxiliaryObjectForm
+	Emit-FormRef $i "AuxiliaryListForm"   $def.auxiliaryListForm
+	Emit-FormRef $i "AuxiliaryChoiceForm" $def.auxiliaryChoiceForm
+	X "$i<ChoiceHistoryOnInput>$(Get-EnumProp 'ChoiceHistoryOnInput' 'choiceHistoryOnInput' 'Auto')</ChoiceHistoryOnInput>"
+	$inclHelp = if (Get-BoolProp "includeHelpInContents" $false) { "true" } else { "false" }
+	X "$i<IncludeHelpInContents>$inclHelp</IncludeHelpInContents>"
+	$dlFields = if (Test-DefKey 'dataLockFields') { @($def.dataLockFields | ForEach-Object { Expand-DataPath "$_" }) } else { @() }
+	Emit-FieldBlock $i "DataLockFields" $dlFields
+	X "$i<DataLockControlMode>$(Get-EnumProp 'DataLockControlMode' 'dataLockControlMode' 'Managed')</DataLockControlMode>"
+	X "$i<FullTextSearch>$(Get-EnumProp 'FullTextSearch' 'fullTextSearch' 'Use')</FullTextSearch>"
 	Emit-MLText $i "ObjectPresentation" $def.objectPresentation
 	Emit-MLText $i "ExtendedObjectPresentation" $def.extendedObjectPresentation
 	Emit-MLText $i "ListPresentation" $def.listPresentation
 	Emit-MLText $i "ExtendedListPresentation" $def.extendedListPresentation
 	Emit-MLText $i "Explanation" $def.explanation
-	X "$i<ChoiceHistoryOnInput>Auto</ChoiceHistoryOnInput>"
-	X "$i<DataHistory>DontUse</DataHistory>"
-	X "$i<UpdateDataHistoryImmediatelyAfterWrite>false</UpdateDataHistoryImmediatelyAfterWrite>"
-	X "$i<ExecuteAfterWriteDataHistoryVersionProcessing>false</ExecuteAfterWriteDataHistoryVersionProcessing>"
+	X "$i<DataHistory>$(Get-EnumProp 'DataHistory' 'dataHistory' 'DontUse')</DataHistory>"
+	$updDH = if (Get-BoolProp "updateDataHistoryImmediatelyAfterWrite" $false) { "true" } else { "false" }
+	X "$i<UpdateDataHistoryImmediatelyAfterWrite>$updDH</UpdateDataHistoryImmediatelyAfterWrite>"
+	$execDH = if (Get-BoolProp "executeAfterWriteDataHistoryVersionProcessing" $false) { "true" } else { "false" }
+	X "$i<ExecuteAfterWriteDataHistoryVersionProcessing>$execDH</ExecuteAfterWriteDataHistoryVersionProcessing>"
 }
 
 # --- 13f. Wave 6: HTTPService, WebService ---
@@ -3491,48 +3483,9 @@ function Emit-Operation {
 
 function Emit-AddressingAttribute {
 	param([string]$indent, $addrDef)
-	$uuid = New-Guid-String
-
-	$name = ""
-	$attrSynonym = ""
-	$typeStr = ""
-	$addressingDimension = ""
-	$indexing = "Index"
-
+	# Реквизит адресации = полный object-слой реквизита (контекст task-addressing) + AddressingDimension.
 	$parsed = Parse-AttributeShorthand $addrDef
-	$name = $parsed.name
-	$attrSynonym = $parsed.synonym
-	$typeStr = $parsed.type
-	if ($addrDef -isnot [string]) {
-		if ($addrDef.addressingDimension) { $addressingDimension = "$($addrDef.addressingDimension)" }
-		if ($addrDef.indexing) { $indexing = "$($addrDef.indexing)" }
-	}
-
-	X "$indent<AddressingAttribute uuid=`"$uuid`">"
-	X "$indent`t<Properties>"
-	X "$indent`t`t<Name>$(Esc-Xml $name)</Name>"
-	Emit-MLText "$indent`t`t" "Synonym" $attrSynonym
-	X "$indent`t`t<Comment/>"
-
-	if ($typeStr) {
-		Emit-ValueType "$indent`t`t" $typeStr
-	} else {
-		X "$indent`t`t<Type>"
-		X "$indent`t`t`t<v8:Type>xs:string</v8:Type>"
-		X "$indent`t`t</Type>"
-	}
-
-	if ($addressingDimension) {
-		X "$indent`t`t<AddressingDimension>$addressingDimension</AddressingDimension>"
-	} else {
-		X "$indent`t`t<AddressingDimension/>"
-	}
-
-	X "$indent`t`t<Indexing>$indexing</Indexing>"
-	X "$indent`t`t<FullTextSearch>Use</FullTextSearch>"
-	X "$indent`t`t<DataHistory>Use</DataHistory>"
-	X "$indent`t</Properties>"
-	X "$indent</AddressingAttribute>"
+	Emit-Attribute $indent $parsed "task-addressing" "AddressingAttribute"
 }
 
 # --- 14. Namespaces ---

@@ -1,4 +1,4 @@
-﻿# meta-decompile v0.39 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
+﻿# meta-decompile v0.40 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 #
 # Поддержаны: Catalog, ExchangePlan, ChartOfCharacteristicTypes, ChartOfAccounts, ChartOfCalculationTypes, Document. Инверс meta-compile (omit-on-default: ключ эмитим только
@@ -91,8 +91,8 @@ foreach ($c in $rootEl.ChildNodes) { if ($c.NodeType -eq 'Element') { $objNode =
 if (-not $objNode) { [Console]::Error.WriteLine("meta-decompile: пустой MetaDataObject"); exit 3 }
 $objType = $objNode.LocalName
 
-if ($objType -notin @('Catalog', 'ExchangePlan', 'ChartOfCharacteristicTypes', 'ChartOfAccounts', 'ChartOfCalculationTypes', 'Document', 'InformationRegister', 'AccumulationRegister', 'AccountingRegister', 'CalculationRegister')) {
-	[Console]::Error.WriteLine("meta-decompile: тип '$objType' пока не поддержан (Catalog, ExchangePlan, ChartOfCharacteristicTypes, ChartOfAccounts, ChartOfCalculationTypes, Document, InformationRegister, AccumulationRegister, AccountingRegister, CalculationRegister)"); exit 3
+if ($objType -notin @('Catalog', 'ExchangePlan', 'ChartOfCharacteristicTypes', 'ChartOfAccounts', 'ChartOfCalculationTypes', 'Document', 'InformationRegister', 'AccumulationRegister', 'AccountingRegister', 'CalculationRegister', 'BusinessProcess', 'Task')) {
+	[Console]::Error.WriteLine("meta-decompile: тип '$objType' пока не поддержан (Catalog, ExchangePlan, ChartOfCharacteristicTypes, ChartOfAccounts, ChartOfCalculationTypes, Document, InformationRegister, AccumulationRegister, AccountingRegister, CalculationRegister, BusinessProcess, Task)"); exit 3
 }
 
 $props = $objNode.SelectSingleNode('md:Properties', $nsm)
@@ -303,6 +303,7 @@ function Attr-ToDsl {
 	$v = & $en 'Balance'; if ($v -eq 'true') { $extra['balance'] = $true }
 	$v = & $en 'AccountingFlag'; if ($v) { $extra['accountingFlag'] = $v }  # ссылка на признак учёта ПС (пустой → пропуск)
 	$v = & $en 'ExtDimensionAccountingFlag'; if ($v) { $extra['extDimensionAccountingFlag'] = $v }
+	$v = & $en 'AddressingDimension'; if ($v) { $extra['addressingDimension'] = $v }  # ссылка на измерение регистра исполнителей
 	# MinValue/MaxValue — граница диапазона (omit при nil). Тип сохраняем: xs:string→строка, xs:decimal→число.
 	foreach ($mm in @('MinValue','MaxValue')) {
 		$mn = $ap.SelectSingleNode("md:$mm", $nsm)
@@ -544,6 +545,32 @@ if ($objType -eq 'CalculationRegister') {
 	$schv = P 'ScheduleValue'; if ($schv) { $dsl['scheduleValue'] = $schv }
 	$schd = P 'ScheduleDate'; if ($schd) { $dsl['scheduleDate'] = $schd }
 }
+# BusinessProcess-специфичные свойства: нумерация (Document-стиль), связь с задачей, привилегированный режим.
+if ($objType -eq 'BusinessProcess') {
+	Add-EnumProp 'numberType'          'NumberType'          'String'
+	Add-IntProp  'numberLength'        'NumberLength'        11
+	Add-EnumProp 'numberAllowedLength' 'NumberAllowedLength' 'Variable'
+	Add-EnumProp 'numberPeriodicity'   'NumberPeriodicity'   'Nonperiodical'
+	# CheckUnique/Autonumbering дефолт true (совпадает с компилятором → захват только при false).
+	Add-BoolProp 'checkUnique'   'CheckUnique'   $true
+	Add-BoolProp 'autonumbering' 'Autonumbering' $true
+	$tsk = P 'Task'; if ($tsk) { $dsl['task'] = $tsk }
+	Add-BoolProp 'createTaskInPrivilegedMode' 'CreateTaskInPrivilegedMode' $true
+}
+# Task-специфичные свойства: нумерация, адресация, текущий исполнитель.
+if ($objType -eq 'Task') {
+	Add-EnumProp 'numberType'          'NumberType'          'String'
+	Add-IntProp  'numberLength'        'NumberLength'        14
+	Add-EnumProp 'numberAllowedLength' 'NumberAllowedLength' 'Variable'
+	Add-BoolProp 'checkUnique'   'CheckUnique'   $true
+	Add-BoolProp 'autonumbering' 'Autonumbering' $true
+	$tnap = P 'TaskNumberAutoPrefix'; if ($tnap -and $tnap -ne 'BusinessProcessNumber') { $dsl['taskNumberAutoPrefix'] = $tnap }
+	Add-IntProp  'descriptionLength'   'DescriptionLength'   150
+	$addr = P 'Addressing'; if ($addr) { $dsl['addressing'] = $addr }
+	$maa = P 'MainAddressingAttribute'; if ($maa) { $dsl['mainAddressingAttribute'] = $maa }
+	$cp = P 'CurrentPerformer'; if ($cp) { $dsl['currentPerformer'] = $cp }
+	Add-EnumProp 'defaultPresentation' 'DefaultPresentation' 'AsDescription'
+}
 
 # Короткая форма поля: <Type>.<Name>.StandardAttribute.X / .Attribute.X → StandardAttribute.X / Attribute.X
 # (Expand-DataPath компилятора разворачивает частичную форму обратно — dogfood резолвера).
@@ -742,8 +769,8 @@ if ($saNode) {
 	}
 	# Условный тип (Catalog): пустой $saMap = триггер блока. Не-условный (ExchangePlan): блок и так эмитится → пустой не пишем.
 	if ($saMap.Count -gt 0 -or ($stdConditionalTypes -contains $objType)) { $dsl['standardAttributes'] = $saMap }
-} elseif ($objType -in @('InformationRegister', 'AccumulationRegister', 'AccountingRegister', 'CalculationRegister')) {
-	# Регистр опускает all-default блок стандартных реквизитов (~5-9%, правило не выводимо) — компилятор эмитит его
+} elseif ($objType -in @('InformationRegister', 'AccumulationRegister', 'AccountingRegister', 'CalculationRegister', 'BusinessProcess', 'Task')) {
+	# Регистр/БП/Задача опускают all-default блок стандартных реквизитов (правило не выводимо) — компилятор эмитит его
 	# по дефолту, поэтому отсутствие фиксируем opt-out `standardAttributes:""` (дом-конвенция суппресса).
 	$dsl['standardAttributes'] = ''
 }
@@ -783,6 +810,13 @@ if ($childObjs) {
 		$arr = [System.Collections.ArrayList]@()
 		foreach ($a in $resNodes) { [void]$arr.Add((Attr-ToDsl $a)) }
 		$dsl['resources'] = $arr
+	}
+	# Задача: реквизиты адресации (AddressingAttribute) — структурно как реквизит + AddressingDimension.
+	$addrNodes = @($childObjs.SelectNodes('md:AddressingAttribute', $nsm))
+	if ($addrNodes.Count -gt 0) {
+		$arr = [System.Collections.ArrayList]@()
+		foreach ($a in $addrNodes) { [void]$arr.Add((Attr-ToDsl $a)) }
+		$dsl['addressingAttributes'] = $arr
 	}
 	$tsNodes = @($childObjs.SelectNodes('md:TabularSection', $nsm))
 	if ($tsNodes.Count -gt 0) {
