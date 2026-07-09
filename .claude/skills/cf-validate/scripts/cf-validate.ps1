@@ -1,4 +1,4 @@
-﻿# cf-validate v1.3 — Validate 1C configuration root structure
+﻿# cf-validate v1.4 — Validate 1C configuration root structure
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -104,11 +104,11 @@ $validClassIds = @(
 	"fb282519-d103-4dd3-bc12-cb271d631dfc"   # home page / client app interface
 )
 
-# 44 types in canonical order
+# 45 types in canonical order
 $childObjectTypes = @(
 	"Language","Subsystem","StyleItem","Style",
 	"CommonPicture","SessionParameter","Role","CommonTemplate",
-	"FilterCriterion","CommonModule","CommonAttribute","ExchangePlan",
+	"FilterCriterion","CommonModule","Bot","CommonAttribute","ExchangePlan",
 	"XDTOPackage","WebService","HTTPService","WSReference",
 	"EventSubscription","ScheduledJob","SettingsStorage","FunctionalOption",
 	"FunctionalOptionsParameter","DefinedType","CommonCommand","CommandGroup",
@@ -125,6 +125,7 @@ $childTypeDirMap = @{
 	"Language"="Languages"; "Subsystem"="Subsystems"; "StyleItem"="StyleItems"; "Style"="Styles"
 	"CommonPicture"="CommonPictures"; "SessionParameter"="SessionParameters"; "Role"="Roles"
 	"CommonTemplate"="CommonTemplates"; "FilterCriterion"="FilterCriteria"; "CommonModule"="CommonModules"
+	"Bot"="Bots"
 	"CommonAttribute"="CommonAttributes"; "ExchangePlan"="ExchangePlans"; "XDTOPackage"="XDTOPackages"
 	"WebService"="WebServices"; "HTTPService"="HTTPServices"; "WSReference"="WSReferences"
 	"EventSubscription"="EventSubscriptions"; "ScheduledJob"="ScheduledJobs"

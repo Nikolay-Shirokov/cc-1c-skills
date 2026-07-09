@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# cf-validate v1.3 — Validate 1C configuration XML structure
+# cf-validate v1.4 — Validate 1C configuration XML structure
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 """Validates Configuration.xml: root structure, InternalInfo, properties, ChildObjects, languages."""
 import sys, os, argparse, re
@@ -33,11 +33,11 @@ VALID_CLASS_IDS = [
     'fb282519-d103-4dd3-bc12-cb271d631dfc',   # home page / client app interface
 ]
 
-# 44 types in canonical order
+# 45 types in canonical order
 CHILD_OBJECT_TYPES = [
     'Language', 'Subsystem', 'StyleItem', 'Style',
     'CommonPicture', 'SessionParameter', 'Role', 'CommonTemplate',
-    'FilterCriterion', 'CommonModule', 'CommonAttribute', 'ExchangePlan',
+    'FilterCriterion', 'CommonModule', 'Bot', 'CommonAttribute', 'ExchangePlan',
     'XDTOPackage', 'WebService', 'HTTPService', 'WSReference',
     'EventSubscription', 'ScheduledJob', 'SettingsStorage', 'FunctionalOption',
     'FunctionalOptionsParameter', 'DefinedType', 'CommonCommand', 'CommandGroup',
@@ -54,6 +54,7 @@ CHILD_TYPE_DIR_MAP = {
     'Language': 'Languages', 'Subsystem': 'Subsystems', 'StyleItem': 'StyleItems', 'Style': 'Styles',
     'CommonPicture': 'CommonPictures', 'SessionParameter': 'SessionParameters', 'Role': 'Roles',
     'CommonTemplate': 'CommonTemplates', 'FilterCriterion': 'FilterCriteria', 'CommonModule': 'CommonModules',
+    'Bot': 'Bots',
     'CommonAttribute': 'CommonAttributes', 'ExchangePlan': 'ExchangePlans', 'XDTOPackage': 'XDTOPackages',
     'WebService': 'WebServices', 'HTTPService': 'HTTPServices', 'WSReference': 'WSReferences',
     'EventSubscription': 'EventSubscriptions', 'ScheduledJob': 'ScheduledJobs',

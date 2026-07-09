@@ -1,0 +1,5 @@
+{
+  "name": "Bot попадает в состав конфигурации",
+  "setup": "fixture:with-bot",
+  "expect": { "stdoutContains": "Боты" }
+}

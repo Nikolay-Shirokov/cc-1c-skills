@@ -193,6 +193,7 @@ ClassId — фиксированные идентификаторы классо
   <CommonTemplate>fresh</CommonTemplate>
   <FilterCriterion>ДокументыПоВидуОплаты</FilterCriterion>
   <CommonModule>АвтоматическиеСкидки</CommonModule>
+  <!-- Bot (Боты; платформа 8.3.18 и новее) -->
   <CommonAttribute>КомментарийЯзык1</CommonAttribute>
   <ExchangePlan>ОбновлениеИнформационнойБазы</ExchangePlan>
   <XDTOPackage>AgentScripts</XDTOPackage>
@@ -244,40 +245,41 @@ ClassId — фиксированные идентификаторы классо
 | 8 | `CommonTemplate` | `CommonTemplates/` | Общие макеты |
 | 9 | `FilterCriterion` | `FilterCriteria/` | Критерии отбора |
 | 10 | `CommonModule` | `CommonModules/` | Общие модули |
-| 11 | `CommonAttribute` | `CommonAttributes/` | Общие реквизиты |
-| 12 | `ExchangePlan` | `ExchangePlans/` | Планы обмена |
-| 13 | `XDTOPackage` | `XDTOPackages/` | XDTO-пакеты |
-| 14 | `WebService` | `WebServices/` | Веб-сервисы |
-| 15 | `HTTPService` | `HTTPServices/` | HTTP-сервисы |
-| 16 | `WSReference` | `WSReferences/` | WS-ссылки |
-| 17 | `EventSubscription` | `EventSubscriptions/` | Подписки на события |
-| 18 | `ScheduledJob` | `ScheduledJobs/` | Регламентные задания |
-| 19 | `SettingsStorage` | `SettingsStorages/` | Хранилища настроек |
-| 20 | `FunctionalOption` | `FunctionalOptions/` | Функциональные опции |
-| 21 | `FunctionalOptionsParameter` | `FunctionalOptionsParameters/` | Параметры ФО |
-| 22 | `DefinedType` | `DefinedTypes/` | Определяемые типы |
-| 23 | `CommonCommand` | `CommonCommands/` | Общие команды |
-| 24 | `CommandGroup` | `CommandGroups/` | Группы команд |
-| 25 | `Constant` | `Constants/` | Константы |
-| 26 | `CommonForm` | `CommonForms/` | Общие формы |
-| 27 | `Catalog` | `Catalogs/` | Справочники |
-| 28 | `Document` | `Documents/` | Документы |
-| 29 | `DocumentNumerator` | `DocumentNumerators/` | Нумераторы документов |
-| 30 | `Sequence` | `Sequences/` | Последовательности |
-| 31 | `DocumentJournal` | `DocumentJournals/` | Журналы документов |
-| 32 | `Enum` | `Enums/` | Перечисления |
-| 33 | `Report` | `Reports/` | Отчёты |
-| 34 | `DataProcessor` | `DataProcessors/` | Обработки |
-| 35 | `InformationRegister` | `InformationRegisters/` | Регистры сведений |
-| 36 | `AccumulationRegister` | `AccumulationRegisters/` | Регистры накопления |
-| 37 | `ChartOfCharacteristicTypes` | `ChartsOfCharacteristicTypes/` | Планы видов характеристик |
-| 38 | `ChartOfAccounts` | `ChartsOfAccounts/` | Планы счетов |
-| 39 | `AccountingRegister` | `AccountingRegisters/` | Регистры бухгалтерии |
-| 40 | `ChartOfCalculationTypes` | `ChartsOfCalculationTypes/` | Планы видов расчёта |
-| 41 | `CalculationRegister` | `CalculationRegisters/` | Регистры расчёта |
-| 42 | `BusinessProcess` | `BusinessProcesses/` | Бизнес-процессы |
-| 43 | `Task` | `Tasks/` | Задачи |
-| 44 | `IntegrationService` | `IntegrationServices/` | Сервисы интеграции |
+| 11 | `Bot` | `Bots/` | Боты (платформа 8.3.18+) |
+| 12 | `CommonAttribute` | `CommonAttributes/` | Общие реквизиты |
+| 13 | `ExchangePlan` | `ExchangePlans/` | Планы обмена |
+| 14 | `XDTOPackage` | `XDTOPackages/` | XDTO-пакеты |
+| 15 | `WebService` | `WebServices/` | Веб-сервисы |
+| 16 | `HTTPService` | `HTTPServices/` | HTTP-сервисы |
+| 17 | `WSReference` | `WSReferences/` | WS-ссылки |
+| 18 | `EventSubscription` | `EventSubscriptions/` | Подписки на события |
+| 19 | `ScheduledJob` | `ScheduledJobs/` | Регламентные задания |
+| 20 | `SettingsStorage` | `SettingsStorages/` | Хранилища настроек |
+| 21 | `FunctionalOption` | `FunctionalOptions/` | Функциональные опции |
+| 22 | `FunctionalOptionsParameter` | `FunctionalOptionsParameters/` | Параметры ФО |
+| 23 | `DefinedType` | `DefinedTypes/` | Определяемые типы |
+| 24 | `CommonCommand` | `CommonCommands/` | Общие команды |
+| 25 | `CommandGroup` | `CommandGroups/` | Группы команд |
+| 26 | `Constant` | `Constants/` | Константы |
+| 27 | `CommonForm` | `CommonForms/` | Общие формы |
+| 28 | `Catalog` | `Catalogs/` | Справочники |
+| 29 | `Document` | `Documents/` | Документы |
+| 30 | `DocumentNumerator` | `DocumentNumerators/` | Нумераторы документов |
+| 31 | `Sequence` | `Sequences/` | Последовательности |
+| 32 | `DocumentJournal` | `DocumentJournals/` | Журналы документов |
+| 33 | `Enum` | `Enums/` | Перечисления |
+| 34 | `Report` | `Reports/` | Отчёты |
+| 35 | `DataProcessor` | `DataProcessors/` | Обработки |
+| 36 | `InformationRegister` | `InformationRegisters/` | Регистры сведений |
+| 37 | `AccumulationRegister` | `AccumulationRegisters/` | Регистры накопления |
+| 38 | `ChartOfCharacteristicTypes` | `ChartsOfCharacteristicTypes/` | Планы видов характеристик |
+| 39 | `ChartOfAccounts` | `ChartsOfAccounts/` | Планы счетов |
+| 40 | `AccountingRegister` | `AccountingRegisters/` | Регистры бухгалтерии |
+| 41 | `ChartOfCalculationTypes` | `ChartsOfCalculationTypes/` | Планы видов расчёта |
+| 42 | `CalculationRegister` | `CalculationRegisters/` | Регистры расчёта |
+| 43 | `BusinessProcess` | `BusinessProcesses/` | Бизнес-процессы |
+| 44 | `Task` | `Tasks/` | Задачи |
+| 45 | `IntegrationService` | `IntegrationServices/` | Сервисы интеграции |
 
 Внутри одного типа объекты отсортированы по имени (алфавитный порядок). Типы, для которых нет объектов, в ChildObjects не записываются.
 

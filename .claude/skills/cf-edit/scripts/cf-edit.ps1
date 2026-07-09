@@ -1,4 +1,4 @@
-﻿# cf-edit v1.7 — Edit 1C configuration root (Configuration.xml)
+﻿# cf-edit v1.8 — Edit 1C configuration root (Configuration.xml)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)][Alias('Path')][string]$ConfigPath,
@@ -196,7 +196,7 @@ Info "Configuration: $($script:objName)"
 $script:typeOrder = @(
 	"Language","Subsystem","StyleItem","Style",
 	"CommonPicture","SessionParameter","Role","CommonTemplate",
-	"FilterCriterion","CommonModule","CommonAttribute","ExchangePlan",
+	"FilterCriterion","CommonModule","Bot","CommonAttribute","ExchangePlan",
 	"XDTOPackage","WebService","HTTPService","WSReference",
 	"EventSubscription","ScheduledJob","SettingsStorage","FunctionalOption",
 	"FunctionalOptionsParameter","DefinedType","CommonCommand","CommandGroup",
@@ -212,7 +212,7 @@ $script:typeOrder = @(
 $script:typeToDir = @{
 	"Language"="Languages"; "Subsystem"="Subsystems"; "StyleItem"="StyleItems"; "Style"="Styles"
 	"CommonPicture"="CommonPictures"; "SessionParameter"="SessionParameters"; "Role"="Roles"; "CommonTemplate"="CommonTemplates"
-	"FilterCriterion"="FilterCriteria"; "CommonModule"="CommonModules"; "CommonAttribute"="CommonAttributes"; "ExchangePlan"="ExchangePlans"
+	"FilterCriterion"="FilterCriteria"; "CommonModule"="CommonModules"; "Bot"="Bots"; "CommonAttribute"="CommonAttributes"; "ExchangePlan"="ExchangePlans"
 	"XDTOPackage"="XDTOPackages"; "WebService"="WebServices"; "HTTPService"="HTTPServices"; "WSReference"="WSReferences"
 	"EventSubscription"="EventSubscriptions"; "ScheduledJob"="ScheduledJobs"; "SettingsStorage"="SettingsStorages"; "FunctionalOption"="FunctionalOptions"
 	"FunctionalOptionsParameter"="FunctionalOptionsParameters"; "DefinedType"="DefinedTypes"; "CommonCommand"="CommonCommands"; "CommandGroup"="CommandGroups"
@@ -700,6 +700,7 @@ $script:ruTypeMap = @{
 	"регистррасчёта"           = "CalculationRegister"
 	"бизнеспроцесс"            = "BusinessProcess"
 	"задача"                   = "Task"
+	"бот"                      = "Bot"
 	"планобмена"               = "ExchangePlan"
 	"хранилищенастроек"        = "SettingsStorage"
 }

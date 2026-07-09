@@ -1,0 +1,4 @@
+{
+  "name": "Bot в ChildObjects проходит валидацию",
+  "setup": "fixture:with-bot"
+}

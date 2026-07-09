@@ -357,6 +357,16 @@ function buildSkillArgs(skillConfig, caseData, workDir, inputFile, runtime) {
 function runPreSteps(preRun, workDir, runtime, log) {
   if (!preRun) return;
   for (const step of preRun) {
+    // writeFile step — записать произвольный файл в workDir перед запуском скрипта
+    if (step.writeFile) {
+      const wfPath = join(workDir, step.writeFile.path);
+      const wfContent = typeof step.writeFile.content === 'string'
+        ? step.writeFile.content
+        : JSON.stringify(step.writeFile.content, null, 2);
+      writeFileSync(wfPath, wfContent, 'utf8');
+      log(`preRun: writeFile ${step.writeFile.path}`, true);
+      continue;
+    }
     const preArgs = [];
     for (const [flag, value] of Object.entries(step.args || {})) {
       preArgs.push(flag);

@@ -1,0 +1,7 @@
+{
+  "name": "Регистрация Bot в ChildObjects",
+  "setup": "fixture:add-bot",
+  "input": [
+    { "operation": "add-childObject", "value": "Bot.ОповещенияПользователейОСобытиях" }
+  ]
+}

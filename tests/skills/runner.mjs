@@ -292,7 +292,7 @@ function buildArgs(skillConfig, caseData, workDir, inputFilePath, runtime) {
 
 const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
 
-function normalizeXmlContent(text) {
+function normalizeXmlContent(text, opts = {}) {
   let s = text;
   // 1. XML declaration: normalize quotes and encoding case
   s = s.replace(
@@ -301,8 +301,13 @@ function normalizeXmlContent(text) {
   );
   // 2. Remove &#13; (CR encoded as XML entity by Python etree)
   s = s.replace(/&#13;/g, '');
-  // 3. Strip xmlns declarations (Python etree strips unused ones)
-  s = s.replace(/\s+xmlns(?::[\w]+)?="[^"]*"/g, '');
+  // 3. Strip xmlns declarations (Python etree strips unused ones).
+  //    Skipped for Configuration.xml: those declarations are load-bearing (they back
+  //    xsi:type values like app:ApplicationUsePurpose in UsePurposes) and dropping them
+  //    is exactly the corruption of issue #38 — keeping them lets the test guard against it.
+  if (!opts.keepXmlns) {
+    s = s.replace(/\s+xmlns(?::[\w]+)?="[^"]*"/g, '');
+  }
   // 4. Normalize self-closing tags: remove space before />
   s = s.replace(/\s*\/>/g, '/>');
   // 5. Collapse whitespace between tags: ">  \n\t  <" → "><"
@@ -314,14 +319,15 @@ function normalizeXmlContent(text) {
   return s;
 }
 
-function normalizeContent(text, config) {
+function normalizeContent(text, config, relFile) {
   // Strip BOM
   let s = text.replace(/^\uFEFF/, '');
   // Normalize line endings
   s = s.replace(/\r\n/g, '\n');
   // Normalize XML differences (Python etree serialization quirks)
   if (config?.runtime === 'python') {
-    s = normalizeXmlContent(s);
+    const base = relFile ? relFile.split(/[\\/]/).pop() : '';
+    s = normalizeXmlContent(s, { keepXmlns: base === 'Configuration.xml' });
   }
 
   // Normalize UUIDs
@@ -403,8 +409,8 @@ function compareSnapshot(workDir, snapshotDir, snapshotConfig) {
     const actualRaw = readFileSync(actualPath, 'utf8');
     const snapshotRaw = readFileSync(snapshotPath, 'utf8');
 
-    const actual = normalizeContent(actualRaw, snapshotConfig);
-    const expected = normalizeContent(snapshotRaw, snapshotConfig);
+    const actual = normalizeContent(actualRaw, snapshotConfig, relFile);
+    const expected = normalizeContent(snapshotRaw, snapshotConfig, relFile);
 
     if (actual !== expected) {
       // Find first differing line
@@ -446,7 +452,7 @@ function updateSnapshot(workDir, snapshotDir, snapshotConfig) {
     mkdirSync(dirname(dst), { recursive: true });
 
     const raw = readFileSync(src, 'utf8');
-    const normalized = normalizeContent(raw, snapshotConfig);
+    const normalized = normalizeContent(raw, snapshotConfig, relFile);
     writeFileSync(dst, normalized, 'utf8');
   }
 }

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# cf-info v1.3 — Compact summary of 1C configuration root
+# cf-info v1.4 — Compact summary of 1C configuration root
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -95,7 +95,7 @@ def get_prop_ml(prop_name):
 type_order = [
     "Language", "Subsystem", "StyleItem", "Style",
     "CommonPicture", "SessionParameter", "Role", "CommonTemplate",
-    "FilterCriterion", "CommonModule", "CommonAttribute", "ExchangePlan",
+    "FilterCriterion", "CommonModule", "Bot", "CommonAttribute", "ExchangePlan",
     "XDTOPackage", "WebService", "HTTPService", "WSReference",
     "EventSubscription", "ScheduledJob", "SettingsStorage", "FunctionalOption",
     "FunctionalOptionsParameter", "DefinedType", "CommonCommand", "CommandGroup",
@@ -111,6 +111,7 @@ type_ru_names = {
     "Language": "Языки", "Subsystem": "Подсистемы", "StyleItem": "Элементы стиля", "Style": "Стили",
     "CommonPicture": "Общие картинки", "SessionParameter": "Параметры сеанса", "Role": "Роли",
     "CommonTemplate": "Общие макеты", "FilterCriterion": "Критерии отбора", "CommonModule": "Общие модули",
+    "Bot": "Боты",
     "CommonAttribute": "Общие реквизиты", "ExchangePlan": "Планы обмена", "XDTOPackage": "XDTO-пакеты",
     "WebService": "Веб-сервисы", "HTTPService": "HTTP-сервисы", "WSReference": "WS-ссылки",
     "EventSubscription": "Подписки на события", "ScheduledJob": "Регламентные задания",

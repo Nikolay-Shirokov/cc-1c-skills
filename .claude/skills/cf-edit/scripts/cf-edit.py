@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# cf-edit v1.7 — Edit 1C configuration root (Configuration.xml)
+# cf-edit v1.8 — Edit 1C configuration root (Configuration.xml)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -182,7 +182,7 @@ XS_NS = "http://www.w3.org/2001/XMLSchema"
 TYPE_ORDER = [
     "Language", "Subsystem", "StyleItem", "Style",
     "CommonPicture", "SessionParameter", "Role", "CommonTemplate",
-    "FilterCriterion", "CommonModule", "CommonAttribute", "ExchangePlan",
+    "FilterCriterion", "CommonModule", "Bot", "CommonAttribute", "ExchangePlan",
     "XDTOPackage", "WebService", "HTTPService", "WSReference",
     "EventSubscription", "ScheduledJob", "SettingsStorage", "FunctionalOption",
     "FunctionalOptionsParameter", "DefinedType", "CommonCommand", "CommandGroup",
@@ -198,7 +198,7 @@ TYPE_ORDER = [
 TYPE_TO_DIR = {
     "Language": "Languages", "Subsystem": "Subsystems", "StyleItem": "StyleItems", "Style": "Styles",
     "CommonPicture": "CommonPictures", "SessionParameter": "SessionParameters", "Role": "Roles", "CommonTemplate": "CommonTemplates",
-    "FilterCriterion": "FilterCriteria", "CommonModule": "CommonModules", "CommonAttribute": "CommonAttributes", "ExchangePlan": "ExchangePlans",
+    "FilterCriterion": "FilterCriteria", "CommonModule": "CommonModules", "Bot": "Bots", "CommonAttribute": "CommonAttributes", "ExchangePlan": "ExchangePlans",
     "XDTOPackage": "XDTOPackages", "WebService": "WebServices", "HTTPService": "HTTPServices", "WSReference": "WSReferences",
     "EventSubscription": "EventSubscriptions", "ScheduledJob": "ScheduledJobs", "SettingsStorage": "SettingsStorages", "FunctionalOption": "FunctionalOptions",
     "FunctionalOptionsParameter": "FunctionalOptionsParameters", "DefinedType": "DefinedTypes", "CommonCommand": "CommonCommands", "CommandGroup": "CommandGroups",
@@ -771,6 +771,7 @@ def main():
         "регистррасчета": "CalculationRegister",
         "регистррасчёта": "CalculationRegister",
         "бизнеспроцесс": "BusinessProcess",
+        "бот": "Bot",
         "задача": "Task", "планобмена": "ExchangePlan",
         "хранилищенастроек": "SettingsStorage",
     }

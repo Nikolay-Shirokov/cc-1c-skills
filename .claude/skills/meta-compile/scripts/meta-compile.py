@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-compile v1.49 — Compile 1C metadata object from JSON
+# meta-compile v1.50 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -4031,21 +4031,19 @@ reg_result = None
 child_tag = obj_type
 
 if os.path.isfile(config_xml_path):
-    # Parse preserving whitespace via raw string manipulation
-    with open(config_xml_path, 'r', encoding='utf-8-sig') as f:
+    # Read raw content, preserving BOM/EOL byte-for-byte (newline='' => no translation).
+    with open(config_xml_path, 'r', encoding='utf-8-sig', newline='') as f:
         config_content = f.read()
 
     ns = 'http://v8.1c.ru/8.3/MDClasses'
-    ET.register_namespace('', ns)
-    # Parse all namespaces used in the file
-    # Use iterparse to collect namespace prefixes
-    namespaces_in_file = {}
-    for evt, elem in ET.iterparse(config_xml_path, events=['start-ns']):
-        prefix, uri = elem
-        if prefix:
-            namespaces_in_file[prefix] = uri
-            ET.register_namespace(prefix, uri)
-
+    # ET is used ONLY read-only here: to locate ChildObjects and detect a duplicate.
+    # We deliberately do NOT re-serialize Configuration.xml with ElementTree.write():
+    # it drops every xmlns declaration used only inside attribute VALUES (e.g.
+    # xsi:type="app:ApplicationUsePurpose" in UsePurposes) because ET never sees those
+    # prefixes in element/attribute names. The dropped declaration makes XDTO read the
+    # value as anyType and Designer refuses to load the file (issue #38). Registration is
+    # therefore done by raw-text insertion, preserving BOM, EOL and all namespaces
+    # byte-for-byte (same approach as subsystem-compile).
     tree = ET.parse(config_xml_path)
     root = tree.getroot()
 
@@ -4056,41 +4054,47 @@ if os.path.isfile(config_xml_path):
         if config_elem is not None:
             child_objects = config_elem.find(f'{{{ns}}}ChildObjects')
 
-    if child_objects is not None:
+    if child_objects is None:
+        reg_result = 'no-childobj'
+    else:
         existing = child_objects.findall(f'{{{ns}}}{child_tag}')
-        already_exists = False
-        for e in existing:
-            if (e.text or '').strip() == obj_name:
-                already_exists = True
-                break
+        already_exists = any((e.text or '').strip() == obj_name for e in existing)
 
         if already_exists:
             reg_result = 'already'
         else:
-            new_elem = ET.SubElement(child_objects, f'{{{ns}}}{child_tag}')
-            new_elem.text = obj_name
+            eol = '\r\n' if '\r\n' in config_content else '\n'
+            entry = f'<{child_tag}>{esc_xml(obj_name)}</{child_tag}>'
 
-            if existing:
-                # Insert after last existing element of same type
-                last_elem = existing[-1]
-                all_children = list(child_objects)
-                idx = all_children.index(last_elem)
-                child_objects.remove(new_elem)
-                child_objects.insert(idx + 1, new_elem)
-
-            # Write back preserving BOM
-            tree.write(config_xml_path, encoding='utf-8', xml_declaration=True)
-            # Re-read to add BOM, fix declaration quotes, ensure trailing newline
-            with open(config_xml_path, 'r', encoding='utf-8') as f:
-                raw = f.read()
-            if raw.startswith("<?xml version='1.0' encoding='utf-8'?>"):
-                raw = raw.replace("<?xml version='1.0' encoding='utf-8'?>", '<?xml version="1.0" encoding="UTF-8"?>', 1)
-            if not raw.endswith('\n'):
-                raw += '\n'
-            write_utf8_bom(config_xml_path, raw)
-            reg_result = 'added'
-    else:
-        reg_result = 'no-childobj'
+            block = re.search(r'<ChildObjects\s*>.*?</ChildObjects>', config_content, re.S)
+            if block is None:
+                # Empty self-closing <ChildObjects/> => open it with the first entry.
+                empty = re.search(r'<ChildObjects\s*/>', config_content)
+                if empty is None:
+                    reg_result = 'no-childobj'
+                else:
+                    replacement = f'<ChildObjects>{eol}\t\t\t{entry}{eol}\t\t</ChildObjects>'
+                    new_content = config_content[:empty.start()] + replacement + config_content[empty.end():]
+                    write_utf8_bom(config_xml_path, new_content)
+                    reg_result = 'added'
+            else:
+                close_same = f'</{child_tag}>'
+                last_same = config_content.rfind(close_same, block.start(), block.end())
+                if last_same != -1:
+                    # After the last element of the same type (keeps them grouped).
+                    insert_at = last_same + len(close_same)
+                    new_content = (config_content[:insert_at]
+                                   + f'{eol}\t\t\t{entry}'
+                                   + config_content[insert_at:])
+                else:
+                    # No element of this type yet: new line before </ChildObjects>,
+                    # reusing the block's existing closing indent for </ChildObjects>.
+                    close_at = config_content.rfind('</ChildObjects>', block.start(), block.end())
+                    new_content = (config_content[:close_at]
+                                   + f'\t{entry}{eol}\t\t'
+                                   + config_content[close_at:])
+                write_utf8_bom(config_xml_path, new_content)
+                reg_result = 'added'
 else:
     reg_result = 'no-config'
 
