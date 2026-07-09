@@ -1,0 +1,22 @@
+{
+  "name": "Отчёт — полный набор возможностей",
+  "input": {
+    "type": "Report",
+    "name": "АнализПродаж",
+    "comment": "(Демо)",
+    "useStandardCommands": false,
+    "mainDataCompositionSchema": "Report.АнализПродаж.Template.ОсновнаяСхемаКомпоновкиДанных",
+    "variantsStorage": "SettingsStorage.ХранилищеВариантовОтчетов",
+    "defaultForm": "Report.АнализПродаж.Form.Форма",
+    "extendedPresentation": { "ru": "Анализ продаж", "en": "Sales analysis" },
+    "attributes": [
+      "Период: StandardPeriod",
+      { "name": "Данные", "type": "" },
+      { "name": "Набор", "type": "ConstantsSet" }
+    ]
+  },
+  "validatePath": "Reports/АнализПродаж",
+  "expect": {
+    "files": ["Reports/АнализПродаж.xml"]
+  }
+}

@@ -1,4 +1,4 @@
-﻿# meta-decompile v0.42 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
+﻿# meta-decompile v0.43 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 #
 # Поддержаны: Catalog, ExchangePlan, ChartOfCharacteristicTypes, ChartOfAccounts, ChartOfCalculationTypes, Document,
@@ -92,8 +92,8 @@ foreach ($c in $rootEl.ChildNodes) { if ($c.NodeType -eq 'Element') { $objNode =
 if (-not $objNode) { [Console]::Error.WriteLine("meta-decompile: пустой MetaDataObject"); exit 3 }
 $objType = $objNode.LocalName
 
-if ($objType -notin @('Catalog', 'ExchangePlan', 'ChartOfCharacteristicTypes', 'ChartOfAccounts', 'ChartOfCalculationTypes', 'Document', 'InformationRegister', 'AccumulationRegister', 'AccountingRegister', 'CalculationRegister', 'BusinessProcess', 'Task', 'Enum')) {
-	[Console]::Error.WriteLine("meta-decompile: тип '$objType' пока не поддержан (Catalog, ExchangePlan, ChartOfCharacteristicTypes, ChartOfAccounts, ChartOfCalculationTypes, Document, InformationRegister, AccumulationRegister, AccountingRegister, CalculationRegister, BusinessProcess, Task, Enum)"); exit 3
+if ($objType -notin @('Catalog', 'ExchangePlan', 'ChartOfCharacteristicTypes', 'ChartOfAccounts', 'ChartOfCalculationTypes', 'Document', 'InformationRegister', 'AccumulationRegister', 'AccountingRegister', 'CalculationRegister', 'BusinessProcess', 'Task', 'Enum', 'Report', 'DataProcessor')) {
+	[Console]::Error.WriteLine("meta-decompile: тип '$objType' пока не поддержан (Catalog, ExchangePlan, ChartOfCharacteristicTypes, ChartOfAccounts, ChartOfCalculationTypes, Document, InformationRegister, AccumulationRegister, AccountingRegister, CalculationRegister, BusinessProcess, Task, Enum, Report, DataProcessor)"); exit 3
 }
 
 $props = $objNode.SelectSingleNode('md:Properties', $nsm)
@@ -370,9 +370,12 @@ function Attr-ToDsl {
 	$cplArr = Parse-ChoiceParameterLinks $ap 'md:ChoiceParameterLinks'; if ($null -ne $cplArr) { $extra['choiceParameterLinks'] = $cplArr }
 	$cpArr = Parse-ChoiceParameters $ap 'md:ChoiceParameters'; if ($null -ne $cpArr) { $extra['choiceParameters'] = $cpArr }
 
-	if ($synCustom -or $synEmpty -or ($null -ne $ttVal) -or $extra.Count -gt 0) {
+	# Пустой <Type/> (реквизит без типа / произвольный) → $ts=''. Отличаем от «дефолтного» отсутствия:
+	# заставляем объектную форму с явным type:'' (компилятор без маркера подставил бы xs:string).
+	$typeEmpty = ($ts -eq '')
+	if ($synCustom -or $synEmpty -or ($null -ne $ttVal) -or $extra.Count -gt 0 -or $typeEmpty) {
 		$o = [ordered]@{ name = $nm }
-		if ($ts) { $o['type'] = $ts }
+		if ($ts) { $o['type'] = $ts } elseif ($typeEmpty) { $o['type'] = '' }
 		if ($synCustom) { $o['synonym'] = $synVal }
 		elseif ($synEmpty) { $o['synonym'] = '' }
 		if ($null -ne $ttVal) { $o['tooltip'] = $ttVal }
@@ -434,7 +437,7 @@ Add-BoolProp 'quickChoice'       'QuickChoice'       $(if ($objType -eq 'Enum') 
 Add-EnumProp 'choiceMode'        'ChoiceMode'        'BothWays'
 Add-EnumProp 'dataLockControlMode' 'DataLockControlMode' $dataLockDef
 Add-EnumProp 'fullTextSearch'    'FullTextSearch'    'Use'
-Add-BoolProp 'useStandardCommands' 'UseStandardCommands' $(if ($objType -eq 'Enum') { $false } else { $true })
+Add-BoolProp 'useStandardCommands' 'UseStandardCommands' $(if ($objType -eq 'Enum') { $false } else { $true })   # Enum дефолт false (корпус); прочие (вкл. Report/DataProcessor) — true: авторски-безопасно (доступность через интерфейс), false фиксируем явно
 Add-EnumProp 'createOnInput'     'CreateOnInput'     $createInpDef
 Add-EnumProp 'editType'          'EditType'          'InDialog'
 Add-BoolProp 'includeHelpInContents' 'IncludeHelpInContents' $false
@@ -572,6 +575,24 @@ if ($objType -eq 'Task') {
 	$maa = P 'MainAddressingAttribute'; if ($maa) { $dsl['mainAddressingAttribute'] = $maa }
 	$cp = P 'CurrentPerformer'; if ($cp) { $dsl['currentPerformer'] = $cp }
 	Add-EnumProp 'defaultPresentation' 'DefaultPresentation' 'AsDescription'
+}
+# Report-специфичные свойства: формы (плоские ref, не *ObjectForm), схема компоновки, хранилища вариантов/настроек.
+if ($objType -eq 'Report') {
+	$dfm = P 'DefaultForm'; if ($dfm) { $dsl['defaultForm'] = $dfm }
+	$afm = P 'AuxiliaryForm'; if ($afm) { $dsl['auxiliaryForm'] = $afm }
+	$mdcs = P 'MainDataCompositionSchema'; if ($mdcs) { $dsl['mainDataCompositionSchema'] = $mdcs }
+	$dsf = P 'DefaultSettingsForm'; if ($dsf) { $dsl['defaultSettingsForm'] = $dsf }
+	$asf = P 'AuxiliarySettingsForm'; if ($asf) { $dsl['auxiliarySettingsForm'] = $asf }
+	$dvf = P 'DefaultVariantForm'; if ($dvf) { $dsl['defaultVariantForm'] = $dvf }
+	$vs = P 'VariantsStorage'; if ($vs) { $dsl['variantsStorage'] = $vs }
+	$ss = P 'SettingsStorage'; if ($ss) { $dsl['settingsStorage'] = $ss }
+	$ep = Get-MLValue ($props.SelectSingleNode('md:ExtendedPresentation', $nsm)); if ($null -ne $ep) { $dsl['extendedPresentation'] = $ep }
+}
+# DataProcessor-специфичные свойства: формы (плоские ref).
+if ($objType -eq 'DataProcessor') {
+	$dfm = P 'DefaultForm'; if ($dfm) { $dsl['defaultForm'] = $dfm }
+	$afm = P 'AuxiliaryForm'; if ($afm) { $dsl['auxiliaryForm'] = $afm }
+	$ep = Get-MLValue ($props.SelectSingleNode('md:ExtendedPresentation', $nsm)); if ($null -ne $ep) { $dsl['extendedPresentation'] = $ep }
 }
 
 # Короткая форма поля: <Type>.<Name>.StandardAttribute.X / .Attribute.X → StandardAttribute.X / Attribute.X

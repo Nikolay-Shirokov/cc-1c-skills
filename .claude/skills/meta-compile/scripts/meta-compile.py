@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-compile v1.51 — Compile 1C metadata object from JSON
+# meta-compile v1.52 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -437,6 +437,14 @@ def emit_form_ref(i, tag, val):
     else:
         X(f'{i}<{tag}/>')
 
+def emit_verbatim_ref(i, tag, val):
+    """Ссылка verbatim (без normalize_form_ref): формы/схемы/хранилища Report/DataProcessor, где имя формы
+    может быть буквально «Форма» (normalize перевёл бы имя-сегмент Форма→Form) либо ref не-форменного вида."""
+    if val:
+        X(f'{i}<{tag}>{esc_xml(str(val))}</{tag}>')
+    else:
+        X(f'{i}<{tag}/>')
+
 if not defn.get('type'):
     print("JSON must have 'type' field", file=sys.stderr)
     sys.exit(1)
@@ -510,7 +518,28 @@ type_synonyms = {
     'catalogref': 'CatalogRef',
     'documentref': 'DocumentRef',
     'enumref': 'EnumRef',
+    # Платформенные коллекции (прощающий ввод рус. форм).
+    'таблицазначений': 'ValueTable',
+    'деревозначений': 'ValueTree',
+    'списокзначений': 'ValueListType',
+    'стандартныйпериод': 'StandardPeriod',
 }
+
+# Платформенные типы, требующие префикса v8: (коллекции/периоды, частые в реквизитах обработок/отчётов).
+v8_platform_types = {"ValueTable", "ValueTree", "ValueList", "ValueListType", "StandardPeriod",
+    "StandardBeginningDate", "PointInTime", "TypeDescription", "FixedArray", "FixedMap", "FixedStructure"}
+# Типы со ВЫДЕЛЕННЫМ пространством имён (локальный xmlns на <v8:Type>). prefix — канон корпуса.
+type_namespace_map = {
+    "Chart":               {"ns": "http://v8.1c.ru/8.2/data/chart",                       "prefix": "d5p1"},
+    "SettingsComposer":    {"ns": "http://v8.1c.ru/8.1/data-composition-system/settings",  "prefix": "dcsset"},
+    "SpreadsheetDocument": {"ns": "http://v8.1c.ru/8.2/data/spreadsheet",                  "prefix": "mxl"},
+}
+# Типы current-config пространства (cfg:, объявлено в корне): голые и объектные. Ссылочные — отдельно (d5p1).
+cfg_bare_types = {"ConstantsSet", "ReportBuilder", "FilterCriterion"}
+cfg_object_kinds = {"Catalog", "Document", "Enum", "ChartOfAccounts", "ChartOfCharacteristicTypes",
+    "ChartOfCalculationTypes", "ExchangePlan", "BusinessProcess", "Task", "InformationRegister",
+    "AccumulationRegister", "AccountingRegister", "CalculationRegister", "DataProcessor", "Report",
+    "DocumentJournal", "Constant"}
 
 def resolve_type_str(type_str):
     if not type_str:
@@ -610,6 +639,23 @@ def emit_type_content(indent, type_str):
     # UUID (УникальныйИдентификатор)
     if type_str == 'UUID':
         X(f'{indent}<v8:Type>v8:UUID</v8:Type>')
+        return
+    # Платформенные типы-коллекции/периоды (ТаблицаЗначений/ДеревоЗначений/…) — канон с префиксом v8:.
+    if type_str in v8_platform_types:
+        X(f'{indent}<v8:Type>v8:{type_str}</v8:Type>')
+        return
+    # Типы с выделенным пространством имён (Chart/SettingsComposer/SpreadsheetDocument) — локальный xmlns.
+    if type_str in type_namespace_map:
+        m2 = type_namespace_map[type_str]
+        X(f'{indent}<v8:Type xmlns:{m2["prefix"]}="{m2["ns"]}">{m2["prefix"]}:{type_str}</v8:Type>')
+        return
+    # Типы current-config (cfg:): голые (ConstantsSet/…) и объектные (CatalogObject.X/DataProcessorObject.X/…).
+    if type_str in cfg_bare_types:
+        X(f'{indent}<v8:Type>cfg:{type_str}</v8:Type>')
+        return
+    m3 = re.match(r'^(\w+)(Object|List|Manager|Selection|RecordSet|RecordKey|RecordManager)\.(.+)$', type_str)
+    if m3 and m3.group(1) in cfg_object_kinds:
+        X(f'{indent}<v8:Type>cfg:{type_str}</v8:Type>')
         return
 
     # Reference types — use local xmlns declaration for 1C compatibility
@@ -755,9 +801,10 @@ def format_fill_num(n):
         return 'true' if n else 'false'
     return str(n)
 
-def emit_fill_value(indent, type_str, spec, has_spec):
-    """spec — значение ключа fillValue (None при явном nil-override), has_spec — присутствует ли ключ."""
-    cat = get_fill_type_category(type_str)
+def emit_fill_value(indent, type_str, spec, has_spec, type_empty=False):
+    """spec — значение ключа fillValue (None при явном nil-override), has_spec — присутствует ли ключ.
+    type_empty — реквизит с пустым <Type/>: форма пустого значения nil, НЕ xs:string."""
+    cat = 'Other' if type_empty else get_fill_type_category(type_str)
     if not has_spec:
         if cat == 'String':
             X(f'{indent}<FillValue xsi:type="xs:string"/>')
@@ -804,6 +851,7 @@ def parse_attribute_shorthand(val):
         parsed = {
             'name': '',
             'type': '',
+            'typeEmpty': False,
             'synonym': '',
             'comment': '',
             'flags': [],
@@ -839,6 +887,8 @@ def parse_attribute_shorthand(val):
     return {
         'name': name,
         'type': build_type_str(val),
+        # Явный `type: ""` (ключ есть, значение пустое) ≠ отсутствие: пустой <Type/> (реквизит без типа).
+        'typeEmpty': ('type' in val and str(val.get('type') or '').strip() == '' and not val.get('valueType')),
         'synonym': val['synonym'] if val.get('synonym') is not None else split_camel_case(name),
         'tooltip': val.get('tooltip'),
         'comment': str(val['comment']) if val.get('comment') else '',
@@ -1338,6 +1388,8 @@ def expand_data_path(dp):
     s = str(dp)
     if re.search(r'[:/]', s):
         return s   # спец-путь (напр. 0:GUID/0:GUID в зависимостях ПВХ) — не разворачиваем
+    if re.match(r'^-?\d+$', s):
+        return s   # голый (отрицательный) индекс-маркер (напр. -8 в ChoiceParameterLinks) — verbatim
     if re.match(r'^(StandardAttribute|Attribute)\.', s):
         return f'{obj_type}.{obj_name}.{s}'
     if '.' not in s:
@@ -1679,7 +1731,10 @@ def emit_attribute(indent, parsed, context, elem_tag='Attribute'):
     else:
         X(f'{indent}\t\t<Comment/>')
     type_str = parsed['type']
-    if type_str:
+    if parsed.get('typeEmpty'):
+        # Явный пустой тип (реквизит без типа / произвольный) → <Type/>.
+        X(f'{indent}\t\t<Type/>')
+    elif type_str:
         emit_value_type(f'{indent}\t\t', type_str)
     elif context == 'account-flag':
         X(f'{indent}\t\t<Type>')
@@ -1711,7 +1766,7 @@ def emit_attribute(indent, parsed, context, elem_tag='Attribute'):
         ffv = 'true' if (parsed.get('fillFromFillingValue') is True or (elem_tag == 'Dimension' and 'master' in parsed.get('flags', []))) else 'false'
         X(f'{indent}\t\t<FillFromFillingValue>{ffv}</FillFromFillingValue>')
     if context not in ('tabular', 'processor', 'chart', 'register-other', 'register-accum', 'register-calc', 'register-account'):
-        emit_fill_value(f'{indent}\t\t', type_str, parsed.get('fillValue'), parsed.get('hasFillValue'))
+        emit_fill_value(f'{indent}\t\t', type_str, parsed.get('fillValue'), parsed.get('hasFillValue'), bool(parsed.get('typeEmpty')))
     fill_checking = 'DontCheck'
     if 'req' in parsed.get('flags', []):
         fill_checking = 'ShowError'
@@ -2506,63 +2561,43 @@ def emit_report_properties(indent):
     i = indent
     X(f'{i}<Name>{esc_xml(obj_name)}</Name>')
     emit_mltext(i, 'Synonym', synonym)
-    X(f'{i}<Comment/>')
-    X(f'{i}<UseStandardCommands>true</UseStandardCommands>')
-    default_form = str(defn['defaultForm']) if defn.get('defaultForm') else ''
-    if default_form:
-        X(f'{i}<DefaultForm>{default_form}</DefaultForm>')
+    if defn.get('comment'):
+        X(f'{i}<Comment>{esc_xml_text(defn["comment"])}</Comment>')
     else:
-        X(f'{i}<DefaultForm/>')
-    aux_form = str(defn['auxiliaryForm']) if defn.get('auxiliaryForm') else ''
-    if aux_form:
-        X(f'{i}<AuxiliaryForm>{aux_form}</AuxiliaryForm>')
-    else:
-        X(f'{i}<AuxiliaryForm/>')
-    main_dcs = str(defn['mainDataCompositionSchema']) if defn.get('mainDataCompositionSchema') else ''
-    if main_dcs:
-        X(f'{i}<MainDataCompositionSchema>{main_dcs}</MainDataCompositionSchema>')
-    else:
-        X(f'{i}<MainDataCompositionSchema/>')
-    def_settings = str(defn['defaultSettingsForm']) if defn.get('defaultSettingsForm') else ''
-    if def_settings:
-        X(f'{i}<DefaultSettingsForm>{def_settings}</DefaultSettingsForm>')
-    else:
-        X(f'{i}<DefaultSettingsForm/>')
-    aux_settings = str(defn['auxiliarySettingsForm']) if defn.get('auxiliarySettingsForm') else ''
-    if aux_settings:
-        X(f'{i}<AuxiliarySettingsForm>{aux_settings}</AuxiliarySettingsForm>')
-    else:
-        X(f'{i}<AuxiliarySettingsForm/>')
-    def_variant = str(defn['defaultVariantForm']) if defn.get('defaultVariantForm') else ''
-    if def_variant:
-        X(f'{i}<DefaultVariantForm>{def_variant}</DefaultVariantForm>')
-    else:
-        X(f'{i}<DefaultVariantForm/>')
-    X(f'{i}<VariantsStorage/>')
-    X(f'{i}<SettingsStorage/>')
-    X(f'{i}<IncludeHelpInContents>false</IncludeHelpInContents>')
-    X(f'{i}<ExtendedPresentation/>')
-    X(f'{i}<Explanation/>')
+        X(f'{i}<Comment/>')
+    # UseStandardCommands: дефолт true (авторски-безопасно — доступность через стандартный командный интерфейс;
+    # при false и без переопределения размещения команд объект доступен лишь по навигационной ссылке).
+    use_std_cmds = 'true' if get_bool_prop('useStandardCommands', True) else 'false'
+    X(f'{i}<UseStandardCommands>{use_std_cmds}</UseStandardCommands>')
+    emit_verbatim_ref(i, 'DefaultForm', defn.get('defaultForm'))
+    emit_verbatim_ref(i, 'AuxiliaryForm', defn.get('auxiliaryForm'))
+    emit_verbatim_ref(i, 'MainDataCompositionSchema', defn.get('mainDataCompositionSchema'))
+    emit_verbatim_ref(i, 'DefaultSettingsForm', defn.get('defaultSettingsForm'))
+    emit_verbatim_ref(i, 'AuxiliarySettingsForm', defn.get('auxiliarySettingsForm'))
+    emit_verbatim_ref(i, 'DefaultVariantForm', defn.get('defaultVariantForm'))
+    emit_verbatim_ref(i, 'VariantsStorage', defn.get('variantsStorage'))
+    emit_verbatim_ref(i, 'SettingsStorage', defn.get('settingsStorage'))
+    incl_help = 'true' if get_bool_prop('includeHelpInContents', False) else 'false'
+    X(f'{i}<IncludeHelpInContents>{incl_help}</IncludeHelpInContents>')
+    emit_mltext(i, 'ExtendedPresentation', defn.get('extendedPresentation'))
+    emit_mltext(i, 'Explanation', defn.get('explanation'))
 
 def emit_data_processor_properties(indent):
     i = indent
     X(f'{i}<Name>{esc_xml(obj_name)}</Name>')
     emit_mltext(i, 'Synonym', synonym)
-    X(f'{i}<Comment/>')
-    X(f'{i}<UseStandardCommands>false</UseStandardCommands>')
-    default_form = str(defn['defaultForm']) if defn.get('defaultForm') else ''
-    if default_form:
-        X(f'{i}<DefaultForm>{default_form}</DefaultForm>')
+    if defn.get('comment'):
+        X(f'{i}<Comment>{esc_xml_text(defn["comment"])}</Comment>')
     else:
-        X(f'{i}<DefaultForm/>')
-    aux_form = str(defn['auxiliaryForm']) if defn.get('auxiliaryForm') else ''
-    if aux_form:
-        X(f'{i}<AuxiliaryForm>{aux_form}</AuxiliaryForm>')
-    else:
-        X(f'{i}<AuxiliaryForm/>')
-    X(f'{i}<IncludeHelpInContents>false</IncludeHelpInContents>')
-    X(f'{i}<ExtendedPresentation/>')
-    X(f'{i}<Explanation/>')
+        X(f'{i}<Comment/>')
+    use_std_cmds = 'true' if get_bool_prop('useStandardCommands', True) else 'false'
+    X(f'{i}<UseStandardCommands>{use_std_cmds}</UseStandardCommands>')
+    emit_verbatim_ref(i, 'DefaultForm', defn.get('defaultForm'))
+    emit_verbatim_ref(i, 'AuxiliaryForm', defn.get('auxiliaryForm'))
+    incl_help = 'true' if get_bool_prop('includeHelpInContents', False) else 'false'
+    X(f'{i}<IncludeHelpInContents>{incl_help}</IncludeHelpInContents>')
+    emit_mltext(i, 'ExtendedPresentation', defn.get('extendedPresentation'))
+    emit_mltext(i, 'Explanation', defn.get('explanation'))
 
 # --- 13c. ExchangePlan, ChartOfCharacteristicTypes, DocumentJournal ---
 

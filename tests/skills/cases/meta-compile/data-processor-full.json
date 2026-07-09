@@ -1,0 +1,21 @@
+{
+  "name": "Обработка — полный набор возможностей",
+  "input": {
+    "type": "DataProcessor",
+    "name": "ЗагрузкаТаблиц",
+    "comment": "(Демо)",
+    "useStandardCommands": false,
+    "defaultForm": "DataProcessor.ЗагрузкаТаблиц.Form.Форма",
+    "attributes": [
+      { "name": "Таблица", "type": "ValueTree" },
+      { "name": "Произвольные", "type": "" }
+    ],
+    "tabularSections": {
+      "Строки": ["Наименование: String(100)", { "name": "Значение", "type": "" }]
+    }
+  },
+  "validatePath": "DataProcessors/ЗагрузкаТаблиц",
+  "expect": {
+    "files": ["DataProcessors/ЗагрузкаТаблиц.xml"]
+  }
+}

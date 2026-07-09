@@ -1,4 +1,4 @@
-﻿# meta-compile v1.51 — Compile 1C metadata object from JSON
+﻿# meta-compile v1.52 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -323,6 +323,14 @@ function Emit-FormRef {
 	if ($val) { X "$i<$tag>$(Esc-Xml (Normalize-FormRef "$val"))</$tag>" } else { X "$i<$tag/>" }
 }
 
+# Ссылка verbatim (без Normalize-FormRef): для форм/схем/хранилищ Report/DataProcessor, где имя формы может быть
+# буквально «Форма» (Normalize-FormRef перевёл бы имя-сегмент Форма→Form, испортив ссылку) либо ref не-форменного
+# вида (SettingsStorage.X / Report.X.Template.Y). Декомпилятор пишет полный путь → passthrough.
+function Emit-VerbatimRef {
+	param([string]$i, [string]$tag, $val)
+	if ($val) { X "$i<$tag>$(Esc-Xml "$val")</$tag>" } else { X "$i<$tag/>" }
+}
+
 if (-not $def.type) {
 	Write-Error "JSON must have 'type' field"
 	exit 1
@@ -443,6 +451,26 @@ $script:typeSynonyms["хранилищезначений"]    = "ValueStorage"
 $script:typeSynonyms["хранилищезначения"]    = "ValueStorage"
 $script:typeSynonyms["uuid"]                 = "UUID"
 $script:typeSynonyms["уникальныйидентификатор"] = "UUID"
+# Платформенные типы, требующие префикса v8: (коллекции/периоды, частые в реквизитах обработок/отчётов).
+$script:v8PlatformTypes = @("ValueTable","ValueTree","ValueList","ValueListType","StandardPeriod",
+	"StandardBeginningDate","PointInTime","TypeDescription","FixedArray","FixedMap","FixedStructure")
+# Типы со ВЫДЕЛЕННЫМ пространством имён (локальный xmlns на <v8:Type>). prefix — канон корпуса
+# (dcsset/mxl — семантические из корневых деклараций 1С; chart — генерируемый dNpM, любой подойдёт).
+$script:typeNamespaceMap = @{
+	"Chart"               = @{ ns = "http://v8.1c.ru/8.2/data/chart";                      prefix = "d5p1" }
+	"SettingsComposer"    = @{ ns = "http://v8.1c.ru/8.1/data-composition-system/settings"; prefix = "dcsset" }
+	"SpreadsheetDocument" = @{ ns = "http://v8.1c.ru/8.2/data/spreadsheet";                 prefix = "mxl" }
+}
+# Типы current-config пространства (cfg:, объявлено в корне): объектные (CatalogObject.X/DataProcessorObject.X/…)
+# и голые (ConstantsSet/ReportBuilder). Ссылочные (*Ref.X/DefinedType.X) идут ОТДЕЛЬНО через локальный d5p1 (§memory).
+$script:cfgBareTypes = @("ConstantsSet", "ReportBuilder", "FilterCriterion")
+$script:cfgObjectKinds = @("Catalog","Document","Enum","ChartOfAccounts","ChartOfCharacteristicTypes",
+	"ChartOfCalculationTypes","ExchangePlan","BusinessProcess","Task","InformationRegister","AccumulationRegister",
+	"AccountingRegister","CalculationRegister","DataProcessor","Report","DocumentJournal","Constant")
+$script:typeSynonyms["таблицазначений"]      = "ValueTable"
+$script:typeSynonyms["деревозначений"]       = "ValueTree"
+$script:typeSynonyms["списокзначений"]       = "ValueListType"
+$script:typeSynonyms["стандартныйпериод"]    = "StandardPeriod"
 # Reference synonyms (Russian, lowercase)
 $script:typeSynonyms["справочникссылка"]             = "CatalogRef"
 $script:typeSynonyms["документссылка"]               = "DocumentRef"
@@ -578,6 +606,27 @@ function Emit-TypeContent {
 	# UUID (УникальныйИдентификатор)
 	if ($typeStr -eq "UUID") {
 		X "$indent<v8:Type>v8:UUID</v8:Type>"
+		return
+	}
+	# Платформенные типы-коллекции/периоды (ТаблицаЗначений/ДеревоЗначений/СписокЗначений/StandardPeriod/…) —
+	# канон с префиксом v8: (декомпилятор снимает префикс через Strip-NsPrefix, компилятор возвращает).
+	if ($script:v8PlatformTypes -contains $typeStr) {
+		X "$indent<v8:Type>v8:$typeStr</v8:Type>"
+		return
+	}
+	# Типы с выделенным пространством имён (Chart/SettingsComposer/SpreadsheetDocument) — локальный xmlns.
+	if ($script:typeNamespaceMap.ContainsKey($typeStr)) {
+		$m = $script:typeNamespaceMap[$typeStr]
+		X "$indent<v8:Type xmlns:$($m.prefix)=`"$($m.ns)`">$($m.prefix):$typeStr</v8:Type>"
+		return
+	}
+	# Типы current-config (cfg:): голые (ConstantsSet/…) и объектные (CatalogObject.X/DataProcessorObject.X/…).
+	if ($script:cfgBareTypes -contains $typeStr) {
+		X "$indent<v8:Type>cfg:$typeStr</v8:Type>"
+		return
+	}
+	if ($typeStr -match '^(\w+)(Object|List|Manager|Selection|RecordSet|RecordKey|RecordManager)\.(.+)$' -and $script:cfgObjectKinds -contains $Matches[1]) {
+		X "$indent<v8:Type>cfg:$typeStr</v8:Type>"
 		return
 	}
 
@@ -725,8 +774,10 @@ function Format-FillNum {
 
 # $spec — значение ключа `fillValue` ($null при явном nil-override), $hasSpec — присутствует ли ключ.
 function Emit-FillValue {
-	param([string]$indent, [string]$typeStr, $spec, $hasSpec)
-	$cat = Get-FillTypeCategory $typeStr
+	param([string]$indent, [string]$typeStr, $spec, $hasSpec, [bool]$typeEmpty = $false)
+	# Пустой <Type/> (реквизит без типа) → форма пустого значения nil (как составной/ссылочный), НЕ xs:string:
+	# у бестипового реквизита нет типизированного «пустого» значения.
+	$cat = if ($typeEmpty) { 'Other' } else { Get-FillTypeCategory $typeStr }
 
 	if ($hasSpec -ne $true) {
 		# Значение не задано — форма по умолчанию для типа.
@@ -775,6 +826,7 @@ function Parse-AttributeShorthand {
 		$parsed = @{
 			name = ""
 			type = ""
+			typeEmpty = $false
 			synonym = ""
 			comment = ""
 			flags = @()
@@ -811,6 +863,9 @@ function Parse-AttributeShorthand {
 	return @{
 		name    = $name
 		type    = Build-TypeStr $val
+		# Явный `type: ""` (ключ присутствует, значение пустое) ≠ отсутствие типа: означает пустой <Type/>
+		# (реквизит без типа / произвольный). Отличаем present-"" от absent через $null-проверку (PSCustomObject).
+		typeEmpty = ($null -ne $val.type -and "$($val.type)".Trim() -eq '' -and -not $val.valueType)
 		synonym = if ($null -ne $val.synonym) { $val.synonym } else { Split-CamelCase $name }
 		tooltip = $val.tooltip
 		comment = if ($val.comment) { "$($val.comment)" } else { "" }
@@ -1259,6 +1314,7 @@ function Expand-DataPath {
 	if (-not $dp) { return $dp }
 	$s = "$dp"
 	if ($s -match '[:/]') { return $s }   # спец-путь (напр. 0:GUID/0:GUID в зависимостях ПВХ) — не разворачиваем
+	if ($s -match '^-?\d+$') { return $s }  # голый (отрицательный) индекс-маркер (напр. -8 в ChoiceParameterLinks) — verbatim, не имя реквизита
 	if ($s -match '^(StandardAttribute|Attribute)\.') { return "$objType.$objName.$s" }
 	if (-not $s.Contains('.')) {
 		$en = Resolve-StdAttrEn $s
@@ -1598,7 +1654,10 @@ function Emit-Attribute {
 
 	# Type
 	$typeStr = $parsed.type
-	if ($typeStr) {
+	if ($parsed.typeEmpty) {
+		# Явный пустой тип (реквизит без типа / произвольный) → <Type/>.
+		X "$indent`t`t<Type/>"
+	} elseif ($typeStr) {
 		Emit-ValueType "$indent`t`t" $typeStr
 	} elseif ($context -eq "account-flag") {
 		# Признак учёта — по умолчанию Boolean.
@@ -1637,7 +1696,7 @@ function Emit-Attribute {
 
 	# FillValue — same restriction
 	if ($context -notin @("tabular", "processor", "chart", "register-other", "register-accum", "register-calc", "register-account")) {
-		Emit-FillValue "$indent`t`t" $typeStr $parsed.fillValue $parsed.hasFillValue
+		Emit-FillValue "$indent`t`t" $typeStr $parsed.fillValue $parsed.hasFillValue ([bool]$parsed.typeEmpty)
 	}
 
 	# FillChecking
@@ -2552,32 +2611,24 @@ function Emit-ReportProperties {
 
 	X "$i<Name>$(Esc-Xml $objName)</Name>"
 	Emit-MLText $i "Synonym" $synonym
-	X "$i<Comment/>"
-	X "$i<UseStandardCommands>true</UseStandardCommands>"
+	if ($def.comment) { X "$i<Comment>$(Esc-XmlText $def.comment)</Comment>" } else { X "$i<Comment/>" }
+	# UseStandardCommands: дефолт true (авторски-безопасно — доступность объекта через стандартный командный
+	# интерфейс; при false и без переопределения размещения команд объект доступен лишь по навигационной ссылке).
+	$useStdCmds = if (Get-BoolProp "useStandardCommands" $true) { "true" } else { "false" }
+	X "$i<UseStandardCommands>$useStdCmds</UseStandardCommands>"
 
-	$defaultForm = if ($def.defaultForm) { "$($def.defaultForm)" } else { "" }
-	if ($defaultForm) { X "$i<DefaultForm>$defaultForm</DefaultForm>" } else { X "$i<DefaultForm/>" }
-
-	$auxForm = if ($def.auxiliaryForm) { "$($def.auxiliaryForm)" } else { "" }
-	if ($auxForm) { X "$i<AuxiliaryForm>$auxForm</AuxiliaryForm>" } else { X "$i<AuxiliaryForm/>" }
-
-	$mainDCS = if ($def.mainDataCompositionSchema) { "$($def.mainDataCompositionSchema)" } else { "" }
-	if ($mainDCS) { X "$i<MainDataCompositionSchema>$mainDCS</MainDataCompositionSchema>" } else { X "$i<MainDataCompositionSchema/>" }
-
-	$defSettings = if ($def.defaultSettingsForm) { "$($def.defaultSettingsForm)" } else { "" }
-	if ($defSettings) { X "$i<DefaultSettingsForm>$defSettings</DefaultSettingsForm>" } else { X "$i<DefaultSettingsForm/>" }
-
-	$auxSettings = if ($def.auxiliarySettingsForm) { "$($def.auxiliarySettingsForm)" } else { "" }
-	if ($auxSettings) { X "$i<AuxiliarySettingsForm>$auxSettings</AuxiliarySettingsForm>" } else { X "$i<AuxiliarySettingsForm/>" }
-
-	$defVariant = if ($def.defaultVariantForm) { "$($def.defaultVariantForm)" } else { "" }
-	if ($defVariant) { X "$i<DefaultVariantForm>$defVariant</DefaultVariantForm>" } else { X "$i<DefaultVariantForm/>" }
-
-	X "$i<VariantsStorage/>"
-	X "$i<SettingsStorage/>"
-	X "$i<IncludeHelpInContents>false</IncludeHelpInContents>"
-	X "$i<ExtendedPresentation/>"
-	X "$i<Explanation/>"
+	Emit-VerbatimRef $i "DefaultForm"              $def.defaultForm
+	Emit-VerbatimRef $i "AuxiliaryForm"            $def.auxiliaryForm
+	Emit-VerbatimRef $i "MainDataCompositionSchema" $def.mainDataCompositionSchema
+	Emit-VerbatimRef $i "DefaultSettingsForm"      $def.defaultSettingsForm
+	Emit-VerbatimRef $i "AuxiliarySettingsForm"    $def.auxiliarySettingsForm
+	Emit-VerbatimRef $i "DefaultVariantForm"       $def.defaultVariantForm
+	Emit-VerbatimRef $i "VariantsStorage"          $def.variantsStorage
+	Emit-VerbatimRef $i "SettingsStorage"          $def.settingsStorage
+	$inclHelp = if (Get-BoolProp "includeHelpInContents" $false) { "true" } else { "false" }
+	X "$i<IncludeHelpInContents>$inclHelp</IncludeHelpInContents>"
+	Emit-MLText $i "ExtendedPresentation" $def.extendedPresentation
+	Emit-MLText $i "Explanation" $def.explanation
 }
 
 function Emit-DataProcessorProperties {
@@ -2586,18 +2637,16 @@ function Emit-DataProcessorProperties {
 
 	X "$i<Name>$(Esc-Xml $objName)</Name>"
 	Emit-MLText $i "Synonym" $synonym
-	X "$i<Comment/>"
-	X "$i<UseStandardCommands>false</UseStandardCommands>"
+	if ($def.comment) { X "$i<Comment>$(Esc-XmlText $def.comment)</Comment>" } else { X "$i<Comment/>" }
+	$useStdCmds = if (Get-BoolProp "useStandardCommands" $true) { "true" } else { "false" }
+	X "$i<UseStandardCommands>$useStdCmds</UseStandardCommands>"
 
-	$defaultForm = if ($def.defaultForm) { "$($def.defaultForm)" } else { "" }
-	if ($defaultForm) { X "$i<DefaultForm>$defaultForm</DefaultForm>" } else { X "$i<DefaultForm/>" }
-
-	$auxForm = if ($def.auxiliaryForm) { "$($def.auxiliaryForm)" } else { "" }
-	if ($auxForm) { X "$i<AuxiliaryForm>$auxForm</AuxiliaryForm>" } else { X "$i<AuxiliaryForm/>" }
-
-	X "$i<IncludeHelpInContents>false</IncludeHelpInContents>"
-	X "$i<ExtendedPresentation/>"
-	X "$i<Explanation/>"
+	Emit-VerbatimRef $i "DefaultForm"   $def.defaultForm
+	Emit-VerbatimRef $i "AuxiliaryForm" $def.auxiliaryForm
+	$inclHelp = if (Get-BoolProp "includeHelpInContents" $false) { "true" } else { "false" }
+	X "$i<IncludeHelpInContents>$inclHelp</IncludeHelpInContents>"
+	Emit-MLText $i "ExtendedPresentation" $def.extendedPresentation
+	Emit-MLText $i "Explanation" $def.explanation
 }
 
 # --- 13c. Wave 3: ExchangePlan, ChartOfCharacteristicTypes, DocumentJournal ---

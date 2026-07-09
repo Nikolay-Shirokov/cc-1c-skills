@@ -1004,39 +1004,58 @@ true); `characteristics` (§7.1.4); `basedOn`/`inputByString`/`dataLockFields` (
 { "type": "EventSubscription", "name": "ПередЗаписьюКонтрагента", "source": ["CatalogObject.Контрагенты"], "event": "BeforeWrite", "handler": "ОбщегоНазначенияСервер.ПередЗаписьюКонтрагента" }
 ```
 
-### 7.11 Report
+### 7.11 Report (Отчёт)
 
 | Поле JSON | Умолчание | XML элемент |
 |-----------|----------|-------------|
-| `defaultForm` | `""` | DefaultForm |
-| `auxiliaryForm` | `""` | AuxiliaryForm |
-| `mainDataCompositionSchema` | `""` | MainDataCompositionSchema |
-| `defaultSettingsForm` | `""` | DefaultSettingsForm |
-| `auxiliarySettingsForm` | `""` | AuxiliarySettingsForm |
-| `defaultVariantForm` | `""` | DefaultVariantForm |
+| `comment` | пусто | Comment |
+| `useStandardCommands` | `true` | UseStandardCommands |
+| `defaultForm` / `auxiliaryForm` | `""` | DefaultForm / AuxiliaryForm (ссылка verbatim) |
+| `mainDataCompositionSchema` | `""` | MainDataCompositionSchema (ссылка на макет СКД, напр. `Report.X.Template.ОсновнаяСхемаКомпоновкиДанных`) |
+| `defaultSettingsForm` / `auxiliarySettingsForm` / `defaultVariantForm` | `""` | *SettingsForm / DefaultVariantForm (ссылки) |
+| `variantsStorage` / `settingsStorage` | `""` | VariantsStorage / SettingsStorage (напр. `SettingsStorage.ХранилищеВариантовОтчетов`) |
+| `extendedPresentation` / `explanation` | пусто | ExtendedPresentation / Explanation (ML) |
+| `includeHelpInContents` | `false` | IncludeHelpInContents |
+| `attributes` | `[]` | → Attribute в ChildObjects |
+| `tabularSections` | `{}` | → TabularSection в ChildObjects |
+
+> **`useStandardCommands`** управляет доступностью объекта через стандартный командный интерфейс. Дефолт `true`
+> (авторски-безопасно). При `false` и без переопределения размещения команд/подсистем отчёт доступен пользователю
+> только по навигационной ссылке (в типовых часто `false` — доступ идёт через панель отчётов БСП/командный интерфейс подсистемы).
+
+Ссылки на формы/схемы/хранилища пишутся **verbatim** (без прощающего резолва — имя формы может быть буквально «Форма»).
+Модули: `Ext/ObjectModule.bsl` (пустой).
+
+```json
+{ "type": "Report", "name": "АнализПродаж", "comment": "(Демо)", "useStandardCommands": false,
+  "mainDataCompositionSchema": "Report.АнализПродаж.Template.ОсновнаяСхемаКомпоновкиДанных",
+  "variantsStorage": "SettingsStorage.ХранилищеВариантовОтчетов",
+  "attributes": ["Период: StandardPeriod", { "name": "Данные", "type": "" }] }
+```
+
+### 7.12 DataProcessor (Обработка)
+
+| Поле JSON | Умолчание | XML элемент |
+|-----------|----------|-------------|
+| `comment` | пусто | Comment |
+| `useStandardCommands` | `true` | UseStandardCommands (см. ремарку у Report) |
+| `defaultForm` / `auxiliaryForm` | `""` | DefaultForm / AuxiliaryForm (ссылка verbatim) |
+| `extendedPresentation` / `explanation` | пусто | ExtendedPresentation / Explanation (ML) |
+| `includeHelpInContents` | `false` | IncludeHelpInContents |
 | `attributes` | `[]` | → Attribute в ChildObjects |
 | `tabularSections` | `{}` | → TabularSection в ChildObjects |
 
 Модули: `Ext/ObjectModule.bsl` (пустой).
 
 ```json
-{ "type": "Report", "name": "ОстаткиТоваров", "attributes": ["НачалоПериода: Date", "КонецПериода: Date"] }
+{ "type": "DataProcessor", "name": "ЗагрузкаТаблиц", "useStandardCommands": false,
+  "attributes": [{ "name": "Таблица", "type": "ValueTree" }, { "name": "Произвольные", "type": "" }] }
 ```
 
-### 7.12 DataProcessor
-
-| Поле JSON | Умолчание | XML элемент |
-|-----------|----------|-------------|
-| `defaultForm` | `""` | DefaultForm |
-| `auxiliaryForm` | `""` | AuxiliaryForm |
-| `attributes` | `[]` | → Attribute в ChildObjects |
-| `tabularSections` | `{}` | → TabularSection в ChildObjects |
-
-Модули: `Ext/ObjectModule.bsl` (пустой).
-
-```json
-{ "type": "DataProcessor", "name": "ЗагрузкаДанных", "attributes": ["ПутьКФайлу: String(500)"] }
-```
+**Типы реквизитов обработок/отчётов** (помимо общих §3): пустой `type: ""` → реквизит без типа (`<Type/>`,
+значение заполнения nil); платформенные коллекции `ValueTable`/`ValueTree`/`ValueList`(=ValueListType)/`StandardPeriod`
+→ `v8:`-префикс; типы current-config `ConstantsSet`/`ReportBuilder`/`CatalogObject.X`/`DataProcessorObject.X`/… →
+`cfg:`-префикс; `Chart`/`SettingsComposer`/`SpreadsheetDocument` → выделенное пространство имён.
 
 ### 7.13 ExchangePlan
 
