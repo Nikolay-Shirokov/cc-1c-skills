@@ -1,4 +1,4 @@
-﻿# meta-decompile v0.43 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
+﻿# meta-decompile v0.44 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 #
 # Поддержаны: Catalog, ExchangePlan, ChartOfCharacteristicTypes, ChartOfAccounts, ChartOfCalculationTypes, Document,
@@ -92,8 +92,8 @@ foreach ($c in $rootEl.ChildNodes) { if ($c.NodeType -eq 'Element') { $objNode =
 if (-not $objNode) { [Console]::Error.WriteLine("meta-decompile: пустой MetaDataObject"); exit 3 }
 $objType = $objNode.LocalName
 
-if ($objType -notin @('Catalog', 'ExchangePlan', 'ChartOfCharacteristicTypes', 'ChartOfAccounts', 'ChartOfCalculationTypes', 'Document', 'InformationRegister', 'AccumulationRegister', 'AccountingRegister', 'CalculationRegister', 'BusinessProcess', 'Task', 'Enum', 'Report', 'DataProcessor')) {
-	[Console]::Error.WriteLine("meta-decompile: тип '$objType' пока не поддержан (Catalog, ExchangePlan, ChartOfCharacteristicTypes, ChartOfAccounts, ChartOfCalculationTypes, Document, InformationRegister, AccumulationRegister, AccountingRegister, CalculationRegister, BusinessProcess, Task, Enum, Report, DataProcessor)"); exit 3
+if ($objType -notin @('Catalog', 'ExchangePlan', 'ChartOfCharacteristicTypes', 'ChartOfAccounts', 'ChartOfCalculationTypes', 'Document', 'InformationRegister', 'AccumulationRegister', 'AccountingRegister', 'CalculationRegister', 'BusinessProcess', 'Task', 'Enum', 'Report', 'DataProcessor', 'Constant', 'DefinedType')) {
+	[Console]::Error.WriteLine("meta-decompile: тип '$objType' пока не поддержан (Catalog, ExchangePlan, ChartOfCharacteristicTypes, ChartOfAccounts, ChartOfCalculationTypes, Document, InformationRegister, AccumulationRegister, AccountingRegister, CalculationRegister, BusinessProcess, Task, Enum, Report, DataProcessor, Constant, DefinedType)"); exit 3
 }
 
 $props = $objNode.SelectSingleNode('md:Properties', $nsm)
@@ -433,7 +433,7 @@ Add-BoolProp 'autonumbering'     'Autonumbering'     $true
 Add-BoolProp 'checkUnique'       'CheckUnique'       $checkUniqueDef
 Add-EnumProp 'codeSeries'        'CodeSeries'        $codeSeriesDef
 Add-EnumProp 'defaultPresentation' 'DefaultPresentation' $defPresDef
-Add-BoolProp 'quickChoice'       'QuickChoice'       $(if ($objType -eq 'Enum') { $true } else { $false })   # Enum дефолт true (компилятор+корпус); прочие false
+if ($objType -ne 'Constant') { Add-BoolProp 'quickChoice' 'QuickChoice' $(if ($objType -eq 'Enum') { $true } else { $false }) }   # Enum дефолт true; прочие false. Constant: QuickChoice — ENUM (Auto), не bool → ловим отдельно ниже
 Add-EnumProp 'choiceMode'        'ChoiceMode'        'BothWays'
 Add-EnumProp 'dataLockControlMode' 'DataLockControlMode' $dataLockDef
 Add-EnumProp 'fullTextSearch'    'FullTextSearch'    'Use'
@@ -593,6 +593,53 @@ if ($objType -eq 'DataProcessor') {
 	$dfm = P 'DefaultForm'; if ($dfm) { $dsl['defaultForm'] = $dfm }
 	$afm = P 'AuxiliaryForm'; if ($afm) { $dsl['auxiliaryForm'] = $afm }
 	$ep = Get-MLValue ($props.SelectSingleNode('md:ExtendedPresentation', $nsm)); if ($null -ne $ep) { $dsl['extendedPresentation'] = $ep }
+}
+# DefinedType — тип-псевдоним: только Name/Synonym/Comment/Type. valueType (составной через ' + ').
+if ($objType -eq 'DefinedType') {
+	$vt = Get-TypeShorthand ($props.SelectSingleNode('md:Type', $nsm))
+	if ($vt) { $dsl['valueType'] = $vt }
+}
+# Constant — богатый одиночный реквизит: Type + свойства значения (как у реквизита) + object-уровень.
+if ($objType -eq 'Constant') {
+	$vt = Get-TypeShorthand ($props.SelectSingleNode('md:Type', $nsm))
+	if ($vt) { $dsl['valueType'] = $vt } else { $dsl['valueType'] = '' }
+	$dfm = P 'DefaultForm'; if ($dfm) { $dsl['defaultForm'] = $dfm }
+	$ep = Get-MLValue ($props.SelectSingleNode('md:ExtendedPresentation', $nsm)); if ($null -ne $ep) { $dsl['extendedPresentation'] = $ep }
+	Add-BoolProp 'passwordMode' 'PasswordMode' $false
+	$fmt = Get-MLValue ($props.SelectSingleNode('md:Format', $nsm)); if ($null -ne $fmt) { $dsl['format'] = $fmt }
+	$efmt = Get-MLValue ($props.SelectSingleNode('md:EditFormat', $nsm)); if ($null -ne $efmt) { $dsl['editFormat'] = $efmt }
+	$tt = Get-MLValue ($props.SelectSingleNode('md:ToolTip', $nsm)); if ($null -ne $tt) { $dsl['tooltip'] = $tt }
+	Add-BoolProp 'markNegatives' 'MarkNegatives' $false
+	$msk = P 'Mask'; if ($msk) { $dsl['mask'] = $msk }
+	Add-BoolProp 'multiLine' 'MultiLine' $false
+	Add-BoolProp 'extendedEdit' 'ExtendedEdit' $false
+	# MinValue/MaxValue (дефолт nil) — типизированное значение при наличии.
+	foreach ($mm in @(@('MinValue','minValue'), @('MaxValue','maxValue'))) {
+		$mn = $props.SelectSingleNode("md:$($mm[0])", $nsm)
+		if ($mn -and $mn.GetAttribute('nil', 'http://www.w3.org/2001/XMLSchema-instance') -ne 'true') {
+			$mxt = $mn.GetAttribute('type', 'http://www.w3.org/2001/XMLSchema-instance')
+			if ($mxt -match 'decimal$') { $dsl[$mm[1]] = if ($mn.InnerText -match '^-?\d+$') { [long]$mn.InnerText } else { [double]$mn.InnerText } }
+			else { $dsl[$mm[1]] = $mn.InnerText }
+		}
+	}
+	Add-EnumProp 'fillChecking' 'FillChecking' 'DontCheck'
+	Add-EnumProp 'choiceFoldersAndItems' 'ChoiceFoldersAndItems' 'Items'
+	$cpl = Parse-ChoiceParameterLinks $props 'md:ChoiceParameterLinks'; if ($null -ne $cpl) { $dsl['choiceParameterLinks'] = $cpl }
+	$cp = Parse-ChoiceParameters $props 'md:ChoiceParameters'; if ($null -ne $cp) { $dsl['choiceParameters'] = $cp }
+	Add-EnumProp 'quickChoice' 'QuickChoice' 'Auto'
+	$cf = P 'ChoiceForm'; if ($cf) { $dsl['choiceForm'] = $cf }
+	$lbtNode = $props.SelectSingleNode('md:LinkByType', $nsm)
+	if ($lbtNode) {
+		$dpN = $lbtNode.SelectSingleNode('md:DataPath', $nsm)
+		if ($dpN -and $dpN.InnerText) {
+			$liN = $lbtNode.SelectSingleNode('md:LinkItem', $nsm)
+			$li = if ($liN -and $liN.InnerText) { [int]$liN.InnerText } else { 0 }
+			$dsl['linkByType'] = if ($li -eq 0) { $dpN.InnerText } else { [ordered]@{ dataPath = $dpN.InnerText; linkItem = $li } }
+		}
+	}
+	Add-EnumProp 'dataHistory' 'DataHistory' 'DontUse'
+	Add-BoolProp 'updateDataHistoryImmediatelyAfterWrite' 'UpdateDataHistoryImmediatelyAfterWrite' $false
+	Add-BoolProp 'executeAfterWriteDataHistoryVersionProcessing' 'ExecuteAfterWriteDataHistoryVersionProcessing' $false
 }
 
 # Короткая форма поля: <Type>.<Name>.StandardAttribute.X / .Attribute.X → StandardAttribute.X / Attribute.X

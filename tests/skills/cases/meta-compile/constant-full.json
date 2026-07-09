@@ -1,0 +1,20 @@
+{
+  "name": "Константа — полный набор возможностей",
+  "input": {
+    "type": "Constant",
+    "name": "СтавкаНДС",
+    "comment": "(Демо)",
+    "valueType": "Number(15,2,nonneg)",
+    "useStandardCommands": false,
+    "dataLockControlMode": "Automatic",
+    "format": { "ru": "ЧДЦ=2", "en": "NFD=2" },
+    "tooltip": "Основная ставка",
+    "minValue": 0,
+    "maxValue": 100,
+    "fillChecking": "ShowError"
+  },
+  "validatePath": "Constants/СтавкаНДС",
+  "expect": {
+    "files": ["Constants/СтавкаНДС.xml"]
+  }
+}

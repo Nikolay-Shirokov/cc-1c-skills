@@ -1,0 +1,13 @@
+{
+  "name": "Определяемый тип — составной",
+  "input": {
+    "type": "DefinedType",
+    "name": "СсылкаНаКонтрагента",
+    "comment": "(Демо)",
+    "valueType": "CatalogRef.Контрагенты + CatalogRef.Организации + String(150)"
+  },
+  "validatePath": "DefinedTypes/СсылкаНаКонтрагента",
+  "expect": {
+    "files": ["DefinedTypes/СсылкаНаКонтрагента.xml"]
+  }
+}

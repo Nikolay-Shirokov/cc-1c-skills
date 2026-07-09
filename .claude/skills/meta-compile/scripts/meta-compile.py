@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-compile v1.52 — Compile 1C metadata object from JSON
+# meta-compile v1.53 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -539,7 +539,7 @@ cfg_bare_types = {"ConstantsSet", "ReportBuilder", "FilterCriterion"}
 cfg_object_kinds = {"Catalog", "Document", "Enum", "ChartOfAccounts", "ChartOfCharacteristicTypes",
     "ChartOfCalculationTypes", "ExchangePlan", "BusinessProcess", "Task", "InformationRegister",
     "AccumulationRegister", "AccountingRegister", "CalculationRegister", "DataProcessor", "Report",
-    "DocumentJournal", "Constant"}
+    "DocumentJournal", "Constant", "ConstantValue"}
 
 def resolve_type_str(type_str):
     if not type_str:
@@ -2331,37 +2331,51 @@ def emit_constant_properties(indent):
     i = indent
     X(f'{i}<Name>{esc_xml(obj_name)}</Name>')
     emit_mltext(i, 'Synonym', synonym)
-    X(f'{i}<Comment/>')
-    # Type
-    value_type = build_type_str(defn) or 'String'
-    emit_value_type(i, value_type)
-    X(f'{i}<UseStandardCommands>true</UseStandardCommands>')
-    X(f'{i}<DefaultForm/>')
-    X(f'{i}<ExtendedPresentation/>')
-    X(f'{i}<Explanation/>')
-    X(f'{i}<PasswordMode>false</PasswordMode>')
-    X(f'{i}<Format/>')
-    X(f'{i}<EditFormat/>')
-    X(f'{i}<ToolTip/>')
-    X(f'{i}<MarkNegatives>false</MarkNegatives>')
-    X(f'{i}<Mask/>')
-    X(f'{i}<MultiLine>false</MultiLine>')
-    X(f'{i}<ExtendedEdit>false</ExtendedEdit>')
-    X(f'{i}<MinValue xsi:nil="true"/>')
-    X(f'{i}<MaxValue xsi:nil="true"/>')
-    X(f'{i}<FillChecking>DontCheck</FillChecking>')
-    X(f'{i}<ChoiceFoldersAndItems>Items</ChoiceFoldersAndItems>')
-    X(f'{i}<ChoiceParameterLinks/>')
-    X(f'{i}<ChoiceParameters/>')
-    X(f'{i}<QuickChoice>Auto</QuickChoice>')
-    X(f'{i}<ChoiceForm/>')
-    X(f'{i}<LinkByType/>')
-    X(f'{i}<ChoiceHistoryOnInput>Auto</ChoiceHistoryOnInput>')
-    data_lock_control_mode = get_enum_prop('DataLockControlMode', 'dataLockControlMode', 'Automatic')
-    X(f'{i}<DataLockControlMode>{data_lock_control_mode}</DataLockControlMode>')
-    X(f'{i}<DataHistory>DontUse</DataHistory>')
-    X(f'{i}<UpdateDataHistoryImmediatelyAfterWrite>false</UpdateDataHistoryImmediatelyAfterWrite>')
-    X(f'{i}<ExecuteAfterWriteDataHistoryVersionProcessing>false</ExecuteAfterWriteDataHistoryVersionProcessing>')
+    if defn.get('comment'):
+        X(f'{i}<Comment>{esc_xml_text(str(defn["comment"]))}</Comment>')
+    else:
+        X(f'{i}<Comment/>')
+    # Type — valueType (явный '' → <Type/>, реквизит без типа; отсутствие → String дефолт).
+    value_type = build_type_str(defn)
+    type_empty = (defn.get('valueType') is not None and str(defn.get('valueType')).strip() == '') or \
+                 (defn.get('type') is not None and str(defn.get('type')).strip() == '')
+    if type_empty:
+        X(f'{i}<Type/>')
+    else:
+        emit_value_type(i, value_type or 'String')
+    use_std_cmds = 'true' if get_bool_prop('useStandardCommands', True) else 'false'
+    X(f'{i}<UseStandardCommands>{use_std_cmds}</UseStandardCommands>')
+    emit_verbatim_ref(i, 'DefaultForm', defn.get('defaultForm'))
+    emit_mltext(i, 'ExtendedPresentation', defn.get('extendedPresentation'))
+    emit_mltext(i, 'Explanation', defn.get('explanation'))
+    X(f'{i}<PasswordMode>{"true" if get_bool_prop("passwordMode", False) else "false"}</PasswordMode>')
+    emit_mltext(i, 'Format', defn.get('format'))
+    emit_mltext(i, 'EditFormat', defn.get('editFormat'))
+    emit_mltext(i, 'ToolTip', defn.get('tooltip'))
+    X(f'{i}<MarkNegatives>{"true" if get_bool_prop("markNegatives", False) else "false"}</MarkNegatives>')
+    if defn.get('mask'):
+        X(f'{i}<Mask>{esc_xml_text(str(defn["mask"]))}</Mask>')
+    else:
+        X(f'{i}<Mask/>')
+    X(f'{i}<MultiLine>{"true" if get_bool_prop("multiLine", False) else "false"}</MultiLine>')
+    X(f'{i}<ExtendedEdit>{"true" if get_bool_prop("extendedEdit", False) else "false"}</ExtendedEdit>')
+    emit_min_max_value(i, 'MinValue', defn.get('minValue'))
+    emit_min_max_value(i, 'MaxValue', defn.get('maxValue'))
+    X(f'{i}<FillChecking>{get_enum_prop("FillChecking", "fillChecking", "DontCheck")}</FillChecking>')
+    X(f'{i}<ChoiceFoldersAndItems>{get_enum_prop("ChoiceFoldersAndItems", "choiceFoldersAndItems", "Items")}</ChoiceFoldersAndItems>')
+    emit_choice_parameter_links(i, defn.get('choiceParameterLinks'))
+    emit_choice_parameters(i, defn.get('choiceParameters'))
+    X(f'{i}<QuickChoice>{get_enum_prop("QuickChoice", "quickChoice", "Auto")}</QuickChoice>')
+    if defn.get('choiceForm'):
+        X(f'{i}<ChoiceForm>{esc_xml(str(defn["choiceForm"]))}</ChoiceForm>')
+    else:
+        X(f'{i}<ChoiceForm/>')
+    emit_link_by_type(i, defn.get('linkByType'))
+    X(f'{i}<ChoiceHistoryOnInput>{get_enum_prop("ChoiceHistoryOnInput", "choiceHistoryOnInput", "Auto")}</ChoiceHistoryOnInput>')
+    X(f'{i}<DataLockControlMode>{get_enum_prop("DataLockControlMode", "dataLockControlMode", "Managed")}</DataLockControlMode>')
+    X(f'{i}<DataHistory>{get_enum_prop("DataHistory", "dataHistory", "DontUse")}</DataHistory>')
+    X(f'{i}<UpdateDataHistoryImmediatelyAfterWrite>{"true" if get_bool_prop("updateDataHistoryImmediatelyAfterWrite", False) else "false"}</UpdateDataHistoryImmediatelyAfterWrite>')
+    X(f'{i}<ExecuteAfterWriteDataHistoryVersionProcessing>{"true" if get_bool_prop("executeAfterWriteDataHistoryVersionProcessing", False) else "false"}</ExecuteAfterWriteDataHistoryVersionProcessing>')
 
 def emit_information_register_properties(indent):
     i = indent
@@ -2439,29 +2453,19 @@ def emit_defined_type_properties(indent):
     i = indent
     X(f'{i}<Name>{esc_xml(obj_name)}</Name>')
     emit_mltext(i, 'Synonym', synonym)
-    X(f'{i}<Comment/>')
-    # Accept both valueType and valueTypes
-    value_types = list(defn.get('valueTypes', []))
-    if not value_types and defn.get('valueType'):
-        vt_raw = defn['valueType']
-        value_types = list(vt_raw) if isinstance(vt_raw, list) else [vt_raw]
-    if value_types:
-        X(f'{i}<Type>')
-        for vt in value_types:
-            resolved = resolve_type_str(str(vt))
-            if re.match(r'^(CatalogRef|DocumentRef|EnumRef|ChartOfAccountsRef|ChartOfCharacteristicTypesRef|ChartOfCalculationTypesRef|ExchangePlanRef|BusinessProcessRef|TaskRef)\.', resolved):
-                X(f'{i}\t<v8:Type xmlns:d5p1="http://v8.1c.ru/8.1/data/enterprise/current-config">d5p1:{resolved}</v8:Type>')
-            elif resolved == 'Boolean':
-                X(f'{i}\t<v8:Type>xs:boolean</v8:Type>')
-            elif re.match(r'^String', resolved):
-                X(f'{i}\t<v8:Type>xs:string</v8:Type>')
-                X(f'{i}\t<v8:StringQualifiers>')
-                X(f'{i}\t\t<v8:Length>0</v8:Length>')
-                X(f'{i}\t\t<v8:AllowedLength>Variable</v8:AllowedLength>')
-                X(f'{i}\t</v8:StringQualifiers>')
-            else:
-                X(f'{i}\t<v8:Type>cfg:{resolved}</v8:Type>')
-        X(f'{i}</Type>')
+    if defn.get('comment'):
+        X(f'{i}<Comment>{esc_xml_text(str(defn["comment"]))}</Comment>')
+    else:
+        X(f'{i}<Comment/>')
+    # Type — единый эмиттер emit_value_type/emit_type_content (составной через ' + '); valueType или valueTypes.
+    if defn.get('valueType'):
+        vt = str(defn['valueType'])
+    elif defn.get('valueTypes'):
+        vt = ' + '.join(str(x) for x in defn['valueTypes'])
+    else:
+        vt = ''
+    if vt:
+        emit_value_type(i, vt)
     else:
         X(f'{i}<Type/>')
 

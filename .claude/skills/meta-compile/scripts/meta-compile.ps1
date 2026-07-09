@@ -1,4 +1,4 @@
-﻿# meta-compile v1.52 — Compile 1C metadata object from JSON
+﻿# meta-compile v1.53 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -466,7 +466,7 @@ $script:typeNamespaceMap = @{
 $script:cfgBareTypes = @("ConstantsSet", "ReportBuilder", "FilterCriterion")
 $script:cfgObjectKinds = @("Catalog","Document","Enum","ChartOfAccounts","ChartOfCharacteristicTypes",
 	"ChartOfCalculationTypes","ExchangePlan","BusinessProcess","Task","InformationRegister","AccumulationRegister",
-	"AccountingRegister","CalculationRegister","DataProcessor","Report","DocumentJournal","Constant")
+	"AccountingRegister","CalculationRegister","DataProcessor","Report","DocumentJournal","Constant","ConstantValue")
 $script:typeSynonyms["таблицазначений"]      = "ValueTable"
 $script:typeSynonyms["деревозначений"]       = "ValueTree"
 $script:typeSynonyms["списокзначений"]       = "ValueListType"
@@ -2331,41 +2331,42 @@ function Emit-ConstantProperties {
 
 	X "$i<Name>$(Esc-Xml $objName)</Name>"
 	Emit-MLText $i "Synonym" $synonym
-	X "$i<Comment/>"
+	if ($def.comment) { X "$i<Comment>$(Esc-XmlText $def.comment)</Comment>" } else { X "$i<Comment/>" }
 
-	# Type
+	# Type — valueType (пустой явный '' → <Type/>, реквизит без типа; отсутствие → String дефолт).
 	$valueType = Build-TypeStr $def
-	if (-not $valueType) { $valueType = "String" }
-	Emit-ValueType $i $valueType
+	$typeEmpty = ($null -ne $def.valueType -and "$($def.valueType)".Trim() -eq '') -or ($null -ne $def.type -and "$($def.type)".Trim() -eq '')
+	if ($typeEmpty) { X "$i<Type/>" }
+	else { if (-not $valueType) { $valueType = "String" }; Emit-ValueType $i $valueType }
 
-	X "$i<UseStandardCommands>true</UseStandardCommands>"
-	X "$i<DefaultForm/>"
-	X "$i<ExtendedPresentation/>"
-	X "$i<Explanation/>"
-	X "$i<PasswordMode>false</PasswordMode>"
-	X "$i<Format/>"
-	X "$i<EditFormat/>"
-	X "$i<ToolTip/>"
-	X "$i<MarkNegatives>false</MarkNegatives>"
-	X "$i<Mask/>"
-	X "$i<MultiLine>false</MultiLine>"
-	X "$i<ExtendedEdit>false</ExtendedEdit>"
-	X "$i<MinValue xsi:nil=`"true`"/>"
-	X "$i<MaxValue xsi:nil=`"true`"/>"
-	X "$i<FillChecking>DontCheck</FillChecking>"
-	X "$i<ChoiceFoldersAndItems>Items</ChoiceFoldersAndItems>"
-	X "$i<ChoiceParameterLinks/>"
-	X "$i<ChoiceParameters/>"
-	X "$i<QuickChoice>Auto</QuickChoice>"
-	X "$i<ChoiceForm/>"
-	X "$i<LinkByType/>"
-	X "$i<ChoiceHistoryOnInput>Auto</ChoiceHistoryOnInput>"
+	$useStdCmds = if (Get-BoolProp "useStandardCommands" $true) { "true" } else { "false" }
+	X "$i<UseStandardCommands>$useStdCmds</UseStandardCommands>"
+	Emit-VerbatimRef $i "DefaultForm" $def.defaultForm
+	Emit-MLText $i "ExtendedPresentation" $def.extendedPresentation
+	Emit-MLText $i "Explanation" $def.explanation
+	X "$i<PasswordMode>$(if (Get-BoolProp 'passwordMode' $false) { 'true' } else { 'false' })</PasswordMode>"
+	Emit-MLText $i "Format" $def.format
+	Emit-MLText $i "EditFormat" $def.editFormat
+	Emit-MLText $i "ToolTip" $def.tooltip
+	X "$i<MarkNegatives>$(if (Get-BoolProp 'markNegatives' $false) { 'true' } else { 'false' })</MarkNegatives>"
+	if ($def.mask) { X "$i<Mask>$(Esc-XmlText $def.mask)</Mask>" } else { X "$i<Mask/>" }
+	X "$i<MultiLine>$(if (Get-BoolProp 'multiLine' $false) { 'true' } else { 'false' })</MultiLine>"
+	X "$i<ExtendedEdit>$(if (Get-BoolProp 'extendedEdit' $false) { 'true' } else { 'false' })</ExtendedEdit>"
+	Emit-MinMaxValue $i "MinValue" $def.minValue
+	Emit-MinMaxValue $i "MaxValue" $def.maxValue
+	X "$i<FillChecking>$(Get-EnumProp 'FillChecking' 'fillChecking' 'DontCheck')</FillChecking>"
+	X "$i<ChoiceFoldersAndItems>$(Get-EnumProp 'ChoiceFoldersAndItems' 'choiceFoldersAndItems' 'Items')</ChoiceFoldersAndItems>"
+	Emit-ChoiceParameterLinks $i $def.choiceParameterLinks
+	Emit-ChoiceParameters $i $def.choiceParameters
+	X "$i<QuickChoice>$(Get-EnumProp 'QuickChoice' 'quickChoice' 'Auto')</QuickChoice>"
+	if ($def.choiceForm) { X "$i<ChoiceForm>$(Esc-Xml "$($def.choiceForm)")</ChoiceForm>" } else { X "$i<ChoiceForm/>" }
+	Emit-LinkByType $i $def.linkByType
+	X "$i<ChoiceHistoryOnInput>$(Get-EnumProp 'ChoiceHistoryOnInput' 'choiceHistoryOnInput' 'Auto')</ChoiceHistoryOnInput>"
 
-	$dataLockControlMode = Get-EnumProp "DataLockControlMode" "dataLockControlMode" "Automatic"
-	X "$i<DataLockControlMode>$dataLockControlMode</DataLockControlMode>"
-	X "$i<DataHistory>DontUse</DataHistory>"
-	X "$i<UpdateDataHistoryImmediatelyAfterWrite>false</UpdateDataHistoryImmediatelyAfterWrite>"
-	X "$i<ExecuteAfterWriteDataHistoryVersionProcessing>false</ExecuteAfterWriteDataHistoryVersionProcessing>"
+	X "$i<DataLockControlMode>$(Get-EnumProp 'DataLockControlMode' 'dataLockControlMode' 'Managed')</DataLockControlMode>"
+	X "$i<DataHistory>$(Get-EnumProp 'DataHistory' 'dataHistory' 'DontUse')</DataHistory>"
+	X "$i<UpdateDataHistoryImmediatelyAfterWrite>$(if (Get-BoolProp 'updateDataHistoryImmediatelyAfterWrite' $false) { 'true' } else { 'false' })</UpdateDataHistoryImmediatelyAfterWrite>"
+	X "$i<ExecuteAfterWriteDataHistoryVersionProcessing>$(if (Get-BoolProp 'executeAfterWriteDataHistoryVersionProcessing' $false) { 'true' } else { 'false' })</ExecuteAfterWriteDataHistoryVersionProcessing>"
 }
 
 function Emit-InformationRegisterProperties {
@@ -2461,37 +2462,14 @@ function Emit-DefinedTypeProperties {
 
 	X "$i<Name>$(Esc-Xml $objName)</Name>"
 	Emit-MLText $i "Synonym" $synonym
-	X "$i<Comment/>"
+	if ($def.comment) { X "$i<Comment>$(Esc-XmlText $def.comment)</Comment>" } else { X "$i<Comment/>" }
 
-	# Type — composite type with multiple v8:Type entries (accept both valueType and valueTypes)
-	$valueTypes = @()
-	if ($def.valueTypes) {
-		$valueTypes = @($def.valueTypes)
-	} elseif ($def.valueType) {
-		$valueTypes = @($def.valueType)
-	}
-	if ($valueTypes.Count -gt 0) {
-		X "$i<Type>"
-		foreach ($vt in $valueTypes) {
-			$resolved = Resolve-TypeStr "$vt"
-			if ($resolved -match '^(CatalogRef|DocumentRef|EnumRef|ChartOfAccountsRef|ChartOfCharacteristicTypesRef|ChartOfCalculationTypesRef|ExchangePlanRef|BusinessProcessRef|TaskRef)\.') {
-				X "$i`t<v8:Type xmlns:d5p1=`"http://v8.1c.ru/8.1/data/enterprise/current-config`">d5p1:$resolved</v8:Type>"
-			} elseif ($resolved -eq "Boolean") {
-				X "$i`t<v8:Type>xs:boolean</v8:Type>"
-			} elseif ($resolved -match '^String') {
-				X "$i`t<v8:Type>xs:string</v8:Type>"
-				X "$i`t<v8:StringQualifiers>"
-				X "$i`t`t<v8:Length>0</v8:Length>"
-				X "$i`t`t<v8:AllowedLength>Variable</v8:AllowedLength>"
-				X "$i`t</v8:StringQualifiers>"
-			} else {
-				X "$i`t<v8:Type>cfg:$resolved</v8:Type>"
-			}
-		}
-		X "$i</Type>"
-	} else {
-		X "$i<Type/>"
-	}
+	# Type — тип-значение (составной через ' + '); принимаем valueType (строка) или valueTypes (массив).
+	# Единый эмиттер Emit-ValueType/Emit-TypeContent (refs d5p1, cfg:, платформенные, квалификаторы). Пусто → <Type/>.
+	$vt = if ($def.valueType) { "$($def.valueType)" }
+	      elseif ($def.valueTypes) { (@($def.valueTypes) | ForEach-Object { "$_" }) -join ' + ' }
+	      else { '' }
+	if ($vt) { Emit-ValueType $i $vt } else { X "$i<Type/>" }
 }
 
 function Emit-CommonModuleProperties {

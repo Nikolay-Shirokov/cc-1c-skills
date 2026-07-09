@@ -819,17 +819,35 @@ Split-CamelCase имени.
   ] }
 ```
 
-### 7.4 Constant
+### 7.4 Constant (Константа)
+
+Константа — «богатый одиночный реквизит»: тип-значение + все свойства значения (как у реквизита, §4.2) + object-уровень.
 
 | Поле JSON | Умолчание | XML элемент |
 |-----------|----------|-------------|
-| `valueType` | `String` | Type |
-| `length` | — | Длина строки (если valueType=String) |
-| `precision` | — | Точность числа (если valueType=Number) |
-| `dataLockControlMode` | `Automatic` | DataLockControlMode |
+| `valueType` | `String` | Type (пустой явный `""` → `<Type/>`, без типа); `length`/`precision` как в §4.2 |
+| `comment` | пусто | Comment |
+| `useStandardCommands` | `true` | UseStandardCommands (при `false` доступ лишь по навигационной ссылке — см. §7.11) |
+| `defaultForm` | `""` | DefaultForm (ссылка verbatim) |
+| `extendedPresentation` / `explanation` | пусто | ExtendedPresentation / Explanation (ML) |
+| `dataLockControlMode` | `Managed` | DataLockControlMode |
+| `passwordMode` / `markNegatives` / `multiLine` / `extendedEdit` | `false` | одноимённые булевы |
+| `format` / `editFormat` / `tooltip` | пусто | Format / EditFormat / ToolTip (ML) |
+| `mask` | `""` | Mask |
+| `minValue` / `maxValue` | nil | MinValue / MaxValue (число → xs:decimal, строка → xs:string) |
+| `fillChecking` | `DontCheck` | FillChecking |
+| `choiceFoldersAndItems` | `Items` | ChoiceFoldersAndItems |
+| `choiceParameterLinks` / `choiceParameters` | `[]` | ChoiceParameterLinks / ChoiceParameters (§4.2) |
+| `quickChoice` | `Auto` | QuickChoice (**enum** Auto/Use/DontUse, не bool) |
+| `choiceForm` | `""` | ChoiceForm |
+| `linkByType` | — | LinkByType (§4.2) |
+| `choiceHistoryOnInput` | `Auto` | ChoiceHistoryOnInput |
+| `dataHistory` (+ триплет) | `DontUse` | DataHistory / UpdateDataHistoryImmediatelyAfterWrite / ExecuteAfterWriteDataHistoryVersionProcessing |
 
-`valueType` + `length`/`precision` работают аналогично раздельной форме типа (§4.2):
-`"valueType": "String", "length": 100` → `String(100)`.
+```json
+{ "type": "Constant", "name": "СтавкаНДС", "valueType": "Number(15,2,nonneg)",
+  "minValue": 0, "maxValue": 100, "fillChecking": "ShowError" }
+```
 
 ### 7.5 InformationRegister
 
@@ -927,17 +945,21 @@ true); `characteristics` (§7.1.4); `basedOn`/`inputByString`/`dataLockFields` (
 Дети: `attributes`, `commands` и **`addressingAttributes`** — реквизиты адресации (полный object-слой реквизита +
 `addressingDimension`: ссылка на измерение регистра исполнителей).
 
-### 7.7 DefinedType
+### 7.7 DefinedType (Определяемый тип)
+
+Тип-псевдоним: Name/Synonym/Comment + Type. Без ChildObjects и модулей.
 
 | Поле JSON | Умолчание | XML элемент |
 |-----------|----------|-------------|
-| `valueTypes` | `[]` | Type (составной — массив `v8:Type`) |
-| `valueType` | — | Алиас для `valueTypes` (принимает строку или массив) |
+| `valueType` | — | Type (составной через ` + `, единый эмиттер §3: refs/cfg:/платформенные/квалификаторы) |
+| `valueTypes` | `[]` | Алиас — массив типов (склеивается через ` + `) |
+| `comment` | пусто | Comment |
 
-Без ChildObjects и модулей. Принимается как `valueTypes` (мн.ч.), так и `valueType` (ед.ч.).
+Принимается как `valueType` (строка, в т.ч. составная `A + B`), так и `valueTypes` (массив). Пусто → `<Type/>`.
 
 ```json
-{ "type": "DefinedType", "name": "ДенежныеСредства", "valueTypes": ["CatalogRef.БанковскиеСчета", "CatalogRef.Кассы"] }
+{ "type": "DefinedType", "name": "СсылкаНаКонтрагента",
+  "valueType": "CatalogRef.Контрагенты + CatalogRef.Организации + String(150)" }
 { "type": "DefinedType", "name": "ФлагАктивности", "valueType": "Boolean" }
 ```
 
