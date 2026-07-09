@@ -1,4 +1,4 @@
-﻿# meta-compile v1.14 — Compile 1C metadata object from JSON
+﻿# meta-compile v1.15 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
