@@ -787,13 +787,37 @@ Split-CamelCase имени.
 ]
 ```
 
-### 7.3 Enum
+### 7.3 Enum (Перечисление)
 
 | Поле JSON | Умолчание | XML элемент |
 |-----------|----------|-------------|
 | `values` | `[]` | → EnumValue в ChildObjects |
+| `comment` | пусто | Comment |
+| `useStandardCommands` | `false` | UseStandardCommands (у Enum дефолт **false**, в отличие от прочих типов) |
+| `quickChoice` | `true` | QuickChoice (у Enum дефолт **true**) |
+| `choiceMode` | `BothWays` | ChoiceMode (BothWays/FromForm/QuickChoice) |
+| `choiceHistoryOnInput` | `Auto` | ChoiceHistoryOnInput |
+| `listPresentation` / `extendedListPresentation` / `explanation` | пусто | презентации (ML) |
+| `defaultListForm` / `defaultChoiceForm` / `auxiliaryListForm` / `auxiliaryChoiceForm` | пусто | *ListForm/*ChoiceForm (ссылка на форму) |
+| `standardAttributes` | (блок всегда) | `""` — opt-out: подавить all-default блок стандартных реквизитов (Order/Ref); ~14% перечислений его опускают, правило не выводимо |
 
-Других настраиваемых свойств нет — все дефолтные.
+**Значения (`values`)** — массив, каждый элемент строка ЛИБО объект:
+- строка `"Имя"` → значение с авто-синонимом из имени (Split-CamelCase);
+- объект `{ "name": "Имя", "synonym"?, "comment"? }`, где `synonym` — строка ИЛИ `{ru, en}` (мультиязычный),
+  либо `""` для явно пустого синонима (когда авто-синоним из имени неуместен).
+
+Пример:
+```json
+{ "type": "Enum", "name": "СтатусыОбработки", "comment": "(Демо)",
+  "useStandardCommands": true, "choiceMode": "QuickChoice",
+  "listPresentation": { "ru": "Статусы обработки", "en": "Processing statuses" },
+  "standardAttributes": "",
+  "values": [
+    { "name": "Новый", "synonym": { "ru": "Новый", "en": "New" }, "comment": "начальный статус" },
+    { "name": "ВРаботе", "synonym": "" },
+    "Завершен"
+  ] }
+```
 
 ### 7.4 Constant
 

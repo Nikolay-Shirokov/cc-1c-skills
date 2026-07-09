@@ -1,4 +1,4 @@
-﻿# meta-compile v1.50 — Compile 1C metadata object from JSON
+﻿# meta-compile v1.51 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -868,7 +868,7 @@ function Parse-EnumValueShorthand {
 	$name = "$($val.name)"
 	return @{
 		name    = $name
-		synonym = if ($val.synonym) { "$($val.synonym)" } else { Split-CamelCase $name }
+		synonym = if ($null -ne $val.synonym) { $val.synonym } else { Split-CamelCase $name }   # строка ИЛИ {ru,en} → Emit-MLText
 		comment = if ($val.comment) { "$($val.comment)" } else { "" }
 	}
 }
@@ -1864,7 +1864,7 @@ function Emit-EnumValue {
 	X "$indent`t<Properties>"
 	X "$indent`t`t<Name>$(Esc-Xml $parsed.name)</Name>"
 	Emit-MLText "$indent`t`t" "Synonym" $parsed.synonym
-	X "$indent`t`t<Comment/>"
+	if ($parsed.comment) { X "$indent`t`t<Comment>$(Esc-XmlText $parsed.comment)</Comment>" } else { X "$indent`t`t<Comment/>" }
 	X "$indent`t</Properties>"
 	X "$indent</EnumValue>"
 }
@@ -2246,23 +2246,24 @@ function Emit-EnumProperties {
 
 	X "$i<Name>$(Esc-Xml $objName)</Name>"
 	Emit-MLText $i "Synonym" $synonym
-	X "$i<Comment/>"
-	X "$i<UseStandardCommands>false</UseStandardCommands>"
+	if ($def.comment) { X "$i<Comment>$(Esc-XmlText $def.comment)</Comment>" } else { X "$i<Comment/>" }
+	$useStdCmds = if (Get-BoolProp "useStandardCommands" $false) { "true" } else { "false" }
+	X "$i<UseStandardCommands>$useStdCmds</UseStandardCommands>"
 
 	Emit-StandardAttributes $i "Enum"
-	X "$i<Characteristics/>"
+	Emit-Characteristics $i $def.characteristics
 
 	$quickChoice = if ($def.quickChoice -eq $false) { "false" } else { "true" }
 	X "$i<QuickChoice>$quickChoice</QuickChoice>"
-	X "$i<ChoiceMode>BothWays</ChoiceMode>"
-	X "$i<DefaultListForm/>"
-	X "$i<DefaultChoiceForm/>"
-	X "$i<AuxiliaryListForm/>"
-	X "$i<AuxiliaryChoiceForm/>"
-	X "$i<ListPresentation/>"
-	X "$i<ExtendedListPresentation/>"
-	X "$i<Explanation/>"
-	X "$i<ChoiceHistoryOnInput>Auto</ChoiceHistoryOnInput>"
+	X "$i<ChoiceMode>$(Get-EnumProp 'ChoiceMode' 'choiceMode' 'BothWays')</ChoiceMode>"
+	Emit-FormRef $i "DefaultListForm"     $def.defaultListForm
+	Emit-FormRef $i "DefaultChoiceForm"   $def.defaultChoiceForm
+	Emit-FormRef $i "AuxiliaryListForm"   $def.auxiliaryListForm
+	Emit-FormRef $i "AuxiliaryChoiceForm" $def.auxiliaryChoiceForm
+	Emit-MLText $i "ListPresentation" $def.listPresentation
+	Emit-MLText $i "ExtendedListPresentation" $def.extendedListPresentation
+	Emit-MLText $i "Explanation" $def.explanation
+	X "$i<ChoiceHistoryOnInput>$(Get-EnumProp 'ChoiceHistoryOnInput' 'choiceHistoryOnInput' 'Auto')</ChoiceHistoryOnInput>"
 }
 
 function Emit-ConstantProperties {

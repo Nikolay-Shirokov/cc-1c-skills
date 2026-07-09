@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-compile v1.50 — Compile 1C metadata object from JSON
+# meta-compile v1.51 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -891,7 +891,8 @@ def parse_enum_value_shorthand(val):
     name = str(val.get('name', ''))
     return {
         'name': name,
-        'synonym': str(val['synonym']) if val.get('synonym') else split_camel_case(name),
+        # строка ИЛИ {ru,en} → emit_mltext; None → авто из имени
+        'synonym': val['synonym'] if val.get('synonym') is not None else split_camel_case(name),
         'comment': str(val['comment']) if val.get('comment') else '',
     }
 
@@ -1915,7 +1916,10 @@ def emit_enum_value(indent, parsed):
     X(f'{indent}\t<Properties>')
     X(f'{indent}\t\t<Name>{esc_xml(parsed["name"])}</Name>')
     emit_mltext(f'{indent}\t\t', 'Synonym', parsed['synonym'])
-    X(f'{indent}\t\t<Comment/>')
+    if parsed.get('comment'):
+        X(f'{indent}\t\t<Comment>{esc_xml_text(parsed["comment"])}</Comment>')
+    else:
+        X(f'{indent}\t\t<Comment/>')
     X(f'{indent}\t</Properties>')
     X(f'{indent}</EnumValue>')
 
@@ -2248,21 +2252,25 @@ def emit_enum_properties(indent):
     i = indent
     X(f'{i}<Name>{esc_xml(obj_name)}</Name>')
     emit_mltext(i, 'Synonym', synonym)
-    X(f'{i}<Comment/>')
-    X(f'{i}<UseStandardCommands>false</UseStandardCommands>')
+    if defn.get('comment'):
+        X(f'{i}<Comment>{esc_xml_text(defn["comment"])}</Comment>')
+    else:
+        X(f'{i}<Comment/>')
+    use_std_cmds = 'true' if get_bool_prop('useStandardCommands', False) else 'false'
+    X(f'{i}<UseStandardCommands>{use_std_cmds}</UseStandardCommands>')
     emit_standard_attributes(i, 'Enum')
-    X(f'{i}<Characteristics/>')
+    emit_characteristics(i, defn.get('characteristics'))
     quick_choice = 'false' if defn.get('quickChoice') is False else 'true'
     X(f'{i}<QuickChoice>{quick_choice}</QuickChoice>')
-    X(f'{i}<ChoiceMode>BothWays</ChoiceMode>')
-    X(f'{i}<DefaultListForm/>')
-    X(f'{i}<DefaultChoiceForm/>')
-    X(f'{i}<AuxiliaryListForm/>')
-    X(f'{i}<AuxiliaryChoiceForm/>')
-    X(f'{i}<ListPresentation/>')
-    X(f'{i}<ExtendedListPresentation/>')
-    X(f'{i}<Explanation/>')
-    X(f'{i}<ChoiceHistoryOnInput>Auto</ChoiceHistoryOnInput>')
+    X(f'{i}<ChoiceMode>{get_enum_prop("ChoiceMode", "choiceMode", "BothWays")}</ChoiceMode>')
+    emit_form_ref(i, 'DefaultListForm', defn.get('defaultListForm'))
+    emit_form_ref(i, 'DefaultChoiceForm', defn.get('defaultChoiceForm'))
+    emit_form_ref(i, 'AuxiliaryListForm', defn.get('auxiliaryListForm'))
+    emit_form_ref(i, 'AuxiliaryChoiceForm', defn.get('auxiliaryChoiceForm'))
+    emit_mltext(i, 'ListPresentation', defn.get('listPresentation'))
+    emit_mltext(i, 'ExtendedListPresentation', defn.get('extendedListPresentation'))
+    emit_mltext(i, 'Explanation', defn.get('explanation'))
+    X(f'{i}<ChoiceHistoryOnInput>{get_enum_prop("ChoiceHistoryOnInput", "choiceHistoryOnInput", "Auto")}</ChoiceHistoryOnInput>')
 
 def emit_constant_properties(indent):
     i = indent

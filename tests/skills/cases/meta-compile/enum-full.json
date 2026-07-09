@@ -1,0 +1,21 @@
+{
+  "name": "Перечисление — полный набор возможностей",
+  "input": {
+    "type": "Enum",
+    "name": "СтатусыОбработки",
+    "comment": "(Демо)",
+    "useStandardCommands": true,
+    "choiceMode": "QuickChoice",
+    "listPresentation": { "ru": "Статусы обработки", "en": "Processing statuses" },
+    "standardAttributes": "",
+    "values": [
+      { "name": "Новый", "synonym": { "ru": "Новый", "en": "New" }, "comment": "начальный статус" },
+      { "name": "ВРаботе", "synonym": "" },
+      "Завершен"
+    ]
+  },
+  "validatePath": "Enums/СтатусыОбработки",
+  "expect": {
+    "files": ["Enums/СтатусыОбработки.xml"]
+  }
+}

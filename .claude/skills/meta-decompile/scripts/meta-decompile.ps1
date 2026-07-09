@@ -1,7 +1,8 @@
-﻿# meta-decompile v0.41 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
+﻿# meta-decompile v0.42 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 #
-# Поддержаны: Catalog, ExchangePlan, ChartOfCharacteristicTypes, ChartOfAccounts, ChartOfCalculationTypes, Document. Инверс meta-compile (omit-on-default: ключ эмитим только
+# Поддержаны: Catalog, ExchangePlan, ChartOfCharacteristicTypes, ChartOfAccounts, ChartOfCalculationTypes, Document,
+# InformationRegister, AccumulationRegister, AccountingRegister, CalculationRegister, BusinessProcess, Task, Enum. Инверс meta-compile (omit-on-default: ключ эмитим только
 # когда значение в XML отличается от умолчания компилятора). Неподдерживаемый тип / не-MetaDataObject
 # root → exit 3 (ring3, как form-decompile).
 param(
@@ -91,8 +92,8 @@ foreach ($c in $rootEl.ChildNodes) { if ($c.NodeType -eq 'Element') { $objNode =
 if (-not $objNode) { [Console]::Error.WriteLine("meta-decompile: пустой MetaDataObject"); exit 3 }
 $objType = $objNode.LocalName
 
-if ($objType -notin @('Catalog', 'ExchangePlan', 'ChartOfCharacteristicTypes', 'ChartOfAccounts', 'ChartOfCalculationTypes', 'Document', 'InformationRegister', 'AccumulationRegister', 'AccountingRegister', 'CalculationRegister', 'BusinessProcess', 'Task')) {
-	[Console]::Error.WriteLine("meta-decompile: тип '$objType' пока не поддержан (Catalog, ExchangePlan, ChartOfCharacteristicTypes, ChartOfAccounts, ChartOfCalculationTypes, Document, InformationRegister, AccumulationRegister, AccountingRegister, CalculationRegister, BusinessProcess, Task)"); exit 3
+if ($objType -notin @('Catalog', 'ExchangePlan', 'ChartOfCharacteristicTypes', 'ChartOfAccounts', 'ChartOfCalculationTypes', 'Document', 'InformationRegister', 'AccumulationRegister', 'AccountingRegister', 'CalculationRegister', 'BusinessProcess', 'Task', 'Enum')) {
+	[Console]::Error.WriteLine("meta-decompile: тип '$objType' пока не поддержан (Catalog, ExchangePlan, ChartOfCharacteristicTypes, ChartOfAccounts, ChartOfCalculationTypes, Document, InformationRegister, AccumulationRegister, AccountingRegister, CalculationRegister, BusinessProcess, Task, Enum)"); exit 3
 }
 
 $props = $objNode.SelectSingleNode('md:Properties', $nsm)
@@ -429,11 +430,11 @@ Add-BoolProp 'autonumbering'     'Autonumbering'     $true
 Add-BoolProp 'checkUnique'       'CheckUnique'       $checkUniqueDef
 Add-EnumProp 'codeSeries'        'CodeSeries'        $codeSeriesDef
 Add-EnumProp 'defaultPresentation' 'DefaultPresentation' $defPresDef
-Add-BoolProp 'quickChoice'       'QuickChoice'       $false
+Add-BoolProp 'quickChoice'       'QuickChoice'       $(if ($objType -eq 'Enum') { $true } else { $false })   # Enum дефолт true (компилятор+корпус); прочие false
 Add-EnumProp 'choiceMode'        'ChoiceMode'        'BothWays'
 Add-EnumProp 'dataLockControlMode' 'DataLockControlMode' $dataLockDef
 Add-EnumProp 'fullTextSearch'    'FullTextSearch'    'Use'
-Add-BoolProp 'useStandardCommands' 'UseStandardCommands' $true
+Add-BoolProp 'useStandardCommands' 'UseStandardCommands' $(if ($objType -eq 'Enum') { $false } else { $true })
 Add-EnumProp 'createOnInput'     'CreateOnInput'     $createInpDef
 Add-EnumProp 'editType'          'EditType'          'InDialog'
 Add-BoolProp 'includeHelpInContents' 'IncludeHelpInContents' $false
@@ -717,6 +718,7 @@ $stdFixedByType = @{
 	'ChartOfAccounts' = @('PredefinedDataName','Order','OffBalance','Type','Description','Code','Parent','Predefined','DeletionMark','Ref')
 	'ChartOfCalculationTypes' = @('PredefinedDataName','Predefined','Ref','DeletionMark','ActionPeriodIsBasic','Description','Code')
 	'Document' = @('Ref','DeletionMark','Date','Number','Posted')
+	'Enum' = @('Order','Ref')
 }
 $stdFixed = if ($stdFixedByType.ContainsKey($objType)) { $stdFixedByType[$objType] } else { @() }
 # Условные типы: блок эмитим-как-триггер даже пустым (материализуется при отклонении ≥1 реквизита от schema-default;
@@ -774,7 +776,7 @@ if ($saNode) {
 	}
 	# Условный тип (Catalog): пустой $saMap = триггер блока. Не-условный (ExchangePlan): блок и так эмитится → пустой не пишем.
 	if ($saMap.Count -gt 0 -or ($stdConditionalTypes -contains $objType)) { $dsl['standardAttributes'] = $saMap }
-} elseif ($objType -in @('InformationRegister', 'AccumulationRegister', 'AccountingRegister', 'CalculationRegister', 'BusinessProcess', 'Task')) {
+} elseif ($objType -in @('InformationRegister', 'AccumulationRegister', 'AccountingRegister', 'CalculationRegister', 'BusinessProcess', 'Task', 'Enum')) {
 	# Регистр/БП/Задача опускают all-default блок стандартных реквизитов (правило не выводимо) — компилятор эмитит его
 	# по дефолту, поэтому отсутствие фиксируем opt-out `standardAttributes:""` (дом-конвенция суппресса).
 	$dsl['standardAttributes'] = ''
@@ -788,6 +790,34 @@ if ($childObjs) {
 		$arr = [System.Collections.ArrayList]@()
 		foreach ($a in $attrs) { [void]$arr.Add((Attr-ToDsl $a)) }
 		$dsl['attributes'] = $arr
+	}
+	# Enum: значения перечисления. Плоский элемент name/synonym/comment. Короткая форма — строка "Имя"
+	# (синоним == авто из имени, без comment, не мультиязычный); иначе объект {name, synonym?, comment?}.
+	$evNodes = @($childObjs.SelectNodes('md:EnumValue', $nsm))
+	if ($evNodes.Count -gt 0) {
+		$evArr = [System.Collections.ArrayList]@()
+		foreach ($ev in $evNodes) {
+			$evp = $ev.SelectSingleNode('md:Properties', $nsm)
+			$evName = ($evp.SelectSingleNode('md:Name', $nsm)).InnerText
+			$evSynNode = $evp.SelectSingleNode('md:Synonym', $nsm)
+			$evSyn = Get-MLValue $evSynNode
+			$evCmtN = $evp.SelectSingleNode('md:Comment', $nsm); $evCmt = if ($evCmtN) { $evCmtN.InnerText } else { '' }
+			# $evSynVal: строка ≠ авто → кастом; {ru,en} → кастом; пустой `<Synonym/>` (node есть, значения нет) →
+			# явный '' (≠ авто-синоним из имени, аналог object-level фикса); авто/отсутствие → $null (короткая строка).
+			$evSynVal = $null
+			if ($evSyn -is [string]) { if ($evSyn -ne (Split-CamelWords $evName)) { $evSynVal = $evSyn } }
+			elseif ($null -ne $evSyn) { $evSynVal = $evSyn }
+			elseif ($evSynNode) { $evSynVal = '' }
+			if (($null -ne $evSynVal) -or $evCmt) {
+				$o = [ordered]@{ name = $evName }
+				if ($null -ne $evSynVal) { $o['synonym'] = $evSynVal }
+				if ($evCmt) { $o['comment'] = $evCmt }
+				[void]$evArr.Add($o)
+			} else {
+				[void]$evArr.Add($evName)
+			}
+		}
+		$dsl['values'] = $evArr
 	}
 	# ChartOfAccounts: признаки учёта (AccountingFlag) и признаки учёта субконто (ExtDimensionAccountingFlag) —
 	# структурно как реквизит, захватываем тем же Attr-ToDsl (тип Boolean уходит в короткую запись).
