@@ -1,0 +1,17 @@
+{
+  "name": "Функциональная опция с составом",
+  "input": {
+    "type": "FunctionalOption",
+    "name": "ВестиУчетПоСкладам",
+    "comment": "(Демо)",
+    "location": "Constant.ВестиУчетПоСкладам",
+    "content": [
+      "Document.РеализацияТоваров.TabularSection.Товары.Attribute.Склад",
+      "AccumulationRegister.ОстаткиТоваров.Dimension.Склад"
+    ]
+  },
+  "validatePath": "FunctionalOptions/ВестиУчетПоСкладам",
+  "expect": {
+    "files": ["FunctionalOptions/ВестиУчетПоСкладам.xml"]
+  }
+}

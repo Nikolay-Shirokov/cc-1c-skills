@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-compile v1.53 — Compile 1C metadata object from JSON
+# meta-compile v1.54 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -314,6 +314,7 @@ object_type_synonyms = {
     'HTTPСервис': 'HTTPService',
     'ВебСервис': 'WebService',
     'ОпределяемыйТип': 'DefinedType',
+    'ФункциональнаяОпция': 'FunctionalOption',
 }
 
 # Enum property value synonyms — model often gets these slightly wrong
@@ -460,6 +461,7 @@ valid_types = [
     'BusinessProcess', 'Task', 'ExchangePlan', 'DocumentJournal',
     'Report', 'DataProcessor', 'CommonModule', 'ScheduledJob',
     'EventSubscription', 'HTTPService', 'WebService', 'DefinedType',
+    'FunctionalOption',
 ]
 if obj_type not in valid_types:
     print(f"Unsupported type: {obj_type}. Valid: {', '.join(valid_types)}", file=sys.stderr)
@@ -707,6 +709,30 @@ fill_empty_ref_words = ('emptyref', 'пустаяссылка')
 fill_enum_val_words = ('enumvalue', 'значениеперечисления')
 fill_bool_true = ('true', 'истина', 'да')
 fill_bool_false = ('false', 'ложь', 'нет')
+# Прощающий ввод MDObjectRef-путей (Location/Content функц. опции): русские корни метаданных + подвиды →
+# английские. Виды на ЧЁТНЫХ позициях (0,2,4…); имена (нечётные) не трогаем. Английские пути неизменны.
+md_ref_roots = {
+    'справочник': 'Catalog', 'документ': 'Document', 'перечисление': 'Enum', 'константа': 'Constant',
+    'регистрсведений': 'InformationRegister', 'регистрнакопления': 'AccumulationRegister',
+    'регистрбухгалтерии': 'AccountingRegister', 'регистррасчета': 'CalculationRegister', 'регистррасчёта': 'CalculationRegister',
+    'плансчетов': 'ChartOfAccounts', 'планвидовхарактеристик': 'ChartOfCharacteristicTypes',
+    'планвидоврасчета': 'ChartOfCalculationTypes', 'планвидоврасчёта': 'ChartOfCalculationTypes',
+    'планобмена': 'ExchangePlan', 'бизнеспроцесс': 'BusinessProcess', 'задача': 'Task',
+    'журналдокументов': 'DocumentJournal', 'отчет': 'Report', 'отчёт': 'Report', 'обработка': 'DataProcessor',
+    'табличнаячасть': 'TabularSection', 'реквизит': 'Attribute', 'измерение': 'Dimension', 'ресурс': 'Resource',
+    'стандартныйреквизит': 'StandardAttribute', 'значениеперечисления': 'EnumValue', 'команда': 'Command',
+    'признакучета': 'AccountingFlag', 'признакучёта': 'AccountingFlag',
+}
+
+def normalize_md_object_ref(ref):
+    if not ref or '.' not in ref:
+        return ref
+    parts = ref.split('.')
+    for k in range(0, len(parts), 2):
+        t = md_ref_roots.get(parts[k].lower())
+        if t:
+            parts[k] = t
+    return '.'.join(parts)
 # Значения платформенного перечисления ВидСчета (ent:AccountType) — FillValue реквизита Тип у Плана счетов.
 ACCOUNT_TYPE_VALUES = ('Active', 'Passive', 'ActivePassive')
 # «Только обороты» (<Turnover>) — предопределённый признак учёта субконто; токен в списке flags наравне с добавленными.
@@ -2469,6 +2495,32 @@ def emit_defined_type_properties(indent):
     else:
         X(f'{i}<Type/>')
 
+def emit_functional_option_properties(indent):
+    i = indent
+    X(f'{i}<Name>{esc_xml(obj_name)}</Name>')
+    emit_mltext(i, 'Synonym', synonym)
+    if defn.get('comment'):
+        X(f'{i}<Comment>{esc_xml_text(str(defn["comment"]))}</Comment>')
+    else:
+        X(f'{i}<Comment/>')
+    # Location — хранилище значения опции (ссылка verbatim; location или value).
+    loc = str(defn['location']) if defn.get('location') else (str(defn['value']) if defn.get('value') else '')
+    if loc:
+        X(f'{i}<Location>{esc_xml(normalize_md_object_ref(loc))}</Location>')
+    else:
+        X(f'{i}<Location/>')
+    # PrivilegedGetMode — дефолт true (корпус 2864/2864).
+    X(f'{i}<PrivilegedGetMode>{"true" if get_bool_prop("privilegedGetMode", True) else "false"}</PrivilegedGetMode>')
+    # Content — зависимые объекты (список MDObjectRef-путей). omit-on-empty.
+    content = list(defn['content']) if defn.get('content') else []
+    if content:
+        X(f'{i}<Content>')
+        for obj in content:
+            X(f'{i}\t<xr:Object>{esc_xml(normalize_md_object_ref(str(obj)))}</xr:Object>')
+        X(f'{i}</Content>')
+    else:
+        X(f'{i}<Content/>')
+
 def emit_common_module_properties(indent):
     i = indent
     X(f'{i}<Name>{esc_xml(obj_name)}</Name>')
@@ -3418,6 +3470,7 @@ property_emitters = {
     'InformationRegister': emit_information_register_properties,
     'AccumulationRegister': emit_accumulation_register_properties,
     'DefinedType': emit_defined_type_properties,
+    'FunctionalOption': emit_functional_option_properties,
     'CommonModule': emit_common_module_properties,
     'ScheduledJob': emit_scheduled_job_properties,
     'EventSubscription': emit_event_subscription_properties,
@@ -3687,6 +3740,7 @@ type_plural_map = {
     'HTTPService': 'HTTPServices',
     'WebService': 'WebServices',
     'DefinedType': 'DefinedTypes',
+    'FunctionalOption': 'FunctionalOptions',
 }
 
 type_plural = type_plural_map[obj_type]

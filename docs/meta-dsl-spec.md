@@ -963,6 +963,29 @@ true); `characteristics` (§7.1.4); `basedOn`/`inputByString`/`dataLockFields` (
 { "type": "DefinedType", "name": "ФлагАктивности", "valueType": "Boolean" }
 ```
 
+### 7.7a FunctionalOption (Функциональная опция)
+
+Функциональная опция: хранилище значения (Location) + список зависимых объектов (Content). Без InternalInfo,
+ChildObjects и модулей.
+
+| Поле JSON | Умолчание | XML элемент |
+|-----------|----------|-------------|
+| `location` | `""` | Location — где хранится значение опции: `Constant.X` / `InformationRegister.X.Resource.Y` / `<Тип>.X.Attribute.Y` (алиас `value`) |
+| `content` | `[]` | Content — массив MDObjectRef-путей к реквизитам/измерениям/ресурсам, зависящим от опции (`<xr:Object>`) |
+| `privilegedGetMode` | `true` | PrivilegedGetMode |
+| `comment` | пусто | Comment |
+
+`location`/`content` — **полные MDObjectRef-пути к внешним объектам** (короткой self-формы нет — опция ссылается
+на реквизиты чужих объектов). Прощающий ввод: русские корни метаданных и подвидов (Документ→Document,
+ТабличнаяЧасть→TabularSection, Реквизит→Attribute, Измерение→Dimension, Ресурс→Resource, Константа→Constant, …);
+имена объектов не трогаются.
+
+```json
+{ "type": "FunctionalOption", "name": "ВестиУчетПоСкладам", "location": "Constant.ВестиУчетПоСкладам",
+  "content": ["Документ.РеализацияТоваров.ТабличнаяЧасть.Товары.Реквизит.Склад",
+              "РегистрНакопления.ОстаткиТоваров.Измерение.Склад"] }
+```
+
 ### 7.8 CommonModule
 
 | Поле JSON | Умолчание | XML элемент |

@@ -1,4 +1,4 @@
-﻿# meta-compile v1.53 — Compile 1C metadata object from JSON
+﻿# meta-compile v1.54 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -197,6 +197,7 @@ $script:objectTypeSynonyms = @{
 	"HTTPСервис"              = "HTTPService"
 	"ВебСервис"               = "WebService"
 	"ОпределяемыйТип"         = "DefinedType"
+	"ФункциональнаяОпция"     = "FunctionalOption"
 }
 
 # Enum property value synonyms — model often gets these slightly wrong
@@ -346,7 +347,7 @@ $validTypes = @("Catalog","Document","Enum","Constant","InformationRegister","Ac
 	"AccountingRegister","CalculationRegister","ChartOfAccounts","ChartOfCharacteristicTypes",
 	"ChartOfCalculationTypes","BusinessProcess","Task","ExchangePlan","DocumentJournal",
 	"Report","DataProcessor","CommonModule","ScheduledJob","EventSubscription",
-	"HTTPService","WebService","DefinedType")
+	"HTTPService","WebService","DefinedType","FunctionalOption")
 if ($objType -notin $validTypes) {
 	Write-Error "Unsupported type: $objType. Valid: $($validTypes -join ', ')"
 	exit 1
@@ -680,6 +681,31 @@ $script:fillEmptyRefWords = @('emptyref','пустаяссылка')
 $script:fillEnumValWords  = @('enumvalue','значениеперечисления')
 $script:fillBoolTrue  = @('true','истина','да')
 $script:fillBoolFalse = @('false','ложь','нет')
+# Прощающий ввод MDObjectRef-путей (Location/Content функц. опции, registerRecords и т.п.): русские корни
+# метаданных + подвиды → английские. Виды стоят на ЧЁТНЫХ позициях (0,2,4…), имена (нечётные) не трогаем.
+# Английские пути проходят без изменений (в мапе только русские ключи) → роундтрип byte-exact сохраняется.
+$script:mdRefRoots = @{
+	'справочник'='Catalog'; 'документ'='Document'; 'перечисление'='Enum'; 'константа'='Constant';
+	'регистрсведений'='InformationRegister'; 'регистрнакопления'='AccumulationRegister';
+	'регистрбухгалтерии'='AccountingRegister'; 'регистррасчета'='CalculationRegister'; 'регистррасчёта'='CalculationRegister';
+	'плансчетов'='ChartOfAccounts'; 'планвидовхарактеристик'='ChartOfCharacteristicTypes';
+	'планвидоврасчета'='ChartOfCalculationTypes'; 'планвидоврасчёта'='ChartOfCalculationTypes';
+	'планобмена'='ExchangePlan'; 'бизнеспроцесс'='BusinessProcess'; 'задача'='Task';
+	'журналдокументов'='DocumentJournal'; 'отчет'='Report'; 'отчёт'='Report'; 'обработка'='DataProcessor';
+	'табличнаячасть'='TabularSection'; 'реквизит'='Attribute'; 'измерение'='Dimension'; 'ресурс'='Resource';
+	'стандартныйреквизит'='StandardAttribute'; 'значениеперечисления'='EnumValue'; 'команда'='Command';
+	'признакучета'='AccountingFlag'; 'признакучёта'='AccountingFlag'
+}
+function Normalize-MDObjectRef {
+	param([string]$ref)
+	if (-not $ref -or -not $ref.Contains('.')) { return $ref }
+	$parts = $ref -split '\.'
+	for ($k = 0; $k -lt $parts.Count; $k += 2) {
+		$t = $script:mdRefRoots[$parts[$k].ToLower()]
+		if ($t) { $parts[$k] = $t }
+	}
+	return ($parts -join '.')
+}
 # Значения платформенного перечисления ВидСчета (ent:AccountType) — FillValue стандартного реквизита Тип у Плана счетов.
 $script:accountTypeValues = @('Active','Passive','ActivePassive')
 # XxxRef (тип реквизита) → корень DTR-пути (для разворота короткой записи значения).
@@ -2472,6 +2498,31 @@ function Emit-DefinedTypeProperties {
 	if ($vt) { Emit-ValueType $i $vt } else { X "$i<Type/>" }
 }
 
+function Emit-FunctionalOptionProperties {
+	param([string]$indent)
+	$i = $indent
+
+	X "$i<Name>$(Esc-Xml $objName)</Name>"
+	Emit-MLText $i "Synonym" $synonym
+	if ($def.comment) { X "$i<Comment>$(Esc-XmlText $def.comment)</Comment>" } else { X "$i<Comment/>" }
+	# Location — хранилище значения опции (Constant.X / InformationRegister.X.Resource.Y / <Тип>.X.Attribute.Y).
+	# Ссылка verbatim (MDObjectRef-путь; принимаем location или value).
+	$loc = if ($def.location) { "$($def.location)" } elseif ($def.value) { "$($def.value)" } else { "" }
+	if ($loc) { X "$i<Location>$(Esc-Xml (Normalize-MDObjectRef $loc))</Location>" } else { X "$i<Location/>" }
+	# PrivilegedGetMode — привилегированный режим чтения (корпус 2864/2864 = true → дефолт true).
+	X "$i<PrivilegedGetMode>$(if (Get-BoolProp 'privilegedGetMode' $true) { 'true' } else { 'false' })</PrivilegedGetMode>"
+	# Content — объекты, зависящие от опции (список MDObjectRef-путей к реквизитам/измерениям/ресурсам). omit-on-empty.
+	$content = @()
+	if ($def.content) { $content = @($def.content) }
+	if ($content.Count -gt 0) {
+		X "$i<Content>"
+		foreach ($obj in $content) { X "$i`t<xr:Object>$(Esc-Xml (Normalize-MDObjectRef "$obj"))</xr:Object>" }
+		X "$i</Content>"
+	} else {
+		X "$i<Content/>"
+	}
+}
+
 function Emit-CommonModuleProperties {
 	param([string]$indent)
 	$i = $indent
@@ -3565,6 +3616,7 @@ switch ($objType) {
 	"InformationRegister"        { Emit-InformationRegisterProperties "`t`t`t" }
 	"AccumulationRegister"       { Emit-AccumulationRegisterProperties "`t`t`t" }
 	"DefinedType"                { Emit-DefinedTypeProperties "`t`t`t" }
+	"FunctionalOption"           { Emit-FunctionalOptionProperties "`t`t`t" }
 	"CommonModule"               { Emit-CommonModuleProperties "`t`t`t" }
 	"ScheduledJob"               { Emit-ScheduledJobProperties "`t`t`t" }
 	"EventSubscription"          { Emit-EventSubscriptionProperties "`t`t`t" }
@@ -3848,6 +3900,7 @@ $script:typePluralMap = @{
 	"HTTPService"               = "HTTPServices"
 	"WebService"                = "WebServices"
 	"DefinedType"               = "DefinedTypes"
+	"FunctionalOption"          = "FunctionalOptions"
 }
 
 $typePlural = $script:typePluralMap[$objType]

@@ -1,4 +1,4 @@
-﻿# meta-decompile v0.44 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
+﻿# meta-decompile v0.45 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 #
 # Поддержаны: Catalog, ExchangePlan, ChartOfCharacteristicTypes, ChartOfAccounts, ChartOfCalculationTypes, Document,
@@ -92,8 +92,8 @@ foreach ($c in $rootEl.ChildNodes) { if ($c.NodeType -eq 'Element') { $objNode =
 if (-not $objNode) { [Console]::Error.WriteLine("meta-decompile: пустой MetaDataObject"); exit 3 }
 $objType = $objNode.LocalName
 
-if ($objType -notin @('Catalog', 'ExchangePlan', 'ChartOfCharacteristicTypes', 'ChartOfAccounts', 'ChartOfCalculationTypes', 'Document', 'InformationRegister', 'AccumulationRegister', 'AccountingRegister', 'CalculationRegister', 'BusinessProcess', 'Task', 'Enum', 'Report', 'DataProcessor', 'Constant', 'DefinedType')) {
-	[Console]::Error.WriteLine("meta-decompile: тип '$objType' пока не поддержан (Catalog, ExchangePlan, ChartOfCharacteristicTypes, ChartOfAccounts, ChartOfCalculationTypes, Document, InformationRegister, AccumulationRegister, AccountingRegister, CalculationRegister, BusinessProcess, Task, Enum, Report, DataProcessor, Constant, DefinedType)"); exit 3
+if ($objType -notin @('Catalog', 'ExchangePlan', 'ChartOfCharacteristicTypes', 'ChartOfAccounts', 'ChartOfCalculationTypes', 'Document', 'InformationRegister', 'AccumulationRegister', 'AccountingRegister', 'CalculationRegister', 'BusinessProcess', 'Task', 'Enum', 'Report', 'DataProcessor', 'Constant', 'DefinedType', 'FunctionalOption')) {
+	[Console]::Error.WriteLine("meta-decompile: тип '$objType' пока не поддержан (Catalog, ExchangePlan, ChartOfCharacteristicTypes, ChartOfAccounts, ChartOfCalculationTypes, Document, InformationRegister, AccumulationRegister, AccountingRegister, CalculationRegister, BusinessProcess, Task, Enum, Report, DataProcessor, Constant, DefinedType, FunctionalOption)"); exit 3
 }
 
 $props = $objNode.SelectSingleNode('md:Properties', $nsm)
@@ -598,6 +598,16 @@ if ($objType -eq 'DataProcessor') {
 if ($objType -eq 'DefinedType') {
 	$vt = Get-TypeShorthand ($props.SelectSingleNode('md:Type', $nsm))
 	if ($vt) { $dsl['valueType'] = $vt }
+}
+# FunctionalOption — функциональная опция: Location (хранилище значения) + PrivilegedGetMode + Content (зависимые объекты).
+if ($objType -eq 'FunctionalOption') {
+	$loc = P 'Location'; if ($loc) { $dsl['location'] = $loc }
+	Add-BoolProp 'privilegedGetMode' 'PrivilegedGetMode' $true   # корпус 2864/2864 true → дефолт true, ловим false
+	$contentNode = $props.SelectSingleNode('md:Content', $nsm)
+	if ($contentNode) {
+		$items = @($contentNode.SelectNodes('xr:Object', $nsm) | ForEach-Object { $_.InnerText })
+		if ($items.Count -gt 0) { $dsl['content'] = [System.Collections.ArrayList]@($items) }
+	}
 }
 # Constant — богатый одиночный реквизит: Type + свойства значения (как у реквизита) + object-уровень.
 if ($objType -eq 'Constant') {
