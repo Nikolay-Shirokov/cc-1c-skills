@@ -1,0 +1,32 @@
+{
+  "name": "Журнал документов с колонками",
+  "input": {
+    "type": "DocumentJournal",
+    "name": "ДвиженияДенег",
+    "comment": "(Демо)",
+    "defaultForm": "DocumentJournal.ДвиженияДенег.Form.ФормаСписка",
+    "registeredDocuments": [
+      "Документ.ПоступлениеНаСчет",
+      "Document.СписаниеСоСчета"
+    ],
+    "columns": [
+      {
+        "name": "Организация",
+        "references": [
+          "Документ.ПоступлениеНаСчет.Реквизит.Организация",
+          "Document.СписаниеСоСчета.Attribute.Организация"
+        ]
+      },
+      {
+        "name": "Сумма",
+        "indexing": "Index",
+        "synonym": "",
+        "references": ["Document.ПоступлениеНаСчет.Attribute.Сумма"]
+      }
+    ]
+  },
+  "validatePath": "DocumentJournals/ДвиженияДенег",
+  "expect": {
+    "files": ["DocumentJournals/ДвиженияДенег.xml"]
+  }
+}

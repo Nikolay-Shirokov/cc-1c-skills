@@ -1,4 +1,4 @@
-﻿# meta-decompile v0.45 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
+﻿# meta-decompile v0.46 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 #
 # Поддержаны: Catalog, ExchangePlan, ChartOfCharacteristicTypes, ChartOfAccounts, ChartOfCalculationTypes, Document,
@@ -92,8 +92,8 @@ foreach ($c in $rootEl.ChildNodes) { if ($c.NodeType -eq 'Element') { $objNode =
 if (-not $objNode) { [Console]::Error.WriteLine("meta-decompile: пустой MetaDataObject"); exit 3 }
 $objType = $objNode.LocalName
 
-if ($objType -notin @('Catalog', 'ExchangePlan', 'ChartOfCharacteristicTypes', 'ChartOfAccounts', 'ChartOfCalculationTypes', 'Document', 'InformationRegister', 'AccumulationRegister', 'AccountingRegister', 'CalculationRegister', 'BusinessProcess', 'Task', 'Enum', 'Report', 'DataProcessor', 'Constant', 'DefinedType', 'FunctionalOption')) {
-	[Console]::Error.WriteLine("meta-decompile: тип '$objType' пока не поддержан (Catalog, ExchangePlan, ChartOfCharacteristicTypes, ChartOfAccounts, ChartOfCalculationTypes, Document, InformationRegister, AccumulationRegister, AccountingRegister, CalculationRegister, BusinessProcess, Task, Enum, Report, DataProcessor, Constant, DefinedType, FunctionalOption)"); exit 3
+if ($objType -notin @('Catalog', 'ExchangePlan', 'ChartOfCharacteristicTypes', 'ChartOfAccounts', 'ChartOfCalculationTypes', 'Document', 'InformationRegister', 'AccumulationRegister', 'AccountingRegister', 'CalculationRegister', 'BusinessProcess', 'Task', 'Enum', 'Report', 'DataProcessor', 'Constant', 'DefinedType', 'FunctionalOption', 'DocumentJournal')) {
+	[Console]::Error.WriteLine("meta-decompile: тип '$objType' пока не поддержан (Catalog, ExchangePlan, ChartOfCharacteristicTypes, ChartOfAccounts, ChartOfCalculationTypes, Document, InformationRegister, AccumulationRegister, AccountingRegister, CalculationRegister, BusinessProcess, Task, Enum, Report, DataProcessor, Constant, DefinedType, FunctionalOption, DocumentJournal)"); exit 3
 }
 
 $props = $objNode.SelectSingleNode('md:Properties', $nsm)
@@ -609,6 +609,16 @@ if ($objType -eq 'FunctionalOption') {
 		if ($items.Count -gt 0) { $dsl['content'] = [System.Collections.ArrayList]@($items) }
 	}
 }
+# DocumentJournal — журнал документов: формы (плоские ref) + регистрируемые документы. Колонки → ChildObjects (ниже).
+if ($objType -eq 'DocumentJournal') {
+	$dfm = P 'DefaultForm'; if ($dfm) { $dsl['defaultForm'] = $dfm }
+	$afm = P 'AuxiliaryForm'; if ($afm) { $dsl['auxiliaryForm'] = $afm }
+	$rdNode = $props.SelectSingleNode('md:RegisteredDocuments', $nsm)
+	if ($rdNode) {
+		$rdItems = @($rdNode.SelectNodes('xr:Item', $nsm) | ForEach-Object { $_.InnerText })
+		if ($rdItems.Count -gt 0) { $dsl['registeredDocuments'] = [System.Collections.ArrayList]@($rdItems) }
+	}
+}
 # Constant — богатый одиночный реквизит: Type + свойства значения (как у реквизита) + object-уровень.
 if ($objType -eq 'Constant') {
 	$vt = Get-TypeShorthand ($props.SelectSingleNode('md:Type', $nsm))
@@ -797,6 +807,7 @@ $stdFixedByType = @{
 	'ChartOfCalculationTypes' = @('PredefinedDataName','Predefined','Ref','DeletionMark','ActionPeriodIsBasic','Description','Code')
 	'Document' = @('Ref','DeletionMark','Date','Number','Posted')
 	'Enum' = @('Order','Ref')
+	'DocumentJournal' = @('Type','Ref','Date','Posted','DeletionMark','Number')
 }
 $stdFixed = if ($stdFixedByType.ContainsKey($objType)) { $stdFixedByType[$objType] } else { @() }
 # Условные типы: блок эмитим-как-триггер даже пустым (материализуется при отклонении ≥1 реквизита от schema-default;
@@ -854,7 +865,7 @@ if ($saNode) {
 	}
 	# Условный тип (Catalog): пустой $saMap = триггер блока. Не-условный (ExchangePlan): блок и так эмитится → пустой не пишем.
 	if ($saMap.Count -gt 0 -or ($stdConditionalTypes -contains $objType)) { $dsl['standardAttributes'] = $saMap }
-} elseif ($objType -in @('InformationRegister', 'AccumulationRegister', 'AccountingRegister', 'CalculationRegister', 'BusinessProcess', 'Task', 'Enum')) {
+} elseif ($objType -in @('InformationRegister', 'AccumulationRegister', 'AccountingRegister', 'CalculationRegister', 'BusinessProcess', 'Task', 'Enum', 'DocumentJournal')) {
 	# Регистр/БП/Задача опускают all-default блок стандартных реквизитов (правило не выводимо) — компилятор эмитит его
 	# по дефолту, поэтому отсутствие фиксируем opt-out `standardAttributes:""` (дом-конвенция суппресса).
 	$dsl['standardAttributes'] = ''
@@ -896,6 +907,30 @@ if ($childObjs) {
 			}
 		}
 		$dsl['values'] = $evArr
+	}
+	# DocumentJournal: колонки. Каждая — object {name, synonym?, comment?, indexing?, references[]}.
+	# References — список MDObjectRef-путей к реквизитам регистрируемых документов (verbatim).
+	$colNodes = @($childObjs.SelectNodes('md:Column', $nsm))
+	if ($colNodes.Count -gt 0) {
+		$colArr = [System.Collections.ArrayList]@()
+		foreach ($col in $colNodes) {
+			$cp = $col.SelectSingleNode('md:Properties', $nsm)
+			$cName = ($cp.SelectSingleNode('md:Name', $nsm)).InnerText
+			$o = [ordered]@{ name = $cName }
+			$cSynNode = $cp.SelectSingleNode('md:Synonym', $nsm)
+			$cSyn = Get-MLValue $cSynNode
+			if ($cSyn -is [string]) { if ($cSyn -ne (Split-CamelWords $cName)) { $o['synonym'] = $cSyn } }
+			elseif ($null -ne $cSyn) { $o['synonym'] = $cSyn }
+			elseif ($cSynNode) { $o['synonym'] = '' }   # пустой <Synonym/> ≠ авто-синоним → явный ''
+			$cCmtN = $cp.SelectSingleNode('md:Comment', $nsm); if ($cCmtN -and $cCmtN.InnerText) { $o['comment'] = $cCmtN.InnerText }
+			$cIdxN = $cp.SelectSingleNode('md:Indexing', $nsm); if ($cIdxN -and $cIdxN.InnerText -ne 'DontIndex') { $o['indexing'] = $cIdxN.InnerText }
+			$cRefNode = $cp.SelectSingleNode('md:References', $nsm)
+			$refs = [System.Collections.ArrayList]@()
+			if ($cRefNode) { foreach ($it in @($cRefNode.SelectNodes('xr:Item', $nsm))) { [void]$refs.Add($it.InnerText) } }
+			$o['references'] = $refs
+			[void]$colArr.Add($o)
+		}
+		$dsl['columns'] = $colArr
 	}
 	# ChartOfAccounts: признаки учёта (AccountingFlag) и признаки учёта субконто (ExtDimensionAccountingFlag) —
 	# структурно как реквизит, захватываем тем же Attr-ToDsl (тип Boolean уходит в короткую запись).

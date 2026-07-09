@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-compile v1.54 — Compile 1C metadata object from JSON
+# meta-compile v1.55 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -2817,38 +2817,28 @@ def emit_document_journal_properties(indent):
     i = indent
     X(f'{i}<Name>{esc_xml(obj_name)}</Name>')
     emit_mltext(i, 'Synonym', synonym)
-    X(f'{i}<Comment/>')
-    default_form = str(defn['defaultForm']) if defn.get('defaultForm') else ''
-    if default_form:
-        X(f'{i}<DefaultForm>{default_form}</DefaultForm>')
+    if defn.get('comment'):
+        X(f'{i}<Comment>{esc_xml_text(str(defn["comment"]))}</Comment>')
     else:
-        X(f'{i}<DefaultForm/>')
-    aux_form = str(defn['auxiliaryForm']) if defn.get('auxiliaryForm') else ''
-    if aux_form:
-        X(f'{i}<AuxiliaryForm>{aux_form}</AuxiliaryForm>')
-    else:
-        X(f'{i}<AuxiliaryForm/>')
-    X(f'{i}<UseStandardCommands>true</UseStandardCommands>')
+        X(f'{i}<Comment/>')
+    emit_verbatim_ref(i, 'DefaultForm', defn.get('defaultForm'))
+    emit_verbatim_ref(i, 'AuxiliaryForm', defn.get('auxiliaryForm'))
+    use_std_cmds = 'true' if get_bool_prop('useStandardCommands', True) else 'false'
+    X(f'{i}<UseStandardCommands>{use_std_cmds}</UseStandardCommands>')
     reg_docs = list(defn.get('registeredDocuments', []))
     if reg_docs:
         X(f'{i}<RegisteredDocuments>')
         for rd in reg_docs:
-            rd_str = str(rd)
-            if '.' in rd_str:
-                dot_idx = rd_str.index('.')
-                rd_prefix = rd_str[:dot_idx]
-                rd_suffix = rd_str[dot_idx + 1:]
-                if rd_prefix in object_type_synonyms:
-                    rd_prefix = object_type_synonyms[rd_prefix]
-                rd_str = f'{rd_prefix}.{rd_suffix}'
-            X(f'{i}\t<xr:Item xsi:type="xr:MDObjectRef">{rd_str}</xr:Item>')
+            X(f'{i}\t<xr:Item xsi:type="xr:MDObjectRef">{esc_xml(normalize_md_object_ref(str(rd)))}</xr:Item>')
         X(f'{i}</RegisteredDocuments>')
     else:
         X(f'{i}<RegisteredDocuments/>')
+    incl_help = 'true' if get_bool_prop('includeHelpInContents', False) else 'false'
+    X(f'{i}<IncludeHelpInContents>{incl_help}</IncludeHelpInContents>')
     emit_standard_attributes(i, 'DocumentJournal')
-    X(f'{i}<ListPresentation/>')
-    X(f'{i}<ExtendedListPresentation/>')
-    X(f'{i}<Explanation/>')
+    emit_mltext(i, 'ListPresentation', defn.get('listPresentation'))
+    emit_mltext(i, 'ExtendedListPresentation', defn.get('extendedListPresentation'))
+    emit_mltext(i, 'Explanation', defn.get('explanation'))
 
 def resolve_type_prefix_syn(ref):
     """Ссылка на объект: русский префикс типа → английский (ПланВидовХарактеристик.X → ChartOfCharacteristicTypes.X)."""
@@ -3285,7 +3275,8 @@ def emit_web_service_properties(indent):
 def emit_column(indent, col_def):
     uid = new_uuid()
     name = ''
-    col_synonym = ''
+    col_synonym = None
+    comment = ''
     indexing = 'DontIndex'
     references = []
     if isinstance(col_def, str):
@@ -3293,7 +3284,9 @@ def emit_column(indent, col_def):
         col_synonym = split_camel_case(name)
     else:
         name = str(col_def.get('name', ''))
-        col_synonym = str(col_def['synonym']) if col_def.get('synonym') else split_camel_case(name)
+        col_synonym = col_def['synonym'] if col_def.get('synonym') is not None else split_camel_case(name)  # строка ИЛИ {ru,en}
+        if col_def.get('comment'):
+            comment = str(col_def['comment'])
         if col_def.get('indexing'):
             indexing = str(col_def['indexing'])
         if col_def.get('references'):
@@ -3302,12 +3295,15 @@ def emit_column(indent, col_def):
     X(f'{indent}\t<Properties>')
     X(f'{indent}\t\t<Name>{esc_xml(name)}</Name>')
     emit_mltext(f'{indent}\t\t', 'Synonym', col_synonym)
-    X(f'{indent}\t\t<Comment/>')
+    if comment:
+        X(f'{indent}\t\t<Comment>{esc_xml_text(comment)}</Comment>')
+    else:
+        X(f'{indent}\t\t<Comment/>')
     X(f'{indent}\t\t<Indexing>{indexing}</Indexing>')
     if references:
         X(f'{indent}\t\t<References>')
         for ref in references:
-            X(f'{indent}\t\t\t<xr:Item xsi:type="xr:MDObjectRef">{ref}</xr:Item>')
+            X(f'{indent}\t\t\t<xr:Item xsi:type="xr:MDObjectRef">{esc_xml(normalize_md_object_ref(str(ref)))}</xr:Item>')
         X(f'{indent}\t\t</References>')
     else:
         X(f'{indent}\t\t<References/>')
@@ -3659,14 +3655,25 @@ if obj_type in ('InformationRegister', 'AccumulationRegister', 'AccountingRegist
     else:
         X('\t\t<ChildObjects/>')
 
-# --- DocumentJournal: columns ---
+# --- DocumentJournal: columns + commands ---
 if obj_type == 'DocumentJournal':
     columns = list(defn.get('columns', []))
-    if columns:
+    dj_commands = []
+    if defn.get('commands'):
+        cd = defn['commands']
+        if isinstance(cd, list):
+            for c in cd:
+                dj_commands.append({'name': str(c.get('name', '')), 'def': c})
+        else:
+            for k, v in cd.items():
+                dj_commands.append({'name': k, 'def': v})
+    if columns or dj_commands:
         has_children = True
         X('\t\t<ChildObjects>')
         for col in columns:
             emit_column('\t\t\t', col)
+        for cmd in dj_commands:
+            emit_command('\t\t\t', cmd['name'], cmd['def'])
         X('\t\t</ChildObjects>')
     else:
         X('\t\t<ChildObjects/>')

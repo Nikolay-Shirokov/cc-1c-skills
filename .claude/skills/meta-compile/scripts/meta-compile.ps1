@@ -1,4 +1,4 @@
-﻿# meta-compile v1.54 — Compile 1C metadata object from JSON
+﻿# meta-compile v1.55 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -2867,45 +2867,32 @@ function Emit-DocumentJournalProperties {
 
 	X "$i<Name>$(Esc-Xml $objName)</Name>"
 	Emit-MLText $i "Synonym" $synonym
-	X "$i<Comment/>"
+	if ($def.comment) { X "$i<Comment>$(Esc-XmlText $def.comment)</Comment>" } else { X "$i<Comment/>" }
 
-	$defaultForm = if ($def.defaultForm) { "$($def.defaultForm)" } else { "" }
-	if ($defaultForm) { X "$i<DefaultForm>$defaultForm</DefaultForm>" } else { X "$i<DefaultForm/>" }
+	Emit-VerbatimRef $i "DefaultForm"   $def.defaultForm
+	Emit-VerbatimRef $i "AuxiliaryForm" $def.auxiliaryForm
+	$useStdCmds = if (Get-BoolProp "useStandardCommands" $true) { "true" } else { "false" }
+	X "$i<UseStandardCommands>$useStdCmds</UseStandardCommands>"
 
-	$auxForm = if ($def.auxiliaryForm) { "$($def.auxiliaryForm)" } else { "" }
-	if ($auxForm) { X "$i<AuxiliaryForm>$auxForm</AuxiliaryForm>" } else { X "$i<AuxiliaryForm/>" }
-
-	X "$i<UseStandardCommands>true</UseStandardCommands>"
-
-	# RegisteredDocuments
+	# RegisteredDocuments — регистрируемые документы (список MDObjectRef, прощающий ввод русских корней).
 	$regDocs = @()
 	if ($def.registeredDocuments) { $regDocs = @($def.registeredDocuments) }
 	if ($regDocs.Count -gt 0) {
 		X "$i<RegisteredDocuments>"
-		foreach ($rd in $regDocs) {
-			$rdStr = "$rd"
-			# Resolve Russian synonyms: Документ.Xxx → Document.Xxx
-			if ($rdStr.Contains('.')) {
-				$dotIdx = $rdStr.IndexOf('.')
-				$rdPrefix = $rdStr.Substring(0, $dotIdx)
-				$rdSuffix = $rdStr.Substring($dotIdx + 1)
-				if ($script:objectTypeSynonyms.ContainsKey($rdPrefix)) {
-					$rdPrefix = $script:objectTypeSynonyms[$rdPrefix]
-				}
-				$rdStr = "$rdPrefix.$rdSuffix"
-			}
-			X "$i`t<xr:Item xsi:type=`"xr:MDObjectRef`">$rdStr</xr:Item>"
-		}
+		foreach ($rd in $regDocs) { X "$i`t<xr:Item xsi:type=`"xr:MDObjectRef`">$(Esc-Xml (Normalize-MDObjectRef "$rd"))</xr:Item>" }
 		X "$i</RegisteredDocuments>"
 	} else {
 		X "$i<RegisteredDocuments/>"
 	}
 
+	$inclHelp = if (Get-BoolProp "includeHelpInContents" $false) { "true" } else { "false" }
+	X "$i<IncludeHelpInContents>$inclHelp</IncludeHelpInContents>"
+
 	Emit-StandardAttributes $i "DocumentJournal"
 
-	X "$i<ListPresentation/>"
-	X "$i<ExtendedListPresentation/>"
-	X "$i<Explanation/>"
+	Emit-MLText $i "ListPresentation" $def.listPresentation
+	Emit-MLText $i "ExtendedListPresentation" $def.extendedListPresentation
+	Emit-MLText $i "Explanation" $def.explanation
 }
 
 # --- 13d. Wave 4: ChartOfAccounts, AccountingRegister, ChartOfCalculationTypes, CalculationRegister ---
@@ -3407,7 +3394,8 @@ function Emit-Column {
 	$uuid = New-Guid-String
 
 	$name = ""
-	$synonym = ""
+	$synonym = $null
+	$comment = ""
 	$indexing = "DontIndex"
 	$references = @()
 
@@ -3416,7 +3404,8 @@ function Emit-Column {
 		$synonym = Split-CamelCase $name
 	} else {
 		$name = "$($colDef.name)"
-		$synonym = if ($colDef.synonym) { "$($colDef.synonym)" } else { Split-CamelCase $name }
+		$synonym = if ($null -ne $colDef.synonym) { $colDef.synonym } else { Split-CamelCase $name }   # строка ИЛИ {ru,en}
+		if ($colDef.comment) { $comment = "$($colDef.comment)" }
 		if ($colDef.indexing) { $indexing = "$($colDef.indexing)" }
 		if ($colDef.references) { $references = @($colDef.references) }
 	}
@@ -3425,12 +3414,12 @@ function Emit-Column {
 	X "$indent`t<Properties>"
 	X "$indent`t`t<Name>$(Esc-Xml $name)</Name>"
 	Emit-MLText "$indent`t`t" "Synonym" $synonym
-	X "$indent`t`t<Comment/>"
+	if ($comment) { X "$indent`t`t<Comment>$(Esc-XmlText $comment)</Comment>" } else { X "$indent`t`t<Comment/>" }
 	X "$indent`t`t<Indexing>$indexing</Indexing>"
 	if ($references.Count -gt 0) {
 		X "$indent`t`t<References>"
 		foreach ($ref in $references) {
-			X "$indent`t`t`t<xr:Item xsi:type=`"xr:MDObjectRef`">$ref</xr:Item>"
+			X "$indent`t`t`t<xr:Item xsi:type=`"xr:MDObjectRef`">$(Esc-Xml (Normalize-MDObjectRef "$ref"))</xr:Item>"
 		}
 		X "$indent`t`t</References>"
 	} else {
@@ -3810,15 +3799,26 @@ if ($objType -in @("InformationRegister","AccumulationRegister","AccountingRegis
 	}
 }
 
-# --- DocumentJournal: columns ---
+# --- DocumentJournal: columns + commands ---
 if ($objType -eq "DocumentJournal") {
 	$columns = @()
 	if ($def.columns) { $columns = @($def.columns) }
-	if ($columns.Count -gt 0) {
+	$djCommands = @()
+	if ($def.commands) {
+		if ($def.commands -is [array] -or $def.commands.GetType().Name -eq 'Object[]') {
+			foreach ($c in $def.commands) { $djCommands += @{ name = "$($c.name)"; def = $c } }
+		} else {
+			$def.commands.PSObject.Properties | ForEach-Object { $djCommands += @{ name = $_.Name; def = $_.Value } }
+		}
+	}
+	if ($columns.Count -gt 0 -or $djCommands.Count -gt 0) {
 		$hasChildren = $true
 		X "`t`t<ChildObjects>"
 		foreach ($col in $columns) {
 			Emit-Column "`t`t`t" $col
+		}
+		foreach ($cmd in $djCommands) {
+			Emit-Command "`t`t`t" $cmd.name $cmd.def
 		}
 		X "`t`t</ChildObjects>"
 	} else {

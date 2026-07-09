@@ -1152,27 +1152,38 @@ ChildObjects и модулей.
 }
 ```
 
-### 7.15 DocumentJournal
+### 7.15 DocumentJournal (Журнал документов)
+
+Журнал документов: список регистрируемых документов (RegisteredDocuments) + колонки (Column) со ссылками на
+реквизиты этих документов. Стандартные реквизиты — Type/Ref/Date/Posted/DeletionMark/Number.
 
 | Поле JSON | Умолчание | XML элемент |
 |-----------|----------|-------------|
-| `defaultForm` | `""` | DefaultForm |
-| `auxiliaryForm` | `""` | AuxiliaryForm |
-| `registeredDocuments` | `[]` | RegisteredDocuments |
+| `comment` | пусто | Comment |
+| `defaultForm` / `auxiliaryForm` | `""` | DefaultForm / AuxiliaryForm (ссылка verbatim) |
+| `useStandardCommands` | `true` | UseStandardCommands |
+| `registeredDocuments` | `[]` | RegisteredDocuments — массив MDObjectRef `"Document.Имя"` (прощающий ввод русских корней) |
+| `includeHelpInContents` | `false` | IncludeHelpInContents |
+| `standardAttributes` | (блок всегда) | `""` — opt-out (~7% журналов опускают); кастомизация Date/… как в §7.1.1 |
+| `listPresentation` / `extendedListPresentation` / `explanation` | пусто | презентации (ML) |
 | `columns` | `[]` | → Column в ChildObjects |
+| `commands` | `[]` | → Command в ChildObjects (§7.1.3) |
 
-Без модулей.
+**Колонка (`columns[]`)** — объект `{name, synonym?, comment?, indexing?, references[]}`:
+- `references` — массив MDObjectRef-путей к реквизитам регистрируемых документов
+  (`Document.X.Attribute.Y` / `Document.X.TabularSection.Z.Attribute.Y`); прощающий ввод русских корней;
+- `indexing` — `DontIndex` (дефолт) / `Index` / `IndexWithAdditionalOrder`;
+- `synonym: ""` — явно пустой синоним (когда авто из имени неуместен).
 
-DSL для `registeredDocuments` — массив строк `"Document.ИмяДокумента"` (или русский `"Документ.ИмяДокумента"`).
-
-DSL для `columns` (§12).
+`registeredDocuments`/`references` и `defaultForm` — прощающий ввод русских корней метаданных/подвидов
+(Документ→Document, Реквизит→Attribute, ТабличнаяЧасть→TabularSection); имена объектов не трогаются.
 
 ```json
-{
-  "type": "DocumentJournal", "name": "Взаимодействия",
-  "registeredDocuments": ["Document.Встреча", "Document.ТелефонныйЗвонок"],
-  "columns": [{ "name": "Организация", "indexing": "Index", "references": ["Document.Встреча.Attribute.Организация"] }]
-}
+{ "type": "DocumentJournal", "name": "ДвиженияДенег",
+  "registeredDocuments": ["Документ.ПоступлениеНаСчет", "Document.СписаниеСоСчета"],
+  "columns": [
+    { "name": "Организация", "references": ["Документ.ПоступлениеНаСчет.Реквизит.Организация"] },
+    { "name": "Сумма", "indexing": "Index", "references": ["Document.ПоступлениеНаСчет.Attribute.Сумма"] } ] }
 ```
 
 ### 7.16 ChartOfAccounts
