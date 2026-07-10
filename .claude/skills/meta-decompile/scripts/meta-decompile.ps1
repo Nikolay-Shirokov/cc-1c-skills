@@ -1,4 +1,4 @@
-﻿# meta-decompile v0.48 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
+﻿# meta-decompile v0.49 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 #
 # Поддержаны: Catalog, ExchangePlan, ChartOfCharacteristicTypes, ChartOfAccounts, ChartOfCalculationTypes, Document,
@@ -92,8 +92,8 @@ foreach ($c in $rootEl.ChildNodes) { if ($c.NodeType -eq 'Element') { $objNode =
 if (-not $objNode) { [Console]::Error.WriteLine("meta-decompile: пустой MetaDataObject"); exit 3 }
 $objType = $objNode.LocalName
 
-if ($objType -notin @('Catalog', 'ExchangePlan', 'ChartOfCharacteristicTypes', 'ChartOfAccounts', 'ChartOfCalculationTypes', 'Document', 'InformationRegister', 'AccumulationRegister', 'AccountingRegister', 'CalculationRegister', 'BusinessProcess', 'Task', 'Enum', 'Report', 'DataProcessor', 'Constant', 'DefinedType', 'FunctionalOption', 'DocumentJournal', 'Sequence', 'FilterCriterion', 'DocumentNumerator', 'SettingsStorage', 'CommonModule', 'EventSubscription', 'ScheduledJob')) {
-	[Console]::Error.WriteLine("meta-decompile: тип '$objType' пока не поддержан (…, CommonModule, EventSubscription, ScheduledJob)"); exit 3
+if ($objType -notin @('Catalog', 'ExchangePlan', 'ChartOfCharacteristicTypes', 'ChartOfAccounts', 'ChartOfCalculationTypes', 'Document', 'InformationRegister', 'AccumulationRegister', 'AccountingRegister', 'CalculationRegister', 'BusinessProcess', 'Task', 'Enum', 'Report', 'DataProcessor', 'Constant', 'DefinedType', 'FunctionalOption', 'DocumentJournal', 'Sequence', 'FilterCriterion', 'DocumentNumerator', 'SettingsStorage', 'CommonModule', 'EventSubscription', 'ScheduledJob', 'CommonForm')) {
+	[Console]::Error.WriteLine("meta-decompile: тип '$objType' пока не поддержан (…, CommonModule, EventSubscription, ScheduledJob, CommonForm)"); exit 3
 }
 
 $props = $objNode.SelectSingleNode('md:Properties', $nsm)
@@ -437,7 +437,7 @@ if ($objType -ne 'Constant') { Add-BoolProp 'quickChoice' 'QuickChoice' $(if ($o
 Add-EnumProp 'choiceMode'        'ChoiceMode'        'BothWays'
 Add-EnumProp 'dataLockControlMode' 'DataLockControlMode' $dataLockDef
 Add-EnumProp 'fullTextSearch'    'FullTextSearch'    'Use'
-Add-BoolProp 'useStandardCommands' 'UseStandardCommands' $(if ($objType -eq 'Enum') { $false } else { $true })   # Enum дефолт false (корпус); прочие (вкл. Report/DataProcessor) — true: авторски-безопасно (доступность через интерфейс), false фиксируем явно
+Add-BoolProp 'useStandardCommands' 'UseStandardCommands' $(if ($objType -in @('Enum', 'CommonForm')) { $false } else { $true })   # Enum/CommonForm дефолт false (корпус); прочие (вкл. Report/DataProcessor) — true
 Add-EnumProp 'createOnInput'     'CreateOnInput'     $createInpDef
 Add-EnumProp 'editType'          'EditType'          'InDialog'
 Add-BoolProp 'includeHelpInContents' 'IncludeHelpInContents' $false
@@ -677,6 +677,19 @@ if ($objType -eq 'EventSubscription') {
 	}
 	Add-EnumProp 'event' 'Event' 'BeforeWrite'
 	$h = P 'Handler'; if ($h) { $dsl['handler'] = $h }
+}
+# CommonForm — общая форма (метаданные; содержимое формы Ext/Form.xml вне роундтрипа, территория form-compile).
+if ($objType -eq 'CommonForm') {
+	Add-EnumProp 'formType' 'FormType' 'Managed'
+	# UsePurposes — дефолт [PlatformApplication, MobilePlatformApplication]; захват при отличии.
+	$upNode = $props.SelectSingleNode('md:UsePurposes', $nsm)
+	if ($upNode) {
+		$ups = @($upNode.SelectNodes('v8:Value', $nsm) | ForEach-Object { $_.InnerText })
+		$def2 = @('PlatformApplication', 'MobilePlatformApplication')
+		$same = ($ups.Count -eq $def2.Count); if ($same) { for ($k=0; $k -lt $ups.Count; $k++) { if ($ups[$k] -ne $def2[$k]) { $same=$false; break } } }
+		if (-not $same -and $ups.Count -gt 0) { $dsl['usePurposes'] = [System.Collections.ArrayList]@($ups) }
+	}
+	$ep = Get-MLValue ($props.SelectSingleNode('md:ExtendedPresentation', $nsm)); if ($null -ne $ep) { $dsl['extendedPresentation'] = $ep }
 }
 # ScheduledJob — регламентное задание: метод, ключ, флаги, рестарт.
 if ($objType -eq 'ScheduledJob') {

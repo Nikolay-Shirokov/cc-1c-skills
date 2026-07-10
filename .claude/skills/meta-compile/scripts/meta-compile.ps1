@@ -1,4 +1,4 @@
-﻿# meta-compile v1.57 — Compile 1C metadata object from JSON
+﻿# meta-compile v1.58 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -348,7 +348,7 @@ $validTypes = @("Catalog","Document","Enum","Constant","InformationRegister","Ac
 	"ChartOfCalculationTypes","BusinessProcess","Task","ExchangePlan","DocumentJournal",
 	"Report","DataProcessor","CommonModule","ScheduledJob","EventSubscription",
 	"HTTPService","WebService","DefinedType","FunctionalOption",
-	"Sequence","FilterCriterion","DocumentNumerator","SettingsStorage")
+	"Sequence","FilterCriterion","DocumentNumerator","SettingsStorage","CommonForm")
 if ($objType -notin $validTypes) {
 	Write-Error "Unsupported type: $objType. Valid: $($validTypes -join ', ')"
 	exit 1
@@ -2624,6 +2624,30 @@ function Emit-SettingsStorageProperties {
 	Emit-VerbatimRef $i "AuxiliaryLoadForm" $def.auxiliaryLoadForm
 }
 
+function Emit-CommonFormProperties {
+	param([string]$indent)
+	$i = $indent
+	X "$i<Name>$(Esc-Xml $objName)</Name>"
+	Emit-MLText $i "Synonym" $synonym
+	if ($def.comment) { X "$i<Comment>$(Esc-XmlText $def.comment)</Comment>" } else { X "$i<Comment/>" }
+	X "$i<FormType>$(Get-EnumProp 'FormType' 'formType' 'Managed')</FormType>"
+	$inclHelp = if (Get-BoolProp "includeHelpInContents" $false) { "true" } else { "false" }
+	X "$i<IncludeHelpInContents>$inclHelp</IncludeHelpInContents>"
+	# UsePurposes — назначения (использование в приложениях). Дефолт [PlatformApplication, MobilePlatformApplication].
+	$purposes = if ($def.usePurposes) { @($def.usePurposes) } else { @('PlatformApplication', 'MobilePlatformApplication') }
+	if ($purposes.Count -gt 0) {
+		X "$i<UsePurposes>"
+		foreach ($p in $purposes) { X "$i`t<v8:Value xsi:type=`"app:ApplicationUsePurpose`">$p</v8:Value>" }
+		X "$i</UsePurposes>"
+	} else {
+		X "$i<UsePurposes/>"
+	}
+	$useStdCmds = if (Get-BoolProp "useStandardCommands" $false) { "true" } else { "false" }
+	X "$i<UseStandardCommands>$useStdCmds</UseStandardCommands>"
+	Emit-MLText $i "ExtendedPresentation" $def.extendedPresentation
+	Emit-MLText $i "Explanation" $def.explanation
+}
+
 # Измерение последовательности: Name/Synonym/Comment/Type + DocumentMap/RegisterRecordsMap (списки MDObjectRef —
 # соответствие измерения реквизитам документов/движениям регистров).
 function Emit-SequenceDimension {
@@ -3731,6 +3755,7 @@ switch ($objType) {
 	"FilterCriterion"            { Emit-FilterCriterionProperties "`t`t`t" }
 	"DocumentNumerator"          { Emit-DocumentNumeratorProperties "`t`t`t" }
 	"SettingsStorage"            { Emit-SettingsStorageProperties "`t`t`t" }
+	"CommonForm"                 { Emit-CommonFormProperties "`t`t`t" }
 	"CommonModule"               { Emit-CommonModuleProperties "`t`t`t" }
 	"ScheduledJob"               { Emit-ScheduledJobProperties "`t`t`t" }
 	"EventSubscription"          { Emit-EventSubscriptionProperties "`t`t`t" }
@@ -4065,6 +4090,7 @@ $script:typePluralMap = @{
 	"FilterCriterion"           = "FilterCriteria"
 	"DocumentNumerator"         = "DocumentNumerators"
 	"SettingsStorage"           = "SettingsStorages"
+	"CommonForm"                = "CommonForms"
 }
 
 $typePlural = $script:typePluralMap[$objType]
@@ -4340,6 +4366,25 @@ if ($objType -in $typesWithModule) {
 		Ensure-ExtDir
 		[System.IO.File]::WriteAllText($modulePath, "", $enc)
 		$modulesCreated += $modulePath
+	}
+}
+# CommonForm — заготовка структуры формы под компиляцию: Ext/Form.xml (пустая управляемая форма) + Ext/Form/Module.bsl.
+# Содержимое формы наполняет form-compile/form-edit (не перезаписываем существующее).
+if ($objType -eq "CommonForm") {
+	Ensure-ExtDir
+	$cfFormXmlPath = Join-Path $extDir "Form.xml"
+	if (-not (Test-Path $cfFormXmlPath)) {
+		$cfFormNs = 'xmlns="http://v8.1c.ru/8.3/xcf/logform" xmlns:app="http://v8.1c.ru/8.2/managed-application/core" xmlns:cfg="http://v8.1c.ru/8.1/data/enterprise/current-config" xmlns:dcscor="http://v8.1c.ru/8.1/data-composition-system/core" xmlns:dcsset="http://v8.1c.ru/8.1/data-composition-system/settings" xmlns:ent="http://v8.1c.ru/8.1/data/enterprise" xmlns:lf="http://v8.1c.ru/8.2/managed-application/logform" xmlns:style="http://v8.1c.ru/8.1/data/ui/style" xmlns:sys="http://v8.1c.ru/8.1/data/ui/fonts/system" xmlns:v8="http://v8.1c.ru/8.1/data/core" xmlns:v8ui="http://v8.1c.ru/8.1/data/ui" xmlns:web="http://v8.1c.ru/8.1/data/ui/colors/web" xmlns:win="http://v8.1c.ru/8.1/data/ui/colors/windows" xmlns:xr="http://v8.1c.ru/8.3/xcf/readable" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"'
+		$cfFormXml = "<?xml version=`"1.0`" encoding=`"UTF-8`"?>`n<Form $cfFormNs version=`"$($script:formatVersion)`">`n`t<AutoCommandBar name=`"ФормаКоманднаяПанель`" id=`"-1`">`n`t`t<Autofill>true</Autofill>`n`t</AutoCommandBar>`n`t<ChildItems/>`n</Form>`n"
+		[System.IO.File]::WriteAllText($cfFormXmlPath, $cfFormXml, $enc)
+		$modulesCreated += $cfFormXmlPath
+	}
+	$cfModuleDir = Join-Path $extDir "Form"
+	if (-not (Test-Path $cfModuleDir)) { New-Item -ItemType Directory -Path $cfModuleDir -Force | Out-Null }
+	$cfModulePath = Join-Path $cfModuleDir "Module.bsl"
+	if (-not (Test-Path $cfModulePath)) {
+		[System.IO.File]::WriteAllText($cfModulePath, "", $enc)
+		$modulesCreated += $cfModulePath
 	}
 }
 

@@ -1243,6 +1243,28 @@ ChildObjects и модулей.
 | `auxiliarySaveForm` / `auxiliaryLoadForm` | `""` | Auxiliary*Form (verbatim) |
 | `comment` | пусто | Comment |
 
+### 7.15e CommonForm (Общая форма)
+
+Общая форма — самостоятельная управляемая форма (не привязана к объекту). meta-compile создаёт **метаданные +
+структуру файлов + регистрацию**, аналогично тому, как `/form-add` делает для форм объектов; **содержимое формы
+(`Ext/Form.xml`) наполняет `/form-compile` или `/form-edit`** — оно НЕ роундтрипится (территория form-навыков).
+
+| Поле JSON | Умолчание | XML элемент |
+|-----------|----------|-------------|
+| `comment` | пусто | Comment |
+| `formType` | `Managed` | FormType |
+| `includeHelpInContents` | `false` | IncludeHelpInContents |
+| `usePurposes` | `[PlatformApplication, MobilePlatformApplication]` | UsePurposes (массив ApplicationUsePurpose) |
+| `useStandardCommands` | `false` | UseStandardCommands |
+| `extendedPresentation` / `explanation` | пусто | презентации (ML) |
+
+Создаёт: `CommonForms/<Имя>.xml` (метаданные) + `CommonForms/<Имя>/Ext/Form.xml` (пустая управляемая форма-заготовка) +
+`CommonForms/<Имя>/Ext/Form/Module.bsl` + регистрацию `<CommonForm>` в Configuration.xml.
+
+```json
+{ "type": "CommonForm", "name": "НастройкиОбмена", "usePurposes": ["PlatformApplication"] }
+```
+
 ### 7.16 ChartOfAccounts
 
 Полное описание типа (все поля, стандартные реквизиты, грамматика предопределённых счетов) — см. **§7.2c**.

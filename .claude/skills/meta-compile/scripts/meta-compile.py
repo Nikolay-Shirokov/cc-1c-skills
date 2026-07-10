@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-compile v1.57 — Compile 1C metadata object from JSON
+# meta-compile v1.58 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -463,6 +463,7 @@ valid_types = [
     'EventSubscription', 'HTTPService', 'WebService', 'DefinedType',
     'FunctionalOption',
     'Sequence', 'FilterCriterion', 'DocumentNumerator', 'SettingsStorage',
+    'CommonForm',
 ]
 if obj_type not in valid_types:
     print(f"Unsupported type: {obj_type}. Valid: {', '.join(valid_types)}", file=sys.stderr)
@@ -2630,6 +2631,30 @@ def emit_settings_storage_properties(indent):
     emit_verbatim_ref(i, 'AuxiliarySaveForm', defn.get('auxiliarySaveForm'))
     emit_verbatim_ref(i, 'AuxiliaryLoadForm', defn.get('auxiliaryLoadForm'))
 
+def emit_common_form_properties(indent):
+    i = indent
+    X(f'{i}<Name>{esc_xml(obj_name)}</Name>')
+    emit_mltext(i, 'Synonym', synonym)
+    if defn.get('comment'):
+        X(f'{i}<Comment>{esc_xml_text(str(defn["comment"]))}</Comment>')
+    else:
+        X(f'{i}<Comment/>')
+    X(f'{i}<FormType>{get_enum_prop("FormType", "formType", "Managed")}</FormType>')
+    incl_help = 'true' if get_bool_prop('includeHelpInContents', False) else 'false'
+    X(f'{i}<IncludeHelpInContents>{incl_help}</IncludeHelpInContents>')
+    purposes = list(defn['usePurposes']) if defn.get('usePurposes') else ['PlatformApplication', 'MobilePlatformApplication']
+    if purposes:
+        X(f'{i}<UsePurposes>')
+        for p in purposes:
+            X(f'{i}\t<v8:Value xsi:type="app:ApplicationUsePurpose">{p}</v8:Value>')
+        X(f'{i}</UsePurposes>')
+    else:
+        X(f'{i}<UsePurposes/>')
+    use_std_cmds = 'true' if get_bool_prop('useStandardCommands', False) else 'false'
+    X(f'{i}<UseStandardCommands>{use_std_cmds}</UseStandardCommands>')
+    emit_mltext(i, 'ExtendedPresentation', defn.get('extendedPresentation'))
+    emit_mltext(i, 'Explanation', defn.get('explanation'))
+
 def emit_sequence_dimension(indent, dim_def):
     uid = new_uuid()
     parsed = parse_attribute_shorthand(dim_def)
@@ -3615,6 +3640,7 @@ property_emitters = {
     'FilterCriterion': emit_filter_criterion_properties,
     'DocumentNumerator': emit_document_numerator_properties,
     'SettingsStorage': emit_settings_storage_properties,
+    'CommonForm': emit_common_form_properties,
     'CommonModule': emit_common_module_properties,
     'ScheduledJob': emit_scheduled_job_properties,
     'EventSubscription': emit_event_subscription_properties,
@@ -3933,6 +3959,7 @@ type_plural_map = {
     'FilterCriterion': 'FilterCriteria',
     'DocumentNumerator': 'DocumentNumerators',
     'SettingsStorage': 'SettingsStorages',
+    'CommonForm': 'CommonForms',
 }
 
 type_plural = type_plural_map[obj_type]
@@ -4005,6 +4032,31 @@ if obj_type in types_with_module:
         ensure_ext_dir()
         write_utf8_bom(module_path, '')
         modules_created.append(module_path)
+
+# CommonForm — заготовка структуры формы под компиляцию (form-compile наполняет содержимое).
+if obj_type == 'CommonForm':
+    ensure_ext_dir()
+    cf_form_xml_path = os.path.join(ext_dir, 'Form.xml')
+    if not os.path.isfile(cf_form_xml_path):
+        cf_ns = ('xmlns="http://v8.1c.ru/8.3/xcf/logform" xmlns:app="http://v8.1c.ru/8.2/managed-application/core" '
+                 'xmlns:cfg="http://v8.1c.ru/8.1/data/enterprise/current-config" xmlns:dcscor="http://v8.1c.ru/8.1/data-composition-system/core" '
+                 'xmlns:dcsset="http://v8.1c.ru/8.1/data-composition-system/settings" xmlns:ent="http://v8.1c.ru/8.1/data/enterprise" '
+                 'xmlns:lf="http://v8.1c.ru/8.2/managed-application/logform" xmlns:style="http://v8.1c.ru/8.1/data/ui/style" '
+                 'xmlns:sys="http://v8.1c.ru/8.1/data/ui/fonts/system" xmlns:v8="http://v8.1c.ru/8.1/data/core" '
+                 'xmlns:v8ui="http://v8.1c.ru/8.1/data/ui" xmlns:web="http://v8.1c.ru/8.1/data/ui/colors/web" '
+                 'xmlns:win="http://v8.1c.ru/8.1/data/ui/colors/windows" xmlns:xr="http://v8.1c.ru/8.3/xcf/readable" '
+                 'xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"')
+        cf_form_xml = ('<?xml version="1.0" encoding="UTF-8"?>\n<Form ' + cf_ns + ' version="' + format_version + '">\n'
+                       '\t<AutoCommandBar name="ФормаКоманднаяПанель" id="-1">\n\t\t<Autofill>true</Autofill>\n\t</AutoCommandBar>\n'
+                       '\t<ChildItems/>\n</Form>\n')
+        write_utf8_bom(cf_form_xml_path, cf_form_xml)
+        modules_created.append(cf_form_xml_path)
+    cf_module_dir = os.path.join(ext_dir, 'Form')
+    os.makedirs(cf_module_dir, exist_ok=True)
+    cf_module_path = os.path.join(cf_module_dir, 'Module.bsl')
+    if not os.path.isfile(cf_module_path):
+        write_utf8_bom(cf_module_path, '')
+        modules_created.append(cf_module_path)
 
 # --- Predefined data (Ext/Predefined.xml). Элемент: "(Код) Имя [Наименование]" ИЛИ объект (+рус. синонимы).
 # Наименование: нет [..]/ключа → авто(Split-CamelCase); [] / "" → пусто; [текст]/текст → как есть.
