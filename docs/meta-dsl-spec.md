@@ -1265,6 +1265,25 @@ ChildObjects и модулей.
 { "type": "CommonForm", "name": "НастройкиОбмена", "usePurposes": ["PlatformApplication"] }
 ```
 
+### 7.15f Служебные типы (SessionParameter / FunctionalOptionsParameter / WSReference / CommandGroup / CommonCommand / CommonAttribute)
+
+- **SessionParameter** — параметр сеанса: `valueType` (составной тип значения). Без ChildObjects.
+- **FunctionalOptionsParameter** — параметр функ. опции: `use` (массив MDObjectRef — измерения/реквизиты).
+- **WSReference** — WS-ссылка: `locationURL` (URL WSDL). +InternalInfo Manager.
+- **CommandGroup** — группа команд: `representation` (Auto), `tooltip` (ML), `picture` (§7.1.3), `category` (NavigationPanel).
+- **CommonCommand** — общая команда: `group`, `representation`, `tooltip`, `picture`, `shortcut`, `includeHelpInContents`,
+  `commandParameterType` (тип), `parameterUseMode` (Single), `modifiesData`, `onMainServerUnavalableBehavior` (Auto).
+  Создаёт `Ext/CommandModule.bsl`.
+- **CommonAttribute** — общий реквизит: `valueType` (дефолт `String(0)`) + все value-свойства (§4.2) + `content`
+  (массив `{metadata, use?, conditionalSeparation?}` или строка) + свойства разделения данных (`autoUse`/`dataSeparation`/
+  `separatedDataUse`/`usersSeparation`/`authenticationSeparation`/`configurationExtensionsSeparation` — дефолт DontUse/
+  Independently) + `indexing`/`fullTextSearch`/`dataHistory`. FillValue тип-зависим; `{nil: true}` — явный nil на типизированном.
+
+```json
+{ "type": "CommonAttribute", "name": "Организация", "valueType": "CatalogRef.Организации",
+  "autoUse": "Use", "content": ["Документ.РеализацияТоваров", { "metadata": "Документ.ПоступлениеТоваров" }] }
+```
+
 ### 7.16 ChartOfAccounts
 
 Полное описание типа (все поля, стандартные реквизиты, грамматика предопределённых счетов) — см. **§7.2c**.

@@ -1,0 +1,1 @@
+{ "name": "Группа команд", "input": { "type": "CommandGroup", "name": "МояГруппа", "representation": "Picture", "category": "FormCommandBar", "picture": { "src": "CommonPicture.Логотип", "loadTransparent": false } }, "validatePath": "CommandGroups/МояГруппа", "skipValidation": true, "expect": { "files": ["CommandGroups/МояГруппа.xml"] } }

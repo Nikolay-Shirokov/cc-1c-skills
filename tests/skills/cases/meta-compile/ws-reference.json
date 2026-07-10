@@ -1,0 +1,1 @@
+{ "name": "WS-ссылка", "input": { "type": "WSReference", "name": "ОбменСервис", "locationURL": "https://api.example.com/ws?wsdl" }, "validatePath": "WSReferences/ОбменСервис", "skipValidation": true, "expect": { "files": ["WSReferences/ОбменСервис.xml"] } }

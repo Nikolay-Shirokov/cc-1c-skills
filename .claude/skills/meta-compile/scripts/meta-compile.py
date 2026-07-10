@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-compile v1.58 — Compile 1C metadata object from JSON
+# meta-compile v1.59 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -464,6 +464,7 @@ valid_types = [
     'FunctionalOption',
     'Sequence', 'FilterCriterion', 'DocumentNumerator', 'SettingsStorage',
     'CommonForm',
+    'SessionParameter', 'CommonCommand', 'CommandGroup', 'CommonAttribute', 'FunctionalOptionsParameter', 'WSReference',
 ]
 if obj_type not in valid_types:
     print(f"Unsupported type: {obj_type}. Valid: {', '.join(valid_types)}", file=sys.stderr)
@@ -854,6 +855,9 @@ def emit_fill_value(indent, type_str, spec, has_spec, type_empty=False):
     if spec is None:
         X(f'{indent}<FillValue xsi:nil="true"/>')       # явный nil-override
         return
+    if isinstance(spec, dict) and spec.get('nil') is True:
+        X(f'{indent}<FillValue xsi:nil="true"/>')       # явный nil на типизированном (маркер декомпилятора)
+        return
     if isinstance(spec, dict) and spec.get('emptyRef') is True:
         X(f'{indent}<FillValue xsi:type="xr:DesignTimeRef"/>')  # пустая ссылка (маркер декомпилятора)
         return
@@ -1127,6 +1131,9 @@ generated_types = {
     ],
     'SettingsStorage': [
         {'prefix': 'SettingsStorageManager', 'category': 'Manager'},
+    ],
+    'WSReference': [
+        {'prefix': 'WSReferenceManager', 'category': 'Manager'},
     ],
 }
 
@@ -2655,6 +2662,153 @@ def emit_common_form_properties(indent):
     emit_mltext(i, 'ExtendedPresentation', defn.get('extendedPresentation'))
     emit_mltext(i, 'Explanation', defn.get('explanation'))
 
+def _emit_comment(i):
+    if defn.get('comment'):
+        X(f'{i}<Comment>{esc_xml_text(str(defn["comment"]))}</Comment>')
+    else:
+        X(f'{i}<Comment/>')
+
+def emit_session_parameter_properties(indent):
+    i = indent
+    X(f'{i}<Name>{esc_xml(obj_name)}</Name>')
+    emit_mltext(i, 'Synonym', synonym)
+    _emit_comment(i)
+    if defn.get('valueType'):
+        vt = str(defn['valueType'])
+    elif defn.get('valueTypes'):
+        vt = ' + '.join(str(x) for x in defn['valueTypes'])
+    else:
+        vt = ''
+    if vt:
+        emit_value_type(i, vt)
+    else:
+        X(f'{i}<Type/>')
+
+def emit_functional_options_parameter_properties(indent):
+    i = indent
+    X(f'{i}<Name>{esc_xml(obj_name)}</Name>')
+    emit_mltext(i, 'Synonym', synonym)
+    _emit_comment(i)
+    emit_md_ref_list(i, 'Use', defn.get('use'))
+
+def emit_ws_reference_properties(indent):
+    i = indent
+    X(f'{i}<Name>{esc_xml(obj_name)}</Name>')
+    emit_mltext(i, 'Synonym', synonym)
+    _emit_comment(i)
+    url = str(defn['locationURL']) if defn.get('locationURL') else (str(defn['locationUrl']) if defn.get('locationUrl') else '')
+    if url:
+        X(f'{i}<LocationURL>{esc_xml_text(url)}</LocationURL>')
+    else:
+        X(f'{i}<LocationURL/>')
+
+def emit_command_group_properties(indent):
+    i = indent
+    X(f'{i}<Name>{esc_xml(obj_name)}</Name>')
+    emit_mltext(i, 'Synonym', synonym)
+    _emit_comment(i)
+    X(f'{i}<Representation>{get_enum_prop("Representation", "representation", "Auto")}</Representation>')
+    emit_mltext(i, 'ToolTip', defn.get('tooltip'))
+    emit_command_picture(i, defn)
+    X(f'{i}<Category>{get_enum_prop("Category", "category", "NavigationPanel")}</Category>')
+
+def emit_common_command_properties(indent):
+    i = indent
+    X(f'{i}<Name>{esc_xml(obj_name)}</Name>')
+    emit_mltext(i, 'Synonym', synonym)
+    _emit_comment(i)
+    group = str(defn['group']) if defn.get('group') else ''
+    if group:
+        X(f'{i}<Group>{esc_xml(group)}</Group>')
+    else:
+        X(f'{i}<Group/>')
+    X(f'{i}<Representation>{get_enum_prop("Representation", "representation", "Auto")}</Representation>')
+    emit_mltext(i, 'ToolTip', defn.get('tooltip'))
+    emit_command_picture(i, defn)
+    if defn.get('shortcut'):
+        X(f'{i}<Shortcut>{esc_xml(str(defn["shortcut"]))}</Shortcut>')
+    else:
+        X(f'{i}<Shortcut/>')
+    incl_help = 'true' if get_bool_prop('includeHelpInContents', False) else 'false'
+    X(f'{i}<IncludeHelpInContents>{incl_help}</IncludeHelpInContents>')
+    if defn.get('commandParameterType'):
+        X(f'{i}<CommandParameterType>')
+        emit_type_content(f'{i}\t', str(defn['commandParameterType']))
+        X(f'{i}</CommandParameterType>')
+    else:
+        X(f'{i}<CommandParameterType/>')
+    X(f'{i}<ParameterUseMode>{get_enum_prop("ParameterUseMode", "parameterUseMode", "Single")}</ParameterUseMode>')
+    X(f'{i}<ModifiesData>{"true" if get_bool_prop("modifiesData", False) else "false"}</ModifiesData>')
+    X(f'{i}<OnMainServerUnavalableBehavior>{get_enum_prop("OnMainServerUnavalableBehavior", "onMainServerUnavalableBehavior", "Auto")}</OnMainServerUnavalableBehavior>')
+
+def emit_common_attribute_properties(indent):
+    i = indent
+    X(f'{i}<Name>{esc_xml(obj_name)}</Name>')
+    emit_mltext(i, 'Synonym', synonym)
+    _emit_comment(i)
+    vt = str(defn['valueType']) if defn.get('valueType') else 'String(0)'
+    emit_value_type(i, vt)
+    X(f'{i}<PasswordMode>{"true" if get_bool_prop("passwordMode", False) else "false"}</PasswordMode>')
+    emit_mltext(i, 'Format', defn.get('format'))
+    emit_mltext(i, 'EditFormat', defn.get('editFormat'))
+    emit_mltext(i, 'ToolTip', defn.get('tooltip'))
+    X(f'{i}<MarkNegatives>{"true" if get_bool_prop("markNegatives", False) else "false"}</MarkNegatives>')
+    if defn.get('mask'):
+        X(f'{i}<Mask>{esc_xml_text(str(defn["mask"]))}</Mask>')
+    else:
+        X(f'{i}<Mask/>')
+    X(f'{i}<MultiLine>{"true" if get_bool_prop("multiLine", False) else "false"}</MultiLine>')
+    X(f'{i}<ExtendedEdit>{"true" if get_bool_prop("extendedEdit", False) else "false"}</ExtendedEdit>')
+    emit_min_max_value(i, 'MinValue', defn.get('minValue'))
+    emit_min_max_value(i, 'MaxValue', defn.get('maxValue'))
+    X(f'{i}<FillFromFillingValue>{"true" if get_bool_prop("fillFromFillingValue", False) else "false"}</FillFromFillingValue>')
+    emit_fill_value(i, vt, defn.get('fillValue'), defn.get('fillValue') is not None)
+    X(f'{i}<FillChecking>{get_enum_prop("FillChecking", "fillChecking", "DontCheck")}</FillChecking>')
+    X(f'{i}<ChoiceFoldersAndItems>{get_enum_prop("ChoiceFoldersAndItems", "choiceFoldersAndItems", "Items")}</ChoiceFoldersAndItems>')
+    emit_choice_parameter_links(i, defn.get('choiceParameterLinks'))
+    emit_choice_parameters(i, defn.get('choiceParameters'))
+    X(f'{i}<QuickChoice>{get_enum_prop("QuickChoice", "quickChoice", "Auto")}</QuickChoice>')
+    X(f'{i}<CreateOnInput>{get_enum_prop("CreateOnInput", "createOnInput", "Auto")}</CreateOnInput>')
+    if defn.get('choiceForm'):
+        X(f'{i}<ChoiceForm>{esc_xml(str(defn["choiceForm"]))}</ChoiceForm>')
+    else:
+        X(f'{i}<ChoiceForm/>')
+    emit_link_by_type(i, defn.get('linkByType'))
+    X(f'{i}<ChoiceHistoryOnInput>{get_enum_prop("ChoiceHistoryOnInput", "choiceHistoryOnInput", "Auto")}</ChoiceHistoryOnInput>')
+    content = list(defn['content']) if defn.get('content') else []
+    if content:
+        X(f'{i}<Content>')
+        for c in content:
+            md = c if isinstance(c, str) else str(c.get('metadata', ''))
+            use = 'Use' if isinstance(c, str) else (str(c['use']) if c.get('use') else 'Use')
+            X(f'{i}\t<xr:Item>')
+            X(f'{i}\t\t<xr:Metadata>{esc_xml(normalize_md_object_ref(md))}</xr:Metadata>')
+            X(f'{i}\t\t<xr:Use>{use}</xr:Use>')
+            cs = '' if isinstance(c, str) else (str(c['conditionalSeparation']) if c.get('conditionalSeparation') else '')
+            if cs:
+                X(f'{i}\t\t<xr:ConditionalSeparation>{esc_xml(cs)}</xr:ConditionalSeparation>')
+            else:
+                X(f'{i}\t\t<xr:ConditionalSeparation/>')
+            X(f'{i}\t</xr:Item>')
+        X(f'{i}</Content>')
+    else:
+        X(f'{i}<Content/>')
+    X(f'{i}<AutoUse>{get_enum_prop("AutoUse", "autoUse", "DontUse")}</AutoUse>')
+    X(f'{i}<DataSeparation>{get_enum_prop("DataSeparation", "dataSeparation", "DontUse")}</DataSeparation>')
+    X(f'{i}<SeparatedDataUse>{get_enum_prop("SeparatedDataUse", "separatedDataUse", "Independently")}</SeparatedDataUse>')
+    dsv = str(defn['dataSeparationValue']) if defn.get('dataSeparationValue') else ''
+    X(f'{i}<DataSeparationValue>{esc_xml(dsv)}</DataSeparationValue>' if dsv else f'{i}<DataSeparationValue/>')
+    dsu = str(defn['dataSeparationUse']) if defn.get('dataSeparationUse') else ''
+    X(f'{i}<DataSeparationUse>{esc_xml(dsu)}</DataSeparationUse>' if dsu else f'{i}<DataSeparationUse/>')
+    cs2 = str(defn['conditionalSeparation']) if defn.get('conditionalSeparation') else ''
+    X(f'{i}<ConditionalSeparation>{esc_xml(cs2)}</ConditionalSeparation>' if cs2 else f'{i}<ConditionalSeparation/>')
+    X(f'{i}<UsersSeparation>{get_enum_prop("UsersSeparation", "usersSeparation", "DontUse")}</UsersSeparation>')
+    X(f'{i}<AuthenticationSeparation>{get_enum_prop("AuthenticationSeparation", "authenticationSeparation", "DontUse")}</AuthenticationSeparation>')
+    X(f'{i}<ConfigurationExtensionsSeparation>{get_enum_prop("ConfigurationExtensionsSeparation", "configurationExtensionsSeparation", "DontUse")}</ConfigurationExtensionsSeparation>')
+    X(f'{i}<Indexing>{get_enum_prop("Indexing", "indexing", "DontIndex")}</Indexing>')
+    X(f'{i}<FullTextSearch>{get_enum_prop("FullTextSearch", "fullTextSearch", "Use")}</FullTextSearch>')
+    X(f'{i}<DataHistory>{get_enum_prop("DataHistory", "dataHistory", "Use")}</DataHistory>')
+
 def emit_sequence_dimension(indent, dim_def):
     uid = new_uuid()
     parsed = parse_attribute_shorthand(dim_def)
@@ -3641,6 +3795,12 @@ property_emitters = {
     'DocumentNumerator': emit_document_numerator_properties,
     'SettingsStorage': emit_settings_storage_properties,
     'CommonForm': emit_common_form_properties,
+    'SessionParameter': emit_session_parameter_properties,
+    'CommonCommand': emit_common_command_properties,
+    'CommandGroup': emit_command_group_properties,
+    'CommonAttribute': emit_common_attribute_properties,
+    'FunctionalOptionsParameter': emit_functional_options_parameter_properties,
+    'WSReference': emit_ws_reference_properties,
     'CommonModule': emit_common_module_properties,
     'ScheduledJob': emit_scheduled_job_properties,
     'EventSubscription': emit_event_subscription_properties,
@@ -3960,6 +4120,12 @@ type_plural_map = {
     'DocumentNumerator': 'DocumentNumerators',
     'SettingsStorage': 'SettingsStorages',
     'CommonForm': 'CommonForms',
+    'SessionParameter': 'SessionParameters',
+    'CommonCommand': 'CommonCommands',
+    'CommandGroup': 'CommandGroups',
+    'CommonAttribute': 'CommonAttributes',
+    'FunctionalOptionsParameter': 'FunctionalOptionsParameters',
+    'WSReference': 'WSReferences',
 }
 
 type_plural = type_plural_map[obj_type]
@@ -4028,6 +4194,14 @@ if obj_type in types_with_record_set_module:
 
 if obj_type in types_with_module:
     module_path = os.path.join(ext_dir, 'Module.bsl')
+    if not os.path.isfile(module_path):
+        ensure_ext_dir()
+        write_utf8_bom(module_path, '')
+        modules_created.append(module_path)
+
+# CommonCommand — заготовка модуля команды (CommandModule.bsl).
+if obj_type == 'CommonCommand':
+    module_path = os.path.join(ext_dir, 'CommandModule.bsl')
     if not os.path.isfile(module_path):
         ensure_ext_dir()
         write_utf8_bom(module_path, '')

@@ -1,4 +1,4 @@
-﻿# meta-decompile v0.49 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
+﻿# meta-decompile v0.50 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 #
 # Поддержаны: Catalog, ExchangePlan, ChartOfCharacteristicTypes, ChartOfAccounts, ChartOfCalculationTypes, Document,
@@ -92,8 +92,8 @@ foreach ($c in $rootEl.ChildNodes) { if ($c.NodeType -eq 'Element') { $objNode =
 if (-not $objNode) { [Console]::Error.WriteLine("meta-decompile: пустой MetaDataObject"); exit 3 }
 $objType = $objNode.LocalName
 
-if ($objType -notin @('Catalog', 'ExchangePlan', 'ChartOfCharacteristicTypes', 'ChartOfAccounts', 'ChartOfCalculationTypes', 'Document', 'InformationRegister', 'AccumulationRegister', 'AccountingRegister', 'CalculationRegister', 'BusinessProcess', 'Task', 'Enum', 'Report', 'DataProcessor', 'Constant', 'DefinedType', 'FunctionalOption', 'DocumentJournal', 'Sequence', 'FilterCriterion', 'DocumentNumerator', 'SettingsStorage', 'CommonModule', 'EventSubscription', 'ScheduledJob', 'CommonForm')) {
-	[Console]::Error.WriteLine("meta-decompile: тип '$objType' пока не поддержан (…, CommonModule, EventSubscription, ScheduledJob, CommonForm)"); exit 3
+if ($objType -notin @('Catalog', 'ExchangePlan', 'ChartOfCharacteristicTypes', 'ChartOfAccounts', 'ChartOfCalculationTypes', 'Document', 'InformationRegister', 'AccumulationRegister', 'AccountingRegister', 'CalculationRegister', 'BusinessProcess', 'Task', 'Enum', 'Report', 'DataProcessor', 'Constant', 'DefinedType', 'FunctionalOption', 'DocumentJournal', 'Sequence', 'FilterCriterion', 'DocumentNumerator', 'SettingsStorage', 'CommonModule', 'EventSubscription', 'ScheduledJob', 'CommonForm', 'SessionParameter', 'CommonCommand', 'CommandGroup', 'CommonAttribute', 'FunctionalOptionsParameter', 'WSReference')) {
+	[Console]::Error.WriteLine("meta-decompile: тип '$objType' пока не поддержан (…, SessionParameter, CommonCommand, CommandGroup, CommonAttribute, FunctionalOptionsParameter, WSReference)"); exit 3
 }
 
 $props = $objNode.SelectSingleNode('md:Properties', $nsm)
@@ -690,6 +690,122 @@ if ($objType -eq 'CommonForm') {
 		if (-not $same -and $ups.Count -gt 0) { $dsl['usePurposes'] = [System.Collections.ArrayList]@($ups) }
 	}
 	$ep = Get-MLValue ($props.SelectSingleNode('md:ExtendedPresentation', $nsm)); if ($null -ne $ep) { $dsl['extendedPresentation'] = $ep }
+}
+# SessionParameter — параметр сеанса: только тип значения.
+if ($objType -eq 'SessionParameter') {
+	$vt = Get-TypeShorthand ($props.SelectSingleNode('md:Type', $nsm)); if ($vt) { $dsl['valueType'] = $vt }
+}
+# FunctionalOptionsParameter — параметр функ. опции: Use (список MDObjectRef).
+if ($objType -eq 'FunctionalOptionsParameter') {
+	$un = $props.SelectSingleNode('md:Use', $nsm)
+	if ($un) { $items = @($un.SelectNodes('xr:Item', $nsm) | ForEach-Object { $_.InnerText }); if ($items.Count -gt 0) { $dsl['use'] = [System.Collections.ArrayList]@($items) } }
+}
+# WSReference — WS-ссылка: URL расположения WSDL (+InternalInfo Manager).
+if ($objType -eq 'WSReference') {
+	$url = P 'LocationURL'; if ($url) { $dsl['locationURL'] = $url }
+}
+# Общий захват структурного <Picture> (зеркало Emit-CommandPicture). Пишет в $tgt ключи picture/loadTransparent.
+function Get-PictureToDsl { param($propsNode, $tgt)
+	$refN = $propsNode.SelectSingleNode('md:Picture/xr:Ref', $nsm)
+	$absN = $propsNode.SelectSingleNode('md:Picture/xr:Abs', $nsm)
+	if ($refN -or $absN) {
+		$psrc = if ($refN) { $refN.InnerText } else { "abs:$($absN.InnerText)" }
+		$ltN = $propsNode.SelectSingleNode('md:Picture/xr:LoadTransparent', $nsm)
+		$ltFalse = ($ltN -and $ltN.InnerText -eq 'false')
+		$tpxN = $propsNode.SelectSingleNode('md:Picture/xr:TransparentPixel', $nsm)
+		if ($tpxN) {
+			$po = [ordered]@{ src = $psrc }; if ($ltFalse) { $po['loadTransparent'] = $false }
+			$po['transparentPixel'] = [ordered]@{ x = [int]$tpxN.GetAttribute('x'); y = [int]$tpxN.GetAttribute('y') }
+			$tgt['picture'] = $po
+		} else { $tgt['picture'] = $psrc; if ($ltFalse) { $tgt['loadTransparent'] = $false } }
+	}
+}
+# CommandGroup — группа команд: представление, подсказка, картинка, категория.
+if ($objType -eq 'CommandGroup') {
+	Add-EnumProp 'representation' 'Representation' 'Auto'
+	$tt = Get-MLValue ($props.SelectSingleNode('md:ToolTip', $nsm)); if ($null -ne $tt) { $dsl['tooltip'] = $tt }
+	Get-PictureToDsl $props $dsl
+	Add-EnumProp 'category' 'Category' 'NavigationPanel'
+}
+# CommonCommand — общая команда: группа, представление, подсказка, картинка, параметр, режимы.
+if ($objType -eq 'CommonCommand') {
+	$grp = P 'Group'; if ($grp) { $dsl['group'] = $grp }
+	Add-EnumProp 'representation' 'Representation' 'Auto'
+	$tt = Get-MLValue ($props.SelectSingleNode('md:ToolTip', $nsm)); if ($null -ne $tt) { $dsl['tooltip'] = $tt }
+	Get-PictureToDsl $props $dsl
+	$sc = P 'Shortcut'; if ($sc) { $dsl['shortcut'] = $sc }
+	$cpt = Get-TypeShorthand ($props.SelectSingleNode('md:CommandParameterType', $nsm)); if ($cpt) { $dsl['commandParameterType'] = $cpt }
+	Add-EnumProp 'parameterUseMode' 'ParameterUseMode' 'Single'
+	Add-BoolProp 'modifiesData' 'ModifiesData' $false
+	Add-EnumProp 'onMainServerUnavalableBehavior' 'OnMainServerUnavalableBehavior' 'Auto'
+}
+# CommonAttribute — общий реквизит: тип + value-свойства + состав объектов + свойства разделения данных.
+if ($objType -eq 'CommonAttribute') {
+	$vt = Get-TypeShorthand ($props.SelectSingleNode('md:Type', $nsm)); if ($vt -and $vt -ne 'String(0)') { $dsl['valueType'] = $vt }
+	Add-BoolProp 'passwordMode' 'PasswordMode' $false
+	foreach ($mlp in @(@('Format','format'), @('EditFormat','editFormat'), @('ToolTip','tooltip'))) {
+		$mv = Get-MLValue ($props.SelectSingleNode("md:$($mlp[0])", $nsm)); if ($null -ne $mv) { $dsl[$mlp[1]] = $mv }
+	}
+	Add-BoolProp 'markNegatives' 'MarkNegatives' $false
+	$msk = P 'Mask'; if ($msk) { $dsl['mask'] = $msk }
+	Add-BoolProp 'multiLine' 'MultiLine' $false
+	Add-BoolProp 'extendedEdit' 'ExtendedEdit' $false
+	foreach ($mm in @(@('MinValue','minValue'), @('MaxValue','maxValue'))) {
+		$mn = $props.SelectSingleNode("md:$($mm[0])", $nsm)
+		if ($mn -and $mn.GetAttribute('nil', 'http://www.w3.org/2001/XMLSchema-instance') -ne 'true') {
+			$mxt = $mn.GetAttribute('type', 'http://www.w3.org/2001/XMLSchema-instance')
+			if ($mxt -match 'decimal$') { $dsl[$mm[1]] = if ($mn.InnerText -match '^-?\d+$') { [long]$mn.InnerText } else { [double]$mn.InnerText } } else { $dsl[$mm[1]] = $mn.InnerText }
+		}
+	}
+	Add-BoolProp 'fillFromFillingValue' 'FillFromFillingValue' $false
+	# FillValue: тип-зависимый дефолт (String→typed-empty, Number→0, прочее→nil). Захват при отклонении.
+	# nil на String/Number-типе ≠ дефолт → маркер {nil:true} (напр. системный реквизит-разделитель ОбластьДанных).
+	$catVt = if ($vt) { $vt } else { 'String(0)' }
+	$fvN = $props.SelectSingleNode('md:FillValue', $nsm)
+	if ($fvN) {
+		$fvNil = ($fvN.GetAttribute('nil', 'http://www.w3.org/2001/XMLSchema-instance') -eq 'true')
+		if ($fvNil) {
+			if ($catVt -match '^(String|Number)') { $dsl['fillValue'] = [ordered]@{ nil = $true } }
+		} else {
+			$fvXt = $fvN.GetAttribute('type', 'http://www.w3.org/2001/XMLSchema-instance')
+			if ($fvXt -match 'DesignTimeRef$' -and $fvN.InnerText -eq '') { $dsl['fillValue'] = [ordered]@{ emptyRef = $true } }
+			elseif ($fvXt -match 'decimal$') { if ($fvN.InnerText -ne '0') { $dsl['fillValue'] = if ($fvN.InnerText -match '^-?\d+$') { [long]$fvN.InnerText } else { [double]$fvN.InnerText } } }
+			elseif (-not [string]::IsNullOrEmpty($fvN.InnerText)) { $dsl['fillValue'] = $fvN.InnerText }
+		}
+	}
+	Add-EnumProp 'fillChecking' 'FillChecking' 'DontCheck'
+	Add-EnumProp 'choiceFoldersAndItems' 'ChoiceFoldersAndItems' 'Items'
+	$cpl = Parse-ChoiceParameterLinks $props 'md:ChoiceParameterLinks'; if ($null -ne $cpl) { $dsl['choiceParameterLinks'] = $cpl }
+	$cp = Parse-ChoiceParameters $props 'md:ChoiceParameters'; if ($null -ne $cp) { $dsl['choiceParameters'] = $cp }
+	Add-EnumProp 'quickChoice' 'QuickChoice' 'Auto'
+	Add-EnumProp 'createOnInput' 'CreateOnInput' 'Auto'
+	$cf = P 'ChoiceForm'; if ($cf) { $dsl['choiceForm'] = $cf }
+	Add-EnumProp 'choiceHistoryOnInput' 'ChoiceHistoryOnInput' 'Auto'
+	# Content — объекты, к которым добавлен общий реквизит.
+	$cn = $props.SelectSingleNode('md:Content', $nsm)
+	if ($cn) {
+		$cArr = [System.Collections.ArrayList]@()
+		foreach ($it in @($cn.SelectNodes('xr:Item', $nsm))) {
+			$mdN = $it.SelectSingleNode('xr:Metadata', $nsm); $mdv = if ($mdN) { $mdN.InnerText } else { '' }
+			$useN = $it.SelectSingleNode('xr:Use', $nsm); $usev = if ($useN) { $useN.InnerText } else { 'Use' }
+			$csN = $it.SelectSingleNode('xr:ConditionalSeparation', $nsm); $csv = if ($csN) { $csN.InnerText } else { '' }
+			if ($usev -eq 'Use' -and -not $csv) { [void]$cArr.Add($mdv) }
+			else { $io = [ordered]@{ metadata = $mdv }; if ($usev -ne 'Use') { $io['use'] = $usev }; if ($csv) { $io['conditionalSeparation'] = $csv }; [void]$cArr.Add($io) }
+		}
+		if ($cArr.Count -gt 0) { $dsl['content'] = $cArr }
+	}
+	Add-EnumProp 'autoUse' 'AutoUse' 'DontUse'
+	Add-EnumProp 'dataSeparation' 'DataSeparation' 'DontUse'
+	Add-EnumProp 'separatedDataUse' 'SeparatedDataUse' 'Independently'
+	$dsv = P 'DataSeparationValue'; if ($dsv) { $dsl['dataSeparationValue'] = $dsv }
+	$dsu = P 'DataSeparationUse'; if ($dsu) { $dsl['dataSeparationUse'] = $dsu }
+	$cs2 = P 'ConditionalSeparation'; if ($cs2) { $dsl['conditionalSeparation'] = $cs2 }
+	Add-EnumProp 'usersSeparation' 'UsersSeparation' 'DontUse'
+	Add-EnumProp 'authenticationSeparation' 'AuthenticationSeparation' 'DontUse'
+	Add-EnumProp 'configurationExtensionsSeparation' 'ConfigurationExtensionsSeparation' 'DontUse'
+	Add-EnumProp 'indexing' 'Indexing' 'DontIndex'
+	Add-EnumProp 'dataHistory' 'DataHistory' 'Use'
+	# fullTextSearch покрыт общим блоком (дефолт Use).
 }
 # ScheduledJob — регламентное задание: метод, ключ, флаги, рестарт.
 if ($objType -eq 'ScheduledJob') {

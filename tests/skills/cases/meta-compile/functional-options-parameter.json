@@ -1,0 +1,1 @@
+{ "name": "Параметр функциональной опции", "input": { "type": "FunctionalOptionsParameter", "name": "Организация", "use": ["РегистрСведений.Настройки.Измерение.Организация"] }, "validatePath": "FunctionalOptionsParameters/Организация", "skipValidation": true, "expect": { "files": ["FunctionalOptionsParameters/Организация.xml"] } }

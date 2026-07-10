@@ -1,0 +1,1 @@
+{ "name": "Параметр сеанса", "input": { "type": "SessionParameter", "name": "ТекущийПользователь", "valueType": "CatalogRef.Пользователи + CatalogRef.ВнешниеПользователи" }, "validatePath": "SessionParameters/ТекущийПользователь", "skipValidation": true, "expect": { "files": ["SessionParameters/ТекущийПользователь.xml"] } }

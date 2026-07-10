@@ -1,4 +1,4 @@
-﻿# meta-compile v1.58 — Compile 1C metadata object from JSON
+﻿# meta-compile v1.59 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -348,7 +348,8 @@ $validTypes = @("Catalog","Document","Enum","Constant","InformationRegister","Ac
 	"ChartOfCalculationTypes","BusinessProcess","Task","ExchangePlan","DocumentJournal",
 	"Report","DataProcessor","CommonModule","ScheduledJob","EventSubscription",
 	"HTTPService","WebService","DefinedType","FunctionalOption",
-	"Sequence","FilterCriterion","DocumentNumerator","SettingsStorage","CommonForm")
+	"Sequence","FilterCriterion","DocumentNumerator","SettingsStorage","CommonForm",
+	"SessionParameter","CommonCommand","CommandGroup","CommonAttribute","FunctionalOptionsParameter","WSReference")
 if ($objType -notin $validTypes) {
 	Write-Error "Unsupported type: $objType. Valid: $($validTypes -join ', ')"
 	exit 1
@@ -828,6 +829,7 @@ function Emit-FillValue {
 	}
 
 	if ($null -eq $spec) { X "$indent<FillValue xsi:nil=`"true`"/>"; return }   # явный nil-override
+	if ($spec.nil -eq $true) { X "$indent<FillValue xsi:nil=`"true`"/>"; return }   # явный nil на типизированном (маркер декомпилятора)
 	if ($spec.emptyRef -eq $true) { X "$indent<FillValue xsi:type=`"xr:DesignTimeRef`"/>"; return }   # пустая ссылка (маркер декомпилятора)
 	if ($spec -is [bool]) {
 		X "$indent<FillValue xsi:type=`"xs:boolean`">$(if ($spec) { 'true' } else { 'false' })</FillValue>"; return
@@ -1108,6 +1110,9 @@ $script:generatedTypes = @{
 	)
 	"SettingsStorage" = @(
 		@{ prefix = "SettingsStorageManager"; category = "Manager" }
+	)
+	"WSReference" = @(
+		@{ prefix = "WSReferenceManager"; category = "Manager" }
 	)
 }
 
@@ -2648,6 +2653,140 @@ function Emit-CommonFormProperties {
 	Emit-MLText $i "Explanation" $def.explanation
 }
 
+function Emit-SessionParameterProperties {
+	param([string]$indent)
+	$i = $indent
+	X "$i<Name>$(Esc-Xml $objName)</Name>"
+	Emit-MLText $i "Synonym" $synonym
+	if ($def.comment) { X "$i<Comment>$(Esc-XmlText $def.comment)</Comment>" } else { X "$i<Comment/>" }
+	$vt = if ($def.valueType) { "$($def.valueType)" } elseif ($def.valueTypes) { (@($def.valueTypes) | ForEach-Object { "$_" }) -join ' + ' } else { '' }
+	if ($vt) { Emit-ValueType $i $vt } else { X "$i<Type/>" }
+}
+
+function Emit-FunctionalOptionsParameterProperties {
+	param([string]$indent)
+	$i = $indent
+	X "$i<Name>$(Esc-Xml $objName)</Name>"
+	Emit-MLText $i "Synonym" $synonym
+	if ($def.comment) { X "$i<Comment>$(Esc-XmlText $def.comment)</Comment>" } else { X "$i<Comment/>" }
+	# Use — измерения регистров/реквизиты, к которым привязан параметр (список MDObjectRef).
+	Emit-MDRefList $i "Use" $def.use
+}
+
+function Emit-WSReferenceProperties {
+	param([string]$indent)
+	$i = $indent
+	X "$i<Name>$(Esc-Xml $objName)</Name>"
+	Emit-MLText $i "Synonym" $synonym
+	if ($def.comment) { X "$i<Comment>$(Esc-XmlText $def.comment)</Comment>" } else { X "$i<Comment/>" }
+	$url = if ($def.locationURL) { "$($def.locationURL)" } elseif ($def.locationUrl) { "$($def.locationUrl)" } else { "" }
+	if ($url) { X "$i<LocationURL>$(Esc-XmlText $url)</LocationURL>" } else { X "$i<LocationURL/>" }
+}
+
+function Emit-CommandGroupProperties {
+	param([string]$indent)
+	$i = $indent
+	X "$i<Name>$(Esc-Xml $objName)</Name>"
+	Emit-MLText $i "Synonym" $synonym
+	if ($def.comment) { X "$i<Comment>$(Esc-XmlText $def.comment)</Comment>" } else { X "$i<Comment/>" }
+	X "$i<Representation>$(Get-EnumProp 'Representation' 'representation' 'Auto')</Representation>"
+	Emit-MLText $i "ToolTip" $def.tooltip
+	Emit-CommandPicture $i $def
+	X "$i<Category>$(Get-EnumProp 'Category' 'category' 'NavigationPanel')</Category>"
+}
+
+function Emit-CommonCommandProperties {
+	param([string]$indent)
+	$i = $indent
+	X "$i<Name>$(Esc-Xml $objName)</Name>"
+	Emit-MLText $i "Synonym" $synonym
+	if ($def.comment) { X "$i<Comment>$(Esc-XmlText $def.comment)</Comment>" } else { X "$i<Comment/>" }
+	$group = if ($def.group) { "$($def.group)" } else { "" }
+	if ($group) { X "$i<Group>$(Esc-Xml $group)</Group>" } else { X "$i<Group/>" }
+	X "$i<Representation>$(Get-EnumProp 'Representation' 'representation' 'Auto')</Representation>"
+	Emit-MLText $i "ToolTip" $def.tooltip
+	Emit-CommandPicture $i $def
+	if ($def.shortcut) { X "$i<Shortcut>$(Esc-Xml "$($def.shortcut)")</Shortcut>" } else { X "$i<Shortcut/>" }
+	$inclHelp = if (Get-BoolProp "includeHelpInContents" $false) { "true" } else { "false" }
+	X "$i<IncludeHelpInContents>$inclHelp</IncludeHelpInContents>"
+	if ($def.commandParameterType) {
+		X "$i<CommandParameterType>"
+		Emit-TypeContent "$i`t" "$($def.commandParameterType)"
+		X "$i</CommandParameterType>"
+	} else {
+		X "$i<CommandParameterType/>"
+	}
+	X "$i<ParameterUseMode>$(Get-EnumProp 'ParameterUseMode' 'parameterUseMode' 'Single')</ParameterUseMode>"
+	X "$i<ModifiesData>$(if (Get-BoolProp 'modifiesData' $false) { 'true' } else { 'false' })</ModifiesData>"
+	X "$i<OnMainServerUnavalableBehavior>$(Get-EnumProp 'OnMainServerUnavalableBehavior' 'onMainServerUnavalableBehavior' 'Auto')</OnMainServerUnavalableBehavior>"
+}
+
+function Emit-CommonAttributeProperties {
+	param([string]$indent)
+	$i = $indent
+	X "$i<Name>$(Esc-Xml $objName)</Name>"
+	Emit-MLText $i "Synonym" $synonym
+	if ($def.comment) { X "$i<Comment>$(Esc-XmlText $def.comment)</Comment>" } else { X "$i<Comment/>" }
+	# Дефолт типа — String(0) (переменная длина 0), НЕ $def.type (это тип метаобъекта «CommonAttribute»).
+	$vt = if ($def.valueType) { "$($def.valueType)" } else { 'String(0)' }
+	Emit-ValueType $i $vt
+	X "$i<PasswordMode>$(if (Get-BoolProp 'passwordMode' $false) { 'true' } else { 'false' })</PasswordMode>"
+	Emit-MLText $i "Format" $def.format
+	Emit-MLText $i "EditFormat" $def.editFormat
+	Emit-MLText $i "ToolTip" $def.tooltip
+	X "$i<MarkNegatives>$(if (Get-BoolProp 'markNegatives' $false) { 'true' } else { 'false' })</MarkNegatives>"
+	if ($def.mask) { X "$i<Mask>$(Esc-XmlText $def.mask)</Mask>" } else { X "$i<Mask/>" }
+	X "$i<MultiLine>$(if (Get-BoolProp 'multiLine' $false) { 'true' } else { 'false' })</MultiLine>"
+	X "$i<ExtendedEdit>$(if (Get-BoolProp 'extendedEdit' $false) { 'true' } else { 'false' })</ExtendedEdit>"
+	Emit-MinMaxValue $i "MinValue" $def.minValue
+	Emit-MinMaxValue $i "MaxValue" $def.maxValue
+	$ffv = if (Get-BoolProp 'fillFromFillingValue' $false) { 'true' } else { 'false' }
+	X "$i<FillFromFillingValue>$ffv</FillFromFillingValue>"
+	Emit-FillValue $i $vt $def.fillValue ($null -ne $def.fillValue)
+	X "$i<FillChecking>$(Get-EnumProp 'FillChecking' 'fillChecking' 'DontCheck')</FillChecking>"
+	X "$i<ChoiceFoldersAndItems>$(Get-EnumProp 'ChoiceFoldersAndItems' 'choiceFoldersAndItems' 'Items')</ChoiceFoldersAndItems>"
+	Emit-ChoiceParameterLinks $i $def.choiceParameterLinks
+	Emit-ChoiceParameters $i $def.choiceParameters
+	X "$i<QuickChoice>$(Get-EnumProp 'QuickChoice' 'quickChoice' 'Auto')</QuickChoice>"
+	X "$i<CreateOnInput>$(Get-EnumProp 'CreateOnInput' 'createOnInput' 'Auto')</CreateOnInput>"
+	if ($def.choiceForm) { X "$i<ChoiceForm>$(Esc-Xml "$($def.choiceForm)")</ChoiceForm>" } else { X "$i<ChoiceForm/>" }
+	Emit-LinkByType $i $def.linkByType
+	X "$i<ChoiceHistoryOnInput>$(Get-EnumProp 'ChoiceHistoryOnInput' 'choiceHistoryOnInput' 'Auto')</ChoiceHistoryOnInput>"
+	# Content — объекты, к которым добавлен общий реквизит: {metadata, use?, conditionalSeparation?}.
+	$content = @(); if ($def.content) { $content = @($def.content) }
+	if ($content.Count -gt 0) {
+		X "$i<Content>"
+		foreach ($c in $content) {
+			$md = if ($c -is [string]) { "$c" } else { "$($c.metadata)" }
+			$use = if ($c -is [string]) { 'Use' } elseif ($c.use) { "$($c.use)" } else { 'Use' }
+			X "$i`t<xr:Item>"
+			X "$i`t`t<xr:Metadata>$(Esc-Xml (Normalize-MDObjectRef $md))</xr:Metadata>"
+			X "$i`t`t<xr:Use>$use</xr:Use>"
+			$cs = if ($c -isnot [string] -and $c.conditionalSeparation) { "$($c.conditionalSeparation)" } else { "" }
+			if ($cs) { X "$i`t`t<xr:ConditionalSeparation>$(Esc-Xml $cs)</xr:ConditionalSeparation>" } else { X "$i`t`t<xr:ConditionalSeparation/>" }
+			X "$i`t</xr:Item>"
+		}
+		X "$i</Content>"
+	} else {
+		X "$i<Content/>"
+	}
+	X "$i<AutoUse>$(Get-EnumProp 'AutoUse' 'autoUse' 'DontUse')</AutoUse>"
+	X "$i<DataSeparation>$(Get-EnumProp 'DataSeparation' 'dataSeparation' 'DontUse')</DataSeparation>"
+	X "$i<SeparatedDataUse>$(Get-EnumProp 'SeparatedDataUse' 'separatedDataUse' 'Independently')</SeparatedDataUse>"
+	$dsv = if ($def.dataSeparationValue) { "$($def.dataSeparationValue)" } else { "" }
+	if ($dsv) { X "$i<DataSeparationValue>$(Esc-Xml $dsv)</DataSeparationValue>" } else { X "$i<DataSeparationValue/>" }
+	$dsu = if ($def.dataSeparationUse) { "$($def.dataSeparationUse)" } else { "" }
+	if ($dsu) { X "$i<DataSeparationUse>$(Esc-Xml $dsu)</DataSeparationUse>" } else { X "$i<DataSeparationUse/>" }
+	$cs2 = if ($def.conditionalSeparation) { "$($def.conditionalSeparation)" } else { "" }
+	if ($cs2) { X "$i<ConditionalSeparation>$(Esc-Xml $cs2)</ConditionalSeparation>" } else { X "$i<ConditionalSeparation/>" }
+	X "$i<UsersSeparation>$(Get-EnumProp 'UsersSeparation' 'usersSeparation' 'DontUse')</UsersSeparation>"
+	X "$i<AuthenticationSeparation>$(Get-EnumProp 'AuthenticationSeparation' 'authenticationSeparation' 'DontUse')</AuthenticationSeparation>"
+	X "$i<ConfigurationExtensionsSeparation>$(Get-EnumProp 'ConfigurationExtensionsSeparation' 'configurationExtensionsSeparation' 'DontUse')</ConfigurationExtensionsSeparation>"
+	X "$i<Indexing>$(Get-EnumProp 'Indexing' 'indexing' 'DontIndex')</Indexing>"
+	X "$i<FullTextSearch>$(Get-EnumProp 'FullTextSearch' 'fullTextSearch' 'Use')</FullTextSearch>"
+	X "$i<DataHistory>$(Get-EnumProp 'DataHistory' 'dataHistory' 'Use')</DataHistory>"
+}
+
 # Измерение последовательности: Name/Synonym/Comment/Type + DocumentMap/RegisterRecordsMap (списки MDObjectRef —
 # соответствие измерения реквизитам документов/движениям регистров).
 function Emit-SequenceDimension {
@@ -3756,6 +3895,12 @@ switch ($objType) {
 	"DocumentNumerator"          { Emit-DocumentNumeratorProperties "`t`t`t" }
 	"SettingsStorage"            { Emit-SettingsStorageProperties "`t`t`t" }
 	"CommonForm"                 { Emit-CommonFormProperties "`t`t`t" }
+	"SessionParameter"           { Emit-SessionParameterProperties "`t`t`t" }
+	"CommonCommand"              { Emit-CommonCommandProperties "`t`t`t" }
+	"CommandGroup"               { Emit-CommandGroupProperties "`t`t`t" }
+	"CommonAttribute"            { Emit-CommonAttributeProperties "`t`t`t" }
+	"FunctionalOptionsParameter" { Emit-FunctionalOptionsParameterProperties "`t`t`t" }
+	"WSReference"                { Emit-WSReferenceProperties "`t`t`t" }
 	"CommonModule"               { Emit-CommonModuleProperties "`t`t`t" }
 	"ScheduledJob"               { Emit-ScheduledJobProperties "`t`t`t" }
 	"EventSubscription"          { Emit-EventSubscriptionProperties "`t`t`t" }
@@ -4091,6 +4236,12 @@ $script:typePluralMap = @{
 	"DocumentNumerator"         = "DocumentNumerators"
 	"SettingsStorage"           = "SettingsStorages"
 	"CommonForm"                = "CommonForms"
+	"SessionParameter"          = "SessionParameters"
+	"CommonCommand"             = "CommonCommands"
+	"CommandGroup"              = "CommandGroups"
+	"CommonAttribute"           = "CommonAttributes"
+	"FunctionalOptionsParameter" = "FunctionalOptionsParameters"
+	"WSReference"               = "WSReferences"
 }
 
 $typePlural = $script:typePluralMap[$objType]
@@ -4362,6 +4513,15 @@ if ($objType -in $typesWithRecordSetModule) {
 }
 if ($objType -in $typesWithModule) {
 	$modulePath = Join-Path $extDir "Module.bsl"
+	if (-not (Test-Path $modulePath)) {
+		Ensure-ExtDir
+		[System.IO.File]::WriteAllText($modulePath, "", $enc)
+		$modulesCreated += $modulePath
+	}
+}
+# CommonCommand — заготовка модуля команды (CommandModule.bsl).
+if ($objType -eq "CommonCommand") {
+	$modulePath = Join-Path $extDir "CommandModule.bsl"
 	if (-not (Test-Path $modulePath)) {
 		Ensure-ExtDir
 		[System.IO.File]::WriteAllText($modulePath, "", $enc)
