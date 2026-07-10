@@ -11,7 +11,7 @@
 			</Synonym>
 			<Comment/>
 			<Source>
-				<v8:Type xmlns:d5p1="http://v8.1c.ru/8.1/data/enterprise/current-config">d5p1:DocumentObject.ПриходнаяНакладная</v8:Type>
+				<v8:Type>cfg:DocumentObject.ПриходнаяНакладная</v8:Type>
 			</Source>
 			<Event>BeforeWrite</Event>
 			<Handler>CommonModule.ОбработкаСобытий.ПриЗаписиДокумента</Handler>

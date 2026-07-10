@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-compile v1.56 — Compile 1C metadata object from JSON
+# meta-compile v1.57 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -542,7 +542,7 @@ cfg_bare_types = {"ConstantsSet", "ReportBuilder", "FilterCriterion"}
 cfg_object_kinds = {"Catalog", "Document", "Enum", "ChartOfAccounts", "ChartOfCharacteristicTypes",
     "ChartOfCalculationTypes", "ExchangePlan", "BusinessProcess", "Task", "InformationRegister",
     "AccumulationRegister", "AccountingRegister", "CalculationRegister", "DataProcessor", "Report",
-    "DocumentJournal", "Constant", "ConstantValue"}
+    "DocumentJournal", "Constant", "ConstantValue", "Sequence", "Recalculation"}
 
 def resolve_type_str(type_str):
     if not type_str:
@@ -658,6 +658,16 @@ def emit_type_content(indent, type_str):
         return
     m3 = re.match(r'^(\w+)(Object|List|Manager|Selection|RecordSet|RecordKey|RecordManager)\.(.+)$', type_str)
     if m3 and m3.group(1) in cfg_object_kinds:
+        X(f'{indent}<v8:Type>cfg:{type_str}</v8:Type>')
+        return
+    # Голый объектный метатип (без имени): Object/RecordSet + ConstantValueManager → «любой объект категории» = TypeSet cfg:;
+    # прочие Manager/List/Selection → сам тип менеджера/списка = Type cfg: (напр. в Source подписки на событие).
+    mbs = re.match(r'^(\w+)(Object|RecordSet)$', type_str)
+    if (mbs and mbs.group(1) in cfg_object_kinds) or type_str == 'ConstantValueManager':
+        X(f'{indent}<v8:TypeSet>cfg:{type_str}</v8:TypeSet>')
+        return
+    mbt = re.match(r'^(\w+)(Manager|List|Selection|RecordKey|RecordManager)$', type_str)
+    if mbt and mbt.group(1) in cfg_object_kinds:
         X(f'{indent}<v8:Type>cfg:{type_str}</v8:Type>')
         return
 
@@ -2648,7 +2658,10 @@ def emit_common_module_properties(indent):
     i = indent
     X(f'{i}<Name>{esc_xml(obj_name)}</Name>')
     emit_mltext(i, 'Synonym', synonym)
-    X(f'{i}<Comment/>')
+    if defn.get('comment'):
+        X(f'{i}<Comment>{esc_xml_text(str(defn["comment"]))}</Comment>')
+    else:
+        X(f'{i}<Comment/>')
     context = str(defn['context']) if defn.get('context') else ''
     global_val = 'true' if defn.get('global') is True else 'false'
     server = 'false'
@@ -2692,15 +2705,21 @@ def emit_scheduled_job_properties(indent):
     i = indent
     X(f'{i}<Name>{esc_xml(obj_name)}</Name>')
     emit_mltext(i, 'Synonym', synonym)
-    X(f'{i}<Comment/>')
+    if defn.get('comment'):
+        X(f'{i}<Comment>{esc_xml_text(str(defn["comment"]))}</Comment>')
+    else:
+        X(f'{i}<Comment/>')
     method_name = str(defn['methodName']) if defn.get('methodName') else ''
     # Ensure CommonModule. prefix
     if method_name and not method_name.startswith('CommonModule.'):
         method_name = f'CommonModule.{method_name}'
     X(f'{i}<MethodName>{esc_xml(method_name)}</MethodName>')
-    # synonym может быть {ru,en}; Description — плоская строка, берём ru-текст.
-    description = str(defn['description']) if defn.get('description') else (synonym if isinstance(synonym, str) else '')
-    X(f'{i}<Description>{esc_xml(description)}</Description>')
+    # Description — плоская строка (дефолт ПУСТО, не синоним — иначе роундтрип рвётся).
+    description = str(defn['description']) if defn.get('description') else ''
+    if description:
+        X(f'{i}<Description>{esc_xml_text(description)}</Description>')
+    else:
+        X(f'{i}<Description/>')
     key = str(defn['key']) if defn.get('key') else ''
     X(f'{i}<Key>{esc_xml(key)}</Key>')
     use = 'true' if defn.get('use') is True else 'false'
@@ -2716,13 +2735,15 @@ def emit_event_subscription_properties(indent):
     i = indent
     X(f'{i}<Name>{esc_xml(obj_name)}</Name>')
     emit_mltext(i, 'Synonym', synonym)
-    X(f'{i}<Comment/>')
+    if defn.get('comment'):
+        X(f'{i}<Comment>{esc_xml_text(str(defn["comment"]))}</Comment>')
+    else:
+        X(f'{i}<Comment/>')
     sources = list(defn.get('source', []))
     if sources:
         X(f'{i}<Source>')
         for src in sources:
-            resolved = resolve_type_str(str(src))
-            X(f'{i}\t<v8:Type xmlns:d5p1="http://v8.1c.ru/8.1/data/enterprise/current-config">d5p1:{resolved}</v8:Type>')
+            emit_type_content(f'{i}\t', resolve_type_str(str(src)))
         X(f'{i}</Source>')
     else:
         X(f'{i}<Source/>')

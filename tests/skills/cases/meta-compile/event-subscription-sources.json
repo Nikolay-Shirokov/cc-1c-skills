@@ -1,0 +1,21 @@
+{
+  "name": "Подписка на событие — смешанные источники (Type/TypeSet)",
+  "input": {
+    "type": "EventSubscription",
+    "name": "МоиОбработчики",
+    "source": [
+      "CatalogObject.Номенклатура",
+      "DocumentObject",
+      "DocumentManager",
+      "ConstantValueManager",
+      "InformationRegisterRecordSet"
+    ],
+    "event": "OnWrite",
+    "handler": "ОбработкаСобытий.Обработать"
+  },
+  "validatePath": "EventSubscriptions/МоиОбработчики",
+  "skipValidation": true,
+  "expect": {
+    "files": ["EventSubscriptions/МоиОбработчики.xml"]
+  }
+}

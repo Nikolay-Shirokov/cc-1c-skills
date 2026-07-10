@@ -1,4 +1,4 @@
-﻿# meta-decompile v0.47 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
+﻿# meta-decompile v0.48 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 #
 # Поддержаны: Catalog, ExchangePlan, ChartOfCharacteristicTypes, ChartOfAccounts, ChartOfCalculationTypes, Document,
@@ -92,8 +92,8 @@ foreach ($c in $rootEl.ChildNodes) { if ($c.NodeType -eq 'Element') { $objNode =
 if (-not $objNode) { [Console]::Error.WriteLine("meta-decompile: пустой MetaDataObject"); exit 3 }
 $objType = $objNode.LocalName
 
-if ($objType -notin @('Catalog', 'ExchangePlan', 'ChartOfCharacteristicTypes', 'ChartOfAccounts', 'ChartOfCalculationTypes', 'Document', 'InformationRegister', 'AccumulationRegister', 'AccountingRegister', 'CalculationRegister', 'BusinessProcess', 'Task', 'Enum', 'Report', 'DataProcessor', 'Constant', 'DefinedType', 'FunctionalOption', 'DocumentJournal', 'Sequence', 'FilterCriterion', 'DocumentNumerator', 'SettingsStorage')) {
-	[Console]::Error.WriteLine("meta-decompile: тип '$objType' пока не поддержан (…, Sequence, FilterCriterion, DocumentNumerator, SettingsStorage)"); exit 3
+if ($objType -notin @('Catalog', 'ExchangePlan', 'ChartOfCharacteristicTypes', 'ChartOfAccounts', 'ChartOfCalculationTypes', 'Document', 'InformationRegister', 'AccumulationRegister', 'AccountingRegister', 'CalculationRegister', 'BusinessProcess', 'Task', 'Enum', 'Report', 'DataProcessor', 'Constant', 'DefinedType', 'FunctionalOption', 'DocumentJournal', 'Sequence', 'FilterCriterion', 'DocumentNumerator', 'SettingsStorage', 'CommonModule', 'EventSubscription', 'ScheduledJob')) {
+	[Console]::Error.WriteLine("meta-decompile: тип '$objType' пока не поддержан (…, CommonModule, EventSubscription, ScheduledJob)"); exit 3
 }
 
 $props = $objNode.SelectSingleNode('md:Properties', $nsm)
@@ -655,6 +655,38 @@ if ($objType -eq 'SettingsStorage') {
 	foreach ($fp in @(@('DefaultSaveForm','defaultSaveForm'), @('DefaultLoadForm','defaultLoadForm'), @('AuxiliarySaveForm','auxiliarySaveForm'), @('AuxiliaryLoadForm','auxiliaryLoadForm'))) {
 		$fv = P $fp[0]; if ($fv) { $dsl[$fp[1]] = $fv }
 	}
+}
+# CommonModule — общий модуль: флаги контекста компиляции + повторное использование значений (тело .bsl вне скоупа).
+if ($objType -eq 'CommonModule') {
+	Add-BoolProp 'global'                   'Global'                   $false
+	Add-BoolProp 'clientManagedApplication' 'ClientManagedApplication' $false
+	Add-BoolProp 'server'                   'Server'                   $false
+	Add-BoolProp 'externalConnection'       'ExternalConnection'       $false
+	Add-BoolProp 'clientOrdinaryApplication' 'ClientOrdinaryApplication' $false
+	Add-BoolProp 'serverCall'               'ServerCall'               $false
+	Add-BoolProp 'privileged'               'Privileged'               $false
+	Add-EnumProp 'returnValuesReuse'        'ReturnValuesReuse'        'DontUse'
+}
+# EventSubscription — подписка на событие: источники (набор типов), событие, обработчик.
+if ($objType -eq 'EventSubscription') {
+	$srcNode = $props.SelectSingleNode('md:Source', $nsm)
+	if ($srcNode) {
+		# Источник — набор v8:Type (конкретный CatalogObject.X) И/ИЛИ v8:TypeSet (голый метатип ExchangePlanObject).
+		$srcTypes = @($srcNode.SelectNodes('v8:Type|v8:TypeSet', $nsm) | ForEach-Object { Strip-NsPrefix $_.InnerText.Trim() })
+		if ($srcTypes.Count -gt 0) { $dsl['source'] = [System.Collections.ArrayList]@($srcTypes) }
+	}
+	Add-EnumProp 'event' 'Event' 'BeforeWrite'
+	$h = P 'Handler'; if ($h) { $dsl['handler'] = $h }
+}
+# ScheduledJob — регламентное задание: метод, ключ, флаги, рестарт.
+if ($objType -eq 'ScheduledJob') {
+	$mn = P 'MethodName'; if ($mn) { $dsl['methodName'] = $mn }
+	$descr = P 'Description'; if ($descr) { $dsl['description'] = $descr }
+	$k = P 'Key'; if ($k) { $dsl['key'] = $k }
+	Add-BoolProp 'use'        'Use'        $false
+	Add-BoolProp 'predefined' 'Predefined' $false
+	Add-IntProp  'restartCountOnFailure'    'RestartCountOnFailure'    3
+	Add-IntProp  'restartIntervalOnFailure' 'RestartIntervalOnFailure' 10
 }
 # Constant — богатый одиночный реквизит: Type + свойства значения (как у реквизита) + object-уровень.
 if ($objType -eq 'Constant') {

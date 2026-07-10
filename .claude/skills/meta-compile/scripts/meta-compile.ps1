@@ -1,4 +1,4 @@
-﻿# meta-compile v1.56 — Compile 1C metadata object from JSON
+﻿# meta-compile v1.57 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -468,7 +468,7 @@ $script:typeNamespaceMap = @{
 $script:cfgBareTypes = @("ConstantsSet", "ReportBuilder", "FilterCriterion")
 $script:cfgObjectKinds = @("Catalog","Document","Enum","ChartOfAccounts","ChartOfCharacteristicTypes",
 	"ChartOfCalculationTypes","ExchangePlan","BusinessProcess","Task","InformationRegister","AccumulationRegister",
-	"AccountingRegister","CalculationRegister","DataProcessor","Report","DocumentJournal","Constant","ConstantValue")
+	"AccountingRegister","CalculationRegister","DataProcessor","Report","DocumentJournal","Constant","ConstantValue","Sequence","Recalculation")
 $script:typeSynonyms["таблицазначений"]      = "ValueTable"
 $script:typeSynonyms["деревозначений"]       = "ValueTree"
 $script:typeSynonyms["списокзначений"]       = "ValueListType"
@@ -628,6 +628,18 @@ function Emit-TypeContent {
 		return
 	}
 	if ($typeStr -match '^(\w+)(Object|List|Manager|Selection|RecordSet|RecordKey|RecordManager)\.(.+)$' -and $script:cfgObjectKinds -contains $Matches[1]) {
+		X "$indent<v8:Type>cfg:$typeStr</v8:Type>"
+		return
+	}
+	# Голый объектный метатип (без имени) — напр. в Source подписки на событие:
+	#  - Object/RecordSet → «любой объект категории» = TypeSet cfg: (множество);
+	#  - Manager/List/Selection/RecordKey/RecordManager → сам тип менеджера/списка = Type cfg: (единичный).
+	# ConstantValueManager (голый) — исключение: множество менеджеров значений констант = TypeSet (прочие *Manager → Type).
+	if (($typeStr -match '^(\w+)(Object|RecordSet)$' -and $script:cfgObjectKinds -contains $Matches[1]) -or $typeStr -eq 'ConstantValueManager') {
+		X "$indent<v8:TypeSet>cfg:$typeStr</v8:TypeSet>"
+		return
+	}
+	if ($typeStr -match '^(\w+)(Manager|List|Selection|RecordKey|RecordManager)$' -and $script:cfgObjectKinds -contains $Matches[1]) {
 		X "$indent<v8:Type>cfg:$typeStr</v8:Type>"
 		return
 	}
@@ -2640,7 +2652,7 @@ function Emit-CommonModuleProperties {
 
 	X "$i<Name>$(Esc-Xml $objName)</Name>"
 	Emit-MLText $i "Synonym" $synonym
-	X "$i<Comment/>"
+	if ($def.comment) { X "$i<Comment>$(Esc-XmlText $def.comment)</Comment>" } else { X "$i<Comment/>" }
 
 	# Context shortcuts
 	$context = if ($def.context) { "$($def.context)" } else { "" }
@@ -2682,7 +2694,7 @@ function Emit-ScheduledJobProperties {
 
 	X "$i<Name>$(Esc-Xml $objName)</Name>"
 	Emit-MLText $i "Synonym" $synonym
-	X "$i<Comment/>"
+	if ($def.comment) { X "$i<Comment>$(Esc-XmlText $def.comment)</Comment>" } else { X "$i<Comment/>" }
 
 	$methodName = if ($def.methodName) { "$($def.methodName)" } else { "" }
 	# Ensure CommonModule. prefix
@@ -2691,9 +2703,9 @@ function Emit-ScheduledJobProperties {
 	}
 	X "$i<MethodName>$(Esc-Xml $methodName)</MethodName>"
 
-	# $synonym может быть {ru,en}; здесь Description — плоская строка, берём ru-текст.
-	$description = if ($def.description) { "$($def.description)" } elseif ($synonym -is [string]) { $synonym } else { "" }
-	X "$i<Description>$(Esc-Xml $description)</Description>"
+	# Description — плоская строка (дефолт ПУСТО: корпус 662 пустых / 209 заданы; не подставляем синоним — иначе роундтрип рвётся).
+	$description = if ($def.description) { "$($def.description)" } else { "" }
+	if ($description) { X "$i<Description>$(Esc-XmlText $description)</Description>" } else { X "$i<Description/>" }
 
 	$key = if ($def.key) { "$($def.key)" } else { "" }
 	X "$i<Key>$(Esc-Xml $key)</Key>"
@@ -2716,17 +2728,15 @@ function Emit-EventSubscriptionProperties {
 
 	X "$i<Name>$(Esc-Xml $objName)</Name>"
 	Emit-MLText $i "Synonym" $synonym
-	X "$i<Comment/>"
+	if ($def.comment) { X "$i<Comment>$(Esc-XmlText $def.comment)</Comment>" } else { X "$i<Comment/>" }
 
-	# Source — array of v8:Type
+	# Source — набор типов-источников (объектные типы CatalogObject.X/DocumentObject.X/…RecordSet/…Manager →
+	# cfg:; ссылочные → d5p1). Единый эмиттер Emit-TypeContent (см. §cfg-типы). Прощающий ввод русских корней типа.
 	$sources = @()
 	if ($def.source) { $sources = @($def.source) }
 	if ($sources.Count -gt 0) {
 		X "$i<Source>"
-		foreach ($src in $sources) {
-			$resolved = Resolve-TypeStr "$src"
-			X "$i`t<v8:Type xmlns:d5p1=`"http://v8.1c.ru/8.1/data/enterprise/current-config`">d5p1:$resolved</v8:Type>"
-		}
+		foreach ($src in $sources) { Emit-TypeContent "$i`t" (Resolve-TypeStr "$src") }
 		X "$i</Source>"
 	} else {
 		X "$i<Source/>"
