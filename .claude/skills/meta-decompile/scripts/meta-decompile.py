@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-decompile v0.51 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
+# meta-decompile v0.52 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 #
 # Зеркало meta-decompile.ps1 (КАНОН). Структура 1:1 — те же имена функций, порядок, комментарии.
@@ -143,20 +143,47 @@ def quote_json(s):
 
 
 # --- Сравнение регистров (зеркало PS -ne / -cne) ---
-def ne_ci(a, b):
-    """PS -ne на строках (регистронезависимо). True когда различаются без учёта регистра."""
-    return (a if a is not None else '').lower() != (b if b is not None else '').lower()
+def ne_cs(a, b):
+    """PS -cne на строках (регистрочувствительно). True когда различаются с учётом регистра.
+    Зеркало компилятора: авто-синоним/описание опускаем только при ТОЧНОМ совпадении со split_camel_words."""
+    return (a if a is not None else '') != (b if b is not None else '')
 
 
 def split_camel_words(name):
-    """Авто-синоним: точное зеркало Split-CamelCase из meta-compile (split_camel_case).
+    """Авто-синоним: точное зеркало Split-CamelCase из meta-compile (split_camel_case, HE-эвристика).
     ВАЖНО: логика должна совпадать байт-в-байт с компилятором, иначе ложные «синоним==авто» → диффы."""
     if not name:
         return name
     result = re.sub(r'([а-яё])([А-ЯЁ])', r'\1 \2', name)
     result = re.sub(r'([a-z])([A-Z])', r'\1 \2', result)
+    # HE: сохраняем прогон заглавных >=2, если сразу за ним НЕ буква (пробел/цифра/спецсимвол/конец);
+    # предлоги/бренды перед буквой → лоуэркейз. Первый символ — как есть.
     if len(result) > 1:
-        result = result[0] + result[1:].lower()
+        chars = list(result)
+        n = len(chars)
+        keep = [False] * n
+        i = 0
+        while i < n:
+            if chars[i].isupper():
+                j = i
+                while j < n and chars[j].isupper():
+                    j += 1
+                after_boundary = (j == n) or (not chars[j].isalpha())
+                if j - i >= 2 and after_boundary:
+                    for k in range(i, j):
+                        keep[k] = True
+                i = j
+            else:
+                i += 1
+        out = []
+        for idx, c in enumerate(chars):
+            if idx == 0 or keep[idx]:
+                out.append(c)
+            elif c.isupper():
+                out.append(c.lower())
+            else:
+                out.append(c)
+        result = ''.join(out)
     return result
 
 
@@ -359,7 +386,7 @@ def attr_to_dsl(attr_node):
     # Пустой <Synonym/> (узел есть, значения нет) ≠ авто-синоним из имени → явный пустой (synonym:"").
     syn_empty = (syn_node is not None and syn_val is None)
     if isinstance(syn_val, str):
-        if ne_ci(syn_val, split_camel_words(nm)):
+        if ne_cs(syn_val, split_camel_words(nm)):
             syn_custom = True
     elif syn_val is not None:
         syn_custom = True   # {ru,en} = всегда кастом
@@ -654,7 +681,7 @@ def predef_item_to_dsl(item_el):
         s = ("(%s) %s" % (code, name)) if code else name
         if desc == '':
             s = s + " []"
-        elif ne_ci(desc, auto):
+        elif ne_cs(desc, auto):
             s = s + (" [%s]" % desc)
         if type_str:
             s = "%s: %s" % (s, type_str)
@@ -665,7 +692,7 @@ def predef_item_to_dsl(item_el):
         o['code'] = code
     if desc == '':
         o['description'] = ''
-    elif ne_ci(desc, auto):
+    elif ne_cs(desc, auto):
         o['description'] = desc
     if type_str is not None:
         o['type'] = type_str
@@ -778,7 +805,7 @@ def build_dsl():
     syn_node_obj = _single(props, 'md:Synonym')
     syn_val = get_ml_value(syn_node_obj)
     if isinstance(syn_val, str):
-        if ne_ci(syn_val, split_camel_words(obj_name)):
+        if ne_cs(syn_val, split_camel_words(obj_name)):
             dsl['synonym'] = syn_val
     elif syn_val is not None:
         dsl['synonym'] = syn_val
@@ -1588,7 +1615,7 @@ def build_dsl():
                 ev_cmt = _text(ev_cmt_n) if ev_cmt_n is not None else ''
                 ev_syn_val = None
                 if isinstance(ev_syn, str):
-                    if ne_ci(ev_syn, split_camel_words(ev_name)):
+                    if ne_cs(ev_syn, split_camel_words(ev_name)):
                         ev_syn_val = ev_syn
                 elif ev_syn is not None:
                     ev_syn_val = ev_syn
@@ -1615,7 +1642,7 @@ def build_dsl():
                 c_syn_node = _single(cp, 'md:Synonym')
                 c_syn = get_ml_value(c_syn_node)
                 if isinstance(c_syn, str):
-                    if ne_ci(c_syn, split_camel_words(c_name)):
+                    if ne_cs(c_syn, split_camel_words(c_name)):
                         o['synonym'] = c_syn
                 elif c_syn is not None:
                     o['synonym'] = c_syn
@@ -1658,7 +1685,7 @@ def build_dsl():
                 o = {'name': d_name}
                 d_syn = get_ml_value(_single(dp, 'md:Synonym'))
                 if isinstance(d_syn, str):
-                    if ne_ci(d_syn, split_camel_words(d_name)):
+                    if ne_cs(d_syn, split_camel_words(d_name)):
                         o['synonym'] = d_syn
                 elif d_syn is not None:
                     o['synonym'] = d_syn
@@ -1709,7 +1736,7 @@ def build_dsl():
                 ts_syn = get_ml_value(_single(tsp, 'md:Synonym'))
                 ts_syn_custom = False
                 if isinstance(ts_syn, str):
-                    if ne_ci(ts_syn, split_camel_words(ts_name)):
+                    if ne_cs(ts_syn, split_camel_words(ts_name)):
                         ts_syn_custom = True
                 elif ts_syn is not None:
                     ts_syn_custom = True
@@ -1779,7 +1806,7 @@ def build_dsl():
                 o = {}
                 syn = get_ml_value(_single(cp, 'md:Synonym'))
                 if isinstance(syn, str):
-                    if ne_ci(syn, split_camel_words(cn)):
+                    if ne_cs(syn, split_camel_words(cn)):
                         o['synonym'] = syn
                 elif syn is not None:
                     o['synonym'] = syn

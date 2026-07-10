@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-compile v1.60 — Compile 1C metadata object from JSON
+# meta-compile v1.61 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -233,8 +233,36 @@ def split_camel_case(name):
         return name
     result = re.sub(r'([а-яё])([А-ЯЁ])', r'\1 \2', name)
     result = re.sub(r'([a-z])([A-Z])', r'\1 \2', result)
+    # Лоуэркейзим хвост, СОХРАНЯЯ аббревиатуры (зеркало эвристики платформы): максимальный прогон
+    # заглавных длиной >=2, если сразу за ним НЕ буква (пробел/цифра/спецсимвол/конец) — остаётся заглавным
+    # (НДС, ЕГАИС, ОС, ЭП). Прилипшие предлоги (СКлиентами)/бренды (ЮКасса) идут перед буквой → лоуэркейз.
+    # Первый символ строки — как есть.
     if len(result) > 1:
-        result = result[0] + result[1:].lower()
+        chars = list(result)
+        n = len(chars)
+        keep = [False] * n
+        i = 0
+        while i < n:
+            if chars[i].isupper():
+                j = i
+                while j < n and chars[j].isupper():
+                    j += 1
+                after_boundary = (j == n) or (not chars[j].isalpha())
+                if j - i >= 2 and after_boundary:
+                    for k in range(i, j):
+                        keep[k] = True
+                i = j
+            else:
+                i += 1
+        out = []
+        for idx, c in enumerate(chars):
+            if idx == 0 or keep[idx]:
+                out.append(c)
+            elif c.isupper():
+                out.append(c.lower())
+            else:
+                out.append(c)
+        result = ''.join(out)
     return result
 
 # ---------------------------------------------------------------------------

@@ -1,4 +1,4 @@
-﻿# meta-decompile v0.51 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
+﻿# meta-decompile v0.52 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 #
 # Поддержаны: Catalog, ExchangePlan, ChartOfCharacteristicTypes, ChartOfAccounts, ChartOfCalculationTypes, Document,
@@ -135,7 +135,31 @@ function Split-CamelWords {
 	if (-not $name) { return $name }
 	$result = [regex]::Replace($name, '([а-яё])([А-ЯЁ])', '$1 $2')
 	$result = [regex]::Replace($result, '([a-z])([A-Z])', '$1 $2')
-	if ($result.Length -gt 1) { $result = $result.Substring(0,1) + $result.Substring(1).ToLower() }
+	# HE-эвристика (зеркало Split-CamelCase компилятора): сохраняем прогон заглавных >=2, если сразу за ним
+	# НЕ буква (пробел/цифра/спецсимвол/конец); прилипшие предлоги/бренды перед буквой → лоуэркейз. Первый символ — как есть.
+	if ($result.Length -gt 1) {
+		$chars = $result.ToCharArray()
+		$n = $chars.Length
+		$keep = New-Object 'bool[]' $n
+		$i = 0
+		while ($i -lt $n) {
+			if ([char]::IsUpper($chars[$i])) {
+				$j = $i
+				while ($j -lt $n -and [char]::IsUpper($chars[$j])) { $j++ }
+				$afterBoundary = ($j -eq $n) -or (-not [char]::IsLetter($chars[$j]))
+				if (($j - $i) -ge 2 -and $afterBoundary) { for ($k = $i; $k -lt $j; $k++) { $keep[$k] = $true } }
+				$i = $j
+			} else { $i++ }
+		}
+		$sb = New-Object System.Text.StringBuilder
+		for ($idx = 0; $idx -lt $n; $idx++) {
+			$c = $chars[$idx]
+			if ($idx -eq 0 -or $keep[$idx]) { [void]$sb.Append($c) }
+			elseif ([char]::IsUpper($c)) { [void]$sb.Append([char]::ToLower($c)) }
+			else { [void]$sb.Append($c) }
+		}
+		$result = $sb.ToString()
+	}
 	return $result
 }
 
@@ -271,7 +295,7 @@ function Attr-ToDsl {
 	# Пустой <Synonym/> (узел есть, значения нет) ≠ авто-синоним из имени → явный пустой (synonym:"").
 	# У Catalog-реквизитов не встречается (0/4018), у части ExchangePlan — да.
 	$synEmpty = ($synNode -and $null -eq $synVal)
-	if ($synVal -is [string]) { if ($synVal -ne (Split-CamelWords $nm)) { $synCustom = $true } }
+	if ($synVal -is [string]) { if ($synVal -cne (Split-CamelWords $nm)) { $synCustom = $true } }
 	elseif ($null -ne $synVal) { $synCustom = $true }   # {ru,en} = всегда кастом
 	$ttVal = Get-MLValue ($ap.SelectSingleNode('md:ToolTip', $nsm))
 
@@ -395,7 +419,7 @@ $dsl = [ordered]@{ type = $objType; name = $objName }
 # Пустой <Synonym/> (узел есть, значения нет) ≠ авто-синоним из имени → явный synonym:"" (иначе компилятор до-генерит из имени).
 $synNodeObj = $props.SelectSingleNode('md:Synonym', $nsm)
 $synVal = Get-MLValue $synNodeObj
-if ($synVal -is [string]) { if ($synVal -ne (Split-CamelWords $objName)) { $dsl['synonym'] = $synVal } }
+if ($synVal -is [string]) { if ($synVal -cne (Split-CamelWords $objName)) { $dsl['synonym'] = $synVal } }
 elseif ($null -ne $synVal) { $dsl['synonym'] = $synVal }
 elseif ($synNodeObj) { $dsl['synonym'] = '' }
 $cmt = P 'Comment'; if ($cmt) { $dsl['comment'] = $cmt }
@@ -1101,7 +1125,7 @@ if ($childObjs) {
 			# $evSynVal: строка ≠ авто → кастом; {ru,en} → кастом; пустой `<Synonym/>` (node есть, значения нет) →
 			# явный '' (≠ авто-синоним из имени, аналог object-level фикса); авто/отсутствие → $null (короткая строка).
 			$evSynVal = $null
-			if ($evSyn -is [string]) { if ($evSyn -ne (Split-CamelWords $evName)) { $evSynVal = $evSyn } }
+			if ($evSyn -is [string]) { if ($evSyn -cne (Split-CamelWords $evName)) { $evSynVal = $evSyn } }
 			elseif ($null -ne $evSyn) { $evSynVal = $evSyn }
 			elseif ($evSynNode) { $evSynVal = '' }
 			if (($null -ne $evSynVal) -or $evCmt) {
@@ -1126,7 +1150,7 @@ if ($childObjs) {
 			$o = [ordered]@{ name = $cName }
 			$cSynNode = $cp.SelectSingleNode('md:Synonym', $nsm)
 			$cSyn = Get-MLValue $cSynNode
-			if ($cSyn -is [string]) { if ($cSyn -ne (Split-CamelWords $cName)) { $o['synonym'] = $cSyn } }
+			if ($cSyn -is [string]) { if ($cSyn -cne (Split-CamelWords $cName)) { $o['synonym'] = $cSyn } }
 			elseif ($null -ne $cSyn) { $o['synonym'] = $cSyn }
 			elseif ($cSynNode) { $o['synonym'] = '' }   # пустой <Synonym/> ≠ авто-синоним → явный ''
 			$cCmtN = $cp.SelectSingleNode('md:Comment', $nsm); if ($cCmtN -and $cCmtN.InnerText) { $o['comment'] = $cCmtN.InnerText }
@@ -1163,7 +1187,7 @@ if ($childObjs) {
 			$dName = ($dp.SelectSingleNode('md:Name', $nsm)).InnerText
 			$o = [ordered]@{ name = $dName }
 			$dSyn = Get-MLValue ($dp.SelectSingleNode('md:Synonym', $nsm))
-			if ($dSyn -is [string]) { if ($dSyn -ne (Split-CamelWords $dName)) { $o['synonym'] = $dSyn } }
+			if ($dSyn -is [string]) { if ($dSyn -cne (Split-CamelWords $dName)) { $o['synonym'] = $dSyn } }
 			elseif ($null -ne $dSyn) { $o['synonym'] = $dSyn }
 			$dCmtN = $dp.SelectSingleNode('md:Comment', $nsm); if ($dCmtN -and $dCmtN.InnerText) { $o['comment'] = $dCmtN.InnerText }
 			$dt = Get-TypeShorthand ($dp.SelectSingleNode('md:Type', $nsm)); if ($dt) { $o['type'] = $dt }
@@ -1207,7 +1231,7 @@ if ($childObjs) {
 			# Синоним/подсказка/комментарий ТЧ. Кастом → объектная форма {synonym?, tooltip?, comment?, attributes}.
 			$tsSyn = Get-MLValue ($tsp.SelectSingleNode('md:Synonym', $nsm))
 			$tsSynCustom = $false
-			if ($tsSyn -is [string]) { if ($tsSyn -ne (Split-CamelWords $tsName)) { $tsSynCustom = $true } }
+			if ($tsSyn -is [string]) { if ($tsSyn -cne (Split-CamelWords $tsName)) { $tsSynCustom = $true } }
 			elseif ($null -ne $tsSyn) { $tsSynCustom = $true }
 			$tsTt = Get-MLValue ($tsp.SelectSingleNode('md:ToolTip', $nsm))
 			$tsCmtN = $tsp.SelectSingleNode('md:Comment', $nsm); $tsCmt = if ($tsCmtN) { $tsCmtN.InnerText } else { '' }
@@ -1260,7 +1284,7 @@ if ($childObjs) {
 			$cn = ($cp.SelectSingleNode('md:Name', $nsm)).InnerText
 			$o = [ordered]@{}
 			$syn = Get-MLValue ($cp.SelectSingleNode('md:Synonym', $nsm))
-			if ($syn -is [string]) { if ($syn -ne (Split-CamelWords $cn)) { $o['synonym'] = $syn } }
+			if ($syn -is [string]) { if ($syn -cne (Split-CamelWords $cn)) { $o['synonym'] = $syn } }
 			elseif ($null -ne $syn) { $o['synonym'] = $syn }
 			$cmtN = $cp.SelectSingleNode('md:Comment', $nsm); if ($cmtN -and $cmtN.InnerText) { $o['comment'] = $cmtN.InnerText }
 			$grpN = $cp.SelectSingleNode('md:Group', $nsm); if ($grpN -and $grpN.InnerText) { $o['group'] = $grpN.InnerText }
@@ -1328,7 +1352,7 @@ if (Test-Path -LiteralPath $predefPath) {
 		if (-not $isFolder -and $kids.Count -eq 0 -and ($null -eq $typeStr -or $typeStr -ne '')) {
 			$s = if ($code) { "($code) $name" } else { $name }
 			if ($desc -eq '') { $s = "$s []" }
-			elseif ($desc -ne $auto) { $s = "$s [$desc]" }
+			elseif ($desc -cne $auto) { $s = "$s [$desc]" }
 			if ($typeStr) { $s = "${s}: $typeStr" }
 			return $s
 		}
@@ -1336,7 +1360,7 @@ if (Test-Path -LiteralPath $predefPath) {
 		$o = [ordered]@{ name = $name }
 		if ($code) { $o['code'] = $code }
 		if ($desc -eq '') { $o['description'] = '' }
-		elseif ($desc -ne $auto) { $o['description'] = $desc }
+		elseif ($desc -cne $auto) { $o['description'] = $desc }
 		if ($null -ne $typeStr) { $o['type'] = $typeStr }
 		if ($isFolder) { $o['isFolder'] = $true }
 		if ($kids.Count -gt 0) {

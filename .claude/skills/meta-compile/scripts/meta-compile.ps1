@@ -1,4 +1,4 @@
-﻿# meta-compile v1.60 — Compile 1C metadata object from JSON
+﻿# meta-compile v1.61 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -421,9 +421,32 @@ function Split-CamelCase {
 	# Insert space before uppercase that follows lowercase (Cyrillic + Latin)
 	$result = [regex]::Replace($name, '([а-яё])([А-ЯЁ])', '$1 $2')
 	$result = [regex]::Replace($result, '([a-z])([A-Z])', '$1 $2')
-	# Lowercase all but first character of the result
+	# Лоуэркейзим хвост, СОХРАНЯЯ аббревиатуры (зеркало эвристики платформы): максимальный прогон
+	# заглавных длиной >=2, если сразу за ним НЕ буква (пробел/цифра/спецсимвол/конец) — остаётся заглавным
+	# (НДС, ЕГАИС, ОС, ЭП). Прилипшие предлоги (СКлиентами) и бренды (ЮКасса) идут перед буквой → лоуэркейз.
+	# Первый символ строки — как есть.
 	if ($result.Length -gt 1) {
-		$result = $result.Substring(0,1) + $result.Substring(1).ToLower()
+		$chars = $result.ToCharArray()
+		$n = $chars.Length
+		$keep = New-Object 'bool[]' $n
+		$i = 0
+		while ($i -lt $n) {
+			if ([char]::IsUpper($chars[$i])) {
+				$j = $i
+				while ($j -lt $n -and [char]::IsUpper($chars[$j])) { $j++ }
+				$afterBoundary = ($j -eq $n) -or (-not [char]::IsLetter($chars[$j]))
+				if (($j - $i) -ge 2 -and $afterBoundary) { for ($k = $i; $k -lt $j; $k++) { $keep[$k] = $true } }
+				$i = $j
+			} else { $i++ }
+		}
+		$sb = New-Object System.Text.StringBuilder
+		for ($idx = 0; $idx -lt $n; $idx++) {
+			$c = $chars[$idx]
+			if ($idx -eq 0 -or $keep[$idx]) { [void]$sb.Append($c) }
+			elseif ([char]::IsUpper($c)) { [void]$sb.Append([char]::ToLower($c)) }
+			else { [void]$sb.Append($c) }
+		}
+		$result = $sb.ToString()
 	}
 	return $result
 }
