@@ -1,4 +1,4 @@
-﻿# meta-decompile v0.50 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
+﻿# meta-decompile v0.51 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 #
 # Поддержаны: Catalog, ExchangePlan, ChartOfCharacteristicTypes, ChartOfAccounts, ChartOfCalculationTypes, Document,
@@ -92,8 +92,8 @@ foreach ($c in $rootEl.ChildNodes) { if ($c.NodeType -eq 'Element') { $objNode =
 if (-not $objNode) { [Console]::Error.WriteLine("meta-decompile: пустой MetaDataObject"); exit 3 }
 $objType = $objNode.LocalName
 
-if ($objType -notin @('Catalog', 'ExchangePlan', 'ChartOfCharacteristicTypes', 'ChartOfAccounts', 'ChartOfCalculationTypes', 'Document', 'InformationRegister', 'AccumulationRegister', 'AccountingRegister', 'CalculationRegister', 'BusinessProcess', 'Task', 'Enum', 'Report', 'DataProcessor', 'Constant', 'DefinedType', 'FunctionalOption', 'DocumentJournal', 'Sequence', 'FilterCriterion', 'DocumentNumerator', 'SettingsStorage', 'CommonModule', 'EventSubscription', 'ScheduledJob', 'CommonForm', 'SessionParameter', 'CommonCommand', 'CommandGroup', 'CommonAttribute', 'FunctionalOptionsParameter', 'WSReference')) {
-	[Console]::Error.WriteLine("meta-decompile: тип '$objType' пока не поддержан (…, SessionParameter, CommonCommand, CommandGroup, CommonAttribute, FunctionalOptionsParameter, WSReference)"); exit 3
+if ($objType -notin @('Catalog', 'ExchangePlan', 'ChartOfCharacteristicTypes', 'ChartOfAccounts', 'ChartOfCalculationTypes', 'Document', 'InformationRegister', 'AccumulationRegister', 'AccountingRegister', 'CalculationRegister', 'BusinessProcess', 'Task', 'Enum', 'Report', 'DataProcessor', 'Constant', 'DefinedType', 'FunctionalOption', 'DocumentJournal', 'Sequence', 'FilterCriterion', 'DocumentNumerator', 'SettingsStorage', 'CommonModule', 'EventSubscription', 'ScheduledJob', 'CommonForm', 'SessionParameter', 'CommonCommand', 'CommandGroup', 'CommonAttribute', 'FunctionalOptionsParameter', 'WSReference', 'CommonPicture', 'CommonTemplate')) {
+	[Console]::Error.WriteLine("meta-decompile: тип '$objType' пока не поддержан (…, CommonPicture, CommonTemplate)"); exit 3
 }
 
 $props = $objNode.SelectSingleNode('md:Properties', $nsm)
@@ -703,6 +703,15 @@ if ($objType -eq 'FunctionalOptionsParameter') {
 # WSReference — WS-ссылка: URL расположения WSDL (+InternalInfo Manager).
 if ($objType -eq 'WSReference') {
 	$url = P 'LocationURL'; if ($url) { $dsl['locationURL'] = $url }
+}
+# CommonPicture — общая картинка: доступность (содержимое Ext/Picture вне скоупа).
+if ($objType -eq 'CommonPicture') {
+	Add-BoolProp 'availabilityForChoice'     'AvailabilityForChoice'     $false
+	Add-BoolProp 'availabilityForAppearance' 'AvailabilityForAppearance' $false
+}
+# CommonTemplate — общий макет: тип макета (содержимое Ext/Template.* вне скоупа).
+if ($objType -eq 'CommonTemplate') {
+	Add-EnumProp 'templateType' 'TemplateType' 'SpreadsheetDocument'
 }
 # Общий захват структурного <Picture> (зеркало Emit-CommandPicture). Пишет в $tgt ключи picture/loadTransparent.
 function Get-PictureToDsl { param($propsNode, $tgt)

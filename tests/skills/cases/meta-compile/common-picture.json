@@ -1,0 +1,1 @@
+{ "name": "Общая картинка", "input": { "type": "CommonPicture", "name": "Логотип", "availabilityForChoice": true }, "validatePath": "CommonPictures/Логотип", "skipValidation": true, "expect": { "files": ["CommonPictures/Логотип.xml"] } }

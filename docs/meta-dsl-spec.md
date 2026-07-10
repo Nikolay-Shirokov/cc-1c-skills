@@ -1284,6 +1284,19 @@ ChildObjects и модулей.
   "autoUse": "Use", "content": ["Документ.РеализацияТоваров", { "metadata": "Документ.ПоступлениеТоваров" }] }
 ```
 
+### 7.15g CommonPicture / CommonTemplate (Общие картинки и макеты)
+
+Только метаданные + регистрация; СОДЕРЖИМОЕ (`Ext/Picture*`, `Ext/Template.*` — бинарь/MXL) вне скоупа
+(импортируется отдельно / `/mxl-compile` для SpreadsheetDocument).
+
+- **CommonPicture** — `availabilityForChoice` / `availabilityForAppearance` (bool, дефолт false).
+- **CommonTemplate** — `templateType` (SpreadsheetDocument[дефолт]/TextDocument/HTMLDocument/BinaryData/AddIn/
+  DataCompositionSchema/DataCompositionAppearanceTemplate/GraphicalSchema).
+
+```json
+{ "type": "CommonTemplate", "name": "ПечатьЗаказа", "templateType": "SpreadsheetDocument" }
+```
+
 ### 7.16 ChartOfAccounts
 
 Полное описание типа (все поля, стандартные реквизиты, грамматика предопределённых счетов) — см. **§7.2c**.

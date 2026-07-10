@@ -1,0 +1,1 @@
+{ "name": "Общий макет", "input": { "type": "CommonTemplate", "name": "ПечатьЗаказа", "templateType": "SpreadsheetDocument" }, "validatePath": "CommonTemplates/ПечатьЗаказа", "skipValidation": true, "expect": { "files": ["CommonTemplates/ПечатьЗаказа.xml"] } }

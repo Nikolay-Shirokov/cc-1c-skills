@@ -1,4 +1,4 @@
-﻿# meta-compile v1.59 — Compile 1C metadata object from JSON
+﻿# meta-compile v1.60 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -349,7 +349,8 @@ $validTypes = @("Catalog","Document","Enum","Constant","InformationRegister","Ac
 	"Report","DataProcessor","CommonModule","ScheduledJob","EventSubscription",
 	"HTTPService","WebService","DefinedType","FunctionalOption",
 	"Sequence","FilterCriterion","DocumentNumerator","SettingsStorage","CommonForm",
-	"SessionParameter","CommonCommand","CommandGroup","CommonAttribute","FunctionalOptionsParameter","WSReference")
+	"SessionParameter","CommonCommand","CommandGroup","CommonAttribute","FunctionalOptionsParameter","WSReference",
+	"CommonPicture","CommonTemplate")
 if ($objType -notin $validTypes) {
 	Write-Error "Unsupported type: $objType. Valid: $($validTypes -join ', ')"
 	exit 1
@@ -2683,6 +2684,25 @@ function Emit-WSReferenceProperties {
 	if ($url) { X "$i<LocationURL>$(Esc-XmlText $url)</LocationURL>" } else { X "$i<LocationURL/>" }
 }
 
+function Emit-CommonPictureProperties {
+	param([string]$indent)
+	$i = $indent
+	X "$i<Name>$(Esc-Xml $objName)</Name>"
+	Emit-MLText $i "Synonym" $synonym
+	if ($def.comment) { X "$i<Comment>$(Esc-XmlText $def.comment)</Comment>" } else { X "$i<Comment/>" }
+	X "$i<AvailabilityForChoice>$(if (Get-BoolProp 'availabilityForChoice' $false) { 'true' } else { 'false' })</AvailabilityForChoice>"
+	X "$i<AvailabilityForAppearance>$(if (Get-BoolProp 'availabilityForAppearance' $false) { 'true' } else { 'false' })</AvailabilityForAppearance>"
+}
+
+function Emit-CommonTemplateProperties {
+	param([string]$indent)
+	$i = $indent
+	X "$i<Name>$(Esc-Xml $objName)</Name>"
+	Emit-MLText $i "Synonym" $synonym
+	if ($def.comment) { X "$i<Comment>$(Esc-XmlText $def.comment)</Comment>" } else { X "$i<Comment/>" }
+	X "$i<TemplateType>$(Get-EnumProp 'TemplateType' 'templateType' 'SpreadsheetDocument')</TemplateType>"
+}
+
 function Emit-CommandGroupProperties {
 	param([string]$indent)
 	$i = $indent
@@ -3901,6 +3921,8 @@ switch ($objType) {
 	"CommonAttribute"            { Emit-CommonAttributeProperties "`t`t`t" }
 	"FunctionalOptionsParameter" { Emit-FunctionalOptionsParameterProperties "`t`t`t" }
 	"WSReference"                { Emit-WSReferenceProperties "`t`t`t" }
+	"CommonPicture"              { Emit-CommonPictureProperties "`t`t`t" }
+	"CommonTemplate"             { Emit-CommonTemplateProperties "`t`t`t" }
 	"CommonModule"               { Emit-CommonModuleProperties "`t`t`t" }
 	"ScheduledJob"               { Emit-ScheduledJobProperties "`t`t`t" }
 	"EventSubscription"          { Emit-EventSubscriptionProperties "`t`t`t" }
@@ -4242,6 +4264,8 @@ $script:typePluralMap = @{
 	"CommonAttribute"           = "CommonAttributes"
 	"FunctionalOptionsParameter" = "FunctionalOptionsParameters"
 	"WSReference"               = "WSReferences"
+	"CommonPicture"             = "CommonPictures"
+	"CommonTemplate"            = "CommonTemplates"
 }
 
 $typePlural = $script:typePluralMap[$objType]

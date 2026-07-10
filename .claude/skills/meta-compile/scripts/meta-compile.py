@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-compile v1.59 — Compile 1C metadata object from JSON
+# meta-compile v1.60 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -465,6 +465,7 @@ valid_types = [
     'Sequence', 'FilterCriterion', 'DocumentNumerator', 'SettingsStorage',
     'CommonForm',
     'SessionParameter', 'CommonCommand', 'CommandGroup', 'CommonAttribute', 'FunctionalOptionsParameter', 'WSReference',
+    'CommonPicture', 'CommonTemplate',
 ]
 if obj_type not in valid_types:
     print(f"Unsupported type: {obj_type}. Valid: {', '.join(valid_types)}", file=sys.stderr)
@@ -2702,6 +2703,21 @@ def emit_ws_reference_properties(indent):
     else:
         X(f'{i}<LocationURL/>')
 
+def emit_common_picture_properties(indent):
+    i = indent
+    X(f'{i}<Name>{esc_xml(obj_name)}</Name>')
+    emit_mltext(i, 'Synonym', synonym)
+    _emit_comment(i)
+    X(f'{i}<AvailabilityForChoice>{"true" if get_bool_prop("availabilityForChoice", False) else "false"}</AvailabilityForChoice>')
+    X(f'{i}<AvailabilityForAppearance>{"true" if get_bool_prop("availabilityForAppearance", False) else "false"}</AvailabilityForAppearance>')
+
+def emit_common_template_properties(indent):
+    i = indent
+    X(f'{i}<Name>{esc_xml(obj_name)}</Name>')
+    emit_mltext(i, 'Synonym', synonym)
+    _emit_comment(i)
+    X(f'{i}<TemplateType>{get_enum_prop("TemplateType", "templateType", "SpreadsheetDocument")}</TemplateType>')
+
 def emit_command_group_properties(indent):
     i = indent
     X(f'{i}<Name>{esc_xml(obj_name)}</Name>')
@@ -3801,6 +3817,8 @@ property_emitters = {
     'CommonAttribute': emit_common_attribute_properties,
     'FunctionalOptionsParameter': emit_functional_options_parameter_properties,
     'WSReference': emit_ws_reference_properties,
+    'CommonPicture': emit_common_picture_properties,
+    'CommonTemplate': emit_common_template_properties,
     'CommonModule': emit_common_module_properties,
     'ScheduledJob': emit_scheduled_job_properties,
     'EventSubscription': emit_event_subscription_properties,
@@ -4126,6 +4144,8 @@ type_plural_map = {
     'CommonAttribute': 'CommonAttributes',
     'FunctionalOptionsParameter': 'FunctionalOptionsParameters',
     'WSReference': 'WSReferences',
+    'CommonPicture': 'CommonPictures',
+    'CommonTemplate': 'CommonTemplates',
 }
 
 type_plural = type_plural_map[obj_type]
