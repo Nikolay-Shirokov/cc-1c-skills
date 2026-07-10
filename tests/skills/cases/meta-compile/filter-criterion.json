@@ -1,0 +1,15 @@
+{
+  "name": "Критерий отбора",
+  "input": {
+    "type": "FilterCriterion",
+    "name": "ДокументыПоКонтрагенту",
+    "valueType": "CatalogRef.Контрагенты",
+    "useStandardCommands": false,
+    "content": [
+      "Документ.ПоступлениеТоваров.Реквизит.Контрагент",
+      "Document.РеализацияТоваров.Attribute.Контрагент"
+    ]
+  },
+  "validatePath": "FilterCriteria/ДокументыПоКонтрагенту",
+  "expect": { "files": ["FilterCriteria/ДокументыПоКонтрагенту.xml"] }
+}

@@ -1,0 +1,10 @@
+{
+  "name": "Хранилище настроек",
+  "input": {
+    "type": "SettingsStorage",
+    "name": "ХранилищеОтчетов",
+    "comment": "(Демо)"
+  },
+  "validatePath": "SettingsStorages/ХранилищеОтчетов",
+  "expect": { "files": ["SettingsStorages/ХранилищеОтчетов.xml"] }
+}

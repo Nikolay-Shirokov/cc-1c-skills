@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-compile v1.55 — Compile 1C metadata object from JSON
+# meta-compile v1.56 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -462,6 +462,7 @@ valid_types = [
     'Report', 'DataProcessor', 'CommonModule', 'ScheduledJob',
     'EventSubscription', 'HTTPService', 'WebService', 'DefinedType',
     'FunctionalOption',
+    'Sequence', 'FilterCriterion', 'DocumentNumerator', 'SettingsStorage',
 ]
 if obj_type not in valid_types:
     print(f"Unsupported type: {obj_type}. Valid: {', '.join(valid_types)}", file=sys.stderr)
@@ -1103,6 +1104,18 @@ generated_types = {
     'DataProcessor': [
         {'prefix': 'DataProcessorObject', 'category': 'Object'},
         {'prefix': 'DataProcessorManager', 'category': 'Manager'},
+    ],
+    'Sequence': [
+        {'prefix': 'SequenceRecord', 'category': 'Record'},
+        {'prefix': 'SequenceManager', 'category': 'Manager'},
+        {'prefix': 'SequenceRecordSet', 'category': 'RecordSet'},
+    ],
+    'FilterCriterion': [
+        {'prefix': 'FilterCriterionManager', 'category': 'Manager'},
+        {'prefix': 'FilterCriterionList', 'category': 'List'},
+    ],
+    'SettingsStorage': [
+        {'prefix': 'SettingsStorageManager', 'category': 'Manager'},
     ],
 }
 
@@ -2521,6 +2534,116 @@ def emit_functional_option_properties(indent):
     else:
         X(f'{i}<Content/>')
 
+def emit_md_ref_list(indent, tag, items):
+    """Список MDObjectRef (Documents/RegisterRecords/DocumentMap/…) с <xr:Item>. omit-on-empty."""
+    arr = list(items) if items else []
+    if arr:
+        X(f'{indent}<{tag}>')
+        for it in arr:
+            X(f'{indent}\t<xr:Item xsi:type="xr:MDObjectRef">{esc_xml(normalize_md_object_ref(str(it)))}</xr:Item>')
+        X(f'{indent}</{tag}>')
+    else:
+        X(f'{indent}<{tag}/>')
+
+def emit_sequence_properties(indent):
+    i = indent
+    X(f'{i}<Name>{esc_xml(obj_name)}</Name>')
+    emit_mltext(i, 'Synonym', synonym)
+    if defn.get('comment'):
+        X(f'{i}<Comment>{esc_xml_text(str(defn["comment"]))}</Comment>')
+    else:
+        X(f'{i}<Comment/>')
+    X(f'{i}<MoveBoundaryOnPosting>{get_enum_prop("MoveBoundaryOnPosting", "moveBoundaryOnPosting", "DontMove")}</MoveBoundaryOnPosting>')
+    emit_md_ref_list(i, 'Documents', defn.get('documents'))
+    emit_md_ref_list(i, 'RegisterRecords', defn.get('registerRecords'))
+    X(f'{i}<DataLockControlMode>{get_enum_prop("DataLockControlMode", "dataLockControlMode", "Automatic")}</DataLockControlMode>')
+
+def emit_filter_criterion_properties(indent):
+    i = indent
+    X(f'{i}<Name>{esc_xml(obj_name)}</Name>')
+    emit_mltext(i, 'Synonym', synonym)
+    if defn.get('comment'):
+        X(f'{i}<Comment>{esc_xml_text(str(defn["comment"]))}</Comment>')
+    else:
+        X(f'{i}<Comment/>')
+    if defn.get('valueType'):
+        vt = str(defn['valueType'])
+    elif defn.get('valueTypes'):
+        vt = ' + '.join(str(x) for x in defn['valueTypes'])
+    else:
+        vt = ''
+    if vt:
+        emit_value_type(i, vt)
+    else:
+        X(f'{i}<Type/>')
+    use_std_cmds = 'true' if get_bool_prop('useStandardCommands', True) else 'false'
+    X(f'{i}<UseStandardCommands>{use_std_cmds}</UseStandardCommands>')
+    content = list(defn['content']) if defn.get('content') else []
+    if content:
+        X(f'{i}<Content>')
+        for obj in content:
+            X(f'{i}\t<xr:Item xsi:type="xr:MDObjectRef">{esc_xml(normalize_md_object_ref(str(obj)))}</xr:Item>')
+        X(f'{i}</Content>')
+    else:
+        X(f'{i}<Content/>')
+    emit_verbatim_ref(i, 'DefaultForm', defn.get('defaultForm'))
+    emit_verbatim_ref(i, 'AuxiliaryForm', defn.get('auxiliaryForm'))
+    emit_mltext(i, 'ListPresentation', defn.get('listPresentation'))
+    emit_mltext(i, 'ExtendedListPresentation', defn.get('extendedListPresentation'))
+    emit_mltext(i, 'Explanation', defn.get('explanation'))
+
+def emit_document_numerator_properties(indent):
+    i = indent
+    X(f'{i}<Name>{esc_xml(obj_name)}</Name>')
+    emit_mltext(i, 'Synonym', synonym)
+    if defn.get('comment'):
+        X(f'{i}<Comment>{esc_xml_text(str(defn["comment"]))}</Comment>')
+    else:
+        X(f'{i}<Comment/>')
+    X(f'{i}<NumberType>{get_enum_prop("NumberType", "numberType", "String")}</NumberType>')
+    num_len = str(defn['numberLength']) if defn.get('numberLength') is not None else '11'
+    X(f'{i}<NumberLength>{num_len}</NumberLength>')
+    X(f'{i}<NumberAllowedLength>{get_enum_prop("NumberAllowedLength", "numberAllowedLength", "Variable")}</NumberAllowedLength>')
+    X(f'{i}<NumberPeriodicity>{get_enum_prop("NumberPeriodicity", "numberPeriodicity", "Year")}</NumberPeriodicity>')
+    X(f'{i}<CheckUnique>{"true" if get_bool_prop("checkUnique", True) else "false"}</CheckUnique>')
+
+def emit_settings_storage_properties(indent):
+    i = indent
+    X(f'{i}<Name>{esc_xml(obj_name)}</Name>')
+    emit_mltext(i, 'Synonym', synonym)
+    if defn.get('comment'):
+        X(f'{i}<Comment>{esc_xml_text(str(defn["comment"]))}</Comment>')
+    else:
+        X(f'{i}<Comment/>')
+    emit_verbatim_ref(i, 'DefaultSaveForm', defn.get('defaultSaveForm'))
+    emit_verbatim_ref(i, 'DefaultLoadForm', defn.get('defaultLoadForm'))
+    emit_verbatim_ref(i, 'AuxiliarySaveForm', defn.get('auxiliarySaveForm'))
+    emit_verbatim_ref(i, 'AuxiliaryLoadForm', defn.get('auxiliaryLoadForm'))
+
+def emit_sequence_dimension(indent, dim_def):
+    uid = new_uuid()
+    parsed = parse_attribute_shorthand(dim_def)
+    X(f'{indent}<Dimension uuid="{uid}">')
+    X(f'{indent}\t<Properties>')
+    X(f'{indent}\t\t<Name>{esc_xml(parsed["name"])}</Name>')
+    emit_mltext(f'{indent}\t\t', 'Synonym', parsed['synonym'])
+    if parsed.get('comment'):
+        X(f'{indent}\t\t<Comment>{esc_xml_text(parsed["comment"])}</Comment>')
+    else:
+        X(f'{indent}\t\t<Comment/>')
+    if parsed.get('typeEmpty'):
+        X(f'{indent}\t\t<Type/>')
+    elif parsed['type']:
+        emit_value_type(f'{indent}\t\t', parsed['type'])
+    else:
+        X(f'{indent}\t\t<Type/>')
+    dm = None if isinstance(dim_def, str) else dim_def.get('documentMap')
+    rrm = None if isinstance(dim_def, str) else dim_def.get('registerRecordsMap')
+    emit_md_ref_list(f'{indent}\t\t', 'DocumentMap', dm)
+    emit_md_ref_list(f'{indent}\t\t', 'RegisterRecordsMap', rrm)
+    X(f'{indent}\t</Properties>')
+    X(f'{indent}</Dimension>')
+
 def emit_common_module_properties(indent):
     i = indent
     X(f'{i}<Name>{esc_xml(obj_name)}</Name>')
@@ -3467,6 +3590,10 @@ property_emitters = {
     'AccumulationRegister': emit_accumulation_register_properties,
     'DefinedType': emit_defined_type_properties,
     'FunctionalOption': emit_functional_option_properties,
+    'Sequence': emit_sequence_properties,
+    'FilterCriterion': emit_filter_criterion_properties,
+    'DocumentNumerator': emit_document_numerator_properties,
+    'SettingsStorage': emit_settings_storage_properties,
     'CommonModule': emit_common_module_properties,
     'ScheduledJob': emit_scheduled_job_properties,
     'EventSubscription': emit_event_subscription_properties,
@@ -3678,6 +3805,39 @@ if obj_type == 'DocumentJournal':
     else:
         X('\t\t<ChildObjects/>')
 
+# --- Sequence: dimensions ---
+if obj_type == 'Sequence':
+    seq_dims = list(defn.get('dimensions', []))
+    if seq_dims:
+        has_children = True
+        X('\t\t<ChildObjects>')
+        for d in seq_dims:
+            emit_sequence_dimension('\t\t\t', d)
+        X('\t\t</ChildObjects>')
+    else:
+        X('\t\t<ChildObjects/>')
+
+# --- FilterCriterion / SettingsStorage: ChildObjects (формы стрипаются; FilterCriterion может нести <Command>) ---
+if obj_type in ('FilterCriterion', 'SettingsStorage'):
+    fc_commands = []
+    if defn.get('commands'):
+        cd = defn['commands']
+        if isinstance(cd, list):
+            for c in cd:
+                fc_commands.append({'name': str(c.get('name', '')), 'def': c})
+        else:
+            for k, v in cd.items():
+                fc_commands.append({'name': k, 'def': v})
+    if fc_commands:
+        has_children = True
+        X('\t\t<ChildObjects>')
+        for cmd in fc_commands:
+            emit_command('\t\t\t', cmd['name'], cmd['def'])
+        X('\t\t</ChildObjects>')
+    else:
+        X('\t\t<ChildObjects/>')
+# DocumentNumerator: ChildObjects нет вовсе (не эмитим).
+
 # --- HTTPService: URLTemplates ---
 if obj_type == 'HTTPService':
     url_templates = {}
@@ -3748,6 +3908,10 @@ type_plural_map = {
     'WebService': 'WebServices',
     'DefinedType': 'DefinedTypes',
     'FunctionalOption': 'FunctionalOptions',
+    'Sequence': 'Sequences',
+    'FilterCriterion': 'FilterCriteria',
+    'DocumentNumerator': 'DocumentNumerators',
+    'SettingsStorage': 'SettingsStorages',
 }
 
 type_plural = type_plural_map[obj_type]

@@ -1,0 +1,12 @@
+{
+  "name": "Нумератор документов",
+  "input": {
+    "type": "DocumentNumerator",
+    "name": "ЕдиныйНумератор",
+    "numberLength": 8,
+    "numberAllowedLength": "Fixed",
+    "numberPeriodicity": "Day"
+  },
+  "validatePath": "DocumentNumerators/ЕдиныйНумератор",
+  "expect": { "files": ["DocumentNumerators/ЕдиныйНумератор.xml"] }
+}

@@ -1,4 +1,4 @@
-﻿# meta-compile v1.55 — Compile 1C metadata object from JSON
+﻿# meta-compile v1.56 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -347,7 +347,8 @@ $validTypes = @("Catalog","Document","Enum","Constant","InformationRegister","Ac
 	"AccountingRegister","CalculationRegister","ChartOfAccounts","ChartOfCharacteristicTypes",
 	"ChartOfCalculationTypes","BusinessProcess","Task","ExchangePlan","DocumentJournal",
 	"Report","DataProcessor","CommonModule","ScheduledJob","EventSubscription",
-	"HTTPService","WebService","DefinedType","FunctionalOption")
+	"HTTPService","WebService","DefinedType","FunctionalOption",
+	"Sequence","FilterCriterion","DocumentNumerator","SettingsStorage")
 if ($objType -notin $validTypes) {
 	Write-Error "Unsupported type: $objType. Valid: $($validTypes -join ', ')"
 	exit 1
@@ -1083,6 +1084,18 @@ $script:generatedTypes = @{
 	"DataProcessor" = @(
 		@{ prefix = "DataProcessorObject";  category = "Object" }
 		@{ prefix = "DataProcessorManager"; category = "Manager" }
+	)
+	"Sequence" = @(
+		@{ prefix = "SequenceRecord";    category = "Record" }
+		@{ prefix = "SequenceManager";   category = "Manager" }
+		@{ prefix = "SequenceRecordSet"; category = "RecordSet" }
+	)
+	"FilterCriterion" = @(
+		@{ prefix = "FilterCriterionManager"; category = "Manager" }
+		@{ prefix = "FilterCriterionList";    category = "List" }
+	)
+	"SettingsStorage" = @(
+		@{ prefix = "SettingsStorageManager"; category = "Manager" }
 	)
 }
 
@@ -2523,6 +2536,104 @@ function Emit-FunctionalOptionProperties {
 	}
 }
 
+# Общий эмиттер списка MDObjectRef (Documents/RegisterRecords с обёрткой <xr:Item>). omit-on-empty.
+function Emit-MDRefList {
+	param([string]$indent, [string]$tag, $items)
+	$arr = @(); if ($items) { $arr = @($items) }
+	if ($arr.Count -gt 0) {
+		X "$indent<$tag>"
+		foreach ($it in $arr) { X "$indent`t<xr:Item xsi:type=`"xr:MDObjectRef`">$(Esc-Xml (Normalize-MDObjectRef "$it"))</xr:Item>" }
+		X "$indent</$tag>"
+	} else {
+		X "$indent<$tag/>"
+	}
+}
+
+function Emit-SequenceProperties {
+	param([string]$indent)
+	$i = $indent
+	X "$i<Name>$(Esc-Xml $objName)</Name>"
+	Emit-MLText $i "Synonym" $synonym
+	if ($def.comment) { X "$i<Comment>$(Esc-XmlText $def.comment)</Comment>" } else { X "$i<Comment/>" }
+	X "$i<MoveBoundaryOnPosting>$(Get-EnumProp 'MoveBoundaryOnPosting' 'moveBoundaryOnPosting' 'DontMove')</MoveBoundaryOnPosting>"
+	Emit-MDRefList $i "Documents" $def.documents
+	Emit-MDRefList $i "RegisterRecords" $def.registerRecords
+	X "$i<DataLockControlMode>$(Get-EnumProp 'DataLockControlMode' 'dataLockControlMode' 'Automatic')</DataLockControlMode>"
+}
+
+function Emit-FilterCriterionProperties {
+	param([string]$indent)
+	$i = $indent
+	X "$i<Name>$(Esc-Xml $objName)</Name>"
+	Emit-MLText $i "Synonym" $synonym
+	if ($def.comment) { X "$i<Comment>$(Esc-XmlText $def.comment)</Comment>" } else { X "$i<Comment/>" }
+	$vt = if ($def.valueType) { "$($def.valueType)" } elseif ($def.valueTypes) { (@($def.valueTypes) | ForEach-Object { "$_" }) -join ' + ' } else { '' }
+	if ($vt) { Emit-ValueType $i $vt } else { X "$i<Type/>" }
+	$useStdCmds = if (Get-BoolProp "useStandardCommands" $true) { "true" } else { "false" }
+	X "$i<UseStandardCommands>$useStdCmds</UseStandardCommands>"
+	# Content — объекты (реквизиты), по которым идёт отбор.
+	$content = @(); if ($def.content) { $content = @($def.content) }
+	if ($content.Count -gt 0) {
+		X "$i<Content>"
+		foreach ($obj in $content) { X "$i`t<xr:Item xsi:type=`"xr:MDObjectRef`">$(Esc-Xml (Normalize-MDObjectRef "$obj"))</xr:Item>" }
+		X "$i</Content>"
+	} else {
+		X "$i<Content/>"
+	}
+	Emit-VerbatimRef $i "DefaultForm"   $def.defaultForm
+	Emit-VerbatimRef $i "AuxiliaryForm" $def.auxiliaryForm
+	Emit-MLText $i "ListPresentation" $def.listPresentation
+	Emit-MLText $i "ExtendedListPresentation" $def.extendedListPresentation
+	Emit-MLText $i "Explanation" $def.explanation
+}
+
+function Emit-DocumentNumeratorProperties {
+	param([string]$indent)
+	$i = $indent
+	X "$i<Name>$(Esc-Xml $objName)</Name>"
+	Emit-MLText $i "Synonym" $synonym
+	if ($def.comment) { X "$i<Comment>$(Esc-XmlText $def.comment)</Comment>" } else { X "$i<Comment/>" }
+	X "$i<NumberType>$(Get-EnumProp 'NumberType' 'numberType' 'String')</NumberType>"
+	X "$i<NumberLength>$(if ($null -ne $def.numberLength) { "$($def.numberLength)" } else { '11' })</NumberLength>"
+	X "$i<NumberAllowedLength>$(Get-EnumProp 'NumberAllowedLength' 'numberAllowedLength' 'Variable')</NumberAllowedLength>"
+	X "$i<NumberPeriodicity>$(Get-EnumProp 'NumberPeriodicity' 'numberPeriodicity' 'Year')</NumberPeriodicity>"
+	X "$i<CheckUnique>$(if (Get-BoolProp 'checkUnique' $true) { 'true' } else { 'false' })</CheckUnique>"
+}
+
+function Emit-SettingsStorageProperties {
+	param([string]$indent)
+	$i = $indent
+	X "$i<Name>$(Esc-Xml $objName)</Name>"
+	Emit-MLText $i "Synonym" $synonym
+	if ($def.comment) { X "$i<Comment>$(Esc-XmlText $def.comment)</Comment>" } else { X "$i<Comment/>" }
+	Emit-VerbatimRef $i "DefaultSaveForm"   $def.defaultSaveForm
+	Emit-VerbatimRef $i "DefaultLoadForm"   $def.defaultLoadForm
+	Emit-VerbatimRef $i "AuxiliarySaveForm" $def.auxiliarySaveForm
+	Emit-VerbatimRef $i "AuxiliaryLoadForm" $def.auxiliaryLoadForm
+}
+
+# Измерение последовательности: Name/Synonym/Comment/Type + DocumentMap/RegisterRecordsMap (списки MDObjectRef —
+# соответствие измерения реквизитам документов/движениям регистров).
+function Emit-SequenceDimension {
+	param([string]$indent, $dimDef)
+	$uuid = New-Guid-String
+	$parsed = Parse-AttributeShorthand $dimDef
+	X "$indent<Dimension uuid=`"$uuid`">"
+	X "$indent`t<Properties>"
+	X "$indent`t`t<Name>$(Esc-Xml $parsed.name)</Name>"
+	Emit-MLText "$indent`t`t" "Synonym" $parsed.synonym
+	if ($parsed.comment) { X "$indent`t`t<Comment>$(Esc-XmlText $parsed.comment)</Comment>" } else { X "$indent`t`t<Comment/>" }
+	if ($parsed.typeEmpty) { X "$indent`t`t<Type/>" }
+	elseif ($parsed.type) { Emit-ValueType "$indent`t`t" $parsed.type }
+	else { X "$indent`t`t<Type/>" }
+	$dm = if ($dimDef -is [string]) { $null } else { $dimDef.documentMap }
+	$rrm = if ($dimDef -is [string]) { $null } else { $dimDef.registerRecordsMap }
+	Emit-MDRefList "$indent`t`t" "DocumentMap" $dm
+	Emit-MDRefList "$indent`t`t" "RegisterRecordsMap" $rrm
+	X "$indent`t</Properties>"
+	X "$indent</Dimension>"
+}
+
 function Emit-CommonModuleProperties {
 	param([string]$indent)
 	$i = $indent
@@ -3606,6 +3717,10 @@ switch ($objType) {
 	"AccumulationRegister"       { Emit-AccumulationRegisterProperties "`t`t`t" }
 	"DefinedType"                { Emit-DefinedTypeProperties "`t`t`t" }
 	"FunctionalOption"           { Emit-FunctionalOptionProperties "`t`t`t" }
+	"Sequence"                   { Emit-SequenceProperties "`t`t`t" }
+	"FilterCriterion"            { Emit-FilterCriterionProperties "`t`t`t" }
+	"DocumentNumerator"          { Emit-DocumentNumeratorProperties "`t`t`t" }
+	"SettingsStorage"            { Emit-SettingsStorageProperties "`t`t`t" }
 	"CommonModule"               { Emit-CommonModuleProperties "`t`t`t" }
 	"ScheduledJob"               { Emit-ScheduledJobProperties "`t`t`t" }
 	"EventSubscription"          { Emit-EventSubscriptionProperties "`t`t`t" }
@@ -3826,6 +3941,41 @@ if ($objType -eq "DocumentJournal") {
 	}
 }
 
+# --- Sequence: dimensions ---
+if ($objType -eq "Sequence") {
+	$seqDims = @()
+	if ($def.dimensions) { $seqDims = @($def.dimensions) }
+	if ($seqDims.Count -gt 0) {
+		$hasChildren = $true
+		X "`t`t<ChildObjects>"
+		foreach ($d in $seqDims) { Emit-SequenceDimension "`t`t`t" $d }
+		X "`t`t</ChildObjects>"
+	} else {
+		X "`t`t<ChildObjects/>"
+	}
+}
+
+# --- FilterCriterion / SettingsStorage: ChildObjects (формы вне скоупа; FilterCriterion может нести <Command>) ---
+if ($objType -in @("FilterCriterion", "SettingsStorage")) {
+	$fcCommands = @()
+	if ($def.commands) {
+		if ($def.commands -is [array] -or $def.commands.GetType().Name -eq 'Object[]') {
+			foreach ($c in $def.commands) { $fcCommands += @{ name = "$($c.name)"; def = $c } }
+		} else {
+			$def.commands.PSObject.Properties | ForEach-Object { $fcCommands += @{ name = $_.Name; def = $_.Value } }
+		}
+	}
+	if ($fcCommands.Count -gt 0) {
+		$hasChildren = $true
+		X "`t`t<ChildObjects>"
+		foreach ($cmd in $fcCommands) { Emit-Command "`t`t`t" $cmd.name $cmd.def }
+		X "`t`t</ChildObjects>"
+	} else {
+		X "`t`t<ChildObjects/>"
+	}
+}
+# DocumentNumerator: ChildObjects нет вовсе (не эмитим).
+
 # --- HTTPService: URLTemplates ---
 if ($objType -eq "HTTPService") {
 	$urlTemplates = @{}
@@ -3901,6 +4051,10 @@ $script:typePluralMap = @{
 	"WebService"                = "WebServices"
 	"DefinedType"               = "DefinedTypes"
 	"FunctionalOption"          = "FunctionalOptions"
+	"Sequence"                  = "Sequences"
+	"FilterCriterion"           = "FilterCriteria"
+	"DocumentNumerator"         = "DocumentNumerators"
+	"SettingsStorage"           = "SettingsStorages"
 }
 
 $typePlural = $script:typePluralMap[$objType]

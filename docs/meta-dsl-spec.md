@@ -1186,6 +1186,63 @@ ChildObjects и модулей.
     { "name": "Сумма", "indexing": "Index", "references": ["Document.ПоступлениеНаСчет.Attribute.Сумма"] } ] }
 ```
 
+### 7.15a Sequence (Последовательность документов)
+
+| Поле JSON | Умолчание | XML элемент |
+|-----------|----------|-------------|
+| `moveBoundaryOnPosting` | `DontMove` | MoveBoundaryOnPosting |
+| `documents` | `[]` | Documents — массив MDObjectRef документов последовательности |
+| `registerRecords` | `[]` | RegisterRecords — движения (список MDObjectRef) |
+| `dataLockControlMode` | `Automatic` | DataLockControlMode |
+| `dimensions` | `[]` | → Dimension в ChildObjects |
+
+**Измерение (`dimensions[]`)** — `{name, type, synonym?, comment?, documentMap[], registerRecordsMap[]}`:
+`documentMap`/`registerRecordsMap` — MDObjectRef-пути к реквизитам документов / движениям регистров
+(соответствие измерению). Прощающий ввод русских корней.
+
+```json
+{ "type": "Sequence", "name": "Взаиморасчеты", "documents": ["Document.Реализация"],
+  "dimensions": [{ "name": "Организация", "type": "CatalogRef.Организации",
+    "documentMap": ["Document.Реализация.Attribute.Организация"] }] }
+```
+
+### 7.15b FilterCriterion (Критерий отбора)
+
+| Поле JSON | Умолчание | XML элемент |
+|-----------|----------|-------------|
+| `valueType` | — | Type — тип значения отбора (составной через ` + `) |
+| `content` | `[]` | Content — реквизиты, по которым идёт отбор (MDObjectRef) |
+| `useStandardCommands` | `true` | UseStandardCommands |
+| `defaultForm` / `auxiliaryForm` | `""` | формы (verbatim) |
+| `listPresentation` / `extendedListPresentation` / `explanation` | пусто | презентации (ML) |
+| `comment` | пусто | Comment |
+| `commands` | `[]` | → Command в ChildObjects (§7.1.3) |
+
+```json
+{ "type": "FilterCriterion", "name": "ДокументыПоКонтрагенту", "valueType": "CatalogRef.Контрагенты",
+  "content": ["Document.Реализация.Attribute.Контрагент"] }
+```
+
+### 7.15c DocumentNumerator (Нумератор документов)
+
+Параметры нумерации (без InternalInfo и ChildObjects).
+
+| Поле JSON | Умолчание | XML элемент |
+|-----------|----------|-------------|
+| `numberType` | `String` | NumberType (String/Number) |
+| `numberLength` | `11` | NumberLength |
+| `numberAllowedLength` | `Variable` | NumberAllowedLength (Variable/Fixed) |
+| `numberPeriodicity` | `Year` | NumberPeriodicity (Nonperiodical/Day/…/Year) |
+| `checkUnique` | `true` | CheckUnique |
+
+### 7.15d SettingsStorage (Хранилище настроек)
+
+| Поле JSON | Умолчание | XML элемент |
+|-----------|----------|-------------|
+| `defaultSaveForm` / `defaultLoadForm` | `""` | DefaultSaveForm / DefaultLoadForm (verbatim) |
+| `auxiliarySaveForm` / `auxiliaryLoadForm` | `""` | Auxiliary*Form (verbatim) |
+| `comment` | пусто | Comment |
+
 ### 7.16 ChartOfAccounts
 
 Полное описание типа (все поля, стандартные реквизиты, грамматика предопределённых счетов) — см. **§7.2c**.

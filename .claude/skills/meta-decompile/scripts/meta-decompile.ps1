@@ -1,4 +1,4 @@
-﻿# meta-decompile v0.46 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
+﻿# meta-decompile v0.47 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 #
 # Поддержаны: Catalog, ExchangePlan, ChartOfCharacteristicTypes, ChartOfAccounts, ChartOfCalculationTypes, Document,
@@ -92,8 +92,8 @@ foreach ($c in $rootEl.ChildNodes) { if ($c.NodeType -eq 'Element') { $objNode =
 if (-not $objNode) { [Console]::Error.WriteLine("meta-decompile: пустой MetaDataObject"); exit 3 }
 $objType = $objNode.LocalName
 
-if ($objType -notin @('Catalog', 'ExchangePlan', 'ChartOfCharacteristicTypes', 'ChartOfAccounts', 'ChartOfCalculationTypes', 'Document', 'InformationRegister', 'AccumulationRegister', 'AccountingRegister', 'CalculationRegister', 'BusinessProcess', 'Task', 'Enum', 'Report', 'DataProcessor', 'Constant', 'DefinedType', 'FunctionalOption', 'DocumentJournal')) {
-	[Console]::Error.WriteLine("meta-decompile: тип '$objType' пока не поддержан (Catalog, ExchangePlan, ChartOfCharacteristicTypes, ChartOfAccounts, ChartOfCalculationTypes, Document, InformationRegister, AccumulationRegister, AccountingRegister, CalculationRegister, BusinessProcess, Task, Enum, Report, DataProcessor, Constant, DefinedType, FunctionalOption, DocumentJournal)"); exit 3
+if ($objType -notin @('Catalog', 'ExchangePlan', 'ChartOfCharacteristicTypes', 'ChartOfAccounts', 'ChartOfCalculationTypes', 'Document', 'InformationRegister', 'AccumulationRegister', 'AccountingRegister', 'CalculationRegister', 'BusinessProcess', 'Task', 'Enum', 'Report', 'DataProcessor', 'Constant', 'DefinedType', 'FunctionalOption', 'DocumentJournal', 'Sequence', 'FilterCriterion', 'DocumentNumerator', 'SettingsStorage')) {
+	[Console]::Error.WriteLine("meta-decompile: тип '$objType' пока не поддержан (…, Sequence, FilterCriterion, DocumentNumerator, SettingsStorage)"); exit 3
 }
 
 $props = $objNode.SelectSingleNode('md:Properties', $nsm)
@@ -421,9 +421,9 @@ Add-EnumProp 'subordinationUse' 'SubordinationUse' 'ToItems'
 $descrLenDef  = switch ($objType) { 'ExchangePlan' { 150 } 'ChartOfCharacteristicTypes' { 100 } 'ChartOfCalculationTypes' { 100 } default { 25 } }
 $codeLenDef   = if ($objType -eq 'ChartOfCalculationTypes') { 5 } else { 9 }
 $createInpDef = if ($objType -in @('Catalog', 'Document')) { 'Use' } else { 'DontUse' }
-$dataLockDef  = if ($objType -in @('Catalog', 'ChartOfAccounts', 'ChartOfCalculationTypes')) { 'Automatic' } else { 'Managed' }
+$dataLockDef  = if ($objType -in @('Catalog', 'ChartOfAccounts', 'ChartOfCalculationTypes', 'Sequence')) { 'Automatic' } else { 'Managed' }
 $codeSeriesDef = switch ($objType) { 'ChartOfCharacteristicTypes' { 'WholeCharacteristicKind' } 'ChartOfAccounts' { 'WholeChartOfAccounts' } default { 'WholeCatalog' } }
-$checkUniqueDef = ($objType -in @('ChartOfCharacteristicTypes', 'ChartOfAccounts', 'Document'))   # ПВХ/ПС/Документ дефолт true, Catalog false
+$checkUniqueDef = ($objType -in @('ChartOfCharacteristicTypes', 'ChartOfAccounts', 'Document', 'DocumentNumerator'))   # ПВХ/ПС/Документ/Нумератор дефолт true, Catalog false
 $defPresDef = if ($objType -eq 'ChartOfAccounts') { 'AsCode' } else { 'AsDescription' }   # ПС по умолчанию AsCode
 Add-IntProp  'codeLength'        'CodeLength'        $codeLenDef
 Add-IntProp  'descriptionLength' 'DescriptionLength' $descrLenDef
@@ -617,6 +617,43 @@ if ($objType -eq 'DocumentJournal') {
 	if ($rdNode) {
 		$rdItems = @($rdNode.SelectNodes('xr:Item', $nsm) | ForEach-Object { $_.InnerText })
 		if ($rdItems.Count -gt 0) { $dsl['registeredDocuments'] = [System.Collections.ArrayList]@($rdItems) }
+	}
+}
+# Sequence — последовательность документов: граница, документы, движения, измерения (ChildObjects ниже).
+if ($objType -eq 'Sequence') {
+	Add-EnumProp 'moveBoundaryOnPosting' 'MoveBoundaryOnPosting' 'DontMove'
+	foreach ($ll in @(@('Documents','documents'), @('RegisterRecords','registerRecords'))) {
+		$ln = $props.SelectSingleNode("md:$($ll[0])", $nsm)
+		if ($ln) {
+			$items = @($ln.SelectNodes('xr:Item', $nsm) | ForEach-Object { $_.InnerText })
+			if ($items.Count -gt 0) { $dsl[$ll[1]] = [System.Collections.ArrayList]@($items) }
+		}
+	}
+	# dataLockControlMode покрыт общим блоком (дефолт Automatic для Sequence).
+}
+# FilterCriterion — критерий отбора: тип значения + состав (объекты отбора) + формы.
+if ($objType -eq 'FilterCriterion') {
+	$vt = Get-TypeShorthand ($props.SelectSingleNode('md:Type', $nsm)); if ($vt) { $dsl['valueType'] = $vt }
+	$cn = $props.SelectSingleNode('md:Content', $nsm)
+	if ($cn) {
+		$items = @($cn.SelectNodes('xr:Item', $nsm) | ForEach-Object { $_.InnerText })
+		if ($items.Count -gt 0) { $dsl['content'] = [System.Collections.ArrayList]@($items) }
+	}
+	$dfm = P 'DefaultForm'; if ($dfm) { $dsl['defaultForm'] = $dfm }
+	$afm = P 'AuxiliaryForm'; if ($afm) { $dsl['auxiliaryForm'] = $afm }
+}
+# DocumentNumerator — нумератор документов: параметры нумерации (без InternalInfo/ChildObjects).
+if ($objType -eq 'DocumentNumerator') {
+	Add-EnumProp 'numberType'          'NumberType'          'String'
+	Add-IntProp  'numberLength'        'NumberLength'        11
+	Add-EnumProp 'numberAllowedLength' 'NumberAllowedLength' 'Variable'
+	Add-EnumProp 'numberPeriodicity'   'NumberPeriodicity'   'Year'
+	# checkUnique покрыт общим блоком (дефолт true для DocumentNumerator).
+}
+# SettingsStorage — хранилище настроек: формы сохранения/загрузки (плоские ref).
+if ($objType -eq 'SettingsStorage') {
+	foreach ($fp in @(@('DefaultSaveForm','defaultSaveForm'), @('DefaultLoadForm','defaultLoadForm'), @('AuxiliarySaveForm','auxiliarySaveForm'), @('AuxiliaryLoadForm','auxiliaryLoadForm'))) {
+		$fv = P $fp[0]; if ($fv) { $dsl[$fp[1]] = $fv }
 	}
 }
 # Constant — богатый одиночный реквизит: Type + свойства значения (как у реквизита) + object-уровень.
@@ -946,9 +983,31 @@ if ($childObjs) {
 		foreach ($a in $extDimFlagNodes) { [void]$arr.Add((Attr-ToDsl $a)) }
 		$dsl['extDimensionAccountingFlags'] = $arr
 	}
-	# Регистры: измерения и ресурсы — структурно как реквизит (Attr-ToDsl захватывает общий слой + регистро-специфику).
+	# Sequence: измерения несут DocumentMap/RegisterRecordsMap (соответствие реквизитам документов/движениям) —
+	# Attr-ToDsl их не знает → отдельный захват объектной формой. Прочие типы (регистры) — общий Attr-ToDsl.
 	$dimNodes = @($childObjs.SelectNodes('md:Dimension', $nsm))
-	if ($dimNodes.Count -gt 0) {
+	if ($dimNodes.Count -gt 0 -and $objType -eq 'Sequence') {
+		$arr = [System.Collections.ArrayList]@()
+		foreach ($dn in $dimNodes) {
+			$dp = $dn.SelectSingleNode('md:Properties', $nsm)
+			$dName = ($dp.SelectSingleNode('md:Name', $nsm)).InnerText
+			$o = [ordered]@{ name = $dName }
+			$dSyn = Get-MLValue ($dp.SelectSingleNode('md:Synonym', $nsm))
+			if ($dSyn -is [string]) { if ($dSyn -ne (Split-CamelWords $dName)) { $o['synonym'] = $dSyn } }
+			elseif ($null -ne $dSyn) { $o['synonym'] = $dSyn }
+			$dCmtN = $dp.SelectSingleNode('md:Comment', $nsm); if ($dCmtN -and $dCmtN.InnerText) { $o['comment'] = $dCmtN.InnerText }
+			$dt = Get-TypeShorthand ($dp.SelectSingleNode('md:Type', $nsm)); if ($dt) { $o['type'] = $dt }
+			foreach ($mp in @(@('DocumentMap','documentMap'), @('RegisterRecordsMap','registerRecordsMap'))) {
+				$mn = $dp.SelectSingleNode("md:$($mp[0])", $nsm)
+				if ($mn) {
+					$mItems = @($mn.SelectNodes('xr:Item', $nsm) | ForEach-Object { $_.InnerText })
+					if ($mItems.Count -gt 0) { $o[$mp[1]] = [System.Collections.ArrayList]@($mItems) }
+				}
+			}
+			[void]$arr.Add($o)
+		}
+		$dsl['dimensions'] = $arr
+	} elseif ($dimNodes.Count -gt 0) {
 		$arr = [System.Collections.ArrayList]@()
 		foreach ($a in $dimNodes) { [void]$arr.Add((Attr-ToDsl $a)) }
 		$dsl['dimensions'] = $arr

@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<MetaDataObject xmlns="http://v8.1c.ru/8.3/MDClasses" xmlns:app="http://v8.1c.ru/8.2/managed-application/core" xmlns:cfg="http://v8.1c.ru/8.1/data/enterprise/current-config" xmlns:cmi="http://v8.1c.ru/8.2/managed-application/cmi" xmlns:ent="http://v8.1c.ru/8.1/data/enterprise" xmlns:lf="http://v8.1c.ru/8.2/managed-application/logform" xmlns:style="http://v8.1c.ru/8.1/data/ui/style" xmlns:sys="http://v8.1c.ru/8.1/data/ui/fonts/system" xmlns:v8="http://v8.1c.ru/8.1/data/core" xmlns:v8ui="http://v8.1c.ru/8.1/data/ui" xmlns:web="http://v8.1c.ru/8.1/data/ui/colors/web" xmlns:win="http://v8.1c.ru/8.1/data/ui/colors/windows" xmlns:xen="http://v8.1c.ru/8.3/xcf/enums" xmlns:xpr="http://v8.1c.ru/8.3/xcf/predef" xmlns:xr="http://v8.1c.ru/8.3/xcf/readable" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" version="2.17">
+	<FilterCriterion uuid="UUID-001">
+		<InternalInfo>
+			<xr:GeneratedType name="FilterCriterionManager.ДокументыПоКонтрагенту" category="Manager">
+				<xr:TypeId>UUID-002</xr:TypeId>
+				<xr:ValueId>UUID-003</xr:ValueId>
+			</xr:GeneratedType>
+			<xr:GeneratedType name="FilterCriterionList.ДокументыПоКонтрагенту" category="List">
+				<xr:TypeId>UUID-004</xr:TypeId>
+				<xr:ValueId>UUID-005</xr:ValueId>
+			</xr:GeneratedType>
+		</InternalInfo>
+		<Properties>
+			<Name>ДокументыПоКонтрагенту</Name>
+			<Synonym>
+				<v8:item>
+					<v8:lang>ru</v8:lang>
+					<v8:content>Документы по контрагенту</v8:content>
+				</v8:item>
+			</Synonym>
+			<Comment/>
+			<Type>
+				<v8:Type xmlns:d5p1="http://v8.1c.ru/8.1/data/enterprise/current-config">d5p1:CatalogRef.Контрагенты</v8:Type>
+			</Type>
+			<UseStandardCommands>false</UseStandardCommands>
+			<Content>
+				<xr:Item xsi:type="xr:MDObjectRef">Document.ПоступлениеТоваров.Attribute.Контрагент</xr:Item>
+				<xr:Item xsi:type="xr:MDObjectRef">Document.РеализацияТоваров.Attribute.Контрагент</xr:Item>
+			</Content>
+			<DefaultForm/>
+			<AuxiliaryForm/>
+			<ListPresentation/>
+			<ExtendedListPresentation/>
+			<Explanation/>
+		</Properties>
+		<ChildObjects/>
+	</FilterCriterion>
+</MetaDataObject>
