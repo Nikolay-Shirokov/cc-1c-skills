@@ -1,0 +1,15 @@
+{
+  "name": "Валидатор предупреждает о несуществующем ссылочном типе реквизита (Check 16)",
+  "setup": "empty-config",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "Catalog", "name": "ТестСсылкаБитая", "attributes": ["Контрагент: CatalogRef.НетТакогоСправочника"] },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    }
+  ],
+  "params": { "objectPath": "Catalogs/ТестСсылкаБитая" },
+  "expect": {
+    "stdoutContains": "16. Ссылочный тип 'CatalogRef.НетТакогоСправочника'"
+  }
+}

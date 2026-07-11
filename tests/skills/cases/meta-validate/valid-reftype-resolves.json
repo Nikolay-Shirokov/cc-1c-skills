@@ -1,0 +1,17 @@
+{
+  "name": "Ссылочный тип реквизита разрешается в объект конфигурации (Check 16)",
+  "setup": "empty-config",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "Catalog", "name": "ТестСсылка", "attributes": ["Связанный: CatalogRef.ТестСсылка"] },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    }
+  ],
+  "params": { "objectPath": "Catalogs/ТестСсылка" },
+  "args_extra": ["-Detailed"],
+  "expect": {
+    "stdoutContains": "16. Reference types:",
+    "stdoutNotContains": "16. Ссылочный тип"
+  }
+}

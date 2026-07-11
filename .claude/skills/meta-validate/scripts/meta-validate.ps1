@@ -1,4 +1,4 @@
-﻿# meta-validate v1.7 — Validate 1C metadata object structure
+﻿# meta-validate v1.8 — Validate 1C metadata object structure
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -1388,6 +1388,59 @@ if ($childObjNode) {
 	}
 	if ($check15Ok -and $cmdCount -gt 0) {
 		Report-OK "15. Commands: $cmdCount command(s), groups valid"
+	}
+}
+
+# --- Check 16: Reference type existence — типы вида CatalogRef.X должны разрешаться в объекты конфигурации ---
+# WARN-уровень: ложное срабатывание на частичных выгрузках хуже пропуска. Расширения (CFE) пропускаем —
+# их типы ссылаются на объекты базовой конфигурации, которых нет в выгрузке расширения.
+
+if ($script:configDir) {
+	$isExtension = $false
+	$cfgXmlPath = Join-Path $script:configDir "Configuration.xml"
+	if (Test-Path $cfgXmlPath) {
+		$cfgContent = [System.IO.File]::ReadAllText($cfgXmlPath, [System.Text.Encoding]::UTF8)
+		if ($cfgContent.Contains("ConfigurationExtensionPurpose")) { $isExtension = $true }
+	}
+	if (-not $isExtension) {
+		$refDirMap = @{
+			"CatalogRef"="Catalogs"; "DocumentRef"="Documents"; "EnumRef"="Enums"
+			"ChartOfAccountsRef"="ChartsOfAccounts"; "ChartOfCharacteristicTypesRef"="ChartsOfCharacteristicTypes"
+			"ChartOfCalculationTypesRef"="ChartsOfCalculationTypes"; "BusinessProcessRef"="BusinessProcesses"
+			"ExchangePlanRef"="ExchangePlans"; "TaskRef"="Tasks"; "DefinedType"="DefinedTypes"
+		}
+		$typeNodes = $xmlDoc.SelectNodes("//v8:Type", $ns)
+		$checkedRefs = @{}   # refKey -> $true если найден; для OK-условия
+		$missingRefs = @{}   # refKey -> refDir
+		foreach ($tn in $typeNodes) {
+			$tv = $tn.InnerText.Trim()
+			if (-not $tv) { continue }
+			$colonIdx = $tv.IndexOf(':')
+			if ($colonIdx -ge 0) { $tv = $tv.Substring($colonIdx + 1) }
+			$dotIdx = $tv.IndexOf('.')
+			if ($dotIdx -lt 0) { continue }
+			$refCat = $tv.Substring(0, $dotIdx)
+			$refName = $tv.Substring($dotIdx + 1)
+			$refDir = $refDirMap[$refCat]
+			if (-not $refDir -or -not $refName) { continue }
+			$refKey = "$refCat.$refName"
+			if ($checkedRefs.ContainsKey($refKey)) { continue }
+			$refFolder = Join-Path $script:configDir (Join-Path $refDir $refName)
+			$refFile = Join-Path $script:configDir (Join-Path $refDir "$refName.xml")
+			if ((Test-Path $refFolder) -or (Test-Path $refFile)) {
+				$checkedRefs[$refKey] = $true
+			} else {
+				$checkedRefs[$refKey] = $false
+				$missingRefs[$refKey] = $refDir
+			}
+		}
+		if ($missingRefs.Count -gt 0) {
+			foreach ($mk in ($missingRefs.Keys | Sort-Object)) {
+				Report-Warn "16. Ссылочный тип '$mk' не найден в конфигурации ($($missingRefs[$mk])/) — при загрузке будет ошибка неизвестного типа"
+			}
+		} elseif ($checkedRefs.Count -gt 0) {
+			Report-OK "16. Reference types: $($checkedRefs.Count) resolved"
+		}
 	}
 }
 

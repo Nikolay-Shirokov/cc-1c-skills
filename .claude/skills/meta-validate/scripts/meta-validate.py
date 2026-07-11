@@ -1,4 +1,4 @@
-# meta-validate v1.7 — Validate 1C metadata object structure (Python port)
+# meta-validate v1.8 — Validate 1C metadata object structure (Python port)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import os
@@ -1301,6 +1301,61 @@ if child_obj_node is not None:
                 check15_ok = False
     if check15_ok and cmd_count > 0:
         report_ok(f"15. Commands: {cmd_count} command(s), groups valid")
+
+# ── Check 16: Reference type existence — типы вида CatalogRef.X должны разрешаться в объекты конфигурации ──
+# WARN-уровень: ложное срабатывание на частичных выгрузках хуже пропуска. Расширения (CFE) пропускаем —
+# их типы ссылаются на объекты базовой конфигурации, которых нет в выгрузке расширения.
+
+if config_dir:
+    is_extension = False
+    cfg_xml_path = os.path.join(config_dir, "Configuration.xml")
+    if os.path.exists(cfg_xml_path):
+        try:
+            with open(cfg_xml_path, "r", encoding="utf-8") as f:
+                cfg_content = f.read()
+            if "ConfigurationExtensionPurpose" in cfg_content:
+                is_extension = True
+        except Exception:
+            pass
+    if not is_extension:
+        ref_dir_map = {
+            "CatalogRef": "Catalogs", "DocumentRef": "Documents", "EnumRef": "Enums",
+            "ChartOfAccountsRef": "ChartsOfAccounts", "ChartOfCharacteristicTypesRef": "ChartsOfCharacteristicTypes",
+            "ChartOfCalculationTypesRef": "ChartsOfCalculationTypes", "BusinessProcessRef": "BusinessProcesses",
+            "ExchangePlanRef": "ExchangePlans", "TaskRef": "Tasks", "DefinedType": "DefinedTypes",
+        }
+        checked_refs = {}   # ref_key -> найден ли; для условия OK
+        missing_refs = {}   # ref_key -> ref_dir
+        for tn in find_all(root, ".//v8:Type"):
+            tv = inner_text(tn).strip()
+            if not tv:
+                continue
+            colon_idx = tv.find(":")
+            if colon_idx >= 0:
+                tv = tv[colon_idx + 1:]
+            dot_idx = tv.find(".")
+            if dot_idx < 0:
+                continue
+            ref_cat = tv[:dot_idx]
+            ref_name = tv[dot_idx + 1:]
+            ref_dir = ref_dir_map.get(ref_cat)
+            if not ref_dir or not ref_name:
+                continue
+            ref_key = f"{ref_cat}.{ref_name}"
+            if ref_key in checked_refs:
+                continue
+            ref_folder = os.path.join(config_dir, ref_dir, ref_name)
+            ref_file = os.path.join(config_dir, ref_dir, ref_name + ".xml")
+            if os.path.exists(ref_folder) or os.path.exists(ref_file):
+                checked_refs[ref_key] = True
+            else:
+                checked_refs[ref_key] = False
+                missing_refs[ref_key] = ref_dir
+        if missing_refs:
+            for mk in sorted(missing_refs):
+                report_warn(f"16. Ссылочный тип '{mk}' не найден в конфигурации ({missing_refs[mk]}/) — при загрузке будет ошибка неизвестного типа")
+        elif checked_refs:
+            report_ok(f"16. Reference types: {len(checked_refs)} resolved")
 
 # ── Final output ──────────────────────────────────────────────
 
