@@ -413,7 +413,7 @@ valid_enum_values = {
 }
 
 # --- Группы команд объекта (командный интерфейс) ---
-# Секционные группы (панель раздела): команда БЕЗ параметра. Групповые формы: параметр доступен.
+# Группы командного интерфейса РАЗДЕЛА (панель навигации/действий): команда БЕЗ параметра. Группы формы: параметр доступен.
 SECTION_COMMAND_GROUPS = [
     'NavigationPanelImportant', 'NavigationPanelOrdinary', 'NavigationPanelSeeAlso',
     'ActionsPanelCreate', 'ActionsPanelReports', 'ActionsPanelTools',
@@ -2032,7 +2032,7 @@ def emit_command(indent, cmd_name, cmd):
     group = resolve_command_group(cmd.get('group'), cmd_name)
     if cmd.get('commandParameterType') and group in SECTION_COMMAND_GROUPS:
         sys.stderr.write(f"Команда '{cmd_name}': тип параметра (commandParameterType) недоступен для команд "
-                         f"секционной панели ('{group}'). Тип параметра — только для групп формы "
+                         f"командного интерфейса раздела ('{group}'). Тип параметра — только для групп формы "
                          f"(FormCommandBar*/FormNavigationPanel*) или CommandGroup.<Имя>.\n")
         sys.exit(1)
     X(f'{indent}\t\t<Group>{esc_xml(group)}</Group>')

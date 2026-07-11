@@ -48,13 +48,14 @@ BusinessProcess, Task и др.).
 
 **Группа (`group`) обязательна** — каждая команда размещается в группе командного интерфейса:
 
-- **Секционные** (панель раздела; `commandParameterType` **недоступен**): `NavigationPanelImportant` /
-  `NavigationPanelOrdinary` / `NavigationPanelSeeAlso`, `ActionsPanelCreate` / `ActionsPanelReports` / `ActionsPanelTools`.
-- **Формы** (`commandParameterType` допустим): `FormCommandBarImportant` / `FormCommandBarCreateBasedOn`,
-  `FormNavigationPanelImportant` / `FormNavigationPanelGoTo` / `FormNavigationPanelSeeAlso`.
+- **Командный интерфейс раздела** (панель навигации / панель действий; `commandParameterType` **недоступен**):
+  `NavigationPanelImportant` / `NavigationPanelOrdinary` / `NavigationPanelSeeAlso`,
+  `ActionsPanelCreate` / `ActionsPanelReports` / `ActionsPanelTools`.
+- **Командный интерфейс формы** (`commandParameterType` допустим): `FormCommandBarImportant` /
+  `FormCommandBarCreateBasedOn`, `FormNavigationPanelImportant` / `FormNavigationPanelGoTo` / `FormNavigationPanelSeeAlso`.
 - **Кастомная группа:** `CommandGroup.<Имя>` (параметр допустим).
 
-Секционная группа вместе с `commandParameterType` → ошибка.
+Группа раздела вместе с `commandParameterType` → ошибка.
 
 ## `inputByString` / `dataLockFields` / `basedOn`
 

@@ -268,7 +268,7 @@ $script:validEnumValues = @{
 }
 
 # --- Группы команд объекта (командный интерфейс) ---
-# Секционные группы (панель раздела): команда БЕЗ параметра. Групповые формы: параметр доступен.
+# Группы командного интерфейса РАЗДЕЛА (панель навигации/действий): команда БЕЗ параметра. Группы формы: параметр доступен.
 $script:sectionCommandGroups = @(
 	"NavigationPanelImportant","NavigationPanelOrdinary","NavigationPanelSeeAlso",
 	"ActionsPanelCreate","ActionsPanelReports","ActionsPanelTools"
@@ -1960,7 +1960,7 @@ function Emit-Command {
 	if ($cmd.comment) { X "$indent`t`t<Comment>$(Esc-XmlText "$($cmd.comment)")</Comment>" } else { X "$indent`t`t<Comment/>" }
 	$group = Resolve-CommandGroup $cmd.group $cmdName
 	if ($cmd.commandParameterType -and ($script:sectionCommandGroups -contains $group)) {
-		Write-Error "Команда '$cmdName': тип параметра (commandParameterType) недоступен для команд секционной панели ('$group'). Тип параметра — только для групп формы (FormCommandBar*/FormNavigationPanel*) или CommandGroup.<Имя>."
+		Write-Error "Команда '$cmdName': тип параметра (commandParameterType) недоступен для команд командного интерфейса раздела ('$group'). Тип параметра — только для групп формы (FormCommandBar*/FormNavigationPanel*) или CommandGroup.<Имя>."
 		exit 1
 	}
 	X "$indent`t`t<Group>$(Esc-Xml $group)</Group>"
