@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-edit v1.12 — Edit existing 1C metadata object XML (inline mode + complex properties + TS attribute ops + modify-ts + create-if-missing свойств)
+# meta-edit v1.13 — Edit existing 1C metadata object XML (inline + complex props + TS ops + modify-ts + create-if-missing + structural attr props Format/EditFormat/ToolTip/ChoiceForm)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -2089,6 +2089,23 @@ def modify_child_elements(modify_def, child_type):
                 info(f"Changed synonym of {xml_tag} '{elem_name}': {change_value}")
                 modify_count += 1
 
+            elif change_prop == "Format":
+                if set_attr_property_element(props_el, "Format", build_mltext_xml(get_child_indent(props_el), "Format", str(change_value))):
+                    info(f"Set {xml_tag} '{elem_name}'.Format")
+                    modify_count += 1
+            elif change_prop == "EditFormat":
+                if set_attr_property_element(props_el, "EditFormat", build_mltext_xml(get_child_indent(props_el), "EditFormat", str(change_value))):
+                    info(f"Set {xml_tag} '{elem_name}'.EditFormat")
+                    modify_count += 1
+            elif change_prop == "ToolTip":
+                if set_attr_property_element(props_el, "ToolTip", build_mltext_xml(get_child_indent(props_el), "ToolTip", str(change_value))):
+                    info(f"Set {xml_tag} '{elem_name}'.ToolTip")
+                    modify_count += 1
+            elif change_prop == "ChoiceForm":
+                if set_attr_property_element(props_el, "ChoiceForm", f"<ChoiceForm>{esc_xml(str(change_value))}</ChoiceForm>"):
+                    info(f"Set {xml_tag} '{elem_name}'.ChoiceForm")
+                    modify_count += 1
+
             else:
                 # Scalar property change (Indexing, FillChecking, Use, etc.)
                 scalar_el = None
@@ -2211,6 +2228,26 @@ def insert_property_in_order(props_el, new_node, order_array, prop_name):
                 ref_node = ch
                 break
     insert_before_element(props_el, new_node, ref_node, child_indent)
+
+
+def set_attr_property_element(props_el, prop_name, fragment_xml):
+    """Заменить существующий элемент свойства реквизита новым фрагментом, либо создать в позиции."""
+    new_nodes = import_fragment(fragment_xml)
+    if not new_nodes:
+        return False
+    existing = None
+    for ch in props_el:
+        if localname(ch) == prop_name:
+            existing = ch
+            break
+    if existing is not None:
+        idx = list(props_el).index(existing)
+        new_nodes[0].tail = existing.tail
+        props_el.insert(idx + 1, new_nodes[0])
+        remove_node_with_whitespace(existing)
+    else:
+        insert_property_in_order(props_el, new_nodes[0], attr_prop_order, prop_name)
+    return True
 
 
 def find_property_element(prop_name):

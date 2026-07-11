@@ -1,4 +1,4 @@
-﻿# meta-edit v1.12 — Edit existing 1C metadata object XML (inline mode + complex properties + TS attribute ops + modify-ts + create-if-missing свойств)
+﻿# meta-edit v1.13 — Edit existing 1C metadata object XML (inline + complex props + TS ops + modify-ts + create-if-missing + structural attr props Format/EditFormat/ToolTip/ChoiceForm)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[string]$DefinitionFile,
@@ -2240,6 +2240,26 @@ function Modify-ChildElements($modifyDef, [string]$childType) {
 					Info "Changed synonym of $xmlTag '$elemName': $changeValue"
 					$script:modifyCount++
 				}
+				"Format" {
+					if (Set-AttrPropertyElement $propsEl "Format" (Build-MLTextXml (Get-ChildIndent $propsEl) "Format" "$changeValue")) {
+						Info "Set $xmlTag '$elemName'.Format"; $script:modifyCount++
+					}
+				}
+				"EditFormat" {
+					if (Set-AttrPropertyElement $propsEl "EditFormat" (Build-MLTextXml (Get-ChildIndent $propsEl) "EditFormat" "$changeValue")) {
+						Info "Set $xmlTag '$elemName'.EditFormat"; $script:modifyCount++
+					}
+				}
+				"ToolTip" {
+					if (Set-AttrPropertyElement $propsEl "ToolTip" (Build-MLTextXml (Get-ChildIndent $propsEl) "ToolTip" "$changeValue")) {
+						Info "Set $xmlTag '$elemName'.ToolTip"; $script:modifyCount++
+					}
+				}
+				"ChoiceForm" {
+					if (Set-AttrPropertyElement $propsEl "ChoiceForm" "<ChoiceForm>$(Esc-Xml "$changeValue")</ChoiceForm>") {
+						Info "Set $xmlTag '$elemName'.ChoiceForm"; $script:modifyCount++
+					}
+				}
 				default {
 					# Scalar property change (Indexing, FillChecking, Use, etc.)
 					$scalarEl = $null
@@ -2378,6 +2398,26 @@ function Insert-PropertyInOrder($propsEl, $newNode, $orderArray, $propName) {
 		}
 	}
 	Insert-BeforeElement $propsEl $newNode $refNode $childIndent
+}
+
+# Заменить существующий элемент свойства реквизита новым фрагментом (по образцу ветки type),
+# либо создать в канонической позиции, если его нет. Возвращает $true при успехе.
+function Set-AttrPropertyElement($propsEl, $propName, $fragmentXml) {
+	$newNodes = Import-Fragment $fragmentXml
+	if ($newNodes.Count -eq 0) { return $false }
+	$existing = $null
+	foreach ($ch in $propsEl.ChildNodes) {
+		if ($ch.NodeType -eq 'Element' -and $ch.LocalName -eq $propName) { $existing = $ch; break }
+	}
+	if ($existing) {
+		# InsertBefore+RemoveChild сохраняет ведущий/хвостовой whitespace позиции existing
+		# (InsertAfter+Remove-NodeWithWhitespace склеил бы: удаляет ведущий ws как отдельный узел).
+		$propsEl.InsertBefore($newNodes[0], $existing) | Out-Null
+		$propsEl.RemoveChild($existing) | Out-Null
+	} else {
+		Insert-PropertyInOrder $propsEl $newNodes[0] $script:attrPropOrder $propName
+	}
+	return $true
 }
 
 function Find-PropertyElement([string]$propName) {
