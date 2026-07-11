@@ -1,4 +1,4 @@
-﻿# meta-compile v1.63 — Compile 1C metadata object from JSON
+﻿# meta-compile v1.64 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -265,6 +265,46 @@ $script:validEnumValues = @{
 	"PredefinedDataUpdate"           = @("Auto","DontAutoUpdate","AutoUpdate")
 	"SearchStringModeOnInputByString"= @("Begin","AnyPart")
 	"FullTextSearchOnInputByString"  = @("Use","DontUse")
+}
+
+# --- Группы команд объекта (командный интерфейс) ---
+# Секционные группы (панель раздела): команда БЕЗ параметра. Групповые формы: параметр доступен.
+$script:sectionCommandGroups = @(
+	"NavigationPanelImportant","NavigationPanelOrdinary","NavigationPanelSeeAlso",
+	"ActionsPanelCreate","ActionsPanelReports","ActionsPanelTools"
+)
+$script:formCommandGroups = @(
+	"FormCommandBarImportant","FormCommandBarCreateBasedOn",
+	"FormNavigationPanelImportant","FormNavigationPanelGoTo","FormNavigationPanelSeeAlso"
+)
+$script:validCommandGroups = $script:sectionCommandGroups + $script:formCommandGroups
+# Прощающий ввод: русские подписи групп → канон
+$script:commandGroupAliases = @{
+	"Панель навигации.Важное"                     = "NavigationPanelImportant"
+	"Панель навигации.Обычное"                    = "NavigationPanelOrdinary"
+	"Панель навигации.См. также"                  = "NavigationPanelSeeAlso"
+	"Панель действий.Создать"                     = "ActionsPanelCreate"
+	"Панель действий.Отчеты"                      = "ActionsPanelReports"
+	"Панель действий.Отчёты"                      = "ActionsPanelReports"
+	"Панель действий.Сервис"                      = "ActionsPanelTools"
+	"Командная панель формы.Важное"               = "FormCommandBarImportant"
+	"Командная панель формы.Создать на основании" = "FormCommandBarCreateBasedOn"
+	"Панель навигации формы.Важное"               = "FormNavigationPanelImportant"
+	"Панель навигации формы.Перейти"              = "FormNavigationPanelGoTo"
+	"Панель навигации формы.См. также"            = "FormNavigationPanelSeeAlso"
+}
+
+# Резолв группы команды: рус-синоним → канон; ГруппаКоманд.X → CommandGroup.X; пусто → ошибка с подсказкой.
+function Resolve-CommandGroup {
+	param([string]$raw, [string]$cmdName)
+	$g = "$raw".Trim()
+	if (-not $g) {
+		Write-Error "Команде '$cmdName' не задана группа (group). 1С требует группу. Валидные: $($script:validCommandGroups -join ', '); либо CommandGroup.<Имя> — кастомная группа."
+		exit 1
+	}
+	if ($script:commandGroupAliases.ContainsKey($g)) { return $script:commandGroupAliases[$g] }
+	if ($g -match '^(?:CommandGroup|ГруппаКоманд)\.(.+)$') { return "CommandGroup.$($Matches[1])" }
+	return $g
 }
 
 function Normalize-EnumValue {
@@ -1918,8 +1958,12 @@ function Emit-Command {
 	$syn = if ($null -ne $cmd.synonym) { $cmd.synonym } else { Split-CamelCase $cmdName }
 	Emit-MLText "$indent`t`t" "Synonym" $syn
 	if ($cmd.comment) { X "$indent`t`t<Comment>$(Esc-XmlText "$($cmd.comment)")</Comment>" } else { X "$indent`t`t<Comment/>" }
-	$group = if ($cmd.group) { "$($cmd.group)" } else { "" }
-	X "$indent`t`t<Group>$group</Group>"
+	$group = Resolve-CommandGroup $cmd.group $cmdName
+	if ($cmd.commandParameterType -and ($script:sectionCommandGroups -contains $group)) {
+		Write-Error "Команда '$cmdName': тип параметра (commandParameterType) недоступен для команд секционной панели ('$group'). Тип параметра — только для групп формы (FormCommandBar*/FormNavigationPanel*) или CommandGroup.<Имя>."
+		exit 1
+	}
+	X "$indent`t`t<Group>$(Esc-Xml $group)</Group>"
 	if ($cmd.commandParameterType) {
 		X "$indent`t`t<CommandParameterType>"
 		Emit-TypeContent "$indent`t`t`t" "$($cmd.commandParameterType)"

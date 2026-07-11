@@ -1,0 +1,22 @@
+{
+  "name": "Команды: группы (рус-синонимы, секционные, форма, кастомная)",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "CommandGroup", "name": "МояГруппа" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    }
+  ],
+  "input": {
+    "type": "Catalog", "name": "ТестГруппКоманд", "useStandardCommands": true,
+    "commands": {
+      "НавВажное":      { "synonym": "Навигация важное", "group": "Панель навигации.Важное" },
+      "ДействияСервис": { "synonym": "Сервис", "group": "ActionsPanelTools" },
+      "ФормаВажное":    { "synonym": "Форма важное", "group": "Командная панель формы.Важное",
+                          "commandParameterType": "CatalogRef.ТестГруппКоманд" },
+      "Кастом":         { "synonym": "Кастомная", "group": "ГруппаКоманд.МояГруппа" }
+    }
+  },
+  "validatePath": "Catalogs/ТестГруппКоманд",
+  "expect": { "files": ["Catalogs/ТестГруппКоманд.xml"] }
+}

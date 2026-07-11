@@ -1,0 +1,8 @@
+{
+  "name": "Ошибка: секционная группа + commandParameterType (несовместимо)",
+  "input": {
+    "type": "Catalog", "name": "ТестНавПараметр",
+    "commands": { "Команда": { "group": "NavigationPanelOrdinary", "commandParameterType": "CatalogRef.ТестНавПараметр" } }
+  },
+  "expectError": "недоступен"
+}

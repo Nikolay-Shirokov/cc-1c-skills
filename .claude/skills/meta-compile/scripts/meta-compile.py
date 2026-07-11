@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-compile v1.63 — Compile 1C metadata object from JSON
+# meta-compile v1.64 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -411,6 +411,46 @@ valid_enum_values = {
     'SearchStringModeOnInputByString': ['Begin', 'AnyPart'],
     'FullTextSearchOnInputByString': ['Use', 'DontUse'],
 }
+
+# --- Группы команд объекта (командный интерфейс) ---
+# Секционные группы (панель раздела): команда БЕЗ параметра. Групповые формы: параметр доступен.
+SECTION_COMMAND_GROUPS = [
+    'NavigationPanelImportant', 'NavigationPanelOrdinary', 'NavigationPanelSeeAlso',
+    'ActionsPanelCreate', 'ActionsPanelReports', 'ActionsPanelTools',
+]
+FORM_COMMAND_GROUPS = [
+    'FormCommandBarImportant', 'FormCommandBarCreateBasedOn',
+    'FormNavigationPanelImportant', 'FormNavigationPanelGoTo', 'FormNavigationPanelSeeAlso',
+]
+VALID_COMMAND_GROUPS = SECTION_COMMAND_GROUPS + FORM_COMMAND_GROUPS
+COMMAND_GROUP_ALIASES = {
+    'Панель навигации.Важное': 'NavigationPanelImportant',
+    'Панель навигации.Обычное': 'NavigationPanelOrdinary',
+    'Панель навигации.См. также': 'NavigationPanelSeeAlso',
+    'Панель действий.Создать': 'ActionsPanelCreate',
+    'Панель действий.Отчеты': 'ActionsPanelReports',
+    'Панель действий.Отчёты': 'ActionsPanelReports',
+    'Панель действий.Сервис': 'ActionsPanelTools',
+    'Командная панель формы.Важное': 'FormCommandBarImportant',
+    'Командная панель формы.Создать на основании': 'FormCommandBarCreateBasedOn',
+    'Панель навигации формы.Важное': 'FormNavigationPanelImportant',
+    'Панель навигации формы.Перейти': 'FormNavigationPanelGoTo',
+    'Панель навигации формы.См. также': 'FormNavigationPanelSeeAlso',
+}
+
+
+def resolve_command_group(raw, cmd_name):
+    g = (str(raw) if raw is not None else '').strip()
+    if not g:
+        sys.stderr.write(f"Команде '{cmd_name}' не задана группа (group). 1С требует группу. "
+                         f"Валидные: {', '.join(VALID_COMMAND_GROUPS)}; либо CommandGroup.<Имя> — кастомная группа.\n")
+        sys.exit(1)
+    if g in COMMAND_GROUP_ALIASES:
+        return COMMAND_GROUP_ALIASES[g]
+    m = re.match(r'^(?:CommandGroup|ГруппаКоманд)\.(.+)$', g)
+    if m:
+        return f'CommandGroup.{m.group(1)}'
+    return g
 
 def normalize_enum_value(prop_name, value):
     # 1. Check alias dictionary — silent auto-correct
@@ -1989,7 +2029,13 @@ def emit_command(indent, cmd_name, cmd):
         X(f'{indent}\t\t<Comment>{esc_xml_text(str(cmd["comment"]))}</Comment>')
     else:
         X(f'{indent}\t\t<Comment/>')
-    X(f'{indent}\t\t<Group>{cmd.get("group") or ""}</Group>')
+    group = resolve_command_group(cmd.get('group'), cmd_name)
+    if cmd.get('commandParameterType') and group in SECTION_COMMAND_GROUPS:
+        sys.stderr.write(f"Команда '{cmd_name}': тип параметра (commandParameterType) недоступен для команд "
+                         f"секционной панели ('{group}'). Тип параметра — только для групп формы "
+                         f"(FormCommandBar*/FormNavigationPanel*) или CommandGroup.<Имя>.\n")
+        sys.exit(1)
+    X(f'{indent}\t\t<Group>{esc_xml(group)}</Group>')
     if cmd.get('commandParameterType'):
         X(f'{indent}\t\t<CommandParameterType>')
         emit_type_content(f'{indent}\t\t\t', str(cmd['commandParameterType']))

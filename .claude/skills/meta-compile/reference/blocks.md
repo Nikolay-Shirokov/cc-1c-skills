@@ -31,8 +31,8 @@ BusinessProcess, Task и др.).
 | `synonym` | из имени | ML |
 | `tooltip` | пусто | ML |
 | `comment` | пусто | строка |
-| `group` | пусто | группа команд (`FormCommandBarImportant`, `FormNavigationPanelGoTo`, …) |
-| `commandParameterType` | пусто | тип параметра (напр. `CatalogRef.Номенклатура`) |
+| `group` | **обязательно** | группа размещения (см. ниже) |
+| `commandParameterType` | пусто | тип параметра (напр. `CatalogRef.Номенклатура`) — **только для групп формы** |
 | `parameterUseMode` | `Single` | `Single` / `Multiple` |
 | `modifiesData` | `false` | bool |
 | `representation` | `Auto` | вид отображения |
@@ -45,6 +45,16 @@ BusinessProcess, Task и др.).
                       "commandParameterType": "CatalogRef.Номенклатура", "picture": "StdPicture.Print" }
 }
 ```
+
+**Группа (`group`) обязательна** — каждая команда размещается в группе командного интерфейса:
+
+- **Секционные** (панель раздела; `commandParameterType` **недоступен**): `NavigationPanelImportant` /
+  `NavigationPanelOrdinary` / `NavigationPanelSeeAlso`, `ActionsPanelCreate` / `ActionsPanelReports` / `ActionsPanelTools`.
+- **Формы** (`commandParameterType` допустим): `FormCommandBarImportant` / `FormCommandBarCreateBasedOn`,
+  `FormNavigationPanelImportant` / `FormNavigationPanelGoTo` / `FormNavigationPanelSeeAlso`.
+- **Кастомная группа:** `CommandGroup.<Имя>` (параметр допустим).
+
+Секционная группа вместе с `commandParameterType` → ошибка.
 
 ## `inputByString` / `dataLockFields` / `basedOn`
 
