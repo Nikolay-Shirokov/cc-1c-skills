@@ -3,14 +3,16 @@
   "input": {
     "type": "Catalog",
     "name": "ДоговорыКонтрагентов",
+    "owners": ["Catalog.Контрагенты"],
     "codeLength": 11,
     "descriptionLength": 100,
-    "inputByString": ["Код", "Наименование", "Контрагент"],
+    "inputByString": ["Код", "Наименование", "НомерДоговора"],
     "dataLockFields": ["Организация", "Контрагент", "Владелец"],
     "basedOn": ["Catalog.Контрагенты", "Document.ЗаказПоставщику"],
     "attributes": [
       "Организация: CatalogRef.Организации",
-      "Контрагент: CatalogRef.Контрагенты"
+      "Контрагент: CatalogRef.Контрагенты",
+      "НомерДоговора: String(20) | index"
     ]
   },
   "validatePath": "Catalogs/ДоговорыКонтрагентов",

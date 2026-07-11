@@ -2,33 +2,33 @@
 <MetaDataObject xmlns="http://v8.1c.ru/8.3/MDClasses" xmlns:app="http://v8.1c.ru/8.2/managed-application/core" xmlns:cfg="http://v8.1c.ru/8.1/data/enterprise/current-config" xmlns:cmi="http://v8.1c.ru/8.2/managed-application/cmi" xmlns:ent="http://v8.1c.ru/8.1/data/enterprise" xmlns:lf="http://v8.1c.ru/8.2/managed-application/logform" xmlns:style="http://v8.1c.ru/8.1/data/ui/style" xmlns:sys="http://v8.1c.ru/8.1/data/ui/fonts/system" xmlns:v8="http://v8.1c.ru/8.1/data/core" xmlns:v8ui="http://v8.1c.ru/8.1/data/ui" xmlns:web="http://v8.1c.ru/8.1/data/ui/colors/web" xmlns:win="http://v8.1c.ru/8.1/data/ui/colors/windows" xmlns:xen="http://v8.1c.ru/8.3/xcf/enums" xmlns:xpr="http://v8.1c.ru/8.3/xcf/predef" xmlns:xr="http://v8.1c.ru/8.3/xcf/readable" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" version="2.17">
 	<Catalog uuid="UUID-001">
 		<InternalInfo>
-			<xr:GeneratedType name="CatalogObject.Организации" category="Object">
+			<xr:GeneratedType name="CatalogObject.НаборыДопРеквИСвед" category="Object">
 				<xr:TypeId>UUID-002</xr:TypeId>
 				<xr:ValueId>UUID-003</xr:ValueId>
 			</xr:GeneratedType>
-			<xr:GeneratedType name="CatalogRef.Организации" category="Ref">
+			<xr:GeneratedType name="CatalogRef.НаборыДопРеквИСвед" category="Ref">
 				<xr:TypeId>UUID-004</xr:TypeId>
 				<xr:ValueId>UUID-005</xr:ValueId>
 			</xr:GeneratedType>
-			<xr:GeneratedType name="CatalogSelection.Организации" category="Selection">
+			<xr:GeneratedType name="CatalogSelection.НаборыДопРеквИСвед" category="Selection">
 				<xr:TypeId>UUID-006</xr:TypeId>
 				<xr:ValueId>UUID-007</xr:ValueId>
 			</xr:GeneratedType>
-			<xr:GeneratedType name="CatalogList.Организации" category="List">
+			<xr:GeneratedType name="CatalogList.НаборыДопРеквИСвед" category="List">
 				<xr:TypeId>UUID-008</xr:TypeId>
 				<xr:ValueId>UUID-009</xr:ValueId>
 			</xr:GeneratedType>
-			<xr:GeneratedType name="CatalogManager.Организации" category="Manager">
+			<xr:GeneratedType name="CatalogManager.НаборыДопРеквИСвед" category="Manager">
 				<xr:TypeId>UUID-010</xr:TypeId>
 				<xr:ValueId>UUID-011</xr:ValueId>
 			</xr:GeneratedType>
 		</InternalInfo>
 		<Properties>
-			<Name>Организации</Name>
+			<Name>НаборыДопРеквИСвед</Name>
 			<Synonym>
 				<v8:item>
 					<v8:lang>ru</v8:lang>
-					<v8:content>Организации</v8:content>
+					<v8:content>Наборы доп рекв исвед</v8:content>
 				</v8:item>
 			</Synonym>
 			<Comment/>
@@ -48,47 +48,14 @@
 			<CheckUnique>false</CheckUnique>
 			<Autonumbering>true</Autonumbering>
 			<DefaultPresentation>AsDescription</DefaultPresentation>
-			<Characteristics>
-				<xr:Characteristic>
-					<xr:CharacteristicTypes from="Catalog.НаборыДопРеквИСвед.TabularSection.ДополнительныеРеквизиты">
-						<xr:KeyField>Catalog.НаборыДопРеквИСвед.TabularSection.ДополнительныеРеквизиты.Attribute.Свойство</xr:KeyField>
-						<xr:TypesFilterField>Catalog.НаборыДопРеквИСвед.TabularSection.ДополнительныеРеквизиты.StandardAttribute.Ref</xr:TypesFilterField>
-						<xr:TypesFilterValue xsi:type="xr:DesignTimeRef">Catalog.НаборыДопРеквИСвед.Справочник_Организации</xr:TypesFilterValue>
-						<xr:DataPathField>-1</xr:DataPathField>
-						<xr:MultipleValuesUseField>-1</xr:MultipleValuesUseField>
-					</xr:CharacteristicTypes>
-					<xr:CharacteristicValues from="Catalog.Организации.TabularSection.ДополнительныеРеквизиты">
-						<xr:ObjectField>Catalog.Организации.TabularSection.ДополнительныеРеквизиты.StandardAttribute.Ref</xr:ObjectField>
-						<xr:TypeField>Catalog.Организации.TabularSection.ДополнительныеРеквизиты.Attribute.Свойство</xr:TypeField>
-						<xr:ValueField>Catalog.Организации.TabularSection.ДополнительныеРеквизиты.Attribute.Значение</xr:ValueField>
-						<xr:MultipleValuesKeyField>-1</xr:MultipleValuesKeyField>
-						<xr:MultipleValuesOrderField>-1</xr:MultipleValuesOrderField>
-					</xr:CharacteristicValues>
-				</xr:Characteristic>
-				<xr:Characteristic>
-					<xr:CharacteristicTypes from="Catalog.НаборыДопРеквИСвед.TabularSection.ДополнительныеСведения">
-						<xr:KeyField>Catalog.НаборыДопРеквИСвед.TabularSection.ДополнительныеСведения.Attribute.Свойство</xr:KeyField>
-						<xr:TypesFilterField>Catalog.НаборыДопРеквИСвед.TabularSection.ДополнительныеСведения.StandardAttribute.Ref</xr:TypesFilterField>
-						<xr:TypesFilterValue xsi:type="xs:string">Справочник_Организации</xr:TypesFilterValue>
-						<xr:DataPathField>-1</xr:DataPathField>
-						<xr:MultipleValuesUseField>-1</xr:MultipleValuesUseField>
-					</xr:CharacteristicTypes>
-					<xr:CharacteristicValues from="InformationRegister.ДополнительныеСведения">
-						<xr:ObjectField>InformationRegister.ДополнительныеСведения.Dimension.Объект</xr:ObjectField>
-						<xr:TypeField>InformationRegister.ДополнительныеСведения.Dimension.Свойство</xr:TypeField>
-						<xr:ValueField>InformationRegister.ДополнительныеСведения.Resource.Значение</xr:ValueField>
-						<xr:MultipleValuesKeyField>-1</xr:MultipleValuesKeyField>
-						<xr:MultipleValuesOrderField>-1</xr:MultipleValuesOrderField>
-					</xr:CharacteristicValues>
-				</xr:Characteristic>
-			</Characteristics>
+			<Characteristics/>
 			<PredefinedDataUpdate>Auto</PredefinedDataUpdate>
 			<EditType>InDialog</EditType>
 			<QuickChoice>false</QuickChoice>
 			<ChoiceMode>BothWays</ChoiceMode>
 			<InputByString>
-				<xr:Field>Catalog.Организации.StandardAttribute.Description</xr:Field>
-				<xr:Field>Catalog.Организации.StandardAttribute.Code</xr:Field>
+				<xr:Field>Catalog.НаборыДопРеквИСвед.StandardAttribute.Description</xr:Field>
+				<xr:Field>Catalog.НаборыДопРеквИСвед.StandardAttribute.Code</xr:Field>
 			</InputByString>
 			<SearchStringModeOnInputByString>Begin</SearchStringModeOnInputByString>
 			<FullTextSearchOnInputByString>DontUse</FullTextSearchOnInputByString>
@@ -122,11 +89,11 @@
 		<ChildObjects>
 			<TabularSection uuid="UUID-012">
 				<InternalInfo>
-					<xr:GeneratedType name="CatalogTabularSection.Организации.ДополнительныеРеквизиты" category="TabularSection">
+					<xr:GeneratedType name="CatalogTabularSection.НаборыДопРеквИСвед.ДополнительныеРеквизиты" category="TabularSection">
 						<xr:TypeId>UUID-013</xr:TypeId>
 						<xr:ValueId>UUID-014</xr:ValueId>
 					</xr:GeneratedType>
-					<xr:GeneratedType name="CatalogTabularSectionRow.Организации.ДополнительныеРеквизиты" category="TabularSectionRow">
+					<xr:GeneratedType name="CatalogTabularSectionRow.НаборыДопРеквИСвед.ДополнительныеРеквизиты" category="TabularSectionRow">
 						<xr:TypeId>UUID-015</xr:TypeId>
 						<xr:ValueId>UUID-016</xr:ValueId>
 					</xr:GeneratedType>
@@ -210,18 +177,73 @@
 							<DataHistory>Use</DataHistory>
 						</Properties>
 					</Attribute>
-					<Attribute uuid="UUID-018">
+				</ChildObjects>
+			</TabularSection>
+			<TabularSection uuid="UUID-018">
+				<InternalInfo>
+					<xr:GeneratedType name="CatalogTabularSection.НаборыДопРеквИСвед.ДополнительныеСведения" category="TabularSection">
+						<xr:TypeId>UUID-019</xr:TypeId>
+						<xr:ValueId>UUID-020</xr:ValueId>
+					</xr:GeneratedType>
+					<xr:GeneratedType name="CatalogTabularSectionRow.НаборыДопРеквИСвед.ДополнительныеСведения" category="TabularSectionRow">
+						<xr:TypeId>UUID-021</xr:TypeId>
+						<xr:ValueId>UUID-022</xr:ValueId>
+					</xr:GeneratedType>
+				</InternalInfo>
+				<Properties>
+					<Name>ДополнительныеСведения</Name>
+					<Synonym>
+						<v8:item>
+							<v8:lang>ru</v8:lang>
+							<v8:content>Дополнительные сведения</v8:content>
+						</v8:item>
+					</Synonym>
+					<Comment/>
+					<ToolTip/>
+					<FillChecking>DontCheck</FillChecking>
+					<StandardAttributes>
+						<xr:StandardAttribute name="LineNumber">
+							<xr:LinkByType/>
+							<xr:FillChecking>DontCheck</xr:FillChecking>
+							<xr:MultiLine>false</xr:MultiLine>
+							<xr:FillFromFillingValue>false</xr:FillFromFillingValue>
+							<xr:CreateOnInput>Auto</xr:CreateOnInput>
+							<xr:MaxValue xsi:nil="true"/>
+							<xr:ToolTip/>
+							<xr:ExtendedEdit>false</xr:ExtendedEdit>
+							<xr:Format/>
+							<xr:ChoiceForm/>
+							<xr:QuickChoice>Auto</xr:QuickChoice>
+							<xr:ChoiceHistoryOnInput>Auto</xr:ChoiceHistoryOnInput>
+							<xr:EditFormat/>
+							<xr:PasswordMode>false</xr:PasswordMode>
+							<xr:DataHistory>Use</xr:DataHistory>
+							<xr:MarkNegatives>false</xr:MarkNegatives>
+							<xr:MinValue xsi:nil="true"/>
+							<xr:Synonym/>
+							<xr:Comment/>
+							<xr:FullTextSearch>Use</xr:FullTextSearch>
+							<xr:ChoiceParameterLinks/>
+							<xr:FillValue xsi:nil="true"/>
+							<xr:Mask/>
+							<xr:ChoiceParameters/>
+						</xr:StandardAttribute>
+					</StandardAttributes>
+					<Use>ForItem</Use>
+				</Properties>
+				<ChildObjects>
+					<Attribute uuid="UUID-023">
 						<Properties>
-							<Name>Значение</Name>
+							<Name>Свойство</Name>
 							<Synonym>
 								<v8:item>
 									<v8:lang>ru</v8:lang>
-									<v8:content>Значение</v8:content>
+									<v8:content>Свойство</v8:content>
 								</v8:item>
 							</Synonym>
 							<Comment/>
 							<Type>
-								<v8:TypeSet>cfg:Characteristic.ВидыСвойств</v8:TypeSet>
+								<v8:Type xmlns:d5p1="http://v8.1c.ru/8.1/data/enterprise/current-config">d5p1:ChartOfCharacteristicTypesRef.ВидыСвойств</v8:Type>
 							</Type>
 							<PasswordMode>false</PasswordMode>
 							<Format/>

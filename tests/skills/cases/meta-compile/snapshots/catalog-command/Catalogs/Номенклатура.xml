@@ -132,7 +132,7 @@
 						</v8:item>
 					</Synonym>
 					<Comment/>
-					<Group></Group>
+					<Group>FormCommandBarImportant</Group>
 					<CommandParameterType/>
 					<ParameterUseMode>Single</ParameterUseMode>
 					<ModifiesData>false</ModifiesData>
@@ -156,7 +156,7 @@
 						</v8:item>
 					</Synonym>
 					<Comment/>
-					<Group></Group>
+					<Group>FormNavigationPanelGoTo</Group>
 					<CommandParameterType/>
 					<ParameterUseMode>Single</ParameterUseMode>
 					<ModifiesData>false</ModifiesData>

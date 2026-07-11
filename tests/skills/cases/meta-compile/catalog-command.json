@@ -14,10 +14,12 @@
       },
       "ЗагрузитьИзФайла": {
         "synonym": "Загрузить из файла",
+        "group": "FormCommandBarImportant",
         "picture": "CommonPicture.Загрузка",
         "loadTransparent": false
       },
       "ОбновитьСписок": {
+        "group": "FormNavigationPanelGoTo",
         "picture": { "src": "StdPicture.Refresh", "transparentPixel": { "x": 0, "y": 0 } }
       }
     }

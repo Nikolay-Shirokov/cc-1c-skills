@@ -246,7 +246,10 @@
 		</Properties>
 		<ChildObjects>
 			<Language>Русский</Language>
+			<ChartOfCharacteristicTypes>ВидыСвойств</ChartOfCharacteristicTypes>
+			<Catalog>НаборыДопРеквИСвед</Catalog>
 			<Catalog>Организации</Catalog>
+			<InformationRegister>ДополнительныеСведения</InformationRegister>
 		</ChildObjects>
 	</Configuration>
 </MetaDataObject>

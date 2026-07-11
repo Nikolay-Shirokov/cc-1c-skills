@@ -111,6 +111,18 @@ function extractTypeRefs(input) {
     refs.set(`${m[1]}.${m[2]}`, { type: m[1], name: m[2] });
   }
 
+  // Прямые ссылки Тип.Имя: картинки, макеты, хранилища настроек, определяемые типы
+  const directPattern2 = new RegExp(`(CommonPicture|CommonTemplate|SettingsStorage|DefinedType)\\.(${ID})`, 'g');
+  while ((m = directPattern2.exec(json)) !== null) {
+    refs.set(`${m[1]}.${m[2]}`, { type: m[1], name: m[2] });
+  }
+
+  // Characteristic.X (тип-характеристика в составе типа значения) → ChartOfCharacteristicTypes.X
+  const charPattern = new RegExp(`Characteristic\\.(${ID})`, 'g');
+  while ((m = charPattern.exec(json)) !== null) {
+    refs.set(`ChartOfCharacteristicTypes.${m[1]}`, { type: 'ChartOfCharacteristicTypes', name: m[1] });
+  }
+
   const objPattern = new RegExp(`(Document|Catalog|BusinessProcess|Task|ExchangePlan)Object\\.(${ID})`, 'g');
   while ((m = objPattern.exec(json)) !== null) {
     refs.set(`${m[1]}.${m[2]}`, { type: m[1], name: m[2] });
@@ -223,6 +235,20 @@ function getStructuralDeps(input) {
           }
         }
         break;
+      case 'EventSubscription': {
+        // Обработчик подписки ссылается на экспортный метод общего модуля — 1С требует его существования.
+        // Стабим CommonModule и дописываем экспортную процедуру в его модуль (postWrite).
+        let h = String(inp.handler || '').replace(/^CommonModule\./, '');
+        const hdot = h.indexOf('.');
+        if (hdot > 0) {
+          const modName = h.substring(0, hdot), methodName = h.substring(hdot + 1);
+          deps.push({ type: 'CommonModule', name: modName,
+            dsl: { type: 'CommonModule', name: modName, server: true },
+            postWrite: [{ relPath: `CommonModules/${modName}/Ext/Module.bsl`,
+              content: `Процедура ${methodName}(Источник, Отказ) Экспорт\nКонецПроцедуры\n` }] });
+        }
+        break;
+      }
       case 'Sequence':
         // Документы последовательности (documents) + реквизиты из documentMap — 1С требует существования
         // самого Document.X И реквизита, на который ссылается измерение. Стабим документ с нужными реквизитами
@@ -267,6 +293,10 @@ function makeStubDSL(type, name) {
     case 'Task': return { type: 'Task', name };
     case 'ExchangePlan': return { type: 'ExchangePlan', name, codeLength: 9, descriptionLength: 100 };
     case 'Role': return { type: 'Role', name: name };
+    case 'DefinedType': return { type: 'DefinedType', name, valueType: 'Number(15,2)' };
+    case 'CommonPicture': return { type: 'CommonPicture', name };
+    case 'CommonTemplate': return { type: 'CommonTemplate', name };
+    case 'SettingsStorage': return { type: 'SettingsStorage', name };
     case 'Subsystem': return null; // Subsystems need special handling
     default: return null;
   }
@@ -283,6 +313,7 @@ const TYPE_TO_PREFIX = {
   EventSubscription: 'EventSubscription', ScheduledJob: 'ScheduledJob',
   DefinedType: 'DefinedType', HTTPService: 'HTTPService', WebService: 'WebService',
   Subsystem: 'Subsystem', Role: 'Role',
+  CommonPicture: 'CommonPicture', CommonTemplate: 'CommonTemplate', SettingsStorage: 'SettingsStorage',
 };
 
 const TYPE_TO_DIR = {
@@ -296,7 +327,133 @@ const TYPE_TO_DIR = {
   EventSubscription: 'EventSubscriptions', ScheduledJob: 'ScheduledJobs',
   DefinedType: 'DefinedTypes', HTTPService: 'HTTPServices', WebService: 'WebServices',
   Subsystem: 'Subsystems', Role: 'Roles',
+  CommonPicture: 'CommonPictures', CommonTemplate: 'CommonTemplates', SettingsStorage: 'SettingsStorages',
 };
+
+// ─── Кросс-объектные ссылки на поля → богатые стабы ─────────────────────────
+// Разбор MDObjectRef-пути "Тип.Имя[.ТабличнаяЧасть.ТЧ].Реквизит|Измерение|Ресурс.Поле" (+рус.синонимы)
+// в стаб объекта с нужными полями. Плюс сбор предопределённых значений перечислений / элементов справочников
+// из fillValue/choiceParameters. Обобщение ветки Sequence (documentMap) на все типы, ссылающиеся на чужие поля.
+
+const TYPE_SYN = {
+  'Документ': 'Document', 'Справочник': 'Catalog', 'РегистрНакопления': 'AccumulationRegister',
+  'РегистрСведений': 'InformationRegister', 'РегистрБухгалтерии': 'AccountingRegister',
+  'РегистрРасчета': 'CalculationRegister', 'Константа': 'Constant',
+  'ПланВидовХарактеристик': 'ChartOfCharacteristicTypes', 'ПланСчетов': 'ChartOfAccounts',
+  'ПланВидовРасчета': 'ChartOfCalculationTypes', 'ПланОбмена': 'ExchangePlan',
+  'БизнесПроцесс': 'BusinessProcess', 'Задача': 'Task',
+};
+const FIELD_SYN = { 'Реквизит': 'Attribute', 'Измерение': 'Dimension', 'Ресурс': 'Resource', 'ТабличнаяЧасть': 'TabularSection' };
+const asArray = (v) => (v == null ? [] : (Array.isArray(v) ? v : [v]));
+
+function parseFieldRef(rawPath) {
+  const parts = String(rawPath).split(':')[0].trim().split('.');
+  if (parts.length < 2) return null;
+  const type = TYPE_SYN[parts[0]] || parts[0];
+  const name = parts[1];
+  let ts = null, fieldKind = null, fieldName = null, i = 2;
+  while (i < parts.length) {
+    const seg = FIELD_SYN[parts[i]] || parts[i];
+    if (seg === 'TabularSection' && i + 1 < parts.length) { ts = parts[i + 1]; i += 2; continue; }
+    if ((seg === 'Attribute' || seg === 'Dimension' || seg === 'Resource') && i + 1 < parts.length) {
+      fieldKind = seg; fieldName = parts[i + 1]; i += 2; continue;
+    }
+    i++;
+  }
+  return { type, name, ts, fieldKind, fieldName };
+}
+
+function getFieldStubs(input) {
+  const inputs = Array.isArray(input) ? input : [input];
+  const mainKeys = new Set(inputs.filter(i => i && i.type).map(i => `${i.type}.${i.name}`));
+  const acc = new Map();   // key -> { type, name, attrs, dims, res, tsAttrs, enumVals, predef }
+  const ID2 = '[\\wА-Яа-яЁё]+';
+
+  const ent = (type, name) => {
+    const key = `${type}.${name}`;
+    if (!TYPE_TO_DIR[type] || mainKeys.has(key)) return null;   // неизвестный тип или сам проверяемый объект — не трогаем
+    let e = acc.get(key);
+    if (!e) { e = { type, name, attrs: new Set(), dims: new Set(), res: new Set(), tsAttrs: new Map(), enumVals: new Set(), predef: new Set() }; acc.set(key, e); }
+    return e;
+  };
+  const addRef = (raw, attrType) => {
+    if (!raw) return;
+    const p = parseFieldRef(raw); if (!p) return;
+    const e = ent(p.type, p.name); if (!e) return;
+    if (p.fieldKind) {
+      const spec = `${p.fieldName}: ${attrType || 'String(10)'}`;
+      if (p.ts) { if (!e.tsAttrs.has(p.ts)) e.tsAttrs.set(p.ts, new Set()); e.tsAttrs.get(p.ts).add(spec); }
+      else if (p.fieldKind === 'Attribute') e.attrs.add(spec);
+      else if (p.fieldKind === 'Dimension') e.dims.add(spec);
+      else if (p.fieldKind === 'Resource') e.res.add(spec);
+    }
+  };
+  const addPredef = (val, ctxType) => {
+    if (typeof val !== 'string' || !val) return;
+    if (val === 'EmptyRef' || val.includes('ПустаяСсылка')) return;
+    let m = val.match(new RegExp(`(?:Enum|Перечисление)\\.(${ID2})\\.(?:EnumValue|ЗначениеПеречисления)\\.(${ID2})`));
+    if (m) { const e = ent('Enum', m[1]); if (e) e.enumVals.add(m[2]); return; }
+    m = val.match(new RegExp(`^(?:Catalog|Справочник)\\.(${ID2})\\.(${ID2})$`));
+    if (m && m[2] !== 'EmptyRef' && m[2] !== 'Predefined') { const e = ent('Catalog', m[1]); if (e) e.predef.add(m[2]); return; }
+    if (ctxType && !val.includes('.')) {   // короткая запись — тип несёт реквизит
+      let em = ctxType.match(/^EnumRef\.(.+)$/); if (em) { const e = ent('Enum', em[1]); if (e) e.enumVals.add(val); return; }
+      let cm = ctxType.match(/^CatalogRef\.(.+)$/); if (cm) { const e = ent('Catalog', cm[1]); if (e) e.predef.add(val); return; }
+    }
+  };
+  const scanAttrs = (attrs) => {
+    for (const a of asArray(attrs)) {
+      if (!a || typeof a !== 'object') continue;
+      if (typeof a.fillValue === 'string') addPredef(a.fillValue, a.type);
+      for (const cp of asArray(a.choiceParameters)) {
+        if (cp && typeof cp === 'object') for (const v of asArray(cp.value)) addPredef(v, cp.type);
+      }
+    }
+  };
+
+  for (const inp of inputs) {
+    if (!inp || !inp.type) continue;
+    switch (inp.type) {
+      case 'FilterCriterion': for (const c of asArray(inp.content)) addRef(c, inp.valueType); break;
+      case 'FunctionalOption': addRef(inp.location); for (const c of asArray(inp.content)) addRef(c); break;
+      case 'FunctionalOptionsParameter': for (const u of asArray(inp.use)) addRef(u); break;
+      case 'CommonAttribute':
+        for (const c of asArray(inp.content)) addRef(typeof c === 'string' ? c : (c.metadata || c['Метаданные'] || c['объект'] || ''));
+        break;
+    }
+    for (const b of asArray(inp.basedOn)) addRef(b);
+    for (const o of asArray(inp.owners)) addRef(o);
+    scanAttrs(inp.attributes);
+    if (inp.tabularSections && typeof inp.tabularSections === 'object' && !Array.isArray(inp.tabularSections)) {
+      for (const ts of Object.values(inp.tabularSections)) scanAttrs(Array.isArray(ts) ? ts : (ts && (ts.attributes || ts.columns)));
+    }
+    if (inp.standardAttributes && typeof inp.standardAttributes === 'object') {
+      for (const sa of Object.values(inp.standardAttributes)) if (sa && typeof sa === 'object') scanAttrs([{ ...sa, type: '' }]);
+    }
+    if (inp.type === 'DocumentJournal') {
+      for (const col of asArray(inp.columns)) if (col && typeof col === 'object') for (const r of asArray(col.references)) addRef(r);
+    }
+  }
+
+  const deps = [];
+  for (const e of acc.values()) {
+    const base = makeStubDSL(e.type, e.name) || { type: e.type, name: e.name };
+    if (e.attrs.size) base.attributes = [...(base.attributes || []), ...e.attrs];
+    if (e.dims.size) base.dimensions = [...(base.dimensions || []), ...e.dims];
+    if (e.res.size) base.resources = [...(base.resources || []), ...e.res];
+    if (e.tsAttrs.size) { base.tabularSections = base.tabularSections || {}; for (const [ts, set] of e.tsAttrs) base.tabularSections[ts] = [...set]; }
+    if (e.enumVals.size) base.values = [...e.enumVals];
+    if (e.predef.size) base.predefined = [...e.predef];
+    deps.push({ type: e.type, name: e.name, dsl: base });
+    // Регистру накопления/бухгалтерии/расчёта нужен документ-регистратор, иначе 1С отвергает
+    // конфигурацию («ни один документ не является регистратором для регистра»).
+    if (e.type === 'AccumulationRegister' || e.type === 'AccountingRegister' || e.type === 'CalculationRegister') {
+      const rn = `Регистратор${e.name}`;
+      deps.push({ type: 'Document', name: rn, dsl: { type: 'Document', name: rn },
+        postEdit: [{ op: 'add-registerRecord', val: `${e.type}.${e.name}` }] });
+    }
+  }
+  return deps;
+}
 
 // ─── Auto-detect objects in config dir for cf-edit ──────────────────────────
 
@@ -544,13 +701,15 @@ async function verifyCase(skillName, caseName, skillConfig, caseData, opts) {
       // Structural deps (scanned across both main input and preRun inputs).
       // NB: только зависимости (стабы объектов, на которые ССЫЛАЕТСЯ вход). Верификатор НЕ правит сам
       // проверяемый объект — иначе в 1С грузится не то, что выдал компилятор (маскировка дефекта DSL).
-      const structDeps = getStructuralDeps(allInputs);
+      const structDeps = [...getStructuralDeps(allInputs), ...getFieldStubs(allInputs)];
       const structDSLs = new Map();
       const structPostEdits = new Map();
+      const structPostWrites = new Map();
       for (const dep of structDeps) {
         const key = `${dep.type}.${dep.name}`;
         if (dep.dsl) structDSLs.set(key, dep.dsl);
         if (dep.postEdit) structPostEdits.set(key, dep.postEdit);
+        if (dep.postWrite) structPostWrites.set(key, dep.postWrite);
       }
 
       // Type refs from ALL inputs (main + preRun)
@@ -595,6 +754,17 @@ async function verifyCase(skillName, caseName, skillConfig, caseData, opts) {
                 result.warnings.push(`PostEdit failed: ${key}`);
               }
             }
+          }
+        }
+
+        // Post-write: перезаписать файл стаба (напр. тело модуля CommonModule с экспортным методом-обработчиком)
+        const writes = structPostWrites.get(key);
+        if (writes) {
+          for (const w of writes) {
+            try {
+              writeFileSync(join(configDir, w.relPath), '﻿' + w.content, 'utf8');
+              log(`postWrite: ${key}`, true, w.relPath);
+            } catch (e) { log(`postWrite: ${key}`, false, e.message); }
           }
         }
       }
@@ -900,6 +1070,65 @@ async function verifyCase(skillName, caseName, skillConfig, caseData, opts) {
       // No config to load — setup was 'none' and not EPF/standalone
       result.passed = true;
       return result;
+    }
+
+    // ── Step 5.5: досоздать формы/макеты, на которые ссылается вход ──
+    // meta-compile эмитит ссылки defaultForm/mainDataCompositionSchema/… но сами формы/макеты не создаёт
+    // (это территория form-add/template-add). Для загрузки в 1С досоздаём их на уже скомпилированном объекте
+    // (основной — из Step 4, внешние — из стабов Step 2). Решение: верификатор достраивает дочерние формы/макеты.
+    if (Array.isArray(allInputs) && allInputs.length > 0) {
+      // form-add поддерживает не все типы (напр. DocumentJournal — нет); для прочих форму не досоздать.
+      const FORM_ADD_TYPES = new Set(['Document', 'Catalog', 'DataProcessor', 'Report',
+        'InformationRegister', 'AccumulationRegister', 'ChartOfAccounts', 'ChartOfCharacteristicTypes',
+        'ExchangePlan', 'BusinessProcess', 'Task', 'DocumentJournal']);
+      const walk = function* (o, key) {
+        if (o == null) return;
+        if (typeof o === 'string') { yield { key, value: o }; return; }
+        if (Array.isArray(o)) { for (const v of o) yield* walk(v, key); return; }
+        if (typeof o === 'object') { for (const [k, v] of Object.entries(o)) yield* walk(v, k); }
+      };
+      const forms = new Map(), tpls = new Map();
+      for (const inp of allInputs) {
+        for (const { key, value } of walk(inp, null)) {
+          const kl = (key || '').toLowerCase();
+          const parts = String(value).split('.');
+          const objType = TYPE_SYN[parts[0]] || parts[0];
+          if (parts.length < 3 || !TYPE_TO_DIR[objType]) continue;
+          const objName = parts[1], leaf = parts[parts.length - 1];
+          // Форма — по ключу *Form (нотация ссылки любая: .Form./.Форма./короткая)
+          if (/form$/.test(kl)) {
+            let purpose = 'Object';
+            if (kl.includes('list')) purpose = 'List';
+            else if (kl.includes('choice')) purpose = 'Choice';
+            else if (kl.includes('record')) purpose = 'Record';
+            if (objType === 'Report' || objType === 'DataProcessor') purpose = 'Object';
+            else if (objType === 'DocumentJournal') purpose = 'List';   // журнал — только списочные формы
+            forms.set(`${objType}.${objName}.${leaf}`, { objType, objName, formName: leaf, purpose });
+          }
+          // Макет — по ключу *schema/*template
+          if (kl.includes('datacompositionschema') || kl.includes('template')) {
+            const isSKD = kl.includes('datacompositionschema');
+            tpls.set(`${objType}.${objName}.${leaf}`, { objName, tplName: leaf, tplType: isSKD ? 'DataCompositionSchema' : 'SpreadsheetDocument', main: isSKD });
+          }
+        }
+      }
+      for (const f of forms.values()) {
+        if (!FORM_ADD_TYPES.has(f.objType)) continue;   // form-add не умеет этот тип (напр. DocumentJournal)
+        const objPath = join(configDir, TYPE_TO_DIR[f.objType], `${f.objName}.xml`);
+        const formDir = join(configDir, TYPE_TO_DIR[f.objType], f.objName, 'Forms', f.formName);
+        if (!existsSync(objPath) || existsSync(formDir)) continue;
+        try {
+          execSkill(opts.runtime, 'form-add/scripts/form-add', ['-ObjectPath', objPath, '-FormName', f.formName, '-Purpose', f.purpose]);
+          log(`form-add: ${f.objName}.${f.formName}`, true);
+        } catch (e) { log(`form-add: ${f.objName}.${f.formName}`, false, (e.stderr || e.message || '').substring(0, 200)); }
+      }
+      for (const t of tpls.values()) {
+        try {
+          execSkill(opts.runtime, 'template-add/scripts/add-template', ['-ObjectName', t.objName,
+            '-TemplateName', t.tplName, '-TemplateType', t.tplType, '-SrcDir', configDir, ...(t.main ? ['-SetMainSKD'] : [])]);
+          log(`template-add: ${t.objName}.${t.tplName}`, true);
+        } catch (e) { log(`template-add: ${t.objName}.${t.tplName}`, false, (e.stderr || e.message || '').substring(0, 200)); }
+      }
     }
 
     // ── Step 6: Auto-detect and register objects in ChildObjects ──

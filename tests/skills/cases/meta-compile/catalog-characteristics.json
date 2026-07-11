@@ -1,8 +1,37 @@
 {
   "name": "Характеристики ПВХ (Дополнительные реквизиты и сведения)",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "ChartOfCharacteristicTypes", "name": "ВидыСвойств",
+                 "valueTypes": ["String(100)", "Number(15,2)", "Boolean"] },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "Catalog", "name": "НаборыДопРеквИСвед",
+                 "tabularSections": {
+                   "ДополнительныеРеквизиты": ["Свойство: ChartOfCharacteristicTypesRef.ВидыСвойств"],
+                   "ДополнительныеСведения": ["Свойство: ChartOfCharacteristicTypesRef.ВидыСвойств"]
+                 },
+                 "predefined": ["Справочник_Организации"] },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "InformationRegister", "name": "ДополнительныеСведения",
+                 "dimensions": ["Объект: CatalogRef.Организации", "Свойство: ChartOfCharacteristicTypesRef.ВидыСвойств"],
+                 "resources": [{ "name": "Значение", "type": "Characteristic.ВидыСвойств",
+                                 "linkByType": { "dataPath": "InformationRegister.ДополнительныеСведения.Dimension.Свойство" } }] },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    }
+  ],
   "input": {
     "type": "Catalog",
     "name": "Организации",
+    "tabularSections": {
+      "ДополнительныеРеквизиты": ["Свойство: ChartOfCharacteristicTypesRef.ВидыСвойств", "Значение: Characteristic.ВидыСвойств"]
+    },
     "characteristics": [
       { "types":  { "from": "Справочник.НаборыДопРеквИСвед.ДополнительныеРеквизиты",
                     "key": "Свойство", "filterField": "Ссылка", "filterValue": "Catalog.НаборыДопРеквИСвед.Справочник_Организации" },
