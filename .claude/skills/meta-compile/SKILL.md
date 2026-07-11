@@ -9,18 +9,16 @@ allowed-tools:
   - Glob
 ---
 
-# /meta-compile — генерация объектов метаданных из JSON DSL
+# /meta-compile — генерация объектов метаданных из JSON
 
-Принимает JSON-определение объекта метаданных → генерирует XML + модули в структуре выгрузки конфигурации + регистрирует в Configuration.xml.
+Принимает JSON-определение объекта → генерирует XML + модули в структуре выгрузки конфигурации и
+регистрирует объект в `Configuration.xml`.
 
 ## Порядок работы
 
-1. Составь JSON по синтаксису и примерам ниже → запиши во временный файл
-2. Запусти скрипт meta-compile
-3. Если нужно изменить созданный объект — `/meta-edit`
-4. Если нужно проверить — `/meta-validate`
-
-## Команда
+1. Составь JSON по синтаксису ниже → запиши во временный файл.
+2. Запусти скрипт.
+3. Изменить созданный объект — `/meta-edit`; проверить — `/meta-validate`.
 
 ```powershell
 powershell.exe -NoProfile -File "${CLAUDE_SKILL_DIR}/scripts/meta-compile.ps1" -JsonPath "<json>" -OutputDir "<ConfigDir>"
@@ -28,92 +26,110 @@ powershell.exe -NoProfile -File "${CLAUDE_SKILL_DIR}/scripts/meta-compile.ps1" -
 
 | Параметр | Описание |
 |----------|----------|
-| `JsonPath` | Путь к JSON-файлу (один объект `{...}` или массив `[{...}, ...]`) |
-| `OutputDir` | Корень выгрузки конфигурации (где `Configuration.xml`, `Catalogs/`, `Documents/` и т.д.) |
+| `JsonPath` | Путь к JSON-файлу |
+| `OutputDir` | Корень выгрузки конфигурации (где `Configuration.xml`, `Catalogs/`, `Documents/`, …) |
 
-## JSON DSL
+## Формат JSON
 
-### Общая структура
-
-```json
-{ "type": "Catalog", "name": "Номенклатура", ...свойства типа... }
-```
-
-`type` и `name` — обязательные. `synonym` генерируется из `name` автоматически (CamelCase → слова через пробел). Можно задать явно: `"synonym": "Мой синоним"`.
-
-### Shorthand реквизитов
-
-Используется в `attributes`, `dimensions`, `resources`, `tabularSections`:
-
-```
-"ИмяРеквизита"                    → String(10) по умолчанию
-"ИмяРеквизита: Тип"               → с типом
-"ИмяРеквизита: Тип | req, index"  → с флагами
-```
-
-Типы: `String(100)`, `Number(15,2)`, `Boolean`, `Date`, `DateTime`, `CatalogRef.Xxx`, `DocumentRef.Xxx`, `EnumRef.Xxx`, `DefinedType.Xxx` и др. ссылочные.
-
-Составной тип: `"Значение: String + Number(15,2) + CatalogRef.Контрагенты"`.
-
-Флаги: `req`, `index`, `indexAdditional`, `nonneg`, `master`, `mainFilter`, `denyIncomplete`, `useInTotals`.
-
-### Свойства по типам
-
-Примеров и shorthand-синтаксиса выше достаточно для типовых задач. Если нужны свойства типа, не показанные в примерах, и их допустимые значения — см. reference-файл:
-
-- `reference/types-basic.md` — Catalog, Document, Enum, Constant, DefinedType, Report, DataProcessor
-- `reference/types-registers.md` — InformationRegister, AccumulationRegister, AccountingRegister, CalculationRegister, ChartOfAccounts, ChartOfCharacteristicTypes, ChartOfCalculationTypes
-- `reference/types-process.md` — BusinessProcess, Task, ExchangePlan, CommonModule, ScheduledJob, EventSubscription, DocumentJournal
-- `reference/types-web.md` — HTTPService, WebService
-
-Эта инструкция и reference-файлы — полная документация для генерации. Не ищи примеры XML в выгрузках конфигураций.
-
-## Примеры паттернов DSL
-
-### Минимальный объект
+**Один объект** `{ ... }` или **массив** объектов `[{ ... }, { ... }]` (batch — несколько объектов за прогон).
 
 ```json
-{ "type": "Catalog", "name": "Валюты" }
+{ "type": "Catalog", "name": "Номенклатура", "...свойства типа...": "..." }
 ```
 
-### С реквизитами
+`type` и `name` — обязательные. Остальное — по типу (см. индекс ниже). `synonym` по умолчанию выводится из
+`name` (CamelCase → слова через пробел); можно задать явно строкой или мультиязычно: `"synonym": { "ru": "…", "en": "…" }`.
 
-```json
-{
-  "type": "Catalog", "name": "Организации",
-  "descriptionLength": 100,
-  "attributes": ["ИНН: String(12)", "КПП: String(9)", "Директор: CatalogRef.ФизическиеЛица"]
-}
+## Реквизиты (shorthand)
+
+Массивы `attributes`, `dimensions`, `resources` и колонки в `tabularSections` задаются строками:
+
+```
+"Имя"                          → String(10)
+"Имя: Тип"                     → с типом
+"Имя: Тип | req, index"        → с флагами
 ```
 
-### С табличной частью
+**Типы:** `String(100)`, `String(10, fixed)` (фикс. длина), `Number(15,2)`, `Boolean`, `Date`, `DateTime`,
+`Time`, ссылочные `CatalogRef.Xxx` / `DocumentRef.Xxx` / `EnumRef.Xxx` / `DefinedType.Xxx` и т.п.
+Составной тип — через `+`: `"Значение: String + Number(15,2) + CatalogRef.Контрагенты"`.
+
+**Флаги** (после `|`, через запятую):
+
+| Флаг | Значение | Где |
+|------|----------|-----|
+| `req` | обязательное заполнение | attributes, dimensions, resources |
+| `index` | индексировать | attributes, dimensions |
+| `indexAdditional` | индекс с доп. упорядочиванием | attributes |
+| `multiline` | многострочное поле | attributes |
+| `nonneg` | неотрицательное (Number) | attributes, resources |
+| `master` | ведущее измерение | dimensions (регистры) |
+| `mainFilter` | основной отбор | dimensions (регистры) |
+| `denyIncomplete` | запрет незаполненных | dimensions |
+| `useInTotals` | использовать в итогах | dimensions (регистр накопления) |
+
+Реквизиту нужны свойства сверх shorthand (значение заполнения, параметры выбора, формат, подсказка, …) —
+задаётся **объектной формой**, см. `reference/attributes.md`.
+
+## Табличные части
 
 ```json
-{
-  "type": "Document", "name": "ПриходнаяНакладная",
+"tabularSections": { "Товары": ["Номенклатура: CatalogRef.Номенклатура", "Количество: Number(15,3)"] }
+```
+
+Ключ — имя ТЧ, значение — массив колонок (shorthand) ЛИБО объект со свойствами ТЧ (см. `reference/attributes.md`).
+
+## Индекс: свойства по типам
+
+Для каждого типа — свой reference-файл со свойствами, дефолтами и допустимыми значениями:
+
+| Тип(ы) | Файл |
+|--------|------|
+| Catalog (справочник) | `reference/catalog.md` |
+| Document, DocumentJournal, Sequence, DocumentNumerator | `reference/document.md` |
+| InformationRegister, AccumulationRegister, AccountingRegister, CalculationRegister | `reference/registers.md` |
+| ChartOfAccounts, ChartOfCharacteristicTypes, ChartOfCalculationTypes | `reference/charts.md` |
+| ExchangePlan | `reference/exchangeplan.md` |
+| BusinessProcess, Task | `reference/process.md` |
+| Report, DataProcessor | `reference/report-dataprocessor.md` |
+| CommonModule, ScheduledJob, EventSubscription | `reference/code.md` |
+| HTTPService, WebService | `reference/web.md` |
+| Enum, Constant, DefinedType | `reference/simple.md` |
+| FunctionalOption, FilterCriterion, SettingsStorage, CommonForm, CommonPicture, CommonTemplate, служебные | `reference/other-types.md` |
+
+Кросс-типовые детали:
+- **`reference/attributes.md`** — объектная форма реквизита и колонки ТЧ (значение заполнения, параметры
+  выбора, формат, подсказка, границы, …) + свойства самой ТЧ.
+- **`reference/blocks.md`** — блоки объекта: представления, команды (+ характеристики/стандартные реквизиты).
+
+Эта инструкция и reference-файлы — полная документация. Не ищи примеры XML в выгрузках конфигураций.
+
+## Примеры
+
+Справочник с реквизитами:
+```json
+{ "type": "Catalog", "name": "Организации", "descriptionLength": 100,
+  "attributes": ["ИНН: String(12)", "КПП: String(9)", "Директор: CatalogRef.ФизическиеЛица"] }
+```
+
+Документ с движениями и ТЧ:
+```json
+{ "type": "Document", "name": "ПриходнаяНакладная",
   "registerRecords": ["AccumulationRegister.ОстаткиТоваров"],
   "attributes": ["Организация: CatalogRef.Организации", "Контрагент: CatalogRef.Контрагенты"],
-  "tabularSections": { "Товары": ["Номенклатура: CatalogRef.Номенклатура", "Количество: Number(15,3)", "Цена: Number(15,2)"] }
-}
+  "tabularSections": { "Товары": ["Номенклатура: CatalogRef.Номенклатура", "Количество: Number(15,3)", "Цена: Number(15,2)"] } }
 ```
 
-### Регистровый паттерн (измерения + ресурсы)
-
+Регистр сведений:
 ```json
-{
-  "type": "InformationRegister", "name": "КурсыВалют", "periodicity": "Day",
+{ "type": "InformationRegister", "name": "КурсыВалют", "periodicity": "Day",
   "dimensions": ["Валюта: CatalogRef.Валюты | master, mainFilter, denyIncomplete"],
-  "resources": ["Курс: Number(15,4)", "Кратность: Number(10,0)"]
-}
+  "resources": ["Курс: Number(15,4)", "Кратность: Number(10,0)"] }
 ```
 
-### Batch — несколько объектов в одном файле
-
+Batch:
 ```json
-[
-  { "type": "Enum", "name": "Статусы", "values": ["Новый", "Закрыт"] },
+[ { "type": "Enum", "name": "Статусы", "values": ["Новый", "Закрыт"] },
   { "type": "Catalog", "name": "Валюты" },
-  { "type": "Constant", "name": "ОсновнаяВалюта", "valueType": "CatalogRef.Валюты" }
-]
+  { "type": "Constant", "name": "ОсновнаяВалюта", "valueType": "CatalogRef.Валюты" } ]
 ```
-
