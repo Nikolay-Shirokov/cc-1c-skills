@@ -49,6 +49,7 @@
 | `defaultPresentation` | `AsCode` | `AsCode` / `AsDescription` |
 | `autoOrderByCode` | `true` | bool |
 | `orderLength` | `9` | длина строки упорядочивания |
+| `createOnInput` | `DontUse` | `Auto` / `Use` / `DontUse` |
 | `dataLockControlMode` | `Managed` | `Automatic` / `Managed` |
 | `accountingFlags` | `[]` | признаки учёта (как реквизиты, тип по умолчанию Boolean; массив имён/реквизитов) |
 | `extDimensionAccountingFlags` | `[]` | признаки учёта субконто (как реквизиты) |
@@ -89,6 +90,7 @@
 | `dependenceOnCalculationTypes` | `DontUse` | `DontUse` / `OnPeriod` / `OnActionPeriod` |
 | `baseCalculationTypes` | `[]` | базовые виды расчёта (список ссылок `ChartOfCalculationTypes.X`) |
 | `actionPeriodUse` | `false` | bool (использовать период действия) |
+| `createOnInput` | `DontUse` | `Auto` / `Use` / `DontUse` |
 | `dataLockControlMode` | `Managed` | `Automatic` / `Managed` |
 | `predefined` | `[]` | предопределённые виды расчёта (см. ниже) |
 
