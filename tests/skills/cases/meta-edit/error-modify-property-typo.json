@@ -1,0 +1,14 @@
+{
+  "name": "modify-property с опечаткой в имени свойства → ошибка (не тихий no-op)",
+  "setup": "empty-config",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "Catalog", "name": "Спр" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    }
+  ],
+  "params": { "objectPath": "Catalogs/Спр" },
+  "input": { "modify": { "properties": { "CodeLenght": "11" } } },
+  "expectError": true
+}

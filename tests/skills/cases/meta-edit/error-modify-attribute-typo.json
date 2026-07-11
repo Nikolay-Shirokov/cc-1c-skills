@@ -1,0 +1,14 @@
+{
+  "name": "modify-attribute с опечаткой в имени свойства реквизита → ошибка (не тихий no-op)",
+  "setup": "empty-config",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "Catalog", "name": "Спр", "attributes": ["Комм: String(50)"] },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    }
+  ],
+  "params": { "objectPath": "Catalogs/Спр" },
+  "input": { "modify": { "attributes": { "Комм": { "ЧёТоНеТо": "1" } } } },
+  "expectError": true
+}

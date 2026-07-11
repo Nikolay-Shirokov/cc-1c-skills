@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-edit v1.11 — Edit existing 1C metadata object XML (inline mode + complex properties + TS attribute ops + modify-ts)
+# meta-edit v1.12 — Edit existing 1C metadata object XML (inline mode + complex properties + TS attribute ops + modify-ts + create-if-missing свойств)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -1858,8 +1858,17 @@ def modify_properties(props_def):
                 break
 
         if prop_el is None:
-            warn(f"Property '{prop_name}' not found in Properties")
-            continue
+            # create-if-missing: известное свойство создаём (порядок 1С терпит); неизвестное → ошибка (опечатка)
+            if prop_name not in known_object_props:
+                print(f"meta-edit: modify-property: неизвестное свойство '{prop_name}' — нет такого свойства объекта (опечатка?)", file=sys.stderr)
+                sys.exit(1)
+            new_nodes = import_fragment(f"<{prop_name}/>")
+            if new_nodes:
+                insert_property_in_order(properties_el, new_nodes[0], None, prop_name)
+                prop_el = new_nodes[0]
+            else:
+                warn(f"Property '{prop_name}': could not create element")
+                continue
 
         # Complex property: Owners, RegisterRecords, BasedOn, InputByString
         if prop_name in complex_property_map:
@@ -2100,7 +2109,20 @@ def modify_child_elements(modify_def, child_type):
                     info(f"Modified {xml_tag} '{elem_name}'.{change_prop} = {value_str}")
                     modify_count += 1
                 else:
-                    warn(f"{xml_tag} '{elem_name}': property '{change_prop}' not found")
+                    # create-if-missing: известное свойство создаём в позиции; неизвестное → ошибка (опечатка)
+                    if change_prop not in known_child_props:
+                        print(f"meta-edit: modify: неизвестное свойство '{change_prop}' у {xml_tag} '{elem_name}' (опечатка?)", file=sys.stderr)
+                        sys.exit(1)
+                    value_str = str(change_value)
+                    if isinstance(change_value, bool):
+                        value_str = "true" if change_value else "false"
+                    else:
+                        value_str = normalize_enum_value(change_prop, value_str)
+                    new_nodes = import_fragment(f"<{change_prop}>{esc_xml(value_str)}</{change_prop}>")
+                    if new_nodes:
+                        insert_property_in_order(props_el, new_nodes[0], attr_prop_order, change_prop)
+                        info(f"Created {xml_tag} '{elem_name}'.{change_prop} = {value_str}")
+                        modify_count += 1
 
 
 def process_modify(modify_def):
@@ -2127,6 +2149,68 @@ complex_property_map = {
     "BasedOn": {"tag": "xr:Item", "attr": 'xsi:type="xr:MDObjectRef"'},
     "InputByString": {"tag": "xr:Field", "attr": None},
 }
+
+# Известные свойства объекта (union по корпусу acc+erp 8.3.24) — allowlist для modify-property.
+# Известное отсутствующее свойство create-if-missing создаётся; неизвестное (опечатка) → ошибка.
+known_object_props = {
+    'ActionPeriod', 'ActionPeriodUse', 'Addressing', 'AutoOrderByCode', 'Autonumbering', 'AuxiliaryChoiceForm',
+    'AuxiliaryFolderChoiceForm', 'AuxiliaryFolderForm', 'AuxiliaryForm', 'AuxiliaryListForm', 'AuxiliaryObjectForm',
+    'AuxiliaryRecordForm', 'AuxiliarySettingsForm', 'BaseCalculationTypes', 'BasePeriod', 'BasedOn',
+    'CharacteristicExtValues', 'Characteristics', 'ChartOfAccounts', 'ChartOfCalculationTypes', 'CheckUnique',
+    'ChoiceDataGetModeOnInputByString', 'ChoiceFoldersAndItems', 'ChoiceForm', 'ChoiceHistoryOnInput', 'ChoiceMode',
+    'ChoiceParameterLinks', 'ChoiceParameters', 'CodeAllowedLength', 'CodeLength', 'CodeMask', 'CodeSeries', 'CodeType',
+    'Comment', 'Correspondence', 'CreateOnInput', 'CreateTaskInPrivilegedMode', 'CurrentPerformer', 'DataHistory',
+    'DataLockControlMode', 'DataLockFields', 'DefaultChoiceForm', 'DefaultFolderChoiceForm', 'DefaultFolderForm',
+    'DefaultForm', 'DefaultListForm', 'DefaultObjectForm', 'DefaultPresentation', 'DefaultRecordForm', 'DefaultSettingsForm',
+    'DefaultVariantForm', 'DependenceOnCalculationTypes', 'DescriptionLength', 'DistributedInfoBase', 'EditFormat',
+    'EditType', 'EnableTotalsSliceFirst', 'EnableTotalsSliceLast', 'EnableTotalsSplitting',
+    'ExecuteAfterWriteDataHistoryVersionProcessing', 'Explanation', 'ExtDimensionTypes', 'ExtendedEdit',
+    'ExtendedListPresentation', 'ExtendedObjectPresentation', 'ExtendedPresentation', 'ExtendedRecordPresentation',
+    'FillChecking', 'FoldersOnTop', 'Format', 'FullTextSearch', 'FullTextSearchOnInputByString', 'Hierarchical',
+    'HierarchyType', 'IncludeConfigurationExtensions', 'IncludeHelpInContents', 'InformationRegisterPeriodicity',
+    'InputByString', 'LevelCount', 'LimitLevelCount', 'LinkByType', 'ListPresentation', 'MainAddressingAttribute',
+    'MainDataCompositionSchema', 'MainFilterOnPeriod', 'MarkNegatives', 'Mask', 'MaxExtDimensionCount', 'MaxValue',
+    'MinValue', 'MultiLine', 'Name', 'NumberAllowedLength', 'NumberLength', 'NumberPeriodicity', 'NumberType', 'Numerator',
+    'ObjectPresentation', 'OrderLength', 'Owners', 'PasswordMode', 'PeriodAdjustmentLength', 'Periodicity',
+    'PostInPrivilegedMode', 'Posting', 'PredefinedDataUpdate', 'QuickChoice', 'RealTimePosting', 'RecordPresentation',
+    'RegisterRecords', 'RegisterRecordsDeletion', 'RegisterRecordsWritingOnPost', 'RegisterType', 'RegisteredDocuments',
+    'Schedule', 'ScheduleDate', 'ScheduleValue', 'SearchStringModeOnInputByString', 'SequenceFilling', 'SettingsStorage',
+    'StandardAttributes', 'StandardTabularSections', 'SubordinationUse', 'Synonym', 'Task', 'TaskNumberAutoPrefix',
+    'ToolTip', 'Type', 'UnpostInPrivilegedMode', 'UpdateDataHistoryImmediatelyAfterWrite', 'UseStandardCommands',
+    'VariantsStorage', 'WriteMode',
+}
+
+# Известные свойства дочерних элементов (union Attribute/Dimension/Resource) — allowlist default-ветки modify-child.
+known_child_props = {
+    'AccountingFlag', 'Balance', 'BaseDimension', 'ChoiceFoldersAndItems', 'ChoiceForm', 'ChoiceHistoryOnInput',
+    'ChoiceParameterLinks', 'ChoiceParameters', 'Comment', 'CreateOnInput', 'DataHistory', 'DenyIncompleteValues',
+    'DocumentMap', 'EditFormat', 'ExtDimensionAccountingFlag', 'ExtendedEdit', 'FillChecking', 'FillFromFillingValue',
+    'FillValue', 'Format', 'FullTextSearch', 'Indexing', 'LinkByType', 'MainFilter', 'MarkNegatives', 'Mask', 'Master',
+    'MaxValue', 'MinValue', 'MultiLine', 'Name', 'PasswordMode', 'QuickChoice', 'RegisterRecordsMap', 'ScheduleLink',
+    'Synonym', 'ToolTip', 'Type', 'Use', 'UseInTotals',
+}
+
+# Канонический порядок свойств реквизита (последовательность build_attribute_fragment) — для вставки в позицию.
+attr_prop_order = [
+    'Name', 'Synonym', 'Comment', 'Type', 'PasswordMode', 'Format', 'EditFormat', 'ToolTip', 'MarkNegatives', 'Mask',
+    'MultiLine', 'ExtendedEdit', 'MinValue', 'MaxValue', 'FillFromFillingValue', 'FillValue', 'FillChecking',
+    'ChoiceFoldersAndItems', 'ChoiceParameterLinks', 'ChoiceParameters', 'QuickChoice', 'CreateOnInput', 'ChoiceForm',
+    'LinkByType', 'ChoiceHistoryOnInput', 'Use', 'Indexing', 'FullTextSearch', 'DataHistory',
+]
+
+
+def insert_property_in_order(props_el, new_node, order_array, prop_name):
+    """Вставить новое свойство в Properties в канонической позиции (по order_array); иначе append."""
+    child_indent = get_child_indent(props_el)
+    ref_node = None
+    idx = order_array.index(prop_name) if (order_array and prop_name in order_array) else -1
+    if idx >= 0:
+        for ch in props_el:
+            cl = localname(ch)
+            if cl in order_array and order_array.index(cl) > idx:
+                ref_node = ch
+                break
+    insert_before_element(props_el, new_node, ref_node, child_indent)
 
 
 def find_property_element(prop_name):

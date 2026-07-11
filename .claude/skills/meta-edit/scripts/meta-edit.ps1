@@ -1,4 +1,4 @@
-﻿# meta-edit v1.11 — Edit existing 1C metadata object XML (inline mode + complex properties + TS attribute ops + modify-ts)
+﻿# meta-edit v1.12 — Edit existing 1C metadata object XML (inline mode + complex properties + TS attribute ops + modify-ts + create-if-missing свойств)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[string]$DefinitionFile,
@@ -1974,8 +1974,19 @@ function Modify-Properties($propsDef) {
 		}
 
 		if (-not $propEl) {
-			Warn "Property '$propName' not found in Properties"
-			return
+			# create-if-missing: известное свойство создаём (порядок 1С терпит — append); неизвестное → ошибка (опечатка)
+			if ($script:knownObjectProps -notcontains $propName) {
+				Write-Error "modify-property: неизвестное свойство '$propName' — нет такого свойства объекта (опечатка?)"
+				exit 1
+			}
+			$newNodes = Import-Fragment "<$propName/>"
+			if ($newNodes.Count -gt 0) {
+				Insert-PropertyInOrder $script:propertiesEl $newNodes[0] $null $propName
+				$propEl = $newNodes[0]
+			} else {
+				Warn "Property '$propName': could not create element"
+				return
+			}
 		}
 
 		# Complex property: Owners, RegisterRecords, BasedOn, InputByString
@@ -2248,7 +2259,23 @@ function Modify-ChildElements($modifyDef, [string]$childType) {
 						Info "Modified $xmlTag '$elemName'.$changeProp = $valueStr"
 						$script:modifyCount++
 					} else {
-						Warn "$xmlTag '$elemName': property '$changeProp' not found"
+						# create-if-missing: известное свойство создаём в позиции; неизвестное → ошибка (опечатка)
+						if ($script:knownChildProps -notcontains $changeProp) {
+							Write-Error "modify: неизвестное свойство '$changeProp' у $xmlTag '$elemName' (опечатка?)"
+							exit 1
+						}
+						$valueStr = "$changeValue"
+						if ($changeValue -is [bool]) {
+							$valueStr = if ($changeValue) { "true" } else { "false" }
+						} else {
+							$valueStr = Normalize-EnumValue $changeProp $valueStr
+						}
+						$newNodes = Import-Fragment "<$changeProp>$(Esc-Xml $valueStr)</$changeProp>"
+						if ($newNodes.Count -gt 0) {
+							Insert-PropertyInOrder $propsEl $newNodes[0] $script:attrPropOrder $changeProp
+							Info "Created $xmlTag '$elemName'.$changeProp = $valueStr"
+							$script:modifyCount++
+						}
 					}
 				}
 			}
@@ -2284,6 +2311,73 @@ $script:complexPropertyMap = @{
 	"RegisterRecords" = @{ tag = "xr:Item"; attr = 'xsi:type="xr:MDObjectRef"' }
 	"BasedOn"         = @{ tag = "xr:Item"; attr = 'xsi:type="xr:MDObjectRef"' }
 	"InputByString"   = @{ tag = "xr:Field"; attr = $null }
+}
+
+# Известные свойства объекта (union по корпусу acc+erp 8.3.24) — allowlist для modify-property.
+# Известное отсутствующее свойство create-if-missing создаётся; неизвестное (опечатка) → ошибка.
+$script:knownObjectProps = @(
+	'ActionPeriod','ActionPeriodUse','Addressing','AutoOrderByCode','Autonumbering','AuxiliaryChoiceForm',
+	'AuxiliaryFolderChoiceForm','AuxiliaryFolderForm','AuxiliaryForm','AuxiliaryListForm','AuxiliaryObjectForm',
+	'AuxiliaryRecordForm','AuxiliarySettingsForm','BaseCalculationTypes','BasePeriod','BasedOn',
+	'CharacteristicExtValues','Characteristics','ChartOfAccounts','ChartOfCalculationTypes','CheckUnique',
+	'ChoiceDataGetModeOnInputByString','ChoiceFoldersAndItems','ChoiceForm','ChoiceHistoryOnInput','ChoiceMode',
+	'ChoiceParameterLinks','ChoiceParameters','CodeAllowedLength','CodeLength','CodeMask','CodeSeries','CodeType',
+	'Comment','Correspondence','CreateOnInput','CreateTaskInPrivilegedMode','CurrentPerformer','DataHistory',
+	'DataLockControlMode','DataLockFields','DefaultChoiceForm','DefaultFolderChoiceForm','DefaultFolderForm',
+	'DefaultForm','DefaultListForm','DefaultObjectForm','DefaultPresentation','DefaultRecordForm','DefaultSettingsForm',
+	'DefaultVariantForm','DependenceOnCalculationTypes','DescriptionLength','DistributedInfoBase','EditFormat',
+	'EditType','EnableTotalsSliceFirst','EnableTotalsSliceLast','EnableTotalsSplitting',
+	'ExecuteAfterWriteDataHistoryVersionProcessing','Explanation','ExtDimensionTypes','ExtendedEdit',
+	'ExtendedListPresentation','ExtendedObjectPresentation','ExtendedPresentation','ExtendedRecordPresentation',
+	'FillChecking','FoldersOnTop','Format','FullTextSearch','FullTextSearchOnInputByString','Hierarchical',
+	'HierarchyType','IncludeConfigurationExtensions','IncludeHelpInContents','InformationRegisterPeriodicity',
+	'InputByString','LevelCount','LimitLevelCount','LinkByType','ListPresentation','MainAddressingAttribute',
+	'MainDataCompositionSchema','MainFilterOnPeriod','MarkNegatives','Mask','MaxExtDimensionCount','MaxValue',
+	'MinValue','MultiLine','Name','NumberAllowedLength','NumberLength','NumberPeriodicity','NumberType','Numerator',
+	'ObjectPresentation','OrderLength','Owners','PasswordMode','PeriodAdjustmentLength','Periodicity',
+	'PostInPrivilegedMode','Posting','PredefinedDataUpdate','QuickChoice','RealTimePosting','RecordPresentation',
+	'RegisterRecords','RegisterRecordsDeletion','RegisterRecordsWritingOnPost','RegisterType','RegisteredDocuments',
+	'Schedule','ScheduleDate','ScheduleValue','SearchStringModeOnInputByString','SequenceFilling','SettingsStorage',
+	'StandardAttributes','StandardTabularSections','SubordinationUse','Synonym','Task','TaskNumberAutoPrefix',
+	'ToolTip','Type','UnpostInPrivilegedMode','UpdateDataHistoryImmediatelyAfterWrite','UseStandardCommands',
+	'VariantsStorage','WriteMode'
+)
+
+# Известные свойства дочерних элементов (union Attribute/Dimension/Resource по корпусу) — allowlist default-ветки
+# modify-attribute/-dimension/-resource.
+$script:knownChildProps = @(
+	'AccountingFlag','Balance','BaseDimension','ChoiceFoldersAndItems','ChoiceForm','ChoiceHistoryOnInput',
+	'ChoiceParameterLinks','ChoiceParameters','Comment','CreateOnInput','DataHistory','DenyIncompleteValues',
+	'DocumentMap','EditFormat','ExtDimensionAccountingFlag','ExtendedEdit','FillChecking','FillFromFillingValue',
+	'FillValue','Format','FullTextSearch','Indexing','LinkByType','MainFilter','MarkNegatives','Mask','Master',
+	'MaxValue','MinValue','MultiLine','Name','PasswordMode','QuickChoice','RegisterRecordsMap','ScheduleLink',
+	'Synonym','ToolTip','Type','Use','UseInTotals'
+)
+
+# Канонический порядок свойств реквизита (последовательность Build-AttributeFragment) — для вставки в позицию.
+# Порядок 1С терпит (cert), но держим канонический для консистентности с meta-compile.
+$script:attrPropOrder = @(
+	'Name','Synonym','Comment','Type','PasswordMode','Format','EditFormat','ToolTip','MarkNegatives','Mask',
+	'MultiLine','ExtendedEdit','MinValue','MaxValue','FillFromFillingValue','FillValue','FillChecking',
+	'ChoiceFoldersAndItems','ChoiceParameterLinks','ChoiceParameters','QuickChoice','CreateOnInput','ChoiceForm',
+	'LinkByType','ChoiceHistoryOnInput','Use','Indexing','FullTextSearch','DataHistory'
+)
+
+# Вставить новый элемент свойства в Properties в канонической позиции (по orderArray); если свойства нет в
+# orderArray (или orderArray пуст) — append. Порядок 1С терпит, канонический — для консистентности/снапшотов.
+function Insert-PropertyInOrder($propsEl, $newNode, $orderArray, $propName) {
+	$childIndent = "$(Get-ChildIndent $propsEl)"
+	$refNode = $null
+	$idx = if ($orderArray) { [array]::IndexOf($orderArray, $propName) } else { -1 }
+	if ($idx -ge 0) {
+		foreach ($ch in $propsEl.ChildNodes) {
+			if ($ch.NodeType -eq 'Element') {
+				$ci = [array]::IndexOf($orderArray, $ch.LocalName)
+				if ($ci -gt $idx) { $refNode = $ch; break }
+			}
+		}
+	}
+	Insert-BeforeElement $propsEl $newNode $refNode $childIndent
 }
 
 function Find-PropertyElement([string]$propName) {
