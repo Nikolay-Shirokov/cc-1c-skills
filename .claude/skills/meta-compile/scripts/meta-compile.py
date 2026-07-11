@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-compile v1.61 — Compile 1C metadata object from JSON
+# meta-compile v1.62 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -1294,6 +1294,8 @@ def emit_standard_attribute(indent, attr_name, ov=None):
         X(f'{indent}\t<xr:FillValue xsi:nil="true"/>')
     elif isinstance(fv_raw, dict) and fv_raw.get('emptyRef') is True:
         X(f'{indent}\t<xr:FillValue xsi:type="xr:DesignTimeRef"/>')
+    elif isinstance(fv_raw, dict) and fv_raw.get('typeDescription') is True:
+        X(f'{indent}\t<xr:FillValue xsi:type="v8:TypeDescription"/>')   # пустое типизированное (ValueType ПВХ)
     else:
         fv_xt, fv_tx = normalize_choice_value(fv_raw)
         if fv_tx == '' or fv_tx is None:
@@ -2007,7 +2009,7 @@ def emit_command(indent, cmd_name, cmd):
     X(f'{indent}\t</Properties>')
     X(f'{indent}</Command>')
 
-def emit_tabular_section(indent, ts_name, columns, object_type, object_name, ts_synonym_arg=None, ts_tooltip=None, ts_comment=None, ts_line_number=None, ts_fill_checking=None):
+def emit_tabular_section(indent, ts_name, columns, object_type, object_name, ts_synonym_arg=None, ts_tooltip=None, ts_comment=None, ts_line_number=None, ts_fill_checking=None, ts_use=None):
     uid = new_uuid()
     X(f'{indent}<TabularSection uuid="{uid}">')
     type_prefix = f'{object_type}TabularSection'
@@ -2037,7 +2039,7 @@ def emit_tabular_section(indent, ts_name, columns, object_type, object_name, ts_
     if not (isinstance(ts_line_number, str) and ts_line_number == ''):
         emit_tabular_standard_attributes(f'{indent}\t\t', ts_line_number)
     if object_type in ('Catalog', 'ChartOfCharacteristicTypes'):
-        X(f'{indent}\t\t<Use>ForItem</Use>')
+        X(f'{indent}\t\t<Use>{ts_use if ts_use else "ForItem"}</Use>')
     X(f'{indent}\t</Properties>')
     ts_context = 'processor-tabular' if object_type in ('DataProcessor', 'Report') else 'tabular'
     X(f'{indent}\t<ChildObjects>')
@@ -3900,10 +3902,10 @@ if obj_type in types_with_attr_ts:
         # Значение ТЧ: массив колонок (синоним авто) ЛИБО объект {attributes/columns, synonym, tooltip, comment}.
         def new_ts_entry(val):
             if isinstance(val, list):
-                return {'columns': val, 'synonym': None, 'tooltip': None, 'comment': None, 'lineNumber': None, 'fillChecking': None}
+                return {'columns': val, 'synonym': None, 'tooltip': None, 'comment': None, 'lineNumber': None, 'fillChecking': None, 'use': None}
             cols = _as_list(val.get('attributes') or val.get('columns') or [])
             return {'columns': cols, 'synonym': val.get('synonym'), 'tooltip': val.get('tooltip'),
-                    'comment': str(val['comment']) if val.get('comment') else None, 'lineNumber': val.get('lineNumber'), 'fillChecking': val.get('fillChecking')}
+                    'comment': str(val['comment']) if val.get('comment') else None, 'lineNumber': val.get('lineNumber'), 'fillChecking': val.get('fillChecking'), 'use': val.get('use')}
         if isinstance(ts_data, list):
             for ts in ts_data:
                 ts_sections[ts['name']] = new_ts_entry(ts)
@@ -3955,7 +3957,7 @@ if obj_type in types_with_attr_ts:
             emit_attribute('\t\t\t', a, context)
         for ts_name in ts_order:
             e = ts_sections[ts_name]
-            emit_tabular_section('\t\t\t', ts_name, e['columns'], obj_type, obj_name, e['synonym'], e['tooltip'], e['comment'], e.get('lineNumber'), e.get('fillChecking'))
+            emit_tabular_section('\t\t\t', ts_name, e['columns'], obj_type, obj_name, e['synonym'], e['tooltip'], e['comment'], e.get('lineNumber'), e.get('fillChecking'), e.get('use'))
         for af in acct_flags:
             emit_attribute('\t\t\t', af, 'account-flag', 'AccountingFlag')
         for edf in ext_dim_flags:

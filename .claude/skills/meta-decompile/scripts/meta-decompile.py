@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-decompile v0.52 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
+# meta-decompile v0.53 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 #
 # Зеркало meta-decompile.ps1 (КАНОН). Структура 1:1 — те же имена функций, порядок, комментарии.
@@ -1553,6 +1553,8 @@ def build_dsl():
                 fv_xt = _attr(fv_n, 'type', NS_XSI)
                 if re.search(r'DesignTimeRef$', fv_xt, re.I) and _text(fv_n) == '':
                     ov['fillValue'] = {'emptyRef': True}
+                elif re.search(r'TypeDescription$', fv_xt, re.I) and _text(fv_n) == '':
+                    ov['fillValue'] = {'typeDescription': True}   # пустое типизированное (реквизит ValueType ПВХ) ≠ xs:string
                 else:
                     ov['fillValue'] = convert_ch_scalar_node(fv_n)
             sa_cmt = _single(sa, 'xr:Comment')
@@ -1745,6 +1747,9 @@ def build_dsl():
                 ts_cmt = _text(ts_cmt_n) if ts_cmt_n is not None else ''
                 ts_fc_n = _single(tsp, 'md:FillChecking')
                 ts_fc = _text(ts_fc_n) if (ts_fc_n is not None and _text(ts_fc_n) != 'DontCheck') else ''
+                # Use ТЧ (иерархические Catalog/ПВХ: ForItem/ForFolder/ForFolderAndItem; omit при дефолте ForItem).
+                ts_use_n = _single(tsp, 'md:Use')
+                ts_use = _text(ts_use_n) if (ts_use_n is not None and _text(ts_use_n) != 'ForItem') else ''
                 # TS-блок стандартных реквизитов (LineNumber).
                 ln_obj = {}
                 sa_ts_node = _single(tsp, 'md:StandardAttributes')
@@ -1777,7 +1782,7 @@ def build_dsl():
                         ln_fv_t = _attr(ln_fv_n, 'type', NS_XSI)
                         if re.search(r'decimal$', ln_fv_t, re.I):
                             ln_obj['fillValue'] = int(_text(ln_fv_n)) if re.match(r'^-?\d+$', _text(ln_fv_n)) else float(_text(ln_fv_n))
-                if ts_syn_custom or (ts_tt is not None) or ts_cmt or ts_fc or len(ln_obj) > 0 or (not has_block):
+                if ts_syn_custom or (ts_tt is not None) or ts_cmt or ts_fc or ts_use or len(ln_obj) > 0 or (not has_block):
                     to = {}
                     if ts_syn_custom:
                         to['synonym'] = ts_syn
@@ -1787,6 +1792,8 @@ def build_dsl():
                         to['comment'] = ts_cmt
                     if ts_fc:
                         to['fillChecking'] = ts_fc
+                    if ts_use:
+                        to['use'] = ts_use
                     if not has_block:
                         to['lineNumber'] = ''
                     elif len(ln_obj) > 0:

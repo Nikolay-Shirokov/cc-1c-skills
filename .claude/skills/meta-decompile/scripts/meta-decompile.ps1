@@ -1,4 +1,4 @@
-﻿# meta-decompile v0.52 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
+﻿# meta-decompile v0.53 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 #
 # Поддержаны: Catalog, ExchangePlan, ChartOfCharacteristicTypes, ChartOfAccounts, ChartOfCalculationTypes, Document,
@@ -1072,6 +1072,7 @@ if ($saNode) {
 		if ($fvN -and $fvN.GetAttribute('nil', 'http://www.w3.org/2001/XMLSchema-instance') -ne 'true') {
 			$fvXt = $fvN.GetAttribute('type', 'http://www.w3.org/2001/XMLSchema-instance')
 			if ($fvXt -match 'DesignTimeRef$' -and $fvN.InnerText -eq '') { $ov['fillValue'] = [ordered]@{ emptyRef = $true } }
+			elseif ($fvXt -match 'TypeDescription$' -and $fvN.InnerText -eq '') { $ov['fillValue'] = [ordered]@{ typeDescription = $true } }   # пустое типизированное (реквизит ValueType ПВХ) ≠ xs:string
 			else { $ov['fillValue'] = Convert-ChScalarNode $fvN }
 		}
 		$saCmt = $sa.SelectSingleNode('xr:Comment', $nsm); if ($saCmt -and $saCmt.InnerText) { $ov['comment'] = $saCmt.InnerText }
@@ -1237,6 +1238,8 @@ if ($childObjs) {
 			$tsCmtN = $tsp.SelectSingleNode('md:Comment', $nsm); $tsCmt = if ($tsCmtN) { $tsCmtN.InnerText } else { '' }
 			# FillChecking ТЧ (обязательность заполнения; omit при DontCheck).
 			$tsFcN = $tsp.SelectSingleNode('md:FillChecking', $nsm); $tsFc = if ($tsFcN -and $tsFcN.InnerText -ne 'DontCheck') { $tsFcN.InnerText } else { '' }
+				# Use ТЧ (иерархические Catalog/ПВХ: ForItem/ForFolder/ForFolderAndItem; omit при дефолте ForItem).
+				$tsUseN = $tsp.SelectSingleNode('md:Use', $nsm); $tsUse = if ($tsUseN -and $tsUseN.InnerText -ne 'ForItem') { $tsUseN.InnerText } else { '' }
 			# TS-блок стандартных реквизитов (LineNumber). Наличие блока — пер-ТЧ артефакт (~6% ТЧ его опускают,
 			# правило не выводимо). Faithful roundtrip: нет блока → маркер подавления `lineNumber: ""` (дом-конвенция);
 			# есть блок → захват кастомизации LineNumber (omit-on-default по свойству), all-default → без ключа.
@@ -1259,12 +1262,13 @@ if ($childObjs) {
 					if ($lnFvT -match 'decimal$') { $lnObj['fillValue'] = if ($lnFvN.InnerText -match '^-?\d+$') { [long]$lnFvN.InnerText } else { [double]$lnFvN.InnerText } }
 				}
 			}
-			if ($tsSynCustom -or ($null -ne $tsTt) -or $tsCmt -or $tsFc -or $lnObj.Count -gt 0 -or (-not $hasBlock)) {
+			if ($tsSynCustom -or ($null -ne $tsTt) -or $tsCmt -or $tsFc -or $tsUse -or $lnObj.Count -gt 0 -or (-not $hasBlock)) {
 				$to = [ordered]@{}
 				if ($tsSynCustom) { $to['synonym'] = $tsSyn }
 				if ($null -ne $tsTt) { $to['tooltip'] = $tsTt }
 				if ($tsCmt) { $to['comment'] = $tsCmt }
 				if ($tsFc) { $to['fillChecking'] = $tsFc }
+				if ($tsUse) { $to['use'] = $tsUse }
 				if (-not $hasBlock) { $to['lineNumber'] = '' } elseif ($lnObj.Count -gt 0) { $to['lineNumber'] = $lnObj }
 				$to['attributes'] = $cols
 				$tsMap[$tsName] = $to

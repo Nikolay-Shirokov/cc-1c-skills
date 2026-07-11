@@ -1,4 +1,4 @@
-﻿# meta-compile v1.61 — Compile 1C metadata object from JSON
+﻿# meta-compile v1.62 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -1270,6 +1270,7 @@ function Emit-StandardAttribute {
 	$fvRaw = OvOr 'FillValue' $null
 	if ($null -eq $fvRaw) { X "$indent`t<xr:FillValue xsi:nil=`"true`"/>" }
 	elseif ($fvRaw.emptyRef -eq $true) { X "$indent`t<xr:FillValue xsi:type=`"xr:DesignTimeRef`"/>" }
+	elseif ($fvRaw.typeDescription -eq $true) { X "$indent`t<xr:FillValue xsi:type=`"v8:TypeDescription`"/>" }   # пустое типизированное (ValueType ПВХ)
 	else {
 		$fvN = Normalize-ChoiceValue $fvRaw
 		if ([string]::IsNullOrEmpty($fvN.Text)) { X "$indent`t<xr:FillValue xsi:type=`"$($fvN.XsiType)`"/>" }
@@ -1944,7 +1945,7 @@ function Emit-Command {
 # --- 9. TabularSection emitter ---
 
 function Emit-TabularSection {
-	param([string]$indent, [string]$tsName, $columns, [string]$objectType, [string]$objectName, $tsSynonymArg = $null, $tsTooltip = $null, $tsComment = $null, $tsLineNumber = $null, $tsFillChecking = $null)
+	param([string]$indent, [string]$tsName, $columns, [string]$objectType, [string]$objectName, $tsSynonymArg = $null, $tsTooltip = $null, $tsComment = $null, $tsLineNumber = $null, $tsFillChecking = $null, $tsUse = $null)
 	$uuid = New-Guid-String
 	X "$indent<TabularSection uuid=`"$uuid`">"
 
@@ -1977,9 +1978,11 @@ function Emit-TabularSection {
 	if (-not ($tsLineNumber -is [string] -and $tsLineNumber -eq '')) {
 		Emit-TabularStandardAttributes "$indent`t`t" $tsLineNumber
 	}
-	# Use=ForItem у ТЧ иерархических ссылочных типов (Catalog, ChartOfCharacteristicTypes); Document не имеет Use.
+	# Use у ТЧ иерархических ссылочных типов (Catalog, ChartOfCharacteristicTypes); Document не имеет Use.
+	# Дефолт ForItem; ForFolderAndItem/ForFolder — при явном ключе `use` объектной формы ТЧ.
 	if ($objectType -in @("Catalog", "ChartOfCharacteristicTypes")) {
-		X "$indent`t`t<Use>ForItem</Use>"
+		$use = if ($tsUse) { "$tsUse" } else { "ForItem" }
+		X "$indent`t`t<Use>$use</Use>"
 	}
 	X "$indent`t</Properties>"
 
@@ -3987,10 +3990,10 @@ if ($objType -in $typesWithAttrTS) {
 		# Нормализуем в $tsSections[name] = @{ columns; synonym; tooltip; comment }.
 		function New-TsEntry { param($val)
 			if ($val -is [array] -or $val.GetType().Name -eq 'Object[]') {
-				return @{ columns = @($val); synonym = $null; tooltip = $null; comment = $null; lineNumber = $null; fillChecking = $null }
+				return @{ columns = @($val); synonym = $null; tooltip = $null; comment = $null; lineNumber = $null; fillChecking = $null; use = $null }
 			}
 			$cols = if ($val.attributes) { @($val.attributes) } elseif ($val.columns) { @($val.columns) } else { @() }
-			return @{ columns = $cols; synonym = $val.synonym; tooltip = $val.tooltip; comment = if ($val.comment) { "$($val.comment)" } else { $null }; lineNumber = $val.lineNumber; fillChecking = $val.fillChecking }
+			return @{ columns = $cols; synonym = $val.synonym; tooltip = $val.tooltip; comment = if ($val.comment) { "$($val.comment)" } else { $null }; lineNumber = $val.lineNumber; fillChecking = $val.fillChecking; use = $val.use }
 		}
 		if ($def.tabularSections -is [array] -or $def.tabularSections.GetType().Name -eq "Object[]") {
 			foreach ($ts in $def.tabularSections) { $tsSections[$ts.name] = New-TsEntry $ts }
@@ -4040,7 +4043,7 @@ if ($objType -in $typesWithAttrTS) {
 		}
 		foreach ($tsName in $tsSections.Keys) {
 			$tsE = $tsSections[$tsName]
-			Emit-TabularSection "`t`t`t" $tsName $tsE.columns $objType $objName $tsE.synonym $tsE.tooltip $tsE.comment $tsE.lineNumber $tsE.fillChecking
+			Emit-TabularSection "`t`t`t" $tsName $tsE.columns $objType $objName $tsE.synonym $tsE.tooltip $tsE.comment $tsE.lineNumber $tsE.fillChecking $tsE.use
 		}
 		foreach ($af in $acctFlags) {
 			Emit-Attribute "`t`t`t" $af "account-flag" "AccountingFlag"
