@@ -1,4 +1,4 @@
-﻿# meta-edit v1.13 — Edit existing 1C metadata object XML (inline + complex props + TS ops + modify-ts + create-if-missing + structural attr props Format/EditFormat/ToolTip/ChoiceForm)
+﻿# meta-edit v1.14 — Edit existing 1C metadata object XML (+structural attr props Format/EditFormat/ToolTip/ChoiceForm/MinValue/MaxValue)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[string]$DefinitionFile,
@@ -2260,6 +2260,16 @@ function Modify-ChildElements($modifyDef, [string]$childType) {
 						Info "Set $xmlTag '$elemName'.ChoiceForm"; $script:modifyCount++
 					}
 				}
+				"MinValue" {
+					if (Set-AttrPropertyElement $propsEl "MinValue" (Build-MinMaxValueXml "MinValue" $changeValue)) {
+						Info "Set $xmlTag '$elemName'.MinValue"; $script:modifyCount++
+					}
+				}
+				"MaxValue" {
+					if (Set-AttrPropertyElement $propsEl "MaxValue" (Build-MinMaxValueXml "MaxValue" $changeValue)) {
+						Info "Set $xmlTag '$elemName'.MaxValue"; $script:modifyCount++
+					}
+				}
 				default {
 					# Scalar property change (Indexing, FillChecking, Use, etc.)
 					$scalarEl = $null
@@ -2418,6 +2428,13 @@ function Set-AttrPropertyElement($propsEl, $propName, $fragmentXml) {
 		Insert-PropertyInOrder $propsEl $newNodes[0] $script:attrPropOrder $propName
 	}
 	return $true
+}
+
+# MinValue/MaxValue — типизированное значение (порт Emit-MinMaxValue): nil / xs:string / xs:decimal.
+function Build-MinMaxValueXml([string]$tag, $val) {
+	if ($null -eq $val -or "$val" -eq '') { return "<$tag xsi:nil=`"true`"/>" }
+	$t = if ($val -is [string]) { 'xs:string' } else { 'xs:decimal' }
+	return "<$tag xsi:type=`"$t`">$(Esc-Xml "$val")</$tag>"
 }
 
 function Find-PropertyElement([string]$propName) {

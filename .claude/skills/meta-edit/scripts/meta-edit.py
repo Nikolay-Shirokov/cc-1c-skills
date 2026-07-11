@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-edit v1.13 — Edit existing 1C metadata object XML (inline + complex props + TS ops + modify-ts + create-if-missing + structural attr props Format/EditFormat/ToolTip/ChoiceForm)
+# meta-edit v1.14 — Edit existing 1C metadata object XML (+structural attr props Format/EditFormat/ToolTip/ChoiceForm/MinValue/MaxValue)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -2105,6 +2105,14 @@ def modify_child_elements(modify_def, child_type):
                 if set_attr_property_element(props_el, "ChoiceForm", f"<ChoiceForm>{esc_xml(str(change_value))}</ChoiceForm>"):
                     info(f"Set {xml_tag} '{elem_name}'.ChoiceForm")
                     modify_count += 1
+            elif change_prop == "MinValue":
+                if set_attr_property_element(props_el, "MinValue", build_min_max_value_xml("MinValue", change_value)):
+                    info(f"Set {xml_tag} '{elem_name}'.MinValue")
+                    modify_count += 1
+            elif change_prop == "MaxValue":
+                if set_attr_property_element(props_el, "MaxValue", build_min_max_value_xml("MaxValue", change_value)):
+                    info(f"Set {xml_tag} '{elem_name}'.MaxValue")
+                    modify_count += 1
 
             else:
                 # Scalar property change (Indexing, FillChecking, Use, etc.)
@@ -2248,6 +2256,14 @@ def set_attr_property_element(props_el, prop_name, fragment_xml):
     else:
         insert_property_in_order(props_el, new_nodes[0], attr_prop_order, prop_name)
     return True
+
+
+def build_min_max_value_xml(tag, val):
+    """MinValue/MaxValue — типизированное значение (порт Emit-MinMaxValue): nil / xs:string / xs:decimal."""
+    if val is None or str(val) == '':
+        return f'<{tag} xsi:nil="true"/>'
+    t = 'xs:string' if isinstance(val, str) else 'xs:decimal'
+    return f'<{tag} xsi:type="{t}">{esc_xml(str(val))}</{tag}>'
 
 
 def find_property_element(prop_name):

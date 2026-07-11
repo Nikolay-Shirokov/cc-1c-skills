@@ -4,7 +4,7 @@
   "preRun": [
     {
       "script": "meta-compile/scripts/meta-compile",
-      "input": { "type": "Catalog", "name": "Спр", "attributes": ["Дата: Date", "Контр: CatalogRef.Спр"] },
+      "input": { "type": "Catalog", "name": "Спр", "attributes": ["Дата: Date", "Контр: CatalogRef.Спр", "Сумма: Number(15,2)"] },
       "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
     },
     {
@@ -17,7 +17,8 @@
     "modify": {
       "attributes": {
         "Дата": { "Format": "ДФ=dd.MM.yyyy", "EditFormat": "ДФ=dd.MM.yyyy", "ToolTip": "Дата документа" },
-        "Контр": { "ChoiceForm": "Catalog.Спр.Form.ФормаВыбора" }
+        "Контр": { "ChoiceForm": "Catalog.Спр.Form.ФормаВыбора" },
+        "Сумма": { "MinValue": 0, "MaxValue": 1000000 }
       }
     }
   }
