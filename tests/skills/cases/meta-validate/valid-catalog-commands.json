@@ -1,0 +1,18 @@
+{
+  "name": "Каталог с валидными командами (группы раздела/формы) проходит валидацию",
+  "setup": "empty-config",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "Catalog", "name": "ТестКоманд", "useStandardCommands": true,
+        "commands": {
+          "Печать":   { "group": "FormCommandBarImportant", "commandParameterType": "CatalogRef.ТестКоманд" },
+          "Обновить": { "group": "NavigationPanelOrdinary" }
+        }
+      },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    }
+  ],
+  "params": { "objectPath": "Catalogs/ТестКоманд" }
+}

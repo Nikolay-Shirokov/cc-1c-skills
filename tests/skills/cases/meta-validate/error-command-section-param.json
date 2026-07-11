@@ -1,0 +1,6 @@
+{
+  "name": "Валидатор ловит секционную группу команды + commandParameterType",
+  "setup": "fixture:catalog-command-section-param",
+  "params": { "objectPath": "Catalogs/ТестКоманд.xml" },
+  "expectError": true
+}

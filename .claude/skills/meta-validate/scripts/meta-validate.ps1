@@ -1,4 +1,4 @@
-﻿# meta-validate v1.6 — Validate 1C metadata object structure
+﻿# meta-validate v1.7 — Validate 1C metadata object structure
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -239,6 +239,11 @@ $childObjectRules = @{
 	"ScheduledJob"               = @()
 	"EventSubscription"          = @()
 }
+
+# Группы командного интерфейса (зеркало meta-compile): раздела — без commandParameterType; формы — с параметром.
+$sectionCommandGroups = @("NavigationPanelImportant","NavigationPanelOrdinary","NavigationPanelSeeAlso","ActionsPanelCreate","ActionsPanelReports","ActionsPanelTools")
+$formCommandGroups    = @("FormCommandBarImportant","FormCommandBarCreateBasedOn","FormNavigationPanelImportant","FormNavigationPanelGoTo","FormNavigationPanelSeeAlso")
+$validCommandGroups   = $sectionCommandGroups + $formCommandGroups
 
 # Valid enum property values
 $validPropertyValues = @{
@@ -1343,6 +1348,46 @@ if ($mdType -eq "DocumentJournal" -and $childObjNode) {
 		Report-OK "14. DocumentJournal Columns: $colCount column(s), all have References"
 	} elseif ($colCount -eq 0) {
 		Report-OK "14. DocumentJournal Columns: none"
+	}
+}
+
+if ($script:stopped) { & $finalize; exit 1 }
+
+# --- Check 15: Commands — Group обязателен/валиден; секц.группа несовместима с CommandParameterType ---
+
+if ($childObjNode) {
+	$commands = $childObjNode.SelectNodes("md:Command", $ns)
+	$check15Ok = $true
+	$cmdCount = 0
+	foreach ($cmd in $commands) {
+		if ($script:stopped) { break }
+		$cmdCount++
+		$cuuid = $cmd.GetAttribute("uuid")
+		$cmdProps = $cmd.SelectSingleNode("md:Properties", $ns)
+		$cmdNameNode = if ($cmdProps) { $cmdProps.SelectSingleNode("md:Name", $ns) } else { $null }
+		$cmdName = if ($cmdNameNode -and $cmdNameNode.InnerText) { $cmdNameNode.InnerText } else { "(unnamed)" }
+		if (-not $cuuid -or $cuuid -notmatch $guidPattern) {
+			Report-Error "15. Command '$cmdName': missing or invalid uuid"; $check15Ok = $false
+		}
+		if ($cmdName -eq "(unnamed)") {
+			Report-Error "15. Command (uuid=$cuuid): missing or empty Name"; $check15Ok = $false
+		}
+		$groupNode = if ($cmdProps) { $cmdProps.SelectSingleNode("md:Group", $ns) } else { $null }
+		$groupVal = if ($groupNode) { $groupNode.InnerText.Trim() } else { "" }
+		if (-not $groupVal) {
+			Report-Error "15. Command '$cmdName': не задана группа (Group) — 1С отвергает при загрузке"; $check15Ok = $false
+		} elseif (($validCommandGroups -notcontains $groupVal) -and ($groupVal -notmatch '^CommandGroup\.')) {
+			Report-Error "15. Command '$cmdName': неизвестная группа '$groupVal'. Валидные: $($validCommandGroups -join ', '); либо CommandGroup.<Имя>"; $check15Ok = $false
+		} elseif ($sectionCommandGroups -contains $groupVal) {
+			$cptNode = if ($cmdProps) { $cmdProps.SelectSingleNode("md:CommandParameterType", $ns) } else { $null }
+			$hasCpt = $cptNode -and (($cptNode.SelectNodes("v8:Type", $ns).Count -gt 0) -or ($cptNode.SelectNodes("v8:TypeSet", $ns).Count -gt 0))
+			if ($hasCpt) {
+				Report-Error "15. Command '$cmdName': тип параметра (CommandParameterType) недоступен для команд командного интерфейса раздела ('$groupVal')"; $check15Ok = $false
+			}
+		}
+	}
+	if ($check15Ok -and $cmdCount -gt 0) {
+		Report-OK "15. Commands: $cmdCount command(s), groups valid"
 	}
 }
 

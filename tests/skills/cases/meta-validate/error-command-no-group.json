@@ -1,0 +1,6 @@
+{
+  "name": "Валидатор ловит команду без группы (пустой Group)",
+  "setup": "fixture:catalog-command-no-group",
+  "params": { "objectPath": "Catalogs/ТестКоманд.xml" },
+  "expectError": true
+}

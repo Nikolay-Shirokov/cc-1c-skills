@@ -1,4 +1,4 @@
-# meta-validate v1.6 — Validate 1C metadata object structure (Python port)
+# meta-validate v1.7 — Validate 1C metadata object structure (Python port)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import os
@@ -239,6 +239,13 @@ child_object_rules = {
     "ScheduledJob":               [],
     "EventSubscription":          [],
 }
+
+# Группы командного интерфейса (зеркало meta-compile): раздела — без commandParameterType; формы — с параметром.
+SECTION_COMMAND_GROUPS = ["NavigationPanelImportant", "NavigationPanelOrdinary", "NavigationPanelSeeAlso",
+                          "ActionsPanelCreate", "ActionsPanelReports", "ActionsPanelTools"]
+FORM_COMMAND_GROUPS = ["FormCommandBarImportant", "FormCommandBarCreateBasedOn",
+                       "FormNavigationPanelImportant", "FormNavigationPanelGoTo", "FormNavigationPanelSeeAlso"]
+VALID_COMMAND_GROUPS = SECTION_COMMAND_GROUPS + FORM_COMMAND_GROUPS
 
 # Valid enum property values
 valid_property_values = {
@@ -1251,6 +1258,49 @@ if md_type == "DocumentJournal" and child_obj_node is not None:
         report_ok(f"14. DocumentJournal Columns: {col_count} column(s), all have References")
     elif col_count == 0:
         report_ok("14. DocumentJournal Columns: none")
+
+if stopped:
+    finalize()
+    sys.exit(1)
+
+# ── Check 15: Commands — Group обязателен/валиден; секц.группа несовместима с CommandParameterType ──
+
+if child_obj_node is not None:
+    commands = find_all(child_obj_node, "md:Command")
+    check15_ok = True
+    cmd_count = 0
+    for cmd in commands:
+        if stopped:
+            break
+        cmd_count += 1
+        cuuid = cmd.get("uuid", "")
+        cmd_props = find(cmd, "md:Properties")
+        cmd_name_node = find(cmd_props, "md:Name") if cmd_props is not None else None
+        cmd_name = inner_text(cmd_name_node) if (cmd_name_node is not None and inner_text(cmd_name_node)) else "(unnamed)"
+        if not cuuid or not guid_pattern.match(cuuid):
+            report_error(f"15. Command '{cmd_name}': missing or invalid uuid")
+            check15_ok = False
+        if cmd_name == "(unnamed)":
+            report_error(f"15. Command (uuid={cuuid}): missing or empty Name")
+            check15_ok = False
+        group_node = find(cmd_props, "md:Group") if cmd_props is not None else None
+        group_val = inner_text(group_node).strip() if group_node is not None else ""
+        if not group_val:
+            report_error(f"15. Command '{cmd_name}': не задана группа (Group) — 1С отвергает при загрузке")
+            check15_ok = False
+        elif group_val not in VALID_COMMAND_GROUPS and not group_val.startswith("CommandGroup."):
+            report_error(f"15. Command '{cmd_name}': неизвестная группа '{group_val}'. "
+                         f"Валидные: {', '.join(VALID_COMMAND_GROUPS)}; либо CommandGroup.<Имя>")
+            check15_ok = False
+        elif group_val in SECTION_COMMAND_GROUPS:
+            cpt_node = find(cmd_props, "md:CommandParameterType") if cmd_props is not None else None
+            has_cpt = cpt_node is not None and (len(find_all(cpt_node, "v8:Type")) > 0 or len(find_all(cpt_node, "v8:TypeSet")) > 0)
+            if has_cpt:
+                report_error(f"15. Command '{cmd_name}': тип параметра (CommandParameterType) недоступен "
+                             f"для команд командного интерфейса раздела ('{group_val}')")
+                check15_ok = False
+    if check15_ok and cmd_count > 0:
+        report_ok(f"15. Commands: {cmd_count} command(s), groups valid")
 
 # ── Final output ──────────────────────────────────────────────
 
