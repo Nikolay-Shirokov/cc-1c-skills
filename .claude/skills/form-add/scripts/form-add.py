@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# form-add v1.7 — Add managed form to 1C config object
+# form-add v1.8 — Add managed form to 1C config object
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -256,7 +256,7 @@ def main():
         "Document", "Catalog", "DataProcessor", "Report",
         "ExternalDataProcessor", "ExternalReport",
         "InformationRegister", "AccumulationRegister", "ChartOfAccounts", "ChartOfCharacteristicTypes",
-        "ExchangePlan", "BusinessProcess", "Task",
+        "ExchangePlan", "BusinessProcess", "Task", "DocumentJournal",
     ]
 
     object_type = None
