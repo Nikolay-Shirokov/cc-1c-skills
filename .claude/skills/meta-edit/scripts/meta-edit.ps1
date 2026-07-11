@@ -1,4 +1,4 @@
-﻿# meta-edit v1.10 — Edit existing 1C metadata object XML (inline mode + complex properties + TS attribute ops + modify-ts)
+﻿# meta-edit v1.11 — Edit existing 1C metadata object XML (inline mode + complex properties + TS attribute ops + modify-ts)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[string]$DefinitionFile,
@@ -78,7 +78,7 @@ $script:validEnumValues = @{
 	"Posting"                        = @("Allow","Deny")
 	"RealTimePosting"                = @("Allow","Deny")
 	"EditType"                       = @("InDialog","InList","BothWays")
-	"HierarchyType"                  = @("HierarchyFoldersAndItems","HierarchyItemsOnly")
+	"HierarchyType"                  = @("HierarchyFoldersAndItems","HierarchyOfItems")
 	"CodeType"                       = @("String","Number")
 	"CodeAllowedLength"              = @("Variable","Fixed")
 	"NumberType"                     = @("String","Number")

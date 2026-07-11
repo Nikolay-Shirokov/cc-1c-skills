@@ -1,4 +1,4 @@
-﻿# meta-validate v1.5 — Validate 1C metadata object structure
+﻿# meta-validate v1.6 — Validate 1C metadata object structure
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -253,7 +253,7 @@ $validPropertyValues = @{
 	"DataLockControlMode"            = @("Automatic","Managed")
 	"FullTextSearch"                 = @("Use","DontUse")
 	"DefaultPresentation"            = @("AsDescription","AsCode")
-	"HierarchyType"                  = @("HierarchyFoldersAndItems","HierarchyItemsOnly")
+	"HierarchyType"                  = @("HierarchyFoldersAndItems","HierarchyOfItems")
 	"EditType"                       = @("InDialog","InList","BothWays")
 	"WriteMode"                      = @("Independent","RecorderSubordinate")
 	"InformationRegisterPeriodicity" = @("Nonperiodical","Second","Day","Month","Quarter","Year","RecorderPosition")
