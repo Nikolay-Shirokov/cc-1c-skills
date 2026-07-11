@@ -209,7 +209,7 @@
 					<xr:ChoiceParameters/>
 				</xr:StandardAttribute>
 			</StandardAttributes>
-			<DataLockControlMode>Automatic</DataLockControlMode>
+			<DataLockControlMode>Managed</DataLockControlMode>
 			<FullTextSearch>Use</FullTextSearch>
 			<ListPresentation/>
 			<ExtendedListPresentation/>

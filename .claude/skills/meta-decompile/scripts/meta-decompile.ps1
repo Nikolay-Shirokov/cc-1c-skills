@@ -1,4 +1,4 @@
-﻿# meta-decompile v0.53 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
+﻿# meta-decompile v0.54 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 #
 # Поддержаны: Catalog, ExchangePlan, ChartOfCharacteristicTypes, ChartOfAccounts, ChartOfCalculationTypes, Document,
@@ -445,7 +445,7 @@ Add-EnumProp 'subordinationUse' 'SubordinationUse' 'ToItems'
 $descrLenDef  = switch ($objType) { 'ExchangePlan' { 150 } 'ChartOfCharacteristicTypes' { 100 } 'ChartOfCalculationTypes' { 100 } default { 25 } }
 $codeLenDef   = if ($objType -eq 'ChartOfCalculationTypes') { 5 } else { 9 }
 $createInpDef = if ($objType -in @('Catalog', 'Document')) { 'Use' } else { 'DontUse' }
-$dataLockDef  = if ($objType -in @('Catalog', 'ChartOfAccounts', 'ChartOfCalculationTypes', 'Sequence')) { 'Automatic' } else { 'Managed' }
+$dataLockDef  = 'Managed'   # компилятор эмитит Managed по умолчанию для всех типов (авторинг); Automatic несётся в DSL явно
 $codeSeriesDef = switch ($objType) { 'ChartOfCharacteristicTypes' { 'WholeCharacteristicKind' } 'ChartOfAccounts' { 'WholeChartOfAccounts' } default { 'WholeCatalog' } }
 $checkUniqueDef = ($objType -in @('ChartOfCharacteristicTypes', 'ChartOfAccounts', 'Document', 'DocumentNumerator'))   # ПВХ/ПС/Документ/Нумератор дефолт true, Catalog false
 $defPresDef = if ($objType -eq 'ChartOfAccounts') { 'AsCode' } else { 'AsDescription' }   # ПС по умолчанию AsCode
@@ -653,7 +653,7 @@ if ($objType -eq 'Sequence') {
 			if ($items.Count -gt 0) { $dsl[$ll[1]] = [System.Collections.ArrayList]@($items) }
 		}
 	}
-	# dataLockControlMode покрыт общим блоком (дефолт Automatic для Sequence).
+	# dataLockControlMode покрыт общим блоком (дефолт Managed для всех типов).
 }
 # FilterCriterion — критерий отбора: тип значения + состав (объекты отбора) + формы.
 if ($objType -eq 'FilterCriterion') {

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-decompile v0.53 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
+# meta-decompile v0.54 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 #
 # Зеркало meta-decompile.ps1 (КАНОН). Структура 1:1 — те же имена функций, порядок, комментарии.
@@ -832,7 +832,7 @@ def build_dsl():
     descr_len_def = {'ExchangePlan': 150, 'ChartOfCharacteristicTypes': 100, 'ChartOfCalculationTypes': 100}.get(obj_type, 25)
     code_len_def = 5 if obj_type == 'ChartOfCalculationTypes' else 9
     create_inp_def = 'Use' if obj_type in ('Catalog', 'Document') else 'DontUse'
-    data_lock_def = 'Automatic' if obj_type in ('Catalog', 'ChartOfAccounts', 'ChartOfCalculationTypes', 'Sequence') else 'Managed'
+    data_lock_def = 'Managed'  # компилятор эмитит Managed по умолчанию для всех типов (авторинг); Automatic несётся в DSL явно
     code_series_def = {'ChartOfCharacteristicTypes': 'WholeCharacteristicKind', 'ChartOfAccounts': 'WholeChartOfAccounts'}.get(obj_type, 'WholeCatalog')
     check_unique_def = (obj_type in ('ChartOfCharacteristicTypes', 'ChartOfAccounts', 'Document', 'DocumentNumerator'))
     def_pres_def = 'AsCode' if obj_type == 'ChartOfAccounts' else 'AsDescription'

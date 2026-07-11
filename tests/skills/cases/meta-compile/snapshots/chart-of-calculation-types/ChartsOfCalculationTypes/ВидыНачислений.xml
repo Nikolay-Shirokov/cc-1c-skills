@@ -369,7 +369,7 @@
 			<PredefinedDataUpdate>Auto</PredefinedDataUpdate>
 			<IncludeHelpInContents>false</IncludeHelpInContents>
 			<DataLockFields/>
-			<DataLockControlMode>Automatic</DataLockControlMode>
+			<DataLockControlMode>Managed</DataLockControlMode>
 			<FullTextSearch>Use</FullTextSearch>
 			<ObjectPresentation/>
 			<ExtendedObjectPresentation/>

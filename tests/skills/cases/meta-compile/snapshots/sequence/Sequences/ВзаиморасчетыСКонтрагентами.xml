@@ -30,7 +30,7 @@
 				<xr:Item xsi:type="xr:MDObjectRef">Document.РеализацияТоваров</xr:Item>
 			</Documents>
 			<RegisterRecords/>
-			<DataLockControlMode>Automatic</DataLockControlMode>
+			<DataLockControlMode>Managed</DataLockControlMode>
 		</Properties>
 		<ChildObjects>
 			<Dimension uuid="UUID-008">

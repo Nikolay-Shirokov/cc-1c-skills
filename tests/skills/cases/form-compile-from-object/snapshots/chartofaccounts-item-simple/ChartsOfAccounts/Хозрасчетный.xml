@@ -193,7 +193,7 @@
 			<AutoOrderByCode>true</AutoOrderByCode>
 			<OrderLength>9</OrderLength>
 			<DataLockFields />
-			<DataLockControlMode>Automatic</DataLockControlMode>
+			<DataLockControlMode>Managed</DataLockControlMode>
 			<FullTextSearch>Use</FullTextSearch>
 			<DataHistory>DontUse</DataHistory>
 			<UpdateDataHistoryImmediatelyAfterWrite>false</UpdateDataHistoryImmediatelyAfterWrite>

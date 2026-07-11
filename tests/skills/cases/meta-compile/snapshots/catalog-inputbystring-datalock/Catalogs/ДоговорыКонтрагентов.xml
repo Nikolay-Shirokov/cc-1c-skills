@@ -81,7 +81,7 @@
 				<xr:Field>Catalog.ДоговорыКонтрагентов.Attribute.Контрагент</xr:Field>
 				<xr:Field>Catalog.ДоговорыКонтрагентов.StandardAttribute.Owner</xr:Field>
 			</DataLockFields>
-			<DataLockControlMode>Automatic</DataLockControlMode>
+			<DataLockControlMode>Managed</DataLockControlMode>
 			<FullTextSearch>Use</FullTextSearch>
 			<ObjectPresentation/>
 			<ExtendedObjectPresentation/>

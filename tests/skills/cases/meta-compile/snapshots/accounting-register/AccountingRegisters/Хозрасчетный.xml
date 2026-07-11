@@ -179,7 +179,7 @@
 					<xr:ChoiceParameters/>
 				</xr:StandardAttribute>
 			</StandardAttributes>
-			<DataLockControlMode>Automatic</DataLockControlMode>
+			<DataLockControlMode>Managed</DataLockControlMode>
 			<EnableTotalsSplitting>true</EnableTotalsSplitting>
 			<FullTextSearch>Use</FullTextSearch>
 			<ListPresentation/>

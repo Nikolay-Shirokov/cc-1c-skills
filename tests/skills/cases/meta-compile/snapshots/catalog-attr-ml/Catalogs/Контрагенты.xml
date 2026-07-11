@@ -77,7 +77,7 @@
 			<IncludeHelpInContents>false</IncludeHelpInContents>
 			<BasedOn/>
 			<DataLockFields/>
-			<DataLockControlMode>Automatic</DataLockControlMode>
+			<DataLockControlMode>Managed</DataLockControlMode>
 			<FullTextSearch>Use</FullTextSearch>
 			<ObjectPresentation>
 				<v8:item>

@@ -1,4 +1,4 @@
-﻿# meta-compile v1.62 — Compile 1C metadata object from JSON
+﻿# meta-compile v1.63 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -2265,7 +2265,7 @@ function Emit-CatalogProperties {
 	$dlFields = if (Test-DefKey 'dataLockFields') { @($def.dataLockFields | ForEach-Object { Expand-DataPath "$_" }) } else { @() }
 	Emit-FieldBlock $i "DataLockFields" $dlFields
 
-	$dataLockControlMode = Get-EnumProp "DataLockControlMode" "dataLockControlMode" "Automatic"
+	$dataLockControlMode = Get-EnumProp "DataLockControlMode" "dataLockControlMode" "Managed"
 	X "$i<DataLockControlMode>$dataLockControlMode</DataLockControlMode>"
 
 	$fullTextSearch = Get-EnumProp "FullTextSearch" "fullTextSearch" "Use"
@@ -2602,7 +2602,7 @@ function Emit-SequenceProperties {
 	X "$i<MoveBoundaryOnPosting>$(Get-EnumProp 'MoveBoundaryOnPosting' 'moveBoundaryOnPosting' 'DontMove')</MoveBoundaryOnPosting>"
 	Emit-MDRefList $i "Documents" $def.documents
 	Emit-MDRefList $i "RegisterRecords" $def.registerRecords
-	X "$i<DataLockControlMode>$(Get-EnumProp 'DataLockControlMode' 'dataLockControlMode' 'Automatic')</DataLockControlMode>"
+	X "$i<DataLockControlMode>$(Get-EnumProp 'DataLockControlMode' 'dataLockControlMode' 'Managed')</DataLockControlMode>"
 }
 
 function Emit-FilterCriterionProperties {
@@ -3329,7 +3329,7 @@ function Emit-ChartOfAccountsProperties {
 
 	$dlFields = if (Test-DefKey 'dataLockFields') { @($def.dataLockFields | ForEach-Object { Expand-DataPath "$_" }) } else { @() }
 	Emit-FieldBlock $i "DataLockFields" $dlFields
-	X "$i<DataLockControlMode>$(Get-EnumProp 'DataLockControlMode' 'dataLockControlMode' 'Automatic')</DataLockControlMode>"
+	X "$i<DataLockControlMode>$(Get-EnumProp 'DataLockControlMode' 'dataLockControlMode' 'Managed')</DataLockControlMode>"
 	X "$i<FullTextSearch>$(Get-EnumProp 'FullTextSearch' 'fullTextSearch' 'Use')</FullTextSearch>"
 	X "$i<DataHistory>$(Get-EnumProp 'DataHistory' 'dataHistory' 'DontUse')</DataHistory>"
 	$updDH = if (Get-BoolProp "updateDataHistoryImmediatelyAfterWrite" $false) { "true" } else { "false" }
@@ -3371,7 +3371,7 @@ function Emit-AccountingRegisterProperties {
 
 	Emit-StandardAttributes $i "AccountingRegister"
 
-	$dataLockControlMode = Get-EnumProp "DataLockControlMode" "dataLockControlMode" "Automatic"
+	$dataLockControlMode = Get-EnumProp "DataLockControlMode" "dataLockControlMode" "Managed"
 	X "$i<DataLockControlMode>$dataLockControlMode</DataLockControlMode>"
 
 	$enableTotalsSplitting = if ($def.enableTotalsSplitting -eq $false) { "false" } else { "true" }
@@ -3481,7 +3481,7 @@ function Emit-ChartOfCalculationTypesProperties {
 	X "$i<IncludeHelpInContents>$inclHelp</IncludeHelpInContents>"
 	$dlFields = if (Test-DefKey 'dataLockFields') { @($def.dataLockFields | ForEach-Object { Expand-DataPath "$_" }) } else { @() }
 	Emit-FieldBlock $i "DataLockFields" $dlFields
-	X "$i<DataLockControlMode>$(Get-EnumProp 'DataLockControlMode' 'dataLockControlMode' 'Automatic')</DataLockControlMode>"
+	X "$i<DataLockControlMode>$(Get-EnumProp 'DataLockControlMode' 'dataLockControlMode' 'Managed')</DataLockControlMode>"
 	X "$i<FullTextSearch>$(Get-EnumProp 'FullTextSearch' 'fullTextSearch' 'Use')</FullTextSearch>"
 
 	Emit-MLText $i "ObjectPresentation" $def.objectPresentation
@@ -3535,7 +3535,7 @@ function Emit-CalculationRegisterProperties {
 
 	Emit-StandardAttributes $i "CalculationRegister"
 
-	$dataLockControlMode = Get-EnumProp "DataLockControlMode" "dataLockControlMode" "Automatic"
+	$dataLockControlMode = Get-EnumProp "DataLockControlMode" "dataLockControlMode" "Managed"
 	X "$i<DataLockControlMode>$dataLockControlMode</DataLockControlMode>"
 
 	$fullTextSearch = Get-EnumProp "FullTextSearch" "fullTextSearch" "Use"

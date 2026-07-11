@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-compile v1.62 — Compile 1C metadata object from JSON
+# meta-compile v1.63 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -2283,7 +2283,7 @@ def emit_catalog_properties(indent):
     emit_based_on(i, defn.get('basedOn'))
     dl_fields = [expand_data_path(str(x)) for x in defn.get('dataLockFields', [])] if 'dataLockFields' in defn else []
     emit_field_block(i, 'DataLockFields', dl_fields)
-    data_lock_control_mode = get_enum_prop('DataLockControlMode', 'dataLockControlMode', 'Automatic')
+    data_lock_control_mode = get_enum_prop('DataLockControlMode', 'dataLockControlMode', 'Managed')
     X(f'{i}<DataLockControlMode>{data_lock_control_mode}</DataLockControlMode>')
     full_text_search = get_enum_prop('FullTextSearch', 'fullTextSearch', 'Use')
     X(f'{i}<FullTextSearch>{full_text_search}</FullTextSearch>')
@@ -2605,7 +2605,7 @@ def emit_sequence_properties(indent):
     X(f'{i}<MoveBoundaryOnPosting>{get_enum_prop("MoveBoundaryOnPosting", "moveBoundaryOnPosting", "DontMove")}</MoveBoundaryOnPosting>')
     emit_md_ref_list(i, 'Documents', defn.get('documents'))
     emit_md_ref_list(i, 'RegisterRecords', defn.get('registerRecords'))
-    X(f'{i}<DataLockControlMode>{get_enum_prop("DataLockControlMode", "dataLockControlMode", "Automatic")}</DataLockControlMode>')
+    X(f'{i}<DataLockControlMode>{get_enum_prop("DataLockControlMode", "dataLockControlMode", "Managed")}</DataLockControlMode>')
 
 def emit_filter_criterion_properties(indent):
     i = indent
@@ -3302,7 +3302,7 @@ def emit_chart_of_accounts_properties(indent):
     X(f'{i}<OrderLength>{order_length}</OrderLength>')
     dl_fields = [expand_data_path(str(x)) for x in defn.get('dataLockFields', [])] if 'dataLockFields' in defn else []
     emit_field_block(i, 'DataLockFields', dl_fields)
-    X(f'{i}<DataLockControlMode>{get_enum_prop("DataLockControlMode", "dataLockControlMode", "Automatic")}</DataLockControlMode>')
+    X(f'{i}<DataLockControlMode>{get_enum_prop("DataLockControlMode", "dataLockControlMode", "Managed")}</DataLockControlMode>')
     X(f'{i}<FullTextSearch>{get_enum_prop("FullTextSearch", "fullTextSearch", "Use")}</FullTextSearch>')
     X(f'{i}<DataHistory>{get_enum_prop("DataHistory", "dataHistory", "DontUse")}</DataHistory>')
     upd_dh = 'true' if get_bool_prop('updateDataHistoryImmediatelyAfterWrite', False) else 'false'
@@ -3337,7 +3337,7 @@ def emit_accounting_register_properties(indent):
     emit_form_ref(i, 'DefaultListForm', defn.get('defaultListForm'))
     emit_form_ref(i, 'AuxiliaryListForm', defn.get('auxiliaryListForm'))
     emit_standard_attributes(i, 'AccountingRegister')
-    data_lock_control_mode = get_enum_prop('DataLockControlMode', 'dataLockControlMode', 'Automatic')
+    data_lock_control_mode = get_enum_prop('DataLockControlMode', 'dataLockControlMode', 'Managed')
     X(f'{i}<DataLockControlMode>{data_lock_control_mode}</DataLockControlMode>')
     X(f'{i}<EnableTotalsSplitting>{"false" if defn.get("enableTotalsSplitting") is False else "true"}</EnableTotalsSplitting>')
     full_text_search = get_enum_prop('FullTextSearch', 'fullTextSearch', 'Use')
@@ -3431,7 +3431,7 @@ def emit_chart_of_calculation_types_properties(indent):
     X(f'{i}<IncludeHelpInContents>{"true" if get_bool_prop("includeHelpInContents", False) else "false"}</IncludeHelpInContents>')
     dl_fields = [expand_data_path(str(x)) for x in defn.get('dataLockFields', [])] if 'dataLockFields' in defn else []
     emit_field_block(i, 'DataLockFields', dl_fields)
-    X(f'{i}<DataLockControlMode>{get_enum_prop("DataLockControlMode", "dataLockControlMode", "Automatic")}</DataLockControlMode>')
+    X(f'{i}<DataLockControlMode>{get_enum_prop("DataLockControlMode", "dataLockControlMode", "Managed")}</DataLockControlMode>')
     X(f'{i}<FullTextSearch>{get_enum_prop("FullTextSearch", "fullTextSearch", "Use")}</FullTextSearch>')
     emit_mltext(i, 'ObjectPresentation', defn.get('objectPresentation'))
     emit_mltext(i, 'ExtendedObjectPresentation', defn.get('extendedObjectPresentation'))
@@ -3481,7 +3481,7 @@ def emit_calculation_register_properties(indent):
         X(f'{i}<ChartOfCalculationTypes/>')
     X(f'{i}<IncludeHelpInContents>{"true" if get_bool_prop("includeHelpInContents", False) else "false"}</IncludeHelpInContents>')
     emit_standard_attributes(i, 'CalculationRegister')
-    data_lock_control_mode = get_enum_prop('DataLockControlMode', 'dataLockControlMode', 'Automatic')
+    data_lock_control_mode = get_enum_prop('DataLockControlMode', 'dataLockControlMode', 'Managed')
     X(f'{i}<DataLockControlMode>{data_lock_control_mode}</DataLockControlMode>')
     full_text_search = get_enum_prop('FullTextSearch', 'fullTextSearch', 'Use')
     X(f'{i}<FullTextSearch>{full_text_search}</FullTextSearch>')
