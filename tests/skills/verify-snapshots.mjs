@@ -223,6 +223,27 @@ function getStructuralDeps(input) {
           }
         }
         break;
+      case 'Sequence':
+        // Документы последовательности (documents) + реквизиты из documentMap — 1С требует существования
+        // самого Document.X И реквизита, на который ссылается измерение. Стабим документ с нужными реквизитами
+        // (тип реквизита берём из соответствующего измерения последовательности).
+        if (inp.documents) {
+          const norm = (s) => String(s).replace(/^Документ\./, 'Document.').replace(/\.Реквизит\./, '.Attribute.');
+          const docAttrs = {};   // имя документа -> Set("Реквизит: Тип")
+          for (const dim of (inp.dimensions || [])) {
+            const dtype = dim.type || 'CatalogRef.Организации';
+            for (const mp of (dim.documentMap || [])) {
+              const m = norm(mp).match(/^Document\.([^.]+)\.Attribute\.(.+)$/);
+              if (m) (docAttrs[m[1]] = docAttrs[m[1]] || new Set()).add(`${m[2]}: ${dtype}`);
+            }
+          }
+          for (const dref of inp.documents) {
+            const dn = String(dref).split('.').pop();
+            const attrs = [...(docAttrs[dn] || [])];
+            deps.push({ type: 'Document', name: dn, dsl: { type: 'Document', name: dn, ...(attrs.length ? { attributes: attrs } : {}) } });
+          }
+        }
+        break;
     }
   }
   return deps;
