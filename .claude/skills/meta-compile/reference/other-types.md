@@ -73,7 +73,10 @@
 - **SessionParameter** (параметр сеанса) — `valueType` (тип значения, составной через `+`).
 - **FunctionalOptionsParameter** (параметр функциональной опции) — `use` (массив измерений/реквизитов).
 - **WSReference** (WS-ссылка) — `locationURL` (URL WSDL).
-- **CommandGroup** (группа команд) — `representation`, `tooltip` (ML), `picture`, `category`.
+- **CommandGroup** (группа команд) — `category` (по умолч. `NavigationPanel`) — где размещается группа:
+  `NavigationPanel` / `ActionsPanel` (командный интерфейс раздела) или `FormCommandBar` / `FormNavigationPanel`
+  (командный интерфейс формы); `representation` (`Auto`), `tooltip` (ML), `picture`. Команды объекта ссылаются на
+  группу через `group: "CommandGroup.<Имя>"` (см. `blocks.md`).
 - **CommonCommand** (общая команда) — `group`, `representation`, `tooltip`, `picture`, `shortcut`,
   `commandParameterType`, `parameterUseMode` (`Single`/`Multiple`), `modifiesData`, `includeHelpInContents`.
   Создаёт `Ext/CommandModule.bsl`.
