@@ -1,0 +1,19 @@
+{
+  "name": "Ошибка: не-MetaDataObject root (Form.xml) → ring3",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "DataProcessor", "name": "Тест" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    {
+      "script": "form-add/scripts/form-add",
+      "args": { "-ObjectPath": "{workDir}/DataProcessors/Тест.xml", "-FormName": "Форма" }
+    }
+  ],
+  "params": {
+    "objectPath": "DataProcessors/Тест/Forms/Форма/Ext/Form.xml",
+    "outputPath": "draft.json"
+  },
+  "expectError": "MetaDataObject"
+}

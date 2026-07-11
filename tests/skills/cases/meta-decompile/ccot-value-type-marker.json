@@ -1,0 +1,22 @@
+{
+  "name": "Декомпиляция ПВХ: маркер пустого типизированного FillValue (typeDescription, B)",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "ChartOfCharacteristicTypes",
+        "name": "ВидыСведений",
+        "valueType": "String(25)",
+        "standardAttributes": { "ValueType": { "fillValue": { "typeDescription": true } } }
+      },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    }
+  ],
+  "params": {
+    "objectPath": "ChartsOfCharacteristicTypes/ВидыСведений.xml",
+    "outputPath": "draft.json"
+  },
+  "expect": {
+    "files": ["draft.json"]
+  }
+}

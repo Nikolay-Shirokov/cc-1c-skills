@@ -1,0 +1,22 @@
+{
+  "type": "Catalog",
+  "name": "ДоговорыЭДО",
+  "hierarchical": true,
+  "attributes": [
+    "СтавкаНДС: Number(5,2)",
+    {
+      "name": "Ответственный",
+      "type": "String(50)",
+      "choiceParameters": {
+        "name": "Отбор.Основной",
+        "value": "Да"
+      }
+    }
+  ],
+  "tabularSections": {
+    "Представления": {
+      "use": "ForFolderAndItem",
+      "attributes": ["Язык: String(10)", "Текст: String(100)"]
+    }
+  }
+}

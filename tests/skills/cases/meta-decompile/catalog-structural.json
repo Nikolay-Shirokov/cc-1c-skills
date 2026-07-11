@@ -1,0 +1,28 @@
+{
+  "name": "Декомпиляция справочника: ТЧ с use (A), одноэлементный choiceParameters (unwrap), синоним-аббревиатура (HE)",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "Catalog",
+        "name": "ДоговорыЭДО",
+        "hierarchical": true,
+        "attributes": [
+          "СтавкаНДС: Number(5,2)",
+          { "name": "Ответственный", "type": "String(50)", "choiceParameters": ["Отбор.Основной=Да"] }
+        ],
+        "tabularSections": {
+          "Представления": { "use": "ForFolderAndItem", "attributes": ["Язык: String(10)", "Текст: String(100)"] }
+        }
+      },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    }
+  ],
+  "params": {
+    "objectPath": "Catalogs/ДоговорыЭДО.xml",
+    "outputPath": "draft.json"
+  },
+  "expect": {
+    "files": ["draft.json"]
+  }
+}

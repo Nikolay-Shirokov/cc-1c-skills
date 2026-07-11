@@ -1,0 +1,12 @@
+{
+  "script": "meta-decompile/scripts/meta-decompile",
+  "setup": "none",
+  "args": [
+    { "flag": "-ObjectPath", "from": "workPath", "field": "objectPath" },
+    { "flag": "-OutputPath", "from": "workPath", "field": "outputPath" }
+  ],
+  "snapshot": {
+    "root": "workDir",
+    "normalizeUuids": true
+  }
+}

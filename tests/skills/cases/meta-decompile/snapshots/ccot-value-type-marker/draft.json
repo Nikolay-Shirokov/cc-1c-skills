@@ -1,0 +1,12 @@
+{
+  "type": "ChartOfCharacteristicTypes",
+  "name": "ВидыСведений",
+  "valueType": "String(25)",
+  "standardAttributes": {
+    "ValueType": {
+      "fillValue": {
+        "typeDescription": true
+      }
+    }
+  }
+}
