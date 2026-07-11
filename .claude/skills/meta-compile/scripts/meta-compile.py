@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-compile v1.64 — Compile 1C metadata object from JSON
+# meta-compile v1.65 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -410,6 +410,7 @@ valid_enum_values = {
     'PredefinedDataUpdate': ['Auto', 'DontAutoUpdate', 'AutoUpdate'],
     'SearchStringModeOnInputByString': ['Begin', 'AnyPart'],
     'FullTextSearchOnInputByString': ['Use', 'DontUse'],
+    'Category': ['NavigationPanel', 'ActionsPanel', 'FormCommandBar', 'FormNavigationPanel'],
 }
 
 # --- Группы команд объекта (командный интерфейс) ---
