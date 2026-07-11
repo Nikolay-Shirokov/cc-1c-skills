@@ -1,4 +1,4 @@
-﻿# meta-validate v1.8 — Validate 1C metadata object structure
+﻿# meta-validate v1.9 — Validate 1C metadata object structure
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -63,6 +63,12 @@ if (Test-Path $ObjectPath -PathType Container) {
 			exit 1
 		}
 	}
+}
+
+# File not found — прощающий ввод для плоских объектов (SessionParameter, CommonAttribute,
+# DefinedType, WSReference, … — один .xml без папки): дописать .xml к голому имени
+if (-not (Test-Path $ObjectPath) -and -not [System.IO.Path]::HasExtension($ObjectPath)) {
+	if (Test-Path "$ObjectPath.xml") { $ObjectPath = "$ObjectPath.xml" }
 }
 
 # File not found — check Dir/Name/Name.xml → Dir/Name.xml
@@ -160,6 +166,15 @@ $validTypes = @(
 	"Report","DataProcessor",
 	"CommonModule","ScheduledJob","EventSubscription",
 	"HTTPService","WebService","DefinedType"
+)
+
+# Валидные типы метаданных без глубоких правил валидации — раньше падали как "Unrecognized"
+# (ложная ошибка на валидном объекте). Для них выполняется базовая структурная проверка (root/uuid/Name).
+$structuralOnlyTypes = @(
+	"Subsystem","Role","CommonForm","CommonCommand","CommandGroup","CommonAttribute",
+	"CommonTemplate","CommonPicture","SessionParameter","SettingsStorage","FilterCriterion",
+	"FunctionalOption","FunctionalOptionsParameter","Language","Style","StyleItem",
+	"WSReference","XDTOPackage","DocumentNumerator","Sequence"
 )
 
 # GeneratedType categories by type
@@ -355,7 +370,7 @@ if ($childElements.Count -eq 0) {
 $typeNode = $childElements[0]
 $mdType = $typeNode.LocalName
 
-if ($validTypes -notcontains $mdType) {
+if (($validTypes -notcontains $mdType) -and ($structuralOnlyTypes -notcontains $mdType)) {
 	Report-Error "1. Unrecognized metadata type: $mdType"
 	& $finalize
 	exit 1
@@ -381,6 +396,20 @@ $script:output.Insert(0, "=== Validation: $mdType.$objName ===$([Environment]::N
 
 if ($check1Ok) {
 	Report-OK "1. Root structure: MetaDataObject/$mdType, version $version"
+}
+
+# --- Structural-only types: базовая проверка (Name), без type-specific правил ---
+if ($structuralOnlyTypes -contains $mdType) {
+	if ($objName -eq "(unknown)") {
+		Report-Error "3. Properties: missing or empty Name"
+	} elseif ($objName -notmatch $identPattern) {
+		Report-Error "3. Properties: Name '$objName' is not a valid 1C identifier"
+	} else {
+		Report-OK "3. Properties: Name=`"$objName`" (базовая структурная проверка для $mdType)"
+	}
+	& $finalize
+	if ($script:errors -gt 0) { exit 1 }
+	exit 0
 }
 
 if ($script:stopped) { & $finalize; exit 1 }

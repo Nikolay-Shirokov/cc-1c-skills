@@ -1,0 +1,16 @@
+{
+  "name": "meta-compile создаёт SessionParameter → meta-validate проходит базовую проверку, а не Unrecognized (Фаза 1.4)",
+  "setup": "empty-config",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "SessionParameter", "name": "ТекущийПользователь", "valueType": "CatalogRef.Пользователи" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    }
+  ],
+  "params": { "objectPath": "SessionParameters/ТекущийПользователь" },
+  "args_extra": ["-Detailed"],
+  "expect": {
+    "stdoutContains": "базовая структурная проверка"
+  }
+}

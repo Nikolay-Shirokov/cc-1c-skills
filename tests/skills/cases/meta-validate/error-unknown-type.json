@@ -1,0 +1,6 @@
+{
+  "name": "Валидатор всё ещё ловит по-настоящему неизвестный тип метаданных (гейт не стал слепым)",
+  "setup": "fixture:unknown-type",
+  "params": { "objectPath": "Catalogs/Неизвестный.xml" },
+  "expectError": true
+}

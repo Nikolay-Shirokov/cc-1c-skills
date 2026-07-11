@@ -1,0 +1,9 @@
+{
+  "name": "Валидация реального SessionParameter ERP (базовая структурная проверка)",
+  "setup": "external:C:/WS/tasks/cfsrc/erp_8.3.24",
+  "params": { "objectPath": "SessionParameters/АвторизованныйПользователь" },
+  "args_extra": ["-Detailed"],
+  "expect": {
+    "stdoutContains": "базовая структурная проверка"
+  }
+}

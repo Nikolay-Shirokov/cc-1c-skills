@@ -1,4 +1,4 @@
-# meta-validate v1.8 — Validate 1C metadata object structure (Python port)
+# meta-validate v1.9 — Validate 1C metadata object structure (Python port)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import os
@@ -69,6 +69,12 @@ if os.path.isdir(object_path):
         else:
             print(f"[ERROR] No XML file found in directory: {object_path}")
             sys.exit(1)
+
+# File not found -- прощающий ввод для плоских объектов (SessionParameter, CommonAttribute,
+# DefinedType, WSReference, ... -- один .xml без папки): дописать .xml к голому имени
+if not os.path.exists(object_path) and not os.path.splitext(object_path)[1]:
+    if os.path.exists(object_path + ".xml"):
+        object_path = object_path + ".xml"
 
 # File not found -- check Dir/Name/Name.xml -> Dir/Name.xml
 if not os.path.exists(object_path):
@@ -160,6 +166,15 @@ valid_types = (
     "Report", "DataProcessor",
     "CommonModule", "ScheduledJob", "EventSubscription",
     "HTTPService", "WebService", "DefinedType",
+)
+
+# Валидные типы метаданных без глубоких правил валидации — раньше падали как "Unrecognized"
+# (ложная ошибка на валидном объекте). Для них выполняется базовая структурная проверка (root/uuid/Name).
+structural_only_types = (
+    "Subsystem", "Role", "CommonForm", "CommonCommand", "CommandGroup", "CommonAttribute",
+    "CommonTemplate", "CommonPicture", "SessionParameter", "SettingsStorage", "FilterCriterion",
+    "FunctionalOption", "FunctionalOptionsParameter", "Language", "Style", "StyleItem",
+    "WSReference", "XDTOPackage", "DocumentNumerator", "Sequence",
 )
 
 # GeneratedType categories by type
@@ -379,7 +394,7 @@ elif len(child_elements) > 1:
 type_node = child_elements[0]
 md_type = local_name(type_node)
 
-if md_type not in valid_types:
+if md_type not in valid_types and md_type not in structural_only_types:
     report_error(f"1. Unrecognized metadata type: {md_type}")
     finalize()
     sys.exit(1)
@@ -403,6 +418,17 @@ output_lines.insert(0, f"=== Validation: {md_type}.{obj_name} ===")
 
 if check1_ok:
     report_ok(f"1. Root structure: MetaDataObject/{md_type}, version {version}")
+
+# ── Structural-only types: базовая проверка (Name), без type-specific правил ──
+if md_type in structural_only_types:
+    if obj_name == "(unknown)":
+        report_error("3. Properties: missing or empty Name")
+    elif not ident_pattern.match(obj_name):
+        report_error(f"3. Properties: Name '{obj_name}' is not a valid 1C identifier")
+    else:
+        report_ok(f'3. Properties: Name="{obj_name}" (базовая структурная проверка для {md_type})')
+    finalize()
+    sys.exit(1 if errors > 0 else 0)
 
 if stopped:
     finalize()
