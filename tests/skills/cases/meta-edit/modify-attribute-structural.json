@@ -24,9 +24,10 @@
           "ChoiceParameters": [
             { "name": "Отбор.ПометкаУдаления", "value": false },
             { "name": "Отбор.Ссылка", "value": "Catalog.Спр.EmptyRef" }
-          ]
+          ],
+          "FillValue": "EmptyRef"
         },
-        "Сумма": { "MinValue": 0, "MaxValue": 1000000 }
+        "Сумма": { "MinValue": 0, "MaxValue": 1000000, "FillValue": 0 }
       }
     }
   }

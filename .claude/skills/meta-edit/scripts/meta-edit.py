@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-edit v1.16 — Edit existing 1C metadata object XML (+structural attr props Format/EditFormat/ToolTip/ChoiceForm/MinValue/MaxValue/LinkByType/ChoiceParameterLinks/ChoiceParameters)
+# meta-edit v1.17 — Edit existing 1C metadata object XML (+structural attr props Format/EditFormat/ToolTip/ChoiceForm/MinValue/MaxValue/LinkByType/ChoiceParameterLinks/ChoiceParameters/FillValue)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -2127,6 +2127,10 @@ def modify_child_elements(modify_def, child_type):
                 if set_attr_property_element(props_el, "ChoiceParameters", build_choice_parameters_xml(get_child_indent(props_el), change_value)):
                     info(f"Set {xml_tag} '{elem_name}'.ChoiceParameters")
                     modify_count += 1
+            elif change_prop == "FillValue":
+                if set_attr_property_element(props_el, "FillValue", build_fill_value_explicit_xml(get_attr_type_str_from_xml(props_el), change_value)):
+                    info(f"Set {xml_tag} '{elem_name}'.FillValue")
+                    modify_count += 1
 
             else:
                 # Scalar property change (Indexing, FillChecking, Use, etc.)
@@ -2575,6 +2579,128 @@ def build_choice_parameters_xml(indent, cp):
         parts.append(f'{indent}\t</app:item>')
     parts.append(f"{indent}</ChoiceParameters>")
     return "\r\n".join(parts)
+
+
+# --- Порт из meta-compile: явное значение заполнения (FillValue) ---
+
+fill_bool_true = {'true', 'истина', 'да'}
+fill_bool_false = {'false', 'ложь', 'нет'}
+
+
+def esc_xml_text(s):
+    return s.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+
+
+def get_fill_type_category(type_str):
+    if not type_str:
+        return 'String'
+    if '+' in type_str:
+        return 'Other'
+    t = resolve_type_str(type_str)
+    if re.match(r'^Boolean$', t):
+        return 'Boolean'
+    if re.match(r'^String(\(|$)', t):
+        return 'String'
+    if re.match(r'^Number(\(|$)', t):
+        return 'Number'
+    if re.match(r'^(Date|DateTime)$', t):
+        return 'Date'
+    return 'Other'
+
+
+def expand_fill_short_ref(s, type_str):
+    if not type_str or '+' in type_str:
+        return None
+    t = resolve_type_str(type_str)
+    m = re.match(r'^(\w+Ref)\.(.+)$', t)
+    if not m:
+        return None
+    root = fill_ref_kind_root.get(m.group(1).lower())
+    if not root:
+        return None
+    type_name = m.group(2)
+    if s.lower() in fill_empty_ref_words:
+        return f"{root}.{type_name}.EmptyRef"
+    if root == 'Enum':
+        return f"Enum.{type_name}.EnumValue.{s}"
+    return f"{root}.{type_name}.{s}"
+
+
+def resolve_fill_value_spec(s, type_str):
+    cat = get_fill_type_category(type_str)
+    if s == '':
+        return {'XsiType': 'xs:string', 'Text': ''}
+    if cat == 'String':
+        return {'XsiType': 'xs:string', 'Text': s}
+    if cat == 'Boolean' or s.lower() in fill_bool_true or s.lower() in fill_bool_false:
+        if s.lower() in fill_bool_true:
+            return {'XsiType': 'xs:boolean', 'Text': 'true'}
+        if s.lower() in fill_bool_false:
+            return {'XsiType': 'xs:boolean', 'Text': 'false'}
+    if cat == 'Number':
+        return {'XsiType': 'xs:decimal', 'Text': s}
+    if cat == 'Date' or re.match(r'^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}:\d{2})?$', s):
+        if re.match(r'^\d{4}-\d{2}-\d{2}$', s):
+            s = s + 'T00:00:00'
+        return {'XsiType': 'xs:dateTime', 'Text': s}
+    ref = normalize_fill_ref(s)
+    if ref:
+        return {'XsiType': 'xr:DesignTimeRef', 'Text': ref}
+    short = expand_fill_short_ref(s, type_str)
+    if short:
+        return {'XsiType': 'xr:DesignTimeRef', 'Text': short}
+    return {'XsiType': 'xs:string', 'Text': s}
+
+
+def get_attr_type_str_from_xml(props_el):
+    """Извлечь тип реквизита из XML (<Type>/<v8:Type>) → DSL-typeStr для категоризации FillValue."""
+    type_el = None
+    for ch in props_el:
+        if localname(ch) == 'Type':
+            type_el = ch
+            break
+    if type_el is None:
+        return ""
+    mapped = []
+    for ch in type_el:
+        if localname(ch) == 'Type':
+            t = (ch.text or '').strip()
+            colon = t.find(':')
+            if colon >= 0:
+                t = t[colon + 1:]
+            if t == 'string':
+                mapped.append('String')
+            elif t == 'decimal':
+                mapped.append('Number')
+            elif t == 'boolean':
+                mapped.append('Boolean')
+            elif t == 'dateTime':
+                mapped.append('Date')
+            else:
+                mapped.append(t)
+    if not mapped:
+        return ""
+    if len(mapped) > 1:
+        return ' + '.join(mapped)
+    return mapped[0]
+
+
+def build_fill_value_explicit_xml(type_str, spec):
+    """FillValue — явное значение (порт Emit-FillValue, ветка hasSpec)."""
+    if spec is None:
+        return '<FillValue xsi:nil="true"/>'
+    if isinstance(spec, bool):
+        return f'<FillValue xsi:type="xs:boolean">{"true" if spec else "false"}</FillValue>'
+    if isinstance(spec, (int, float)):
+        return f'<FillValue xsi:type="xs:decimal">{format_fill_num(spec)}</FillValue>'
+    if get_ch_el_prop(spec, ['nil']) is True:
+        return '<FillValue xsi:nil="true"/>'
+    if get_ch_el_prop(spec, ['emptyRef', 'пустаяссылка']) is True:
+        return '<FillValue xsi:type="xr:DesignTimeRef"/>'
+    r = resolve_fill_value_spec(str(spec), type_str)
+    if r['Text'] == '' and r['XsiType'] == 'xs:string':
+        return '<FillValue xsi:type="xs:string"/>'
+    return f'<FillValue xsi:type="{r["XsiType"]}">{esc_xml_text(r["Text"])}</FillValue>'
 
 
 def find_property_element(prop_name):

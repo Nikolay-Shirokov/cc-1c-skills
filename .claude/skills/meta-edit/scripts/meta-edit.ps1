@@ -1,4 +1,4 @@
-﻿# meta-edit v1.16 — Edit existing 1C metadata object XML (+structural attr props Format/EditFormat/ToolTip/ChoiceForm/MinValue/MaxValue/LinkByType/ChoiceParameterLinks/ChoiceParameters)
+﻿# meta-edit v1.17 — Edit existing 1C metadata object XML (+structural attr props Format/EditFormat/ToolTip/ChoiceForm/MinValue/MaxValue/LinkByType/ChoiceParameterLinks/ChoiceParameters/FillValue)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[string]$DefinitionFile,
@@ -2287,6 +2287,11 @@ function Modify-ChildElements($modifyDef, [string]$childType) {
 						Info "Set $xmlTag '$elemName'.ChoiceParameters"; $script:modifyCount++
 					}
 				}
+				"FillValue" {
+					if (Set-AttrPropertyElement $propsEl "FillValue" (Build-FillValueExplicitXml (Get-AttrTypeStrFromXml $propsEl) $changeValue)) {
+						Info "Set $xmlTag '$elemName'.FillValue"; $script:modifyCount++
+					}
+				}
 				default {
 					# Scalar property change (Indexing, FillChecking, Use, etc.)
 					$scalarEl = $null
@@ -2696,6 +2701,93 @@ function Build-ChoiceParametersXml([string]$indent, $cp) {
 	}
 	$sb.Append("`r`n$indent</ChoiceParameters>") | Out-Null
 	return $sb.ToString()
+}
+
+# --- Порт из meta-compile: явное значение заполнения (FillValue) ---
+
+$script:fillBoolTrue  = @('true','истина','да')
+$script:fillBoolFalse = @('false','ложь','нет')
+
+function Esc-XmlText([string]$s) { return $s.Replace('&','&amp;').Replace('<','&lt;').Replace('>','&gt;') }
+
+function Get-FillTypeCategory([string]$typeStr) {
+	if (-not $typeStr) { return 'String' }
+	if ($typeStr -match '\+') { return 'Other' }
+	$t = Resolve-TypeStr $typeStr
+	if ($t -match '^Boolean$')          { return 'Boolean' }
+	if ($t -match '^String(\(|$)')      { return 'String' }
+	if ($t -match '^Number(\(|$)')      { return 'Number' }
+	if ($t -match '^(Date|DateTime)$')  { return 'Date' }
+	return 'Other'
+}
+
+function Expand-FillShortRef([string]$s, [string]$typeStr) {
+	if (-not $typeStr) { return $null }
+	if ($typeStr -match '\+') { return $null }
+	$t = Resolve-TypeStr $typeStr
+	if ($t -notmatch '^(\w+Ref)\.(.+)$') { return $null }
+	$root = $script:fillRefKindRoot[$Matches[1].ToLower()]
+	if (-not $root) { return $null }
+	$typeName = $Matches[2]
+	if ($script:fillEmptyRefWords -contains $s.ToLower()) { return "$root.$typeName.EmptyRef" }
+	if ($root -eq 'Enum') { return "Enum.$typeName.EnumValue.$s" }
+	return "$root.$typeName.$s"
+}
+
+function Resolve-FillValueSpec([string]$s, [string]$typeStr) {
+	$cat = Get-FillTypeCategory $typeStr
+	if ($s -eq '') { return @{ XsiType='xs:string'; Text='' } }
+	if ($cat -eq 'String') { return @{ XsiType='xs:string'; Text=$s } }
+	if ($cat -eq 'Boolean' -or ($script:fillBoolTrue -contains $s.ToLower()) -or ($script:fillBoolFalse -contains $s.ToLower())) {
+		if ($script:fillBoolTrue  -contains $s.ToLower()) { return @{ XsiType='xs:boolean'; Text='true' } }
+		if ($script:fillBoolFalse -contains $s.ToLower()) { return @{ XsiType='xs:boolean'; Text='false' } }
+	}
+	if ($cat -eq 'Number') { return @{ XsiType='xs:decimal'; Text=$s } }
+	if ($cat -eq 'Date' -or $s -match '^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}:\d{2})?$') {
+		if ($s -match '^\d{4}-\d{2}-\d{2}$') { $s = "${s}T00:00:00" }
+		return @{ XsiType='xs:dateTime'; Text=$s }
+	}
+	$ref = Normalize-FillRef $s
+	if ($ref) { return @{ XsiType='xr:DesignTimeRef'; Text=$ref } }
+	$short = Expand-FillShortRef $s $typeStr
+	if ($short) { return @{ XsiType='xr:DesignTimeRef'; Text=$short } }
+	return @{ XsiType='xs:string'; Text=$s }
+}
+
+# Извлечь тип реквизита из XML (<Type>/<v8:Type>) → DSL-typeStr для категоризации FillValue.
+function Get-AttrTypeStrFromXml($propsEl) {
+	$typeEl = $null
+	foreach ($ch in $propsEl.ChildNodes) { if ($ch.NodeType -eq 'Element' -and $ch.LocalName -eq 'Type') { $typeEl = $ch; break } }
+	if (-not $typeEl) { return "" }
+	$mapped = @()
+	foreach ($ch in $typeEl.ChildNodes) {
+		if ($ch.NodeType -eq 'Element' -and $ch.LocalName -eq 'Type') {
+			$t = $ch.InnerText.Trim()
+			$colon = $t.IndexOf(':'); if ($colon -ge 0) { $t = $t.Substring($colon + 1) }
+			switch -Regex ($t) {
+				'^string$'   { $mapped += 'String'; break }
+				'^decimal$'  { $mapped += 'Number'; break }
+				'^boolean$'  { $mapped += 'Boolean'; break }
+				'^dateTime$' { $mapped += 'Date'; break }
+				default      { $mapped += $t }
+			}
+		}
+	}
+	if ($mapped.Count -eq 0) { return "" }
+	if ($mapped.Count -gt 1) { return ($mapped -join ' + ') }
+	return $mapped[0]
+}
+
+# FillValue — явное значение (порт Emit-FillValue, ветка hasSpec). Маркеры {nil}/{emptyRef}; иначе по типу.
+function Build-FillValueExplicitXml([string]$typeStr, $spec) {
+	if ($null -eq $spec) { return "<FillValue xsi:nil=`"true`"/>" }
+	if ($spec -is [bool]) { return "<FillValue xsi:type=`"xs:boolean`">$(if ($spec) { 'true' } else { 'false' })</FillValue>" }
+	if ($spec -is [int] -or $spec -is [long] -or $spec -is [double] -or $spec -is [decimal]) { return "<FillValue xsi:type=`"xs:decimal`">$(Format-FillNum $spec)</FillValue>" }
+	if ((Get-ChElProp $spec @('nil')) -eq $true) { return "<FillValue xsi:nil=`"true`"/>" }
+	if ((Get-ChElProp $spec @('emptyRef','пустаяссылка')) -eq $true) { return "<FillValue xsi:type=`"xr:DesignTimeRef`"/>" }
+	$r = Resolve-FillValueSpec "$spec" $typeStr
+	if ($r.Text -eq '' -and $r.XsiType -eq 'xs:string') { return "<FillValue xsi:type=`"xs:string`"/>" }
+	return "<FillValue xsi:type=`"$($r.XsiType)`">$(Esc-XmlText $r.Text)</FillValue>"
 }
 
 function Find-PropertyElement([string]$propName) {
