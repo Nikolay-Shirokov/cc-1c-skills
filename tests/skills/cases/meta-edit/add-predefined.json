@@ -1,0 +1,21 @@
+{
+  "name": "add-predefined: предопределённые элементы + группа с вложенными (Ext/Predefined.xml)",
+  "setup": "empty-config",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "Catalog", "name": "Спр" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    }
+  ],
+  "params": { "objectPath": "Catalogs/Спр" },
+  "input": {
+    "add": {
+      "predefined": [
+        "(01) Первый",
+        "(02) Второй [Второй элемент]",
+        { "name": "Группа", "isFolder": true, "childItems": ["(03) Вложенный"] }
+      ]
+    }
+  }
+}

@@ -1,4 +1,4 @@
-﻿# meta-edit v1.18 — Edit existing 1C metadata object XML (+свойства-списки DataLockFields/RegisteredDocuments)
+﻿# meta-edit v1.19 — Edit existing 1C metadata object XML (+add-predefined предопределённые Ext/Predefined.xml)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[string]$DefinitionFile,
@@ -12,7 +12,7 @@ param(
 		"add-attribute", "add-ts", "add-dimension", "add-resource",
 		"add-enumValue", "add-column", "add-form", "add-template", "add-command",
 		"add-owner", "add-registerRecord", "add-basedOn", "add-inputByString",
-		"add-dataLockField", "add-registeredDocument",
+		"add-dataLockField", "add-registeredDocument", "add-predefined",
 		"remove-attribute", "remove-ts", "remove-dimension", "remove-resource",
 		"remove-enumValue", "remove-column", "remove-form", "remove-template", "remove-command",
 		"remove-owner", "remove-registerRecord", "remove-basedOn", "remove-inputByString",
@@ -1519,6 +1519,16 @@ function Convert-InlineToDefinition([string]$operation, [string]$value) {
 		return $def
 	}
 
+	# Предопределённые (Ext/Predefined.xml) — отдельный файл; строим { <op>: { predefined: [...] } }.
+	if ($target -eq 'predefined') {
+		$items = @($value -split ';;' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+		$inner = New-Object PSCustomObject
+		$inner | Add-Member -NotePropertyName 'predefined' -NotePropertyValue $items
+		$def = New-Object PSCustomObject
+		$def | Add-Member -NotePropertyName $op -NotePropertyValue $inner
+		return $def
+	}
+
 	# TS attribute operations: dot notation "TSName.AttrDef"
 	if ($target -eq "ts-attribute") {
 		$items = @($value -split ';;' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
@@ -1761,6 +1771,10 @@ function Process-Add($addDef) {
 	$addDef.PSObject.Properties | ForEach-Object {
 		$rawKey = $_.Name
 		$items = $_.Value
+		if ($rawKey -in @('predefined','предопределенные','предопределённые')) {
+			Add-PredefinedItems $items
+			return
+		}
 		$childType = Resolve-ChildTypeKey $rawKey
 
 		if (-not $childType) {
@@ -2955,6 +2969,95 @@ function Set-ComplexProperty([string]$propertyName, [string[]]$values) {
 # ============================================================
 # Section 13: Main processing
 # ============================================================
+
+# ============================================================
+# Predefined data (Ext/Predefined.xml) — add предопределённых (Catalog/ChartOfCharacteristicTypes).
+# Существующие <Item id=GUID> сохраняются побайтово (текстовый append), новые получают свежий GUID —
+# инвариант «не менять id существующей сущности».
+# ============================================================
+
+$script:predefXsiTypeByObj = @{
+	'Catalog' = 'CatalogPredefinedItems'
+	'ChartOfCharacteristicTypes' = 'PlanOfCharacteristicKindPredefinedItems'
+}
+
+function Get-PredefinedPath {
+	$objDir = Join-Path (Split-Path $resolvedPath) $script:objName
+	return (Join-Path (Join-Path $objDir "Ext") "Predefined.xml")
+}
+
+function Get-ObjectCodeType {
+	foreach ($ch in $script:propertiesEl.ChildNodes) {
+		if ($ch.NodeType -eq 'Element' -and $ch.LocalName -eq 'CodeType') { return $ch.InnerText.Trim() }
+	}
+	return 'String'
+}
+
+# Элемент DSL: строка "(Код) Имя [Наименование]" ЛИБО объект {name,code,description,isFolder,childItems}.
+function Resolve-PredefItem($val) {
+	if ($val -is [string]) {
+		$s = "$val"; $descRaw = $null; $hasDesc = $false
+		if ($s -match '\[(.*)\]') { $descRaw = $Matches[1]; $hasDesc = $true; $s = $s -replace '\s*\[.*\]', '' }
+		$m = [regex]::Match($s.Trim(), '^\s*(?:\(([^)]*)\)\s*)?(\S+)\s*$')
+		$name = $m.Groups[2].Value
+		$code = if ($m.Groups[1].Success) { $m.Groups[1].Value } else { '' }
+		$desc = if ($hasDesc) { $descRaw } else { Split-CamelCase $name }
+		return @{ name = $name; code = $code; desc = $desc; isFolder = $false; children = @() }
+	}
+	$gv = { param($o, [string[]]$keys) foreach ($k in $keys) { if ($o.PSObject.Properties[$k]) { return $o.$k } } return $null }
+	$name = "$(& $gv $val @('name','имя'))"
+	$codeV = & $gv $val @('code','код'); $code = if ($null -ne $codeV) { "$codeV" } else { '' }
+	$hasDesc = $val.PSObject.Properties['description'] -or $val.PSObject.Properties['наименование']
+	$descV = & $gv $val @('description','наименование')
+	$desc = if ($hasDesc) { "$descV" } else { Split-CamelCase $name }
+	$isFolder = ((& $gv $val @('isFolder','группа')) -eq $true)
+	$subs = & $gv $val @('childItems','подчиненные')
+	return @{ name = $name; code = $code; desc = $desc; isFolder = $isFolder; children = @(if ($subs) { @($subs) } else { @() }) }
+}
+
+function Build-PredefItemXml([string]$indent, $val, [string]$codeType) {
+	$r = Resolve-PredefItem $val
+	$sb = New-Object System.Text.StringBuilder
+	[void]$sb.Append("$indent<Item id=`"$(New-Guid-String)`">`r`n")
+	[void]$sb.Append("$indent`t<Name>$(Esc-XmlText $r.name)</Name>`r`n")
+	if (-not $r.code) { [void]$sb.Append("$indent`t<Code/>`r`n") }
+	elseif ($codeType -eq 'Number') { [void]$sb.Append("$indent`t<Code xsi:type=`"xs:decimal`">$(Esc-XmlText $r.code)</Code>`r`n") }
+	else { [void]$sb.Append("$indent`t<Code>$(Esc-XmlText $r.code)</Code>`r`n") }
+	if ($r.desc -eq '') { [void]$sb.Append("$indent`t<Description/>`r`n") }
+	else { [void]$sb.Append("$indent`t<Description>$(Esc-XmlText $r.desc)</Description>`r`n") }
+	[void]$sb.Append("$indent`t<IsFolder>$(if ($r.isFolder) { 'true' } else { 'false' })</IsFolder>`r`n")
+	if ($r.children.Count -gt 0) {
+		[void]$sb.Append("$indent`t<ChildItems>`r`n")
+		foreach ($c in $r.children) { [void]$sb.Append((Build-PredefItemXml "$indent`t`t" $c $codeType)) }
+		[void]$sb.Append("$indent`t</ChildItems>`r`n")
+	}
+	[void]$sb.Append("$indent</Item>`r`n")
+	return $sb.ToString()
+}
+
+function Add-PredefinedItems($items) {
+	$xsiType = $script:predefXsiTypeByObj[$script:objType]
+	if (-not $xsiType) { Write-Error "add-predefined: тип объекта '$($script:objType)' не поддержан (только Catalog, ChartOfCharacteristicTypes)"; exit 1 }
+	$codeType = Get-ObjectCodeType
+	$version = $script:xmlDoc.DocumentElement.GetAttribute("version")
+	$path = Get-PredefinedPath
+	$itemsXml = ""
+	foreach ($it in @($items)) { $itemsXml += (Build-PredefItemXml "`t" $it $codeType) }
+	$utf8Bom = New-Object System.Text.UTF8Encoding($true)
+	if (Test-Path $path) {
+		$text = [System.IO.File]::ReadAllText($path, $utf8Bom)
+		$text = $text.Replace("</PredefinedData>", "$itemsXml</PredefinedData>")
+	} else {
+		$extDir = Split-Path $path
+		if (-not (Test-Path $extDir)) { New-Item -ItemType Directory -Path $extDir -Force | Out-Null }
+		$hdr = "<?xml version=`"1.0`" encoding=`"UTF-8`"?>`r`n<PredefinedData xmlns=`"http://v8.1c.ru/8.3/xcf/predef`" xmlns:v8=`"http://v8.1c.ru/8.1/data/core`" xmlns:xr=`"http://v8.1c.ru/8.3/xcf/readable`" xmlns:xs=`"http://www.w3.org/2001/XMLSchema`" xmlns:xsi=`"http://www.w3.org/2001/XMLSchema-instance`" xsi:type=`"$xsiType`" version=`"$version`">`r`n"
+		$text = "$hdr$itemsXml</PredefinedData>`r`n"
+	}
+	[System.IO.File]::WriteAllText($path, $text, $utf8Bom)
+	$n = @($items).Count
+	Info "Added $n predefined item(s) → $path"
+	$script:addCount += $n
+}
 
 # --- Inline mode conversion ---
 if ($Operation) {

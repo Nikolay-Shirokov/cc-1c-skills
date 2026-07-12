@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-edit v1.18 — Edit existing 1C metadata object XML (+свойства-списки DataLockFields/RegisteredDocuments)
+# meta-edit v1.19 — Edit existing 1C metadata object XML (+add-predefined предопределённые Ext/Predefined.xml)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -203,6 +203,7 @@ md_ns = ""
 properties_el = None
 child_objects_el = None
 obj_name = ""
+resolved_path = ""
 
 add_count = 0
 remove_count = 0
@@ -1458,6 +1459,11 @@ def convert_inline_to_definition(operation, value):
         complex_action = "set" if op == "set" else op
         return {"_complex": [{"action": complex_action, "property": prop_name, "values": values}]}
 
+    # Предопределённые (Ext/Predefined.xml) — отдельный файл; строим { <op>: { predefined: [...] } }.
+    if target == "predefined":
+        items = [v.strip() for v in value.split(";;") if v.strip()]
+        return {op: {"predefined": items}}
+
     # TS attribute operations: dot notation "TSName.AttrDef"
     if target == "ts-attribute":
         items = [v.strip() for v in value.split(";;") if v.strip()]
@@ -1667,6 +1673,9 @@ def process_add(add_def):
     global add_count
 
     for raw_key, items in add_def.items():
+        if raw_key in ('predefined', 'предопределенные', 'предопределённые'):
+            add_predefined_items(items)
+            continue
         child_type = resolve_child_type_key(raw_key)
 
         if not child_type:
@@ -2872,18 +2881,126 @@ def save_xml(tree, path):
 # Main
 # ============================================================
 
+# ============================================================
+# Predefined data (Ext/Predefined.xml) — add предопределённых (Catalog/ChartOfCharacteristicTypes).
+# Существующие <Item id=GUID> сохраняются побайтово (текстовый append), новые получают свежий GUID.
+# ============================================================
+
+predef_xsi_type_by_obj = {
+    'Catalog': 'CatalogPredefinedItems',
+    'ChartOfCharacteristicTypes': 'PlanOfCharacteristicKindPredefinedItems',
+}
+
+
+def get_predefined_path():
+    return os.path.join(os.path.dirname(resolved_path), obj_name, "Ext", "Predefined.xml")
+
+
+def get_object_code_type():
+    for ch in properties_el:
+        if localname(ch) == 'CodeType':
+            return (ch.text or '').strip()
+    return 'String'
+
+
+def resolve_predef_item(val):
+    if isinstance(val, str):
+        s = val
+        desc_raw = None
+        has_desc = False
+        m = re.search(r'\[(.*)\]', s)
+        if m:
+            desc_raw = m.group(1)
+            has_desc = True
+            s = re.sub(r'\s*\[.*\]', '', s)
+        mm = re.match(r'^\s*(?:\(([^)]*)\)\s*)?(\S+)\s*$', s.strip())
+        name = mm.group(2) if mm else s.strip()
+        code = mm.group(1) if (mm and mm.group(1) is not None) else ''
+        desc = desc_raw if has_desc else split_camel_case(name)
+        return {'name': name, 'code': code, 'desc': desc, 'isFolder': False, 'children': []}
+
+    def gv(o, keys):
+        for k in keys:
+            if isinstance(o, dict) and k in o:
+                return o[k]
+        return None
+    name = str(gv(val, ['name', 'имя']) or '')
+    code_v = gv(val, ['code', 'код'])
+    code = str(code_v) if code_v is not None else ''
+    has_desc = isinstance(val, dict) and ('description' in val or 'наименование' in val)
+    desc_v = gv(val, ['description', 'наименование'])
+    desc = str(desc_v) if has_desc else split_camel_case(name)
+    is_folder = gv(val, ['isFolder', 'группа']) is True
+    subs = gv(val, ['childItems', 'подчиненные'])
+    return {'name': name, 'code': code, 'desc': desc if desc is not None else '',
+            'isFolder': is_folder, 'children': list(subs) if subs else []}
+
+
+def build_predef_item_xml(indent, val, code_type):
+    r = resolve_predef_item(val)
+    parts = [f'{indent}<Item id="{new_uuid()}">']
+    parts.append(f'{indent}\t<Name>{esc_xml_text(r["name"])}</Name>')
+    if not r['code']:
+        parts.append(f'{indent}\t<Code/>')
+    elif code_type == 'Number':
+        parts.append(f'{indent}\t<Code xsi:type="xs:decimal">{esc_xml_text(r["code"])}</Code>')
+    else:
+        parts.append(f'{indent}\t<Code>{esc_xml_text(r["code"])}</Code>')
+    if r['desc'] == '':
+        parts.append(f'{indent}\t<Description/>')
+    else:
+        parts.append(f'{indent}\t<Description>{esc_xml_text(r["desc"])}</Description>')
+    parts.append(f'{indent}\t<IsFolder>{"true" if r["isFolder"] else "false"}</IsFolder>')
+    if r['children']:
+        parts.append(f'{indent}\t<ChildItems>')
+        for c in r['children']:
+            parts.append(build_predef_item_xml(indent + '\t\t', c, code_type).rstrip('\r\n'))
+        parts.append(f'{indent}\t</ChildItems>')
+    parts.append(f'{indent}</Item>')
+    return '\r\n'.join(parts) + '\r\n'
+
+
+def add_predefined_items(items):
+    global add_count
+    xsi_type = predef_xsi_type_by_obj.get(obj_type)
+    if not xsi_type:
+        print(f"add-predefined: тип объекта '{obj_type}' не поддержан (только Catalog, ChartOfCharacteristicTypes)", file=sys.stderr)
+        sys.exit(1)
+    code_type = get_object_code_type()
+    version = xml_root.get("version")
+    path = get_predefined_path()
+    item_list = items if isinstance(items, list) else [items]
+    items_xml = ''.join(build_predef_item_xml('\t', it, code_type) for it in item_list)
+    if os.path.exists(path):
+        with open(path, 'r', encoding='utf-8-sig') as f:
+            text = f.read()
+        text = text.replace('</PredefinedData>', items_xml + '</PredefinedData>')
+    else:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        hdr = ('<?xml version="1.0" encoding="UTF-8"?>\r\n<PredefinedData xmlns="http://v8.1c.ru/8.3/xcf/predef" '
+               'xmlns:v8="http://v8.1c.ru/8.1/data/core" xmlns:xr="http://v8.1c.ru/8.3/xcf/readable" '
+               'xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" '
+               f'xsi:type="{xsi_type}" version="{version}">\r\n')
+        text = hdr + items_xml + '</PredefinedData>\r\n'
+    with open(path, 'wb') as f:
+        f.write(b'\xef\xbb\xbf')
+        f.write(text.encode('utf-8'))
+    info(f"Added {len(item_list)} predefined item(s) -> {path}")
+    add_count += len(item_list)
+
+
 def main():
     sys.stdout.reconfigure(encoding="utf-8")
     sys.stderr.reconfigure(encoding="utf-8")
     global xml_tree, xml_root, obj_element, obj_type, md_ns
-    global properties_el, child_objects_el, obj_name
+    global properties_el, child_objects_el, obj_name, resolved_path
     global add_count, remove_count, modify_count, warn_count
 
     valid_operations = [
         "add-attribute", "add-ts", "add-dimension", "add-resource",
         "add-enumValue", "add-column", "add-form", "add-template", "add-command",
         "add-owner", "add-registerRecord", "add-basedOn", "add-inputByString",
-        "add-dataLockField", "add-registeredDocument",
+        "add-dataLockField", "add-registeredDocument", "add-predefined",
         "remove-attribute", "remove-ts", "remove-dimension", "remove-resource",
         "remove-enumValue", "remove-column", "remove-form", "remove-template", "remove-command",
         "remove-owner", "remove-registerRecord", "remove-basedOn", "remove-inputByString",

@@ -76,12 +76,21 @@ for (const runtime of runtimes) {
         },
         tabularSections: { 'Товары': { modify: { 'Цена': { name: 'ЦенаНовая' } } } },
       },
-      add: { attributes: ['НовыйРекв: Boolean'] },
+      add: { attributes: ['НовыйРекв: Boolean'], predefined: ['(1) ПервыйПредоп', '(2) ВторойПредоп'] },
       remove: { attributes: ['Удаляемый'] },
     }), 'utf8');
     skill(runtime, 'meta-edit', ['-ObjectPath', objXml, '-DefinitionFile', edit, '-NoValidate'], work);
 
     const after = collectUuids(objXml);
+
+    // 3b. Инвариант для предопределённых: добавление ещё элементов не меняет id существующих <Item>.
+    const predefXml = join(work, 'Catalogs', 'Спр', 'Ext', 'Predefined.xml');
+    const predefIds = (p) => new Set([...readFileSync(p, 'utf8').matchAll(/<Item id="([0-9a-f-]{36})"/g)].map(m => m[1]));
+    const predefBefore = predefIds(predefXml);
+    const edit2 = join(work, 'e2.json');
+    writeFileSync(edit2, JSON.stringify({ add: { predefined: ['(3) ТретийПредоп'] } }), 'utf8');
+    skill(runtime, 'meta-edit', ['-ObjectPath', objXml, '-DefinitionFile', edit2, '-NoValidate'], work);
+    const predefAfter = predefIds(predefXml);
 
     // 3. Инвариант: каждый uuid, существовавший ДО правки (кроме намеренно удалённого),
     // должен присутствовать ПОСЛЕ (переименование/смена типа/структурные свойства НЕ меняют id).
@@ -93,7 +102,10 @@ for (const runtime of runtimes) {
       if (!after.has(uuid)) fail(`uuid ${uuid} пропал после правки (перегенерирован?)`);
     }
     if (removedUuid && after.has(removedUuid)) fail(`uuid удалённого реквизита ${removedUuid} остался (не удалён?)`);
-    console.log(`[${runtime}] проверено ${checked} uuid (объект + GeneratedType + реквизиты/ТЧ), удалённый: ${removedUuid ? 'ок' : 'НЕ НАЙДЕН'}`);
+    for (const id of predefBefore) {
+      if (!predefAfter.has(id)) fail(`id предопределённого элемента ${id} пропал после добавления новых (перегенерирован?)`);
+    }
+    console.log(`[${runtime}] проверено ${checked} uuid объекта + ${predefBefore.size} id предопределённых (сохранены при add)`);
   } catch (e) {
     console.log(`[${runtime}] ОШИБКА прогона: ${(e.stderr || e.message || '').toString().slice(0, 300)}`);
     failures++;

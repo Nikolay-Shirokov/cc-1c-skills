@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<PredefinedData xmlns="http://v8.1c.ru/8.3/xcf/predef" xmlns:v8="http://v8.1c.ru/8.1/data/core" xmlns:xr="http://v8.1c.ru/8.3/xcf/readable" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:type="CatalogPredefinedItems" version="2.17">
+	<Item id="UUID-001">
+		<Name>Первый</Name>
+		<Code>01</Code>
+		<Description>Первый</Description>
+		<IsFolder>false</IsFolder>
+	</Item>
+	<Item id="UUID-002">
+		<Name>Второй</Name>
+		<Code>02</Code>
+		<Description>Второй элемент</Description>
+		<IsFolder>false</IsFolder>
+	</Item>
+	<Item id="UUID-003">
+		<Name>Группа</Name>
+		<Code/>
+		<Description>Группа</Description>
+		<IsFolder>true</IsFolder>
+		<ChildItems>
+			<Item id="UUID-004">
+				<Name>Вложенный</Name>
+				<Code>03</Code>
+				<Description>Вложенный</Description>
+				<IsFolder>false</IsFolder>
+			</Item>
+		</ChildItems>
+	</Item>
+</PredefinedData>
