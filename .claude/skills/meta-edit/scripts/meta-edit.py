@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-edit v1.17 — Edit existing 1C metadata object XML (+structural attr props Format/EditFormat/ToolTip/ChoiceForm/MinValue/MaxValue/LinkByType/ChoiceParameterLinks/ChoiceParameters/FillValue)
+# meta-edit v1.18 — Edit existing 1C metadata object XML (+свойства-списки DataLockFields/RegisteredDocuments)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -1430,6 +1430,8 @@ def convert_inline_to_definition(operation, value):
         "registerRecord": "RegisterRecords", "registerRecords": "RegisterRecords",
         "basedOn": "BasedOn",
         "inputByString": "InputByString",
+        "dataLockField": "DataLockFields", "dataLockFields": "DataLockFields",
+        "registeredDocument": "RegisteredDocuments", "registeredDocuments": "RegisteredDocuments",
     }
 
     if target in complex_target_map:
@@ -2191,6 +2193,8 @@ complex_property_map = {
     "RegisterRecords": {"tag": "xr:Item", "attr": 'xsi:type="xr:MDObjectRef"'},
     "BasedOn": {"tag": "xr:Item", "attr": 'xsi:type="xr:MDObjectRef"'},
     "InputByString": {"tag": "xr:Field", "attr": None},
+    "DataLockFields": {"tag": "xr:Field", "attr": None, "expand": True},
+    "RegisteredDocuments": {"tag": "xr:Item", "attr": 'xsi:type="xr:MDObjectRef"'},
 }
 
 # Известные свойства объекта (union по корпусу acc+erp 8.3.24) — allowlist для modify-property.
@@ -2724,6 +2728,8 @@ def add_complex_property_item(property_name, values):
     if not map_entry:
         warn(f"Unknown complex property: {property_name}")
         return
+    if map_entry.get("expand"):
+        values = [expand_data_path(str(v)) for v in values]
 
     prop_el = find_property_element(property_name)
     if prop_el is None:
@@ -2763,6 +2769,9 @@ def add_complex_property_item(property_name, values):
 def remove_complex_property_item(property_name, values):
     global remove_count
 
+    map_entry = complex_property_map.get(property_name)
+    if map_entry and map_entry.get("expand"):
+        values = [expand_data_path(str(v)) for v in values]
     prop_el = find_property_element(property_name)
     if prop_el is None:
         warn(f"Property element '{property_name}' not found in Properties")
@@ -2793,6 +2802,8 @@ def set_complex_property(property_name, values):
     if not map_entry:
         warn(f"Unknown complex property: {property_name}")
         return
+    if map_entry.get("expand"):
+        values = [expand_data_path(str(v)) for v in values]
 
     prop_el = find_property_element(property_name)
     if prop_el is None:
@@ -2872,14 +2883,17 @@ def main():
         "add-attribute", "add-ts", "add-dimension", "add-resource",
         "add-enumValue", "add-column", "add-form", "add-template", "add-command",
         "add-owner", "add-registerRecord", "add-basedOn", "add-inputByString",
+        "add-dataLockField", "add-registeredDocument",
         "remove-attribute", "remove-ts", "remove-dimension", "remove-resource",
         "remove-enumValue", "remove-column", "remove-form", "remove-template", "remove-command",
         "remove-owner", "remove-registerRecord", "remove-basedOn", "remove-inputByString",
+        "remove-dataLockField", "remove-registeredDocument",
         "add-ts-attribute", "remove-ts-attribute", "modify-ts-attribute", "modify-ts",
         "modify-attribute", "modify-dimension", "modify-resource",
         "modify-enumValue", "modify-column",
         "modify-property",
         "set-owners", "set-registerRecords", "set-basedOn", "set-inputByString",
+        "set-dataLockFields", "set-registeredDocuments",
     ]
 
     parser = argparse.ArgumentParser(description="Edit existing 1C metadata object XML", allow_abbrev=False)

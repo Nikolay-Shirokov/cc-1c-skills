@@ -1,0 +1,18 @@
+{
+  "name": "modify-property: RegisteredDocuments (свойство-список DocumentJournal)",
+  "setup": "empty-config",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "Document", "name": "Расход" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "DocumentJournal", "name": "Журнал" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    }
+  ],
+  "params": { "objectPath": "DocumentJournals/Журнал" },
+  "input": { "modify": { "properties": { "RegisteredDocuments": ["Document.Расход"] } } }
+}

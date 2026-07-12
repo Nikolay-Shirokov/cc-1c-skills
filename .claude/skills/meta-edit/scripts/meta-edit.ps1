@@ -1,4 +1,4 @@
-﻿# meta-edit v1.17 — Edit existing 1C metadata object XML (+structural attr props Format/EditFormat/ToolTip/ChoiceForm/MinValue/MaxValue/LinkByType/ChoiceParameterLinks/ChoiceParameters/FillValue)
+﻿# meta-edit v1.18 — Edit existing 1C metadata object XML (+свойства-списки DataLockFields/RegisteredDocuments)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[string]$DefinitionFile,
@@ -12,14 +12,17 @@ param(
 		"add-attribute", "add-ts", "add-dimension", "add-resource",
 		"add-enumValue", "add-column", "add-form", "add-template", "add-command",
 		"add-owner", "add-registerRecord", "add-basedOn", "add-inputByString",
+		"add-dataLockField", "add-registeredDocument",
 		"remove-attribute", "remove-ts", "remove-dimension", "remove-resource",
 		"remove-enumValue", "remove-column", "remove-form", "remove-template", "remove-command",
 		"remove-owner", "remove-registerRecord", "remove-basedOn", "remove-inputByString",
+		"remove-dataLockField", "remove-registeredDocument",
 		"add-ts-attribute", "remove-ts-attribute", "modify-ts-attribute", "modify-ts",
 		"modify-attribute", "modify-dimension", "modify-resource",
 		"modify-enumValue", "modify-column",
 		"modify-property",
-		"set-owners", "set-registerRecords", "set-basedOn", "set-inputByString"
+		"set-owners", "set-registerRecords", "set-basedOn", "set-inputByString",
+		"set-dataLockFields", "set-registeredDocuments"
 	)]
 	[string]$Operation,
 	[string]$Value,
@@ -1490,6 +1493,8 @@ function Convert-InlineToDefinition([string]$operation, [string]$value) {
 		"registerRecord" = "RegisterRecords"; "registerRecords" = "RegisterRecords"
 		"basedOn" = "BasedOn"
 		"inputByString" = "InputByString"
+		"dataLockField" = "DataLockFields"; "dataLockFields" = "DataLockFields"
+		"registeredDocument" = "RegisteredDocuments"; "registeredDocuments" = "RegisteredDocuments"
 	}
 
 	if ($complexTargetMap.ContainsKey($target)) {
@@ -2363,6 +2368,8 @@ $script:complexPropertyMap = @{
 	"RegisterRecords" = @{ tag = "xr:Item"; attr = 'xsi:type="xr:MDObjectRef"' }
 	"BasedOn"         = @{ tag = "xr:Item"; attr = 'xsi:type="xr:MDObjectRef"' }
 	"InputByString"   = @{ tag = "xr:Field"; attr = $null }
+	"DataLockFields"      = @{ tag = "xr:Field"; attr = $null; expand = $true }
+	"RegisteredDocuments" = @{ tag = "xr:Item"; attr = 'xsi:type="xr:MDObjectRef"' }
 }
 
 # Известные свойства объекта (union по корпусу acc+erp 8.3.24) — allowlist для modify-property.
@@ -2812,6 +2819,7 @@ function Get-ComplexPropertyValues([System.Xml.XmlElement]$propEl) {
 function Add-ComplexPropertyItem([string]$propertyName, [string[]]$values) {
 	$mapEntry = $script:complexPropertyMap[$propertyName]
 	if (-not $mapEntry) { Warn "Unknown complex property: $propertyName"; return }
+	if ($mapEntry.expand) { $values = @($values | ForEach-Object { Expand-DataPath "$_" }) }
 
 	$propEl = Find-PropertyElement $propertyName
 	if (-not $propEl) {
@@ -2859,6 +2867,8 @@ function Add-ComplexPropertyItem([string]$propertyName, [string[]]$values) {
 }
 
 function Remove-ComplexPropertyItem([string]$propertyName, [string[]]$values) {
+	$mapEntry = $script:complexPropertyMap[$propertyName]
+	if ($mapEntry -and $mapEntry.expand) { $values = @($values | ForEach-Object { Expand-DataPath "$_" }) }
 	$propEl = Find-PropertyElement $propertyName
 	if (-not $propEl) {
 		Warn "Property element '$propertyName' not found in Properties"
@@ -2896,6 +2906,7 @@ function Remove-ComplexPropertyItem([string]$propertyName, [string[]]$values) {
 function Set-ComplexProperty([string]$propertyName, [string[]]$values) {
 	$mapEntry = $script:complexPropertyMap[$propertyName]
 	if (-not $mapEntry) { Warn "Unknown complex property: $propertyName"; return }
+	if ($mapEntry.expand) { $values = @($values | ForEach-Object { Expand-DataPath "$_" }) }
 
 	$propEl = Find-PropertyElement $propertyName
 	if (-not $propEl) {

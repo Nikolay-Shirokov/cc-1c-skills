@@ -1,0 +1,13 @@
+{
+  "name": "modify-property: DataLockFields (свойство-список, разворот пути реквизита)",
+  "setup": "empty-config",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "Catalog", "name": "Спр", "attributes": ["Орг: CatalogRef.Спр"] },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    }
+  ],
+  "params": { "objectPath": "Catalogs/Спр" },
+  "input": { "modify": { "properties": { "DataLockFields": ["Орг"] } } }
+}
