@@ -4,7 +4,7 @@
 
 JSON DSL для описания объектов метаданных конфигурации 1С. Компактный формат компилируется в полноценный XML, совместимый с выгрузкой конфигурации 1С:Предприятие 8.3.
 
-Поддерживаемые типы (23): **Catalog**, **Document**, **Enum**, **Constant**, **InformationRegister**, **AccumulationRegister**, **AccountingRegister**, **CalculationRegister**, **ChartOfAccounts**, **ChartOfCharacteristicTypes**, **ChartOfCalculationTypes**, **BusinessProcess**, **Task**, **ExchangePlan**, **DocumentJournal**, **Report**, **DataProcessor**, **CommonModule**, **ScheduledJob**, **EventSubscription**, **HTTPService**, **WebService**, **DefinedType**.
+Поддерживаемые виды объектов метаданных (37): **Catalog**, **Document**, **Enum**, **Constant**, **InformationRegister**, **AccumulationRegister**, **AccountingRegister**, **CalculationRegister**, **ChartOfAccounts**, **ChartOfCharacteristicTypes**, **ChartOfCalculationTypes**, **BusinessProcess**, **Task**, **ExchangePlan**, **DocumentJournal**, **Report**, **DataProcessor**, **CommonModule**, **ScheduledJob**, **EventSubscription**, **HTTPService**, **WebService**, **DefinedType**, **FunctionalOption**, **Sequence**, **FilterCriterion**, **DocumentNumerator**, **SettingsStorage**, **CommonForm**, **SessionParameter**, **CommonCommand**, **CommandGroup**, **CommonAttribute**, **FunctionalOptionsParameter**, **WSReference**, **CommonPicture**, **CommonTemplate**.
 
 ---
 
@@ -1499,6 +1499,7 @@ ChildObjects и модулей.
 | `HTTPСервис` | `HTTPService` |
 | `ВебСервис` | `WebService` |
 | `ОпределяемыйТип` | `DefinedType` |
+| `ФункциональнаяОпция` | `FunctionalOption` |
 
 ---
 
