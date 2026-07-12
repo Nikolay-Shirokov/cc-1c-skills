@@ -4,11 +4,16 @@
 
 ## modify-property
 
-Изменение скалярных свойств объекта. Формат: `Ключ=Значение` (batch через `;;`):
+Изменение скалярных свойств объекта по PascalCase XML-имени (как в выгрузке). Формат: `Ключ=Значение`
+(batch через `;;`):
 ```powershell
 -Operation modify-property -Value "CodeLength=11 ;; DescriptionLength=150"
 -Operation modify-property -Value "Hierarchical=true"
 ```
+
+Отсутствующее в XML свойство **создаётся** (типовые опущенные свойства вроде `FullTextSearch`, `DataHistory`);
+неизвестное имя свойства (опечатка) → **ошибка** (а не тихий no-op). Набор допустимых имён — свойства
+соответствующего типа объекта.
 
 ## Complex properties
 
