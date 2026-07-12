@@ -179,7 +179,14 @@
 							<xr:ValueChange>Clear</xr:ValueChange>
 						</xr:Link>
 					</ChoiceParameterLinks>
-					<ChoiceParameters />
+					<ChoiceParameters>
+						<app:item name="Отбор.ПометкаУдаления">
+							<app:value xsi:type="xs:boolean">false</app:value>
+						</app:item>
+						<app:item name="Отбор.Ссылка">
+							<app:value xsi:type="xr:DesignTimeRef">Catalog.Спр.EmptyRef</app:value>
+						</app:item>
+					</ChoiceParameters>
 					<QuickChoice>Auto</QuickChoice>
 					<CreateOnInput>Auto</CreateOnInput>
 					<ChoiceForm>Catalog.Спр.Form.ФормаВыбора</ChoiceForm>

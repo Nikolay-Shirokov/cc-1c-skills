@@ -20,7 +20,11 @@
         "Контр": {
           "ChoiceForm": "Catalog.Спр.Form.ФормаВыбора",
           "ChoiceParameterLinks": ["Отбор.Владелец=Ссылка"],
-          "LinkByType": { "dataPath": "Ссылка", "linkItem": 0 }
+          "LinkByType": { "dataPath": "Ссылка", "linkItem": 0 },
+          "ChoiceParameters": [
+            { "name": "Отбор.ПометкаУдаления", "value": false },
+            { "name": "Отбор.Ссылка", "value": "Catalog.Спр.EmptyRef" }
+          ]
         },
         "Сумма": { "MinValue": 0, "MaxValue": 1000000 }
       }

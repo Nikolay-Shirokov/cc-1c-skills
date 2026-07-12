@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-edit v1.15 — Edit existing 1C metadata object XML (+structural attr props Format/EditFormat/ToolTip/ChoiceForm/MinValue/MaxValue/LinkByType/ChoiceParameterLinks)
+# meta-edit v1.16 — Edit existing 1C metadata object XML (+structural attr props Format/EditFormat/ToolTip/ChoiceForm/MinValue/MaxValue/LinkByType/ChoiceParameterLinks/ChoiceParameters)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -567,6 +567,8 @@ def import_fragment(xml_string):
         f' xmlns:v8="{V8_NS}"'
         f' xmlns:xr="{XR_NS}"'
         f' xmlns:cfg="{CFG_NS}"'
+        f' xmlns:app="http://v8.1c.ru/8.2/managed-application/core"'
+        f' xmlns:ent="http://v8.1c.ru/8.1/data/enterprise"'
         f' xmlns:xs="{XS_NS}">'
         f"{xml_string}</_W>"
     )
@@ -2121,6 +2123,10 @@ def modify_child_elements(modify_def, child_type):
                 if set_attr_property_element(props_el, "ChoiceParameterLinks", build_choice_parameter_links_xml(get_child_indent(props_el), change_value)):
                     info(f"Set {xml_tag} '{elem_name}'.ChoiceParameterLinks")
                     modify_count += 1
+            elif change_prop == "ChoiceParameters":
+                if set_attr_property_element(props_el, "ChoiceParameters", build_choice_parameters_xml(get_child_indent(props_el), change_value)):
+                    info(f"Set {xml_tag} '{elem_name}'.ChoiceParameters")
+                    modify_count += 1
 
             else:
                 # Scalar property change (Indexing, FillChecking, Use, etc.)
@@ -2393,6 +2399,181 @@ def build_choice_parameter_links_xml(indent, cpl):
         parts.append(f"{indent}\t\t<xr:ValueChange>{vc}</xr:ValueChange>")
         parts.append(f"{indent}\t</xr:Link>")
     parts.append(f"{indent}</ChoiceParameterLinks>")
+    return "\r\n".join(parts)
+
+
+# --- Порт из meta-compile: значения параметров выбора (ChoiceParameters) ---
+
+fill_ref_roots = {
+    'перечисление': 'Enum', 'справочник': 'Catalog', 'документ': 'Document',
+    'плансчетов': 'ChartOfAccounts', 'планвидовхарактеристик': 'ChartOfCharacteristicTypes',
+    'планвидоврасчета': 'ChartOfCalculationTypes', 'планвидоврасчёта': 'ChartOfCalculationTypes',
+    'планобмена': 'ExchangePlan', 'бизнеспроцесс': 'BusinessProcess', 'задача': 'Task',
+    'enum': 'Enum', 'catalog': 'Catalog', 'document': 'Document', 'chartofaccounts': 'ChartOfAccounts',
+    'chartofcharacteristictypes': 'ChartOfCharacteristicTypes', 'chartofcalculationtypes': 'ChartOfCalculationTypes',
+    'exchangeplan': 'ExchangePlan', 'businessprocess': 'BusinessProcess', 'task': 'Task',
+}
+fill_empty_ref_words = {'emptyref', 'пустаяссылка'}
+fill_enum_val_words = {'enumvalue', 'значениеперечисления'}
+account_type_values = ('Active', 'Passive', 'ActivePassive')
+fill_ref_kind_root = {
+    'catalogref': 'Catalog', 'documentref': 'Document', 'enumref': 'Enum',
+    'chartofaccountsref': 'ChartOfAccounts', 'chartofcharacteristictypesref': 'ChartOfCharacteristicTypes',
+    'chartofcalculationtypesref': 'ChartOfCalculationTypes', 'exchangeplanref': 'ExchangePlan',
+    'businessprocessref': 'BusinessProcess', 'taskref': 'Task',
+}
+
+
+def convert_to_ch_scalar(s):
+    t = str(s).strip()
+    if re.match(r'^(true|истина)$', t, re.IGNORECASE):
+        return True
+    if re.match(r'^(false|ложь)$', t, re.IGNORECASE):
+        return False
+    if re.match(r'^-?\d+$', t):
+        return int(t)
+    if re.match(r'^-?\d+\.\d+$', t):
+        return float(t)
+    return t
+
+
+def format_fill_num(n):
+    if isinstance(n, float):
+        return str(int(n)) if n == int(n) else repr(n)
+    return str(n)
+
+
+def normalize_fill_ref(s):
+    if not s:
+        return None
+    if re.match(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\.[0-9a-fA-F-]+$', s):
+        return s
+    parts = s.split('.')
+    if len(parts) < 2:
+        return None
+    root = fill_ref_roots.get(parts[0].lower())
+    if not root:
+        return None
+    type_name = parts[1]
+    if root == 'Enum':
+        if len(parts) == 2:
+            return None
+        if len(parts) == 3:
+            if parts[2].lower() in fill_empty_ref_words:
+                return f"Enum.{type_name}.EmptyRef"
+            return f"Enum.{type_name}.EnumValue.{parts[2]}"
+        member = parts[2]
+        rest = '.'.join(parts[3:]) if member.lower() in fill_enum_val_words else '.'.join(parts[2:])
+        return f"Enum.{type_name}.EnumValue.{rest}"
+    tail = list(parts[1:])
+    for i in range(len(tail)):
+        if tail[i].lower() in fill_empty_ref_words:
+            tail[i] = 'EmptyRef'
+    return f"{root}." + '.'.join(tail)
+
+
+def expand_choice_ref_value(value, type_str):
+    if not type_str:
+        return None
+    t = resolve_type_str(type_str)
+    root = None
+    tn = None
+    m = re.match(r'^(\w+Ref)\.(.+)$', t)
+    if m:
+        root = fill_ref_kind_root.get(m.group(1).lower())
+        tn = m.group(2)
+    else:
+        m2 = re.match(r'^([^.]+)\.(.+)$', t)
+        if m2:
+            root = fill_ref_roots.get(m2.group(1).lower())
+            tn = m2.group(2)
+    if not root:
+        return None
+    if str(value).lower() in fill_empty_ref_words:
+        return f"{root}.{tn}.EmptyRef"
+    if root == 'Enum':
+        return f"Enum.{tn}.EnumValue.{value}"
+    return f"{root}.{tn}.{value}"
+
+
+def normalize_choice_value(value):
+    if isinstance(value, bool):
+        return {'XsiType': 'xs:boolean', 'Text': 'true' if value else 'false'}
+    if isinstance(value, (int, float)):
+        return {'XsiType': 'xs:decimal', 'Text': format_fill_num(value)}
+    s = str(value)
+    if s == '':
+        return {'XsiType': 'xs:string', 'Text': ''}
+    if re.match(r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$', s):
+        return {'XsiType': 'xs:dateTime', 'Text': s}
+    ref = normalize_fill_ref(s)
+    if ref:
+        return {'XsiType': 'xr:DesignTimeRef', 'Text': ref}
+    if s in account_type_values:
+        return {'XsiType': 'ent:AccountType', 'Text': s}
+    return {'XsiType': 'xs:string', 'Text': s}
+
+
+def normalize_choice_value_t(value, type_str):
+    if type_str and isinstance(value, str) and '.' not in str(value):
+        ex = expand_choice_ref_value(value, type_str)
+        if ex:
+            return {'XsiType': 'xr:DesignTimeRef', 'Text': ex}
+    return normalize_choice_value(value)
+
+
+def convert_from_ch_param_shorthand(s):
+    eq = s.find('=')
+    if eq < 0:
+        return {'name': s.strip()}
+    name = s[:eq].strip()
+    rest = s[eq + 1:]
+    if ',' in rest:
+        return {'name': name, 'value': [convert_to_ch_scalar(p) for p in rest.split(',')]}
+    return {'name': name, 'value': convert_to_ch_scalar(rest)}
+
+
+def build_choice_parameters_xml(indent, cp):
+    """ChoiceParameters — [{name, type?, value?}] (порт Emit-ChoiceParameters). Требует xmlns:app в import_fragment."""
+    items = cp if isinstance(cp, list) else ([cp] if cp else [])
+    if not items:
+        return f"{indent}<ChoiceParameters/>"
+    parts = [f"{indent}<ChoiceParameters>"]
+    for item in items:
+        if isinstance(item, str):
+            item = convert_from_ch_param_shorthand(item)
+        name = get_ch_el_prop(item, ['name', 'имя'])
+        ptype = get_ch_el_prop(item, ['type', 'тип'])
+        has_val = False
+        val = None
+        if isinstance(item, dict):
+            if 'value' in item:
+                has_val = True
+                val = item['value']
+            elif 'значение' in item:
+                has_val = True
+                val = item['значение']
+        val_is_array = isinstance(val, list)
+        parts.append(f'{indent}\t<app:item name="{esc_xml(str(name) if name is not None else "")}">')
+        if not has_val:
+            parts.append(f'{indent}\t\t<app:value xsi:nil="true"/>')
+        elif val_is_array:
+            parts.append(f'{indent}\t\t<app:value xsi:type="v8:FixedArray">')
+            for v in val:
+                norm = normalize_choice_value_t(v, ptype)
+                if not norm['Text']:
+                    parts.append(f'{indent}\t\t\t<v8:Value xsi:type="{norm["XsiType"]}"/>')
+                else:
+                    parts.append(f'{indent}\t\t\t<v8:Value xsi:type="{norm["XsiType"]}">{esc_xml(norm["Text"])}</v8:Value>')
+            parts.append(f'{indent}\t\t</app:value>')
+        else:
+            norm = normalize_choice_value_t(val, ptype)
+            if not norm['Text']:
+                parts.append(f'{indent}\t\t<app:value xsi:type="{norm["XsiType"]}"/>')
+            else:
+                parts.append(f'{indent}\t\t<app:value xsi:type="{norm["XsiType"]}">{esc_xml(norm["Text"])}</app:value>')
+        parts.append(f'{indent}\t</app:item>')
+    parts.append(f"{indent}</ChoiceParameters>")
     return "\r\n".join(parts)
 
 

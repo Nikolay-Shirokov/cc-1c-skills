@@ -1,4 +1,4 @@
-﻿# meta-edit v1.15 — Edit existing 1C metadata object XML (+structural attr props Format/EditFormat/ToolTip/ChoiceForm/MinValue/MaxValue/LinkByType/ChoiceParameterLinks)
+﻿# meta-edit v1.16 — Edit existing 1C metadata object XML (+structural attr props Format/EditFormat/ToolTip/ChoiceForm/MinValue/MaxValue/LinkByType/ChoiceParameterLinks/ChoiceParameters)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[string]$DefinitionFile,
@@ -607,6 +607,8 @@ function Import-Fragment([string]$xmlString) {
     xmlns:v8="http://v8.1c.ru/8.1/data/core"
     xmlns:xr="http://v8.1c.ru/8.3/xcf/readable"
     xmlns:cfg="http://v8.1c.ru/8.1/data/enterprise/current-config"
+    xmlns:app="http://v8.1c.ru/8.2/managed-application/core"
+    xmlns:ent="http://v8.1c.ru/8.1/data/enterprise"
     xmlns:xs="http://www.w3.org/2001/XMLSchema">$xmlString</_W>
 "@
 	$frag = New-Object System.Xml.XmlDocument
@@ -2280,6 +2282,11 @@ function Modify-ChildElements($modifyDef, [string]$childType) {
 						Info "Set $xmlTag '$elemName'.ChoiceParameterLinks"; $script:modifyCount++
 					}
 				}
+				"ChoiceParameters" {
+					if (Set-AttrPropertyElement $propsEl "ChoiceParameters" (Build-ChoiceParametersXml (Get-ChildIndent $propsEl) $changeValue)) {
+						Info "Set $xmlTag '$elemName'.ChoiceParameters"; $script:modifyCount++
+					}
+				}
 				default {
 					# Scalar property change (Indexing, FillChecking, Use, etc.)
 					$scalarEl = $null
@@ -2541,6 +2548,153 @@ function Build-ChoiceParameterLinksXml([string]$indent, $cpl) {
 		$sb.Append("`r`n$indent`t</xr:Link>") | Out-Null
 	}
 	$sb.Append("`r`n$indent</ChoiceParameterLinks>") | Out-Null
+	return $sb.ToString()
+}
+
+# --- Порт из meta-compile: значения параметров выбора (ChoiceParameters) ---
+
+$script:fillRefRoots = @{
+	'перечисление'='Enum'; 'справочник'='Catalog'; 'документ'='Document';
+	'плансчетов'='ChartOfAccounts'; 'планвидовхарактеристик'='ChartOfCharacteristicTypes';
+	'планвидоврасчета'='ChartOfCalculationTypes'; 'планвидоврасчёта'='ChartOfCalculationTypes';
+	'планобмена'='ExchangePlan'; 'бизнеспроцесс'='BusinessProcess'; 'задача'='Task';
+	'enum'='Enum'; 'catalog'='Catalog'; 'document'='Document'; 'chartofaccounts'='ChartOfAccounts';
+	'chartofcharacteristictypes'='ChartOfCharacteristicTypes'; 'chartofcalculationtypes'='ChartOfCalculationTypes';
+	'exchangeplan'='ExchangePlan'; 'businessprocess'='BusinessProcess'; 'task'='Task'
+}
+$script:fillEmptyRefWords = @('emptyref','пустаяссылка')
+$script:fillEnumValWords  = @('enumvalue','значениеперечисления')
+$script:accountTypeValues = @('Active','Passive','ActivePassive')
+$script:fillRefKindRoot = @{
+	'catalogref'='Catalog'; 'documentref'='Document'; 'enumref'='Enum';
+	'chartofaccountsref'='ChartOfAccounts'; 'chartofcharacteristictypesref'='ChartOfCharacteristicTypes';
+	'chartofcalculationtypesref'='ChartOfCalculationTypes'; 'exchangeplanref'='ExchangePlan';
+	'businessprocessref'='BusinessProcess'; 'taskref'='Task'
+}
+
+function ConvertTo-ChScalar([string]$s) {
+	$t = "$s".Trim()
+	if ($t -match '^(?i:true|истина)$')  { return $true }
+	if ($t -match '^(?i:false|ложь)$') { return $false }
+	if ($t -match '^-?\d+$')       { return [int]$t }
+	if ($t -match '^-?\d+\.\d+$')  { return [double]::Parse($t, [System.Globalization.CultureInfo]::InvariantCulture) }
+	return $t
+}
+
+function Format-FillNum($n) {
+	if ($n -is [double] -or $n -is [decimal]) { return $n.ToString([System.Globalization.CultureInfo]::InvariantCulture) }
+	return "$n"
+}
+
+function Normalize-FillRef([string]$s) {
+	if ([string]::IsNullOrEmpty($s)) { return $null }
+	if ($s -match '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\.[0-9a-fA-F-]+$') { return $s }
+	$parts = $s -split '\.'
+	if ($parts.Count -lt 2) { return $null }
+	$root = $script:fillRefRoots[$parts[0].ToLower()]
+	if (-not $root) { return $null }
+	$typeName = $parts[1]
+	if ($root -eq 'Enum') {
+		if ($parts.Count -eq 2) { return $null }
+		if ($parts.Count -eq 3) {
+			if ($script:fillEmptyRefWords -contains $parts[2].ToLower()) { return "Enum.$typeName.EmptyRef" }
+			return "Enum.$typeName.EnumValue.$($parts[2])"
+		}
+		$member = $parts[2]
+		if ($script:fillEnumValWords -contains $member.ToLower()) { $rest = $parts[3..($parts.Count-1)] -join '.' }
+		else { $rest = $parts[2..($parts.Count-1)] -join '.' }
+		return "Enum.$typeName.EnumValue.$rest"
+	}
+	$tail = @($parts[1..($parts.Count-1)])
+	for ($i = 0; $i -lt $tail.Count; $i++) {
+		if ($script:fillEmptyRefWords -contains $tail[$i].ToLower()) { $tail[$i] = 'EmptyRef' }
+	}
+	return "$root." + ($tail -join '.')
+}
+
+function Expand-ChoiceRefValue([string]$value, [string]$typeStr) {
+	if (-not $typeStr) { return $null }
+	$t = Resolve-TypeStr $typeStr
+	$root = $null; $tn = $null
+	if ($t -match '^(\w+Ref)\.(.+)$') { $root = $script:fillRefKindRoot[$Matches[1].ToLower()]; $tn = $Matches[2] }
+	elseif ($t -match '^([^.]+)\.(.+)$') { $root = $script:fillRefRoots[$Matches[1].ToLower()]; $tn = $Matches[2] }
+	if (-not $root) { return $null }
+	if ($script:fillEmptyRefWords -contains "$value".ToLower()) { return "$root.$tn.EmptyRef" }
+	if ($root -eq 'Enum') { return "Enum.$tn.EnumValue.$value" }
+	return "$root.$tn.$value"
+}
+
+function Normalize-ChoiceValue($value) {
+	if ($value -is [bool]) { return @{ XsiType='xs:boolean'; Text=$(if ($value) { 'true' } else { 'false' }) } }
+	if ($value -is [int] -or $value -is [long] -or $value -is [double] -or $value -is [decimal]) {
+		return @{ XsiType='xs:decimal'; Text=(Format-FillNum $value) }
+	}
+	$s = "$value"
+	if ($s -eq '') { return @{ XsiType='xs:string'; Text='' } }
+	if ($s -match '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$') { return @{ XsiType='xs:dateTime'; Text=$s } }
+	$ref = Normalize-FillRef $s
+	if ($ref) { return @{ XsiType='xr:DesignTimeRef'; Text=$ref } }
+	if ($script:accountTypeValues -contains $s) { return @{ XsiType='ent:AccountType'; Text=$s } }
+	return @{ XsiType='xs:string'; Text=$s }
+}
+
+function Normalize-ChoiceValueT($value, [string]$typeStr) {
+	if ($typeStr -and ($value -is [string]) -and (-not "$value".Contains('.'))) {
+		$ex = Expand-ChoiceRefValue "$value" $typeStr
+		if ($ex) { return @{ XsiType='xr:DesignTimeRef'; Text=$ex } }
+	}
+	return Normalize-ChoiceValue $value
+}
+
+function ConvertFrom-ChParamShorthand([string]$s) {
+	$eq = $s.IndexOf('=')
+	if ($eq -lt 0) { return @{ name = $s.Trim() } }
+	$name = $s.Substring(0, $eq).Trim(); $rest = $s.Substring($eq + 1)
+	if ($rest -match ',') {
+		$vals = @(); foreach ($p in ($rest -split ',')) { $vals += ,(ConvertTo-ChScalar $p) }
+		return @{ name = $name; value = $vals }
+	}
+	return @{ name = $name; value = (ConvertTo-ChScalar $rest) }
+}
+
+# ChoiceParameters — [{name, type?, value?}] (порт Emit-ChoiceParameters). Значение на app:value (xsi:type=тип);
+# массив → v8:FixedArray с v8:Value; без value → nil. Требует xmlns:app в Import-Fragment.
+function Build-ChoiceParametersXml([string]$indent, $cp) {
+	if (-not $cp -or @($cp).Count -eq 0) { return "$indent<ChoiceParameters/>" }
+	$sb = New-Object System.Text.StringBuilder
+	$sb.Append("$indent<ChoiceParameters>") | Out-Null
+	foreach ($item in @($cp)) {
+		if ($item -is [string]) { $item = ConvertFrom-ChParamShorthand $item }
+		$name = Get-ChElProp $item @('name','имя')
+		$ptype = Get-ChElProp $item @('type','тип')
+		$hasVal = $false; $val = $null
+		if ($item -is [System.Collections.IDictionary]) {
+			if ($item.Contains('value')) { $hasVal = $true; $val = $item['value'] }
+			elseif ($item.Contains('значение')) { $hasVal = $true; $val = $item['значение'] }
+		} elseif ($item.PSObject) {
+			if ($item.PSObject.Properties['value']) { $hasVal = $true; $val = $item.PSObject.Properties['value'].Value }
+			elseif ($item.PSObject.Properties['значение']) { $hasVal = $true; $val = $item.PSObject.Properties['значение'].Value }
+		}
+		$valIsArray = ($val -is [System.Array]) -or ($val -is [System.Collections.IList] -and $val -isnot [string])
+		$sb.Append("`r`n$indent`t<app:item name=`"$(Esc-Xml "$name")`">") | Out-Null
+		if (-not $hasVal) {
+			$sb.Append("`r`n$indent`t`t<app:value xsi:nil=`"true`"/>") | Out-Null
+		} elseif ($valIsArray) {
+			$sb.Append("`r`n$indent`t`t<app:value xsi:type=`"v8:FixedArray`">") | Out-Null
+			foreach ($v in $val) {
+				$norm = Normalize-ChoiceValueT $v $ptype
+				if ([string]::IsNullOrEmpty($norm.Text)) { $sb.Append("`r`n$indent`t`t`t<v8:Value xsi:type=`"$($norm.XsiType)`"/>") | Out-Null }
+				else { $sb.Append("`r`n$indent`t`t`t<v8:Value xsi:type=`"$($norm.XsiType)`">$(Esc-Xml $norm.Text)</v8:Value>") | Out-Null }
+			}
+			$sb.Append("`r`n$indent`t`t</app:value>") | Out-Null
+		} else {
+			$norm = Normalize-ChoiceValueT $val $ptype
+			if ([string]::IsNullOrEmpty($norm.Text)) { $sb.Append("`r`n$indent`t`t<app:value xsi:type=`"$($norm.XsiType)`"/>") | Out-Null }
+			else { $sb.Append("`r`n$indent`t`t<app:value xsi:type=`"$($norm.XsiType)`">$(Esc-Xml $norm.Text)</app:value>") | Out-Null }
+		}
+		$sb.Append("`r`n$indent`t</app:item>") | Out-Null
+	}
+	$sb.Append("`r`n$indent</ChoiceParameters>") | Out-Null
 	return $sb.ToString()
 }
 
