@@ -103,14 +103,18 @@ function loadV8Context() {
   if (existsSync(projectFile)) {
     try { v8bin = JSON.parse(readFileSync(projectFile, 'utf8')).v8path || null; } catch { /* ignore */ }
   }
-  let v8exe = resolveV8Exe(v8bin);
-  if (!v8exe) {
-    // v8path пуст/не резолвится — пробуем авто-детект (актуально на маке с /opt/1cv8/<ver>/).
-    const detected = autodetectV8bin();
-    if (detected) { v8bin = detected; v8exe = resolveV8Exe(detected); }
+  if (v8bin) {
+    // v8path указывает прямо на исполняемый файл (1cv8/ibcmd) — используем как есть, не подменяя авто-детектом.
+    // Так verify умеет гонять цикл через ibcmd (db-* навыки сами выбирают движок по basename).
+    if (existsSync(v8bin) && statSync(v8bin).isFile()) return { v8path: v8bin, v8exe: v8bin };
+    const v8exe = resolveV8Exe(v8bin);
+    // Явно заданный, но неразрешимый путь — это ошибка конфигурации, НЕ повод молча брать другую платформу.
+    return v8exe ? { v8path: v8bin, v8exe } : null;
   }
-  if (!v8exe) return null;
-  return { v8path: v8bin, v8exe };
+  // v8path не задан — авто-детект (актуально на маке с /opt/1cv8/<ver>/).
+  const detected = autodetectV8bin();
+  if (!detected) return null;
+  return { v8path: detected, v8exe: resolveV8Exe(detected) };
 }
 
 // ─── Script execution ───────────────────────────────────────────────────────
