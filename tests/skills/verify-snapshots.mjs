@@ -35,6 +35,8 @@ Options:
   --skill <name>           Run only cases for the given skill (e.g. form-compile)
   --case <name>            Run only the case with this name
   --runtime <ps|python>    Which script port to run (default: powershell)
+  --v8path <path>          1C executable/dir override (e.g. .../ibcmd to run via ibcmd).
+                           Precedence: --v8path > .v8-project.json > auto-detect.
   --keep                   Keep generated work directories on disk after run
   -v, --verbose            Verbose output
   -h, --help, /?           Show this help and exit
@@ -42,7 +44,7 @@ Options:
 }
 
 function parseArgs(argv) {
-  const args = { skill: null, caseName: null, runtime: 'powershell', keep: false, verbose: false, help: false };
+  const args = { skill: null, caseName: null, runtime: 'powershell', v8path: null, keep: false, verbose: false, help: false };
   const rest = argv.slice(2);
   for (let i = 0; i < rest.length; i++) {
     const a = rest[i];
@@ -50,6 +52,7 @@ function parseArgs(argv) {
     if (a === '--skill' && rest[i + 1]) { args.skill = rest[++i]; continue; }
     if (a === '--case' && rest[i + 1]) { args.caseName = rest[++i]; continue; }
     if (a === '--runtime' && rest[i + 1]) { args.runtime = rest[++i]; continue; }
+    if (a === '--v8path' && rest[i + 1]) { args.v8path = rest[++i]; continue; }
     if (a === '--keep') { args.keep = true; continue; }
     if (a === '--verbose' || a === '-v') { args.verbose = true; continue; }
   }
@@ -61,8 +64,11 @@ function parseArgs(argv) {
 // Имя исполняемого файла платформы зависит от ОС: Windows — 1cv8.exe, *nix (macOS/Linux) — 1cv8.
 const V8_EXE = process.platform === 'win32' ? '1cv8.exe' : '1cv8';
 
-// Числовой ключ версии из имени папки (лексикографическая сортировка врёт: "8.3.9" > "8.3.27").
-function versionKey(dir) {
+// Числовой ключ версии из пути к 1cv8 (лексикографическая сортировка врёт: "8.3.9" > "8.3.27").
+// Версия-папка: <ver>/1cv8 (*nix) или <ver>/bin/1cv8.exe (win) — отбрасываем хвост bin, если он есть.
+function versionKey(exePath) {
+  let dir = dirname(exePath);
+  if (basename(dir).toLowerCase() === 'bin') dir = dirname(dir);
   return (basename(dir).match(/\d+/g) || []).map(Number);
 }
 
@@ -85,23 +91,36 @@ function resolveV8Exe(v8bin) {
   return null;
 }
 
-// Auto-detect платформы, когда v8path не задан в .v8-project.json — берём максимальную версию.
-function autodetectV8bin() {
-  if (process.platform === 'win32') return null;   // на Windows полагаемся на .v8-project.json / bin-раскладку
-  const root = '/opt/1cv8';
-  if (!existsSync(root)) return null;
-  const dirs = readdirSync(root)
-    .map(d => join(root, d))
-    .filter(d => { try { return statSync(d).isDirectory() && existsSync(join(d, V8_EXE)); } catch { return false; } });
-  if (!dirs.length) return null;
-  return dirs.sort((a, b) => compareVersionKeys(versionKey(a), versionKey(b))).pop();
+// Auto-detect платформы, когда v8path не задан — зеркалит resolve_v8path из py/ps1-портов навыков db-*:
+// Windows — Program Files[ (x86)]\1cv8\*\bin\1cv8.exe; *nix — /opt/1cv8/*/1cv8; берём максимальную версию.
+function autodetectV8Exe() {
+  const candidates = [];
+  const scan = (base, sub) => {
+    if (!existsSync(base)) return;
+    for (const d of readdirSync(base)) {
+      const exe = sub ? join(base, d, sub, V8_EXE) : join(base, d, V8_EXE);
+      if (existsSync(exe)) candidates.push(exe);
+    }
+  };
+  if (process.platform === 'win32') {
+    scan('C:\\Program Files\\1cv8', 'bin');
+    scan('C:\\Program Files (x86)\\1cv8', 'bin');
+  } else {
+    scan('/opt/1cv8', null);
+  }
+  if (!candidates.length) return null;
+  return candidates.sort((a, b) => compareVersionKeys(versionKey(a), versionKey(b))).pop();
 }
 
-function loadV8Context() {
-  const projectFile = join(REPO_ROOT, '.v8-project.json');
-  let v8bin = null;
-  if (existsSync(projectFile)) {
-    try { v8bin = JSON.parse(readFileSync(projectFile, 'utf8')).v8path || null; } catch { /* ignore */ }
+// Приоритет резолва платформы зеркалит навыки db-* (resolve_v8path):
+// явный параметр (--v8path) → .v8-project.json → авто-поиск 1cv8.
+function loadV8Context(override) {
+  let v8bin = override || null;
+  if (!v8bin) {
+    const projectFile = join(REPO_ROOT, '.v8-project.json');
+    if (existsSync(projectFile)) {
+      try { v8bin = JSON.parse(readFileSync(projectFile, 'utf8')).v8path || null; } catch { /* ignore */ }
+    }
   }
   if (v8bin) {
     // v8path указывает прямо на исполняемый файл (1cv8/ibcmd) — используем как есть, не подменяя авто-детектом.
@@ -111,10 +130,9 @@ function loadV8Context() {
     // Явно заданный, но неразрешимый путь — это ошибка конфигурации, НЕ повод молча брать другую платформу.
     return v8exe ? { v8path: v8bin, v8exe } : null;
   }
-  // v8path не задан — авто-детект (актуально на маке с /opt/1cv8/<ver>/).
-  const detected = autodetectV8bin();
-  if (!detected) return null;
-  return { v8path: detected, v8exe: resolveV8Exe(detected) };
+  // v8path не задан — авто-детект (Program Files на win, /opt/1cv8 на маке).
+  const v8exe = autodetectV8Exe();
+  return v8exe ? { v8path: v8exe, v8exe } : null;
 }
 
 // ─── Script execution ───────────────────────────────────────────────────────
@@ -1369,9 +1387,9 @@ async function main() {
   const opts = parseArgs(process.argv);
   if (opts.help) { printHelp(); return; }
 
-  const v8ctx = loadV8Context();
+  const v8ctx = loadV8Context(opts.v8path);
   if (!v8ctx) {
-    console.error('ERROR: 1C platform not found. Check .v8-project.json');
+    console.error('ERROR: 1C platform not found. Pass --v8path, set .v8-project.json, or install to /opt/1cv8 (Program Files on Windows).');
     process.exit(1);
   }
   opts.v8ctx = v8ctx;
