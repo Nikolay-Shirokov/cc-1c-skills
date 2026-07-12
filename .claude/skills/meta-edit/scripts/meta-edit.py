@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-edit v1.14 — Edit existing 1C metadata object XML (+structural attr props Format/EditFormat/ToolTip/ChoiceForm/MinValue/MaxValue)
+# meta-edit v1.15 — Edit existing 1C metadata object XML (+structural attr props Format/EditFormat/ToolTip/ChoiceForm/MinValue/MaxValue/LinkByType/ChoiceParameterLinks)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -2113,6 +2113,14 @@ def modify_child_elements(modify_def, child_type):
                 if set_attr_property_element(props_el, "MaxValue", build_min_max_value_xml("MaxValue", change_value)):
                     info(f"Set {xml_tag} '{elem_name}'.MaxValue")
                     modify_count += 1
+            elif change_prop == "LinkByType":
+                if set_attr_property_element(props_el, "LinkByType", build_link_by_type_xml(get_child_indent(props_el), change_value)):
+                    info(f"Set {xml_tag} '{elem_name}'.LinkByType")
+                    modify_count += 1
+            elif change_prop == "ChoiceParameterLinks":
+                if set_attr_property_element(props_el, "ChoiceParameterLinks", build_choice_parameter_links_xml(get_child_indent(props_el), change_value)):
+                    info(f"Set {xml_tag} '{elem_name}'.ChoiceParameterLinks")
+                    modify_count += 1
 
             else:
                 # Scalar property change (Indexing, FillChecking, Use, etc.)
@@ -2264,6 +2272,128 @@ def build_min_max_value_xml(tag, val):
         return f'<{tag} xsi:nil="true"/>'
     t = 'xs:string' if isinstance(val, str) else 'xs:decimal'
     return f'<{tag} xsi:type="{t}">{esc_xml(str(val))}</{tag}>'
+
+
+# --- Порт из meta-compile: развёртка путей данных + связи выбора / тип по ссылке (structural modify) ---
+
+def get_ch_el_prop(obj, names):
+    """Свойство из dict по списку синонимов (первый найденный, иначе None)."""
+    if obj is None:
+        return None
+    if isinstance(obj, dict):
+        for n in names:
+            if n in obj:
+                return obj[n]
+    return None
+
+
+# Пары EN↔RU стандартных реквизитов Catalog/Document (для resolve_std_attr_en; py-карты плоские, восстанавливаем).
+_STD_ATTR_BY_CTX = {
+    'Catalog': [('Ref', 'Ссылка'), ('DeletionMark', 'ПометкаУдаления'), ('Predefined', 'Предопределенный'),
+                ('PredefinedDataName', 'ИмяПредопределенныхДанных'), ('Code', 'Код'), ('Description', 'Наименование'),
+                ('Owner', 'Владелец'), ('Parent', 'Родитель'), ('IsFolder', 'ЭтоГруппа')],
+    'Document': [('Ref', 'Ссылка'), ('DeletionMark', 'ПометкаУдаления'), ('Date', 'Дата'),
+                 ('Number', 'Номер'), ('Posted', 'Проведен')],
+}
+
+
+def resolve_std_attr_en(name):
+    """Стандартный реквизит рус/англ → английский (Catalog/Document)."""
+    pairs = _STD_ATTR_BY_CTX.get(obj_type)
+    if not pairs:
+        return None
+    nl = str(name).lower()
+    for en, ru in pairs:
+        if nl == en.lower() or nl == ru.lower():
+            return en
+    return None
+
+
+def expand_data_path(dp):
+    """Прощающий ввод пути данных: короткое имя реквизита → полный путь объекта (порт Expand-DataPath)."""
+    if not dp:
+        return dp
+    s = str(dp)
+    if re.search(r'[:/]', s):
+        return s
+    if re.match(r'^-?\d+$', s):
+        return s
+    if re.match(r'^(StandardAttribute|Attribute)\.', s):
+        return f"{obj_type}.{obj_name}.{s}"
+    if '.' not in s:
+        en = resolve_std_attr_en(s)
+        if en:
+            return f"{obj_type}.{obj_name}.StandardAttribute.{en}"
+        return f"{obj_type}.{obj_name}.Attribute.{s}"
+    return s
+
+
+def convert_from_ch_link_shorthand(s):
+    """Shorthand "name=path" | "name=path:Clear|DontChange" → {name, dataPath, valueChange?}."""
+    eq = s.find('=')
+    if eq < 0:
+        return {'name': s.strip()}
+    o = {'name': s[:eq].strip()}
+    rest = s[eq + 1:].strip()
+    m = re.match(r'^(.*):(Clear|DontChange|очистить|неизменять)$', rest, re.IGNORECASE)
+    if m:
+        o['dataPath'] = m.group(1).strip()
+        o['valueChange'] = m.group(2)
+    else:
+        o['dataPath'] = rest
+    return o
+
+
+def build_link_by_type_xml(indent, spec):
+    """LinkByType — {dataPath, linkItem?} (порт Emit-LinkByType)."""
+    if not spec:
+        return f"{indent}<LinkByType/>"
+    if isinstance(spec, str):
+        dp = spec
+        li = 0
+    else:
+        dp = str(get_ch_el_prop(spec, ['dataPath', 'path', 'путь']) or '')
+        li_raw = get_ch_el_prop(spec, ['linkItem', 'элементСвязи'])
+        li = li_raw if li_raw is not None else 0
+    if not dp:
+        return f"{indent}<LinkByType/>"
+    dp = expand_data_path(dp)
+    return "\r\n".join([
+        f"{indent}<LinkByType>",
+        f"{indent}\t<xr:DataPath>{esc_xml(str(dp))}</xr:DataPath>",
+        f"{indent}\t<xr:LinkItem>{li}</xr:LinkItem>",
+        f"{indent}</LinkByType>",
+    ])
+
+
+def build_choice_parameter_links_xml(indent, cpl):
+    """ChoiceParameterLinks — [{name, dataPath, valueChange?}] (порт Emit-ChoiceParameterLinks)."""
+    items = cpl if isinstance(cpl, list) else ([cpl] if cpl else [])
+    if not items:
+        return f"{indent}<ChoiceParameterLinks/>"
+    parts = [f"{indent}<ChoiceParameterLinks>"]
+    for lk in items:
+        if isinstance(lk, str):
+            lk = convert_from_ch_link_shorthand(lk)
+        name = get_ch_el_prop(lk, ['name', 'имя'])
+        dp = expand_data_path(get_ch_el_prop(lk, ['dataPath', 'path', 'путь']))
+        vc_raw = get_ch_el_prop(lk, ['valueChange', 'режимИзменения'])
+        vc = 'Clear'
+        if vc_raw:
+            low = str(vc_raw).lower()
+            if re.match(r'^(clear|очистить|очистка)$', low):
+                vc = 'Clear'
+            elif re.match(r'^(dontchange|неизменять|неменять|нет)$', low):
+                vc = 'DontChange'
+            else:
+                vc = str(vc_raw)
+        parts.append(f"{indent}\t<xr:Link>")
+        parts.append(f"{indent}\t\t<xr:Name>{esc_xml(str(name) if name is not None else '')}</xr:Name>")
+        parts.append(f'{indent}\t\t<xr:DataPath xsi:type="xs:string">{esc_xml(str(dp) if dp is not None else "")}</xr:DataPath>')
+        parts.append(f"{indent}\t\t<xr:ValueChange>{vc}</xr:ValueChange>")
+        parts.append(f"{indent}\t</xr:Link>")
+    parts.append(f"{indent}</ChoiceParameterLinks>")
+    return "\r\n".join(parts)
 
 
 def find_property_element(prop_name):

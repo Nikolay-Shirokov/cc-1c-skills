@@ -17,7 +17,11 @@
     "modify": {
       "attributes": {
         "Дата": { "Format": "ДФ=dd.MM.yyyy", "EditFormat": "ДФ=dd.MM.yyyy", "ToolTip": "Дата документа" },
-        "Контр": { "ChoiceForm": "Catalog.Спр.Form.ФормаВыбора" },
+        "Контр": {
+          "ChoiceForm": "Catalog.Спр.Form.ФормаВыбора",
+          "ChoiceParameterLinks": ["Отбор.Владелец=Ссылка"],
+          "LinkByType": { "dataPath": "Ссылка", "linkItem": 0 }
+        },
         "Сумма": { "MinValue": 0, "MaxValue": 1000000 }
       }
     }

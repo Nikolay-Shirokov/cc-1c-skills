@@ -1,4 +1,4 @@
-﻿# meta-edit v1.14 — Edit existing 1C metadata object XML (+structural attr props Format/EditFormat/ToolTip/ChoiceForm/MinValue/MaxValue)
+﻿# meta-edit v1.15 — Edit existing 1C metadata object XML (+structural attr props Format/EditFormat/ToolTip/ChoiceForm/MinValue/MaxValue/LinkByType/ChoiceParameterLinks)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[string]$DefinitionFile,
@@ -2270,6 +2270,16 @@ function Modify-ChildElements($modifyDef, [string]$childType) {
 						Info "Set $xmlTag '$elemName'.MaxValue"; $script:modifyCount++
 					}
 				}
+				"LinkByType" {
+					if (Set-AttrPropertyElement $propsEl "LinkByType" (Build-LinkByTypeXml (Get-ChildIndent $propsEl) $changeValue)) {
+						Info "Set $xmlTag '$elemName'.LinkByType"; $script:modifyCount++
+					}
+				}
+				"ChoiceParameterLinks" {
+					if (Set-AttrPropertyElement $propsEl "ChoiceParameterLinks" (Build-ChoiceParameterLinksXml (Get-ChildIndent $propsEl) $changeValue)) {
+						Info "Set $xmlTag '$elemName'.ChoiceParameterLinks"; $script:modifyCount++
+					}
+				}
 				default {
 					# Scalar property change (Indexing, FillChecking, Use, etc.)
 					$scalarEl = $null
@@ -2435,6 +2445,103 @@ function Build-MinMaxValueXml([string]$tag, $val) {
 	if ($null -eq $val -or "$val" -eq '') { return "<$tag xsi:nil=`"true`"/>" }
 	$t = if ($val -is [string]) { 'xs:string' } else { 'xs:decimal' }
 	return "<$tag xsi:type=`"$t`">$(Esc-Xml "$val")</$tag>"
+}
+
+# --- Порт из meta-compile: развёртка путей данных + связи выбора / тип по ссылке (structural modify) ---
+
+# Свойство из dict/PSCustomObject по списку синонимов (первый найденный, иначе $null).
+function Get-ChElProp($obj, [string[]]$names) {
+	if ($null -eq $obj) { return $null }
+	foreach ($n in $names) {
+		if ($obj -is [System.Collections.IDictionary]) { if ($obj.Contains($n)) { return $obj[$n] } }
+		elseif ($obj.PSObject -and $obj.PSObject.Properties[$n]) { return $obj.PSObject.Properties[$n].Value }
+	}
+	return $null
+}
+
+# Стандартный реквизит рус/англ → английский (для Catalog/Document); использует существующие reserved-карты.
+function Resolve-StdAttrEn([string]$name) {
+	$ctx = switch ("$script:objType") { 'Catalog' { 'catalog' } 'Document' { 'document' } default { $null } }
+	if (-not $ctx) { return $null }
+	$stdSet = $script:reservedByContext[$ctx]
+	foreach ($en in $stdSet) {
+		$ru = $script:reservedAttrNames[$en]
+		if (($name -ieq $en) -or ($ru -and $name -ieq $ru)) { return $en }
+	}
+	return $null
+}
+
+# Прощающий ввод пути данных: короткое имя реквизита → полный путь объекта (порт Expand-DataPath).
+function Expand-DataPath([string]$dp) {
+	if (-not $dp) { return $dp }
+	$s = "$dp"
+	if ($s -match '[:/]') { return $s }
+	if ($s -match '^-?\d+$') { return $s }
+	if ($s -match '^(StandardAttribute|Attribute)\.') { return "$($script:objType).$($script:objName).$s" }
+	if (-not $s.Contains('.')) {
+		$en = Resolve-StdAttrEn $s
+		if ($en) { return "$($script:objType).$($script:objName).StandardAttribute.$en" }
+		return "$($script:objType).$($script:objName).Attribute.$s"
+	}
+	return $s
+}
+
+# Shorthand "name=path" | "name=path:Clear|DontChange" → {name, dataPath, valueChange?}.
+function ConvertFrom-ChLinkShorthand([string]$s) {
+	$eq = $s.IndexOf('=')
+	if ($eq -lt 0) { return @{ name = $s.Trim() } }
+	$o = @{ name = $s.Substring(0, $eq).Trim() }; $rest = $s.Substring($eq + 1).Trim()
+	if ($rest -match '^(.*):(?i:(Clear|DontChange|очистить|неизменять))$') { $o['dataPath'] = $matches[1].Trim(); $o['valueChange'] = $matches[2] }
+	else { $o['dataPath'] = $rest }
+	return $o
+}
+
+# LinkByType — {dataPath, linkItem?} (порт Emit-LinkByType). Строка → dataPath, linkItem=0.
+function Build-LinkByTypeXml([string]$indent, $spec) {
+	if (-not $spec) { return "$indent<LinkByType/>" }
+	if ($spec -is [string]) { $dp = "$spec"; $li = 0 }
+	else {
+		$dp = "$(Get-ChElProp $spec @('dataPath','path','путь'))"
+		$liRaw = Get-ChElProp $spec @('linkItem','элементСвязи')
+		$li = if ($null -ne $liRaw) { $liRaw } else { 0 }
+	}
+	if (-not $dp) { return "$indent<LinkByType/>" }
+	$dp = Expand-DataPath $dp
+	$lines = @(
+		"$indent<LinkByType>"
+		"$indent`t<xr:DataPath>$(Esc-Xml "$dp")</xr:DataPath>"
+		"$indent`t<xr:LinkItem>$li</xr:LinkItem>"
+		"$indent</LinkByType>"
+	)
+	return $lines -join "`r`n"
+}
+
+# ChoiceParameterLinks — [{name, dataPath, valueChange?}] (порт Emit-ChoiceParameterLinks). valueChange дефолт Clear.
+function Build-ChoiceParameterLinksXml([string]$indent, $cpl) {
+	if (-not $cpl -or @($cpl).Count -eq 0) { return "$indent<ChoiceParameterLinks/>" }
+	$sb = New-Object System.Text.StringBuilder
+	$sb.Append("$indent<ChoiceParameterLinks>") | Out-Null
+	foreach ($lk in @($cpl)) {
+		if ($lk -is [string]) { $lk = ConvertFrom-ChLinkShorthand $lk }
+		$name = Get-ChElProp $lk @('name','имя')
+		$dp = Expand-DataPath (Get-ChElProp $lk @('dataPath','path','путь'))
+		$vcRaw = Get-ChElProp $lk @('valueChange','режимИзменения')
+		$vc = 'Clear'
+		if ($vcRaw) {
+			$vc = switch -Regex ("$vcRaw".ToLower()) {
+				'^(clear|очистить|очистка)$'             { 'Clear'; break }
+				'^(dontchange|неизменять|неменять|нет)$' { 'DontChange'; break }
+				default                                  { "$vcRaw" }
+			}
+		}
+		$sb.Append("`r`n$indent`t<xr:Link>") | Out-Null
+		$sb.Append("`r`n$indent`t`t<xr:Name>$(Esc-Xml "$name")</xr:Name>") | Out-Null
+		$sb.Append("`r`n$indent`t`t<xr:DataPath xsi:type=`"xs:string`">$(Esc-Xml "$dp")</xr:DataPath>") | Out-Null
+		$sb.Append("`r`n$indent`t`t<xr:ValueChange>$vc</xr:ValueChange>") | Out-Null
+		$sb.Append("`r`n$indent`t</xr:Link>") | Out-Null
+	}
+	$sb.Append("`r`n$indent</ChoiceParameterLinks>") | Out-Null
+	return $sb.ToString()
 }
 
 function Find-PropertyElement([string]$propName) {
