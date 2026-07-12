@@ -24,31 +24,36 @@
 | RegisterRecords | Document | `AccumulationRegister.XXX` |
 | BasedOn | Document, Catalog, BP, Task | `Document.XXX` |
 | InputByString | Catalog, ChartOf*, Task | `StandardAttribute.Description` |
+| DataLockFields | Catalog, Document, регистры и др. | `Организация` (короткое имя реквизита → полный путь) |
+| RegisteredDocuments | DocumentJournal | `Document.XXX` |
 
-### add-owner / add-registerRecord / add-basedOn
+### add-owner / add-registerRecord / add-basedOn / add-registeredDocument
 
 Полное имя метаданных `MetaType.Name`:
 ```powershell
 -Operation add-owner -Value "Catalog.Контрагенты ;; Catalog.Организации"
 -Operation add-registerRecord -Value "AccumulationRegister.ОстаткиТоваров"
 -Operation add-basedOn -Value "Document.ЗаказКлиента"
+-Operation add-registeredDocument -Value "Document.РасходныйОрдер"
 ```
 
-### add-inputByString
+### add-inputByString / add-dataLockField
 
-Пути полей (префикс `MetaType.Name.` добавляется автоматически):
+Пути полей (короткое имя реквизита разворачивается в полный путь автоматически):
 ```powershell
 -Operation add-inputByString -Value "StandardAttribute.Description ;; StandardAttribute.Code"
+-Operation add-dataLockField -Value "Организация ;; Контрагент"
 ```
 
-### remove-owner / remove-registerRecord / remove-basedOn / remove-inputByString
+### remove-owner / remove-registerRecord / remove-basedOn / remove-inputByString / remove-dataLockField / remove-registeredDocument
 
 ```powershell
 -Operation remove-owner -Value "Catalog.Контрагенты"
 -Operation remove-inputByString -Value "Catalog.МойСпр.StandardAttribute.Code"
+-Operation remove-dataLockField -Value "Организация"
 ```
 
-### set-owners / set-registerRecords / set-basedOn / set-inputByString
+### set-owners / set-registerRecords / set-basedOn / set-inputByString / set-dataLockFields / set-registeredDocuments
 
 Заменяют **весь список** (в отличие от add/remove):
 ```powershell
