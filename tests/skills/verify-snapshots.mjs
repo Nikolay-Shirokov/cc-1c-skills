@@ -58,16 +58,59 @@ function parseArgs(argv) {
 
 // ─── Platform context ───────────────────────────────────────────────────────
 
+// Имя исполняемого файла платформы зависит от ОС: Windows — 1cv8.exe, *nix (macOS/Linux) — 1cv8.
+const V8_EXE = process.platform === 'win32' ? '1cv8.exe' : '1cv8';
+
+// Числовой ключ версии из имени папки (лексикографическая сортировка врёт: "8.3.9" > "8.3.27").
+function versionKey(dir) {
+  return (basename(dir).match(/\d+/g) || []).map(Number);
+}
+
+function compareVersionKeys(a, b) {
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    const d = (a[i] || 0) - (b[i] || 0);
+    if (d) return d;
+  }
+  return 0;
+}
+
+// Резолвит исполняемый файл платформы внутри каталога v8bin.
+// На *nix 1cv8 лежит прямо в <ver>/ (наш /opt/1cv8/<ver>/1cv8), на Windows — в <ver>/bin/.
+function resolveV8Exe(v8bin) {
+  if (!v8bin) return null;
+  const direct = join(v8bin, V8_EXE);
+  if (existsSync(direct)) return direct;
+  const inBin = join(v8bin, 'bin', V8_EXE);
+  if (existsSync(inBin)) return inBin;
+  return null;
+}
+
+// Auto-detect платформы, когда v8path не задан в .v8-project.json — берём максимальную версию.
+function autodetectV8bin() {
+  if (process.platform === 'win32') return null;   // на Windows полагаемся на .v8-project.json / bin-раскладку
+  const root = '/opt/1cv8';
+  if (!existsSync(root)) return null;
+  const dirs = readdirSync(root)
+    .map(d => join(root, d))
+    .filter(d => { try { return statSync(d).isDirectory() && existsSync(join(d, V8_EXE)); } catch { return false; } });
+  if (!dirs.length) return null;
+  return dirs.sort((a, b) => compareVersionKeys(versionKey(a), versionKey(b))).pop();
+}
+
 function loadV8Context() {
   const projectFile = join(REPO_ROOT, '.v8-project.json');
-  if (!existsSync(projectFile)) return null;
-  try {
-    const proj = JSON.parse(readFileSync(projectFile, 'utf8'));
-    const v8bin = proj.v8path;
-    const v8exe = v8bin ? (existsSync(join(v8bin, '1cv8.exe')) ? join(v8bin, '1cv8.exe') : null) : null;
-    if (!v8exe) return null;
-    return { v8path: v8bin, v8exe };
-  } catch { return null; }
+  let v8bin = null;
+  if (existsSync(projectFile)) {
+    try { v8bin = JSON.parse(readFileSync(projectFile, 'utf8')).v8path || null; } catch { /* ignore */ }
+  }
+  let v8exe = resolveV8Exe(v8bin);
+  if (!v8exe) {
+    // v8path пуст/не резолвится — пробуем авто-детект (актуально на маке с /opt/1cv8/<ver>/).
+    const detected = autodetectV8bin();
+    if (detected) { v8bin = detected; v8exe = resolveV8Exe(detected); }
+  }
+  if (!v8exe) return null;
+  return { v8path: v8bin, v8exe };
 }
 
 // ─── Script execution ───────────────────────────────────────────────────────
