@@ -1,4 +1,4 @@
-// web-test core/session v1.19 — Browser session lifecycle: connect/disconnect/attach/detach, multi-context registry.
+// web-test core/session v1.20 — Browser session lifecycle: connect/disconnect/attach/detach, multi-context registry.
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import { chromium } from 'playwright';
@@ -61,15 +61,23 @@ function findExtension(overridePath) {
  * session-less slot behind; the first engine call then produced a plainly wrong diagnosis
  * ("Section panel is in icon-only mode…"). Measured: 66s wasted, then a lie.
  *
- * Contract: throw ONLY on positive evidence of a startup dialog. A missing client marker is NOT
- * evidence — a login page legitimately never shows it (that is what the fallback below is for).
+ * Two blockers are recognised, both by id:
+ *   #messageBoxText  — the startup message box (no free licence, and any other startup error)
+ *   #authWindow      — the login dialog: the publication wants credentials, which the engine
+ *                      cannot supply. Landing here used to be treated as legitimate ("login
+ *                      page"), but that was fiction: closeModals() presses Escape 5x right after
+ *                      this wait, which dismisses the dialog and leaves a blank page reported as
+ *                      a healthy start. Nobody could ever log in by hand either.
+ *
+ * Contract: throw ONLY on positive evidence — a visible dialog. A missing client marker is NOT
+ * evidence (an unknown or merely slow start must keep its old behaviour), hence the fallback.
  *
  * Anchors are ids, never text: the platform's wording is locale-dependent and only gets quoted
- * into the message. Verified on this stand — on a healthy start #messageBoxText does not exist at
- * all, neither in the loaded client nor at any point while the shell boots (polled every 100ms).
- * The offsetWidth/text conjuncts guard the case where a future build pre-renders it hidden, the
- * way the shell already pre-renders its login form. offsetWidth (not offsetParent — that is null
- * for position:fixed, and #ps0win is an overlay) matches the convention in errors.mjs.
+ * into the message. Verified on this stand — on a healthy start neither #messageBoxText nor
+ * #authWindow exists at all, in the loaded client or at any point while the shell boots (polled
+ * every 100ms, including bpdemo's 19.5s auto-login boot). The offsetWidth/text conjuncts guard a
+ * future build that pre-renders them hidden. offsetWidth (not offsetParent — that is null for
+ * position:fixed, and #ps0win is an overlay) matches the convention in errors.mjs.
  */
 async function waitForClientOrStartupBlock(pg, url, timeout = INIT_TIMEOUT) {
   let outcome;
@@ -78,6 +86,8 @@ async function waitForClientOrStartupBlock(pg, url, timeout = INIT_TIMEOUT) {
       if (document.querySelector('#themesCell_theme_0')) return 'client';
       const box = document.querySelector('#messageBoxText');
       if (box && box.offsetWidth > 0 && box.textContent.trim()) return 'blocked';
+      const auth = document.querySelector('#authWindow');
+      if (auth && auth.offsetWidth > 0) return 'auth';
       return false;
     }, null, { timeout }).then(h => h.jsonValue());
   } catch {
@@ -96,11 +106,28 @@ async function waitForClientOrStartupBlock(pg, url, timeout = INIT_TIMEOUT) {
     const visibleText = (el) => (el && el.offsetWidth > 0) ? (el.innerText || '').trim() : '';
     if (document.querySelector('#themesCell_theme_0')) return null; // the client won after all
     const text = visibleText(document.querySelector('#messageBoxText'));
-    return text ? { text, seances: visibleText(document.querySelector('#seancesToFinish')) } : null;
+    if (text) return { kind: 'blocked', text, seances: visibleText(document.querySelector('#seancesToFinish')) };
+    const auth = document.querySelector('#authWindow');
+    if (auth && auth.offsetWidth > 0) return { kind: 'auth', text: visibleText(auth) };
+    return null;
   }).catch(() => null);
   if (!evidence) return; // flicker — carry on exactly as before
 
   const oneLine = (s) => s.replace(/\s+/g, ' ').trim().slice(0, 300);
+
+  if (evidence.kind === 'auth') {
+    // The publication asks a human for credentials. The engine cannot answer, and until now it
+    // did something worse than fail: it waited 66s and then closeModals()'s Escape dismissed the
+    // dialog, leaving a blank page reported as a healthy start. Note a seance IS already created
+    // here (unlike the licence case) and holds a licence — callers release it before rethrowing.
+    throw new Error(
+      `1C requires interactive login before the web client loads: "${oneLine(evidence.text)}"` +
+      '\n  Движок ввод учётных данных не поддерживает — опубликуйте базу с пользователем' +
+      ' (web-publish -UserName … → Usr=/Pwd= в vrd) либо укажите его в строке соединения.' +
+      `\n  URL: ${url}`
+    );
+  }
+
   throw new Error(
     `1C startup blocked before the web client loaded: "${oneLine(evidence.text)}"` +
     (evidence.seances ? `\n  Сеансы, предложенные платформой к завершению: ${oneLine(evidence.seances)}` : '') +
@@ -160,8 +187,18 @@ export async function connect(url, { extensionPath } = {}) {
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: LOAD_TIMEOUT });
   }
 
-  // Wait for 1C to initialize — or fail fast if the startup shell blocks the client
-  await waitForClientOrStartupBlock(page, url);
+  // Wait for 1C to initialize — or fail fast if the startup shell blocks the client.
+  // MUST run before closeModals(): that presses Escape 5x, which dismisses the auth dialog and
+  // destroys the evidence (measured — one Escape blanks the page).
+  try {
+    await waitForClientOrStartupBlock(page, url);
+  } catch (e) {
+    // On the auth dialog a 1C seance already exists and holds a licence, and killing the process
+    // does NOT release it. cmdStart has no catch and run.mjs does not wrap the command, so the
+    // error escapes and the process dies — release the seance here, while we still can.
+    await softDeadline(disconnect(), 20000, 'disconnect(startup-block)');
+    throw e;
+  }
 
   // Try to close startup modals (Путеводитель etc.)
   await closeModals();

@@ -1,4 +1,4 @@
-// web-test cli/commands/run v1.0 — autonomous connect → exec → disconnect (no server)
+// web-test cli/commands/run v1.1 — autonomous connect → exec → disconnect (no server)
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
@@ -13,7 +13,14 @@ export async function cmdRun(url, fileOrDash) {
     ? await readStdin()
     : readFileSync(resolve(fileOrDash), 'utf-8');
 
-  await browser.connect(url);
+  // Same as cmdStart: a startup blocker is a diagnosis, not a crash. connect() has already
+  // released the seance and closed the browser; a stack trace pointing into session.mjs would
+  // read as an engine bug and send the reader off to debug the wrong thing.
+  try {
+    await browser.connect(url);
+  } catch (e) {
+    die(e.message);
+  }
   const result = await executeScript(code);
   await browser.disconnect();
 
