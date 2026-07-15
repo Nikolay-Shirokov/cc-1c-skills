@@ -33,7 +33,7 @@ export async function cmdTest(rawArgs) {
     stopRecording: 40000,   // ffmpeg has its own 30s inside
     closeContext: 20000,
     disconnect: 30000,
-    hooks: 120000,          // prepare/cleanup/beforeAll/afterAll do real work (db rebuilds)
+    hooks: 120000,          // afterAll/cleanup only — prepare/beforeAll stay unbounded (see below)
     abortAll: 30000,        // whole abort+cleanup sequence for one hung test
     probe: 2000,
   };
@@ -294,7 +294,11 @@ export async function cmdTest(rawArgs) {
 
   const hookLog = (...a) => W.write(`[hooks] ${a.map(String).join(' ')}\n`);
   const hookEnv = { hookArgs, log: hookLog, config };
-  if (hooks.prepare) await bounded(hooks.prepare(hookEnv), D.hooks, 'hooks.prepare');
+  // Deliberately unbounded and allowed to throw: prepare() rebuilds the stand (db-create +
+  // load + update), whose honest duration depends on the application's size — a deadline here
+  // would cut a legitimate rebuild. And its failure must stay fatal: proceeding into a run
+  // without a stand turns one clear error into a screenful of confusing ones.
+  if (hooks.prepare) await hooks.prepare(hookEnv);
 
   /** Force-release every open context (frees 1C licenses), then drop the browser. */
   async function shutdownAll() {
