@@ -7,6 +7,19 @@ export default async function({ a, b, assert, step, log }) {
 
   const unique = 'MultiCtx-' + Date.now();
 
+  await step('пул: c вытеснен под maxContexts=2 (a,b — ровно два сеанса)', async () => {
+    // 14-multi-context-routing оставил контекст `c` открытым. Этот тест объявляет [a,b];
+    // раннер под maxContexts:2 вытесняет LRU-контекст `c`, чтобы открыть `b`. Без пула `c`
+    // копился бы (открыто было бы a,b,c). Проверяем, что лимит удержан и c закрыт.
+    // (При запуске 15 в одиночку `c` и не открывался — length===2 всё равно верно.)
+    const open = await a.listContexts();
+    log(`пул после setup: [${open.join(',')}]`);
+    assert.ok(!open.includes('c'), `c должен быть вытеснен под лимитом, открыто: [${open.join(',')}]`);
+    assert.equal(open.length, 2, `в пуле ровно 2 сеанса, получено ${open.length}: [${open.join(',')}]`);
+    assert.includes(open, 'a', 'a должен быть открыт');
+    assert.includes(open, 'b', 'b должен быть открыт');
+  });
+
   await step('a: открыть Контрагенты, создать новую запись', async () => {
     await a.navigateSection('Склад');
     await a.openCommand('Контрагенты');

@@ -1,4 +1,4 @@
-// web-test cli/commands/test v1.3 — regression test runner
+// web-test cli/commands/test v1.4 — regression test runner
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import { existsSync, writeFileSync, mkdirSync } from 'fs';
 import { resolve, dirname, basename, relative } from 'path';
@@ -9,6 +9,7 @@ import { createAssertions } from '../test-runner/assertions.mjs';
 import { buildSeverityIndex } from '../test-runner/severity.mjs';
 import { writeAllure, buildJUnit, syncAllureExtras } from '../test-runner/reporters.mjs';
 import { discoverTests, resetState } from '../test-runner/discover.mjs';
+import { planEviction, touchLru, dropLru } from '../test-runner/context-pool.mjs';
 
 export async function cmdTest(rawArgs) {
   // Split off everything after `--` — those args belong to user-defined hooks
@@ -86,6 +87,32 @@ export async function cmdTest(rawArgs) {
     die(`defaultContext "${defaultContextName}" not found in contexts: [${Object.keys(contextSpecs).join(', ')}]`);
   }
   if (!url) url = contextSpecs[defaultContextName].url;
+
+  // Context-pool config (license management). All three optional; without them the runner keeps
+  // its legacy behavior: default stays open, contexts accumulate, no eviction.
+  //   maxContexts    — cap on simultaneous 1C sessions (null = unlimited).
+  //   contextPolicy  — 'reuse' (keep open within the cap) | 'strict' (close a test's non-pinned
+  //                    contexts right after it, to release licenses ASAP).
+  //   pinnedContexts — never evicted by LRU. Defaults to [defaultContext] so today's "default is
+  //                    never closed between tests" holds; set [] to make default evictable.
+  let maxContexts = null;
+  if (config.maxContexts != null) {
+    if (!Number.isInteger(config.maxContexts) || config.maxContexts < 1) {
+      die(`Invalid maxContexts=${config.maxContexts} (expected a positive integer or omit for unlimited)`);
+    }
+    maxContexts = config.maxContexts;
+  }
+  const contextPolicy = config.contextPolicy == null ? 'reuse' : config.contextPolicy;
+  if (!['reuse', 'strict'].includes(contextPolicy)) {
+    die(`Invalid contextPolicy="${contextPolicy}" (expected 'reuse' or 'strict')`);
+  }
+  const pinnedContexts = Array.isArray(config.pinnedContexts) ? config.pinnedContexts : [defaultContextName];
+  for (const n of pinnedContexts) {
+    if (!contextSpecs[n]) die(`pinnedContexts entry "${n}" not found in contexts: [${Object.keys(contextSpecs).join(', ')}]`);
+  }
+  const pinnedSet = new Set(pinnedContexts);
+  // LRU usage order — oldest first, freshest last. Drives eviction under a maxContexts cap.
+  const lruOrder = [];
 
   // Apply config defaults (CLI flags override)
   if (!tags && config.tags) tags = config.tags;
@@ -210,8 +237,11 @@ export async function cmdTest(rawArgs) {
   }
 
   try {
-    // Connect: create default context up front
+    // Connect: create default context up front (hosts beforeAll / hooks). It is NOT permanently
+    // pinned — under a maxContexts cap it becomes an LRU eviction candidate unless it is listed in
+    // pinnedContexts. Register it in the LRU order.
     await ensureContext(defaultContextName);
+    touchLru(lruOrder, defaultContextName);
 
     const ctx = buildContext({ noRecord: false });
     ctx.assert = createAssertions();
@@ -244,8 +274,45 @@ export async function cmdTest(rawArgs) {
 
       const testContextNames = declaredContexts;
       try {
+        // Make room in the license pool before opening this test's contexts. Already-open needed
+        // contexts are reused (ensureContext no-ops); LRU-oldest non-pinned contexts are evicted.
+        const plan = planEviction({
+          open: browser.listContexts(),
+          needed: testContextNames,
+          pinned: pinnedSet,
+          max: maxContexts,
+          lruOrder,
+        });
+        if (plan.error) throw new Error(plan.error);
+        // Needed-but-not-yet-open contexts — also serve as a parking fallback when eviction would
+        // close the sole open context (can't closeContext the active slot with no survivor).
+        const toOpenQueue = testContextNames.filter(n => !browser.hasContext(n));
+        for (const name of plan.toEvict) {
+          if (browser.getActiveContext() === name) {
+            let survivor = browser.listContexts().find(n => n !== name);
+            if (!survivor) {
+              // `name` is the only open context. Open a needed one first to park on — room is
+              // guaranteed because we free `name` right after and multi-context implies max>=2.
+              if (browser.listContexts().length < maxContexts && toOpenQueue.length) {
+                const parkName = toOpenQueue.shift();
+                await ensureContext(parkName);
+                survivor = parkName;
+              } else {
+                throw new Error(`cannot evict "${name}": it is the only open context and maxContexts=${maxContexts} leaves no room to switch. Use maxContexts>=2 when tests alternate contexts.`);
+              }
+            }
+            await browser.setActiveContext(survivor);
+          }
+          if (hooks.beforeCloseContext && hookCtx) {
+            try { await hooks.beforeCloseContext(hookCtx, name, contextSpecs[name]); }
+            catch (e) { hookLog(`beforeCloseContext("${name}") threw: ${e.message.split('\n')[0]}`); }
+          }
+          await browser.closeContext(name);
+          dropLru(lruOrder, name);
+        }
         for (const cn of testContextNames) await ensureContext(cn);
         await browser.setActiveContext(testContextNames[0]);
+        touchLru(lruOrder, testContextNames);
       } catch (e) {
         W.write(`  ✗ ${t.name} (context setup failed: ${e.message})\n`);
         results.push({ name: t.name, file: t.file, tags: t.tags, contexts: declaredContexts, status: 'failed', duration: 0, attempts: 0, steps: [], output: '', error: { message: e.message }, screenshot: null });
@@ -382,6 +449,26 @@ export async function cmdTest(rawArgs) {
           lastError = errInfo;
           const dur = elapsed(t0);
           testResult = { name: t.name, file: t.file, tags: t.tags, contexts: testContextNames, severity: t.severity, status: 'failed', duration: dur, attempts: attempt, start: t0, stop: Date.now(), steps, output: output.join('\n'), error: errInfo, screenshot: shotFile, video: videoFile };
+        }
+      }
+
+      // strict policy: release this test's non-pinned contexts right after it (all attempts done),
+      // instead of keeping them for reuse. Frees 1C licenses ASAP on shared/tight stands. Parks
+      // active on a survivor before closing; never closes the sole remaining context.
+      if (contextPolicy === 'strict') {
+        for (const name of testContextNames) {
+          if (pinnedSet.has(name) || !browser.hasContext(name)) continue;
+          if (browser.getActiveContext() === name) {
+            const survivor = browser.listContexts().find(n => n !== name);
+            if (!survivor) continue; // can't close the sole active context — leave it open
+            try { await browser.setActiveContext(survivor); } catch {}
+          }
+          if (hooks.beforeCloseContext && hookCtx) {
+            try { await hooks.beforeCloseContext(hookCtx, name, contextSpecs[name]); }
+            catch (e) { hookLog(`beforeCloseContext("${name}") threw: ${e.message.split('\n')[0]}`); }
+          }
+          try { await browser.closeContext(name); } catch {}
+          dropLru(lruOrder, name);
         }
       }
 

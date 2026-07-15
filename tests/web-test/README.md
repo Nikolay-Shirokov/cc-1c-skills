@@ -82,9 +82,10 @@ node .claude/skills/web-test/scripts/run.mjs test tests/web-test/ -- --rebuild-e
 ## Конфигурация
 
 `tests/web-test/webtest.config.mjs` задаёт:
-- **`contexts.a` / `contexts.b`** — два независимых 1C-сеанса (разные cookies) на той же URL. Тесты с `multi-context` тегом используют оба.
+- **`contexts.a` / `contexts.b` / `contexts.c`** — независимые 1C-сеансы (разные cookies) на той же URL. `a`,`b` — два «пользователя» мультиконтекст-тестов; `c` задействован только `14-multi-context-routing` и служит топливом для проверки вытеснения пула.
 - **`defaultContext: 'a'`** — большинство тестов работают в одном контексте.
 - **`isolation: 'tab'`** — вкладки в одном окне (default). Альтернатива `'window'` — отдельный BrowserContext (полная изоляция cookies).
+- **`maxContexts: 2` / `contextPolicy: 'reuse'` / `pinnedContexts: []`** — дай-фуд управления пулом лицензий. Лимит 2 одновременных сеанса: на границе `14 (c) → 15 (a,b)` раннер автоматически вытесняет LRU-контекст `c` (проверяется первым шагом `15-multi-context-handover`). Благодаря лимиту 3 контекста никогда не живут одновременно.
 
 ## Env переменные
 

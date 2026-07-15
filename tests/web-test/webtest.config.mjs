@@ -12,8 +12,20 @@ export default {
     // Custom-поля любого типа пробрасываются как есть.
     a: { url: 'http://localhost:9191/webtest-runner/ru_RU', displayName: 'Пользователь A' },
     b: { url: 'http://localhost:9191/webtest-runner/ru_RU', displayName: 'Пользователь B' },
+    // c — третий контекст, задействован только 14-multi-context-routing. Под maxContexts:2
+    // он вытесняется на границе 14→15 (см. проверку пула в 15-multi-context-handover).
+    c: { url: 'http://localhost:9191/webtest-runner/ru_RU', displayName: 'Пользователь C' },
   },
   defaultContext: 'a',
+
+  // Пул 1С-лицензий (дай-фудим фичу на собственном регрессе). Одновременно живых сеансов —
+  // не больше maxContexts; LRU-вытеснение освобождает слот под нужды следующего теста.
+  // pinnedContexts:[] делает default `a` вытесняемым (здесь он всё равно нужен почти всем тестам,
+  // так что не вытесняется — но снимает жёсткий пин). Благодаря лимиту 3 контекста a/b/c
+  // никогда не живут одновременно: c закрывается до открытия b.
+  maxContexts: 2,
+  contextPolicy: 'reuse',
+  pinnedContexts: [],
   // isolation: 'tab' (default) — persistent context, tabs in one window, 1С extension loads.
   //   Cookies are shared between tabs but scope by URL path, so different vrd-publications
   //   give independent auth without extra isolation.

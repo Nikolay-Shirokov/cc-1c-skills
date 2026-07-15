@@ -209,6 +209,11 @@ export default {
   // },
   // defaultContext: 'clerk',
 
+  // Context-pool / 1C license management (all optional; omit = no cap, default stays open).
+  // maxContexts: 2,            // cap on simultaneous 1C sessions; omit for unlimited
+  // contextPolicy: 'reuse',    // 'reuse' (keep open within cap) | 'strict' (close after each test)
+  // pinnedContexts: [],        // never evicted; defaults to [defaultContext], [] makes default evictable
+
   timeout: 30000,
   retries: 0,
   screenshot: 'on-failure',  // 'every-step' | 'off'
@@ -319,7 +324,9 @@ export default async function({ clerk, manager, step, assert }) {
 }
 ```
 
-Close contexts you no longer need (`manager.closeContext('clerk')`) before the next multi-user test starts — frees a 1C web-client license and stops the previous role from holding state.
+Close contexts you no longer need (`manager.closeContext('clerk')`) before the next multi-user test starts — frees a 1C web-client license and stops the previous role from holding state. On tight-license stands prefer configuring the pool (`maxContexts` + `contextPolicy` + `pinnedContexts`) over manual per-test closing — the runner then evicts and reuses sessions automatically.
+
+**Context pool (1C licenses).** With `maxContexts` set, the runner caps simultaneous 1C sessions: before each test it evicts least-recently-used contexts that are neither pinned nor needed, reusing already-open ones. `contextPolicy: 'reuse'` (default) keeps sessions for speed; `'strict'` closes a test's non-pinned contexts right after it. `pinnedContexts` are never evicted (default `[defaultContext]`; set `[]` to make the default context evictable on a tight stand). If the pool can't fit even after eviction, the test fails with a clear `context pool exhausted` error instead of an opaque connection failure.
 
 ### Failing-test repro
 
