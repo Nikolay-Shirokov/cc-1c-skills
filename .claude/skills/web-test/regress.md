@@ -377,8 +377,17 @@ node $RUN test tests/<app-name>/ --grep='накладн'                      # 
 node $RUN test tests/<app-name>/ --bail --retry=1                      # stop on first fail, allow 1 retry
 node $RUN test tests/<app-name>/ --report=allure-results --format=allure --report-dir=allure-results
 node $RUN test tests/<app-name>/ --report=-                            # machine JSON to stdout, progress to stderr
+node $RUN test tests/<app-name>/ --global-timeout=3600000              # ceiling for the whole run (exit 2)
 node $RUN test tests/<app-name>/ -- --rebuild-stand                    # after `--` → hookArgs
 ```
+
+**Timeouts and hangs.** A test's `timeout` is a contract, not a wish: when it expires the runner probes the
+context and destroys whatever is wedged, so the run always moves on. The failure carries a verdict — `hang`
+(browser alive, renderer's JS thread blocked; the context is aborted, its 1C seance released from Node, and
+the next test recreates it) versus `slow`/`slow-network` (nothing is broken — raise `export const timeout`).
+A `hang` is never retried. Exit codes: `1` red tests, `2` `--global-timeout` fired (report written, seances
+released), `3` the shutdown itself wedged. Allure results are written per test as it finishes, so a hang
+cannot destroy the results collected before it — no external watchdog needed.
 
 **Output contract.** `test` behaves like a test runner: by default the human report (with the summary as the last line) goes to **stdout** — read the tail of stdout + exit code. The machine report is opt-in via `--report`: `--report=path` writes it to a file (default JSON; XML for `--format=junit`), `--report=-` writes it to stdout while progress moves to stderr. Allure needs `--format=allure` + a directory (`-` is invalid for allure). For detailed triage use `--report=path` or `--report=-`. **In `--report=-` mode never use `2>&1`** — it merges stderr progress into the stdout JSON. (In the default mode there is no JSON in stdout, so `… | tail` is safe.)
 

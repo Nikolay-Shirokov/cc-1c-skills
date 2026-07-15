@@ -1,9 +1,9 @@
-// web-test cli/commands/test v1.5 — regression test runner
+// web-test cli/commands/test v1.6 — regression test runner
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import { existsSync, writeFileSync, mkdirSync, renameSync, copyFileSync, unlinkSync } from 'fs';
 import { resolve, dirname, basename, relative } from 'path';
 import * as browser from '../../browser.mjs';
-import { out, die, elapsed, slugify, formatDuration, interpolate, printSteps } from '../util.mjs';
+import { out, die, elapsed, slugify, formatDuration, interpolate, printSteps, softDeadline } from '../util.mjs';
 import { buildContext, buildScopedContext, setErrorShotDir } from '../exec-context.mjs';
 import { createAssertions } from '../test-runner/assertions.mjs';
 import { buildSeverityIndex } from '../test-runner/severity.mjs';
@@ -19,8 +19,27 @@ export async function cmdTest(rawArgs) {
   const ownArgs  = sepIdx >= 0 ? rawArgs.slice(0, sepIdx) : rawArgs;
   const hookArgs = sepIdx >= 0 ? rawArgs.slice(sepIdx + 1) : [];
 
+  // Deadline budgets for the cleanup path. Every one of these calls reaches into Playwright
+  // and can hang forever against a wedged renderer (page.evaluate has no timeout of its own),
+  // so none of them may be awaited bare. A breach is always logged — silent swallowing is what
+  // turned the original incident into a 29-minute mystery.
+  const D = {
+    screenshot: 10000,
+    teardown: 15000,
+    afterEach: 15000,
+    setActive: 5000,
+    resetState: 20000,
+    startRecording: 15000,
+    stopRecording: 40000,   // ffmpeg has its own 30s inside
+    closeContext: 20000,
+    disconnect: 30000,
+    hooks: 120000,          // prepare/cleanup/beforeAll/afterAll do real work (db rebuilds)
+    abortAll: 30000,        // whole abort+cleanup sequence for one hung test
+    probe: 2000,
+  };
+
   // Parse flags
-  const opts = { bail: false, retry: 0, timeout: 30000, report: null, format: 'json', screenshot: null, reportDir: null, record: false };
+  const opts = { bail: false, retry: 0, timeout: 30000, globalTimeout: 0, report: null, format: 'json', screenshot: null, reportDir: null, record: false };
   let tags = null, grep = null, urlFlag = null;
   const positional = [];
   for (const a of ownArgs) {
@@ -30,6 +49,7 @@ export async function cmdTest(rawArgs) {
     else if (a === '--bail')           opts.bail = true;
     else if (a.startsWith('--retry=')) opts.retry = parseInt(a.slice(8)) || 0;
     else if (a.startsWith('--timeout=')) opts.timeout = parseInt(a.slice(10)) || 30000;
+    else if (a.startsWith('--global-timeout=')) opts.globalTimeout = parseInt(a.slice(17)) || 0;
     else if (a.startsWith('--report=')) opts.report = a.slice(9);
     else if (a.startsWith('--format=')) opts.format = a.slice(9);
     else if (a.startsWith('--screenshot=')) opts.screenshot = a.slice(13);
@@ -118,6 +138,7 @@ export async function cmdTest(rawArgs) {
   if (!tags && config.tags) tags = config.tags;
   opts.timeout = ownArgs.some(a => a.startsWith('--timeout=')) ? opts.timeout : (config.timeout || opts.timeout);
   opts.retry = ownArgs.some(a => a.startsWith('--retry=')) ? opts.retry : (config.retries || opts.retry);
+  opts.globalTimeout = ownArgs.some(a => a.startsWith('--global-timeout=')) ? opts.globalTimeout : (config.globalTimeout || opts.globalTimeout);
   if (config.preserveClipboard === false && !ownArgs.includes('--no-preserve-clipboard')) {
     browser.setPreserveClipboard(false);
   }
@@ -210,9 +231,102 @@ export async function cmdTest(rawArgs) {
   const results = [];
   let passCount = 0, failCount = 0, skipCount = 0;
 
+  /**
+   * Bounded best-effort await: the replacement for `try { await x } catch {}`.
+   * Same tolerance for failure, but a call that never settles can no longer stall the run,
+   * and every breach leaves a visible line instead of a silent 29-minute stall.
+   */
+  async function bounded(promise, ms, label) {
+    const r = await softDeadline(promise, ms, label);
+    if (!r.ok) W.write(`    ! ${label}: ${r.timedOut ? `timed out after ${ms}ms` : r.err.message.split('\n')[0]}\n`);
+    return r;
+  }
+
+  // Bumped for every attempt. A timed-out test's body keeps running — a promise cannot be
+  // cancelled, so when its pending call finally rejects, its own `finally` would go on to
+  // drive the UI of whichever test is running by then. Silent cross-test corruption.
+  //
+  // The run shares one `ctx` object (hooks hold it too), so an epoch stamped on ctx could not
+  // tell the zombie from the live caller — both are the same object. Each attempt therefore
+  // gets its own Proxy view bound to its epoch; calls through a stale view throw.
+  let abortEpoch = 0;
+  function makeTestCtx(base, epoch) {
+    return new Proxy(base, {
+      get(target, prop, recv) {
+        const v = Reflect.get(target, prop, recv);
+        if (typeof v !== 'function') return v;
+        return (...args) => {
+          if (epoch !== abortEpoch) {
+            throw new Error(`test abandoned (timeout) — blocked a late ${String(prop)}() call from its body; it would have hit the next test`);
+          }
+          return v.apply(target, args);
+        };
+      },
+    });
+  }
+
+  function buildReport(state) {
+    const totalDuration = results.reduce((s, r) => s + r.duration, 0);
+    return {
+      runner: 'web-test', url, startedAt, finishedAt: new Date().toISOString(),
+      state,
+      duration: totalDuration,
+      summary: { total: results.length, passed: passCount, failed: failCount, skipped: skipCount },
+      tests: results,
+    };
+  }
+
+  let allureWritten = false;
+  /**
+   * Record a finished test AND persist it immediately. The report used to be written only
+   * after the loop, so a single hang destroyed every result collected so far.
+   * writeAllure([tr]) is byte-identical to the batch call: it mints its own uuid per test and
+   * severityIndex is read-only.
+   */
+  function recordResult(tr) {
+    results.push(tr);
+    if (opts.format === 'allure') {
+      try { writeAllure([tr], reportDir, severityIndex); allureWritten = true; } catch (e) { W.write(`    ! allure write: ${e.message}\n`); }
+    } else if (opts.format === 'json' && opts.report && !reportToStdout) {
+      try { writeFileSync(resolve(opts.report), JSON.stringify(buildReport('partial'), null, 2)); } catch {}
+    }
+  }
+
   const hookLog = (...a) => W.write(`[hooks] ${a.map(String).join(' ')}\n`);
   const hookEnv = { hookArgs, log: hookLog, config };
-  if (hooks.prepare) await hooks.prepare(hookEnv);
+  if (hooks.prepare) await bounded(hooks.prepare(hookEnv), D.hooks, 'hooks.prepare');
+
+  /** Force-release every open context (frees 1C licenses), then drop the browser. */
+  async function shutdownAll() {
+    for (const name of browser.listContexts()) {
+      await bounded(browser.abortContext(name), D.closeContext, `abortContext(${name})`);
+    }
+    await bounded(browser.disconnect(), D.disconnect, 'disconnect');
+  }
+
+  /**
+   * Wall-clock ceiling for the whole run. This works even while a test is wedged: a pending
+   * Playwright await does not block the event loop, it is merely an unsettled promise — which
+   * is precisely why the original incident stalled quietly instead of crashing.
+   * Report first (that's what the user needs), hygiene second, exit unconditionally.
+   */
+  let globalTimer = null;
+  let hardStopping = false;
+  async function hardStop(reason) {
+    if (hardStopping) return;
+    hardStopping = true;
+    W.write(`\n!! ${reason}: run exceeded --global-timeout=${opts.globalTimeout}ms — forcing shutdown\n`);
+    abortEpoch++;
+    // Last-resort exit if the shutdown itself wedges. Referenced on purpose: it must survive.
+    const bailout = setTimeout(() => process.exit(3), 20000);
+    try { writeFinalReport('aborted'); } catch (e) { W.write(`    ! report: ${e.message}\n`); }
+    await softDeadline(shutdownAll(), 15000, 'shutdown');
+    clearTimeout(bailout);
+    process.exit(2);
+  }
+  if (opts.globalTimeout > 0) {
+    globalTimer = setTimeout(() => { void hardStop('global-timeout'); }, opts.globalTimeout);
+  }
 
   // Lazy context creation
   async function ensureContext(name) {
@@ -271,7 +385,7 @@ export async function cmdTest(rawArgs) {
       if (t.skip) {
         const reason = typeof t.skip === 'string' ? t.skip : '';
         W.write(`  ○ ${t.name}${reason ? ` (skip: ${reason})` : ' (skip)'}\n`);
-        results.push({ name: t.name, file: t.file, tags: t.tags, contexts: declaredContexts, status: 'skipped', duration: 0, attempts: 0, steps: [], output: '', error: null, screenshot: null });
+        recordResult({ name: t.name, file: t.file, tags: t.tags, contexts: declaredContexts, status: 'skipped', duration: 0, attempts: 0, steps: [], output: '', error: null, screenshot: null });
         skipCount++;
         continue;
       }
@@ -319,7 +433,7 @@ export async function cmdTest(rawArgs) {
         touchLru(lruOrder, testContextNames);
       } catch (e) {
         W.write(`  ✗ ${t.name} (context setup failed: ${e.message})\n`);
-        results.push({ name: t.name, file: t.file, tags: t.tags, contexts: declaredContexts, status: 'failed', duration: 0, attempts: 0, steps: [], output: '', error: { message: e.message }, screenshot: null });
+        recordResult({ name: t.name, file: t.file, tags: t.tags, contexts: declaredContexts, status: 'failed', duration: 0, attempts: 0, steps: [], output: '', error: { message: e.message }, screenshot: null });
         failCount++;
         if (opts.bail) break;
         continue;
@@ -353,7 +467,8 @@ export async function cmdTest(rawArgs) {
         let videoFile = null;
         if (opts.record) {
           videoFile = resolve(reportDir, `${testIdx}-${slugify(t.name)}.mp4`);
-          try { await browser.startRecording(videoFile, { force: true }); } catch { videoFile = null; }
+          const rec = await bounded(browser.startRecording(videoFile, { force: true }), D.startRecording, 'startRecording');
+          if (!rec.ok) videoFile = null;
         }
 
         ctx.log = (...a) => output.push(a.map(String).join(' '));
@@ -394,6 +509,9 @@ export async function cmdTest(rawArgs) {
           }
         }
 
+        const myEpoch = ++abortEpoch;
+        let timedOut = false;
+
         try {
           if (hooks.beforeEach) await hooks.beforeEach(ctx);
           if (t.setup) await t.setup(ctx);
@@ -401,8 +519,8 @@ export async function cmdTest(rawArgs) {
           let timeoutTimer;
           try {
             await Promise.race([
-              t.fn(ctx, t.param),
-              new Promise((_, reject) => { timeoutTimer = setTimeout(() => reject(new Error(`Timeout (${t.timeout}ms)`)), t.timeout); }),
+              t.fn(makeTestCtx(ctx, myEpoch), t.param),
+              new Promise((_, reject) => { timeoutTimer = setTimeout(() => { timedOut = true; reject(new Error(`Timeout (${t.timeout}ms)`)); }, t.timeout); }),
             ]);
           } finally {
             // Clear the guard timer — otherwise it stays armed in the event loop and,
@@ -411,16 +529,21 @@ export async function cmdTest(rawArgs) {
             clearTimeout(timeoutTimer);
           }
 
-          if (t.teardown) try { await t.teardown(ctx); } catch {}
+          // Bounded even on the green path: a test can pass and still leave the UI in a state
+          // where resetState wedges — that would stall the run just as dead as a failure would.
+          if (t.teardown) await bounded(t.teardown(ctx), D.teardown, 'teardown');
           ctx.testResult = { status: 'passed', duration: elapsed(t0), attempts: attempt, error: null, steps };
-          if (hooks.afterEach) try { await hooks.afterEach(ctx); } catch {}
+          if (hooks.afterEach) await bounded(hooks.afterEach(ctx), D.afterEach, 'hooks.afterEach');
           for (const cn of testContextNames) {
-            try { await browser.setActiveContext(cn); await resetState(ctx); } catch {}
+            if (!browser.hasContext(cn)) continue;
+            const sw = await bounded(browser.setActiveContext(cn), D.setActive, `setActiveContext(${cn})`);
+            if (!sw.ok) break;
+            await bounded(resetState(ctx), D.resetState, `resetState(${cn})`);
           }
           for (const k of scopedKeys) delete ctx[k];
 
           if (videoFile) {
-            try { await browser.stopRecording(); } catch {}
+            await bounded(browser.stopRecording(), D.stopRecording, 'stopRecording');
           }
           const dur = elapsed(t0);
           testResult = { name: t.name, file: t.file, tags: t.tags, contexts: testContextNames, severity: t.severity, status: 'passed', duration: dur, attempts: attempt, start: t0, stop: Date.now(), steps, output: output.join('\n'), error: null, screenshot: null, video: videoFile };
@@ -428,14 +551,58 @@ export async function cmdTest(rawArgs) {
           break;
 
         } catch (e) {
+          // ── Timeout: diagnose, then destroy what hung. Everything below this point that
+          // goes through the renderer (screenshot, teardown, resetState) is pointless on a
+          // wedged page and would itself hang — so on `hang` we skip straight to the abort.
+          let diagnosis = null;
+          if (timedOut) {
+            const active = browser.getActiveContext();
+            const probe = active ? await browser.probeContext(active, { ms: D.probe }) : null;
+            const diag = active ? browser.getContextDiagnostics(active) : null;
+            const verdict = !probe ? 'no-context'
+              : !probe.browserAlive ? 'browser-dead'
+              : !probe.rendererAlive ? 'hang'
+              : diag?.net.inFlight > 0 ? 'slow-network'
+              : 'slow';
+
+            const lines = [
+              `verdict: ${verdict}` + (verdict === 'hang' ? ' (renderer unresponsive, browser alive)' : ''),
+              `  context "${active}" [${diag?.isolation}] · renderer probe: ${probe?.rendererAlive ? `ok in ${probe.rendererMs}ms` : `timed out at ${D.probe}ms`}` +
+                ` · browser probe: ${probe?.browserAlive ? `ok in ${probe.browserMs}ms` : `timed out at ${D.probe}ms`}`,
+              `  network: ${diag?.net.inFlight} in flight, last event ${diag?.msSinceLastNetEvent != null ? (diag.msSinceLastNetEvent / 1000).toFixed(1) + 's ago' : 'never'}` +
+                ` (${diag?.net.requests} req / ${diag?.net.responses} resp)`,
+            ];
+            // Same failure, different remedy — say which, or the next person guesses.
+            if (verdict === 'slow' || verdict === 'slow-network') {
+              lines.push('  no hang detected — the test is simply slower than its declared timeout; raise `export const timeout`');
+            }
+
+            if (verdict === 'hang' || verdict === 'browser-dead') {
+              const ab = await bounded(browser.abortContext(active), D.abortAll, 'abortContext');
+              const r = ab.ok ? ab.value : null;
+              lines.push(`  recovery: ${r ? `context aborted (logout: ${r.logout}, closed: ${r.closed}${r.escalated ? ', escalated to browser kill' : ''})` : 'abort failed'} — next test recreates it`);
+              if (r?.notes?.length) lines.push(`  notes: ${r.notes.join('; ')}`);
+              if (active) dropLru(lruOrder, active);
+            }
+            diagnosis = { verdict, probe, net: diag?.net };
+            e.message = `${e.message} — ${lines[0]}`;
+            output.push(...lines);
+            W.write(lines.map(l => `    ${l}\n`).join(''));
+          }
+
+          const dead = diagnosis && (diagnosis.verdict === 'hang' || diagnosis.verdict === 'browser-dead');
+
           // Screenshot on failure FIRST — before teardown/afterEach/resetState reset the UI.
+          // Skipped on a dead page: it goes through the renderer, so it can only hang.
           let shotFile = e.onecError?.screenshot;
-          if (!shotFile && opts.screenshot !== 'off') {
-            try {
-              const png = await browser.screenshot();
-              shotFile = resolve(reportDir, `error-${testIdx}-${slugify(t.file.replace(/\.test\.mjs$/, ''))}.png`);
-              writeFileSync(shotFile, png);
-            } catch {}
+          if (!shotFile && opts.screenshot !== 'off' && !dead) {
+            const shot = await bounded(browser.screenshot(), D.screenshot, 'screenshot');
+            if (shot.ok) {
+              try {
+                shotFile = resolve(reportDir, `error-${testIdx}-${slugify(t.file.replace(/\.test\.mjs$/, ''))}.png`);
+                writeFileSync(shotFile, shot.value);
+              } catch { shotFile = undefined; }
+            }
           } else if (shotFile && dirname(resolve(shotFile)) !== reportDir) {
             // Shot came from a context built before setErrorShotDir (e.g. a server
             // session started earlier): reporters attach by basename, so anything
@@ -453,21 +620,32 @@ export async function cmdTest(rawArgs) {
             }
           }
 
-          if (t.teardown) try { await t.teardown(ctx); } catch {}
-          const errInfo = { message: e.message, step: e.onecError?.step, screenshot: shotFile, onecError: e.onecError };
+          if (t.teardown && !dead) await bounded(t.teardown(ctx), D.teardown, 'teardown');
+          const errInfo = { message: e.message, step: e.onecError?.step, screenshot: shotFile, onecError: e.onecError, diagnosis };
           ctx.testResult = { status: 'failed', duration: elapsed(t0), attempts: attempt, error: errInfo, steps };
-          if (hooks.afterEach) try { await hooks.afterEach(ctx); } catch {}
-          for (const cn of testContextNames) {
-            try { await browser.setActiveContext(cn); await resetState(ctx); } catch {}
+          if (hooks.afterEach) await bounded(hooks.afterEach(ctx), D.afterEach, 'hooks.afterEach');
+          // resetState drives the UI (up to 10 × getFormState + closeForm, all page.evaluate).
+          // On a dead page it cannot succeed — the slot is already gone anyway.
+          if (!dead) {
+            for (const cn of testContextNames) {
+              if (!browser.hasContext(cn)) continue;
+              const sw = await bounded(browser.setActiveContext(cn), D.setActive, `setActiveContext(${cn})`);
+              if (!sw.ok) break;
+              await bounded(resetState(ctx), D.resetState, `resetState(${cn})`);
+            }
           }
           for (const k of scopedKeys) delete ctx[k];
 
           if (videoFile) {
-            try { await browser.stopRecording(); } catch {}
+            await bounded(browser.stopRecording(), D.stopRecording, 'stopRecording');
           }
           lastError = errInfo;
           const dur = elapsed(t0);
           testResult = { name: t.name, file: t.file, tags: t.tags, contexts: testContextNames, severity: t.severity, status: 'failed', duration: dur, attempts: attempt, start: t0, stop: Date.now(), steps, output: output.join('\n'), error: errInfo, screenshot: shotFile, video: videoFile };
+
+          // A wedged renderer is not flakiness — retrying just buys another full timeout
+          // plus another abort. Stop after the first hang.
+          if (dead) break;
         }
       }
 
@@ -491,7 +669,7 @@ export async function cmdTest(rawArgs) {
         }
       }
 
-      results.push(testResult);
+      recordResult(testResult);
 
       if (testResult.status === 'passed') {
         passCount++;
@@ -507,23 +685,26 @@ export async function cmdTest(rawArgs) {
       if (opts.bail && testResult.status === 'failed') break;
     }
 
-    if (hooks.afterAll) try { await hooks.afterAll(ctx); } catch {}
+    if (hooks.afterAll) await bounded(hooks.afterAll(ctx), D.hooks, 'hooks.afterAll');
 
   } finally {
+    clearTimeout(globalTimer);
     // Per-context teardown
     try {
       const remaining = browser.listContexts();
       if (remaining.length > 0) {
         const survivor = remaining[0];
-        try { await browser.setActiveContext(survivor); } catch {}
+        await bounded(browser.setActiveContext(survivor), D.setActive, `setActiveContext(${survivor})`);
         for (let i = remaining.length - 1; i >= 1; i--) {
           const name = remaining[i];
           if (hooks.beforeCloseContext && hookCtx) {
             try { await hooks.beforeCloseContext(hookCtx, name, contextSpecs[name]); }
             catch (e) { hookLog(`beforeCloseContext("${name}") threw: ${e.message.split('\n')[0]}`); }
           }
-          try { await browser.closeContext(name); }
-          catch (e) { hookLog(`closeContext("${name}") failed: ${e.message.split('\n')[0]}`); }
+          // closeContext goes through the page (logout + close). If it breaches, fall back to
+          // abortContext: it logs out from Node, which is the path that survives a dead page.
+          const cc = await bounded(browser.closeContext(name), D.closeContext, `closeContext(${name})`);
+          if (!cc.ok) await bounded(browser.abortContext(name), D.closeContext, `abortContext(${name})`);
         }
         if (hooks.beforeCloseContext && hookCtx) {
           try { await hooks.beforeCloseContext(hookCtx, survivor, contextSpecs[survivor]); }
@@ -533,32 +714,35 @@ export async function cmdTest(rawArgs) {
     } catch (e) {
       hookLog(`final teardown loop failed: ${e.message.split('\n')[0]}`);
     }
-    try { await browser.disconnect(); } catch {}
-    if (hooks.cleanup) try { await hooks.cleanup(hookEnv); } catch {}
+    await bounded(browser.disconnect(), D.disconnect, 'disconnect');
+    if (hooks.cleanup) await bounded(hooks.cleanup(hookEnv), D.hooks, 'hooks.cleanup');
   }
 
-  const finishedAt = new Date().toISOString();
   const totalDuration = results.reduce((s, r) => s + r.duration, 0);
-
   W.write(`\n${passCount} passed, ${failCount} failed, ${skipCount} skipped (${formatDuration(totalDuration)})\n\n`);
 
-  const report = {
-    runner: 'web-test', url, startedAt, finishedAt,
-    duration: totalDuration,
-    summary: { total: results.length, passed: passCount, failed: failCount, skipped: skipCount },
-    tests: results,
-  };
-  if (opts.format === 'allure') {
-    writeAllure(results, reportDir, severityIndex);
-    syncAllureExtras(testDir, reportDir);
-  } else if (opts.format === 'junit') {
-    if (reportToStdout) process.stdout.write(buildJUnit(report, testDir) + '\n');
-    else writeFileSync(resolve(opts.report), buildJUnit(report, testDir));
-  } else if (reportToStdout) {
-    out(report);
-  } else if (opts.report) {
-    writeFileSync(resolve(opts.report), JSON.stringify(report, null, 2));
-  }
+  writeFinalReport('complete');
 
   if (failCount > 0) process.exit(1);
+
+  /**
+   * Allure results are already on disk (recordResult writes each test as it finishes), so this
+   * only completes the formats that need whole-run totals. Also called from hardStop, where
+   * `state` is 'aborted' and `results` holds whatever finished before the ceiling hit.
+   */
+  function writeFinalReport(state) {
+    const report = buildReport(state);
+    if (opts.format === 'allure') {
+      // Guard against a result-producing path that skipped recordResult; normally a no-op.
+      if (!allureWritten) writeAllure(results, reportDir, severityIndex);
+      syncAllureExtras(testDir, reportDir);
+    } else if (opts.format === 'junit') {
+      if (reportToStdout) process.stdout.write(buildJUnit(report, testDir) + '\n');
+      else writeFileSync(resolve(opts.report), buildJUnit(report, testDir));
+    } else if (reportToStdout) {
+      out(report);
+    } else if (opts.report) {
+      writeFileSync(resolve(opts.report), JSON.stringify(report, null, 2));
+    }
+  }
 }

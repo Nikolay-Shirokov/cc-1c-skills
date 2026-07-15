@@ -1,5 +1,9 @@
-// web-test cli/util v1.3 — generic helpers for CLI commands
+// web-test cli/util v1.4 — generic helpers for CLI commands
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
+
+// Wall-clock bounds live in the engine (session.mjs needs them too, and the engine must not
+// depend on cli/). Re-exported here so CLI callers have one import site.
+export { withDeadline, softDeadline, DeadlineError } from '../engine/core/deadline.mjs';
 
 export function out(obj) {
   process.stdout.write(JSON.stringify(obj, null, 2) + '\n');

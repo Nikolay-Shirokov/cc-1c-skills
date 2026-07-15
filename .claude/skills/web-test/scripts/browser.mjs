@@ -1,4 +1,4 @@
-// web-test browser v1.18 — engine facade: re-exports the public API from engine/*
+// web-test browser v1.19 — engine facade: re-exports the public API from engine/*
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 /**
  * Public API of the web-test engine. Pure re-export facade — no logic here.
@@ -22,6 +22,9 @@ export {
   connect, disconnect, attach, detach, getSession,
   createContext, setActiveContext, listContexts, getActiveContext,
   hasContext, closeContext,
+  // Unresponsive-context handling (test runner). abortContext is the sanctioned way to
+  // mutate the registry from outside — the `contexts` Map itself stays private.
+  abortContext, probeContext, getContextDiagnostics,
 } from './engine/core/session.mjs';
 
 // ── navigation ────────────────────────────────────────────────────────────
