@@ -23,6 +23,9 @@ export async function cmdTest(rawArgs) {
   // and can hang forever against a wedged renderer (page.evaluate has no timeout of its own),
   // so none of them may be awaited bare. A breach is always logged — silent swallowing is what
   // turned the original incident into a 29-minute mystery.
+  //
+  // These defaults are sized for a light stand. A heavy application legitimately needs more —
+  // override per key via `deadlines: {...}` in webtest.config.mjs rather than editing this.
   const D = {
     screenshot: 10000,
     teardown: 15000,
@@ -139,6 +142,17 @@ export async function cmdTest(rawArgs) {
   opts.timeout = ownArgs.some(a => a.startsWith('--timeout=')) ? opts.timeout : (config.timeout || opts.timeout);
   opts.retry = ownArgs.some(a => a.startsWith('--retry=')) ? opts.retry : (config.retries || opts.retry);
   opts.globalTimeout = ownArgs.some(a => a.startsWith('--global-timeout=')) ? opts.globalTimeout : (config.globalTimeout || opts.globalTimeout);
+
+  // Per-key deadline overrides. Defaults suit a light stand; a heavy application may honestly
+  // need longer (a big form's resetState, a slow close). Unknown keys are a typo, not a wish —
+  // fail fast rather than silently ignoring an override the author believed was in effect.
+  if (config.deadlines) {
+    for (const [k, v] of Object.entries(config.deadlines)) {
+      if (!(k in D)) die(`Invalid deadlines.${k} in config (expected one of: ${Object.keys(D).join(', ')})`);
+      if (typeof v !== 'number' || !(v > 0)) die(`Invalid deadlines.${k}=${v} (expected a positive number of ms)`);
+      D[k] = v;
+    }
+  }
   if (config.preserveClipboard === false && !ownArgs.includes('--no-preserve-clipboard')) {
     browser.setPreserveClipboard(false);
   }
@@ -240,6 +254,24 @@ export async function cmdTest(rawArgs) {
     const r = await softDeadline(promise, ms, label);
     if (!r.ok) W.write(`    ! ${label}: ${r.timedOut ? `timed out after ${ms}ms` : r.err.message.split('\n')[0]}\n`);
     return r;
+  }
+
+  /**
+   * Reset one context between tests. If the reset breaches its deadline, the slot's UI state is
+   * unknown — reusing it would leak dirty state into the next test, which is the WORST outcome
+   * of a badly-sized budget: silent drift instead of a visible error. So destroy it; the next
+   * test recreates a clean one via ensureContext. A deadline that is merely too tight then costs
+   * a context relaunch, never a wrong test result.
+   */
+  async function resetOrAbort(cn, ctx) {
+    const sw = await bounded(browser.setActiveContext(cn), D.setActive, `setActiveContext(${cn})`);
+    if (!sw.ok) return false;
+    const r = await bounded(resetState(ctx), D.resetState, `resetState(${cn})`);
+    if (r.ok) return true;
+    W.write(`    ! context "${cn}" осталось несброшенным — прерываю его, следующий тест получит чистый\n`);
+    await bounded(browser.abortContext(cn), D.closeContext, `abortContext(${cn})`);
+    dropLru(lruOrder, cn);
+    return false;
   }
 
   // Bumped for every attempt. A timed-out test's body keeps running — a promise cannot be
@@ -540,9 +572,7 @@ export async function cmdTest(rawArgs) {
           if (hooks.afterEach) await bounded(hooks.afterEach(ctx), D.afterEach, 'hooks.afterEach');
           for (const cn of testContextNames) {
             if (!browser.hasContext(cn)) continue;
-            const sw = await bounded(browser.setActiveContext(cn), D.setActive, `setActiveContext(${cn})`);
-            if (!sw.ok) break;
-            await bounded(resetState(ctx), D.resetState, `resetState(${cn})`);
+            await resetOrAbort(cn, ctx);
           }
           for (const k of scopedKeys) delete ctx[k];
 
@@ -633,9 +663,7 @@ export async function cmdTest(rawArgs) {
           if (!dead) {
             for (const cn of testContextNames) {
               if (!browser.hasContext(cn)) continue;
-              const sw = await bounded(browser.setActiveContext(cn), D.setActive, `setActiveContext(${cn})`);
-              if (!sw.ok) break;
-              await bounded(resetState(ctx), D.resetState, `resetState(${cn})`);
+              await resetOrAbort(cn, ctx);
             }
           }
           for (const k of scopedKeys) delete ctx[k];
