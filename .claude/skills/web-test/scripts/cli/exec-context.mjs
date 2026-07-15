@@ -1,13 +1,29 @@
-// web-test cli/exec-context v1.0 — buildContext + executeScript для run/exec/test
+// web-test cli/exec-context v1.1 — buildContext + executeScript для run/exec/test
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import { readFileSync, writeFileSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import * as browser from '../browser.mjs';
-import { elapsed } from './util.mjs';
+import { elapsed, slugify } from './util.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const ERROR_SHOT_PATH = resolve(__dirname, '..', '..', 'error-shot.png');
+const DEFAULT_ERROR_SHOT_PATH = resolve(__dirname, '..', '..', 'error-shot.png');
+
+// Where 1C-error screenshots go. The default is a single fixed file: fine for
+// interactive `exec`/`run` (last error wins, easy to find), wrong for a test run
+// where every test needs its own file inside reportDir. cmdTest overrides this.
+let errorShotDir = null;
+let errorShotSeq = 0;
+
+export function setErrorShotDir(dir) {
+  errorShotDir = dir;
+  errorShotSeq = 0;
+}
+
+function nextErrorShotPath(label) {
+  if (!errorShotDir) return DEFAULT_ERROR_SHOT_PATH;
+  return resolve(errorShotDir, `onec-error-${++errorShotSeq}-${slugify(label || 'shot')}.png`);
+}
 
 /**
  * Build a per-context wrapper: same shape as buildContext output, but every call
@@ -69,7 +85,7 @@ export function buildContext({ noRecord = false } = {}) {
         let errorShot;
         try {
           const png = await ctx.screenshot();
-          errorShot = ERROR_SHOT_PATH;
+          errorShot = nextErrorShotPath(name);
           writeFileSync(errorShot, png);
         } catch {}
         // Try to fetch call stack for modal errors before throwing
@@ -127,7 +143,7 @@ export async function executeScript(code, { noRecord } = {}) {
     if (!shotFile) {
       try {
         const png = await browser.screenshot();
-        shotFile = ERROR_SHOT_PATH;
+        shotFile = nextErrorShotPath('script');
         writeFileSync(shotFile, png);
       } catch {}
     }

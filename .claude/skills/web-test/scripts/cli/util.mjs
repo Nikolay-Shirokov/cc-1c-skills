@@ -1,4 +1,4 @@
-// web-test cli/util v1.2 — generic helpers for CLI commands
+// web-test cli/util v1.3 — generic helpers for CLI commands
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 export function out(obj) {
@@ -35,12 +35,29 @@ export function elapsed2(start, stop) {
   return Math.round(((stop || Date.now()) - start) / 100) / 10;
 }
 
+const TRANSLIT = {
+  а: 'a', б: 'b', в: 'v', г: 'g', д: 'd', е: 'e', ё: 'e', ж: 'zh', з: 'z', и: 'i',
+  й: 'y', к: 'k', л: 'l', м: 'm', н: 'n', о: 'o', п: 'p', р: 'r', с: 's', т: 't',
+  у: 'u', ф: 'f', х: 'h', ц: 'ts', ч: 'ch', ш: 'sh', щ: 'sch', ъ: '', ы: 'y', ь: '',
+  э: 'e', ю: 'yu', я: 'ya',
+};
+
+/**
+ * ASCII-only slug for artifact file names (screenshots, videos).
+ * Non-ASCII names are unusable as Allure attachments: the Allure CLI silently
+ * fails to resolve them and emits `"size": 0` with no link to the file
+ * (JAVA_OPTS encoding flags do not help). Cyrillic is transliterated so the
+ * name stays readable; anything else non-ASCII collapses to `-`.
+ */
 export function slugify(s) {
-  return String(s).trim()
-    .replace(/[\s/\\:*?"<>|]+/g, '-')
+  const ascii = String(s).trim().toLowerCase()
+    .replace(/[а-яё]/g, ch => TRANSLIT[ch] ?? '-');
+  return ascii
+    .replace(/[^a-z0-9._-]+/g, '-')
     .replace(/-+/g, '-')
     .replace(/^-|-$/g, '')
-    .slice(0, 60) || 'step';
+    .slice(0, 60)
+    .replace(/^-|-$/g, '') || 'step';
 }
 
 export function formatDuration(seconds) {

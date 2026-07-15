@@ -1,10 +1,10 @@
-// web-test cli/commands/test v1.4 — regression test runner
+// web-test cli/commands/test v1.5 — regression test runner
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
-import { existsSync, writeFileSync, mkdirSync } from 'fs';
+import { existsSync, writeFileSync, mkdirSync, renameSync, copyFileSync, unlinkSync } from 'fs';
 import { resolve, dirname, basename, relative } from 'path';
 import * as browser from '../../browser.mjs';
 import { out, die, elapsed, slugify, formatDuration, interpolate, printSteps } from '../util.mjs';
-import { buildContext, buildScopedContext } from '../exec-context.mjs';
+import { buildContext, buildScopedContext, setErrorShotDir } from '../exec-context.mjs';
 import { createAssertions } from '../test-runner/assertions.mjs';
 import { buildSeverityIndex } from '../test-runner/severity.mjs';
 import { writeAllure, buildJUnit, syncAllureExtras } from '../test-runner/reporters.mjs';
@@ -143,6 +143,10 @@ export async function cmdTest(rawArgs) {
     : (opts.report && !reportToStdout ? dirname(resolve(opts.report)) : testDir);
   if (opts.screenshot !== 'off') {
     try { mkdirSync(reportDir, { recursive: true }); } catch {}
+    // 1C-error screenshots (taken inside the action wrapper) default to a single
+    // fixed file at the skill root — outside reportDir and shared by every test.
+    // Point them at reportDir so each failure keeps its own attachable file.
+    setErrorShotDir(reportDir);
   }
 
   // Discover test files
@@ -432,6 +436,21 @@ export async function cmdTest(rawArgs) {
               shotFile = resolve(reportDir, `error-${testIdx}-${slugify(t.file.replace(/\.test\.mjs$/, ''))}.png`);
               writeFileSync(shotFile, png);
             } catch {}
+          } else if (shotFile && dirname(resolve(shotFile)) !== reportDir) {
+            // Shot came from a context built before setErrorShotDir (e.g. a server
+            // session started earlier): reporters attach by basename, so anything
+            // outside reportDir is a dead link. Move it in under a unique name.
+            const dest = resolve(reportDir, `error-${testIdx}-${slugify(t.file.replace(/\.test\.mjs$/, ''))}.png`);
+            try {
+              renameSync(resolve(shotFile), dest);
+              shotFile = dest;
+            } catch {
+              try {
+                copyFileSync(resolve(shotFile), dest);
+                try { unlinkSync(resolve(shotFile)); } catch {}
+                shotFile = dest;
+              } catch {}
+            }
           }
 
           if (t.teardown) try { await t.teardown(ctx); } catch {}
