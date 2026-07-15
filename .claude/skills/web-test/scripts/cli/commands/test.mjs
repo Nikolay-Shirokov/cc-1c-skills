@@ -1,4 +1,4 @@
-// web-test cli/commands/test v1.6 — regression test runner
+// web-test cli/commands/test v1.7 — regression test runner
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import { existsSync, writeFileSync, mkdirSync, renameSync, copyFileSync, unlinkSync } from 'fs';
 import { resolve, dirname, basename, relative } from 'path';
@@ -394,7 +394,21 @@ export async function cmdTest(rawArgs) {
     // Connect: create default context up front (hosts beforeAll / hooks). It is NOT permanently
     // pinned — under a maxContexts cap it becomes an LRU eviction candidate unless it is listed in
     // pinnedContexts. Register it in the LRU order.
-    await ensureContext(defaultContextName);
+    //
+    // This one call needs its own catch: it sits in a try that has only a `finally`, and run.mjs
+    // does not wrap cmdTest — so a throw here would escape as a raw stack trace and skip the
+    // report entirely. A blocked startup (e.g. no free 1C licence) dooms the whole run anyway,
+    // so say it once, keep the report, and leave.
+    try {
+      await ensureContext(defaultContextName);
+    } catch (e) {
+      W.write(`\n!! не удалось открыть контекст "${defaultContextName}": ${e.message}\n\n`);
+      try { writeFinalReport('aborted'); } catch {}
+      // process.exit skips the `finally` below, and killing the process does NOT release a 1C
+      // seance — so release what we hold explicitly before leaving.
+      await softDeadline(shutdownAll(), 15000, 'shutdown');
+      process.exit(1);
+    }
     touchLru(lruOrder, defaultContextName);
 
     const ctx = buildContext({ noRecord: false });

@@ -1,4 +1,4 @@
-// web-test core/session v1.18 — Browser session lifecycle: connect/disconnect/attach/detach, multi-context registry.
+// web-test core/session v1.19 — Browser session lifecycle: connect/disconnect/attach/detach, multi-context registry.
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import { chromium } from 'playwright';
@@ -54,6 +54,63 @@ function findExtension(overridePath) {
 /* isConnected moved to core/state.mjs */
 
 /**
+ * Wait for the 1C client to come up — or for the startup shell to say why it won't.
+ *
+ * Why this exists: when 1C has no free licence it renders a blocking startup dialog INSTEAD of
+ * the application. The old code just waited out INIT_TIMEOUT and returned success, leaving a
+ * session-less slot behind; the first engine call then produced a plainly wrong diagnosis
+ * ("Section panel is in icon-only mode…"). Measured: 66s wasted, then a lie.
+ *
+ * Contract: throw ONLY on positive evidence of a startup dialog. A missing client marker is NOT
+ * evidence — a login page legitimately never shows it (that is what the fallback below is for).
+ *
+ * Anchors are ids, never text: the platform's wording is locale-dependent and only gets quoted
+ * into the message. Verified on this stand — on a healthy start #messageBoxText does not exist at
+ * all, neither in the loaded client nor at any point while the shell boots (polled every 100ms).
+ * The offsetWidth/text conjuncts guard the case where a future build pre-renders it hidden, the
+ * way the shell already pre-renders its login form. offsetWidth (not offsetParent — that is null
+ * for position:fixed, and #ps0win is an overlay) matches the convention in errors.mjs.
+ */
+async function waitForClientOrStartupBlock(pg, url, timeout = INIT_TIMEOUT) {
+  let outcome;
+  try {
+    outcome = await pg.waitForFunction(() => {
+      if (document.querySelector('#themesCell_theme_0')) return 'client';
+      const box = document.querySelector('#messageBoxText');
+      if (box && box.offsetWidth > 0 && box.textContent.trim()) return 'blocked';
+      return false;
+    }, null, { timeout }).then(h => h.jsonValue());
+  } catch {
+    // Neither appeared: unchanged legacy behaviour — a login page or a slow start is not an error.
+    await pg.waitForTimeout(5000);
+    return;
+  }
+  if (outcome === 'client') return;
+
+  // Re-confirm before accusing: costs 600ms on a path that is already lost, and buys immunity to
+  // a dialog that merely flickered while the shell drew itself.
+  await pg.waitForTimeout(600);
+  const evidence = await pg.evaluate(() => {
+    // innerText, not textContent: the latter concatenates without any rendered whitespace
+    // ("лицензии!Выберите…", "Веб-клиентсеанс: 5") — unreadable in an error message.
+    const visibleText = (el) => (el && el.offsetWidth > 0) ? (el.innerText || '').trim() : '';
+    if (document.querySelector('#themesCell_theme_0')) return null; // the client won after all
+    const text = visibleText(document.querySelector('#messageBoxText'));
+    return text ? { text, seances: visibleText(document.querySelector('#seancesToFinish')) } : null;
+  }).catch(() => null);
+  if (!evidence) return; // flicker — carry on exactly as before
+
+  const oneLine = (s) => s.replace(/\s+/g, ' ').trim().slice(0, 300);
+  throw new Error(
+    `1C startup blocked before the web client loaded: "${oneLine(evidence.text)}"` +
+    (evidence.seances ? `\n  Сеансы, предложенные платформой к завершению: ${oneLine(evidence.seances)}` : '') +
+    '\n  Движок кнопки этого диалога не нажимает: его автозапуск по обратному отсчёту может' +
+    ' завершить чужой сеанс на этой машине.' +
+    `\n  Если это нехватка лицензии — освободите сеансы 1С и повторите. URL: ${url}`
+  );
+}
+
+/**
  * Open browser and navigate to 1C web client URL.
  * Waits for initialization (themesCell_theme_0 selector) and attempts to close startup modals.
  */
@@ -103,13 +160,8 @@ export async function connect(url, { extensionPath } = {}) {
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: LOAD_TIMEOUT });
   }
 
-  // Wait for 1C to initialize — detect by section panel appearance
-  try {
-    await page.waitForSelector('#themesCell_theme_0', { timeout: INIT_TIMEOUT });
-  } catch {
-    // Fallback: wait fixed time if selector doesn't appear (e.g. login page)
-    await page.waitForTimeout(5000);
-  }
+  // Wait for 1C to initialize — or fail fast if the startup shell blocks the client
+  await waitForClientOrStartupBlock(page, url);
 
   // Try to close startup modals (Путеводитель etc.)
   await closeModals();
@@ -294,14 +346,30 @@ function attachSessionListeners(pg, slot, name) {
  * Use this from run.mjs cmdTest only — exec/run/start use connect() and stay on the
  * legacy persistent-context path.
  */
+/**
+ * Navigate the active slot to `url` and settle: client up, or a startup block raised.
+ *
+ * On a block the slot MUST NOT survive. It is registered before this runs, and the runner's
+ * ensureContext is `if (browser.hasContext(name)) return;` — so a broken slot left in the registry
+ * would silently serve every later test the refusal dialog, i.e. exactly the blindness being fixed.
+ * abortContext also handles the tab-mode last-page teardown, so the next createContext relaunches.
+ */
+async function openAndSettle(name, url) {
+  await page.goto(url, { waitUntil: 'domcontentloaded', timeout: LOAD_TIMEOUT });
+  try {
+    await waitForClientOrStartupBlock(page, url);
+  } catch (e) {
+    await softDeadline(abortContext(name), 10000, 'abortContext(startup-block)');
+    throw e;
+  }
+  await closeModals();
+  return await getPageState();
+}
+
 export async function createContext(name, url, { extensionPath, isolation = 'tab' } = {}) {
   if (contexts.has(name)) {
     await setActiveContext(name);
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: LOAD_TIMEOUT });
-    try { await page.waitForSelector('#themesCell_theme_0', { timeout: INIT_TIMEOUT }); }
-    catch { await page.waitForTimeout(5000); }
-    await closeModals();
-    return await getPageState();
+    return await openAndSettle(name, url);
   }
 
   if (!['tab', 'window'].includes(isolation)) {
@@ -370,12 +438,7 @@ export async function createContext(name, url, { extensionPath, isolation = 'tab
   attachSessionListeners(newPage, slot, name);
   activateSlot(name);
 
-  await page.goto(url, { waitUntil: 'domcontentloaded', timeout: LOAD_TIMEOUT });
-  try { await page.waitForSelector('#themesCell_theme_0', { timeout: INIT_TIMEOUT }); }
-  catch { await page.waitForTimeout(5000); }
-  await closeModals();
-
-  return await getPageState();
+  return await openAndSettle(name, url);
 }
 
 /** Switch the active context. Subsequent browser API calls operate on this context's page. */
