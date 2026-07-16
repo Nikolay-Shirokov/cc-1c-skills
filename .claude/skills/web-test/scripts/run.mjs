@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// web-test run v1.18 — CLI entry-point (распилено по cli/)
+// web-test run v1.19 — CLI entry-point (распилено по cli/)
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 /**
  * CLI runner for 1C web client automation.
@@ -59,7 +59,7 @@ switch (cmd) {
   case 'exec':   await cmdExec(args[0], flags); break;
   case 'shot':   await cmdShot(args[0]); break;
   case 'stop':   await cmdStop(); break;
-  case 'status': cmdStatus(); break;
+  case 'status': await cmdStatus(); break;
   case 'test':   await cmdTest(rawArgs); break;
   default:       usage();
 }

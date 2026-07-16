@@ -57,8 +57,10 @@ node $RUN run <url> script.js   # exits when done, no session
 ### Interactive mode (step-by-step development)
 
 ```bash
-# 1. Start session (run_in_background=true, prints JSON when ready)
-node $RUN start <url>
+# 1. Start session in the background — `start` stays running as the server, so don't wait on
+#    its stdout. Poll `status` instead: it exits 0 only once the session is loaded and live.
+node $RUN start <url>            # run_in_background=true
+until node $RUN status >/dev/null 2>&1; do sleep 2; done   # exit 0 = ready
 
 # 2. Execute scripts against running session
 cat <<'SCRIPT' | node $RUN exec -
