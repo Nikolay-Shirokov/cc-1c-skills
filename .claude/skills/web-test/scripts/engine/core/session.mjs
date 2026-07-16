@@ -122,18 +122,18 @@ async function waitForClientOrStartupBlock(pg, url, timeout = INIT_TIMEOUT) {
     // here (unlike the licence case) and holds a licence — callers release it before rethrowing.
     throw new Error(
       `1C requires interactive login before the web client loads: "${oneLine(evidence.text)}"` +
-      '\n  Движок ввод учётных данных не поддерживает — опубликуйте базу с пользователем' +
-      ' (web-publish -UserName … → Usr=/Pwd= в vrd) либо укажите его в строке соединения.' +
+      '\n  The engine cannot supply credentials — publish the infobase with a user' +
+      ' (web-publish -UserName … → Usr=/Pwd= in the vrd) or put one in the connection string.' +
       `\n  URL: ${url}`
     );
   }
 
   throw new Error(
     `1C startup blocked before the web client loaded: "${oneLine(evidence.text)}"` +
-    (evidence.seances ? `\n  Сеансы, предложенные платформой к завершению: ${oneLine(evidence.seances)}` : '') +
-    '\n  Движок кнопки этого диалога не нажимает: его автозапуск по обратному отсчёту может' +
-    ' завершить чужой сеанс на этой машине.' +
-    `\n  Если это нехватка лицензии — освободите сеансы 1С и повторите. URL: ${url}`
+    (evidence.seances ? `\n  Sessions the platform offers to terminate: ${oneLine(evidence.seances)}` : '') +
+    '\n  The engine does not press this dialog\'s buttons: its countdown auto-start may terminate' +
+    ' someone else\'s session on this machine.' +
+    `\n  If this is a licence shortage — release 1C sessions and retry. URL: ${url}`
   );
 }
 
