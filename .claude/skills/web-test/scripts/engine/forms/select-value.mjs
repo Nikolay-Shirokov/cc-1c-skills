@@ -1,4 +1,4 @@
-// web-test forms/select-value v1.33 — Reference & composite-type value selection: selectValue (+ array multi-select), fillReferenceField, selection/type-dialog pickers.
+// web-test forms/select-value v1.34 — Reference & composite-type value selection: selectValue (+ array multi-select), fillReferenceField, selection/type-dialog pickers.
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import {
@@ -942,6 +942,9 @@ export async function selectValue(fieldName, searchText, { type } = {}) {
     btn = await page.evaluate(findFieldButtonScript(formNum, fieldName, 'CB'));
   }
   if (btn?.error) return btn;
+  // Disabled reference field keeps its pick button visible, so the click would silently
+  // do nothing. Fail loud, consistent with clickElement's disabled guard.
+  if (btn?.disabled) throw new Error(`selectValue: field "${btn.fieldName || fieldName}" is disabled`);
   if (highlightMode) try { await highlight(fieldName); await page.waitForTimeout(500); await unhighlight(); } catch {}
   try {
 

@@ -1,4 +1,4 @@
-// web-test dom shared v1.2 — embedded JS function constants
+// web-test dom shared v1.3 — embedded JS function constants
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 /**
  * Shared function strings embedded into page.evaluate() generators.
@@ -214,6 +214,7 @@ function readForm(p) {
       type: 'checkbox'
     };
     if (label && label !== name) field.label = label;
+    if (el.classList.contains('checkboxDisabled')) field.disabled = true;
     fields.push(field);
   });
 
@@ -249,6 +250,7 @@ function readForm(p) {
       options: options.map(o => o.label)
     };
     if (label && label !== name) field.label = label;
+    if (document.getElementById(p + name)?.classList.contains('radioDisabled')) field.disabled = true;
     fields.push(field);
   }
 
@@ -277,15 +279,21 @@ function readForm(p) {
     const text = nbsp(el.innerText?.trim() || '');
     const idName = el.id?.replace(p, '') || '';
     if (!text && !idName) return;
-    buttons.push({ name: text || idName, frame: true });
+    // frameButton disabled uses the same class as a.press buttons (pressDisabled).
+    const btn = { name: text || idName, frame: true };
+    if (el.classList.contains('pressDisabled')) btn.disabled = true;
+    buttons.push(btn);
   });
 
-  // Tumbler items
+  // Tumbler items. Disabled state lives on the group element .frameTumbler
+  // (class tumblerDisabled), not on the individual segments.
   document.querySelectorAll('[id^="' + p + '"].tumblerItem').forEach(el => {
     if (el.offsetWidth === 0) return;
     const text = el.innerText?.trim();
     const idName = el.id?.replace(p, '') || '';
-    buttons.push({ name: text || idName, tumbler: true });
+    const btn = { name: text || idName, tumbler: true };
+    if (el.closest('.frameTumbler')?.classList.contains('tumblerDisabled')) btn.disabled = true;
+    buttons.push(btn);
   });
 
   // Tabs — scoped to form by checking ancestor IDs

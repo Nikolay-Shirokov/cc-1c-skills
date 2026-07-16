@@ -1,4 +1,4 @@
-// web-test dom/forms v1.9 — form detection, content read, click-target/field-button resolution
+// web-test dom/forms v1.10 — form detection, content read, click-target/field-button resolution
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import { DETECT_FORM_FN, READ_FORM_FN, ROW_CLICK_POINT_FN } from './_shared.mjs';
 
@@ -89,6 +89,7 @@ export function findClickTargetScript(formNum, text, { tableName, gridSelector }
       if (!text && !el.classList.contains('pressCommand')) return;
       const isSubmenu = /^(?:Подменю|allActions)/i.test(idName);
       const item = { id: el.id, name: text || idName, label: idName, kind: isSubmenu ? 'submenu' : 'button' };
+      if (el.classList.contains('pressDisabled')) item.disabled = true;
       // Icon-only buttons: use tooltip for fuzzy match (1C puts title on parent .framePress)
       if (!text) { const tip = norm(el.title || el.parentElement?.title || ''); if (tip) item.tooltip = tip; }
       items.push(item);
@@ -106,14 +107,19 @@ export function findClickTargetScript(formNum, text, { tableName, gridSelector }
       const text = norm(el.innerText);
       const idName = el.id.replace(p, '');
       if (!text && !idName) return;
-      items.push({ id: el.id, name: text || idName, label: text ? '' : idName, kind: 'frameButton' });
+      const item = { id: el.id, name: text || idName, label: text ? '' : idName, kind: 'frameButton' };
+      if (el.classList.contains('pressDisabled')) item.disabled = true;
+      items.push(item);
     });
 
-    // Tumbler items (toggle switch segments)
+    // Tumbler items (toggle switch segments). Disabled state lives on the group
+    // element .frameTumbler (class tumblerDisabled), not on the segments themselves.
     [...document.querySelectorAll('[id^="' + p + '"].tumblerItem')].filter(el => el.offsetWidth > 0).forEach(el => {
       const idName = el.id.replace(p, '');
       const text = norm(el.innerText);
-      items.push({ id: el.id, name: text || idName, label: idName, kind: 'tumbler' });
+      const item = { id: el.id, name: text || idName, label: idName, kind: 'tumbler' };
+      if (el.closest('.frameTumbler')?.classList.contains('tumblerDisabled')) item.disabled = true;
+      items.push(item);
     });
 
     // Checkboxes (div.checkbox) — match by label or internal name
@@ -121,7 +127,9 @@ export function findClickTargetScript(formNum, text, { tableName, gridSelector }
       const idName = el.id.replace(p, '');
       const titleEl = document.getElementById(p + idName + '#title_text');
       const label = norm(titleEl?.innerText || '').replace(/:/g, '').trim();
-      items.push({ id: el.id, name: label || idName, label: idName, kind: 'checkbox' });
+      const item = { id: el.id, name: label || idName, label: idName, kind: 'checkbox' };
+      if (el.classList.contains('checkboxDisabled')) item.disabled = true;
+      items.push(item);
     });
 
     // Tabs (scoped to form)
@@ -174,7 +182,7 @@ export function findClickTargetScript(formNum, text, { tableName, gridSelector }
         if (!cf) cf = containerItems.find(i => i.label && i.label.toLowerCase() === target);
         if (!cf && target.length >= 4) cf = containerItems.find(i => i.name.toLowerCase().includes(target));
         if (!cf && target.length >= 4) cf = containerItems.find(i => i.label && i.label.toLowerCase().includes(target));
-        if (cf) { const res = { id: cf.id, kind: cf.kind, name: cf.name }; if (cf.x != null) { res.x = cf.x; res.y = cf.y; } return res; }
+        if (cf) { const res = { id: cf.id, kind: cf.kind, name: cf.name }; if (cf.disabled) res.disabled = true; if (cf.x != null) { res.x = cf.x; res.y = cf.y; } return res; }
         // Fallback: filter by gridName id-prefix (e.g. ИсходящиеКоманднаяПанель_Добавить)
         const gridName = gridEl.id ? gridEl.id.replace(p, '') : '';
         if (gridName) {
@@ -182,7 +190,7 @@ export function findClickTargetScript(formNum, text, { tableName, gridSelector }
           let pf = prefixItems.find(i => i.name.toLowerCase() === target);
           if (!pf && target.length >= 4) pf = prefixItems.find(i => i.label && i.label.toLowerCase().includes(target));
           if (!pf && target.length >= 4) pf = prefixItems.find(i => i.name.toLowerCase().includes(target));
-          if (pf) { const res = { id: pf.id, kind: pf.kind, name: pf.name }; if (pf.x != null) { res.x = pf.x; res.y = pf.y; } return res; }
+          if (pf) { const res = { id: pf.id, kind: pf.kind, name: pf.name }; if (pf.disabled) res.disabled = true; if (pf.x != null) { res.x = pf.x; res.y = pf.y; } return res; }
         }
       }
       // Fall through to unscoped search
@@ -202,6 +210,7 @@ export function findClickTargetScript(formNum, text, { tableName, gridSelector }
 
     if (found) {
       const res = { id: found.id, kind: found.kind, name: found.name };
+      if (found.disabled) res.disabled = true;
       if (found.x != null) { res.x = found.x; res.y = found.y; }
       return res;
     }
@@ -262,7 +271,7 @@ export function findClickTargetScript(formNum, text, { tableName, gridSelector }
         const idName = el.id.replace(p, '').replace(/_i\\d+$/, '');
         const titleEl = document.getElementById(p + idName + '#title_text') || document.getElementById(p + idName + '#title_div');
         const label = norm(titleEl?.innerText || '').replace(/:/g, '').trim();
-        fields.push({ id: el.id, name: idName, label });
+        fields.push({ id: el.id, name: idName, label, disabled: !!el.disabled });
       });
       let ff = fields.find(f => f.label && f.label.toLowerCase() === target);
       if (!ff) ff = fields.find(f => f.name.toLowerCase() === target);
@@ -270,7 +279,7 @@ export function findClickTargetScript(formNum, text, { tableName, gridSelector }
       if (!ff) ff = fields.find(f => f.name.toLowerCase().startsWith(target));
       if (!ff && target.length >= 4) ff = fields.find(f => f.label && f.label.toLowerCase().includes(target));
       if (!ff && target.length >= 4) ff = fields.find(f => f.name.toLowerCase().includes(target));
-      if (ff) return { id: ff.id, kind: 'field', name: ff.label || ff.name };
+      if (ff) return { id: ff.id, kind: 'field', name: ff.label || ff.name, ...(ff.disabled ? { disabled: true } : {}) };
     }
 
     const available = items.map(i => i.tooltip ? i.name + ' [' + i.tooltip + ']' : i.name).filter(Boolean);
@@ -344,6 +353,11 @@ export function findFieldButtonScript(formNum, fieldName, buttonSuffix = 'DLB') 
     }
     const result = { fieldName: found.name, buttonId: btnId, buttonType: suffix };
     if (dcsCheckbox) result.dcsCheckbox = { inputId: dcsCheckbox.inputId };
+    // Disabled reference field keeps its DLB/CB visible (won't hit button_not_found),
+    // so flag disabled off the field input for selectValue to guard against a silent no-op.
+    const fieldInput = document.getElementById(p + found.name + '_i0')
+      || document.querySelector('input[id^="' + p + found.name + '_i"]');
+    if (fieldInput?.disabled) result.disabled = true;
     return result;
   })()`;
 }
@@ -370,6 +384,7 @@ export function resolveFieldsScript(formNum, fields) {
         || document.getElementById(p + name + '#title_div');
       const label = (titleEl?.innerText?.trim() || '').replace(/\\n/g, ' ').replace(/:$/, '');
       const last = { inputId: el.id, name, label };
+      if (el.disabled) last.disabled = true;
       if (document.getElementById(p + name + '_DLB')?.offsetWidth > 0) last.hasSelect = true;
       const cbEl = document.getElementById(p + name + '_CB');
       if (cbEl?.offsetWidth > 0) {
@@ -386,7 +401,9 @@ export function resolveFieldsScript(formNum, fields) {
       const titleEl = document.getElementById(p + name + '#title_text');
       const label = (titleEl?.innerText?.trim() || '').replace(/\\n/g, ' ').replace(/:$/, '');
       const checked = el.classList.contains('checked') || el.classList.contains('checkboxOn') || el.classList.contains('select');
-      allFields.push({ inputId: el.id, name, label, isCheckbox: true, checked });
+      const cb = { inputId: el.id, name, label, isCheckbox: true, checked };
+      if (el.classList.contains('checkboxDisabled')) cb.disabled = true;
+      allFields.push(cb);
     });
     // Radio button groups — base element = option 0, others are #N#radio
     const radioSeen = new Set();
@@ -415,7 +432,10 @@ export function resolveFieldsScript(formNum, fields) {
         const textEl = document.getElementById(p + groupName + '#' + i + '#radio_text');
         options.push({ index: i, label: textEl?.innerText?.trim() || '', selected: opt.classList.contains('select') });
       }
-      allFields.push({ inputId: p + groupName, name: groupName, label, isRadio: true, options });
+      const groupEl = document.getElementById(p + groupName);
+      const radio = { inputId: p + groupName, name: groupName, label, isRadio: true, options };
+      if (groupEl?.classList.contains('radioDisabled')) radio.disabled = true;
+      allFields.push(radio);
     });
 
     // Build DCS pairs: checkbox label → paired value field
@@ -451,6 +471,7 @@ export function resolveFieldsScript(formNum, fields) {
 
       if (found) {
         const entry = { field: fieldName, inputId: found.inputId, name: found.name, label: found.label };
+        if (found.disabled) entry.disabled = true;
         if (found.isCheckbox) { entry.isCheckbox = true; entry.checked = found.checked; }
         if (found.isRadio) { entry.isRadio = true; entry.options = found.options; }
         if (found.hasSelect) entry.hasSelect = true;

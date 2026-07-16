@@ -500,6 +500,35 @@ export const steps = [
     validate: { script: 'meta-validate/scripts/meta-validate', flag: '-ObjectPath', path: 'DataProcessors/БезшапочнаяТаблица' },
   },
 
+  // Обработка ПроверкаДоступности — форма с парами «доступный / недоступный»
+  // элементов каждого типа (кнопка командной панели, обычная кнопка, поле ввода,
+  // флажок, переключатель). Недоступность задаётся декларативно (disabled:true →
+  // <Enabled>false</Enabled>). Для регресса: clickElement по недоступной кнопке
+  // должен бросать ошибку, а getFormState — корректно помечать disabled у всех
+  // типов. Реквизиты парные (А=доступный, Б=недоступный), чтобы у элементов не
+  // совпадали companion-имена.
+  {
+    name: 'meta-compile: Обработка ПроверкаДоступности',
+    script: 'meta-compile/scripts/meta-compile',
+    input: {
+      type: 'DataProcessor', name: 'ПроверкаДоступности',
+      attributes: [
+        { name: 'СтрокаДоступная',    type: 'String', length: 50 },
+        { name: 'СтрокаНедоступная',  type: 'String', length: 50 },
+        { name: 'ФлажокДоступный',    type: 'Boolean' },
+        { name: 'ФлажокНедоступный',  type: 'Boolean' },
+        { name: 'ВидДоступный',       type: 'EnumRef.ВидыНоменклатуры' },
+        { name: 'ВидНедоступный',     type: 'EnumRef.ВидыНоменклатуры' },
+        { name: 'ТумблерДоступный',   type: 'EnumRef.СпособыУчёта' },
+        { name: 'ТумблерНедоступный', type: 'EnumRef.СпособыУчёта' },
+        { name: 'КонтрагентДоступный',   type: 'CatalogRef.Контрагенты' },
+        { name: 'КонтрагентНедоступный', type: 'CatalogRef.Контрагенты' },
+      ],
+    },
+    args: { '-JsonPath': '{inputFile}', '-OutputDir': '{workDir}' },
+    validate: { script: 'meta-validate/scripts/meta-validate', flag: '-ObjectPath', path: 'DataProcessors/ПроверкаДоступности' },
+  },
+
   // Отчёт ОстаткиТоваров
   {
     name: 'meta-compile: Отчёт ОстаткиТоваров',
@@ -880,6 +909,111 @@ export const steps = [
 &НаСервере
 Процедура ВызватьИсключениеНаСервере()
 \tОбщиеФункции.ВызватьТестовоеИсключение();
+КонецПроцедуры
+`,
+  },
+
+  // Форма обработки ПроверкаДоступности — доступные/недоступные элементы каждого типа.
+  // Командная панель формы (autoCmdBar) и обычные кнопки в группе; поля/флажки/
+  // переключатели парами. Недоступные помечены disabled:true (→ <Enabled>false</Enabled>),
+  // 1С рисует их серыми: кнопки получают класс pressDisabled.
+  {
+    name: 'form-add: Форма обработки ПроверкаДоступности',
+    script: 'form-add/scripts/form-add',
+    args: { '-ObjectPath': '{workDir}/DataProcessors/ПроверкаДоступности.xml', '-FormName': 'ФормаОбработки' },
+  },
+  {
+    name: 'form-compile: Форма обработки ПроверкаДоступности',
+    script: 'form-compile/scripts/form-compile',
+    input: {
+      title: 'Проверка доступности',
+      attributes: [
+        { name: 'Объект', type: 'DataProcessorObject.ПроверкаДоступности', main: true },
+      ],
+      elements: [
+        // Командная панель формы: доступная + недоступная кнопка.
+        { autoCmdBar: 'ФормаКоманднаяПанель', autofill: false, children: [
+          { button: 'КомандаПанелиДоступна',   command: 'КомандаПанелиДоступна',   title: 'Доступная команда' },
+          { button: 'КомандаПанелиНедоступна', command: 'КомандаПанелиНедоступна', title: 'Недоступная команда', disabled: true },
+        ]},
+        // Обычные кнопки (в группе на теле формы, вне командной панели).
+        { group: 'horizontal', name: 'ГруппаОбычныхКнопок', title: 'Обычные кнопки', children: [
+          { button: 'КнопкаДоступна',   command: 'КомандаКнопкаДоступна',   title: 'Доступная кнопка' },
+          { button: 'КнопкаНедоступна', command: 'КомандаКнопкаНедоступна', title: 'Недоступная кнопка', disabled: true },
+        ]},
+        // Поля ввода.
+        { input: 'СтрокаДоступная',   path: 'Объект.СтрокаДоступная',   title: 'Строка доступная' },
+        { input: 'СтрокаНедоступная', path: 'Объект.СтрокаНедоступная', title: 'Строка недоступная', disabled: true },
+        // Флажки.
+        { check: 'ФлажокДоступный',   path: 'Объект.ФлажокДоступный',   title: 'Флажок доступный' },
+        { check: 'ФлажокНедоступный', path: 'Объект.ФлажокНедоступный', title: 'Флажок недоступный', disabled: true },
+        // Переключатели.
+        { radio: 'ВидДоступный', path: 'Объект.ВидДоступный',
+          title: 'Вид доступный', radioButtonType: 'RadioButtons', titleLocation: 'Top',
+          choiceList: [
+            { value: 'Enum.ВидыНоменклатуры.EnumValue.Товар',  presentation: 'Товар' },
+            { value: 'Enum.ВидыНоменклатуры.EnumValue.Услуга', presentation: 'Услуга' },
+            { value: 'Enum.ВидыНоменклатуры.EnumValue.Работа', presentation: 'Работа' },
+          ],
+        },
+        { radio: 'ВидНедоступный', path: 'Объект.ВидНедоступный',
+          title: 'Вид недоступный', radioButtonType: 'RadioButtons', titleLocation: 'Top', disabled: true,
+          choiceList: [
+            { value: 'Enum.ВидыНоменклатуры.EnumValue.Товар',  presentation: 'Товар' },
+            { value: 'Enum.ВидыНоменклатуры.EnumValue.Услуга', presentation: 'Услуга' },
+            { value: 'Enum.ВидыНоменклатуры.EnumValue.Работа', presentation: 'Работа' },
+          ],
+        },
+        // Тумблеры (переключатель с видом Tumbler — рендерится иначе, чем RadioButtons).
+        { radio: 'ТумблерДоступный', path: 'Объект.ТумблерДоступный',
+          title: 'Тумблер доступный', radioButtonType: 'Tumbler', titleLocation: 'Top',
+          choiceList: [
+            { value: 'Enum.СпособыУчёта.EnumValue.ПоСреднему', presentation: 'По среднему' },
+            { value: 'Enum.СпособыУчёта.EnumValue.ФИФО',      presentation: 'ФИФО' },
+          ],
+        },
+        { radio: 'ТумблерНедоступный', path: 'Объект.ТумблерНедоступный',
+          title: 'Тумблер недоступный', radioButtonType: 'Tumbler', titleLocation: 'Top', disabled: true,
+          choiceList: [
+            { value: 'Enum.СпособыУчёта.EnumValue.ПоСреднему', presentation: 'По среднему' },
+            { value: 'Enum.СпособыУчёта.EnumValue.ФИФО',      presentation: 'ФИФО' },
+          ],
+        },
+        // Ссылочные поля (для selectValue — выбор через DLB/CB-кнопки).
+        { input: 'КонтрагентДоступный',   path: 'Объект.КонтрагентДоступный',   title: 'Контрагент доступный' },
+        { input: 'КонтрагентНедоступный', path: 'Объект.КонтрагентНедоступный', title: 'Контрагент недоступный', disabled: true },
+      ],
+      commands: [
+        { name: 'КомандаПанелиДоступна',   action: 'КомандаПанелиДоступна' },
+        { name: 'КомандаПанелиНедоступна', action: 'КомандаПанелиНедоступна' },
+        { name: 'КомандаКнопкаДоступна',   action: 'КомандаКнопкаДоступна' },
+        { name: 'КомандаКнопкаНедоступна', action: 'КомандаКнопкаНедоступна' },
+      ],
+    },
+    args: { '-JsonPath': '{inputFile}', '-OutputPath': '{workDir}/DataProcessors/ПроверкаДоступности/Forms/ФормаОбработки/Ext/Form.xml' },
+    validate: { script: 'form-validate/scripts/form-validate', flag: '-FormPath', path: 'DataProcessors/ПроверкаДоступности/Forms/ФормаОбработки/Ext/Form.xml' },
+  },
+  {
+    name: 'writeFile: ПроверкаДоступности form Module.bsl',
+    writeFile: 'DataProcessors/ПроверкаДоступности/Forms/ФормаОбработки/Ext/Form/Module.bsl',
+    content: `&НаКлиенте
+Процедура КомандаПанелиДоступна(Команда)
+\tСообщить("Команда панели (доступна)");
+КонецПроцедуры
+
+&НаКлиенте
+Процедура КомандаПанелиНедоступна(Команда)
+\tСообщить("Команда панели (недоступна)");
+КонецПроцедуры
+
+&НаКлиенте
+Процедура КомандаКнопкаДоступна(Команда)
+\tСообщить("Обычная кнопка (доступна)");
+КонецПроцедуры
+
+&НаКлиенте
+Процедура КомандаКнопкаНедоступна(Команда)
+\tСообщить("Обычная кнопка (недоступна)");
 КонецПроцедуры
 `,
   },
@@ -1479,6 +1613,7 @@ export const steps = [
         'Constant.ОсновнаяВалюта',
         'DataProcessor.ТестовыеОшибки',
         'DataProcessor.ДеревоНоменклатуры',
+        'DataProcessor.ПроверкаДоступности',
       ],
     },
     args: { '-DefinitionFile': '{inputFile}', '-OutputDir': '{workDir}' },
@@ -1502,6 +1637,7 @@ export const steps = [
         'DataProcessor.ДеревоНоменклатуры: Use View',
         'DataProcessor.МножественныйВыбор: Use View',
         'DataProcessor.БезшапочнаяТаблица: Use View',
+        'DataProcessor.ПроверкаДоступности: Use View',
       ],
     },
     args: { '-JsonPath': '{inputFile}', '-OutputDir': '{workDir}' },

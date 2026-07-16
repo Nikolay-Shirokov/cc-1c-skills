@@ -140,7 +140,7 @@ Returns current form structure. This is the primary way to understand what's on 
 
 **openTabs** — array of `{ name, active? }` from the open-windows tab bar. Only present when the tab bar is enabled in 1C settings. Do NOT rely on this — use `formCount`/`openForms` instead.
 
-**fields** — each field has: `name`, `value`, `label?`, `actions?` (select, clear, open), `required?` (true for unfilled mandatory fields)
+**fields** — each field has: `name`, `value`, `label?`, `actions?` (select, clear, open), `required?` (true for unfilled mandatory fields), `disabled?` (control is unavailable). `buttons[]` carry `disabled?` too.
 
 **navigation** — form navigation panel links (for objects with subordinate catalogs): `[{ name, active? }]`. Clickable via `clickElement()`. Only present when the form has a navigation panel (e.g. "Основное", "Объекты метаданных", "Подсистемы").
 
@@ -239,6 +239,8 @@ Sections + all open tabs.
 
 #### `clickElement(text, { dblclick?, table?, expand?, modifier?, scroll? })` → form state
 Click button, hyperlink, tab, navigation panel link, or grid row (fuzzy match).
+
+**Disabled controls throw.** `clickElement`, `fillFields`, and `selectValue` throw `"X" is disabled` on an unavailable control instead of reporting a fake success — check `getFormState().buttons[].disabled` / `fields[].disabled` first.
 
 - `table` — scope button search to a specific grid's command panel (by name from `tables[]`):
   ```js

@@ -1,4 +1,4 @@
-// web-test forms/fill v1.20 — Fill form fields by name (text/checkbox/date/number/dropdown/reference; array → multi-select via selectValue). Delegates references to selectValue / fillReferenceField.
+// web-test forms/fill v1.21 — Fill form fields by name (text/checkbox/date/number/dropdown/reference; array → multi-select via selectValue). Delegates references to selectValue / fillReferenceField.
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import {
@@ -31,6 +31,12 @@ export async function fillFields(fields) {
   for (const r of resolved) {
     if (r.error) {
       results.push(r);
+      continue;
+    }
+    // Disabled field: filling/toggling it is a silent no-op in 1C. Fail loud via the
+    // standard failure aggregation below instead of reporting a fake success.
+    if (r.disabled) {
+      results.push({ field: r.field, error: 'disabled', message: `field "${r.field}" is disabled` });
       continue;
     }
     // Array value → multi-select. Delegate to selectValue's array branch (auto-detects
