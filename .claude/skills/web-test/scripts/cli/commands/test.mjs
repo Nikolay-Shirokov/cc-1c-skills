@@ -1,4 +1,4 @@
-// web-test cli/commands/test v1.7 — regression test runner
+// web-test cli/commands/test v1.8 — regression test runner
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import { existsSync, writeFileSync, mkdirSync, renameSync, copyFileSync, unlinkSync } from 'fs';
 import { resolve, dirname, basename, relative } from 'path';
@@ -245,6 +245,20 @@ export async function cmdTest(rawArgs) {
   const results = [];
   let passCount = 0, failCount = 0, skipCount = 0;
 
+  // Per-test diagnostics are BUFFERED and flushed right after that test's ✓/✗ line.
+  // A test's cleanup runs before its result is printed, so writing straight to the stream put
+  // `! …` lines ABOVE the test they belong to — i.e. visually under the PREVIOUS test's result.
+  // Anyone reading the log (a model included) attributes them to the wrong test; that misreading
+  // already cost this session a wrong conclusion. Outside a test (hooks, final teardown) there is
+  // nothing to attach to, so lines go straight out.
+  let diagSink = null;
+  const emit = (line) => { if (diagSink) diagSink.push(line); else W.write(line); };
+  const flushDiag = () => {
+    if (!diagSink) return;
+    for (const line of diagSink) W.write(line);
+    diagSink = null;
+  };
+
   /**
    * Bounded best-effort await: the replacement for `try { await x } catch {}`.
    * Same tolerance for failure, but a call that never settles can no longer stall the run,
@@ -252,23 +266,37 @@ export async function cmdTest(rawArgs) {
    */
   async function bounded(promise, ms, label) {
     const r = await softDeadline(promise, ms, label);
-    if (!r.ok) W.write(`    ! ${label}: ${r.timedOut ? `timed out after ${ms}ms` : r.err.message.split('\n')[0]}\n`);
+    if (!r.ok) emit(`    ! ${label}: ${r.timedOut ? `timed out after ${ms}ms` : r.err.message.split('\n')[0]}\n`);
     return r;
   }
 
   /**
-   * Reset one context between tests. If the reset breaches its deadline, the slot's UI state is
-   * unknown — reusing it would leak dirty state into the next test, which is the WORST outcome
-   * of a badly-sized budget: silent drift instead of a visible error. So destroy it; the next
-   * test recreates a clean one via ensureContext. A deadline that is merely too tight then costs
-   * a context relaunch, never a wrong test result.
+   * Reset one context between tests — and only reuse it if the reset actually WORKED.
+   *
+   * Reusing a context whose UI was not cleaned leaks someone else's open form into the next test:
+   * silent drift instead of a visible error, the worst possible outcome. Two ways to end up there,
+   * and both must lead here:
+   *   - the reset breached its deadline (badly-sized budget, wedged page);
+   *   - the reset ran to completion but did not clean anything (a modal that refuses to close) —
+   *     this one used to pass as success, because `bounded` only reports timeouts and throws.
+   * Either way: destroy the slot, ensureContext recreates a clean one. The cost is a relaunch,
+   * never a wrong test result.
    */
   async function resetOrAbort(cn, ctx) {
     const sw = await bounded(browser.setActiveContext(cn), D.setActive, `setActiveContext(${cn})`);
     if (!sw.ok) return false;
     const r = await bounded(resetState(ctx), D.resetState, `resetState(${cn})`);
-    if (r.ok) return true;
-    W.write(`    ! context "${cn}" осталось несброшенным — прерываю его, следующий тест получит чистый\n`);
+    if (r.ok && r.value?.clean) return true;
+
+    if (r.ok) {
+      // Name what stayed open — otherwise the next investigation starts from archaeology.
+      const v = r.value || {};
+      const what = v.title ? `"${v.title}"` : `#${v.form}`;
+      emit(`    ! resetState(${cn}): not clean — form ${what}${v.modal ? ' (modal)' : ''} still open` +
+              ` after ${v.attempts} close attempt(s)` +
+              `${v.lastError ? `, last error: ${v.lastError.message.split('\n')[0]}` : ''}\n`);
+    }
+    emit(`    ! context "${cn}" left dirty — aborting it, the next test gets a fresh one\n`);
     await bounded(browser.abortContext(cn), D.closeContext, `abortContext(${cn})`);
     dropLru(lruOrder, cn);
     return false;
@@ -402,7 +430,7 @@ export async function cmdTest(rawArgs) {
     try {
       await ensureContext(defaultContextName);
     } catch (e) {
-      W.write(`\n!! не удалось открыть контекст "${defaultContextName}": ${e.message}\n\n`);
+      W.write(`\n!! cannot open context "${defaultContextName}": ${e.message}\n\n`);
       try { writeFinalReport('aborted'); } catch {}
       // process.exit skips the `finally` below, and killing the process does NOT release a 1C
       // seance — so release what we hold explicitly before leaving.
@@ -428,6 +456,8 @@ export async function cmdTest(rawArgs) {
     let testIdx = 0;
     for (const t of filtered) {
       testIdx++;
+      // Buffer this test's diagnostics; they are flushed under its own result line below.
+      diagSink = [];
       const declaredContexts = t.contexts && t.contexts.length
         ? t.contexts
         : [t.context || defaultContextName];
@@ -435,6 +465,7 @@ export async function cmdTest(rawArgs) {
       if (t.skip) {
         const reason = typeof t.skip === 'string' ? t.skip : '';
         W.write(`  ○ ${t.name}${reason ? ` (skip: ${reason})` : ' (skip)'}\n`);
+        flushDiag();
         recordResult({ name: t.name, file: t.file, tags: t.tags, contexts: declaredContexts, status: 'skipped', duration: 0, attempts: 0, steps: [], output: '', error: null, screenshot: null });
         skipCount++;
         continue;
@@ -483,6 +514,7 @@ export async function cmdTest(rawArgs) {
         touchLru(lruOrder, testContextNames);
       } catch (e) {
         W.write(`  ✗ ${t.name} (context setup failed: ${e.message})\n`);
+        flushDiag();
         recordResult({ name: t.name, file: t.file, tags: t.tags, contexts: declaredContexts, status: 'failed', duration: 0, attempts: 0, steps: [], output: '', error: { message: e.message }, screenshot: null });
         failCount++;
         if (opts.bail) break;
@@ -635,7 +667,7 @@ export async function cmdTest(rawArgs) {
             diagnosis = { verdict, probe, net: diag?.net };
             e.message = `${e.message} — ${lines[0]}`;
             output.push(...lines);
-            W.write(lines.map(l => `    ${l}\n`).join(''));
+            emit(lines.map(l => `    ${l}\n`).join(''));
           }
 
           const dead = diagnosis && (diagnosis.verdict === 'hang' || diagnosis.verdict === 'browser-dead');
@@ -728,8 +760,14 @@ export async function cmdTest(rawArgs) {
         if (lastError?.screenshot) W.write(`    screenshot: ${lastError.screenshot}\n`);
       }
 
+      flushDiag();
+
       if (opts.bail && testResult.status === 'failed') break;
     }
+
+    // Out of the per-test scope (also on `break`): afterAll and the final teardown have no test
+    // to nest under, so their diagnostics go straight to the stream again.
+    flushDiag();
 
     if (hooks.afterAll) await bounded(hooks.afterAll(ctx), D.hooks, 'hooks.afterAll');
 
