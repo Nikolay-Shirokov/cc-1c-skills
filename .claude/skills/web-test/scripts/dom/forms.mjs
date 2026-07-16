@@ -1,4 +1,4 @@
-// web-test dom/forms v1.7 — form detection, content read, click-target/field-button resolution
+// web-test dom/forms v1.9 — form detection, content read, click-target/field-button resolution
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import { DETECT_FORM_FN, READ_FORM_FN, ROW_CLICK_POINT_FN } from './_shared.mjs';
 
@@ -10,6 +10,44 @@ export function detectFormScript() {
   return `(() => {
     ${DETECT_FORM_FN}
     return detectForm();
+  })()`;
+}
+
+/**
+ * Id of the cross that closes the topmost closable surface, or null when there is nothing to
+ * close — which is exactly how the platform says "this is the desktop": the home page has no
+ * cross at all. That `null` is the reset-between-tests "clean" signal; no baseline snapshot and
+ * no exception list needed. Measured on a live stand:
+ *   desktop, 1 form  → form=0 formCount=1, no cross
+ *   desktop, 3 forms → form=5 formCount=3 openForms=[5,6,7], no cross
+ *   list open        → cross VW_page2headerTopLine_cmd_CloseButton
+ *
+ * The id must leak out for the caller to click — Escape is not enough: on a real stand it closed
+ * neither a modal nor even a plain list.
+ *
+ * Order matters, and each step was measured:
+ *   1. floating window (`ps<N>`) — a modal sits ON TOP of the form that opened it, so its cross
+ *      wins. The index grows per window (ps0 → ps1 → …): a literal `ps0` breaks on the second
+ *      modal of a session.
+ *   2. the form's own page cross — works whether or not the tab panel is switched on, which is
+ *      why it beats the tab cross. With the panel hidden it is the ONLY path.
+ *   3. the ACTIVE tab's cross — last resort. `select` marks the active tab (same signal as
+ *      dom/form-state.mjs); NOT `querySelector('.openedClose')` like closeModals does — that
+ *      grabs the first tab in the DOM and would close someone else's form.
+ * Anchored on ids rather than title="Закрыть", so a non-Russian locale keeps working.
+ */
+export function closeCrossScript() {
+  return `(() => {
+    const vis = (e) => e.offsetWidth > 0;
+    const crosses = [...document.querySelectorAll('[id*="headerTopLine_cmd_CloseButton"]')].filter(vis);
+    const floating = crosses.filter(e => /ps\\d+headerTopLine_cmd_CloseButton$/.test(e.id));
+    if (floating.length) return floating.pop().id;
+    const page = crosses.filter(e => /^VW_page\\d+headerTopLine_cmd_CloseButton$/.test(e.id));
+    if (page.length) return page.pop().id;
+    const tab = [...document.querySelectorAll('[id^="openedCell_cmd_"]')]
+      .find(e => e.classList.contains('select') && vis(e));
+    const tabCross = tab && tab.querySelector('.openedClose');
+    return (tabCross && vis(tabCross)) ? tabCross.id : null;
   })()`;
 }
 
