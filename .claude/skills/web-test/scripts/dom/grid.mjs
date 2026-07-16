@@ -1,6 +1,7 @@
-// web-test dom/grid v1.12 — grid resolution + table reading + edit-time helpers
+// web-test dom/grid v1.13 — grid resolution + table reading + edit-time helpers
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import { ROW_CLICK_POINT_FN, HEADERLESS_GRID_FN } from './_shared.mjs';
+import { ROW_STATE_FN } from './row-state.mjs';
 
 /**
  * Resolve a specific grid by semantic name (table parameter).
@@ -95,6 +96,16 @@ export function readTableScript(formNum, { maxRows = 20, offset = 0, gridSelecto
       return { gx: m ? m[1] : '0' };
     }
     ${HEADERLESS_GRID_FN}
+    ${ROW_STATE_FN}
+
+    // Write the leading row-state sprite onto a row: _rowPic (raw, always) + decoded booleans
+    // (only when the sprite path AND frame are known — absence means "unknown", never false).
+    function applyRowState(row, line) {
+      const st = rowStateInfo(line);
+      if (!st) return;
+      row._rowPic = st.rowPic;
+      if (st.axes) Object.keys(st.axes).forEach(k => { row['_' + k] = st.axes[k]; });
+    }
 
     // DOM-based parsing: gridHead → columns, gridBody → gridLine rows → gridBox cells
     const head = grid.querySelector('.gridHead');
@@ -139,12 +150,13 @@ export function readTableScript(formNum, { maxRows = 20, offset = 0, gridSelecto
           }
           row[c.name] = val;
         });
-        // Row meta — mirrors the headed path (group/parent/tree/level/selected)
+        // Row meta — mirrors the headed path (group/parent/tree/level/selected/state)
         const imgBox = line.querySelector('.gridBoxImg');
         if (imgBox) {
           if (imgBox.querySelector('.gridListH')) row._kind = 'group';
           else if (imgBox.querySelector('.gridListV')) row._kind = 'parent';
         }
+        applyRowState(row, line);
         const treeBox = line.querySelector('.gridBoxTree');
         if (treeBox) {
           const treeIcon = imgBox?.querySelector('[tree="true"]');
@@ -331,6 +343,8 @@ export function readTableScript(formNum, { maxRows = 20, offset = 0, gridSelecto
         if (imgBox.querySelector('.gridListH')) row._kind = 'group';
         else if (imgBox.querySelector('.gridListV')) row._kind = 'parent';
       }
+      // Leading row-state sprite → _rowPic + decoded booleans
+      applyRowState(row, line);
       // Tree mode: detect expand/collapse state and indent level
       const treeBox = line.querySelector('.gridBoxTree');
       if (treeBox) {

@@ -191,6 +191,22 @@ Special row fields:
 - `hierarchical: true` — list has groups (on result object)
 - `viewMode: 'tree'` — tree view active (on result object)
 
+Row state — in object lists, decoded from the row's state icon (no need to add a column to the list):
+- `_deleted: true|false` — marked for deletion (catalogs, documents, tasks, business processes, charts of accounts/calculation types)
+- `_posted: true|false` — documents
+- `_predefined: true|false` — catalogs, charts of accounts/calculation types
+- `_completed: true|false` — tasks
+- `_started`, `_finished` — business processes
+- `_rowPic: '<icon>:<N>'` — raw icon id, for diagnostics
+
+```js
+const t = await readTable();
+const doc = t.rows.find(r => r['Номер'] === 'ТД00-000005');
+if (doc._deleted === true) { /* marked for deletion */ }
+```
+
+**A missing state field means "unknown", never `false`** — the property may not apply (documents have no `_predefined`), or the icon may be unrecognised. So `if (!row._deleted)` is unsafe: it reads "unknown" as "not deleted". Compare explicitly (`=== true` / `=== false`) and treat `undefined` as a third outcome. Rows outside object lists (form tabular sections, value lists) have no state fields at all. If `_rowPic` is present but the booleans aren't, report its value — that icon needs decoding support.
+
 **`total` is misleading for long lists.** 1С virtualizes both dynamic lists and form tabular sections — the DOM holds only a window of visible rows. `total` / `shown` count what's *loaded right now*, not the size of the underlying collection. Use **`hasMore`** to know if there's more data outside the window:
 
 ```js
