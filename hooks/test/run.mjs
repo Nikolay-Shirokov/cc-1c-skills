@@ -1,4 +1,4 @@
-// run.mjs v1.0 — standalone tests for hook common/ modules against the cfsrc corpus
+// run.mjs v1.1 — standalone tests for hook common/ modules against the cfsrc corpus
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 //
 // No live hook registration needed: exercises decideSupport / getEditMode / findConfigRoot
@@ -10,13 +10,19 @@ import { processInput as guard } from '../support-guard.mjs';
 import { processInput as suggest } from '../skill-suggester.mjs';
 import { execFileSync } from 'node:child_process';
 import { rmSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 
-const CORPUS = 'C:/WS/tasks/cfsrc';
+// Repo root derived from this file's own location (<repo>/hooks/test/run.mjs) so the
+// suite is portable — hardcoding 'C:/WS/tasks/skills' broke on POSIX, where a 'C:/…'
+// string is not absolute and resolve(cwd, path) doubled it into a non-existent path.
+const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
+// External vendor corpus (acc/erp): Windows-only by default, env-overridable. The
+// acc/erp cases below are existsSync-guarded → they SKIP when the corpus is absent.
+const CORPUS = process.env.CC_1C_CFSRC || 'C:/WS/tasks/cfsrc';
 const ACC = join(CORPUS, 'acc_8.3.24'); // G=1 — whole config locked
 const ERP = join(CORPUS, 'erp_8.3.24'); // K=0 — support removed
-const REPO = 'C:/WS/tasks/skills';
 
 let pass = 0, fail = 0;
 function check(name, cond, detail = '') {
