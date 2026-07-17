@@ -1,4 +1,4 @@
-// web-test dom shared v1.4 — embedded JS function constants
+// web-test dom shared v1.5 — embedded JS function constants
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 /**
  * Shared function strings embedded into page.evaluate() generators.
@@ -308,34 +308,54 @@ function resolveColumnByName(model, name) {
       || null;
 }`;
 
+// Селекторы детекции формы. EDIT_SEL — «редактируемые» контролы (поля/кнопки): их наличие
+// исторически = «это форма». Но страницы настроек/справки (напр. «Интернет-поддержка и сервисы»)
+// собраны только из гиперссылок/frameButton/групп и НЕ имеют ни одного из этих трёх → форма не
+// детектировалась (form=null). ANY_SEL добавляет контентные/интерактивные классы декораций, чтобы
+// такие формы регистрировались. form0 (рабочий стол, тоже полон гиперссылок) исключается фильтром n>0.
+const FORM_DETECT_EDIT_SEL = 'input.editInput[id], textarea[id], a.press[id]';
+const FORM_DETECT_ANY_SEL = FORM_DETECT_EDIT_SEL + ', .staticTextHyper[id], .frameButton[id], .checkbox[id], .radio[id], .tumblerItem[id], .grid[id]';
+
 /** Detect active form number. Picks form with most visible elements, skipping form0.
  *  When modalSurface is visible — prefer the highest-numbered form (modal dialog). */
 export const DETECT_FORM_FN = HAS_VISIBLE_MODAL_FN + `
 function detectForm() {
-  const counts = {};
-  document.querySelectorAll('input.editInput[id], textarea[id], a.press[id]').forEach(el => {
+  const editSel = ${JSON.stringify(FORM_DETECT_EDIT_SEL)};
+  const anySel = ${JSON.stringify(FORM_DETECT_ANY_SEL)};
+  const editCounts = {};   // строгие поля/кнопки
+  const anyCounts = {};    // + контентные декорации
+  document.querySelectorAll(anySel).forEach(el => {
     if (el.offsetWidth === 0) return;
     const m = el.id.match(/^form(\\d+)_/);
-    if (m) counts[m[1]] = (counts[m[1]] || 0) + 1;
+    if (!m) return;
+    anyCounts[m[1]] = (anyCounts[m[1]] || 0) + 1;
+    if (el.matches(editSel)) editCounts[m[1]] = (editCounts[m[1]] || 0) + 1;
   });
-  const nums = Object.keys(counts).map(Number);
+  const nums = Object.keys(anyCounts).map(Number);
   if (!nums.length) return null;
   const candidates = nums.filter(n => n > 0);
   if (!candidates.length) return nums[0];
   // When modal surface is visible, prefer the highest-numbered form (modal dialog)
   if (hasVisibleModal()) {
     const maxForm = Math.max(...candidates);
-    if (counts[maxForm] >= 1) return maxForm;
+    if (anyCounts[maxForm] >= 1) return maxForm;
   }
-  return candidates.reduce((best, n) => counts[n] > counts[best] ? n : best);
+  // Двухуровневый выбор: пока есть формы с редактируемыми контролами — выбираем по ним (прежнее
+  // поведение, обычные формы не сдвигаются). Только когда у ВСЕХ кандидатов их нет (info-страница) —
+  // выбираем по расширенному счёту.
+  const editable = candidates.filter(n => editCounts[n] > 0);
+  const pool = editable.length ? editable : candidates;
+  const metric = editable.length ? editCounts : anyCounts;
+  return pool.reduce((best, n) => metric[n] > metric[best] ? n : best);
 }`;
 
 /** Detect all open forms + modal state. Returns { activeForm, allForms, formCount, modal }.
  *  Works even when the open-windows tab bar is hidden. */
 export const DETECT_FORMS_FN = HAS_VISIBLE_MODAL_FN + `
 function detectForms() {
+  const anySel = ${JSON.stringify(FORM_DETECT_ANY_SEL)};
   const counts = {};
-  document.querySelectorAll('input.editInput[id], textarea[id], a.press[id]').forEach(el => {
+  document.querySelectorAll(anySel).forEach(el => {
     if (el.offsetWidth === 0) return;
     const m = el.id.match(/^form(\\d+)_/);
     if (m) counts[m[1]] = (counts[m[1]] || 0) + 1;

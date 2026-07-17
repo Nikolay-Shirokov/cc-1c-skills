@@ -1257,6 +1257,51 @@ export const steps = [
 `,
   },
 
+  // Обработка СтраницаНастроек — форма-«страница настроек» БЕЗ полей ввода: только
+  // гиперссылка-декорация + сворачиваемая группа (как «Администрирование → Интернет-поддержка
+  // и сервисы» в реальных конфигурациях). commandBarLocation:None убирает автокомандную панель,
+  // поэтому у формы НЕТ ни одного input.editInput / textarea / a.press — это воспроизводит баг
+  // детекции формы (detectForm возвращал null → getFormState = «No form detected»). Регресс на
+  // расширенный селектор детекции (dom/_shared.mjs). Открывается командой раздела и navigateLink.
+  {
+    name: 'meta-compile: Обработка СтраницаНастроек',
+    script: 'meta-compile/scripts/meta-compile',
+    input: {
+      type: 'DataProcessor', name: 'СтраницаНастроек',
+    },
+    args: { '-JsonPath': '{inputFile}', '-OutputDir': '{workDir}' },
+    validate: { script: 'meta-validate/scripts/meta-validate', flag: '-ObjectPath', path: 'DataProcessors/СтраницаНастроек' },
+  },
+  {
+    name: 'form-add: Форма обработки СтраницаНастроек',
+    script: 'form-add/scripts/form-add',
+    args: { '-ObjectPath': '{workDir}/DataProcessors/СтраницаНастроек.xml', '-FormName': 'ФормаОбработки' },
+  },
+  {
+    name: 'form-compile: Форма обработки СтраницаНастроек',
+    script: 'form-compile/scripts/form-compile',
+    input: {
+      title: 'Страница настроек',
+      // Без командной панели → на форме нет ни одного a.press.
+      properties: { commandBarLocation: 'None' },
+      attributes: [
+        { name: 'Объект', type: 'DataProcessorObject.СтраницаНастроек', main: true },
+      ],
+      elements: [
+        // Гиперссылка-декорация → .staticTextHyper (кликабельна через findClickTargetScript).
+        { label: 'СсылкаТехническаяИнформация', title: 'Техническая информация', hyperlink: true },
+        // Сворачиваемая группа с дочерней декорацией (пустая группа не рендерится).
+        { group: 'collapsible', name: 'ГруппаКлассификаторы', title: 'Классификаторы и курсы валют',
+          collapsed: true, showTitle: true, children: [
+            { label: 'ПояснениеКлассификаторы', title: 'Загрузка курсов валют и классификаторов' },
+          ],
+        },
+      ],
+    },
+    args: { '-JsonPath': '{inputFile}', '-OutputPath': '{workDir}/DataProcessors/СтраницаНастроек/Forms/ФормаОбработки/Ext/Form.xml' },
+    validate: { script: 'form-validate/scripts/form-validate', flag: '-FormPath', path: 'DataProcessors/СтраницаНастроек/Forms/ФормаОбработки/Ext/Form.xml' },
+  },
+
   // Обработка МножественныйВыбор — основная форма с 4 полями типа «список значений».
   {
     name: 'form-add: Основная форма МножественныйВыбор',
@@ -1761,6 +1806,7 @@ export const steps = [
         'DataProcessor.ТестовыеОшибки',
         'DataProcessor.ДеревоНоменклатуры',
         'DataProcessor.ПроверкаДоступности',
+        'DataProcessor.СтраницаНастроек',
       ],
     },
     args: { '-DefinitionFile': '{inputFile}', '-OutputDir': '{workDir}' },
@@ -1786,6 +1832,7 @@ export const steps = [
         'DataProcessor.БезшапочнаяТаблица: Use View',
         'DataProcessor.МногострочнаяШапка: Use View',
         'DataProcessor.ПроверкаДоступности: Use View',
+        'DataProcessor.СтраницаНастроек: Use View',
       ],
     },
     args: { '-JsonPath': '{inputFile}', '-OutputDir': '{workDir}' },
