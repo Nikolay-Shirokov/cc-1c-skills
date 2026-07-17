@@ -170,8 +170,6 @@ const form = await getFormState();
 #### `readTable({ maxRows?, offset?, table? })` → `{ columns, rows, total, shown, offset, hasMore }`
 Read actual grid data with pagination. Each row is `{ columnName: value }`.
 
-**Names from `columns` work everywhere** — `clickElement({ row, column })`, `fillTableRow`, `filterList` and `{ column: value }` row filters all resolve a column the same way `readTable` names it. Multi-row headers included: a header stacked over several sub-rows is reported (and targeted) as `'Имя 1'`, `'Имя 2'`, … — e.g. the accounting entries grid gives `'Субконто Дт 1'..'Субконто Дт 3'`.
-
 | Option | Default | Description |
 |--------|---------|-------------|
 | `maxRows` | 20 | Max rows to return per call |
