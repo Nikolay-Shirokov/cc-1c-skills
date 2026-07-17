@@ -1,4 +1,4 @@
-﻿# role-info v1.1 — Analyze 1C role rights
+﻿# role-info v1.2 — Analyze 1C role rights
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory=$true)][Alias('Path')][string]$RightsPath,
@@ -145,6 +145,16 @@ foreach ($tpl in $tplNodes) {
 	}
 }
 
+function Test-ExternalObjectRoot([string]$xmlPath) {
+	if (-not (Test-Path $xmlPath)) { return $false }
+	try {
+		[xml]$mx = Get-Content -Path $xmlPath -Encoding UTF8
+		$el = $mx.DocumentElement.FirstChild
+		while ($el -and $el.NodeType -ne 'Element') { $el = $el.NextSibling }
+		if ($el) { return @('ExternalDataProcessor','ExternalReport') -contains $el.LocalName }
+	} catch {}
+	return $false
+}
 function Get-SupportStatusForPath([string]$targetPath) {
 	try {
 		$rp = (Resolve-Path $targetPath).Path
@@ -163,8 +173,10 @@ function Get-SupportStatusForPath([string]$targetPath) {
 		}
 		# The target file itself may be the element meta-xml (e.g. Subsystems/X.xml).
 		$elemUuid = Get-RootUuid $rp
+		if (Test-ExternalObjectRoot $rp) { return $null }
 		$d = [System.IO.Path]::GetDirectoryName($rp)
 		for ($i = 0; $i -lt 12 -and $d; $i++) {
+			if (Test-ExternalObjectRoot "$d.xml") { return $null }
 			if (-not $elemUuid) { $elemUuid = Get-RootUuid "$d.xml" }
 			if (-not $binPath) {
 				$cand = Join-Path (Join-Path $d "Ext") "ParentConfigurations.bin"
@@ -209,7 +221,8 @@ $header = "=== Role: $roleName"
 if ($roleSynonym) { $header += " --- `"$roleSynonym`"" }
 $header += " ==="
 Out $header
-Out "Поддержка: $(Get-SupportStatusForPath $RightsPath)"
+$support = Get-SupportStatusForPath $RightsPath
+if ($null -ne $support) { Out "Поддержка: $support" }
 Out ""
 
 Out "Properties: setForNewObjects=$setForNew, setForAttributesByDefault=$setForAttrs, independentRightsOfChildObjects=$independentChild"

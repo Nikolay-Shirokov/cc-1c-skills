@@ -1,4 +1,4 @@
-# meta-info v1.3 — Compact summary of 1C metadata object (Python port)
+# meta-info v1.4 — Compact summary of 1C metadata object (Python port)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import os
@@ -472,8 +472,23 @@ def get_ws_operations(child_objs):
 # ── Support status of this object (Ext/ParentConfigurations.bin) ──
 # See docs/1c-support-state-spec.md. Walks up to the config root, decodes the
 # object's support rule. Never throws — degrades to "не на поддержке".
+def _meta_is_external_root(xml_path):
+    if not os.path.isfile(xml_path):
+        return False
+    try:
+        mx = etree.parse(xml_path).getroot()
+        for child in mx:
+            if isinstance(child.tag, str):
+                return child.tag.split("}")[-1] in ("ExternalDataProcessor", "ExternalReport")
+    except Exception:
+        return False
+    return False
+
+
 def get_object_support_status(obj_uuid):
     try:
+        if _meta_is_external_root(object_path):
+            return None
         d = os.path.dirname(object_path)
         bin_path = None
         for _ in range(8):
@@ -703,7 +718,9 @@ if not drill_done:
         header += f' \u2014 "{synonym}"'
     header += " ==="
     out(header)
-    out(f"Поддержка: {get_object_support_status(type_node.get('uuid', ''))}")
+    _support = get_object_support_status(type_node.get('uuid', ''))
+    if _support is not None:
+        out(f"Поддержка: {_support}")
 
     # Type presentation (ref objects)
     if is_ref_object:

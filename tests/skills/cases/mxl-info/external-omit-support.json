@@ -1,0 +1,6 @@
+{
+  "name": "Info #39: для автономной EPF строка «Поддержка:» не выводится",
+  "setup": "fixture:epf-in-locked-config",
+  "params": { "templatePath": "print-forms/Демо/Templates/Макет/Ext/Template.xml" },
+  "expect": { "stdoutNotContains": "Поддержка:" }
+}

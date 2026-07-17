@@ -4,7 +4,7 @@
 // No live hook registration needed: exercises decideSupport / getEditMode / findConfigRoot
 // directly. Run: node hooks/test/run.mjs
 
-import { decideSupport, findConfigRoot, rootUuid } from '../common/support-state.mjs';
+import { decideSupport, findConfigRoot, rootUuid, isExternalObjectRoot } from '../common/support-state.mjs';
 import { getEditMode, getSuggesterMode } from '../common/project.mjs';
 import { processInput as guard } from '../support-guard.mjs';
 import { processInput as suggest } from '../skill-suggester.mjs';
@@ -94,6 +94,45 @@ console.log('=== support-state: synthetic per-object f1 (G=0) ===');
   check('synth remove locked (f1=0) → blocked', rmLocked.blocked === true, JSON.stringify(rmLocked));
   const rmRemoved = decideSupport(join(ROOT, 'Catalogs', 'Removed.xml'), 'removed');
   check('synth remove removed (f1=2) → NOT blocked', rmRemoved.blocked === false, JSON.stringify(rmRemoved));
+}
+
+console.log('=== support-state: external object boundary (issue #39) ===');
+{
+  // Autonomous EPF/ERF parked INSIDE a config tree whose capability is off (G=1). The
+  // climb must stop at the external object's root and NOT attribute it to the config.
+  const ROOT = join(REPO, 'test-tmp', 'hooks-ext');
+  const cat = '66666666-6666-6666-6666-666666666666';
+  mkdirSync(join(ROOT, 'Ext'), { recursive: true });
+  mkdirSync(join(ROOT, 'Catalogs'), { recursive: true });
+  mkdirSync(join(ROOT, 'print-forms', 'Демо', 'Templates', 'Макет', 'Ext'), { recursive: true });
+  // G=1 (capability off), K=1 — blocks every config object unconditionally.
+  const binText = `{6,1,1,aaaaaaaa-0000-0000-0000-000000000000,0,bbbbbbbb-0000-0000-0000-000000000000,` +
+    `"1.0","Vendor","Name",1,0,0,${cat}}`;
+  writeFileSync(join(ROOT, 'Ext', 'ParentConfigurations.bin'),
+    Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(binText, 'utf8')]));
+  writeFileSync(join(ROOT, 'Configuration.xml'),
+    `<?xml version="1.0" encoding="UTF-8"?>\n<MetaDataObject><Configuration uuid="11111111-1111-1111-1111-111111111111"></Configuration></MetaDataObject>`);
+  writeFileSync(join(ROOT, 'Catalogs', 'InConfig.xml'),
+    `<?xml version="1.0" encoding="UTF-8"?>\n<MetaDataObject><Catalog uuid="${cat}"></Catalog></MetaDataObject>`);
+  writeFileSync(join(ROOT, 'print-forms', 'Демо.xml'),
+    `<?xml version="1.0" encoding="UTF-8"?>\n<MetaDataObject xmlns="http://v8.1c.ru/8.3/MDClasses">\n\t<ExternalDataProcessor uuid="99999999-9999-9999-9999-999999999999"><Properties><Name>Демо</Name></Properties></ExternalDataProcessor>\n</MetaDataObject>`);
+  writeFileSync(join(ROOT, 'print-forms', 'Демо', 'Templates', 'Макет', 'Ext', 'Template.xml'),
+    `<?xml version="1.0"?><document xmlns="http://v8.1c.ru/8.1/data/spreadsheet"></document>`);
+
+  const epfRoot = join(ROOT, 'print-forms', 'Демо.xml');
+  const epfTpl = join(ROOT, 'print-forms', 'Демо', 'Templates', 'Макет', 'Ext', 'Template.xml');
+  const cfgObj = join(ROOT, 'Catalogs', 'InConfig.xml');
+
+  check('isExternalObjectRoot(EPF root) → true', isExternalObjectRoot(epfRoot) === true);
+  check('isExternalObjectRoot(config Catalog) → false', isExternalObjectRoot(cfgObj) === false);
+  check('EPF root → NOT blocked (G=1 config ignored)', decideSupport(epfRoot, 'editable').blocked === false, JSON.stringify(decideSupport(epfRoot, 'editable')));
+  const rTpl = decideSupport(epfTpl, 'editable');
+  check('EPF template → NOT blocked (climb stops at EPF root)', rTpl.blocked === false, JSON.stringify(rTpl));
+  const rCfg = decideSupport(cfgObj, 'editable');
+  check('control: config object under G=1 → blocked', rCfg.blocked === true && rCfg.code === 'capability-off', JSON.stringify(rCfg));
+  check('findConfigRoot(EPF template) → no cfgDir', findConfigRoot(epfTpl).cfgDir === null, JSON.stringify(findConfigRoot(epfTpl)));
+  const rGuard = guard({ tool_name: 'Edit', cwd: REPO, tool_input: { file_path: epfTpl } });
+  check('guard on EPF template → allow (no stdout)', rGuard.stdout === '' && rGuard.exitCode === 0, JSON.stringify(rGuard));
 }
 
 console.log('=== project: reaction modes ===');

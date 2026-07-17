@@ -1,0 +1,23 @@
+{
+  "name": "Guard #39: автономная EPF внутри конфигурации на поддержке (G=1) НЕ блокируется",
+  "setup": "fixture:epf-in-locked-config",
+  "input": {
+    "columns": 2,
+    "areas": [
+      {
+        "name": "О",
+        "rows": [
+          {
+            "cells": [
+              {
+                "col": 1,
+                "text": "a"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "outputPath": "print-forms/Демо/Templates/Макет/Ext/Template.xml"
+}

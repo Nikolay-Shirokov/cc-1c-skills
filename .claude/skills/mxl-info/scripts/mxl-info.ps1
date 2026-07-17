@@ -1,4 +1,4 @@
-﻿# mxl-info v1.1 — Analyze 1C spreadsheet structure
+﻿# mxl-info v1.2 — Analyze 1C spreadsheet structure
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Alias('Path')]
@@ -321,6 +321,16 @@ if ($Format -eq "json") {
 	exit 0
 }
 
+function Test-ExternalObjectRoot([string]$xmlPath) {
+	if (-not (Test-Path $xmlPath)) { return $false }
+	try {
+		[xml]$mx = Get-Content -Path $xmlPath -Encoding UTF8
+		$el = $mx.DocumentElement.FirstChild
+		while ($el -and $el.NodeType -ne 'Element') { $el = $el.NextSibling }
+		if ($el) { return @('ExternalDataProcessor','ExternalReport') -contains $el.LocalName }
+	} catch {}
+	return $false
+}
 function Get-SupportStatusForPath([string]$targetPath) {
 	try {
 		$rp = (Resolve-Path $targetPath).Path
@@ -339,8 +349,10 @@ function Get-SupportStatusForPath([string]$targetPath) {
 		}
 		# The target file itself may be the element meta-xml (e.g. Subsystems/X.xml).
 		$elemUuid = Get-RootUuid $rp
+		if (Test-ExternalObjectRoot $rp) { return $null }
 		$d = [System.IO.Path]::GetDirectoryName($rp)
 		for ($i = 0; $i -lt 12 -and $d; $i++) {
+			if (Test-ExternalObjectRoot "$d.xml") { return $null }
 			if (-not $elemUuid) { $elemUuid = Get-RootUuid "$d.xml" }
 			if (-not $binPath) {
 				$cand = Join-Path (Join-Path $d "Ext") "ParentConfigurations.bin"
@@ -385,7 +397,8 @@ function Get-SupportStatusForPath([string]$targetPath) {
 $lines = @()
 
 $lines += "=== $templateName ==="
-$lines += "Поддержка: $(Get-SupportStatusForPath $TemplatePath)"
+$support = Get-SupportStatusForPath $TemplatePath
+if ($null -ne $support) { $lines += "Поддержка: $support" }
 $lines += "  Rows: $docHeight, Columns: $defaultColCount"
 
 if ($columnSets.Count -eq 0) {

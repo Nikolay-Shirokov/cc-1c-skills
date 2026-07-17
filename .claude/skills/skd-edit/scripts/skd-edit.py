@@ -1,4 +1,4 @@
-# skd-edit v1.28 — Atomic 1C DCS editor (Python port)
+# skd-edit v1.29 — Atomic 1C DCS editor (Python port)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import json
@@ -141,6 +141,18 @@ def _sg_root_uuid(xml_path):
     return None
 
 
+def _sg_is_external_root(xml_path):
+    if not os.path.isfile(xml_path):
+        return False
+    try:
+        mx = etree.parse(xml_path).getroot()
+        for child in mx:
+            if isinstance(child.tag, str):
+                return child.tag.split("}")[-1] in ("ExternalDataProcessor", "ExternalReport")
+    except Exception:
+        return False
+    return False
+
 def _sg_find_v8project(start_dir):
     d = start_dir
     for _ in range(20):
@@ -180,6 +192,9 @@ def _sg_get_edit_mode(cfg_dir):
 def assert_edit_allowed(target_path, require):
     try:
         rp = os.path.abspath(target_path)
+        # Autonomous external object (EPF/ERF): never part of a config on support (issue #39).
+        if _sg_is_external_root(rp):
+            return
         elem_uuid = _sg_root_uuid(rp)
         cfg_dir = None
         bin_path = None
@@ -187,6 +202,8 @@ def assert_edit_allowed(target_path, require):
         for _ in range(12):
             if not d:
                 break
+            if _sg_is_external_root(d + ".xml"):
+                return
             if not elem_uuid:
                 elem_uuid = _sg_root_uuid(d + ".xml")
             if not cfg_dir:

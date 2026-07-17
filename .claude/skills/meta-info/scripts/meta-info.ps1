@@ -1,4 +1,4 @@
-﻿# meta-info v1.3 — Compact summary of 1C metadata object
+﻿# meta-info v1.4 — Compact summary of 1C metadata object
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory=$true)][Alias('Path')][string]$ObjectPath,
@@ -418,8 +418,19 @@ function Get-WSOperations($childObjs) {
 # --- Support status of this object (Ext/ParentConfigurations.bin) ---
 # See docs/1c-support-state-spec.md. Walks up to the config root, decodes the
 # object's support rule. Never throws — degrades to "не на поддержке".
+function Test-ExternalObjectRoot([string]$xmlPath) {
+	if (-not (Test-Path $xmlPath)) { return $false }
+	try {
+		[xml]$mx = Get-Content -Path $xmlPath -Encoding UTF8
+		$el = $mx.DocumentElement.FirstChild
+		while ($el -and $el.NodeType -ne 'Element') { $el = $el.NextSibling }
+		if ($el) { return @('ExternalDataProcessor','ExternalReport') -contains $el.LocalName }
+	} catch {}
+	return $false
+}
 function Get-ObjectSupportStatus([string]$objUuid) {
 	try {
+		if (Test-ExternalObjectRoot $ObjectPath) { return $null }
 		# Walk up to the config root (dir with Configuration.xml or Ext/ParentConfigurations.bin).
 		$d = [System.IO.Path]::GetDirectoryName($ObjectPath)
 		$binPath = $null
@@ -653,7 +664,8 @@ if (-not $drillDone) {
 	if ($synonym -and $synonym -ne $objName) { $header += " — `"$synonym`"" }
 	$header += " ==="
 	Out $header
-	Out "Поддержка: $(Get-ObjectSupportStatus $typeNode.GetAttribute('uuid'))"
+	$support = Get-ObjectSupportStatus $typeNode.GetAttribute('uuid')
+	if ($null -ne $support) { Out "Поддержка: $support" }
 
 	# --- Type presentation (ref objects) ---
 	if ($isRefObject) {

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# role-info v1.1 — Analyze 1C role rights
+# role-info v1.2 — Analyze 1C role rights
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -161,14 +161,29 @@ def get_support_status_for_path(target_path):
             except Exception:
                 pass
             return None
+        def is_external_root(xml_path):
+            if not os.path.isfile(xml_path):
+                return False
+            try:
+                mx = etree.parse(xml_path).getroot()
+                for child in mx:
+                    if isinstance(child.tag, str):
+                        return child.tag.split("}")[-1] in ("ExternalDataProcessor", "ExternalReport")
+            except Exception:
+                return False
+            return False
         rp = os.path.abspath(target_path)
         # The target file itself may be the element meta-xml (e.g. Subsystems/X.xml).
         elem_uuid = root_uuid(rp)
+        if is_external_root(rp):
+            return None
         bin_path = None
         d = os.path.dirname(rp)
         for _ in range(12):
             if not d:
                 break
+            if is_external_root(d + ".xml"):
+                return None
             if not elem_uuid:
                 elem_uuid = root_uuid(d + ".xml")
             if not bin_path:
@@ -222,7 +237,9 @@ if role_synonym:
     header += f' --- "{role_synonym}"'
 header += " ==="
 out(header)
-out(f"Поддержка: {get_support_status_for_path(rights_path)}")
+_support = get_support_status_for_path(rights_path)
+if _support is not None:
+    out(f"Поддержка: {_support}")
 out()
 
 out(f"Properties: setForNewObjects={set_for_new}, setForAttributesByDefault={set_for_attrs}, independentRightsOfChildObjects={independent_child}")

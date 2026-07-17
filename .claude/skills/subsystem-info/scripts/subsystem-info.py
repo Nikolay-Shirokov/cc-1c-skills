@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# subsystem-info v1.1 — Compact summary of 1C subsystem structure
+# subsystem-info v1.2 — Compact summary of 1C subsystem structure
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -150,14 +150,29 @@ def get_support_status_for_path(target_path):
             except Exception:
                 pass
             return None
+        def is_external_root(xml_path):
+            if not os.path.isfile(xml_path):
+                return False
+            try:
+                mx = etree.parse(xml_path).getroot()
+                for child in mx:
+                    if isinstance(child.tag, str):
+                        return child.tag.split("}")[-1] in ("ExternalDataProcessor", "ExternalReport")
+            except Exception:
+                return False
+            return False
         rp = os.path.abspath(target_path)
         # The target file itself may be the element meta-xml (e.g. Subsystems/X.xml).
         elem_uuid = root_uuid(rp)
+        if is_external_root(rp):
+            return None
         bin_path = None
         d = os.path.dirname(rp)
         for _ in range(12):
             if not d:
                 break
+            if is_external_root(d + ".xml"):
+                return None
             if not elem_uuid:
                 elem_uuid = root_uuid(d + ".xml")
             if not bin_path:
@@ -208,7 +223,9 @@ def get_support_status_for_path(target_path):
 def show_overview(sub_name, synonym, comment_text, incl_ci, use_one_cmd,
                   explanation, pic_text, content_items, groups, child_names, has_ci):
     out(f"Подсистема: {sub_name}")
-    out(f"Поддержка: {get_support_status_for_path(subsystem_path)}")
+    _support = get_support_status_for_path(subsystem_path)
+    if _support is not None:
+        out(f"Поддержка: {_support}")
     if synonym and synonym != sub_name:
         out(f"Синоним: {synonym}")
     if comment_text:

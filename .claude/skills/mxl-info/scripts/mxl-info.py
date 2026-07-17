@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# mxl-info v1.1 — Analyze 1C spreadsheet structure
+# mxl-info v1.2 — Analyze 1C spreadsheet structure
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -321,14 +321,29 @@ def get_support_status_for_path(target_path):
             except Exception:
                 pass
             return None
+        def is_external_root(xml_path):
+            if not os.path.isfile(xml_path):
+                return False
+            try:
+                mx = etree.parse(xml_path).getroot()
+                for child in mx:
+                    if isinstance(child.tag, str):
+                        return child.tag.split("}")[-1] in ("ExternalDataProcessor", "ExternalReport")
+            except Exception:
+                return False
+            return False
         rp = os.path.abspath(target_path)
         # The target file itself may be the element meta-xml (e.g. Subsystems/X.xml).
         elem_uuid = root_uuid(rp)
+        if is_external_root(rp):
+            return None
         bin_path = None
         d = os.path.dirname(rp)
         for _ in range(12):
             if not d:
                 break
+            if is_external_root(d + ".xml"):
+                return None
             if not elem_uuid:
                 elem_uuid = root_uuid(d + ".xml")
             if not bin_path:
@@ -380,7 +395,9 @@ def get_support_status_for_path(target_path):
 lines = []
 
 lines.append(f"=== {template_name} ===")
-lines.append(f"Поддержка: {get_support_status_for_path(template_path)}")
+_support = get_support_status_for_path(template_path)
+if _support is not None:
+    lines.append(f"Поддержка: {_support}")
 lines.append(f"  Rows: {doc_height}, Columns: {default_col_count}")
 
 if len(column_sets) == 0:

@@ -1,4 +1,4 @@
-// support-state.mjs v1.0 — decode 1C support state (Ext/ParentConfigurations.bin) for Claude Code hooks
+// support-state.mjs v1.1 — decode 1C support state (Ext/ParentConfigurations.bin) for Claude Code hooks
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 //
 // Canonical port of the in-skill guard Assert-EditAllowed / assert_edit_allowed
@@ -13,6 +13,20 @@ import { readFileSync, existsSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
 const GUID_RE = /\buuid="([0-9a-fA-F-]{36})"/;
+// Root child of an autonomous external object dump (EPF/ERF). Such an object is never
+// part of a configuration on support, even when its dump sits inside the config tree —
+// the climb must stop at this boundary instead of attributing it to the enclosing config.
+const EXT_ROOT_RE = /<MetaDataObject\b[^>]*>\s*<(?:\w+:)?(?:ExternalDataProcessor|ExternalReport)\b/;
+
+// True when xmlPath is the root file of an autonomous ExternalDataProcessor / ExternalReport.
+export function isExternalObjectRoot(xmlPath) {
+  try {
+    if (!existsSync(xmlPath) || !statSync(xmlPath).isFile()) return false;
+    return EXT_ROOT_RE.test(readFileSync(xmlPath, 'utf8').slice(0, 1000));
+  } catch {
+    return false;
+  }
+}
 
 // First uuid="..." in an object XML == root element uuid (the <MetaDataObject> wrapper
 // carries none), matching the reference's "first element child uuid" semantics.
@@ -40,7 +54,11 @@ export function findConfigRoot(startPath) {
   } catch {
     d = dirname(startPath);
   }
+  // startPath itself may be the external object root file.
+  if (isExternalObjectRoot(startPath)) return { cfgDir: null, binPath: null, isExtension: false };
   for (let i = 0; i < 12 && d; i++) {
+    // Crossed the boundary of an autonomous external object → not part of any config.
+    if (isExternalObjectRoot(d + '.xml')) return { cfgDir: null, binPath: null, isExtension: false };
     const cand = join(d, 'Ext', 'ParentConfigurations.bin');
     const cfgX = join(d, 'Configuration.xml');
     if (existsSync(cand) || existsSync(cfgX)) {
@@ -70,6 +88,9 @@ export function findConfigRoot(startPath) {
 export function decideSupport(targetPath, require = 'editable') {
   const result = { blocked: false, reason: '', code: null, cfgDir: null, targetPath };
   try {
+    // Autonomous external object (EPF/ERF): its root is never part of a configuration on
+    // support, even when the dump sits inside the config tree — do not attribute it (issue #39).
+    if (isExternalObjectRoot(targetPath)) return result;
     let elemUuid = rootUuid(targetPath);
     // Walk up: collect elemUuid (from <dir>.xml of a sub-element) and the config root.
     let cfgDir = null, binPath = null;
@@ -80,6 +101,8 @@ export function decideSupport(targetPath, require = 'editable') {
       d = dirname(targetPath);
     }
     for (let i = 0; i < 12 && d; i++) {
+      // Crossed the boundary of an autonomous external object → allow (not on support).
+      if (isExternalObjectRoot(d + '.xml')) return result;
       if (!elemUuid) elemUuid = rootUuid(d + '.xml');
       if (!cfgDir) {
         const cand = join(d, 'Ext', 'ParentConfigurations.bin');

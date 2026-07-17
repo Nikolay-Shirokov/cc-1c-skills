@@ -1,4 +1,4 @@
-﻿# meta-edit v1.19 — Edit existing 1C metadata object XML (+add-predefined предопределённые Ext/Predefined.xml)
+﻿# meta-edit v1.20 — Edit existing 1C metadata object XML (+add-predefined предопределённые Ext/Predefined.xml)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[string]$DefinitionFile,
@@ -170,6 +170,16 @@ function Get-RootUuid([string]$xmlPath) {
 	} catch {}
 	return $null
 }
+function Test-ExternalObjectRoot([string]$xmlPath) {
+	if (-not (Test-Path $xmlPath)) { return $false }
+	try {
+		[xml]$mx = Get-Content -Path $xmlPath -Encoding UTF8
+		$el = $mx.DocumentElement.FirstChild
+		while ($el -and $el.NodeType -ne 'Element') { $el = $el.NextSibling }
+		if ($el) { return @('ExternalDataProcessor','ExternalReport') -contains $el.LocalName }
+	} catch {}
+	return $false
+}
 function Find-V8Project([string]$startDir) {
 	$d = $startDir
 	for ($i = 0; $i -lt 20 -and $d; $i++) {
@@ -206,10 +216,13 @@ function Assert-EditAllowed([string]$targetPath, [string]$require) {
 	try {
 		$rp = $targetPath
 		try { $rp = (Resolve-Path $targetPath -ErrorAction Stop).Path } catch {}
+		# Autonomous external object (EPF/ERF): never part of a config on support (issue #39).
+		if (Test-ExternalObjectRoot $rp) { return }
 		$elemUuid = Get-RootUuid $rp
 		$cfgDir = $null; $binPath = $null
 		$d = if (Test-Path $rp -PathType Container) { $rp } else { [System.IO.Path]::GetDirectoryName($rp) }
 		for ($i = 0; $i -lt 12 -and $d; $i++) {
+			if (Test-ExternalObjectRoot "$d.xml") { return }
 			if (-not $elemUuid) { $elemUuid = Get-RootUuid "$d.xml" }
 			if (-not $cfgDir) {
 				$cand = Join-Path (Join-Path $d "Ext") "ParentConfigurations.bin"

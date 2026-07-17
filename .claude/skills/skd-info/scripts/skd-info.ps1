@@ -1,4 +1,4 @@
-﻿# skd-info v1.7 — Analyze 1C DCS structure
+﻿# skd-info v1.8 — Analyze 1C DCS structure
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory=$true)]
@@ -334,6 +334,16 @@ for ($i = $pathParts.Count - 1; $i -ge 0; $i--) {
 
 $totalXmlLines = (Get-Content $resolvedPath).Count
 
+function Test-ExternalObjectRoot([string]$xmlPath) {
+	if (-not (Test-Path $xmlPath)) { return $false }
+	try {
+		[xml]$mx = Get-Content -Path $xmlPath -Encoding UTF8
+		$el = $mx.DocumentElement.FirstChild
+		while ($el -and $el.NodeType -ne 'Element') { $el = $el.NextSibling }
+		if ($el) { return @('ExternalDataProcessor','ExternalReport') -contains $el.LocalName }
+	} catch {}
+	return $false
+}
 function Get-SupportStatusForPath([string]$targetPath) {
 	try {
 		$rp = (Resolve-Path $targetPath).Path
@@ -352,8 +362,10 @@ function Get-SupportStatusForPath([string]$targetPath) {
 		}
 		# The target file itself may be the element meta-xml (e.g. Subsystems/X.xml).
 		$elemUuid = Get-RootUuid $rp
+		if (Test-ExternalObjectRoot $rp) { return $null }
 		$d = [System.IO.Path]::GetDirectoryName($rp)
 		for ($i = 0; $i -lt 12 -and $d; $i++) {
+			if (Test-ExternalObjectRoot "$d.xml") { return $null }
 			if (-not $elemUuid) { $elemUuid = Get-RootUuid "$d.xml" }
 			if (-not $binPath) {
 				$cand = Join-Path (Join-Path $d "Ext") "ParentConfigurations.bin"
@@ -395,7 +407,8 @@ function Get-SupportStatusForPath([string]$targetPath) {
 
 function Show-Overview {
 	$lines.Add("=== DCS: $templateName ($totalXmlLines lines) ===")
-	$lines.Add("Поддержка: $(Get-SupportStatusForPath $TemplatePath)")
+	$support = Get-SupportStatusForPath $TemplatePath
+	if ($null -ne $support) { $lines.Add("Поддержка: $support") }
 	$lines.Add("")
 
 	# Sources
