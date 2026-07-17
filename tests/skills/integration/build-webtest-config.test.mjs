@@ -542,6 +542,22 @@ export const steps = [
     validate: { script: 'meta-validate/scripts/meta-validate', flag: '-ObjectPath', path: 'DataProcessors/БезшапочнаяТаблица' },
   },
 
+  // Обработка МногострочнаяШапка — грид с ДВУХЭТАЖНОЙ шапкой, для регресса резолвинга колонок
+  // (24-multirow-header). Воспроизводит два паттерна, снятые с ERP:
+  //   1) «Задачи» — широкая колонка сверху над парой узких: центр широкой ячейки попадает в
+  //      x-диапазон ПРАВОЙ узкой шапки, и матчинг по геометрии ворует ячейку;
+  //   2) «Операция» — объединённая шапка над несколькими под-рядами: законный разворот в
+  //      «Имя 1/2/3», который ломать нельзя.
+  {
+    name: 'meta-compile: Обработка МногострочнаяШапка',
+    script: 'meta-compile/scripts/meta-compile',
+    input: {
+      type: 'DataProcessor', name: 'МногострочнаяШапка',
+    },
+    args: { '-JsonPath': '{inputFile}', '-OutputDir': '{workDir}' },
+    validate: { script: 'meta-validate/scripts/meta-validate', flag: '-ObjectPath', path: 'DataProcessors/МногострочнаяШапка' },
+  },
+
   // Обработка ПроверкаДоступности — форма с парами «доступный / недоступный»
   // элементов каждого типа (кнопка командной панели, обычная кнопка, поле ввода,
   // флажок, переключатель). Недоступность задаётся декларативно (disabled:true →
@@ -1584,6 +1600,86 @@ export const steps = [
 `,
   },
 
+  // Обработка МногострочнаяШапка — форма с двухэтажной шапкой (columnGroup vertical).
+  {
+    name: 'form-add: Форма МногострочнаяШапка',
+    script: 'form-add/scripts/form-add',
+    args: { '-ObjectPath': '{workDir}/DataProcessors/МногострочнаяШапка.xml', '-FormName': 'ФормаОбработки' },
+  },
+  {
+    name: 'form-compile: Форма МногострочнаяШапка',
+    script: 'form-compile/scripts/form-compile',
+    input: {
+      title: 'Многострочная шапка',
+      events: { OnCreateAtServer: 'ПриСозданииНаСервере' },
+      attributes: [
+        { name: 'Объект', type: 'DataProcessorObject.МногострочнаяШапка', main: true },
+        { name: 'Таблица', type: 'ValueTable', columns: [
+          { name: 'Код', type: 'String(10)', title: 'Код' },
+          { name: 'Задача', type: 'String(50)', title: 'Задача' },
+          { name: 'Автор', type: 'String(50)', title: 'Автор' },
+          { name: 'Исполнитель', type: 'String(50)', title: 'Исполнитель' },
+          { name: 'Срок', type: 'String(50)', title: 'Срок' },
+          { name: 'Выполнена', type: 'String(50)', title: 'Выполнена' },
+          { name: 'Субконто1', type: 'String(50)', title: 'Субконто1' },
+          { name: 'Субконто2', type: 'String(50)', title: 'Субконто2' },
+          { name: 'Субконто3', type: 'String(50)', title: 'Субконто3' },
+        ]},
+      ],
+      elements: [
+        { table: 'Таблица', path: 'Таблица', changeRowSet: true, columns: [
+          { input: 'Код', path: 'Таблица.Код', title: 'Код', width: 8 },
+          // Простая вертикальная пара: у каждой колонки своя шапка (как «Задача»/«Автор» в ERP).
+          { columnGroup: 'vertical', name: 'ГруппаЗадача', showInHeader: false, children: [
+            { input: 'Задача', path: 'Таблица.Задача', title: 'Задача', width: 30 },
+            { input: 'Автор', path: 'Таблица.Автор', title: 'Автор', width: 30 },
+          ]},
+          // ПАТТЕРН «ЗАДАЧИ»: широкая колонка сверху над горизонтальной парой узких.
+          // Ширина «Исполнитель» = сумма пары → его центр падает в x-диапазон «Выполнена».
+          { columnGroup: 'vertical', name: 'ГруппаИсполнитель', showInHeader: false, children: [
+            { input: 'Исполнитель', path: 'Таблица.Исполнитель', title: 'Исполнитель', width: 40 },
+            { columnGroup: 'horizontal', name: 'ГруппаСрокВыполнена', showInHeader: false, children: [
+              { input: 'Срок', path: 'Таблица.Срок', title: 'Срок', width: 20 },
+              { input: 'Выполнена', path: 'Таблица.Выполнена', title: 'Выполнена', width: 20 },
+            ]},
+          ]},
+          // ПАТТЕРН «ОПЕРАЦИЯ»: одна шапка группы над тремя под-рядами БЕЗ своих боксов в шапке
+          // (showInHeader:false у детей — как «Субконто Дт» в ERP: шапка только у группы,
+          // ячеек три) → readTable разворачивает в «Субконто 1/2/3». Регресс этого разворота.
+          { columnGroup: 'vertical', name: 'ГруппаСубконто', title: 'Субконто', showInHeader: true, children: [
+            { input: 'Субконто1', path: 'Таблица.Субконто1', showInHeader: false, width: 25 },
+            { input: 'Субконто2', path: 'Таблица.Субконто2', showInHeader: false, width: 25 },
+            { input: 'Субконто3', path: 'Таблица.Субконто3', showInHeader: false, width: 25 },
+          ]},
+        ]},
+      ],
+    },
+    args: { '-JsonPath': '{inputFile}', '-OutputPath': '{workDir}/DataProcessors/МногострочнаяШапка/Forms/ФормаОбработки/Ext/Form.xml' },
+    validate: { script: 'form-validate/scripts/form-validate', flag: '-FormPath', path: 'DataProcessors/МногострочнаяШапка/Forms/ФормаОбработки/Ext/Form.xml' },
+  },
+  {
+    name: 'writeFile: МногострочнаяШапка form Module.bsl',
+    writeFile: 'DataProcessors/МногострочнаяШапка/Forms/ФормаОбработки/Ext/Form/Module.bsl',
+    content: `&НаСервере
+Процедура ПриСозданииНаСервере(Отказ, СтандартнаяОбработка)
+\t// Значения уникальны по колонкам: если резолвер промахнётся, это видно сразу.
+\tДля Сч = 1 По 3 Цикл
+\t\tС = Формат(Сч, "ЧН=; ЧГ=");
+\t\tСтрока = Таблица.Добавить();
+\t\tСтрока.Код = "К" + С;
+\t\tСтрока.Задача = "Задача " + С;
+\t\tСтрока.Автор = "Автор " + С;
+\t\tСтрока.Исполнитель = "Исполнитель " + С;
+\t\tСтрока.Срок = "Срок " + С;
+\t\tСтрока.Выполнена = "Выполнена " + С;
+\t\tСтрока.Субконто1 = "Субконто1 " + С;
+\t\tСтрока.Субконто2 = "Субконто2 " + С;
+\t\tСтрока.Субконто3 = "Субконто3 " + С;
+\tКонецЦикла;
+КонецПроцедуры
+`,
+  },
+
   // ── 4. DCS for report ──
   // Сначала добавляем макет ОсновнаяСхемаКомпоновкиДанных к отчёту (регистрируется
   // в Reports/ОстаткиТоваров.xml + автоматически выставляется MainDataCompositionSchema),
@@ -1647,6 +1743,7 @@ export const steps = [
         'Report.ОстаткиТоваров',
         'DataProcessor.МножественныйВыбор',
         'DataProcessor.БезшапочнаяТаблица',
+        'DataProcessor.МногострочнаяШапка',
       ],
     },
     args: { '-DefinitionFile': '{inputFile}', '-OutputDir': '{workDir}' },
@@ -1687,6 +1784,7 @@ export const steps = [
         'DataProcessor.ДеревоНоменклатуры: Use View',
         'DataProcessor.МножественныйВыбор: Use View',
         'DataProcessor.БезшапочнаяТаблица: Use View',
+        'DataProcessor.МногострочнаяШапка: Use View',
         'DataProcessor.ПроверкаДоступности: Use View',
       ],
     },
