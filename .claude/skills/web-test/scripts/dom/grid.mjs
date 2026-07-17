@@ -1,6 +1,6 @@
-// web-test dom/grid v1.13 — grid resolution + table reading + edit-time helpers
+// web-test dom/grid v1.14 — grid resolution + table reading + edit-time helpers
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
-import { ROW_CLICK_POINT_FN, HEADERLESS_GRID_FN } from './_shared.mjs';
+import { ROW_CLICK_POINT_FN, HEADERLESS_GRID_FN, COLUMN_MODEL_FN } from './_shared.mjs';
 import { ROW_STATE_FN } from './row-state.mjs';
 
 /**
@@ -95,7 +95,7 @@ export function readTableScript(formNum, { maxRows = 20, offset = 0, gridSelecto
       const m = bg.match(/[?&]gx=(\\d+)/);
       return { gx: m ? m[1] : '0' };
     }
-    ${HEADERLESS_GRID_FN}
+    ${COLUMN_MODEL_FN}
     ${ROW_STATE_FN}
 
     // Write the leading row-state sprite onto a row: _rowPic (raw, always) + decoded booleans
@@ -192,116 +192,10 @@ export function readTableScript(formNum, { maxRows = 20, offset = 0, gridSelecto
       return result;
     }
 
-    // Extract column headers with X-coordinates for alignment
-    const columns = [];
-    const headLine = head.querySelector('.gridLine') || head;
-    [...headLine.children].forEach(box => {
-      if (box.offsetWidth === 0) return;
-      const textEl = box.querySelector('.gridBoxText');
-      const text = (textEl || box).innerText?.trim().replace(/\\n/g, ' ') || '';
-      if (!text) {
-        // Unnamed column — check if data cells contain checkboxes or pictures.
-        // Picture columns have no header text (only an icon + a title tooltip); 1С
-        // doesn't expose the technical column name in the DOM, so we name them by
-        // the header's title attribute, falling back to '(picture)'.
-        const firstLine = body?.querySelector('.gridLine');
-        const visibleHeaders = [...headLine.children].filter(c => c.offsetWidth > 0);
-        const idx = visibleHeaders.indexOf(box);
-        const cells = firstLine ? [...firstLine.children].filter(c => c.offsetWidth > 0) : [];
-        const r = box.getBoundingClientRect();
-        if (cells[idx]?.querySelector('.checkbox')) {
-          columns.push({ text: '(checkbox)', x: r.x, w: r.width, right: r.x + r.width, y: r.y, h: r.height });
-        } else if (picInfo(box) || picInfo(cells[idx])) {
-          let title = (box.getAttribute('title') || '').trim() || '(picture)';
-          // Disambiguate duplicate picture-column names with a numeric suffix.
-          if (columns.some(c => c.text === title)) {
-            let n = 2;
-            while (columns.some(c => c.text === title + ' ' + n)) n++;
-            title = title + ' ' + n;
-          }
-          columns.push({ text: title, x: r.x, w: r.width, right: r.x + r.width, y: r.y, h: r.height });
-        }
-        return;
-      }
-      const r = box.getBoundingClientRect();
-      columns.push({ text, x: r.x, w: r.width, right: r.x + r.width, y: r.y, h: r.height });
-    });
-
-    // Multi-row grid support: detect stacked/merged headers.
-    // Group headers by X-range. For each group, count data sub-rows from first line.
-    // - Stacked headers (2+ headers at same X) with multiple data rows → match by Y-order
-    // - Single merged header with multiple data rows → expand to numbered columns (e.g. "Субконто Дт 1")
-    const xGroups = new Map();
-    columns.forEach(c => {
-      const key = Math.round(c.x) + ':' + Math.round(c.right);
-      if (!xGroups.has(key)) xGroups.set(key, []);
-      xGroups.get(key).push(c);
-    });
-    for (const [, hdrs] of xGroups) hdrs.sort((a, b) => a.y - b.y);
-
-    const firstDataLine = body?.querySelector('.gridLine');
-    const subRowMap = new Map();
-    if (firstDataLine) {
-      [...firstDataLine.children].forEach(box => {
-        if (box.offsetWidth === 0) return;
-        const r = box.getBoundingClientRect();
-        const cx = r.x + r.width / 2;
-        for (const [key, hdrs] of xGroups) {
-          const h0 = hdrs[0];
-          if (cx >= h0.x && cx < h0.right) {
-            if (!subRowMap.has(key)) subRowMap.set(key, []);
-            subRowMap.get(key).push({ y: r.y });
-            break;
-          }
-        }
-      });
-      for (const [, subs] of subRowMap) subs.sort((a, b) => a.y - b.y);
-    }
-
-    const multiRowGroups = new Map();
-    for (const [key, hdrs] of xGroups) {
-      const subs = subRowMap.get(key);
-      if (!subs || subs.length <= 1) continue;
-      if (hdrs.length >= 2) {
-        multiRowGroups.set(key, hdrs);
-      } else if (hdrs.length === 1 && subs.length > 1) {
-        const base = hdrs[0];
-        const baseIdx = columns.indexOf(base);
-        columns.splice(baseIdx, 1);
-        const expanded = [];
-        for (let si = 0; si < subs.length; si++) {
-          const numbered = {
-            text: base.text + ' ' + (si + 1),
-            x: base.x, w: base.w, right: base.right,
-            y: base.y + si, h: base.h / subs.length, _subIdx: si
-          };
-          columns.splice(baseIdx + si, 0, numbered);
-          expanded.push(numbered);
-        }
-        multiRowGroups.set(key, expanded);
-      }
-    }
-
-    function matchColumn(cellX, cellW, cellY) {
-      const cx = cellX + cellW / 2;
-      for (const [key, hdrs] of multiRowGroups) {
-        const h0 = hdrs[0];
-        if (cx >= h0.x && cx < h0.right) {
-          const subs = subRowMap.get(key);
-          if (subs) {
-            const subIdx = subs.findIndex(s => Math.abs(s.y - cellY) < 5);
-            if (subIdx >= 0 && subIdx < hdrs.length) return hdrs[subIdx];
-          }
-          let best = hdrs[0], bestDist = Infinity;
-          for (const h of hdrs) {
-            const dist = Math.abs(cellY - h.y);
-            if (dist < bestDist) { bestDist = dist; best = h; }
-          }
-          return best;
-        }
-      }
-      return columns.find(c => cx >= c.x && cx < c.right);
-    }
+    // Columns + cell↔column mapping — single source of truth in dom/_shared.mjs.
+    // colindex first, geometry only for cells without a header of their own.
+    const model = buildColumnModel(grid);
+    const columns = model.columns;
 
     // Extract data rows from gridBody
     const allLines = body.querySelectorAll('.gridLine');
@@ -312,7 +206,7 @@ export function readTableScript(formNum, { maxRows = 20, offset = 0, gridSelecto
       const line = allLines[i];
       if (!line) break;
       const row = {};
-      columns.forEach(c => { row[c.text] = ''; });
+      columns.forEach(c => { row[c.name] = ''; });
       [...line.children].forEach(box => {
         if (box.offsetWidth === 0) return;
         const textEl = box.querySelector('.gridBoxText');
@@ -330,11 +224,9 @@ export function readTableScript(formNum, { maxRows = 20, offset = 0, gridSelecto
             else return;
           }
         }
-        // Match cell to column by X+Y overlap (multi-row aware)
-        const r = box.getBoundingClientRect();
-        const col = matchColumn(r.x, r.width, r.y);
+        const col = columnForCell(model, box);
         if (col) {
-          row[col.text] = row[col.text] ? row[col.text] + ' / ' + val : val;
+          row[col.name] = row[col.name] ? row[col.name] + ' / ' + val : val;
         }
       });
       // Detect row kind: group (gridListH), parent/up (gridListV), or element
@@ -388,7 +280,7 @@ export function readTableScript(formNum, { maxRows = 20, offset = 0, gridSelecto
         hasMore = { below: body.scrollHeight > body.clientHeight };
       }
     }
-    const result = { name, columns: columns.map(c => c.text), rows, total, offset: ${offset}, shown: rows.length, hasMore };
+    const result = { name, columns: columns.map(c => c.name), rows, total, offset: ${offset}, shown: rows.length, hasMore };
     if (isTree) result.viewMode = 'tree';
     if (hasGroups) result.hierarchical = true;
     return result;
@@ -523,7 +415,7 @@ export function getSelectedOrLastRowIndexScript(gridSelector) {
 export function scanGridRowsScript(formNum, search) {
   return `(() => {
     ${ROW_CLICK_POINT_FN}
-    ${HEADERLESS_GRID_FN}
+    ${COLUMN_MODEL_FN}
     const p = 'form${formNum}_';
     const grid = document.querySelector('[id^="' + p + '"].grid, [id^="' + p + '"] .grid');
     if (!grid) return null;
@@ -547,41 +439,14 @@ export function scanGridRowsScript(formNum, search) {
     if (!search || (isObj && !Object.keys(search).length)) {
       sel = lines[0]; matchKind = 'first';
     } else if (isObj) {
-      // Resolve each key to a header column (fuzzy, normalised) — mirror resolveCol.
-      const headLine = grid.querySelector('.gridHead .gridLine') || grid.querySelector('.gridHead');
-      let headers;
-      if (headLine) {
-        headers = [...headLine.children]
-          .filter(c => c.offsetWidth > 0)
-          .map(c => {
-            const t = (c.querySelector('.gridBoxText') || c).innerText || '';
-            const title = c.getAttribute('title') || '';
-            const r = c.getBoundingClientRect();
-            return { name: disp(t) || disp(title), text: t, title, x: r.x, right: r.x + r.width };
-          })
-          .filter(h => h.name);
-      } else {
-        // Headerless: synthesized columns anchored by colindex.
-        headers = synthHeaderlessColumns(grid).map(c => ({ name: c.name, text: c.name, title: '', x: 0, right: 0, colindex: c.colindex }));
-      }
-      const resolveCol = name => {
-        const n = norm(name);
-        const cand = h => [h.text, h.title].filter(Boolean);
-        return headers.find(h => cand(h).some(t => norm(t) === n))
-            || headers.find(h => cand(h).some(t => norm(t).includes(n)));
-      };
-      const cellAtCol = (line, col) => {
-        if (col.colindex != null) return visCells(line).find(b => b.getAttribute('colindex') === col.colindex);
-        return visCells(line).find(b => {
-          const r = b.getBoundingClientRect();
-          const cx = r.x + r.width / 2;
-          return cx >= col.x && cx < col.right;
-        });
-      };
+      // Column resolution — shared model (dom/_shared.mjs): colindex first, geometry only
+      // for cells without a header of their own. Same names as readTable reports.
+      const model = buildColumnModel(grid);
+      const cellAtCol = (line, col) => cellForColumn(model, line, col);
       const keys = Object.keys(search);
       const cols = {};
       for (const k of keys) {
-        const c = resolveCol(k);
+        const c = resolveColumnByName(model, k);
         if (!c) return { rowCount: lines.length, error: 'filter_column_not_found', column: k, visibleSample };
         cols[k] = c;
       }
@@ -664,66 +529,22 @@ export function findGridCellScript(formNum, gridSelector, { row, column }) {
     const head = grid.querySelector('.gridHead');
     const body = grid.querySelector('.gridBody');
     if (!body) return { error: 'no_grid_structure' };
-    ${HEADERLESS_GRID_FN}
+    ${COLUMN_MODEL_FN}
     const isHeadless = !head;
 
-    // Header X-ranges (mirror of readTableScript logic, simplified). We also
-    // remember whether each header is frozen (gridBoxFix) — frozen and scrollable
-    // columns can share X coordinates after horizontal scroll, so cell matching
-    // must respect the frozen/scrollable partition.
-    let headers;
-    if (head) {
-      const headLine = head.querySelector('.gridLine') || head;
-      headers = [...headLine.children]
-        .filter(c => c.offsetWidth > 0)
-        .map(c => {
-          const textEl = c.querySelector('.gridBoxText');
-          const text = (textEl || c).innerText?.trim().replace(/\\n/g, ' ') || '';
-          // Picture/icon columns have no header text — fall back to the title tooltip
-          // (mirrors readTable naming) so they can still be targeted for clicking.
-          const title = (c.getAttribute('title') || '').trim();
-          const r = c.getBoundingClientRect();
-          return { text, title, name: text || title, x: r.x, right: r.x + r.width, fixed: c.classList.contains('gridBoxFix') };
-        })
-        .filter(h => h.name);
-    } else {
-      // Headerless: synthesized columns anchored by colindex (cellAtColX matches by colindex).
-      headers = synthHeaderlessColumns(grid).map(c => ({ text: c.name, title: '', name: c.name, x: 0, right: 0, fixed: false, colindex: c.colindex, subTarget: c.subTarget }));
-    }
-
-    const resolveCol = (name) => {
-      const suffix = ' / ' + name;
-      const cand = h => [h.text, h.title].filter(Boolean);
-      return headers.find(h => cand(h).some(t => lo(t) === lo(name)))
-          || headers.find(h => cand(h).some(t => t.endsWith(suffix)))
-          || headers.find(h => cand(h).some(t => lo(t).includes(lo(name))));
-    };
+    // Columns + name→column + column→cell — single source of truth in dom/_shared.mjs,
+    // shared with readTable, so a name it reports (incl. expanded «Имя 1/2/3») is clickable.
+    const model = buildColumnModel(grid);
+    const headers = model.columns;
 
     const targetCol = ${JSON.stringify(column)};
-    const col = resolveCol(targetCol);
+    const col = resolveColumnByName(model, targetCol);
     if (!col) return { error: 'column_not_found', column: targetCol, available: headers.map(h => h.name) };
 
     const lines = [...body.querySelectorAll('.gridLine')];
     if (lines.length === 0) return { error: 'empty_grid' };
 
-    // Match cell to column by X overlap, but only among cells with the same
-    // fixed/scrollable kind as the header. After horizontal scroll a scrollable
-    // cell may have the same x as a frozen one — without this guard cellAtColX
-    // would silently return the frozen cell for a scrollable header.
-    const cellAtColX = (line, c) => {
-      // Headerless columns carry colindex → match the body cell directly (robust,
-      // and returns the same box for both logical columns of a combined mark-box).
-      if (c.colindex != null) {
-        return [...line.children].find(b => b.offsetWidth > 0 && b.getAttribute('colindex') === c.colindex);
-      }
-      return [...line.children]
-        .filter(b => b.offsetWidth > 0 && b.classList.contains('gridBoxFix') === c.fixed)
-        .find(b => {
-          const r = b.getBoundingClientRect();
-          const cx = r.x + r.width / 2;
-          return cx >= c.x && cx < c.right;
-        });
-    };
+    const cellAtColX = (line, c) => cellForColumn(model, line, c);
     const cellText = (b) => norm(b?.querySelector('.gridBoxText')?.innerText || b?.innerText || '');
 
     const target = ${JSON.stringify(row)};
@@ -738,7 +559,7 @@ export function findGridCellScript(formNum, gridSelector, { row, column }) {
       const entries = Object.entries(target);
       const colsByKey = {};
       for (const [k] of entries) {
-        const c = resolveCol(k);
+        const c = resolveColumnByName(model, k);
         if (!c) return { error: 'filter_column_not_found', column: k, available: headers.map(h => h.name) };
         colsByKey[k] = c;
       }

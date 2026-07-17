@@ -38,6 +38,15 @@ export default async function({ navigateSection, openCommand, clickElement, clos
     // и потеряет состояние. Гард ниже — через DOM: колонка безымянная и в columns не
     // попадает (её наличие readTable определяет по первой строке, а там Posted=false →
     // картинки нет), поэтому проверить её через публичный API нельзя.
+    // Колонка безымянная (titleLocation:none) → readTable называет её '(picture)'. Её наличие
+    // определяется сэмплированием НЕСКОЛЬКИХ строк: picField над Posted не рисует картинку при
+    // Ложь, а первая строка списка — непроведённый документ. По одной первой строке колонка
+    // выпадала из columns целиком.
+    const tt = await readTable({ maxRows: 50 });
+    assert.includes(tt.columns, '(picture)', 'безымянная picture-колонка есть в columns');
+    const postedRow = tt.rows.find(r => r['Комментарий'] === 'StatePosted');
+    assert.equal(postedRow['(picture)'], 'pic:0', 'у проведённого документа картинка нарисована');
+
     const page = await getPage();
     const icons = await page.evaluate(() => {
       const grid = [...document.querySelectorAll('.grid')].find(g => g.offsetWidth > 0 && g.offsetHeight > 0);

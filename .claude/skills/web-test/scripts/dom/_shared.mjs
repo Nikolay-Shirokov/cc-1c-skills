@@ -1,4 +1,4 @@
-// web-test dom shared v1.3 — embedded JS function constants
+// web-test dom shared v1.4 — embedded JS function constants
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 /**
  * Shared function strings embedded into page.evaluate() generators.
@@ -103,6 +103,209 @@ export const HEADERLESS_GRID_FN = `function synthHeaderlessColumns(grid) {
     }
   });
   return cols;
+}`;
+
+/**
+ * Single source of truth for columns of a grid WITH a header — the headed twin of
+ * synthHeaderlessColumns above, and for the same reason: a column name must map to the same
+ * physical cell for readers (readTable) and resolvers (click, row search, filter, fill).
+ *
+ * Column identity is `colindex` — 1С's own column id, present on both header boxes and body
+ * cells. Geometry is the FALLBACK, used only for cells that have no header of their own
+ * (sub-rows of a merged header, e.g. «Субконто Дт» over three stacked cells).
+ *
+ * Why colindex first: a wide header (ERP task list, «Исполнитель» spanning x 1085…1515) covers
+ * the narrow headers below it («Срок» 1085…1251, «Выполнена» 1251…1515). Matching a cell by its
+ * center-x alone puts the «Исполнитель» cell (center 1300) into the «Выполнена» group — which
+ * both fakes a merged header (phantom «Выполнена 1/2») and glues foreign values together.
+ * The write path (grid-edit.mjs) already resolves cells by colindex for exactly this reason.
+ *
+ * Column: { name, text, title, ci, x, right, y, h, fixed, kind?, subIdx? }
+ *  - ci      — anchor; null for expanded sub-columns (their cells carry a different colindex).
+ *  - subIdx  — set on «Имя 1/2/3» columns expanded from ONE header over several sub-rows;
+ *              such a cell is found by its Y order inside the header's x-range.
+ */
+export const COLUMN_MODEL_FN = HEADERLESS_GRID_FN + `
+function picInfoShared(cell) {
+  if (!cell) return null;
+  if (cell.querySelector('.gridListH, .gridListV, [tree="true"], .gridBoxTree')) return null;
+  const dib = cell.querySelector('.gridBoxImg .dIB');
+  if (!dib) return null;
+  const bg = dib.style.backgroundImage || '';
+  if (!bg.includes('pictureCollection/picture/')) return null;
+  const m = bg.match(/[?&]gx=(\\d+)/);
+  return { gx: m ? m[1] : '0' };
+}
+
+function buildColumnModel(grid) {
+  const head = grid.querySelector('.gridHead');
+  const body = grid.querySelector('.gridBody');
+  const empty = { columns: [], byCi: {}, groups: new Map(), subRows: {}, multiRow: {}, headless: !head };
+  if (!body) return empty;
+
+  if (!head) {
+    const cols = synthHeaderlessColumns(grid).map(c => ({
+      name: c.name, text: c.name, title: '', ci: c.colindex, subTarget: c.subTarget,
+      kind: c.kind, x: 0, right: 0, y: 0, h: 0, fixed: false,
+    }));
+    const byCi = {};
+    cols.forEach(c => { if (c.ci != null && byCi[c.ci] === undefined) byCi[c.ci] = c; });
+    return { columns: cols, byCi, groups: new Map(), subRows: {}, multiRow: {}, headless: true };
+  }
+
+  const headLine = head.querySelector('.gridLine') || head;
+  const lines = [...body.querySelectorAll('.gridLine')];
+  const cellByCi = (line, ci) => [...line.children].find(b => b.offsetWidth > 0 && b.getAttribute('colindex') === ci);
+  const columns = [];
+
+  [...headLine.children].forEach(box => {
+    if (box.offsetWidth === 0) return;
+    const ci = box.getAttribute('colindex');
+    const textEl = box.querySelector('.gridBoxText');
+    const text = ((textEl || box).innerText || '').trim().replace(/\\n/g, ' ');
+    const title = (box.getAttribute('title') || '').trim();
+    const r = box.getBoundingClientRect();
+    const base = { ci, x: r.x, right: r.x + r.width, y: r.y, h: r.height,
+                   fixed: box.classList.contains('gridBoxFix') };
+    if (text) { columns.push(Object.assign(base, { name: text, text: text, title: title })); return; }
+
+    // Unnamed header — a column only if its cells hold a checkbox or a picture. 1С doesn't
+    // expose the technical name, so it is named by the header tooltip.
+    // Sample SEVERAL rows: a picture bound to a Boolean draws nothing for false, so an empty
+    // first row is not evidence that the column has no pictures at all.
+    let kind = null;
+    for (const line of lines.slice(0, 10)) {
+      const cell = ci != null ? cellByCi(line, ci) : null;
+      if (!cell) continue;
+      if (cell.querySelector('.checkbox')) { kind = 'checkbox'; break; }
+      if (picInfoShared(cell)) { kind = 'picture'; break; }
+    }
+    if (!kind && picInfoShared(box)) kind = 'picture';
+    if (!kind) return;
+    let name = kind === 'checkbox' ? '(checkbox)' : (title || '(picture)');
+    if (columns.some(c => c.name === name)) {
+      let n = 2;
+      while (columns.some(c => c.name === name + ' ' + n)) n++;
+      name = name + ' ' + n;
+    }
+    columns.push(Object.assign(base, { name: name, text: '', title: title, kind: kind }));
+  });
+
+  const keyOf = c => Math.round(c.x) + ':' + Math.round(c.right);
+  const groups = new Map();
+  columns.forEach(c => { const k = keyOf(c); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(c); });
+  for (const hdrs of groups.values()) hdrs.sort((a, b) => a.y - b.y);
+  const byCi = {};
+  columns.forEach(c => { if (c.ci != null && byCi[c.ci] === undefined) byCi[c.ci] = c; });
+
+  // Sub-rows per x-group, measured on the first data line. A cell belongs to the group of its
+  // OWN header whenever colindex says so; only header-less cells are placed geometrically.
+  const subRows = {};
+  if (lines[0]) {
+    [...lines[0].children].forEach(box => {
+      if (box.offsetWidth === 0) return;
+      const ci = box.getAttribute('colindex');
+      const own = ci != null ? byCi[ci] : null;
+      let key = null;
+      const r = box.getBoundingClientRect();
+      if (own) key = keyOf(own);
+      else {
+        const cx = r.x + r.width / 2;
+        for (const [k, hdrs] of groups) {
+          if (cx >= hdrs[0].x && cx < hdrs[0].right) { key = k; break; }
+        }
+      }
+      if (key == null) return;
+      (subRows[key] = subRows[key] || []).push({ y: r.y });
+    });
+    Object.keys(subRows).forEach(k => subRows[k].sort((a, b) => a.y - b.y));
+  }
+
+  // Stacked headers (2+ over several sub-rows) → match by Y order.
+  // ONE header over several sub-rows → merged header: expand into «Имя 1..N».
+  const multiRow = {};
+  for (const [k, hdrs] of groups) {
+    const subs = subRows[k];
+    if (!subs || subs.length <= 1) continue;
+    if (hdrs.length >= 2) { multiRow[k] = hdrs; continue; }
+    const base = hdrs[0];
+    const at = columns.indexOf(base);
+    columns.splice(at, 1);
+    if (base.ci != null && byCi[base.ci] === base) delete byCi[base.ci];
+    const expanded = [];
+    for (let si = 0; si < subs.length; si++) {
+      const col = Object.assign({}, base, {
+        name: base.name + ' ' + (si + 1), ci: null,
+        y: base.y + si, h: base.h / subs.length, subIdx: si,
+      });
+      columns.splice(at + si, 0, col);
+      expanded.push(col);
+    }
+    groups.set(k, expanded);
+    multiRow[k] = expanded;
+  }
+
+  return { columns: columns, byCi: byCi, groups: groups, subRows: subRows, multiRow: multiRow, headless: false };
+}
+
+/** Cell → column. colindex first; geometry only for cells without a header of their own. */
+function columnForCell(model, box) {
+  const ci = box.getAttribute('colindex');
+  if (ci != null && model.byCi[ci]) return model.byCi[ci];
+  const r = box.getBoundingClientRect();
+  const cx = r.x + r.width / 2;
+  const fixed = box.classList.contains('gridBoxFix');
+  for (const k of Object.keys(model.multiRow)) {
+    const hdrs = model.multiRow[k];
+    if (cx < hdrs[0].x || cx >= hdrs[0].right) continue;
+    const subs = model.subRows[k];
+    if (subs) {
+      const si = subs.findIndex(s => Math.abs(s.y - r.y) < 5);
+      if (si >= 0 && si < hdrs.length) return hdrs[si];
+    }
+    let best = hdrs[0], bd = Infinity;
+    for (const h of hdrs) { const d = Math.abs(r.y - h.y); if (d < bd) { bd = d; best = h; } }
+    return best;
+  }
+  return model.columns.find(c => cx >= c.x && cx < c.right && c.fixed === fixed) || null;
+}
+
+/** Column → cell inside a given line. Mirror of columnForCell, same precedence. */
+function cellForColumn(model, line, col) {
+  const boxes = [...line.children].filter(b => b.offsetWidth > 0);
+  if (col.subIdx != null) {
+    const inGroup = boxes
+      .filter(b => {
+        const r = b.getBoundingClientRect();
+        const cx = r.x + r.width / 2;
+        return cx >= col.x && cx < col.right && b.classList.contains('gridBoxFix') === col.fixed;
+      })
+      .sort((a, b) => a.getBoundingClientRect().y - b.getBoundingClientRect().y);
+    return inGroup[col.subIdx] || null;
+  }
+  if (col.ci != null) {
+    const hit = boxes.find(b => b.getAttribute('colindex') === col.ci);
+    if (hit) return hit;
+  }
+  return boxes
+    .filter(b => b.classList.contains('gridBoxFix') === col.fixed)
+    .find(b => {
+      const r = b.getBoundingClientRect();
+      const cx = r.x + r.width / 2;
+      return cx >= col.x && cx < col.right;
+    }) || null;
+}
+
+/** Column by user-supplied name: exact → «Группа / Имя» suffix → substring. */
+function resolveColumnByName(model, name) {
+  const lo = s => (s || '').toLowerCase().replace(/ё/g, 'е').trim();
+  const cand = c => [c.name, c.text, c.title].filter(Boolean);
+  const n = lo(name);
+  const suffix = lo(' / ' + name);
+  return model.columns.find(c => cand(c).some(t => lo(t) === n))
+      || model.columns.find(c => cand(c).some(t => lo(t).endsWith(suffix)))
+      || model.columns.find(c => cand(c).some(t => lo(t).includes(n)))
+      || null;
 }`;
 
 /** Detect active form number. Picks form with most visible elements, skipping form0.

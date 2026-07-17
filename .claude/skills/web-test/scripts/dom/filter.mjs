@@ -1,5 +1,6 @@
-// web-test dom/filter v1.0 — DOM scripts for filterList / unfilterList
+// web-test dom/filter v1.1 — DOM scripts for filterList / unfilterList
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
+import { COLUMN_MODEL_FN } from './_shared.mjs';
 
 /**
  * Find the first grid cell on the form and return its center coords.
@@ -39,32 +40,26 @@ export function findColumnFirstCellCoordsScript(formNum, field) {
     const grid = [...document.querySelectorAll('[id^="' + p + '"].grid, [id^="' + p + '"] .grid')]
       .find(g => g.offsetWidth > 0);
     if (!grid) return { error: 'no_grid' };
+    ${COLUMN_MODEL_FN}
     const targetField = ${JSON.stringify(field)};
-    const headers = [...grid.querySelectorAll('.gridHead .gridBox')];
-    let colIndex = -1;
-    let startsWithIdx = -1;
-    let includesIdx = -1;
-    for (let i = 0; i < headers.length; i++) {
-      const t = headers[i].innerText?.trim().replace(/\\u00a0/g, ' ');
-      if (!t) continue;
-      const ny = s => s.replace(/ё/gi, 'е').replace(/\\u00a0/g, ' ');
-      const tl = ny(t.toLowerCase()), fl = ny(targetField.toLowerCase());
-      if (tl === fl) { colIndex = i; break; }
-      if (startsWithIdx < 0 && tl.startsWith(fl)) { startsWithIdx = i; }
-      else if (includesIdx < 0 && tl.includes(fl)) { includesIdx = i; }
-    }
-    if (colIndex < 0) colIndex = startsWithIdx >= 0 ? startsWithIdx : includesIdx;
     const rows = [...grid.querySelectorAll('.gridBody .gridLine')];
     if (!rows.length) return { error: 'no_rows' };
-    if (colIndex < 0) {
+
+    // Column resolution — shared model (dom/_shared.mjs), same as readTable/click. The old
+    // positional index (Nth header box → Nth cell box) breaks on multi-row headers, where
+    // header and cell counts and order differ.
+    const model = buildColumnModel(grid);
+    const col = resolveColumnByName(model, targetField);
+    if (!col) {
+      // Unknown column → click the first cell and let the caller fall back to DLB.
       const cells = [...rows[0].querySelectorAll('.gridBox')];
       if (!cells.length) return { error: 'no_cells' };
-      const r = cells[0].getBoundingClientRect();
-      return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2), needDlb: true };
+      const r0 = cells[0].getBoundingClientRect();
+      return { x: Math.round(r0.x + r0.width / 2), y: Math.round(r0.y + r0.height / 2), needDlb: true };
     }
-    const cells = [...rows[0].querySelectorAll('.gridBox')];
-    if (colIndex >= cells.length) return { error: 'cell_not_found' };
-    const r = cells[colIndex].getBoundingClientRect();
+    const cell = cellForColumn(model, rows[0], col);
+    if (!cell) return { error: 'cell_not_found' };
+    const r = cell.getBoundingClientRect();
     return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) };
   })()`;
 }
