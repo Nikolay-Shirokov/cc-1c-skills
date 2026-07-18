@@ -1,4 +1,4 @@
-// web-test dom shared v1.6 — embedded JS function constants
+// web-test dom shared v1.7 — embedded JS function constants
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 /**
  * Shared function strings embedded into page.evaluate() generators.
@@ -675,26 +675,32 @@ function readForm(p) {
   if (iframeCount) result.iframes = iframeCount;
 
   // Collapsible / popup groups — surface that part of the form is hidden + its state.
-  // Идентификация раскрываемой группы: у неё есть заголовок <base>#title_text, и либо этот
-  // заголовок — гиперссылка (.staticTextHyper: ControlRepresentation=TitleHyperlink / popup),
-  // либо рядом есть кнопка-каретка <base>#titleBtn (ControlRepresentation=Picture). Обычные
-  // (несворачиваемые) группы не имеют ни того, ни другого — их не показываем.
-  // Состояние: DOM у 1С плоский (контент группы — сиблинги под mainGroup, не вложены), но при
-  // глубинном обходе Form.xml ПЕРВЫЙ контент-сиблинг сразу за #title_div — всегда дочерний
-  // элемент группы (свободные соседи идут после всех детей). Его display = состояние группы:
-  // none → свёрнута, block → развёрнута. Переживает свободные элементы между группами.
+  // Идентификация раскрываемой группы (есть заголовок <base>#title_text и один из признаков):
+  //   • заголовок — гиперссылка (.staticTextHyper: ControlRepresentation=TitleHyperlink);
+  //   • рядом кнопка-каретка <base>#titleBtn (ControlRepresentation=Picture);
+  //   • есть панель <base>#panel_div — это ВСПЛЫВАЮЩАЯ (popup) группа.
+  // Обычные (несворачиваемые) группы не имеют ничего из этого — их не показываем.
+  // Состояние:
+  //   • popup: display панели <base>#panel_div (none → закрыта);
+  //   • collapsible: DOM у 1С плоский (контент — сиблинги под mainGroup, не вложены), но при
+  //     глубинном обходе Form.xml ПЕРВЫЙ контент-сиблинг сразу за #title_div — всегда дочерний
+  //     элемент группы (свободные соседи идут после всех детей). Его display = состояние.
   const groups = [];
   document.querySelectorAll('[id^="' + p + '"][id$="#title_text"]').forEach(tt => {
     if (tt.offsetWidth === 0 && tt.offsetHeight === 0) return;
     const base = tt.id.slice(0, -('#title_text'.length));
+    const panelDiv = document.getElementById(base + '#panel_div');   // popup-маркер
     const isHyper = tt.classList.contains('staticTextHyper');
     const hasBtn = !!document.getElementById(base + '#titleBtn');
-    if (!isHyper && !hasBtn) return; // обычная (несворачиваемая) группа — пропускаем
-    const title = nbsp(tt.innerText?.trim() || '');
-    const g = { name: base.replace(p, ''), title };
-    const titleDiv = document.getElementById(base + '#title_div');
-    const contentSib = titleDiv?.nextElementSibling;
-    if (contentSib) g.collapsed = getComputedStyle(contentSib).display === 'none';
+    if (!isHyper && !hasBtn && !panelDiv) return; // обычная (несворачиваемая) группа
+    const g = { name: base.replace(p, ''), title: nbsp(tt.innerText?.trim() || '') };
+    if (panelDiv) {
+      g.behavior = 'popup';
+      g.collapsed = getComputedStyle(panelDiv).display === 'none';
+    } else {
+      const contentSib = document.getElementById(base + '#title_div')?.nextElementSibling;
+      if (contentSib) g.collapsed = getComputedStyle(contentSib).display === 'none';
+    }
     groups.push(g);
   });
 

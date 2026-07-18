@@ -70,4 +70,22 @@ export default async function({ navigateSection, openCommand, navigateLink, getF
     assert.equal(collapsedOf(r, 'ГруппаКартинкой'), false, 'B раскрыта тоглом');
     await closeForm();
   });
+
+  await step('popup: всплывающая группа — behavior, открытие показывает содержимое', async () => {
+    const s = await navigateLink('Обработка.СтраницаНастроек');
+    const pg = (s.groups || []).find(g => g.name === 'ГруппаВсплывающая');
+    assert.ok(pg, 'всплывающая группа в groups[]');
+    assert.equal(pg.behavior, 'popup', 'помечена behavior:popup (отличима от collapsible)');
+    assert.equal(pg.collapsed, true, 'закрыта — collapsed:true');
+    assert.ok(!(s.texts || []).some(t => /всплывающей/.test(t.value)), 'содержимое скрыто, пока закрыта');
+    // Открыть → содержимое панели становится видно в состоянии формы.
+    let r = await clickElement('Всплывающая группа', { expand: true });
+    assert.equal((r.groups || []).find(g => g.name === 'ГруппаВсплывающая')?.collapsed, false, 'открыта');
+    assert.ok((r.texts || []).some(t => /всплывающей/.test(t.value)), 'после открытия содержимое видно');
+    r = await clickElement('Всплывающая группа', { expand: true });
+    assert.equal(r.clicked.toggled, false, 'expand идемпотентен для popup');
+    r = await clickElement('Всплывающая группа', { expand: false });
+    assert.equal((r.groups || []).find(g => g.name === 'ГруппаВсплывающая')?.collapsed, true, 'закрыта обратно');
+    await closeForm();
+  });
 }

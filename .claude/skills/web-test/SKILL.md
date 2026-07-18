@@ -146,7 +146,7 @@ Returns current form structure. This is the primary way to understand what's on 
 
 **navigation** — form navigation panel links (for objects with subordinate catalogs): `[{ name, active? }]`. Clickable via `clickElement()`. Only present when the form has a navigation panel (e.g. "Основное", "Объекты метаданных", "Подсистемы").
 
-**groups** — collapsible form groups: `[{ name, title, collapsed }]`. `collapsed: true` means the group's content is hidden — part of the form is not shown until you expand it (common on settings pages like "Администрирование → Интернет-поддержка и сервисы"). Expand/collapse a group by its title with `clickElement`, same vocabulary as tree nodes: `{ expand: true }` opens (idempotent), `{ expand: false }` collapses, `{ toggle: true }` flips. Plain (non-collapsible) groups are not listed.
+**groups** — collapsible and pop-up form groups: `[{ name, title, collapsed, behavior? }]`. `collapsed: true` means the group's content is hidden — part of the form is not shown until you expand it (common on settings pages like "Администрирование → Интернет-поддержка и сервисы"). `behavior: 'popup'` marks a pop-up group (content shows in a floating panel); absent for ordinary collapsible groups. Expand/collapse (or open/close a pop-up) by the group title with `clickElement`, same vocabulary as tree nodes: `{ expand: true }` reveals (idempotent), `{ expand: false }` hides, `{ toggle: true }` flips. After expanding, the group's content becomes readable in the next `getFormState()` (its fields/hyperlinks/texts appear). Plain (non-collapsible) groups are not listed.
 ```js
 const form = await getFormState();
 // form.groups = [{ name: "ГруппаНовости", title: "Новости", collapsed: true }, ...]
