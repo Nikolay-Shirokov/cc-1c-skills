@@ -530,10 +530,20 @@ function Write-ConflictFolder {
 	$md += "Метод:   $existingName (&ИзменениеИКонтроль(`"$($method.Canonical)`"))"
 	$md += "Причина: $(Get-ResyncConflictReason $disputed)"
 	$md += ""
-	$md += "## Не размещено — перенести в метод вручную"
+	$md += "## Не размещено — перенести вручную"
 	foreach ($d in $disputed) {
-		if ($d.Kind -eq 'insert') { $md += '#Вставка'; foreach ($l in $d.Lines) { $md += $l }; $md += '#КонецВставки' }
-		else { $md += '// не удалось найти для удаления:'; foreach ($l in $d.Lines) { $md += ('// ' + $l.Trim()) } }
+		$md += ""
+		if ($d.Kind -eq 'insert') {
+			$md += "Вставка. В вашей версии (local) блок стоял по якорю:"
+			if ($d.Before -and $d.Before.Count -gt 0) { $md += "  после:"; foreach ($l in $d.Before) { $md += "    $l" } } else { $md += "  после: (начало метода)" }
+			if ($d.After -and $d.After.Count -gt 0) { $md += "  перед:"; foreach ($l in $d.After) { $md += "    $l" } } else { $md += "  перед: (конец метода)" }
+			$md += "Якорь изменился/исчез в новом оригинале (remote) — потому блок не лёг автоматически (см. дифф base→remote ниже)."
+			$md += "Куда переносить: если якорного кода в новом методе больше нет — он, вероятно, вынесен/отрефакторен (ищите в диффе новый вызов/процедуру). Размести адаптацию по смыслу: например пост-обработкой после нового вызова, либо в заимствованной процедуре, куда переехал код. При правке файла сохрани кодировку (UTF-8 с BOM). Блок:"
+			$md += "#Вставка"; foreach ($l in $d.Lines) { $md += $l }; $md += "#КонецВставки"
+		} else {
+			$md += "Удаление. Строки для удаления не найдены в новом оригинале (изменились/исчезли):"
+			foreach ($l in $d.Lines) { $md += "  - $($l.Trim())" }
+		}
 	}
 	$md += ""
 	$md += "## Дифф base→remote (что изменилось в оригинале)"
@@ -588,7 +598,11 @@ function Invoke-Resync {
 			$ae = [Math]::Min($v1norm.Count - 1, $op.After + 3)
 			for ($m = $op.After + 1; $m -le $ae; $m++) { $afterLines += $v1norm[$m] }
 			$k = Resolve-InsertionPoint $v2norm $beforeLines $afterLines
-			if ($null -eq $k) { $disputed += @{ Kind = 'insert'; Lines = $op.Lines } }
+			if ($null -eq $k) {
+				$dbefore = @(); if ($op.After -ge 0) { $bz = [Math]::Max(0, $op.After - 2); for ($z = $bz; $z -le $op.After; $z++) { $dbefore += $v1[$z] } }
+				$dafter = @(); $az = [Math]::Min($v1.Count - 1, $op.After + 3); for ($z = $op.After + 1; $z -le $az; $z++) { $dafter += $v1[$z] }
+				$disputed += @{ Kind = 'insert'; Lines = $op.Lines; Before = $dbefore; After = $dafter }
+			}
 			elseif ($k -lt 0) { $insertTop += ,$op.Lines; $transferred += @{ Kind = 'insert' } }
 			else { if (-not $insertAfter.ContainsKey($k)) { $insertAfter[$k] = @() }; $insertAfter[$k] += ,$op.Lines; $transferred += @{ Kind = 'insert' } }
 		} else {
@@ -659,7 +673,7 @@ function Write-ResyncIndex {
 	$upd = @($results | Where-Object { $_.Status -eq 'АКТУАЛИЗИРОВАН' }).Count
 	$lines = @()
 	$lines += "[$verb] $extName -> $configPath"
-	$lines += "Итог: $actual/$total актуальны · $upd актуализировано · $($conflicts.Count) конфликтов"
+	$lines += "Итог: $actual/$total актуальны · актуализировано: $upd · конфликтов: $($conflicts.Count)"
 	$lines += ""
 	$lines += "Конфликты — править .bsl расширения:"
 	foreach ($c in $conflicts) {
@@ -759,12 +773,12 @@ if ($Check -or $Actualize) {
 		$drift = @($results | Where-Object { $_.Status -eq 'ДРЕЙФ' }).Count
 		$confl = @($results | Where-Object { $_.Status -eq 'КОНФЛИКТ' }).Count
 		$gone = @($results | Where-Object { $_.Status -in @('МЕТОД-ИСЧЕЗ', 'ИСТОЧНИК-НЕ-НАЙДЕН') }).Count
-		Write-Host "Итог: $actual/$total актуальны · $drift дрейф · $confl конфликт · $gone требуют внимания"
+		Write-Host "Итог: $actual/$total актуальны · дрейф: $drift · конфликтов: $confl · внимания: $gone"
 		if ($listed.Count -gt 0) { Write-Host "Починить: /cfe-patch-method -Actualize -ExtensionPath $ExtensionPath -ConfigPath $ConfigPath"; exit 1 } else { exit 0 }
 	} else {
 		$upd = @($results | Where-Object { $_.Status -eq 'АКТУАЛИЗИРОВАН' }).Count
 		$part = @($results | Where-Object { $_.Status -eq 'ЧАСТИЧНО' }).Count
-		Write-Host "Итог: $actual/$total актуальны · $upd актуализировано · $part частично"
+		Write-Host "Итог: $actual/$total актуальны · актуализировано: $upd · частично: $part"
 		$idx = Write-ResyncIndex $runRoot $results $extName $ConfigPath $verb $enc
 		if ($idx) { Write-Host "Merge-воркспейс конфликтов (см. index.md): $idx" }
 		exit 0

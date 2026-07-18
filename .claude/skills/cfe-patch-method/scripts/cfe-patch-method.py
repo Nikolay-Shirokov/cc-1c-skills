@@ -597,7 +597,7 @@ def main():
             drift = sum(1 for r in results if r["status"] == "ДРЕЙФ")
             confl = sum(1 for r in results if r["status"] == "КОНФЛИКТ")
             gone = sum(1 for r in results if r["status"] in ("МЕТОД-ИСЧЕЗ", "ИСТОЧНИК-НЕ-НАЙДЕН"))
-            print("Итог: %d/%d актуальны · %d дрейф · %d конфликт · %d требуют внимания"
+            print("Итог: %d/%d актуальны · дрейф: %d · конфликтов: %d · внимания: %d"
                   % (actual, total, drift, confl, gone))
             if listed:
                 print("Починить: /cfe-patch-method -Actualize -ExtensionPath %s -ConfigPath %s" % (extension_path, cp))
@@ -606,7 +606,7 @@ def main():
         else:
             upd = sum(1 for r in results if r["status"] == "АКТУАЛИЗИРОВАН")
             part = sum(1 for r in results if r["status"] == "ЧАСТИЧНО")
-            print("Итог: %d/%d актуальны · %d актуализировано · %d частично" % (actual, total, upd, part))
+            print("Итог: %d/%d актуальны · актуализировано: %d · частично: %d" % (actual, total, upd, part))
             idx = write_resync_index(run_root, results, ext_name, cp, verb)
             if idx:
                 print("Merge-воркспейс конфликтов (см. index.md): %s" % idx)
@@ -868,14 +868,30 @@ def write_conflict_folder(folder, method_id, ext_bsl, existing_name, method, v1,
     md.append('Метод:   %s (&ИзменениеИКонтроль("%s"))' % (existing_name, method["canonical"]))
     md.append("Причина: %s" % conflict_reason(disputed))
     md.append("")
-    md.append("## Не размещено — перенести в метод вручную")
+    md.append("## Не размещено — перенести вручную")
     for d in disputed:
+        md.append("")
         if d["kind"] == "insert":
+            md.append("Вставка. В вашей версии (local) блок стоял по якорю:")
+            if d.get("before"):
+                md.append("  после:")
+                for l in d["before"]:
+                    md.append("    " + l)
+            else:
+                md.append("  после: (начало метода)")
+            if d.get("after"):
+                md.append("  перед:")
+                for l in d["after"]:
+                    md.append("    " + l)
+            else:
+                md.append("  перед: (конец метода)")
+            md.append("Якорь изменился/исчез в новом оригинале (remote) — потому блок не лёг автоматически (см. дифф base→remote ниже).")
+            md.append("Куда переносить: если якорного кода в новом методе больше нет — он, вероятно, вынесен/отрефакторен (ищите в диффе новый вызов/процедуру). Размести адаптацию по смыслу: например пост-обработкой после нового вызова, либо в заимствованной процедуре, куда переехал код. При правке файла сохрани кодировку (UTF-8 с BOM). Блок:")
             md.append("#Вставка"); md.extend(d["lines"]); md.append("#КонецВставки")
         else:
-            md.append("// не удалось найти для удаления:")
+            md.append("Удаление. Строки для удаления не найдены в новом оригинале (изменились/исчезли):")
             for l in d["lines"]:
-                md.append("// " + l.strip())
+                md.append("  - " + l.strip())
     md.append("")
     md.append("## Дифф base→remote (что изменилось в оригинале)")
     for l in v1:
@@ -929,7 +945,9 @@ def resync_one(ext_bsl, ext_lines, dup, method, logical_module, conflict_folder,
             after_lines = v1norm[after + 1:after + 4]
             k = resolve_insertion_point(v2norm, before_lines, after_lines)
             if k is None:
-                disputed.append({"kind": "insert", "lines": op["lines"]})
+                dbefore = v1[max(0, after - 2):after + 1] if after >= 0 else []
+                dafter = v1[after + 1:after + 4]
+                disputed.append({"kind": "insert", "lines": op["lines"], "before": dbefore, "after": dafter})
             elif k < 0:
                 insert_top.append(op["lines"]); transferred += 1
             else:
@@ -1006,7 +1024,7 @@ def write_resync_index(run_root, results, ext_name, config_path, verb):
     upd = sum(1 for r in results if r["status"] == "АКТУАЛИЗИРОВАН")
     lines = []
     lines.append("[%s] %s -> %s" % (verb, ext_name, config_path))
-    lines.append("Итог: %d/%d актуальны · %d актуализировано · %d конфликтов" % (actual, total, upd, len(conflicts)))
+    lines.append("Итог: %d/%d актуальны · актуализировано: %d · конфликтов: %d" % (actual, total, upd, len(conflicts)))
     lines.append("")
     lines.append("Конфликты — править .bsl расширения:")
     for c in conflicts:

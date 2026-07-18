@@ -29,5 +29,5 @@
   ],
   "params": { "extensionPath": "ext" },
   "args_extra": ["-Actualize"],
-  "expect": { "stdoutContains": "1 актуализировано" }
+  "expect": { "stdoutContains": "актуализировано: 1" }
 }
