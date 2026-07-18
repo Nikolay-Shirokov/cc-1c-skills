@@ -8,8 +8,16 @@ export const timeout = 90000;
 // Регресс на расширенный селектор детекции формы (dom/_shared.mjs, DETECT_FORM_FN /
 // DETECT_FORMS_FN): до фикса detectForm возвращал null → getFormState = «No form detected»
 // (form:null, formCount:0), навык такую форму НЕ видел.
+//
+// Плюс: сворачиваемые группы формы в getFormState().groups (состояние collapsed) и их
+// раскрытие/сворачивание через clickElement {expand}/{toggle}. Форма содержит оба варианта
+// рендера контрола (заголовок-гиперссылка и картинка-каретка ControlRepresentation), негатив
+// (обычная несворачиваемая группа — НЕ в groups[]) и стресс-привязку (свободный элемент между
+// группами не путает определение состояния).
 
-export default async function({ navigateSection, openCommand, navigateLink, getFormState, closeForm, assert, step, log }) {
+export default async function({ navigateSection, openCommand, navigateLink, getFormState, clickElement, closeForm, assert, step, log }) {
+
+  const collapsedOf = (s, name) => (s.groups || []).find(x => x.name === name)?.collapsed;
 
   await step('раздел: открыть «Страница настроек» командой из «Администрирование»', async () => {
     await navigateSection('Администрирование');
@@ -31,6 +39,35 @@ export default async function({ navigateSection, openCommand, navigateLink, getF
     const state = await getFormState();
     const hy = (state.hyperlinks || []).map(h => h.name);
     assert.includes(hy, 'Техническая информация', 'гиперссылка видна и в getFormState');
+    await closeForm();
+  });
+
+  await step('groups: getFormState показывает сворачиваемые группы + состояние', async () => {
+    const s = await navigateLink('Обработка.СтраницаНастроек');
+    log(`groups=${JSON.stringify((s.groups || []).map(g => [g.name, g.collapsed]))}`);
+    assert.ok(s.groups?.length, 'groups[] присутствует');
+    assert.equal(collapsedOf(s, 'ГруппаКлассификаторы'), true, 'вариант A (гиперссылка) — свёрнута');
+    assert.equal(collapsedOf(s, 'ГруппаРазвёрнутая'), false, 'развёрнутая — collapsed:false');
+    assert.equal(collapsedOf(s, 'ГруппаКартинкой'), true, 'вариант B (картинка) — свёрнута');
+    assert.ok(!s.groups.some(g => g.name === 'ГруппаОбычная'),
+      'обычная несворачиваемая группа НЕ попадает в groups[] (негатив — не шумит)');
+    // Стресс-привязка: свободный элемент между группами не путает определение состояния.
+    assert.equal(collapsedOf(s, 'ГруппаСтрессСвёрнутая'), true, 'стресс: свёрнутая определена верно');
+    assert.equal(collapsedOf(s, 'ГруппаСтрессРазвёрнутая'), false, 'стресс: развёрнутая определена верно');
+  });
+
+  await step('group toggle: clickElement {expand}/{toggle} по вариантам A и B', async () => {
+    // Вариант A (заголовок-гиперссылка): раскрыть → идемпотентный повтор → свернуть.
+    let r = await clickElement('Классификаторы и курсы валют', { expand: true });
+    assert.equal(r.clicked.toggled, true, 'A expand:true — кликнул');
+    assert.equal(collapsedOf(r, 'ГруппаКлассификаторы'), false, 'A раскрыта');
+    r = await clickElement('Классификаторы и курсы валют', { expand: true });
+    assert.equal(r.clicked.toggled, false, 'A expand:true повторно — идемпотентно (no-op)');
+    r = await clickElement('Классификаторы и курсы валют', { expand: false });
+    assert.equal(collapsedOf(r, 'ГруппаКлассификаторы'), true, 'A свёрнута обратно');
+    // Вариант B (картинка-каретка #titleBtn): toggle.
+    r = await clickElement('Свёрнута картинкой', { toggle: true });
+    assert.equal(collapsedOf(r, 'ГруппаКартинкой'), false, 'B раскрыта тоглом');
     await closeForm();
   });
 }

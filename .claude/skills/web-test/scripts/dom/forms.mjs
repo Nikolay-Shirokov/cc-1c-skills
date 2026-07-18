@@ -1,4 +1,4 @@
-// web-test dom/forms v1.10 — form detection, content read, click-target/field-button resolution
+// web-test dom/forms v1.11 — form detection, content read, click-target/field-button resolution
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import { DETECT_FORM_FN, READ_FORM_FN, ROW_CLICK_POINT_FN } from './_shared.mjs';
 
@@ -95,11 +95,34 @@ export function findClickTargetScript(formNum, text, { tableName, gridSelector }
       items.push(item);
     });
 
-    // Hyperlinks (staticTextHyper)
+    // Hyperlinks (staticTextHyper) — кроме заголовков сворачиваемых групп (#title_text),
+    // они обрабатываются ниже как kind:'formGroup' (клик = раскрыть/свернуть, не переход).
     [...document.querySelectorAll('[id^="' + p + '"].staticTextHyper')].filter(el => el.offsetWidth > 0).forEach(el => {
+      if (el.id.endsWith('#title_text')) return;
       const idName = el.id.replace(p, '');
       const text = norm(el.innerText);
       items.push({ id: el.id, name: text, label: idName, kind: 'hyperlink' });
+    });
+
+    // Сворачиваемые/всплывающие группы — заголовок как цель раскрытия/сворачивания.
+    // Идентификация: <base>#title_text — гиперссылка (TitleHyperlink/popup) ЛИБО рядом есть
+    // кнопка-каретка <base>#titleBtn (ControlRepresentation=Picture). Обычные группы пропускаем.
+    // Мишень клика: #titleBtn (вариант «картинка») иначе сам заголовок-гиперссылка.
+    // Состояние: первый контент-сиблинг за #title_div (display:none = свёрнута).
+    [...document.querySelectorAll('[id^="' + p + '"][id$="#title_text"]')]
+      .filter(el => el.offsetWidth > 0 || el.offsetHeight > 0).forEach(el => {
+      const base = el.id.slice(0, -('#title_text'.length));
+      const btn = document.getElementById(base + '#titleBtn');
+      const btnVisible = btn && (btn.offsetWidth > 0 || btn.offsetHeight > 0);
+      if (!el.classList.contains('staticTextHyper') && !btnVisible) return; // обычная группа
+      const tgt = btnVisible ? btn : el;
+      const r = tgt.getBoundingClientRect();
+      const titleDiv = document.getElementById(base + '#title_div');
+      const sib = titleDiv && titleDiv.nextElementSibling;
+      const item = { id: '', kind: 'formGroup', name: norm(el.innerText) || base.replace(p, ''),
+        label: base.replace(p, ''), x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) };
+      if (sib) item.collapsed = getComputedStyle(sib).display === 'none';
+      items.push(item);
     });
 
     // Frame buttons
@@ -211,6 +234,7 @@ export function findClickTargetScript(formNum, text, { tableName, gridSelector }
     if (found) {
       const res = { id: found.id, kind: found.kind, name: found.name };
       if (found.disabled) res.disabled = true;
+      if (found.collapsed != null) res.collapsed = found.collapsed;
       if (found.x != null) { res.x = found.x; res.y = found.y; }
       return res;
     }

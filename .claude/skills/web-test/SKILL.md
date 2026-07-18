@@ -146,6 +146,13 @@ Returns current form structure. This is the primary way to understand what's on 
 
 **navigation** — form navigation panel links (for objects with subordinate catalogs): `[{ name, active? }]`. Clickable via `clickElement()`. Only present when the form has a navigation panel (e.g. "Основное", "Объекты метаданных", "Подсистемы").
 
+**groups** — collapsible form groups: `[{ name, title, collapsed }]`. `collapsed: true` means the group's content is hidden — part of the form is not shown until you expand it (common on settings pages like "Администрирование → Интернет-поддержка и сервисы"). Expand/collapse a group by its title with `clickElement`, same vocabulary as tree nodes: `{ expand: true }` opens (idempotent), `{ expand: false }` collapses, `{ toggle: true }` flips. Plain (non-collapsible) groups are not listed.
+```js
+const form = await getFormState();
+// form.groups = [{ name: "ГруппаНовости", title: "Новости", collapsed: true }, ...]
+await clickElement('Новости', { expand: true });   // reveal the group's content
+```
+
 **tables** — array of all visible grids: `[{ name, columns, rowCount, label? }]`. `label` is the visual group title shown on screen (e.g. "Входящие"), absent when grid has no visible title. Use `readTable()` for actual data.
 
 **table** — backward-compatible alias for the first grid: `{ present, columns, rowCount }`.
