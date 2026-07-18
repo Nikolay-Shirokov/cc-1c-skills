@@ -1,4 +1,4 @@
-﻿# cfe-patch-method v2.1 — Source-aware method interceptor for 1C extension (CFE)
+﻿# cfe-patch-method v2.2 — Source-aware method interceptor for 1C extension (CFE)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -6,15 +6,17 @@ param(
 
 	[string]$ConfigPath,
 
-	[Parameter(Mandatory)]
+	# Generation: logical name or path to .bsl. Optional in -Check/-Actualize (scope narrowing).
 	[string]$ModulePath,
 
-	[Parameter(Mandatory)]
 	[string]$MethodName,
 
-	[Parameter(Mandatory)]
-	[ValidateSet("Before","After","Instead","ModificationAndControl")]
-	[string]$InterceptorType
+	[ValidateSet("", "Before", "After", "Instead", "ModificationAndControl")]
+	[string]$InterceptorType,
+
+	# Batch modes over &ИзменениеИКонтроль of the extension (no generation):
+	[switch]$Check,      # report drift only, no writes
+	[switch]$Actualize   # actualize drifted controlled methods
 )
 
 $ErrorActionPreference = "Stop"
@@ -475,6 +477,199 @@ function Get-Truncated {
 	return $t
 }
 
+# Reverse of typeDirMap (plural dir -> singular type) for logical id display
+$script:dirToType = @{
+	"Catalogs"="Catalog"; "Documents"="Document"; "Enums"="Enum"; "CommonModules"="CommonModule"
+	"Reports"="Report"; "DataProcessors"="DataProcessor"; "ExchangePlans"="ExchangePlan"
+	"ChartsOfAccounts"="ChartOfAccounts"; "ChartsOfCharacteristicTypes"="ChartOfCharacteristicTypes"
+	"ChartsOfCalculationTypes"="ChartOfCalculationTypes"; "BusinessProcesses"="BusinessProcess"
+	"Tasks"="Task"; "InformationRegisters"="InformationRegister"
+	"AccumulationRegisters"="AccumulationRegister"; "AccountingRegisters"="AccountingRegister"
+	"CalculationRegisters"="CalculationRegister"
+}
+
+# Rel-path segments (relative to ExtensionPath) -> logical ModulePath (Type.Name.Module / CommonModule.Name)
+function Get-ModulePathFromRel {
+	param($relParts)
+	$dir0 = $relParts[0]; $name = $relParts[1]
+	$typ = if ($script:dirToType.ContainsKey($dir0)) { $script:dirToType[$dir0] } else { $dir0 }
+	if ($dir0 -eq "CommonModules") { return "CommonModule.$name" }
+	if ($relParts.Count -ge 7 -and $relParts[2] -eq "Forms") { return "$typ.$name.Form.$($relParts[3])" }
+	$mod = $relParts[$relParts.Count - 1]
+	if ($mod.EndsWith(".bsl")) { $mod = $mod.Substring(0, $mod.Length - 4) }
+	return "$typ.$name.$mod"
+}
+
+function Get-RelPartsUnder {
+	param([string]$root, [string]$fullPath)
+	$r = [IO.Path]::GetFullPath($root).TrimEnd('\', '/')
+	$f = [IO.Path]::GetFullPath($fullPath)
+	$rel = $f.Substring($r.Length).TrimStart('\', '/')
+	return (($rel -replace '\\', '/').Split('/') | Where-Object { $_ -ne '' })
+}
+
+function Get-ResyncConflictReason {
+	param($disputed)
+	$kinds = @($disputed | ForEach-Object { $_.Kind } | Select-Object -Unique)
+	$parts = @()
+	if ($kinds -contains 'insert') { $parts += 'якорь вставки изменён' }
+	if ($kinds -contains 'delete') { $parts += 'удаляемое исчезло' }
+	return ($parts -join '; ')
+}
+
+# Write per-method conflict folder: conflict.md + base/local/remote
+function Write-ConflictFolder {
+	param($folder, $methodId, $extBsl, $existingName, $method, $v1, $markedBody, $v2, $v1norm, $v2norm, $disputed, $enc)
+	if (-not (Test-Path $folder)) { New-Item -ItemType Directory -Path $folder -Force | Out-Null }
+	[IO.File]::WriteAllText((Join-Path $folder 'base.bsl'), (($v1 -join "`r`n") + "`r`n"), $enc)
+	[IO.File]::WriteAllText((Join-Path $folder 'local.bsl'), (($markedBody -join "`r`n") + "`r`n"), $enc)
+	[IO.File]::WriteAllText((Join-Path $folder 'remote.bsl'), (($v2 -join "`r`n") + "`r`n"), $enc)
+	$md = @()
+	$md += "# $methodId"
+	$md += "Править: $extBsl"
+	$md += "Метод:   $existingName (&ИзменениеИКонтроль(`"$($method.Canonical)`"))"
+	$md += "Причина: $(Get-ResyncConflictReason $disputed)"
+	$md += ""
+	$md += "## Не размещено — перенести в метод вручную"
+	foreach ($d in $disputed) {
+		if ($d.Kind -eq 'insert') { $md += '#Вставка'; foreach ($l in $d.Lines) { $md += $l }; $md += '#КонецВставки' }
+		else { $md += '// не удалось найти для удаления:'; foreach ($l in $d.Lines) { $md += ('// ' + $l.Trim()) } }
+	}
+	$md += ""
+	$md += "## Дифф base→remote (что изменилось в оригинале)"
+	foreach ($l in $v1) { if ($v2norm -notcontains (Get-Normalized $l)) { $md += "- $l" } }
+	foreach ($l in $v2) { if ($v1norm -notcontains (Get-Normalized $l)) { $md += "+ $l" } }
+	$md += ""
+	$md += "Рядом: base.bsl / local.bsl / remote.bsl"
+	[IO.File]::WriteAllText((Join-Path $folder 'conflict.md'), (($md -join "`r`n") + "`r`n"), $enc)
+}
+
+# Resync one &ИзменениеИКонтроль interceptor. Returns status hashtable.
+# ReportOnly: classify without writing. Otherwise: apply to module (+ conflict folder on disputes).
+function Invoke-Resync {
+	param($extBsl, $extLines, $dup, $method, [string]$logicalModule, [string]$conflictFolder, [switch]$ReportOnly, $enc)
+
+	$methodId = "$logicalModule.$($method.Canonical)"
+	$decLine = $dup.Line
+	$sigLineIdx = $decLine + 1
+	if ($sigLineIdx -ge $extLines.Count -or $extLines[$sigLineIdx] -notmatch '^\s*(?:Асинх\s+)?(?:Процедура|Функция)\s+([\w]+)\s*\(') {
+		return @{ Id = $methodId; Status = 'ОШИБКА'; ExtBsl = $extBsl; Reason = 'не разобрать сигнатуру перехватчика' }
+	}
+	$existingName = $Matches[1]
+	$sig = Read-Signature $extLines $sigLineIdx
+	if (-not $sig) { return @{ Id = $methodId; Status = 'ОШИБКА'; ExtBsl = $extBsl; Reason = 'не разобрать сигнатуру' } }
+	$sigEnd = $sig.EndLineIdx
+	$isFunc = ($extLines[$sigLineIdx] -imatch '^\s*(?:Асинх\s+)?Функция\b')
+	$endRe = if ($isFunc) { '^\s*КонецФункции\b' } else { '^\s*КонецПроцедуры\b' }
+	$blockEnd = -1
+	for ($j = $sigEnd + 1; $j -lt $extLines.Count; $j++) { if ($extLines[$j] -imatch $endRe) { $blockEnd = $j; break } }
+	if ($blockEnd -lt 0) { return @{ Id = $methodId; Status = 'ОШИБКА'; ExtBsl = $extBsl; Reason = 'не найден конец перехватчика' } }
+
+	$markedBody = @()
+	for ($j = $sigEnd + 1; $j -lt $blockEnd; $j++) { $markedBody += $extLines[$j] }
+
+	$parsed = Parse-MarkedBody $markedBody
+	$v1 = $parsed.V1
+	$ops = $parsed.Ops
+	$v2 = $method.BodyLines
+	$v1norm = @($v1 | ForEach-Object { Get-Normalized $_ })
+	$v2norm = @($v2 | ForEach-Object { Get-Normalized $_ })
+
+	if (($v1norm -join "`n") -eq ($v2norm -join "`n")) {
+		return @{ Id = $methodId; Status = 'АКТУАЛЕН'; ExtBsl = $extBsl }
+	}
+
+	$insertTop = @(); $insertAfter = @{}; $delStart = @{}; $delEnd = @{}; $disputed = @(); $transferred = @()
+	foreach ($op in $ops) {
+		if ($op.Kind -eq 'insert') {
+			$beforeLines = @()
+			if ($op.After -ge 0) { $bs = [Math]::Max(0, $op.After - 2); for ($m = $bs; $m -le $op.After; $m++) { $beforeLines += $v1norm[$m] } }
+			$afterLines = @()
+			$ae = [Math]::Min($v1norm.Count - 1, $op.After + 3)
+			for ($m = $op.After + 1; $m -le $ae; $m++) { $afterLines += $v1norm[$m] }
+			$k = Resolve-InsertionPoint $v2norm $beforeLines $afterLines
+			if ($null -eq $k) { $disputed += @{ Kind = 'insert'; Lines = $op.Lines } }
+			elseif ($k -lt 0) { $insertTop += ,$op.Lines; $transferred += @{ Kind = 'insert' } }
+			else { if (-not $insertAfter.ContainsKey($k)) { $insertAfter[$k] = @() }; $insertAfter[$k] += ,$op.Lines; $transferred += @{ Kind = 'insert' } }
+		} else {
+			$keys = @(); for ($m = $op.Start; $m -le $op.End; $m++) { $keys += $v1norm[$m] }
+			$p = Find-UniqueRun $v2norm $keys
+			if ($p -ge 0) { $delStart[$p] = $true; $delEnd[$p + $keys.Count - 1] = $true; $transferred += @{ Kind = 'delete' } }
+			else { $disputed += @{ Kind = 'delete'; Lines = $op.Lines } }
+		}
+	}
+
+	if ($ReportOnly) {
+		$st = if ($disputed.Count -gt 0) { 'КОНФЛИКТ' } else { 'ДРЕЙФ' }
+		return @{ Id = $methodId; Status = $st; ExtBsl = $extBsl; Transferred = $transferred.Count; Disputed = $disputed.Count; Reason = (Get-ResyncConflictReason $disputed) }
+	}
+
+	# assemble new marked body
+	$newBody = @()
+	foreach ($blk in $insertTop) { $newBody += "#Вставка"; foreach ($l in $blk) { $newBody += $l }; $newBody += "#КонецВставки" }
+	for ($k = 0; $k -lt $v2.Count; $k++) {
+		if ($delStart.ContainsKey($k)) { $newBody += "#Удаление" }
+		$newBody += $v2[$k]
+		if ($delEnd.ContainsKey($k)) { $newBody += "#КонецУдаления" }
+		if ($insertAfter.ContainsKey($k)) { foreach ($blk in $insertAfter[$k]) { $newBody += "#Вставка"; foreach ($l in $blk) { $newBody += $l }; $newBody += "#КонецВставки" } }
+	}
+	if ($disputed.Count -gt 0) {
+		$newBody += "`t// [РЕСИНК-КОНФЛИКТ] перенесите блоки ниже вручную — исходный якорь изменился в новой версии оригинала."
+		$newBody += "`t// Материалы: см. index.md / conflict.md в merge-воркспейсе (путь в выводе)."
+		foreach ($d in $disputed) {
+			if ($d.Kind -eq 'insert') { $newBody += "#Вставка"; foreach ($l in $d.Lines) { $newBody += $l }; $newBody += "#КонецВставки" }
+			else { $newBody += "`t// [РЕСИНК-КОНФЛИКТ] не удалось найти для удаления:"; foreach ($l in $d.Lines) { $newBody += ("`t// " + $l.Trim()) } }
+		}
+	}
+	$asyncPrefix = if ($method.IsAsync) { "Асинх " } else { "" }
+	$keyword = if ($method.IsFunction) { "Функция" } else { "Процедура" }
+	$endKeyword = if ($method.IsFunction) { "КонецФункции" } else { "КонецПроцедуры" }
+	$newBlock = @()
+	if ($method.Context) { $newBlock += $method.Context }
+	$newBlock += "&ИзменениеИКонтроль(`"$($method.Canonical)`")"
+	$newBlock += "$asyncPrefix$keyword $existingName($($method.ParamsText))"
+	$newBlock += $newBody
+	$newBlock += $endKeyword
+
+	$blockStart = $decLine
+	if ($decLine -ge 1 -and (Test-ContextDirective $extLines[$decLine - 1].Trim())) { $blockStart = $decLine - 1 }
+	$out = @()
+	for ($j = 0; $j -lt $blockStart; $j++) { $out += $extLines[$j] }
+	foreach ($l in $newBlock) { $out += $l }
+	for ($j = $blockEnd + 1; $j -lt $extLines.Count; $j++) { $out += $extLines[$j] }
+	[IO.File]::WriteAllText($extBsl, (($out -join "`r`n") + "`r`n"), $enc)
+
+	$conflictDir = $null
+	if ($disputed.Count -gt 0) {
+		$conflictDir = $conflictFolder
+		Write-ConflictFolder $conflictFolder $methodId $extBsl $existingName $method $v1 $markedBody $v2 $v1norm $v2norm $disputed $enc
+	}
+	$status = if ($disputed.Count -gt 0) { 'ЧАСТИЧНО' } else { 'АКТУАЛИЗИРОВАН' }
+	return @{ Id = $methodId; Status = $status; ExtBsl = $extBsl; Transferred = $transferred.Count; Disputed = $disputed.Count; ConflictDir = $conflictDir; Reason = (Get-ResyncConflictReason $disputed) }
+}
+
+# Write run-root index.md (only if there are conflicts). Returns run-root or $null.
+function Write-ResyncIndex {
+	param($runRoot, $results, [string]$extName, [string]$configPath, [string]$verb, $enc)
+	$conflicts = @($results | Where-Object { $_.Status -eq 'ЧАСТИЧНО' })
+	if ($conflicts.Count -eq 0) { return $null }
+	if (-not (Test-Path $runRoot)) { New-Item -ItemType Directory -Path $runRoot -Force | Out-Null }
+	$total = $results.Count
+	$actual = @($results | Where-Object { $_.Status -eq 'АКТУАЛЕН' }).Count
+	$upd = @($results | Where-Object { $_.Status -eq 'АКТУАЛИЗИРОВАН' }).Count
+	$lines = @()
+	$lines += "[$verb] $extName -> $configPath"
+	$lines += "Итог: $actual/$total актуальны · $upd актуализировано · $($conflicts.Count) конфликтов"
+	$lines += ""
+	$lines += "Конфликты — править .bsl расширения:"
+	foreach ($c in $conflicts) {
+		$lines += "  ЧАСТИЧНО  $($c.Id)"
+		$lines += "            -> $($c.ExtBsl)   ($($c.Reason))"
+	}
+	[IO.File]::WriteAllText((Join-Path $runRoot 'index.md'), (($lines -join "`r`n") + "`r`n"), $enc)
+	return $runRoot
+}
+
 # ============================================================================
 # Main
 # ============================================================================
@@ -494,6 +689,93 @@ $cfgNs.AddNamespace("md", "http://v8.1c.ru/8.3/MDClasses")
 $propsNode = $cfgDoc.SelectSingleNode("//md:Configuration/md:Properties", $cfgNs)
 $prefixNode = if ($propsNode) { $propsNode.SelectSingleNode("md:NamePrefix", $cfgNs) } else { $null }
 $namePrefix = if ($prefixNode -and $prefixNode.InnerText) { $prefixNode.InnerText } else { "Расш_" }
+$extNameNode = if ($propsNode) { $propsNode.SelectSingleNode("md:Name", $cfgNs) } else { $null }
+$extName = if ($extNameNode -and $extNameNode.InnerText) { $extNameNode.InnerText } else { "Расширение" }
+
+# ============================================================================
+# Batch modes: -Check / -Actualize over &ИзменениеИКонтроль of the extension
+# ============================================================================
+if ($Check -or $Actualize) {
+	if ($Check -and $Actualize) { Write-Error "Укажите либо -Check, либо -Actualize, не оба."; exit 1 }
+	if ([string]::IsNullOrEmpty($ConfigPath)) { Write-Error "Для -Check/-Actualize нужен -ConfigPath (сверка с исходником)."; exit 1 }
+	if (-not [System.IO.Path]::IsPathRooted($ConfigPath)) { $ConfigPath = Join-Path (Get-Location).Path $ConfigPath }
+	if (Test-Path $ConfigPath -PathType Leaf) { $ConfigPath = Split-Path $ConfigPath -Parent }
+	if (-not (Test-Path (Join-Path $ConfigPath "Configuration.xml"))) { Write-Error "Configuration.xml не найден в конфигурации-источнике: $ConfigPath"; exit 1 }
+
+	$enc = New-Object System.Text.UTF8Encoding($true)
+	$reportOnly = [bool]$Check
+	$verb = if ($Check) { "КОНТРОЛЬ" } else { "АКТУАЛИЗАЦИЯ" }
+
+	# target .bsl set: -ModulePath → один модуль; иначе — все .bsl расширения
+	$targetBsls = @()
+	if (-not [string]::IsNullOrEmpty($ModulePath)) {
+		$relParts = Get-ModuleRelPath $ModulePath
+		$mb = $ExtensionPath; foreach ($p in $relParts) { $mb = Join-Path $mb $p }
+		if (Test-Path $mb) { $targetBsls += $mb }
+	} else {
+		$targetBsls = @(Get-ChildItem -Path $ExtensionPath -Recurse -Filter *.bsl -File | ForEach-Object { $_.FullName })
+	}
+
+	$runRoot = Join-Path ([IO.Path]::GetTempPath()) (Join-Path "cfe-resync" ($extName -replace '[\\/:*?"<>|]', '_'))
+	if ($Actualize -and (Test-Path $runRoot)) { Remove-Item $runRoot -Recurse -Force -ErrorAction SilentlyContinue }
+
+	$results = @()
+	foreach ($tb in $targetBsls) {
+		$scan = @([IO.File]::ReadAllLines($tb, [Text.Encoding]::UTF8))
+		$mnames = @(Get-Interceptors $scan | Where-Object { $_.Type -eq 'ИзменениеИКонтроль' } | ForEach-Object { $_.Method })
+		if (-not [string]::IsNullOrEmpty($MethodName)) { $mnames = @($mnames | Where-Object { $_ -ieq $MethodName }) }
+		$mnames = @($mnames | Select-Object -Unique)
+		if ($mnames.Count -eq 0) { continue }
+		$rel = Get-RelPartsUnder $ExtensionPath $tb
+		$logicalModule = Get-ModulePathFromRel $rel
+		$srcBsl = $ConfigPath; foreach ($p in $rel) { $srcBsl = Join-Path $srcBsl $p }
+		$relJoined = ($rel -join '\') -replace '\.bsl$', ''
+		foreach ($mname in $mnames) {
+			$mid = "$logicalModule.$mname"
+			if (-not (Test-Path $srcBsl)) { $results += @{ Id = $mid; Status = 'ИСТОЧНИК-НЕ-НАЙДЕН'; ExtBsl = $tb }; continue }
+			$srcL = [IO.File]::ReadAllLines($srcBsl, [Text.Encoding]::UTF8)
+			$m = Extract-Method $srcL $mname
+			if (-not $m) { $results += @{ Id = $mid; Status = 'МЕТОД-ИСЧЕЗ'; ExtBsl = $tb }; continue }
+			# fresh read per method (writes shift line numbers)
+			$tbLines = @([IO.File]::ReadAllLines($tb, [Text.Encoding]::UTF8))
+			$ic = @(Get-Interceptors $tbLines | Where-Object { $_.Type -eq 'ИзменениеИКонтроль' -and $_.Method -ieq $mname })[0]
+			if (-not $ic) { continue }
+			$folder = Join-Path $runRoot (Join-Path $relJoined $m.Canonical)
+			$results += (Invoke-Resync $tb $tbLines $ic $m $logicalModule $folder -ReportOnly:$reportOnly $enc)
+		}
+	}
+
+	# --- report ---
+	$total = $results.Count
+	$actual = @($results | Where-Object { $_.Status -eq 'АКТУАЛЕН' }).Count
+	Write-Host "[$verb] $extName -> $ConfigPath   (на контроле: $total)"
+	$listed = @($results | Where-Object { $_.Status -ne 'АКТУАЛЕН' })
+	foreach ($p in $listed) {
+		$line = "  {0,-16} {1}" -f $p.Status, $p.Id
+		if ($p.Reason) { $line += "   $($p.Reason)" }
+		Write-Host $line
+	}
+	if ($Check) {
+		$drift = @($results | Where-Object { $_.Status -eq 'ДРЕЙФ' }).Count
+		$confl = @($results | Where-Object { $_.Status -eq 'КОНФЛИКТ' }).Count
+		$gone = @($results | Where-Object { $_.Status -in @('МЕТОД-ИСЧЕЗ', 'ИСТОЧНИК-НЕ-НАЙДЕН') }).Count
+		Write-Host "Итог: $actual/$total актуальны · $drift дрейф · $confl конфликт · $gone требуют внимания"
+		if ($listed.Count -gt 0) { Write-Host "Починить: /cfe-patch-method -Actualize -ExtensionPath $ExtensionPath -ConfigPath $ConfigPath"; exit 1 } else { exit 0 }
+	} else {
+		$upd = @($results | Where-Object { $_.Status -eq 'АКТУАЛИЗИРОВАН' }).Count
+		$part = @($results | Where-Object { $_.Status -eq 'ЧАСТИЧНО' }).Count
+		Write-Host "Итог: $actual/$total актуальны · $upd актуализировано · $part частично"
+		$idx = Write-ResyncIndex $runRoot $results $extName $ConfigPath $verb $enc
+		if ($idx) { Write-Host "Merge-воркспейс конфликтов (см. index.md): $idx" }
+		exit 0
+	}
+}
+
+# --- Generation mode: require ModulePath + MethodName + InterceptorType ---
+if ([string]::IsNullOrEmpty($ModulePath) -or [string]::IsNullOrEmpty($MethodName) -or [string]::IsNullOrEmpty($InterceptorType)) {
+	Write-Error "Нужны -ModulePath, -MethodName, -InterceptorType (генерация перехватчика). Для проверки/актуализации контролируемых методов используйте -Check или -Actualize."
+	exit 1
+}
 
 # --- Resolve module file paths (ModulePath = logical name OR path to a .bsl) ---
 $hasConfigPath = -not [string]::IsNullOrEmpty($ConfigPath)
@@ -568,171 +850,23 @@ if ($dup) {
 		Write-Host "     Файл: $extBsl"
 		exit 0
 	}
-	# ---- RESYNC (&ИзменениеИКонтроль) ----
-	# Locate existing block: decorator line -> signature -> body -> Конец*
-	$decLine = $dup.Line
-	# Interceptor procedure name from existing signature (line after decorator, skipping possible async)
-	$sigLineIdx = $decLine + 1
-	if ($sigLineIdx -ge $extLines.Count -or $extLines[$sigLineIdx] -notmatch '^\s*(?:Асинх\s+)?(?:Процедура|Функция)\s+([\w]+)\s*\(') {
-		Write-Error "Не удалось найти сигнатуру существующего перехватчика &ИзменениеИКонтроль(`"$MethodName`")"; exit 1
-	}
-	$existingName = $Matches[1]
-	$sig = Read-Signature $extLines $sigLineIdx
-	if (-not $sig) { Write-Error "Не удалось разобрать сигнатуру существующего перехватчика"; exit 1 }
-	$sigEnd = $sig.EndLineIdx
-	$isFunc = ($extLines[$sigLineIdx] -imatch '^\s*(?:Асинх\s+)?Функция\b')
-	$endRe = if ($isFunc) { '^\s*КонецФункции\b' } else { '^\s*КонецПроцедуры\b' }
-	$blockEnd = -1
-	for ($j = $sigEnd + 1; $j -lt $extLines.Count; $j++) { if ($extLines[$j] -imatch $endRe) { $blockEnd = $j; break } }
-	if ($blockEnd -lt 0) { Write-Error "Не найден конец существующего перехватчика"; exit 1 }
-
-	# marked body
-	$markedBody = @()
-	for ($j = $sigEnd + 1; $j -lt $blockEnd; $j++) { $markedBody += $extLines[$j] }
-
-	# reconstruct v1, ops
-	$parsed = Parse-MarkedBody $markedBody
-	$v1 = $parsed.V1
-	$ops = $parsed.Ops
-	$v2 = $method.BodyLines
-
-	$v1norm = @($v1 | ForEach-Object { Get-Normalized $_ })
-	$v2norm = @($v2 | ForEach-Object { Get-Normalized $_ })
-
-	# no drift?
-	if (($v1norm -join "`n") -eq ($v2norm -join "`n")) {
-		Write-Host "[АКТУАЛЕН] &ИзменениеИКонтроль(`"$MethodName`") — оригинал не менялся, изменений нет."
-		Write-Host "     Файл: $extBsl"
-		exit 0
-	}
-
-	# transfer ops onto v2
-	$insertTop = @()
-	$insertAfter = @{}   # v2 index -> list of blocks (each = @{Lines=..})
-	$delStart = @{}      # v2 index -> $true
-	$delEnd = @{}
-	$disputed = @()
-	$transferred = @()   # for the summary: @{ Kind; Anchor }
-
-	foreach ($op in $ops) {
-		if ($op.Kind -eq 'insert') {
-			# two-sided context anchor
-			$beforeLines = @()
-			if ($op.After -ge 0) {
-				$bs = [Math]::Max(0, $op.After - 2)
-				for ($m = $bs; $m -le $op.After; $m++) { $beforeLines += $v1norm[$m] }
-			}
-			$afterLines = @()
-			$ae = [Math]::Min($v1norm.Count - 1, $op.After + 3)
-			for ($m = $op.After + 1; $m -le $ae; $m++) { $afterLines += $v1norm[$m] }
-
-			$k = Resolve-InsertionPoint $v2norm $beforeLines $afterLines
-			if ($null -eq $k) {
-				$disputed += @{ Kind = 'insert'; Lines = $op.Lines }
-			} elseif ($k -lt 0) {
-				$insertTop += ,$op.Lines
-				$transferred += @{ Kind = 'insert'; Anchor = '(в начало метода)' }
-			} else {
-				if (-not $insertAfter.ContainsKey($k)) { $insertAfter[$k] = @() }
-				$insertAfter[$k] += ,$op.Lines
-				$transferred += @{ Kind = 'insert'; Anchor = $v2[$k] }
-			}
-		} else {
-			$keys = @()
-			for ($m = $op.Start; $m -le $op.End; $m++) { $keys += $v1norm[$m] }
-			$p = Find-UniqueRun $v2norm $keys
-			if ($p -ge 0) {
-				$delStart[$p] = $true
-				$delEnd[$p + $keys.Count - 1] = $true
-				$transferred += @{ Kind = 'delete'; Anchor = $op.Lines[0] }
-			} else {
-				$disputed += @{ Kind = 'delete'; Lines = $op.Lines }
-			}
+	# ---- RESYNC (&ИзменениеИКонтроль) — via Invoke-Resync ----
+	$rel = Get-RelPartsUnder $ExtensionPath $extBsl
+	$logicalModule = Get-ModulePathFromRel $rel
+	$relJoined = ($rel -join '') -replace '.bsl$', ''
+	$runRoot = Join-Path ([IO.Path]::GetTempPath()) (Join-Path "cfe-resync" ($extName -replace '[\/:*?"<>|]', '_'))
+	$folder = Join-Path $runRoot (Join-Path $relJoined $method.Canonical)
+	$res = Invoke-Resync $extBsl $extLines $dup $method $logicalModule $folder $enc
+	switch ($res.Status) {
+		'АКТУАЛЕН' { Write-Host "[АКТУАЛЕН] &ИзменениеИКонтроль(`"$MethodName`") — оригинал не менялся, изменений нет." }
+		'АКТУАЛИЗИРОВАН' { Write-Host "[АКТУАЛИЗИРОВАН] &ИзменениеИКонтроль(`"$MethodName`") — тело обновлено, перенесено правок: $($res.Transferred)" }
+		'ЧАСТИЧНО' {
+			$idx = Write-ResyncIndex $runRoot @($res) $extName $ConfigPath "АКТУАЛИЗАЦИЯ" $enc
+			Write-Host "[АКТУАЛИЗИРОВАН-ЧАСТИЧНО] &ИзменениеИКонтроль(`"$MethodName`") — перенесено: $($res.Transferred), конфликтов: $($res.Disputed)"
+			Write-Host "     Конфликт помечен // [РЕСИНК-КОНФЛИКТ]. Папка метода: $($res.ConflictDir)"
+			if ($idx) { Write-Host "     Индекс: $idx" }
 		}
-	}
-
-	# assemble new marked body
-	$newBody = @()
-	foreach ($blk in $insertTop) {
-		$newBody += "#Вставка"; foreach ($l in $blk) { $newBody += $l }; $newBody += "#КонецВставки"
-	}
-	for ($k = 0; $k -lt $v2.Count; $k++) {
-		if ($delStart.ContainsKey($k)) { $newBody += "#Удаление" }
-		$newBody += $v2[$k]
-		if ($delEnd.ContainsKey($k)) { $newBody += "#КонецУдаления" }
-		if ($insertAfter.ContainsKey($k)) {
-			foreach ($blk in $insertAfter[$k]) {
-				$newBody += "#Вставка"; foreach ($l in $blk) { $newBody += $l }; $newBody += "#КонецВставки"
-			}
-		}
-	}
-	# disputed blocks appended with conflict markers (never lost)
-	if ($disputed.Count -gt 0) {
-		$newBody += "`t// [РЕСИНК-КОНФЛИКТ] перенесите блоки ниже вручную — исходный якорь изменился в новой версии оригинала."
-		$newBody += "`t// Материалы для анализа см. в выводе команды (файлы base/local/remote/merged)."
-		foreach ($d in $disputed) {
-			if ($d.Kind -eq 'insert') {
-				$newBody += "#Вставка"; foreach ($l in $d.Lines) { $newBody += $l }; $newBody += "#КонецВставки"
-			} else {
-				$newBody += "`t// [РЕСИНК-КОНФЛИКТ] не удалось найти для удаления:"
-				foreach ($l in $d.Lines) { $newBody += ("`t// " + $l.Trim()) }
-			}
-		}
-	}
-
-	# rebuild block: keep context (from v2), decorator, signature with existing name and v2 params
-	$asyncPrefix = if ($method.IsAsync) { "Асинх " } else { "" }
-	$keyword = if ($method.IsFunction) { "Функция" } else { "Процедура" }
-	$endKeyword = if ($method.IsFunction) { "КонецФункции" } else { "КонецПроцедуры" }
-	$newBlock = @()
-	if ($method.Context) { $newBlock += $method.Context }
-	$newBlock += "&ИзменениеИКонтроль(`"$($method.Canonical)`")"
-	$newBlock += "$asyncPrefix$keyword $existingName($($method.ParamsText))"
-	$newBlock += $newBody
-	$newBlock += $endKeyword
-
-	# block start includes preceding context directive line if present
-	$blockStart = $decLine
-	if ($decLine -ge 1 -and (Test-ContextDirective $extLines[$decLine - 1].Trim())) { $blockStart = $decLine - 1 }
-
-	$out = @()
-	for ($j = 0; $j -lt $blockStart; $j++) { $out += $extLines[$j] }
-	foreach ($l in $newBlock) { $out += $l }
-	for ($j = $blockEnd + 1; $j -lt $extLines.Count; $j++) { $out += $extLines[$j] }
-
-	[System.IO.File]::WriteAllText($extBsl, (($out -join "`r`n") + "`r`n"), $enc)
-
-	# transferred summary (shared by full-auto and partial)
-	function Write-TransferSummary {
-		param($items)
-		foreach ($t in $items) {
-			if ($t.Kind -eq 'insert') { Write-Host "     • вставка после «$(Get-Truncated $t.Anchor)»" }
-			else { Write-Host "     • удаление «$(Get-Truncated $t.Anchor)»" }
-		}
-	}
-
-	if ($disputed.Count -gt 0) {
-		# merge workspace (git-mergetool convention: base/local/remote/merged)
-		$tmpRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("cfe-resync\" + ($ModulePath -replace '[\\/:*?"<>|]', '_') + "." + $MethodName)
-		if (-not (Test-Path $tmpRoot)) { New-Item -ItemType Directory -Path $tmpRoot -Force | Out-Null }
-		[System.IO.File]::WriteAllText((Join-Path $tmpRoot "base.bsl"), (($v1 -join "`r`n") + "`r`n"), $enc)
-		[System.IO.File]::WriteAllText((Join-Path $tmpRoot "local.bsl"), (($markedBody -join "`r`n") + "`r`n"), $enc)
-		[System.IO.File]::WriteAllText((Join-Path $tmpRoot "remote.bsl"), (($v2 -join "`r`n") + "`r`n"), $enc)
-		[System.IO.File]::WriteAllText((Join-Path $tmpRoot "merged.bsl"), (($newBlock -join "`r`n") + "`r`n"), $enc)
-		$diff = @()
-		$diff += "--- base -> remote (что изменилось в оригинале) ---"
-		foreach ($l in $v1) { if ($v2norm -notcontains (Get-Normalized $l)) { $diff += "- $l" } }
-		foreach ($l in $v2) { if ($v1norm -notcontains (Get-Normalized $l)) { $diff += "+ $l" } }
-		[System.IO.File]::WriteAllText((Join-Path $tmpRoot "diff.txt"), (($diff -join "`r`n") + "`r`n"), $enc)
-
-		Write-Host "[АКТУАЛИЗИРОВАН-ЧАСТИЧНО] &ИзменениеИКонтроль(`"$MethodName`") — перенесено: $($transferred.Count), конфликтов: $($disputed.Count)"
-		Write-TransferSummary $transferred
-		Write-Host "     Конфликтные блоки помечены // [РЕСИНК-КОНФЛИКТ] — разместите вручную."
-		Write-Host "     Merge-воркспейс (base/local/remote/merged/diff):"
-		Write-Host "       $tmpRoot"
-	} else {
-		Write-Host "[АКТУАЛИЗИРОВАН] &ИзменениеИКонтроль(`"$MethodName`") — тело обновлено, перенесено правок: $($transferred.Count)"
-		Write-TransferSummary $transferred
+		default { Write-Host "[$($res.Status)] &ИзменениеИКонтроль(`"$MethodName`") — $($res.Reason)" }
 	}
 	Write-Host "     Файл: $extBsl"
 	exit 0

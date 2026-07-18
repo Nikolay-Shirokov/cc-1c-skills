@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-# cfe-patch-method v2.1 — Source-aware method interceptor for 1C extension (CFE)
+# cfe-patch-method v2.2 — Source-aware method interceptor for 1C extension (CFE)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
 import os
 import re
+import shutil
 import sys
 import tempfile
 import xml.etree.ElementTree as ET
@@ -475,10 +476,12 @@ def main():
     )
     parser.add_argument("-ExtensionPath", required=True)
     parser.add_argument("-ConfigPath", required=False, default="")
-    parser.add_argument("-ModulePath", required=True)
-    parser.add_argument("-MethodName", required=True)
-    parser.add_argument("-InterceptorType", required=True,
-                        choices=["Before", "After", "Instead", "ModificationAndControl"])
+    parser.add_argument("-ModulePath", required=False, default="")
+    parser.add_argument("-MethodName", required=False, default="")
+    parser.add_argument("-InterceptorType", required=False, default="",
+                        choices=["", "Before", "After", "Instead", "ModificationAndControl"])
+    parser.add_argument("-Check", action="store_true")
+    parser.add_argument("-Actualize", action="store_true")
     args = parser.parse_args()
 
     extension_path = args.ExtensionPath
@@ -486,6 +489,8 @@ def main():
     module_path = args.ModulePath
     method_name = args.MethodName
     interceptor_type = args.InterceptorType
+    check_mode = args.Check
+    actualize_mode = args.Actualize
 
     # --- Resolve extension path ---
     if not os.path.isabs(extension_path):
@@ -506,8 +511,111 @@ def main():
             pn = props.find("md:NamePrefix", ns)
             if pn is not None and pn.text:
                 name_prefix = pn.text
+            nn = props.find("md:Name", ns)
+            if nn is not None and nn.text:
+                ext_name = nn.text
     except ET.ParseError:
         pass
+    if 'ext_name' not in dir():
+        ext_name = "Расширение"
+
+    # --- Batch modes: -Check / -Actualize over &ИзменениеИКонтроль ---
+    if check_mode or actualize_mode:
+        if check_mode and actualize_mode:
+            die("Укажите либо -Check, либо -Actualize, не оба.")
+        if not config_path:
+            die("Для -Check/-Actualize нужен -ConfigPath (сверка с исходником).")
+        cp = config_path
+        if not os.path.isabs(cp):
+            cp = os.path.join(os.getcwd(), cp)
+        if os.path.isfile(cp):
+            cp = os.path.dirname(cp)
+        if not os.path.isfile(os.path.join(cp, "Configuration.xml")):
+            die("Configuration.xml не найден в конфигурации-источнике: %s" % cp)
+        report_only = check_mode
+        verb = "КОНТРОЛЬ" if check_mode else "АКТУАЛИЗАЦИЯ"
+        safe = re.sub(r'[\\/:*?"<>|]', "_", ext_name)
+        run_root = os.path.join(tempfile.gettempdir(), "cfe-resync", safe)
+        if actualize_mode and os.path.isdir(run_root):
+            shutil.rmtree(run_root, ignore_errors=True)
+
+        targets = []
+        if module_path:
+            rp = get_module_rel_path(module_path)
+            mb = os.path.join(extension_path, *rp)
+            if os.path.isfile(mb):
+                targets.append(mb)
+        else:
+            for dirpath, _dirs, files in os.walk(extension_path):
+                for fn in files:
+                    if fn.endswith(".bsl"):
+                        targets.append(os.path.join(dirpath, fn))
+
+        results = []
+        for tb in targets:
+            scan = read_lines(tb)
+            mnames = [ic["method"] for ic in get_interceptors(scan) if ic["type"] == "ИзменениеИКонтроль"]
+            if method_name:
+                mnames = [m for m in mnames if m.lower() == method_name.lower()]
+            seen = set(); uniq = []
+            for m in mnames:
+                if m.lower() not in seen:
+                    seen.add(m.lower()); uniq.append(m)
+            if not uniq:
+                continue
+            rel = rel_parts_under(extension_path, tb)
+            logical_module = module_path_from_rel(rel)
+            src_bsl2 = os.path.join(cp, *rel)
+            rel_no_bsl = os.path.join(*rel)
+            if rel_no_bsl.endswith(".bsl"):
+                rel_no_bsl = rel_no_bsl[:-4]
+            for mname in uniq:
+                mid = "%s.%s" % (logical_module, mname)
+                if not os.path.isfile(src_bsl2):
+                    results.append({"id": mid, "status": "ИСТОЧНИК-НЕ-НАЙДЕН", "ext_bsl": tb}); continue
+                m = extract_method(read_lines(src_bsl2), mname)
+                if not m:
+                    results.append({"id": mid, "status": "МЕТОД-ИСЧЕЗ", "ext_bsl": tb}); continue
+                tb_lines = read_lines(tb)
+                ic = next((x for x in get_interceptors(tb_lines)
+                           if x["type"] == "ИзменениеИКонтроль" and x["method"].lower() == mname.lower()), None)
+                if not ic:
+                    continue
+                folder = os.path.join(run_root, rel_no_bsl, m["canonical"])
+                results.append(resync_one(tb, tb_lines, ic, m, logical_module, folder, report_only))
+
+        total = len(results)
+        actual = sum(1 for r in results if r["status"] == "АКТУАЛЕН")
+        print("[%s] %s -> %s   (на контроле: %d)" % (verb, ext_name, cp, total))
+        listed = [r for r in results if r["status"] != "АКТУАЛЕН"]
+        for pr in listed:
+            line = "  %-16s %s" % (pr["status"], pr["id"])
+            if pr.get("reason"):
+                line += "   %s" % pr["reason"]
+            print(line)
+        if check_mode:
+            drift = sum(1 for r in results if r["status"] == "ДРЕЙФ")
+            confl = sum(1 for r in results if r["status"] == "КОНФЛИКТ")
+            gone = sum(1 for r in results if r["status"] in ("МЕТОД-ИСЧЕЗ", "ИСТОЧНИК-НЕ-НАЙДЕН"))
+            print("Итог: %d/%d актуальны · %d дрейф · %d конфликт · %d требуют внимания"
+                  % (actual, total, drift, confl, gone))
+            if listed:
+                print("Починить: /cfe-patch-method -Actualize -ExtensionPath %s -ConfigPath %s" % (extension_path, cp))
+                sys.exit(1)
+            sys.exit(0)
+        else:
+            upd = sum(1 for r in results if r["status"] == "АКТУАЛИЗИРОВАН")
+            part = sum(1 for r in results if r["status"] == "ЧАСТИЧНО")
+            print("Итог: %d/%d актуальны · %d актуализировано · %d частично" % (actual, total, upd, part))
+            idx = write_resync_index(run_root, results, ext_name, cp, verb)
+            if idx:
+                print("Merge-воркспейс конфликтов (см. index.md): %s" % idx)
+            sys.exit(0)
+
+    # --- Generation mode: require ModulePath + MethodName + InterceptorType ---
+    if not (module_path and method_name and interceptor_type):
+        die("Нужны -ModulePath, -MethodName, -InterceptorType (генерация перехватчика). "
+            "Для проверки/актуализации контролируемых методов используйте -Check или -Actualize.")
 
     # --- Resolve module file paths (ModulePath = logical name OR path to a .bsl) ---
     has_config = bool(config_path)
@@ -580,7 +688,31 @@ def main():
                   % (decorator_ru, method_name))
             print("     Файл: %s" % ext_bsl)
             sys.exit(0)
-        resync(ext_bsl, ext_lines, dup, method, method_name, module_path)
+        rel = rel_parts_under(extension_path, ext_bsl)
+        logical_module = module_path_from_rel(rel)
+        rel_no_bsl = os.path.join(*rel)
+        if rel_no_bsl.endswith(".bsl"):
+            rel_no_bsl = rel_no_bsl[:-4]
+        safe = re.sub(r'[\\/:*?"<>|]', "_", ext_name)
+        run_root = os.path.join(tempfile.gettempdir(), "cfe-resync", safe)
+        folder = os.path.join(run_root, rel_no_bsl, method["canonical"])
+        res = resync_one(ext_bsl, ext_lines, dup, method, logical_module, folder, False)
+        st = res["status"]
+        if st == "АКТУАЛЕН":
+            print('[АКТУАЛЕН] &ИзменениеИКонтроль("%s") — оригинал не менялся, изменений нет.' % method_name)
+        elif st == "АКТУАЛИЗИРОВАН":
+            print('[АКТУАЛИЗИРОВАН] &ИзменениеИКонтроль("%s") — тело обновлено, перенесено правок: %d'
+                  % (method_name, res.get("transferred", 0)))
+        elif st == "ЧАСТИЧНО":
+            idx = write_resync_index(run_root, [res], ext_name, config_path, "АКТУАЛИЗАЦИЯ")
+            print('[АКТУАЛИЗИРОВАН-ЧАСТИЧНО] &ИзменениеИКонтроль("%s") — перенесено: %d, конфликтов: %d'
+                  % (method_name, res.get("transferred", 0), res.get("disputed", 0)))
+            print("     Конфликт помечен // [РЕСИНК-КОНФЛИКТ]. Папка метода: %s" % res.get("conflict_dir"))
+            if idx:
+                print("     Индекс: %s" % idx)
+        else:
+            print('[%s] &ИзменениеИКонтроль("%s") — %s' % (st, method_name, res.get("reason", "")))
+        print("     Файл: %s" % ext_bsl)
         sys.exit(0)
 
     # --- New interceptor ---
@@ -688,16 +820,87 @@ def place_new(ext_bsl, ext_lines, ext_exists, chain, core):
         place_new.placement = "создан модуль"
 
 
-def resync(ext_bsl, ext_lines, dup, method, method_name, module_path):
+DIR_TO_TYPE = {
+    "Catalogs": "Catalog", "Documents": "Document", "Enums": "Enum", "CommonModules": "CommonModule",
+    "Reports": "Report", "DataProcessors": "DataProcessor", "ExchangePlans": "ExchangePlan",
+    "ChartsOfAccounts": "ChartOfAccounts", "ChartsOfCharacteristicTypes": "ChartOfCharacteristicTypes",
+    "ChartsOfCalculationTypes": "ChartOfCalculationTypes", "BusinessProcesses": "BusinessProcess",
+    "Tasks": "Task", "InformationRegisters": "InformationRegister",
+    "AccumulationRegisters": "AccumulationRegister", "AccountingRegisters": "AccountingRegister",
+    "CalculationRegisters": "CalculationRegister",
+}
+
+
+def module_path_from_rel(rel_parts):
+    dir0, name = rel_parts[0], rel_parts[1]
+    typ = DIR_TO_TYPE.get(dir0, dir0)
+    if dir0 == "CommonModules":
+        return "CommonModule.%s" % name
+    if len(rel_parts) >= 7 and rel_parts[2] == "Forms":
+        return "%s.%s.Form.%s" % (typ, name, rel_parts[3])
+    mod = rel_parts[-1][:-4] if rel_parts[-1].endswith(".bsl") else rel_parts[-1]
+    return "%s.%s.%s" % (typ, name, mod)
+
+
+def rel_parts_under(root, full_path):
+    rel = os.path.relpath(os.path.abspath(full_path), os.path.abspath(root))
+    return [s for s in rel.replace("\\", "/").split("/") if s and s != "."]
+
+
+def conflict_reason(disputed):
+    kinds = set(d["kind"] for d in disputed)
+    parts = []
+    if "insert" in kinds:
+        parts.append("якорь вставки изменён")
+    if "delete" in kinds:
+        parts.append("удаляемое исчезло")
+    return "; ".join(parts)
+
+
+def write_conflict_folder(folder, method_id, ext_bsl, existing_name, method, v1, marked_body, v2, v1norm, v2norm, disputed):
+    os.makedirs(folder, exist_ok=True)
+    write_bsl(os.path.join(folder, "base.bsl"), v1)
+    write_bsl(os.path.join(folder, "local.bsl"), marked_body)
+    write_bsl(os.path.join(folder, "remote.bsl"), v2)
+    md = []
+    md.append("# %s" % method_id)
+    md.append("Править: %s" % ext_bsl)
+    md.append('Метод:   %s (&ИзменениеИКонтроль("%s"))' % (existing_name, method["canonical"]))
+    md.append("Причина: %s" % conflict_reason(disputed))
+    md.append("")
+    md.append("## Не размещено — перенести в метод вручную")
+    for d in disputed:
+        if d["kind"] == "insert":
+            md.append("#Вставка"); md.extend(d["lines"]); md.append("#КонецВставки")
+        else:
+            md.append("// не удалось найти для удаления:")
+            for l in d["lines"]:
+                md.append("// " + l.strip())
+    md.append("")
+    md.append("## Дифф base→remote (что изменилось в оригинале)")
+    for l in v1:
+        if normalize(l) not in v2norm:
+            md.append("- " + l)
+    for l in v2:
+        if normalize(l) not in v1norm:
+            md.append("+ " + l)
+    md.append("")
+    md.append("Рядом: base.bsl / local.bsl / remote.bsl")
+    write_bsl(os.path.join(folder, "conflict.md"), md)
+
+
+def resync_one(ext_bsl, ext_lines, dup, method, logical_module, conflict_folder, report_only):
+    method_id = "%s.%s" % (logical_module, method["canonical"])
     dec_line = dup["line"]
     sig_line_idx = dec_line + 1
     name_re = re.compile(r'^\s*(?:Асинх\s+)?(?:Процедура|Функция)\s+([\w]+)\s*\(', re.IGNORECASE)
-    if sig_line_idx >= len(ext_lines) or not name_re.match(ext_lines[sig_line_idx]):
-        die('Не удалось найти сигнатуру существующего перехватчика &ИзменениеИКонтроль("%s")' % method_name)
-    existing_name = name_re.match(ext_lines[sig_line_idx]).group(1)
+    m0 = name_re.match(ext_lines[sig_line_idx]) if sig_line_idx < len(ext_lines) else None
+    if not m0:
+        return {"id": method_id, "status": "ОШИБКА", "ext_bsl": ext_bsl, "reason": "не разобрать сигнатуру перехватчика"}
+    existing_name = m0.group(1)
     sig = read_signature(ext_lines, sig_line_idx)
     if not sig:
-        die("Не удалось разобрать сигнатуру существующего перехватчика")
+        return {"id": method_id, "status": "ОШИБКА", "ext_bsl": ext_bsl, "reason": "не разобрать сигнатуру"}
     _params, sig_end = sig
     is_func = bool(re.match(r'^\s*(?:Асинх\s+)?Функция\b', ext_lines[sig_line_idx], re.IGNORECASE))
     end_re = re.compile(r'^\s*КонецФункции\b' if is_func else r'^\s*КонецПроцедуры\b', re.IGNORECASE)
@@ -707,29 +910,18 @@ def resync(ext_bsl, ext_lines, dup, method, method_name, module_path):
             block_end = j
             break
     if block_end < 0:
-        die("Не найден конец существующего перехватчика")
+        return {"id": method_id, "status": "ОШИБКА", "ext_bsl": ext_bsl, "reason": "не найден конец перехватчика"}
 
     marked_body = ext_lines[sig_end + 1:block_end]
     parsed = parse_marked_body(marked_body)
-    v1 = parsed["v1"]
-    ops = parsed["ops"]
-    v2 = method["body_lines"]
-
+    v1 = parsed["v1"]; ops = parsed["ops"]; v2 = method["body_lines"]
     v1norm = [normalize(x) for x in v1]
     v2norm = [normalize(x) for x in v2]
 
     if "\n".join(v1norm) == "\n".join(v2norm):
-        print('[АКТУАЛЕН] &ИзменениеИКонтроль("%s") — оригинал не менялся, изменений нет.' % method_name)
-        print("     Файл: %s" % ext_bsl)
-        return
+        return {"id": method_id, "status": "АКТУАЛЕН", "ext_bsl": ext_bsl}
 
-    insert_top = []
-    insert_after = {}
-    del_start = set()
-    del_end = set()
-    disputed = []
-    transferred = []  # for the summary: {"kind", "anchor"}
-
+    insert_top = []; insert_after = {}; del_start = set(); del_end = set(); disputed = []; transferred = 0
     for op in ops:
         if op["kind"] == "insert":
             after = op["after"]
@@ -739,26 +931,25 @@ def resync(ext_bsl, ext_lines, dup, method, method_name, module_path):
             if k is None:
                 disputed.append({"kind": "insert", "lines": op["lines"]})
             elif k < 0:
-                insert_top.append(op["lines"])
-                transferred.append({"kind": "insert", "anchor": "(в начало метода)"})
+                insert_top.append(op["lines"]); transferred += 1
             else:
-                insert_after.setdefault(k, []).append(op["lines"])
-                transferred.append({"kind": "insert", "anchor": v2[k]})
+                insert_after.setdefault(k, []).append(op["lines"]); transferred += 1
         else:
             keys = v1norm[op["start"]:op["end"] + 1]
             p = find_unique_run(v2norm, keys)
             if p >= 0:
-                del_start.add(p)
-                del_end.add(p + len(keys) - 1)
-                transferred.append({"kind": "delete", "anchor": op["lines"][0]})
+                del_start.add(p); del_end.add(p + len(keys) - 1); transferred += 1
             else:
                 disputed.append({"kind": "delete", "lines": op["lines"]})
 
+    if report_only:
+        st = "КОНФЛИКТ" if disputed else "ДРЕЙФ"
+        return {"id": method_id, "status": st, "ext_bsl": ext_bsl, "transferred": transferred,
+                "disputed": len(disputed), "reason": conflict_reason(disputed)}
+
     new_body = []
     for blk in insert_top:
-        new_body.append("#Вставка")
-        new_body.extend(blk)
-        new_body.append("#КонецВставки")
+        new_body.append("#Вставка"); new_body.extend(blk); new_body.append("#КонецВставки")
     for k in range(len(v2)):
         if k in del_start:
             new_body.append("#Удаление")
@@ -767,18 +958,13 @@ def resync(ext_bsl, ext_lines, dup, method, method_name, module_path):
             new_body.append("#КонецУдаления")
         if k in insert_after:
             for blk in insert_after[k]:
-                new_body.append("#Вставка")
-                new_body.extend(blk)
-                new_body.append("#КонецВставки")
-
+                new_body.append("#Вставка"); new_body.extend(blk); new_body.append("#КонецВставки")
     if disputed:
         new_body.append("\t// [РЕСИНК-КОНФЛИКТ] перенесите блоки ниже вручную — исходный якорь изменился в новой версии оригинала.")
-        new_body.append("\t// Материалы для анализа см. в выводе команды (файлы base/local/remote/merged).")
+        new_body.append("\t// Материалы: см. index.md / conflict.md в merge-воркспейсе (путь в выводе).")
         for d in disputed:
             if d["kind"] == "insert":
-                new_body.append("#Вставка")
-                new_body.extend(d["lines"])
-                new_body.append("#КонецВставки")
+                new_body.append("#Вставка"); new_body.extend(d["lines"]); new_body.append("#КонецВставки")
             else:
                 new_body.append("\t// [РЕСИНК-КОНФЛИКТ] не удалось найти для удаления:")
                 for l in d["lines"]:
@@ -798,48 +984,36 @@ def resync(ext_bsl, ext_lines, dup, method, method_name, module_path):
     block_start = dec_line
     if dec_line >= 1 and is_context_directive(ext_lines[dec_line - 1].strip()):
         block_start = dec_line - 1
-
-    out = list(ext_lines[:block_start])
-    out.extend(new_block)
-    out.extend(ext_lines[block_end + 1:])
+    out = list(ext_lines[:block_start]) + new_block + list(ext_lines[block_end + 1:])
     write_bsl(ext_bsl, out)
 
-    def print_transfer_summary(items):
-        for t in items:
-            if t["kind"] == "insert":
-                print("     • вставка после «%s»" % truncate(t["anchor"]))
-            else:
-                print("     • удаление «%s»" % truncate(t["anchor"]))
-
+    conflict_dir = None
     if disputed:
-        # merge workspace (git-mergetool convention: base/local/remote/merged)
-        safe = re.sub(r'[\\/:*?"<>|]', '_', module_path)
-        tmp_root = os.path.join(tempfile.gettempdir(), "cfe-resync", safe + "." + method_name)
-        os.makedirs(tmp_root, exist_ok=True)
-        write_bsl(os.path.join(tmp_root, "base.bsl"), v1)
-        write_bsl(os.path.join(tmp_root, "local.bsl"), marked_body)
-        write_bsl(os.path.join(tmp_root, "remote.bsl"), v2)
-        write_bsl(os.path.join(tmp_root, "merged.bsl"), new_block)
-        diff = ["--- base -> remote (что изменилось в оригинале) ---"]
-        for l in v1:
-            if normalize(l) not in v2norm:
-                diff.append("- " + l)
-        for l in v2:
-            if normalize(l) not in v1norm:
-                diff.append("+ " + l)
-        write_bsl(os.path.join(tmp_root, "diff.txt"), diff)
+        conflict_dir = conflict_folder
+        write_conflict_folder(conflict_folder, method_id, ext_bsl, existing_name, method, v1, marked_body, v2, v1norm, v2norm, disputed)
+    status = "ЧАСТИЧНО" if disputed else "АКТУАЛИЗИРОВАН"
+    return {"id": method_id, "status": status, "ext_bsl": ext_bsl, "transferred": transferred,
+            "disputed": len(disputed), "conflict_dir": conflict_dir, "reason": conflict_reason(disputed)}
 
-        print('[АКТУАЛИЗИРОВАН-ЧАСТИЧНО] &ИзменениеИКонтроль("%s") — перенесено: %d, конфликтов: %d'
-              % (method_name, len(transferred), len(disputed)))
-        print_transfer_summary(transferred)
-        print("     Конфликтные блоки помечены // [РЕСИНК-КОНФЛИКТ] — разместите вручную.")
-        print("     Merge-воркспейс (base/local/remote/merged/diff):")
-        print("       %s" % tmp_root)
-    else:
-        print('[АКТУАЛИЗИРОВАН] &ИзменениеИКонтроль("%s") — тело обновлено, перенесено правок: %d'
-              % (method_name, len(transferred)))
-        print_transfer_summary(transferred)
-    print("     Файл: %s" % ext_bsl)
+
+def write_resync_index(run_root, results, ext_name, config_path, verb):
+    conflicts = [r for r in results if r["status"] == "ЧАСТИЧНО"]
+    if not conflicts:
+        return None
+    os.makedirs(run_root, exist_ok=True)
+    total = len(results)
+    actual = sum(1 for r in results if r["status"] == "АКТУАЛЕН")
+    upd = sum(1 for r in results if r["status"] == "АКТУАЛИЗИРОВАН")
+    lines = []
+    lines.append("[%s] %s -> %s" % (verb, ext_name, config_path))
+    lines.append("Итог: %d/%d актуальны · %d актуализировано · %d конфликтов" % (actual, total, upd, len(conflicts)))
+    lines.append("")
+    lines.append("Конфликты — править .bsl расширения:")
+    for c in conflicts:
+        lines.append("  ЧАСТИЧНО  %s" % c["id"])
+        lines.append("            -> %s   (%s)" % (c["ext_bsl"], c.get("reason", "")))
+    write_bsl(os.path.join(run_root, "index.md"), lines)
+    return run_root
 
 
 if __name__ == "__main__":
