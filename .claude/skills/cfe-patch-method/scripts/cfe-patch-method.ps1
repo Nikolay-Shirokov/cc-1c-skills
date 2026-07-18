@@ -1,4 +1,4 @@
-﻿# cfe-patch-method v2.0 — Source-aware method interceptor for 1C extension (CFE)
+﻿# cfe-patch-method v2.1 — Source-aware method interceptor for 1C extension (CFE)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -419,6 +419,62 @@ function Find-UniqueRun {
 	return $found
 }
 
+# Resolve where an insertion lands in v2 using two-sided context.
+# Returns index to "insert after" (-1 = top of body), or $null if ambiguous/conflict.
+function Resolve-InsertionPoint {
+	param($v2norm, $beforeLines, $afterLines)
+	$nb = $beforeLines.Count; $na = $afterLines.Count
+
+	# Tier A: adjacent pair (before[-1] immediately followed by after[0] in v2), widening symmetrically
+	if ($nb -ge 1 -and $na -ge 1) {
+		$cands = @()
+		for ($k = 0; $k -lt ($v2norm.Count - 1); $k++) {
+			if ($v2norm[$k] -eq $beforeLines[$nb - 1] -and $v2norm[$k + 1] -eq $afterLines[0]) { $cands += $k }
+		}
+		if ($cands.Count -eq 1) { return $cands[0] }
+		if ($cands.Count -gt 1) {
+			$w = 1
+			while ($cands.Count -gt 1 -and ($w -lt $nb -or $w -lt $na)) {
+				$w++
+				$filtered = @()
+				foreach ($k in $cands) {
+					$ok = $true
+					if ($w -le $nb) {
+						if (($k - ($w - 1)) -lt 0 -or $v2norm[$k - ($w - 1)] -ne $beforeLines[$nb - $w]) { $ok = $false }
+					}
+					if ($ok -and $w -le $na) {
+						if (($k + $w) -ge $v2norm.Count -or $v2norm[$k + $w] -ne $afterLines[$w - 1]) { $ok = $false }
+					}
+					if ($ok) { $filtered += $k }
+				}
+				if ($filtered.Count -eq 0) { break }
+				$cands = $filtered
+			}
+			if ($cands.Count -eq 1) { return $cands[0] }
+			return $null
+		}
+	}
+
+	# Tier B: one side changed -> single-side uniqueness
+	if ($nb -ge 1) {
+		$bk = Find-UniqueIndex $v2norm $beforeLines[$nb - 1]
+		if ($bk -ge 0) { return $bk }
+	}
+	if ($na -ge 1) {
+		$ak = Find-UniqueIndex $v2norm $afterLines[0]
+		if ($ak -ge 0) { return ($ak - 1) }
+	}
+	return $null
+}
+
+# Truncate a line for compact summary output
+function Get-Truncated {
+	param([string]$s, [int]$n = 60)
+	$t = $s.Trim()
+	if ($t.Length -gt $n) { return $t.Substring(0, $n) + "…" }
+	return $t
+}
+
 # ============================================================================
 # Main
 # ============================================================================
@@ -556,17 +612,30 @@ if ($dup) {
 	$delStart = @{}      # v2 index -> $true
 	$delEnd = @{}
 	$disputed = @()
+	$transferred = @()   # for the summary: @{ Kind; Anchor }
 
 	foreach ($op in $ops) {
 		if ($op.Kind -eq 'insert') {
-			if ($op.After -lt 0) { $insertTop += ,$op.Lines; continue }
-			$anchorKey = $v1norm[$op.After]
-			$k = Find-UniqueIndex $v2norm $anchorKey
-			if ($k -ge 0) {
+			# two-sided context anchor
+			$beforeLines = @()
+			if ($op.After -ge 0) {
+				$bs = [Math]::Max(0, $op.After - 2)
+				for ($m = $bs; $m -le $op.After; $m++) { $beforeLines += $v1norm[$m] }
+			}
+			$afterLines = @()
+			$ae = [Math]::Min($v1norm.Count - 1, $op.After + 3)
+			for ($m = $op.After + 1; $m -le $ae; $m++) { $afterLines += $v1norm[$m] }
+
+			$k = Resolve-InsertionPoint $v2norm $beforeLines $afterLines
+			if ($null -eq $k) {
+				$disputed += @{ Kind = 'insert'; Lines = $op.Lines }
+			} elseif ($k -lt 0) {
+				$insertTop += ,$op.Lines
+				$transferred += @{ Kind = 'insert'; Anchor = '(в начало метода)' }
+			} else {
 				if (-not $insertAfter.ContainsKey($k)) { $insertAfter[$k] = @() }
 				$insertAfter[$k] += ,$op.Lines
-			} else {
-				$disputed += @{ Kind = 'insert'; Lines = $op.Lines }
+				$transferred += @{ Kind = 'insert'; Anchor = $v2[$k] }
 			}
 		} else {
 			$keys = @()
@@ -575,6 +644,7 @@ if ($dup) {
 			if ($p -ge 0) {
 				$delStart[$p] = $true
 				$delEnd[$p + $keys.Count - 1] = $true
+				$transferred += @{ Kind = 'delete'; Anchor = $op.Lines[0] }
 			} else {
 				$disputed += @{ Kind = 'delete'; Lines = $op.Lines }
 			}
@@ -599,7 +669,7 @@ if ($dup) {
 	# disputed blocks appended with conflict markers (never lost)
 	if ($disputed.Count -gt 0) {
 		$newBody += "`t// [РЕСИНК-КОНФЛИКТ] перенесите блоки ниже вручную — исходный якорь изменился в новой версии оригинала."
-		$newBody += "`t// Материалы для анализа см. в выводе команды (файлы v1/v2/current/diff)."
+		$newBody += "`t// Материалы для анализа см. в выводе команды (файлы base/local/remote/merged)."
 		foreach ($d in $disputed) {
 			if ($d.Kind -eq 'insert') {
 				$newBody += "#Вставка"; foreach ($l in $d.Lines) { $newBody += $l }; $newBody += "#КонецВставки"
@@ -632,26 +702,37 @@ if ($dup) {
 
 	[System.IO.File]::WriteAllText($extBsl, (($out -join "`r`n") + "`r`n"), $enc)
 
+	# transferred summary (shared by full-auto and partial)
+	function Write-TransferSummary {
+		param($items)
+		foreach ($t in $items) {
+			if ($t.Kind -eq 'insert') { Write-Host "     • вставка после «$(Get-Truncated $t.Anchor)»" }
+			else { Write-Host "     • удаление «$(Get-Truncated $t.Anchor)»" }
+		}
+	}
+
 	if ($disputed.Count -gt 0) {
-		# write version files
+		# merge workspace (git-mergetool convention: base/local/remote/merged)
 		$tmpRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("cfe-resync\" + ($ModulePath -replace '[\\/:*?"<>|]', '_') + "." + $MethodName)
 		if (-not (Test-Path $tmpRoot)) { New-Item -ItemType Directory -Path $tmpRoot -Force | Out-Null }
-		[System.IO.File]::WriteAllText((Join-Path $tmpRoot "v1.bsl"), (($v1 -join "`r`n") + "`r`n"), $enc)
-		[System.IO.File]::WriteAllText((Join-Path $tmpRoot "v2.bsl"), (($v2 -join "`r`n") + "`r`n"), $enc)
-		[System.IO.File]::WriteAllText((Join-Path $tmpRoot "current.bsl"), (($markedBody -join "`r`n") + "`r`n"), $enc)
+		[System.IO.File]::WriteAllText((Join-Path $tmpRoot "base.bsl"), (($v1 -join "`r`n") + "`r`n"), $enc)
+		[System.IO.File]::WriteAllText((Join-Path $tmpRoot "local.bsl"), (($markedBody -join "`r`n") + "`r`n"), $enc)
+		[System.IO.File]::WriteAllText((Join-Path $tmpRoot "remote.bsl"), (($v2 -join "`r`n") + "`r`n"), $enc)
+		[System.IO.File]::WriteAllText((Join-Path $tmpRoot "merged.bsl"), (($newBlock -join "`r`n") + "`r`n"), $enc)
 		$diff = @()
-		$diff += "--- v1 (что было скопировано) vs v2 (новый оригинал) ---"
+		$diff += "--- base -> remote (что изменилось в оригинале) ---"
 		foreach ($l in $v1) { if ($v2norm -notcontains (Get-Normalized $l)) { $diff += "- $l" } }
 		foreach ($l in $v2) { if ($v1norm -notcontains (Get-Normalized $l)) { $diff += "+ $l" } }
 		[System.IO.File]::WriteAllText((Join-Path $tmpRoot "diff.txt"), (($diff -join "`r`n") + "`r`n"), $enc)
 
-		Write-Host "[АКТУАЛИЗИРОВАН-ЧАСТИЧНО] &ИзменениеИКонтроль(`"$MethodName`")"
-		Write-Host "     Перенесено автоматически, конфликтов: $($disputed.Count) (помечены // [РЕСИНК-КОНФЛИКТ])"
-		Write-Host "     Файлы-версии для анализа:"
+		Write-Host "[АКТУАЛИЗИРОВАН-ЧАСТИЧНО] &ИзменениеИКонтроль(`"$MethodName`") — перенесено: $($transferred.Count), конфликтов: $($disputed.Count)"
+		Write-TransferSummary $transferred
+		Write-Host "     Конфликтные блоки помечены // [РЕСИНК-КОНФЛИКТ] — разместите вручную."
+		Write-Host "     Merge-воркспейс (base/local/remote/merged/diff):"
 		Write-Host "       $tmpRoot"
-		Write-Host "     Проверьте конфликтные блоки и разместите их вручную."
 	} else {
-		Write-Host "[АКТУАЛИЗИРОВАН] &ИзменениеИКонтроль(`"$MethodName`") — тело обновлено по новому оригиналу, правки перенесены."
+		Write-Host "[АКТУАЛИЗИРОВАН] &ИзменениеИКонтроль(`"$MethodName`") — тело обновлено, перенесено правок: $($transferred.Count)"
+		Write-TransferSummary $transferred
 	}
 	Write-Host "     Файл: $extBsl"
 	exit 0

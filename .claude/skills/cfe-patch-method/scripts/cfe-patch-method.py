@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# cfe-patch-method v2.0 — Source-aware method interceptor for 1C extension (CFE)
+# cfe-patch-method v2.1 — Source-aware method interceptor for 1C extension (CFE)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -410,6 +410,57 @@ def find_unique_run(v2norm, keys):
     return found
 
 
+def resolve_insertion_point(v2norm, before_lines, after_lines):
+    """Where an insertion lands in v2 using two-sided context.
+    Returns index to insert-after (-1 = top), or None if ambiguous/conflict."""
+    nb = len(before_lines)
+    na = len(after_lines)
+
+    # Tier A: adjacent pair (before[-1] then after[0] in v2), widening symmetrically
+    if nb >= 1 and na >= 1:
+        cands = [k for k in range(len(v2norm) - 1)
+                 if v2norm[k] == before_lines[-1] and v2norm[k + 1] == after_lines[0]]
+        if len(cands) == 1:
+            return cands[0]
+        if len(cands) > 1:
+            w = 1
+            while len(cands) > 1 and (w < nb or w < na):
+                w += 1
+                filtered = []
+                for k in cands:
+                    ok = True
+                    if w <= nb:
+                        if k - (w - 1) < 0 or v2norm[k - (w - 1)] != before_lines[nb - w]:
+                            ok = False
+                    if ok and w <= na:
+                        if k + w >= len(v2norm) or v2norm[k + w] != after_lines[w - 1]:
+                            ok = False
+                    if ok:
+                        filtered.append(k)
+                if not filtered:
+                    break
+                cands = filtered
+            if len(cands) == 1:
+                return cands[0]
+            return None
+
+    # Tier B: one side changed -> single-side uniqueness
+    if nb >= 1:
+        bk = find_unique_index(v2norm, before_lines[-1])
+        if bk >= 0:
+            return bk
+    if na >= 1:
+        ak = find_unique_index(v2norm, after_lines[0])
+        if ak >= 0:
+            return ak - 1
+    return None
+
+
+def truncate(s, n=60):
+    t = s.strip()
+    return (t[:n] + "…") if len(t) > n else t
+
+
 def die(msg):
     print(msg, file=sys.stderr)
     sys.exit(1)
@@ -677,23 +728,29 @@ def resync(ext_bsl, ext_lines, dup, method, method_name, module_path):
     del_start = set()
     del_end = set()
     disputed = []
+    transferred = []  # for the summary: {"kind", "anchor"}
 
     for op in ops:
         if op["kind"] == "insert":
-            if op["after"] < 0:
-                insert_top.append(op["lines"])
-                continue
-            k = find_unique_index(v2norm, v1norm[op["after"]])
-            if k >= 0:
-                insert_after.setdefault(k, []).append(op["lines"])
-            else:
+            after = op["after"]
+            before_lines = v1norm[max(0, after - 2):after + 1] if after >= 0 else []
+            after_lines = v1norm[after + 1:after + 4]
+            k = resolve_insertion_point(v2norm, before_lines, after_lines)
+            if k is None:
                 disputed.append({"kind": "insert", "lines": op["lines"]})
+            elif k < 0:
+                insert_top.append(op["lines"])
+                transferred.append({"kind": "insert", "anchor": "(в начало метода)"})
+            else:
+                insert_after.setdefault(k, []).append(op["lines"])
+                transferred.append({"kind": "insert", "anchor": v2[k]})
         else:
             keys = v1norm[op["start"]:op["end"] + 1]
             p = find_unique_run(v2norm, keys)
             if p >= 0:
                 del_start.add(p)
                 del_end.add(p + len(keys) - 1)
+                transferred.append({"kind": "delete", "anchor": op["lines"][0]})
             else:
                 disputed.append({"kind": "delete", "lines": op["lines"]})
 
@@ -716,7 +773,7 @@ def resync(ext_bsl, ext_lines, dup, method, method_name, module_path):
 
     if disputed:
         new_body.append("\t// [РЕСИНК-КОНФЛИКТ] перенесите блоки ниже вручную — исходный якорь изменился в новой версии оригинала.")
-        new_body.append("\t// Материалы для анализа см. в выводе команды (файлы v1/v2/current/diff).")
+        new_body.append("\t// Материалы для анализа см. в выводе команды (файлы base/local/remote/merged).")
         for d in disputed:
             if d["kind"] == "insert":
                 new_body.append("#Вставка")
@@ -747,14 +804,23 @@ def resync(ext_bsl, ext_lines, dup, method, method_name, module_path):
     out.extend(ext_lines[block_end + 1:])
     write_bsl(ext_bsl, out)
 
+    def print_transfer_summary(items):
+        for t in items:
+            if t["kind"] == "insert":
+                print("     • вставка после «%s»" % truncate(t["anchor"]))
+            else:
+                print("     • удаление «%s»" % truncate(t["anchor"]))
+
     if disputed:
+        # merge workspace (git-mergetool convention: base/local/remote/merged)
         safe = re.sub(r'[\\/:*?"<>|]', '_', module_path)
         tmp_root = os.path.join(tempfile.gettempdir(), "cfe-resync", safe + "." + method_name)
         os.makedirs(tmp_root, exist_ok=True)
-        write_bsl(os.path.join(tmp_root, "v1.bsl"), v1)
-        write_bsl(os.path.join(tmp_root, "v2.bsl"), v2)
-        write_bsl(os.path.join(tmp_root, "current.bsl"), marked_body)
-        diff = ["--- v1 (что было скопировано) vs v2 (новый оригинал) ---"]
+        write_bsl(os.path.join(tmp_root, "base.bsl"), v1)
+        write_bsl(os.path.join(tmp_root, "local.bsl"), marked_body)
+        write_bsl(os.path.join(tmp_root, "remote.bsl"), v2)
+        write_bsl(os.path.join(tmp_root, "merged.bsl"), new_block)
+        diff = ["--- base -> remote (что изменилось в оригинале) ---"]
         for l in v1:
             if normalize(l) not in v2norm:
                 diff.append("- " + l)
@@ -763,13 +829,16 @@ def resync(ext_bsl, ext_lines, dup, method, method_name, module_path):
                 diff.append("+ " + l)
         write_bsl(os.path.join(tmp_root, "diff.txt"), diff)
 
-        print('[АКТУАЛИЗИРОВАН-ЧАСТИЧНО] &ИзменениеИКонтроль("%s")' % method_name)
-        print("     Перенесено автоматически, конфликтов: %d (помечены // [РЕСИНК-КОНФЛИКТ])" % len(disputed))
-        print("     Файлы-версии для анализа:")
+        print('[АКТУАЛИЗИРОВАН-ЧАСТИЧНО] &ИзменениеИКонтроль("%s") — перенесено: %d, конфликтов: %d'
+              % (method_name, len(transferred), len(disputed)))
+        print_transfer_summary(transferred)
+        print("     Конфликтные блоки помечены // [РЕСИНК-КОНФЛИКТ] — разместите вручную.")
+        print("     Merge-воркспейс (base/local/remote/merged/diff):")
         print("       %s" % tmp_root)
-        print("     Проверьте конфликтные блоки и разместите их вручную.")
     else:
-        print('[АКТУАЛИЗИРОВАН] &ИзменениеИКонтроль("%s") — тело обновлено по новому оригиналу, правки перенесены.' % method_name)
+        print('[АКТУАЛИЗИРОВАН] &ИзменениеИКонтроль("%s") — тело обновлено, перенесено правок: %d'
+              % (method_name, len(transferred)))
+        print_transfer_summary(transferred)
     print("     Файл: %s" % ext_bsl)
 
 
