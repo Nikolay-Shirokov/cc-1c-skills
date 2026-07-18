@@ -1,0 +1,44 @@
+{
+  "name": "Перехватчик После для метода формы (директива контекста &НаКлиенте)",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "Catalog", "name": "Товары", "attributes": [ { "name": "Артикул", "type": "String", "length": 25 } ] },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    {
+      "script": "form-add/scripts/form-add",
+      "args": { "-ObjectPath": "{workDir}/Catalogs/Товары.xml", "-FormName": "ФормаЭлемента" }
+    },
+    {
+      "script": "form-compile/scripts/form-compile",
+      "input": {
+        "title": "Тест",
+        "elements": [ { "input": "Артикул", "path": "Объект.Артикул" } ],
+        "attributes": [ { "name": "Объект", "type": "CatalogObject.Товары", "main": true } ]
+      },
+      "args": { "-JsonPath": "{inputFile}", "-OutputPath": "{workDir}/Catalogs/Товары/Forms/ФормаЭлемента/Ext/Form.xml" }
+    },
+    {
+      "writeFile": {
+        "path": "Catalogs/Товары/Forms/ФормаЭлемента/Ext/Form/Module.bsl",
+        "content": "#Область ОбработчикиСобытийФормы\n\n&НаКлиенте\nПроцедура ОбработкаОповещения(ИмяСобытия, Параметр, Источник)\n\tОповеститьОбИзменении(Источник);\nКонецПроцедуры\n\n#КонецОбласти\n"
+      }
+    },
+    {
+      "script": "cfe-init/scripts/cfe-init",
+      "args": { "-Name": "Тест", "-OutputDir": "{workDir}/ext", "-ConfigPath": "{workDir}" }
+    },
+    {
+      "script": "cfe-borrow/scripts/cfe-borrow",
+      "args": { "-ExtensionPath": "{workDir}/ext", "-ConfigPath": "{workDir}", "-Object": "Catalog.Товары.Form.ФормаЭлемента" }
+    }
+  ],
+  "params": {
+    "extensionPath": "ext",
+    "modulePath": "Catalog.Товары.Form.ФормаЭлемента",
+    "methodName": "ОбработкаОповещения",
+    "interceptorType": "After"
+  },
+  "expect": { "stdoutContains": "Контекст:   &НаКлиенте" }
+}

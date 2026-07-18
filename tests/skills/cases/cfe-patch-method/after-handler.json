@@ -7,6 +7,12 @@
       "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
     },
     {
+      "writeFile": {
+        "path": "Catalogs/Товары/Ext/ObjectModule.bsl",
+        "content": "#Область ОбработчикиСобытий\n\nПроцедура ПриЗаписи(Отказ)\n\tЕсли Отказ Тогда\n\t\tВозврат;\n\tКонецЕсли;\nКонецПроцедуры\n\n#КонецОбласти\n"
+      }
+    },
+    {
       "script": "cfe-init/scripts/cfe-init",
       "args": { "-Name": "Тест", "-OutputDir": "{workDir}/ext", "-ConfigPath": "{workDir}" }
     },
@@ -20,5 +26,6 @@
     "modulePath": "Catalog.Товары.ObjectModule",
     "methodName": "ПриЗаписи",
     "interceptorType": "After"
-  }
+  },
+  "expect": { "stdoutContains": "&После(\"ПриЗаписи\")" }
 }

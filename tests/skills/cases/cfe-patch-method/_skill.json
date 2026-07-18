@@ -3,6 +3,7 @@
   "setup": "empty-config",
   "args": [
     { "flag": "-ExtensionPath", "from": "workPath", "field": "extensionPath" },
+    { "flag": "-ConfigPath", "from": "workDir" },
     { "flag": "-ModulePath", "from": "case.modulePath" },
     { "flag": "-MethodName", "from": "case.methodName" },
     { "flag": "-InterceptorType", "from": "case.interceptorType" }

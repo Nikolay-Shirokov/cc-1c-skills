@@ -529,6 +529,7 @@ async function runCaseAsync(testCase, opts) {
           const wfContent = typeof step.writeFile.content === 'string'
             ? step.writeFile.content
             : JSON.stringify(step.writeFile.content, null, 2);
+          mkdirSync(dirname(wfPath), { recursive: true });
           writeFileSync(wfPath, wfContent, 'utf8');
           continue;
         }

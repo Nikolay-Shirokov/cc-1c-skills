@@ -1,0 +1,38 @@
+{
+  "name": "Ресинк ИзменениеИКонтроль: оригинал не менялся (no-op, идемпотентно)",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "CommonModule", "name": "РесинкМод", "properties": { "Server": true } },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    {
+      "writeFile": {
+        "path": "CommonModules/РесинкМод/Ext/Module.bsl",
+        "content": "#Область ПрограммныйИнтерфейс\n\nФункция Расчёт(А, Б) Экспорт\n\tИтог = 0;\n\tИтог = А + Б;\n\tВозврат Итог;\nКонецФункции\n\n#КонецОбласти\n"
+      }
+    },
+    {
+      "script": "cfe-init/scripts/cfe-init",
+      "args": { "-Name": "Тест", "-OutputDir": "{workDir}/ext", "-ConfigPath": "{workDir}" }
+    },
+    {
+      "script": "cfe-borrow/scripts/cfe-borrow",
+      "args": { "-ExtensionPath": "{workDir}/ext", "-ConfigPath": "{workDir}", "-Object": "CommonModule.РесинкМод" }
+    },
+    {
+      "writeFile": {
+        "path": "ext/CommonModules/РесинкМод/Ext/Module.bsl",
+        "content": "#Область ПрограммныйИнтерфейс\n&ИзменениеИКонтроль(\"Расчёт\")\nФункция Тест_Расчёт(А, Б)\n\tИтог = 0;\n#Вставка\n\tИтог = 100;\n#КонецВставки\n\tИтог = А + Б;\n\tВозврат Итог;\nКонецФункции\n#КонецОбласти\n"
+      }
+    }
+  ],
+  "params": {
+    "extensionPath": "ext",
+    "modulePath": "CommonModule.РесинкМод",
+    "methodName": "Расчёт",
+    "interceptorType": "ModificationAndControl"
+  },
+  "expect": { "stdoutContains": "[АКТУАЛЕН]" },
+  "idempotent": true
+}

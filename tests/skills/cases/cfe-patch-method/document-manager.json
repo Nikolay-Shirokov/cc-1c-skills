@@ -7,6 +7,12 @@
       "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
     },
     {
+      "writeFile": {
+        "path": "Documents/ПриходТоваров/Ext/ManagerModule.bsl",
+        "content": "#Область ОбработчикиСобытий\n\nПроцедура ОбработкаПолученияДанныхВыбора(ДанныеВыбора, Параметры, СтандартнаяОбработка)\n\tСтандартнаяОбработка = Ложь;\nКонецПроцедуры\n\n#КонецОбласти\n"
+      }
+    },
+    {
       "script": "cfe-init/scripts/cfe-init",
       "args": { "-Name": "Тест", "-OutputDir": "{workDir}/ext", "-ConfigPath": "{workDir}" }
     },
@@ -20,5 +26,6 @@
     "modulePath": "Document.ПриходТоваров.ManagerModule",
     "methodName": "ОбработкаПолученияДанныхВыбора",
     "interceptorType": "Before"
-  }
+  },
+  "expect": { "stdoutContains": "ОбработкаПолученияДанныхВыбора" }
 }

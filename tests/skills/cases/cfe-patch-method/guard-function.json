@@ -1,0 +1,31 @@
+{
+  "name": "Гвард: Перед/После для функции недоступны",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "CommonModule", "name": "ОбщийМодуль3", "properties": { "Server": true } },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    {
+      "writeFile": {
+        "path": "CommonModules/ОбщийМодуль3/Ext/Module.bsl",
+        "content": "#Область ПрограммныйИнтерфейс\n\nФункция Вычислить(А) Экспорт\n\tВозврат А * 2;\nКонецФункции\n\n#КонецОбласти\n"
+      }
+    },
+    {
+      "script": "cfe-init/scripts/cfe-init",
+      "args": { "-Name": "Тест", "-OutputDir": "{workDir}/ext", "-ConfigPath": "{workDir}" }
+    },
+    {
+      "script": "cfe-borrow/scripts/cfe-borrow",
+      "args": { "-ExtensionPath": "{workDir}/ext", "-ConfigPath": "{workDir}", "-Object": "CommonModule.ОбщийМодуль3" }
+    }
+  ],
+  "params": {
+    "extensionPath": "ext",
+    "modulePath": "CommonModule.ОбщийМодуль3",
+    "methodName": "Вычислить",
+    "interceptorType": "After"
+  },
+  "expectError": "функция"
+}

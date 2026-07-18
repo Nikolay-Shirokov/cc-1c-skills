@@ -7,6 +7,12 @@
       "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
     },
     {
+      "writeFile": {
+        "path": "CommonModules/ОбщийМодуль1/Ext/Module.bsl",
+        "content": "#Область ПрограммныйИнтерфейс\n\nФункция ПолучитьДанные(Параметр) Экспорт\n\tРезультат = Новый Массив;\n\tРезультат.Добавить(Параметр);\n\tВозврат Результат;\nКонецФункции\n\n#КонецОбласти\n"
+      }
+    },
+    {
       "script": "cfe-init/scripts/cfe-init",
       "args": { "-Name": "Тест", "-OutputDir": "{workDir}/ext", "-ConfigPath": "{workDir}" }
     },
@@ -20,5 +26,6 @@
     "modulePath": "CommonModule.ОбщийМодуль1",
     "methodName": "ПолучитьДанные",
     "interceptorType": "ModificationAndControl"
-  }
+  },
+  "expect": { "stdoutContains": "&ИзменениеИКонтроль(\"ПолучитьДанные\")" }
 }

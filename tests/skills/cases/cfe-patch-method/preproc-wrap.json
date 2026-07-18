@@ -1,0 +1,31 @@
+{
+  "name": "Наследование обрамляющего #Если (препроцессор снаружи региона)",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "Document", "name": "РасходТоваров" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    {
+      "writeFile": {
+        "path": "Documents/РасходТоваров/Ext/ObjectModule.bsl",
+        "content": "#Если Сервер Или ТолстыйКлиентОбычноеПриложение Или ВнешнееСоединение Тогда\n\n#Область ОбработчикиСобытий\n\nПроцедура ОбработкаПроведения(Отказ, РежимПроведения)\n\tДвижения.Записывать = Истина;\nКонецПроцедуры\n\n#КонецОбласти\n\n#КонецЕсли\n"
+      }
+    },
+    {
+      "script": "cfe-init/scripts/cfe-init",
+      "args": { "-Name": "Тест", "-OutputDir": "{workDir}/ext", "-ConfigPath": "{workDir}" }
+    },
+    {
+      "script": "cfe-borrow/scripts/cfe-borrow",
+      "args": { "-ExtensionPath": "{workDir}/ext", "-ConfigPath": "{workDir}", "-Object": "Document.РасходТоваров" }
+    }
+  ],
+  "params": {
+    "extensionPath": "ext",
+    "modulePath": "Document.РасходТоваров.ObjectModule",
+    "methodName": "ОбработкаПроведения",
+    "interceptorType": "Before"
+  },
+  "expect": { "stdoutContains": "Если:Сервер" }
+}
