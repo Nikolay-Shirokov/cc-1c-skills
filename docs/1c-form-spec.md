@@ -478,7 +478,8 @@ ChildItems
   <TextColor>style:...</TextColor>
   <TitleTextColor>style:...</TitleTextColor>
   <EnableContentChange>true | false</EnableContentChange>
-  <ControlRepresentation>Picture | Text</ControlRepresentation>
+  <!-- Отображение управления свёрткой у Behavior=Collapsible; TitleHyperlink — по умолчанию (не сериализуется) -->
+  <ControlRepresentation>TitleHyperlink | Picture</ControlRepresentation>
 
   <ChildItems>...</ChildItems>
 </UsualGroup>

@@ -1,0 +1,32 @@
+{
+  "name": "Свёрнутые группы: отображение управления (Picture / TitleHyperlink)",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "DataProcessor", "name": "КонтрольСвёртки" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    {
+      "script": "form-add/scripts/form-add",
+      "args": { "-ObjectPath": "{workDir}/DataProcessors/КонтрольСвёртки.xml", "-FormName": "Форма" }
+    }
+  ],
+  "params": { "outputPath": "DataProcessors/КонтрольСвёртки/Forms/Форма/Ext/Form.xml" },
+  "validatePath": "DataProcessors/КонтрольСвёртки/Forms/Форма/Ext/Form.xml",
+  "input": {
+    "title": "Отображение управления свёрткой",
+    "elements": [
+      { "group": "vertical", "name": "ГруппаКартинка", "behavior": "collapsible", "title": "Картинка", "controlRepresentation": "Picture", "children": [
+        { "input": "Поле1", "path": "Поле1", "title": "Поле 1" }
+      ]},
+      { "group": "vertical", "name": "ГруппаГиперссылка", "behavior": "collapsible", "collapsed": true, "title": "Гиперссылка заголовка", "controlRepresentation": "TitleHyperlink", "children": [
+        { "input": "Поле2", "path": "Поле2", "title": "Поле 2" }
+      ]}
+    ],
+    "attributes": [
+      { "name": "Объект", "type": "DataProcessorObject.КонтрольСвёртки", "main": true },
+      { "name": "Поле1", "type": "string" },
+      { "name": "Поле2", "type": "string" }
+    ]
+  }
+}

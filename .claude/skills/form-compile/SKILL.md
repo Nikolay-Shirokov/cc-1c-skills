@@ -187,6 +187,7 @@ powershell.exe -NoProfile -File "${CLAUDE_SKILL_DIR}/scripts/form-compile.ps1" -
 | `showTitle: true` | Показывать заголовок группы |
 | `united: false` | Левый край полей ввода выравнивается только в пределах этой группы (по умолчанию `true` — сквозное выравнивание по самому длинному заголовку, в т.ч. с соседними группами) |
 | `collapsed: true` | Для `behavior: "collapsible"` / `"popup"` — группа создаётся свёрнутой |
+| `controlRepresentation` | Отображение управления свёрткой (`behavior: "collapsible"`): `"TitleHyperlink"` (гиперссылка заголовка, по умолчанию) / `"Picture"` (картинка) |
 | `representation` | `"none"`, `"normal"`, `"weak"`, `"strong"` |
 | `children: [...]` | Вложенные элементы |
 
