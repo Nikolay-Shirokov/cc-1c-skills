@@ -1,5 +1,5 @@
 // build-cfe.test.mjs — Integration test: build a 1C extension (CFE) from scratch
-// Steps: cfe-init → cfe-borrow (catalog) → cfe-patch-method (Before interceptor) → cfe-validate
+// Steps: cfe-init → cfe-borrow (catalog) → seed source method → cfe-patch-method (Before interceptor) → cfe-validate
 
 export const name = 'Сборка расширения конфигурации (CFE)';
 export const setup = 'base-config';
@@ -21,12 +21,22 @@ export const steps = [
     validate: { script: 'cfe-validate/scripts/cfe-validate', flag: '-ExtensionPath', path: 'ext' },
   },
 
+  // ── 2b. Seed the source object module with a method to intercept ──
+  // cfe-patch-method (v2) reads the original from -ConfigPath; base-config ships an empty
+  // ObjectModule, so provide a ПриЗаписи handler for the interceptor to wrap.
+  {
+    name: 'seed: ПриЗаписи в исходном модуле Контрагентов',
+    writeFile: '{workDir}/Catalogs/Контрагенты/Ext/ObjectModule.bsl',
+    content: '﻿Процедура ПриЗаписи(Отказ)\n\nКонецПроцедуры\n',
+  },
+
   // ── 3. Add a Before interceptor for a method on the borrowed catalog ──
   {
     name: 'cfe-patch-method: перехватчик Перед для ПриЗаписи',
     script: 'cfe-patch-method/scripts/cfe-patch-method',
     args: {
       '-ExtensionPath': '{workDir}/ext',
+      '-ConfigPath': '{workDir}',
       '-ModulePath': 'Catalog.Контрагенты.ObjectModule',
       '-MethodName': 'ПриЗаписи',
       '-InterceptorType': 'Before',
