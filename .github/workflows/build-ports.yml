@@ -6,6 +6,7 @@ on:
     paths:
       - '.claude/skills/**'
       - 'scripts/switch.py'
+      - 'requirements.txt'
       - '.github/templates/README.port.md.tmpl'
       - '.github/templates/codex-plugin.json.tmpl'
       - '.github/templates/claude-plugin.json.tmpl'
@@ -179,6 +180,7 @@ jobs:
           PLATFORM_LABEL: ${{ matrix.label }}
           PLATFORM_DIR: ${{ matrix.target_dir }}
           RUNTIME_LABEL: ${{ matrix.runtime == 'powershell' && 'PowerShell' || 'Python' }}
+          RUNTIME_REQUIREMENTS: ${{ matrix.runtime == 'powershell' && '- **Windows** с PowerShell 5.1+ (входит в Windows).' || '- **Python 3.9+**. Установка зависимостей: `pip install -r requirements.txt` (lxml, Pillow, psutil).' }}
           COMMIT_SHA: ${{ github.sha }}
           MAIN_REPO_URL: https://github.com/${{ github.repository }}
         run: |
@@ -186,6 +188,7 @@ jobs:
             -e "s|{{PLATFORM_LABEL}}|${PLATFORM_LABEL}|g" \
             -e "s|{{PLATFORM_DIR}}|${PLATFORM_DIR}|g" \
             -e "s|{{RUNTIME_LABEL}}|${RUNTIME_LABEL}|g" \
+            -e "s|{{RUNTIME_REQUIREMENTS}}|${RUNTIME_REQUIREMENTS}|g" \
             -e "s|{{COMMIT_SHA}}|${COMMIT_SHA}|g" \
             -e "s|{{MAIN_REPO_URL}}|${MAIN_REPO_URL}|g" \
             .github/templates/README.port.md.tmpl > build/README.md
@@ -218,6 +221,10 @@ jobs:
 
       - name: Copy LICENSE
         run: cp LICENSE build/LICENSE
+
+      - name: Copy requirements.txt (Python builds only)
+        if: matrix.runtime == 'python'
+        run: cp requirements.txt build/requirements.txt
 
       - name: Force-push orphan snapshot to ${{ matrix.branch }}
         env:
