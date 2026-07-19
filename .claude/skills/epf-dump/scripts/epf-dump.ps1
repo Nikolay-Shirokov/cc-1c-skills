@@ -1,4 +1,4 @@
-﻿# epf-dump v1.6 — Dump external data processor or report (EPF/ERF) to XML sources
+﻿# epf-dump v1.7 — Dump external data processor or report (EPF/ERF) to XML sources
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 # NB: *nix-раскладку платформы (/opt/1cv8/<ver>/1cv8, без .exe) знает только .py-порт — PS на *nix не исполняется.
 <#
@@ -155,6 +155,19 @@ function Invoke-IbcmdProcess {
 }
 
 
+function Test-DirNonEmpty {
+    # Postcondition: the platform must have written files into the output directory.
+    # Exit code 0 with an empty dir (broken/headless env) is a false success — reject it.
+    param([string]$Path)
+    return (Test-Path $Path -PathType Container) -and ([bool](Get-ChildItem -LiteralPath $Path -Force -ErrorAction SilentlyContinue | Select-Object -First 1))
+}
+
+function Format-SafeArgs {
+    # Mask credential tokens (/N, /P for 1cv8; --user=, --password= for ibcmd) for display.
+    param([string[]]$A)
+    ($A | ForEach-Object { $_ -replace '^(/[NP]).+', '$1***' -replace '^(--(user|password)=).+', '$1***' }) -join ' '
+}
+
 $engine = if ((Split-Path $V8Path -Leaf) -match '^ibcmd') { "ibcmd" } else { "1cv8" }
 if ($engine -eq "ibcmd") {
     if (-not $InfoBasePath) {
@@ -189,12 +202,16 @@ try {
         if ($UserName) { $arguments += "--user=$UserName" }
         if ($Password) { $arguments += "--password=$Password" }
         $arguments += "--data=$tempDir"
-        Write-Host "Running: ibcmd $($arguments -join ' ')"
+        Write-Host "Running: ibcmd $(Format-SafeArgs $arguments)"
         $__ib = Invoke-IbcmdProcess $V8Path $arguments
         $output = $__ib.Output
         $exitCode = $__ib.ExitCode
+        $outMissing = ($exitCode -eq 0) -and -not (Test-DirNonEmpty $OutputDir)
+        if ($outMissing) { $exitCode = 1 }
         if ($exitCode -eq 0) {
             Write-Host "External data processor/report dumped successfully to: $OutputDir" -ForegroundColor Green
+        } elseif ($outMissing) {
+            Write-Host "Error: exit code 0 but no files under $OutputDir — dump produced no output" -ForegroundColor Red
         } else {
             Write-Host "Error dumping external data processor/report (code: $exitCode)" -ForegroundColor Red
         }
@@ -224,13 +241,18 @@ try {
     $arguments += "/DisableStartupDialogs"
 
     # --- Execute ---
-    Write-Host "Running: 1cv8.exe $($arguments -join ' ')"
+    Write-Host "Running: 1cv8.exe $(Format-SafeArgs $arguments)"
     $process = Start-Process -FilePath $V8Path -ArgumentList $arguments -NoNewWindow -Wait -PassThru
     $exitCode = $process.ExitCode
 
     # --- Result ---
+    # Postcondition: exit 0 with an empty output directory is a false success.
+    $outMissing = ($exitCode -eq 0) -and -not (Test-DirNonEmpty $OutputDir)
+    if ($outMissing) { $exitCode = 1 }
     if ($exitCode -eq 0) {
         Write-Host "Dump completed successfully to: $OutputDir" -ForegroundColor Green
+    } elseif ($outMissing) {
+        Write-Host "Error: exit code 0 but no files under $OutputDir — dump produced no output" -ForegroundColor Red
     } else {
         Write-Host "Error dumping (code: $exitCode)" -ForegroundColor Red
     }

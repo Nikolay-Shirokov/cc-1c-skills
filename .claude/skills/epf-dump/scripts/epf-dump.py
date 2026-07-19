@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# epf-dump v1.6 — Dump external data processor or report (EPF/ERF) to XML sources
+# epf-dump v1.7 — Dump external data processor or report (EPF/ERF) to XML sources
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -99,6 +99,22 @@ def run_ibcmd(cmd, has_username=False, warn_no_user=True):
     return subprocess.run(cmd, input="", capture_output=True, encoding="utf-8", errors="replace")
 
 
+def dir_nonempty(path):
+    """Postcondition: the platform must have written files into the output directory.
+    Exit code 0 with an empty dir (broken/headless env) is a false success — reject it."""
+    return os.path.isdir(path) and any(os.scandir(path))
+
+
+def _mask(args):
+    """Mask credential tokens (/N, /P for 1cv8; --user=, --password= for ibcmd) for display."""
+    out = []
+    for a in args:
+        a = re.sub(r"^(/[NP]).+", r"\1***", a)
+        a = re.sub(r"^(--(?:user|password)=).+", r"\1***", a)
+        out.append(a)
+    return out
+
+
 def main():
     sys.stdout.reconfigure(encoding="utf-8")
     sys.stderr.reconfigure(encoding="utf-8")
@@ -163,17 +179,23 @@ def main():
             if args.Password:
                 arguments.append(f"--password={args.Password}")
             arguments.append(f"--data={ib_data}")
-            print(f"Running: ibcmd {' '.join(arguments)}")
+            print(f"Running: ibcmd {' '.join(_mask(arguments))}")
             result = run_ibcmd([v8path] + arguments, warn_no_user=False)
-            if result.returncode == 0:
+            exit_code = result.returncode
+            out_missing = exit_code == 0 and not dir_nonempty(args.OutputDir)
+            if out_missing:
+                exit_code = 1
+            if exit_code == 0:
                 print(f"External data processor/report dumped successfully to: {args.OutputDir}")
+            elif out_missing:
+                print(f"Error: exit code 0 but no files under {args.OutputDir} — dump produced no output", file=sys.stderr)
             else:
-                print(f"Error dumping external data processor/report (code: {result.returncode})", file=sys.stderr)
+                print(f"Error dumping external data processor/report (code: {exit_code})", file=sys.stderr)
             if result.stdout:
                 print(result.stdout)
             if result.stderr:
                 print(result.stderr, file=sys.stderr)
-            sys.exit(result.returncode)
+            sys.exit(exit_code)
 
         # --- Build arguments ---
         arguments = ["DESIGNER"]
@@ -197,7 +219,7 @@ def main():
         arguments.append("/DisableStartupDialogs")
 
         # --- Execute ---
-        print(f"Running: 1cv8.exe {' '.join(arguments)}")
+        print(f"Running: 1cv8.exe {' '.join(_mask(arguments))}")
         result = subprocess.run(
             [v8path] + arguments,
             capture_output=True,
@@ -206,8 +228,14 @@ def main():
         exit_code = result.returncode
 
         # --- Result ---
+        # Postcondition: exit 0 with an empty output directory is a false success.
+        out_missing = exit_code == 0 and not dir_nonempty(args.OutputDir)
+        if out_missing:
+            exit_code = 1
         if exit_code == 0:
             print(f"Dump completed successfully to: {args.OutputDir}")
+        elif out_missing:
+            print(f"Error: exit code 0 but no files under {args.OutputDir} — dump produced no output", file=sys.stderr)
         else:
             print(f"Error dumping (code: {exit_code})", file=sys.stderr)
 
