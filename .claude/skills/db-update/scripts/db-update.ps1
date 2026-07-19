@@ -1,4 +1,4 @@
-﻿# db-update v1.8 — Update 1C database configuration
+﻿# db-update v1.9 — Update 1C database configuration
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 # NB: *nix-раскладку платформы (/opt/1cv8/<ver>/1cv8, без .exe) знает только .py-порт — PS на *nix не исполняется.
 <#
@@ -107,7 +107,7 @@ function Get-ExitAnnotation {
         -1073740791 = "0xC0000409 (stack overrun)"
     }
     if ($win.ContainsKey($Code)) {
-        return " — abnormal termination $($win[$Code]); the platform crashed; the infobase may be left in an inconsistent state"
+        return " — abnormal termination, exception $($win[$Code]); the infobase may be left in an inconsistent state; verify it before retrying"
     }
     return ""
 }

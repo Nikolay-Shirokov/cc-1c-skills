@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# db-load-xml v1.14 — Load 1C configuration from XML files
+# db-load-xml v1.15 — Load 1C configuration from XML files
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -111,16 +111,15 @@ def describe_exit(code):
         3221226505: "0xC0000409 (stack overrun)", -1073740791: "0xC0000409 (stack overrun)",
     }
     if code in win:
-        return f" — abnormal termination {win[code]}; the platform crashed; the infobase may be left in an inconsistent state"
+        return f" — abnormal termination, exception {win[code]}; the infobase may be left in an inconsistent state; verify it before retrying"
     if -64 <= code < 0:
         try:
             import signal
             name = signal.Signals(-code).name
         except (ValueError, AttributeError):
             name = f"signal {-code}"
-        return (f" — terminated by {name}; the platform crashed abnormally "
-                "(often a headless environment without a GUI session or license); "
-                "the infobase may be left in an inconsistent state")
+        return (f" — process terminated by {name} (abnormal termination, not a normal exit); "
+                "the infobase may be left in an inconsistent state; verify it before retrying")
     return ""
 
 
