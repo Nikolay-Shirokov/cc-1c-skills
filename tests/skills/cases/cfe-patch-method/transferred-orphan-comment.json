@@ -1,0 +1,37 @@
+{
+  "name": "Ресинк: комментарий разработчика у поглощённого кода — перенесено + ⚠ в отчёте",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "CommonModule", "name": "ПрозрМод", "properties": { "Server": true } },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    {
+      "writeFile": {
+        "path": "CommonModules/ПрозрМод/Ext/Module.bsl",
+        "content": "#Область ПрограммныйИнтерфейс\n\nПроцедура П() Экспорт\n\tПодготовитьДанные();\n\tОбойтиБаг();\n\tСохранить();\nКонецПроцедуры\n\n#КонецОбласти\n"
+      }
+    },
+    {
+      "script": "cfe-init/scripts/cfe-init",
+      "args": { "-Name": "Тест", "-OutputDir": "{workDir}/ext", "-ConfigPath": "{workDir}" }
+    },
+    {
+      "script": "cfe-borrow/scripts/cfe-borrow",
+      "args": { "-ExtensionPath": "{workDir}/ext", "-ConfigPath": "{workDir}", "-Object": "CommonModule.ПрозрМод" }
+    },
+    {
+      "writeFile": {
+        "path": "ext/CommonModules/ПрозрМод/Ext/Module.bsl",
+        "content": "#Область ПрограммныйИнтерфейс\n&ИзменениеИКонтроль(\"П\")\nПроцедура Тест_П()\n\tПодготовитьДанные();\n#Вставка\n\t// ВАЖНО: обходим баг\n\tОбойтиБаг();\n#КонецВставки\n\tСохранить();\nКонецПроцедуры\n#КонецОбласти\n"
+      }
+    }
+  ],
+  "params": {
+    "extensionPath": "ext",
+    "modulePath": "CommonModule.ПрозрМод",
+    "methodName": "П",
+    "interceptorType": "ModificationAndControl"
+  },
+  "expect": { "stdoutContains": "комментарий не перенесён" }
+}

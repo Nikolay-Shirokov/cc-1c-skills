@@ -1,0 +1,37 @@
+{
+  "name": "Ресинк: вставка под комментарием оригинала — остаётся под комментарием (точный якорь)",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "CommonModule", "name": "ПрозрМод", "properties": { "Server": true } },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    {
+      "writeFile": {
+        "path": "CommonModules/ПрозрМод/Ext/Module.bsl",
+        "content": "#Область ПрограммныйИнтерфейс\n\nПроцедура П() Экспорт\n\tРассчитатьСуммуТочно();\n\t// Проверка лимита\n\tЗаписать();\nКонецПроцедуры\n\n#КонецОбласти\n"
+      }
+    },
+    {
+      "script": "cfe-init/scripts/cfe-init",
+      "args": { "-Name": "Тест", "-OutputDir": "{workDir}/ext", "-ConfigPath": "{workDir}" }
+    },
+    {
+      "script": "cfe-borrow/scripts/cfe-borrow",
+      "args": { "-ExtensionPath": "{workDir}/ext", "-ConfigPath": "{workDir}", "-Object": "CommonModule.ПрозрМод" }
+    },
+    {
+      "writeFile": {
+        "path": "ext/CommonModules/ПрозрМод/Ext/Module.bsl",
+        "content": "#Область ПрограммныйИнтерфейс\n&ИзменениеИКонтроль(\"П\")\nПроцедура Тест_П()\n\tРассчитатьСумму();\n\t// Проверка лимита\n#Вставка\n\tПроверитьЛимит();\n#КонецВставки\n\tЗаписать();\nКонецПроцедуры\n#КонецОбласти\n"
+      }
+    }
+  ],
+  "params": {
+    "extensionPath": "ext",
+    "modulePath": "CommonModule.ПрозрМод",
+    "methodName": "П",
+    "interceptorType": "ModificationAndControl"
+  },
+  "expect": { "stdoutContains": "АКТУАЛИЗИРОВАН" }
+}

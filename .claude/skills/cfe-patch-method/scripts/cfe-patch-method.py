@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# cfe-patch-method v2.4 — Source-aware method interceptor for 1C extension (CFE)
+# cfe-patch-method v2.5 — Source-aware method interceptor for 1C extension (CFE)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -411,6 +411,23 @@ def find_unique_run(v2norm, keys):
     return found
 
 
+def test_significant(norm_line):
+    """A significant line carries code: non-empty and not a whole-line comment (//).
+    Blank/comment-only lines are cosmetic — transparent to anchor/absorption matching."""
+    return norm_line != "" and not norm_line.startswith("//")
+
+
+def significant_projection(norm):
+    """Project normalized lines to significant-only. Returns (sig_values, orig_indices)."""
+    sig = []
+    idx = []
+    for i, ln in enumerate(norm):
+        if test_significant(ln):
+            sig.append(ln)
+            idx.append(i)
+    return sig, idx
+
+
 def test_run_at(hay, keys, at):
     """True if normalized run `keys` sits in `hay` starting exactly at index `at` (contiguous)."""
     if not keys or at < 0 or at + len(keys) > len(hay):
@@ -433,8 +450,8 @@ def test_delete_absorbed(v2norm, before_ctx, after_ctx):
     return False
 
 
-def resolve_insertion_point(v2norm, before_lines, after_lines):
-    """Where an insertion lands in v2 using two-sided context.
+def resolve_insertion_point_exact(v2norm, before_lines, after_lines):
+    """Exact two-sided resolution over the given array.
     Returns index to insert-after (-1 = top), or None if ambiguous/conflict."""
     nb = len(before_lines)
     na = len(after_lines)
@@ -477,6 +494,24 @@ def resolve_insertion_point(v2norm, before_lines, after_lines):
         if ak >= 0:
             return ak - 1
     return None
+
+
+def resolve_insertion_point(v2norm, before_lines, after_lines):
+    """Exact first (comments/blanks included — keeps the insert's position relative to a stable
+    comment); on failure, retry on significant lines only (transparent to vendor-added blanks/
+    comments) and map back to a full-v2 index. Returns insert-after idx or None."""
+    k = resolve_insertion_point_exact(v2norm, before_lines, after_lines)
+    if k is not None:
+        return k
+    sig, idx = significant_projection(v2norm)
+    bs = [x for x in before_lines if test_significant(x)]
+    as_ = [x for x in after_lines if test_significant(x)]
+    ksig = resolve_insertion_point_exact(sig, bs, as_)
+    if ksig is None:
+        return None
+    if ksig < 0:
+        return -1
+    return idx[ksig]
 
 
 def truncate(s, n=60):
@@ -615,6 +650,8 @@ def main():
             if pr.get("reason"):
                 line += "   %s" % pr["reason"]
             print(line)
+            for n in pr.get("absorbed_notes", []):
+                print("     ⚠ комментарий не перенесён (код в основной конфигурации): %s" % n)
         transf = sum(1 for r in results if r["status"] == "ПЕРЕНЕСЕНО В ОСНОВНУЮ")
         if check_mode:
             drift = sum(1 for r in results if r["status"] == "ДРЕЙФ")
@@ -745,6 +782,8 @@ def main():
                 print("     Индекс: %s" % idx)
         else:
             print('[%s] &ИзменениеИКонтроль("%s") — %s' % (st, method_name, res.get("reason", "")))
+        for n in res.get("absorbed_notes", []):
+            print("     ⚠ комментарий не перенесён (код в основной конфигурации): %s" % n)
         print("     Файл: %s" % ext_bsl)
         sys.exit(0)
 
@@ -971,21 +1010,29 @@ def resync_one(ext_bsl, ext_lines, dup, method, logical_module, conflict_folder,
     if "\n".join(v1norm) == "\n".join(v2norm):
         return {"id": method_id, "status": "АКТУАЛЕН", "ext_bsl": ext_bsl}
 
-    insert_top = []; insert_after = {}; del_start = set(); del_end = set(); disputed = []; transferred = 0; absorbed = 0
+    insert_top = []; insert_after = {}; del_start = set(); del_end = set(); disputed = []; transferred = 0; absorbed = 0; absorbed_notes = []
+    v2sig, v2map = significant_projection(v2norm)
     for op in ops:
         if op["kind"] == "insert":
             after = op["after"]
             before_lines = v1norm[max(0, after - 2):after + 1] if after >= 0 else []
             after_lines = v1norm[after + 1:after + 4]
             k = resolve_insertion_point(v2norm, before_lines, after_lines)
-            payload_norm = [normalize(x) for x in op["lines"]]
-            # Payload already in the new original -> the change was carried into the main config.
-            if k is None:
-                is_absorbed = find_unique_run(v2norm, payload_norm) >= 0
-            else:
-                is_absorbed = test_run_at(v2norm, payload_norm, 0 if k < 0 else k + 1)
+            # Payload already in the new original -> change carried into the main config.
+            # Match on significant lines only, so vendor-added blanks/comments don't hide it.
+            payload_sig = [x for x in (normalize(y) for y in op["lines"]) if test_significant(x)]
+            is_absorbed = False
+            if payload_sig:
+                if k is None:
+                    is_absorbed = find_unique_run(v2sig, payload_sig) >= 0
+                else:
+                    sig_start = sum(1 for j in v2map if j <= k)
+                    is_absorbed = test_run_at(v2sig, payload_sig, sig_start)
             if is_absorbed:
                 absorbed += 1
+                for pl in op["lines"]:
+                    if normalize(pl).startswith("//"):
+                        absorbed_notes.append(pl.strip())
             elif k is None:
                 dbefore = v1[max(0, after - 2):after + 1] if after >= 0 else []
                 dafter = v1[after + 1:after + 4]
@@ -1000,10 +1047,17 @@ def resync_one(ext_bsl, ext_lines, dup, method, logical_module, conflict_folder,
             if p >= 0:
                 del_start.add(p); del_end.add(p + len(keys) - 1); transferred += 1
             else:
-                before_ctx = v1norm[op["start"] - 1] if op["start"] > 0 else None
-                after_ctx = v1norm[op["end"] + 1] if op["end"] < len(v1norm) - 1 else None
-                # Block already cut from the new original -> deletion already applied in the main config.
-                if test_delete_absorbed(v2norm, before_ctx, after_ctx):
+                # Nearest significant neighbours; adjacency in the significant projection means the
+                # block is already cut (blanks/comments left behind don't matter).
+                before_ctx = None
+                for z in range(op["start"] - 1, -1, -1):
+                    if test_significant(v1norm[z]):
+                        before_ctx = v1norm[z]; break
+                after_ctx = None
+                for z in range(op["end"] + 1, len(v1norm)):
+                    if test_significant(v1norm[z]):
+                        after_ctx = v1norm[z]; break
+                if test_delete_absorbed(v2sig, before_ctx, after_ctx):
                     absorbed += 1
                 else:
                     disputed.append({"kind": "delete", "lines": op["lines"]})
@@ -1017,7 +1071,7 @@ def resync_one(ext_bsl, ext_lines, dup, method, logical_module, conflict_folder,
             st = "ДРЕЙФ"
         rsn = conflict_reason(disputed) if disputed else ("все правки уже в основной конфигурации" if st == "ПЕРЕНЕСЕНО В ОСНОВНУЮ" else "")
         return {"id": method_id, "status": st, "ext_bsl": ext_bsl, "transferred": transferred,
-                "absorbed": absorbed, "disputed": len(disputed), "reason": rsn}
+                "absorbed": absorbed, "disputed": len(disputed), "reason": rsn, "absorbed_notes": absorbed_notes}
 
     new_body = []
     for blk in insert_top:
@@ -1073,7 +1127,8 @@ def resync_one(ext_bsl, ext_lines, dup, method, logical_module, conflict_folder,
         status = "АКТУАЛИЗИРОВАН"
     rsn = conflict_reason(disputed) if disputed else ("все правки уже в основной конфигурации — перехватчик можно удалить" if status == "ПЕРЕНЕСЕНО В ОСНОВНУЮ" else "")
     return {"id": method_id, "status": status, "ext_bsl": ext_bsl, "transferred": transferred,
-            "absorbed": absorbed, "disputed": len(disputed), "conflict_dir": conflict_dir, "reason": rsn}
+            "absorbed": absorbed, "disputed": len(disputed), "conflict_dir": conflict_dir, "reason": rsn,
+            "absorbed_notes": absorbed_notes}
 
 
 def write_resync_index(run_root, results, ext_name, config_path, verb):

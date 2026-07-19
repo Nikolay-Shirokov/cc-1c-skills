@@ -1,4 +1,4 @@
-﻿# cfe-patch-method v2.4 — Source-aware method interceptor for 1C extension (CFE)
+﻿# cfe-patch-method v2.5 — Source-aware method interceptor for 1C extension (CFE)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -421,6 +421,23 @@ function Find-UniqueRun {
 	return $found
 }
 
+# A "significant" line carries code: non-empty and not a whole-line comment (//).
+# Blank lines and comment-only lines are cosmetic — transparent to anchor/absorption matching.
+function Test-Significant {
+	param([string]$normLine)
+	return ($normLine -ne '' -and -not $normLine.StartsWith('//'))
+}
+
+# Project normalized lines to significant-only. Returns @{ Sig = @(values); Map = @(orig indices) }.
+function Get-SignificantProjection {
+	param($norm)
+	$sig = @(); $map = @()
+	for ($i = 0; $i -lt $norm.Count; $i++) {
+		if (Test-Significant $norm[$i]) { $sig += $norm[$i]; $map += $i }
+	}
+	return @{ Sig = $sig; Map = $map }
+}
+
 # True if the normalized run `keys` sits in `hay` starting exactly at index `at` (contiguous, in-bounds).
 # Used to detect an insert whose payload the vendor already placed at the anchor (pereneseno v osnovnuyu).
 function Test-RunAt {
@@ -446,9 +463,9 @@ function Test-DeleteAbsorbed {
 	return $false
 }
 
-# Resolve where an insertion lands in v2 using two-sided context.
+# Exact two-sided resolution over the given array.
 # Returns index to "insert after" (-1 = top of body), or $null if ambiguous/conflict.
-function Resolve-InsertionPoint {
+function Resolve-InsertionPointExact {
 	param($v2norm, $beforeLines, $afterLines)
 	$nb = $beforeLines.Count; $na = $afterLines.Count
 
@@ -492,6 +509,22 @@ function Resolve-InsertionPoint {
 		if ($ak -ge 0) { return ($ak - 1) }
 	}
 	return $null
+}
+
+# Resolve where an insertion lands in v2. Exact first (comments/blanks included — keeps the insert's
+# position relative to a stable comment); on failure, retry on significant lines only (transparent to
+# vendor-added blanks/comments) and map back to a full-v2 index. Returns "insert after" idx or $null.
+function Resolve-InsertionPoint {
+	param($v2norm, $beforeLines, $afterLines)
+	$k = Resolve-InsertionPointExact $v2norm $beforeLines $afterLines
+	if ($null -ne $k) { return $k }
+	$proj = Get-SignificantProjection $v2norm
+	$bs = @($beforeLines | Where-Object { Test-Significant $_ })
+	$as = @($afterLines | Where-Object { Test-Significant $_ })
+	$ksig = Resolve-InsertionPointExact $proj.Sig $bs $as
+	if ($null -eq $ksig) { return $null }
+	if ($ksig -lt 0) { return -1 }
+	return $proj.Map[$ksig]
 }
 
 # Truncate a line for compact summary output
@@ -621,7 +654,8 @@ function Invoke-Resync {
 		return @{ Id = $methodId; Status = 'АКТУАЛЕН'; ExtBsl = $extBsl }
 	}
 
-	$insertTop = @(); $insertAfter = @{}; $delStart = @{}; $delEnd = @{}; $disputed = @(); $transferred = @(); $absorbed = @()
+	$insertTop = @(); $insertAfter = @{}; $delStart = @{}; $delEnd = @{}; $disputed = @(); $transferred = @(); $absorbed = @(); $absorbedNotes = @()
+	$v2proj = Get-SignificantProjection $v2norm
 	foreach ($op in $ops) {
 		if ($op.Kind -eq 'insert') {
 			$beforeLines = @()
@@ -630,10 +664,18 @@ function Invoke-Resync {
 			$ae = [Math]::Min($v1norm.Count - 1, $op.After + 3)
 			for ($m = $op.After + 1; $m -le $ae; $m++) { $afterLines += $v1norm[$m] }
 			$k = Resolve-InsertionPoint $v2norm $beforeLines $afterLines
-			$payloadNorm = @($op.Lines | ForEach-Object { Get-Normalized $_ })
-			# Payload already in the new original -> the change was carried into the main config.
-			$isAbsorbed = if ($null -eq $k) { (Find-UniqueRun $v2norm $payloadNorm) -ge 0 } else { Test-RunAt $v2norm $payloadNorm ($(if ($k -lt 0) { 0 } else { $k + 1 })) }
-			if ($isAbsorbed) { $absorbed += @{ Kind = 'insert' } }
+			# Payload already in the new original -> change carried into the main config.
+			# Match on significant lines only, so vendor-added blanks/comments don't hide it.
+			$payloadSig = @(($op.Lines | ForEach-Object { Get-Normalized $_ }) | Where-Object { Test-Significant $_ })
+			$isAbsorbed = $false
+			if ($payloadSig.Count -gt 0) {
+				if ($null -eq $k) { $isAbsorbed = (Find-UniqueRun $v2proj.Sig $payloadSig) -ge 0 }
+				else { $sigStart = @($v2proj.Map | Where-Object { $_ -le $k }).Count; $isAbsorbed = Test-RunAt $v2proj.Sig $payloadSig $sigStart }
+			}
+			if ($isAbsorbed) {
+				$absorbed += @{ Kind = 'insert' }
+				foreach ($pl in $op.Lines) { if ((Get-Normalized $pl).StartsWith('//')) { $absorbedNotes += $pl.Trim() } }
+			}
 			elseif ($null -eq $k) {
 				$dbefore = @(); if ($op.After -ge 0) { $bz = [Math]::Max(0, $op.After - 2); for ($z = $bz; $z -le $op.After; $z++) { $dbefore += $v1[$z] } }
 				$dafter = @(); $az = [Math]::Min($v1.Count - 1, $op.After + 3); for ($z = $op.After + 1; $z -le $az; $z++) { $dafter += $v1[$z] }
@@ -646,10 +688,11 @@ function Invoke-Resync {
 			$p = Find-UniqueRun $v2norm $keys
 			if ($p -ge 0) { $delStart[$p] = $true; $delEnd[$p + $keys.Count - 1] = $true; $transferred += @{ Kind = 'delete' } }
 			else {
-				$delBeforeCtx = if ($op.Start -gt 0) { $v1norm[$op.Start - 1] } else { $null }
-				$delAfterCtx = if ($op.End -lt ($v1norm.Count - 1)) { $v1norm[$op.End + 1] } else { $null }
-				# Block already cut from the new original -> deletion already applied in the main config.
-				if (Test-DeleteAbsorbed $v2norm $delBeforeCtx $delAfterCtx) { $absorbed += @{ Kind = 'delete' } }
+				# Nearest significant neighbours around the deleted block; adjacency in the significant
+				# projection means the block is already cut (blanks/comments left behind don't matter).
+				$delBeforeCtx = $null; for ($z = $op.Start - 1; $z -ge 0; $z--) { if (Test-Significant $v1norm[$z]) { $delBeforeCtx = $v1norm[$z]; break } }
+				$delAfterCtx = $null; for ($z = $op.End + 1; $z -lt $v1norm.Count; $z++) { if (Test-Significant $v1norm[$z]) { $delAfterCtx = $v1norm[$z]; break } }
+				if (Test-DeleteAbsorbed $v2proj.Sig $delBeforeCtx $delAfterCtx) { $absorbed += @{ Kind = 'delete' } }
 				else { $disputed += @{ Kind = 'delete'; Lines = $op.Lines } }
 			}
 		}
@@ -658,7 +701,7 @@ function Invoke-Resync {
 	if ($ReportOnly) {
 		$st = if ($disputed.Count -gt 0) { 'КОНФЛИКТ' } elseif ($transferred.Count -eq 0 -and $absorbed.Count -gt 0) { 'ПЕРЕНЕСЕНО В ОСНОВНУЮ' } else { 'ДРЕЙФ' }
 		$rsn = if ($disputed.Count -gt 0) { Get-ResyncConflictReason $disputed } elseif ($st -eq 'ПЕРЕНЕСЕНО В ОСНОВНУЮ') { 'все правки уже в основной конфигурации' } else { '' }
-		return @{ Id = $methodId; Status = $st; ExtBsl = $extBsl; Transferred = $transferred.Count; Absorbed = $absorbed.Count; Disputed = $disputed.Count; Reason = $rsn }
+		return @{ Id = $methodId; Status = $st; ExtBsl = $extBsl; Transferred = $transferred.Count; Absorbed = $absorbed.Count; Disputed = $disputed.Count; Reason = $rsn; AbsorbedNotes = $absorbedNotes }
 	}
 
 	# assemble new marked body
@@ -710,7 +753,7 @@ function Invoke-Resync {
 	}
 	$status = if ($disputed.Count -gt 0) { 'ЧАСТИЧНО' } elseif ($transferred.Count -eq 0 -and $absorbed.Count -gt 0) { 'ПЕРЕНЕСЕНО В ОСНОВНУЮ' } else { 'АКТУАЛИЗИРОВАН' }
 	$rsn = if ($disputed.Count -gt 0) { Get-ResyncConflictReason $disputed } elseif ($status -eq 'ПЕРЕНЕСЕНО В ОСНОВНУЮ') { 'все правки уже в основной конфигурации — перехватчик можно удалить' } else { '' }
-	return @{ Id = $methodId; Status = $status; ExtBsl = $extBsl; Transferred = $transferred.Count; Absorbed = $absorbed.Count; Disputed = $disputed.Count; ConflictDir = $conflictDir; Reason = $rsn }
+	return @{ Id = $methodId; Status = $status; ExtBsl = $extBsl; Transferred = $transferred.Count; Absorbed = $absorbed.Count; Disputed = $disputed.Count; ConflictDir = $conflictDir; Reason = $rsn; AbsorbedNotes = $absorbedNotes }
 }
 
 # Write run-root index.md (only if there are conflicts). Returns run-root or $null.
@@ -819,6 +862,7 @@ if ($Check -or $Actualize) {
 		$line = "  {0,-22} {1}" -f $p.Status, $p.Id
 		if ($p.Reason) { $line += "   $($p.Reason)" }
 		Write-Host $line
+		if ($p.AbsorbedNotes) { foreach ($n in $p.AbsorbedNotes) { Write-Host "     ⚠ комментарий не перенесён (код в основной конфигурации): $n" } }
 	}
 	$transf = @($results | Where-Object { $_.Status -eq 'ПЕРЕНЕСЕНО В ОСНОВНУЮ' }).Count
 	if ($Check) {
@@ -945,6 +989,7 @@ if ($dup) {
 		}
 		default { Write-Host "[$($res.Status)] &ИзменениеИКонтроль(`"$MethodName`") — $($res.Reason)" }
 	}
+	if ($res.AbsorbedNotes) { foreach ($n in $res.AbsorbedNotes) { Write-Host "     ⚠ комментарий не перенесён (код в основной конфигурации): $n" } }
 	Write-Host "     Файл: $extBsl"
 	exit 0
 }
