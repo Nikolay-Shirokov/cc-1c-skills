@@ -1,4 +1,4 @@
-﻿# epf-dump v1.7 — Dump external data processor or report (EPF/ERF) to XML sources
+﻿# epf-dump v1.8 — Dump external data processor or report (EPF/ERF) to XML sources
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 # NB: *nix-раскладку платформы (/opt/1cv8/<ver>/1cv8, без .exe) знает только .py-порт — PS на *nix не исполняется.
 <#
@@ -162,10 +162,11 @@ function Test-DirNonEmpty {
     return (Test-Path $Path -PathType Container) -and ([bool](Get-ChildItem -LiteralPath $Path -Force -ErrorAction SilentlyContinue | Select-Object -First 1))
 }
 
-function Format-SafeArgs {
-    # Mask credential tokens (/N, /P for 1cv8; --user=, --password= for ibcmd) for display.
-    param([string[]]$A)
-    ($A | ForEach-Object { $_ -replace '^(/[NP]).+', '$1***' -replace '^(--(user|password)=).+', '$1***' }) -join ' '
+function Protect-Secrets {
+    # Redact literal secret values from a display string (String.Replace is literal, not regex).
+    param([string]$Text, [string[]]$Secrets)
+    foreach ($s in $Secrets) { if ($s) { $Text = $Text.Replace($s, '***') } }
+    return $Text
 }
 
 $engine = if ((Split-Path $V8Path -Leaf) -match '^ibcmd') { "ibcmd" } else { "1cv8" }
@@ -202,7 +203,7 @@ try {
         if ($UserName) { $arguments += "--user=$UserName" }
         if ($Password) { $arguments += "--password=$Password" }
         $arguments += "--data=$tempDir"
-        Write-Host "Running: ibcmd $(Format-SafeArgs $arguments)"
+        Write-Host "Running: ibcmd $(Protect-Secrets ($arguments -join ' ') @($Password, $UserName))"
         $__ib = Invoke-IbcmdProcess $V8Path $arguments
         $output = $__ib.Output
         $exitCode = $__ib.ExitCode
@@ -241,7 +242,7 @@ try {
     $arguments += "/DisableStartupDialogs"
 
     # --- Execute ---
-    Write-Host "Running: 1cv8.exe $(Format-SafeArgs $arguments)"
+    Write-Host "Running: 1cv8.exe $(Protect-Secrets ($arguments -join ' ') @($Password, $UserName))"
     $process = Start-Process -FilePath $V8Path -ArgumentList $arguments -NoNewWindow -Wait -PassThru
     $exitCode = $process.ExitCode
 

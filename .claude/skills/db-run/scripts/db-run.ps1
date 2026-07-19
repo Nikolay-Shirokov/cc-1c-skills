@@ -1,4 +1,4 @@
-﻿# db-run v1.3 — Launch 1C:Enterprise
+﻿# db-run v1.4 — Launch 1C:Enterprise
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 # NB: *nix-раскладку платформы (/opt/1cv8/<ver>/1cv8, без .exe) знает только .py-порт — PS на *nix не исполняется.
 <#
@@ -78,6 +78,13 @@ param(
 
 $OutputEncoding = [System.Text.Encoding]::UTF8
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+
+function Protect-Secrets {
+    # Redact literal secret values from a display string (String.Replace is literal, not regex).
+    param([string]$Text, [string[]]$Secrets)
+    foreach ($s in $Secrets) { if ($s) { $Text = $Text.Replace($s, '***') } }
+    return $Text
+}
 
 # --- Resolve V8Path ---
 function Find-ProjectV8Path {
@@ -166,10 +173,8 @@ if ($URL) {
 $argString += " /DisableStartupDialogs"
 
 # --- Execute (background) ---
-# Mask credentials (/N, /P) before printing the command line — never leak secrets.
-# Anchor to a token boundary (whitespace before the flag) so a "/N" or "/P" that merely
-# appears inside a path (e.g. ...\Program Files\..., ...\NSHIROV\...) is not mangled.
-$displayArg = $argString -replace '(?<=\s)(/[NP])("[^"]*"|\S+)', '$1***'
+# Redact the password/user before printing the command line — never leak secrets.
+$displayArg = Protect-Secrets $argString @($Password, $UserName)
 Write-Host "Running: 1cv8.exe $displayArg"
 $proc = Start-Process -FilePath $V8Path -ArgumentList $argString -PassThru
 

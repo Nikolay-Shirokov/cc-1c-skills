@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# epf-build v1.8 — Build external data processor or report (EPF/ERF) from XML sources
+# epf-build v1.9 — Build external data processor or report (EPF/ERF) from XML sources
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -105,14 +105,13 @@ def output_nonempty(path):
     return os.path.isfile(path) and os.path.getsize(path) > 0
 
 
-def _mask(args):
-    """Mask credential tokens (/N, /P for 1cv8; --user=, --password= for ibcmd) for display."""
-    out = []
-    for a in args:
-        a = re.sub(r"^(/[NP]).+", r"\1***", a)
-        a = re.sub(r"^(--(?:user|password)=).+", r"\1***", a)
-        out.append(a)
-    return out
+def _redact(text, *secrets):
+    """Redact literal secret values (password, user) from a display string —
+    precise, never touches lookalike paths."""
+    for s in secrets:
+        if s:
+            text = text.replace(s, "***")
+    return text
 
 
 def main():
@@ -182,7 +181,7 @@ def main():
             if args.Password:
                 arguments.append(f"--password={args.Password}")
             arguments.append(f"--data={ib_data}")
-            print(f"Running: ibcmd {' '.join(_mask(arguments))}")
+            print(f"Running: ibcmd {_redact(' '.join(arguments), args.Password, args.UserName)}")
             result = run_ibcmd([v8path] + arguments, warn_no_user=False)
             exit_code = result.returncode
             out_missing = exit_code == 0 and not output_nonempty(args.OutputFile)
@@ -221,7 +220,7 @@ def main():
         arguments.append("/DisableStartupDialogs")
 
         # --- Execute ---
-        print(f"Running: 1cv8.exe {' '.join(_mask(arguments))}")
+        print(f"Running: 1cv8.exe {_redact(' '.join(arguments), args.Password, args.UserName)}")
         result = subprocess.run(
             [v8path] + arguments,
             capture_output=True,

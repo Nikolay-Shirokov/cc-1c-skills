@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# db-load-xml v1.15 — Load 1C configuration from XML files
+# db-load-xml v1.16 — Load 1C configuration from XML files
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -123,14 +123,13 @@ def describe_exit(code):
     return ""
 
 
-def _mask(args):
-    """Mask credential tokens (/N, /P for 1cv8; --user=, --password= for ibcmd) for display."""
-    out = []
-    for a in args:
-        a = re.sub(r"^(/[NP]).+", r"\1***", a)
-        a = re.sub(r"^(--(?:user|password)=).+", r"\1***", a)
-        out.append(a)
-    return out
+def _redact(text, *secrets):
+    """Redact literal secret values (password, user) from a display string —
+    precise, never touches lookalike paths."""
+    for s in secrets:
+        if s:
+            text = text.replace(s, "***")
+    return text
 
 
 def main():
@@ -233,7 +232,7 @@ def main():
         if args.Password:
             arguments.append(f"--password={args.Password}")
         arguments.append(f"--data={ib_data}")
-        print(f"Running: ibcmd {' '.join(_mask(arguments))}")
+        print(f"Running: ibcmd {_redact(' '.join(arguments), args.Password, args.UserName)}")
         result = run_ibcmd([v8path] + arguments, bool(args.UserName))
         if result.returncode != 0:
             print(f"Error loading configuration from files (code: {result.returncode}){describe_exit(result.returncode)}", file=sys.stderr)
@@ -253,7 +252,7 @@ def main():
             if args.Password:
                 apply_args.append(f"--password={args.Password}")
             apply_args.append(f"--data={ib_data}")
-            print(f"Running: ibcmd {' '.join(_mask(apply_args))}")
+            print(f"Running: ibcmd {_redact(' '.join(apply_args), args.Password, args.UserName)}")
             ar = run_ibcmd([v8path] + apply_args, bool(args.UserName))
             exit_code = ar.returncode
             if exit_code == 0:
@@ -342,7 +341,7 @@ def main():
         arguments.append("/DisableStartupDialogs")
 
         # --- Execute ---
-        print(f"Running: 1cv8.exe {' '.join(_mask(arguments))}")
+        print(f"Running: 1cv8.exe {_redact(' '.join(arguments), args.Password, args.UserName)}")
         result = subprocess.run(
             [v8path] + arguments,
             capture_output=True,

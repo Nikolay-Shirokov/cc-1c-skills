@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# db-run v1.3 — Launch 1C:Enterprise
+# db-run v1.4 — Launch 1C:Enterprise
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -75,6 +75,15 @@ def resolve_v8path(v8path):
     return v8path
 
 
+def _redact(text, *secrets):
+    """Redact literal secret values (password, user) from a display string —
+    precise, never touches lookalike paths."""
+    for s in secrets:
+        if s:
+            text = text.replace(s, "***")
+    return text
+
+
 def main():
     sys.stdout.reconfigure(encoding="utf-8")
     sys.stderr.reconfigure(encoding="utf-8")
@@ -133,9 +142,8 @@ def main():
     arguments.append("/DisableStartupDialogs")
 
     # --- Execute (background) ---
-    # Mask credentials (/N, /P) before printing the command line — never leak secrets.
-    display = [re.sub(r"^(/[NP]).+", r"\1***", a) for a in arguments]
-    print(f"Running: 1cv8.exe {' '.join(display)}")
+    # Redact the password/user before printing the command line — never leak secrets.
+    print(f"Running: 1cv8.exe {_redact(' '.join(arguments), args.Password, args.UserName)}")
     proc = subprocess.Popen([v8path] + arguments)
 
     # --- Bounded early-exit check ---
