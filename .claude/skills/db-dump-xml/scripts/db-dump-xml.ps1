@@ -1,4 +1,4 @@
-﻿# db-dump-xml v1.9 — Dump 1C configuration to XML files
+﻿# db-dump-xml v1.10 — Dump 1C configuration to XML files
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 # NB: *nix-раскладку платформы (/opt/1cv8/<ver>/1cv8, без .exe) знает только .py-порт — PS на *nix не исполняется.
 <#
@@ -98,6 +98,12 @@ param(
 
 $OutputEncoding = [System.Text.Encoding]::UTF8
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+
+function Format-SafeArgs {
+    # Mask credential tokens (/N, /P for 1cv8; --user=, --password= for ibcmd) for display.
+    param([string[]]$A)
+    ($A | ForEach-Object { $_ -replace '^(/[NP]).+', '$1***' -replace '^(--(user|password)=).+', '$1***' }) -join ' '
+}
 
 # --- Resolve V8Path ---
 function Find-ProjectV8Path {
@@ -231,7 +237,7 @@ try {
         if ($UserName) { $arguments += "--user=$UserName" }
         if ($Password) { $arguments += "--password=$Password" }
         $arguments += "--data=$tempDir"
-        Write-Host "Running: ibcmd $($arguments -join ' ')"
+        Write-Host "Running: ibcmd $(Format-SafeArgs $arguments)"
         $__ib = Invoke-IbcmdProcess $V8Path $arguments
         $output = $__ib.Output
         $exitCode = $__ib.ExitCode
@@ -304,7 +310,7 @@ try {
     $arguments += "/DisableStartupDialogs"
 
     # --- Execute ---
-    Write-Host "Running: 1cv8.exe $($arguments -join ' ')"
+    Write-Host "Running: 1cv8.exe $(Format-SafeArgs $arguments)"
     $process = Start-Process -FilePath $V8Path -ArgumentList $arguments -NoNewWindow -Wait -PassThru
     $exitCode = $process.ExitCode
 

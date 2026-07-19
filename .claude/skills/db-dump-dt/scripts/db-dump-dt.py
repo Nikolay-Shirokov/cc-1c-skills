@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# db-dump-dt v1.6 — Dump 1C information base to DT file
+# db-dump-dt v1.7 — Dump 1C information base to DT file
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -105,6 +105,16 @@ def output_nonempty(path):
     return os.path.isfile(path) and os.path.getsize(path) > 0
 
 
+def _mask(args):
+    """Mask credential tokens (/N, /P for 1cv8; --user=, --password= for ibcmd) for display."""
+    out = []
+    for a in args:
+        a = re.sub(r"^(/[NP]).+", r"\1***", a)
+        a = re.sub(r"^(--(?:user|password)=).+", r"\1***", a)
+        out.append(a)
+    return out
+
+
 def main():
     sys.stdout.reconfigure(encoding="utf-8")
     sys.stderr.reconfigure(encoding="utf-8")
@@ -149,7 +159,7 @@ def main():
         ib_data = tempfile.mkdtemp(prefix="ibcmd_data_")
         atexit.register(shutil.rmtree, ib_data, ignore_errors=True)
         arguments.append(f"--data={ib_data}")
-        print(f"Running: ibcmd {' '.join(arguments)}")
+        print(f"Running: ibcmd {' '.join(_mask(arguments))}")
         result = run_ibcmd([v8path] + arguments, bool(args.UserName))
         exit_code = result.returncode
         out_missing = exit_code == 0 and not output_nonempty(args.OutputFile)
@@ -193,7 +203,7 @@ def main():
         arguments.append("/DisableStartupDialogs")
 
         # --- Execute ---
-        print(f"Running: 1cv8.exe {' '.join(arguments)}")
+        print(f"Running: 1cv8.exe {' '.join(_mask(arguments))}")
         result = subprocess.run(
             [v8path] + arguments,
             capture_output=True,

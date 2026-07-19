@@ -1,4 +1,4 @@
-﻿# db-load-git v1.12 — Load Git changes into 1C database
+﻿# db-load-git v1.13 — Load Git changes into 1C database
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 # NB: *nix-раскладку платформы (/opt/1cv8/<ver>/1cv8, без .exe) знает только .py-порт — PS на *nix не исполняется.
 <#
@@ -107,6 +107,12 @@ param(
 
 $OutputEncoding = [System.Text.Encoding]::UTF8
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+
+function Format-SafeArgs {
+    # Mask credential tokens (/N, /P for 1cv8; --user=, --password= for ibcmd) for display.
+    param([string[]]$A)
+    ($A | ForEach-Object { $_ -replace '^(/[NP]).+', '$1***' -replace '^(--(user|password)=).+', '$1***' }) -join ' '
+}
 
 function Get-ExitAnnotation {
     # Annotate an abnormal process exit code so a crash isn't reported as a bare number.
@@ -389,7 +395,7 @@ try {
         if ($UserName) { $arguments += "--user=$UserName" }
         if ($Password) { $arguments += "--password=$Password" }
         $arguments += "--data=$tempDir"
-        Write-Host "Running: ibcmd $($arguments -join ' ')"
+        Write-Host "Running: ibcmd $(Format-SafeArgs $arguments)"
         $__ib = Invoke-IbcmdProcess $V8Path $arguments
         $output = $__ib.Output
         $exitCode = $__ib.ExitCode
@@ -405,7 +411,7 @@ try {
             if ($UserName) { $applyArgs += "--user=$UserName" }
             if ($Password) { $applyArgs += "--password=$Password" }
             $applyArgs += "--data=$tempDir"
-            Write-Host "Running: ibcmd $($applyArgs -join ' ')"
+            Write-Host "Running: ibcmd $(Format-SafeArgs $applyArgs)"
             $__ib = Invoke-IbcmdProcess $V8Path $applyArgs
             $applyOut = $__ib.Output
             $exitCode = $__ib.ExitCode
@@ -463,7 +469,7 @@ try {
     # --- Execute ---
     Write-Host ""
     Write-Host "Executing partial configuration load..."
-    Write-Host "Running: 1cv8.exe $($arguments -join ' ')"
+    Write-Host "Running: 1cv8.exe $(Format-SafeArgs $arguments)"
 
     $process = Start-Process -FilePath $V8Path -ArgumentList $arguments -NoNewWindow -Wait -PassThru
     $exitCode = $process.ExitCode
