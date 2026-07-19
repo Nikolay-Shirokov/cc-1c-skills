@@ -1,0 +1,6 @@
+{
+  "name": "Валидатор ловит повреждённый корневой <Type> (скалярный текст без структуры, issue #42)",
+  "setup": "fixture:pvh-scalar-type",
+  "params": { "objectPath": "ChartsOfCharacteristicTypes/СкалярныйТипПВХ.xml" },
+  "expectError": true
+}

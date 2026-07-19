@@ -1,0 +1,18 @@
+{
+  "name": "modify-property Type у ПВХ: составной тип строится структурно (issue #42), не расплющивается в скаляр",
+  "setup": "empty-config",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "ChartOfCharacteristicTypes", "name": "ДругойПВХ", "valueType": "String(10)" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "ChartOfCharacteristicTypes", "name": "ТестовыйПВХ", "valueType": "Boolean + String(20)" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    }
+  ],
+  "params": { "objectPath": "ChartsOfCharacteristicTypes/ТестовыйПВХ" },
+  "input": { "modify": { "properties": { "Type": "Boolean + String(20) + ChartOfCharacteristicTypesRef.ДругойПВХ" } } }
+}

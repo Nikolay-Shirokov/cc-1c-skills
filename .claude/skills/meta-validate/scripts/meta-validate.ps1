@@ -1,4 +1,4 @@
-﻿# meta-validate v1.9 — Validate 1C metadata object structure
+﻿# meta-validate v1.10 — Validate 1C metadata object structure (+корневой <Type>: скаляр без структуры = ошибка)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -555,6 +555,26 @@ if ($propsNode) {
 				$check4Ok = $false
 			}
 			$enumChecked++
+		}
+	}
+
+	# Корневой <Type> (дескриптор типа значения — Константа, ПВХ) должен быть структурным:
+	# <v8:Type>/<v8:TypeSet>, а не скалярный текст. Скаляр = повреждённый тип (напр. после
+	# старого meta-edit modify-property Type). См. issue #42.
+	$rootTypeEl = $propsNode.SelectSingleNode("md:Type", $ns)
+	if ($rootTypeEl) {
+		$v8Types = $rootTypeEl.SelectNodes("v8:Type", $ns)
+		$v8TypeSets = $rootTypeEl.SelectNodes("v8:TypeSet", $ns)
+		$scalarText = ""
+		foreach ($cn in $rootTypeEl.ChildNodes) {
+			if ($cn.NodeType -eq 'Text' -or $cn.NodeType -eq 'CDATA') {
+				$t = $cn.Value.Trim()
+				if ($t) { $scalarText = $t; break }
+			}
+		}
+		if ($v8Types.Count -eq 0 -and $v8TypeSets.Count -eq 0 -and $scalarText) {
+			Report-Error "4. Property <Type> содержит скалярный текст '$scalarText' без структуры типа (<v8:Type>/<v8:TypeSet>) — повреждённый дескриптор типа значения"
+			$check4Ok = $false
 		}
 	}
 

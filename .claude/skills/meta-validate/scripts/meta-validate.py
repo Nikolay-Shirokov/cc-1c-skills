@@ -1,4 +1,4 @@
-# meta-validate v1.9 — Validate 1C metadata object structure (Python port)
+# meta-validate v1.10 — Validate 1C metadata object structure (Python port) (+корневой <Type>: скаляр без структуры = ошибка)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import os
@@ -554,6 +554,18 @@ if props_node is not None:
                 report_error(f"4. Property '{prop_name}' has invalid value '{val}' (allowed: {', '.join(allowed)})")
                 check4_ok = False
             enum_checked += 1
+
+    # Корневой <Type> (дескриптор типа значения — Константа, ПВХ) должен быть структурным:
+    # <v8:Type>/<v8:TypeSet>, а не скалярный текст. Скаляр = повреждённый тип (напр. после
+    # старого meta-edit modify-property Type). См. issue #42.
+    root_type_el = find(props_node, "md:Type")
+    if root_type_el is not None:
+        scalar_text = inner_text(root_type_el).strip()
+        v8_types = find_all(root_type_el, "v8:Type")
+        v8_type_sets = find_all(root_type_el, "v8:TypeSet")
+        if len(v8_types) == 0 and len(v8_type_sets) == 0 and scalar_text:
+            report_error(f"4. Property <Type> содержит скалярный текст '{scalar_text}' без структуры типа (<v8:Type>/<v8:TypeSet>) — повреждённый дескриптор типа значения")
+            check4_ok = False
 
     if check4_ok:
         report_ok(f"4. Property values: {enum_checked} enum properties checked")

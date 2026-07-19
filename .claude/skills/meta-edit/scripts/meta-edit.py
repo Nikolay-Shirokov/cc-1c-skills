@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-edit v1.20 — Edit existing 1C metadata object XML (+add-predefined предопределённые Ext/Predefined.xml)
+# meta-edit v1.21 — Edit existing 1C metadata object XML (+modify-property Type: структурный дескриптор, guard от порчи)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -1914,6 +1914,27 @@ def modify_properties(props_def):
         value_str = str(prop_value)
         if isinstance(prop_value, bool):
             value_str = "true" if prop_value else "false"
+
+        # Structural value-type property (корневой <Type> у Константы, ПВХ) —
+        # перестроить дескриптор типа через build_value_type_xml (не расплющивать в скаляр)
+        if prop_name == "Type":
+            type_indent = get_child_indent(properties_el)
+            new_type_xml = build_value_type_xml(type_indent, value_str)
+            new_type_nodes = import_fragment(new_type_xml)
+            if new_type_nodes:
+                type_idx = list(properties_el).index(prop_el)
+                new_type_nodes[0].tail = prop_el.tail
+                properties_el.insert(type_idx + 1, new_type_nodes[0])
+                remove_node_with_whitespace(prop_el)
+                info(f"Modified property: Type = {value_str}")
+                modify_count += 1
+            continue
+
+        # Guard: не расплющивать структурное свойство (с дочерними узлами) в скалярный текст —
+        # это молча повредит XML. Завершаем ошибкой ДО записи файла.
+        if len(list(prop_el)) > 0:
+            print(f"meta-edit: modify-property: свойство '{prop_name}' структурное (содержит дочерние узлы) — установка скалярного текста повредит XML; не поддерживается", file=sys.stderr)
+            sys.exit(1)
 
         # Set inner text — clear children first, set text
         for ch in list(prop_el):

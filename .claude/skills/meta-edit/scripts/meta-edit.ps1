@@ -1,4 +1,4 @@
-﻿# meta-edit v1.20 — Edit existing 1C metadata object XML (+add-predefined предопределённые Ext/Predefined.xml)
+﻿# meta-edit v1.21 — Edit existing 1C metadata object XML (+modify-property Type: структурный дескриптор, guard от порчи)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[string]$DefinitionFile,
@@ -2039,6 +2039,32 @@ function Modify-Properties($propsDef) {
 		$valueStr = "$propValue"
 		if ($propValue -is [bool]) {
 			$valueStr = if ($propValue) { "true" } else { "false" }
+		}
+
+		# Structural value-type property (корневой <Type> у Константы, ПВХ) —
+		# перестроить дескриптор типа через Build-ValueTypeXml (не расплющивать в скаляр)
+		if ($propName -ceq "Type") {
+			$typeIndent = Get-ChildIndent $script:propertiesEl
+			$newTypeXml = Build-ValueTypeXml $typeIndent $valueStr
+			$newTypeNodes = Import-Fragment $newTypeXml
+			if ($newTypeNodes.Count -gt 0) {
+				# ReplaceChild сохраняет whitespace до/после узла на месте (без склейки отступов)
+				$script:propertiesEl.ReplaceChild($newTypeNodes[0], $propEl) | Out-Null
+				Info "Modified property: Type = $valueStr"
+				$script:modifyCount++
+			}
+			return
+		}
+
+		# Guard: не расплющивать структурное свойство (с дочерними узлами) в скалярный текст —
+		# это молча повредит XML. Завершаем ошибкой ДО записи файла.
+		$hasChildElements = $false
+		foreach ($ch in $propEl.ChildNodes) {
+			if ($ch.NodeType -eq 'Element') { $hasChildElements = $true; break }
+		}
+		if ($hasChildElements) {
+			Write-Error "modify-property: свойство '$propName' структурное (содержит дочерние узлы) — установка скалярного текста повредит XML; не поддерживается"
+			exit 1
 		}
 
 		$propEl.InnerText = $valueStr
