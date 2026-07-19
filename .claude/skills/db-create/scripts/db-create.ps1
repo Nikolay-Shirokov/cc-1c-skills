@@ -1,4 +1,4 @@
-﻿# db-create v1.6 — Create 1C information base
+﻿# db-create v1.7 — Create 1C information base
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 # NB: *nix-раскладку платформы (/opt/1cv8/<ver>/1cv8, без .exe) знает только .py-порт — PS на *nix не исполняется.
 <#
@@ -138,6 +138,14 @@ function Invoke-IbcmdProcess {
 }
 
 
+function Test-FileIbCreated {
+    # File-infobase postcondition: the platform must have produced a non-empty 1Cv8.1CD.
+    # Exit code 0 without it (broken/headless env) is a false success — reject it.
+    param([string]$IbPath)
+    $f = Join-Path $IbPath "1Cv8.1CD"
+    return (Test-Path $f) -and ((Get-Item $f -ErrorAction SilentlyContinue).Length -gt 0)
+}
+
 $engine = if ((Split-Path $V8Path -Leaf) -match '^ibcmd') { "ibcmd" } else { "1cv8" }
 
 # --- Validate connection ---
@@ -177,8 +185,12 @@ try {
         $__ib = Invoke-IbcmdProcess $V8Path $arguments
         $output = $__ib.Output
         $exitCode = $__ib.ExitCode
+        $ibMissing = ($exitCode -eq 0) -and -not (Test-FileIbCreated $InfoBasePath)
+        if ($ibMissing) { $exitCode = 1 }
         if ($exitCode -eq 0) {
             Write-Host "Information base created successfully: $InfoBasePath" -ForegroundColor Green
+        } elseif ($ibMissing) {
+            Write-Host "Error: exit code 0 but 1Cv8.1CD is missing or empty at $InfoBasePath — information base was not created" -ForegroundColor Red
         } else {
             Write-Host "Error creating information base (code: $exitCode)" -ForegroundColor Red
         }
@@ -221,12 +233,18 @@ try {
     $exitCode = $process.ExitCode
 
     # --- Result ---
+    # Postcondition (file infobase only): exit 0 without a non-empty 1Cv8.1CD is a false success.
+    $ibMissing = ($exitCode -eq 0) -and -not ($InfoBaseServer -and $InfoBaseRef) -and -not (Test-FileIbCreated $InfoBasePath)
+    if ($ibMissing) { $exitCode = 1 }
+
     if ($exitCode -eq 0) {
         if ($InfoBaseServer -and $InfoBaseRef) {
             Write-Host "Information base created successfully: $InfoBaseServer/$InfoBaseRef" -ForegroundColor Green
         } else {
             Write-Host "Information base created successfully: $InfoBasePath" -ForegroundColor Green
         }
+    } elseif ($ibMissing) {
+        Write-Host "Error: exit code 0 but 1Cv8.1CD is missing or empty at $InfoBasePath — information base was not created" -ForegroundColor Red
     } else {
         Write-Host "Error creating information base (code: $exitCode)" -ForegroundColor Red
     }

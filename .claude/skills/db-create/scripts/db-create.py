@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# db-create v1.6 — Create 1C information base
+# db-create v1.7 — Create 1C information base
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -78,6 +78,13 @@ def resolve_v8path(v8path):
     return v8path
 
 
+def file_ib_created(ib_path):
+    """File-infobase postcondition: the platform must have produced a non-empty 1Cv8.1CD.
+    Exit code 0 without it (broken/headless env) is a false success — reject it."""
+    f = os.path.join(ib_path, "1Cv8.1CD")
+    return os.path.isfile(f) and os.path.getsize(f) > 0
+
+
 IBCMD_NOUSER_HINT = (
     "[ibcmd] No -UserName/-Password given; the infobase may require authentication. "
     "On Windows ibcmd reads credentials from the console (stdin is ignored), so this "
@@ -145,15 +152,25 @@ def main():
         arguments.append(f"--data={ib_data}")
         print(f"Running: ibcmd {' '.join(arguments)}")
         result = run_ibcmd([v8path] + arguments, warn_no_user=False)
-        if result.returncode == 0:
+        exit_code = result.returncode
+        ib_missing = exit_code == 0 and not file_ib_created(args.InfoBasePath)
+        if ib_missing:
+            exit_code = 1
+        if exit_code == 0:
             print(f"Information base created successfully: {args.InfoBasePath}")
+        elif ib_missing:
+            print(
+                f"Error: exit code 0 but 1Cv8.1CD is missing or empty at {args.InfoBasePath} "
+                "— information base was not created",
+                file=sys.stderr,
+            )
         else:
-            print(f"Error creating information base (code: {result.returncode})", file=sys.stderr)
+            print(f"Error creating information base (code: {exit_code})", file=sys.stderr)
         if result.stdout:
             print(result.stdout)
         if result.stderr:
             print(result.stderr, file=sys.stderr)
-        sys.exit(result.returncode)
+        sys.exit(exit_code)
 
     # --- Temp dir ---
     temp_dir = os.path.join(tempfile.gettempdir(), f"db_create_{random.randint(0, 999999)}")
@@ -196,11 +213,23 @@ def main():
         exit_code = result.returncode
 
         # --- Result ---
+        # Postcondition (file infobase only): exit 0 without a non-empty 1Cv8.1CD is a false success.
+        is_server = bool(args.InfoBaseServer and args.InfoBaseRef)
+        ib_missing = exit_code == 0 and not is_server and not file_ib_created(args.InfoBasePath)
+        if ib_missing:
+            exit_code = 1
+
         if exit_code == 0:
-            if args.InfoBaseServer and args.InfoBaseRef:
+            if is_server:
                 print(f"Information base created successfully: {args.InfoBaseServer}/{args.InfoBaseRef}")
             else:
                 print(f"Information base created successfully: {args.InfoBasePath}")
+        elif ib_missing:
+            print(
+                f"Error: exit code 0 but 1Cv8.1CD is missing or empty at {args.InfoBasePath} "
+                "— information base was not created",
+                file=sys.stderr,
+            )
         else:
             print(f"Error creating information base (code: {exit_code})", file=sys.stderr)
 
