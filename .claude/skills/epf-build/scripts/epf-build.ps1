@@ -1,4 +1,4 @@
-﻿# epf-build v1.6 — Build external data processor or report (EPF/ERF) from XML sources
+﻿# epf-build v1.7 — Build external data processor or report (EPF/ERF) from XML sources
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 # NB: *nix-раскладку платформы (/opt/1cv8/<ver>/1cv8, без .exe) знает только .py-порт — PS на *nix не исполняется.
 <#
@@ -141,6 +141,13 @@ function Invoke-IbcmdProcess {
 }
 
 
+function Test-OutputNonEmpty {
+    # Postcondition: the platform must have produced a non-empty output file.
+    # Exit code 0 without it (broken/headless env) is a false success — reject it.
+    param([string]$Path)
+    return (Test-Path $Path -PathType Leaf) -and ((Get-Item $Path -ErrorAction SilentlyContinue).Length -gt 0)
+}
+
 $engine = if ((Split-Path $V8Path -Leaf) -match '^ibcmd') { "ibcmd" } else { "1cv8" }
 if ($engine -eq "ibcmd" -and $InfoBaseServer -and $InfoBaseRef) {
     Write-Host "Error: ibcmd supports file infobases only (use -InfoBasePath or omit for stub)" -ForegroundColor Red
@@ -192,8 +199,12 @@ try {
         $__ib = Invoke-IbcmdProcess $V8Path $arguments
         $output = $__ib.Output
         $exitCode = $__ib.ExitCode
+        $outMissing = ($exitCode -eq 0) -and -not (Test-OutputNonEmpty $OutputFile)
+        if ($outMissing) { $exitCode = 1 }
         if ($exitCode -eq 0) {
             Write-Host "External data processor/report built successfully: $OutputFile" -ForegroundColor Green
+        } elseif ($outMissing) {
+            Write-Host "Error: exit code 0 but no non-empty file at $OutputFile — build produced no output" -ForegroundColor Red
         } else {
             Write-Host "Error building external data processor/report (code: $exitCode)" -ForegroundColor Red
         }
@@ -227,8 +238,13 @@ try {
     $exitCode = $process.ExitCode
 
     # --- Result ---
+    # Postcondition: exit 0 without a non-empty output file is a false success.
+    $outMissing = ($exitCode -eq 0) -and -not (Test-OutputNonEmpty $OutputFile)
+    if ($outMissing) { $exitCode = 1 }
     if ($exitCode -eq 0) {
         Write-Host "Build completed successfully: $OutputFile" -ForegroundColor Green
+    } elseif ($outMissing) {
+        Write-Host "Error: exit code 0 but no non-empty file at $OutputFile — build produced no output" -ForegroundColor Red
     } else {
         Write-Host "Error building (code: $exitCode)" -ForegroundColor Red
     }

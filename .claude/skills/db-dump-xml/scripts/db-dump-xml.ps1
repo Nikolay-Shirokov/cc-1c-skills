@@ -1,4 +1,4 @@
-﻿# db-dump-xml v1.8 — Dump 1C configuration to XML files
+﻿# db-dump-xml v1.9 — Dump 1C configuration to XML files
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 # NB: *nix-раскладку платформы (/opt/1cv8/<ver>/1cv8, без .exe) знает только .py-порт — PS на *nix не исполняется.
 <#
@@ -170,6 +170,13 @@ function Invoke-IbcmdProcess {
 }
 
 
+function Test-DirNonEmpty {
+    # Postcondition: the platform must have written files into the output directory.
+    # Exit code 0 with an empty dir (broken/headless env) is a false success — reject it.
+    param([string]$Path)
+    return (Test-Path $Path -PathType Container) -and ([bool](Get-ChildItem -LiteralPath $Path -Force -ErrorAction SilentlyContinue | Select-Object -First 1))
+}
+
 $engine = if ((Split-Path $V8Path -Leaf) -match '^ibcmd') { "ibcmd" } else { "1cv8" }
 
 # --- Validate connection ---
@@ -228,8 +235,12 @@ try {
         $__ib = Invoke-IbcmdProcess $V8Path $arguments
         $output = $__ib.Output
         $exitCode = $__ib.ExitCode
+        $outMissing = ($exitCode -eq 0) -and -not (Test-DirNonEmpty $ConfigDir)
+        if ($outMissing) { $exitCode = 1 }
         if ($exitCode -eq 0) {
             Write-Host "Configuration exported successfully to: $ConfigDir" -ForegroundColor Green
+        } elseif ($outMissing) {
+            Write-Host "Error: exit code 0 but no files under $ConfigDir — configuration was not exported" -ForegroundColor Red
         } else {
             Write-Host "Error exporting configuration (code: $exitCode)" -ForegroundColor Red
         }
@@ -298,9 +309,14 @@ try {
     $exitCode = $process.ExitCode
 
     # --- Result ---
+    # Postcondition: exit 0 with an empty output directory is a false success.
+    $outMissing = ($exitCode -eq 0) -and -not (Test-DirNonEmpty $ConfigDir)
+    if ($outMissing) { $exitCode = 1 }
     if ($exitCode -eq 0) {
         Write-Host "Dump completed successfully" -ForegroundColor Green
         Write-Host "Configuration dumped to: $ConfigDir"
+    } elseif ($outMissing) {
+        Write-Host "Error: exit code 0 but no files under $ConfigDir — configuration was not dumped" -ForegroundColor Red
     } else {
         Write-Host "Error dumping configuration (code: $exitCode)" -ForegroundColor Red
     }

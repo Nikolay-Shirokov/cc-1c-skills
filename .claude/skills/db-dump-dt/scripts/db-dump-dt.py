@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# db-dump-dt v1.5 — Dump 1C information base to DT file
+# db-dump-dt v1.6 — Dump 1C information base to DT file
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -99,6 +99,12 @@ def run_ibcmd(cmd, has_username=False, warn_no_user=True):
     return subprocess.run(cmd, input="", capture_output=True, encoding="utf-8", errors="replace")
 
 
+def output_nonempty(path):
+    """Postcondition: the platform must have produced a non-empty output file.
+    Exit code 0 without it (broken/headless env) is a false success — reject it."""
+    return os.path.isfile(path) and os.path.getsize(path) > 0
+
+
 def main():
     sys.stdout.reconfigure(encoding="utf-8")
     sys.stderr.reconfigure(encoding="utf-8")
@@ -145,15 +151,21 @@ def main():
         arguments.append(f"--data={ib_data}")
         print(f"Running: ibcmd {' '.join(arguments)}")
         result = run_ibcmd([v8path] + arguments, bool(args.UserName))
-        if result.returncode == 0:
+        exit_code = result.returncode
+        out_missing = exit_code == 0 and not output_nonempty(args.OutputFile)
+        if out_missing:
+            exit_code = 1
+        if exit_code == 0:
             print(f"Information base dumped successfully to: {args.OutputFile}")
+        elif out_missing:
+            print(f"Error: exit code 0 but no non-empty file at {args.OutputFile} — information base was not dumped", file=sys.stderr)
         else:
-            print(f"Error dumping information base (code: {result.returncode})", file=sys.stderr)
+            print(f"Error dumping information base (code: {exit_code})", file=sys.stderr)
         if result.stdout:
             print(result.stdout)
         if result.stderr:
             print(result.stderr, file=sys.stderr)
-        sys.exit(result.returncode)
+        sys.exit(exit_code)
 
     # --- Temp dir ---
     temp_dir = os.path.join(tempfile.gettempdir(), f"db_dump_dt_{random.randint(0, 999999)}")
@@ -190,8 +202,14 @@ def main():
         exit_code = result.returncode
 
         # --- Result ---
+        # Postcondition: exit 0 without a non-empty output file is a false success.
+        out_missing = exit_code == 0 and not output_nonempty(args.OutputFile)
+        if out_missing:
+            exit_code = 1
         if exit_code == 0:
             print(f"Information base dumped successfully to: {args.OutputFile}")
+        elif out_missing:
+            print(f"Error: exit code 0 but no non-empty file at {args.OutputFile} — information base was not dumped", file=sys.stderr)
         else:
             print(f"Error dumping information base (code: {exit_code})", file=sys.stderr)
 

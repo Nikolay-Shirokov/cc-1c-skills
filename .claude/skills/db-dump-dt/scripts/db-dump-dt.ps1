@@ -1,4 +1,4 @@
-﻿# db-dump-dt v1.5 — Dump 1C information base to DT file
+﻿# db-dump-dt v1.6 — Dump 1C information base to DT file
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 # NB: *nix-раскладку платформы (/opt/1cv8/<ver>/1cv8, без .exe) знает только .py-порт — PS на *nix не исполняется.
 <#
@@ -131,6 +131,13 @@ function Invoke-IbcmdProcess {
 }
 
 
+function Test-OutputNonEmpty {
+    # Postcondition: the platform must have produced a non-empty output file.
+    # Exit code 0 without it (broken/headless env) is a false success — reject it.
+    param([string]$Path)
+    return (Test-Path $Path -PathType Leaf) -and ((Get-Item $Path -ErrorAction SilentlyContinue).Length -gt 0)
+}
+
 $engine = if ((Split-Path $V8Path -Leaf) -match '^ibcmd') { "ibcmd" } else { "1cv8" }
 
 # --- Validate connection ---
@@ -167,8 +174,12 @@ try {
         $__ib = Invoke-IbcmdProcess $V8Path $arguments
         $output = $__ib.Output
         $exitCode = $__ib.ExitCode
+        $outMissing = ($exitCode -eq 0) -and -not (Test-OutputNonEmpty $OutputFile)
+        if ($outMissing) { $exitCode = 1 }
         if ($exitCode -eq 0) {
             Write-Host "Information base dumped successfully to: $OutputFile" -ForegroundColor Green
+        } elseif ($outMissing) {
+            Write-Host "Error: exit code 0 but no non-empty file at $OutputFile — information base was not dumped" -ForegroundColor Red
         } else {
             Write-Host "Error dumping information base (code: $exitCode)" -ForegroundColor Red
         }
@@ -202,8 +213,13 @@ try {
     $exitCode = $process.ExitCode
 
     # --- Result ---
+    # Postcondition: exit 0 without a non-empty output file is a false success.
+    $outMissing = ($exitCode -eq 0) -and -not (Test-OutputNonEmpty $OutputFile)
+    if ($outMissing) { $exitCode = 1 }
     if ($exitCode -eq 0) {
         Write-Host "Information base dumped successfully to: $OutputFile" -ForegroundColor Green
+    } elseif ($outMissing) {
+        Write-Host "Error: exit code 0 but no non-empty file at $OutputFile — information base was not dumped" -ForegroundColor Red
     } else {
         Write-Host "Error dumping information base (code: $exitCode)" -ForegroundColor Red
     }

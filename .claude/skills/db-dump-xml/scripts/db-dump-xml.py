@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# db-dump-xml v1.8 — Dump 1C configuration to XML files
+# db-dump-xml v1.9 — Dump 1C configuration to XML files
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -99,6 +99,12 @@ def run_ibcmd(cmd, has_username=False, warn_no_user=True):
     return subprocess.run(cmd, input="", capture_output=True, encoding="utf-8", errors="replace")
 
 
+def dir_nonempty(path):
+    """Postcondition: the platform must have written files into the output directory.
+    Exit code 0 with an empty dir (broken/headless env) is a false success — reject it."""
+    return os.path.isdir(path) and any(os.scandir(path))
+
+
 def main():
     sys.stdout.reconfigure(encoding="utf-8")
     sys.stderr.reconfigure(encoding="utf-8")
@@ -183,15 +189,21 @@ def main():
         arguments.append(f"--data={ib_data}")
         print(f"Running: ibcmd {' '.join(arguments)}")
         result = run_ibcmd([v8path] + arguments, bool(args.UserName))
-        if result.returncode == 0:
+        exit_code = result.returncode
+        out_missing = exit_code == 0 and not dir_nonempty(args.ConfigDir)
+        if out_missing:
+            exit_code = 1
+        if exit_code == 0:
             print(f"Configuration exported successfully to: {args.ConfigDir}")
+        elif out_missing:
+            print(f"Error: exit code 0 but no files under {args.ConfigDir} — configuration was not exported", file=sys.stderr)
         else:
-            print(f"Error exporting configuration (code: {result.returncode})", file=sys.stderr)
+            print(f"Error exporting configuration (code: {exit_code})", file=sys.stderr)
         if result.stdout:
             print(result.stdout)
         if result.stderr:
             print(result.stderr, file=sys.stderr)
-        sys.exit(result.returncode)
+        sys.exit(exit_code)
 
     # --- Temp dir ---
     temp_dir = os.path.join(tempfile.gettempdir(), f"db_dump_xml_{random.randint(0, 999999)}")
@@ -257,9 +269,15 @@ def main():
         exit_code = result.returncode
 
         # --- Result ---
+        # Postcondition: exit 0 with an empty output directory is a false success.
+        out_missing = exit_code == 0 and not dir_nonempty(args.ConfigDir)
+        if out_missing:
+            exit_code = 1
         if exit_code == 0:
             print("Dump completed successfully")
             print(f"Configuration dumped to: {args.ConfigDir}")
+        elif out_missing:
+            print(f"Error: exit code 0 but no files under {args.ConfigDir} — configuration was not dumped", file=sys.stderr)
         else:
             print(f"Error dumping configuration (code: {exit_code})", file=sys.stderr)
 
