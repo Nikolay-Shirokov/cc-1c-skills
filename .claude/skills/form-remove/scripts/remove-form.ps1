@@ -1,4 +1,4 @@
-﻿# form-remove v1.3 — Remove form from 1C object
+﻿# form-remove v1.4 — Remove form from 1C object
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]

@@ -1,0 +1,17 @@
+{
+  "name": "round-trip: modify-property на CRLF+BOM+UTF-8 без финального переноса сохраняет стиль (issue #47)",
+  "setup": "fixture:crlf-config",
+  "input": [
+    { "operation": "modify-property", "value": "Version=1.0.0.2" }
+  ],
+  "expect": {
+    "preserves": {
+      "file": "Configuration.xml",
+      "bom": true,
+      "eol": "crlf",
+      "encoding": "UTF-8",
+      "finalNewline": false,
+      "noCR13": true
+    }
+  }
+}

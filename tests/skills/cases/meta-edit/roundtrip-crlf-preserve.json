@@ -1,0 +1,16 @@
+{
+  "name": "round-trip: add-attribute на CRLF+BOM+UTF-8 файле сохраняет стиль, без &#13; (issue #44)",
+  "setup": "fixture:crlf-catalog",
+  "params": { "objectPath": "Catalogs/КрлфСпр.xml" },
+  "input": { "add": { "attributes": ["Новый: Boolean"] } },
+  "expect": {
+    "preserves": {
+      "file": "Catalogs/КрлфСпр.xml",
+      "bom": true,
+      "eol": "crlf",
+      "encoding": "UTF-8",
+      "finalNewline": true,
+      "noCR13": true
+    }
+  }
+}

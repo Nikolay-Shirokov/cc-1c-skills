@@ -1,4 +1,4 @@
-﻿# cf-edit v1.9 — Edit 1C configuration root (Configuration.xml)
+﻿# cf-edit v1.10 — Edit 1C configuration root (Configuration.xml)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)][Alias('Path')][string]$ConfigPath,

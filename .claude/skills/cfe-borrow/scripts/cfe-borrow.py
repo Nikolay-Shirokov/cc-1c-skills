@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# cfe-borrow v1.8 — Borrow objects from configuration into extension (CFE)
+# cfe-borrow v1.9 — Borrow objects from configuration into extension (CFE)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -349,13 +349,49 @@ def expand_self_closing(container, parent_indent):
         container.text = "\r\n" + parent_indent
 
 
-def save_xml_bom(tree, path):
-    xml_bytes = etree.tostring(tree, xml_declaration=True, encoding="UTF-8")
-    xml_bytes = xml_bytes.replace(b"<?xml version='1.0' encoding='UTF-8'?>", b'<?xml version="1.0" encoding="utf-8"?>')
-    if not xml_bytes.endswith(b"\n"):
+def _detect_xml_style(path):
+    """Стиль существующего файла для round-trip-сохранения: BOM / EOL / регистр encoding /
+    финальный перенос. None → файл новый (сохранить текущее поведение)."""
+    try:
+        raw = open(path, "rb").read()
+    except OSError:
+        return None
+    bom = raw.startswith(b"\xef\xbb\xbf")
+    body = raw[3:] if bom else raw
+    crlf = b"\r\n" in body
+    m = re.search(rb'encoding="([^"]+)"', body[:200])
+    enc = m.group(1).decode("ascii") if m else "utf-8"
+    final_nl = body.endswith(b"\n")
+    return {"bom": bom, "crlf": crlf, "enc": enc, "final_nl": final_nl}
+
+
+def _finalize_xml_bytes(xml_bytes, style):
+    """Привести сериализованные байты к стилю оригинала (или к дефолту, если style is None)."""
+    enc_decl = style["enc"] if style else "utf-8"
+    xml_bytes = xml_bytes.replace(
+        b"<?xml version='1.0' encoding='UTF-8'?>",
+        b'<?xml version="1.0" encoding="' + enc_decl.encode("ascii") + b'"?>')
+    # Канонизировать переносы к LF (убирает &#13; от \r в tail'ах)
+    xml_bytes = (xml_bytes.replace(b"&#13;\n", b"\n").replace(b"&#13;", b"")
+                 .replace(b"\r\n", b"\n").replace(b"\r", b"\n"))
+    # Финальный перенос — как в оригинале (новый файл → есть)
+    want_final_nl = style["final_nl"] if style else True
+    xml_bytes = xml_bytes.rstrip(b"\n")
+    if want_final_nl:
         xml_bytes += b"\n"
+    # EOL — как в оригинале (новый файл → LF, текущее поведение)
+    if style and style["crlf"]:
+        xml_bytes = xml_bytes.replace(b"\n", b"\r\n")
+    return xml_bytes
+
+
+def save_xml_bom(tree, path):
+    style = _detect_xml_style(path)
+    xml_bytes = etree.tostring(tree, xml_declaration=True, encoding="UTF-8")
+    xml_bytes = _finalize_xml_bytes(xml_bytes, style)
     with open(path, "wb") as f:
-        f.write(b"\xef\xbb\xbf")
+        if style is None or style["bom"]:
+            f.write(b"\xef\xbb\xbf")
         f.write(xml_bytes)
 
 

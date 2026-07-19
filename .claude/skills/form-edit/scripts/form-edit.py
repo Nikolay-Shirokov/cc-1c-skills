@@ -1,4 +1,4 @@
-# form-edit v1.4 — Edit 1C managed form elements (Python port)
+# form-edit v1.5 — Edit 1C managed form elements (Python port)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import json
@@ -1475,14 +1475,40 @@ if elem_events_list:
 
 # ── 13. Save ────────────────────────────────────────────────
 
+# Round-trip: определить стиль исходного файла (на диске он ещё не перезаписан).
+try:
+    _fe_raw = open(resolved_form_path, "rb").read()
+except OSError:
+    _fe_raw = None
+if _fe_raw is not None:
+    _fe_bom = _fe_raw.startswith(b"\xef\xbb\xbf")
+    _fe_body = _fe_raw[3:] if _fe_bom else _fe_raw
+    _fe_crlf = b"\r\n" in _fe_body
+    _fe_enc_m = re.search(rb'encoding="([^"]+)"', _fe_body[:200])
+    _fe_enc = _fe_enc_m.group(1).decode("ascii") if _fe_enc_m else "utf-8"
+    _fe_final_nl = _fe_body.endswith(b"\n")
+else:
+    _fe_bom, _fe_crlf, _fe_enc, _fe_final_nl = True, False, "utf-8", True
+
 xml_bytes = etree.tostring(tree, xml_declaration=True, encoding="UTF-8")
-# Fix XML declaration quotes
-xml_bytes = xml_bytes.replace(b"<?xml version='1.0' encoding='UTF-8'?>", b'<?xml version="1.0" encoding="utf-8"?>')
-if not xml_bytes.endswith(b"\n"):
+# Восстановить регистр encoding как в оригинале.
+xml_bytes = xml_bytes.replace(
+    b"<?xml version='1.0' encoding='UTF-8'?>",
+    b'<?xml version="1.0" encoding="' + _fe_enc.encode("ascii") + b'"?>')
+# Канонизировать переносы к LF (убирает &#13; от \r в tail'ах).
+xml_bytes = (xml_bytes.replace(b"&#13;\n", b"\n").replace(b"&#13;", b"")
+             .replace(b"\r\n", b"\n").replace(b"\r", b"\n"))
+# Финальный перенос — как в оригинале.
+xml_bytes = xml_bytes.rstrip(b"\n")
+if _fe_final_nl:
     xml_bytes += b"\n"
-# Write with BOM
+# EOL — как в оригинале.
+if _fe_crlf:
+    xml_bytes = xml_bytes.replace(b"\n", b"\r\n")
+# Write preserving BOM as in original.
 with open(resolved_form_path, "wb") as f:
-    f.write(b'\xef\xbb\xbf')
+    if _fe_bom:
+        f.write(b'\xef\xbb\xbf')
     f.write(xml_bytes)
 
 # ── 14. Summary ─────────────────────────────────────────────

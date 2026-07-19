@@ -1,4 +1,4 @@
-﻿# meta-edit v1.21 — Edit existing 1C metadata object XML (+modify-property Type: структурный дескриптор, guard от порчи)
+﻿# meta-edit v1.22 — Edit existing 1C metadata object XML
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[string]$DefinitionFile,

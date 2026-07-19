@@ -1,0 +1,18 @@
+{
+  "name": "round-trip: add-content на CRLF+BOM+UTF-8 файле сохраняет стиль, без &#13; (issue #46)",
+  "setup": "fixture:crlf-subsystem",
+  "params": { "subsystemPath": "Subsystems/КрлфПС.xml" },
+  "input": [
+    { "operation": "add-content", "value": "CommonModule.Второй" }
+  ],
+  "expect": {
+    "preserves": {
+      "file": "Subsystems/КрлфПС.xml",
+      "bom": true,
+      "eol": "crlf",
+      "encoding": "UTF-8",
+      "finalNewline": true,
+      "noCR13": true
+    }
+  }
+}

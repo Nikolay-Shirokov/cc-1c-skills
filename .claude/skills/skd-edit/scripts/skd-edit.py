@@ -1,4 +1,4 @@
-# skd-edit v1.29 — Atomic 1C DCS editor (Python port)
+# skd-edit v1.30 — Atomic 1C DCS editor (Python port)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import json
@@ -1984,6 +1984,12 @@ raw_root_opening = _root_open_m.group(0) if _root_open_m else None
 
 # Detect line ending convention so save can normalize back to whatever the source used.
 line_ending = "\r\n" if "\r\n" in raw_original_text else "\n"
+# Round-trip: сохранить BOM / регистр encoding / финальный перенос как в оригинале.
+_skd_had_bom = raw_original_bytes.startswith(b"\xef\xbb\xbf")
+_skd_body = raw_original_bytes[3:] if _skd_had_bom else raw_original_bytes
+_skd_enc_m = re.search(rb'encoding="([^"]+)"', _skd_body[:200])
+_skd_enc = _skd_enc_m.group(1).decode("ascii") if _skd_enc_m else "utf-8"
+_skd_final_nl = _skd_body.endswith(b"\n")
 
 xml_parser = etree.XMLParser(remove_blank_text=False)
 tree = etree.parse(resolved_path, xml_parser)
@@ -3423,7 +3429,10 @@ if not dirty:
     sys.exit(0)
 
 xml_bytes = etree.tostring(tree, xml_declaration=True, encoding="UTF-8")
-xml_bytes = xml_bytes.replace(b"<?xml version='1.0' encoding='UTF-8'?>", b'<?xml version="1.0" encoding="utf-8"?>')
+# Round-trip: восстановить регистр encoding как в оригинале.
+xml_bytes = xml_bytes.replace(
+    b"<?xml version='1.0' encoding='UTF-8'?>",
+    b'<?xml version="1.0" encoding="' + _skd_enc.encode("ascii") + b'"?>')
 
 # Format-preserve post-processing (mirrors PS path):
 #   (1) restore the original raw <DataCompositionSchema ...> opening tag — lxml collapses
@@ -3435,17 +3444,24 @@ if raw_root_opening:
 # defensive — strip any space before `/>` so PS and PY ports stay byte-equivalent.
 xml_text = re.sub(r"(?<=\S) />", "/>", xml_text)
 
-# Normalize line endings to match source.
+# Канонизировать переносы к LF (убирает возможный &#13;), затем к стилю источника.
+xml_text = xml_text.replace("&#13;\n", "\n").replace("&#13;", "").replace("\r\n", "\n").replace("\r", "\n")
 if line_ending == "\r\n":
-    xml_text = re.sub(r"(?<!\r)\n", "\r\n", xml_text)
-else:
-    xml_text = xml_text.replace("\r\n", "\n")
+    xml_text = xml_text.replace("\n", "\r\n")
 xml_bytes = xml_text.encode("utf-8")
 
-if not xml_bytes.endswith(b"\n"):
-    xml_bytes += b"\n"
+# Финальный перенос — как в оригинале.
+if line_ending == "\r\n":
+    xml_bytes = xml_bytes.rstrip(b"\r\n")
+    if _skd_final_nl:
+        xml_bytes += b"\r\n"
+else:
+    xml_bytes = xml_bytes.rstrip(b"\n")
+    if _skd_final_nl:
+        xml_bytes += b"\n"
 with open(resolved_path, "wb") as f:
-    f.write(b'\xef\xbb\xbf')
+    if _skd_had_bom:
+        f.write(b'\xef\xbb\xbf')
     f.write(xml_bytes)
 
 print(f"[OK] Saved {resolved_path}")

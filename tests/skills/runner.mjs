@@ -299,9 +299,7 @@ function normalizeXmlContent(text, opts = {}) {
     /<\?xml\s+version=['"]1\.0['"]\s+encoding=['"]([^'"]+)['"]\s*\?>/gi,
     (_, enc) => `<?xml version="1.0" encoding="${enc.toLowerCase()}"?>`
   );
-  // 2. Remove &#13; (CR encoded as XML entity by Python etree)
-  s = s.replace(/&#13;/g, '');
-  // 3. Strip xmlns declarations (Python etree strips unused ones).
+  // 2. Strip xmlns declarations (Python etree strips unused ones).
   //    Skipped for Configuration.xml: those declarations are load-bearing (they back
   //    xsi:type values like app:ApplicationUsePurpose in UsePurposes) and dropping them
   //    is exactly the corruption of issue #38 — keeping them lets the test guard against it.
@@ -345,6 +343,37 @@ function normalizeContent(text, config, relFile) {
   }
 
   return s;
+}
+
+// ─── Byte-style preservation check (round-trip #44/#46/#47) ─────────────────
+// Проверяет СЫРЫЕ байты файла (в обход normalizeContent): BOM / EOL / регистр
+// encoding / финальный перенос / отсутствие &#13;. spec: { file, bom, eol:"crlf"|"lf",
+// encoding, finalNewline, noCR13 }. Возвращает массив ошибок.
+function checkPreserves(workDir, spec) {
+  const errs = [];
+  const target = join(workDir, spec.file);
+  if (!existsSync(target)) { errs.push(`preserves: file not found: ${spec.file}`); return errs; }
+  const buf = readFileSync(target);
+  const hasBom = buf[0] === 0xEF && buf[1] === 0xBB && buf[2] === 0xBF;
+  const body = hasBom ? buf.subarray(3) : buf;
+  const text = body.toString('utf8');
+  if (spec.bom !== undefined && hasBom !== spec.bom)
+    errs.push(`preserves: BOM expected ${spec.bom}, got ${hasBom}`);
+  if (spec.eol) {
+    const hasCR = body.includes(0x0d);
+    const wantCR = spec.eol === 'crlf';
+    if (hasCR !== wantCR) errs.push(`preserves: EOL expected ${spec.eol} (CR=${wantCR}), got CR=${hasCR}`);
+  }
+  if (spec.encoding) {
+    const m = /encoding="([^"]+)"/.exec(text);
+    if (!m || m[1] !== spec.encoding) errs.push(`preserves: encoding expected "${spec.encoding}", got "${m ? m[1] : '?'}"`);
+  }
+  if (spec.finalNewline !== undefined) {
+    const endsNL = body.length > 0 && body[body.length - 1] === 0x0a;
+    if (endsNL !== spec.finalNewline) errs.push(`preserves: finalNewline expected ${spec.finalNewline}, got ${endsNL}`);
+  }
+  if (spec.noCR13 && text.includes('&#13;')) errs.push(`preserves: unexpected &#13; literal in output`);
+  return errs;
 }
 
 // ─── Snapshot comparison ────────────────────────────────────────────────────
@@ -608,6 +637,11 @@ async function runCaseAsync(testCase, opts) {
           if (stdout.includes(needle)) errors.push(`stdout unexpectedly contains "${needle}"`);
         }
       }
+      if (caseData.expect?.preserves) {
+        const specs = Array.isArray(caseData.expect.preserves)
+          ? caseData.expect.preserves : [caseData.expect.preserves];
+        for (const spec of specs) errors.push(...checkPreserves(workDir, spec));
+      }
       if (errors.length === 0 && !caseData.expectError && !workspace.readOnly) {
         const snapshotConfig = { ...skillConfig.snapshot, runtime: opts.runtime };
         if (opts.updateSnapshots) {
@@ -784,6 +818,11 @@ function runCase(testCase, opts) {
         for (const needle of needles) {
           if (stdout.includes(needle)) errors.push(`stdout unexpectedly contains "${needle}"`);
         }
+      }
+      if (caseData.expect?.preserves) {
+        const specs = Array.isArray(caseData.expect.preserves)
+          ? caseData.expect.preserves : [caseData.expect.preserves];
+        for (const spec of specs) errors.push(...checkPreserves(workDir, spec));
       }
 
       // Snapshot comparison (skip for external/read-only workspaces)

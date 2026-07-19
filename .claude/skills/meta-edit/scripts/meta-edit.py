@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-edit v1.21 — Edit existing 1C metadata object XML (+modify-property Type: структурный дескриптор, guard от порчи)
+# meta-edit v1.22 — Edit existing 1C metadata object XML
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -2896,11 +2896,46 @@ def set_complex_property(property_name, values):
 # ============================================================
 
 
+def _detect_xml_style(path):
+    """Стиль существующего файла для round-trip-сохранения: BOM / EOL / регистр encoding /
+    финальный перенос. None → файл новый (сохранить текущее поведение)."""
+    try:
+        raw = open(path, "rb").read()
+    except OSError:
+        return None
+    bom = raw.startswith(b"\xef\xbb\xbf")
+    body = raw[3:] if bom else raw
+    crlf = b"\r\n" in body
+    m = re.search(rb'encoding="([^"]+)"', body[:200])
+    enc = m.group(1).decode("ascii") if m else "utf-8"
+    final_nl = body.endswith(b"\n")
+    return {"bom": bom, "crlf": crlf, "enc": enc, "final_nl": final_nl}
+
+
+def _finalize_xml_bytes(xml_bytes, style):
+    """Привести сериализованные байты к стилю оригинала (или к дефолту, если style is None)."""
+    enc_decl = style["enc"] if style else "utf-8"
+    xml_bytes = xml_bytes.replace(
+        b"<?xml version='1.0' encoding='UTF-8'?>",
+        b'<?xml version="1.0" encoding="' + enc_decl.encode("ascii") + b'"?>')
+    # Канонизировать переносы к LF (убирает &#13; от \r в tail'ах)
+    xml_bytes = (xml_bytes.replace(b"&#13;\n", b"\n").replace(b"&#13;", b"")
+                 .replace(b"\r\n", b"\n").replace(b"\r", b"\n"))
+    # Финальный перенос — как в оригинале (новый файл → есть)
+    want_final_nl = style["final_nl"] if style else True
+    xml_bytes = xml_bytes.rstrip(b"\n")
+    if want_final_nl:
+        xml_bytes += b"\n"
+    # EOL — как в оригинале (новый файл → LF, текущее поведение)
+    if style and style["crlf"]:
+        xml_bytes = xml_bytes.replace(b"\n", b"\r\n")
+    return xml_bytes
+
+
 def save_xml(tree, path):
-    """Save XML tree with BOM and proper encoding declaration."""
+    """Save XML tree preserving the existing file's BOM/EOL/encoding-case/final-newline."""
+    style = _detect_xml_style(path)
     xml_bytes = etree.tostring(tree, xml_declaration=True, encoding="UTF-8")
-    # Fix XML declaration quotes
-    xml_bytes = xml_bytes.replace(b"<?xml version='1.0' encoding='UTF-8'?>", b'<?xml version="1.0" encoding="utf-8"?>')
     # Fix d5p1 namespace declarations stripped by lxml (it treats them as unused
     # because d5p1: appears only in text content, not in element/attribute names)
     xml_bytes = re.sub(
@@ -2908,10 +2943,10 @@ def save_xml(tree, path):
         b'\\1 xmlns:d5p1="http://v8.1c.ru/8.1/data/enterprise/current-config"\\2',
         xml_bytes
     )
-    if not xml_bytes.endswith(b"\n"):
-        xml_bytes += b"\n"
+    xml_bytes = _finalize_xml_bytes(xml_bytes, style)
     with open(path, "wb") as f:
-        f.write(b"\xef\xbb\xbf")
+        if style is None or style["bom"]:
+            f.write(b"\xef\xbb\xbf")
         f.write(xml_bytes)
 
 
