@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# db-run v1.2 — Launch 1C:Enterprise
+# db-run v1.3 — Launch 1C:Enterprise
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -9,6 +9,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 
 
 def _find_project_v8path():
@@ -131,9 +132,24 @@ def main():
 
     arguments.append("/DisableStartupDialogs")
 
-    # --- Execute (background, no wait) ---
-    print(f"Running: 1cv8.exe {' '.join(arguments)}")
-    subprocess.Popen([v8path] + arguments)
+    # --- Execute (background) ---
+    # Mask credentials (/N, /P) before printing the command line — never leak secrets.
+    display = [re.sub(r"^(/[NP]).+", r"\1***", a) for a in arguments]
+    print(f"Running: 1cv8.exe {' '.join(display)}")
+    proc = subprocess.Popen([v8path] + arguments)
+
+    # --- Bounded early-exit check ---
+    # The launch is a background GUI process, so we don't wait for completion. But a process
+    # that dies within the first ~1.5s never really started (bad base, no display, license) —
+    # report that honestly instead of a blind "launched".
+    deadline = time.monotonic() + 1.5
+    while time.monotonic() < deadline and proc.poll() is None:
+        time.sleep(0.2)
+    rc = proc.poll()
+    if rc is not None:
+        print(f"Error: 1C:Enterprise exited immediately (code: {rc})", file=sys.stderr)
+        sys.exit(rc if rc and rc > 0 else 1)
+    print(f"PID: {proc.pid}")
     print("1C:Enterprise launched")
 
 
