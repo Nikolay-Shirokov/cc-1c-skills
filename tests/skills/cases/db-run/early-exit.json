@@ -1,0 +1,9 @@
+{
+  "name": "Ранний выход: процесс умер в контрольном окне, не должно быть launched (fake platform)",
+  "runtimeOnly": "powershell",
+  "preRun": [
+    { "writeFile": { "path": "fake.cmd", "content": "@echo off\r\nexit /b 1\r\n" } }
+  ],
+  "args_extra": ["-V8Path", "{workDir}\\fake.cmd", "-InfoBasePath", "{workDir}\\ib"],
+  "expectError": true
+}

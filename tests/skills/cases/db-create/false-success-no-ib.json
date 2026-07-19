@@ -1,0 +1,9 @@
+{
+  "name": "Ложный успех: платформа вернула 0 без 1Cv8.1CD (fake platform)",
+  "runtimeOnly": "powershell",
+  "preRun": [
+    { "writeFile": { "path": "fake.cmd", "content": "@echo off\r\nexit /b 0\r\n" } }
+  ],
+  "args_extra": ["-V8Path", "{workDir}\\fake.cmd", "-InfoBasePath", "{workDir}\\ib"],
+  "expectError": true
+}

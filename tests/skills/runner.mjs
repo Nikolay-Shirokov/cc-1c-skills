@@ -539,6 +539,12 @@ async function runCaseAsync(testCase, opts) {
   let workDir = null;
   let inputFile = null;
 
+  // runtimeOnly: gate a case to a single port (e.g. a .cmd fake platform only runs via
+  // PowerShell's Start-Process; python's list-exec can't launch it). Skipped elsewhere.
+  if (caseData.runtimeOnly && caseData.runtimeOnly !== opts.runtime) {
+    return { id: testCase.id, skill: testCase.skillDir, name: testCase.name, passed: true, skipped: true, errors: [], elapsed: '0.0s' };
+  }
+
   try {
     const skillCasesDir = join(CASES, testCase.skillDir);
     const fixturePath = ensureSetup(setupName, opts.runtime, skillCasesDir);
