@@ -179,11 +179,16 @@ jobs:
         env:
           PLATFORM_LABEL: ${{ matrix.label }}
           PLATFORM_DIR: ${{ matrix.target_dir }}
+          RUNTIME: ${{ matrix.runtime }}
           RUNTIME_LABEL: ${{ matrix.runtime == 'powershell' && 'PowerShell' || 'Python' }}
-          RUNTIME_REQUIREMENTS: ${{ matrix.runtime == 'powershell' && '- **Windows** с PowerShell 5.1+ (входит в Windows).' || '- **Python 3.9+**. Установка зависимостей: `pip install -r requirements.txt` (lxml, Pillow, psutil).' }}
           COMMIT_SHA: ${{ github.sha }}
           MAIN_REPO_URL: https://github.com/${{ github.repository }}
         run: |
+          if [ "$RUNTIME" = "powershell" ]; then
+            RUNTIME_REQUIREMENTS='- **Windows** с PowerShell 5.1+ (входит в Windows).'
+          else
+            RUNTIME_REQUIREMENTS='- **Python 3.9+**. Установка зависимостей: `pip install -r requirements.txt` (lxml, Pillow, psutil).'
+          fi
           sed \
             -e "s|{{PLATFORM_LABEL}}|${PLATFORM_LABEL}|g" \
             -e "s|{{PLATFORM_DIR}}|${PLATFORM_DIR}|g" \
