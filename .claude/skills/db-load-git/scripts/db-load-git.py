@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# db-load-git v1.11 — Load Git changes into 1C database
+# db-load-git v1.12 — Load Git changes into 1C database
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -119,6 +119,31 @@ def run_git(config_dir, git_args):
     if result.returncode == 0:
         return [line for line in result.stdout.splitlines() if line.strip()]
     return []
+
+
+def describe_exit(code):
+    """Annotate an abnormal process exit code so a crash isn't reported as a bare number.
+    Batch 1C in a broken/headless environment (no GUI session, no license) can crash mid-run
+    instead of returning a clean error, possibly leaving the infobase locked or half-mutated."""
+    if code is None:
+        return ""
+    win = {
+        3221225477: "0xC0000005 (access violation)", -1073741819: "0xC0000005 (access violation)",
+        3221225781: "0xC0000135 (missing DLL)", -1073741515: "0xC0000135 (missing DLL)",
+        3221226505: "0xC0000409 (stack overrun)", -1073740791: "0xC0000409 (stack overrun)",
+    }
+    if code in win:
+        return f" — abnormal termination {win[code]}; the platform crashed; the infobase may be left in an inconsistent state"
+    if -64 <= code < 0:
+        try:
+            import signal
+            name = signal.Signals(-code).name
+        except (ValueError, AttributeError):
+            name = f"signal {-code}"
+        return (f" — terminated by {name}; the platform crashed abnormally "
+                "(often a headless environment without a GUI session or license); "
+                "the infobase may be left in an inconsistent state")
+    return ""
 
 
 def main():
@@ -310,7 +335,7 @@ def main():
             print(f"Running: ibcmd {' '.join(arguments)}")
             result = run_ibcmd([v8path] + arguments, bool(args.UserName))
             if result.returncode != 0:
-                print(f"Error loading changes (code: {result.returncode})", file=sys.stderr)
+                print(f"Error loading changes (code: {result.returncode}){describe_exit(result.returncode)}", file=sys.stderr)
                 if result.stdout:
                     print(result.stdout)
                 if result.stderr:
@@ -333,7 +358,7 @@ def main():
                 if exit_code == 0:
                     print("Database configuration updated successfully")
                 else:
-                    print(f"Error updating database configuration (code: {exit_code})", file=sys.stderr)
+                    print(f"Error updating database configuration (code: {exit_code}){describe_exit(exit_code)}", file=sys.stderr)
                 if ar.stdout:
                     print(ar.stdout)
                 if ar.stderr:
@@ -396,7 +421,7 @@ def main():
         if exit_code == 0:
             print("Load completed successfully")
         else:
-            print(f"Error loading configuration (code: {exit_code})", file=sys.stderr)
+            print(f"Error loading configuration (code: {exit_code}){describe_exit(exit_code)}", file=sys.stderr)
 
         if os.path.isfile(out_file):
             try:

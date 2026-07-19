@@ -1,4 +1,4 @@
-﻿# db-load-dt v1.5 — Load 1C information base from DT file
+﻿# db-load-dt v1.6 — Load 1C information base from DT file
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 # NB: *nix-раскладку платформы (/opt/1cv8/<ver>/1cv8, без .exe) знает только .py-порт — PS на *nix не исполняется.
 <#
@@ -72,6 +72,23 @@ param(
 
 $OutputEncoding = [System.Text.Encoding]::UTF8
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+
+function Get-ExitAnnotation {
+    # Annotate an abnormal process exit code so a crash isn't reported as a bare number.
+    # A batch DESIGNER that crashes (e.g. missing license) may leave the infobase locked or
+    # half-updated — surface that instead of a plain code. (Windows exception codes only;
+    # POSIX signals are handled in the .py port.)
+    param([int]$Code)
+    $win = @{
+        -1073741819 = "0xC0000005 (access violation)"
+        -1073741515 = "0xC0000135 (missing DLL)"
+        -1073740791 = "0xC0000409 (stack overrun)"
+    }
+    if ($win.ContainsKey($Code)) {
+        return " — abnormal termination $($win[$Code]); the platform crashed; the infobase may be left in an inconsistent state"
+    }
+    return ""
+}
 
 # --- Resolve V8Path ---
 function Find-ProjectV8Path {
@@ -184,7 +201,7 @@ try {
         if ($exitCode -eq 0) {
             Write-Host "Information base restored successfully from: $InputFile" -ForegroundColor Green
         } else {
-            Write-Host "Error restoring information base (code: $exitCode)" -ForegroundColor Red
+            Write-Host "Error restoring information base (code: $exitCode)$(Get-ExitAnnotation $exitCode)" -ForegroundColor Red
         }
         if ($output) { Write-Host ($output | Out-String) }
         exit $exitCode
@@ -221,7 +238,7 @@ try {
     if ($exitCode -eq 0) {
         Write-Host "Information base restored successfully from: $InputFile" -ForegroundColor Green
     } else {
-        Write-Host "Error restoring information base (code: $exitCode)" -ForegroundColor Red
+        Write-Host "Error restoring information base (code: $exitCode)$(Get-ExitAnnotation $exitCode)" -ForegroundColor Red
     }
 
     if (Test-Path $outFile) {

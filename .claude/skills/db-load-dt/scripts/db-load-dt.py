@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# db-load-dt v1.5 — Load 1C information base from DT file
+# db-load-dt v1.6 — Load 1C information base from DT file
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -99,6 +99,31 @@ def run_ibcmd(cmd, has_username=False, warn_no_user=True):
     return subprocess.run(cmd, input="", capture_output=True, encoding="utf-8", errors="replace")
 
 
+def describe_exit(code):
+    """Annotate an abnormal process exit code so a crash isn't reported as a bare number.
+    Batch 1C in a broken/headless environment (no GUI session, no license) can crash mid-run
+    instead of returning a clean error, possibly leaving the infobase locked or half-mutated."""
+    if code is None:
+        return ""
+    win = {
+        3221225477: "0xC0000005 (access violation)", -1073741819: "0xC0000005 (access violation)",
+        3221225781: "0xC0000135 (missing DLL)", -1073741515: "0xC0000135 (missing DLL)",
+        3221226505: "0xC0000409 (stack overrun)", -1073740791: "0xC0000409 (stack overrun)",
+    }
+    if code in win:
+        return f" — abnormal termination {win[code]}; the platform crashed; the infobase may be left in an inconsistent state"
+    if -64 <= code < 0:
+        try:
+            import signal
+            name = signal.Signals(-code).name
+        except (ValueError, AttributeError):
+            name = f"signal {-code}"
+        return (f" — terminated by {name}; the platform crashed abnormally "
+                "(often a headless environment without a GUI session or license); "
+                "the infobase may be left in an inconsistent state")
+    return ""
+
+
 def main():
     sys.stdout.reconfigure(encoding="utf-8")
     sys.stderr.reconfigure(encoding="utf-8")
@@ -152,7 +177,7 @@ def main():
         if result.returncode == 0:
             print(f"Information base restored successfully from: {args.InputFile}")
         else:
-            print(f"Error restoring information base (code: {result.returncode})", file=sys.stderr)
+            print(f"Error restoring information base (code: {result.returncode}){describe_exit(result.returncode)}", file=sys.stderr)
         if result.stdout:
             print(result.stdout)
         if result.stderr:
@@ -201,7 +226,7 @@ def main():
         if exit_code == 0:
             print(f"Information base restored successfully from: {args.InputFile}")
         else:
-            print(f"Error restoring information base (code: {exit_code})", file=sys.stderr)
+            print(f"Error restoring information base (code: {exit_code}){describe_exit(exit_code)}", file=sys.stderr)
 
         if os.path.isfile(out_file):
             try:
