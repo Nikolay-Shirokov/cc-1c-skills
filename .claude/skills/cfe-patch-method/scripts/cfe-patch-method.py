@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# cfe-patch-method v2.2 — Source-aware method interceptor for 1C extension (CFE)
+# cfe-patch-method v2.3 — Source-aware method interceptor for 1C extension (CFE)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -869,29 +869,30 @@ def write_conflict_folder(folder, method_id, ext_bsl, existing_name, method, v1,
     md.append("Причина: %s" % conflict_reason(disputed))
     md.append("")
     md.append("## Не размещено — перенести вручную")
+    cn = 0
     for d in disputed:
+        cn += 1
         md.append("")
         if d["kind"] == "insert":
-            md.append("Вставка. В вашей версии (local) блок стоял по якорю:")
+            md.append("### Конфликт №%d — вставка" % cn)
+            md.append("Как блок стоял в вашей версии (local):")
             if d.get("before"):
-                md.append("  после:")
                 for l in d["before"]:
-                    md.append("    " + l)
-            else:
-                md.append("  после: (начало метода)")
-            if d.get("after"):
-                md.append("  перед:")
-                for l in d["after"]:
-                    md.append("    " + l)
-            else:
-                md.append("  перед: (конец метода)")
-            md.append("Якорь изменился/исчез в новом оригинале (remote) — потому блок не лёг автоматически (см. дифф base→remote ниже).")
-            md.append("Куда переносить: если якорного кода в новом методе больше нет — он, вероятно, вынесен/отрефакторен (ищите в диффе новый вызов/процедуру). Размести адаптацию по смыслу: например пост-обработкой после нового вызова, либо в заимствованной процедуре, куда переехал код. При правке файла сохрани кодировку (UTF-8 с BOM). Блок:")
+                    md.append(l)
             md.append("#Вставка"); md.extend(d["lines"]); md.append("#КонецВставки")
+            if d.get("after"):
+                for l in d["after"]:
+                    md.append(l)
+            md.append("")
+            md.append("Якорь (строки вокруг #Вставка) изменился/исчез в новом оригинале — блок не лёг автоматически (см. дифф base→remote ниже).")
+            md.append("В модуле расширения блок припаркован в конце метода под меткой // [РЕСИНК-КОНФЛИКТ №%d] — найди по ней." % cn)
+            md.append("Куда переносить: если якорного кода в новом методе больше нет — он, вероятно, вынесен/отрефакторен (ищите в диффе новый вызов/процедуру). Размести адаптацию по смыслу: например пост-обработкой после нового вызова, либо в заимствованной процедуре, куда переехал код. При правке файла сохрани кодировку (UTF-8 с BOM).")
         else:
-            md.append("Удаление. Строки для удаления не найдены в новом оригинале (изменились/исчезли):")
+            md.append("### Конфликт №%d — удаление" % cn)
+            md.append("Строки для удаления не найдены в новом оригинале (изменились/исчезли):")
             for l in d["lines"]:
                 md.append("  - " + l.strip())
+            md.append("В модуле расширения помечено меткой // [РЕСИНК-КОНФЛИКТ №%d]." % cn)
     md.append("")
     md.append("## Дифф base→remote (что изменилось в оригинале)")
     for l in v1:
@@ -978,13 +979,15 @@ def resync_one(ext_bsl, ext_lines, dup, method, logical_module, conflict_folder,
             for blk in insert_after[k]:
                 new_body.append("#Вставка"); new_body.extend(blk); new_body.append("#КонецВставки")
     if disputed:
-        new_body.append("\t// [РЕСИНК-КОНФЛИКТ] перенесите блоки ниже вручную — исходный якорь изменился в новой версии оригинала.")
-        new_body.append("\t// Материалы: см. index.md / conflict.md в merge-воркспейсе (путь в выводе).")
+        new_body.append("\t// [РЕСИНК-КОНФЛИКТ] блоки ниже не легли автоматически — перенесите вручную (по № см. conflict.md / index.md в merge-воркспейсе, путь в выводе).")
+        cn = 0
         for d in disputed:
+            cn += 1
             if d["kind"] == "insert":
+                new_body.append("\t// [РЕСИНК-КОНФЛИКТ №%d] вставка — исходный якорь изменён в новом оригинале." % cn)
                 new_body.append("#Вставка"); new_body.extend(d["lines"]); new_body.append("#КонецВставки")
             else:
-                new_body.append("\t// [РЕСИНК-КОНФЛИКТ] не удалось найти для удаления:")
+                new_body.append("\t// [РЕСИНК-КОНФЛИКТ №%d] удаление — строки не найдены в новом оригинале:" % cn)
                 for l in d["lines"]:
                     new_body.append("\t// " + l.strip())
 

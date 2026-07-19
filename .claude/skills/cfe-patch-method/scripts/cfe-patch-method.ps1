@@ -1,4 +1,4 @@
-﻿# cfe-patch-method v2.2 — Source-aware method interceptor for 1C extension (CFE)
+﻿# cfe-patch-method v2.3 — Source-aware method interceptor for 1C extension (CFE)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -531,18 +531,25 @@ function Write-ConflictFolder {
 	$md += "Причина: $(Get-ResyncConflictReason $disputed)"
 	$md += ""
 	$md += "## Не размещено — перенести вручную"
+	$cn = 0
 	foreach ($d in $disputed) {
+		$cn++
 		$md += ""
 		if ($d.Kind -eq 'insert') {
-			$md += "Вставка. В вашей версии (local) блок стоял по якорю:"
-			if ($d.Before -and $d.Before.Count -gt 0) { $md += "  после:"; foreach ($l in $d.Before) { $md += "    $l" } } else { $md += "  после: (начало метода)" }
-			if ($d.After -and $d.After.Count -gt 0) { $md += "  перед:"; foreach ($l in $d.After) { $md += "    $l" } } else { $md += "  перед: (конец метода)" }
-			$md += "Якорь изменился/исчез в новом оригинале (remote) — потому блок не лёг автоматически (см. дифф base→remote ниже)."
-			$md += "Куда переносить: если якорного кода в новом методе больше нет — он, вероятно, вынесен/отрефакторен (ищите в диффе новый вызов/процедуру). Размести адаптацию по смыслу: например пост-обработкой после нового вызова, либо в заимствованной процедуре, куда переехал код. При правке файла сохрани кодировку (UTF-8 с BOM). Блок:"
+			$md += "### Конфликт №$cn — вставка"
+			$md += "Как блок стоял в вашей версии (local):"
+			if ($d.Before -and $d.Before.Count -gt 0) { foreach ($l in $d.Before) { $md += $l } }
 			$md += "#Вставка"; foreach ($l in $d.Lines) { $md += $l }; $md += "#КонецВставки"
+			if ($d.After -and $d.After.Count -gt 0) { foreach ($l in $d.After) { $md += $l } }
+			$md += ""
+			$md += "Якорь (строки вокруг #Вставка) изменился/исчез в новом оригинале — блок не лёг автоматически (см. дифф base→remote ниже)."
+			$md += "В модуле расширения блок припаркован в конце метода под меткой // [РЕСИНК-КОНФЛИКТ №$cn] — найди по ней."
+			$md += "Куда переносить: если якорного кода в новом методе больше нет — он, вероятно, вынесен/отрефакторен (ищите в диффе новый вызов/процедуру). Размести адаптацию по смыслу: например пост-обработкой после нового вызова, либо в заимствованной процедуре, куда переехал код. При правке файла сохрани кодировку (UTF-8 с BOM)."
 		} else {
-			$md += "Удаление. Строки для удаления не найдены в новом оригинале (изменились/исчезли):"
+			$md += "### Конфликт №$cn — удаление"
+			$md += "Строки для удаления не найдены в новом оригинале (изменились/исчезли):"
 			foreach ($l in $d.Lines) { $md += "  - $($l.Trim())" }
+			$md += "В модуле расширения помечено меткой // [РЕСИНК-КОНФЛИКТ №$cn]."
 		}
 	}
 	$md += ""
@@ -628,11 +635,18 @@ function Invoke-Resync {
 		if ($insertAfter.ContainsKey($k)) { foreach ($blk in $insertAfter[$k]) { $newBody += "#Вставка"; foreach ($l in $blk) { $newBody += $l }; $newBody += "#КонецВставки" } }
 	}
 	if ($disputed.Count -gt 0) {
-		$newBody += "`t// [РЕСИНК-КОНФЛИКТ] перенесите блоки ниже вручную — исходный якорь изменился в новой версии оригинала."
-		$newBody += "`t// Материалы: см. index.md / conflict.md в merge-воркспейсе (путь в выводе)."
+		$newBody += "`t// [РЕСИНК-КОНФЛИКТ] блоки ниже не легли автоматически — перенесите вручную (по № см. conflict.md / index.md в merge-воркспейсе, путь в выводе)."
+		$cn = 0
 		foreach ($d in $disputed) {
-			if ($d.Kind -eq 'insert') { $newBody += "#Вставка"; foreach ($l in $d.Lines) { $newBody += $l }; $newBody += "#КонецВставки" }
-			else { $newBody += "`t// [РЕСИНК-КОНФЛИКТ] не удалось найти для удаления:"; foreach ($l in $d.Lines) { $newBody += ("`t// " + $l.Trim()) } }
+			$cn++
+			if ($d.Kind -eq 'insert') {
+				$newBody += "`t// [РЕСИНК-КОНФЛИКТ №$cn] вставка — исходный якорь изменён в новом оригинале."
+				$newBody += "#Вставка"; foreach ($l in $d.Lines) { $newBody += $l }; $newBody += "#КонецВставки"
+			}
+			else {
+				$newBody += "`t// [РЕСИНК-КОНФЛИКТ №$cn] удаление — строки не найдены в новом оригинале:"
+				foreach ($l in $d.Lines) { $newBody += ("`t// " + $l.Trim()) }
+			}
 		}
 	}
 	$asyncPrefix = if ($method.IsAsync) { "Асинх " } else { "" }
