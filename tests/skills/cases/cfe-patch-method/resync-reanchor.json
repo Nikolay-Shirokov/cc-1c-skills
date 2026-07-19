@@ -33,5 +33,5 @@
     "methodName": "П",
     "interceptorType": "ModificationAndControl"
   },
-  "expect": { "stdoutContains": "перенесено правок:" }
+  "expect": { "stdoutContains": "правок сохранено:" }
 }

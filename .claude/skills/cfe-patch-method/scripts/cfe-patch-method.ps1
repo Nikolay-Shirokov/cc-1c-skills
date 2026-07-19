@@ -1,4 +1,4 @@
-﻿# cfe-patch-method v2.3 — Source-aware method interceptor for 1C extension (CFE)
+﻿# cfe-patch-method v2.4 — Source-aware method interceptor for 1C extension (CFE)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -421,6 +421,31 @@ function Find-UniqueRun {
 	return $found
 }
 
+# True if the normalized run `keys` sits in `hay` starting exactly at index `at` (contiguous, in-bounds).
+# Used to detect an insert whose payload the vendor already placed at the anchor (pereneseno v osnovnuyu).
+function Test-RunAt {
+	param($hay, $keys, [int]$at)
+	if ($keys.Count -eq 0) { return $false }
+	if ($at -lt 0 -or ($at + $keys.Count) -gt $hay.Count) { return $false }
+	for ($m = 0; $m -lt $keys.Count; $m++) { if ($hay[$at + $m] -ne $keys[$m]) { return $false } }
+	return $true
+}
+
+# True if a deletion is already applied in v2: its before/after context lines are now adjacent
+# (nothing left between them), or the missing side sits at a body boundary. $null = boundary side.
+function Test-DeleteAbsorbed {
+	param($v2norm, $beforeCtx, $afterCtx)
+	if ($null -ne $beforeCtx -and $null -ne $afterCtx) {
+		for ($i = 0; $i -lt ($v2norm.Count - 1); $i++) {
+			if ($v2norm[$i] -eq $beforeCtx -and $v2norm[$i + 1] -eq $afterCtx) { return $true }
+		}
+		return $false
+	}
+	if ($null -eq $beforeCtx -and $null -ne $afterCtx) { return ($v2norm.Count -gt 0 -and $v2norm[0] -eq $afterCtx) }
+	if ($null -ne $beforeCtx -and $null -eq $afterCtx) { return ($v2norm.Count -gt 0 -and $v2norm[$v2norm.Count - 1] -eq $beforeCtx) }
+	return $false
+}
+
 # Resolve where an insertion lands in v2 using two-sided context.
 # Returns index to "insert after" (-1 = top of body), or $null if ambiguous/conflict.
 function Resolve-InsertionPoint {
@@ -596,7 +621,7 @@ function Invoke-Resync {
 		return @{ Id = $methodId; Status = 'АКТУАЛЕН'; ExtBsl = $extBsl }
 	}
 
-	$insertTop = @(); $insertAfter = @{}; $delStart = @{}; $delEnd = @{}; $disputed = @(); $transferred = @()
+	$insertTop = @(); $insertAfter = @{}; $delStart = @{}; $delEnd = @{}; $disputed = @(); $transferred = @(); $absorbed = @()
 	foreach ($op in $ops) {
 		if ($op.Kind -eq 'insert') {
 			$beforeLines = @()
@@ -605,7 +630,11 @@ function Invoke-Resync {
 			$ae = [Math]::Min($v1norm.Count - 1, $op.After + 3)
 			for ($m = $op.After + 1; $m -le $ae; $m++) { $afterLines += $v1norm[$m] }
 			$k = Resolve-InsertionPoint $v2norm $beforeLines $afterLines
-			if ($null -eq $k) {
+			$payloadNorm = @($op.Lines | ForEach-Object { Get-Normalized $_ })
+			# Payload already in the new original -> the change was carried into the main config.
+			$isAbsorbed = if ($null -eq $k) { (Find-UniqueRun $v2norm $payloadNorm) -ge 0 } else { Test-RunAt $v2norm $payloadNorm ($(if ($k -lt 0) { 0 } else { $k + 1 })) }
+			if ($isAbsorbed) { $absorbed += @{ Kind = 'insert' } }
+			elseif ($null -eq $k) {
 				$dbefore = @(); if ($op.After -ge 0) { $bz = [Math]::Max(0, $op.After - 2); for ($z = $bz; $z -le $op.After; $z++) { $dbefore += $v1[$z] } }
 				$dafter = @(); $az = [Math]::Min($v1.Count - 1, $op.After + 3); for ($z = $op.After + 1; $z -le $az; $z++) { $dafter += $v1[$z] }
 				$disputed += @{ Kind = 'insert'; Lines = $op.Lines; Before = $dbefore; After = $dafter }
@@ -616,13 +645,20 @@ function Invoke-Resync {
 			$keys = @(); for ($m = $op.Start; $m -le $op.End; $m++) { $keys += $v1norm[$m] }
 			$p = Find-UniqueRun $v2norm $keys
 			if ($p -ge 0) { $delStart[$p] = $true; $delEnd[$p + $keys.Count - 1] = $true; $transferred += @{ Kind = 'delete' } }
-			else { $disputed += @{ Kind = 'delete'; Lines = $op.Lines } }
+			else {
+				$delBeforeCtx = if ($op.Start -gt 0) { $v1norm[$op.Start - 1] } else { $null }
+				$delAfterCtx = if ($op.End -lt ($v1norm.Count - 1)) { $v1norm[$op.End + 1] } else { $null }
+				# Block already cut from the new original -> deletion already applied in the main config.
+				if (Test-DeleteAbsorbed $v2norm $delBeforeCtx $delAfterCtx) { $absorbed += @{ Kind = 'delete' } }
+				else { $disputed += @{ Kind = 'delete'; Lines = $op.Lines } }
+			}
 		}
 	}
 
 	if ($ReportOnly) {
-		$st = if ($disputed.Count -gt 0) { 'КОНФЛИКТ' } else { 'ДРЕЙФ' }
-		return @{ Id = $methodId; Status = $st; ExtBsl = $extBsl; Transferred = $transferred.Count; Disputed = $disputed.Count; Reason = (Get-ResyncConflictReason $disputed) }
+		$st = if ($disputed.Count -gt 0) { 'КОНФЛИКТ' } elseif ($transferred.Count -eq 0 -and $absorbed.Count -gt 0) { 'ПЕРЕНЕСЕНО В ОСНОВНУЮ' } else { 'ДРЕЙФ' }
+		$rsn = if ($disputed.Count -gt 0) { Get-ResyncConflictReason $disputed } elseif ($st -eq 'ПЕРЕНЕСЕНО В ОСНОВНУЮ') { 'все правки уже в основной конфигурации' } else { '' }
+		return @{ Id = $methodId; Status = $st; ExtBsl = $extBsl; Transferred = $transferred.Count; Absorbed = $absorbed.Count; Disputed = $disputed.Count; Reason = $rsn }
 	}
 
 	# assemble new marked body
@@ -672,8 +708,9 @@ function Invoke-Resync {
 		$conflictDir = $conflictFolder
 		Write-ConflictFolder $conflictFolder $methodId $extBsl $existingName $method $v1 $markedBody $v2 $v1norm $v2norm $disputed $enc
 	}
-	$status = if ($disputed.Count -gt 0) { 'ЧАСТИЧНО' } else { 'АКТУАЛИЗИРОВАН' }
-	return @{ Id = $methodId; Status = $status; ExtBsl = $extBsl; Transferred = $transferred.Count; Disputed = $disputed.Count; ConflictDir = $conflictDir; Reason = (Get-ResyncConflictReason $disputed) }
+	$status = if ($disputed.Count -gt 0) { 'ЧАСТИЧНО' } elseif ($transferred.Count -eq 0 -and $absorbed.Count -gt 0) { 'ПЕРЕНЕСЕНО В ОСНОВНУЮ' } else { 'АКТУАЛИЗИРОВАН' }
+	$rsn = if ($disputed.Count -gt 0) { Get-ResyncConflictReason $disputed } elseif ($status -eq 'ПЕРЕНЕСЕНО В ОСНОВНУЮ') { 'все правки уже в основной конфигурации — перехватчик можно удалить' } else { '' }
+	return @{ Id = $methodId; Status = $status; ExtBsl = $extBsl; Transferred = $transferred.Count; Absorbed = $absorbed.Count; Disputed = $disputed.Count; ConflictDir = $conflictDir; Reason = $rsn }
 }
 
 # Write run-root index.md (only if there are conflicts). Returns run-root or $null.
@@ -779,20 +816,23 @@ if ($Check -or $Actualize) {
 	Write-Host "[$verb] $extName -> $ConfigPath   (на контроле: $total)"
 	$listed = @($results | Where-Object { $_.Status -ne 'АКТУАЛЕН' })
 	foreach ($p in $listed) {
-		$line = "  {0,-16} {1}" -f $p.Status, $p.Id
+		$line = "  {0,-22} {1}" -f $p.Status, $p.Id
 		if ($p.Reason) { $line += "   $($p.Reason)" }
 		Write-Host $line
 	}
+	$transf = @($results | Where-Object { $_.Status -eq 'ПЕРЕНЕСЕНО В ОСНОВНУЮ' }).Count
 	if ($Check) {
 		$drift = @($results | Where-Object { $_.Status -eq 'ДРЕЙФ' }).Count
 		$confl = @($results | Where-Object { $_.Status -eq 'КОНФЛИКТ' }).Count
 		$gone = @($results | Where-Object { $_.Status -in @('МЕТОД-ИСЧЕЗ', 'ИСТОЧНИК-НЕ-НАЙДЕН') }).Count
-		Write-Host "Итог: $actual/$total актуальны · дрейф: $drift · конфликтов: $confl · внимания: $gone"
-		if ($listed.Count -gt 0) { Write-Host "Починить: /cfe-patch-method -Actualize -ExtensionPath $ExtensionPath -ConfigPath $ConfigPath"; exit 1 } else { exit 0 }
+		Write-Host "Итог: $actual/$total актуальны · дрейф: $drift · конфликтов: $confl · перенесено в основную: $transf · внимания: $gone"
+		if (($drift + $confl + $gone) -gt 0) { Write-Host "Починить: /cfe-patch-method -Actualize -ExtensionPath $ExtensionPath -ConfigPath $ConfigPath"; exit 1 }
+		elseif ($transf -gt 0) { Write-Host "Перенесённые в основную конфигурацию правки подчистит: /cfe-patch-method -Actualize -ExtensionPath $ExtensionPath -ConfigPath $ConfigPath"; exit 0 }
+		else { exit 0 }
 	} else {
 		$upd = @($results | Where-Object { $_.Status -eq 'АКТУАЛИЗИРОВАН' }).Count
 		$part = @($results | Where-Object { $_.Status -eq 'ЧАСТИЧНО' }).Count
-		Write-Host "Итог: $actual/$total актуальны · актуализировано: $upd · частично: $part"
+		Write-Host "Итог: $actual/$total актуальны · актуализировано: $upd · частично: $part · перенесено в основную: $transf"
 		$idx = Write-ResyncIndex $runRoot $results $extName $ConfigPath $verb $enc
 		if ($idx) { Write-Host "Merge-воркспейс конфликтов (см. index.md): $idx" }
 		exit 0
@@ -887,10 +927,19 @@ if ($dup) {
 	$res = Invoke-Resync $extBsl $extLines $dup $method $logicalModule $folder $enc
 	switch ($res.Status) {
 		'АКТУАЛЕН' { Write-Host "[АКТУАЛЕН] &ИзменениеИКонтроль(`"$MethodName`") — оригинал не менялся, изменений нет." }
-		'АКТУАЛИЗИРОВАН' { Write-Host "[АКТУАЛИЗИРОВАН] &ИзменениеИКонтроль(`"$MethodName`") — тело обновлено, перенесено правок: $($res.Transferred)" }
+		'АКТУАЛИЗИРОВАН' {
+			$msg = "[АКТУАЛИЗИРОВАН] &ИзменениеИКонтроль(`"$MethodName`") — тело обновлено, правок сохранено: $($res.Transferred)"
+			if ($res.Absorbed -gt 0) { $msg += ", перенесено в основную конфигурацию: $($res.Absorbed)" }
+			Write-Host $msg
+		}
+		'ПЕРЕНЕСЕНО В ОСНОВНУЮ' {
+			Write-Host "[ПЕРЕНЕСЕНО В ОСНОВНУЮ] &ИзменениеИКонтроль(`"$MethodName`") — все правки ($($res.Absorbed)) уже в основной конфигурации, перехватчик можно удалить."
+		}
 		'ЧАСТИЧНО' {
 			$idx = Write-ResyncIndex $runRoot @($res) $extName $ConfigPath "АКТУАЛИЗАЦИЯ" $enc
-			Write-Host "[АКТУАЛИЗИРОВАН-ЧАСТИЧНО] &ИзменениеИКонтроль(`"$MethodName`") — перенесено: $($res.Transferred), конфликтов: $($res.Disputed)"
+			$msg = "[АКТУАЛИЗИРОВАН-ЧАСТИЧНО] &ИзменениеИКонтроль(`"$MethodName`") — сохранено: $($res.Transferred), конфликтов: $($res.Disputed)"
+			if ($res.Absorbed -gt 0) { $msg += ", перенесено в основную: $($res.Absorbed)" }
+			Write-Host $msg
 			Write-Host "     Конфликт помечен // [РЕСИНК-КОНФЛИКТ]. Папка метода: $($res.ConflictDir)"
 			if ($idx) { Write-Host "     Индекс: $idx" }
 		}

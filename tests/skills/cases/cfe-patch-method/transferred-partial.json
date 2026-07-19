@@ -1,0 +1,37 @@
+{
+  "name": "Ресинк: одна правка перенесена в оригинал, одна живая — актуализирован со счётчиками",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "CommonModule", "name": "ПереносМод", "properties": { "Server": true } },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    {
+      "writeFile": {
+        "path": "CommonModules/ПереносМод/Ext/Module.bsl",
+        "content": "#Область ПрограммныйИнтерфейс\n\nПроцедура П(Спр) Экспорт\n\tНачатьТранзакцию();\n\tСпр.Записать();\n\tЗафиксироватьТранзакцию();\n\tСообщить(\"готово\");\nКонецПроцедуры\n\n#КонецОбласти\n"
+      }
+    },
+    {
+      "script": "cfe-init/scripts/cfe-init",
+      "args": { "-Name": "Тест", "-OutputDir": "{workDir}/ext", "-ConfigPath": "{workDir}" }
+    },
+    {
+      "script": "cfe-borrow/scripts/cfe-borrow",
+      "args": { "-ExtensionPath": "{workDir}/ext", "-ConfigPath": "{workDir}", "-Object": "CommonModule.ПереносМод" }
+    },
+    {
+      "writeFile": {
+        "path": "ext/CommonModules/ПереносМод/Ext/Module.bsl",
+        "content": "#Область ПрограммныйИнтерфейс\n&ИзменениеИКонтроль(\"П\")\nПроцедура Тест_П(Спр)\n\tНачатьТранзакцию();\n#Вставка\n\tСпр.Записать();\n#КонецВставки\n\tЗафиксироватьТранзакцию();\n\tСообщить(\"готово\");\n#Вставка\n\tЗаписатьВЖурнал();\n#КонецВставки\nКонецПроцедуры\n#КонецОбласти\n"
+      }
+    }
+  ],
+  "params": {
+    "extensionPath": "ext",
+    "modulePath": "CommonModule.ПереносМод",
+    "methodName": "П",
+    "interceptorType": "ModificationAndControl"
+  },
+  "expect": { "stdoutContains": "перенесено в основную конфигурацию: 1" }
+}

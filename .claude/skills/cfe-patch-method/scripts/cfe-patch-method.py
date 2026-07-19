@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# cfe-patch-method v2.3 — Source-aware method interceptor for 1C extension (CFE)
+# cfe-patch-method v2.4 — Source-aware method interceptor for 1C extension (CFE)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -411,6 +411,28 @@ def find_unique_run(v2norm, keys):
     return found
 
 
+def test_run_at(hay, keys, at):
+    """True if normalized run `keys` sits in `hay` starting exactly at index `at` (contiguous)."""
+    if not keys or at < 0 or at + len(keys) > len(hay):
+        return False
+    return hay[at:at + len(keys)] == keys
+
+
+def test_delete_absorbed(v2norm, before_ctx, after_ctx):
+    """True if a deletion is already applied in v2: before/after context are now adjacent
+    (nothing between them), or the missing side sits at a body boundary (None = boundary)."""
+    if before_ctx is not None and after_ctx is not None:
+        for i in range(len(v2norm) - 1):
+            if v2norm[i] == before_ctx and v2norm[i + 1] == after_ctx:
+                return True
+        return False
+    if before_ctx is None and after_ctx is not None:
+        return len(v2norm) > 0 and v2norm[0] == after_ctx
+    if before_ctx is not None and after_ctx is None:
+        return len(v2norm) > 0 and v2norm[-1] == before_ctx
+    return False
+
+
 def resolve_insertion_point(v2norm, before_lines, after_lines):
     """Where an insertion lands in v2 using two-sided context.
     Returns index to insert-after (-1 = top), or None if ambiguous/conflict."""
@@ -589,24 +611,28 @@ def main():
         print("[%s] %s -> %s   (на контроле: %d)" % (verb, ext_name, cp, total))
         listed = [r for r in results if r["status"] != "АКТУАЛЕН"]
         for pr in listed:
-            line = "  %-16s %s" % (pr["status"], pr["id"])
+            line = "  %-22s %s" % (pr["status"], pr["id"])
             if pr.get("reason"):
                 line += "   %s" % pr["reason"]
             print(line)
+        transf = sum(1 for r in results if r["status"] == "ПЕРЕНЕСЕНО В ОСНОВНУЮ")
         if check_mode:
             drift = sum(1 for r in results if r["status"] == "ДРЕЙФ")
             confl = sum(1 for r in results if r["status"] == "КОНФЛИКТ")
             gone = sum(1 for r in results if r["status"] in ("МЕТОД-ИСЧЕЗ", "ИСТОЧНИК-НЕ-НАЙДЕН"))
-            print("Итог: %d/%d актуальны · дрейф: %d · конфликтов: %d · внимания: %d"
-                  % (actual, total, drift, confl, gone))
-            if listed:
+            print("Итог: %d/%d актуальны · дрейф: %d · конфликтов: %d · перенесено в основную: %d · внимания: %d"
+                  % (actual, total, drift, confl, transf, gone))
+            if (drift + confl + gone) > 0:
                 print("Починить: /cfe-patch-method -Actualize -ExtensionPath %s -ConfigPath %s" % (extension_path, cp))
                 sys.exit(1)
+            elif transf > 0:
+                print("Перенесённые в основную конфигурацию правки подчистит: /cfe-patch-method -Actualize -ExtensionPath %s -ConfigPath %s" % (extension_path, cp))
+                sys.exit(0)
             sys.exit(0)
         else:
             upd = sum(1 for r in results if r["status"] == "АКТУАЛИЗИРОВАН")
             part = sum(1 for r in results if r["status"] == "ЧАСТИЧНО")
-            print("Итог: %d/%d актуальны · актуализировано: %d · частично: %d" % (actual, total, upd, part))
+            print("Итог: %d/%d актуальны · актуализировано: %d · частично: %d · перенесено в основную: %d" % (actual, total, upd, part, transf))
             idx = write_resync_index(run_root, results, ext_name, cp, verb)
             if idx:
                 print("Merge-воркспейс конфликтов (см. index.md): %s" % idx)
@@ -701,12 +727,19 @@ def main():
         if st == "АКТУАЛЕН":
             print('[АКТУАЛЕН] &ИзменениеИКонтроль("%s") — оригинал не менялся, изменений нет.' % method_name)
         elif st == "АКТУАЛИЗИРОВАН":
-            print('[АКТУАЛИЗИРОВАН] &ИзменениеИКонтроль("%s") — тело обновлено, перенесено правок: %d'
-                  % (method_name, res.get("transferred", 0)))
+            msg = '[АКТУАЛИЗИРОВАН] &ИзменениеИКонтроль("%s") — тело обновлено, правок сохранено: %d' % (method_name, res.get("transferred", 0))
+            if res.get("absorbed", 0) > 0:
+                msg += ", перенесено в основную конфигурацию: %d" % res["absorbed"]
+            print(msg)
+        elif st == "ПЕРЕНЕСЕНО В ОСНОВНУЮ":
+            print('[ПЕРЕНЕСЕНО В ОСНОВНУЮ] &ИзменениеИКонтроль("%s") — все правки (%d) уже в основной конфигурации, перехватчик можно удалить.'
+                  % (method_name, res.get("absorbed", 0)))
         elif st == "ЧАСТИЧНО":
             idx = write_resync_index(run_root, [res], ext_name, config_path, "АКТУАЛИЗАЦИЯ")
-            print('[АКТУАЛИЗИРОВАН-ЧАСТИЧНО] &ИзменениеИКонтроль("%s") — перенесено: %d, конфликтов: %d'
-                  % (method_name, res.get("transferred", 0), res.get("disputed", 0)))
+            msg = '[АКТУАЛИЗИРОВАН-ЧАСТИЧНО] &ИзменениеИКонтроль("%s") — сохранено: %d, конфликтов: %d' % (method_name, res.get("transferred", 0), res.get("disputed", 0))
+            if res.get("absorbed", 0) > 0:
+                msg += ", перенесено в основную: %d" % res["absorbed"]
+            print(msg)
             print("     Конфликт помечен // [РЕСИНК-КОНФЛИКТ]. Папка метода: %s" % res.get("conflict_dir"))
             if idx:
                 print("     Индекс: %s" % idx)
@@ -938,14 +971,22 @@ def resync_one(ext_bsl, ext_lines, dup, method, logical_module, conflict_folder,
     if "\n".join(v1norm) == "\n".join(v2norm):
         return {"id": method_id, "status": "АКТУАЛЕН", "ext_bsl": ext_bsl}
 
-    insert_top = []; insert_after = {}; del_start = set(); del_end = set(); disputed = []; transferred = 0
+    insert_top = []; insert_after = {}; del_start = set(); del_end = set(); disputed = []; transferred = 0; absorbed = 0
     for op in ops:
         if op["kind"] == "insert":
             after = op["after"]
             before_lines = v1norm[max(0, after - 2):after + 1] if after >= 0 else []
             after_lines = v1norm[after + 1:after + 4]
             k = resolve_insertion_point(v2norm, before_lines, after_lines)
+            payload_norm = [normalize(x) for x in op["lines"]]
+            # Payload already in the new original -> the change was carried into the main config.
             if k is None:
+                is_absorbed = find_unique_run(v2norm, payload_norm) >= 0
+            else:
+                is_absorbed = test_run_at(v2norm, payload_norm, 0 if k < 0 else k + 1)
+            if is_absorbed:
+                absorbed += 1
+            elif k is None:
                 dbefore = v1[max(0, after - 2):after + 1] if after >= 0 else []
                 dafter = v1[after + 1:after + 4]
                 disputed.append({"kind": "insert", "lines": op["lines"], "before": dbefore, "after": dafter})
@@ -959,12 +1000,24 @@ def resync_one(ext_bsl, ext_lines, dup, method, logical_module, conflict_folder,
             if p >= 0:
                 del_start.add(p); del_end.add(p + len(keys) - 1); transferred += 1
             else:
-                disputed.append({"kind": "delete", "lines": op["lines"]})
+                before_ctx = v1norm[op["start"] - 1] if op["start"] > 0 else None
+                after_ctx = v1norm[op["end"] + 1] if op["end"] < len(v1norm) - 1 else None
+                # Block already cut from the new original -> deletion already applied in the main config.
+                if test_delete_absorbed(v2norm, before_ctx, after_ctx):
+                    absorbed += 1
+                else:
+                    disputed.append({"kind": "delete", "lines": op["lines"]})
 
     if report_only:
-        st = "КОНФЛИКТ" if disputed else "ДРЕЙФ"
+        if disputed:
+            st = "КОНФЛИКТ"
+        elif transferred == 0 and absorbed > 0:
+            st = "ПЕРЕНЕСЕНО В ОСНОВНУЮ"
+        else:
+            st = "ДРЕЙФ"
+        rsn = conflict_reason(disputed) if disputed else ("все правки уже в основной конфигурации" if st == "ПЕРЕНЕСЕНО В ОСНОВНУЮ" else "")
         return {"id": method_id, "status": st, "ext_bsl": ext_bsl, "transferred": transferred,
-                "disputed": len(disputed), "reason": conflict_reason(disputed)}
+                "absorbed": absorbed, "disputed": len(disputed), "reason": rsn}
 
     new_body = []
     for blk in insert_top:
@@ -1012,9 +1065,15 @@ def resync_one(ext_bsl, ext_lines, dup, method, logical_module, conflict_folder,
     if disputed:
         conflict_dir = conflict_folder
         write_conflict_folder(conflict_folder, method_id, ext_bsl, existing_name, method, v1, marked_body, v2, v1norm, v2norm, disputed)
-    status = "ЧАСТИЧНО" if disputed else "АКТУАЛИЗИРОВАН"
+    if disputed:
+        status = "ЧАСТИЧНО"
+    elif transferred == 0 and absorbed > 0:
+        status = "ПЕРЕНЕСЕНО В ОСНОВНУЮ"
+    else:
+        status = "АКТУАЛИЗИРОВАН"
+    rsn = conflict_reason(disputed) if disputed else ("все правки уже в основной конфигурации — перехватчик можно удалить" if status == "ПЕРЕНЕСЕНО В ОСНОВНУЮ" else "")
     return {"id": method_id, "status": status, "ext_bsl": ext_bsl, "transferred": transferred,
-            "disputed": len(disputed), "conflict_dir": conflict_dir, "reason": conflict_reason(disputed)}
+            "absorbed": absorbed, "disputed": len(disputed), "conflict_dir": conflict_dir, "reason": rsn}
 
 
 def write_resync_index(run_root, results, ext_name, config_path, verb):
