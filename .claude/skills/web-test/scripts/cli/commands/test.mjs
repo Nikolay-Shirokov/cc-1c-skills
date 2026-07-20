@@ -1,4 +1,4 @@
-// web-test cli/commands/test v1.8 — regression test runner
+// web-test cli/commands/test v1.9 — regression test runner
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import { existsSync, writeFileSync, mkdirSync, renameSync, copyFileSync, unlinkSync } from 'fs';
 import { resolve, dirname, basename, relative } from 'path';
@@ -9,6 +9,7 @@ import { createAssertions } from '../test-runner/assertions.mjs';
 import { buildSeverityIndex } from '../test-runner/severity.mjs';
 import { writeAllure, buildJUnit, syncAllureExtras } from '../test-runner/reporters.mjs';
 import { discoverTests, resetState } from '../test-runner/discover.mjs';
+import { findSuiteRoot, startDirOf } from '../test-runner/suite-root.mjs';
 import { planEviction, touchLru, dropLru } from '../test-runner/context-pool.mjs';
 
 export async function cmdTest(rawArgs) {
@@ -78,12 +79,24 @@ export async function cmdTest(rawArgs) {
     die(`Test path not found: "${p}". To run a subset use --grep= / --tags=, or pass an existing dir/file.`);
   }
 
-  // Load config if exists. config (webtest.config.mjs) and hooks (_hooks.mjs) resolve from
-  // the FIRST path's directory — list paths from the same suite folder.
-  const firstPath = resolve(testPaths[0]);
-  const isFile = firstPath.endsWith('.test.mjs');
-  const testDir = isFile ? dirname(firstPath) : firstPath;
-  const configPath = resolve(testDir, 'webtest.config.mjs');
+  // Suite root — the directory `webtest.config.mjs`, `_hooks.mjs`, `_allure/` and report paths
+  // all hang off. It is NOT the passed path: walking up to the nearest marker is what makes
+  // `test tests/myapp/sales/` work, as docs/web-test-regression-spec.md has always promised.
+  // Resolving from the passed path instead lost the hooks of any subfolder run — silently, so
+  // the run went ahead against an unprepared stand.
+  const startDirs = testPaths.map(p => startDirOf(p));
+  const roots = startDirs.map(d => findSuiteRoot(d));
+  // Paths from different suites must not share hooks — that used to resolve to "first path
+  // wins", silently running suite B's tests under suite A's preparation.
+  const distinct = [...new Set(roots.map(r => r?.root ?? null))];
+  if (distinct.length > 1) {
+    const lines = testPaths.map((p, i) => `  ${p} → ${roots[i]?.root ?? '(корень не найден)'}`);
+    die(`Paths belong to different suites — config and hooks would be ambiguous:\n${lines.join('\n')}\n` +
+        `Run them separately, or pass one suite root and narrow with --grep= / --tags=.`);
+  }
+  const suiteRoot = roots[0]?.root ?? startDirs[0];
+  const suiteRootFound = !!roots[0];
+  const configPath = resolve(suiteRoot, 'webtest.config.mjs');
   let config = {};
   if (existsSync(configPath)) {
     const mod = await import('file:///' + configPath.replace(/\\/g, '/'));
@@ -103,7 +116,16 @@ export async function cmdTest(rawArgs) {
     if (url) contextSpecs[defaultContextName] = { ...contextSpecs[defaultContextName], url };
   } else {
     const fallbackUrl = url || config.url;
-    if (!fallbackUrl) die('No URL provided and no webtest.config.mjs found');
+    // Name the real problem: with no suite root there is no config to take a URL from — and,
+    // more dangerously, no `_hooks.mjs` either. The old wording talked only about the URL and
+    // sent readers looking in the wrong place.
+    if (!fallbackUrl) {
+      die(suiteRootFound
+        ? `No URL: ${configPath} defines neither "contexts" nor "url", and --url= was not given.`
+        : `Suite root not found above "${testPaths[0]}" — no webtest.config.mjs / _hooks.mjs up to ` +
+          `the repository (or working) directory, so there is no URL and no stand preparation.\n` +
+          `Pass the suite root (e.g. tests/myapp/) and narrow with --grep= / --tags=, or give --url=.`);
+    }
     contextSpecs.default = { url: fallbackUrl };
   }
   if (!contextSpecs[defaultContextName]) {
@@ -175,7 +197,7 @@ export async function cmdTest(rawArgs) {
   }
   const reportDir = opts.reportDir
     ? resolve(opts.reportDir)
-    : (opts.report && !reportToStdout ? dirname(resolve(opts.report)) : testDir);
+    : (opts.report && !reportToStdout ? dirname(resolve(opts.report)) : suiteRoot);
   if (opts.screenshot !== 'off') {
     try { mkdirSync(reportDir, { recursive: true }); } catch {}
     // 1C-error screenshots (taken inside the action wrapper) default to a single
@@ -194,7 +216,10 @@ export async function cmdTest(rawArgs) {
   for (const file of testFiles) {
     const mod = await import('file:///' + file.replace(/\\/g, '/'));
     const base = {
-      file: relative(testDir, file).replace(/\\/g, '/'),
+      // Relative to the SUITE ROOT, not to the passed path — otherwise the same test gets a
+      // different id depending on how it was launched (`sales/01-x.test.mjs` vs `01-x.test.mjs`),
+      // and Allure history / JUnit trends treat the two as unrelated tests.
+      file: relative(suiteRoot, file).replace(/\\/g, '/'),
       name: mod.name || basename(file, '.test.mjs'),
       tags: mod.tags || [],
       timeout: mod.timeout || opts.timeout,
@@ -229,7 +254,7 @@ export async function cmdTest(rawArgs) {
   });
 
   // Load hooks
-  const hooksPath = resolve(testDir, '_hooks.mjs');
+  const hooksPath = resolve(suiteRoot, '_hooks.mjs');
   let hooks = {};
   if (existsSync(hooksPath)) {
     hooks = await import('file:///' + hooksPath.replace(/\\/g, '/'));
@@ -239,7 +264,17 @@ export async function cmdTest(rawArgs) {
   // In `--report -` mode the machine JSON/XML takes over stdout, so progress moves to stderr.
   const W = reportToStdout ? process.stderr : process.stdout;
   W.write(`\nweb-test -- ${url}\n`);
-  W.write(`Running ${filtered.length} tests from ${relative(process.cwd(), testDir).replace(/\\/g, '/') || '.'}/\n\n`);
+  // Always name the resolved suite root: a climb that landed on the wrong directory is then
+  // visible in the first line of output instead of being diagnosed from symptoms later.
+  const rel = (p) => relative(process.cwd(), p).replace(/\\/g, '/') || '.';
+  const shownPaths = testPaths.map(p => rel(resolve(p))).filter(p => p !== rel(suiteRoot));
+  W.write(`Running ${filtered.length} tests from ${rel(suiteRoot)}/`);
+  W.write(shownPaths.length ? ` (paths: ${shownPaths.join(', ')})\n\n` : `\n\n`);
+  if (!suiteRootFound) {
+    // Not fatal — a one-off test outside any suite is legitimate. But a missing suite root also
+    // means no `_hooks.mjs` was even looked for above, so the stand is whatever it was.
+    process.stderr.write(`! no suite root (webtest.config.mjs / _hooks.mjs) found above ${rel(startDirs[0])} — running without hooks\n`);
+  }
 
   const startedAt = new Date().toISOString();
   const results = [];
@@ -819,10 +854,10 @@ export async function cmdTest(rawArgs) {
     if (opts.format === 'allure') {
       // Guard against a result-producing path that skipped recordResult; normally a no-op.
       if (!allureWritten) writeAllure(results, reportDir, severityIndex);
-      syncAllureExtras(testDir, reportDir);
+      syncAllureExtras(suiteRoot, reportDir);
     } else if (opts.format === 'junit') {
-      if (reportToStdout) process.stdout.write(buildJUnit(report, testDir) + '\n');
-      else writeFileSync(resolve(opts.report), buildJUnit(report, testDir));
+      if (reportToStdout) process.stdout.write(buildJUnit(report, suiteRoot) + '\n');
+      else writeFileSync(resolve(opts.report), buildJUnit(report, suiteRoot));
     } else if (reportToStdout) {
       out(report);
     } else if (opts.report) {

@@ -32,6 +32,9 @@ __pycache__/
 .claude/skills/web-test/scripts/node_modules/
 .claude/skills/web-test/.browser-session.json
 
+# Маркер отработавшего prepare() в фикстуре _suite-root
+tests/web-test/_suite-root/prepare-ran.txt
+
 # Скриншоты и видео (артефакты тестирования web-test)
 *.png
 *.mp4

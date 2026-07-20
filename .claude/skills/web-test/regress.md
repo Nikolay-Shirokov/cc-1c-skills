@@ -10,6 +10,8 @@ node $RUN test <dir|file>... [flags]
 
 Positional args are test paths (files and/or dirs, multiple allowed). URL is NOT positional — it comes from `webtest.config.mjs`; override with `--url=<url>`.
 
+`webtest.config.mjs` and `_hooks.mjs` are looked up by walking UP from the given path to the nearest directory holding either of them — the suite root. So `test tests/myapp/sales/` and `test tests/myapp/sales/01-order.test.mjs` work without `--url=`, taking the config and the hooks of `tests/myapp/`. The climb stops at a directory with `.git` / `.v8-project.json`, otherwise at the working directory. Paths from different suites in one run are refused — their config and hooks would be ambiguous.
+
 Tests live next to the project they cover (not inside the skill). Convention: `tests/` at the project root, with `_hooks.mjs` and `webtest.config.mjs` at the suite root. Tests are ES modules with `*.test.mjs` suffix.
 
 ## When to choose `test` over `exec`
@@ -69,7 +71,7 @@ tests/<app-name>/
     01-end-to-end.test.mjs     # multi-user
 ```
 
-Per-folder `_hooks.mjs` / `webtest.config.mjs` inside the application subfolder are NOT supported — only the application-root copies are loaded.
+Per-folder `_hooks.mjs` / `webtest.config.mjs` inside the application subfolder are NOT supported — only the application-root copies are loaded, whichever subfolder you point the runner at. (A nested folder that DOES carry its own `webtest.config.mjs` is not a sub-suite — it becomes a separate suite root, and its parent's hooks no longer apply.)
 
 ## Test file anatomy
 
