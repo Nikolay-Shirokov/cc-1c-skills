@@ -129,7 +129,7 @@ Switch to an already-open tab/window (fuzzy match).
 
 ### Reading form state
 
-#### `getFormState()` → `{ form, formCount, openForms, fields, buttons, tabs, navigation?, table, tables, filters, reportSettings? }`
+#### `getFormState()` → `{ form, formCount, openForms, title, fields, buttons, tabs, navigation?, table, tables, filters, reportSettings? }`
 Returns current form structure. This is the primary way to understand what's on screen.
 
 **form** — active form number, or `null` when no form is open (desktop).
@@ -141,6 +141,8 @@ Returns current form structure. This is the primary way to understand what's on 
 **modal** — `true` when the active form is a modal dialog blocking the UI. Only present when modal is active.
 
 **openTabs** — array of `{ name, active? }` from the open-windows tab bar. Only present when the tab bar is enabled in 1C settings. Do NOT rely on this — use `formCount`/`openForms` instead.
+
+**title** — caption of the active form (`"Контрагенты"`, `"Заказ поставщику ТД00-000052 от 05.07.2022"`). Read from the form's own header, which does not depend on the open-windows tab bar; when the form shows no header, falls back to the active tab's caption, and is `null` when neither is available.
 
 **fields** — each field has: `name`, `value`, `label?`, `actions?` (select, clear, open), `required?` (true for unfilled mandatory fields), `disabled?` (control is unavailable). `buttons[]` carry `disabled?` too.
 

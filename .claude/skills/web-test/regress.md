@@ -186,8 +186,8 @@ assert.match(string, regex, msg?)         // regex.test(string)
 await assert.throws(asyncFn, msg?)        // passes if fn throws (use await)
 
 // 1C-specific — operate on getFormState() / readTable() output
-assert.formHasField(state, 'Контрагент', msg?)        // state.fields[name] exists
-assert.formTitle(state, expected, msg?)               // state.title includes expected
+assert.formHasField(state, 'Контрагент', msg?)        // fields[] contains a field with that name
+assert.formTitle(state, expected, msg?)               // state.title includes expected (null title → fails saying so)
 assert.tableHasRow(table, predicate, msg?)            // predicate: object (partial match) or fn(row) => bool
                                                       //   object form: { 'Наименование': 'Тест' }
                                                       //   fn form:     r => r['Сумма'] > 100
@@ -318,7 +318,7 @@ export default async function({ clerk, manager, step, assert }) {
   });
   await step('Кладовщик видит новый статус', async () => {
     const s = await clerk.getFormState();
-    assert.equal(s.fields['Статус']?.value, 'Утверждён');
+    assert.equal(s.fields.find(f => f.name === 'Статус')?.value, 'Утверждён');
   });
   await step('Освободить сессию кладовщика', async () => {
     await manager.closeContext('clerk');   // free a 1C license for the next test
@@ -341,7 +341,7 @@ export default async function({ openCommand, clickElement, getFormState, assert,
   await clickElement('Создать');
   await clickElement('Провести');
   const s = await getFormState();
-  assert.ok(s.errorModal || s.fields['Контрагент']?.required,
+  assert.ok(s.errorModal || s.fields.find(f => f.name === 'Контрагент')?.required,
     'Должна быть ошибка валидации или поле помечено обязательным');
 }
 ```
@@ -361,7 +361,7 @@ export const params = [
 export default async function({ fillFields, getFormState, assert }, { type, field, value }) {
   await fillFields({ [field]: value });
   const state = await getFormState();
-  assert.equal(state.fields[field]?.value, String(value));
+  assert.equal(state.fields.find(f => f.name === field)?.value, String(value));
 }
 ```
 

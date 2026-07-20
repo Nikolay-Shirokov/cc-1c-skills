@@ -1,4 +1,4 @@
-// web-test cli/test-runner/assertions v1.0 — ctx.assert API
+// web-test cli/test-runner/assertions v1.1 — ctx.assert API
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 export function createAssertions() {
@@ -37,11 +37,23 @@ export function createAssertions() {
       throw new AssertionError(msg || 'Expected function to throw');
     },
     // 1C-specific
+    // `fields` is an ARRAY of { name, value, ... } — indexing it by field name yields undefined,
+    // which used to make this assertion throw on every call, including the valid ones.
     formHasField(state, fieldName, msg) {
-      if (!state?.fields?.[fieldName]) throw new AssertionError(msg || `Field "${fieldName}" not found in form. Available: ${Object.keys(state?.fields || {}).join(', ')}`, null, fieldName);
+      const names = (state?.fields || []).map(f => f.name);
+      if (!names.includes(fieldName)) {
+        throw new AssertionError(msg || `Field "${fieldName}" not found in form. Available: ${names.join(', ')}`, null, fieldName);
+      }
     },
     formTitle(state, expected, msg) {
-      if (!state?.title?.includes(expected)) throw new AssertionError(msg || `Form title "${state?.title}" does not contain "${expected}"`, state?.title, expected);
+      // `title` is null when the form exposes no caption and the open-windows panel is off —
+      // say so instead of reporting a mismatch against "null".
+      if (state?.title == null) {
+        throw new AssertionError(msg || `Form title is not available (state.title is null), expected it to contain "${expected}"`, null, expected);
+      }
+      if (!state.title.includes(expected)) {
+        throw new AssertionError(msg || `Form title "${state.title}" does not contain "${expected}"`, state.title, expected);
+      }
     },
     tableHasRow(table, predicate, msg) {
       const rows = table?.rows || [];

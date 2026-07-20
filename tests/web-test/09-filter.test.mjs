@@ -40,7 +40,7 @@ export default async function({ navigateSection, openCommand, filterList, unfilt
     await filterList('ООО Север', { field: 'Наименование', exact: true });
     const t = await readTable({ maxRows: 50 });
     log(`exact 'ООО Север': rows=${t.rows?.length} names=${t.rows?.map(r => r['Наименование']).join(',')}`);
-    assert.equal(t.rows?.length, 1, 'exact:true должен дать строго 1 совпадение');
+    assert.tableRowCount(t, 1, 'exact:true должен дать строго 1 совпадение');
     assert.equal(t.rows[0]['Наименование'], 'ООО Север', 'Это должно быть ООО Север');
     await unfilterList();
     await closeForm();

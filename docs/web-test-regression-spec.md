@@ -306,11 +306,13 @@ await assert.throws(asyncFn, msg?)        // ожидает исключение
 
 ```js
 assert.formHasField(state, fieldName, msg?)
-// проверяет наличие state.fields[fieldName]; в сообщении об ошибке
-// перечисляются доступные поля для быстрой диагностики
+// проверяет, что в массиве state.fields есть поле с таким name;
+// в сообщении об ошибке перечисляются доступные поля для быстрой диагностики
 
 assert.formTitle(state, expected, msg?)
-// проверяет, что state.title содержит expected
+// проверяет, что state.title СОДЕРЖИТ expected (подстрока, не строгое равенство).
+// state.title — заголовок активной формы: сначала из шапки формы, при её отсутствии —
+// из панели открытых окон; null, если недоступны оба (тогда ассерт падает с этим фактом)
 
 assert.tableHasRow(table, predicate, msg?)
 // predicate: объект (частичное совпадение по ===) или функция row => bool
@@ -609,7 +611,7 @@ await step('Менеджер утверждает', async () => {
 await step('Кладовщик проверяет статус', async () => {
   // страница кладовщика ТА ЖЕ — форма открыта, навигация не нужна
   const state = await clerk.getFormState();
-  assert.equal(state.fields['Статус']?.value, 'Утверждён');
+  assert.equal(state.fields.find(f => f.name === 'Статус')?.value, 'Утверждён');
 });
 ```
 
@@ -918,7 +920,7 @@ export const params = [
 export default async function({ fillFields, getFormState, assert }, { type, field, value }) {
   await fillFields({ [field]: value });
   const state = await getFormState();
-  assert.equal(state.fields[field]?.value, String(value));
+  assert.equal(state.fields.find(f => f.name === field)?.value, String(value));
 }
 ```
 

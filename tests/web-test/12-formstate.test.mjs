@@ -14,6 +14,10 @@ export default async function({ navigateSection, openCommand, clickElement, clos
     assert.ok(s.tables?.length >= 1, 'На форме списка есть таблица');
     assert.ok(s.tables[0].columns?.length >= 2, 'У таблицы есть колонки');
     assert.ok(s.buttons?.length >= 1, 'На форме есть кнопки');
+    // title читается из шапки формы (атрибут .toplineBoxTitle), а не из панели открытых окон —
+    // она отключаема в настройках 1С. Панель остаётся запасным источником.
+    assert.formTitle(s, 'Контрагенты', 'Заголовок формы списка');
+    assert.noErrors(s, 'На только что открытой форме списка ошибок быть не должно');
     await closeForm();
   });
 
@@ -26,6 +30,8 @@ export default async function({ navigateSection, openCommand, clickElement, clos
     assert.ok(s.fields?.length >= 1, 'На форме элемента есть поля');
     const named = s.fields.find(f => f.name === 'Наименование');
     log(`Наименование: label='${named?.label}' value='${named?.value}'`);
+    assert.formHasField(s, 'Наименование', 'formHasField ищет по массиву fields, а не по ключу');
+    assert.formTitle(s, 'Контрагент', 'Заголовок формы элемента');
     assert.ok(named, 'Должно быть поле Наименование');
     assert.equal(named.value, 'ООО Север', 'value поля Наименование');
     assert.ok(named.label, 'У поля есть label');
@@ -52,6 +58,9 @@ export default async function({ navigateSection, openCommand, clickElement, clos
     log(`after F4: form=${s.form} formCount=${s.formCount} modal=${s.modal}`);
     assert.equal(s.modal, true, 'state.modal=true для модальной формы выбора');
     assert.ok(s.formCount >= 2, 'formCount >= 2 (родитель + модальная)');
+    // Заголовок берётся у всплывающего окна, а не у родителя: видимы обе шапки, а панель
+    // открытых окон в этот момент показывает родителя ('Приходная накладная').
+    assert.formTitle(s, 'Выбор контрагента', 'title всплывающего окна, а не родительской формы');
 
     await closeForm();
     await closeForm({ save: false });

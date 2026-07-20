@@ -1,4 +1,4 @@
-// web-test cli/test-runner/discover v1.3 — test file discovery + state reset between tests
+// web-test cli/test-runner/discover v1.4 — test file discovery + state reset between tests
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import { existsSync, readdirSync } from 'fs';
 import { resolve } from 'path';
@@ -73,7 +73,9 @@ export async function resetState(ctx) {
     return {
       clean: false, attempts, lastError,
       form: state.form,
-      title: state.activeTab || null,
+      // state.title is the form's own caption; activeTab reads the open-windows panel, which the
+      // user can switch off — keep it only as the fallback it always was.
+      title: state.title || state.activeTab || null,
       modal: !!state.modal,
     };
   } catch (e) {
