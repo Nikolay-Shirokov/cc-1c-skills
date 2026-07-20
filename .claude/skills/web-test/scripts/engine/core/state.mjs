@@ -1,4 +1,4 @@
-// web-test core/state v1.17 — module-level state for the web-test engine.
+// web-test core/state v1.18 — module-level state for the web-test engine.
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 //
 // Holds the single browser/page/recorder slot plus the multi-context registry,
@@ -80,6 +80,11 @@ export const ACTION_WAIT = 2000;   // fallback minimum wait
 export const MAX_WAIT = 10000;     // max wait for stability
 export const POLL_INTERVAL = 200;  // polling interval
 export const STABLE_CYCLES = 3;    // consecutive stable cycles needed
+// Ceiling for the case where 1C is VISIBLY still working (its "Поиск…" state window is up).
+// Higher than MAX_WAIT on purpose: a search on a production-sized list legitimately runs for
+// tens of seconds, and returning mid-search hands the caller the previous rows — a wrong
+// result that looks like a right one. Bounded so a wedged operation still ends the wait.
+export const BUSY_MAX_WAIT = 60000;
 
 // 1C browser extension ID (stable across versions, defined by key in manifest.json)
 export const EXT_ID = 'pbhelknnhilelbnhfpcjlcabhmfangik';

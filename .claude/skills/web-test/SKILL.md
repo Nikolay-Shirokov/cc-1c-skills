@@ -170,7 +170,7 @@ const form = await getFormState();
 
 **confirmation** — if present, a Yes/No dialog is shown. Call `clickElement('Да')` or `clickElement('Нет')`.
 
-**errors.stateText** — array of SpreadsheetDocument state messages (e.g. `"Не установлено значение параметра \"X\""`, `"Отчет не сформирован..."`, `"Изменились настройки..."`). Present when the report area shows an info bar instead of data.
+**errors.stateText** — array of SpreadsheetDocument state messages (e.g. `"Не установлено значение параметра \"X\""`, `"Отчет не сформирован..."`, `"Изменились настройки..."`). Present when the report area shows an info bar instead of data. The same info bar carries `"Поиск..."` while a list is still searching — actions do not return while it is up, so a filtered list never hands you the previous rows.
 
 ### Reading data
 

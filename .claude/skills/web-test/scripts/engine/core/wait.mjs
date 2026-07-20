@@ -1,29 +1,48 @@
-// web-test core/wait v1.17 — Smart wait helpers: DOM stability polling, JS-expression polling, CDP network monitor.
+// web-test core/wait v1.18 — Smart wait helpers: DOM stability polling, JS-expression polling, CDP network monitor.
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
-import { page, MAX_WAIT, POLL_INTERVAL, STABLE_CYCLES } from './state.mjs';
+import { page, MAX_WAIT, BUSY_MAX_WAIT, POLL_INTERVAL, STABLE_CYCLES } from './state.mjs';
 import { detectFormScript } from '../../dom.mjs';
 
 /**
  * Smart wait: poll until DOM is stable and no loading indicators are visible.
- * Checks: form number change, loading indicators, DOM stability.
+ * Checks: form number change, loading indicators, busy state window, DOM stability.
  * @param {number|null} previousFormNum — form number before the action (null = don't check)
  */
 export async function waitForStable(previousFormNum = null) {
   let stableCount = 0;
   let lastSnapshot = '';
   const start = Date.now();
+  let deadline = start + MAX_WAIT;
 
-  while (Date.now() - start < MAX_WAIT) {
+  while (Date.now() < deadline) {
     await page.waitForTimeout(POLL_INTERVAL);
 
     // Check for loading indicators
     const status = await page.evaluate(`(() => {
       const loading = document.querySelector('.loadingImage, .waitCurtain, .progressBar');
       const isLoading = loading && loading.offsetWidth > 0;
+      // While a dynamic list is still searching, 1C floats a state window over the grid
+      // ("Поиск…") — and NOTHING else in the DOM says so: the old rows stay put, the element
+      // counters below don't move, so the page looks perfectly stable with stale data.
+      // Match busy markers by text, never "state window present": the same carrier also holds
+      // TERMINAL report messages ("Отчет не сформирован", "Не установлено значение параметра"),
+      // and waiting for those to disappear would hang until the timeout on every report.
+      const busy = [...document.querySelectorAll('.stateWindowSupportSurface')].some(el =>
+        el.offsetWidth > 0 && /^\\s*(Поиск|Ожид|Searching|Please wait)/i.test(el.innerText || ''));
       const formCount = document.querySelectorAll('input.editInput[id], a.press[id]').length;
-      return { isLoading, formCount };
+      return { isLoading, busy, formCount };
     })()`);
+
+    // A visible busy indicator outranks DOM stability — it is the only evidence we get that the
+    // server is still working. Push the deadline while it lasts (bounded by BUSY_MAX_WAIT) instead
+    // of reporting "stable": returning mid-search is what handed a caller the previous rows and
+    // let the next click open the wrong document.
+    if (status.busy) {
+      deadline = Math.min(Date.now() + MAX_WAIT, start + BUSY_MAX_WAIT);
+      stableCount = 0;
+      continue;
+    }
 
     if (status.isLoading) {
       stableCount = 0;
