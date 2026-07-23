@@ -1,0 +1,21 @@
+{
+  "name": "form-compile затем form-add не дублирует регистрацию формы в ChildObjects",
+  "setup": "none",
+  "preRun": [
+    {
+      "script": "epf-init/scripts/init",
+      "args": { "-Name": "КонсольКода", "-SrcDir": "{workDir}" }
+    },
+    {
+      "script": "form-compile/scripts/form-compile",
+      "input": {
+        "title": "Форма",
+        "attributes": [{ "name": "Объект", "type": "ExternalDataProcessorObject.КонсольКода", "main": true }]
+      },
+      "args": { "-JsonPath": "{inputFile}", "-OutputPath": "{workDir}/КонсольКода/Forms/Форма/Ext/Form.xml" }
+    }
+  ],
+  "params": { "objectPath": "КонсольКода.xml", "formName": "Форма" },
+  "expect": { "stdoutContains": "Already registered" },
+  "validatePath": "КонсольКода/Forms/Форма"
+}

@@ -1,4 +1,4 @@
-﻿# form-add v1.10 — Add managed form to 1C config object
+﻿# form-add v1.11 — Add managed form to 1C config object
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -484,7 +484,10 @@ if (-not $childObjects) {
 	exit 1
 }
 
-# Добавить <Form>$FormName</Form>
+# Добавить <Form>$FormName</Form> — идемпотентно (не дублировать уже зарегистрированную)
+$alreadyRegistered = [bool]$childObjects.SelectSingleNode("md:Form[text()='$FormName']", $nsMgr)
+
+if (-not $alreadyRegistered) {
 $formElem = $xmlDoc.CreateElement("Form", "http://v8.1c.ru/8.3/MDClasses")
 $formElem.InnerText = $FormName
 
@@ -537,6 +540,7 @@ if ($insertBefore) {
 			$childObjects.AppendChild($xmlDoc.CreateWhitespace("`n`t`t")) | Out-Null
 		}
 	}
+}
 }
 
 # --- SetDefault ---
@@ -603,7 +607,11 @@ Write-Host "  Metadata: $objDirName\$objBaseName\Forms\$FormName.xml"
 Write-Host "  Form:     $objDirName\$objBaseName\Forms\$FormName\Ext\Form.xml"
 Write-Host "  Module:   $objDirName\$objBaseName\Forms\$FormName\Ext\Form\Module.bsl"
 Write-Host ""
-Write-Host "Registered: <Form>$FormName</Form> in ChildObjects"
+if ($alreadyRegistered) {
+	Write-Host "Already registered: <Form>$FormName</Form> in ChildObjects (skipped duplicate)"
+} else {
+	Write-Host "Registered: <Form>$FormName</Form> in ChildObjects"
+}
 if ($defaultUpdated) {
 	Write-Host "${defaultPropName}: $defaultValue"
 }

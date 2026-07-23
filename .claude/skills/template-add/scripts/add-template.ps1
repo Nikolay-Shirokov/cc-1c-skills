@@ -1,4 +1,4 @@
-﻿# template-add v1.9 — Add template to 1C object
+﻿# template-add v1.10 — Add template to 1C object
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -329,7 +329,10 @@ if (-not $childObjects) {
 	exit 1
 }
 
-# Добавить <Template> в конец ChildObjects
+# Добавить <Template> в конец ChildObjects — идемпотентно (не дублировать уже зарегистрированный)
+$alreadyRegistered = [bool]$childObjects.SelectSingleNode("md:Template[text()='$TemplateName']", $nsMgr)
+
+if (-not $alreadyRegistered) {
 $templateElem = $xmlDoc.CreateElement("Template", "http://v8.1c.ru/8.3/MDClasses")
 $templateElem.InnerText = $TemplateName
 
@@ -348,6 +351,7 @@ if ($childObjects.ChildNodes.Count -eq 0) {
 		$childObjects.AppendChild($templateElem) | Out-Null
 		$childObjects.AppendChild($xmlDoc.CreateWhitespace("`n`t`t")) | Out-Null
 	}
+}
 }
 
 # --- 4. MainDataCompositionSchema (для ExternalReport / Report) ---
@@ -392,6 +396,9 @@ $writer.Close()
 $stream.Close()
 
 Write-Host "[OK] Создан макет: $TemplateName ($TemplateType)"
+if ($alreadyRegistered) {
+	Write-Host "     Already registered: <Template>$TemplateName</Template> in ChildObjects (skipped duplicate)"
+}
 Write-Host "     Метаданные: $templateMetaPath"
 Write-Host "     Содержимое: $templateFilePath"
 if ($mainDCSUpdated) {

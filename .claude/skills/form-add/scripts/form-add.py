@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# form-add v1.10 — Add managed form to 1C config object
+# form-add v1.11 — Add managed form to 1C config object
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -592,47 +592,50 @@ def main():
         print(f"Не найден элемент ChildObjects в {object_path}", file=sys.stderr)
         sys.exit(1)
 
-    # Add <Form>$FormName</Form>
-    form_elem = etree.Element(f"{{{ns}}}Form")
-    form_elem.text = form_name
+    # Add <Form>$FormName</Form> — idempotent (do not duplicate already-registered form)
+    already_registered = child_objects.find(f"md:Form[.='{form_name}']", NSMAP) is not None
 
-    # Find first <Template> to insert before it
-    first_template = child_objects.find("md:Template", NSMAP)
-    # Find first <TabularSection> to insert before it (if no Template)
-    first_tabular = child_objects.find("md:TabularSection", NSMAP)
+    if not already_registered:
+        form_elem = etree.Element(f"{{{ns}}}Form")
+        form_elem.text = form_name
 
-    # Determine insertion point: before Template, before TabularSection, or at end
-    insert_before = None
-    if first_template is not None:
-        insert_before = first_template
-    elif first_tabular is not None:
-        insert_before = first_tabular
+        # Find first <Template> to insert before it
+        first_template = child_objects.find("md:Template", NSMAP)
+        # Find first <TabularSection> to insert before it (if no Template)
+        first_tabular = child_objects.find("md:TabularSection", NSMAP)
 
-    if insert_before is not None:
-        # Insert before the found element
-        idx = list(child_objects).index(insert_before)
-        child_objects.insert(idx, form_elem)
-        # Whitespace: form_elem gets "\n\t\t\t" as tail (indent before insert_before)
-        form_elem.tail = "\n\t\t\t"
-    else:
-        # Add to end of ChildObjects
-        children = list(child_objects)
-        if len(children) == 0 and (child_objects.text is None or child_objects.text.strip() == ""):
-            # Empty ChildObjects (self-closing)
-            child_objects.text = "\n\t\t\t"
-            child_objects.append(form_elem)
-            form_elem.tail = "\n\t\t"
+        # Determine insertion point: before Template, before TabularSection, or at end
+        insert_before = None
+        if first_template is not None:
+            insert_before = first_template
+        elif first_tabular is not None:
+            insert_before = first_tabular
+
+        if insert_before is not None:
+            # Insert before the found element
+            idx = list(child_objects).index(insert_before)
+            child_objects.insert(idx, form_elem)
+            # Whitespace: form_elem gets "\n\t\t\t" as tail (indent before insert_before)
+            form_elem.tail = "\n\t\t\t"
         else:
-            if len(children) > 0:
-                last_child = children[-1]
-                old_tail = last_child.tail
-                last_child.tail = "\n\t\t\t"
-                child_objects.append(form_elem)
-                form_elem.tail = old_tail if old_tail else "\n\t\t"
-            else:
-                child_objects.text = (child_objects.text or "") + "\n\t\t\t"
+            # Add to end of ChildObjects
+            children = list(child_objects)
+            if len(children) == 0 and (child_objects.text is None or child_objects.text.strip() == ""):
+                # Empty ChildObjects (self-closing)
+                child_objects.text = "\n\t\t\t"
                 child_objects.append(form_elem)
                 form_elem.tail = "\n\t\t"
+            else:
+                if len(children) > 0:
+                    last_child = children[-1]
+                    old_tail = last_child.tail
+                    last_child.tail = "\n\t\t\t"
+                    child_objects.append(form_elem)
+                    form_elem.tail = old_tail if old_tail else "\n\t\t"
+                else:
+                    child_objects.text = (child_objects.text or "") + "\n\t\t\t"
+                    child_objects.append(form_elem)
+                    form_elem.tail = "\n\t\t"
 
     # --- SetDefault ---
 
@@ -677,7 +680,10 @@ def main():
     print(f"  Form:     {obj_dir_name}\\{obj_base_name}\\Forms\\{form_name}\\Ext\\Form.xml")
     print(f"  Module:   {obj_dir_name}\\{obj_base_name}\\Forms\\{form_name}\\Ext\\Form\\Module.bsl")
     print()
-    print(f"Registered: <Form>{form_name}</Form> in ChildObjects")
+    if already_registered:
+        print(f"Already registered: <Form>{form_name}</Form> in ChildObjects (skipped duplicate)")
+    else:
+        print(f"Registered: <Form>{form_name}</Form> in ChildObjects")
     if default_updated:
         print(f"{default_prop_name}: {default_value}")
     print()

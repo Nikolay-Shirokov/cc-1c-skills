@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# add-template v1.9 — Add template to 1C object
+# add-template v1.10 — Add template to 1C object
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -446,31 +446,34 @@ def main():
         print(f"Не найден элемент ChildObjects в {root_xml_path}", file=sys.stderr)
         sys.exit(1)
 
-    # Add <Template> to end of ChildObjects
-    template_elem = etree.SubElement(child_objects, f"{{{ns}}}Template")
-    template_elem.text = template_name
-    # Remove auto-appended element to reinsert with proper whitespace
-    child_objects.remove(template_elem)
+    # Add <Template> to end of ChildObjects — idempotent (do not duplicate already-registered template)
+    already_registered = child_objects.find(f"md:Template[.='{template_name}']", NSMAP) is not None
 
-    children = list(child_objects)
-    if len(children) == 0 and (child_objects.text is None or child_objects.text.strip() == ""):
-        # Empty ChildObjects (self-closing)
-        child_objects.text = "\n\t\t\t"
-        child_objects.append(template_elem)
-        template_elem.tail = "\n\t\t"
-    else:
-        if len(children) > 0:
-            last_child = children[-1]
-            # last_child.tail is the trailing whitespace before </ChildObjects>
-            old_tail = last_child.tail
-            last_child.tail = "\n\t\t\t"
-            child_objects.append(template_elem)
-            template_elem.tail = old_tail if old_tail else "\n\t\t"
-        else:
-            # Has text content but no element children
-            child_objects.text = (child_objects.text or "") + "\n\t\t\t"
+    if not already_registered:
+        template_elem = etree.SubElement(child_objects, f"{{{ns}}}Template")
+        template_elem.text = template_name
+        # Remove auto-appended element to reinsert with proper whitespace
+        child_objects.remove(template_elem)
+
+        children = list(child_objects)
+        if len(children) == 0 and (child_objects.text is None or child_objects.text.strip() == ""):
+            # Empty ChildObjects (self-closing)
+            child_objects.text = "\n\t\t\t"
             child_objects.append(template_elem)
             template_elem.tail = "\n\t\t"
+        else:
+            if len(children) > 0:
+                last_child = children[-1]
+                # last_child.tail is the trailing whitespace before </ChildObjects>
+                old_tail = last_child.tail
+                last_child.tail = "\n\t\t\t"
+                child_objects.append(template_elem)
+                template_elem.tail = old_tail if old_tail else "\n\t\t"
+            else:
+                # Has text content but no element children
+                child_objects.text = (child_objects.text or "") + "\n\t\t\t"
+                child_objects.append(template_elem)
+                template_elem.tail = "\n\t\t"
 
     # --- 4. MainDataCompositionSchema (for ExternalReport / Report) ---
 
@@ -500,6 +503,8 @@ def main():
     save_xml_with_bom(tree, root_xml_full)
 
     print(f"[OK] Создан макет: {template_name} ({template_type})")
+    if already_registered:
+        print(f"     Already registered: <Template>{template_name}</Template> in ChildObjects (skipped duplicate)")
     print(f"     Метаданные: {template_meta_path}")
     print(f"     Содержимое: {template_file_path}")
     if main_dcs_updated:
