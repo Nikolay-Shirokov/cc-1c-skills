@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "1c-skills-py",
+  "description": "[Python] Навыки для разработки на 1С:Предприятие 8.3 — абстракции над XML-форматами и CLI конфигуратора, плюс глаза и руки для тестирования через веб-клиент. Linux/Mac или когда PowerShell недоступен.",
+  "author": {
+    "name": "Nikolay Shirokov"
+  },
+  "homepage": "https://github.com/Nikolay-Shirokov/cc-1c-skills",
+  "repository": "https://github.com/Nikolay-Shirokov/cc-1c-skills",
+  "license": "MIT",
+  "keywords": [
+    "1c",
+    "1c-dev",
+    "cf",
+    "cfe",
+    "epf",
+    "erf",
+    "metadata",
+    "configuration",
+    "extension",
+    "form",
+    "report",
+    "skd",
+    "data-processor",
+    "mxl",
+    "web-client",
+    "testing",
+    "test-automation"
+  ],
+  "skills": "./.claude/skills/"
+}
