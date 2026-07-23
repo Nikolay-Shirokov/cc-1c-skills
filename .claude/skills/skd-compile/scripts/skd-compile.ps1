@@ -1,4 +1,4 @@
-﻿# skd-compile v1.108 — Compile 1C DCS from JSON
+﻿# skd-compile v1.109 — Compile 1C DCS from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[string]$DefinitionFile,
@@ -3202,12 +3202,15 @@ function Emit-TableAxisBlock {
 	if ($block.filter) {
 		Emit-Filter -items $block.filter -indent $indent
 	}
-	if ($block.order) {
-		Emit-Order -items $block.order -indent $indent
-	}
-	if ($block.selection) {
-		Emit-Selection -items $block.selection -indent $indent
-	}
+	# Платформа на осях (column/row/point/series) всегда пишет order+selection; при отсутствии
+	# ключа кладёт Auto (как ручное добавление оси в конфигураторе). Ключ присутствует (в т.ч.
+	# пустой [] ) — уважаем как задано.
+	$hasOrderKey = $block.PSObject.Properties.Match('order').Count -gt 0
+	$orderItems = if ($hasOrderKey) { $block.order } else { @('Auto') }
+	Emit-Order -items $orderItems -indent $indent
+	$hasSelKey = $block.PSObject.Properties.Match('selection').Count -gt 0
+	$selItems = if ($hasSelKey) { $block.selection } else { @('Auto') }
+	Emit-Selection -items $selItems -indent $indent
 	if ($block.conditionalAppearance) {
 		Emit-ConditionalAppearance -items $block.conditionalAppearance -indent $indent
 	}
@@ -3262,13 +3265,15 @@ function Emit-StructureItem {
 		$gb = if ($item.groupBy) { $item.groupBy } else { $item.groupFields }
 		Emit-GroupItems -groupBy $gb -indent "$indent`t"
 
-		# Emit order/selection only if specified — platform doesn't always emit them on group
-		if ($item.order) {
-			Emit-Order -items $item.order -indent "$indent`t" -blockViewMode $item.orderViewMode -blockUserSettingID $item.orderUserSettingID
-		}
-		if ($item.selection) {
-			Emit-Selection -items $item.selection -indent "$indent`t"
-		}
+		# Платформа на группировке (плоской и вложенной в ось, short/explicit) всегда пишет
+		# order+selection; при отсутствии ключа кладёт Auto. Ключ присутствует (в т.ч. пустой [])
+		# — уважаем как задано (blockViewMode/userSettingID имеют смысл только при явном order).
+		$hasGrpOrderKey = $item.PSObject.Properties.Match('order').Count -gt 0
+		$grpOrderItems = if ($hasGrpOrderKey) { $item.order } else { @('Auto') }
+		Emit-Order -items $grpOrderItems -indent "$indent`t" -blockViewMode $item.orderViewMode -blockUserSettingID $item.orderUserSettingID
+		$hasGrpSelKey = $item.PSObject.Properties.Match('selection').Count -gt 0
+		$grpSelItems = if ($hasGrpSelKey) { $item.selection } else { @('Auto') }
+		Emit-Selection -items $grpSelItems -indent "$indent`t"
 
 		Emit-Filter -items $item.filter -indent "$indent`t"
 
@@ -3422,8 +3427,11 @@ function Emit-StructureItem {
 			}
 		}
 
-		# Selection (chart values)
-		Emit-Selection -items $item.selection -indent "$indent`t"
+		# Selection (chart values) — платформа всегда пишет chart-level selection; при отсутствии
+		# ключа кладёт Auto.
+		$hasChartSelKey = $item.PSObject.Properties.Match('selection').Count -gt 0
+		$chartSelItems = if ($hasChartSelKey) { $item.selection } else { @('Auto') }
+		Emit-Selection -items $chartSelItems -indent "$indent`t"
 
 		if ($item.outputParameters) {
 			Emit-OutputParameters -params $item.outputParameters -indent "$indent`t"

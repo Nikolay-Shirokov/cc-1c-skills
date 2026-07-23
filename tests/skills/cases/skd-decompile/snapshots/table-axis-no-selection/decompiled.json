@@ -1,0 +1,4 @@
+{
+  "dataSets": [{ "name": "Основной", "query": "ВЫБРАТЬ Т.Организация, Т.Сумма ИЗ Регистр КАК Т", "fields": ["Организация: string", "Сумма: decimal(15,2)"] }],
+  "settingsVariants": [{ "name": "Основной", "settings": { "selection": ["Сумма"], "structure": [{ "type": "table", "columns": [{ "groupFields": ["Организация"], "order": ["Auto"], "selection": ["Auto"] }], "rows": [{ "groupFields": ["Организация"], "order": [], "selection": [] }] }] } }]
+}

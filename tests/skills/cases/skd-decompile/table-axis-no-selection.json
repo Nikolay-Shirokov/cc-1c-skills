@@ -1,0 +1,6 @@
+{
+  "name": "Ось таблицы без <selection>/<order> декомпилится в [] (страж round-trip regression, issue #53)",
+  "setup": "fixture:table-axis-no-selection",
+  "params": { "templatePath": "Template.xml" },
+  "outputPath": "decompiled.json"
+}

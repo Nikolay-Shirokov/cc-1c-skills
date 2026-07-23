@@ -1,4 +1,4 @@
-﻿# skd-decompile v0.90 — Decompile 1C DCS Template.xml to JSON DSL (draft)
+﻿# skd-decompile v0.91 — Decompile 1C DCS Template.xml to JSON DSL (draft)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -2223,18 +2223,20 @@ function Build-TableAxisBlock {
 		foreach ($fc in $fNode.SelectNodes("dcsset:item", $ns)) { $fa += (Build-FilterItem -itemNode $fc -loc "$loc/filter") }
 		$entry['filter'] = $fa
 	}
-	# order — preserve presence (even [Auto]) for bit-perfect round-trip
+	# order/selection — всегда явные (принцип «декомпилятор всегда явный»): [Auto] сохраняем как есть,
+	# отсутствие/пустоту эмитим как [] — иначе compile впаяет дефолтный Auto (round-trip рвётся на
+	# осях без выбора, напр. ветки use=false). [] на входе compile → эмитит ничего = «нет выбора».
+	# NB: прямое присваивание @() (не через if-выражение — там пустой массив схлопнется в $null).
 	$ordNode = $node.SelectSingleNode("dcsset:order", $ns)
 	if ($ordNode) {
 		$ordItems = Build-Order -ordNode $ordNode -loc "$loc/order"
-		if ($ordItems.Count -gt 0) { $entry['order'] = $ordItems }
-	}
-	# selection — preserve presence (even [Auto])
+		if ($ordItems.Count -gt 0) { $entry['order'] = $ordItems } else { $entry['order'] = @() }
+	} else { $entry['order'] = @() }
 	$selNode = $node.SelectSingleNode("dcsset:selection", $ns)
 	if ($selNode) {
 		$selItems = Build-Selection -selNode $selNode -loc "$loc/selection"
-		if ($selItems.Count -gt 0) { $entry['selection'] = $selItems }
-	}
+		if ($selItems.Count -gt 0) { $entry['selection'] = $selItems } else { $entry['selection'] = @() }
+	} else { $entry['selection'] = @() }
 	# conditionalAppearance block
 	$caN = $node.SelectSingleNode("dcsset:conditionalAppearance", $ns)
 	if ($caN) {
@@ -2381,11 +2383,13 @@ function Build-Structure {
 				$entry['series'] = $sArr
 			}
 			# Selection (chart values) — сохраняем даже [Auto] для bit-perfect presence
+			# chart-level selection — всегда явно ([] при отсутствии/пустоте, иначе compile впаяет Auto).
+			# NB: прямое присваивание @() (не через if-выражение — пустой массив там схлопнется в $null).
 			$selN = $it.SelectSingleNode("dcsset:selection", $ns)
 			if ($selN) {
 				$selI = Build-Selection -selNode $selN -loc "$loc/$idx/selection"
-				if ($selI.Count -gt 0) { $entry['selection'] = $selI }
-			}
+				if ($selI.Count -gt 0) { $entry['selection'] = $selI } else { $entry['selection'] = @() }
+			} else { $entry['selection'] = @() }
 			$opN = $it.SelectSingleNode("dcsset:outputParameters", $ns)
 			$op = Build-OutputParameters -opNode $opN
 			if ($op -and $op.Count -gt 0) { $entry['outputParameters'] = $op }
@@ -2427,17 +2431,21 @@ function Build-Structure {
 		$gFields = Get-GroupFields -parentNode $it -loc $loc
 		if ($gFields.Count -gt 0) { $entry['groupFields'] = $gFields }
 
-		# Local selection — preserve presence (even [Auto]) for bit-perfect round-trip
+		# Local selection/order — всегда явные: [Auto] как есть, отсутствие/пустоту как [] (иначе compile
+		# впаяет дефолтный Auto → round-trip рвётся на группах без выбора, напр. ветки use=false).
+		# [] не Auto-only → Try-StructureShorthand не свернёт такую группу в shorthand (и не добавит Auto).
+		# NB: прямое присваивание @() (не через if-выражение — пустой массив там схлопнется в $null).
 		$selNode = $it.SelectSingleNode("dcsset:selection", $ns)
 		if ($selNode) {
 			$selItems = Build-Selection -selNode $selNode -loc "$loc/selection"
-			if ($selItems.Count -gt 0) { $entry['selection'] = $selItems }
-		}
-		# Local order — same
+			if ($selItems.Count -gt 0) { $entry['selection'] = $selItems } else { $entry['selection'] = @() }
+		} else { $entry['selection'] = @() }
 		$ordNode = $it.SelectSingleNode("dcsset:order", $ns)
 		if ($ordNode) {
 			$ordItems = Build-Order -ordNode $ordNode -loc "$loc/order"
-			if ($ordItems.Count -gt 0) { $entry['order'] = $ordItems }
+			if ($ordItems.Count -gt 0) { $entry['order'] = $ordItems } else { $entry['order'] = @() }
+		} else { $entry['order'] = @() }
+		if ($ordNode) {
 			# Block-level viewMode/userSettingID на <dcsset:order>
 			foreach ($ch in $ordNode.ChildNodes) {
 				if ($ch.NodeType -ne 'Element' -or $ch.NamespaceURI -ne 'http://v8.1c.ru/8.1/data-composition-system/settings') { continue }

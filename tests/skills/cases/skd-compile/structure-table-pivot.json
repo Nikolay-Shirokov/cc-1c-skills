@@ -1,0 +1,38 @@
+{
+  "name": "Объектная таблица-пивот: оси без selection/order получают авто-Auto (issue #53)",
+  "params": { "outputPath": "Template.xml" },
+  "input": {
+    "dataSets": [{
+      "name": "Основной",
+      "query": "ВЫБРАТЬ Т.Период, Т.Номенклатура, Т.Характеристика, Т.КОформлениюПриход ИЗ Регистр КАК Т",
+      "fields": [
+        "Период: date",
+        "Номенклатура: CatalogRef.Номенклатура @dimension",
+        "Характеристика: CatalogRef.ХарактеристикиНоменклатуры @dimension",
+        "КОформлениюПриход: decimal(15,2)"
+      ]
+    }],
+    "settingsVariants": [{
+      "name": "Основной",
+      "settings": {
+        "selection": ["КОформлениюПриход"],
+        "structure": [
+          {
+            "type": "table",
+            "columns": [ { "groupFields": ["Период"] } ],
+            "rows": [
+              {
+                "groupFields": ["Номенклатура"],
+                "children": [ { "groupFields": ["Характеристика"] } ]
+              }
+            ]
+          }
+        ]
+      }
+    }]
+  },
+  "validatePath": "Template.xml",
+  "expect": {
+    "files": ["Template.xml"]
+  }
+}

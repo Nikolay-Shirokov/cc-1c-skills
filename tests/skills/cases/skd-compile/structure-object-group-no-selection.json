@@ -1,0 +1,27 @@
+{
+  "name": "Плоская объектная группа без selection/order получает авто-Auto (issue #53)",
+  "params": { "outputPath": "Template.xml" },
+  "input": {
+    "dataSets": [{
+      "name": "Основной",
+      "query": "ВЫБРАТЬ Т.Организация, Т.Сумма ИЗ Регистр КАК Т",
+      "fields": [
+        "Организация: CatalogRef.Организации @dimension",
+        "Сумма: decimal(15,2)"
+      ]
+    }],
+    "settingsVariants": [{
+      "name": "Основной",
+      "settings": {
+        "selection": ["Сумма"],
+        "structure": [
+          { "groupFields": ["Организация"] }
+        ]
+      }
+    }]
+  },
+  "validatePath": "Template.xml",
+  "expect": {
+    "files": ["Template.xml"]
+  }
+}

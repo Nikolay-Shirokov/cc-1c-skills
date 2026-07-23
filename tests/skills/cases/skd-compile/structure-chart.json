@@ -1,0 +1,32 @@
+{
+  "name": "Объектная диаграмма: point/series без selection/order + chart-level selection получают авто-Auto (issue #53)",
+  "params": { "outputPath": "Template.xml" },
+  "input": {
+    "dataSets": [{
+      "name": "Основной",
+      "query": "ВЫБРАТЬ Т.Период, Т.Номенклатура, Т.Сумма ИЗ Регистр КАК Т",
+      "fields": [
+        "Период: date",
+        "Номенклатура: CatalogRef.Номенклатура @dimension",
+        "Сумма: decimal(15,2)"
+      ]
+    }],
+    "settingsVariants": [{
+      "name": "Основной",
+      "settings": {
+        "selection": ["Сумма"],
+        "structure": [
+          {
+            "type": "chart",
+            "points": { "groupFields": ["Период"] },
+            "series": { "groupFields": ["Номенклатура"] }
+          }
+        ]
+      }
+    }]
+  },
+  "validatePath": "Template.xml",
+  "expect": {
+    "files": ["Template.xml"]
+  }
+}

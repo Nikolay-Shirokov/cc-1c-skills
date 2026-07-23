@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# skd-decompile v0.90 — Decompile 1C DCS Template.xml to JSON DSL (draft)
+# skd-decompile v0.91 — Decompile 1C DCS Template.xml to JSON DSL (draft)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import os
@@ -2327,16 +2327,14 @@ def build_table_axis_block(node, loc, include_name=False):
         for fc in f_node.select_nodes("dcsset:item"):
             fa.append(build_filter_item(fc, "%s/filter" % loc))
         entry['filter'] = fa
+    # order/selection — всегда явные ([Auto] как есть, отсутствие/пустоту как []): иначе compile
+    # впаяет дефолтный Auto → round-trip рвётся на осях без выбора (напр. ветки use=false).
     ord_node = node.select_single_node("dcsset:order")
-    if ord_node:
-        ord_items = build_order(ord_node, "%s/order" % loc)
-        if len(ord_items) > 0:
-            entry['order'] = ord_items
+    ord_items = build_order(ord_node, "%s/order" % loc) if ord_node else []
+    entry['order'] = ord_items if len(ord_items) > 0 else []
     sel_node = node.select_single_node("dcsset:selection")
-    if sel_node:
-        sel_items = build_selection(sel_node, "%s/selection" % loc)
-        if len(sel_items) > 0:
-            entry['selection'] = sel_items
+    sel_items = build_selection(sel_node, "%s/selection" % loc) if sel_node else []
+    entry['selection'] = sel_items if len(sel_items) > 0 else []
     ca_n = node.select_single_node("dcsset:conditionalAppearance")
     if ca_n:
         ca = build_conditional_appearance(ca_n, "%s/ca" % loc)
@@ -2485,11 +2483,10 @@ def build_structure(node, loc):
                     s_arr.append(build_table_axis_block(s, "%s/%d/series[%d]" % (loc, idx, si)))
                     si += 1
                 entry['series'] = s_arr
+            # chart-level selection — всегда явно ([] при отсутствии/пустоте, иначе compile впаяет Auto)
             sel_n = it.select_single_node("dcsset:selection")
-            if sel_n:
-                sel_i = build_selection(sel_n, "%s/%d/selection" % (loc, idx))
-                if len(sel_i) > 0:
-                    entry['selection'] = sel_i
+            sel_i = build_selection(sel_n, "%s/%d/selection" % (loc, idx)) if sel_n else []
+            entry['selection'] = sel_i if len(sel_i) > 0 else []
             op_n = it.select_single_node("dcsset:outputParameters")
             op = build_output_parameters(op_n)
             if op and len(op) > 0:
@@ -2532,16 +2529,16 @@ def build_structure(node, loc):
         if len(g_fields) > 0:
             entry['groupFields'] = g_fields
 
+        # Local selection/order — всегда явные ([Auto] как есть, отсутствие/пустоту как []): иначе
+        # compile впаяет дефолтный Auto → round-trip рвётся на группах без выбора (напр. use=false).
+        # [] не Auto-only → try_structure_shorthand не свернёт такую группу в shorthand (без Auto).
         sel_node = it.select_single_node("dcsset:selection")
-        if sel_node:
-            sel_items = build_selection(sel_node, "%s/selection" % loc)
-            if len(sel_items) > 0:
-                entry['selection'] = sel_items
+        sel_items = build_selection(sel_node, "%s/selection" % loc) if sel_node else []
+        entry['selection'] = sel_items if len(sel_items) > 0 else []
         ord_node = it.select_single_node("dcsset:order")
+        ord_items = build_order(ord_node, "%s/order" % loc) if ord_node else []
+        entry['order'] = ord_items if len(ord_items) > 0 else []
         if ord_node:
-            ord_items = build_order(ord_node, "%s/order" % loc)
-            if len(ord_items) > 0:
-                entry['order'] = ord_items
             for ch in ord_node.child_nodes:
                 if ch.namespace_uri != NS_SET:
                     continue

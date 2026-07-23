@@ -5,7 +5,7 @@
       "name": "Основной",
       "settings": {
         "selection": ["Период", { "field": "Сумма", "title": "Итого" }, { "folder": "Группа итогов", "items": ["ВидРасчета", { "field": "Сумма", "title": "Сумма с расшифровкой" }, { "folder": "Подгруппа", "items": ["Подразделение"] }] }],
-        "structure": [{ "name": "Группа1", "groupFields": [{ "field": "Период", "periodAdditionType": "Day" }, { "field": "Подразделение", "groupType": "Hierarchy" }], "children": [{ "type": "nestedObject", "objectID": "ДанныеЧасть1", "settings": { "selection": ["ВидРасчета", "Сумма"] } }] }]
+        "structure": [{ "name": "Группа1", "groupFields": [{ "field": "Период", "periodAdditionType": "Day" }, { "field": "Подразделение", "groupType": "Hierarchy" }], "selection": ["Auto"], "order": ["Auto"], "children": [{ "type": "nestedObject", "objectID": "ДанныеЧасть1", "settings": { "selection": ["ВидРасчета", "Сумма"] } }] }]
       }
     }
   ]

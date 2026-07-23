@@ -127,6 +127,12 @@
 						<dcsset:periodAdditionEnd xsi:type="xs:dateTime">0001-01-01T00:00:00</dcsset:periodAdditionEnd>
 					</dcsset:item>
 				</dcsset:groupItems>
+				<dcsset:order>
+					<dcsset:item xsi:type="dcsset:OrderItemAuto"/>
+				</dcsset:order>
+				<dcsset:selection>
+					<dcsset:item xsi:type="dcsset:SelectedItemAuto"/>
+				</dcsset:selection>
 				<dcsset:item xsi:type="dcsset:StructureItemNestedObject">
 					<dcsset:objectID>ДанныеЧасть1</dcsset:objectID>
 					<dcsset:settings>

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# skd-compile v1.108 — Compile 1C DCS from JSON
+# skd-compile v1.109 — Compile 1C DCS from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import json
@@ -2631,10 +2631,13 @@ def emit_table_axis_block(lines, block, indent, emit_name=True):
     emit_group_items(lines, gb, indent)
     if block.get('filter'):
         emit_filter(lines, block['filter'], indent)
-    if block.get('order'):
-        emit_order(lines, block['order'], indent)
-    if block.get('selection'):
-        emit_selection(lines, block['selection'], indent)
+    # Платформа на осях (column/row/point/series) всегда пишет order+selection; при отсутствии
+    # ключа кладёт Auto (как ручное добавление оси в конфигураторе). Ключ присутствует (в т.ч.
+    # пустой [] ) — уважаем как задано.
+    order_items = block['order'] if 'order' in block else ['Auto']
+    emit_order(lines, order_items, indent)
+    sel_items = block['selection'] if 'selection' in block else ['Auto']
+    emit_selection(lines, sel_items, indent)
     if block.get('conditionalAppearance'):
         emit_conditional_appearance(lines, block['conditionalAppearance'], indent)
     if block.get('outputParameters'):
@@ -2674,11 +2677,13 @@ def emit_structure_item(lines, item, indent, short_group=False):
 
         emit_group_items(lines, item.get('groupBy') or item.get('groupFields'), f'{indent}\t')
 
-        # Emit order/selection only if specified — platform doesn't always emit them on group
-        if item.get('order'):
-            emit_order(lines, item['order'], f'{indent}\t', block_view_mode=item.get('orderViewMode'), block_user_setting_id=item.get('orderUserSettingID'))
-        if item.get('selection'):
-            emit_selection(lines, item['selection'], f'{indent}\t')
+        # Платформа на группировке (плоской и вложенной в ось, short/explicit) всегда пишет
+        # order+selection; при отсутствии ключа кладёт Auto. Ключ присутствует (в т.ч. пустой [])
+        # — уважаем как задано (blockViewMode/userSettingID имеют смысл только при явном order).
+        grp_order_items = item['order'] if 'order' in item else ['Auto']
+        emit_order(lines, grp_order_items, f'{indent}\t', block_view_mode=item.get('orderViewMode'), block_user_setting_id=item.get('orderUserSettingID'))
+        grp_sel_items = item['selection'] if 'selection' in item else ['Auto']
+        emit_selection(lines, grp_sel_items, f'{indent}\t')
 
         emit_filter(lines, item.get('filter'), f'{indent}\t')
 
@@ -2783,8 +2788,10 @@ def emit_structure_item(lines, item, indent, short_group=False):
                 emit_table_axis_block(lines, sb, f'{indent}\t\t')
                 lines.append(f'{indent}\t</dcsset:series>')
 
-        # Selection (chart values)
-        emit_selection(lines, item.get('selection'), f'{indent}\t')
+        # Selection (chart values) — платформа всегда пишет chart-level selection; при отсутствии
+        # ключа кладёт Auto.
+        chart_sel_items = item['selection'] if 'selection' in item else ['Auto']
+        emit_selection(lines, chart_sel_items, f'{indent}\t')
 
         if item.get('outputParameters'):
             emit_output_parameters(lines, item['outputParameters'], f'{indent}\t')
