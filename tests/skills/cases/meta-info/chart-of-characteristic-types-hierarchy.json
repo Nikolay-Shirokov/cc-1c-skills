@@ -1,0 +1,20 @@
+{
+  "name": "ПВХ показывает иерархичность",
+  "setup": "empty-config",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "ChartOfCharacteristicTypes",
+        "name": "НастройкиПользователей",
+        "hierarchical": true,
+        "valueTypes": ["String(100)"]
+      },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    }
+  ],
+  "params": { "objectPath": "ChartsOfCharacteristicTypes/НастройкиПользователей" },
+  "expect": {
+    "stdoutContains": "Иерархический: да"
+  }
+}

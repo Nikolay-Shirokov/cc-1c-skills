@@ -202,6 +202,22 @@ object_type_map = {
     "AccountingRegisterRecordSet": "НаборЗаписейРБ",
 }
 
+metadata_ref_map = {
+    "Catalog": "Справочник", "Document": "Документ", "Enum": "Перечисление",
+    "Constant": "Константа", "InformationRegister": "РегистрСведений",
+    "AccumulationRegister": "РегистрНакопления", "AccountingRegister": "РегистрБухгалтерии",
+    "CalculationRegister": "РегистрРасчета", "ChartOfAccounts": "ПланСчетов",
+    "ChartOfCharacteristicTypes": "ПланВидовХарактеристик",
+    "ChartOfCalculationTypes": "ПланВидовРасчета", "BusinessProcess": "БизнесПроцесс",
+    "Task": "Задача", "ExchangePlan": "ПланОбмена", "DocumentJournal": "ЖурналДокументов",
+    "Report": "Отчет", "DataProcessor": "Обработка", "CommonModule": "ОбщийМодуль",
+    "CommonForm": "ОбщаяФорма", "CommonPicture": "ОбщаяКартинка",
+    "CommonCommand": "ОбщаяКоманда", "CommonTemplate": "ОбщийМакет",
+    "SessionParameter": "ПараметрСеанса", "DefinedType": "ОпределяемыйТип",
+    "Role": "Роль", "Subsystem": "Подсистема", "Style": "Стиль",
+    "StyleItem": "ЭлементСтиля", "Language": "Язык",
+}
+
 number_period_map = {
     "Year": "по году", "Quarter": "по кварталу", "Month": "по месяцу", "Day": "по дню",
     "WholeCatalog": "сквозная",
@@ -425,6 +441,61 @@ def format_source_type(raw):
     return raw
 
 
+def format_metadata_ref(raw):
+    raw = raw.strip()
+    raw = re.sub(r'^d\d+p\d+:', 'cfg:', raw)
+    m = re.match(r'^cfg:(.+)$', raw)
+    if m:
+        raw = m.group(1)
+    m = re.match(r'^(\w+)\.(.+)$', raw)
+    if m:
+        prefix = m.group(1)
+        name = m.group(2)
+        if prefix in metadata_ref_map:
+            return f"{metadata_ref_map[prefix]}.{name}"
+    return raw
+
+
+def get_owners(props_node):
+    owners_node = find(props_node, "md:Owners")
+    if owners_node is None:
+        return []
+    owner_items = find_all(owners_node, "xr:Item")
+    if not owner_items:
+        owner_items = owners_node.xpath("*[local-name()='Item']")
+    result = []
+    for item in owner_items:
+        raw = text_of(item)
+        if raw:
+            result.append(format_metadata_ref(raw))
+    return result
+
+
+def get_hierarchy_summary(props_node, object_type):
+    hier = find(props_node, "md:Hierarchical")
+    if hier is None:
+        return ""
+    if inner_text(hier) != "true":
+        return "Иерархический: нет"
+
+    hierarchy_type = find(props_node, "md:HierarchyType")
+    if object_type == "Catalog":
+        ht_text = "группы и элементы" if hierarchy_type is not None and inner_text(hierarchy_type) == "HierarchyFoldersAndItems" else "элементы"
+        limit_node = find(props_node, "md:LimitLevelCount")
+        level_node = find(props_node, "md:LevelCount")
+        if limit_node is not None and inner_text(limit_node) == "true" and level_node is not None:
+            ht_text += f", уровней: {inner_text(level_node)}"
+        else:
+            ht_text += ", без ограничения уровней"
+        return f"Иерархический: {ht_text}"
+
+    if hierarchy_type is not None:
+        ht_text = "группы и элементы" if inner_text(hierarchy_type) == "HierarchyFoldersAndItems" else "элементы"
+        return f"Иерархический: {ht_text}"
+
+    return "Иерархический: да"
+
+
 def get_http_endpoints(child_objs):
     result = []
     for tpl in find_all(child_objs, "md:URLTemplate"):
@@ -544,6 +615,8 @@ is_ref_object = md_type in ref_md_types
 
 # Effective type presentation: ObjectPresentation -> Synonym -> Name
 type_presentation = obj_presentation or synonym or obj_name
+owners = get_owners(props)
+hierarchy_summary = get_hierarchy_summary(props, md_type)
 
 # ── Handle -Name drill-down ──────────────────────────────────
 
@@ -718,6 +791,12 @@ if not drill_done:
             if ext_list_presentation:
                 out(f"Расширенное представление списка: {ext_list_presentation}")
 
+    if mode != "brief" and hierarchy_summary:
+        out(hierarchy_summary)
+
+    if mode != "brief" and owners:
+        out(f"Владельцы ({len(owners)}): {', '.join(owners)}")
+
     if mode == "brief":
         # Attributes
         attrs = get_attributes(child_objs) if child_objs is not None else []
@@ -871,17 +950,6 @@ if not drill_done:
         # Catalog-specific header
         if md_type == "Catalog":
             parts = []
-            hier = find(props, "md:Hierarchical")
-            if hier is not None and inner_text(hier) == "true":
-                ht = find(props, "md:HierarchyType")
-                ht_text = "группы и элементы" if ht is not None and inner_text(ht) == "HierarchyFoldersAndItems" else "элементы"
-                limit_node = find(props, "md:LimitLevelCount")
-                level_node = find(props, "md:LevelCount")
-                if limit_node is not None and inner_text(limit_node) == "true" and level_node is not None:
-                    ht_text += f", уровней: {inner_text(level_node)}"
-                else:
-                    ht_text += ", без ограничения уровней"
-                parts.append(f"Иерархический: {ht_text}")
             code_len = find(props, "md:CodeLength")
             desc_len = find(props, "md:DescriptionLength")
             if code_len is not None and inner_text(code_len).isdigit() and int(inner_text(code_len)) > 0:

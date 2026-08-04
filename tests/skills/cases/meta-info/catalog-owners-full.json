@@ -1,0 +1,29 @@
+{
+  "name": "Подчиненный справочник показывает владельцев в full",
+  "setup": "empty-config",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "Catalog",
+        "name": "ВидыЦенПоставщиков",
+        "synonym": "Виды цен поставщиков",
+        "descriptionLength": 100,
+        "owners": ["Catalog.СоглашенияСПоставщиками", "Catalog.Партнеры"],
+        "attributes": [
+          { "name": "Валюта", "type": "CatalogRef.Валюты", "required": true }
+        ]
+      },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    }
+  ],
+  "params": { "objectPath": "Catalogs/ВидыЦенПоставщиков" },
+  "args_extra": ["-Mode", "full"],
+  "expect": {
+    "stdoutContains": [
+      "Владельцы (2): Справочник.СоглашенияСПоставщиками, Справочник.Партнеры",
+      "Реквизиты (1):",
+      "Валюта"
+    ]
+  }
+}

@@ -150,6 +150,22 @@ $objectTypeMap = @{
 	"AccountingRegisterRecordSet"="НаборЗаписейРБ"
 }
 
+$metadataRefMap = @{
+	"Catalog"="Справочник"; "Document"="Документ"; "Enum"="Перечисление"
+	"Constant"="Константа"; "InformationRegister"="РегистрСведений"
+	"AccumulationRegister"="РегистрНакопления"; "AccountingRegister"="РегистрБухгалтерии"
+	"CalculationRegister"="РегистрРасчета"; "ChartOfAccounts"="ПланСчетов"
+	"ChartOfCharacteristicTypes"="ПланВидовХарактеристик"
+	"ChartOfCalculationTypes"="ПланВидовРасчета"; "BusinessProcess"="БизнесПроцесс"
+	"Task"="Задача"; "ExchangePlan"="ПланОбмена"; "DocumentJournal"="ЖурналДокументов"
+	"Report"="Отчет"; "DataProcessor"="Обработка"; "CommonModule"="ОбщийМодуль"
+	"CommonForm"="ОбщаяФорма"; "CommonPicture"="ОбщаяКартинка"
+	"CommonCommand"="ОбщаяКоманда"; "CommonTemplate"="ОбщийМакет"
+	"SessionParameter"="ПараметрСеанса"; "DefinedType"="ОпределяемыйТип"
+	"Role"="Роль"; "Subsystem"="Подсистема"; "Style"="Стиль"
+	"StyleItem"="ЭлементСтиля"; "Language"="Язык"
+}
+
 $numberPeriodMap = @{
 	"Year"="по году"; "Quarter"="по кварталу"; "Month"="по месяцу"; "Day"="по дню"
 	"WholeCatalog"="сквозная"
@@ -367,6 +383,63 @@ function Format-SourceType([string]$raw) {
 	return $raw
 }
 
+function Format-MetadataRef([string]$raw) {
+	$raw = $raw.Trim()
+	$raw = $raw -replace '^d\d+p\d+:', 'cfg:'
+	if ($raw -match '^cfg:(.+)$') { $raw = $Matches[1] }
+	if ($raw -match '^(\w+)\.(.+)$') {
+		$prefix = $Matches[1]
+		$name = $Matches[2]
+		if ($metadataRefMap.ContainsKey($prefix)) {
+			return "$($metadataRefMap[$prefix]).$name"
+		}
+	}
+	return $raw
+}
+
+function Get-Owners($propsNode) {
+	if (-not $propsNode) { return @() }
+	$ownersNode = $propsNode.SelectSingleNode("md:Owners", $ns)
+	if (-not $ownersNode) { return @() }
+	$ownerItems = @($ownersNode.SelectNodes("xr:Item", $ns))
+	if ($ownerItems.Count -eq 0) {
+		$ownerItems = @($ownersNode.SelectNodes("*[local-name()='Item']"))
+	}
+	$result = @()
+	foreach ($item in $ownerItems) {
+		$raw = $item.InnerText.Trim()
+		if ($raw) { $result += Format-MetadataRef $raw }
+	}
+	return $result
+}
+
+function Get-HierarchySummary($propsNode, [string]$objectType) {
+	if (-not $propsNode) { return "" }
+	$hier = $propsNode.SelectSingleNode("md:Hierarchical", $ns)
+	if (-not $hier) { return "" }
+	if ($hier.InnerText -ne "true") { return "Иерархический: нет" }
+
+	$hierarchyType = $propsNode.SelectSingleNode("md:HierarchyType", $ns)
+	if ($objectType -eq "Catalog") {
+		$htText = if ($hierarchyType -and $hierarchyType.InnerText -eq "HierarchyFoldersAndItems") { "группы и элементы" } else { "элементы" }
+		$limitNode = $propsNode.SelectSingleNode("md:LimitLevelCount", $ns)
+		$levelNode = $propsNode.SelectSingleNode("md:LevelCount", $ns)
+		if ($limitNode -and $limitNode.InnerText -eq "true" -and $levelNode) {
+			$htText += ", уровней: $($levelNode.InnerText)"
+		} else {
+			$htText += ", без ограничения уровней"
+		}
+		return "Иерархический: $htText"
+	}
+
+	if ($hierarchyType) {
+		$htText = if ($hierarchyType.InnerText -eq "HierarchyFoldersAndItems") { "группы и элементы" } else { "элементы" }
+		return "Иерархический: $htText"
+	}
+
+	return "Иерархический: да"
+}
+
 function Get-HTTPEndpoints($childObjs) {
 	$result = @()
 	foreach ($tpl in $childObjs.SelectNodes("md:URLTemplate", $ns)) {
@@ -482,6 +555,8 @@ $isRefObject = $refMdTypes -contains $mdType
 $typePresentation = if ($objPresentation) { $objPresentation }
 	elseif ($synonym) { $synonym }
 	else { $objName }
+$owners = @(Get-Owners $props)
+$hierarchySummary = Get-HierarchySummary $props $mdType
 
 # --- Handle -Name drill-down ---
 $drillDone = $false
@@ -666,6 +741,14 @@ if (-not $drillDone) {
 		}
 	}
 
+	if ($Mode -ne "brief" -and $hierarchySummary) {
+		Out $hierarchySummary
+	}
+
+	if ($Mode -ne "brief" -and $owners.Count -gt 0) {
+		Out "Владельцы ($($owners.Count)): $($owners -join ', ')"
+	}
+
 	# --- Mode: brief ---
 	if ($Mode -eq "brief") {
 		# Attributes
@@ -842,19 +925,6 @@ if (-not $drillDone) {
 		# Catalog-specific header properties
 		if ($mdType -eq "Catalog") {
 			$parts = @()
-			$hier = $props.SelectSingleNode("md:Hierarchical", $ns)
-			if ($hier -and $hier.InnerText -eq "true") {
-				$ht = $props.SelectSingleNode("md:HierarchyType", $ns)
-				$htText = if ($ht -and $ht.InnerText -eq "HierarchyFoldersAndItems") { "группы и элементы" } else { "элементы" }
-				$limitNode = $props.SelectSingleNode("md:LimitLevelCount", $ns)
-				$levelNode = $props.SelectSingleNode("md:LevelCount", $ns)
-				if ($limitNode -and $limitNode.InnerText -eq "true" -and $levelNode) {
-					$htText += ", уровней: $($levelNode.InnerText)"
-				} else {
-					$htText += ", без ограничения уровней"
-				}
-				$parts += "Иерархический: $htText"
-			}
 			$codeLen = $props.SelectSingleNode("md:CodeLength", $ns)
 			$descLen = $props.SelectSingleNode("md:DescriptionLength", $ns)
 			if ($codeLen -and [int]$codeLen.InnerText -gt 0) { $parts += "Код($($codeLen.InnerText))" }
