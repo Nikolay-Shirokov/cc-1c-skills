@@ -1,0 +1,43 @@
+---
+name: erf-init
+description: Создать пустой внешний отчёт 1С (scaffold XML-исходников). Используй когда нужно создать новый внешний отчёт с нуля
+argument-hint: <Name> [Synonym] [--with-skd]
+allowed-tools:
+  - Bash
+  - Read
+  - Write
+  - Edit
+  - Glob
+  - Grep
+---
+
+# /erf-init — Создание нового отчёта
+
+Генерирует минимальный набор XML-исходников для внешнего отчёта 1С: корневой файл метаданных и каталог отчёта.
+
+## Usage
+
+```
+/erf-init <Name> [Synonym] [SrcDir] [FormatVersion] [--with-skd]
+```
+
+| Параметр      | Обязательный | По умолчанию | Описание                              |
+|---------------|:------------:|--------------|---------------------------------------|
+| Name          | да           | —            | Имя отчёта (латиница/кириллица)       |
+| Synonym       | нет          | = Name       | Синоним (отображаемое имя)            |
+| SrcDir        | нет          | `src`        | Каталог исходников относительно CWD   |
+| FormatVersion | нет          | `2.17`       | Версия формата: 2.20 — платформа 8.3.27, 2.21 — 8.5. Дефолт открывается любой платформой |
+| --WithSKD     | нет          | —            | Создать пустую СКД и привязать к MainDataCompositionSchema |
+
+## Команда
+
+```powershell
+python ".codex/skills/erf-init/scripts/init.py" -Name "<Name>" [-Synonym "<Synonym>"] [-SrcDir "<SrcDir>"] [-FormatVersion "<2.17|2.18|2.19|2.20|2.21>"] [-WithSKD]
+```
+
+## Дальнейшие шаги
+
+- Добавить форму: `/form-add`
+- Добавить макет: `/template-add`
+- Добавить справку: `/help-add`
+- Собрать ERF: `/erf-build`
