@@ -1,6 +1,6 @@
 ---
 name: mxl-compile
-description: Компиляция табличного документа (MXL) из JSON-определения. Используй когда нужно создать макет печатной формы
+description: Компиляция табличного документа (MXL) из JSON-определения — блочный или плоский режим, области Rows/Columns/Rectangle, ячейки-поля ввода. Используй когда нужно создать макет печатной формы
 argument-hint: <JsonPath> <OutputPath>
 allowed-tools:
   - Bash
@@ -49,12 +49,24 @@ powershell.exe -NoProfile -File "${CLAUDE_SKILL_DIR}/scripts/mxl-compile.ps1" -J
 
 ```
 { columns, page, defaultWidth, columnWidths,
+  languages: { text, current, default, list: [{ id, code, description }] },
+  extraMerges: [{ r, c, w, h }],
   fonts: { name: { face, size, bold, italic, underline, strikeout } },
-  styles: { name: { font, align, valign, border, borderWidth, wrap, format } },
-  areas: [{ name, rows: [{ height, rowStyle, cells: [
-    { col, span, rowspan, style, param, detail, text, template }
-  ]}]}]
+  styles: { name: { font, align, valign, border, borderWidth, borderColor,
+                    borders: { top|bottom|left|right: { style, width } },
+                    wrap, textPlacement, textColor, hidden, indent, format } },
+
+  // блочный режим — области идут подряд
+  areas: [{ name, rows: [ <строка> ]}],
+
+  // ИЛИ плоский режим — вся сетка + области координатами
+  rows: [ <строка> ],
+  namedAreas: [{ name, type, firstRow, lastRow, firstCol, lastCol }]
 }
+
+<строка> = { height, rowStyle, cells: [
+  { col, span, rowspan, style, param, detail, text, template, input, valueType }
+]}
 ```
 
 Ключевые правила:
@@ -64,3 +76,11 @@ powershell.exe -NoProfile -File "${CLAUDE_SKILL_DIR}/scripts/mxl-compile.ps1" -J
 - Тип заполнения определяется автоматически: `param` → Parameter, `text` → Text, `template` → Template
 - `rowspan` — объединение строк вниз (rowStyle учитывает занятые ячейки)
 - `empty` в строке — шорткат для N подряд пустых строк (`{ "empty": 3 }` = три `{}`)
+- `areas` и `rows` взаимоисключающие. Блочный режим — для печатных форм; плоский нужен, когда области пересекаются или есть области типов `Rectangle`/`Columns` (макеты регламентированных отчётов)
+- `namedAreas` — области любого типа с координатами 1-based; `type` = `Rows` | `Columns` | `Rectangle`
+- `input` (`"field"` / `"checkbox"`) + `valueType` (`"number(10,0)"`, `"string(50)"`, `"date"`, `"boolean"`) — ячейка, редактируемая пользователем
+- `languages.text` — язык, под которым пишется текст ячейки-строки (по умолчанию `ru`). `/mxl-decompile` определяет его по факту — по языку большинства надписей, а не по `currentLanguage`. Компилятор дописывает в `languages.list` все использованные языки, иначе платформа теряет надписи. Многоязычная ячейка: `"text": { "uk": "…", "ru": "…" }`
+- `extraMerges` — объединения без ячейки (`r`/`c` = `-1` — «все строки/колонки»), координаты 0-based как в XML
+- `defaultWidth: 0` — «ширины по умолчанию нет», колонки берут ширину платформы. Не путать с отсутствием поля (тогда подставляется 10)
+- `borders` — рамка по сторонам с собственным стилем линии (`Solid`, `Dotted`, …); нужна, когда стороны ячейки различаются
+- Размер шрифта бывает дробным (`8.3`); системный шрифт задаётся `ref` + `kind: "WindowsFont"` и может не иметь размера вовсе
