@@ -1,0 +1,33 @@
+{
+  "name": "Roundtrip — макет с пересекающимися областями декомпилируется в плоский режим",
+  "preRun": [
+    {
+      "script": "mxl-compile/scripts/mxl-compile",
+      "input": {
+        "columns": 3,
+        "styles": {
+          "bordered": { "border": "all" }
+        },
+        "rows": [
+          { "cells": [{ "col": 1, "span": 3, "style": "bordered", "text": "Заголовок" }] },
+          { "cells": [
+            { "col": 1, "style": "bordered", "param": "Наименование" },
+            { "col": 2, "style": "bordered", "param": "Количество" },
+            { "col": 3, "style": "bordered", "param": "Сумма" }
+          ]}
+        ],
+        "namedAreas": [
+          { "name": "ОбластьПечати", "type": "Rows", "firstRow": 1, "lastRow": 2 },
+          { "name": "Строка", "type": "Rows", "firstRow": 2, "lastRow": 2 },
+          { "name": "Колонки", "type": "Columns", "firstCol": 1, "lastCol": 3 }
+        ]
+      },
+      "args": { "-JsonPath": "{inputFile}", "-OutputPath": "Template.xml" },
+      "cwd": "{workDir}"
+    }
+  ],
+  "params": { "templatePath": "Template.xml" },
+  "expect": {
+    "stdoutContains": ["Mode: flat", "namedAreas"]
+  }
+}

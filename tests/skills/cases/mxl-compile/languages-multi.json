@@ -1,0 +1,42 @@
+{
+  "name": "Многоязычный макет — текст под несколькими языками, автодобавление в languageSettings",
+  "input": {
+    "columns": 2,
+    "languages": {
+      "text": "uk",
+      "current": "uk",
+      "default": "uk",
+      "list": [
+        { "id": "uk", "code": "Украинский", "description": "Українська" }
+      ]
+    },
+    "styles": {
+      "bordered": { "border": "all" }
+    },
+    "areas": [
+      {
+        "name": "Шапка",
+        "rows": [
+          { "cells": [
+            { "col": 1, "style": "bordered", "text": "Постачальник" },
+            { "col": 2, "style": "bordered", "text": { "uk": "Покупець", "ru": "Покупатель" } }
+          ]},
+          { "cells": [
+            { "col": 1, "style": "bordered", "template": { "uk": "Разом: [Сума]", "ru": "Итого: [Сумма]" } },
+            { "col": 2, "style": "bordered", "param": "Сума" }
+          ]}
+        ]
+      }
+    ]
+  },
+  "params": { "outputPath": "Template.xml" },
+  "validatePath": "Template.xml",
+  "expect": {
+    "files": ["Template.xml"],
+    "fileContains": [
+      { "file": "Template.xml", "text": "<currentLanguage>uk</currentLanguage>" },
+      { "file": "Template.xml", "text": "<id>uk</id>" },
+      { "file": "Template.xml", "text": "<id>ru</id>" }
+    ]
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "name": "Ошибка: rows и areas заданы одновременно — режимы взаимоисключающие",
+  "input": {
+    "columns": 2,
+    "rows": [
+      { "cells": [{ "col": 1, "text": "плоский" }] }
+    ],
+    "areas": [
+      {
+        "name": "Блок",
+        "rows": [
+          { "cells": [{ "col": 1, "text": "блочный" }] }
+        ]
+      }
+    ]
+  },
+  "params": { "outputPath": "Template.xml" },
+  "expectError": "mutually exclusive",
+  "noSnapshot": "негативный кейс: навык падает до записи файла, эталонировать нечего — предмет проверки в expectError"
+}

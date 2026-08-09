@@ -1,0 +1,30 @@
+{
+  "name": "Объединения вне ячеек — extraMerges с r=-1 («все строки»)",
+  "input": {
+    "columns": 4,
+    "styles": {
+      "bordered": { "border": "all" }
+    },
+    "areas": [
+      {
+        "name": "Тело",
+        "rows": [
+          { "cells": [
+            { "col": 1, "style": "bordered", "text": "A" },
+            { "col": 4, "style": "bordered", "text": "D" }
+          ]}
+        ]
+      }
+    ],
+    "extraMerges": [
+      { "r": -1, "c": 1, "w": 1, "h": 0 }
+    ]
+  },
+  "params": { "outputPath": "Template.xml" },
+  "validatePath": "Template.xml",
+  "expect": {
+    "files": ["Template.xml"],
+    "fileContains": { "file": "Template.xml", "text": "<r>-1</r>" },
+    "stdoutContains": "Merges: 1"
+  }
+}

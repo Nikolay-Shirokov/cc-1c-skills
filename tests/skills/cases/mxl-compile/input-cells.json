@@ -1,0 +1,53 @@
+{
+  "name": "Ячейки-поля ввода — field и checkbox, все сокращения valueType",
+  "input": {
+    "columns": 2,
+    "styles": {
+      "bordered": { "border": "all" }
+    },
+    "areas": [
+      {
+        "name": "Форма",
+        "rows": [
+          { "cells": [
+            { "col": 1, "style": "bordered", "text": "Число" },
+            { "col": 2, "style": "bordered", "input": "field", "valueType": "number(10,2)" }
+          ]},
+          { "cells": [
+            { "col": 1, "style": "bordered", "text": "Строка" },
+            { "col": 2, "style": "bordered", "input": "field", "valueType": "string(50)" }
+          ]},
+          { "cells": [
+            { "col": 1, "style": "bordered", "text": "Дата" },
+            { "col": 2, "style": "bordered", "input": "field", "valueType": "date" }
+          ]},
+          { "cells": [
+            { "col": 1, "style": "bordered", "text": "Признак" },
+            { "col": 2, "style": "bordered", "input": "checkbox", "valueType": "boolean" }
+          ]},
+          { "cells": [
+            { "col": 1, "style": "bordered", "text": "Число без дробной" },
+            { "col": 2, "style": "bordered", "input": "field", "valueType": "number(5)" }
+          ]},
+          { "cells": [
+            { "col": 1, "style": "bordered", "text": "Поле с текстом" },
+            { "col": 2, "style": "bordered", "input": "field", "valueType": "string(20)", "text": "по умолчанию" }
+          ]}
+        ]
+      }
+    ]
+  },
+  "params": { "outputPath": "Template.xml" },
+  "validatePath": "Template.xml",
+  "expect": {
+    "files": ["Template.xml"],
+    "fileContains": [
+      { "file": "Template.xml", "text": "<containsValue>true</containsValue>" },
+      { "file": "Template.xml", "text": "<controlType>381ed624-9217-4e63-85db-c4c3cb87daae</controlType>" },
+      { "file": "Template.xml", "text": "<controlType>35af3d93-d7c7-4a2e-a8eb-bac87a1a3f26</controlType>" },
+      { "file": "Template.xml", "text": "<v8:Digits>10</v8:Digits>" },
+      { "file": "Template.xml", "text": "<v8:FractionDigits>2</v8:FractionDigits>" },
+      { "file": "Template.xml", "text": "<v8:Length>50</v8:Length>" }
+    ]
+  }
+}

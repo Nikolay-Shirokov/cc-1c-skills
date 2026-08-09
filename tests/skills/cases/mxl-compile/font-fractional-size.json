@@ -1,0 +1,40 @@
+{
+  "name": "Шрифты — дробный размер и системный шрифт без размера",
+  "input": {
+    "columns": 3,
+    "fonts": {
+      "default": { "face": "Arial", "size": 10 },
+      "small": { "face": "Arial", "size": 8.3 },
+      "tiny": { "face": "Times New Roman", "size": 6.8, "italic": true },
+      "sys": { "face": "", "ref": "sys:DefaultGUIFont", "kind": "WindowsFont" }
+    },
+    "styles": {
+      "s-small": { "font": "small" },
+      "s-tiny": { "font": "tiny" },
+      "s-sys": { "font": "sys" }
+    },
+    "areas": [
+      {
+        "name": "Шрифты",
+        "rows": [
+          { "cells": [
+            { "col": 1, "style": "s-small", "text": "8.3" },
+            { "col": 2, "style": "s-tiny", "text": "6.8" },
+            { "col": 3, "style": "s-sys", "text": "системный" }
+          ]}
+        ]
+      }
+    ]
+  },
+  "params": { "outputPath": "Template.xml" },
+  "validatePath": "Template.xml",
+  "expect": {
+    "files": ["Template.xml"],
+    "fileContains": [
+      { "file": "Template.xml", "text": "height=\"8.3\"" },
+      { "file": "Template.xml", "text": "height=\"6.8\"" },
+      { "file": "Template.xml", "text": "ref=\"sys:DefaultGUIFont\"" },
+      { "file": "Template.xml", "text": "kind=\"WindowsFont\"" }
+    ]
+  }
+}

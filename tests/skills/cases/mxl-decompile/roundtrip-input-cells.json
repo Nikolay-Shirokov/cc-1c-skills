@@ -1,0 +1,35 @@
+{
+  "name": "Roundtrip — ячейки-поля ввода сохраняют тип значения и вид элемента",
+  "preRun": [
+    {
+      "script": "mxl-compile/scripts/mxl-compile",
+      "input": {
+        "columns": 2,
+        "styles": {
+          "bordered": { "border": "all" }
+        },
+        "areas": [
+          {
+            "name": "Форма",
+            "rows": [
+              { "cells": [
+                { "col": 1, "style": "bordered", "text": "Сумма" },
+                { "col": 2, "style": "bordered", "input": "field", "valueType": "number(15,2)" }
+              ]},
+              { "cells": [
+                { "col": 1, "style": "bordered", "text": "Признак" },
+                { "col": 2, "style": "bordered", "input": "checkbox", "valueType": "boolean" }
+              ]}
+            ]
+          }
+        ]
+      },
+      "args": { "-JsonPath": "{inputFile}", "-OutputPath": "Template.xml" },
+      "cwd": "{workDir}"
+    }
+  ],
+  "params": { "templatePath": "Template.xml" },
+  "expect": {
+    "stdoutContains": ["input", "valueType"]
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "name": "Плоский режим — вся сетка в rows, области координатами в namedAreas",
+  "input": {
+    "columns": 3,
+    "styles": {
+      "bordered": { "border": "all" }
+    },
+    "rows": [
+      { "cells": [{ "col": 1, "span": 3, "style": "bordered", "text": "Заголовок" }] },
+      { "cells": [
+        { "col": 1, "style": "bordered", "text": "Товар" },
+        { "col": 2, "style": "bordered", "text": "Кол-во" },
+        { "col": 3, "style": "bordered", "text": "Сумма" }
+      ]},
+      { "cells": [
+        { "col": 1, "style": "bordered", "param": "Наименование" },
+        { "col": 2, "style": "bordered", "param": "Количество" },
+        { "col": 3, "style": "bordered", "param": "Сумма" }
+      ]}
+    ],
+    "namedAreas": [
+      { "name": "Заголовок", "type": "Rows", "firstRow": 1, "lastRow": 1 },
+      { "name": "ШапкаТаблицы", "type": "Rows", "firstRow": 2, "lastRow": 2 },
+      { "name": "Строка", "type": "Rows", "firstRow": 3, "lastRow": 3 }
+    ]
+  },
+  "params": { "outputPath": "Template.xml" },
+  "validatePath": "Template.xml",
+  "expect": {
+    "files": ["Template.xml"],
+    "stdoutContains": "Mode: flat"
+  }
+}

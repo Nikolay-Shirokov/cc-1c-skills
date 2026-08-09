@@ -1,0 +1,28 @@
+{
+  "name": "defaultWidth: 0 — ширины по умолчанию нет, колонки берут ширину платформы",
+  "input": {
+    "columns": 3,
+    "defaultWidth": 0,
+    "styles": {
+      "bordered": { "border": "all" }
+    },
+    "areas": [
+      {
+        "name": "Тело",
+        "rows": [
+          { "cells": [
+            { "col": 1, "style": "bordered", "text": "A" },
+            { "col": 2, "style": "bordered", "text": "B" },
+            { "col": 3, "style": "bordered", "text": "C" }
+          ]}
+        ]
+      }
+    ]
+  },
+  "params": { "outputPath": "Template.xml" },
+  "validatePath": "Template.xml",
+  "expect": {
+    "files": ["Template.xml"],
+    "stdoutContains": "Columns: 3"
+  }
+}

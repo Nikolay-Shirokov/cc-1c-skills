@@ -1,0 +1,39 @@
+{
+  "name": "Roundtrip — рамка с разными стилями сторон переходит в borders, однородная остаётся компактной",
+  "preRun": [
+    {
+      "script": "mxl-compile/scripts/mxl-compile",
+      "input": {
+        "columns": 2,
+        "styles": {
+          "mixed": {
+            "borders": {
+              "top": { "style": "Dotted", "width": 1 },
+              "left": { "style": "Solid", "width": 1 },
+              "right": { "style": "Solid", "width": 2 },
+              "bottom": { "style": "Solid", "width": 1 }
+            }
+          },
+          "uniform": { "border": "all" }
+        },
+        "areas": [
+          {
+            "name": "Рамки",
+            "rows": [
+              { "cells": [
+                { "col": 1, "style": "mixed", "text": "смешанная" },
+                { "col": 2, "style": "uniform", "text": "однородная" }
+              ]}
+            ]
+          }
+        ]
+      },
+      "args": { "-JsonPath": "{inputFile}", "-OutputPath": "Template.xml" },
+      "cwd": "{workDir}"
+    }
+  ],
+  "params": { "templatePath": "Template.xml" },
+  "expect": {
+    "stdoutContains": ["borders", "styles"]
+  }
+}

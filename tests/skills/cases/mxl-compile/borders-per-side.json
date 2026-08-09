@@ -1,0 +1,48 @@
+{
+  "name": "Рамка по сторонам — разные стили линий на разных сторонах одной ячейки",
+  "input": {
+    "columns": 3,
+    "styles": {
+      "mixed": {
+        "borders": {
+          "top": { "style": "Dotted", "width": 1 },
+          "left": { "style": "Solid", "width": 1 },
+          "right": { "style": "Solid", "width": 2 },
+          "bottom": { "style": "Dotted", "width": 2 }
+        }
+      },
+      "only-top": {
+        "borders": { "top": { "style": "Solid", "width": 1 } }
+      },
+      "uniform": {
+        "borders": {
+          "top": { "style": "Solid", "width": 1 },
+          "left": { "style": "Solid", "width": 1 },
+          "right": { "style": "Solid", "width": 1 },
+          "bottom": { "style": "Solid", "width": 1 }
+        }
+      }
+    },
+    "areas": [
+      {
+        "name": "Рамки",
+        "rows": [
+          { "cells": [
+            { "col": 1, "style": "mixed", "text": "смешанная" },
+            { "col": 2, "style": "only-top", "text": "только сверху" },
+            { "col": 3, "style": "uniform", "text": "одинаковая" }
+          ]}
+        ]
+      }
+    ]
+  },
+  "params": { "outputPath": "Template.xml" },
+  "validatePath": "Template.xml",
+  "expect": {
+    "files": ["Template.xml"],
+    "fileContains": [
+      { "file": "Template.xml", "text": ">Dotted</v8ui:style>" },
+      { "file": "Template.xml", "text": "<topBorder>" }
+    ]
+  }
+}

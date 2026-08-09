@@ -1,0 +1,38 @@
+{
+  "name": "Именованные области всех типов — Rows, Columns, Rectangle, включая пересечение",
+  "input": {
+    "columns": 4,
+    "styles": {
+      "bordered": { "border": "all" }
+    },
+    "rows": [
+      { "cells": [
+        { "col": 1, "style": "bordered", "text": "A" },
+        { "col": 2, "style": "bordered", "text": "B" },
+        { "col": 3, "style": "bordered", "text": "C" },
+        { "col": 4, "style": "bordered", "text": "D" }
+      ]},
+      { "cells": [
+        { "col": 1, "style": "bordered", "param": "П1" },
+        { "col": 2, "style": "bordered", "param": "П2" },
+        { "col": 3, "style": "bordered", "param": "П3" },
+        { "col": 4, "style": "bordered", "param": "П4" }
+      ]}
+    ],
+    "namedAreas": [
+      { "name": "ОбластьПечатиПоВысоте", "type": "Rows", "firstRow": 1, "lastRow": 2 },
+      { "name": "ОбластьПечатиПоШирине", "type": "Columns", "firstCol": 1, "lastCol": 4 },
+      { "name": "Пересечение", "type": "Rectangle", "firstRow": 1, "lastRow": 1, "firstCol": 2, "lastCol": 3 },
+      { "name": "ОднаЯчейка", "type": "Rectangle", "firstRow": 2, "firstCol": 4 }
+    ]
+  },
+  "params": { "outputPath": "Template.xml" },
+  "validatePath": "Template.xml",
+  "expect": {
+    "files": ["Template.xml"],
+    "fileContains": [
+      { "file": "Template.xml", "text": "<type>Columns</type>" },
+      { "file": "Template.xml", "text": "<type>Rectangle</type>" }
+    ]
+  }
+}
