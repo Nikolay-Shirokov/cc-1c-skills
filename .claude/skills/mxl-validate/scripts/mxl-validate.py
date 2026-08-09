@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# mxl-validate v1.2 — Validate 1C spreadsheet document Template.xml
+# mxl-validate v1.3 — Validate 1C spreadsheet document Template.xml (+поля ввода, согласованность областей)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 """Validates spreadsheet Template.xml: height, palette refs, column/row indices, areas, merges."""
 import sys, os, argparse
@@ -208,7 +208,9 @@ def main():
             if val > max_font_ref:
                 max_font_ref = val
 
-        for border_name in ('leftBorder', 'topBorder', 'rightBorder', 'bottomBorder', 'drawingBorder'):
+        # border — рамка по всем сторонам одной линией: платформа пишет её вместо четырёх
+        # одинаковых односторонних элементов, и ссылка на палитру линий в ней такая же
+        for border_name in ('border', 'leftBorder', 'topBorder', 'rightBorder', 'bottomBorder', 'drawingBorder'):
             border_node = fmt.find(f'{{{NS_D}}}{border_name}')
             if border_node is not None and border_node.text:
                 val = int(border_node.text)
@@ -234,6 +236,48 @@ def main():
     elif max_line_ref > 0:
         r.error(f'Line index {max_line_ref} referenced but no lines defined')
     # No line/border references — no check needed
+
+    # --- Check 13: input cell formats (containsValue / valueType / controlType) ---
+    known_control_types = (
+        '381ed624-9217-4e63-85db-c4c3cb87daae',   # input field
+        '35af3d93-d7c7-4a2e-a8eb-bac87a1a3f26',   # checkbox
+    )
+
+    input_format_count = 0
+    fmt_no = 0
+    for fmt_node in root.findall(f'{{{NS_D}}}format'):
+        if r.stopped:
+            break
+        fmt_no += 1
+
+        cv_node = fmt_node.find(f'{{{NS_D}}}containsValue')
+        ct_node = fmt_node.find(f'{{{NS_D}}}controlType')
+        vt_node = fmt_node.find(f'{{{NS_D}}}valueType')
+
+        if cv_node is None and ct_node is None:
+            if vt_node is not None:
+                r.error(f'Format #{fmt_no}: valueType without containsValue')
+            continue
+        input_format_count += 1
+
+        if cv_node is None:
+            r.error(f'Format #{fmt_no}: controlType without containsValue')
+        elif (cv_node.text or '') != 'true':
+            r.error(f"Format #{fmt_no}: containsValue='{cv_node.text}', expected 'true'")
+
+        if ct_node is None:
+            r.error(f'Format #{fmt_no}: containsValue without controlType')
+        elif (ct_node.text or '') not in known_control_types:
+            r.warn(f"Format #{fmt_no}: unknown controlType '{ct_node.text}'")
+
+        if vt_node is not None and vt_node.find(f'{{{NS_V8}}}Type') is None:
+            r.error(f'Format #{fmt_no}: valueType without v8:Type')
+
+    if not r.stopped:
+        if input_format_count > 0:
+            r.ok(f'Input cell formats: {input_format_count}')
+        else:
+            r.ok('No input cell formats')
 
     # --- Check 3, 4, 5, 6: row/cell checks ---
     max_cell_format_ref = 0
@@ -346,6 +390,44 @@ def main():
                 r.error(f"Area '{name}': beginRow={begin_row} >= height={doc_height}")
             if end_row != -1 and end_row >= doc_height:
                 r.error(f"Area '{name}': endRow={end_row} >= height={doc_height}")
+            # Inverted ranges are degenerate but the platform does write them
+            if begin_row != -1 and end_row != -1 and end_row < begin_row:
+                r.warn(f"Area '{name}': endRow={end_row} < beginRow={begin_row} (degenerate area)")
+
+            # Column bounds — meaningful for Columns and Rectangle areas.
+            # Отсутствующая граница — это -1 («открыта с этой стороны»), а не 0:
+            # int_text подставил бы 0 и породил ложную ошибку на области Rows.
+            begin_col_node = area.find(f'{{{NS_D}}}beginColumn')
+            end_col_node = area.find(f'{{{NS_D}}}endColumn')
+            begin_col = int(begin_col_node.text) if begin_col_node is not None and begin_col_node.text else -1
+            end_col = int(end_col_node.text) if end_col_node is not None and end_col_node.text else -1
+
+            # No upper bound check on columns: the platform itself writes areas that
+            # reach past the declared column count (checked against typical templates)
+            if begin_col != -1 and end_col != -1 and end_col < begin_col:
+                r.warn(f"Area '{name}': endColumn={end_col} < beginColumn={begin_col} (degenerate area)")
+
+            # Area type must agree with which axes are set
+            type_node = area.find(f'{{{NS_D}}}type')
+            area_type = type_node.text if type_node is not None else ''
+            # A -1 bound means "open on that side", so only a fully unset axis is wrong
+            if area_type == 'Rows':
+                if begin_row == -1 and end_row == -1:
+                    r.error(f"Area '{name}': type Rows without a row range")
+                if begin_col != -1 or end_col != -1:
+                    r.error(f"Area '{name}': type Rows must not set columns (got {begin_col}-{end_col})")
+            elif area_type == 'Columns':
+                if begin_col == -1 and end_col == -1:
+                    r.error(f"Area '{name}': type Columns without a column range")
+                if begin_row != -1 or end_row != -1:
+                    r.error(f"Area '{name}': type Columns must not set rows (got {begin_row}-{end_row})")
+            elif area_type == 'Rectangle':
+                if begin_row == -1 and end_row == -1:
+                    r.error(f"Area '{name}': type Rectangle without a row range")
+                if begin_col == -1 and end_col == -1:
+                    r.error(f"Area '{name}': type Rectangle without a column range")
+            else:
+                r.error(f"Area '{name}': unknown area type '{area_type}'")
 
             # Check columnsID reference
             cols_id_node = area.find(f'{{{NS_D}}}columnsID')

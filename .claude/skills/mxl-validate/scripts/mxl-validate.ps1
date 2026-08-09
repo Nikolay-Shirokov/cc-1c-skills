@@ -1,4 +1,4 @@
-﻿# mxl-validate v1.2 — Validate 1C spreadsheet
+﻿# mxl-validate v1.3 — Validate 1C spreadsheet (+поля ввода, согласованность областей)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Alias('Path')]
@@ -180,7 +180,9 @@ foreach ($fmt in $formatNodes) {
 		if ($val -gt $maxFontRef) { $maxFontRef = $val }
 	}
 
-	foreach ($border in @("d:leftBorder", "d:topBorder", "d:rightBorder", "d:bottomBorder", "d:drawingBorder")) {
+	# d:border — рамка по всем сторонам одной линией: платформа пишет её вместо четырёх
+	# одинаковых односторонних элементов, и ссылка на палитру линий в ней такая же
+	foreach ($border in @("d:border", "d:leftBorder", "d:topBorder", "d:rightBorder", "d:bottomBorder", "d:drawingBorder")) {
 		$borderNode = $fmt.SelectSingleNode($border, $nsMgr)
 		if ($borderNode) {
 			$val = [int]$borderNode.InnerText
@@ -215,6 +217,54 @@ if ($lineCount -gt 0) {
 	Report-Error "Line index $maxLineRef referenced but no lines defined"
 } else {
 	Report-OK "No line/border references"
+}
+
+# --- Check 13: input cell formats (containsValue / valueType / controlType) ---
+
+$knownControlTypes = @(
+	"381ed624-9217-4e63-85db-c4c3cb87daae",   # input field
+	"35af3d93-d7c7-4a2e-a8eb-bac87a1a3f26"    # checkbox
+)
+
+$inputFormatCount = 0
+$fmtNo = 0
+foreach ($fmtNode in $root.SelectNodes("d:format", $nsMgr)) {
+	if ($stopped) { break }
+	$fmtNo++
+
+	$cvNode = $fmtNode.SelectSingleNode("d:containsValue", $nsMgr)
+	$ctNode = $fmtNode.SelectSingleNode("d:controlType", $nsMgr)
+	$vtNode = $fmtNode.SelectSingleNode("d:valueType", $nsMgr)
+
+	if (-not $cvNode -and -not $ctNode) {
+		if ($vtNode) { Report-Error "Format #${fmtNo}: valueType without containsValue" }
+		continue
+	}
+	$inputFormatCount++
+
+	if (-not $cvNode) {
+		Report-Error "Format #${fmtNo}: controlType without containsValue"
+	} elseif ($cvNode.InnerText -ne "true") {
+		Report-Error "Format #${fmtNo}: containsValue='$($cvNode.InnerText)', expected 'true'"
+	}
+
+	if (-not $ctNode) {
+		Report-Error "Format #${fmtNo}: containsValue without controlType"
+	} elseif ($knownControlTypes -notcontains $ctNode.InnerText) {
+		Report-Warn "Format #${fmtNo}: unknown controlType '$($ctNode.InnerText)'"
+	}
+
+	if ($vtNode -and -not $vtNode.SelectSingleNode("v8:Type", $nsMgr)) {
+		Report-Error "Format #${fmtNo}: valueType without v8:Type"
+	}
+}
+
+if (-not $stopped) {
+	if ($inputFormatCount -gt 0) {
+		Report-OK "Input cell formats: $inputFormatCount"
+	} else {
+		Report-OK "No input cell formats"
+	}
 }
 
 # --- Check 3, 4, 5, 6: row/cell checks ---
@@ -340,6 +390,42 @@ foreach ($ni in $root.SelectNodes("d:namedItem", $nsMgr)) {
 		}
 		if ($endRow -ne -1 -and $endRow -ge $docHeight) {
 			Report-Error "Area '$name': endRow=$endRow >= height=$docHeight"
+		}
+		# Inverted ranges are degenerate but the platform does write them
+		if ($beginRow -ne -1 -and $endRow -ne -1 -and $endRow -lt $beginRow) {
+			Report-Warn "Area '$name': endRow=$endRow < beginRow=$beginRow (degenerate area)"
+		}
+
+		# Column bounds — meaningful for Columns and Rectangle areas
+		$beginColNode = $area.SelectSingleNode("d:beginColumn", $nsMgr)
+		$endColNode = $area.SelectSingleNode("d:endColumn", $nsMgr)
+		$beginCol = if ($beginColNode) { [int]$beginColNode.InnerText } else { -1 }
+		$endCol = if ($endColNode) { [int]$endColNode.InnerText } else { -1 }
+
+		# No upper bound check on columns: the platform itself writes areas that
+		# reach past the declared column count (checked against typical templates)
+		if ($beginCol -ne -1 -and $endCol -ne -1 -and $endCol -lt $beginCol) {
+			Report-Warn "Area '$name': endColumn=$endCol < beginColumn=$beginCol (degenerate area)"
+		}
+
+		# Area type must agree with which axes are set
+		$typeNode = $area.SelectSingleNode("d:type", $nsMgr)
+		$areaType = if ($typeNode) { $typeNode.InnerText } else { "" }
+		# A -1 bound means "open on that side", so only a fully unset axis is wrong
+		switch ($areaType) {
+			"Rows" {
+				if ($beginRow -eq -1 -and $endRow -eq -1) { Report-Error "Area '$name': type Rows without a row range" }
+				if ($beginCol -ne -1 -or $endCol -ne -1) { Report-Error "Area '$name': type Rows must not set columns (got $beginCol-$endCol)" }
+			}
+			"Columns" {
+				if ($beginCol -eq -1 -and $endCol -eq -1) { Report-Error "Area '$name': type Columns without a column range" }
+				if ($beginRow -ne -1 -or $endRow -ne -1) { Report-Error "Area '$name': type Columns must not set rows (got $beginRow-$endRow)" }
+			}
+			"Rectangle" {
+				if ($beginRow -eq -1 -and $endRow -eq -1) { Report-Error "Area '$name': type Rectangle without a row range" }
+				if ($beginCol -eq -1 -and $endCol -eq -1) { Report-Error "Area '$name': type Rectangle without a column range" }
+			}
+			default { Report-Error "Area '$name': unknown area type '$areaType'" }
 		}
 
 		# Check columnsID reference
