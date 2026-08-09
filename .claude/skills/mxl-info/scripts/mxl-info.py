@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# mxl-info v1.4 — Analyze 1C spreadsheet structure (+единое имя хелпера состояния поддержки)
+# mxl-info v1.5 — Analyze 1C spreadsheet structure (+ячейки-поля ввода в сводке)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -274,6 +274,77 @@ merge_count = len(root.findall("d:merge", NS))
 drawing_nodes = root.findall("d:drawing", NS)
 drawing_count = len(drawing_nodes)
 
+# --- Input cells (containsValue + valueType + controlType) ---
+
+control_type_names = {
+    "381ed624-9217-4e63-85db-c4c3cb87daae": "field",
+    "35af3d93-d7c7-4a2e-a8eb-bac87a1a3f26": "checkbox",
+}
+
+# 1-based format index -> description of the input cell
+input_formats = {}
+fmt_idx = 0
+for fmt_node in root.findall("d:format", NS):
+    fmt_idx += 1
+    if fmt_node.find("d:containsValue", NS) is None:
+        continue
+
+    ct_node = fmt_node.find("d:controlType", NS)
+    ct = (ct_node.text or "") if ct_node is not None else ""
+    ct_name = control_type_names.get(ct, f"control {ct}")
+
+    vt_desc = "?"
+    vt_node = fmt_node.find("d:valueType", NS)
+    if vt_node is not None:
+        t_node = vt_node.find("v8:Type", NS)
+        xs_type = (t_node.text or "?") if t_node is not None else "?"
+        if xs_type == "xs:decimal":
+            d = vt_node.find("v8:NumberQualifiers/v8:Digits", NS)
+            f = vt_node.find("v8:NumberQualifiers/v8:FractionDigits", NS)
+            d_txt = d.text if d is not None else "?"
+            f_txt = f.text if f is not None else "?"
+            vt_desc = f"number({d_txt},{f_txt})"
+        elif xs_type == "xs:string":
+            l = vt_node.find("v8:StringQualifiers/v8:Length", NS)
+            l_txt = l.text if l is not None else "?"
+            vt_desc = f"string({l_txt})"
+        elif xs_type == "xs:boolean":
+            vt_desc = "boolean"
+        else:
+            vt_desc = "date"
+    input_formats[fmt_idx] = f"{ct_name} {vt_desc}"
+
+# Positions of cells that reference an input format
+input_cells = []
+if input_formats:
+    for ri in row_nodes:
+        r0 = int(ri.find("d:index", NS).text)
+        it_node = ri.find("d:indexTo", NS)
+        r1 = int(it_node.text) if it_node is not None else r0
+        row_node = ri.find("d:row", NS)
+        if row_node is None:
+            continue
+
+        col = -1
+        for c_group in row_node.findall("d:c", NS):
+            i_node = c_group.find("d:i", NS)
+            if i_node is not None:
+                col = int(i_node.text)
+            else:
+                col += 1
+            cell = c_group.find("d:c", NS)
+            if cell is None:
+                continue
+            f_node = cell.find("d:f", NS)
+            if f_node is None:
+                continue
+            fi = int(f_node.text)
+            if fi not in input_formats:
+                continue
+
+            for r in range(r0, r1 + 1):
+                input_cells.append({"Row": r, "Col": col, "Desc": input_formats[fi]})
+
 # --- Output ---
 
 def truncate_list(items, max_count):
@@ -281,7 +352,7 @@ def truncate_list(items, max_count):
         return ", ".join(items)
     shown = ", ".join(items[:max_count])
     remaining = len(items) - max_count
-    return f"{shown}, ... (+{remaining})"
+    return f"{shown}, ... (+{remaining}, raise -MaxParams to see them)"
 
 
 # Determine template name from path
@@ -527,10 +598,25 @@ if args.WithText:
                 tpl_str = truncate_list(tpl_items, args.MaxParams)
                 lines.append(f"    Templates: {tpl_str}")
 
+if input_cells:
+    lines.append("")
+    lines.append("--- Input cells (user-editable) ---")
+    # Group by description, list positions
+    by_desc = {}
+    for c in input_cells:
+        by_desc.setdefault(c["Desc"], []).append(c)
+    for desc in sorted(by_desc):
+        group = by_desc[desc]
+        positions = [f"r{c['Row']}c{c['Col']}" for c in group]
+        lines.append(f"  {desc}: {len(group)} cells")
+        lines.append("    " + truncate_list(positions, args.MaxParams))
+
 lines.append("")
 lines.append("--- Stats ---")
 lines.append(f"  Merges: {merge_count}")
 lines.append(f"  Drawings: {drawing_count}")
+if input_cells:
+    lines.append(f"  Input cells: {len(input_cells)} (formats: {len(input_formats)})")
 
 # --- Truncation protection ---
 total_lines = len(lines)

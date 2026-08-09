@@ -1,4 +1,4 @@
-﻿# mxl-info v1.4 — Analyze 1C spreadsheet structure (+единое имя хелпера состояния поддержки)
+﻿# mxl-info v1.5 — Analyze 1C spreadsheet structure (+ячейки-поля ввода в сводке)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Alias('Path')]
@@ -259,6 +259,74 @@ $mergeCount = $root.SelectNodes("d:merge", $nsMgr).Count
 $drawingNodes = $root.SelectNodes("d:drawing", $nsMgr)
 $drawingCount = $drawingNodes.Count
 
+# --- Input cells (containsValue + valueType + controlType) ---
+
+$controlTypeNames = @{
+	"381ed624-9217-4e63-85db-c4c3cb87daae" = "field"
+	"35af3d93-d7c7-4a2e-a8eb-bac87a1a3f26" = "checkbox"
+}
+
+# 1-based format index -> description of the input cell
+$inputFormats = @{}
+$fmtIdx = 0
+foreach ($fmtNode in $root.SelectNodes("d:format", $nsMgr)) {
+	$fmtIdx++
+	if (-not $fmtNode.SelectSingleNode("d:containsValue", $nsMgr)) { continue }
+
+	$ctNode = $fmtNode.SelectSingleNode("d:controlType", $nsMgr)
+	$ct = if ($ctNode) { $ctNode.InnerText } else { "" }
+	$ctName = if ($controlTypeNames.ContainsKey($ct)) { $controlTypeNames[$ct] } else { "control $ct" }
+
+	$vtDesc = "?"
+	$vtNode = $fmtNode.SelectSingleNode("d:valueType", $nsMgr)
+	if ($vtNode) {
+		$tNode = $vtNode.SelectSingleNode("v8:Type", $nsMgr)
+		$xsType = if ($tNode) { $tNode.InnerText } else { "?" }
+		switch ($xsType) {
+			"xs:decimal" {
+				$d = $vtNode.SelectSingleNode("v8:NumberQualifiers/v8:Digits", $nsMgr)
+				$f = $vtNode.SelectSingleNode("v8:NumberQualifiers/v8:FractionDigits", $nsMgr)
+				$vtDesc = "number($(if ($d) { $d.InnerText } else { '?' }),$(if ($f) { $f.InnerText } else { '?' }))"
+			}
+			"xs:string" {
+				$l = $vtNode.SelectSingleNode("v8:StringQualifiers/v8:Length", $nsMgr)
+				$vtDesc = "string($(if ($l) { $l.InnerText } else { '?' }))"
+			}
+			"xs:boolean" { $vtDesc = "boolean" }
+			default      { $vtDesc = "date" }
+		}
+	}
+	$inputFormats[$fmtIdx] = "$ctName $vtDesc"
+}
+
+# Positions of cells that reference an input format
+$inputCells = @()
+if ($inputFormats.Count -gt 0) {
+	foreach ($ri in $rowNodes) {
+		$r0 = [int]$ri.SelectSingleNode("d:index", $nsMgr).InnerText
+		$itNode = $ri.SelectSingleNode("d:indexTo", $nsMgr)
+		$r1 = if ($itNode) { [int]$itNode.InnerText } else { $r0 }
+		$rowNode = $ri.SelectSingleNode("d:row", $nsMgr)
+		if (-not $rowNode) { continue }
+
+		$col = -1
+		foreach ($cGroup in $rowNode.SelectNodes("d:c", $nsMgr)) {
+			$iNode = $cGroup.SelectSingleNode("d:i", $nsMgr)
+			if ($iNode) { $col = [int]$iNode.InnerText } else { $col++ }
+			$cell = $cGroup.SelectSingleNode("d:c", $nsMgr)
+			if (-not $cell) { continue }
+			$fNode = $cell.SelectSingleNode("d:f", $nsMgr)
+			if (-not $fNode) { continue }
+			$fi = [int]$fNode.InnerText
+			if (-not $inputFormats.ContainsKey($fi)) { continue }
+
+			for ($r = $r0; $r -le $r1; $r++) {
+				$inputCells += @{ Row = $r; Col = $col; Desc = $inputFormats[$fi] }
+			}
+		}
+	}
+}
+
 # --- Output ---
 
 function Truncate-List {
@@ -268,7 +336,7 @@ function Truncate-List {
 	}
 	$shown = ($items[0..($max - 1)] -join ", ")
 	$remaining = $items.Count - $max
-	return "$shown, ... (+$remaining)"
+	return "$shown, ... (+$remaining, raise -MaxParams to see them)"
 }
 
 # Determine template name from path
@@ -529,10 +597,25 @@ if ($WithText) {
 	}
 }
 
+if ($inputCells.Count -gt 0) {
+	$lines += ""
+	$lines += "--- Input cells (user-editable) ---"
+	# Group by description, list positions
+	$byDesc = $inputCells | Group-Object { $_.Desc } | Sort-Object Name
+	foreach ($g in $byDesc) {
+		$positions = @($g.Group | ForEach-Object { "r$($_.Row)c$($_.Col)" })
+		$lines += "  $($g.Name): $($g.Count) cells"
+		$lines += "    " + (Truncate-List -items $positions -max $MaxParams)
+	}
+}
+
 $lines += ""
 $lines += "--- Stats ---"
 $lines += "  Merges: $mergeCount"
 $lines += "  Drawings: $drawingCount"
+if ($inputCells.Count -gt 0) {
+	$lines += "  Input cells: $($inputCells.Count) (formats: $($inputFormats.Count))"
+}
 
 # --- Truncation protection ---
 
