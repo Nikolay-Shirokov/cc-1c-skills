@@ -1,4 +1,4 @@
-﻿# cfe-borrow v1.31 — Borrow objects from configuration into extension (CFE)
+﻿# cfe-borrow v1.32 — Borrow objects from configuration into extension (CFE)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)][string]$ExtensionPath,
@@ -1317,6 +1317,19 @@ function Test-ObjectBorrowed {
 function Build-InternalInfoXml {
 	param([string]$typeName, [string]$objName, [string]$indent)
 
+	# Общий модуль заимствуют ради модуля расширения — другого содержимого у объекта нет.
+	# Конфигуратор помечает свойство Module как расширенное; GeneratedType у типа не бывает.
+	if ($typeName -eq "CommonModule") {
+		$sbModule = New-Object System.Text.StringBuilder
+		$sbModule.AppendLine("${indent}<InternalInfo>") | Out-Null
+		$sbModule.AppendLine("${indent}`t<xr:PropertyState>") | Out-Null
+		$sbModule.AppendLine("${indent}`t`t<xr:Property>Module</xr:Property>") | Out-Null
+		$sbModule.AppendLine("${indent}`t`t<xr:State>Extended</xr:State>") | Out-Null
+		$sbModule.AppendLine("${indent}`t</xr:PropertyState>") | Out-Null
+		$sbModule.Append("${indent}</InternalInfo>") | Out-Null
+		return $sbModule.ToString()
+	}
+
 	$types = $script:generatedTypes[$typeName]
 	if (-not $types -or $types.Count -eq 0) {
 		return "${indent}<InternalInfo/>"
@@ -2082,6 +2095,34 @@ function Build-BorrowedObjectXml {
 	return $sb.ToString()
 }
 
+# --- 12b. Helper: create the extension module file ---
+function New-BorrowedModuleFile {
+	param([string]$typeName, [string]$objName, [string]$dirName)
+
+	# Только общий модуль: у него модуль — единственное содержимое, ради которого
+	# объект и заимствуют. Модули объектов и менеджеров прикладных типов сюда не
+	# входят: там заимствование осмысленно и без модуля.
+	if ($typeName -ne "CommonModule") { return $null }
+
+	$moduleDir = Join-Path (Join-Path (Join-Path $extDir $dirName) $objName) "Ext"
+	if (-not (Test-Path $moduleDir)) {
+		New-Item -ItemType Directory -Path $moduleDir -Force | Out-Null
+	}
+
+	# NEVER overwrite an existing one — повторное заимствование не должно затирать
+	# код, дописанный в модуль расширения (то же правило, что у модуля формы).
+	$moduleFile = Join-Path $moduleDir "Module.bsl"
+	if (Test-Path $moduleFile) {
+		Info "  Preserved existing Module.bsl"
+		return $moduleFile
+	}
+
+	$enc = New-Object System.Text.UTF8Encoding($true)
+	[System.IO.File]::WriteAllText($moduleFile, "", $enc)
+	Info "  Created: $moduleFile"
+	return $moduleFile
+}
+
 # --- 13. Helper: add object to extension ChildObjects ---
 function Add-ToChildObjects {
 	param([string]$typeName, [string]$objName)
@@ -2232,6 +2273,10 @@ foreach ($item in $items) {
 		Add-ToChildObjects $typeName $objName
 
 		$script:borrowedFiles += $targetFile
+
+		$moduleFile = New-BorrowedModuleFile $typeName $objName $dirName
+		if ($moduleFile) { $script:borrowedFiles += $moduleFile }
+
 		$borrowedCount++
 	}
 }

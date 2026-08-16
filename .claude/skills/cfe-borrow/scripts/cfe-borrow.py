@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# cfe-borrow v1.31 — Borrow objects from configuration into extension (CFE)
+# cfe-borrow v1.32 — Borrow objects from configuration into extension (CFE)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -861,6 +861,18 @@ def main():
         return src_uuid
 
     def build_internal_info_xml(type_name, obj_name, indent):
+        # Общий модуль заимствуют ради модуля расширения — другого содержимого у объекта нет.
+        # Конфигуратор помечает свойство Module как расширенное; GeneratedType у типа не бывает.
+        if type_name == "CommonModule":
+            return "\n".join([
+                f"{indent}<InternalInfo>",
+                f"{indent}\t<xr:PropertyState>",
+                f"{indent}\t\t<xr:Property>Module</xr:Property>",
+                f"{indent}\t\t<xr:State>Extended</xr:State>",
+                f"{indent}\t</xr:PropertyState>",
+                f"{indent}</InternalInfo>",
+            ])
+
         types = GENERATED_TYPES.get(type_name)
         if not types:
             return f"{indent}<InternalInfo/>"
@@ -922,6 +934,27 @@ def main():
         lines.append(f"\t</{type_name}>")
         lines.append("</MetaDataObject>")
         return "\n".join(lines)
+
+    def new_borrowed_module_file(type_name, obj_name, dir_name):
+        # Только общий модуль: у него модуль — единственное содержимое, ради которого
+        # объект и заимствуют. Модули объектов и менеджеров прикладных типов сюда не
+        # входят: там заимствование осмысленно и без модуля.
+        if type_name != "CommonModule":
+            return None
+
+        module_dir = os.path.join(ext_dir, dir_name, obj_name, "Ext")
+        os.makedirs(module_dir, exist_ok=True)
+
+        # NEVER overwrite an existing one — повторное заимствование не должно затирать
+        # код, дописанный в модуль расширения (то же правило, что у модуля формы).
+        module_file = os.path.join(module_dir, "Module.bsl")
+        if os.path.isfile(module_file):
+            info("  Preserved existing Module.bsl")
+            return module_file
+
+        write_utf8_bom(module_file, "")
+        info(f"  Created: {module_file}")
+        return module_file
 
     def add_to_child_objects(type_name, obj_name):
         cfg_indent = get_child_indent(cfg_el)
@@ -2094,6 +2127,11 @@ def main():
             add_to_child_objects(type_name, obj_name)
 
             borrowed_files.append(target_file)
+
+            module_file = new_borrowed_module_file(type_name, obj_name, dir_name)
+            if module_file:
+                borrowed_files.append(module_file)
+
             borrowed_count += 1
 
     # --- Владельцы заимствованных справочников ---

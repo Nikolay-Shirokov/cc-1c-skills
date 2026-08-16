@@ -118,6 +118,8 @@ Claude вызовет `/cfe-diff -Mode B` — найдёт блоки `#Вста
 
 Поддерживаемые типы: Catalog, Document, Enum, CommonModule, Report, DataProcessor, ExchangePlan, InformationRegister, AccumulationRegister, AccountingRegister, CalculationRegister, ChartOfAccounts, ChartOfCharacteristicTypes, ChartOfCalculationTypes, BusinessProcess, Task, и другие (44 типа).
 
+Для `CommonModule` дополнительно создаётся пустой `CommonModules/Имя/Ext/Module.bsl` (существующий не перезаписывается), а в метаданных проставляется `<xr:PropertyState>` со `State=Extended` для свойства `Module`: у общего модуля модуль — единственное содержимое, ради которого объект и заимствуют.
+
 ### Заимствование формы с реквизитами объекта (-BorrowMainAttribute)
 
 При добавлении нового реквизита на заимствованную форму нужна опция `-BorrowMainAttribute`:
