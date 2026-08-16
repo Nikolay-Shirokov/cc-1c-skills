@@ -1,7 +1,11 @@
 ﻿# role-validate v1.3 — Validate 1C role structure
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
+# PositionalBinding=$false: only -RightsPath is positional. This prevents a stray second
+# positional argument (e.g. a metadata path) from silently binding to -OutFile and
+# OVERWRITING that file with the validation report. -OutFile must be passed by name.
+[CmdletBinding(PositionalBinding=$false)]
 param(
-	[Parameter(Mandatory)]
+	[Parameter(Mandatory, Position=0)]
 	[Alias('Path')]
 	[string]$RightsPath,
 
