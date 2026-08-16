@@ -967,79 +967,60 @@ $configXmlPath = Join-Path $configDir "Configuration.xml"
 $regResult = $null
 
 if (Test-Path $configXmlPath) {
-	$configDoc = New-Object System.Xml.XmlDocument
-	$configDoc.PreserveWhitespace = $true
-	$configDoc.Load($configXmlPath)
+	# Текстовая правка вместо DOM: XmlDocument-round-trip переписывает ВЕСЬ файл
+	# (декларация, кавычки, пустые элементы), и пост-обработка гасит только известные
+	# классы шума — всё остальное утекает диффом. Точечная вставка одной строки
+	# оставляет прочие байты нетронутыми: EOL, BOM и стиль файла наследуются сами.
+	# Так же работает py-порт.
+	$cfgText = [System.IO.File]::ReadAllText($configXmlPath)
 
-	$nsMgr = New-Object System.Xml.XmlNamespaceManager($configDoc.NameTable)
-	$nsMgr.AddNamespace("md", "http://v8.1c.ru/8.3/MDClasses")
+	$roleRx = [regex]'(?m)^(?<indent>[ \t]*)<Role>(?<name>[^<]*)</Role>\r?\n'
+	$roleMatches = $roleRx.Matches($cfgText)
 
-	$childObjects = $configDoc.SelectSingleNode("//md:Configuration/md:ChildObjects", $nsMgr)
-	if ($childObjects) {
-		$existing = $childObjects.SelectNodes("md:Role", $nsMgr)
-		$alreadyExists = $false
-		foreach ($r in $existing) {
-			if ($r.InnerText -eq $roleName) {
-				$alreadyExists = $true
+	$alreadyExists = $false
+	foreach ($m in $roleMatches) {
+		if ($m.Groups['name'].Value -eq $roleName) { $alreadyExists = $true; break }
+	}
+
+	$eol = if ($cfgText.Contains("`r`n")) { "`r`n" } else { "`n" }
+
+	if ($alreadyExists) {
+		$regResult = "already"
+	} elseif ($roleMatches.Count -gt 0) {
+		# Позиция — алфавитная, а не «после последней»: выгрузка Конфигуратора держит
+		# роли в ChildObjects в порядке InvariantCulture (проверено на боевой
+		# конфигурации, 1056 ролей), и вставка в конец дала бы дифф на каждой
+		# следующей полной выгрузке.
+		$indent = $roleMatches[0].Groups['indent'].Value
+		$newLine = "$indent<Role>$roleName</Role>$eol"
+
+		$insertPos = -1
+		foreach ($m in $roleMatches) {
+			if ([string]::Compare($m.Groups['name'].Value, $roleName, [System.StringComparison]::InvariantCulture) -gt 0) {
+				$insertPos = $m.Index
 				break
 			}
 		}
-
-		if ($alreadyExists) {
-			$regResult = "already"
-		} else {
-			$roleElem = $configDoc.CreateElement("Role", "http://v8.1c.ru/8.3/MDClasses")
-			$roleElem.InnerText = $roleName
-
-			if ($existing.Count -gt 0) {
-				# Insert after last existing <Role>
-				$lastRole = $existing[$existing.Count - 1]
-				$newWs = $configDoc.CreateWhitespace("`n`t`t`t")
-				$childObjects.InsertAfter($newWs, $lastRole) | Out-Null
-				$childObjects.InsertAfter($roleElem, $newWs) | Out-Null
-			} else {
-				# No existing roles — insert before closing whitespace
-				$lastChild = $childObjects.LastChild
-				if ($lastChild.NodeType -eq [System.Xml.XmlNodeType]::Whitespace) {
-					$newWs = $configDoc.CreateWhitespace("`n`t`t`t")
-					$childObjects.InsertBefore($newWs, $lastChild) | Out-Null
-					$childObjects.InsertBefore($roleElem, $lastChild) | Out-Null
-				} else {
-					$childObjects.AppendChild($configDoc.CreateWhitespace("`n`t`t`t")) | Out-Null
-					$childObjects.AppendChild($roleElem) | Out-Null
-					$childObjects.AppendChild($configDoc.CreateWhitespace("`n`t`t")) | Out-Null
-				}
-			}
-
-			# Save
-			$cfgSettings = New-Object System.Xml.XmlWriterSettings
-			$cfgSettings.Encoding = New-Object System.Text.UTF8Encoding($true)
-			$cfgSettings.Indent = $false
-			$cfgSettings.NewLineHandling = [System.Xml.NewLineHandling]::None
-			# Через MemoryStream, а не прямо в файл: нужен шаг пост-обработки строки.
-			$memStream = New-Object System.IO.MemoryStream
-			$writer = [System.Xml.XmlWriter]::Create($memStream, $cfgSettings)
-			$configDoc.Save($writer)
-			$writer.Flush(); $writer.Close()
-
-			$cfgText = [System.Text.Encoding]::UTF8.GetString($memStream.ToArray())
-			$memStream.Close()
-			if ($cfgText.Length -gt 0 -and $cfgText[0] -eq [char]0xFEFF) { $cfgText = $cfgText.Substring(1) }
-			$cfgText = $cfgText.Replace('encoding="utf-8"', 'encoding="UTF-8"')
-			# Пустой элемент: XmlWriter отдаёт `<a />`, Конфигуратор пишет `<a/>`. Внутри
-			# CDATA/комментария ` />` может быть содержимым (там `>` не экранируется),
-			# поэтому они идут первыми ветками альтернации и возвращаются как есть.
-			$cfgText = [regex]::Replace($cfgText, '(?s)<!\[CDATA\[.*?\]\]>|<!--.*?-->|(?<=\S) />', { param($m) if ($m.Value -eq ' />') { '/>' } else { $m.Value } })
-			# Целевой перевод строки: стиль файла-назначения — правка наследует его (#44/#46/#47),
-			# новый файл получает канон выгрузки CRLF. Зеркало _detect_xml_style в py-порту.
-			$targetEol = if ((Test-Path -LiteralPath $configXmlPath) -and ([System.IO.File]::ReadAllText($configXmlPath) -notmatch "`r`n")) { "`n" } else { "`r`n" }
-			$cfgText = ($cfgText -replace "`r`n", "`n") -replace "`n", $targetEol
-			[System.IO.File]::WriteAllText($configXmlPath, $cfgText, (New-Object System.Text.UTF8Encoding($true)))
-
-			$regResult = "added"
+		if ($insertPos -lt 0) {
+			$last = $roleMatches[$roleMatches.Count - 1]
+			$insertPos = $last.Index + $last.Length
 		}
+
+		$cfgText = $cfgText.Substring(0, $insertPos) + $newLine + $cfgText.Substring($insertPos)
+		[System.IO.File]::WriteAllText($configXmlPath, $cfgText, (New-Object System.Text.UTF8Encoding($true)))
+		$regResult = "added"
 	} else {
-		$regResult = "no-childobj"
+		# Ролей ещё нет — вставка перед </ChildObjects>; отступ закрывающего тега +1 уровень.
+		$closeM = [regex]::Match($cfgText, '(?m)^(?<indent>[ \t]*)</ChildObjects>')
+		if ($closeM.Success) {
+			$indent = $closeM.Groups['indent'].Value
+			$newLine = "$indent`t<Role>$roleName</Role>$eol"
+			$cfgText = $cfgText.Substring(0, $closeM.Index) + $newLine + $cfgText.Substring($closeM.Index)
+			[System.IO.File]::WriteAllText($configXmlPath, $cfgText, (New-Object System.Text.UTF8Encoding($true)))
+			$regResult = "added"
+		} else {
+			$regResult = "no-childobj"
+		}
 	}
 } else {
 	$regResult = "no-config"

@@ -1031,27 +1031,44 @@ def main():
         if f'<Role>{role_name}</Role>' in raw_text:
             reg_result = 'already'
         else:
-            # Find last <Role>...</Role> and insert after it
-            role_pattern = re.compile(r'(<Role>[^<]*</Role>)')
+            role_pattern = re.compile(r'(?m)^([ \t]*)<Role>([^<]*)</Role>(?:\r?\n)')
             matches = list(role_pattern.finditer(raw_text))
             new_role_tag = f'<Role>{role_name}</Role>'
 
             if matches:
-                # Insert after last existing <Role>
-                last_match = matches[-1]
-                insert_pos = last_match.end()
-                raw_text = raw_text[:insert_pos] + eol + f'\t\t\t{new_role_tag}' + raw_text[insert_pos:]
+                # Позиция — алфавитная, а не «после последней»: выгрузка Конфигуратора
+                # держит роли в ChildObjects в порядке InvariantCulture (проверено на
+                # боевой конфигурации, 1056 ролей), и вставка в конец дала бы дифф на
+                # каждой следующей полной выгрузке. casefold-ключ повторяет первичный
+                # (регистронезависимый) уровень этого порядка; отступ и EOL — из файла.
+                indent = matches[0].group(1)
+                new_line = f'{indent}{new_role_tag}{eol}'
+                new_key = role_name.casefold()
+                insert_pos = None
+                for m in matches:
+                    if m.group(2).casefold() > new_key:
+                        insert_pos = m.start()
+                        break
+                if insert_pos is None:
+                    insert_pos = matches[-1].end()
+                raw_text = raw_text[:insert_pos] + new_line + raw_text[insert_pos:]
+                write_utf8_bom(config_xml_path, raw_text)
+                reg_result = 'added'
             else:
                 # No existing roles — insert before </ChildObjects>
                 # Отступ вставки берём у закрывающего тега +1 уровень: подстановка
                 # по голому '</ChildObjects>' удваивала бы уже присутствующий отступ
-                # строки (получалось 5 табов вместо 3 — PS-порт через DOM даёт 3).
-                raw_text = re.sub(r'([ \t]*)</ChildObjects>',
-                                  lambda m: m.group(1) + '\t' + new_role_tag + eol + m.group(1) + '</ChildObjects>',
-                                  raw_text, count=1)
-
-            write_utf8_bom(config_xml_path, raw_text)
-            reg_result = 'added'
+                # строки (получалось 5 табов вместо 3 — PS-порт даёт 3).
+                raw_text, n_subs = re.subn(r'([ \t]*)</ChildObjects>',
+                                           lambda m: m.group(1) + '\t' + new_role_tag + eol + m.group(1) + '</ChildObjects>',
+                                           raw_text, count=1)
+                if n_subs:
+                    write_utf8_bom(config_xml_path, raw_text)
+                    reg_result = 'added'
+                else:
+                    # Раньше файл в этой ветке молча переписывался без вставки
+                    # и рапортовался как 'added'.
+                    reg_result = 'no-childobj'
     else:
         reg_result = 'no-config'
 
