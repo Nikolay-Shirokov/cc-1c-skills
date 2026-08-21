@@ -2,8 +2,9 @@
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import { execFileSync } from 'child_process';
-import { existsSync as fsExistsSync, mkdirSync, readFileSync, rmSync, statSync } from 'fs';
+import { existsSync as fsExistsSync, mkdirSync, readFileSync, statSync } from 'fs';
 import { extname, join as pathJoin } from 'path';
+import { rmrfSync } from '../core/fsutil.mjs';
 import { tmpdir } from 'os';
 import {
   lastCaptions, lastRecordingDuration, resolveProjectPath,
@@ -191,6 +192,6 @@ export async function addNarration(videoPath, opts = {}) {
 
   } finally {
     // Cleanup temp directory
-    try { rmSync(tempDir, { recursive: true, force: true }); } catch {}
+    try { rmrfSync(tempDir); } catch {}
   }
 }

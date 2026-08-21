@@ -3,8 +3,9 @@
 
 import { chromium } from 'playwright';
 import { softDeadline } from './deadline.mjs';
-import { statSync, mkdirSync, readdirSync, rmSync } from 'fs';
+import { statSync, mkdirSync, readdirSync } from 'fs';
 import { join as pathJoin } from 'path';
+import { rmrfSync } from './fsutil.mjs';
 import { tmpdir } from 'os';
 import {
   browser, page, sessionPrefix, seanceId, recorder, highlightMode,
@@ -271,7 +272,7 @@ export async function disconnect() {
     setSeanceId(null);
     // Clean up persistent user data dir
     if (persistentUserDataDir) {
-      try { rmSync(persistentUserDataDir, { recursive: true, force: true }); } catch {}
+      try { rmrfSync(persistentUserDataDir); } catch {}
       setPersistentUserDataDir(null);
     }
   }
@@ -696,7 +697,7 @@ export async function abortContext(name, { logoutMs = 3000, closeMs = 5000, park
     setActiveContextName(null);
     setActiveMode(null);
     if (persistentUserDataDir) {
-      try { rmSync(persistentUserDataDir, { recursive: true, force: true }); } catch {}
+      try { rmrfSync(persistentUserDataDir); } catch {}
       setPersistentUserDataDir(null);
     }
     return out;
@@ -715,7 +716,7 @@ export async function abortContext(name, { logoutMs = 3000, closeMs = 5000, park
     setActiveContextName(null);
     setActiveMode(null);
     if (persistentUserDataDir) {
-      try { rmSync(persistentUserDataDir, { recursive: true, force: true }); } catch {}
+      try { rmrfSync(persistentUserDataDir); } catch {}
       setPersistentUserDataDir(null);
     }
     return out;

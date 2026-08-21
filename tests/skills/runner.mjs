@@ -3,7 +3,7 @@
 // Usage: node tests/skills/runner.mjs [filter] [--update-snapshots] [--runtime python] [--json report.json] [--concurrency N] [--with-validation]
 
 import { execFileSync, execFile } from 'child_process';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, readFileSync, writeFileSync,
+import { existsSync, mkdirSync, mkdtempSync, rmSync, unlinkSync, rmdirSync, readFileSync, writeFileSync,
          readdirSync, statSync, cpSync, copyFileSync, chmodSync } from 'fs';
 import { createHash } from 'crypto';
 import { join, resolve, dirname, relative, basename, extname } from 'path';
@@ -16,6 +16,65 @@ const REPO_ROOT = resolve(ROOT, '../..');
 const SKILLS    = resolve(REPO_ROOT, '.claude/skills');
 const CASES     = resolve(ROOT, 'cases');
 const CACHE     = resolve(ROOT, '.cache');
+
+// ─── FS-хелперы ─────────────────────────────────────────────────────────────
+
+// Node 24.x на Windows fs.rmSync/fs.cpSync ломаются, когда путь в АРГУМЕНТЕ содержит
+// не-ASCII символы — кириллическое имя пользователя в %TEMP%, репозиторий в
+// кириллическом каталоге, кириллическое имя объекта 1С в deletePath (nodejs/node#61067,
+// проверено на v24.12.0). Проявления зависят от комбинации:
+//   - rmSync (файл или каталог) — МОЛЧА ничего не удаляет: воркспейсы копятся в %TEMP%,
+//     эталон не затирается перед --update-snapshots, deletePath не срабатывает;
+//   - cpSync с не-ASCII приёмником — МОЛЧА ничего не копирует: кейсы гоняются на
+//     пустом воркспейсе, а поверх существующего файла кидает «The operation
+//     completed successfully»;
+//   - cpSync с не-ASCII источником — НАТИВНО валит процесс (0xC0000409, try/catch
+//     не спасает).
+// unlinkSync/rmdirSync/copyFileSync/readdirSync не затронуты, поэтому такие пути
+// вообще не отдаём быстрому пути, а обрабатываем ручным обходом; после быстрого
+// пути дополнительно проверяем результат.
+const nonAsciiPathUnsafe = (p) => process.platform === 'win32' && /[^\x00-\x7F]/.test(p);
+
+function rmTreeWalkSync(dir) {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const p = join(dir, entry.name);
+    if (entry.isDirectory()) rmTreeWalkSync(p);
+    else unlinkSync(p);
+  }
+  rmdirSync(dir);
+}
+
+function rmrfSync(dir, opts) {
+  if (!nonAsciiPathUnsafe(dir)) rmSync(dir, { recursive: true, force: true, ...opts });
+  if (!existsSync(dir)) return;
+  rmTreeWalkSync(dir);
+  if (existsSync(dir)) throw new Error(`Failed to remove directory: ${dir}`);
+}
+
+// Удалить файл ИЛИ каталог; отсутствие пути — не ошибка (семантика force).
+function rmPathSync(p) {
+  if (!existsSync(p)) return;
+  if (statSync(p).isDirectory()) rmrfSync(p);
+  else unlinkSync(p);
+}
+
+// Обойти источник и докопировать всё, что не доставил быстрый путь cpSync.
+function cpTreeRepairSync(src, dest) {
+  mkdirSync(dest, { recursive: true });
+  for (const entry of readdirSync(src, { withFileTypes: true })) {
+    const s = join(src, entry.name);
+    const d = join(dest, entry.name);
+    if (entry.isDirectory()) cpTreeRepairSync(s, d);
+    else if (!existsSync(d)) copyFileSync(s, d);
+  }
+}
+
+function cpTreeSync(src, dest) {
+  if (!nonAsciiPathUnsafe(src) && !nonAsciiPathUnsafe(dest)) {
+    try { cpSync(src, dest, { recursive: true }); } catch { /* доберём обходом */ }
+  }
+  cpTreeRepairSync(src, dest);
+}
 
 // ─── CLI args ───────────────────────────────────────────────────────────────
 
@@ -158,7 +217,7 @@ function ensureSetup(setupName, runtime, skillCasesDir) {
     const want = fixtureStamp(EMPTY_CONFIGS[setupName]);
     if (existsSync(cached)) {
       if (existsSync(stamp) && readFileSync(stamp, 'utf8') === want) return cached;
-      rmSync(cached, { recursive: true, force: true });
+      rmrfSync(cached);
     }
 
     mkdirSync(cached, { recursive: true });
@@ -167,7 +226,9 @@ function ensureSetup(setupName, runtime, skillCasesDir) {
       execSkillRaw(runtime, script, ['-Name', 'TestConfig', '-OutputDir', cached, ...EMPTY_CONFIGS[setupName]]);
       writeFileSync(stamp, want, 'utf8');
     } catch (e) {
-      rmSync(cached, { recursive: true, force: true });
+      // Недоснятая фикстура, оставшаяся на диске, молча ушла бы в следующий прогон
+      try { rmrfSync(cached); }
+      catch (cleanupError) { console.warn(`Warning: failed to remove partial fixture ${cached}: ${cleanupError.message}`); }
       throw new Error(`Failed to create ${setupName} fixture: ${e.message}`);
     }
     return cached;
@@ -249,7 +310,7 @@ function createWorkspace(fixturePath, readOnly) {
   }
   const tmp = mkdtempSync(join(tmpdir(), 'skill-test-'));
   if (fixturePath) {
-    cpSync(fixturePath, tmp, { recursive: true });
+    cpTreeSync(fixturePath, tmp);
   }
   return { path: tmp, readOnly: false };
 }
@@ -260,7 +321,7 @@ function cleanupWorkspace(ws) {
   // process exits — rmSync then throws EBUSY. Retry a few times, then swallow:
   // a leaked tmp dir is preferable to crashing the entire runner.
   try {
-    rmSync(ws.path, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+    rmrfSync(ws.path, { maxRetries: 10, retryDelay: 200 });
   } catch (e) {
     console.warn(`Warning: failed to clean workspace ${ws.path}: ${e.message}`);
   }
@@ -636,8 +697,8 @@ function updateSnapshot(workDir, snapshotDir, snapshotConfig, caseData) {
   // дорисовал бы эталон и сам породил противоречие с opt-out.
   if (caseData?.noSnapshot) return;
 
-  // Remove old snapshot
-  if (existsSync(snapshotDir)) rmSync(snapshotDir, { recursive: true, force: true });
+  // Remove old snapshot (молчаливый отказ здесь оставил бы стейл в эталоне)
+  if (existsSync(snapshotDir)) rmrfSync(snapshotDir);
 
   // Determine which files to snapshot — all files in workDir that were created by the skill
   // For "workDir" root mode, we need to figure out what files the skill added.
@@ -770,7 +831,7 @@ async function runCaseAsync(testCase, opts) {
         // deletePath step — убрать файл или каталог из workDir: так выражается состояние,
         // которое навыки сами не создают (например, пометка свойства без файла модуля).
         if (step.deletePath) {
-          rmSync(join(workDir, step.deletePath), { recursive: true, force: true });
+          rmPathSync(join(workDir, step.deletePath));
           continue;
         }
         const preScript = resolveScript(step.script, opts.runtime);
@@ -794,7 +855,7 @@ async function runCaseAsync(testCase, opts) {
         } catch (e) {
           throw new Error(`preRun step "${step.script}" failed: ${e.stderr || e.message}`);
         }
-        if (preInputFile && existsSync(preInputFile)) rmSync(preInputFile);
+        if (preInputFile && existsSync(preInputFile)) unlinkSync(preInputFile);
       }
     }
 
@@ -816,7 +877,7 @@ async function runCaseAsync(testCase, opts) {
       stderr = e.stderr || '';
     }
 
-    if (inputFile && existsSync(inputFile)) rmSync(inputFile);
+    if (inputFile && existsSync(inputFile)) unlinkSync(inputFile);
 
     // Assertions
     const errors = [];
@@ -1016,7 +1077,7 @@ function runCase(testCase, opts) {
         } catch (e) {
           throw new Error(`preRun step "${step.script}" failed: ${e.stderr || e.message}`);
         }
-        if (preInputFile && existsSync(preInputFile)) rmSync(preInputFile);
+        if (preInputFile && existsSync(preInputFile)) unlinkSync(preInputFile);
       }
     }
 
@@ -1040,7 +1101,7 @@ function runCase(testCase, opts) {
     }
 
     // Remove temp input file from workDir before snapshot comparison
-    if (inputFile && existsSync(inputFile)) rmSync(inputFile);
+    if (inputFile && existsSync(inputFile)) unlinkSync(inputFile);
 
     // 4. Assertions
     const errors = [];
@@ -1484,7 +1545,7 @@ async function runIntegrationOnce(test, opts, engine, labelEngine) {
         break; // stop on first failure
       }
 
-      if (inputFile && existsSync(inputFile)) rmSync(inputFile);
+      if (inputFile && existsSync(inputFile)) unlinkSync(inputFile);
 
       // Post-step validation
       if (opts.withValidation && step.validate) {
@@ -1510,8 +1571,8 @@ async function runIntegrationOnce(test, opts, engine, labelEngine) {
     // Cache result if configured
     if (test.cache && stepResults.every(s => s.passed)) {
       const cachePath = join(CACHE, test.cache);
-      if (existsSync(cachePath)) rmSync(cachePath, { recursive: true, force: true });
-      cpSync(workDir, cachePath, { recursive: true });
+      if (existsSync(cachePath)) rmrfSync(cachePath);
+      cpTreeSync(workDir, cachePath);
     }
 
     const allPassed = stepResults.every(s => s.passed);

@@ -12,7 +12,7 @@
 // типовой конфигурации (~3 мин на кейс, ноль информации). Такие гонять через --case.
 
 import { execFileSync } from 'child_process';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, readFileSync, writeFileSync,
+import { existsSync, mkdirSync, mkdtempSync, rmSync, unlinkSync, rmdirSync, readFileSync, writeFileSync,
          readdirSync, statSync, cpSync, copyFileSync, chmodSync } from 'fs';
 import { join, resolve, dirname, basename } from 'path';
 import { tmpdir } from 'os';
@@ -24,6 +24,53 @@ const REPO_ROOT = resolve(ROOT, '../..');
 const SKILLS    = resolve(REPO_ROOT, '.claude/skills');
 const CASES     = resolve(ROOT, 'cases');
 const REPORT_DIR = resolve(REPO_ROOT, 'debug/snapshot-verify');
+
+// ─── FS-хелперы ─────────────────────────────────────────────────────────────
+
+// Node 24.x на Windows fs.rmSync/fs.cpSync ломаются, когда путь в АРГУМЕНТЕ содержит
+// не-ASCII символы — например кириллическое имя пользователя в %TEMP%
+// (nodejs/node#61067, проверено на v24.12.0). Проявления зависят от комбинации:
+// rmSync молча ничего не удаляет; cpSync с не-ASCII приёмником молча ничего не
+// копирует (а поверх существующего файла кидает «The operation completed
+// successfully»); cpSync с не-ASCII источником НАТИВНО валит процесс (0xC0000409).
+// unlinkSync/rmdirSync/copyFileSync/readdirSync не затронуты, поэтому такие пути
+// вообще не отдаём быстрому пути, а обрабатываем ручным обходом; после быстрого
+// пути дополнительно проверяем результат.
+const nonAsciiPathUnsafe = (p) => process.platform === 'win32' && /[^\x00-\x7F]/.test(p);
+
+function rmTreeWalkSync(dir) {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const p = join(dir, entry.name);
+    if (entry.isDirectory()) rmTreeWalkSync(p);
+    else unlinkSync(p);
+  }
+  rmdirSync(dir);
+}
+
+function rmrfSync(dir) {
+  if (!nonAsciiPathUnsafe(dir)) rmSync(dir, { recursive: true, force: true });
+  if (!existsSync(dir)) return;
+  rmTreeWalkSync(dir);
+  if (existsSync(dir)) throw new Error(`Failed to remove directory: ${dir}`);
+}
+
+// Обойти источник и докопировать всё, что не доставил быстрый путь cpSync.
+function cpTreeRepairSync(src, dest) {
+  mkdirSync(dest, { recursive: true });
+  for (const entry of readdirSync(src, { withFileTypes: true })) {
+    const s = join(src, entry.name);
+    const d = join(dest, entry.name);
+    if (entry.isDirectory()) cpTreeRepairSync(s, d);
+    else if (!existsSync(d)) copyFileSync(s, d);
+  }
+}
+
+function cpTreeSync(src, dest) {
+  if (!nonAsciiPathUnsafe(src) && !nonAsciiPathUnsafe(dest)) {
+    try { cpSync(src, dest, { recursive: true }); } catch { /* доберём обходом */ }
+  }
+  cpTreeRepairSync(src, dest);
+}
 
 // ─── CLI args ───────────────────────────────────────────────────────────────
 
@@ -658,7 +705,7 @@ function runPreSteps(preRun, workDir, runtime, log) {
       log(`preRun: ${stepName}`, false, e.stderr || e.message);
       throw new Error(`preRun "${step.script}" failed: ${(e.stderr || e.message).substring(0, 500)}`);
     }
-    if (preInputFile && existsSync(preInputFile)) rmSync(preInputFile);
+    if (preInputFile && existsSync(preInputFile)) unlinkSync(preInputFile);
   }
 }
 
@@ -818,7 +865,7 @@ async function verifyCase(skillName, caseName, skillConfig, caseData, opts) {
         result.errors.push(`Fixture not found: ${fixturePath}`);
         return result;
       }
-      cpSync(fixturePath, workDir, { recursive: true });
+      cpTreeSync(fixturePath, workDir);
       log(`fixture: ${fixtureName}`, true);
     } else if (typeof caseData.setup === 'string' && caseData.setup.startsWith('external:')) {
       const extPath = resolve(REPO_ROOT, caseData.setup.slice('external:'.length));
@@ -831,7 +878,7 @@ async function verifyCase(skillName, caseName, skillConfig, caseData, opts) {
         result.skipReason = `внешняя выгрузка недоступна на этой машине: ${extPath}`;
         return result;
       }
-      cpSync(extPath, workDir, { recursive: true });
+      cpTreeSync(extPath, workDir);
       log(`external: ${extPath}`, true);
       configDir = workDir;
     }
@@ -985,7 +1032,7 @@ async function verifyCase(skillName, caseName, skillConfig, caseData, opts) {
       result.errors.push(`${skillName} failed: ${detail.substring(0, 500)}`);
       return result;
     }
-    if (inputFile && existsSync(inputFile)) rmSync(inputFile);
+    if (inputFile && existsSync(inputFile)) unlinkSync(inputFile);
 
     // Режим совместимости конфигурации выше платформы — она такую не загрузит. Это свойство
     // стенда, а не дефект кейса, поэтому пропускаем с причиной: иначе на машине без нужной
@@ -1030,7 +1077,7 @@ async function verifyCase(skillName, caseName, skillConfig, caseData, opts) {
         return result;
       }
       const dcsTpl = join(erfDir, 'TestReport', 'Templates', 'ОсновнаяСхемаКомпоновкиДанных', 'Ext', 'Template.xml');
-      cpSync(tplPath, dcsTpl, { force: true });
+      copyFileSync(tplPath, dcsTpl);
       try {
         execSkill(opts.runtime, 'epf-build/scripts/epf-build', [
           '-V8Path', opts.v8ctx.v8path,
@@ -1082,7 +1129,7 @@ async function verifyCase(skillName, caseName, skillConfig, caseData, opts) {
         return result;
       }
       const tplDest = join(epfDir, 'TestProc', 'Templates', 'Макет', 'Ext', 'Template.xml');
-      cpSync(tplPath, tplDest, { force: true });
+      copyFileSync(tplPath, tplDest);
       try {
         execSkill(opts.runtime, 'epf-build/scripts/epf-build', [
           '-V8Path', opts.v8ctx.v8path,
@@ -1409,8 +1456,8 @@ async function verifyCase(skillName, caseName, skillConfig, caseData, opts) {
     result.errors.push(`Unexpected error: ${e.message}`);
   } finally {
     if (!opts.keep) {
-      try { rmSync(workDir, { recursive: true, force: true }); } catch {}
-      result.workDir = '(cleaned)';
+      // При неудаче оставляем в result реальный путь — остаток каталога виден в отчёте
+      try { rmrfSync(workDir); result.workDir = '(cleaned)'; } catch {}
     }
   }
 
