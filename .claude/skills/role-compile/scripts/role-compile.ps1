@@ -1,4 +1,4 @@
-﻿# role-compile v1.32 — Compile 1C role from JSON
+﻿# role-compile v1.33 — Compile 1C role from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -1185,8 +1185,69 @@ $enc = New-Object System.Text.UTF8Encoding($true)
 
 # --- 12. Register in Configuration.xml ---
 
+# Порядок вставки в <ChildObjects> — настройка childObjectsOrder из .v8-project.json:
+# databases[].childObjectsOrder базы, чей configSrc охватывает каталог родительского XML,
+# иначе корневое поле, иначе append. Файл ищется от каталога конфигурации вверх и лишь потом
+# от cwd: настройка принадлежит выгрузке, а не рабочему каталогу. Значения: append — после
+# последнего объекта того же типа (так дописывает Конфигуратор); alphabetical — по имени,
+# как требует стандарт для объектов верхнего уровня (АПК:1108, #std467 п. 2.3).
+# Реестр семьи: tests/skills/check-inline-drift.mjs.
+function Get-ChildObjectsOrder([string]$cfgDir) {
+	try {
+		if (-not $cfgDir) { $cfgDir = "." }
+		$pj = Find-V8Project ([System.IO.Path]::GetFullPath($cfgDir))
+		if (-not $pj) { $pj = Find-V8Project (Get-Location).Path }
+		if (-not $pj) { return "append" }
+		$proj = Get-Content -Raw $pj | ConvertFrom-Json
+		$projDir = [System.IO.Path]::GetDirectoryName($pj)
+		$cfgFull = [System.IO.Path]::GetFullPath($cfgDir).TrimEnd('\', '/')
+		$order = $null
+		if ($proj.databases) {
+			foreach ($db in $proj.databases) {
+				if (-not $db.configSrc -or -not $db.childObjectsOrder) { continue }
+				# configSrc относителен корню проекта (каталогу .v8-project.json), абсолютный берётся как есть
+				$src = [System.IO.Path]::GetFullPath([System.IO.Path]::Combine($projDir, $db.configSrc)).TrimEnd('\', '/')
+				if ($cfgFull.Equals($src, [System.StringComparison]::OrdinalIgnoreCase) -or $cfgFull.StartsWith($src + [System.IO.Path]::DirectorySeparatorChar, [System.StringComparison]::OrdinalIgnoreCase)) {
+					$order = $db.childObjectsOrder
+					break
+				}
+			}
+		}
+		if (-not $order) { $order = $proj.childObjectsOrder }
+		if ("$order" -eq "alphabetical") { return "alphabetical" }
+		return "append"
+	} catch { return "append" }
+}
+
+# Порядок имён объектов, как в дереве Конфигуратора (сверено по выгрузкам ЗУП и КА — совпадает
+# с ru-RU word-sort): регистр не учитывается, подчёркивание раньше цифр, цифры раньше букв,
+# буквы по кодам (латиница раньше кириллицы), ё на месте е. Ключ — пары «ранг+символ», поэтому
+# оба порта сравнивают одинаково на любой ОС без культурных таблиц. Равные ключи разводит
+# ordinal-сравнение исходных строк. Возвращает -1 | 0 | 1.
+# Реестр семьи: tests/skills/check-inline-drift.mjs.
+function Compare-MetadataNames([string]$a, [string]$b) {
+	$keys = @("", "")
+	$names = @($a, $b)
+	for ($i = 0; $i -lt 2; $i++) {
+		$sb = New-Object System.Text.StringBuilder
+		foreach ($ch in $names[$i].ToLowerInvariant().ToCharArray()) {
+			if ($ch -eq [char]0x0451) { $ch = [char]0x0435 }
+			if ([char]::IsDigit($ch)) { [void]$sb.Append('1') }
+			elseif ([char]::IsLetter($ch)) { [void]$sb.Append('2') }
+			else { [void]$sb.Append('0') }
+			[void]$sb.Append($ch)
+		}
+		$keys[$i] = $sb.ToString()
+	}
+	$r = [string]::CompareOrdinal($keys[0], $keys[1])
+	if ($r -eq 0) { $r = [string]::CompareOrdinal($a, $b) }
+	if ($r -lt 0) { return -1 }
+	if ($r -gt 0) { return 1 }
+	return 0
+}
+
 # Регистрация объекта в <ChildObjects> родительского XML. Общая реализация: эталон —
-# meta-compile, копия — role-compile. Реестр семьи: tests/skills/check-inline-drift.mjs.
+# meta-compile, копии — role-compile, xdto-compile. Реестр семьи: tests/skills/check-inline-drift.mjs.
 # Возвращает исход: added | already | no-childobj | no-config.
 function Register-InChildObjects([string]$ParentXmlPath, [string]$ParentTag, [string]$ChildTag, [string]$ChildName) {
 	if (-not (Test-Path $ParentXmlPath)) { return "no-config" }
@@ -1206,56 +1267,53 @@ function Register-InChildObjects([string]$ParentXmlPath, [string]$ParentTag, [st
 		if ($e.InnerText -eq $ChildName) { return "already" }
 	}
 
-	$newElem = $doc.CreateElement($ChildTag, "http://v8.1c.ru/8.3/MDClasses")
-	$newElem.InnerText = $ChildName
+	# Правка по сырому тексту, зеркально py-порту: сериализация DOM переписывала бы файл целиком
+	# (регистр encoding, `<a />` вместо `<a/>`, EOL), а текстовая вставка хранит его байт-в-байт —
+	# дельта ровно в одну строку, и оба порта дают одинаковый файл. DOM выше — только на чтение.
+	$configContent = [System.IO.File]::ReadAllText($ParentXmlPath, (New-Object System.Text.UTF8Encoding($false)))
+	$eol = if ($configContent.Contains("`r`n")) { "`r`n" } else { "`n" }
+	$entry = "<$ChildTag>$(Esc-XmlText $ChildName)</$ChildTag>"
+	$enc = New-Object System.Text.UTF8Encoding($true)
 
-	if ($existing.Count -gt 0) {
-		# Insert after last existing element of same type
-		$lastElem = $existing[$existing.Count - 1]
-		$newWs = $doc.CreateWhitespace("`n`t`t`t")
-		$childObjects.InsertAfter($newWs, $lastElem) | Out-Null
-		$childObjects.InsertAfter($newElem, $newWs) | Out-Null
-	} else {
-		# No existing elements of this type — insert before closing whitespace.
-		# Самозакрытый <ChildObjects/> попадает сюда же: LastChild пуст, идёт ветка AppendChild.
-		$lastChild = $childObjects.LastChild
-		if ($lastChild.NodeType -eq [System.Xml.XmlNodeType]::Whitespace) {
-			$newWs = $doc.CreateWhitespace("`n`t`t`t")
-			$childObjects.InsertBefore($newWs, $lastChild) | Out-Null
-			$childObjects.InsertBefore($newElem, $lastChild) | Out-Null
-		} else {
-			$childObjects.AppendChild($doc.CreateWhitespace("`n`t`t`t")) | Out-Null
-			$childObjects.AppendChild($newElem) | Out-Null
-			$childObjects.AppendChild($doc.CreateWhitespace("`n`t`t")) | Out-Null
+	$block = [regex]::Match($configContent, '(?s)<ChildObjects\s*>.*?</ChildObjects>')
+	if (-not $block.Success) {
+		# Самозакрытый <ChildObjects/> раскрываем первой записью
+		$empty = [regex]::Match($configContent, '<ChildObjects\s*/>')
+		if (-not $empty.Success) { return "no-childobj" }
+		$replacement = "<ChildObjects>$eol`t`t`t$entry$eol`t`t</ChildObjects>"
+		$newContent = $configContent.Substring(0, $empty.Index) + $replacement + $configContent.Substring($empty.Index + $empty.Length)
+		[System.IO.File]::WriteAllText($ParentXmlPath, $newContent, $enc)
+		return "added"
+	}
+
+	if ((Get-ChildObjectsOrder ([System.IO.Path]::GetDirectoryName([System.IO.Path]::GetFullPath($ParentXmlPath)))) -eq "alphabetical") {
+		# alphabetical: перед первым объектом того же типа, чьё имя больше нового
+		$lineRx = [regex]"(?m)^([ \t]*)<$ChildTag>([^<]*)</$ChildTag>"
+		$m = $lineRx.Match($configContent, $block.Index, $block.Length)
+		while ($m.Success) {
+			if ((Compare-MetadataNames $m.Groups[2].Value $ChildName) -gt 0) {
+				$newContent = $configContent.Substring(0, $m.Index) + $m.Groups[1].Value + $entry + $eol + $configContent.Substring($m.Index)
+				[System.IO.File]::WriteAllText($ParentXmlPath, $newContent, $enc)
+				return "added"
+			}
+			$m = $m.NextMatch()
 		}
 	}
 
-	# Save. Пишем через MemoryStream, а не прямо в файл: нужен шаг пост-обработки
-	# строки — XmlWriter отдаёт `encoding="utf-8"` и `<a />`, Конфигуратор пишет
-	# `encoding="UTF-8"` и `<a/>`.
-	$cfgSettings = New-Object System.Xml.XmlWriterSettings
-	$cfgSettings.Encoding = New-Object System.Text.UTF8Encoding($true)
-	$cfgSettings.Indent = $false
-	$cfgSettings.NewLineHandling = [System.Xml.NewLineHandling]::None
-	$memStream = New-Object System.IO.MemoryStream
-	$writer = [System.Xml.XmlWriter]::Create($memStream, $cfgSettings)
-	$doc.Save($writer)
-	$writer.Flush(); $writer.Close()
-
-	$cfgText = [System.Text.Encoding]::UTF8.GetString($memStream.ToArray())
-	$memStream.Close()
-	if ($cfgText.Length -gt 0 -and $cfgText[0] -eq [char]0xFEFF) { $cfgText = $cfgText.Substring(1) }
-	$cfgText = $cfgText.Replace('encoding="utf-8"', 'encoding="UTF-8"')
-	# Пустой элемент: XmlWriter отдаёт `<a />`, Конфигуратор пишет `<a/>`. Внутри
-	# CDATA/комментария ` />` может быть содержимым (там `>` не экранируется),
-	# поэтому они идут первыми ветками альтернации и возвращаются как есть.
-	$cfgText = [regex]::Replace($cfgText, '(?s)<!\[CDATA\[.*?\]\]>|<!--.*?-->|(?<=\S) />', { param($m) if ($m.Value -eq ' />') { '/>' } else { $m.Value } })
-	# Целевой перевод строки: стиль файла-назначения — правка наследует его (#44/#46/#47),
-	# новый файл получает канон выгрузки CRLF. Зеркало _detect_xml_style в py-порту.
-	$targetEol = if ([System.IO.File]::ReadAllText($ParentXmlPath) -notmatch "`r`n") { "`n" } else { "`r`n" }
-	$cfgText = ($cfgText -replace "`r`n", "`n") -replace "`n", $targetEol
-	[System.IO.File]::WriteAllText($ParentXmlPath, $cfgText, (New-Object System.Text.UTF8Encoding($true)))
-
+	$closeSame = "</$ChildTag>"
+	$blockEnd = $block.Index + $block.Length
+	$lastSame = $configContent.LastIndexOf($closeSame, $blockEnd - 1, $block.Length, [System.StringComparison]::Ordinal)
+	if ($lastSame -ge 0) {
+		# После последнего объекта того же типа (группы по типу сохраняются)
+		$insertAt = $lastSame + $closeSame.Length
+		$newContent = $configContent.Substring(0, $insertAt) + "$eol`t`t`t$entry" + $configContent.Substring($insertAt)
+	} else {
+		# Объектов этого типа ещё нет: новая строка перед </ChildObjects>,
+		# отступ закрывающего тега переиспользуется
+		$closeAt = $configContent.LastIndexOf("</ChildObjects>", $blockEnd - 1, $block.Length, [System.StringComparison]::Ordinal)
+		$newContent = $configContent.Substring(0, $closeAt) + "`t$entry$eol`t`t" + $configContent.Substring($closeAt)
+	}
+	[System.IO.File]::WriteAllText($ParentXmlPath, $newContent, $enc)
 	return "added"
 }
 

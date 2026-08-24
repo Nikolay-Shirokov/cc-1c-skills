@@ -1,0 +1,29 @@
+{
+  "name": "childObjectsOrder=alphabetical: порядок как в дереве Конфигуратора — латиница раньше кириллицы, подчёркивание раньше цифр, регистр не учитывается",
+  "setup": "fixture:childobjects-order-key",
+  "preRun": [
+    { "writeFile": { "path": ".v8-project.json", "content": { "childObjectsOrder": "alphabetical" } } }
+  ],
+  "input": { "name": "ДМ_Изменение" },
+  "validatePath": "Roles/ДМ_Изменение",
+  "expect": {
+    "files": [
+      "Roles/ДМ_Изменение.xml",
+      "Roles/ДМ_Изменение/Ext/Rights.xml"
+    ],
+    "stdoutContains": "<Role>ДМ_Изменение</Role> added to ChildObjects",
+    "fileContains": {
+      "file": "Configuration.xml",
+      "text": "<Role>Dm_Admin</Role>\r\n\t\t\t<Role>ДМ_Изменение</Role>\r\n\t\t\t<Role>ДМ_Чтение</Role>\r\n\t\t\t<Role>ДМ1Роль</Role>\r\n\t\t\t<Role>Полные</Role>"
+    },
+    "preserves": {
+      "file": "Configuration.xml",
+      "bom": true,
+      "eol": "crlf",
+      "encoding": "UTF-8",
+      "finalNewline": false,
+      "noCR13": true
+    }
+  },
+  "skipPlatformVerify": "фикстура объявляет роли без файлов: кейс проверяет правила сравнения имён при вставке в ChildObjects, а не загружаемость конфигурации"
+}

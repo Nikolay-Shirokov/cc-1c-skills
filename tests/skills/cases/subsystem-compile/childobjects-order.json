@@ -1,0 +1,28 @@
+{
+  "name": "childObjectsOrder=alphabetical: подсистема верхнего уровня регистрируется между соседями по имени",
+  "setup": "fixture:childobjects-order",
+  "preRun": [
+    { "writeFile": { "path": ".v8-project.json", "content": { "childObjectsOrder": "alphabetical" } } }
+  ],
+  "input": { "name": "Бета", "synonym": "Бета" },
+  "validatePath": "Subsystems/Бета",
+  "expect": {
+    "files": [
+      "Subsystems/Бета.xml"
+    ],
+    "stdoutContains": "[OK] Registered in:",
+    "fileContains": {
+      "file": "Configuration.xml",
+      "text": "<Subsystem>Альфа</Subsystem>\r\n\t\t\t<Subsystem>Бета</Subsystem>\r\n\t\t\t<Subsystem>Гамма</Subsystem>"
+    },
+    "preserves": {
+      "file": "Configuration.xml",
+      "bom": true,
+      "eol": "crlf",
+      "encoding": "UTF-8",
+      "finalNewline": false,
+      "noCR13": true
+    }
+  },
+  "skipPlatformVerify": "фикстура объявляет подсистемы Альфа/Гамма без файлов: кейс проверяет место вставки в ChildObjects, а не загружаемость конфигурации"
+}

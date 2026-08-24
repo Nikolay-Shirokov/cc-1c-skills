@@ -11,7 +11,8 @@ allowed-tools:
 # /xdto-compile — Создание пакета XDTO из XML-схемы
 
 Собирает пакет XDTO по XML-схеме: `XDTOPackages/<Имя>.xml`,
-`XDTOPackages/<Имя>/Ext/Package.bin` и регистрацию в `Configuration.xml`.
+`XDTOPackages/<Имя>/Ext/Package.bin` и регистрацию в `Configuration.xml` (в конец группы `XDTOPackage`;
+при `"childObjectsOrder": "alphabetical"` в `.v8-project.json` — по алфавиту, АПК:1108).
 
 Вход — обычная XML-схема, писать её нужно так же, как для любого другого инструмента.
 

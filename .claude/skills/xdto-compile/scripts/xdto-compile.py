@@ -1,4 +1,4 @@
-# xdto-compile v1.12 — Build a 1C XDTO package from an XML Schema (XSD) (Python port) (+support-guard: общая реализация вместо урезанной)
+# xdto-compile v1.13 — Build a 1C XDTO package from an XML Schema (XSD) (Python port) (+support-guard: общая реализация вместо урезанной)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import json
@@ -6,6 +6,7 @@ import os
 import re
 import sys
 import uuid
+import xml.etree.ElementTree as ET
 
 from lxml import etree
 
@@ -1093,43 +1094,170 @@ if declared_imports and os.path.isdir(xdto_root_dir):
             warn(f'Импорт "{imp}" не разрешается: пакета с таким namespace в конфигурации нет. '
                  "Платформа отвергнет пакет при обновлении — соберите зависимость первой")
 
-config_xml = os.path.join(args.OutputDir, "Configuration.xml")
-reg_result = "no-config"
-if os.path.exists(config_xml):
-    with open(config_xml, "rb") as f:
-        raw = f.read()
-    had_bom = raw.startswith(b"\xef\xbb\xbf")
-    cfg_doc = _parse_xml(config_xml)
-    child_objects = cfg_doc.find(f".//{{{MD_NS}}}Configuration/{{{MD_NS}}}ChildObjects")
-    if child_objects is not None:
-        existing = child_objects.findall(f"{{{MD_NS}}}XDTOPackage")
-        if any((e.text or "") == name for e in existing):
-            reg_result = "already"
-        else:
-            new_elem = etree.SubElement(child_objects, f"{{{MD_NS}}}XDTOPackage")
-            new_elem.text = name
-            if existing:
-                last = existing[-1]
-                new_elem.tail = last.tail
-                child_objects.remove(new_elem)
-                last.addnext(new_elem)
+def esc_xml_text(s):
+    # Эскейп ТЕКСТА элемента: только & < > (кавычки в тексте 1С держит raw).
+    return s.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+
+
+def write_utf8_bom(path, content):
+    # newline='' — без трансляции: иначе текстовый режим Python дал бы CRLF на Windows
+    # и LF на macOS, то есть вывод навыка зависел бы от ОС.
+    with open(path, 'w', encoding='utf-8-sig', newline='') as f:
+        f.write(content)
+
+
+def get_childobjects_order(cfg_dir):
+    """Порядок вставки в <ChildObjects> — настройка childObjectsOrder из .v8-project.json.
+
+    databases[].childObjectsOrder базы, чей configSrc охватывает каталог родительского XML,
+    иначе корневое поле, иначе append. Файл ищется от каталога конфигурации вверх и лишь
+    потом от cwd: настройка принадлежит выгрузке, а не рабочему каталогу. Значения:
+    append — после последнего объекта того же типа (так дописывает Конфигуратор);
+    alphabetical — по имени, как требует стандарт для объектов верхнего уровня
+    (АПК:1108, #std467 п. 2.3). Реестр семьи: tests/skills/check-inline-drift.mjs.
+    """
+    try:
+        cfg_dir = cfg_dir or '.'
+        pj = _sg_find_v8project(os.path.abspath(cfg_dir)) or _sg_find_v8project(os.getcwd())
+        if not pj:
+            return 'append'
+        proj = json.loads(open(pj, encoding='utf-8-sig').read())
+        proj_dir = os.path.dirname(pj)
+        cfg_full = os.path.normcase(os.path.abspath(cfg_dir)).rstrip('\\/')
+        order = None
+        for db in proj.get('databases', []):
+            src = db.get('configSrc')
+            if not src or not db.get('childObjectsOrder'):
+                continue
+            # configSrc относителен корню проекта (каталогу .v8-project.json), абсолютный берётся как есть
+            src_full = os.path.normcase(os.path.abspath(os.path.join(proj_dir, src))).rstrip('\\/')
+            if cfg_full == src_full or cfg_full.startswith(src_full + os.sep):
+                order = db['childObjectsOrder']
+                break
+        if not order:
+            order = proj.get('childObjectsOrder')
+        if str(order or '').lower() == 'alphabetical':
+            return 'alphabetical'
+        return 'append'
+    except Exception:
+        return 'append'
+
+
+def compare_metadata_names(a, b):
+    """Порядок имён объектов, как в дереве Конфигуратора.
+
+    Сверено по выгрузкам ЗУП и КА — совпадает с ru-RU word-sort: регистр не учитывается,
+    подчёркивание раньше цифр, цифры раньше букв, буквы по кодам (латиница раньше
+    кириллицы), ё на месте е. Ключ — пары «ранг+символ», поэтому оба порта сравнивают
+    одинаково на любой ОС без культурных таблиц. Равные ключи разводит ordinal-сравнение
+    исходных строк. Возвращает -1 | 0 | 1. Реестр семьи: tests/skills/check-inline-drift.mjs.
+    """
+    keys = []
+    for name in (a, b):
+        parts = []
+        for ch in name.lower():
+            if ch == 'ё':
+                ch = 'е'
+            if ch.isdigit():
+                parts.append('1' + ch)
+            elif ch.isalpha():
+                parts.append('2' + ch)
             else:
-                new_elem.tail = child_objects.text
-            data = etree.tostring(cfg_doc, xml_declaration=True, encoding="UTF-8")
-            # lxml пишет декларацию в ОДИНАРНЫХ кавычках, платформа и PS-порт — в двойных.
-            data = data.replace(b"<?xml version='1.0' encoding='UTF-8'?>",
-                                b'<?xml version="1.0" encoding="UTF-8"?>')
-            # Парсер XML по спецификации схлопывает CRLF в LF, поэтому tostring отдаёт
-            # LF-документ. Возвращаем EOL исходного файла: правка существующего файла
-            # сохраняет его стиль (#44/#46/#47). Правило то же, что у _detect_xml_style
-            # и у $targetEol в PS-порту: есть CRLF → CRLF.
-            src_eol = b"\r\n" if b"\r\n" in raw else b"\n"
-            data = data.replace(b"\r\n", b"\n").replace(b"\n", src_eol)
-            if had_bom:
-                data = b"\xef\xbb\xbf" + data
-            with open(config_xml, "wb") as f:
-                f.write(data)
-            reg_result = "added"
+                parts.append('0' + ch)
+        keys.append(''.join(parts))
+    if keys[0] != keys[1]:
+        return -1 if keys[0] < keys[1] else 1
+    if a != b:
+        return -1 if a < b else 1
+    return 0
+
+
+def register_in_childobjects(parent_xml_path, parent_tag, child_tag, child_name):
+    """Регистрация объекта в <ChildObjects> родительского XML.
+
+    Общая реализация: эталон — meta-compile, копии — role-compile, xdto-compile.
+    Реестр семьи: tests/skills/check-inline-drift.mjs.
+    Возвращает исход: added | already | no-childobj | no-config.
+    """
+    if not os.path.isfile(parent_xml_path):
+        return 'no-config'
+
+    # Read raw content, preserving BOM/EOL byte-for-byte (newline='' => no translation)
+    with open(parent_xml_path, 'r', encoding='utf-8-sig', newline='') as f:
+        config_content = f.read()
+
+    ns = 'http://v8.1c.ru/8.3/MDClasses'
+    # ET is used ONLY read-only here: to locate ChildObjects and detect a duplicate.
+    # We deliberately do NOT re-serialize Configuration.xml with ElementTree.write():
+    # it drops every xmlns declaration used only inside attribute VALUES (e.g.
+    # xsi:type="app:ApplicationUsePurpose" in UsePurposes) because ET never sees such
+    # prefixes in element/attribute names. The dropped declaration makes XDTO read the
+    # value as anyType and Designer refuses to load the file (issue #38). Registration is
+    # therefore done by raw-text insertion, preserving BOM, EOL and all namespaces
+    # byte-for-byte (same approach as subsystem-compile).
+    tree = ET.parse(parent_xml_path)
+    root = tree.getroot()
+
+    child_objects = root.find(f'{{{ns}}}{parent_tag}/{{{ns}}}ChildObjects')
+    if child_objects is None:
+        # Try direct path
+        parent_elem = root.find(f'{{{ns}}}{parent_tag}')
+        if parent_elem is not None:
+            child_objects = parent_elem.find(f'{{{ns}}}ChildObjects')
+
+    if child_objects is None:
+        return 'no-childobj'
+
+    existing = child_objects.findall(f'{{{ns}}}{child_tag}')
+    if any((e.text or '').strip() == child_name for e in existing):
+        return 'already'
+
+    eol = '\r\n' if '\r\n' in config_content else '\n'
+    entry = f'<{child_tag}>{esc_xml_text(child_name)}</{child_tag}>'
+
+    block = re.search(r'<ChildObjects\s*>.*?</ChildObjects>', config_content, re.S)
+    if block is None:
+        # Empty self-closing <ChildObjects/> => open it with the first entry.
+        empty = re.search(r'<ChildObjects\s*/>', config_content)
+        if empty is None:
+            return 'no-childobj'
+        replacement = f'<ChildObjects>{eol}\t\t\t{entry}{eol}\t\t</ChildObjects>'
+        new_content = config_content[:empty.start()] + replacement + config_content[empty.end():]
+        write_utf8_bom(parent_xml_path, new_content)
+        return 'added'
+
+    if get_childobjects_order(os.path.dirname(os.path.abspath(parent_xml_path))) == 'alphabetical':
+        # alphabetical: перед первым объектом того же типа, чьё имя больше нового
+        line_rx = re.compile(rf'(?m)^([ \t]*)<{child_tag}>([^<]*)</{child_tag}>')
+        for m in line_rx.finditer(config_content, block.start(), block.end()):
+            if compare_metadata_names(m.group(2), child_name) > 0:
+                new_content = (config_content[:m.start()]
+                               + f'{m.group(1)}{entry}{eol}'
+                               + config_content[m.start():])
+                write_utf8_bom(parent_xml_path, new_content)
+                return 'added'
+
+    close_same = f'</{child_tag}>'
+    last_same = config_content.rfind(close_same, block.start(), block.end())
+    if last_same != -1:
+        # After the last element of the same type (keeps them grouped).
+        insert_at = last_same + len(close_same)
+        new_content = (config_content[:insert_at]
+                       + f'{eol}\t\t\t{entry}'
+                       + config_content[insert_at:])
+    else:
+        # No element of this type yet: new line before </ChildObjects>,
+        # reusing the block's existing closing indent for </ChildObjects>.
+        close_at = config_content.rfind('</ChildObjects>', block.start(), block.end())
+        new_content = (config_content[:close_at]
+                       + f'\t{entry}{eol}\t\t'
+                       + config_content[close_at:])
+    write_utf8_bom(parent_xml_path, new_content)
+    return 'added'
+
+
+config_xml = os.path.join(args.OutputDir, "Configuration.xml")
+reg_result = register_in_childobjects(config_xml, "Configuration", "XDTOPackage", name)
 
 type_count = sum(1 for c in pkg_node.children if c.tag in ("objectType", "valueType"))
 print(f"✓ Пакет XDTO собран: {name}")
@@ -1147,5 +1275,7 @@ if reg_result == "added":
     print(f"  Configuration.xml: <XDTOPackage>{name}</XDTOPackage> добавлен в ChildObjects")
 elif reg_result == "already":
     print(f"  Configuration.xml: <XDTOPackage>{name}</XDTOPackage> уже зарегистрирован")
+elif reg_result == "no-childobj":
+    print("WARNING: Configuration.xml найден, но <ChildObjects> отсутствует — регистрация пропущена", file=sys.stderr)
 else:
     print("  Configuration.xml не найден — регистрация пропущена")

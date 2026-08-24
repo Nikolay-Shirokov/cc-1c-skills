@@ -24,7 +24,7 @@ allowed-tools:
 powershell.exe -NoProfile -File "${CLAUDE_SKILL_DIR}/scripts/role-compile.ps1" -JsonPath "<json>" -OutputDir "<ConfigDir>"
 ```
 
-Создаёт `{OutputDir}/Roles/Имя.xml` и `{OutputDir}/Roles/Имя/Ext/Rights.xml`. Регистрирует `<Role>` в `Configuration.xml`.
+Создаёт `{OutputDir}/Roles/Имя.xml` и `{OutputDir}/Roles/Имя/Ext/Rights.xml`. Регистрирует `<Role>` в `Configuration.xml` (в конец группы ролей; при `"childObjectsOrder": "alphabetical"` в `.v8-project.json` — по алфавиту, как требует АПК:1108).
 
 ## JSON DSL
 

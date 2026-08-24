@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# subsystem-compile v1.30 — Create 1C subsystem from JSON definition
+# subsystem-compile v1.31 — Create 1C subsystem from JSON definition
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import json
@@ -450,13 +450,80 @@ def write_child_subsystem_stub(child_path, child_name, format_version):
     write_utf8_bom(child_path, '\r\n'.join(lines))
 
 
+def get_childobjects_order(cfg_dir):
+    """Порядок вставки в <ChildObjects> — настройка childObjectsOrder из .v8-project.json.
+
+    databases[].childObjectsOrder базы, чей configSrc охватывает каталог родительского XML,
+    иначе корневое поле, иначе append. Файл ищется от каталога конфигурации вверх и лишь
+    потом от cwd: настройка принадлежит выгрузке, а не рабочему каталогу. Значения:
+    append — после последнего объекта того же типа (так дописывает Конфигуратор);
+    alphabetical — по имени, как требует стандарт для объектов верхнего уровня
+    (АПК:1108, #std467 п. 2.3). Реестр семьи: tests/skills/check-inline-drift.mjs.
+    """
+    try:
+        cfg_dir = cfg_dir or '.'
+        pj = _sg_find_v8project(os.path.abspath(cfg_dir)) or _sg_find_v8project(os.getcwd())
+        if not pj:
+            return 'append'
+        proj = json.loads(open(pj, encoding='utf-8-sig').read())
+        proj_dir = os.path.dirname(pj)
+        cfg_full = os.path.normcase(os.path.abspath(cfg_dir)).rstrip('\\/')
+        order = None
+        for db in proj.get('databases', []):
+            src = db.get('configSrc')
+            if not src or not db.get('childObjectsOrder'):
+                continue
+            # configSrc относителен корню проекта (каталогу .v8-project.json), абсолютный берётся как есть
+            src_full = os.path.normcase(os.path.abspath(os.path.join(proj_dir, src))).rstrip('\\/')
+            if cfg_full == src_full or cfg_full.startswith(src_full + os.sep):
+                order = db['childObjectsOrder']
+                break
+        if not order:
+            order = proj.get('childObjectsOrder')
+        if str(order or '').lower() == 'alphabetical':
+            return 'alphabetical'
+        return 'append'
+    except Exception:
+        return 'append'
+
+
+def compare_metadata_names(a, b):
+    """Порядок имён объектов, как в дереве Конфигуратора.
+
+    Сверено по выгрузкам ЗУП и КА — совпадает с ru-RU word-sort: регистр не учитывается,
+    подчёркивание раньше цифр, цифры раньше букв, буквы по кодам (латиница раньше
+    кириллицы), ё на месте е. Ключ — пары «ранг+символ», поэтому оба порта сравнивают
+    одинаково на любой ОС без культурных таблиц. Равные ключи разводит ordinal-сравнение
+    исходных строк. Возвращает -1 | 0 | 1. Реестр семьи: tests/skills/check-inline-drift.mjs.
+    """
+    keys = []
+    for name in (a, b):
+        parts = []
+        for ch in name.lower():
+            if ch == 'ё':
+                ch = 'е'
+            if ch.isdigit():
+                parts.append('1' + ch)
+            elif ch.isalpha():
+                parts.append('2' + ch)
+            else:
+                parts.append('0' + ch)
+        keys.append(''.join(parts))
+    if keys[0] != keys[1]:
+        return -1 if keys[0] < keys[1] else 1
+    if a != b:
+        return -1 if a < b else 1
+    return 0
+
+
 def register_in_childobjects(parent_xml_path, parent_tag, child_tag, child_name):
     """Регистрация объекта в <ChildObjects> родительского XML.
 
-    Вариант семьи: отступ берётся из самого документа, а запись дописывается в конец
-    блока. Отличие от эталона (meta-compile) осознанное: родителем бывает вложенный
-    Subsystem.xml произвольной глубины, где фиксированные три табуляции неверны,
-    а группировать записи по типу внутри подсистемы нечего — потомок там всегда один.
+    Вариант семьи: отступ берётся из самого документа, а запись (при
+    childObjectsOrder=append) дописывается в конец блока. Отличие от эталона
+    (meta-compile) осознанное: родителем бывает вложенный Subsystem.xml произвольной
+    глубины, где фиксированные три табуляции неверны, а группировать записи по типу
+    внутри подсистемы нечего — потомок там всегда один.
     Реестр семьи: tests/skills/check-inline-drift.mjs.
     Возвращает исход: added | already | no-childobj | no-config.
     """
@@ -493,12 +560,23 @@ def register_in_childobjects(parent_xml_path, parent_tag, child_tag, child_name)
         replacement = '<ChildObjects>' + eol + f'\t\t\t{entry}' + eol + '\t\t</ChildObjects>'
         raw_text = raw_text.replace('<ChildObjects/>', replacement, 1)
     elif '</ChildObjects>' in raw_text:
-        # Отступ вставки берём у закрывающего тега +1 уровень: подстановка
-        # по голому '</ChildObjects>' удваивала бы уже присутствующий отступ
-        # строки (получалось 5 табов вместо 3 — PS-порт через DOM даёт 3).
-        raw_text = re.sub(r'([ \t]*)</ChildObjects>',
-                          lambda m: m.group(1) + '\t' + entry + eol + m.group(1) + '</ChildObjects>',
-                          raw_text, count=1)
+        inserted = False
+        if get_childobjects_order(os.path.dirname(os.path.abspath(parent_xml_path))) == 'alphabetical':
+            # alphabetical: перед первым объектом того же типа, чьё имя больше нового
+            block = re.search(r'<ChildObjects\s*>.*?</ChildObjects>', raw_text, re.S)
+            line_rx = re.compile(rf'(?m)^([ \t]*)<{child_tag}>([^<]*)</{child_tag}>')
+            for m in line_rx.finditer(raw_text, block.start(), block.end()):
+                if compare_metadata_names(m.group(2), child_name) > 0:
+                    raw_text = raw_text[:m.start()] + m.group(1) + entry + eol + raw_text[m.start():]
+                    inserted = True
+                    break
+        if not inserted:
+            # Отступ вставки берём у закрывающего тега +1 уровень: подстановка
+            # по голому '</ChildObjects>' удваивала бы уже присутствующий отступ
+            # строки (получалось 5 табов вместо 3 — PS-порт через DOM даёт 3).
+            raw_text = re.sub(r'([ \t]*)</ChildObjects>',
+                              lambda m: m.group(1) + '\t' + entry + eol + m.group(1) + '</ChildObjects>',
+                              raw_text, count=1)
 
     write_utf8_bom(parent_xml_path, raw_text)
     return 'added'

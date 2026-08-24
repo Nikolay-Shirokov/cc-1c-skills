@@ -11,7 +11,7 @@ allowed-tools:
 
 # /subsystem-compile — генерация подсистемы из JSON
 
-Принимает JSON-определение подсистемы → генерирует XML + файловую структуру + регистрирует в родителе (Configuration.xml или родительская подсистема).
+Принимает JSON-определение подсистемы → генерирует XML + файловую структуру + регистрирует в родителе (Configuration.xml или родительская подсистема) — в конец блока `ChildObjects`; при `"childObjectsOrder": "alphabetical"` в `.v8-project.json` — по алфавиту (АПК:1108). Порядок разделов в панели это не меняет: его задаёт `SubsystemsOrder` в `Ext/CommandInterface.xml`.
 
 ## Параметры и команда
 

@@ -1,0 +1,29 @@
+{
+  "name": "childObjectsOrder=alphabetical: роль встаёт между соседями по имени, а не в конец группы",
+  "setup": "fixture:childobjects-order",
+  "preRun": [
+    { "writeFile": { "path": ".v8-project.json", "content": { "childObjectsOrder": "alphabetical" } } }
+  ],
+  "input": { "name": "Бета" },
+  "validatePath": "Roles/Бета",
+  "expect": {
+    "files": [
+      "Roles/Бета.xml",
+      "Roles/Бета/Ext/Rights.xml"
+    ],
+    "stdoutContains": "<Role>Бета</Role> added to ChildObjects",
+    "fileContains": {
+      "file": "Configuration.xml",
+      "text": "<Role>Альфа</Role>\r\n\t\t\t<Role>Бета</Role>\r\n\t\t\t<Role>Гамма</Role>"
+    },
+    "preserves": {
+      "file": "Configuration.xml",
+      "bom": true,
+      "eol": "crlf",
+      "encoding": "UTF-8",
+      "finalNewline": false,
+      "noCR13": true
+    }
+  },
+  "skipPlatformVerify": "фикстура объявляет роли Альфа/Гамма без файлов: кейс проверяет место вставки в ChildObjects, а не загружаемость конфигурации"
+}

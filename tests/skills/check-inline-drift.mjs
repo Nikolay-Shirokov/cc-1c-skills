@@ -145,7 +145,7 @@ const FAMILIES = [
       { id: 'base', authority: 'cf-init',
         consumers: ['cfe-borrow', 'cfe-init', 'epf-init', 'erf-init', 'form-add', 'form-compile',
           'help-add', 'meta-compile', 'mxl-compile', 'role-compile', 'skd-compile',
-          'subsystem-compile', 'subsystem-edit', 'template-add'] },
+          'subsystem-compile', 'subsystem-edit', 'template-add', 'xdto-compile'] },
     ],
   },
 
@@ -213,7 +213,7 @@ const FAMILIES = [
       { id: 'text-no-quot', authority: 'meta-compile',
         consumers: ['cf-init', 'cfe-init', 'epf-init', 'erf-init', 'form-compile', 'form-edit',
           'meta-edit', 'mxl-compile', 'role-compile', 'skd-compile', 'skd-edit',
-          'subsystem-compile', 'subsystem-edit'] },
+          'subsystem-compile', 'subsystem-edit', 'xdto-compile'] },
     ],
   },
   // ─── Сохранение стиля XML при round-trip (#44/#46/#47) ───────────────────
@@ -420,9 +420,28 @@ const FAMILIES = [
     name: 'ChildObjects: регистрация объекта в составе',
     py: 'register_in_childobjects', ps1: 'Register-InChildObjects',
     variants: [
-      { id: 'grouped', authority: 'meta-compile', consumers: ['role-compile'] },
+      { id: 'grouped', authority: 'meta-compile', consumers: ['role-compile', 'xdto-compile'] },
       { id: 'nested-parent', authority: 'subsystem-compile', consumers: [],
-        why: 'родителем бывает вложенный Subsystem.xml произвольной глубины: отступ берётся из документа, а запись дописывается в конец блока — фиксированные три табуляции там неверны, и группировать по типу нечего' },
+        why: 'родителем бывает вложенный Subsystem.xml произвольной глубины: отступ берётся из документа, а запись (при childObjectsOrder=append) дописывается в конец блока — фиксированные три табуляции там неверны, и группировать по типу нечего' },
+    ],
+  },
+  // Порядок вставки — настройка childObjectsOrder из .v8-project.json (append | alphabetical).
+  // Резолвер отдельно от Get-EditMode: файл ищется от каталога конфигурации, а не от cwd,
+  // и configSrc считается от корня проекта — семья support-guard этих правил не имеет.
+  {
+    name: 'ChildObjects: настройка childObjectsOrder',
+    py: 'get_childobjects_order', ps1: 'Get-ChildObjectsOrder',
+    variants: [
+      { id: 'base', authority: 'meta-compile', consumers: ['role-compile', 'subsystem-compile', 'xdto-compile'] },
+    ],
+  },
+  // Порядок имён, как в дереве Конфигуратора: ключ «ранг+символ» вместо культурного сравнения,
+  // чтобы порты совпадали байт-в-байт на любой ОС (см. комментарий у функции).
+  {
+    name: 'ChildObjects: порядок имён объектов',
+    py: 'compare_metadata_names', ps1: 'Compare-MetadataNames',
+    variants: [
+      { id: 'base', authority: 'meta-compile', consumers: ['role-compile', 'subsystem-compile', 'xdto-compile'] },
     ],
   },
 

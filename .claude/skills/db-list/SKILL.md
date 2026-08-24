@@ -76,6 +76,7 @@ allowed-tools:
 | `v8path` | string | Каталог bin платформы 1С. Необязательный — если не задан, автоопределение |
 | `v8args` | array | Доп. аргументы запуска `1cv8.exe` для всех навыков, напр. `["/UseHwLicenses+"]` |
 | `ibcmdargs` | array | Доп. аргументы `ibcmd` (форма `--ключ=значение`) |
+| `childObjectsOrder` | `"append"` / `"alphabetical"` | Куда `meta-compile`/`role-compile`/`subsystem-compile`/`xdto-compile` вставляют новый объект в `<ChildObjects>` `Configuration.xml`: в конец группы типа (по умолчанию) или по алфавиту (стандарт АПК:1108). Переопределяется в `databases[]` по `configSrc` |
 | `databases` | array | Массив баз данных |
 | `default` | string | id базы по умолчанию |
 

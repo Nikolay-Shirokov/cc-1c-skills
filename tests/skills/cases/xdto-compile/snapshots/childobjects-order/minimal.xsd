@@ -1,0 +1,10 @@
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns:tns="urn:test:minimal"
+           targetNamespace="urn:test:minimal">
+	<xs:complexType name="ОписаниеОшибки">
+		<xs:sequence>
+			<xs:element name="КраткоеОписание" type="xs:string"/>
+			<xs:element name="ПодробноеОписание" type="xs:string"/>
+		</xs:sequence>
+	</xs:complexType>
+</xs:schema>

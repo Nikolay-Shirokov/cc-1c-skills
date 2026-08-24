@@ -1,0 +1,34 @@
+{
+  "name": "childObjectsOrder=alphabetical: пакет XDTO регистрируется между соседями по имени",
+  "setup": "fixture:childobjects-order",
+  "preRun": [
+    { "writeFile": { "path": ".v8-project.json", "content": { "childObjectsOrder": "alphabetical" } } }
+  ],
+  "caseFiles": [
+    "minimal.xsd"
+  ],
+  "params": {
+    "xsdFile": "minimal.xsd"
+  },
+  "validatePath": "XDTOPackages/minimal",
+  "expect": {
+    "files": [
+      "XDTOPackages/minimal.xml",
+      "XDTOPackages/minimal/Ext/Package.bin"
+    ],
+    "stdoutContains": "<XDTOPackage>minimal</XDTOPackage> добавлен в ChildObjects",
+    "fileContains": {
+      "file": "Configuration.xml",
+      "text": "<XDTOPackage>Alpha</XDTOPackage>\r\n\t\t\t<XDTOPackage>minimal</XDTOPackage>\r\n\t\t\t<XDTOPackage>Zeta</XDTOPackage>"
+    },
+    "preserves": {
+      "file": "Configuration.xml",
+      "bom": true,
+      "eol": "crlf",
+      "encoding": "UTF-8",
+      "finalNewline": false,
+      "noCR13": true
+    }
+  },
+  "skipPlatformVerify": "фикстура объявляет пакеты Alpha/Zeta без файлов: кейс проверяет место вставки в ChildObjects, а не загружаемость конфигурации"
+}

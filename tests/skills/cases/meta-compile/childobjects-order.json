@@ -1,0 +1,27 @@
+{
+  "name": "childObjectsOrder=alphabetical: справочник регистрируется между соседями по имени, а не в конец группы",
+  "setup": "fixture:childobjects-order",
+  "preRun": [
+    { "writeFile": { "path": ".v8-project.json", "content": { "childObjectsOrder": "alphabetical" } } }
+  ],
+  "input": { "type": "Catalog", "name": "Бета" },
+  "validatePath": "Catalogs/Бета",
+  "expect": {
+    "files": [
+      "Catalogs/Бета.xml"
+    ],
+    "fileContains": {
+      "file": "Configuration.xml",
+      "text": "<Catalog>Альфа</Catalog>\r\n\t\t\t<Catalog>Бета</Catalog>\r\n\t\t\t<Catalog>Гамма</Catalog>"
+    },
+    "preserves": {
+      "file": "Configuration.xml",
+      "bom": true,
+      "eol": "crlf",
+      "encoding": "UTF-8",
+      "finalNewline": false,
+      "noCR13": true
+    }
+  },
+  "skipPlatformVerify": "фикстура объявляет справочники Альфа/Гамма без файлов: кейс проверяет место вставки в ChildObjects, а не загружаемость конфигурации"
+}
