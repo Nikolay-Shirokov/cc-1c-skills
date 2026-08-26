@@ -1146,7 +1146,9 @@ def resync_one(ext_bsl, ext_lines, dup, method, logical_module, conflict_folder,
     v1norm = [normalize(x) for x in v1]
     v2norm = [normalize(x) for x in v2]
 
-    if "\n".join(v1norm) == "\n".join(v2norm):
+    # Platform control ignores whitespace and blank lines (tabs on empty lines, dropped/added
+    # empty lines are invisible to the Configurator) -> compare without blank lines.
+    if [x for x in v1norm if x] == [x for x in v2norm if x]:
         return {"id": method_id, "status": "АКТУАЛЕН", "ext_bsl": ext_bsl}
 
     insert_top = []; insert_after = {}; del_start = set(); del_end = set(); disputed = []; transferred = 0; absorbed = 0; absorbed_notes = []

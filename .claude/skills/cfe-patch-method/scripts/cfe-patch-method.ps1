@@ -651,7 +651,9 @@ function Invoke-Resync {
 	$v1norm = @($v1 | ForEach-Object { Get-Normalized $_ })
 	$v2norm = @($v2 | ForEach-Object { Get-Normalized $_ })
 
-	if (($v1norm -join "`n") -eq ($v2norm -join "`n")) {
+	# Platform control ignores whitespace and blank lines (tabs on empty lines, dropped/added
+	# empty lines are invisible to the Configurator) -> compare without blank lines.
+	if ((@($v1norm | Where-Object { $_ -ne '' }) -join "`n") -eq (@($v2norm | Where-Object { $_ -ne '' }) -join "`n")) {
 		return @{ Id = $methodId; Status = 'АКТУАЛЕН'; ExtBsl = $extBsl }
 	}
 
