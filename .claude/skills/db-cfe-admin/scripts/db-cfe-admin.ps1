@@ -858,6 +858,9 @@ if ($cmd -eq 'check') {
     $done = 0
     $rows = @()
 
+    # Тот же вопрос платформе задаёт постусловие загрузчиков (семья Invoke-ApplyCheck в
+    # db-load-xml): там ответ нужен одной строкой предупреждения, здесь — строкой отчёта
+    # рядом с остальными проверками, поэтому запуск идёт своим Invoke-Designer.
     if ($checkList -contains 'apply') {
         $opArgs = @('/CheckCanApplyConfigurationExtensions')
         if ($target) { $opArgs += '-Extension', "`"$target`"" }

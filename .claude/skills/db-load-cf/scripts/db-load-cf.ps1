@@ -79,6 +79,16 @@ param(
     [switch]$AllExtensions,
 
     [Parameter(Mandatory=$false)]
+    # Ключ для регрессов и верификации снапшотов, не для повседневного вызова: в SKILL.md
+    # намеренно не выносится. Поднимает код возврата, если платформа отчиталась об успехе,
+    # но расширение при этом неприменимо.
+    [switch]$StrictLog,
+
+    # Пропустить проверку применимости расширения после загрузки.
+    [Parameter(Mandatory=$false)]
+    [switch]$NoApplyCheck,
+
+    [Parameter(Mandatory=$false)]
     [string[]]$AdditionalV8Arguments = @(),
 
     [Parameter(Mandatory=$false)]
@@ -403,6 +413,85 @@ function Write-PlatformOutput {
 }
 
 
+function Find-V8Project([string]$startDir) {
+	$d = $startDir
+	for ($i = 0; $i -lt 20 -and $d; $i++) {
+		$pj = Join-Path $d ".v8-project.json"
+		if (Test-Path $pj) { return $pj }
+		$parent = [System.IO.Path]::GetDirectoryName($d)
+		if ($parent -eq $d) { break }
+		$d = $parent
+	}
+	return $null
+}
+
+# Постусловие применимости расширения: платформа отчитывается успехом и о расширении, которое
+# не применит — отказ всплывает лениво, при первом вызове метода, записью в журнал регистрации.
+#
+# Запуск ОБЯЗАТЕЛЬНО отдельный. Дописать эту команду в строку операции нельзя: в одной командной
+# строке DESIGNER выполняет только ПОСЛЕДНЮЮ пакетную команду, остальные молча отбрасывает —
+# проверено на 8.3.24, /LoadConfigFromFiles вместе с /CheckCanApplyConfigurationExtensions
+# завершились кодом 0 с пустым логом, и загрузка не состоялась.
+#
+# Проверку умеет только 1cv8; если навык работал через ibcmd, берём соседний исполняемый файл.
+function Invoke-ApplyCheck {
+    param([string]$Exe, [string[]]$ConnArgs, [string]$Extension, [string[]]$ExtraArgs)
+    $exeDir = Split-Path $Exe -Parent
+    $exeLeaf = Split-Path $Exe -Leaf
+    $v8 = if ($exeLeaf -match '^ibcmd') { Join-Path $exeDir ("1cv8" + [System.IO.Path]::GetExtension($Exe)) } else { $Exe }
+    if (-not (Test-Path $v8)) { return @{ Skipped = $true; Reason = "1cv8 not found at $v8"; ExitCode = 0; Lines = @() } }
+    $dir = Join-Path $env:TEMP "apply_check_$(Get-Random)"
+    New-Item -ItemType Directory -Path $dir -Force | Out-Null
+    try {
+        $a = @("DESIGNER") + $ConnArgs + @("/CheckCanApplyConfigurationExtensions")
+        if ($Extension) { $a += "-Extension", "`"$Extension`"" }
+        $outFile = Join-Path $dir "check_log.txt"
+        $a += "/Out", "`"$outFile`"", "/DisableStartupDialogs"
+        $a += $ExtraArgs
+        $res = Invoke-PlatformProcess $v8 $a -PreQuoted
+        $lines = @()
+        if (Test-Path $outFile) {
+            $raw = Get-Content $outFile -Raw -ErrorAction SilentlyContinue
+            if ($raw) { $lines = @($raw -split "`r?`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' }) }
+        }
+        return @{ Skipped = $false; Reason = ''; ExitCode = $res.ExitCode; Lines = $lines }
+    } finally {
+        if (Test-Path $dir) { Remove-Item -Path $dir -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+}
+
+# Проверить и напечатать. $true, если платформа расширение не применит — вызывающий решает,
+# поднимать ли код возврата (строгий режим).
+function Invoke-ApplyCheckReport {
+    param([string]$Exe, [string[]]$ConnArgs, [string]$Extension, [string[]]$ExtraArgs)
+    $ac = Invoke-ApplyCheck $Exe $ConnArgs $Extension $ExtraArgs
+    if ($ac.Skipped) {
+        Write-Host "[note] applicability check skipped: $($ac.Reason)" -ForegroundColor Yellow
+        return $false
+    }
+    if ($ac.ExitCode -ne 0 -or $ac.Lines.Count -gt 0) {
+        Write-Host "[warning] the extension is loaded, but the platform will not apply it:" -ForegroundColor Yellow
+        foreach ($l in $ac.Lines) { Write-Host "  $l" -ForegroundColor Yellow }
+        return $true
+    }
+    return $false
+}
+
+# Проверять ли применимость: -NoApplyCheck сильнее настройки проекта.
+function Get-ApplyCheckEnabled {
+    param([switch]$Disabled)
+    if ($Disabled) { return $false }
+    $pf = Find-V8Project (Get-Location).Path
+    if ($pf) {
+        try {
+            $proj = Get-Content $pf -Raw -Encoding UTF8 | ConvertFrom-Json
+            if ($null -ne $proj.extensionApplyCheck) { return [bool]$proj.extensionApplyCheck }
+        } catch {}
+    }
+    return $true
+}
+
+
 $engine = if ((Split-Path $V8Path -Leaf) -match '^ibcmd') { "ibcmd" } else { "1cv8" }
 
 # --- Resolve additional arguments for the selected engine ---
@@ -453,22 +542,32 @@ try {
         } else {
             Write-Host "Error loading configuration (code: $exitCode)$(Get-ExitAnnotation $exitCode)" -ForegroundColor Red
         }
+        # Проверку применимости умеет только 1cv8 — соединение для неё собираем в его форме.
+        if ($exitCode -eq 0 -and ($Extension -or $AllExtensions) -and (Get-ApplyCheckEnabled -Disabled:$NoApplyCheck)) {
+            $acConn = @("/F", "`"$InfoBasePath`"")
+            if ($UserName) { $acConn += "/N`"$UserName`"" }
+            if ($Password) { $acConn += "/P`"$Password`"" }
+            if ((Invoke-ApplyCheckReport $V8Path $acConn $Extension @()) -and $StrictLog) { $exitCode = 1 }
+        }
         Write-PlatformOutput $output
         exit $exitCode
     }
 
     # --- 1cv8 branch ---
     # --- Build arguments ---
-    $arguments = @("DESIGNER")
+    # Аргументы соединения собираем отдельно: тем же набором пойдёт запуск проверки применимости.
+    $connArgs = @()
 
     if ($InfoBaseServer -and $InfoBaseRef) {
-        $arguments += "/S", "`"$InfoBaseServer/$InfoBaseRef`""
+        $connArgs += "/S", "`"$InfoBaseServer/$InfoBaseRef`""
     } else {
-        $arguments += "/F", "`"$InfoBasePath`""
+        $connArgs += "/F", "`"$InfoBasePath`""
     }
 
-    if ($UserName) { $arguments += "/N`"$UserName`"" }
-    if ($Password) { $arguments += "/P`"$Password`"" }
+    if ($UserName) { $connArgs += "/N`"$UserName`"" }
+    if ($Password) { $connArgs += "/P`"$Password`"" }
+
+    $arguments = @("DESIGNER") + $connArgs
 
     $arguments += "/LoadCfg", "`"$InputFile`""
 
@@ -506,6 +605,11 @@ try {
         }
     }
     Write-PlatformOutput $__v8.Output
+
+    # Расширение могло загрузиться «успешно» и остаться неприменимым — спрашиваем платформу.
+    if ($exitCode -eq 0 -and ($Extension -or $AllExtensions) -and (Get-ApplyCheckEnabled -Disabled:$NoApplyCheck)) {
+        if ((Invoke-ApplyCheckReport $V8Path $connArgs $Extension $extraArgs) -and $StrictLog) { $exitCode = 1 }
+    }
 
     exit $exitCode
 

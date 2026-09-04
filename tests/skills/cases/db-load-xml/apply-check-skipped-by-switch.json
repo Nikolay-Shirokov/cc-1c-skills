@@ -1,0 +1,34 @@
+{
+  "name": "-NoApplyCheck: проверка не запускается вовсе",
+  "fakePlatform": {
+    "log": "﻿Загрузка конфигурации из файлов.\r\n",
+    "check": {
+      "log": "﻿Проба: Список параметров метода \"Проба_Расчёт\" не соответствует методу \"Расчёт\".\r\n",
+      "exit": 1
+    }
+  },
+  "args_extra": [
+    "-V8Path",
+    "{fakePlatform}",
+    "-InfoBasePath",
+    "{workDir}/ib",
+    "-ConfigDir",
+    "{workDir}/src",
+    "-Extension",
+    "Проба",
+    "-NoApplyCheck"
+  ],
+  "expect": {
+    "stdoutContains": "Load completed successfully",
+    "stdoutNotContains": "will not apply"
+  },
+  "noSnapshot": "навык ничего не пишет в рабочий каталог — проверяется постусловие",
+  "preRun": [
+    {
+      "writeFile": {
+        "path": "src/Configuration.xml",
+        "content": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<MetaDataObject/>"
+      }
+    }
+  ]
+}

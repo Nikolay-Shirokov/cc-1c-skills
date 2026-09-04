@@ -379,6 +379,91 @@ def print_platform_output(result):
     print("--- End ---")
 
 
+def _sg_find_v8project(start_dir):
+    d = start_dir
+    for _ in range(20):
+        if not d:
+            break
+        pj = os.path.join(d, ".v8-project.json")
+        if os.path.isfile(pj):
+            return pj
+        parent = os.path.dirname(d)
+        if parent == d:
+            break
+        d = parent
+    return None
+
+
+def run_apply_check(exe, conn_args, extension, extra_args):
+    """Постусловие применимости расширения: платформа отчитывается успехом и о расширении,
+    которое не применит — отказ всплывает лениво, при первом вызове метода, записью в журнал
+    регистрации.
+
+    Запуск ОБЯЗАТЕЛЬНО отдельный. Дописать эту команду в строку операции нельзя: в одной
+    командной строке DESIGNER выполняет только ПОСЛЕДНЮЮ пакетную команду, остальные молча
+    отбрасывает — проверено на 8.3.24, /LoadConfigFromFiles вместе с
+    /CheckCanApplyConfigurationExtensions завершились кодом 0 с пустым логом, и загрузка не
+    состоялась.
+
+    Проверку умеет только 1cv8; если навык работал через ibcmd, берём соседний файл.
+    """
+    exe_dir = os.path.dirname(exe)
+    leaf = os.path.basename(exe)
+    if leaf.lower().startswith("ibcmd"):
+        v8 = os.path.join(exe_dir, "1cv8" + os.path.splitext(leaf)[1])
+    else:
+        v8 = exe
+    if not os.path.isfile(v8):
+        return {"skipped": True, "reason": f"1cv8 not found at {v8}", "exit": 0, "lines": []}
+    temp_dir = tempfile.mkdtemp(prefix="apply_check_")
+    try:
+        a = ["DESIGNER"] + list(conn_args) + ["/CheckCanApplyConfigurationExtensions"]
+        if extension:
+            a += ["-Extension", f'"{extension}"']
+        out_file = os.path.join(temp_dir, "check_log.txt")
+        a += ["/Out", f'"{out_file}"', "/DisableStartupDialogs"]
+        a += list(extra_args)
+        r = run_v8(v8, a)
+        lines = []
+        if os.path.isfile(out_file):
+            with open(out_file, encoding="utf-8-sig", errors="replace") as f:
+                lines = [x.strip() for x in f.read().splitlines() if x.strip()]
+        return {"skipped": False, "reason": "", "exit": r.returncode, "lines": lines}
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def apply_check_report(exe, conn_args, extension, extra_args):
+    """Проверить и напечатать. True, если платформа расширение не применит — вызывающий решает,
+    поднимать ли код возврата (строгий режим)."""
+    ac = run_apply_check(exe, conn_args, extension, extra_args)
+    if ac["skipped"]:
+        print(f"[note] applicability check skipped: {ac['reason']}")
+        return False
+    if ac["exit"] != 0 or ac["lines"]:
+        print("[warning] the extension is loaded, but the platform will not apply it:")
+        for line in ac["lines"]:
+            print(f"  {line}")
+        return True
+    return False
+
+
+def apply_check_enabled(disabled):
+    """Проверять ли применимость: -NoApplyCheck сильнее настройки проекта."""
+    if disabled:
+        return False
+    pf = _sg_find_v8project(os.getcwd())
+    if pf:
+        try:
+            with open(pf, encoding="utf-8-sig") as f:
+                proj = json.load(f)
+            if proj.get("extensionApplyCheck") is not None:
+                return bool(proj.get("extensionApplyCheck"))
+        except Exception:
+            pass
+    return True
+
+
 def run_ibcmd(cmd, has_username=False, warn_no_user=True):
     """Run an ibcmd command non-interactively.
 
@@ -444,6 +529,12 @@ def main():
     parser.add_argument("-InputFile", required=True)
     parser.add_argument("-Extension", default="")
     parser.add_argument("-AllExtensions", action="store_true")
+    # Ключ для регрессов и верификации снапшотов, не для повседневного вызова: в SKILL.md
+    # намеренно не выносится. Поднимает код возврата, если платформа отчиталась об успехе,
+    # но расширение при этом неприменимо.
+    parser.add_argument("-StrictLog", action="store_true")
+    # Пропустить проверку применимости расширения после загрузки.
+    parser.add_argument("-NoApplyCheck", action="store_true")
     parser.add_argument("-AdditionalV8Arguments", nargs="*", default=[],
                         help="Extra 1cv8 arguments, e.g. /UseHwLicenses+")
     parser.add_argument("-AdditionalIbcmdArguments", nargs="*", default=[],
@@ -509,6 +600,18 @@ def main():
             print(f"Configuration loaded successfully from: {args.InputFile}")
         else:
             print(f"Error loading configuration (code: {result.returncode}){describe_exit(result.returncode)}")
+        # Проверку применимости умеет только 1cv8 — соединение для неё собираем в его форме.
+        exit_code = result.returncode
+        if (exit_code == 0 and (args.Extension or args.AllExtensions)
+                and apply_check_enabled(args.NoApplyCheck)):
+            ac_conn = ["/F", f'"{args.InfoBasePath}"']
+            if args.UserName:
+                ac_conn.append(f'/N"{args.UserName}"')
+            if args.Password:
+                ac_conn.append(f'/P"{args.Password}"')
+            if apply_check_report(v8path, ac_conn, args.Extension, []) and args.StrictLog:
+                exit_code = 1
+
         sys.exit(result.returncode)
 
     # --- Temp dir ---
@@ -517,17 +620,20 @@ def main():
 
     try:
         # --- Build arguments ---
-        arguments = ["DESIGNER"]
+        # Аргументы соединения собираем отдельно: тем же набором пойдёт проверка применимости.
+        conn_args = []
 
         if args.InfoBaseServer and args.InfoBaseRef:
-            arguments.extend(["/S", f'"{args.InfoBaseServer}/{args.InfoBaseRef}"'])
+            conn_args.extend(["/S", f'"{args.InfoBaseServer}/{args.InfoBaseRef}"'])
         else:
-            arguments.extend(["/F", f'"{args.InfoBasePath}"'])
+            conn_args.extend(["/F", f'"{args.InfoBasePath}"'])
 
         if args.UserName:
-            arguments.append(f'/N"{args.UserName}"')
+            conn_args.append(f'/N"{args.UserName}"')
         if args.Password:
-            arguments.append(f'/P"{args.Password}"')
+            conn_args.append(f'/P"{args.Password}"')
+
+        arguments = ["DESIGNER"] + conn_args
 
         arguments.extend(["/LoadCfg", f'"{args.InputFile}"'])
 
@@ -564,6 +670,12 @@ def main():
                     print("--- End ---")
             except Exception:
                 pass
+
+        # Расширение могло загрузиться «успешно» и остаться неприменимым — спрашиваем платформу.
+        if (exit_code == 0 and (args.Extension or args.AllExtensions)
+                and apply_check_enabled(args.NoApplyCheck)):
+            if apply_check_report(v8path, conn_args, args.Extension, extra_args) and args.StrictLog:
+                exit_code = 1
 
         print_platform_output(result)
         sys.exit(exit_code)

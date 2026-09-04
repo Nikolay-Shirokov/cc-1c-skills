@@ -1,0 +1,25 @@
+{
+  "name": "Обновление расширения прошло, но платформа его не применит — предупреждение",
+  "fakePlatform": {
+    "log": "﻿Обновление конфигурации успешно завершено\r\n",
+    "check": {
+      "log": "﻿Проба: Список параметров метода \"Проба_Расчёт\" не соответствует методу \"Расчёт\".\r\n",
+      "exit": 1
+    }
+  },
+  "args_extra": [
+    "-V8Path",
+    "{fakePlatform}",
+    "-InfoBasePath",
+    "{workDir}/ib",
+    "-Extension",
+    "Проба"
+  ],
+  "expect": {
+    "stdoutContains": [
+      "Database configuration updated successfully",
+      "will not apply it"
+    ]
+  },
+  "noSnapshot": "навык ничего не пишет в рабочий каталог — проверяется постусловие"
+}

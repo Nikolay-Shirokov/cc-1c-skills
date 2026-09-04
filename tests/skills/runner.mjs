@@ -373,15 +373,20 @@ function buildArgs(skillConfig, caseData, workDir, inputFilePath, runtime) {
 // под текущую ОС, поэтому один кейс проверяется на обеих. Раньше каждый такой сценарий
 // приходилось дублировать -posix двойником, и забытый двойник означал дыру: у db-repo на
 // маке выполнялся 1 кейс из 12, и заметили это случайно.
-const FAKE_PLATFORM_CMD = "@echo off\r\nrem SELF запоминаем ДО цикла: shift сдвигает и %0, после него %~dp0 указывает не на скрипт\r\nset SELF=%~dp0\r\n:loop\r\nif \"%~1\"==\"\" goto done\r\nif /i \"%~1\"==\"/Out\" set OUT=%~2\r\nshift\r\ngoto loop\r\n:done\r\ncopy /y \"%SELF%log.txt\" \"%OUT%\" >nul\r\nexit /b 0\r\n";
-const FAKE_PLATFORM_SH = "#!/bin/sh\n# Фейк платформы для *nix: вычитывает путь из /Out и кладёт туда готовый лог.\n# Значение /Out несёт кавычки ВНУТРИ токена (соглашение 1С, см. run_v8) — в batch их\n# снимает %~2, в sh их надо снять руками, иначе cp целится в имя с кавычками.\nSELF=$(dirname \"$0\")\nOUT=\"\"\nwhile [ $# -gt 0 ]; do\n  if [ \"$1\" = \"/Out\" ]; then\n    OUT=\"$2\"\n    OUT=\"${OUT#\\\"}\"\n    OUT=\"${OUT%\\\"}\"\n  fi\n  shift\ndone\ncp \"$SELF/log.txt\" \"$OUT\"\nexit 0\n";
+// Второй ответ — на проверку применимости расширения: навык запускает её ОТДЕЛЬНЫМ процессом
+// (в одной командной строке платформа выполнила бы только последнюю команду), поэтому фейк
+// отличает проверку по составу аргументов, а не по номеру вызова.
+const FAKE_PLATFORM_CMD = "@echo off\r\nrem SELF запоминаем ДО цикла: shift сдвигает и %0, после него %~dp0 указывает не на скрипт\r\nset SELF=%~dp0\r\nset KIND=main\r\n:loop\r\nif \"%~1\"==\"\" goto done\r\nif /i \"%~1\"==\"/Out\" set OUT=%~2\r\nif /i \"%~1\"==\"/CheckCanApplyConfigurationExtensions\" set KIND=check\r\nshift\r\ngoto loop\r\n:done\r\nif \"%KIND%\"==\"check\" if exist \"%SELF%log_check.txt\" (copy /y \"%SELF%log_check.txt\" \"%OUT%\" >nul & exit /b CHECKCODE)\r\ncopy /y \"%SELF%log.txt\" \"%OUT%\" >nul\r\nexit /b EXITCODE\r\n";
+const FAKE_PLATFORM_SH = "#!/bin/sh\n# Фейк платформы для *nix: вычитывает путь из /Out и кладёт туда готовый лог.\n# Значение /Out несёт кавычки ВНУТРИ токена (соглашение 1С, см. run_v8) — в batch их\n# снимает %~2, в sh их надо снять руками, иначе cp целится в имя с кавычками.\nSELF=$(dirname \"$0\")\nOUT=\"\"\nKIND=main\nwhile [ $# -gt 0 ]; do\n  if [ \"$1\" = \"/CheckCanApplyConfigurationExtensions\" ]; then\n    KIND=check\n  fi\n  if [ \"$1\" = \"/Out\" ]; then\n    OUT=\"$2\"\n    OUT=\"${OUT#\\\"}\"\n    OUT=\"${OUT%\\\"}\"\n  fi\n  shift\ndone\nif [ \"$KIND\" = check ] && [ -f \"$SELF/log_check.txt\" ]; then\n  cp \"$SELF/log_check.txt\" \"$OUT\"\n  exit CHECKCODE\nfi\ncp \"$SELF/log.txt\" \"$OUT\"\nexit EXITCODE\n";
 
 function writeFakePlatform(workDir, spec) {
   const isWin = process.platform === 'win32';
   const code = Number.isInteger(spec.exit) ? spec.exit : 0;
-  const body = isWin
-    ? FAKE_PLATFORM_CMD.replace('exit /b 0', `exit /b ${code}`)
-    : FAKE_PLATFORM_SH.replace('exit 0', `exit ${code}`);
+  // spec.check — ответ на проверку применимости расширения (отдельный запуск платформы)
+  const checkCode = spec.check && Number.isInteger(spec.check.exit) ? spec.check.exit : 0;
+  const body = (isWin ? FAKE_PLATFORM_CMD : FAKE_PLATFORM_SH)
+    .replaceAll('EXITCODE', String(code))
+    .replaceAll('CHECKCODE', String(checkCode));
   const exe = join(workDir, isWin ? 'fake.cmd' : 'fake.sh');
   writeFileSync(exe, body, 'utf8');
   // Бит исполнения: на *nix навык запускает платформу через exec, без +x фейк не стартует.
@@ -389,6 +394,7 @@ function writeFakePlatform(workDir, spec) {
   // Лог пишется как есть — вместе с BOM и CRLF, если кейс их объявил: /Out платформы
   // выглядит именно так, и разбор должен проверяться на настоящей форме.
   writeFileSync(join(workDir, 'log.txt'), spec.log ?? '', 'utf8');
+  if (spec.check) writeFileSync(join(workDir, 'log_check.txt'), spec.check.log ?? '', 'utf8');
   // Заглушка базы: навыки отказываются работать, не найдя 1Cv8.1CD, и это правильно.
   if (spec.baseStub !== false) {
     const ib = join(workDir, 'ib');

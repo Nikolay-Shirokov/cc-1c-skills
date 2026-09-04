@@ -55,6 +55,7 @@ powershell.exe -NoProfile -File "${CLAUDE_SKILL_DIR}/scripts/db-load-git.ps1" <�
 | `-Source <источник>` | нет | `All` (по умолч.) / `Staged` / `Unstaged` / `Commit` |
 | `-CommitRange <range>` | для Commit | Диапазон коммитов (напр. `HEAD~3..HEAD`) |
 | `-Extension <имя>` | нет | Загрузить в расширение |
+| `-NoApplyCheck` | нет | Не проверять применимость расширения после загрузки |
 | `-AllExtensions` | нет | Загрузить все расширения |
 | `-Format <формат>` | нет | `Hierarchical` (по умолч.) / `Plain` |
 | `-DryRun` | нет | Только показать что будет загружено (без загрузки) |

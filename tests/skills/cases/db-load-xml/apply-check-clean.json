@@ -1,0 +1,33 @@
+{
+  "name": "Проверка прошла — предупреждения нет",
+  "fakePlatform": {
+    "log": "﻿Загрузка конфигурации из файлов.\r\n",
+    "check": {
+      "log": "",
+      "exit": 0
+    }
+  },
+  "args_extra": [
+    "-V8Path",
+    "{fakePlatform}",
+    "-InfoBasePath",
+    "{workDir}/ib",
+    "-ConfigDir",
+    "{workDir}/src",
+    "-Extension",
+    "Проба"
+  ],
+  "expect": {
+    "stdoutContains": "Load completed successfully",
+    "stdoutNotContains": "will not apply"
+  },
+  "noSnapshot": "навык ничего не пишет в рабочий каталог — проверяется постусловие",
+  "preRun": [
+    {
+      "writeFile": {
+        "path": "src/Configuration.xml",
+        "content": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<MetaDataObject/>"
+      }
+    }
+  ]
+}

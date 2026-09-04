@@ -1,0 +1,36 @@
+{
+  "name": "Расширение загрузилось, но платформа его не применит — предупреждение, код возврата не меняется",
+  "fakePlatform": {
+    "log": "﻿Загрузка конфигурации из файлов.\r\n",
+    "check": {
+      "log": "﻿Проба: Список параметров метода \"Проба_Расчёт\" не соответствует методу \"Расчёт\".\r\n",
+      "exit": 1
+    }
+  },
+  "args_extra": [
+    "-V8Path",
+    "{fakePlatform}",
+    "-InfoBasePath",
+    "{workDir}/ib",
+    "-ConfigDir",
+    "{workDir}/src",
+    "-Extension",
+    "Проба"
+  ],
+  "expect": {
+    "stdoutContains": [
+      "Load completed successfully",
+      "[warning] the extension is loaded, but the platform will not apply it:",
+      "не соответствует методу"
+    ]
+  },
+  "noSnapshot": "навык ничего не пишет в рабочий каталог — проверяется постусловие",
+  "preRun": [
+    {
+      "writeFile": {
+        "path": "src/Configuration.xml",
+        "content": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<MetaDataObject/>"
+      }
+    }
+  ]
+}

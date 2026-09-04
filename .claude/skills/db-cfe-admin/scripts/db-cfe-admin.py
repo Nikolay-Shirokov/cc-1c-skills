@@ -880,6 +880,9 @@ def main():
         done = 0
         rows = []
 
+        # Тот же вопрос платформе задаёт постусловие загрузчиков (семья run_apply_check в
+        # db-load-xml): там ответ нужен одной строкой предупреждения, здесь — строкой отчёта
+        # рядом с остальными проверками, поэтому запуск идёт своим invoke_designer.
         if "apply" in check_list:
             op_args = ["/CheckCanApplyConfigurationExtensions"]
             if target:

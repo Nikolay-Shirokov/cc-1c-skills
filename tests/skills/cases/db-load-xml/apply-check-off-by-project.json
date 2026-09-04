@@ -1,0 +1,40 @@
+{
+  "name": "extensionApplyCheck: false в .v8-project.json выключает проверку",
+  "fakePlatform": {
+    "log": "﻿Загрузка конфигурации из файлов.\r\n",
+    "check": {
+      "log": "﻿Проба: Список параметров метода \"Проба_Расчёт\" не соответствует методу \"Расчёт\".\r\n",
+      "exit": 1
+    }
+  },
+  "cwd": "workDir",
+  "preRun": [
+    {
+      "writeFile": {
+        "path": "src/Configuration.xml",
+        "content": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<MetaDataObject/>"
+      }
+    },
+    {
+      "writeFile": {
+        "path": ".v8-project.json",
+        "content": "{\n  \"extensionApplyCheck\": false\n}"
+      }
+    }
+  ],
+  "args_extra": [
+    "-V8Path",
+    "{fakePlatform}",
+    "-InfoBasePath",
+    "{workDir}/ib",
+    "-ConfigDir",
+    "{workDir}/src",
+    "-Extension",
+    "Проба"
+  ],
+  "expect": {
+    "stdoutContains": "Load completed successfully",
+    "stdoutNotContains": "will not apply"
+  },
+  "noSnapshot": "навык ничего не пишет в рабочий каталог — проверяется настройка проекта"
+}

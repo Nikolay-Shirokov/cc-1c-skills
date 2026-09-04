@@ -71,7 +71,7 @@ const FAMILIES = [
       // вверх. Группа db-* использует её же, чтобы найти запись базы и взять реквизиты
       // хранилища — задача одна, поэтому семья общая, а не вторая с тем же телом.
       { id: 'full', authority: 'cf-edit',
-        consumers: ['cfe-borrow', 'db-cfe-admin', 'db-dump-xml', 'db-load-git', 'db-load-xml', 'db-repo', 'db-update',
+        consumers: ['cfe-borrow', 'db-cfe-admin', 'db-dump-xml', 'db-load-cf', 'db-load-git', 'db-load-xml', 'db-repo', 'db-update',
           'form-add', 'form-compile', 'form-edit', 'help-add', 'interface-edit', 'meta-compile',
           'meta-edit', 'meta-remove', 'mxl-compile', 'role-compile', 'skd-compile', 'skd-edit',
           'subsystem-compile', 'subsystem-edit', 'template-add', 'xdto-compile', 'xdto-edit'] },
@@ -248,6 +248,50 @@ const FAMILIES = [
     name: 'platform: silent_rejections', py: 'find_silent_rejections', ps1: 'Find-SilentRejections',
     variants: [
       { id: 'base', authority: 'db-load-xml', consumers: ['db-load-git', 'db-update'] },
+    ],
+  },
+  // ─── Постусловие применимости расширения ────────────────────────────────
+  // Проверку ОБЯЗАТЕЛЬНО запускать отдельным процессом: в одной командной строке DESIGNER
+  // выполняет только последнюю пакетную команду, и дописанная проверка отменяет саму загрузку.
+  // Разъехавшиеся копии означали бы, что один навык предупреждает о неприменимом расширении,
+  // а соседний по той же операции — молчит.
+  {
+    name: 'apply check: run', py: 'run_apply_check', ps1: 'Invoke-ApplyCheck',
+    variants: [
+      { id: 'base', authority: 'db-load-xml', consumers: ['db-load-cf', 'db-load-git', 'db-update'] },
+    ],
+  },
+  {
+    name: 'apply check: report', py: 'apply_check_report', ps1: 'Invoke-ApplyCheckReport',
+    variants: [
+      { id: 'base', authority: 'db-load-xml', consumers: ['db-load-cf', 'db-load-git', 'db-update'] },
+    ],
+  },
+  {
+    name: 'apply check: enabled', py: 'apply_check_enabled', ps1: 'Get-ApplyCheckEnabled',
+    variants: [
+      { id: 'base', authority: 'db-load-xml', consumers: ['db-load-cf', 'db-load-git', 'db-update'] },
+    ],
+  },
+  // Дополнительные аргументы: и владение ключами, и запрет пакетных команд. Разъехавшиеся копии
+  // означали бы, что один навык отбивает команду, отменяющую его же операцию, а соседний — нет.
+  {
+    name: 'platform: assert_extra_args', py: 'assert_extra_args', ps1: 'Assert-ExtraArgs',
+    variants: [
+      { id: 'base', authority: 'db-create',
+        consumers: ['db-cfe-admin', 'db-dump-cf', 'db-dump-dt', 'db-dump-xml', 'db-load-cf', 'db-load-dt',
+          'db-load-git', 'db-load-xml', 'db-repo', 'db-run', 'db-update', 'epf-build', 'epf-dump'] },
+      // NB: stub-db-create.py внутри epf-build держит свою копию с выводом в stderr, но гарду она
+      // не видна: индекс берёт первый файл навыка по алфавиту (epf-build.py). Правя эту семью,
+      // не забывать про стаб — автоматически он не проверяется.
+    ],
+  },
+  {
+    name: 'platform: arg_key_match', py: 'arg_key_match', ps1: 'Test-ArgKeyMatch',
+    variants: [
+      { id: 'base', authority: 'db-create',
+        consumers: ['db-cfe-admin', 'db-dump-cf', 'db-dump-dt', 'db-dump-xml', 'db-load-cf', 'db-load-dt',
+          'db-load-git', 'db-load-xml', 'db-repo', 'db-run', 'db-update', 'epf-build', 'epf-dump'] },
     ],
   },
   {

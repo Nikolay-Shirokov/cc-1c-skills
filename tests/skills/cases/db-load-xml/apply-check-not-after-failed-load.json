@@ -1,0 +1,34 @@
+{
+  "name": "Загрузка провалилась — применимость не проверяем (проверять нечего)",
+  "fakePlatform": {
+    "log": "﻿Ошибка загрузки конфигурации\r\n",
+    "exit": 1,
+    "check": {
+      "log": "﻿Проба: Список параметров метода \"Проба_Расчёт\" не соответствует методу \"Расчёт\".\r\n",
+      "exit": 1
+    }
+  },
+  "preRun": [
+    {
+      "writeFile": {
+        "path": "src/Configuration.xml",
+        "content": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<MetaDataObject/>"
+      }
+    }
+  ],
+  "args_extra": [
+    "-V8Path",
+    "{fakePlatform}",
+    "-InfoBasePath",
+    "{workDir}/ib",
+    "-ConfigDir",
+    "{workDir}/src",
+    "-Extension",
+    "Проба"
+  ],
+  "expectError": true,
+  "expect": {
+    "stdoutNotContains": "will not apply"
+  },
+  "noSnapshot": "навык ничего не пишет в рабочий каталог — проверяется условие запуска"
+}
