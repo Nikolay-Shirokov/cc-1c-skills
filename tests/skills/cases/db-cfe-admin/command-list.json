@@ -1,0 +1,19 @@
+{
+  "name": "Состав команды: список расширений снимается /DumpDBCfgList",
+  "fakePlatform": {
+    "log": "﻿Альфа\r\n"
+  },
+  "args_extra": [
+    "-V8Path",
+    "{fakePlatform}",
+    "-InfoBasePath",
+    "{workDir}/ib",
+    "-Command",
+    "list"
+  ],
+  "expect": {
+    "stdoutContains": "DESIGNER /F \"",
+    "stdoutNotContains": "-Extension"
+  },
+  "noSnapshot": "проверяется командная строка, переданная платформе"
+}

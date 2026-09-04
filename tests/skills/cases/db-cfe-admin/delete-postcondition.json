@@ -1,0 +1,21 @@
+{
+  "name": "delete: после удаления список перечитывается, и остаток попадает в итог",
+  "fakePlatform": {
+    "log": "﻿Альфа\r\n"
+  },
+  "args_extra": [
+    "-V8Path",
+    "{fakePlatform}",
+    "-InfoBasePath",
+    "{workDir}/ib",
+    "-Command",
+    "delete",
+    "-Name",
+    "Бета"
+  ],
+  "expectError": true,
+  "expect": {
+    "stdoutContains": "Error: extension 'Бета' not found in the infobase"
+  },
+  "noSnapshot": "негативный кейс — до записи дело не доходит"
+}

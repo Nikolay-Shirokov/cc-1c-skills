@@ -1,0 +1,23 @@
+{
+  "name": "-Context без синтаксической проверки — отказ, а не тихо проигнорированный параметр",
+  "fakePlatform": {
+    "log": ""
+  },
+  "args_extra": [
+    "-V8Path",
+    "{fakePlatform}",
+    "-InfoBasePath",
+    "{workDir}/ib",
+    "-Command",
+    "check",
+    "-Checks",
+    "config",
+    "-Context",
+    "Server"
+  ],
+  "expectError": true,
+  "expect": {
+    "stdoutContains": "-Context applies to the syntax check"
+  },
+  "noSnapshot": "негативный кейс — навык отказывает до вызова платформы"
+}

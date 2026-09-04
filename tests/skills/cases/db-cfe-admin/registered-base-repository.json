@@ -1,0 +1,28 @@
+{
+  "name": "База из реестра: путь разрешения реквизитов хранилища проходится обоими портами",
+  "fakePlatform": {
+    "log": "﻿Альфа\r\n"
+  },
+  "cwd": "workDir",
+  "preRun": [
+    {
+      "writeFile": {
+        "path": ".v8-project.json",
+        "content": "{\n  \"databases\": [\n    {\n      \"id\": \"probe\",\n      \"type\": \"file\",\n      \"path\": \"ib\"\n    }\n  ]\n}"
+      }
+    }
+  ],
+  "args_extra": [
+    "-V8Path",
+    "{fakePlatform}",
+    "-InfoBasePath",
+    "{workDir}/ib",
+    "-Command",
+    "list"
+  ],
+  "expect": {
+    "stdoutContains": "Альфа",
+    "stdoutNotContains": "Traceback"
+  },
+  "noSnapshot": "навык ничего не пишет в рабочий каталог — проверяется путь с реестром баз"
+}

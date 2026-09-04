@@ -1,0 +1,21 @@
+{
+  "name": "Состав команды: без -Name синтаксическая проверка идёт по всем расширениям",
+  "fakePlatform": {
+    "log": ""
+  },
+  "args_extra": [
+    "-V8Path",
+    "{fakePlatform}",
+    "-InfoBasePath",
+    "{workDir}/ib",
+    "-Command",
+    "check",
+    "-Checks",
+    "modules"
+  ],
+  "expect": {
+    "stdoutContains": "/CheckConfig -ThinClient -Server -AllExtensions",
+    "stdoutNotContains": "-Extension"
+  },
+  "noSnapshot": "проверяется командная строка, переданная платформе"
+}

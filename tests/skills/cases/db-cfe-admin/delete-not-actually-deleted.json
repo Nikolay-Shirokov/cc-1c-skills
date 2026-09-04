@@ -1,0 +1,24 @@
+{
+  "name": "delete: платформа отчиталась успехом, но расширение осталось — навык это ловит",
+  "fakePlatform": {
+    "log": "﻿Альфа\r\n"
+  },
+  "args_extra": [
+    "-V8Path",
+    "{fakePlatform}",
+    "-InfoBasePath",
+    "{workDir}/ib",
+    "-Command",
+    "delete",
+    "-Name",
+    "Альфа"
+  ],
+  "expectError": true,
+  "expect": {
+    "stdoutContains": [
+      "/DeleteCfg -Extension \"Альфа\"",
+      "platform reported success, but 'Альфа' is still in the infobase"
+    ]
+  },
+  "noSnapshot": "проверяется постусловие удаления"
+}

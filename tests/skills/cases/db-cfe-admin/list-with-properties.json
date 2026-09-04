@@ -1,0 +1,39 @@
+{
+  "name": "list: свойства подхватываются из ibcmd, флаги печатаются по-русски",
+  "fakePlatform": {
+    "log": "﻿Альфа\r\n"
+  },
+  "preRun": [
+    {
+      "writeFile": {
+        "path": "ibcmd.cmd",
+        "content": "@echo off\r\necho name                         : \"Альфа\"\r\necho version                      : \r\necho active                       : yes\r\necho purpose                      : customization\r\necho safe-mode                    : yes\r\necho unsafe-action-protection     : no\r\necho used-in-distributed-infobase : no\r\necho scope                        : infobase\r\nexit /b 0\r\n",
+        "executable": true
+      }
+    },
+    {
+      "writeFile": {
+        "path": "ibcmd.sh",
+        "content": "#!/bin/sh\ncat <<'EOF'\nname                         : \"Альфа\"\nversion                      : \nactive                       : yes\npurpose                      : customization\nsafe-mode                    : yes\nunsafe-action-protection     : no\nused-in-distributed-infobase : no\nscope                        : infobase\nEOF\nexit 0\n",
+        "executable": true
+      }
+    }
+  ],
+  "args_extra": [
+    "-V8Path",
+    "{fakePlatform}",
+    "-InfoBasePath",
+    "{workDir}/ib",
+    "-Command",
+    "list"
+  ],
+  "expect": {
+    "stdoutContains": [
+      "Альфа",
+      "Адаптация",
+      "Информационная база"
+    ],
+    "stdoutNotContains": "свойства недоступны"
+  },
+  "noSnapshot": "навык ничего не пишет в рабочий каталог — проверяется разбор вывода ibcmd"
+}

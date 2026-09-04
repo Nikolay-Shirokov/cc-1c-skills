@@ -1,0 +1,5 @@
+{
+  "script": "db-cfe-admin/scripts/db-cfe-admin",
+  "setup": "none",
+  "args": []
+}

@@ -1,0 +1,19 @@
+{
+  "name": "неизвестная команда — отказ со списком допустимых",
+  "fakePlatform": {
+    "log": ""
+  },
+  "args_extra": [
+    "-V8Path",
+    "{fakePlatform}",
+    "-InfoBasePath",
+    "{workDir}/ib",
+    "-Command",
+    "wat"
+  ],
+  "expectError": true,
+  "expect": {
+    "stdoutContains": "unknown command"
+  },
+  "noSnapshot": "негативный кейс — навык отказывает до вызова платформы"
+}

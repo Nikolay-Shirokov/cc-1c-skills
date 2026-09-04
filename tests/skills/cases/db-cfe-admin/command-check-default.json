@@ -1,0 +1,27 @@
+{
+  "name": "Состав команды: по умолчанию проверяются применимость и модули, контексты заданы явно",
+  "fakePlatform": {
+    "log": ""
+  },
+  "args_extra": [
+    "-V8Path",
+    "{fakePlatform}",
+    "-InfoBasePath",
+    "{workDir}/ib",
+    "-Command",
+    "check",
+    "-Name",
+    "Проба"
+  ],
+  "expect": {
+    "stdoutContains": [
+      "/CheckCanApplyConfigurationExtensions -Extension \"Проба\"",
+      "/CheckConfig -ThinClient -Server -Extension \"Проба\""
+    ],
+    "stdoutNotContains": [
+      "-ConfigLogIntegrity",
+      "-AllExtensions"
+    ]
+  },
+  "noSnapshot": "проверяется командная строка, переданная платформе"
+}

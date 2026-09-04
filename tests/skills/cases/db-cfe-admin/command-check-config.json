@@ -1,0 +1,26 @@
+{
+  "name": "Состав команды: -Checks config добавляет конфигурационные флаги и не тянет контексты",
+  "fakePlatform": {
+    "log": ""
+  },
+  "args_extra": [
+    "-V8Path",
+    "{fakePlatform}",
+    "-InfoBasePath",
+    "{workDir}/ib",
+    "-Command",
+    "check",
+    "-Name",
+    "Проба",
+    "-Checks",
+    "config"
+  ],
+  "expect": {
+    "stdoutContains": "/CheckConfig -ConfigLogIntegrity -IncorrectReferences -UnreferenceProcedures -HandlersExistence -EmptyHandlers -Extension \"Проба\"",
+    "stdoutNotContains": [
+      "-ThinClient",
+      "-Server"
+    ]
+  },
+  "noSnapshot": "проверяется командная строка, переданная платформе"
+}

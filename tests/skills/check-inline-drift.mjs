@@ -71,7 +71,7 @@ const FAMILIES = [
       // вверх. Группа db-* использует её же, чтобы найти запись базы и взять реквизиты
       // хранилища — задача одна, поэтому семья общая, а не вторая с тем же телом.
       { id: 'full', authority: 'cf-edit',
-        consumers: ['cfe-borrow', 'db-dump-xml', 'db-load-git', 'db-load-xml', 'db-repo', 'db-update',
+        consumers: ['cfe-borrow', 'db-cfe-admin', 'db-dump-xml', 'db-load-git', 'db-load-xml', 'db-repo', 'db-update',
           'form-add', 'form-compile', 'form-edit', 'help-add', 'interface-edit', 'meta-compile',
           'meta-edit', 'meta-remove', 'mxl-compile', 'role-compile', 'skd-compile', 'skd-edit',
           'subsystem-compile', 'subsystem-edit', 'template-add', 'xdto-compile', 'xdto-edit'] },
@@ -255,7 +255,7 @@ const FAMILIES = [
     variants: [
       { id: 'base', authority: 'db-create',
         consumers: ['db-dump-cf', 'db-dump-dt', 'db-dump-xml', 'db-load-cf', 'db-load-dt', 'db-load-git',
-          'db-load-xml', 'db-run', 'db-update', 'epf-build', 'epf-dump'] },
+          'db-load-xml', 'db-run', 'db-update', 'epf-build', 'epf-dump', 'db-cfe-admin'] },
       { id: 'v8-only', authority: 'db-repo', consumers: [],
         why: 'хранилище конфигурации ibcmd не поддерживает вовсе — нет такого режима, поэтому ветки ibcmd нет; вместо неё проверка усечённых ключей /ConfigurationRepository*, которые платформа не считает ошибкой, а запускает конфигуратор интерактивно' },
     ],
@@ -266,7 +266,7 @@ const FAMILIES = [
       // db-run запускает Предприятие и не ждёт процесс — общей обвязки запуска не использует.
       { id: 'base', authority: 'db-create',
         consumers: ['db-dump-cf', 'db-dump-dt', 'db-dump-xml', 'db-load-cf', 'db-load-dt', 'db-load-git',
-          'db-load-xml', 'db-repo', 'db-update', 'epf-build', 'epf-dump'] },
+          'db-load-xml', 'db-repo', 'db-update', 'epf-build', 'epf-dump', 'db-cfe-admin'] },
     ],
   },
   {
@@ -274,7 +274,7 @@ const FAMILIES = [
     variants: [
       { id: 'base', authority: 'db-create',
         consumers: ['db-dump-cf', 'db-dump-dt', 'db-dump-xml', 'db-load-cf', 'db-load-dt', 'db-load-git',
-          'db-load-xml', 'db-repo', 'db-update', 'epf-build', 'epf-dump'] },
+          'db-load-xml', 'db-repo', 'db-update', 'epf-build', 'epf-dump', 'db-cfe-admin'] },
     ],
   },
   {
@@ -282,7 +282,7 @@ const FAMILIES = [
     variants: [
       { id: 'base', authority: 'db-dump-cf',
         consumers: ['db-dump-dt', 'db-dump-xml', 'db-load-cf', 'db-load-dt', 'db-load-git',
-          'db-load-xml', 'db-repo', 'db-run', 'db-update', 'epf-build', 'epf-dump'] },
+          'db-load-xml', 'db-repo', 'db-run', 'db-update', 'epf-build', 'epf-dump', 'db-cfe-admin'] },
     ],
   },
   {
@@ -290,7 +290,7 @@ const FAMILIES = [
     variants: [
       { id: 'base', authority: 'db-create',
         consumers: ['db-dump-cf', 'db-dump-dt', 'db-dump-xml', 'db-load-cf', 'db-load-dt', 'db-load-git',
-          'db-load-xml', 'db-repo', 'db-run', 'db-update', 'epf-build', 'epf-dump', 'web-publish'] },
+          'db-load-xml', 'db-repo', 'db-run', 'db-update', 'epf-build', 'epf-dump', 'web-publish', 'db-cfe-admin'] },
     ],
   },
   {
@@ -298,7 +298,7 @@ const FAMILIES = [
     variants: [
       { id: 'base', authority: 'db-create',
         consumers: ['db-dump-cf', 'db-dump-dt', 'db-dump-xml', 'db-load-cf', 'db-load-dt', 'db-load-git',
-          'db-load-xml', 'db-repo', 'db-run', 'db-update', 'epf-build', 'epf-dump', 'web-publish'] },
+          'db-load-xml', 'db-repo', 'db-run', 'db-update', 'epf-build', 'epf-dump', 'web-publish', 'db-cfe-admin'] },
     ],
   },
   {
@@ -306,7 +306,7 @@ const FAMILIES = [
     variants: [
       { id: 'base', authority: 'db-create',
         consumers: ['db-dump-cf', 'db-dump-dt', 'db-dump-xml', 'db-load-cf', 'db-load-dt', 'db-load-git',
-          'db-load-xml', 'db-repo', 'db-run', 'db-update', 'epf-build', 'epf-dump', 'web-publish'] },
+          'db-load-xml', 'db-repo', 'db-run', 'db-update', 'epf-build', 'epf-dump', 'web-publish', 'db-cfe-admin'] },
     ],
   },
 
@@ -321,19 +321,19 @@ const FAMILIES = [
   // конфигурацией базы.
   {
     name: 'repository: same_path', py: 'same_path', ps1: 'Test-SamePath',
-    variants: [{ id: 'base', authority: 'db-repo', consumers: ['db-dump-xml', 'db-load-git', 'db-load-xml', 'db-update'] }],
+    variants: [{ id: 'base', authority: 'db-repo', consumers: ['db-dump-xml', 'db-load-git', 'db-load-xml', 'db-update', 'db-cfe-admin'] }],
   },
   {
     name: 'repository: find_project_database', py: 'find_project_database', ps1: 'Find-ProjectDatabase',
-    variants: [{ id: 'base', authority: 'db-repo', consumers: ['db-dump-xml', 'db-load-git', 'db-load-xml', 'db-update'] }],
+    variants: [{ id: 'base', authority: 'db-repo', consumers: ['db-dump-xml', 'db-load-git', 'db-load-xml', 'db-update', 'db-cfe-admin'] }],
   },
   {
     name: 'repository: resolve_settings', py: 'resolve_repository_settings', ps1: 'Resolve-RepositorySettings',
-    variants: [{ id: 'base', authority: 'db-repo', consumers: ['db-dump-xml', 'db-load-git', 'db-load-xml', 'db-update'] }],
+    variants: [{ id: 'base', authority: 'db-repo', consumers: ['db-dump-xml', 'db-load-git', 'db-load-xml', 'db-update', 'db-cfe-admin'] }],
   },
   {
     name: 'repository: args', py: 'repository_args', ps1: 'Get-RepositoryArgs',
-    variants: [{ id: 'base', authority: 'db-repo', consumers: ['db-dump-xml', 'db-load-git', 'db-load-xml', 'db-update'] }],
+    variants: [{ id: 'base', authority: 'db-repo', consumers: ['db-dump-xml', 'db-load-git', 'db-load-xml', 'db-update', 'db-cfe-admin'] }],
   },
 
   // ─── Значения свойств-перечислений ───────────────────────────────────────
@@ -371,7 +371,7 @@ const FAMILIES = [
       { id: 'base', authority: 'meta-compile',
         consumers: [
           'cf-edit', 'cf-info', 'cf-init', 'cf-validate', 'cfe-borrow', 'cfe-diff', 'cfe-init',
-          'cfe-patch-method', 'cfe-validate', 'db-create', 'db-dump-cf', 'db-dump-dt', 'db-dump-xml',
+          'cfe-patch-method', 'cfe-validate', 'db-cfe-admin', 'db-create', 'db-dump-cf', 'db-dump-dt', 'db-dump-xml',
           'db-load-cf', 'db-load-dt', 'db-load-git', 'db-load-xml', 'db-repo', 'db-run', 'db-update', 'epf-build',
           'epf-dump', 'epf-init', 'epf-validate', 'erf-init', 'form-add', 'form-compile',
           'form-decompile', 'form-edit', 'form-info', 'form-remove', 'form-validate', 'help-add',

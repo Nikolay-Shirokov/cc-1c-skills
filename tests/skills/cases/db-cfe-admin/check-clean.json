@@ -1,0 +1,26 @@
+{
+  "name": "check: обе проверки прошли — контексты названы явно, exit 0",
+  "fakePlatform": {
+    "log": ""
+  },
+  "args_extra": [
+    "-V8Path",
+    "{fakePlatform}",
+    "-InfoBasePath",
+    "{workDir}/ib",
+    "-Command",
+    "check",
+    "-Name",
+    "Проба"
+  ],
+  "expect": {
+    "stdoutContains": [
+      "применимость",
+      "модули",
+      "(ThinClient, Server)",
+      "Итог: пройдено 2 из 2"
+    ],
+    "stdoutNotContains": "ОШИБКА"
+  },
+  "noSnapshot": "навык ничего не пишет в рабочий каталог — проверяется сборка отчёта"
+}

@@ -1,0 +1,21 @@
+{
+  "name": "пустое -Name не значит «все»: платформа на пустом имени удаляет первое расширение",
+  "fakePlatform": {
+    "log": ""
+  },
+  "args_extra": [
+    "-V8Path",
+    "{fakePlatform}",
+    "-InfoBasePath",
+    "{workDir}/ib",
+    "-Command",
+    "delete",
+    "-Name",
+    ""
+  ],
+  "expectError": true,
+  "expect": {
+    "stdoutContains": "Error: -Name is empty"
+  },
+  "noSnapshot": "негативный кейс — навык отказывает до вызова платформы"
+}
