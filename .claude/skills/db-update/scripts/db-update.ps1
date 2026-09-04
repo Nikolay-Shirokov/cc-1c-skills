@@ -1,4 +1,4 @@
-﻿# db-update v1.19 — Update 1C database configuration
+﻿# db-update v1.20 — Update 1C database configuration
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 # NB: *nix-раскладку платформы (/opt/1cv8/<ver>/1cv8, без .exe) знает только .py-порт — PS на *nix не исполняется.
 <#
@@ -34,7 +34,7 @@
     Обновить все расширения
 
 .PARAMETER Dynamic
-    Динамическое обновление: "+" включить, "-" отключить
+    Динамическое обновление: on включить, off отключить
 
 .PARAMETER Server
     Обновление на стороне сервера
@@ -81,8 +81,10 @@ param(
     [Parameter(Mandatory=$false)]
     [switch]$AllExtensions,
 
+    # on/off, а не +/-: значение "-" через powershell.exe -File парсер не связывает и молча
+    # выходит с кодом 2, без единого сообщения. "+"/"-" принимаются, но в инструкции не значатся.
     [Parameter(Mandatory=$false)]
-    [ValidateSet("+", "-")]
+    [ValidateSet("on", "off", "yes", "no", "+", "-")]
     [string]$Dynamic,
 
     [Parameter(Mandatory=$false)]
@@ -112,6 +114,8 @@ param(
     [Parameter(Mandatory=$false)]
     [string[]]$AdditionalIbcmdArguments = @()
 )
+
+if ($Dynamic) { $Dynamic = if (@('on', 'yes', '+') -contains $Dynamic.ToLower()) { '+' } else { '-' } }
 
 $OutputEncoding = [System.Text.Encoding]::UTF8
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8

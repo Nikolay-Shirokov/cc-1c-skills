@@ -1,0 +1,18 @@
+{
+  "name": "-Dynamic on передаётся платформе как -Dynamic+",
+  "fakePlatform": {
+    "log": "﻿Обновление конфигурации успешно завершено\r\n"
+  },
+  "args_extra": [
+    "-V8Path",
+    "{fakePlatform}",
+    "-InfoBasePath",
+    "{workDir}/ib",
+    "-Dynamic",
+    "on"
+  ],
+  "expect": {
+    "stdoutContains": "/UpdateDBCfg -Dynamic+"
+  },
+  "noSnapshot": "навык ничего не пишет в рабочий каталог — проверяется командная строка"
+}

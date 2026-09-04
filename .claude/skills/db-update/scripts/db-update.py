@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# db-update v1.19 — Update 1C database configuration
+# db-update v1.20 — Update 1C database configuration
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -544,7 +544,9 @@ def main():
     parser.add_argument("-RepositoryPassword", default="")
     parser.add_argument("-Extension", default="")
     parser.add_argument("-AllExtensions", action="store_true")
-    parser.add_argument("-Dynamic", default="", choices=["", "+", "-"])
+    # on/off, а не +/-: значение "-" через powershell.exe -File парсер PS не связывает и молча
+    # выходит с кодом 2. "+"/"-" принимаются, но в инструкции не значатся.
+    parser.add_argument("-Dynamic", default="", choices=["", "on", "off", "yes", "no", "+", "-"])
     parser.add_argument("-Server", action="store_true")
     parser.add_argument("-WarningsAsErrors", action="store_true")
     # Ключ для регрессов и верификации снапшотов, не для повседневного вызова: в SKILL.md
@@ -558,6 +560,9 @@ def main():
     known_opts = {s.lower() for a in parser._actions for s in a.option_strings}
     argv, v8_extra, ibcmd_extra = extract_extra_args(sys.argv[1:], known_opts)
     args = ci_parse_args(parser, argv)
+
+    if args.Dynamic:
+        args.Dynamic = "+" if args.Dynamic.lower() in ("on", "yes", "+") else "-"
 
     args.V8Path = clean_path(args.V8Path, "-V8Path")
     args.InfoBasePath = clean_path(args.InfoBasePath, "-InfoBasePath")

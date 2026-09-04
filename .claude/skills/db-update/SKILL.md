@@ -11,14 +11,16 @@ allowed-tools:
 
 # /db-update — Обновление конфигурации БД
 
-Применяет изменения основной конфигурации к конфигурации базы данных (`/UpdateDBCfg`). Обязательный шаг после `/db-load-cf`, `/db-load-xml`, `/db-load-git`.
+Применяет изменения основной конфигурации к конфигурации базы данных (`/UpdateDBCfg`) —
+отдельным шагом после загрузки. У `/db-load-xml` и `/db-load-git` то же самое делает
+ключ `-UpdateDB`.
 
 ## Usage
 
 ```
 /db-update [database]
 /db-update dev
-/db-update dev -Dynamic+
+/db-update dev -Dynamic on
 ```
 
 ## Параметры подключения
@@ -50,7 +52,7 @@ powershell.exe -NoProfile -File "${CLAUDE_SKILL_DIR}/scripts/db-update.ps1" <п�
 | `-Password <пароль>` | нет | Пароль |
 | `-Extension <имя>` | нет | Обновить расширение |
 | `-AllExtensions` | нет | Обновить все расширения |
-| `-Dynamic <+/->` | нет | `+` — динамическое обновление, `-` — отключить |
+| `-Dynamic <on/off>` | нет | `on` — динамическое обновление, без монопольного доступа к базе; `off` — отключить |
 | `-Server` | нет | Обновление на стороне сервера |
 | `-WarningsAsErrors` | нет | Предупреждения считать ошибками |
 | `-AdditionalV8Arguments <список>` | нет | Доп. аргументы запуска `1cv8.exe` через запятую, напр. `/UseHwLicenses+` |
@@ -68,20 +70,14 @@ powershell.exe -NoProfile -File "${CLAUDE_SKILL_DIR}/scripts/db-update.ps1" <п�
 | `-BackgroundSuspend` | Приостановить |
 | `-BackgroundResume` | Возобновить |
 
-## Предупреждения
-
-- Если обновление **не динамическое** — потребуется **монопольный доступ** к базе (все пользователи должны выйти)
-- Для серверных баз рекомендуется `-Dynamic+` для обновления без остановки
-- Если структура данных существенно изменилась (удаление реквизитов, изменение типов) — динамическое обновление может быть невозможно
-
 ## Примеры
 
 ```powershell
 # Обычное обновление (файловая база)
 powershell.exe -NoProfile -File "${CLAUDE_SKILL_DIR}/scripts/db-update.ps1" -InfoBasePath "C:\Bases\MyDB" -UserName "Admin"
 
-# Динамическое обновление (серверная база)
-powershell.exe -NoProfile -File "${CLAUDE_SKILL_DIR}/scripts/db-update.ps1" -InfoBaseServer "srv01" -InfoBaseRef "MyDB" -UserName "Admin" -Password "secret" -Dynamic "+"
+# Динамическое обновление
+powershell.exe -NoProfile -File "${CLAUDE_SKILL_DIR}/scripts/db-update.ps1" -InfoBaseServer "srv01" -InfoBaseRef "MyDB" -UserName "Admin" -Password "secret" -Dynamic on
 
 # Обновление расширения
 powershell.exe -NoProfile -File "${CLAUDE_SKILL_DIR}/scripts/db-update.ps1" -InfoBasePath "C:\Bases\MyDB" -UserName "Admin" -Extension "МоёРасширение"
