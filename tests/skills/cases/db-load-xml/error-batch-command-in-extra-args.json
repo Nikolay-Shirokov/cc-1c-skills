@@ -1,0 +1,22 @@
+{
+  "name": "Пакетная команда в -AdditionalV8Arguments отбивается: она подменила бы саму загрузку",
+  "fakePlatform": {
+    "log": ""
+  },
+  "args_extra": [
+    "-V8Path",
+    "{fakePlatform}",
+    "-InfoBasePath",
+    "{workDir}/ib",
+    "-ConfigDir",
+    "{workDir}/src",
+    "-AdditionalV8Arguments",
+    "/CheckCanApplyConfigurationExtensions"
+  ],
+  "expectError": true,
+  "expect": {
+    "stdoutContains": "is a batch command",
+    "stdoutNotContains": "Load completed successfully"
+  },
+  "noSnapshot": "негативный кейс — навык отказывает до вызова платформы"
+}
