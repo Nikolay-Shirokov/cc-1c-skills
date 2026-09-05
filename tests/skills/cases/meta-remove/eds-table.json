@@ -1,0 +1,28 @@
+{
+  "name": "Таблица внешнего источника: файл удалён, имя убрано из ChildObjects источника",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "ExternalDataSource",
+        "name": "PG",
+        "tables": {
+          "products": { "keyFields": ["id"], "fields": ["id: Number(10,0)"] },
+          "prices": ["product_id: Number(10,0)", "price: Number(15,2)"]
+        }
+      },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    }
+  ],
+  "object": "ExternalDataSource.PG.Table.prices",
+  "expect": {
+    "files": ["ExternalDataSources/PG.xml", "ExternalDataSources/PG/Tables/products.xml"],
+    "filesAbsent": ["ExternalDataSources/PG/Tables/prices.xml"],
+    "fileContains": [
+      { "file": "ExternalDataSources/PG.xml", "text": "<Table>products</Table>" }
+    ],
+    "fileNotContains": [
+      { "file": "ExternalDataSources/PG.xml", "text": "<Table>prices</Table>" }
+    ]
+  }
+}

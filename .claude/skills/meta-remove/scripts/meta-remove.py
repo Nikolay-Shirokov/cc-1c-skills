@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-remove v1.11 — Remove metadata object from 1C configuration dump
+# meta-remove v1.12 — Remove metadata object from 1C configuration dump
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -250,6 +250,7 @@ TYPE_PLURAL_MAP = {
     "WSReference": "WSReferences",
     "StyleItem": "StyleItems",
     "Language": "Languages",
+    "ExternalDataSource": "ExternalDataSources",
 }
 
 # Type -> reference type names (used in XML <v8:Type> elements)
@@ -388,19 +389,42 @@ def main():
         sys.exit(1)
 
     # --- Parse object spec ---
-    parts = args.Object.split(".", 1)
-    if len(parts) != 2 or not parts[0] or not parts[1]:
-        print(f"[ERROR] Invalid object format '{args.Object}'. Expected: Type.Name (e.g. Catalog.\u0422\u043e\u0432\u0430\u0440\u044b)")
-        sys.exit(1)
+    # Таблица внешнего источника — единственный объект с четырёхчастным именем: она лежит не в
+    # каталоге вида, а внутри источника, и числится в ChildObjects файла источника, не конфигурации.
+    eds_source = ""
+    m_eds = re.match(r'^ExternalDataSource\.([^.]+)\.Table\.(.+)$', args.Object)
+    if m_eds:
+        eds_source = m_eds.group(1)
+        obj_type = "Table"
+        obj_name = m_eds.group(2)
+    else:
+        parts = args.Object.split(".", 1)
+        if len(parts) != 2 or not parts[0] or not parts[1]:
+            print(f"[ERROR] Invalid object format '{args.Object}'. Expected: Type.Name (e.g. Catalog.\u0422\u043e\u0432\u0430\u0440\u044b) or ExternalDataSource.\u0418\u0441\u0442\u043e\u0447\u043d\u0438\u043a.Table.\u0422\u0430\u0431\u043b\u0438\u0446\u0430")
+            sys.exit(1)
+        obj_type = parts[0]
+        obj_name = parts[1]
 
-    obj_type = parts[0]
-    obj_name = parts[1]
+    if eds_source:
+        type_plural = os.path.join("ExternalDataSources", eds_source, "Tables")
+    else:
+        if obj_type not in TYPE_PLURAL_MAP:
+            print(f"[ERROR] Unknown type '{obj_type}'. Supported: {', '.join(TYPE_PLURAL_MAP.keys())}")
+            sys.exit(1)
+        type_plural = TYPE_PLURAL_MAP[obj_type]
 
-    if obj_type not in TYPE_PLURAL_MAP:
-        print(f"[ERROR] Unknown type '{obj_type}'. Supported: {', '.join(TYPE_PLURAL_MAP.keys())}")
-        sys.exit(1)
-
-    type_plural = TYPE_PLURAL_MAP[obj_type]
+    # Реестр, где объект числится: обычно ChildObjects конфигурации, а для таблицы — файл источника.
+    if eds_source:
+        registry_xml = os.path.join(config_dir, "ExternalDataSources", f"{eds_source}.xml")
+        registry_root = "ExternalDataSource"
+        registry_label = f"ExternalDataSources/{eds_source}.xml"
+        if not os.path.isfile(registry_xml):
+            print(f"[ERROR] \u0412\u043d\u0435\u0448\u043d\u0438\u0439 \u0438\u0441\u0442\u043e\u0447\u043d\u0438\u043a '{eds_source}' \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d: {registry_label}")
+            sys.exit(1)
+    else:
+        registry_xml = config_xml
+        registry_root = "Configuration"
+        registry_label = "Configuration.xml"
 
     print(f"=== meta-remove: {obj_type}.{obj_name} ===")
     print()
@@ -425,7 +449,7 @@ def main():
 
     if not has_xml and not has_dir:
         # Check if registered in Configuration.xml before proceeding
-        cfg_check_tree = etree.parse(config_xml, etree.XMLParser(remove_blank_text=False))
+        cfg_check_tree = etree.parse(registry_xml, etree.XMLParser(remove_blank_text=False))
         cfg_check_root = cfg_check_tree.getroot()
         child_objects = cfg_check_root.find(f"{{{MD_NS}}}Configuration/{{{MD_NS}}}ChildObjects")
         registered_in_cfg = False
@@ -462,6 +486,16 @@ def main():
     if ru_mgr:
         search_patterns.append(f"{ru_mgr}.{obj_name}")
     search_patterns.append(f"{type_plural}.{obj_name}")
+
+    # 2а) Внешний источник данных: ссылки на сам источник и на его таблицы
+    if obj_type == "ExternalDataSource":
+        search_patterns.append(f"ExternalDataSource.{obj_name}.")
+        search_patterns.append(f"\u0412\u043d\u0435\u0448\u043d\u0438\u0435\u0418\u0441\u0442\u043e\u0447\u043d\u0438\u043a\u0438\u0414\u0430\u043d\u043d\u044b\u0445.{obj_name}")
+        search_patterns.append(f"ExternalDataSources.{obj_name}")
+    if eds_source:
+        search_patterns.append(f"ExternalDataSource.{eds_source}.Table.{obj_name}")
+        search_patterns.append(f"ExternalDataSourceTableRef.{eds_source}.{obj_name}")
+        search_patterns.append(f"\u0412\u043d\u0435\u0448\u043d\u0438\u0435\u0418\u0441\u0442\u043e\u0447\u043d\u0438\u043a\u0438\u0414\u0430\u043d\u043d\u044b\u0445.{eds_source}.\u0422\u0430\u0431\u043b\u0438\u0446\u044b.{obj_name}")
 
     # 3) CommonModule: method calls
     if obj_type == "CommonModule":
@@ -578,17 +612,17 @@ def main():
     else:
         print("[OK]    No references found")
 
-    # --- 3. Remove from Configuration.xml ChildObjects ---
+    # --- 3. Remove from registry ChildObjects (Configuration.xml или файл внешнего источника) ---
     print()
-    print("--- Configuration.xml ---")
+    print(f"--- {registry_label} ---")
 
     xml_parser = etree.XMLParser(remove_blank_text=False)
-    tree = etree.parse(config_xml, xml_parser)
+    tree = etree.parse(registry_xml, xml_parser)
     xml_root = tree.getroot()
 
-    cfg_node = xml_root.find(f"{{{MD_NS}}}Configuration")
+    cfg_node = xml_root.find(f"{{{MD_NS}}}{registry_root}")
     if cfg_node is None:
-        print("[ERROR] Configuration element not found in Configuration.xml")
+        print(f"[ERROR] {registry_root} element not found in {registry_label}")
         errors += 1
     else:
         child_objects = cfg_node.find(f"{{{MD_NS}}}ChildObjects")
@@ -611,8 +645,8 @@ def main():
 
         # Save Configuration.xml
         if actions > 0 and not args.DryRun:
-            save_xml_bom(tree, config_xml)
-            print("[OK]    Configuration.xml saved")
+            save_xml_bom(tree, registry_xml)
+            print(f"[OK]    {registry_label} saved")
 
     # --- 4. Remove from subsystem Content ---
     print()

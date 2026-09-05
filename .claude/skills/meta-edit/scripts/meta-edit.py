@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-edit v1.43 — Edit existing 1C metadata object XML
+# meta-edit v1.44 — Edit existing 1C metadata object XML
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -503,6 +503,7 @@ child_type_synonyms = {
     "templates": "templates", "макеты": "templates",
     "commands": "commands", "команды": "commands",
     "properties": "properties", "свойства": "properties",
+    "fields": "fields", "поля": "fields",
 }
 
 type_synonyms = {
@@ -967,6 +968,10 @@ def parse_attribute_shorthand(val):
         "indexing": normalize_enum_value("Indexing", str(val.get("indexing", ""))) if val.get("indexing") else "",
         "after": str(val.get("after", "")),
         "before": str(val.get("before", "")),
+        # Поле таблицы внешнего источника (контекст eds-field).
+        "nameInDataSource": str(val.get("nameInDataSource", "")),
+        "readOnly": val.get("readOnly") is True,
+        "allowNull": val.get("allowNull") is True,
     }
     # Map flags to properties
     if "req" in result["flags"] and not result["fillChecking"]:
@@ -1002,6 +1007,8 @@ def get_attribute_context():
     """Determine attribute context from object type."""
     if obj_type == "Catalog":
         return "catalog"
+    if obj_type == "Table":
+        return "eds-field"
     if obj_type == "Document":
         return "document"
     if obj_type in ("InformationRegister", "AccumulationRegister", "AccountingRegister", "CalculationRegister"):
@@ -1057,7 +1064,7 @@ RESERVED_BY_CONTEXT = {
 }
 
 
-def build_attribute_fragment(parsed, context, indent):
+def build_attribute_fragment(parsed, context, indent, elem_tag="Attribute"):
     """Build XML fragment string for an Attribute element."""
     if not context:
         context = get_attribute_context()
@@ -1069,13 +1076,13 @@ def build_attribute_fragment(parsed, context, indent):
         if attr_name.lower() in ctx_reserved:
             print(f"meta-edit: имя реквизита '{attr_name}' зарезервировано стандартным реквизитом объекта '{context}'. Выберите другое имя.", file=sys.stderr)
             sys.exit(1)
-    elif context not in ('tabular', 'processor-tabular') and (attr_name in RESERVED_ATTR_NAMES or attr_name in RESERVED_ATTR_NAMES_RU):
+    elif context not in ('tabular', 'processor-tabular', 'eds-field') and (attr_name in RESERVED_ATTR_NAMES or attr_name in RESERVED_ATTR_NAMES_RU):
         print(f"WARNING: Attribute '{attr_name}' conflicts with a standard attribute name. This may cause errors when loading into 1C.", file=sys.stderr)
 
     uid = new_uuid()
     lines = []
 
-    lines.append(f'{indent}<Attribute uuid="{uid}">')
+    lines.append(f'{indent}<{elem_tag} uuid="{uid}">')
     lines.append(f"{indent}\t<Properties>")
     lines.append(f"{indent}\t\t<Name>{esc_xml_text(parsed['name'])}</Name>")
     lines.append(build_mltext_xml(f"{indent}\t\t", "Synonym", parsed["synonym"]))
@@ -1114,21 +1121,35 @@ def build_attribute_fragment(parsed, context, indent):
         fill_checking = parsed["fillChecking"]
     lines.append(f"{indent}\t\t<FillChecking>{fill_checking}</FillChecking>")
 
-    lines.append(f"{indent}\t\t<ChoiceFoldersAndItems>Items</ChoiceFoldersAndItems>")
+    # Поле внешнего источника (eds-field) не имеет ChoiceFoldersAndItems и LinkByType, а ChoiceForm
+    # у него стоит ПОСЛЕ ChoiceHistoryOnInput — порядок снят с выгрузки платформы.
+    if context != "eds-field":
+        lines.append(f"{indent}\t\t<ChoiceFoldersAndItems>Items</ChoiceFoldersAndItems>")
     lines.append(f"{indent}\t\t<ChoiceParameterLinks/>")
     lines.append(f"{indent}\t\t<ChoiceParameters/>")
     lines.append(f"{indent}\t\t<QuickChoice>Auto</QuickChoice>")
     lines.append(f"{indent}\t\t<CreateOnInput>Auto</CreateOnInput>")
-    lines.append(f"{indent}\t\t<ChoiceForm/>")
-    lines.append(f"{indent}\t\t<LinkByType/>")
+    if context != "eds-field":
+        lines.append(f"{indent}\t\t<ChoiceForm/>")
+        lines.append(f"{indent}\t\t<LinkByType/>")
     lines.append(f"{indent}\t\t<ChoiceHistoryOnInput>Auto</ChoiceHistoryOnInput>")
+
+    if context == "eds-field":
+        lines.append(f"{indent}\t\t<ChoiceForm/>")
+        nids = parsed.get("nameInDataSource") or parsed["name"]
+        lines.append(f"{indent}\t\t<NameInDataSource>{esc_xml_text(str(nids))}</NameInDataSource>")
+        ro = "true" if (parsed.get("readOnly") is True or "readonly" in parsed["flags"]) else "false"
+        lines.append(f"{indent}\t\t<ReadOnly>{ro}</ReadOnly>")
+        an = "true" if (parsed.get("allowNull") is True or "nullable" in parsed["flags"]) else "false"
+        lines.append(f"{indent}\t\t<AllowNull>{an}</AllowNull>")
 
     # Use -- catalog only
     if context == "catalog":
         lines.append(f"{indent}\t\t<Use>ForItem</Use>")
 
     # Indexing/FullTextSearch/DataHistory -- not for non-stored objects
-    if context not in ("processor", "processor-tabular"):
+    # Поля внешнего источника: индексами чужой таблицы 1С не владеет.
+    if context not in ("processor", "processor-tabular", "eds-field"):
         indexing = "DontIndex"
         if "index" in parsed["flags"]:
             indexing = "Index"
@@ -1141,7 +1162,7 @@ def build_attribute_fragment(parsed, context, indent):
         lines.append(f"{indent}\t\t<DataHistory>Use</DataHistory>")
 
     lines.append(f"{indent}\t</Properties>")
-    lines.append(f"{indent}</Attribute>")
+    lines.append(f"{indent}</{elem_tag}>")
     return "\r\n".join(lines)
 
 
@@ -1530,11 +1551,15 @@ valid_child_types = {
     "CalculationRegister": ["dimensions", "resources", "attributes", "forms", "templates", "commands"],
     "DocumentJournal": ["columns", "forms", "templates", "commands"],
     "Constant": ["forms"],
+    # Внешний источник данных правится целиком через meta-compile: и таблица (отдельный файл),
+    # и функция (узел с полным набором свойств) требуют эмиттера, который живёт там.
+    "ExternalDataSource": [],
+    "Table": ["fields", "forms", "templates", "commands"],
 }
 
 # Canonical child order in ChildObjects
 child_order = [
-    "Resource", "Dimension", "Attribute", "TabularSection",
+    "Resource", "Dimension", "Attribute", "TabularSection", "Field", "Function",
     "AccountingFlag", "ExtDimensionAccountingFlag",
     "EnumValue", "Column", "AddressingAttribute", "Recalculation",
     "Form", "Template", "Command",
@@ -1551,6 +1576,7 @@ child_type_to_xml_tag = {
     "forms": "Form",
     "templates": "Template",
     "commands": "Command",
+    "fields": "Field",
 }
 
 # ============================================================
@@ -1855,11 +1881,13 @@ def process_add(add_def):
             warn(f"Unknown add child type: {raw_key}")
             continue
 
-        # Validate allowed
-        allowed = valid_child_types.get(obj_type)
-        if allowed and child_type not in allowed:
-            warn(f"{child_type} not allowed for {obj_type}, skipping")
-            continue
+        # Validate allowed. Проверяем НАЛИЧИЕ ключа, а не истинность списка: пустой список
+        # (объект без допустимых детей) трактовался как «ограничений нет», и чужой ребёнок
+        # молча записывался в объект.
+        if obj_type in valid_child_types:
+            if child_type not in valid_child_types[obj_type]:
+                warn(f"{child_type} not allowed for {obj_type}, skipping")
+                continue
 
         xml_tag = child_type_to_xml_tag.get(child_type)
         if not xml_tag:
@@ -1885,6 +1913,22 @@ def process_add(add_def):
                 info(f"Added attribute: {parsed['name']}")
                 add_count += 1
                 existing_names[parsed["name"]] = "Attribute"
+
+        elif child_type == "fields":
+            # Поле таблицы внешнего источника: тот же парсер реквизита, свой тег и контекст.
+            for item in items:
+                parsed = parse_attribute_shorthand(item)
+                if parsed["name"] in existing_names:
+                    warn(f"Field '{parsed['name']}' already exists, skipping")
+                    continue
+                fragment_xml = build_attribute_fragment(parsed, "eds-field", indent, "Field")
+                nodes = import_fragment(fragment_xml)
+                ref_node = find_insertion_point("Field", parsed)
+                for node in nodes:
+                    insert_before_element(child_objects_el, node, ref_node, indent)
+                info(f"Added field: {parsed['name']}")
+                add_count += 1
+                existing_names[parsed["name"]] = "Field"
 
         elif child_type == "tabularSections":
             for item in items:

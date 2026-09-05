@@ -1,4 +1,4 @@
-﻿# meta-remove v1.11 — Remove metadata object from 1C configuration dump
+﻿# meta-remove v1.12 — Remove metadata object from 1C configuration dump
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -60,6 +60,7 @@ $typePluralMap = @{
 	"WSReference"                = "WSReferences"
 	"StyleItem"                  = "StyleItems"
 	"Language"                   = "Languages"
+	"ExternalDataSource"         = "ExternalDataSources"
 }
 
 # --- Resolve paths ---
@@ -216,21 +217,47 @@ function Assert-EditAllowed([string]$targetPath, [string]$require) {
 
 # --- Parse object spec ---
 
-$parts = $Object -split "\.", 2
-if ($parts.Count -ne 2 -or -not $parts[0] -or -not $parts[1]) {
-	Write-Host "[ERROR] Invalid object format '$Object'. Expected: Type.Name (e.g. Catalog.Товары)"
-	exit 1
+# Таблица внешнего источника — единственный объект с четырёхчастным именем: она лежит не в
+# каталоге вида, а внутри источника, и числится в ChildObjects файла источника, не конфигурации.
+$edsSource = ""
+if ($Object -match '^ExternalDataSource\.([^.]+)\.Table\.(.+)$') {
+	$edsSource = $Matches[1]
+	$objType = "Table"
+	$objName = $Matches[2]
+} else {
+	$parts = $Object -split "\.", 2
+	if ($parts.Count -ne 2 -or -not $parts[0] -or -not $parts[1]) {
+		Write-Host "[ERROR] Invalid object format '$Object'. Expected: Type.Name (e.g. Catalog.Товары) or ExternalDataSource.Источник.Table.Таблица"
+		exit 1
+	}
+	$objType = $parts[0]
+	$objName = $parts[1]
 }
 
-$objType = $parts[0]
-$objName = $parts[1]
-
-if (-not $typePluralMap.ContainsKey($objType)) {
-	Write-Host "[ERROR] Unknown type '$objType'. Supported: $($typePluralMap.Keys -join ', ')"
-	exit 1
+if ($edsSource) {
+	$typePlural = Join-Path (Join-Path "ExternalDataSources" $edsSource) "Tables"
+} else {
+	if (-not $typePluralMap.ContainsKey($objType)) {
+		Write-Host "[ERROR] Unknown type '$objType'. Supported: $($typePluralMap.Keys -join ', ')"
+		exit 1
+	}
+	$typePlural = $typePluralMap[$objType]
 }
 
-$typePlural = $typePluralMap[$objType]
+# Реестр, где объект числится: обычно ChildObjects конфигурации, а для таблицы — файл источника.
+if ($edsSource) {
+	$registryXml = Join-Path (Join-Path $ConfigDir "ExternalDataSources") "$edsSource.xml"
+	$registryRoot = "ExternalDataSource"
+	$registryLabel = "ExternalDataSources/$edsSource.xml"
+	if (-not (Test-Path $registryXml)) {
+		Write-Host "[ERROR] Внешний источник '$edsSource' не найден: $registryLabel"
+		exit 1
+	}
+} else {
+	$registryXml = $configXml
+	$registryRoot = "Configuration"
+	$registryLabel = "Configuration.xml"
+}
 
 Write-Host "=== meta-remove: ${objType}.${objName} ==="
 Write-Host ""
@@ -304,10 +331,10 @@ if (-not $hasXml -and -not $hasDir) {
 	# Check if registered in Configuration.xml before proceeding
 	$cfgCheckDoc = New-Object System.Xml.XmlDocument
 	$cfgCheckDoc.PreserveWhitespace = $true
-	$cfgCheckDoc.Load($configXml)
+	$cfgCheckDoc.Load($registryXml)
 	$cfgCheckNs = New-Object System.Xml.XmlNamespaceManager($cfgCheckDoc.NameTable)
 	$cfgCheckNs.AddNamespace("md", "http://v8.1c.ru/8.3/MDClasses")
-	$cfgCheckNode = $cfgCheckDoc.DocumentElement.SelectSingleNode("md:Configuration/md:ChildObjects", $cfgCheckNs)
+	$cfgCheckNode = $cfgCheckDoc.DocumentElement.SelectSingleNode("md:$registryRoot/md:ChildObjects", $cfgCheckNs)
 	$registeredInCfg = $false
 	if ($cfgCheckNode) {
 		foreach ($child in @($cfgCheckNode.ChildNodes)) {
@@ -389,6 +416,18 @@ if ($ruMgr) {
 }
 # English manager = plural directory name
 $searchPatterns += "$typePlural.$objName"
+
+# 2а) Внешний источник данных: ссылки на сам источник и на его таблицы
+if ($objType -eq "ExternalDataSource") {
+	$searchPatterns += "ExternalDataSource.$objName."
+	$searchPatterns += "ВнешниеИсточникиДанных.$objName"
+	$searchPatterns += "ExternalDataSources.$objName"
+}
+if ($edsSource) {
+	$searchPatterns += "ExternalDataSource.$edsSource.Table.$objName"
+	$searchPatterns += "ExternalDataSourceTableRef.$edsSource.$objName"
+	$searchPatterns += "ВнешниеИсточникиДанных.$edsSource.Таблицы.$objName"
+}
 
 # 3) CommonModule: method calls in BSL (ModuleName.)
 if ($objType -eq "CommonModule") {
@@ -504,22 +543,22 @@ if ($references.Count -gt 0) {
 	Write-Host "[OK]    No references found"
 }
 
-# --- 3. Remove from Configuration.xml ChildObjects ---
+# --- 3. Remove from registry ChildObjects (Configuration.xml или файл внешнего источника) ---
 
 Write-Host ""
-Write-Host "--- Configuration.xml ---"
+Write-Host "--- $registryLabel ---"
 
 $xmlDoc = New-Object System.Xml.XmlDocument
 $xmlDoc.PreserveWhitespace = $true
-$xmlDoc.Load($configXml)
+$xmlDoc.Load($registryXml)
 
 $ns = New-Object System.Xml.XmlNamespaceManager($xmlDoc.NameTable)
 $ns.AddNamespace("md", "http://v8.1c.ru/8.3/MDClasses")
 $ns.AddNamespace("v8", "http://v8.1c.ru/8.1/data/core")
 
-$cfgNode = $xmlDoc.DocumentElement.SelectSingleNode("md:Configuration", $ns)
+$cfgNode = $xmlDoc.DocumentElement.SelectSingleNode("md:$registryRoot", $ns)
 if (-not $cfgNode) {
-	Write-Host "[ERROR] Configuration element not found in Configuration.xml"
+	Write-Host "[ERROR] $registryRoot element not found in $registryLabel"
 	$errors++
 } else {
 	$childObjects = $cfgNode.SelectSingleNode("md:ChildObjects", $ns)
@@ -570,10 +609,10 @@ if (-not $cfgNode) {
 		$xmlText = [regex]::Replace($xmlText, '(?s)<!\[CDATA\[.*?\]\]>|<!--.*?-->|(?<=\S) />', { param($m) if ($m.Value -eq ' />') { '/>' } else { $m.Value } })
 		# Целевой перевод строки: стиль файла-назначения — правка наследует его (#44/#46/#47),
 		# новый файл получает канон выгрузки CRLF. Зеркало _detect_xml_style в py-порту.
-		$targetEol = if ((Test-Path -LiteralPath $configXml) -and ([System.IO.File]::ReadAllText($configXml) -notmatch "`r`n")) { "`n" } else { "`r`n" }
+		$targetEol = if ((Test-Path -LiteralPath $registryXml) -and ([System.IO.File]::ReadAllText($registryXml) -notmatch "`r`n")) { "`n" } else { "`r`n" }
 		$xmlText = ($xmlText -replace "`r`n", "`n") -replace "`n", $targetEol
-		[System.IO.File]::WriteAllText($configXml, $xmlText, $enc)
-		Write-Host "[OK]    Configuration.xml saved"
+		[System.IO.File]::WriteAllText($registryXml, $xmlText, $enc)
+		Write-Host "[OK]    $registryLabel saved"
 	}
 }
 

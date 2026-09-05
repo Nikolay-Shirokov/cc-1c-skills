@@ -1,4 +1,4 @@
-﻿# meta-edit v1.43 — Edit existing 1C metadata object XML
+﻿# meta-edit v1.44 — Edit existing 1C metadata object XML
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -465,6 +465,7 @@ $script:childTypeSynonyms = @{
 	"templates" = "templates"; "макеты" = "templates"
 	"commands" = "commands"; "команды" = "commands"
 	"properties" = "properties"; "свойства" = "properties"
+	"fields" = "fields"; "поля" = "fields"
 }
 
 # Type synonyms (from meta-compile)
@@ -955,6 +956,10 @@ function Parse-AttributeShorthand {
 		indexing    = if ($val.indexing) { "$($val.indexing)" } else { "" }
 		after       = if ($val.after) { "$($val.after)" } else { "" }
 		before      = if ($val.before) { "$($val.before)" } else { "" }
+		# Поле таблицы внешнего источника (контекст eds-field).
+		nameInDataSource = if ($val.nameInDataSource) { "$($val.nameInDataSource)" } else { "" }
+		readOnly    = if ($val.readOnly -eq $true) { $true } else { $false }
+		allowNull   = if ($val.allowNull -eq $true) { $true } else { $false }
 	}
 	# Map flags to properties
 	if ($result.flags -contains "req" -and -not $result.fillChecking) {
@@ -994,6 +999,7 @@ function Parse-EnumValueShorthand {
 function Get-AttributeContext {
 	switch ($script:objType) {
 		"Catalog" { return "catalog" }
+		"Table" { return "eds-field" }
 		"Document" { return "document" }
 		{ $_ -in @("InformationRegister","AccumulationRegister","AccountingRegister","CalculationRegister") } { return "register" }
 		{ $_ -in @("DataProcessor","Report","ExternalDataProcessor","ExternalReport") } { return "processor" }
@@ -1022,7 +1028,7 @@ $script:reservedByContext = @{
 }
 
 function Build-AttributeFragment {
-	param($parsed, [string]$context, [string]$indent)
+	param($parsed, [string]$context, [string]$indent, [string]$elemTag = "Attribute")
 
 	if (-not $context) { $context = Get-AttributeContext }
 
@@ -1037,7 +1043,7 @@ function Build-AttributeFragment {
 				exit 1
 			}
 		}
-	} elseif ($context -notin @("tabular", "processor-tabular") -and
+	} elseif ($context -notin @("tabular", "processor-tabular", "eds-field") -and
 		($script:reservedAttrNames.ContainsKey($attrName) -or ($script:reservedAttrNames.Values -contains $attrName))) {
 		Write-Warning "Attribute '$attrName' conflicts with a standard attribute name. This may cause errors when loading into 1C."
 	}
@@ -1045,7 +1051,7 @@ function Build-AttributeFragment {
 	$uuid = New-Guid-String
 	$sb = New-Object System.Text.StringBuilder
 
-	$sb.AppendLine("$indent<Attribute uuid=`"$uuid`">") | Out-Null
+	$sb.AppendLine("$indent<$elemTag uuid=`"$uuid`">") | Out-Null
 	$sb.AppendLine("$indent`t<Properties>") | Out-Null
 	$sb.AppendLine("$indent`t`t<Name>$(Esc-XmlText $parsed.name)</Name>") | Out-Null
 	$sb.AppendLine($(Build-MLTextXml "$indent`t`t" "Synonym" $parsed.synonym)) | Out-Null
@@ -1084,14 +1090,30 @@ function Build-AttributeFragment {
 	if ($parsed.fillChecking) { $fillChecking = Normalize-EnumValue "FillChecking" $parsed.fillChecking }
 	$sb.AppendLine("$indent`t`t<FillChecking>$fillChecking</FillChecking>") | Out-Null
 
-	$sb.AppendLine("$indent`t`t<ChoiceFoldersAndItems>Items</ChoiceFoldersAndItems>") | Out-Null
+	# Поле внешнего источника (eds-field) не имеет ChoiceFoldersAndItems и LinkByType, а ChoiceForm
+	# у него стоит ПОСЛЕ ChoiceHistoryOnInput — порядок снят с выгрузки платформы.
+	if ($context -ne "eds-field") {
+		$sb.AppendLine("$indent`t`t<ChoiceFoldersAndItems>Items</ChoiceFoldersAndItems>") | Out-Null
+	}
 	$sb.AppendLine("$indent`t`t<ChoiceParameterLinks/>") | Out-Null
 	$sb.AppendLine("$indent`t`t<ChoiceParameters/>") | Out-Null
 	$sb.AppendLine("$indent`t`t<QuickChoice>Auto</QuickChoice>") | Out-Null
 	$sb.AppendLine("$indent`t`t<CreateOnInput>Auto</CreateOnInput>") | Out-Null
-	$sb.AppendLine("$indent`t`t<ChoiceForm/>") | Out-Null
-	$sb.AppendLine("$indent`t`t<LinkByType/>") | Out-Null
+	if ($context -ne "eds-field") {
+		$sb.AppendLine("$indent`t`t<ChoiceForm/>") | Out-Null
+		$sb.AppendLine("$indent`t`t<LinkByType/>") | Out-Null
+	}
 	$sb.AppendLine("$indent`t`t<ChoiceHistoryOnInput>Auto</ChoiceHistoryOnInput>") | Out-Null
+
+	if ($context -eq "eds-field") {
+		$sb.AppendLine("$indent`t`t<ChoiceForm/>") | Out-Null
+		$nids = if ($parsed.nameInDataSource) { "$($parsed.nameInDataSource)" } else { $parsed.name }
+		$sb.AppendLine("$indent`t`t<NameInDataSource>$(Esc-XmlText $nids)</NameInDataSource>") | Out-Null
+		$ro = if ($parsed.readOnly -eq $true -or $parsed.flags -contains "readonly") { "true" } else { "false" }
+		$sb.AppendLine("$indent`t`t<ReadOnly>$ro</ReadOnly>") | Out-Null
+		$an = if ($parsed.allowNull -eq $true -or $parsed.flags -contains "nullable") { "true" } else { "false" }
+		$sb.AppendLine("$indent`t`t<AllowNull>$an</AllowNull>") | Out-Null
+	}
 
 	# Use — catalog only
 	if ($context -eq "catalog") {
@@ -1099,7 +1121,8 @@ function Build-AttributeFragment {
 	}
 
 	# Indexing/FullTextSearch/DataHistory — not for non-stored objects (processor, processor-tabular)
-	if ($context -notin @("processor", "processor-tabular")) {
+	# Поля внешнего источника: индексами чужой таблицы 1С не владеет.
+	if ($context -notin @("processor", "processor-tabular", "eds-field")) {
 		$indexing = "DontIndex"
 		if ($parsed.flags -contains "index") { $indexing = "Index" }
 		if ($parsed.flags -contains "indexadditional") { $indexing = "IndexWithAdditionalOrder" }
@@ -1111,7 +1134,7 @@ function Build-AttributeFragment {
 	}
 
 	$sb.AppendLine("$indent`t</Properties>") | Out-Null
-	$sb.Append("$indent</Attribute>") | Out-Null
+	$sb.Append("$indent</$elemTag>") | Out-Null
 	return $sb.ToString()
 }
 
@@ -1538,11 +1561,15 @@ $script:validChildTypes = @{
 	"CalculationRegister"        = @("dimensions","resources","attributes","forms","templates","commands")
 	"DocumentJournal"            = @("columns","forms","templates","commands")
 	"Constant"                   = @("forms")
+	# Внешний источник данных правится целиком через meta-compile: и таблица (отдельный файл),
+	# и функция (узел с полным набором свойств) требуют эмиттера, который живёт там.
+	"ExternalDataSource"         = @()
+	"Table"                      = @("fields","forms","templates","commands")
 }
 
 # Canonical child order in ChildObjects
 $script:childOrder = @(
-	"Resource", "Dimension", "Attribute", "TabularSection",
+	"Resource", "Dimension", "Attribute", "TabularSection", "Field", "Function",
 	"AccountingFlag", "ExtDimensionAccountingFlag",
 	"EnumValue", "Column", "AddressingAttribute", "Recalculation",
 	"Form", "Template", "Command"
@@ -1559,6 +1586,7 @@ $script:childTypeToXmlTag = @{
 	"forms"           = "Form"
 	"templates"       = "Template"
 	"commands"        = "Command"
+	"fields"          = "Field"
 }
 
 # ============================================================
@@ -1904,11 +1932,15 @@ function Process-Add($addDef) {
 			return
 		}
 
-		# Validate allowed
-		$allowed = $script:validChildTypes[$script:objType]
-		if ($allowed -and $childType -notin $allowed) {
-			Warn "$childType not allowed for $($script:objType), skipping"
-			return
+		# Validate allowed. Проверяем НАЛИЧИЕ ключа, а не истинность списка: пустой список
+		# ($script:objType без допустимых детей) трактовался как «ограничений нет», и чужой
+		# ребёнок молча записывался в объект.
+		if ($script:validChildTypes.ContainsKey($script:objType)) {
+			$allowed = $script:validChildTypes[$script:objType]
+			if ($childType -notin $allowed) {
+				Warn "$childType not allowed for $($script:objType), skipping"
+				return
+			}
 		}
 
 		$xmlTag = $script:childTypeToXmlTag[$childType]
@@ -1939,6 +1971,25 @@ function Process-Add($addDef) {
 					Info "Added attribute: $($parsed.name)"
 					$script:addCount++
 					$existingNames[$parsed.name] = "Attribute"
+				}
+			}
+			"fields" {
+				# Поле таблицы внешнего источника: тот же парсер реквизита, свой тег и контекст.
+				foreach ($item in $items) {
+					$parsed = Parse-AttributeShorthand $item
+					if ($existingNames.ContainsKey($parsed.name)) {
+						Warn "Field '$($parsed.name)' already exists, skipping"
+						continue
+					}
+					$fragmentXml = Build-AttributeFragment $parsed "eds-field" $indent "Field"
+					$nodes = Import-Fragment $fragmentXml
+					$refNode = Find-InsertionPoint "Field" $parsed
+					foreach ($node in $nodes) {
+						Insert-BeforeElement $script:childObjectsEl $node $refNode $indent
+					}
+					Info "Added field: $($parsed.name)"
+					$script:addCount++
+					$existingNames[$parsed.name] = "Field"
 				}
 			}
 			"tabularSections" {

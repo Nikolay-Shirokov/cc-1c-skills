@@ -43,6 +43,22 @@
 -Operation add-column -Value "Тип: EnumRef.ТипыДокументов"
 ```
 
+## add-field (таблица внешнего источника)
+
+Поле задаётся как обычный реквизит, плюс три своих ключа: `nameInDataSource` (умолчание — имя поля),
+`readOnly`, `allowNull`. Флаги строковой формы — `readonly`, `nullable`.
+
+```json
+{ "add": { "fields": [
+  "barcode: String(20) | nullable",
+  { "name": "cost", "type": "Number(15,2)", "nameInDataSource": "cost_net", "readOnly": true }
+] } }
+```
+
+Сам внешний источник точечно не правится: и таблица (отдельный файл), и функция (узел с полным
+набором свойств) собираются `meta-compile` по описанию источника целиком. Удалить таблицу —
+`meta-remove ExternalDataSource.<Источник>.Table.<Таблица>`.
+
 ## add-ts
 
 Формат: `ИмяТЧ: Реквизит1: Тип1, Реквизит2: Тип2, ...`
