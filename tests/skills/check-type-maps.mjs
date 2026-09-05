@@ -83,17 +83,20 @@ const MAPS = [
   {
     skill: 'cfe-borrow', file: 'cfe-borrow', kind: 'gentypes',
     py: 'GENERATED_TYPES', ps1: '$script:generatedTypes',
+    exclude: { Table: 'навык не работает с таблицами внешних источников' },
   },
   {
     skill: 'meta-compile', file: 'meta-compile', kind: 'gentypes',
     py: 'generated_types', ps1: '$script:generatedTypes',
     exclude: {
       IntegrationService: 'навык не создаёт объекты этого вида — генерируемых типов для него нет',
+      Table: 'InternalInfo таблицы строится инлайном: имя элемента трёхчастное (префикс.Источник.Таблица), карта «вид → набор» такой формы не выражает',
     },
   },
   {
     skill: 'cfe-validate', file: 'cfe-validate', kind: 'gencats',
     py: 'GENERATED_TYPE_CATEGORIES', ps1: '$generatedTypeCategories',
+    exclude: { Table: 'навык не работает с таблицами внешних источников' },
   },
   {
     skill: 'meta-validate', file: 'meta-validate', kind: 'gencats',

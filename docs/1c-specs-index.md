@@ -53,6 +53,7 @@
 | `WebService` | `WebServices/` | Веб-сервисы | [1c-config-objects-spec.md § 25](1c-config-objects-spec.md#25-веб-сервисы-webservices) |
 | `HTTPService` | `HTTPServices/` | HTTP-сервисы | [1c-config-objects-spec.md § 24](1c-config-objects-spec.md#24-http-сервисы-httpservices) |
 | `WSReference` | `WSReferences/` | WS-ссылки | [1c-configuration-spec.md § 6.15](1c-configuration-spec.md#615-wsreference--ws-ссылка) |
+| `ExternalDataSource` | `ExternalDataSources/` | Внешние источники данных | [1c-config-objects-spec.md § 26](1c-config-objects-spec.md#26-внешние-источники-данных-externaldatasources) |
 | `IntegrationService` | `IntegrationServices/` | Сервисы интеграции | [1c-configuration-spec.md § 6.13](1c-configuration-spec.md#613-integrationservice--сервис-интеграции) |
 
 ### Поведение и параметризация
@@ -157,8 +158,8 @@
 | Общие свойства Properties | [1c-config-objects-spec.md § 4](1c-config-objects-spec.md#4-общие-элементы-properties) |
 | Стандартные реквизиты | [1c-config-objects-spec.md § 5](1c-config-objects-spec.md#5-стандартные-реквизиты-standardattributes) |
 | Дочерние объекты (Attribute, TabularSection, Form, Template, Command) | [1c-config-objects-spec.md § 6](1c-config-objects-spec.md#6-дочерние-объекты-childobjects) |
-| Формат ссылок на объекты | [1c-config-objects-spec.md § 28](1c-config-objects-spec.md#28-формат-ссылок-на-объекты-метаданных) |
-| Различия версий формата 2.17 → 2.18 → 2.19 → 2.20 | [1c-config-objects-spec.md § 26](1c-config-objects-spec.md#26-различия-версий-платформы) |
+| Формат ссылок на объекты | [1c-config-objects-spec.md § 29](1c-config-objects-spec.md#29-формат-ссылок-на-объекты-метаданных) |
+| Различия версий формата 2.17 → 2.18 → 2.19 → 2.20 | [1c-config-objects-spec.md § 27](1c-config-objects-spec.md#27-различия-версий-платформы) |
 
 ---
 

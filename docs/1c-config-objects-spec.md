@@ -1696,7 +1696,181 @@ XML-элемент: `<WebService>`. Трёхуровневая вложенно�
 
 ---
 
-## 26. Различия версий платформы
+## 26. Внешние источники данных (ExternalDataSources)
+
+XML-элемент: `<ExternalDataSource>`. Двухуровневая вложенность: источник → таблица → поле,
+но **уровней каталогов только два**:
+
+```
+ExternalDataSources/PG.xml                          источник
+ExternalDataSources/PG/Tables/products.xml          таблица (поля — внутри этого файла)
+ExternalDataSources/PG/Tables/products/Ext/ManagerModule.bsl
+ExternalDataSources/PG/Tables/products/Forms/ФормаСписка.xml (+ Forms/<Форма>/Ext/Form.xml)
+```
+
+Модули таблицы — `ObjectModule.bsl`, `RecordSetModule.bsl`, `ManagerModule.bsl`; в выгрузку попадают
+только непустые. Формы — как у справочника.
+
+**Параметров соединения в метаданных нет.** Строка соединения, пользователь, пароль и тип СУБД
+задаются в режиме «Предприятие» (стандартная функция «Управление внешними источниками данных») и
+хранятся в информационной базе. В конфигурации у источника всего четыре свойства.
+
+### 26.1. Свойства источника
+
+```xml
+<Properties>
+    <Name>PG</Name>
+    <Synonym>...</Synonym>
+    <Comment/>
+    <DataLockControlMode>AutomaticAndManaged</DataLockControlMode>
+</Properties>
+```
+
+`DataLockControlMode`: `Automatic` | `Managed` | `AutomaticAndManaged`. При конкретном значении
+одноимённое свойство таблицы игнорируется; `AutomaticAndManaged` отдаёт решение таблицам.
+
+### 26.2. ChildObjects источника: Table (именем) + Function (целиком)
+
+Смешанный список: таблицы перечислены **именами** (их содержимое — в отдельных файлах), функции
+лежат **полными узлами** прямо здесь.
+
+```xml
+<ChildObjects>
+    <Table>products</Table>
+    <Table>prices</Table>
+    <Function uuid="...">
+        <Properties>
+            <Name>total</Name>
+            <Synonym/>
+            <Comment/>
+            <ReturnValue>true</ReturnValue>
+            <Type>
+                <v8:Type>xs:decimal</v8:Type>
+                <v8:NumberQualifiers>...</v8:NumberQualifiers>
+            </Type>
+            <ExpressionInDataSource>public.f_total(&amp;1, &amp;2)</ExpressionInDataSource>
+        </Properties>
+    </Function>
+</ChildObjects>
+```
+
+Свойств у функции шесть. **Параметров как объектов метаданных не существует**: формальные параметры
+записываются прямо в выражении как `&1`, `&2`; необязательные — в фигурных скобках (`f(&1{, &2})`),
+переменное число — `&n[]` (последним в списке). `ReturnValue=false` описывает процедуру, тогда
+`<Type/>` пуст.
+
+Куб (`<Cube>`) — четвёртый вид дочернего объекта источника, здесь не описан.
+
+### 26.3. Свойства таблицы
+
+38 свойств в фиксированном порядке:
+
+`Name`, `Synonym`, `Comment`, `TableType`, `NameInDataSource`, `ExpressionInDataSource`,
+`TableDataType`, `KeyFields`, `PresentationField`, `ParentField`, `UnfilledParentValue`,
+`Characteristics`, `UseStandardCommands`, `QuickChoice`, `InputByString`, `CreateOnInput`,
+`SearchStringModeOnInputByString`, `ChoiceDataGetModeOnInputByString`, `ChoiceHistoryOnInput`,
+`DefaultObjectForm`, `DefaultRecordForm`, `DefaultListForm`, `DefaultChoiceForm`,
+`ObjectPresentation`, `ExtendedObjectPresentation`, `RecordPresentation`,
+`ExtendedRecordPresentation`, `ListPresentation`, `ExtendedListPresentation`, `Explanation`,
+`IncludeHelpInContents`, `ReadOnly`, `TransactionsIsolationLevel`, `DataVersionField`, `EditType`,
+`BasedOn`, `DataLockFields`, `DataLockControlMode`.
+
+Специфичные для внешнего источника:
+
+| Свойство | Тип | Описание |
+|---|---|---|
+| `TableType` | enum | `Table` — реальная таблица или представление; `Expression` — табличная функция/выражение |
+| `NameInDataSource` | string | Имя физической таблицы. Три части: `<база>.<схема>.<таблица>`. У `TableType=Expression` — **пусто** |
+| `ExpressionInDataSource` | string | Выражение для `TableType=Expression`, напр. `public.f_by_parent(&1)`. Здесь имя базы **не указывается** |
+| `TableDataType` | enum | `ObjectData` — запись идентифицируется одним полем; `NonobjectData` — составным ключом |
+| `KeyFields` | список | Ключевые поля, `<xr:Field>` с полным путём |
+| `PresentationField` | скаляр | Поле представления (только `ObjectData`) |
+| `ParentField` | скаляр | Поле родителя для иерархии; тип поля должен быть ссылкой на эту же таблицу |
+| `UnfilledParentValue` | значение | Значение «нет родителя», типизировано (`xsi:type`) |
+| `ReadOnly` | boolean | Запрет записи. Платформа сама ставит `true` представлениям и таблицам вида `Expression` |
+| `TransactionsIsolationLevel` | enum | `Auto` \| `ReadUncommitted` \| `ReadCommitted` \| `RepeatableRead` \| `Serializable` |
+| `DataVersionField` | скаляр | Поле, растущее при каждой записи, — по нему ловится конкурентное изменение |
+| `DataLockFields` | список | Поля управляемой блокировки |
+
+`BasedOn`, `Characteristics`, `EditType`, представления и формы — как у справочника.
+
+**Признака незаполненного родителя отдельным узлом нет.** «NULL» против «Заданное значение»
+различаются формой самого `UnfilledParentValue`:
+
+```xml
+<UnfilledParentValue xsi:nil="true"/>              <!-- NULL -->
+<UnfilledParentValue xsi:type="xs:decimal">0</UnfilledParentValue>   <!-- Заданное значение -->
+```
+
+Тип значения — тип **ключевого** поля таблицы, а не ссылочный тип поля родителя.
+
+### 26.4. Скаляры против списков
+
+Путь внутри одинаковый, оборачивание разное:
+
+```xml
+<PresentationField>ExternalDataSource.PG.Table.products.Field.name</PresentationField>
+
+<KeyFields>
+    <xr:Field>ExternalDataSource.PG.Table.products.Field.id</xr:Field>
+</KeyFields>
+```
+
+Скаляры: `PresentationField`, `ParentField`, `DataVersionField`.
+Списки `<xr:Field>`: `KeyFields`, `InputByString`, `DataLockFields`.
+
+### 26.5. Поле таблицы
+
+26 свойств: канонический блок реквизита (см. §6.1) без `ChoiceFoldersAndItems`, `LinkByType`,
+`Indexing`, `Use`, `FullTextSearch`, `DataHistory`, плюс три своих в конце:
+
+| Свойство | Тип | Описание |
+|---|---|---|
+| `NameInDataSource` | string | Имя колонки. В одинарных кавычках попадает в SQL как есть, без них — экранируется двойными при спецсимволах |
+| `ReadOnly` | boolean | Поле не записывается (вычисляемые, автоинкрементные) |
+| `AllowNull` | boolean | Допускает `NULL`; в форме показывается как «Не заполнено» |
+
+Типы поля: `Число`, `Строка`, `Дата`, `Булево`, `УникальныйИдентификатор`, `ДвоичныеДанные` и
+ссылка на таблицу внешнего источника:
+
+```xml
+<Type><v8:Type>cfg:ExternalDataSourceTableRef.PG.products</v8:Type></Type>
+```
+
+Префикс корневой `cfg:` (объявлен в шапке `MetaDataObject`), квалификаторов у ссылки нет.
+
+**Составной тип платформой запрещён.** Документация «Руководства разработчика» (17.5.2.3.4)
+разрешает составной тип из Числа/Строки/Даты/Булева, но 8.3.24 отвергает загрузку:
+«Поле не может иметь составной тип».
+
+### 26.6. Расхождения Конфигуратора и загрузки XML
+
+Интерактивный редактор строже загрузчика. Измерено на 8.3.24.1691:
+
+| Ситуация | Конфигуратор | Загрузка XML |
+|---|---|---|
+| Таблица без `KeyFields` | ошибка «Не указано ни одного поля ключа» | принимает молча, обновление БД проходит |
+| Составной тип поля | галочки «Составной тип» нет | явная ошибка при загрузке |
+
+Первое означает, что валидатор не должен считать пустой ключ ошибкой: рабочие конфигурации с
+таблицами без ключа существуют.
+
+### 26.7. Что платформа заполняет сама
+
+Конструктор загрузки структуры из СУБД:
+
+- `TableDataType` — `ObjectData` при первичном ключе из одного поля, иначе `NonobjectData`;
+- `KeyFields` — из первичного ключа СУБД (у представления его нет → пусто);
+- `ReadOnly` таблицы — `true` для представлений и таблиц вида `Expression`;
+- `AllowNull` поля — из `NOT NULL` колонки;
+- ссылочный тип поля — из внешнего ключа СУБД;
+- имя объекта — `<база>_<схема>_<объект>` (точки заменяются подчёркиваниями).
+
+Кроме того, при задании `PresentationField` платформа добавляет это поле в `InputByString`.
+
+---
+
+## 27. Различия версий платформы
 
 ### 26.1. Лестница версий
 
@@ -1750,7 +1924,7 @@ XML-элемент: `<WebService>`. Трёхуровневая вложенно�
 
 ---
 
-## 27. Сводная таблица: свойства по типам объектов
+## 28. Сводная таблица: свойства по типам объектов
 
 | Свойство | Cat | Doc | Enum | Const | InfoReg | AccReg | AcctReg | CalcReg | CoA | CoCT | CoCaT | BP | Task | EP | DJ | Rep | DP |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
@@ -1782,9 +1956,11 @@ XML-элемент: `<WebService>`. Трёхуровневая вложенно�
 
 Сокращения: Cat=Справочник, Doc=Документ, Const=Константа, InfoReg=РегСведений, AccReg=РегНакопления, AcctReg=РегБухгалтерии, CalcReg=РегРасчёта, CoA=ПланСчетов, CoCT=ПВХ, CoCaT=ПВР, BP=БизнесПроцесс, EP=ПланОбмена, DJ=ЖурналДокументов, Rep=Отчёт, DP=Обработка.
 
+Внешний источник данных в матрицу не вошёл: набор его свойств не пересекается с колонками (ни кода с наименованием, ни реквизитов, ни табличных частей — вместо них таблицы и поля). См. § 26.
+
 ---
 
-## 28. Формат ссылок на объекты метаданных
+## 29. Формат ссылок на объекты метаданных
 
 В свойствах типа `DefaultObjectForm`, `InputByString`, `RegisterRecords`, `DataLockFields` и др. используется формат ссылок:
 
@@ -1800,13 +1976,18 @@ XML-элемент: `<WebService>`. Трёхуровневая вложенно�
 {ВидОбъекта}.{ИмяОбъекта}.Resource.{ИмяРесурса}                # На ресурс регистра
 {ВидОбъекта}.{ИмяОбъекта}.AddressingAttribute.{Имя}            # На реквизит адресации
 {ВидОбъекта}.{ИмяОбъекта}.EnumValue.{ИмяЗначения}              # На значение перечисления
+ExternalDataSource.{Источник}.Table.{Таблица}                  # На таблицу внешнего источника
+ExternalDataSource.{Источник}.Table.{Таблица}.Field.{Поле}      # На поле таблицы
+ExternalDataSource.{Источник}.Table.{Таблица}.Form.{Форма}      # На форму таблицы
 ```
 
-Виды объектов в ссылках: `Catalog`, `Document`, `Enum`, `InformationRegister`, `AccumulationRegister`, `AccountingRegister`, `CalculationRegister`, `ChartOfAccounts`, `ChartOfCharacteristicTypes`, `ChartOfCalculationTypes`, `BusinessProcess`, `Task`, `ExchangePlan`, `DocumentJournal`, `Report`, `DataProcessor`, `CommonForm`, `CommonPicture`, `SessionParameter`, `Constant`.
+Виды объектов в ссылках: `Catalog`, `Document`, `Enum`, `InformationRegister`, `AccumulationRegister`, `AccountingRegister`, `CalculationRegister`, `ChartOfAccounts`, `ChartOfCharacteristicTypes`, `ChartOfCalculationTypes`, `BusinessProcess`, `Task`, `ExchangePlan`, `DocumentJournal`, `Report`, `DataProcessor`, `CommonForm`, `CommonPicture`, `SessionParameter`, `Constant`, `ExternalDataSource`.
+
+Ссылки на внешний источник — единственные **шестичастные**: между видом и подчинённой сущностью стоит имя источника. Разбор с конца (как в ролях) на них не работает — считать надо с начала.
 
 ---
 
-## 29. GeneratedType категории
+## 30. GeneratedType категории
 
 Каждый объект метаданных содержит блок `<InternalInfo>` с элементами `<GeneratedType>`, описывающими платформенные типы. Ниже — эталонная таблица категорий по типам объектов (источник: выгрузки ACC 8.3.24, ERP 8.3.24).
 
@@ -1830,14 +2011,18 @@ XML-элемент: `<WebService>`. Трёхуровневая вложенно�
 | Report | Object, Manager |
 | DataProcessor | Object, Manager |
 | DefinedType | DefinedType |
+| ExternalDataSource | Manager, TablesManager, CubesManager |
+| ExternalDataSource → Table | Manager, Object, Ref, List, Record, RecordSet, RecordKey, RecordManager |
 
 Формат `name` в XML: `{Prefix}.{ObjectName}`, где Prefix = `{MetaType}{Category}` (например `CatalogObject.Номенклатура`, `AccountingRegisterExtDimensions.Хозрасчетный`).
+
+Исключение — таблица внешнего источника: имя **трёхчастное**, `{Prefix}.{Источник}.{Таблица}` (`ExternalDataSourceTableRef.PG.products`), а префикс строится от `ExternalDataSourceTable`, а не от имени вида. У `<Field>` и `<Function>` блока `InternalInfo` нет вовсе — только атрибут `uuid`.
 
 Примечание: TabularSection/TabularSectionRow генерируются динамически для каждой табличной части. ChartOfAccounts может иметь условные ExtDimensionTypes/ExtDimensionTypesRow (зависит от наличия `extDimensionTypes`).
 
 ---
 
-## 30. Кодировка
+## 31. Кодировка
 
 Все XML-файлы используют кодировку UTF-8 с BOM (байты `EF BB BF`):
 

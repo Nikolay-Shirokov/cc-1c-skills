@@ -1,4 +1,4 @@
-﻿# meta-validate v1.25 — Validate 1C metadata object structure
+﻿# meta-validate v1.26 — Validate 1C metadata object structure
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -179,7 +179,9 @@ $validTypes = @(
 	"BusinessProcess","Task","ExchangePlan","DocumentJournal",
 	"Report","DataProcessor",
 	"CommonModule","ScheduledJob","EventSubscription",
-	"HTTPService","WebService","DefinedType"
+	"HTTPService","WebService","DefinedType",
+	# Внешний источник данных и его таблица (корень файла таблицы — <Table>).
+	"ExternalDataSource","Table"
 )
 
 # Валидные типы метаданных без глубоких правил валидации — раньше падали как "Unrecognized"
@@ -213,6 +215,9 @@ $generatedTypeCategories = @{
 	"DataProcessor"              = @("Object","Manager")
 	"DefinedType"                = @("DefinedType")
 	"ExternalDataSource"         = @("Manager","TablesManager","CubesManager")
+	# Таблица внешнего источника: имя элемента трёхчастное (Префикс.Источник.Таблица),
+	# но проверка «имя оканчивается на .ИмяОбъекта» на нём работает как есть.
+	"Table"                      = @("Manager","Object","Ref","List","Record","RecordSet","RecordKey","RecordManager")
 }
 
 # Types that have NO InternalInfo / GeneratedType
@@ -274,6 +279,9 @@ $childObjectRules = @{
 	"DocumentJournal"            = @("Column","Form","Template","Command")
 	"HTTPService"                = @("URLTemplate")
 	"WebService"                 = @("Operation")
+	# Внешний источник: таблицы перечислены именами, функции лежат полными узлами.
+	"ExternalDataSource"         = @("Table","Function","Cube")
+	"Table"                      = @("Field","Form","Template","Command")
 	"Constant"                   = @("Form")
 	"DefinedType"                = @()
 	"CommonModule"               = @()
@@ -296,7 +304,8 @@ $validPropertyValues = @{
 	"RealTimePosting"                = @("Allow","Deny")
 	"RegisterRecordsDeletion"        = @("AutoDelete","AutoDeleteOnUnpost","AutoDeleteOff")
 	"RegisterRecordsWritingOnPost"   = @("WriteModified","WriteSelected","WriteAll")
-	"DataLockControlMode"            = @("Automatic","Managed")
+	# AutomaticAndManaged — только у внешнего источника данных и его таблиц.
+	"DataLockControlMode"            = @("Automatic","Managed","AutomaticAndManaged")
 	"FullTextSearch"                 = @("Use","DontUse")
 	"DefaultPresentation"            = @("AsDescription","AsCode")
 	"HierarchyType"                  = @("HierarchyFoldersAndItems","HierarchyOfItems")
@@ -1760,6 +1769,13 @@ if (-not $isAdopted) {
 				}
 			}
 			continue
+		}
+
+		# Ссылка на форму таблицы внешнего источника — шестичастная:
+		# ExternalDataSource.<Источник>.Table.<Таблица>.Form.<Форма>. Сводим её к четырём частям
+		# (вид = Table, объект = имя таблицы), дальше проверка общая.
+		if ($parts.Count -eq 6 -and $parts[0] -eq "ExternalDataSource" -and $parts[2] -eq "Table" -and $parts[4] -eq "Form") {
+			$parts = @("Table", $parts[3], "Form", $parts[5])
 		}
 
 		if ($parts.Count -ne 4 -or $parts[2] -ne "Form") {

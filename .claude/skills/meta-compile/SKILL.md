@@ -98,6 +98,7 @@ powershell.exe -NoProfile -File "${CLAUDE_SKILL_DIR}/scripts/meta-compile.ps1" -
 | CommonModule, ScheduledJob, EventSubscription | `reference/code.md` |
 | HTTPService, WebService | `reference/web.md` |
 | Enum, Constant, DefinedType | `reference/simple.md` |
+| ExternalDataSource (внешний источник данных) | `reference/external-data-source.md` |
 | FunctionalOption, FilterCriterion, SettingsStorage, CommonForm, CommonPicture, CommonTemplate, служебные | `reference/other-types.md` |
 
 Кросс-типовые детали:

@@ -1,4 +1,4 @@
-﻿# meta-edit v1.42 — Edit existing 1C metadata object XML
+﻿# meta-edit v1.43 — Edit existing 1C metadata object XML
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -139,7 +139,8 @@ $script:validEnumValues = @{
 	"WriteMode"                      = @("Independent","RecorderSubordinate")
 	"InformationRegisterPeriodicity" = @("Nonperiodical","Second","Day","Month","Quarter","Year","RecorderPosition")
 	"DependenceOnCalculationTypes"   = @("DontUse","OnActionPeriod")
-	"DataLockControlMode"            = @("Automatic","Managed")
+	# AutomaticAndManaged — только у внешнего источника данных и его таблиц.
+	"DataLockControlMode"            = @("Automatic","Managed","AutomaticAndManaged")
 	"FullTextSearch"                 = @("Use","DontUse")
 	"DataHistory"                    = @("Use","DontUse")
 	"DefaultPresentation"            = @("AsDescription","AsCode")

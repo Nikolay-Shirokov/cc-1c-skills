@@ -318,12 +318,13 @@ ClassId — фиксированные идентификаторы классо
 | `WSReference` | `WSReferenceManager`/Manager |
 | `DefinedType` | `DefinedType`/DefinedType |
 | `ExternalDataSource` | `ExternalDataSourceManager`/Manager, `ExternalDataSourceTablesManager`/TablesManager, `ExternalDataSourceCubesManager`/CubesManager |
-| `ExternalDataSource` → `Table` | `ExternalDataSourceTableManager`/Manager, `ExternalDataSourceTableObject`/Object, `ExternalDataSourceTableRef`/Ref, `ExternalDataSourceTableList`/List, `ExternalDataSourceTableRecord`/Record, `ExternalDataSourceTableRecordSet`/RecordSet, `ExternalDataSourceTableRecordKey`/RecordKey, `ExternalDataSourceTableRecordManager`/RecordManager |
+| `Table` | `ExternalDataSourceTableManager`/Manager, `ExternalDataSourceTableObject`/Object, `ExternalDataSourceTableRef`/Ref, `ExternalDataSourceTableList`/List, `ExternalDataSourceTableRecord`/Record, `ExternalDataSourceTableRecordSet`/RecordSet, `ExternalDataSourceTableRecordKey`/RecordKey, `ExternalDataSourceTableRecordManager`/RecordManager |
 
-Таблица внешнего источника — единственный подчинённый объект со своим `<InternalInfo>` в отдельном файле;
-имя элемента у неё **трёхчастное**: `<префикс>.<ИмяИсточника>.<ИмяТаблицы>` (например
-`ExternalDataSourceTableRef.PG.eds_public_products`). У `<Field>` и `<Function>` блока `InternalInfo` нет —
-только атрибут `uuid`.
+`Table` — корневой элемент файла таблицы внешнего источника (`ExternalDataSources/<Источник>/Tables/<Имя>.xml`),
+единственный подчинённый объект со своим `<InternalInfo>` в отдельном файле. Имя элемента у него
+**трёхчастное**: `<префикс>.<ИмяИсточника>.<ИмяТаблицы>` (например
+`ExternalDataSourceTableRef.PG.eds_public_products`), поэтому навыки-эмиттеры строят его инлайном,
+а не из карты «вид → набор». У `<Field>` и `<Function>` блока `InternalInfo` нет — только атрибут `uuid`.
 
 Табличные части объектов несут собственную пару в своём `<InternalInfo>`: `<Тип>TabularSection.<Объект>.<ТЧ>`/TabularSection и `<Тип>TabularSectionRow.<Объект>.<ТЧ>`/TabularSectionRow.
 

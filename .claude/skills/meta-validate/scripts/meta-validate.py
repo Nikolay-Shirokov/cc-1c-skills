@@ -1,4 +1,4 @@
-# meta-validate v1.25 — Validate 1C metadata object structure (Python port)
+# meta-validate v1.26 — Validate 1C metadata object structure (Python port)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import os
@@ -226,6 +226,8 @@ valid_types = (
     "Report", "DataProcessor",
     "CommonModule", "ScheduledJob", "EventSubscription",
     "HTTPService", "WebService", "DefinedType",
+    # Внешний источник данных и его таблица (корень файла таблицы — <Table>).
+    "ExternalDataSource", "Table",
 )
 
 # Валидные типы метаданных без глубоких правил валидации — раньше падали как "Unrecognized"
@@ -259,6 +261,9 @@ generated_type_categories = {
     "DataProcessor":              ["Object", "Manager"],
     "DefinedType":                ["DefinedType"],
     "ExternalDataSource":         ["Manager", "TablesManager", "CubesManager"],
+    # Таблица внешнего источника: имя элемента трёхчастное (Префикс.Источник.Таблица),
+    # но проверка «имя оканчивается на .ИмяОбъекта» на нём работает как есть.
+    "Table":                      ["Manager", "Object", "Ref", "List", "Record", "RecordSet", "RecordKey", "RecordManager"],
 }
 
 # Types that have NO InternalInfo / GeneratedType
@@ -320,6 +325,9 @@ child_object_rules = {
     "DocumentJournal":            ["Column", "Form", "Template", "Command"],
     "HTTPService":                ["URLTemplate"],
     "WebService":                 ["Operation"],
+    # Внешний источник: таблицы перечислены именами, функции лежат полными узлами.
+    "ExternalDataSource":         ["Table", "Function", "Cube"],
+    "Table":                      ["Field", "Form", "Template", "Command"],
     "Constant":                   ["Form"],
     "DefinedType":                [],
     "CommonModule":               [],
@@ -344,7 +352,8 @@ valid_property_values = {
     "RealTimePosting":              ["Allow", "Deny"],
     "RegisterRecordsDeletion":      ["AutoDelete", "AutoDeleteOnUnpost", "AutoDeleteOff"],
     "RegisterRecordsWritingOnPost": ["WriteModified", "WriteSelected", "WriteAll"],
-    "DataLockControlMode":          ["Automatic", "Managed"],
+    # AutomaticAndManaged — только у внешнего источника данных и его таблиц.
+    "DataLockControlMode":          ["Automatic", "Managed", "AutomaticAndManaged"],
     "FullTextSearch":               ["Use", "DontUse"],
     "DefaultPresentation":          ["AsDescription", "AsCode"],
     "HierarchyType":                ["HierarchyFoldersAndItems", "HierarchyOfItems"],
@@ -1706,6 +1715,13 @@ if not is_adopted:
                                  f"(CommonForms/{parts[1]}) — «Неизвестный объект метаданных» при загрузке")
                     form_ref_bad = True
             continue
+
+        # Ссылка на форму таблицы внешнего источника — шестичастная:
+        # ExternalDataSource.<Источник>.Table.<Таблица>.Form.<Форма>. Сводим её к четырём частям
+        # (вид = Table, объект = имя таблицы), дальше проверка общая.
+        if (len(parts) == 6 and parts[0] == "ExternalDataSource"
+                and parts[2] == "Table" and parts[4] == "Form"):
+            parts = ["Table", parts[3], "Form", parts[5]]
 
         if len(parts) != 4 or parts[2] != "Form":
             report_warn(f"20. {tag} '{ref}' — неожиданный вид ссылки на форму "

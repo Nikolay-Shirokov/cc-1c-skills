@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-compile v1.104 — Compile 1C metadata object from JSON
+# meta-compile v1.105 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -497,6 +497,7 @@ object_type_synonyms = {
     'ВебСервис': 'WebService',
     'ОпределяемыйТип': 'DefinedType',
     'ФункциональнаяОпция': 'FunctionalOption',
+    'ВнешнийИсточникДанных': 'ExternalDataSource',
 }
 
 # Enum property value synonyms — model often gets these slightly wrong
@@ -542,7 +543,9 @@ valid_enum_values = {
     'WriteMode': ['Independent', 'RecorderSubordinate'],
     'InformationRegisterPeriodicity': ['Nonperiodical', 'Second', 'Day', 'Month', 'Quarter', 'Year', 'RecorderPosition'],
     'DependenceOnCalculationTypes': ['DontUse', 'OnActionPeriod'],
-    'DataLockControlMode': ['Automatic', 'Managed'],
+    # AutomaticAndManaged — только у внешнего источника данных и его таблиц: там режим может
+    # решаться на уровне таблицы, у прочих объектов такого значения нет.
+    'DataLockControlMode': ['Automatic', 'Managed', 'AutomaticAndManaged'],
     'FullTextSearch': ['Use', 'DontUse'],
     'DataHistory': ['Use', 'DontUse'],
     'DefaultPresentation': ['AsDescription', 'AsCode'],
@@ -692,7 +695,7 @@ valid_types = [
     'Sequence', 'FilterCriterion', 'DocumentNumerator', 'SettingsStorage',
     'CommonForm',
     'SessionParameter', 'CommonCommand', 'CommandGroup', 'CommonAttribute', 'FunctionalOptionsParameter', 'WSReference',
-    'CommonPicture', 'CommonTemplate',
+    'CommonPicture', 'CommonTemplate', 'ExternalDataSource',
 ]
 # Регистр имени вида — как в PS (-contains регистронезависим): приводим к канону списка
 obj_type = next((t for t in valid_types if t.lower() == obj_type.lower()), obj_type)
@@ -745,6 +748,7 @@ type_synonyms = {
     'планвидоврасчётассылка': 'ChartOfCalculationTypesRef',
     'планвидоврасчетассылка': 'ChartOfCalculationTypesRef',
     'планобменассылка': 'ExchangePlanRef',
+    'внешнийисточникданныхтаблицассылка': 'ExternalDataSourceTableRef',
     'бизнеспроцессссылка': 'BusinessProcessRef',
     'задачассылка': 'TaskRef',
     'определяемыйтип': 'DefinedType',
@@ -969,7 +973,9 @@ def emit_type_content(indent, type_str):
     # cfg_prefix = None означает «пишем файл, корень которого cfg НЕ объявляет»
     # (Ext/Predefined.xml — его шапка это predef/v8/xr/xs/xsi). Там платформа сама уходит
     # на локальную форму: в корпусе `<v8:Type xmlns:d6p1="…current-config">d6p1:CatalogRef.Валюты`.
-    m = re.match(r'^(CatalogRef|DocumentRef|EnumRef|ChartOfAccountsRef|ChartOfCharacteristicTypesRef|ChartOfCalculationTypesRef|ExchangePlanRef|BusinessProcessRef|BusinessProcessRoutePointRef|TaskRef)\.(.+)$', type_str)
+    # ExternalDataSourceTableRef — единственный ссылочный тип с ДВУМЯ частями после префикса
+    # (Источник.Таблица), поэтому `(.+)$` здесь существенно.
+    m = re.match(r'^(CatalogRef|DocumentRef|EnumRef|ChartOfAccountsRef|ChartOfCharacteristicTypesRef|ChartOfCalculationTypesRef|ExchangePlanRef|BusinessProcessRef|BusinessProcessRoutePointRef|TaskRef|ExternalDataSourceTableRef)\.(.+)$', type_str)
     if m:
         if cfg_prefix:
             X(f'{indent}<v8:Type>{cfg_prefix}:{type_str}</v8:Type>')
@@ -1293,6 +1299,10 @@ def parse_attribute_shorthand(val):
         # Режим приведения типов измерения РС (формат 2.18). Ключ обязан доехать до эмиттера:
         # без него не-дефолтное значение (Deny / DeleteData) молча заменялось на TransformValues.
         'typeReductionMode': val.get('typeReductionMode'),
+        # Поле внешнего источника данных (контекст eds-field).
+        'nameInDataSource': str(val['nameInDataSource']) if val.get('nameInDataSource') else '',
+        'readOnly': val.get('readOnly') is True,
+        'allowNull': val.get('allowNull') is True,
     }
 
 def parse_enum_value_shorthand(val):
@@ -2285,15 +2295,28 @@ def emit_attribute(indent, parsed, context, elem_tag='Attribute'):
     if parsed.get('fillChecking'):
         fill_checking = parsed['fillChecking']
     X(f'{indent}\t\t<FillChecking>{fill_checking}</FillChecking>')
-    X(f'{indent}\t\t<ChoiceFoldersAndItems>{parsed.get("choiceFoldersAndItems") or "Items"}</ChoiceFoldersAndItems>')
+    # Поле внешнего источника (eds-field) не имеет ChoiceFoldersAndItems и LinkByType, а ChoiceForm
+    # у него стоит ПОСЛЕ ChoiceHistoryOnInput, а не перед — порядок снят с выгрузки платформы.
+    if context != 'eds-field':
+        X(f'{indent}\t\t<ChoiceFoldersAndItems>{parsed.get("choiceFoldersAndItems") or "Items"}</ChoiceFoldersAndItems>')
     emit_choice_parameter_links(f'{indent}\t\t', parsed.get('choiceParameterLinks'))
     emit_choice_parameters(f'{indent}\t\t', parsed.get('choiceParameters'))
     X(f'{indent}\t\t<QuickChoice>{parsed.get("quickChoice") or "Auto"}</QuickChoice>')
     X(f'{indent}\t\t<CreateOnInput>{parsed.get("createOnInput") or "Auto"}</CreateOnInput>')
-    X(f'{indent}\t\t<ChoiceForm>{esc_xml_text(str(parsed["choiceForm"]))}</ChoiceForm>' if parsed.get('choiceForm') else f'{indent}\t\t<ChoiceForm/>')
-    emit_link_by_type(f'{indent}\t\t', parsed.get('linkByType'))
+    if context != 'eds-field':
+        X(f'{indent}\t\t<ChoiceForm>{esc_xml_text(str(parsed["choiceForm"]))}</ChoiceForm>' if parsed.get('choiceForm') else f'{indent}\t\t<ChoiceForm/>')
+        emit_link_by_type(f'{indent}\t\t', parsed.get('linkByType'))
     chi = parsed.get('choiceHistoryOnInput') or 'Auto'
     X(f'{indent}\t\t<ChoiceHistoryOnInput>{chi}</ChoiceHistoryOnInput>')
+
+    if context == 'eds-field':
+        X(f'{indent}\t\t<ChoiceForm>{esc_xml_text(str(parsed["choiceForm"]))}</ChoiceForm>' if parsed.get('choiceForm') else f'{indent}\t\t<ChoiceForm/>')
+        nids = parsed.get('nameInDataSource') or parsed['name']
+        X(f'{indent}\t\t<NameInDataSource>{esc_xml_text(str(nids))}</NameInDataSource>')
+        ro = 'true' if (parsed.get('readOnly') is True or 'readonly' in parsed.get('flags', [])) else 'false'
+        X(f'{indent}\t\t<ReadOnly>{ro}</ReadOnly>')
+        an = 'true' if (parsed.get('allowNull') is True or 'nullable' in parsed.get('flags', [])) else 'false'
+        X(f'{indent}\t\t<AllowNull>{an}</AllowNull>')
     # Измерение регистра сведений: Master/MainFilter/DenyIncompleteValues (между ChoiceHistoryOnInput и Indexing).
     if elem_tag == 'Dimension' and context == 'register-info':
         master = 'true' if (parsed.get('master') is True or 'master' in parsed.get('flags', [])) else 'false'
@@ -2341,7 +2364,8 @@ def emit_attribute(indent, parsed, context, elem_tag='Attribute'):
     use_value = parsed.get("use") or "ForItem"
     if context == 'catalog':
         X(f'{indent}\t\t<Use>{use_value}</Use>')
-    if context not in ('processor', 'processor-tabular'):
+    # и не для полей внешнего источника: индексами и полнотекстовым поиском чужой таблицы 1С не владеет.
+    if context not in ('processor', 'processor-tabular', 'eds-field'):
         # Признаки учёта ПС (account-flag) не имеют <Indexing>/<FullTextSearch>, но имеют <DataHistory>.
         if context != 'account-flag':
             # Ресурс регистра накопления НЕ имеет <Indexing> (только <FullTextSearch>); измерение/реквизит — имеют.
@@ -4314,6 +4338,237 @@ def emit_addressing_attribute(indent, addr_def):
     emit_attribute(indent, parsed, 'task-addressing', 'AddressingAttribute')
 
 # ---------------------------------------------------------------------------
+# 13h. Внешние источники данных
+# ---------------------------------------------------------------------------
+# Источник пишется в один файл, каждая его таблица — в свой. Функции живут ВНУТРИ файла источника
+# полными узлами, наравне со списком имён таблиц: так их выгружает платформа.
+
+def get_eds_tables(val):
+    """Таблицы: dict имя → массив полей ЛИБО объект со свойствами и ключом fields/columns."""
+    tables = {}
+    if not val:
+        return tables
+
+    def entry(v):
+        if isinstance(v, list):
+            return {'props': None, 'fields': list(v)}
+        f = v.get('fields') if v.get('fields') is not None else v.get('columns')
+        return {'props': v, 'fields': list(f) if f else []}
+
+    if isinstance(val, list):
+        for t in val:
+            tables[str(t.get('name'))] = entry(t)
+    else:
+        for k, v in val.items():
+            tables[k] = entry(v)
+    return tables
+
+
+def get_eds_field_ref(src_name, table_name, field_name):
+    """Ссылка на поле таблицы: в DSL короткое имя, в XML — полный путь."""
+    if not field_name:
+        return ''
+    if str(field_name).startswith('ExternalDataSource.'):
+        return str(field_name)
+    return f'ExternalDataSource.{src_name}.Table.{table_name}.Field.{field_name}'
+
+
+def emit_eds_field_ref_list(indent, tag, names, src_name, table_name):
+    items = [n for n in (names or []) if n]
+    if not items:
+        X(f'{indent}<{tag}/>')
+        return
+    X(f'{indent}<{tag}>')
+    for n in items:
+        X(f'{indent}\t<xr:Field>{esc_xml_text(get_eds_field_ref(src_name, table_name, n))}</xr:Field>')
+    X(f'{indent}</{tag}>')
+
+
+def emit_eds_field_ref_scalar(indent, tag, name, src_name, table_name):
+    if not name:
+        X(f'{indent}<{tag}/>')
+        return
+    X(f'{indent}<{tag}>{esc_xml_text(get_eds_field_ref(src_name, table_name, name))}</{tag}>')
+
+
+def emit_external_data_source_properties(indent):
+    i = indent
+    X(f'{i}<Name>{esc_xml_text(obj_name)}</Name>')
+    emit_mltext(i, 'Synonym', synonym)
+    if defn.get('comment'):
+        X(f'{i}<Comment>{esc_xml_text(str(defn["comment"]))}</Comment>')
+    else:
+        X(f'{i}<Comment/>')
+    dlcm = get_enum_prop('DataLockControlMode', 'dataLockControlMode', 'Automatic')
+    X(f'{i}<DataLockControlMode>{dlcm}</DataLockControlMode>')
+
+
+def emit_eds_function(indent, fn_name, val):
+    """Функция внешнего источника. Параметров как объектов метаданных нет: они записаны прямо
+    в выражении как &1, &2 (см. reference/external-data-source.md)."""
+    fn_synonym = None
+    fn_comment = ''
+    returns = ''
+    return_value = True
+    if isinstance(val, str):
+        expr = val
+    else:
+        expr = str(val.get('expression') or val.get('expressionInDataSource') or '')
+        returns = str(val.get('returns') or val.get('returnType') or '')
+        if val.get('returnValue') is not None:
+            return_value = val.get('returnValue') is True
+        fn_synonym = val.get('synonym')
+        fn_comment = str(val['comment']) if val.get('comment') else ''
+    if not expr:
+        print(f"ERROR: Функция '{fn_name}' внешнего источника данных: не задано выражение (ключ expression).",
+              file=sys.stderr)
+        sys.exit(1)
+    X(f'{indent}<Function uuid="{new_uuid()}">')
+    X(f'{indent}\t<Properties>')
+    X(f'{indent}\t\t<Name>{esc_xml_text(fn_name)}</Name>')
+    emit_mltext(f'{indent}\t\t', 'Synonym', fn_synonym)
+    if fn_comment:
+        X(f'{indent}\t\t<Comment>{esc_xml_text(fn_comment)}</Comment>')
+    else:
+        X(f'{indent}\t\t<Comment/>')
+    X(f'{indent}\t\t<ReturnValue>{"true" if return_value else "false"}</ReturnValue>')
+    if return_value:
+        emit_value_type(f'{indent}\t\t', returns or 'String')
+    else:
+        X(f'{indent}\t\t<Type/>')
+    X(f'{indent}\t\t<ExpressionInDataSource>{esc_xml_text(expr)}</ExpressionInDataSource>')
+    X(f'{indent}\t</Properties>')
+    X(f'{indent}</Function>')
+
+
+def emit_eds_table_properties(indent, src_name, table_name, t):
+    """Свойства таблицы: 38 узлов в порядке выгрузки платформы."""
+    i = indent
+    t = t or {}
+    tbl_synonym = t['synonym'] if t.get('synonym') is not None else split_camel_case(table_name)
+    X(f'{i}<Name>{esc_xml_text(table_name)}</Name>')
+    emit_mltext(i, 'Synonym', tbl_synonym)
+    if t.get('comment'):
+        X(f'{i}<Comment>{esc_xml_text(str(t["comment"]))}</Comment>')
+    else:
+        X(f'{i}<Comment/>')
+
+    table_type = str(t.get('tableType') or 'Table')
+    X(f'{i}<TableType>{table_type}</TableType>')
+    # Имя в источнике по умолчанию равно имени объекта — так поступает и платформа.
+    if t.get('nameInDataSource'):
+        nids = str(t['nameInDataSource'])
+    elif table_type == 'Expression':
+        nids = ''
+    else:
+        nids = table_name
+    X(f'{i}<NameInDataSource>{esc_xml_text(nids)}</NameInDataSource>' if nids else f'{i}<NameInDataSource/>')
+    expr = str(t.get('expressionInDataSource') or t.get('expression') or '')
+    X(f'{i}<ExpressionInDataSource>{esc_xml_text(expr)}</ExpressionInDataSource>' if expr else f'{i}<ExpressionInDataSource/>')
+    X(f'{i}<TableDataType>{t.get("tableDataType") or "NonobjectData"}</TableDataType>')
+
+    emit_eds_field_ref_list(i, 'KeyFields', t.get('keyFields'), src_name, table_name)
+    emit_eds_field_ref_scalar(i, 'PresentationField', t.get('presentationField'), src_name, table_name)
+    emit_eds_field_ref_scalar(i, 'ParentField', t.get('parentField'), src_name, table_name)
+    # Признака незаполненного родителя отдельным узлом нет: NULL против «Заданного значения»
+    # различаются формой самого значения (xsi:nil против типизированного).
+    # ВАЖНО: платформа при загрузке XML сбрасывает заданное значение в пустую строку — проверено
+    # на её собственной выгрузке. Задать его можно только интерактивно, поэтому дефолт у таблицы
+    # с полем родителя — пустая строка (как после загрузки), а без него — nil.
+    upv = t.get('unfilledParentValue')
+    if upv is not None:
+        emit_min_max_value(i, 'UnfilledParentValue', upv)
+    elif t.get('parentField'):
+        X(f'{i}<UnfilledParentValue xsi:type="xs:string"/>')
+    else:
+        X(f'{i}<UnfilledParentValue xsi:nil="true"/>')
+    emit_characteristics(i, t.get('characteristics'))
+
+    X(f'{i}<UseStandardCommands>{"false" if t.get("useStandardCommands") is False else "true"}</UseStandardCommands>')
+    X(f'{i}<QuickChoice>{"true" if t.get("quickChoice") is True else "false"}</QuickChoice>')
+    # Ввод по строке: ключа нет → выводим из поля представления (так делает платформа при загрузке).
+    # Явный список, в том числе пустой, уважаем как есть — отсюда presence-aware проверка.
+    if 'inputByString' in t:
+        ibs = t.get('inputByString')
+    elif t.get('presentationField'):
+        ibs = [t['presentationField']]
+    else:
+        ibs = None
+    emit_eds_field_ref_list(i, 'InputByString', ibs, src_name, table_name)
+    X(f'{i}<CreateOnInput>{t.get("createOnInput") or "Auto"}</CreateOnInput>')
+    X(f'{i}<SearchStringModeOnInputByString>{t.get("searchStringModeOnInputByString") or "Begin"}</SearchStringModeOnInputByString>')
+    X(f'{i}<ChoiceDataGetModeOnInputByString>{t.get("choiceDataGetModeOnInputByString") or "Directly"}</ChoiceDataGetModeOnInputByString>')
+    X(f'{i}<ChoiceHistoryOnInput>{t.get("choiceHistoryOnInput") or "Auto"}</ChoiceHistoryOnInput>')
+
+    for form_tag in ('DefaultObjectForm', 'DefaultRecordForm', 'DefaultListForm', 'DefaultChoiceForm'):
+        key = form_tag[0].lower() + form_tag[1:]
+        emit_form_ref(i, form_tag, t.get(key))
+    for pres_tag in ('ObjectPresentation', 'ExtendedObjectPresentation', 'RecordPresentation',
+                     'ExtendedRecordPresentation', 'ListPresentation', 'ExtendedListPresentation', 'Explanation'):
+        key = pres_tag[0].lower() + pres_tag[1:]
+        emit_mltext(i, pres_tag, t.get(key))
+    X(f'{i}<IncludeHelpInContents>{"true" if t.get("includeHelpInContents") is True else "false"}</IncludeHelpInContents>')
+    X(f'{i}<ReadOnly>{"true" if t.get("readOnly") is True else "false"}</ReadOnly>')
+    X(f'{i}<TransactionsIsolationLevel>{t.get("transactionsIsolationLevel") or "Auto"}</TransactionsIsolationLevel>')
+    emit_eds_field_ref_scalar(i, 'DataVersionField', t.get('dataVersionField'), src_name, table_name)
+    X(f'{i}<EditType>{t.get("editType") or "InDialog"}</EditType>')
+    emit_md_ref_list(i, 'BasedOn', t.get('basedOn'))
+    emit_eds_field_ref_list(i, 'DataLockFields', t.get('dataLockFields'), src_name, table_name)
+    X(f'{i}<DataLockControlMode>{t.get("dataLockControlMode") or "Automatic"}</DataLockControlMode>')
+
+
+EDS_TABLE_GENERATED_TYPES = (
+    ('ExternalDataSourceTableManager', 'Manager'),
+    ('ExternalDataSourceTableObject', 'Object'),
+    ('ExternalDataSourceTableRef', 'Ref'),
+    ('ExternalDataSourceTableList', 'List'),
+    ('ExternalDataSourceTableRecord', 'Record'),
+    ('ExternalDataSourceTableRecordSet', 'RecordSet'),
+    ('ExternalDataSourceTableRecordKey', 'RecordKey'),
+    ('ExternalDataSourceTableRecordManager', 'RecordManager'),
+)
+
+
+def build_eds_table_xml(src_name, table_name, entry):
+    """Отдельный XML-документ таблицы. Возвращает строку: X пишет в общий список строк,
+    поэтому «перехват» — запомнить длину, отдать эмиттерам, срезать добавленное
+    (в ps1-порте тот же приём выражен через StringBuilder — различие рантаймов, не логики)."""
+    before = len(lines)
+
+    X('<?xml version="1.0" encoding="UTF-8"?>')
+    X(f'<MetaDataObject {xmlns_decl} version="{format_version}">')
+    X(f'\t<Table uuid="{new_uuid()}">')
+    # InternalInfo у таблицы эмитится здесь, а не через generated_types: имя элемента
+    # трёхчастное (Префикс.Источник.Таблица), общая карта такой формы не знает.
+    X('\t\t<InternalInfo>')
+    for prefix, category in EDS_TABLE_GENERATED_TYPES:
+        X(f'\t\t\t<xr:GeneratedType name="{prefix}.{src_name}.{table_name}" category="{category}">')
+        X(f'\t\t\t\t<xr:TypeId>{new_uuid()}</xr:TypeId>')
+        X(f'\t\t\t\t<xr:ValueId>{new_uuid()}</xr:ValueId>')
+        X('\t\t\t</xr:GeneratedType>')
+    X('\t\t</InternalInfo>')
+
+    X('\t\t<Properties>')
+    emit_eds_table_properties('\t\t\t', src_name, table_name, entry['props'])
+    X('\t\t</Properties>')
+
+    fields = entry['fields']
+    if fields:
+        X('\t\t<ChildObjects>')
+        for f in fields:
+            emit_attribute('\t\t\t', parse_attribute_shorthand(f), 'eds-field', 'Field')
+        X('\t\t</ChildObjects>')
+    else:
+        X('\t\t<ChildObjects/>')
+    X('\t</Table>')
+    X('</MetaDataObject>')
+
+    chunk = '\r\n'.join(lines[before:])
+    del lines[before:]
+    return chunk
+
+
+# ---------------------------------------------------------------------------
 # 14. Namespaces
 # ---------------------------------------------------------------------------
 
@@ -4453,6 +4708,7 @@ property_emitters = {
     'Task': emit_task_properties,
     'HTTPService': emit_http_service_properties,
     'WebService': emit_web_service_properties,
+    'ExternalDataSource': emit_external_data_source_properties,
 }
 
 property_emitters[obj_type]('\t\t\t')
@@ -4726,6 +4982,25 @@ if obj_type == 'WebService':
     else:
         X('\t\t<ChildObjects/>')
 
+# --- ExternalDataSource: Tables (именами) + Functions (полными узлами) ---
+eds_tables = {}
+if obj_type == 'ExternalDataSource':
+    eds_tables = get_eds_tables(defn.get('tables'))
+    functions = {}
+    if defn.get('functions'):
+        for k, v in defn['functions'].items():
+            functions[k] = v
+    if eds_tables or functions:
+        has_children = True
+        X('\t\t<ChildObjects>')
+        for tbl_name in eds_tables:
+            X(f'\t\t\t<Table>{esc_xml_text(tbl_name)}</Table>')
+        for fn_name, fn_val in functions.items():
+            emit_eds_function('\t\t\t', fn_name, fn_val)
+        X('\t\t</ChildObjects>')
+    else:
+        X('\t\t<ChildObjects/>')
+
 # --- CommonModule: no ChildObjects ---
 
 X(f'\t</{obj_type}>')
@@ -4775,6 +5050,7 @@ type_plural_map = {
     'WSReference': 'WSReferences',
     'CommonPicture': 'CommonPictures',
     'CommonTemplate': 'CommonTemplates',
+    'ExternalDataSource': 'ExternalDataSources',
 }
 
 type_plural = type_plural_map[obj_type]
@@ -4794,6 +5070,18 @@ if obj_type not in types_no_sub_dir:
     os.makedirs(obj_sub_dir, exist_ok=True)
 
 write_xml_file_keep_eol(main_xml_path, metadata_xml)
+
+# Таблицы внешнего источника — отдельными файлами в <Источник>/Tables/.
+# Единственный вид, у которого объект складывается более чем из одного XML.
+eds_tables_created = []
+if obj_type == 'ExternalDataSource' and eds_tables:
+    tables_dir = os.path.join(obj_sub_dir, 'Tables')
+    os.makedirs(tables_dir, exist_ok=True)
+    for tbl_name in eds_tables:
+        table_xml = build_eds_table_xml(obj_name, tbl_name, eds_tables[tbl_name])
+        table_path = os.path.join(tables_dir, f'{tbl_name}.xml')
+        write_xml_file_keep_eol(table_path, table_xml)
+        eds_tables_created.append(table_path)
 
 # Module files
 modules_created = []
