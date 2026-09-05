@@ -1,0 +1,60 @@
+{
+  "name": "У копии все GUID свои",
+  "osOnly": "win32",
+  "fakePlatform": {
+    "exit": 1,
+    "log": ""
+  },
+  "preRun": [
+    {
+      "writeFile": {
+        "path": "src/Проба.xml",
+        "content": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<MetaDataObject xmlns=\"http://v8.1c.ru/8.3/MDClasses\" xmlns:v8=\"http://v8.1c.ru/8.1/data/core\" xmlns:xr=\"http://v8.1c.ru/8.3/xcf/readable\" version=\"2.17\">\n\t<ExternalDataProcessor uuid=\"aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb\">\n\t\t<InternalInfo>\n\t\t\t<xr:GeneratedType name=\"ExternalDataProcessorObject.Проба\" category=\"Object\">\n\t\t\t\t<xr:TypeId>cccccccc-4444-5555-6666-dddddddddddd</xr:TypeId>\n\t\t\t\t<xr:ValueId>eeeeeeee-7777-8888-9999-ffffffffffff</xr:ValueId>\n\t\t\t</xr:GeneratedType>\n\t\t</InternalInfo>\n\t\t<Properties>\n\t\t\t<Name>Проба</Name>\n\t\t\t<DefaultForm>ExternalDataProcessor.Проба.Form.Форма</DefaultForm>\n\t\t</Properties>\n\t\t<ChildObjects>\n\t\t\t<Form>Форма</Form>\n\t\t</ChildObjects>\n\t</ExternalDataProcessor>\n</MetaDataObject>\n"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "src/Проба/Ext/ObjectModule.bsl",
+        "content": "Процедура Проба()\r\n\tСообщить(\"ExternalDataProcessorObject.Проба\");\r\n\tСообщить(\"ExternalDataProcessor.Проба.Form.Форма\");\r\nКонецПроцедуры\r\n"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "src/Проба/Forms/Форма.xml",
+        "content": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<MetaDataObject xmlns=\"http://v8.1c.ru/8.3/MDClasses\" version=\"2.17\">\n\t<Form uuid=\"11111111-2222-3333-4444-555555555555\">\n\t\t<Properties>\n\t\t\t<Name>Форма</Name>\n\t\t</Properties>\n\t</Form>\n</MetaDataObject>\n"
+      }
+    }
+  ],
+  "args_extra": [
+    "-SourceDir",
+    "{workDir}\\src",
+    "-V8Path",
+    "{workDir}\\fake.cmd",
+    "-TempBasePath",
+    "{workDir}\\base",
+    "-EmbedSourceFile",
+    "{workDir}\\src\\Проба.xml"
+  ],
+  "expect": {
+    "fileNotContains": [
+      {
+        "file": "base\\cfg\\DataProcessors\\Проба.xml",
+        "text": [
+          "aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb",
+          "cccccccc-4444-5555-6666-dddddddddddd",
+          "eeeeeeee-7777-8888-9999-ffffffffffff"
+        ]
+      },
+      {
+        "file": "base\\cfg\\DataProcessors\\Проба\\Forms\\Форма.xml",
+        "text": "11111111-2222-3333-4444-555555555555"
+      }
+    ],
+    "fileContains": {
+      "file": "base\\cfg\\DataProcessors\\Проба.xml",
+      "text": "<xr:TypeId>"
+    }
+  },
+  "expectError": true,
+  "noSnapshot": "генерируются случайные GUID — снять эталон нельзя"
+}

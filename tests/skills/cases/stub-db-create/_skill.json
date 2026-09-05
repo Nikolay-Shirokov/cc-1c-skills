@@ -1,0 +1,5 @@
+{
+  "script": "epf-build/scripts/stub-db-create",
+  "setup": "none",
+  "args": []
+}

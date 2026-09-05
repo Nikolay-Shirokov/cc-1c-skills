@@ -1,4 +1,4 @@
-﻿# stub-db-create v1.9 — Create temp 1C infobase with metadata stubs for EPF/ERF build
+﻿# stub-db-create v1.10 — Create temp 1C infobase with metadata stubs for EPF/ERF build
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -442,9 +442,13 @@ function Add-SourceObjectToConfig {
 	# Содержимое объекта — как есть; в XML та же подстановка типа, .bsl копируются байт в байт.
 	$srcContent = Join-Path (Split-Path $SourceXml -Parent) $name
 	if (Test-Path $srcContent) {
+		# Длину префикса берём у РАЗРЕШЁННОГО пути, а не у переданной строки: путь может
+		# прийти с коротким именем (C:\Users\NSHIRO~1\…), а Get-ChildItem отдаёт полное — тогда
+		# отрезание по длине исходной строки оставляет в относительном пути чужие символы.
+		$srcRoot = (Get-Item -LiteralPath $srcContent).FullName.TrimEnd('\', '/')
 		$dstContent = Join-Path $objDir $name
-		foreach ($f in (Get-ChildItem -Path $srcContent -Recurse -File)) {
-			$rel = $f.FullName.Substring($srcContent.Length).TrimStart('\', '/')
+		foreach ($f in (Get-ChildItem -LiteralPath $srcRoot -Recurse -File)) {
+			$rel = $f.FullName.Substring($srcRoot.Length).TrimStart('\', '/')
 			$dst = Join-Path $dstContent $rel
 			New-Item -ItemType Directory -Path (Split-Path $dst -Parent) -Force | Out-Null
 			if ($f.Extension -ieq '.xml') {
