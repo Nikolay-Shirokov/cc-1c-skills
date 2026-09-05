@@ -1,0 +1,920 @@
+﻿# db-load-xml v1.28 — Load 1C configuration from XML files
+# Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
+# NB: *nix-раскладку платформы (/opt/1cv8/<ver>/1cv8, без .exe) знает только .py-порт — PS на *nix не исполняется.
+<#
+.SYNOPSIS
+    Загрузка конфигурации 1С из XML-файлов
+
+.DESCRIPTION
+    Загружает конфигурацию в информационную базу из XML-файлов.
+    Поддерживает полную и частичную загрузку.
+
+.PARAMETER V8Path
+    Путь к каталогу bin платформы или к 1cv8.exe
+
+.PARAMETER InfoBasePath
+    Путь к файловой информационной базе
+
+.PARAMETER InfoBaseServer
+    Сервер 1С (для серверной базы)
+
+.PARAMETER InfoBaseRef
+    Имя базы на сервере
+
+.PARAMETER UserName
+    Имя пользователя 1С
+
+.PARAMETER Password
+    Пароль пользователя
+
+.PARAMETER ConfigDir
+    Каталог XML-исходников конфигурации
+
+.PARAMETER Mode
+    Режим загрузки: Full или Partial (по умолчанию Full)
+
+.PARAMETER Files
+    Относительные пути файлов через запятую (для режима Partial)
+
+.PARAMETER ListFile
+    Путь к файлу со списком файлов (альтернатива -Files, для режима Partial)
+
+.PARAMETER Extension
+    Имя расширения для загрузки
+
+.PARAMETER AllExtensions
+    Загрузить все расширения
+
+.PARAMETER Format
+    Формат файлов: Hierarchical или Plain (по умолчанию Hierarchical)
+
+.PARAMETER AdditionalV8Arguments
+    Дополнительные аргументы запуска 1cv8.exe (например /UseHwLicenses+)
+
+.PARAMETER AdditionalIbcmdArguments
+    Дополнительные аргументы запуска ibcmd (форма --ключ=значение)
+
+.EXAMPLE
+    .\db-load-xml.ps1 -InfoBasePath "C:\Bases\MyDB" -ConfigDir "C:\src" -Mode Full
+
+.EXAMPLE
+    .\db-load-xml.ps1 -InfoBasePath "C:\Bases\MyDB" -ConfigDir "C:\src" -Mode Partial -Files "Catalogs/Номенклатура.xml,Catalogs/Номенклатура/Ext/ObjectModule.bsl"
+#>
+
+[CmdletBinding(PositionalBinding=$false)]
+param(
+    [Parameter(Mandatory=$false)]
+    [string]$V8Path,
+
+    [Parameter(Mandatory=$false)]
+    [string]$InfoBasePath,
+
+    [Parameter(Mandatory=$false)]
+    [string]$InfoBaseServer,
+
+    [Parameter(Mandatory=$false)]
+    [string]$InfoBaseRef,
+
+    [Parameter(Mandatory=$false)]
+    [string]$UserName,
+
+    [Parameter(Mandatory=$false)]
+    [string]$Password,
+
+    [Parameter(Mandatory=$true)]
+    [string]$ConfigDir,
+
+    [Parameter(Mandatory=$false)]
+    # Пустое значение = режим не задан. Прежнее умолчание Full подставляется ниже, после того
+    # как станет видно, перечислены ли файлы.
+    [ValidateSet("", "Full", "Partial")]
+    [string]$Mode = "",
+
+    [Parameter(Mandatory=$false)]
+    [string]$Files,
+
+    [Parameter(Mandatory=$false)]
+    [string]$ListFile,
+
+    [Parameter(Mandatory=$false)]
+    [string]$Extension,
+
+    [Parameter(Mandatory=$false)]
+    [switch]$AllExtensions,
+
+    [Parameter(Mandatory=$false)]
+    [ValidateSet("Hierarchical", "Plain")]
+    [string]$Format = "Hierarchical",
+
+    [Parameter(Mandatory=$false)]
+    [switch]$UpdateDB,
+
+    [Parameter(Mandatory=$false)]
+    [switch]$StrictLog,
+
+    # Пропустить проверку применимости расширения после загрузки.
+    [Parameter(Mandatory=$false)]
+    [switch]$NoApplyCheck,
+
+    [Parameter(Mandatory=$false)]
+    [string]$RepositoryPath,
+
+    [Parameter(Mandatory=$false)]
+    [string]$RepositoryUser,
+
+    [Parameter(Mandatory=$false)]
+    [string]$RepositoryPassword,
+
+    [Parameter(Mandatory=$false)]
+    [string[]]$AdditionalV8Arguments = @(),
+
+    [Parameter(Mandatory=$false)]
+    [string[]]$AdditionalIbcmdArguments = @()
+)
+
+$OutputEncoding = [System.Text.Encoding]::UTF8
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+
+# --- Реквизиты хранилища из .v8-project.json ---
+# Модель их не передаёт: скрипт сопоставляет параметры соединения с записью в databases[]
+# и берёт repository оттуда. Тот же приём, что в cf-edit.ps1 (сопоставление по configSrc).
+function Find-V8Project([string]$startDir) {
+	$d = $startDir
+	for ($i = 0; $i -lt 20 -and $d; $i++) {
+		$pj = Join-Path $d ".v8-project.json"
+		if (Test-Path $pj) { return $pj }
+		$parent = [System.IO.Path]::GetDirectoryName($d)
+		if ($parent -eq $d) { break }
+		$d = $parent
+	}
+	return $null
+}
+function Test-SamePath {
+    param([string]$A, [string]$B)
+    if (-not $A -or -not $B) { return $false }
+    try {
+        $na = [System.IO.Path]::GetFullPath($A).TrimEnd('\', '/')
+        $nb = [System.IO.Path]::GetFullPath($B).TrimEnd('\', '/')
+        return $na.Equals($nb, [System.StringComparison]::OrdinalIgnoreCase)
+    } catch { return $false }
+}
+
+function Find-ProjectDatabase {
+    # Запись базы в реестре, соответствующая переданному соединению. $null, если не найдена.
+    $pf = Find-V8Project (Get-Location).Path
+    if (-not $pf) { return $null }
+    try { $proj = Get-Content $pf -Raw -Encoding UTF8 | ConvertFrom-Json } catch { return $null }
+    if (-not $proj.databases) { return $null }
+    foreach ($db in $proj.databases) {
+        if ($InfoBasePath -and $db.path -and (Test-SamePath $db.path $InfoBasePath)) { return $db }
+        if ($InfoBaseServer -and $InfoBaseRef -and $db.server -and $db.ref) {
+            if ($db.server.Equals($InfoBaseServer, [System.StringComparison]::OrdinalIgnoreCase) -and
+                $db.ref.Equals($InfoBaseRef, [System.StringComparison]::OrdinalIgnoreCase)) { return $db }
+        }
+    }
+    return $null
+}
+
+function Resolve-RepositorySettings {
+    # Возвращает @{ Path; User; Password; FromRegistry }. Явные -Repository* всегда сильнее реестра.
+    $dbRec = Find-ProjectDatabase
+    $rec = $null
+    if ($dbRec) {
+        if ($Extension) {
+            # У расширения СВОЁ хранилище со своим путём (проверено): выбирается парой
+            # /ConfigurationRepositoryF"<путь расширения>" + -Extension "<Имя>".
+            if ($dbRec.extensions) {
+                foreach ($ext in $dbRec.extensions) {
+                    if ($ext.name -and $ext.name.Equals($Extension, [System.StringComparison]::OrdinalIgnoreCase)) {
+                        $rec = $ext.repository
+                        break
+                    }
+                }
+            }
+        } else {
+            $rec = $dbRec.repository
+        }
+    }
+    $path = if ($RepositoryPath) { $RepositoryPath } elseif ($rec -and $rec.path) { [string]$rec.path } else { $null }
+    $user = if ($RepositoryUser) { $RepositoryUser } elseif ($rec -and $rec.user) { [string]$rec.user } else { $null }
+    # Пустой пароль = отсутствующий: 1С требует опускать ключ целиком, а не передавать пустое значение.
+    $pwd  = if ($RepositoryPassword) { $RepositoryPassword } elseif ($rec -and $rec.password) { [string]$rec.password } else { $null }
+    return @{
+        Path         = if ($path) { $path.Trim().Trim('"') } else { $null }
+        User         = $user
+        Password     = $pwd
+        FromRegistry = [bool]($rec -and $rec.path)
+        DbRecord     = $dbRec
+    }
+}
+
+function Get-RepositoryArgs {
+    # Ключи доступа к хранилищу. Форма — кавычки ВНУТРИ токена, как у /N и /P.
+    param([hashtable]$Repo)
+    $a = @()
+    if (-not $Repo -or -not $Repo.Path) { return $a }
+    $a += "/ConfigurationRepositoryF`"$($Repo.Path)`""
+    if ($Repo.User) { $a += "/ConfigurationRepositoryN`"$($Repo.User)`"" }
+    if ($Repo.Password) { $a += "/ConfigurationRepositoryP`"$($Repo.Password)`"" }
+    return $a
+}
+
+# Сообщения платформы про хранилище конфигурации называют причину, но не действие. Действие
+# дописываем сами: без него модель упирается в отказ и не знает, чем его лечить.
+function Write-RepositoryHints {
+    param([string]$LogText)
+    if (-not $LogText) { return }
+    if ($LogText -match 'текущая конфигурация помещена в хранилище') {
+        Write-Host "[hint] полная загрузка в базу, подключённую к хранилищу, невозможна." -ForegroundColor Yellow
+        Write-Host "       Используйте -Mode Partial, предварительно захватив объекты: /db-repo lock" -ForegroundColor Yellow
+    }
+    foreach ($m in [regex]::Matches($LogText, 'объект метаданных ([^\s]+) не захвачен в хранилище')) {
+        $obj = $m.Groups[1].Value
+        if ($obj -eq 'Configuration') {
+            Write-Host "[hint] не захвачен корень конфигурации — он нужен, чтобы добавить или удалить объект:" -ForegroundColor Yellow
+            Write-Host "       /db-repo lock <база> -Objects `"Конфигурация`"" -ForegroundColor Yellow
+        } else {
+            Write-Host "[hint] объект не захвачен в хранилище: /db-repo lock <база> -Objects `"$obj`"" -ForegroundColor Yellow
+        }
+    }
+    if ($LogText -match 'Соединение с хранилищем конфигурации не установлено') {
+        Write-Host "[hint] соединение с хранилищем не установлено. Две причины:" -ForegroundColor Yellow
+        Write-Host "       реквизиты неизвестны — добавьте `"repository`" в запись базы в .v8-project.json (см. /db-list);" -ForegroundColor Yellow
+        Write-Host "       либо хранилище недоступно — для сетевого проверьте сервер хранилища и порт." -ForegroundColor Yellow
+    }
+}
+
+function Protect-Secrets {
+    # Redact literal secret values from a display string (String.Replace is literal, not regex).
+    param([string]$Text, [string[]]$Secrets)
+    foreach ($s in $Secrets) { if ($s) { $Text = $Text.Replace($s, '***') } }
+    return $Text
+}
+
+function Get-ExitAnnotation {
+    # Annotate an abnormal process exit code so a crash isn't reported as a bare number.
+    # A batch DESIGNER that crashes (e.g. missing license) may leave the infobase locked or
+    # half-updated — surface that instead of a plain code. (Windows exception codes only;
+    # POSIX signals are handled in the .py port.)
+    param([int]$Code)
+    $win = @{
+        -1073741819 = "0xC0000005 (access violation)"
+        -1073741515 = "0xC0000135 (missing DLL)"
+        -1073740791 = "0xC0000409 (stack overrun)"
+    }
+    if ($win.ContainsKey($Code)) {
+        return " — abnormal termination, exception $($win[$Code]); the infobase may be left in an inconsistent state; verify it before retrying"
+    }
+    return ""
+}
+
+# --- Additional platform arguments ---
+$script:V8OwnedKeys = @(
+    'DESIGNER', 'ENTERPRISE', 'CREATEINFOBASE', 'CONFIG',
+    '/F', '/S', '/N', '/P', '/Out', '/DisableStartupDialogs',
+    '/UseTemplate', '/AddToList', '/Execute', '/C', '/URL', '/UC',
+    '/DumpIB', '/RestoreIB', '/DumpCfg', '/LoadCfg',
+    '/DumpConfigToFiles', '/LoadConfigFromFiles', '/UpdateDBCfg',
+    '/DumpExternalDataProcessorOrReportToFiles', '/LoadExternalDataProcessorOrReportFromFiles'
+)
+# Пакетные команды платформы. В одной командной строке DESIGNER выполняет ТОЛЬКО ПОСЛЕДНЮЮ,
+# остальные молча отбрасывает (проверено на 8.3.24: /LoadConfigFromFiles вместе с
+# /CheckCanApplyConfigurationExtensions завершились кодом 0 с пустым логом, и загрузка НЕ
+# состоялась). Такая команда в дополнительных аргументах подменяет собой операцию навыка, а навык
+# отчитывается успехом. Дополнительные аргументы — это опции, а не режимы.
+$script:V8BatchKeys = @(
+    '/CheckConfig', '/CheckModules', '/CheckCanApplyConfigurationExtensions',
+    '/DumpDBCfgList', '/DeleteCfg', '/UpdateCfg', '/CompareCfg', '/MergeCfg',
+    '/ManageCfgSupport', '/RollbackCfg', '/ConvertFiles'
+)
+
+$script:IbcmdOwnedKeys = @(
+    '--db-path', '--data', '--out', '--file', '--load', '--restore',
+    '--import', '--export', '--apply', '--force', '--create-database',
+    '--user', '--password'
+)
+$script:V8SecretKeys = @('/P', '/UC', '/WSP', '/AWSP', '/ConfigurationRepositoryP')
+$script:IbcmdSecretKeys = @('--password', '--token', '--db-pwd')
+
+function Test-ArgKeyMatch {
+    # A token matches a key when it equals the key, or starts with it and the next
+    # character is not a letter — catches glued /N"user" and --password=x, while
+    # keeping /ClearCache distinct from /C.
+    param([string]$Token, [string]$Key)
+    if ($Token.Length -lt $Key.Length) { return $false }
+    if (-not $Token.Substring(0, $Key.Length).Equals($Key, [System.StringComparison]::OrdinalIgnoreCase)) { return $false }
+    if ($Token.Length -eq $Key.Length) { return $true }
+    return -not [char]::IsLetter($Token[$Key.Length])
+}
+
+function Get-ProjectExtraArgs {
+    # v8args / ibcmdargs from .v8-project.json — same upward walk as v8path.
+    param([string]$Name)
+    $dir = (Get-Location).Path
+    while ($dir) {
+        $pf = Join-Path $dir ".v8-project.json"
+        if (Test-Path $pf) {
+            try {
+                $j = Get-Content $pf -Raw -Encoding UTF8 | ConvertFrom-Json
+                if ($j.$Name) { return @($j.$Name | ForEach-Object { [string]$_ }) }
+            } catch {}
+            return @()
+        }
+        $parent = Split-Path $dir -Parent
+        if (-not $parent -or $parent -eq $dir) { break }
+        $dir = $parent
+    }
+    return @()
+}
+
+function Assert-ExtraArgs {
+    # The platform accepts only one batch operation, and a duplicate connection or
+    # output key fails with an opaque 1C error — reject what the skill owns itself.
+    param([string[]]$ExtraArgs, [string]$Engine, [hashtable]$Hints)
+    $paramName = if ($Engine -eq 'ibcmd') { '-AdditionalIbcmdArguments' } else { '-AdditionalV8Arguments' }
+    $owned = if ($Engine -eq 'ibcmd') { $script:IbcmdOwnedKeys } else { $script:V8OwnedKeys }
+    foreach ($tok in $ExtraArgs) {
+        if ($Engine -eq 'ibcmd' -and $tok -notmatch '^-') {
+            Write-Host "Error: '$tok' is a positional token — pass values as --key=value ($paramName cannot extend the ibcmd command)" -ForegroundColor Red
+            exit 1
+        }
+        if ($Engine -ne 'ibcmd') {
+            foreach ($b in $script:V8BatchKeys) {
+                if (Test-ArgKeyMatch $tok $b) {
+                    Write-Host "Error: $b is a batch command; passed via $paramName it would replace the skill's own operation (a command line runs only its last batch command)" -ForegroundColor Red
+                    exit 1
+                }
+            }
+        }
+        foreach ($k in $owned) {
+            if (Test-ArgKeyMatch $tok $k) {
+                $hint = ''
+                if ($Hints -and $Hints.ContainsKey($k)) { $hint = " (use $($Hints[$k]))" }
+                Write-Host "Error: $k is controlled by the skill and cannot be passed via $paramName$hint" -ForegroundColor Red
+                exit 1
+            }
+        }
+    }
+}
+
+function Resolve-ExtraArgs {
+    # Pick the argument list for the selected engine and validate it. An explicitly passed
+    # parameter for the other engine is an error; the same keys coming from .v8-project.json
+    # simply do not apply — a project may describe both engines.
+    param([string]$Engine, [string[]]$V8Extra, [string[]]$IbcmdExtra, [hashtable]$Hints)
+    # powershell.exe -File — how skills are invoked — cannot bind an array parameter:
+    # space-separated values spill into positional ones, a comma-joined list arrives as a
+    # single token. So accept the repo's list convention (comma-separated) and split here;
+    # a native array call keeps working. A value containing a comma is not supported.
+    $V8Extra = @($V8Extra | ForEach-Object { $_ -split ',' } | Where-Object { $_ -ne '' })
+    $IbcmdExtra = @($IbcmdExtra | ForEach-Object { $_ -split ',' } | Where-Object { $_ -ne '' })
+    if ($Engine -eq 'ibcmd' -and $V8Extra.Count -gt 0) {
+        Write-Host "Error: -AdditionalV8Arguments applies to 1cv8 only; the selected engine is ibcmd (use -AdditionalIbcmdArguments)" -ForegroundColor Red
+        exit 1
+    }
+    if ($Engine -ne 'ibcmd' -and $IbcmdExtra.Count -gt 0) {
+        Write-Host "Error: -AdditionalIbcmdArguments applies to ibcmd only; the selected engine is 1cv8 (use -AdditionalV8Arguments)" -ForegroundColor Red
+        exit 1
+    }
+    if ($Engine -eq 'ibcmd') {
+        $extra = @(Get-ProjectExtraArgs 'ibcmdargs') + @($IbcmdExtra)
+    } else {
+        $extra = @(Get-ProjectExtraArgs 'v8args') + @($V8Extra)
+    }
+    if ($extra.Count -gt 0) { Assert-ExtraArgs $extra $Engine $Hints }
+    # Plain return, no comma trick: the caller re-collects with @(...), and ,@() there
+    # would nest the array — the tokens would then be glued into one argument.
+    return $extra
+}
+
+function Format-ArgsForDisplay {
+    # Redact values of secret-prone keys in glued, =-joined and separate forms.
+    # Matching here is a plain prefix (no letter rule): over-masking costs nothing,
+    # a leaked password does.
+    param([string[]]$ArgList, [string]$Engine)
+    $keys = if ($Engine -eq 'ibcmd') { $script:IbcmdSecretKeys } else { $script:V8SecretKeys }
+    $res = @()
+    $maskNext = $false
+    foreach ($tok in $ArgList) {
+        if ($maskNext) { $res += '***'; $maskNext = $false; continue }
+        $hit = $null
+        foreach ($k in $keys) {
+            if ($tok.Length -ge $k.Length -and $tok.Substring(0, $k.Length).Equals($k, [System.StringComparison]::OrdinalIgnoreCase)) { $hit = $k; break }
+        }
+        if (-not $hit) { $res += $tok; continue }
+        if ($tok.Length -eq $hit.Length) { $res += $tok; $maskNext = $true }
+        elseif ($tok[$hit.Length] -eq '=') { $res += ($hit + '=***') }
+        else { $res += ($hit + '***') }
+    }
+    return ,$res
+}
+
+function ConvertTo-CleanPath {
+    # Forgive what is unambiguous in a path the caller passed: surrounding whitespace,
+    # surrounding quotes that survived shell parsing, a trailing separator. A quote left
+    # inside afterwards cannot be part of a real path — reject it by name instead of letting
+    # 1C answer with its opaque "Неверные или отсутствующие параметры соединения".
+    param([string]$Value, [string]$ParamName)
+    if (-not $Value) { return $Value }
+    $v = $Value.Trim()
+    if ($v.Length -ge 2 -and $v[0] -eq $v[-1] -and ($v[0] -eq '"' -or $v[0] -eq "'")) {
+        $v = $v.Substring(1, $v.Length - 2).Trim()
+    }
+    if ($v.Length -gt 3 -and ($v[-1] -eq '\' -or $v[-1] -eq '/')) { $v = $v.Substring(0, $v.Length - 1) }
+    if ($v.Contains('"')) {
+        Write-Host "Error: $ParamName contains a quote character: $Value" -ForegroundColor Red
+        exit 1
+    }
+    return $v
+}
+
+$V8Path = ConvertTo-CleanPath $V8Path '-V8Path'
+$InfoBasePath = ConvertTo-CleanPath $InfoBasePath '-InfoBasePath'
+$ConfigDir = ConvertTo-CleanPath $ConfigDir '-ConfigDir'
+$ListFile = ConvertTo-CleanPath $ListFile '-ListFile'
+
+function Assert-InfoBaseExists {
+    # These skills work on a ready infobase. Saying so up front beats the platform's
+    # "Неверные или отсутствующие параметры соединения" after a launch.
+    param([string]$Path)
+    if (-not $Path) { return }
+    if (-not (Test-Path (Join-Path $Path "1Cv8.1CD"))) {
+        Write-Host "Error: information base not found at $Path (no 1Cv8.1CD)" -ForegroundColor Red
+        exit 1
+    }
+}
+
+Assert-InfoBaseExists $InfoBasePath
+
+# --- Resolve V8Path ---
+function Find-ProjectV8Path {
+    $dir = (Get-Location).Path
+    while ($dir) {
+        $pf = Join-Path $dir ".v8-project.json"
+        if (Test-Path $pf) {
+            try {
+                $j = Get-Content $pf -Raw -Encoding UTF8 | ConvertFrom-Json
+                if ($j.v8path) { return [string]$j.v8path }
+            } catch {}
+            return $null
+        }
+        $parent = Split-Path $dir -Parent
+        if (-not $parent -or $parent -eq $dir) { break }
+        $dir = $parent
+    }
+    return $null
+}
+
+if (-not $V8Path) {
+    $V8Path = Find-ProjectV8Path
+}
+if (-not $V8Path) {
+    $found = Get-ChildItem @("C:\Program Files\1cv8\*\bin\1cv8.exe", "C:\Program Files (x86)\1cv8\*\bin\1cv8.exe") -ErrorAction SilentlyContinue |
+        Sort-Object { try { [version]$_.Directory.Parent.Name } catch { [version]"0.0" } } -Descending |
+        Select-Object -First 1
+    if ($found) {
+        $V8Path = $found.FullName
+        Write-Host "Auto-selected platform $($found.Directory.Parent.Name): $V8Path" -ForegroundColor Yellow
+    } else {
+        Write-Host "Error: 1C executable not found. Specify -V8Path" -ForegroundColor Red
+        exit 1
+    }
+}
+if (Test-Path $V8Path -PathType Container) {
+    $V8Path = Join-Path $V8Path "1cv8.exe"
+}
+
+if (-not (Test-Path $V8Path)) {
+    Write-Host "Error: 1C executable not found at $V8Path" -ForegroundColor Red
+    exit 1
+}
+
+# --- Detect engine (ibcmd vs 1cv8) by exe name ---
+function ConvertFrom-PlatformBytes {
+    # ibcmd writes UTF-8 (checked on 8.3.24, 8.3.27, 8.5), a crashing 1cv8 may still emit
+    # OEM text. Decode strictly as UTF-8 and fall back to cp866 on invalid bytes — guessing
+    # one of them outright mangles Cyrillic.
+    param([byte[]]$Bytes)
+    if (-not $Bytes -or $Bytes.Length -eq 0) { return '' }
+    try {
+        $strict = New-Object System.Text.UTF8Encoding($false, $true)
+        return $strict.GetString($Bytes)
+    } catch {
+        return [System.Text.Encoding]::GetEncoding(866).GetString($Bytes)
+    }
+}
+
+function Invoke-PlatformProcess {
+    # Run the platform non-interactively and capture its console output. A closed stdin pipe
+    # (EOF) makes an auth prompt fast-fail instead of hanging; capturing keeps the child's
+    # text out of our stream until we print it labelled (and out of the wrong encoding).
+    # Returns @{ Output; ExitCode }.
+    #
+    # Quoting differs by engine, so the caller says which it built:
+    #   ibcmd    — tokens are bare (--db-path=C:\a b), the whole token gets quoted here;
+    #   1cv8     — -PreQuoted: the caller already put quotes inside the token (File="C:\a b"),
+    #              which is where 1C's own parser expects them; quoting again breaks the value.
+    param([string]$Exe, [string[]]$ProcArgs, [switch]$PreQuoted)
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = $Exe
+    $psi.Arguments = if ($PreQuoted) {
+        $ProcArgs -join ' '
+    } else {
+        ($ProcArgs | ForEach-Object { if ($_ -match '[\s"]') { '"' + ($_ -replace '"', '\"') + '"' } else { $_ } }) -join ' '
+    }
+    $psi.UseShellExecute = $false
+    $psi.CreateNoWindow = $true
+    $psi.RedirectStandardInput = $true
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $p = [System.Diagnostics.Process]::Start($psi)
+    $p.StandardInput.Close()
+    # stderr is drained in parallel: reading the streams one after another deadlocks
+    # as soon as the other one fills its pipe buffer.
+    $errMs = New-Object System.IO.MemoryStream
+    $errTask = $p.StandardError.BaseStream.CopyToAsync($errMs)
+    $outMs = New-Object System.IO.MemoryStream
+    $p.StandardOutput.BaseStream.CopyTo($outMs)
+    $errTask.Wait()
+    $p.WaitForExit()
+    $out = ConvertFrom-PlatformBytes $outMs.ToArray()
+    $err = ConvertFrom-PlatformBytes $errMs.ToArray()
+    if ($err) { $out += $err }
+    return [pscustomobject]@{ Output = $out; ExitCode = $p.ExitCode }
+}
+
+function Write-PlatformOutput {
+    # Print what the platform wrote to the console as its own labelled block. Silence stays
+    # silent: in batch mode 1cv8 reports through /Out and prints nothing here.
+    param([string]$Text)
+    if (-not $Text) { return }
+    $t = $Text.TrimEnd()
+    if (-not $t) { return }
+    $limit = 65536
+    if ($t.Length -gt $limit) {
+        $t = "[... обрезано, показаны последние $limit символов ...]`r`n" + $t.Substring($t.Length - $limit)
+    }
+    Write-Host "--- Вывод платформы ---"
+    Write-Host $t
+    Write-Host "--- End ---"
+}
+
+# Строки лога, о которых платформа сообщает, НЕ поднимая код возврата: метаданные отброшены или
+# конфигурация нерабочая, а операция при этом «успешна». Возвращает подошедшие строки.
+#
+# Копия этой функции есть в каждом навыке, который читает /Out-лог загрузки (навыки автономны).
+# Держать копии одинаковыми — сознательно: разошедшиеся копии сводят на нет весь смысл.
+function Find-SilentRejections {
+    param([string]$LogText)
+    $patterns = @(
+        'Неверное свойство объекта метаданных',
+        'не входит в состав объекта метаданных',
+        'Неизвестное имя типа',
+        'Неизвестный объект метаданных',
+        'Ни один из документов не является регистратором для регистра',
+        'Неверное значение перечисления',
+        'не может быть приведен к типу',
+        # Режим совместимости выше платформы: объекты в базу не попадают, отказ приходит в рантайме.
+        # Обрезано до инвариантной части — конкретная версия в сообщении меняется.
+        'Для работы с конфигурацией необходима версия платформы не меньше'
+    )
+    $found = @()
+    if ($LogText) {
+        foreach ($line in ($LogText -split "`r?`n")) {
+            foreach ($pat in $patterns) {
+                if ($line -match [regex]::Escape($pat)) {
+                    $found += $line.Trim()
+                    break
+                }
+            }
+        }
+    }
+    # Возвращаем массив БЕЗ запятой-обёртки: вызывающий берёт результат в @(), а `return ,$found`
+    # дал бы массив из одного пустого массива — фантомное срабатывание на чистом логе.
+    return $found
+}
+
+
+# Постусловие применимости расширения: платформа отчитывается успехом и о расширении, которое
+# не применит — отказ всплывает лениво, при первом вызове метода, записью в журнал регистрации.
+#
+# Запуск ОБЯЗАТЕЛЬНО отдельный. Дописать эту команду в строку операции нельзя: в одной командной
+# строке DESIGNER выполняет только ПОСЛЕДНЮЮ пакетную команду, остальные молча отбрасывает —
+# проверено на 8.3.24, /LoadConfigFromFiles вместе с /CheckCanApplyConfigurationExtensions
+# завершились кодом 0 с пустым логом, и загрузка не состоялась.
+#
+# Проверку умеет только 1cv8; если навык работал через ibcmd, берём соседний исполняемый файл.
+function Invoke-ApplyCheck {
+    param([string]$Exe, [string[]]$ConnArgs, [string]$Extension, [string[]]$ExtraArgs)
+    $exeDir = Split-Path $Exe -Parent
+    $exeLeaf = Split-Path $Exe -Leaf
+    $v8 = if ($exeLeaf -match '^ibcmd') { Join-Path $exeDir ("1cv8" + [System.IO.Path]::GetExtension($Exe)) } else { $Exe }
+    if (-not (Test-Path $v8)) { return @{ Skipped = $true; Reason = "1cv8 not found at $v8"; ExitCode = 0; Lines = @() } }
+    $dir = Join-Path $env:TEMP "apply_check_$(Get-Random)"
+    New-Item -ItemType Directory -Path $dir -Force | Out-Null
+    try {
+        $a = @("DESIGNER") + $ConnArgs + @("/CheckCanApplyConfigurationExtensions")
+        if ($Extension) { $a += "-Extension", "`"$Extension`"" }
+        $outFile = Join-Path $dir "check_log.txt"
+        $a += "/Out", "`"$outFile`"", "/DisableStartupDialogs"
+        $a += $ExtraArgs
+        $res = Invoke-PlatformProcess $v8 $a -PreQuoted
+        $lines = @()
+        if (Test-Path $outFile) {
+            $raw = Get-Content $outFile -Raw -ErrorAction SilentlyContinue
+            if ($raw) { $lines = @($raw -split "`r?`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' }) }
+        }
+        return @{ Skipped = $false; Reason = ''; ExitCode = $res.ExitCode; Lines = $lines }
+    } finally {
+        if (Test-Path $dir) { Remove-Item -Path $dir -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+}
+
+# Проверить и напечатать. $true, если платформа расширение не применит — вызывающий решает,
+# поднимать ли код возврата (строгий режим).
+function Invoke-ApplyCheckReport {
+    param([string]$Exe, [string[]]$ConnArgs, [string]$Extension, [string[]]$ExtraArgs)
+    $ac = Invoke-ApplyCheck $Exe $ConnArgs $Extension $ExtraArgs
+    if ($ac.Skipped) {
+        Write-Host "[note] applicability check skipped: $($ac.Reason)" -ForegroundColor Yellow
+        return $false
+    }
+    if ($ac.ExitCode -ne 0 -or $ac.Lines.Count -gt 0) {
+        Write-Host "[warning] the extension is loaded, but the platform will not apply it:" -ForegroundColor Yellow
+        foreach ($l in $ac.Lines) { Write-Host "  $l" -ForegroundColor Yellow }
+        return $true
+    }
+    return $false
+}
+
+# Проверять ли применимость: -NoApplyCheck сильнее настройки проекта.
+function Get-ApplyCheckEnabled {
+    param([switch]$Disabled)
+    if ($Disabled) { return $false }
+    $pf = Find-V8Project (Get-Location).Path
+    if ($pf) {
+        try {
+            $proj = Get-Content $pf -Raw -Encoding UTF8 | ConvertFrom-Json
+            if ($null -ne $proj.extensionApplyCheck) { return [bool]$proj.extensionApplyCheck }
+        } catch {}
+    }
+    return $true
+}
+
+
+$engine = if ((Split-Path $V8Path -Leaf) -match '^ibcmd') { "ibcmd" } else { "1cv8" }
+
+# --- Resolve additional arguments for the selected engine ---
+$argHints = @{ '/F' = '-InfoBasePath'; '/S' = '-InfoBaseServer + -InfoBaseRef'; '/N' = '-UserName'; '/P' = '-Password'; '--db-path' = '-InfoBasePath'; '--user' = '-UserName'; '--password' = '-Password' }
+$extraArgs = @(Resolve-ExtraArgs $engine $AdditionalV8Arguments $AdditionalIbcmdArguments $argHints)
+
+# --- Validate connection ---
+if ($engine -eq "ibcmd") {
+    if (-not $InfoBasePath) {
+        Write-Host "Error: ibcmd supports file infobases only (use -InfoBasePath)" -ForegroundColor Red
+        exit 1
+    }
+} elseif (-not $InfoBasePath -and (-not $InfoBaseServer -or -not $InfoBaseRef)) {
+    Write-Host "Error: specify -InfoBasePath or -InfoBaseServer + -InfoBaseRef" -ForegroundColor Red
+    exit 1
+}
+
+# --- Validate config dir ---
+if (-not (Test-Path $ConfigDir)) {
+    Write-Host "Error: config directory not found: $ConfigDir" -ForegroundColor Red
+    exit 1
+}
+
+# Перечислены файлы — загрузка частичная. Иначе список молча игнорировался бы, а умолчание Full
+# заменило бы всю конфигурацию базы.
+if ($Files -or $ListFile) {
+    if ($Mode -eq "Full") {
+        Write-Host "[note] перечислены файлы — загружаются только они; -Mode Full не применён" -ForegroundColor Yellow
+    }
+    $Mode = "Partial"
+}
+if (-not $Mode) { $Mode = "Full" }
+
+# --- Validate Partial mode ---
+if ($Mode -eq "Partial" -and -not $Files -and -not $ListFile) {
+    Write-Host "Error: -Files or -ListFile required for Partial mode" -ForegroundColor Red
+    exit 1
+}
+
+# --- Temp dir ---
+$tempDir = Join-Path $env:TEMP "db_load_xml_$(Get-Random)"
+New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
+
+try {
+    if ($engine -eq "ibcmd") {
+        # --- ibcmd branch (file infobase only; hierarchical full-directory import) ---
+        if ($Format -eq "Plain") {
+            Write-Host "Error: ibcmd config import supports hierarchical format only (use -Format Hierarchical or 1cv8)" -ForegroundColor Red
+            exit 1
+        }
+        if ($AllExtensions) {
+            $arguments = @("infobase", "config", "import", "all-extensions", "$ConfigDir", "--db-path=$InfoBasePath")
+        } elseif ($Mode -eq "Partial") {
+            # partial: import specific files (relative to ConfigDir)
+            $fileList = @()
+            if ($ListFile) {
+                if (-not (Test-Path $ListFile)) {
+                    Write-Host "Error: list file not found: $ListFile" -ForegroundColor Red
+                    exit 1
+                }
+                $fileList = @(Get-Content -Path $ListFile -Encoding UTF8 | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+            } elseif ($Files) {
+                $fileList = @($Files -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+            }
+            if ($fileList.Count -eq 0) {
+                Write-Host "Error: -Files or -ListFile required for partial import" -ForegroundColor Red
+                exit 1
+            }
+            $arguments = @("infobase", "config", "import", "files") + $fileList
+            $arguments += "--base-dir=$ConfigDir", "--db-path=$InfoBasePath"
+            if ($Extension) { $arguments += "--extension=$Extension" }
+        } else {
+            $arguments = @("infobase", "config", "import", "--db-path=$InfoBasePath")
+            if ($Extension) { $arguments += "--extension=$Extension" }
+            $arguments += "$ConfigDir"
+        }
+        if ($UserName) { $arguments += "--user=$UserName" }
+        if ($Password) { $arguments += "--password=$Password" }
+        $arguments += "--data=$tempDir"
+        $arguments += $extraArgs
+        Write-Host "Running: ibcmd $(Protect-Secrets ((Format-ArgsForDisplay $arguments $engine) -join ' ') @($Password, $UserName))"
+        $__ib = Invoke-PlatformProcess $V8Path $arguments
+        $output = $__ib.Output
+        $exitCode = $__ib.ExitCode
+        if ($exitCode -ne 0) {
+            Write-Host "Error loading configuration from files (code: $exitCode)$(Get-ExitAnnotation $exitCode)" -ForegroundColor Red
+            Write-PlatformOutput $output
+            exit $exitCode
+        }
+        Write-Host "Configuration loaded successfully from: $ConfigDir" -ForegroundColor Green
+        Write-PlatformOutput $output
+
+        if ($UpdateDB) {
+            $applyArgs = @("infobase", "config", "apply", "--db-path=$InfoBasePath", "--force")
+            if ($UserName) { $applyArgs += "--user=$UserName" }
+            if ($Password) { $applyArgs += "--password=$Password" }
+            $applyArgs += "--data=$tempDir"
+            $applyArgs += $extraArgs
+            Write-Host "Running: ibcmd $(Protect-Secrets ((Format-ArgsForDisplay $applyArgs $engine) -join ' ') @($Password, $UserName))"
+            $__ib = Invoke-PlatformProcess $V8Path $applyArgs
+            $applyOut = $__ib.Output
+            $exitCode = $__ib.ExitCode
+            if ($exitCode -eq 0) {
+                Write-Host "Database configuration updated successfully" -ForegroundColor Green
+            } else {
+                Write-Host "Error updating database configuration (code: $exitCode)$(Get-ExitAnnotation $exitCode)" -ForegroundColor Red
+            }
+            Write-PlatformOutput $applyOut
+        }
+        # Проверку применимости умеет только 1cv8 — соединение для неё собираем в его форме.
+        if ($exitCode -eq 0 -and ($Extension -or $AllExtensions) -and (Get-ApplyCheckEnabled -Disabled:$NoApplyCheck)) {
+            $acConn = @("/F", "`"$InfoBasePath`"")
+            if ($UserName) { $acConn += "/N`"$UserName`"" }
+            if ($Password) { $acConn += "/P`"$Password`"" }
+            if ((Invoke-ApplyCheckReport $V8Path $acConn $Extension @()) -and $StrictLog) { $exitCode = 1 }
+        }
+        exit $exitCode
+    }
+
+    # --- 1cv8 branch ---
+    # --- Build arguments ---
+    # Аргументы соединения собираем отдельно: тем же набором пойдёт запуск проверки применимости.
+    $connArgs = @()
+
+    if ($InfoBaseServer -and $InfoBaseRef) {
+        $connArgs += "/S", "`"$InfoBaseServer/$InfoBaseRef`""
+    } else {
+        $connArgs += "/F", "`"$InfoBasePath`""
+    }
+
+    if ($UserName) { $connArgs += "/N`"$UserName`"" }
+    if ($Password) { $connArgs += "/P`"$Password`"" }
+
+    # База под хранилищем не примет НИ ОДНОЙ операции конфигуратора без этих реквизитов, а для
+    # базы вне хранилища они безвредны — поэтому подставляем всегда, когда они известны.
+    $__repo = Resolve-RepositorySettings
+    $connArgs += Get-RepositoryArgs $__repo
+
+    $arguments = @("DESIGNER") + $connArgs
+
+    $arguments += "/LoadConfigFromFiles", "`"$ConfigDir`""
+
+    if ($Mode -eq "Full") {
+        Write-Host "Executing full configuration load..."
+    } else {
+        Write-Host "Executing partial configuration load..."
+
+        # Build list file
+        $rawList = @()
+        if ($ListFile) {
+            if (-not (Test-Path $ListFile)) {
+                Write-Host "Error: list file not found: $ListFile" -ForegroundColor Red
+                exit 1
+            }
+            $rawList = @(Get-Content -Path $ListFile -Encoding UTF8 | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+        } else {
+            $rawList = @($Files -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+        }
+
+        # Support-state service files are NOT partially loadable — exclude with a hint.
+        $supportRe = 'ParentConfigurations\.bin$|(^|[\\/])ConfigDumpInfo\.xml$'
+        $supportFiles = @($rawList | Where-Object { $_ -match $supportRe })
+        $fileList = @($rawList | Where-Object { $_ -notmatch $supportRe })
+        if ($supportFiles.Count -gt 0) {
+            Write-Host "[ВНИМАНИЕ] Служебные файлы состояния поддержки исключены из частичной загрузки (частично не грузятся):" -ForegroundColor Yellow
+            foreach ($sf in $supportFiles) { Write-Host "  - $sf" -ForegroundColor Yellow }
+            Write-Host "  Смена состояния поддержки применяется только полной загрузкой: -Mode Full." -ForegroundColor Yellow
+        }
+        if ($fileList.Count -eq 0) {
+            Write-Host "Error: после исключения служебных файлов поддержки загружать нечего. Для смены поддержки используйте -Mode Full." -ForegroundColor Red
+            exit 1
+        }
+        $generatedListFile = Join-Path $tempDir "load_list.txt"
+        $utf8Bom = New-Object System.Text.UTF8Encoding($true)
+        [System.IO.File]::WriteAllLines($generatedListFile, $fileList, $utf8Bom)
+        Write-Host "Files to load: $($fileList.Count)"
+        foreach ($f in $fileList) { Write-Host "  $f" }
+
+        $arguments += "-listFile", "`"$generatedListFile`""
+        $arguments += "-partial"
+        $arguments += "-updateConfigDumpInfo"
+    }
+
+    $arguments += "-Format", $Format
+
+    # --- Extensions ---
+    if ($Extension) {
+        $arguments += "-Extension", "`"$Extension`""
+    } elseif ($AllExtensions) {
+        $arguments += "-AllExtensions"
+    }
+
+    # --- UpdateDB ---
+    if ($UpdateDB) {
+        $arguments += "/UpdateDBCfg"
+    }
+
+    # --- Output ---
+    $outFile = Join-Path $tempDir "load_log.txt"
+    $arguments += "/Out", "`"$outFile`""
+    $arguments += "/DisableStartupDialogs"
+    $arguments += $extraArgs
+
+    # --- Execute ---
+    Write-Host "Running: 1cv8.exe $(Protect-Secrets ((Format-ArgsForDisplay $arguments $engine) -join ' ') @($Password, $UserName, $__repo.Password))"
+    $__v8 = Invoke-PlatformProcess $V8Path $arguments -PreQuoted
+    $exitCode = $__v8.ExitCode
+
+    # --- Read log ---
+    $logContent = $null
+    if (Test-Path $outFile) {
+        $logContent = Get-Content $outFile -Raw -ErrorAction SilentlyContinue
+    }
+
+    # --- Scan log for silent rejections ---
+    $silentFailures = @(Find-SilentRejections $logContent)
+
+    # --- Result ---
+    # Default: mirror platform's verdict via exit code. Log content (including any
+    # rejection warnings) is always printed to stdout for visibility. With -StrictLog,
+    # elevate exit code to 1 when rejection patterns are found even if platform said 0.
+    if ($exitCode -eq 0) {
+        Write-Host "Load completed successfully" -ForegroundColor Green
+    } else {
+        Write-Host "Error loading configuration (code: $exitCode)$(Get-ExitAnnotation $exitCode)" -ForegroundColor Red
+    }
+
+    if ($logContent) {
+        Write-Host "--- Log ---"
+        Write-Host $logContent
+        Write-Host "--- End ---"
+    }
+    Write-PlatformOutput $__v8.Output
+    Write-RepositoryHints $logContent
+
+    # Причину не называем: строки лога печатаются следом и говорят за себя, а класс проблемы
+    # разный — от отброшенного свойства до нерабочей на этой платформе конфигурации. Подсказку
+    # про -StrictLog не даём: загрузка уже выполнена, повторять её ради того же текста незачем.
+    if ($silentFailures.Count -gt 0) {
+        Write-Host "[warning] platform reported success, but the log contains $($silentFailures.Count) problem(s):" -ForegroundColor Yellow
+        foreach ($f in $silentFailures) { Write-Host "  $f" -ForegroundColor Yellow }
+        if ($StrictLog -and $exitCode -eq 0) { $exitCode = 1 }
+    }
+
+    # Расширение могло загрузиться «успешно» и при этом остаться неприменимым — спрашиваем платформу.
+    if ($exitCode -eq 0 -and ($Extension -or $AllExtensions) -and (Get-ApplyCheckEnabled -Disabled:$NoApplyCheck)) {
+        if ((Invoke-ApplyCheckReport $V8Path $connArgs $Extension $extraArgs) -and $StrictLog) { $exitCode = 1 }
+    }
+
+    exit $exitCode
+
+} finally {
+    if (Test-Path $tempDir) {
+        Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
