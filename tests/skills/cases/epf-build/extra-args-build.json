@@ -3,6 +3,13 @@
   "osOnly": "win32",
   "preRun": [
     {
+      "script": "epf-init/scripts/init",
+      "args": {
+        "-Name": "Тест",
+        "-SrcDir": "{workDir}/src"
+      }
+    },
+    {
       "writeFile": {
         "path": "fake.cmd",
         "content": "@echo off\r\necho ARGS: %*\r\nexit /b 0\r\n"
@@ -13,12 +20,6 @@
         "path": "ib/1Cv8.1CD",
         "content": "fake infobase\n"
       }
-    },
-    {
-      "writeFile": {
-        "path": "src/Обработка.xml",
-        "content": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<MetaDataObject xmlns=\"http://v8.1c.ru/8.3/MDClasses\"/>\n"
-      }
     }
   ],
   "args_extra": [
@@ -27,9 +28,9 @@
     "-InfoBasePath",
     "{workDir}\\ib",
     "-SourceFile",
-    "{workDir}\\src\\Обработка.xml",
+    "{workDir}\\src\\Тест.xml",
     "-OutputFile",
-    "{workDir}\\build\\Обработка.epf",
+    "{workDir}\\build\\Тест.epf",
     "-AdditionalV8Arguments",
     "/UseHwLicenses+"
   ],

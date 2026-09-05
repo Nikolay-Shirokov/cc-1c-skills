@@ -1,0 +1,47 @@
+{
+  "name": "ibcmd без соседнего 1cv8: проверка пропускается, сборка идёт (fake platform)",
+  "osOnly": "win32",
+  "preRun": [
+    {
+      "script": "epf-init/scripts/init",
+      "args": {
+        "-Name": "Тест",
+        "-SrcDir": "{workDir}/src"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "ibcmd.cmd",
+        "content": "@echo off\r\necho ARGS: %*\r\nexit /b 0\r\n",
+        "executable": true
+      }
+    },
+    {
+      "writeFile": {
+        "path": "ib/1Cv8.1CD",
+        "content": "stub\n"
+      }
+    }
+  ],
+  "args_extra": [
+    "-V8Path",
+    "{workDir}\\ibcmd.cmd",
+    "-InfoBasePath",
+    "{workDir}\\ib",
+    "-SourceFile",
+    "{workDir}\\src\\Тест.xml",
+    "-OutputFile",
+    "{workDir}\\build\\Тест.epf"
+  ],
+  "expect": {
+    "stdoutContains": [
+      "[note] source check skipped",
+      "Running: ibcmd infobase config import"
+    ],
+    "stdoutNotContains": [
+      "/CheckConfig"
+    ]
+  },
+  "expectError": true,
+  "noSnapshot": "платформа фейковая, EPF не собирается — проверяется поведение без 1cv8 рядом"
+}

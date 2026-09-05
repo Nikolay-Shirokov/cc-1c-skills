@@ -1,0 +1,43 @@
+{
+  "name": "Находки проверки отменяют сборку (fake platform)",
+  "osOnly": "win32",
+  "fakePlatform": {
+    "exit": 0,
+    "log": "",
+    "check": {
+      "exit": 101,
+      "log": "﻿{Обработка.Тест.МодульОбъекта(5,1)}: Ожидается ключевое слово 'КонецФункции'\r\n"
+    }
+  },
+  "preRun": [
+    {
+      "script": "epf-init/scripts/init",
+      "args": {
+        "-Name": "Тест",
+        "-SrcDir": "{workDir}/src"
+      }
+    }
+  ],
+  "args_extra": [
+    "-V8Path",
+    "{workDir}\\fake.cmd",
+    "-InfoBasePath",
+    "{workDir}\\ib",
+    "-SourceFile",
+    "{workDir}\\src\\Тест.xml",
+    "-OutputFile",
+    "{workDir}\\build\\Тест.epf"
+  ],
+  "expect": {
+    "stdoutContains": [
+      "платформа нашла проблемы в исходниках",
+      "МодульОбъекта(5,1)",
+      "src\\Тест\\Ext\\ObjectModule.bsl"
+    ],
+    "stdoutNotContains": [
+      "/LoadExternalDataProcessorOrReportFromFiles"
+    ]
+  },
+  "expectError": true,
+  "noSnapshot": "сборка отменена — артефакта нет по замыслу"
+}

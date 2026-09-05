@@ -1,0 +1,56 @@
+{
+  "name": "ibcmd-аргументы не утекают в проверку (fake platform)",
+  "osOnly": "win32",
+  "preRun": [
+    {
+      "script": "epf-init/scripts/init",
+      "args": {
+        "-Name": "Тест",
+        "-SrcDir": "{workDir}/src"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "ibcmd.cmd",
+        "content": "@echo off\r\necho ARGS: %*\r\nexit /b 0\r\n",
+        "executable": true
+      }
+    },
+    {
+      "writeFile": {
+        "path": "1cv8.cmd",
+        "content": "@echo off\r\necho ARGS: %*\r\nexit /b 0\r\n",
+        "executable": true
+      }
+    },
+    {
+      "writeFile": {
+        "path": "ib/1Cv8.1CD",
+        "content": "stub\n"
+      }
+    }
+  ],
+  "args_extra": [
+    "-V8Path",
+    "{workDir}\\ibcmd.cmd",
+    "-InfoBasePath",
+    "{workDir}\\ib",
+    "-SourceFile",
+    "{workDir}\\src\\Тест.xml",
+    "-OutputFile",
+    "{workDir}\\build\\Тест.epf",
+    "-AdditionalIbcmdArguments",
+    "--nonesuch=1"
+  ],
+  "expect": {
+    "stdoutContains": [
+      "/CheckConfig -ThinClient -Server -HandlersExistence",
+      "Running: ibcmd infobase config import"
+    ],
+    "stdoutNotContains": [
+      "/DisableStartupDialogs --nonesuch=1"
+    ]
+  },
+  "expectError": true,
+  "noSnapshot": "платформа фейковая, EPF не собирается — проверяется состав командных строк"
+}

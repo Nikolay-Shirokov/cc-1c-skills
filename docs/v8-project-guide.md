@@ -82,6 +82,7 @@
 | `editingAllowedCheck` | `"deny"`/`"warn"`/`"off"` | нет | `deny` | Глобальная реакция support-guard на правку объектов на замке (см. ниже) | Руками |
 | `newObjectPosition` | `"end"`/`"byName"` | нет | `end` | Куда навыки ставят новый объект в `<ChildObjects>` (см. ниже) | Руками |
 | `extensionApplyCheck` | bool | нет | `true` | Проверять ли применимость расширения после загрузки в базу (навыки `db-load-*`, `db-update`); разово отключается ключом `-NoApplyCheck` | Руками |
+| `externalCheck` | bool | нет | `true` | Проверять ли исходники платформой перед сборкой внешней обработки/отчёта (навыки `epf-build`, `erf-build`); разово отключается ключом `-Checks off` | Руками |
 | `skillSuggester` | `"on"`/`"off"` | нет | `on` | Подсказки навыков от хука skill-suggester (только если хук включён, см. ниже) | Руками |
 | `webPath` | string | нет | `tools/apache24` | Каталог Apache HTTP Server | Руками |
 | `ffmpegPath` | string | нет | `tools/ffmpeg/bin/ffmpeg.exe` | Путь к ffmpeg | Руками |

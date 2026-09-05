@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-# stub-db-create v1.8 — Create temp 1C infobase with metadata stubs for EPF/ERF build
+# stub-db-create v1.9 — Create temp 1C infobase with metadata stubs for EPF/ERF build
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
+import io
 import os
+import shutil
 import random
 import re
 import subprocess
@@ -64,11 +66,31 @@ def run_v8(v8path, arguments):
     The arguments carry their own quotes inside the value (File="C:\\a b") — that is where
     1C's parser expects them, on Windows and on *nix alike. Windows list2cmdline would
     escape those quotes, so there the command line is handed over ready-made.
+
+    На POSIX аргументы уходят СПИСКОМ, и кавычки, нужные для склейки на Windows, стали бы
+    частью значения: путь с пробелом платформа не находит («Неопределена информационная
+    база»), многословный -comment теряет молча. Поэтому здесь снимается ОДИН слой
+    обрамляющих кавычек. Склеенные ключи (/N"user", /ConfigurationRepositoryF"путь",
+    File="…") не задеты: у них кавычки внутри токена, а не по краям.
     """
     if os.name == "nt":
         cmd = '"' + v8path + '" ' + " ".join(arguments)
     else:
-        cmd = [v8path] + arguments
+        def strip_framing_quotes(a):
+            # Кавычки, которыми мы обрамляем значения ради склейки на Windows, на POSIX
+            # становятся ЧАСТЬЮ значения. Проверено на darwin: путь с пробелом отдельным
+            # токеном даёт «Неопределена информационная база», а склеенный
+            # /ConfigurationRepositoryF"путь с пробелом" — «завершилось с ошибкой»;
+            # без кавычек обе формы работают.
+            if len(a) > 1 and a[0] == '"' and a[-1] == '"':
+                return a[1:-1]                       # "значение" отдельным токеном
+            if a[0:1] == "/" and a[-1:] == '"' and '"' in a[:-1]:
+                i = a.index('"')
+                return a[:i] + a[i + 1:-1]           # /N"имя" -> /Nимя
+            return a                                 # File="…" не трогаем: там кавычки —
+                                                     # часть синтаксиса строки соединения,
+                                                     # и с ними на POSIX всё работает
+        cmd = [v8path] + [strip_framing_quotes(a) for a in arguments]
     r = subprocess.run(cmd, input=b"", capture_output=True)
     r.stdout = decode_platform_bytes(r.stdout)
     r.stderr = decode_platform_bytes(r.stderr)
@@ -178,7 +200,6 @@ def assert_extra_args(extra, engine, hints):
             print(
                 f"Error: '{tok}' is a positional token — pass values as --key=value "
                 f"({param} cannot extend the ibcmd command)",
-                file=sys.stderr,
             )
             sys.exit(1)
         if engine != "ibcmd":
@@ -187,7 +208,6 @@ def assert_extra_args(extra, engine, hints):
                     print(
                         f"Error: {b} is a batch command; passed via {param} it would replace "
                         f"the skill's own operation (a command line runs only its last batch command)",
-                        file=sys.stderr,
                     )
                     sys.exit(1)
         for k in owned:
@@ -195,7 +215,6 @@ def assert_extra_args(extra, engine, hints):
                 hint = f" (use {hints[k]})" if hints and k in hints else ""
                 print(
                     f"Error: {k} is controlled by the skill and cannot be passed via {param}{hint}",
-                    file=sys.stderr,
                 )
                 sys.exit(1)
 
@@ -263,14 +282,12 @@ def resolve_extra_args(engine, v8_extra, ibcmd_extra, hints):
         print(
             "Error: -AdditionalV8Arguments applies to 1cv8 only; the selected engine is ibcmd "
             "(use -AdditionalIbcmdArguments)",
-            file=sys.stderr,
         )
         sys.exit(1)
     if engine != "ibcmd" and ibcmd_extra:
         print(
             "Error: -AdditionalIbcmdArguments applies to ibcmd only; the selected engine is 1cv8 "
             "(use -AdditionalV8Arguments)",
-            file=sys.stderr,
         )
         sys.exit(1)
     if engine == "ibcmd":
@@ -1103,6 +1120,94 @@ def write_bom(path, content):
         f.write(content)
 
 
+# --- Внедрение проверяемого объекта в конфигурацию-заглушку ---
+# Платформа не умеет проверять внешнюю обработку: /LoadExternalDataProcessorOrReportFromFiles
+# только упаковывает XML и модули не компилирует. Зато она проверяет объект КОНФИГУРАЦИИ, а
+# внешняя обработка отличается от него немногим (замер 8.3.24): корневым тегом, именем
+# порождаемого объектного типа и отсутствием типа менеджера. Правим ровно эти точки и переносим
+# остальное как есть — под проверку попадает всё, что написал автор, включая реквизиты, формы и
+# макеты, а формат может расти без правок здесь.
+#
+# Подстановка типа делается ТОЛЬКО в .xml (это DefaultForm и основной реквизит формы); в .bsl
+# такой же текст был бы кодом, и трогать его нельзя.
+GUID_RE = re.compile(r'[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}')
+
+
+def add_source_object_to_config(source_xml, cfg_dir):
+    # Копия объекта живёт в конфигурации базы, а следом в ту же базу грузится исходник как ВНЕШНЯЯ
+    # обработка. С одинаковыми идентификаторами платформа путает их и через раз отвечает «Исключение
+    # XDTO при чтении файла» на исправном исходнике — поэтому у копии все GUID свои, но согласованные
+    # между её файлами (ссылки внутри объекта идут по идентификатору).
+    guid_map = {}
+
+    def reissue(text):
+        def sub(m):
+            k = m.group(0).lower()
+            if k not in guid_map:
+                guid_map[k] = new_uuid()
+            return guid_map[k]
+        return GUID_RE.sub(sub, text)
+
+    with io.open(source_xml, encoding='utf-8-sig') as fh:
+        text = fh.read()
+    if re.search(r'<ExternalDataProcessor[\s>]', text):
+        ext_tag, cfg_tag, folder = 'ExternalDataProcessor', 'DataProcessor', 'DataProcessors'
+    elif re.search(r'<ExternalReport[\s>]', text):
+        ext_tag, cfg_tag, folder = 'ExternalReport', 'Report', 'Reports'
+    else:
+        return None
+
+    m = re.search(r'<Name>([^<]+)</Name>', text)
+    name = m.group(1) if m else os.path.splitext(os.path.basename(source_xml))[0]
+
+    conv = reissue(text)
+    conv = conv.replace('<%s ' % ext_tag, '<%s ' % cfg_tag).replace('<%s>' % ext_tag, '<%s>' % cfg_tag)
+    conv = conv.replace('</%s>' % ext_tag, '</%s>' % cfg_tag)
+    conv = conv.replace('%sObject.' % ext_tag, '%sObject.' % cfg_tag).replace('%s.' % ext_tag, '%s.' % cfg_tag)
+
+    # Тип менеджера у внешней обработки не объявлен, а объекту конфигурации он обязателен:
+    # без него платформа отвечает «отсутствует один или более типов объекта».
+    mgr = ('\t\t\t<xr:GeneratedType name="%sManager.%s" category="Manager">\r\n' % (cfg_tag, name) +
+           '\t\t\t\t<xr:TypeId>%s</xr:TypeId>\r\n' % new_uuid() +
+           '\t\t\t\t<xr:ValueId>%s</xr:ValueId>\r\n' % new_uuid() +
+           '\t\t\t</xr:GeneratedType>\r\n')
+    if '</InternalInfo>' in conv:
+        conv = re.sub(r'\s*</InternalInfo>', lambda _m: '\r\n' + mgr + '\t\t</InternalInfo>', conv, count=1)
+    else:
+        obj_type = ('\t\t\t<xr:GeneratedType name="%sObject.%s" category="Object">\r\n' % (cfg_tag, name) +
+                    '\t\t\t\t<xr:TypeId>%s</xr:TypeId>\r\n' % new_uuid() +
+                    '\t\t\t\t<xr:ValueId>%s</xr:ValueId>\r\n' % new_uuid() +
+                    '\t\t\t</xr:GeneratedType>\r\n')
+        conv = re.sub('(<%s[^>]*>)' % cfg_tag,
+                      lambda m2: m2.group(1) + '\r\n\t\t<InternalInfo>\r\n' + obj_type + mgr + '\t\t</InternalInfo>',
+                      conv, count=1)
+
+    obj_dir = os.path.join(cfg_dir, folder)
+    os.makedirs(obj_dir, exist_ok=True)
+    write_bom(os.path.join(obj_dir, '%s.xml' % name), conv)
+
+    # Содержимое объекта — как есть; в XML та же подстановка типа, .bsl копируются байт в байт.
+    src_content = os.path.join(os.path.dirname(source_xml), name)
+    if os.path.isdir(src_content):
+        dst_content = os.path.join(obj_dir, name)
+        for root, _dirs, files in os.walk(src_content):
+            for fname in files:
+                full = os.path.join(root, fname)
+                rel = os.path.relpath(full, src_content)
+                dst = os.path.join(dst_content, rel)
+                os.makedirs(os.path.dirname(dst), exist_ok=True)
+                if os.path.splitext(fname)[1].lower() == '.xml':
+                    with io.open(full, encoding='utf-8-sig') as fh:
+                        t = fh.read()
+                    t = reissue(t)
+                    t = t.replace('%sObject.' % ext_tag, '%sObject.' % cfg_tag).replace('%s.' % ext_tag, '%s.' % cfg_tag)
+                    write_bom(dst, t)
+                else:
+                    shutil.copyfile(full, dst)
+
+    return {'tag': cfg_tag, 'name': name}
+
+
 def main():
     sys.stdout.reconfigure(encoding='utf-8')
     sys.stderr.reconfigure(encoding='utf-8')
@@ -1111,6 +1216,9 @@ def main():
     parser.add_argument('-SourceDir', required=True)
     parser.add_argument('-V8Path', required=True)
     parser.add_argument('-TempBasePath', default='')
+    # XML проверяемой обработки/отчёта: объект кладётся в конфигурацию-заглушку, чтобы платформа
+    # смогла проверить его штатными проверками. Без параметра стаб работает как раньше.
+    parser.add_argument('-EmbedSourceFile', default='')
     parser.add_argument('-AdditionalV8Arguments', nargs='*', default=[],
                         help='Extra 1cv8 arguments, e.g. /UseHwLicenses+')
     parser.add_argument('-AdditionalIbcmdArguments', nargs='*', default=[],
@@ -1122,10 +1230,13 @@ def main():
     args.SourceDir = clean_path(args.SourceDir, "-SourceDir")
     args.V8Path = clean_path(args.V8Path, "-V8Path")
     args.TempBasePath = clean_path(args.TempBasePath, "-TempBasePath")
+    args.EmbedSourceFile = clean_path(args.EmbedSourceFile, "-EmbedSourceFile")
 
     type_map = scan_ref_types(args.SourceDir)
     register_columns = scan_register_columns(args.SourceDir)
     has_ref_types = len(type_map) > 0
+    embed_requested = bool(args.EmbedSourceFile and args.EmbedSourceFile.strip())
+    need_cfg = has_ref_types or embed_requested
     stub_format_version = detect_stub_format_version(args.SourceDir)
     stub_compat = stub_compatibility_mode(stub_format_version)
     ns_decl = f'{NS} version="{stub_format_version}"'
@@ -1138,9 +1249,17 @@ def main():
     if needs_registrator:
         type_map.setdefault('Document', {})['\u0417\u0430\u0433\u043b\u0443\u0448\u043a\u0430\u0420\u0435\u0433\u0438\u0441\u0442\u0440\u0430\u0442\u043e\u0440\u0430'] = True  # ЗаглушкаРегистратора
 
-    if has_ref_types:
+    if need_cfg:
         cfg_dir = os.path.join(temp_base, 'cfg')
         os.makedirs(cfg_dir, exist_ok=True)
+
+        embedded = None
+        if embed_requested:
+            embedded = add_source_object_to_config(args.EmbedSourceFile, cfg_dir)
+            if not embedded:
+                print('Error: %s is neither ExternalDataProcessor nor ExternalReport' % args.EmbedSourceFile,
+                      file=sys.stderr)
+                sys.exit(1)
 
         # Configuration.xml
         uuid_cfg = new_uuid()
@@ -1158,6 +1277,8 @@ def main():
             tag = META_INFO[meta_type][0]
             for name in names:
                 child_xml += f'\n\t\t\t<{tag}>{name}</{tag}>'
+        if embedded:
+            child_xml += '\n\t\t\t<%s>%s</%s>' % (embedded['tag'], embedded['name'], embedded['tag'])
 
         cfg_xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <MetaDataObject {ns_decl}>
@@ -1388,7 +1509,7 @@ def main():
         print(f'Creating infobase (ibcmd): {temp_base}')
         ib_data = tempfile.mkdtemp(prefix="stub_data_")
         ib_args = [args.V8Path, 'infobase', 'create', f'--db-path={temp_base}', '--create-database']
-        if has_ref_types:
+        if need_cfg:
             ib_args += [f'--import={os.path.join(temp_base, "cfg")}', '--apply', '--force']
         ib_args.append(f'--data={ib_data}')
         ib_args.extend(extra_args)
@@ -1401,7 +1522,7 @@ def main():
                 print(result.stderr, file=sys.stderr)
             print(f'Failed to create stub infobase (code: {result.returncode})', file=sys.stderr)
             sys.exit(1)
-        if has_ref_types:
+        if need_cfg:
             import shutil
             shutil.rmtree(os.path.join(temp_base, 'cfg'), ignore_errors=True)
         print(f'[OK] Stub database created: {temp_base}')
@@ -1417,13 +1538,24 @@ def main():
         print(f'Failed to create infobase (code: {result.returncode})', file=sys.stderr)
         sys.exit(1)
 
-    if has_ref_types:
+    if need_cfg:
         cfg_dir = os.path.join(temp_base, 'cfg')
         # LoadConfigFromFiles
         print('Loading configuration from files...')
+        load_log = os.path.join(tempfile.gettempdir(), 'stub_load_log.txt')
         result = run_v8(args.V8Path, ['DESIGNER', f'/F"{temp_base}"', '/LoadConfigFromFiles', f'"{cfg_dir}"',
+                                      '/Out', f'"{load_log}"',
                                       '/DisableStartupDialogs'] + [quote_if_needed(a) for a in extra_args])
         if result.returncode != 0:
+            # Причина отказа живёт только в /Out: в консоль пакетный 1cv8 не пишет ничего.
+            if os.path.isfile(load_log):
+                try:
+                    with io.open(load_log, encoding='utf-8-sig', errors='replace') as fh:
+                        text = fh.read().strip()
+                    if text:
+                        print(text)
+                except Exception:
+                    pass
             print_platform_output(result)
             print(f'Failed to load config (code: {result.returncode})', file=sys.stderr)
             sys.exit(1)

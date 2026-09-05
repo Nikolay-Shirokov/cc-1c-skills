@@ -1,0 +1,40 @@
+{
+  "name": "Неизвестная проверка отбивается",
+  "osOnly": "win32",
+  "fakePlatform": {
+    "exit": 0,
+    "log": ""
+  },
+  "preRun": [
+    {
+      "script": "epf-init/scripts/init",
+      "args": {
+        "-Name": "Тест",
+        "-SrcDir": "{workDir}/src"
+      }
+    }
+  ],
+  "args_extra": [
+    "-V8Path",
+    "{workDir}\\fake.cmd",
+    "-InfoBasePath",
+    "{workDir}\\ib",
+    "-SourceFile",
+    "{workDir}\\src\\Тест.xml",
+    "-OutputFile",
+    "{workDir}\\build\\Тест.epf",
+    "-Checks",
+    "syntax"
+  ],
+  "expect": {
+    "stdoutContains": [
+      "unknown check 'syntax'"
+    ],
+    "stdoutNotContains": [
+      "/CheckConfig",
+      "/LoadExternalDataProcessorOrReportFromFiles"
+    ]
+  },
+  "expectError": true,
+  "noSnapshot": "отказ до запуска платформы"
+}

@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-# epf-build v1.16 — Build external data processor or report (EPF/ERF) from XML sources
+# epf-build v1.17 — Build external data processor or report (EPF/ERF) from XML sources
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
 import atexit
 import glob
+import io
 import json
 import os
 import random
@@ -410,6 +411,136 @@ def _redact(text, *secrets):
     return text
 
 
+def _sg_find_v8project(start_dir):
+    d = start_dir
+    for _ in range(20):
+        if not d:
+            break
+        pj = os.path.join(d, ".v8-project.json")
+        if os.path.isfile(pj):
+            return pj
+        parent = os.path.dirname(d)
+        if parent == d:
+            break
+        d = parent
+    return None
+
+
+# --- Проверка исходников платформой ---
+# Сборка .epf/.erf ничего не проверяет: /LoadExternalDataProcessorOrReportFromFiles упаковывает XML
+# и модули не компилирует, поэтому сломанный модуль доезжает до пользователя и падает при открытии
+# обработки. Прямой команды «проверь внешнюю обработку» у платформы нет, но объект КОНФИГУРАЦИИ она
+# проверяет — поэтому обработка кладётся в конфигурацию временной базы (stub-db-create
+# -EmbedSourceFile) и спрашивается штатной /CheckConfig.
+#
+# Запуск отдельный и только через 1cv8: у ibcmd такой команды нет, а в одной командной строке
+# DESIGNER выполняет лишь последнюю пакетную команду.
+def get_check_flags(checks, contexts):
+    flags = []
+    if 'modules' in checks:
+        for c in contexts:
+            flags.append('-' + c)
+    if 'handlers' in checks:
+        flags.append('-HandlersExistence')
+    if 'unreferenced' in checks:
+        flags.append('-UnreferenceProcedures')
+    if 'empty-handlers' in checks:
+        flags.append('-EmptyHandlers')
+    if 'config' in checks:
+        flags += ['-ConfigLogIntegrity', '-IncorrectReferences']
+    return flags
+
+
+# Платформа называет объект своим именем внутри конфигурации; модели нужен путь к исходнику.
+# Путь СКЛЕИВАЕТСЯ по конвенции выгрузки, поэтому возвращается только существующий файл:
+# выдуманный путь хуже отсутствующего — модель пойдёт открывать файл, которого нет.
+def resolve_source_path(line, source_dir):
+    candidate = None
+    m = re.search(r'(?:\u041e\u0431\u0440\u0430\u0431\u043e\u0442\u043a\u0430|\u041e\u0442\u0447\u0435\u0442|DataProcessor|Report)\.([^.]+)\.(?:\u0424\u043e\u0440\u043c\u0430|Form)\.([^.]+)\.', line)
+    if m:
+        candidate = os.path.join(source_dir, m.group(1), 'Forms', m.group(2), 'Ext', 'Form', 'Module.bsl')
+    if candidate is None:
+        m = re.search(r'(?:\u041e\u0431\u0440\u0430\u0431\u043e\u0442\u043a\u0430|\u041e\u0442\u0447\u0435\u0442|DataProcessor|Report)\.([^.]+)\.(?:\u041c\u043e\u0434\u0443\u043b\u044c\u041e\u0431\u044a\u0435\u043a\u0442\u0430|ObjectModule)', line)
+        if m:
+            candidate = os.path.join(source_dir, m.group(1), 'Ext', 'ObjectModule.bsl')
+    if candidate is None:
+        m = re.search(r'(?:\u041e\u0431\u0440\u0430\u0431\u043e\u0442\u043a\u0430|\u041e\u0442\u0447\u0435\u0442|DataProcessor|Report)\.([^.]+)\.(?:\u041c\u043e\u0434\u0443\u043b\u044c\u041c\u0435\u043d\u0435\u0434\u0436\u0435\u0440\u0430|ManagerModule)', line)
+        if m:
+            candidate = os.path.join(source_dir, m.group(1), 'Ext', 'ManagerModule.bsl')
+    if candidate and os.path.isfile(candidate):
+        return candidate
+    return None
+
+
+# True, если платформа нашла проблемы — вызывающий не собирает артефакт.
+def invoke_source_check(exe, base_path, flags, source_dir, extra_args):
+    exe_dir = os.path.dirname(exe)
+    exe_leaf = os.path.basename(exe)
+    if exe_leaf.lower().startswith('ibcmd'):
+        v8 = os.path.join(exe_dir, '1cv8' + os.path.splitext(exe)[1])
+    else:
+        v8 = exe
+    if not os.path.exists(v8):
+        print(f'[note] source check skipped: 1cv8 not found at {v8}')
+        return False
+    d = os.path.join(tempfile.gettempdir(), f'epf_check_{random.randint(0, 999999)}')
+    os.makedirs(d, exist_ok=True)
+    try:
+        out_file = os.path.join(d, 'check_log.txt')
+        a = (['DESIGNER', '/F', f'"{base_path}"', '/CheckConfig'] + flags
+             + ['/Out', f'"{out_file}"', '/DisableStartupDialogs']
+             + [quote_if_needed(x) for x in extra_args])
+        print(f'Running: 1cv8.exe {" ".join(a)}')
+        result = run_v8(v8, a)
+        lines = []
+        if os.path.isfile(out_file):
+            try:
+                with io.open(out_file, encoding='utf-8-sig', errors='replace') as fh:
+                    raw = fh.read()
+                lines = [l for l in raw.splitlines() if l.strip()]
+            except Exception:
+                lines = []
+        # Платформа отвечает 101 на найденные проблемы; «Ошибок не обнаружено» приходит с кодом 0.
+        if result.returncode == 0:
+            return False
+        print('Error: \u043f\u043b\u0430\u0442\u0444\u043e\u0440\u043c\u0430 \u043d\u0430\u0448\u043b\u0430 \u043f\u0440\u043e\u0431\u043b\u0435\u043c\u044b \u0432 \u0438\u0441\u0445\u043e\u0434\u043d\u0438\u043a\u0430\u0445 \u2014 \u0441\u0431\u043e\u0440\u043a\u0430 \u043e\u0442\u043c\u0435\u043d\u0435\u043d\u0430')
+        # Пустой лог при ненулевом коде — отказ не по находкам (база занята, нет лицензии); молчать нельзя.
+        if not lines:
+            print(f'  платформа вернула код {result.returncode} без сообщений')
+        for l in lines:
+            print(f'  {l.rstrip()}')
+            src_path = resolve_source_path(l, source_dir)
+            if src_path:
+                print(f'    -> {src_path}')
+        return True
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+# Проверять ли исходники: -Checks off сильнее настройки проекта externalCheck.
+def get_source_check_list(checks):
+    known = ['modules', 'handlers', 'unreferenced', 'empty-handlers', 'config']
+    if checks:
+        lst = [c.strip().lower() for c in checks.split(',') if c.strip()]
+        if 'off' in lst:
+            return []
+        for c in lst:
+            if c not in known:
+                print(f'Error: unknown check \'{c}\' (expected: {", ".join(known)} or off)')
+                sys.exit(1)
+        return lst
+    pf = _sg_find_v8project(os.getcwd())
+    if pf:
+        try:
+            with open(pf, encoding='utf-8-sig') as fh:
+                proj = json.load(fh)
+            if 'externalCheck' in proj and not proj['externalCheck']:
+                return []
+        except Exception:
+            pass
+    return ['modules', 'handlers']
+
+
 def main():
     sys.stdout.reconfigure(encoding="utf-8")
     sys.stderr.reconfigure(encoding="utf-8")
@@ -425,6 +556,11 @@ def main():
     parser.add_argument("-Password", default="", help="1C user password")
     parser.add_argument("-SourceFile", required=True, help="Path to root XML source file")
     parser.add_argument("-OutputFile", required=True, help="Path to output EPF/ERF file")
+    # Что проверить в исходниках перед сборкой: modules (синтаксис в контекстах), handlers,
+    # unreferenced, empty-handlers, config; off — не проверять. По умолчанию modules,handlers.
+    parser.add_argument("-Checks", default="")
+    # Контексты синтаксической проверки. По умолчанию ThinClient,Server.
+    parser.add_argument("-Context", default="")
     parser.add_argument("-AdditionalV8Arguments", nargs="*", default=[],
                         help="Extra 1cv8 arguments, e.g. /UseHwLicenses+")
     parser.add_argument("-AdditionalIbcmdArguments", nargs="*", default=[],
@@ -458,33 +594,79 @@ def main():
         print("Error: ibcmd supports file infobases only (use -InfoBasePath or omit for stub)")
         sys.exit(1)
 
-    # --- Auto-create stub database if no connection specified ---
-    auto_created_base = None
-    if not args.InfoBasePath and (not args.InfoBaseServer or not args.InfoBaseRef):
-        source_dir = os.path.dirname(os.path.abspath(args.SourceFile))
-        auto_base_path = os.path.join(tempfile.gettempdir(), f"epf_stub_db_{random.randint(0, 999999)}")
-        stub_script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "stub-db-create.py")
-        print("No database specified. Creating temporary stub database...")
-        stub_cmd = [sys.executable, stub_script, "-SourceDir", source_dir, "-V8Path", v8path,
-                    "-TempBasePath", auto_base_path]
+    # --- Что проверяем в исходниках перед сборкой ---
+    check_list = get_source_check_list(args.Checks)
+    context_list = [c.strip() for c in args.Context.split(',') if c.strip()] if args.Context else []
+    if not context_list:
+        context_list = ['ThinClient', 'Server']
+    elif check_list and 'modules' not in check_list:
+        print('Error: -Context задан, но в -Checks нет modules — контексты относятся только к ней')
+        sys.exit(1)
+    source_dir = os.path.dirname(os.path.abspath(args.SourceFile))
+
+    def new_stub_base(base_path, embed):
         # The stub runs its own platform processes (CREATEINFOBASE, LoadConfigFromFiles,
         # UpdateDBCfg) — they need the same extra arguments as the final build. Only the
         # explicit ones are forwarded: the stub reads .v8-project.json itself.
+        stub_script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "stub-db-create.py")
+        stub_cmd = [sys.executable, stub_script, "-SourceDir", source_dir, "-V8Path", v8path,
+                    "-TempBasePath", base_path]
+        if embed:
+            stub_cmd += ["-EmbedSourceFile", args.SourceFile]
         if v8_extra:
             stub_cmd += ["-AdditionalV8Arguments"] + list(v8_extra)
         if ibcmd_extra:
             stub_cmd += ["-AdditionalIbcmdArguments"] + list(ibcmd_extra)
-        result = subprocess.run(stub_cmd, capture_output=False)
-        if result.returncode != 0:
-            print("Error: failed to create stub database")
+        return subprocess.run(stub_cmd, capture_output=False).returncode
+
+    # --- Auto-create stub database if no connection specified ---
+    auto_created_base = None
+    check_base = None
+    check_base_path = None
+    if not args.InfoBasePath and (not args.InfoBaseServer or not args.InfoBaseRef):
+        auto_base_path = os.path.join(tempfile.gettempdir(), f"epf_stub_db_{random.randint(0, 999999)}")
+        print("No database specified. Creating temporary stub database...")
+        if new_stub_base(auto_base_path, bool(check_list)) != 0:
+            # С внедрённой обработкой база падает прежде всего из-за самих исходников
+            # (пример: DefaultForm на несуществующую форму) — говорить про базу значит увести не туда.
+            if check_list:
+                print('Error: платформа не приняла исходники при подготовке проверки — сборка отменена')
+                print('  сообщение платформы выше; имя объекта в нём конфигурационное: DataProcessor/Report = проверяемая внешняя обработка/отчёт')
+            else:
+                print("Error: failed to create stub database")
             sys.exit(1)
         args.InfoBasePath = auto_base_path
         auto_created_base = auto_base_path
+        if check_list:
+            check_base_path = auto_base_path
+    elif check_list:
+        # Базу указали снаружи: класть проверяемую обработку в чужую конфигурацию нельзя, поэтому под
+        # проверку поднимается своя временная база, а сборка идёт на указанной.
+        check_base = os.path.join(tempfile.gettempdir(), f"epf_check_db_{random.randint(0, 999999)}")
+        print("Creating temporary database for the source check...")
+        if new_stub_base(check_base, True) != 0:
+            print('Error: платформа не приняла исходники при подготовке проверки — сборка отменена')
+            print('  сообщение платформы выше; имя объекта в нём конфигурационное: DataProcessor/Report = проверяемая внешняя обработка/отчёт')
+            sys.exit(1)
+        check_base_path = check_base
 
     # --- Validate source file ---
     if not os.path.isfile(args.SourceFile):
         print(f"Error: source file not found: {args.SourceFile}")
         sys.exit(1)
+
+    # --- Проверка исходников платформой: сломанный .epf до пользователя доезжать не должен ---
+    if check_list and check_base_path:
+        # Проверку ведёт 1cv8, поэтому ibcmd-шные дополнительные аргументы ей не отдаём.
+        check_extra = [] if engine == "ibcmd" else extra_args
+        found = invoke_source_check(v8path, check_base_path,
+                                    get_check_flags(check_list, context_list), source_dir, check_extra)
+        if found:
+            if auto_created_base and os.path.exists(auto_created_base):
+                shutil.rmtree(auto_created_base, ignore_errors=True)
+            if check_base and os.path.exists(check_base):
+                shutil.rmtree(check_base, ignore_errors=True)
+            sys.exit(1)
 
     # --- Ensure output directory exists ---
     out_dir = os.path.dirname(args.OutputFile)
@@ -579,6 +761,8 @@ def main():
             shutil.rmtree(temp_dir, ignore_errors=True)
         if auto_created_base and os.path.exists(auto_created_base):
             shutil.rmtree(auto_created_base, ignore_errors=True)
+        if check_base and os.path.exists(check_base):
+            shutil.rmtree(check_base, ignore_errors=True)
 
 
 if __name__ == "__main__":

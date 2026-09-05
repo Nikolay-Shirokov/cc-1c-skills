@@ -1,0 +1,36 @@
+{
+  "name": "Отказ платформы при подготовке проверки не выдаётся за сбой базы (fake platform)",
+  "osOnly": "win32",
+  "fakePlatform": {
+    "exit": 1,
+    "log": ""
+  },
+  "preRun": [
+    {
+      "script": "epf-init/scripts/init",
+      "args": {
+        "-Name": "Тест",
+        "-SrcDir": "{workDir}/src"
+      }
+    }
+  ],
+  "args_extra": [
+    "-V8Path",
+    "{workDir}\\fake.cmd",
+    "-SourceFile",
+    "{workDir}\\src\\Тест.xml",
+    "-OutputFile",
+    "{workDir}\\build\\Тест.epf"
+  ],
+  "expect": {
+    "stdoutContains": [
+      "платформа не приняла исходники"
+    ],
+    "stdoutNotContains": [
+      "failed to create stub database",
+      "/LoadExternalDataProcessorOrReportFromFiles"
+    ]
+  },
+  "expectError": true,
+  "noSnapshot": "платформа фейковая и падает на первом запуске — проверяется вердикт"
+}

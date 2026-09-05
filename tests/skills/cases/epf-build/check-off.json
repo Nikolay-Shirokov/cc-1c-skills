@@ -1,0 +1,43 @@
+{
+  "name": "-Checks off отключает проверку (fake platform)",
+  "osOnly": "win32",
+  "fakePlatform": {
+    "exit": 0,
+    "log": "",
+    "check": {
+      "exit": 101,
+      "log": "Не должно быть вызвано\n"
+    }
+  },
+  "preRun": [
+    {
+      "script": "epf-init/scripts/init",
+      "args": {
+        "-Name": "Тест",
+        "-SrcDir": "{workDir}/src"
+      }
+    }
+  ],
+  "args_extra": [
+    "-V8Path",
+    "{workDir}\\fake.cmd",
+    "-InfoBasePath",
+    "{workDir}\\ib",
+    "-SourceFile",
+    "{workDir}\\src\\Тест.xml",
+    "-OutputFile",
+    "{workDir}\\build\\Тест.epf",
+    "-Checks",
+    "off"
+  ],
+  "expect": {
+    "stdoutContains": [
+      "/LoadExternalDataProcessorOrReportFromFiles"
+    ],
+    "stdoutNotContains": [
+      "/CheckConfig"
+    ]
+  },
+  "expectError": true,
+  "noSnapshot": "платформа фейковая, EPF не собирается — проверяется командная строка"
+}

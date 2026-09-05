@@ -1,4 +1,4 @@
-﻿# epf-build v1.16 — Build external data processor or report (EPF/ERF) from XML sources
+﻿# epf-build v1.17 — Build external data processor or report (EPF/ERF) from XML sources
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 # NB: *nix-раскладку платформы (/opt/1cv8/<ver>/1cv8, без .exe) знает только .py-порт — PS на *nix не исполняется.
 <#
@@ -71,6 +71,15 @@ param(
 
     [Parameter(Mandatory=$true)]
     [string]$OutputFile,
+
+    # Что проверить в исходниках перед сборкой: modules (синтаксис в контекстах), handlers,
+    # unreferenced, empty-handlers, config; off — не проверять. По умолчанию modules,handlers.
+    [Parameter(Mandatory=$false)]
+    [string]$Checks,
+
+    # Контексты синтаксической проверки. По умолчанию ThinClient,Server.
+    [Parameter(Mandatory=$false)]
+    [string]$Context,
 
     [Parameter(Mandatory=$false)]
     [string[]]$AdditionalV8Arguments = @(),
@@ -388,6 +397,122 @@ function Test-OutputNonEmpty {
     return (Test-Path $Path -PathType Leaf) -and ((Get-Item $Path -ErrorAction SilentlyContinue).Length -gt 0)
 }
 
+function Find-V8Project([string]$startDir) {
+	$d = $startDir
+	for ($i = 0; $i -lt 20 -and $d; $i++) {
+		$pj = Join-Path $d ".v8-project.json"
+		if (Test-Path $pj) { return $pj }
+		$parent = [System.IO.Path]::GetDirectoryName($d)
+		if ($parent -eq $d) { break }
+		$d = $parent
+	}
+	return $null
+}
+
+# --- Проверка исходников платформой ---
+# Сборка .epf/.erf ничего не проверяет: /LoadExternalDataProcessorOrReportFromFiles упаковывает XML
+# и модули не компилирует, поэтому сломанный модуль доезжает до пользователя и падает при открытии
+# обработки. Прямой команды «проверь внешнюю обработку» у платформы нет, но объект КОНФИГУРАЦИИ она
+# проверяет — поэтому обработка кладётся в конфигурацию временной базы (stub-db-create
+# -EmbedSourceFile) и спрашивается штатной /CheckConfig.
+#
+# Запуск отдельный и только через 1cv8: у ibcmd такой команды нет, а в одной командной строке
+# DESIGNER выполняет лишь последнюю пакетную команду.
+function Get-CheckFlags {
+	param([string[]]$Checks, [string[]]$Contexts)
+	$flags = @()
+	if ($Checks -contains 'modules') { foreach ($c in $Contexts) { $flags += "-$c" } }
+	if ($Checks -contains 'handlers') { $flags += '-HandlersExistence' }
+	if ($Checks -contains 'unreferenced') { $flags += '-UnreferenceProcedures' }
+	if ($Checks -contains 'empty-handlers') { $flags += '-EmptyHandlers' }
+	if ($Checks -contains 'config') { $flags += '-ConfigLogIntegrity', '-IncorrectReferences' }
+	return $flags
+}
+
+# Платформа называет объект своим именем внутри конфигурации; модели нужен путь к исходнику.
+# Путь СКЛЕИВАЕТСЯ по конвенции выгрузки, поэтому возвращается только существующий файл:
+# выдуманный путь хуже отсутствующего — модель пойдёт открывать файл, которого нет.
+function Resolve-SourcePath {
+	param([string]$Line, [string]$SourceDir)
+	$candidate = $null
+	$m = [regex]::Match($Line, '(?:Обработка|Отчет|DataProcessor|Report)\.([^.]+)\.(?:Форма|Form)\.([^.]+)\.')
+	if ($m.Success) { $candidate = (Join-Path $SourceDir (Join-Path $m.Groups[1].Value (Join-Path "Forms" (Join-Path $m.Groups[2].Value "Ext\Form\Module.bsl")))) }
+	if (-not $candidate) {
+		$m = [regex]::Match($Line, '(?:Обработка|Отчет|DataProcessor|Report)\.([^.]+)\.(МодульОбъекта|ObjectModule)')
+		if ($m.Success) { $candidate = (Join-Path $SourceDir (Join-Path $m.Groups[1].Value "Ext\ObjectModule.bsl")) }
+	}
+	if (-not $candidate) {
+		$m = [regex]::Match($Line, '(?:Обработка|Отчет|DataProcessor|Report)\.([^.]+)\.(МодульМенеджера|ManagerModule)')
+		if ($m.Success) { $candidate = (Join-Path $SourceDir (Join-Path $m.Groups[1].Value "Ext\ManagerModule.bsl")) }
+	}
+	if ($candidate -and (Test-Path $candidate -PathType Leaf)) { return $candidate }
+	return $null
+}
+
+# $true, если платформа нашла проблемы — вызывающий не собирает артефакт.
+function Invoke-SourceCheck {
+	param([string]$Exe, [string]$BasePath, [string[]]$Flags, [string]$SourceDir, [string[]]$ExtraArgs)
+	$exeDir = Split-Path $Exe -Parent
+	$exeLeaf = Split-Path $Exe -Leaf
+	$v8 = if ($exeLeaf -match '^ibcmd') { Join-Path $exeDir ("1cv8" + [System.IO.Path]::GetExtension($Exe)) } else { $Exe }
+	if (-not (Test-Path $v8)) {
+		Write-Host "[note] source check skipped: 1cv8 not found at $v8" -ForegroundColor Yellow
+		return $false
+	}
+	$dir = Join-Path $env:TEMP "epf_check_$(Get-Random)"
+	New-Item -ItemType Directory -Path $dir -Force | Out-Null
+	try {
+		$outFile = Join-Path $dir "check_log.txt"
+		$a = @("DESIGNER", "/F", "`"$BasePath`"", "/CheckConfig") + $Flags + @("/Out", "`"$outFile`"", "/DisableStartupDialogs") + $ExtraArgs
+		Write-Host "Running: 1cv8.exe $($a -join ' ')"
+		$res = Invoke-PlatformProcess $v8 $a -PreQuoted
+		$lines = @()
+		if (Test-Path $outFile) {
+			$raw = Get-Content $outFile -Raw -ErrorAction SilentlyContinue
+			if ($raw) { $lines = @($raw -split "`r?`n" | Where-Object { $_.Trim() -ne '' }) }
+		}
+		# Платформа отвечает 101 на найденные проблемы; «Ошибок не обнаружено» приходит с кодом 0.
+		if ($res.ExitCode -eq 0) { return $false }
+		Write-Host "Error: платформа нашла проблемы в исходниках — сборка отменена" -ForegroundColor Red
+		# Пустой лог при ненулевом коде — отказ не по находкам (база занята, нет лицензии); молчать нельзя.
+		if ($lines.Count -eq 0) { Write-Host "  платформа вернула код $($res.ExitCode) без сообщений" -ForegroundColor Red }
+		foreach ($l in $lines) {
+			Write-Host "  $($l.TrimEnd())" -ForegroundColor Red
+			$srcPath = Resolve-SourcePath $l $SourceDir
+			if ($srcPath) { Write-Host "    -> $srcPath" -ForegroundColor Red }
+		}
+		return $true
+	} finally {
+		if (Test-Path $dir) { Remove-Item -Path $dir -Recurse -Force -ErrorAction SilentlyContinue }
+	}
+}
+
+# Проверять ли исходники: -Checks off сильнее настройки проекта externalCheck.
+function Get-SourceCheckList {
+	param([string]$Checks)
+	$known = @('modules', 'handlers', 'unreferenced', 'empty-handlers', 'config')
+	if ($Checks) {
+		$list = @($Checks -split ',' | ForEach-Object { $_.Trim().ToLower() } | Where-Object { $_ })
+		if ($list -contains 'off') { return @() }
+		foreach ($c in $list) {
+			if ($known -notcontains $c) {
+				Write-Host "Error: unknown check '$c' (expected: $($known -join ', ') or off)" -ForegroundColor Red
+				exit 1
+			}
+		}
+		return $list
+	}
+	$pf = Find-V8Project (Get-Location).Path
+	if ($pf) {
+		try {
+			$proj = Get-Content $pf -Raw -Encoding UTF8 | ConvertFrom-Json
+			if ($null -ne $proj.externalCheck -and -not [bool]$proj.externalCheck) { return @() }
+		} catch {}
+	}
+	return @('modules', 'handlers')
+}
+
+
 $engine = if ((Split-Path $V8Path -Leaf) -match '^ibcmd') { "ibcmd" } else { "1cv8" }
 
 # --- Resolve additional arguments for the selected engine ---
@@ -398,39 +523,87 @@ if ($engine -eq "ibcmd" -and $InfoBaseServer -and $InfoBaseRef) {
     exit 1
 }
 
-# --- Auto-create stub database if no connection specified ---
-$autoCreatedBase = $null
-if (-not $InfoBasePath -and (-not $InfoBaseServer -or -not $InfoBaseRef)) {
-    $sourceDir = Split-Path $SourceFile -Parent
-    $autoBasePath = Join-Path $env:TEMP "epf_stub_db_$(Get-Random)"
+# --- Что проверяем в исходниках перед сборкой ---
+$checkList = @(Get-SourceCheckList $Checks)
+$contextList = @()
+if ($Context) { $contextList = @($Context -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ }) }
+if ($contextList.Count -eq 0) { $contextList = @('ThinClient', 'Server') }
+elseif ($checkList.Count -gt 0 -and $checkList -notcontains 'modules') {
+    Write-Host "Error: -Context задан, но в -Checks нет modules — контексты относятся только к ней" -ForegroundColor Red
+    exit 1
+}
+$sourceDir = Split-Path $SourceFile -Parent
+
+function New-StubBase {
+    # Стаб запускает свои процессы платформы (CREATEINFOBASE, LoadConfigFromFiles, UpdateDBCfg) —
+    # им нужны те же дополнительные аргументы, что и сборке. Передаются только явные: файл проекта
+    # стаб читает сам. Вызов через -Command, не -File: -File берёт хвост буквально, и массивный
+    # параметр пришёл бы одним склеенным токеном.
+    param([string]$BasePath, [switch]$Embed)
     $stubScript = Join-Path $PSScriptRoot "stub-db-create.ps1"
-    Write-Host "No database specified. Creating temporary stub database..."
-    # The stub runs its own platform processes (CREATEINFOBASE, LoadConfigFromFiles,
-    # UpdateDBCfg) — they need the same extra arguments as the final build. Only the
-    # explicit ones are forwarded: the stub reads .v8-project.json itself.
-    # Invoked via -Command, not -File: -File takes the tail literally, so an array
-    # parameter would arrive as a single comma-glued token.
     $q = { param($s) "'" + ($s -replace "'", "''") + "'" }
-    $stubCmd = "& $(& $q $stubScript) -SourceDir $(& $q $sourceDir) -V8Path $(& $q $V8Path) -TempBasePath $(& $q $autoBasePath)"
+    $stubCmd = "& $(& $q $stubScript) -SourceDir $(& $q $sourceDir) -V8Path $(& $q $V8Path) -TempBasePath $(& $q $BasePath)"
+    if ($Embed) { $stubCmd += " -EmbedSourceFile $(& $q $SourceFile)" }
     if ($AdditionalV8Arguments.Count -gt 0) {
         $stubCmd += " -AdditionalV8Arguments " + (($AdditionalV8Arguments | ForEach-Object { & $q $_ }) -join ',')
     }
     if ($AdditionalIbcmdArguments.Count -gt 0) {
         $stubCmd += " -AdditionalIbcmdArguments " + (($AdditionalIbcmdArguments | ForEach-Object { & $q $_ }) -join ',')
     }
-    $stubProc = Start-Process -FilePath "powershell.exe" -ArgumentList "-NoProfile -Command `"$stubCmd`"" -NoNewWindow -Wait -PassThru
-    if ($stubProc.ExitCode -ne 0) {
-        Write-Host "Error: failed to create stub database" -ForegroundColor Red
+    $p = Start-Process -FilePath "powershell.exe" -ArgumentList "-NoProfile -Command `"$stubCmd`"" -NoNewWindow -Wait -PassThru
+    return $p.ExitCode
+}
+
+# --- Auto-create stub database if no connection specified ---
+$autoCreatedBase = $null
+$checkBase = $null
+$checkBasePath = $null
+if (-not $InfoBasePath -and (-not $InfoBaseServer -or -not $InfoBaseRef)) {
+    $autoBasePath = Join-Path $env:TEMP "epf_stub_db_$(Get-Random)"
+    Write-Host "No database specified. Creating temporary stub database..."
+    if ((New-StubBase $autoBasePath -Embed:($checkList.Count -gt 0)) -ne 0) {
+        # С внедрённой обработкой база падает прежде всего из-за самих исходников
+        # (пример: DefaultForm на несуществующую форму) — говорить про базу значит увести не туда.
+        if ($checkList.Count -gt 0) {
+            Write-Host "Error: платформа не приняла исходники при подготовке проверки — сборка отменена" -ForegroundColor Red
+            Write-Host "  сообщение платформы выше; имя объекта в нём конфигурационное: DataProcessor/Report = проверяемая внешняя обработка/отчёт" -ForegroundColor Red
+        } else {
+            Write-Host "Error: failed to create stub database" -ForegroundColor Red
+        }
         exit 1
     }
     $InfoBasePath = $autoBasePath
     $autoCreatedBase = $autoBasePath
+    if ($checkList.Count -gt 0) { $checkBasePath = $autoBasePath }
+} elseif ($checkList.Count -gt 0) {
+    # Базу указали снаружи: класть проверяемую обработку в чужую конфигурацию нельзя, поэтому под
+    # проверку поднимается своя временная база, а сборка идёт на указанной.
+    $checkBase = Join-Path $env:TEMP "epf_check_db_$(Get-Random)"
+    Write-Host "Creating temporary database for the source check..."
+    if ((New-StubBase $checkBase -Embed) -ne 0) {
+        Write-Host "Error: платформа не приняла исходники при подготовке проверки — сборка отменена" -ForegroundColor Red
+        Write-Host "  сообщение платформы выше; имя объекта в нём конфигурационное: DataProcessor/Report = проверяемая внешняя обработка/отчёт" -ForegroundColor Red
+        exit 1
+    }
+    $checkBasePath = $checkBase
 }
 
 # --- Validate source file ---
 if (-not (Test-Path $SourceFile)) {
     Write-Host "Error: source file not found: $SourceFile" -ForegroundColor Red
     exit 1
+}
+
+# --- Проверка исходников платформой: сломанный .epf до пользователя доезжать не должен ---
+if ($checkList.Count -gt 0 -and $checkBasePath) {
+    # Проверку ведёт 1cv8, поэтому ibcmd-шные дополнительные аргументы ей не отдаём.
+    $checkExtra = if ($engine -eq "ibcmd") { @() } else { $extraArgs }
+    $found = Invoke-SourceCheck $V8Path $checkBasePath (Get-CheckFlags $checkList $contextList) $sourceDir $checkExtra
+    if ($found) {
+        if ($autoCreatedBase -and (Test-Path $autoCreatedBase)) { Remove-Item -Path $autoCreatedBase -Recurse -Force -ErrorAction SilentlyContinue }
+        if ($checkBase -and (Test-Path $checkBase)) { Remove-Item -Path $checkBase -Recurse -Force -ErrorAction SilentlyContinue }
+        exit 1
+    }
 }
 
 # --- Ensure output directory exists ---
@@ -525,5 +698,8 @@ try {
     }
     if ($autoCreatedBase -and (Test-Path $autoCreatedBase)) {
         Remove-Item -Path $autoCreatedBase -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    if ($checkBase -and (Test-Path $checkBase)) {
+        Remove-Item -Path $checkBase -Recurse -Force -ErrorAction SilentlyContinue
     }
 }

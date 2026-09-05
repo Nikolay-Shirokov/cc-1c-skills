@@ -1,0 +1,39 @@
+{
+  "name": "Перед сборкой запускается /CheckConfig (fake platform)",
+  "osOnly": "win32",
+  "fakePlatform": {
+    "exit": 0,
+    "log": "Загрузка завершена.\n",
+    "check": {
+      "exit": 0,
+      "log": ""
+    }
+  },
+  "preRun": [
+    {
+      "script": "epf-init/scripts/init",
+      "args": {
+        "-Name": "Тест",
+        "-SrcDir": "{workDir}/src"
+      }
+    }
+  ],
+  "args_extra": [
+    "-V8Path",
+    "{workDir}\\fake.cmd",
+    "-InfoBasePath",
+    "{workDir}\\ib",
+    "-SourceFile",
+    "{workDir}\\src\\Тест.xml",
+    "-OutputFile",
+    "{workDir}\\build\\Тест.epf"
+  ],
+  "expect": {
+    "stdoutContains": [
+      "/CheckConfig -ThinClient -Server -HandlersExistence",
+      "/LoadExternalDataProcessorOrReportFromFiles"
+    ]
+  },
+  "expectError": true,
+  "noSnapshot": "платформа фейковая, EPF не собирается — проверяется командная строка проверки"
+}

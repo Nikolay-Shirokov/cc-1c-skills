@@ -1,4 +1,4 @@
-﻿# stub-db-create v1.8 — Create temp 1C infobase with metadata stubs for EPF/ERF build
+﻿# stub-db-create v1.9 — Create temp 1C infobase with metadata stubs for EPF/ERF build
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -8,6 +8,10 @@ param(
 	[string]$V8Path,
 
 	[string]$TempBasePath,
+
+	# XML проверяемой обработки/отчёта: объект кладётся в конфигурацию-заглушку, чтобы платформа
+	# смогла проверить его штатными проверками. Без параметра стаб работает как раньше.
+	[string]$EmbedSourceFile,
 
 	[string[]]$AdditionalV8Arguments = @(),
 
@@ -350,6 +354,9 @@ foreach ($f in $xmlFiles) {
 }
 
 $hasRefTypes = $typeMap.Count -gt 0
+# Конфигурация нужна и тогда, когда ссылочных типов нет: в неё кладётся сам объект.
+$embedRequested = -not [string]::IsNullOrWhiteSpace($EmbedSourceFile)
+$needCfg = $hasRefTypes -or $embedRequested
 
 # --- 2. Determine TempBasePath ---
 if (-not $TempBasePath) {
@@ -370,12 +377,105 @@ if ($needsRegistrator) {
 	$typeMap["Document"]["ЗаглушкаРегистратора"] = $true
 }
 
+# --- Внедрение проверяемого объекта в конфигурацию-заглушку ---
+# Платформа не умеет проверять внешнюю обработку: /LoadExternalDataProcessorOrReportFromFiles
+# только упаковывает XML и модули не компилирует. Зато она проверяет объект КОНФИГУРАЦИИ, а
+# внешняя обработка отличается от него немногим (замер 8.3.24): корневым тегом, именем
+# порождаемого объектного типа и отсутствием типа менеджера. Правим ровно эти точки и переносим
+# остальное как есть — под проверку попадает всё, что написал автор, включая реквизиты, формы и
+# макеты, а формат может расти без правок здесь.
+#
+# Подстановка типа делается ТОЛЬКО в .xml (это DefaultForm и основной реквизит формы); в .bsl
+# такой же текст был бы кодом, и трогать его нельзя.
+function Add-SourceObjectToConfig {
+	param([string]$SourceXml, [string]$CfgDir)
+
+	# Копия объекта живёт в конфигурации базы, а следом в ту же базу грузится исходник как ВНЕШНЯЯ
+	# обработка. С одинаковыми идентификаторами платформа путает их и через раз отвечает «Исключение
+	# XDTO при чтении файла» на исправном исходнике — поэтому у копии все GUID свои, но согласованные
+	# между её файлами (ссылки внутри объекта идут по идентификатору).
+	$guidMap = @{}
+	$reGuid = [regex]'[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}'
+	$reissue = {
+		param($m)
+		$k = $m.Value.ToLower()
+		if (-not $guidMap.ContainsKey($k)) { $guidMap[$k] = [guid]::NewGuid().ToString() }
+		$guidMap[$k]
+	}
+
+	$text = [IO.File]::ReadAllText($SourceXml, [Text.Encoding]::UTF8)
+	if ($text -match '<ExternalDataProcessor[\s>]') {
+		$extTag = 'ExternalDataProcessor'; $cfgTag = 'DataProcessor'; $folder = 'DataProcessors'
+	} elseif ($text -match '<ExternalReport[\s>]') {
+		$extTag = 'ExternalReport'; $cfgTag = 'Report'; $folder = 'Reports'
+	} else {
+		return $null
+	}
+
+	$name = if ($text -match '<Name>([^<]+)</Name>') { $Matches[1] } else { [IO.Path]::GetFileNameWithoutExtension($SourceXml) }
+
+	$conv = $reGuid.Replace($text, $reissue)
+	$conv = $conv.Replace("<$extTag ", "<$cfgTag ").Replace("<$extTag>", "<$cfgTag>").Replace("</$extTag>", "</$cfgTag>")
+	$conv = $conv.Replace("${extTag}Object.", "${cfgTag}Object.").Replace("$extTag.", "$cfgTag.")
+
+	# Тип менеджера у внешней обработки не объявлен, а объекту конфигурации он обязателен:
+	# без него платформа отвечает «отсутствует один или более типов объекта».
+	$mgr = "`t`t`t<xr:GeneratedType name=`"${cfgTag}Manager.$name`" category=`"Manager`">`r`n" +
+	       "`t`t`t`t<xr:TypeId>$([guid]::NewGuid().ToString())</xr:TypeId>`r`n" +
+	       "`t`t`t`t<xr:ValueId>$([guid]::NewGuid().ToString())</xr:ValueId>`r`n" +
+	       "`t`t`t</xr:GeneratedType>`r`n"
+	if ($conv -match '</InternalInfo>') {
+		$conv = [regex]::Replace($conv, '(\s*)</InternalInfo>', ("`r`n" + $mgr + "`t`t</InternalInfo>"), 1)
+	} else {
+		$objType = "`t`t`t<xr:GeneratedType name=`"${cfgTag}Object.$name`" category=`"Object`">`r`n" +
+		           "`t`t`t`t<xr:TypeId>$([guid]::NewGuid().ToString())</xr:TypeId>`r`n" +
+		           "`t`t`t`t<xr:ValueId>$([guid]::NewGuid().ToString())</xr:ValueId>`r`n" +
+		           "`t`t`t</xr:GeneratedType>`r`n"
+		$conv = [regex]::Replace($conv, "(<$cfgTag[^>]*>)", ("`$1`r`n`t`t<InternalInfo>`r`n" + $objType + $mgr + "`t`t</InternalInfo>"), 1)
+	}
+
+	$objDir = Join-Path $CfgDir $folder
+	New-Item -ItemType Directory -Path $objDir -Force | Out-Null
+	$encBom = New-Object System.Text.UTF8Encoding($true)
+	[IO.File]::WriteAllText((Join-Path $objDir "$name.xml"), $conv, $encBom)
+
+	# Содержимое объекта — как есть; в XML та же подстановка типа, .bsl копируются байт в байт.
+	$srcContent = Join-Path (Split-Path $SourceXml -Parent) $name
+	if (Test-Path $srcContent) {
+		$dstContent = Join-Path $objDir $name
+		foreach ($f in (Get-ChildItem -Path $srcContent -Recurse -File)) {
+			$rel = $f.FullName.Substring($srcContent.Length).TrimStart('\', '/')
+			$dst = Join-Path $dstContent $rel
+			New-Item -ItemType Directory -Path (Split-Path $dst -Parent) -Force | Out-Null
+			if ($f.Extension -ieq '.xml') {
+				$t = [IO.File]::ReadAllText($f.FullName, [Text.Encoding]::UTF8)
+				$t = $reGuid.Replace($t, $reissue)
+				$t = $t.Replace("${extTag}Object.", "${cfgTag}Object.").Replace("$extTag.", "$cfgTag.")
+				[IO.File]::WriteAllText($dst, $t, $encBom)
+			} else {
+				Copy-Item -Path $f.FullName -Destination $dst -Force
+			}
+		}
+	}
+
+	return @{ Tag = $cfgTag; Name = $name }
+}
+
 # --- 4. Generate configuration XML ---
 
-if ($hasRefTypes) {
+if ($needCfg) {
 	$enc = New-Object System.Text.UTF8Encoding($true)
 	$cfgDir = Join-Path $TempBasePath "cfg"
 	New-Item -ItemType Directory -Path $cfgDir -Force | Out-Null
+
+	$embedded = $null
+	if ($embedRequested) {
+		$embedded = Add-SourceObjectToConfig $EmbedSourceFile $cfgDir
+		if (-not $embedded) {
+			Write-Host "Error: $EmbedSourceFile is neither ExternalDataProcessor nor ExternalReport" -ForegroundColor Red
+			exit 1
+		}
+	}
 
 	# Заглушке нужна САМАЯ НИЗКАЯ работающая версия, а не версия исходников: ограничение платформы
 	# одностороннее — она читает формат не новее себя. Отсюда min(версия исходников, 2.17): на 2.17+
@@ -566,6 +666,7 @@ if ($hasRefTypes) {
 			$childXml += "`r`n`t`t`t<$tag>$name</$tag>"
 		}
 	}
+	if ($embedded) { $childXml += "`r`n`t`t`t<$($embedded.Tag)>$($embedded.Name)</$($embedded.Tag)>" }
 
 	$cfgXml = @"
 <?xml version="1.0" encoding="UTF-8"?>
@@ -1548,7 +1649,7 @@ if ($stubEngine -eq "ibcmd") {
 	$ibData = Join-Path $env:TEMP "stub_data_$(Get-Random)"
 	New-Item -ItemType Directory -Path $ibData -Force | Out-Null
 	$ibArgs = @("infobase", "create", "--db-path=$TempBasePath", "--create-database")
-	if ($hasRefTypes) { $ibArgs += "--import=$(Join-Path $TempBasePath 'cfg')", "--apply", "--force" }
+	if ($needCfg) { $ibArgs += "--import=$(Join-Path $TempBasePath 'cfg')", "--apply", "--force" }
 	$ibArgs += "--data=$ibData"
 	$ibArgs += $extraArgs
 	$__ib = Invoke-PlatformProcess $V8Path $ibArgs
@@ -1560,7 +1661,7 @@ if ($stubEngine -eq "ibcmd") {
 		Write-Error "Failed to create stub infobase (code: $ibRc)"
 		exit 1
 	}
-	if ($hasRefTypes) { Remove-Item -Path (Join-Path $TempBasePath "cfg") -Recurse -Force -ErrorAction SilentlyContinue }
+	if ($needCfg) { Remove-Item -Path (Join-Path $TempBasePath "cfg") -Recurse -Force -ErrorAction SilentlyContinue }
 	Write-Host "[OK] Stub database created: $TempBasePath"
 	Write-Host $TempBasePath
 	exit 0
@@ -1576,8 +1677,8 @@ if ($proc.ExitCode -ne 0) {
 	exit 1
 }
 
-# --- 6. Load config and update DB if ref types exist ---
-if ($hasRefTypes) {
+# --- 6. Load config and update DB if there is one ---
+if ($needCfg) {
 	$cfgDir = Join-Path $TempBasePath "cfg"
 	# LoadConfigFromFiles
 	Write-Host "Loading configuration from files..."

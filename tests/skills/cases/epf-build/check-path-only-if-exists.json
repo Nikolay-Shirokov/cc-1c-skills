@@ -1,0 +1,42 @@
+{
+  "name": "Путь не печатается, если файла нет (fake platform)",
+  "osOnly": "win32",
+  "fakePlatform": {
+    "exit": 0,
+    "log": "",
+    "check": {
+      "exit": 101,
+      "log": "﻿{Обработка.Тест.МодульМенеджера(3,1)}: Ошибка\r\n"
+    }
+  },
+  "preRun": [
+    {
+      "script": "epf-init/scripts/init",
+      "args": {
+        "-Name": "Тест",
+        "-SrcDir": "{workDir}/src"
+      }
+    }
+  ],
+  "args_extra": [
+    "-V8Path",
+    "{workDir}\\fake.cmd",
+    "-InfoBasePath",
+    "{workDir}\\ib",
+    "-SourceFile",
+    "{workDir}\\src\\Тест.xml",
+    "-OutputFile",
+    "{workDir}\\build\\Тест.epf"
+  ],
+  "expect": {
+    "stdoutContains": [
+      "платформа нашла проблемы в исходниках",
+      "МодульМенеджера(3,1)"
+    ],
+    "stdoutNotContains": [
+      "ManagerModule.bsl"
+    ]
+  },
+  "expectError": true,
+  "noSnapshot": "сборка отменена — артефакта нет по замыслу"
+}

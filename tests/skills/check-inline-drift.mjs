@@ -72,7 +72,7 @@ const FAMILIES = [
       // хранилища — задача одна, поэтому семья общая, а не вторая с тем же телом.
       { id: 'full', authority: 'cf-edit',
         consumers: ['cfe-borrow', 'db-cfe-admin', 'db-dump-xml', 'db-load-cf', 'db-load-git', 'db-load-xml', 'db-repo', 'db-update',
-          'form-add', 'form-compile', 'form-edit', 'help-add', 'interface-edit', 'meta-compile',
+          'epf-build', 'form-add', 'form-compile', 'form-edit', 'help-add', 'interface-edit', 'meta-compile',
           'meta-edit', 'meta-remove', 'mxl-compile', 'role-compile', 'skd-compile', 'skd-edit',
           'subsystem-compile', 'subsystem-edit', 'template-add', 'xdto-compile', 'xdto-edit'] },
     ],
