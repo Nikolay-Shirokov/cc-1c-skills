@@ -1,0 +1,47 @@
+{
+  "name": "Таблица внешнего источника: свойства и поля",
+  "setup": "empty-config",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "ExternalDataSource",
+        "name": "PG",
+        "tables": {
+          "products": {
+            "nameInDataSource": "eds.public.products",
+            "tableDataType": "ObjectData",
+            "keyFields": ["id"],
+            "presentationField": "name",
+            "parentField": "parent_id",
+            "dataVersionField": "row_ver",
+            "fields": [
+              "id: Number(10,0)",
+              "name: String(150)",
+              "article: String(50) | nullable",
+              "parent_id: ExternalDataSourceTableRef.PG.products | nullable",
+              { "name": "row_ver", "type": "Number(19,0)", "nameInDataSource": "xmin", "readOnly": true }
+            ]
+          }
+        }
+      },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    }
+  ],
+  "params": { "objectPath": "ExternalDataSources/PG/Tables/products.xml" },
+  "expect": {
+    "stdoutContains": [
+      "Таблица внешнего источника: products",
+      "в источнике: eds.public.products",
+      "данные: объектные",
+      "ключ: id",
+      "представление: name",
+      "родитель: parent_id",
+      "версия данных: row_ver",
+      "Поля (5)",
+      "ВнешнийИсточникДанныхТаблицаСсылка.PG.products",
+      "→ xmin",
+      "только чтение"
+    ]
+  }
+}

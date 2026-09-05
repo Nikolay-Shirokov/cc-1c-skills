@@ -1,4 +1,4 @@
-﻿# meta-info v1.11 — Compact summary of 1C metadata object
+﻿# meta-info v1.12 — Compact summary of 1C metadata object
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -104,6 +104,7 @@ $typeNameMap = @{
 	"DefinedType"="Определяемый тип"; "CommonModule"="Общий модуль"
 	"ScheduledJob"="Регламентное задание"; "EventSubscription"="Подписка на событие"
 	"HTTPService"="HTTP-сервис"; "WebService"="Веб-сервис"
+	"ExternalDataSource"="Внешний источник данных"; "Table"="Таблица внешнего источника"
 }
 
 $refTypeMap = @{
@@ -112,6 +113,7 @@ $refTypeMap = @{
 	"ChartOfCharacteristicTypesRef"="ПВХСсылка"; "ChartOfCalculationTypesRef"="ПВРСсылка"
 	"ExchangePlanRef"="ПланОбменаСсылка"; "BusinessProcessRef"="БизнесПроцессСсылка"
 	"TaskRef"="ЗадачаСсылка"
+	"ExternalDataSourceTableRef"="ВнешнийИсточникДанныхТаблицаСсылка"
 }
 
 $regTypeMap = @{
@@ -231,6 +233,7 @@ function Format-SingleType([string]$raw, $parentNode) {
 		}
 		"v8:ValueStorage" { return "ХранилищеЗначения" }
 		"v8:UUID" { return "УникальныйИдентификатор" }
+		"xs:base64Binary" { return "ДвоичныеДанные" }
 		"v8:Null" { return "Null" }
 		default {
 			# Normalize d5p1:/dNpN: -> cfg:
@@ -1344,6 +1347,80 @@ if (-not $drillDone) {
 				Out "Ресурсы ($($res.Count)):"
 				$ml = Get-MaxNameLen $res
 				foreach ($r in $res) { Out (Format-AttrLine $r $ml) }
+			}
+		}
+
+		# --- Внешний источник данных: таблицы и функции ---
+		if ($mdType -eq "ExternalDataSource") {
+			$dlcm = $props.SelectSingleNode("md:DataLockControlMode", $ns)
+			if ($dlcm) { Out "Блокировка данных: $($dlcm.InnerText)" }
+			if ($childObjs) {
+				$tables = @(Get-SimpleChildren $childObjs "Table")
+				if ($tables.Count -gt 0) {
+					Out ""
+					Out "Таблицы ($($tables.Count)): $($tables -join ', ')"
+				}
+				$fns = @($childObjs.SelectNodes("md:Function", $ns))
+				if ($fns.Count -gt 0) {
+					Out ""
+					Out "Функции ($($fns.Count)):"
+					foreach ($fn in $fns) {
+						$fp = $fn.SelectSingleNode("md:Properties", $ns)
+						$fnName = $fp.SelectSingleNode("md:Name", $ns).InnerText
+						$fnExpr = $fp.SelectSingleNode("md:ExpressionInDataSource", $ns)
+						$fnType = Format-Type $fp.SelectSingleNode("md:Type", $ns)
+						$retNode = $fp.SelectSingleNode("md:ReturnValue", $ns)
+						$ret = if ($retNode -and $retNode.InnerText -eq "false") { "процедура" } else { $fnType }
+						Out "  $fnName → $(if ($fnExpr) { $fnExpr.InnerText })$(if ($ret) { " : $ret" })"
+					}
+				}
+			}
+		}
+
+		# --- Таблица внешнего источника: свойства и поля ---
+		if ($mdType -eq "Table") {
+			$g = { param($tag) $n = $props.SelectSingleNode("md:$tag", $ns); if ($n) { $n.InnerText } else { "" } }
+			$short = { param($ref) if ($ref) { ($ref -split '\.')[-1] } else { "" } }
+
+			$head = @()
+			$tableType = & $g "TableType"
+			$head += "Вид: $(if ($tableType -eq 'Expression') { 'выражение' } else { 'таблица' })"
+			$src = if ($tableType -eq "Expression") { & $g "ExpressionInDataSource" } else { & $g "NameInDataSource" }
+			if ($src) { $head += "в источнике: $src" }
+			$head += "данные: $(if ((& $g 'TableDataType') -eq 'ObjectData') { 'объектные' } else { 'необъектные' })"
+			if ((& $g "ReadOnly") -eq "true") { $head += "только чтение" }
+			Out ($head -join " | ")
+
+			$keys = @($props.SelectNodes("md:KeyFields/xr:Field", $ns) | ForEach-Object { & $short $_.InnerText })
+			$refs = @()
+			if ($keys.Count -gt 0) { $refs += "ключ: $($keys -join ', ')" }
+			foreach ($pair in @(@("PresentationField","представление"), @("ParentField","родитель"), @("DataVersionField","версия данных"))) {
+				$v = & $short (& $g $pair[0])
+				if ($v) { $refs += "$($pair[1]): $v" }
+			}
+			$ibs = @($props.SelectNodes("md:InputByString/xr:Field", $ns) | ForEach-Object { & $short $_.InnerText })
+			if ($ibs.Count -gt 0) { $refs += "ввод по строке: $($ibs -join ', ')" }
+			if ($refs.Count -gt 0) { Out ($refs -join " | ") }
+
+			if ($childObjs) {
+				$fields = @(Get-Attributes $childObjs "Field")
+				if ($fields.Count -gt 0) {
+					Out ""
+					Out "Поля ($($fields.Count)):"
+					$ml = Get-MaxNameLen $fields
+					foreach ($f in $fields) {
+						$fp = $f.Props
+						$marks = @()
+						$nids = $fp.SelectSingleNode("md:NameInDataSource", $ns)
+						if ($nids -and $nids.InnerText -and $nids.InnerText -ne $f.Name) { $marks += "→ $($nids.InnerText)" }
+						$ro = $fp.SelectSingleNode("md:ReadOnly", $ns)
+						if ($ro -and $ro.InnerText -eq "true") { $marks += "только чтение" }
+						$an = $fp.SelectSingleNode("md:AllowNull", $ns)
+						if ($an -and $an.InnerText -eq "true") { $marks += "NULL" }
+						$tail = if ($marks.Count -gt 0) { "  [$($marks -join ', ')]" } else { "" }
+						Out ("  $($f.Name.PadRight($ml)) $($f.Type)$tail")
+					}
+				}
 			}
 		}
 

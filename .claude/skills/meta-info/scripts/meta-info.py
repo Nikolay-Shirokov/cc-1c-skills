@@ -1,4 +1,4 @@
-# meta-info v1.11 — Compact summary of 1C metadata object (Python port)
+# meta-info v1.12 — Compact summary of 1C metadata object (Python port)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import os
@@ -177,6 +177,7 @@ type_name_map = {
     "DefinedType": "Определяемый тип", "CommonModule": "Общий модуль",
     "ScheduledJob": "Регламентное задание", "EventSubscription": "Подписка на событие",
     "HTTPService": "HTTP-сервис", "WebService": "Веб-сервис",
+    "ExternalDataSource": "Внешний источник данных", "Table": "Таблица внешнего источника",
 }
 
 ref_type_map = {
@@ -185,6 +186,7 @@ ref_type_map = {
     "ChartOfCharacteristicTypesRef": "ПВХСсылка", "ChartOfCalculationTypesRef": "ПВРСсылка",
     "ExchangePlanRef": "ПланОбменаСсылка", "BusinessProcessRef": "БизнесПроцессСсылка",
     "TaskRef": "ЗадачаСсылка",
+    "ExternalDataSourceTableRef": "ВнешнийИсточникДанныхТаблицаСсылка",
 }
 
 reg_type_map = {
@@ -317,6 +319,8 @@ def format_single_type(raw, parent_node):
         return "ХранилищеЗначения"
     if raw == "v8:UUID":
         return "УникальныйИдентификатор"
+    if raw == "xs:base64Binary":
+        return "ДвоичныеДанные"
     if raw == "v8:Null":
         return "Null"
     # Normalize d5p1:/dNpN: → cfg: (both map to same namespace)
@@ -1362,6 +1366,85 @@ if not drill_done:
                 ml = get_max_name_len(res)
                 for r in res:
                     out(format_attr_line(r, ml))
+
+        # Внешний источник данных: таблицы и функции
+        if md_type == "ExternalDataSource":
+            dlcm = props.find("md:DataLockControlMode", NS)
+            if dlcm is not None:
+                out(f"Блокировка данных: {dlcm.text or ''}")
+            if child_objs is not None:
+                tables = get_simple_children(child_objs, "Table")
+                if tables:
+                    out("")
+                    out(f"Таблицы ({len(tables)}): {', '.join(tables)}")
+                fns = child_objs.findall("md:Function", NS)
+                if fns:
+                    out("")
+                    out(f"Функции ({len(fns)}):")
+                    for fn in fns:
+                        fp = fn.find("md:Properties", NS)
+                        fn_name = fp.find("md:Name", NS).text or ""
+                        fn_expr = fp.find("md:ExpressionInDataSource", NS)
+                        fn_type = format_type(fp.find("md:Type", NS))
+                        ret_node = fp.find("md:ReturnValue", NS)
+                        ret = "процедура" if (ret_node is not None and ret_node.text == "false") else fn_type
+                        expr = (fn_expr.text or "") if fn_expr is not None else ""
+                        out(f"  {fn_name} → {expr}" + (f" : {ret}" if ret else ""))
+
+        # Таблица внешнего источника: свойства и поля
+        if md_type == "Table":
+            def _g(tag):
+                n = props.find(f"md:{tag}", NS)
+                return (n.text or "") if n is not None else ""
+
+            def _short(ref):
+                return ref.split(".")[-1] if ref else ""
+
+            table_type = _g("TableType")
+            head = ["Вид: " + ("выражение" if table_type == "Expression" else "таблица")]
+            src = _g("ExpressionInDataSource") if table_type == "Expression" else _g("NameInDataSource")
+            if src:
+                head.append(f"в источнике: {src}")
+            head.append("данные: " + ("объектные" if _g("TableDataType") == "ObjectData" else "необъектные"))
+            if _g("ReadOnly") == "true":
+                head.append("только чтение")
+            out(" | ".join(head))
+
+            keys = [_short(f.text) for f in props.findall("md:KeyFields/xr:Field", NS)]
+            refs = []
+            if keys:
+                refs.append(f"ключ: {', '.join(keys)}")
+            for tag, label in (("PresentationField", "представление"), ("ParentField", "родитель"),
+                               ("DataVersionField", "версия данных")):
+                v = _short(_g(tag))
+                if v:
+                    refs.append(f"{label}: {v}")
+            ibs = [_short(f.text) for f in props.findall("md:InputByString/xr:Field", NS)]
+            if ibs:
+                refs.append(f"ввод по строке: {', '.join(ibs)}")
+            if refs:
+                out(" | ".join(refs))
+
+            if child_objs is not None:
+                fields = get_attributes(child_objs, "Field")
+                if fields:
+                    out("")
+                    out(f"Поля ({len(fields)}):")
+                    ml = get_max_name_len(fields)
+                    for f in fields:
+                        fp = f["Props"]
+                        marks = []
+                        nids = fp.find("md:NameInDataSource", NS)
+                        if nids is not None and nids.text and nids.text != f["Name"]:
+                            marks.append(f"→ {nids.text}")
+                        ro = fp.find("md:ReadOnly", NS)
+                        if ro is not None and ro.text == "true":
+                            marks.append("только чтение")
+                        an = fp.find("md:AllowNull", NS)
+                        if an is not None and an.text == "true":
+                            marks.append("NULL")
+                        tail = f"  [{', '.join(marks)}]" if marks else ""
+                        out(f"  {f['Name'].ljust(ml)} {f['Type']}{tail}")
 
         # Attributes
         if child_objs is not None and md_type != "Enum":
