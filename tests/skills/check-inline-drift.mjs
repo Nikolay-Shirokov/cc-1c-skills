@@ -281,9 +281,7 @@ const FAMILIES = [
       { id: 'base', authority: 'db-create',
         consumers: ['db-cfe-admin', 'db-dump-cf', 'db-dump-dt', 'db-dump-xml', 'db-load-cf', 'db-load-dt',
           'db-load-git', 'db-load-xml', 'db-repo', 'db-run', 'db-update', 'epf-build', 'epf-dump'] },
-      // NB: stub-db-create.py внутри epf-build держит свою копию с выводом в stderr, но гарду она
-      // не видна: индекс берёт первый файл навыка по алфавиту (epf-build.py). Правя эту семью,
-      // не забывать про стаб — автоматически он не проверяется.
+      // В epf-build два скрипта, и копия семьи есть в каждом — гард сверяет обе.
     ],
   },
   {
@@ -636,8 +634,12 @@ function hashBody(body, lang) {
 
 // ─── Индекс: навык+порт → функции ───────────────────────────────────────────
 
+// Навык может держать несколько скриптов (epf-build: epf-build + stub-db-create), и копия
+// семьи живёт в каждом из них. Раньше индекс брал ПЕРВУЮ копию по алфавиту, и вторая
+// была гарду невидима: в stub-db-create.py так прожили три расхождения, одно из них —
+// потерянная POSIX-ветка run_v8. Теперь сверяются ВСЕ копии.
 function buildIndex() {
-  const index = new Map(); // `${skill}|${lang}` -> Map(name -> body)
+  const index = new Map(); // `${skill}|${lang}` -> Map(name -> [{ file, body }])
   for (const skill of readdirSync(SKILLS)) {
     const dir = join(SKILLS, skill, 'scripts');
     if (!existsSync(dir)) continue;
@@ -648,11 +650,16 @@ function buildIndex() {
       const fns = lang === 'py' ? extractPy(text) : extractPs1(text);
       const key = `${skill}|${lang}`;
       const acc = index.get(key) || new Map();
-      for (const [n, b] of fns) if (!acc.has(n)) acc.set(n, b);
+      for (const [n, b] of fns) acc.set(n, [...(acc.get(n) || []), { file, body: b }]);
       index.set(key, acc);
     }
   }
   return index;
+}
+
+// Все копии функции в навыке: [{ file, body }]
+function copiesOf(index, skill, lang, name) {
+  return index.get(`${skill}|${lang}`)?.get(name) || [];
 }
 
 // ─── Проверка ───────────────────────────────────────────────────────────────
@@ -687,21 +694,27 @@ for (const family of FAMILIES) {
     // 1. Каждый объявленный потребитель содержит функцию, и внутри варианта тела совпадают.
     const hashByVariant = new Map();
     for (const { v, members } of effective) {
-      const hashes = new Map();
+      const hashes = new Map(); // `${skill}` или `${skill} (${file})` -> хеш
       for (const skill of members) {
-        const body = index.get(`${skill}|${lang}`)?.get(fnName);
-        if (!body) {
+        const copies = copiesOf(index, skill, lang, fnName);
+        if (!copies.length) {
           errors.push(`${family.name} [${lang}]: ${skill} объявлен в варианте '${v.id}', но функции ${fnName} в нём нет`);
           continue;
         }
-        hashes.set(skill, hashBody(body, lang));
+        for (const { file, body } of copies) {
+          // Эталон берётся из главного скрипта навыка (`<навык>.ps1`/`.py`), остальные
+          // его скрипты — такие же копии и сверяются наравне.
+          const main = file.startsWith(`${skill}.`);
+          const label = main ? skill : `${skill} (${file})`;
+          hashes.set(label, { hash: hashBody(body, lang), main, skill });
+        }
       }
-      const authorityHash = hashes.get(v.authority);
+      const authorityHash = hashes.get(v.authority)?.hash;
       if (authorityHash === undefined) continue;
       hashByVariant.set(v.id, authorityHash);
-      for (const [skill, h] of hashes) {
-        if (h !== authorityHash) {
-          errors.push(`${family.name} [${lang}]: ${skill} разошёлся с эталоном ${v.authority} (вариант '${v.id}')`);
+      for (const [label, { hash }] of hashes) {
+        if (hash !== authorityHash) {
+          errors.push(`${family.name} [${lang}]: ${label} разошёлся с эталоном ${v.authority} (вариант '${v.id}')`);
         }
       }
     }
@@ -746,9 +759,11 @@ for (const family of DRIFTED) {
     for (const [key, fns] of index) {
       const [skill, l] = key.split('|');
       if (l !== lang || !fns.has(fnName)) continue;
-      const h = hashBody(fns.get(fnName), lang);
-      if (!groups.has(h)) groups.set(h, []);
-      groups.get(h).push(skill);
+      for (const { file, body } of fns.get(fnName)) {
+        const h = hashBody(body, lang);
+        if (!groups.has(h)) groups.set(h, []);
+        groups.get(h).push(file.startsWith(`${skill}.`) ? skill : `${skill} (${file})`);
+      }
     }
     if (!groups.size) continue;
     const limit = family.maxVariants[lang];
