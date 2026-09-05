@@ -1,0 +1,17 @@
+{
+  "name": "Константа без valueType — тип значения Строка(10), а не вид объекта",
+  "input": {
+    "type": "Constant",
+    "name": "ПризнакРаботы"
+  },
+  "validatePath": "Constants/ПризнакРаботы",
+  "expect": {
+    "files": ["Constants/ПризнакРаботы.xml"],
+    "fileContains": [
+      { "file": "Constants/ПризнакРаботы.xml", "text": ["<v8:Type>xs:string</v8:Type>", "<v8:Length>10</v8:Length>"] }
+    ],
+    "fileNotContains": [
+      { "file": "Constants/ПризнакРаботы.xml", "text": "<v8:Type>Constant</v8:Type>" }
+    ]
+  }
+}

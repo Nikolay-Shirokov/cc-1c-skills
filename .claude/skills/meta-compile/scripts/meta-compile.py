@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-compile v1.102 — Compile 1C metadata object from JSON
+# meta-compile v1.103 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -1194,8 +1194,10 @@ def emit_fill_value(indent, type_str, spec, has_spec, type_empty=False):
 # 5. Attribute shorthand parser
 # ---------------------------------------------------------------------------
 
-def build_type_str(obj):
-    t = str(obj.get('valueType') or obj.get('type') or '')
+def build_type_str(obj, value_type_only=False):
+    # value_type_only — для корневого определения объекта: там ключ type означает ВИД объекта
+    # (Constant, Catalog, …), а не тип значения, и подхватывать его нельзя.
+    t = str(obj.get('valueType') or ('' if value_type_only else obj.get('type')) or '')
     if t and '(' not in t:
         if t == 'String' and obj.get('length'):
             t = f"String({obj['length']})"
@@ -2869,9 +2871,8 @@ def emit_constant_properties(indent):
     else:
         X(f'{i}<Comment/>')
     # Type — valueType (явный '' → <Type/>, реквизит без типа; отсутствие → String дефолт).
-    value_type = build_type_str(defn)
-    type_empty = (defn.get('valueType') is not None and str(defn.get('valueType')).strip() == '') or \
-                 (defn.get('type') is not None and str(defn.get('type')).strip() == '')
+    value_type = build_type_str(defn, value_type_only=True)
+    type_empty = defn.get('valueType') is not None and str(defn.get('valueType')).strip() == ''
     if type_empty:
         X(f'{i}<Type/>')
     else:

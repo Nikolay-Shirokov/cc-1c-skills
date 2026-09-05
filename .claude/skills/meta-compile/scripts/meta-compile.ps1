@@ -1,4 +1,4 @@
-﻿# meta-compile v1.102 — Compile 1C metadata object from JSON
+﻿# meta-compile v1.103 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -1080,8 +1080,10 @@ function Emit-FillValue {
 # --- 5. Attribute shorthand parser ---
 
 function Build-TypeStr {
-	param($obj)
-	$t = if ($obj.valueType) { "$($obj.valueType)" } elseif ($obj.type) { "$($obj.type)" } else { "" }
+	# ValueTypeOnly — для корневого определения объекта: там ключ type означает ВИД объекта
+	# (Constant, Catalog, …), а не тип значения, и подхватывать его нельзя.
+	param($obj, [switch]$ValueTypeOnly)
+	$t = if ($obj.valueType) { "$($obj.valueType)" } elseif (-not $ValueTypeOnly -and $obj.type) { "$($obj.type)" } else { "" }
 	if ($t -and -not $t.Contains('(')) {
 		if ($t -eq "String" -and $obj.length) {
 			$t = "String($($obj.length))"
@@ -2771,8 +2773,8 @@ function Emit-ConstantProperties {
 	if ($def.comment) { X "$i<Comment>$(Esc-XmlText $def.comment)</Comment>" } else { X "$i<Comment/>" }
 
 	# Type — valueType (пустой явный '' → <Type/>, реквизит без типа; отсутствие → String дефолт).
-	$valueType = Build-TypeStr $def
-	$typeEmpty = ($null -ne $def.valueType -and "$($def.valueType)".Trim() -eq '') -or ($null -ne $def.type -and "$($def.type)".Trim() -eq '')
+	$valueType = Build-TypeStr $def -ValueTypeOnly
+	$typeEmpty = ($null -ne $def.valueType -and "$($def.valueType)".Trim() -eq '')
 	if ($typeEmpty) { X "$i<Type/>" }
 	else { if (-not $valueType) { $valueType = "String" }; Emit-ValueType $i $valueType }
 
