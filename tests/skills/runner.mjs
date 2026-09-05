@@ -958,27 +958,32 @@ async function runCaseAsync(testCase, opts) {
         }
       }
     }
+    // Файловые ожидания проверяются И У НЕГАТИВНОГО кейса: навык мог отказать, но до
+    // отказа что-то написать — именно это и проверяется. Под `!expectError` остаются только
+    // снэпшот и идемпотентность: эталон с аварийного состояния снимать нельзя. Раньше
+    // всё лежало под `!expectError`, и кейс с expectError + fileContains молча проходил
+    // при любом содержимом файла (тот же класс, что когда-то был со stdout).
+    if (caseData.expect?.preserves) {
+      const specs = Array.isArray(caseData.expect.preserves)
+        ? caseData.expect.preserves : [caseData.expect.preserves];
+      for (const spec of specs) errors.push(...checkPreserves(workDir, spec));
+    }
+    if (caseData.expect?.filesEqual) {
+      const specs = Array.isArray(caseData.expect.filesEqual)
+        ? caseData.expect.filesEqual : [caseData.expect.filesEqual];
+      for (const spec of specs) errors.push(...checkFilesEqual(workDir, spec));
+    }
+    if (caseData.expect?.fileContains) {
+      const specs = Array.isArray(caseData.expect.fileContains)
+        ? caseData.expect.fileContains : [caseData.expect.fileContains];
+      for (const spec of specs) errors.push(...checkFileContains(workDir, spec, true));
+    }
+    if (caseData.expect?.fileNotContains) {
+      const specs = Array.isArray(caseData.expect.fileNotContains)
+        ? caseData.expect.fileNotContains : [caseData.expect.fileNotContains];
+      for (const spec of specs) errors.push(...checkFileContains(workDir, spec, false));
+    }
     if (!caseData.expectError) {
-      if (caseData.expect?.preserves) {
-        const specs = Array.isArray(caseData.expect.preserves)
-          ? caseData.expect.preserves : [caseData.expect.preserves];
-        for (const spec of specs) errors.push(...checkPreserves(workDir, spec));
-      }
-      if (caseData.expect?.filesEqual) {
-        const specs = Array.isArray(caseData.expect.filesEqual)
-          ? caseData.expect.filesEqual : [caseData.expect.filesEqual];
-        for (const spec of specs) errors.push(...checkFilesEqual(workDir, spec));
-      }
-      if (caseData.expect?.fileContains) {
-        const specs = Array.isArray(caseData.expect.fileContains)
-          ? caseData.expect.fileContains : [caseData.expect.fileContains];
-        for (const spec of specs) errors.push(...checkFileContains(workDir, spec, true));
-      }
-      if (caseData.expect?.fileNotContains) {
-        const specs = Array.isArray(caseData.expect.fileNotContains)
-          ? caseData.expect.fileNotContains : [caseData.expect.fileNotContains];
-        for (const spec of specs) errors.push(...checkFileContains(workDir, spec, false));
-      }
       if (errors.length === 0 && !caseData.expectError && !workspace.readOnly) {
         const snapshotConfig = { ...skillConfig.snapshot, runtime: opts.runtime };
         if (opts.updateSnapshots) {
@@ -1197,22 +1202,32 @@ function runCase(testCase, opts) {
       }
     }
 
+    // Файловые ожидания проверяются И У НЕГАТИВНОГО кейса: навык мог отказать, но до
+    // отказа что-то написать — именно это и проверяется. Под `!expectError` остаются только
+    // снэпшот и идемпотентность: эталон с аварийного состояния снимать нельзя. Раньше
+    // всё лежало под `!expectError`, и кейс с expectError + fileContains молча проходил
+    // при любом содержимом файла (тот же класс, что когда-то был со stdout).
+    if (caseData.expect?.preserves) {
+      const specs = Array.isArray(caseData.expect.preserves)
+        ? caseData.expect.preserves : [caseData.expect.preserves];
+      for (const spec of specs) errors.push(...checkPreserves(workDir, spec));
+    }
+    if (caseData.expect?.filesEqual) {
+      const specs = Array.isArray(caseData.expect.filesEqual)
+        ? caseData.expect.filesEqual : [caseData.expect.filesEqual];
+      for (const spec of specs) errors.push(...checkFilesEqual(workDir, spec));
+    }
+    if (caseData.expect?.fileContains) {
+      const specs = Array.isArray(caseData.expect.fileContains)
+        ? caseData.expect.fileContains : [caseData.expect.fileContains];
+      for (const spec of specs) errors.push(...checkFileContains(workDir, spec, true));
+    }
+    if (caseData.expect?.fileNotContains) {
+      const specs = Array.isArray(caseData.expect.fileNotContains)
+        ? caseData.expect.fileNotContains : [caseData.expect.fileNotContains];
+      for (const spec of specs) errors.push(...checkFileContains(workDir, spec, false));
+    }
     if (!caseData.expectError) {
-      if (caseData.expect?.preserves) {
-        const specs = Array.isArray(caseData.expect.preserves)
-          ? caseData.expect.preserves : [caseData.expect.preserves];
-        for (const spec of specs) errors.push(...checkPreserves(workDir, spec));
-      }
-      if (caseData.expect?.fileContains) {
-        const specs = Array.isArray(caseData.expect.fileContains)
-          ? caseData.expect.fileContains : [caseData.expect.fileContains];
-        for (const spec of specs) errors.push(...checkFileContains(workDir, spec, true));
-      }
-      if (caseData.expect?.fileNotContains) {
-        const specs = Array.isArray(caseData.expect.fileNotContains)
-          ? caseData.expect.fileNotContains : [caseData.expect.fileNotContains];
-        for (const spec of specs) errors.push(...checkFileContains(workDir, spec, false));
-      }
 
       // Snapshot comparison (skip for external/read-only workspaces)
       if (errors.length === 0 && !caseData.expectError && !workspace.readOnly) {
