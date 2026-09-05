@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# cfe-validate v1.15 — Validate 1C configuration extension XML structure (CFE)
+# cfe-validate v1.16 — Validate 1C configuration extension XML structure (CFE)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 """Validates extension Configuration.xml: root, InternalInfo, extension properties, ChildObjects, borrowed objects."""
 import sys, os, argparse, re
@@ -68,7 +68,7 @@ CHILD_OBJECT_TYPES = [
     'Report', 'DataProcessor', 'InformationRegister', 'AccumulationRegister',
     'ChartOfCharacteristicTypes', 'ChartOfAccounts', 'AccountingRegister',
     'ChartOfCalculationTypes', 'CalculationRegister',
-    'BusinessProcess', 'Task', 'IntegrationService',
+    'BusinessProcess', 'Task', 'ExternalDataSource', 'IntegrationService',
 ]
 
 # Модули заимствованных объектов: тип → виды модулей. Имя свойства в <xr:PropertyState>
@@ -114,6 +114,7 @@ CHILD_TYPE_DIR_MAP = {
     'ChartOfCalculationTypes': 'ChartsOfCalculationTypes',
     'CalculationRegister': 'CalculationRegisters',
     'BusinessProcess': 'BusinessProcesses', 'Task': 'Tasks',
+    'ExternalDataSource': 'ExternalDataSources',
     'IntegrationService': 'IntegrationServices',
 }
 
@@ -142,6 +143,7 @@ GENERATED_TYPE_CATEGORIES = {
     'Sequence':                   ['Record', 'Manager', 'RecordSet'],
     'FilterCriterion':            ['Manager', 'List'],
     'SettingsStorage':            ['Manager'],
+    'ExternalDataSource':         ['Manager', 'TablesManager', 'CubesManager'],
     'IntegrationService':         ['Manager'],
     'WSReference':                ['Manager'],
     'DefinedType':                ['DefinedType'],

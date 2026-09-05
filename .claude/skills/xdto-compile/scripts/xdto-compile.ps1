@@ -1,4 +1,4 @@
-﻿# xdto-compile v1.15 — Build a 1C XDTO package from an XML Schema (XSD) (+support-guard: общая реализация вместо урезанной)
+﻿# xdto-compile v1.16 — Build a 1C XDTO package from an XML Schema (XSD) (+support-guard: общая реализация вместо урезанной)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -1086,7 +1086,7 @@ $childObjectTypes = @(
 	"Report","DataProcessor","InformationRegister","AccumulationRegister",
 	"ChartOfCharacteristicTypes","ChartOfAccounts","AccountingRegister",
 	"ChartOfCalculationTypes","CalculationRegister",
-	"BusinessProcess","Task","IntegrationService"
+	"BusinessProcess","Task","ExternalDataSource","IntegrationService"
 )
 
 function Register-InChildObjects([string]$ParentXmlPath, [string]$ParentTag, [string]$ChildTag, [string]$ChildName) {

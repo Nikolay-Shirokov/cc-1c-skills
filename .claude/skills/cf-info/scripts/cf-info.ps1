@@ -1,4 +1,4 @@
-﻿# cf-info v1.8 — Compact summary of 1C configuration root
+﻿# cf-info v1.9 — Compact summary of 1C configuration root
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -99,7 +99,7 @@ $typeOrder = @(
 	"Report","DataProcessor","InformationRegister","AccumulationRegister",
 	"ChartOfCharacteristicTypes","ChartOfAccounts","AccountingRegister",
 	"ChartOfCalculationTypes","CalculationRegister",
-	"BusinessProcess","Task","IntegrationService"
+	"BusinessProcess","Task","ExternalDataSource","IntegrationService"
 )
 
 $typeRuNames = @{
@@ -120,7 +120,7 @@ $typeRuNames = @{
 	"ChartOfCharacteristicTypes"="ПВХ"; "ChartOfAccounts"="Планы счетов"
 	"AccountingRegister"="Регистры бухгалтерии"; "ChartOfCalculationTypes"="ПВР"
 	"CalculationRegister"="Регистры расчёта"; "BusinessProcess"="Бизнес-процессы"
-	"Task"="Задачи"; "IntegrationService"="Сервисы интеграции"
+	"Task"="Задачи"; "ExternalDataSource"="Внешние источники данных"; "IntegrationService"="Сервисы интеграции"
 }
 
 # --- Read panel layout (Ext/ClientApplicationInterface.xml) ---

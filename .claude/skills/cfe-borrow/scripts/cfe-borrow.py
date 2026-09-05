@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# cfe-borrow v1.36 — Borrow objects from configuration into extension (CFE)
+# cfe-borrow v1.37 — Borrow objects from configuration into extension (CFE)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -325,7 +325,7 @@ CHILD_TYPE_DIR_MAP = {
     "EventSubscription": "EventSubscriptions", "ScheduledJob": "ScheduledJobs",
     "SettingsStorage": "SettingsStorages", "FilterCriterion": "FilterCriteria",
     "CommandGroup": "CommandGroups", "DocumentNumerator": "DocumentNumerators",
-    "Sequence": "Sequences", "IntegrationService": "IntegrationServices",
+    "Sequence": "Sequences", "ExternalDataSource": "ExternalDataSources", "IntegrationService": "IntegrationServices",
     "XDTOPackage": "XDTOPackages", "WebService": "WebServices",
     "HTTPService": "HTTPServices", "WSReference": "WSReferences",
     "CommonAttribute": "CommonAttributes", "Style": "Styles",
@@ -408,7 +408,7 @@ TYPE_ORDER = [
     "Report", "DataProcessor", "InformationRegister", "AccumulationRegister",
     "ChartOfCharacteristicTypes", "ChartOfAccounts", "AccountingRegister",
     "ChartOfCalculationTypes", "CalculationRegister",
-    "BusinessProcess", "Task", "IntegrationService",
+    "BusinessProcess", "Task", "ExternalDataSource", "IntegrationService",
 ]
 
 GENERATED_TYPES = {
@@ -538,6 +538,11 @@ GENERATED_TYPES = {
     ],
     "DefinedType": [
         {"prefix": "DefinedType", "category": "DefinedType"},
+    ],
+    "ExternalDataSource": [
+        {"prefix": "ExternalDataSourceManager", "category": "Manager"},
+        {"prefix": "ExternalDataSourceTablesManager", "category": "TablesManager"},
+        {"prefix": "ExternalDataSourceCubesManager", "category": "CubesManager"},
     ],
     "Sequence": [
         {"prefix": "SequenceRecord", "category": "Record"},

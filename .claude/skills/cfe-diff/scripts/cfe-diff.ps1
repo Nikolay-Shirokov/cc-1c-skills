@@ -1,4 +1,4 @@
-﻿# cfe-diff v1.4 — Analyze and compare 1C configuration extension (CFE)
+﻿# cfe-diff v1.5 — Analyze and compare 1C configuration extension (CFE)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -49,7 +49,7 @@ $childTypeDirMap = @{
 	"EventSubscription"="EventSubscriptions"; "ScheduledJob"="ScheduledJobs"
 	"SettingsStorage"="SettingsStorages"; "FilterCriterion"="FilterCriteria"
 	"CommandGroup"="CommandGroups"; "DocumentNumerator"="DocumentNumerators"
-	"Sequence"="Sequences"; "IntegrationService"="IntegrationServices"
+	"Sequence"="Sequences"; "ExternalDataSource"="ExternalDataSources"; "IntegrationService"="IntegrationServices"
 	"CommonAttribute"="CommonAttributes"; "Style"="Styles"; "XDTOPackage"="XDTOPackages"
 	"WebService"="WebServices"; "HTTPService"="HTTPServices"; "WSReference"="WSReferences"
 	"Bot"="Bots"

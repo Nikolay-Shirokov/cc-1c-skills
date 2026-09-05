@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-compile v1.103 — Compile 1C metadata object from JSON
+# meta-compile v1.104 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -1428,6 +1428,11 @@ generated_types = {
     ],
     'DefinedType': [
         {'prefix': 'DefinedType', 'category': 'DefinedType'},
+    ],
+    'ExternalDataSource': [
+        {'prefix': 'ExternalDataSourceManager', 'category': 'Manager'},
+        {'prefix': 'ExternalDataSourceTablesManager', 'category': 'TablesManager'},
+        {'prefix': 'ExternalDataSourceCubesManager', 'category': 'CubesManager'},
     ],
     'DocumentJournal': [
         {'prefix': 'DocumentJournalSelection', 'category': 'Selection'},
@@ -5302,7 +5307,7 @@ CHILD_OBJECT_TYPES = [
     'Report', 'DataProcessor', 'InformationRegister', 'AccumulationRegister',
     'ChartOfCharacteristicTypes', 'ChartOfAccounts', 'AccountingRegister',
     'ChartOfCalculationTypes', 'CalculationRegister',
-    'BusinessProcess', 'Task', 'IntegrationService',
+    'BusinessProcess', 'Task', 'ExternalDataSource', 'IntegrationService',
 ]
 
 

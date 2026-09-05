@@ -1,4 +1,4 @@
-﻿# cfe-borrow v1.36 — Borrow objects from configuration into extension (CFE)
+﻿# cfe-borrow v1.37 — Borrow objects from configuration into extension (CFE)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -257,7 +257,7 @@ $childTypeDirMap = @{
 	"EventSubscription"="EventSubscriptions"; "ScheduledJob"="ScheduledJobs"
 	"SettingsStorage"="SettingsStorages"; "FilterCriterion"="FilterCriteria"
 	"CommandGroup"="CommandGroups"; "DocumentNumerator"="DocumentNumerators"
-	"Sequence"="Sequences"; "IntegrationService"="IntegrationServices"
+	"Sequence"="Sequences"; "ExternalDataSource"="ExternalDataSources"; "IntegrationService"="IntegrationServices"
 	"XDTOPackage"="XDTOPackages"; "WebService"="WebServices"
 	"HTTPService"="HTTPServices"; "WSReference"="WSReferences"
 	"CommonAttribute"="CommonAttributes"; "Style"="Styles"; "Bot"="Bots"; "PaletteColor"="PaletteColors"; "Language"="Languages"
@@ -323,7 +323,7 @@ $script:typeOrder = @(
 	"Report","DataProcessor","InformationRegister","AccumulationRegister",
 	"ChartOfCharacteristicTypes","ChartOfAccounts","AccountingRegister",
 	"ChartOfCalculationTypes","CalculationRegister",
-	"BusinessProcess","Task","IntegrationService"
+	"BusinessProcess","Task","ExternalDataSource","IntegrationService"
 )
 
 # --- 6. GeneratedType patterns per type ---
@@ -454,6 +454,11 @@ $script:generatedTypes = @{
 	)
 	"DefinedType" = @(
 		@{ prefix = "DefinedType"; category = "DefinedType" }
+	)
+	"ExternalDataSource" = @(
+		@{ prefix = "ExternalDataSourceManager";       category = "Manager" }
+		@{ prefix = "ExternalDataSourceTablesManager"; category = "TablesManager" }
+		@{ prefix = "ExternalDataSourceCubesManager";  category = "CubesManager" }
 	)
 	"Sequence" = @(
 		@{ prefix = "SequenceRecord";    category = "Record" }

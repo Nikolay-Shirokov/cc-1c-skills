@@ -66,9 +66,7 @@ const MAPS = [
   // вокабуляры: значения — канонические имена, полнота не требуется
   {
     skill: 'role-compile', file: 'role-compile', kind: 'alias', py: 'TYPE_ALIASES', ps1: null,
-    // ExternalDataSource — объект метаданных с правами в ролях, но в таблице порядка
-    // ChildObjects его нет: позиция в порядке не измерена (в корпусе внешних источников нет).
-    extraTargets: ['Configuration', 'ExternalDataSource', 'Attribute', 'StandardAttribute',
+    extraTargets: ['Configuration', 'Attribute', 'StandardAttribute',
       'TabularSection', 'Dimension', 'Resource', 'Command', 'AddressingAttribute'],
   },
   { skill: 'interface-edit', file: 'interface-edit', kind: 'alias', py: 'TYPE_NORM_MAP', ps1: null },

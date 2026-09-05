@@ -1,4 +1,4 @@
-# meta-validate v1.24 — Validate 1C metadata object structure (Python port)
+# meta-validate v1.25 — Validate 1C metadata object structure (Python port)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import os
@@ -258,6 +258,7 @@ generated_type_categories = {
     "Report":                     ["Object", "Manager"],
     "DataProcessor":              ["Object", "Manager"],
     "DefinedType":                ["DefinedType"],
+    "ExternalDataSource":         ["Manager", "TablesManager", "CubesManager"],
 }
 
 # Types that have NO InternalInfo / GeneratedType

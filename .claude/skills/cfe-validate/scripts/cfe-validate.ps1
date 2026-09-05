@@ -1,4 +1,4 @@
-﻿# cfe-validate v1.15 — Validate 1C configuration extension structure (CFE)
+﻿# cfe-validate v1.16 — Validate 1C configuration extension structure (CFE)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -156,7 +156,7 @@ $childObjectTypes = @(
 	"Report","DataProcessor","InformationRegister","AccumulationRegister",
 	"ChartOfCharacteristicTypes","ChartOfAccounts","AccountingRegister",
 	"ChartOfCalculationTypes","CalculationRegister",
-	"BusinessProcess","Task","IntegrationService"
+	"BusinessProcess","Task","ExternalDataSource","IntegrationService"
 )
 
 # Type -> directory mapping
@@ -180,7 +180,7 @@ $childTypeDirMap = @{
 	"ChartOfCalculationTypes"="ChartsOfCalculationTypes"
 	"CalculationRegister"="CalculationRegisters"
 	"BusinessProcess"="BusinessProcesses"; "Task"="Tasks"
-	"IntegrationService"="IntegrationServices"
+	"ExternalDataSource"="ExternalDataSources"; "IntegrationService"="IntegrationServices"
 }
 
 # Наборы GeneratedType по типу объекта (эталон — таблица §2.5 спецификации конфигурации).
@@ -208,6 +208,7 @@ $generatedTypeCategories = @{
 	"Sequence"                   = @("Record","Manager","RecordSet")
 	"FilterCriterion"            = @("Manager","List")
 	"SettingsStorage"            = @("Manager")
+	"ExternalDataSource"         = @("Manager","TablesManager","CubesManager")
 	"IntegrationService"         = @("Manager")
 	"WSReference"                = @("Manager")
 	"DefinedType"                = @("DefinedType")

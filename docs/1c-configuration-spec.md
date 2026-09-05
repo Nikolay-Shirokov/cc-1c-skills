@@ -227,6 +227,7 @@ ClassId — фиксированные идентификаторы классо
   <!-- CalculationRegister (только ERP и аналогичные) -->
   <BusinessProcess>Задание</BusinessProcess>
   <Task>ЗадачаИсполнителя</Task>
+  <ExternalDataSource>ВнешниеДанные</ExternalDataSource>
   <IntegrationService>ОбменСообщениями</IntegrationService>
 </ChildObjects>
 ```
@@ -280,7 +281,8 @@ ClassId — фиксированные идентификаторы классо
 | 43 | `CalculationRegister` | `CalculationRegisters/` | Регистры расчёта |
 | 44 | `BusinessProcess` | `BusinessProcesses/` | Бизнес-процессы |
 | 45 | `Task` | `Tasks/` | Задачи |
-| 46 | `IntegrationService` | `IntegrationServices/` | Сервисы интеграции |
+| 46 | `ExternalDataSource` | `ExternalDataSources/` | Внешние источники данных |
+| 47 | `IntegrationService` | `IntegrationServices/` | Сервисы интеграции |
 
 Внутри одного типа объекты отсортированы по имени (алфавитный порядок). Типы, для которых нет объектов, в ChildObjects не записываются.
 
@@ -315,6 +317,13 @@ ClassId — фиксированные идентификаторы классо
 | `IntegrationService` | `IntegrationServiceManager`/Manager |
 | `WSReference` | `WSReferenceManager`/Manager |
 | `DefinedType` | `DefinedType`/DefinedType |
+| `ExternalDataSource` | `ExternalDataSourceManager`/Manager, `ExternalDataSourceTablesManager`/TablesManager, `ExternalDataSourceCubesManager`/CubesManager |
+| `ExternalDataSource` → `Table` | `ExternalDataSourceTableManager`/Manager, `ExternalDataSourceTableObject`/Object, `ExternalDataSourceTableRef`/Ref, `ExternalDataSourceTableList`/List, `ExternalDataSourceTableRecord`/Record, `ExternalDataSourceTableRecordSet`/RecordSet, `ExternalDataSourceTableRecordKey`/RecordKey, `ExternalDataSourceTableRecordManager`/RecordManager |
+
+Таблица внешнего источника — единственный подчинённый объект со своим `<InternalInfo>` в отдельном файле;
+имя элемента у неё **трёхчастное**: `<префикс>.<ИмяИсточника>.<ИмяТаблицы>` (например
+`ExternalDataSourceTableRef.PG.eds_public_products`). У `<Field>` и `<Function>` блока `InternalInfo` нет —
+только атрибут `uuid`.
 
 Табличные части объектов несут собственную пару в своём `<InternalInfo>`: `<Тип>TabularSection.<Объект>.<ТЧ>`/TabularSection и `<Тип>TabularSectionRow.<Объект>.<ТЧ>`/TabularSectionRow.
 

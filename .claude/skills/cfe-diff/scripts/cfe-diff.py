@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# cfe-diff v1.4 — Analyze and compare 1C configuration extension (CFE)
+# cfe-diff v1.5 — Analyze and compare 1C configuration extension (CFE)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -80,6 +80,7 @@ CHILD_TYPE_DIR_MAP = {
     "CommandGroup": "CommandGroups",
     "DocumentNumerator": "DocumentNumerators",
     "Sequence": "Sequences",
+    "ExternalDataSource": "ExternalDataSources",
     "IntegrationService": "IntegrationServices",
     "CommonAttribute": "CommonAttributes",
     "Style": "Styles",

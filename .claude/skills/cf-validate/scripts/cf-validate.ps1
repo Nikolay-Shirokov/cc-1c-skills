@@ -1,4 +1,4 @@
-﻿# cf-validate v1.9 — Validate 1C configuration root structure
+﻿# cf-validate v1.10 — Validate 1C configuration root structure
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -131,7 +131,7 @@ $childObjectTypes = @(
 	"Report","DataProcessor","InformationRegister","AccumulationRegister",
 	"ChartOfCharacteristicTypes","ChartOfAccounts","AccountingRegister",
 	"ChartOfCalculationTypes","CalculationRegister",
-	"BusinessProcess","Task","IntegrationService"
+	"BusinessProcess","Task","ExternalDataSource","IntegrationService"
 )
 
 # Type -> directory mapping
@@ -157,7 +157,7 @@ $childTypeDirMap = @{
 	"ChartOfCalculationTypes"="ChartsOfCalculationTypes"
 	"CalculationRegister"="CalculationRegisters"
 	"BusinessProcess"="BusinessProcesses"; "Task"="Tasks"
-	"IntegrationService"="IntegrationServices"
+	"ExternalDataSource"="ExternalDataSources"; "IntegrationService"="IntegrationServices"
 }
 
 # Valid enum values for Configuration properties

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# subsystem-compile v1.32 — Create 1C subsystem from JSON definition
+# subsystem-compile v1.33 — Create 1C subsystem from JSON definition
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import json
@@ -466,7 +466,7 @@ CHILD_OBJECT_TYPES = [
     'Report', 'DataProcessor', 'InformationRegister', 'AccumulationRegister',
     'ChartOfCharacteristicTypes', 'ChartOfAccounts', 'AccountingRegister',
     'ChartOfCalculationTypes', 'CalculationRegister',
-    'BusinessProcess', 'Task', 'IntegrationService',
+    'BusinessProcess', 'Task', 'ExternalDataSource', 'IntegrationService',
 ]
 
 

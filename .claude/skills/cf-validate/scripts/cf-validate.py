@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# cf-validate v1.9 — Validate 1C configuration XML structure
+# cf-validate v1.10 — Validate 1C configuration XML structure
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 """Validates Configuration.xml: root structure, InternalInfo, properties, ChildObjects, languages."""
 import sys, os, argparse, re
@@ -68,7 +68,7 @@ CHILD_OBJECT_TYPES = [
     'Report', 'DataProcessor', 'InformationRegister', 'AccumulationRegister',
     'ChartOfCharacteristicTypes', 'ChartOfAccounts', 'AccountingRegister',
     'ChartOfCalculationTypes', 'CalculationRegister',
-    'BusinessProcess', 'Task', 'IntegrationService',
+    'BusinessProcess', 'Task', 'ExternalDataSource', 'IntegrationService',
 ]
 
 # Type -> directory mapping
@@ -93,6 +93,7 @@ CHILD_TYPE_DIR_MAP = {
     'ChartOfCalculationTypes': 'ChartsOfCalculationTypes',
     'CalculationRegister': 'CalculationRegisters',
     'BusinessProcess': 'BusinessProcesses', 'Task': 'Tasks',
+    'ExternalDataSource': 'ExternalDataSources',
     'IntegrationService': 'IntegrationServices',
 }
 

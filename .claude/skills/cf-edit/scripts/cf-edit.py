@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# cf-edit v1.28 — Edit 1C configuration root (Configuration.xml)
+# cf-edit v1.29 — Edit 1C configuration root (Configuration.xml)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -330,7 +330,7 @@ TYPE_ORDER = [
     "Report", "DataProcessor", "InformationRegister", "AccumulationRegister",
     "ChartOfCharacteristicTypes", "ChartOfAccounts", "AccountingRegister",
     "ChartOfCalculationTypes", "CalculationRegister",
-    "BusinessProcess", "Task", "IntegrationService",
+    "BusinessProcess", "Task", "ExternalDataSource", "IntegrationService",
 ]
 
 # Type → on-disk directory name (plural)
@@ -346,7 +346,7 @@ TYPE_TO_DIR = {
     "Report": "Reports", "DataProcessor": "DataProcessors", "InformationRegister": "InformationRegisters", "AccumulationRegister": "AccumulationRegisters",
     "ChartOfCharacteristicTypes": "ChartsOfCharacteristicTypes", "ChartOfAccounts": "ChartsOfAccounts", "AccountingRegister": "AccountingRegisters",
     "ChartOfCalculationTypes": "ChartsOfCalculationTypes", "CalculationRegister": "CalculationRegisters",
-    "BusinessProcess": "BusinessProcesses", "Task": "Tasks", "IntegrationService": "IntegrationServices",
+    "BusinessProcess": "BusinessProcesses", "Task": "Tasks", "ExternalDataSource": "ExternalDataSources", "IntegrationService": "IntegrationServices",
 }
 
 ML_PROPS = ["Synonym", "BriefInformation", "DetailedInformation", "Copyright", "VendorInformationAddress", "ConfigurationInformationAddress"]

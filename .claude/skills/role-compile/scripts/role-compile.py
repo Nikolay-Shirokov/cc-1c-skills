@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# role-compile v1.35 — Compile 1C role from JSON
+# role-compile v1.36 — Compile 1C role from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import json
@@ -1148,7 +1148,7 @@ CHILD_OBJECT_TYPES = [
     'Report', 'DataProcessor', 'InformationRegister', 'AccumulationRegister',
     'ChartOfCharacteristicTypes', 'ChartOfAccounts', 'AccountingRegister',
     'ChartOfCalculationTypes', 'CalculationRegister',
-    'BusinessProcess', 'Task', 'IntegrationService',
+    'BusinessProcess', 'Task', 'ExternalDataSource', 'IntegrationService',
 ]
 
 
