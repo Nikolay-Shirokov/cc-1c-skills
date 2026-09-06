@@ -1,4 +1,4 @@
-﻿# meta-edit v1.46 — Edit existing 1C metadata object XML
+﻿# meta-edit v1.47 — Edit existing 1C metadata object XML
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -1505,7 +1505,14 @@ function Get-AllChildNames {
 				$propsEl = $gc; break
 			}
 		}
-		if (-not $propsEl) { continue }
+		# Часть детей регистрируется голым текстом, без <Properties>: <Table>Имя</Table>,
+		# <Form>Имя</Form>, <Template>Имя</Template>. Пропуская их, проверка «уже существует»
+		# становилась мёртвой — повторное добавление давало второй такой же узел.
+		if (-not $propsEl) {
+			$n = $child.InnerText.Trim()
+			if ($n) { $names[$n] = $child.LocalName }
+			continue
+		}
 		foreach ($gc in $propsEl.ChildNodes) {
 			if ($gc.NodeType -eq 'Element' -and $gc.LocalName -eq "Name") {
 				$n = $gc.InnerText.Trim()

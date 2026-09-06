@@ -1,0 +1,27 @@
+{
+  "name": "Повторное добавление таблицы не даёт второй записи в ChildObjects",
+  "setup": "empty-config",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "ExternalDataSource",
+        "name": "PG",
+        "tables": { "products": { "keyFields": ["id"], "fields": ["id: Number(10,0)"] } }
+      },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    {
+      "script": "meta-edit/scripts/meta-edit",
+      "input": { "add": { "tables": { "sales": ["id: Number(10,0)"] } } },
+      "args": { "-DefinitionFile": "{inputFile}", "-ObjectPath": "{workDir}/ExternalDataSources/PG.xml" }
+    },
+    { "deletePath": "ExternalDataSources/PG/Tables/sales.xml" }
+  ],
+  "params": { "objectPath": "ExternalDataSources/PG.xml" },
+  "input": { "add": { "tables": { "sales": ["id: Number(10,0)"] } } },
+  "expect": {
+    "stdoutContains": ["already exists"],
+    "filesAbsent": ["ExternalDataSources/PG/Tables/sales.xml"]
+  }
+}

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-edit v1.46 — Edit existing 1C metadata object XML
+# meta-edit v1.47 — Edit existing 1C metadata object XML
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -1522,7 +1522,13 @@ def get_all_child_names():
             if localname(gc) == "Properties":
                 props_el = gc
                 break
+        # Часть детей регистрируется голым текстом, без <Properties>: <Table>Имя</Table>,
+        # <Form>Имя</Form>, <Template>Имя</Template>. Пропуская их, проверка «уже существует»
+        # становилась мёртвой — повторное добавление давало второй такой же узел.
         if props_el is None:
+            n = (child.text or "").strip()
+            if n:
+                names[n] = localname(child)
             continue
         for gc in props_el:
             if localname(gc) == "Name":
