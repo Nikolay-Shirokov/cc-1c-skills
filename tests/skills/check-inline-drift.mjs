@@ -753,6 +753,34 @@ for (const family of FAMILIES) {
       if (l !== lang || declared.has(skill) || !fns.has(fnName)) continue;
       errors.push(`${family.name} [${lang}]: ${skill} содержит ${fnName}, но в реестре не объявлен`);
     }
+
+    // 4. Копия обязана быть не только ИДЕНТИЧНОЙ, но и РАЗРЕШИМОЙ: всё, что её тело зовёт,
+    // должно быть определено в том же навыке. Иначе получаем вызов несуществующей функции —
+    // в PowerShell это тихий ложный успех (CommandNotFoundException, но код возврата 0),
+    // а в python трейсбек, то есть ещё и расхождение потоков ошибок между портами.
+    // Что считать «вызовом своей функции»: имя, определённое в НАВЫКЕ-ЭТАЛОНЕ. Командлеты и
+    // встроенные функции в эталоне не определены, поэтому список исключений не нужен.
+    for (const { v, members } of effective) {
+      const authorityFns = index.get(`${v.authority}|${lang}`);
+      if (!authorityFns) continue;
+      for (const skill of members) {
+        if (skill === v.authority) continue;
+        const skillFns = index.get(`${skill}|${lang}`);
+        if (!skillFns) continue;
+        for (const { file, body: bodyLines } of copiesOf(index, skill, lang, fnName)) {
+          const body = bodyLines.join('\n');   // тело хранится списком строк
+          const called = lang === 'ps1'
+            ? body.match(/(?<![\w-])[A-Z][a-z]+-[A-Z]\w*/g) || []
+            : body.match(/(?<![\w.])[a-z_]\w*(?=\s*\()/g) || [];
+          const missing = [...new Set(called)]
+            .filter((c) => c !== fnName && authorityFns.has(c) && !skillFns.has(c));
+          if (missing.length) {
+            const label = file.startsWith(`${skill}.`) ? skill : `${skill} (${file})`;
+            errors.push(`${family.name} [${lang}]: ${label} зовёт ${missing.join(', ')} — этих функций в навыке нет, копия неразрешима`);
+          }
+        }
+      }
+    }
   }
 
   // 4. Долг: отклоняющийся вариант без обоснования. Базовым считаем самый массовый — ему

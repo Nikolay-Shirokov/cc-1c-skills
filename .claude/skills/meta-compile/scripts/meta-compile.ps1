@@ -1,4 +1,4 @@
-﻿# meta-compile v1.107 — Compile 1C metadata object from JSON
+﻿# meta-compile v1.108 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -4466,7 +4466,10 @@ function Emit-EdsFunction {
 
 # Свойства таблицы: 38 узлов в порядке выгрузки платформы.
 function Emit-EdsTableProperties {
-	param([string]$indent, [string]$srcName, [string]$tableName, $t)
+	# $charXml и $defaultFormsXml — уже собранные блоки <Characteristics> и четыре слота
+	# <Default*Form>: их рендерит вызывающий навык своим эмиттером. Так тело не зависит
+	# от хелперов конкретного навыка и годится для копирования (check-inline-drift).
+	param([string]$indent, [string]$srcName, [string]$tableName, $t, [string]$charXml, [string]$defaultFormsXml)
 	$i = $indent
 	$tblSynonym = if ($t -and $null -ne $t.synonym) { $t.synonym } else { Split-CamelCase $tableName }
 	X "$i<Name>$(Esc-XmlText $tableName)</Name>"
@@ -4493,7 +4496,7 @@ function Emit-EdsTableProperties {
 	# с полем родителя — пустая строка (как после загрузки), а без него — nil.
 	if ($t -and $t.parentField) { X "$i<UnfilledParentValue xsi:type=`"xs:string`"/>" }
 	else { X "$i<UnfilledParentValue xsi:nil=`"true`"/>" }
-	Emit-Characteristics $i $(if ($t) { $t.characteristics } else { $null })
+	if ($charXml) { X $charXml.TrimEnd("`r", "`n") } else { X "$i<Characteristics/>" }
 
 	X "$i<UseStandardCommands>$(if ($t -and $t.useStandardCommands -eq $false) { 'false' } else { 'true' })</UseStandardCommands>"
 	X "$i<QuickChoice>$(if ($t -and $t.quickChoice -eq $true) { 'true' } else { 'false' })</QuickChoice>"
@@ -4507,10 +4510,9 @@ function Emit-EdsTableProperties {
 	X "$i<ChoiceDataGetModeOnInputByString>$(if ($t -and $t.choiceDataGetModeOnInputByString) { "$($t.choiceDataGetModeOnInputByString)" } else { 'Directly' })</ChoiceDataGetModeOnInputByString>"
 	X "$i<ChoiceHistoryOnInput>$(if ($t -and $t.choiceHistoryOnInput) { "$($t.choiceHistoryOnInput)" } else { 'Auto' })</ChoiceHistoryOnInput>"
 
-	foreach ($formTag in @("DefaultObjectForm","DefaultRecordForm","DefaultListForm","DefaultChoiceForm")) {
-		$key = $formTag.Substring(0,1).ToLower() + $formTag.Substring(1)
-		Emit-FormRef $i $formTag $(if ($t) { $t.$key } else { $null })
-	}
+	# Пустая строка — четыре слота всё равно обязаны быть: в свойствах таблицы их ровно 38.
+	if ($defaultFormsXml) { X $defaultFormsXml.TrimEnd("`r", "`n") }
+	else { foreach ($formTag in @("DefaultObjectForm","DefaultRecordForm","DefaultListForm","DefaultChoiceForm")) { X "$i<$formTag/>" } }
 	foreach ($presTag in @("ObjectPresentation","ExtendedObjectPresentation","RecordPresentation",
 		"ExtendedRecordPresentation","ListPresentation","ExtendedListPresentation","Explanation")) {
 		$key = $presTag.Substring(0,1).ToLower() + $presTag.Substring(1)
@@ -4530,9 +4532,9 @@ function Emit-EdsTableProperties {
 # поэтому «перехват» — запомнить длину, отдать эмиттерам, вырезать добавленное
 # (тот же приём, что у составного типа).
 function Build-EdsTableXml {
-	# $fieldsXml — уже собранные узлы <Field>: их рендерит вызывающий навык своим эмиттером
-	# реквизита. Так тело функции не зависит от того, какой это навык.
-	param([string]$srcName, [string]$tableName, $entry, [string]$fieldsXml)
+	# $fieldsXml, $charXml, $defaultFormsXml — уже собранные узлы: их рендерит вызывающий навык
+	# своими эмиттерами. Так тело функции не зависит от того, какой это навык.
+	param([string]$srcName, [string]$tableName, $entry, [string]$fieldsXml, [string]$charXml, [string]$defaultFormsXml)
 	$before = $script:xml.Length
 
 	$tableUuid = New-Guid-String
@@ -4559,7 +4561,7 @@ function Build-EdsTableXml {
 	X "`t`t</InternalInfo>"
 
 	X "`t`t<Properties>"
-	Emit-EdsTableProperties "`t`t`t" $srcName $tableName $entry.props
+	Emit-EdsTableProperties "`t`t`t" $srcName $tableName $entry.props $charXml $defaultFormsXml
 	X "`t`t</Properties>"
 
 	if ($fieldsXml) {
@@ -5357,7 +5359,25 @@ if ($objType -eq "ExternalDataSource" -and $script:edsTables.Count -gt 0) {
 		}
 		$fieldsXml = $script:xml.ToString($fieldsBefore, $script:xml.Length - $fieldsBefore)
 		[void]$script:xml.Remove($fieldsBefore, $script:xml.Length - $fieldsBefore)
-		$tableXml = Build-EdsTableXml $objName $tblName $entry $fieldsXml
+		$tp = $entry.props
+		$charBefore = $script:xml.Length
+		Emit-Characteristics "`t`t`t" $(if ($tp) { $tp.characteristics } else { $null })
+		$charXml = $script:xml.ToString($charBefore, $script:xml.Length - $charBefore)
+		[void]$script:xml.Remove($charBefore, $script:xml.Length - $charBefore)
+
+		# Слот формы: короткое имя разворачивается в полный путь таблицы внешнего источника —
+		# голое имя платформа отвергает («Неизвестный объект метаданных»).
+		$formsBefore = $script:xml.Length
+		foreach ($formTag in @("DefaultObjectForm","DefaultRecordForm","DefaultListForm","DefaultChoiceForm")) {
+			$key = $formTag.Substring(0,1).ToLower() + $formTag.Substring(1)
+			$formVal = if ($tp) { $tp.$key } else { $null }
+			if ($formVal -and "$formVal" -notmatch '\.') { $formVal = "ExternalDataSource.$objName.Table.$tblName.Form.$formVal" }
+			Emit-FormRef "`t`t`t" $formTag $formVal
+		}
+		$defaultFormsXml = $script:xml.ToString($formsBefore, $script:xml.Length - $formsBefore)
+		[void]$script:xml.Remove($formsBefore, $script:xml.Length - $formsBefore)
+
+		$tableXml = Build-EdsTableXml $objName $tblName $entry $fieldsXml $charXml $defaultFormsXml
 		$tablePath = Join-Path $tablesDir "$tblName.xml"
 		Write-XmlFileKeepEol $tablePath $tableXml $enc
 		$edsTablesCreated += $tablePath

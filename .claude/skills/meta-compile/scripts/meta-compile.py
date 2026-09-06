@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-compile v1.107 — Compile 1C metadata object from JSON
+# meta-compile v1.108 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -4459,8 +4459,12 @@ def emit_eds_function(indent, fn_name, val, type_xml):
     X(f'{indent}</Function>')
 
 
-def emit_eds_table_properties(indent, src_name, table_name, t):
-    """Свойства таблицы: 38 узлов в порядке выгрузки платформы."""
+def emit_eds_table_properties(indent, src_name, table_name, t, char_xml, default_forms_xml):
+    """Свойства таблицы: 38 узлов в порядке выгрузки платформы.
+
+    char_xml и default_forms_xml — уже собранные блоки <Characteristics> и четыре слота
+    <Default*Form>: их рендерит вызывающий навык своим эмиттером. Так тело не зависит
+    от хелперов конкретного навыка и годится для копирования (check-inline-drift)."""
     i = indent
     t = t or {}
     tbl_synonym = t['synonym'] if t.get('synonym') is not None else split_camel_case(table_name)
@@ -4497,7 +4501,10 @@ def emit_eds_table_properties(indent, src_name, table_name, t):
         X(f'{i}<UnfilledParentValue xsi:type="xs:string"/>')
     else:
         X(f'{i}<UnfilledParentValue xsi:nil="true"/>')
-    emit_characteristics(i, t.get('characteristics'))
+    if char_xml:
+        X(char_xml.rstrip('\r\n'))
+    else:
+        X(f'{i}<Characteristics/>')
 
     X(f'{i}<UseStandardCommands>{"false" if t.get("useStandardCommands") is False else "true"}</UseStandardCommands>')
     X(f'{i}<QuickChoice>{"true" if t.get("quickChoice") is True else "false"}</QuickChoice>')
@@ -4515,9 +4522,12 @@ def emit_eds_table_properties(indent, src_name, table_name, t):
     X(f'{i}<ChoiceDataGetModeOnInputByString>{t.get("choiceDataGetModeOnInputByString") or "Directly"}</ChoiceDataGetModeOnInputByString>')
     X(f'{i}<ChoiceHistoryOnInput>{t.get("choiceHistoryOnInput") or "Auto"}</ChoiceHistoryOnInput>')
 
-    for form_tag in ('DefaultObjectForm', 'DefaultRecordForm', 'DefaultListForm', 'DefaultChoiceForm'):
-        key = form_tag[0].lower() + form_tag[1:]
-        emit_form_ref(i, form_tag, t.get(key))
+    # Пустая строка — четыре слота всё равно обязаны быть: в свойствах таблицы их ровно 38.
+    if default_forms_xml:
+        X(default_forms_xml.rstrip('\r\n'))
+    else:
+        for form_tag in ('DefaultObjectForm', 'DefaultRecordForm', 'DefaultListForm', 'DefaultChoiceForm'):
+            X(f'{i}<{form_tag}/>')
     for pres_tag in ('ObjectPresentation', 'ExtendedObjectPresentation', 'RecordPresentation',
                      'ExtendedRecordPresentation', 'ListPresentation', 'ExtendedListPresentation', 'Explanation'):
         key = pres_tag[0].lower() + pres_tag[1:]
@@ -4544,9 +4554,10 @@ EDS_TABLE_GENERATED_TYPES = (
 )
 
 
-def build_eds_table_xml(src_name, table_name, entry, fields_xml):
-    """Отдельный XML-документ таблицы. fields_xml — уже собранные узлы <Field>: их рендерит
-    вызывающий навык своим эмиттером реквизита, поэтому тело не зависит от того, какой это навык.
+def build_eds_table_xml(src_name, table_name, entry, fields_xml, char_xml, default_forms_xml):
+    """Отдельный XML-документ таблицы. fields_xml, char_xml, default_forms_xml — уже собранные
+    узлы: их рендерит вызывающий навык своими эмиттерами, поэтому тело не зависит от того,
+    какой это навык.
     Возвращает строку: X пишет в общий список строк,
     поэтому «перехват» — запомнить длину, отдать эмиттерам, срезать добавленное
     (в ps1-порте тот же приём выражен через StringBuilder — различие рантаймов, не логики)."""
@@ -4566,7 +4577,7 @@ def build_eds_table_xml(src_name, table_name, entry, fields_xml):
     X('\t\t</InternalInfo>')
 
     X('\t\t<Properties>')
-    emit_eds_table_properties('\t\t\t', src_name, table_name, entry['props'])
+    emit_eds_table_properties('\t\t\t', src_name, table_name, entry['props'], char_xml, default_forms_xml)
     X('\t\t</Properties>')
 
     if fields_xml:
@@ -5116,7 +5127,25 @@ if obj_type == 'ExternalDataSource' and eds_tables:
             emit_attribute('\t\t\t', parse_attribute_shorthand(f), 'eds-field', 'Field')
         fields_xml = '\r\n'.join(lines[fields_before:])
         del lines[fields_before:]
-        table_xml = build_eds_table_xml(obj_name, tbl_name, entry, fields_xml)
+        tp = entry['props'] or {}
+        char_before = len(lines)
+        emit_characteristics('\t\t\t', tp.get('characteristics'))
+        char_xml = '\r\n'.join(lines[char_before:])
+        del lines[char_before:]
+
+        # Слот формы: короткое имя разворачивается в полный путь таблицы внешнего источника —
+        # голое имя платформа отвергает («Неизвестный объект метаданных»).
+        forms_before = len(lines)
+        for form_tag in ('DefaultObjectForm', 'DefaultRecordForm', 'DefaultListForm', 'DefaultChoiceForm'):
+            key = form_tag[0].lower() + form_tag[1:]
+            form_val = tp.get(key)
+            if form_val and '.' not in str(form_val):
+                form_val = f'ExternalDataSource.{obj_name}.Table.{tbl_name}.Form.{form_val}'
+            emit_form_ref('\t\t\t', form_tag, form_val)
+        default_forms_xml = '\r\n'.join(lines[forms_before:])
+        del lines[forms_before:]
+
+        table_xml = build_eds_table_xml(obj_name, tbl_name, entry, fields_xml, char_xml, default_forms_xml)
         table_path = os.path.join(tables_dir, f'{tbl_name}.xml')
         write_xml_file_keep_eol(table_path, table_xml)
         eds_tables_created.append(table_path)

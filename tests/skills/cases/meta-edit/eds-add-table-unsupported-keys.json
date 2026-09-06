@@ -1,0 +1,33 @@
+{
+  "name": "Таблица с формой по умолчанию: отказ с объяснением, а не тихий сбой",
+  "setup": "empty-config",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "ExternalDataSource",
+        "name": "PG",
+        "tables": { "products": { "keyFields": ["id"], "fields": ["id: Number(10,0)"] } }
+      },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    }
+  ],
+  "params": { "objectPath": "ExternalDataSources/PG.xml" },
+  "input": {
+    "add": {
+      "tables": {
+        "sales": {
+          "defaultListForm": "ФормаСписка",
+          "fields": ["id: Number(10,0)"]
+        }
+      }
+    }
+  },
+  "expect": {
+    "stdoutContains": ["не поддержан при добавлении таблицы", "form-add"],
+    "filesAbsent": ["ExternalDataSources/PG/Tables/sales.xml"],
+    "fileNotContains": [
+      { "file": "ExternalDataSources/PG.xml", "text": "<Table>sales</Table>" }
+    ]
+  }
+}

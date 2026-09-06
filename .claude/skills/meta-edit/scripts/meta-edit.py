@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-edit v1.45 — Edit existing 1C metadata object XML
+# meta-edit v1.46 — Edit existing 1C metadata object XML
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -1593,12 +1593,6 @@ child_type_to_xml_tag = {
 xmlns_decl = 'xmlns="http://v8.1c.ru/8.3/MDClasses" xmlns:app="http://v8.1c.ru/8.2/managed-application/core" xmlns:cfg="http://v8.1c.ru/8.1/data/enterprise/current-config" xmlns:cmi="http://v8.1c.ru/8.2/managed-application/cmi" xmlns:ent="http://v8.1c.ru/8.1/data/enterprise" xmlns:lf="http://v8.1c.ru/8.2/managed-application/logform" xmlns:style="http://v8.1c.ru/8.1/data/ui/style" xmlns:sys="http://v8.1c.ru/8.1/data/ui/fonts/system" xmlns:v8="http://v8.1c.ru/8.1/data/core" xmlns:v8ui="http://v8.1c.ru/8.1/data/ui" xmlns:web="http://v8.1c.ru/8.1/data/ui/colors/web" xmlns:win="http://v8.1c.ru/8.1/data/ui/colors/windows" xmlns:xen="http://v8.1c.ru/8.3/xcf/enums" xmlns:xpr="http://v8.1c.ru/8.3/xcf/predef" xmlns:xr="http://v8.1c.ru/8.3/xcf/readable" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"'
 lines = []
 
-def emit_form_ref(i, tag, val):
-    """Ссылка на форму по умолчанию: непустая → <Tag>значение</Tag>, иначе <Tag/>."""
-    if val:
-        X(f'{i}<{tag}>{esc_xml_text(normalize_form_ref(str(val)))}</{tag}>')
-    else:
-        X(f'{i}<{tag}/>')
 
 def X(text):
     lines.append(text)
@@ -1627,54 +1621,6 @@ def emit_mltext(indent, tag, text):
     emit_ml_items(f'{indent}\t', text)
     X(f'{indent}</{tag}>')
 
-def emit_characteristics(indent, chars):
-    if not chars:
-        X(f'{indent}<Characteristics/>')
-        return
-    X(f'{indent}<Characteristics>')
-    for ch in chars:
-        types = ch_el_prop(ch, ['types', 'characteristicTypes', 'типы'])
-        values = ch_el_prop(ch, ['values', 'characteristicValues', 'значения'])
-        t_from = normalize_char_from(ch_el_prop(types, ['from', 'source', 'источник']) or '')
-        v_from = normalize_char_from(ch_el_prop(values, ['from', 'source', 'источник']) or '')
-        key = expand_char_field(ch_el_prop(types, ['key', 'keyField']), t_from)
-        tff = expand_char_field(ch_el_prop(types, ['filterField', 'typesFilterField']), t_from)
-        obj = expand_char_field(ch_el_prop(values, ['object', 'objectField']), v_from)
-        typ = expand_char_field(ch_el_prop(values, ['type', 'typeField']), v_from)
-        val = expand_char_field(ch_el_prop(values, ['value', 'valueField']), v_from)
-        dpf = char_int_field(types, ['dataPathField'])
-        mvu = char_int_field(types, ['multipleValuesUseField'])
-        mvk = char_int_field(values, ['multipleValuesKeyField'])
-        mvo = char_int_field(values, ['multipleValuesOrderField'])
-        X(f'{indent}\t<xr:Characteristic>')
-        X(f'{indent}\t\t<xr:CharacteristicTypes from="{esc_xml(t_from)}">')
-        X(f'{indent}\t\t\t<xr:KeyField>{esc_xml_text(key)}</xr:KeyField>')
-        X(f'{indent}\t\t\t<xr:TypesFilterField>{esc_xml_text(tff)}</xr:TypesFilterField>')
-        # filterValue: None→nil; голое→xs:string, полный путь→DTR, bool→xs:boolean.
-        tfv_raw = ch_el_prop(types, ['filterValue', 'typesFilterValue'])
-        if tfv_raw is None:
-            X(f'{indent}\t\t\t<xr:TypesFilterValue xsi:nil="true"/>')
-        else:
-            tfv_xt, tfv_tx = normalize_choice_value(tfv_raw)
-            if tfv_tx == '' or tfv_tx is None:
-                X(f'{indent}\t\t\t<xr:TypesFilterValue xsi:type="{tfv_xt}"/>')
-            else:
-                X(f'{indent}\t\t\t<xr:TypesFilterValue xsi:type="{tfv_xt}">{esc_xml_text(tfv_tx)}</xr:TypesFilterValue>')
-        # Числовое значение (обычно -1 или 0) — как есть; expand_char_field примет "0" за короткое
-        # имя поля и выдаст "<from>.Attribute.0".
-        dpf_out = str(dpf) if re.fullmatch(r'-?\d+', str(dpf)) else esc_xml_text(expand_char_field(str(dpf), t_from))
-        X(f'{indent}\t\t\t<xr:DataPathField>{dpf_out}</xr:DataPathField>')
-        X(f'{indent}\t\t\t<xr:MultipleValuesUseField>{mvu}</xr:MultipleValuesUseField>')
-        X(f'{indent}\t\t</xr:CharacteristicTypes>')
-        X(f'{indent}\t\t<xr:CharacteristicValues from="{esc_xml(v_from)}">')
-        X(f'{indent}\t\t\t<xr:ObjectField>{esc_xml_text(obj)}</xr:ObjectField>')
-        X(f'{indent}\t\t\t<xr:TypeField>{esc_xml_text(typ)}</xr:TypeField>')
-        X(f'{indent}\t\t\t<xr:ValueField>{esc_xml_text(val)}</xr:ValueField>')
-        X(f'{indent}\t\t\t<xr:MultipleValuesKeyField>{mvk}</xr:MultipleValuesKeyField>')
-        X(f'{indent}\t\t\t<xr:MultipleValuesOrderField>{mvo}</xr:MultipleValuesOrderField>')
-        X(f'{indent}\t\t</xr:CharacteristicValues>')
-        X(f'{indent}\t</xr:Characteristic>')
-    X(f'{indent}</Characteristics>')
 
 def emit_md_ref_list(indent, tag, items):
     """Список MDObjectRef (Documents/RegisterRecords/DocumentMap/…) с <xr:Item>. omit-on-empty."""
@@ -1771,8 +1717,12 @@ def emit_eds_function(indent, fn_name, val, type_xml):
     X(f'{indent}\t</Properties>')
     X(f'{indent}</Function>')
 
-def emit_eds_table_properties(indent, src_name, table_name, t):
-    """Свойства таблицы: 38 узлов в порядке выгрузки платформы."""
+def emit_eds_table_properties(indent, src_name, table_name, t, char_xml, default_forms_xml):
+    """Свойства таблицы: 38 узлов в порядке выгрузки платформы.
+
+    char_xml и default_forms_xml — уже собранные блоки <Characteristics> и четыре слота
+    <Default*Form>: их рендерит вызывающий навык своим эмиттером. Так тело не зависит
+    от хелперов конкретного навыка и годится для копирования (check-inline-drift)."""
     i = indent
     t = t or {}
     tbl_synonym = t['synonym'] if t.get('synonym') is not None else split_camel_case(table_name)
@@ -1809,7 +1759,10 @@ def emit_eds_table_properties(indent, src_name, table_name, t):
         X(f'{i}<UnfilledParentValue xsi:type="xs:string"/>')
     else:
         X(f'{i}<UnfilledParentValue xsi:nil="true"/>')
-    emit_characteristics(i, t.get('characteristics'))
+    if char_xml:
+        X(char_xml.rstrip('\r\n'))
+    else:
+        X(f'{i}<Characteristics/>')
 
     X(f'{i}<UseStandardCommands>{"false" if t.get("useStandardCommands") is False else "true"}</UseStandardCommands>')
     X(f'{i}<QuickChoice>{"true" if t.get("quickChoice") is True else "false"}</QuickChoice>')
@@ -1827,9 +1780,12 @@ def emit_eds_table_properties(indent, src_name, table_name, t):
     X(f'{i}<ChoiceDataGetModeOnInputByString>{t.get("choiceDataGetModeOnInputByString") or "Directly"}</ChoiceDataGetModeOnInputByString>')
     X(f'{i}<ChoiceHistoryOnInput>{t.get("choiceHistoryOnInput") or "Auto"}</ChoiceHistoryOnInput>')
 
-    for form_tag in ('DefaultObjectForm', 'DefaultRecordForm', 'DefaultListForm', 'DefaultChoiceForm'):
-        key = form_tag[0].lower() + form_tag[1:]
-        emit_form_ref(i, form_tag, t.get(key))
+    # Пустая строка — четыре слота всё равно обязаны быть: в свойствах таблицы их ровно 38.
+    if default_forms_xml:
+        X(default_forms_xml.rstrip('\r\n'))
+    else:
+        for form_tag in ('DefaultObjectForm', 'DefaultRecordForm', 'DefaultListForm', 'DefaultChoiceForm'):
+            X(f'{i}<{form_tag}/>')
     for pres_tag in ('ObjectPresentation', 'ExtendedObjectPresentation', 'RecordPresentation',
                      'ExtendedRecordPresentation', 'ListPresentation', 'ExtendedListPresentation', 'Explanation'):
         key = pres_tag[0].lower() + pres_tag[1:]
@@ -1855,9 +1811,10 @@ EDS_TABLE_GENERATED_TYPES = (
 )
 
 
-def build_eds_table_xml(src_name, table_name, entry, fields_xml):
-    """Отдельный XML-документ таблицы. fields_xml — уже собранные узлы <Field>: их рендерит
-    вызывающий навык своим эмиттером реквизита, поэтому тело не зависит от того, какой это навык.
+def build_eds_table_xml(src_name, table_name, entry, fields_xml, char_xml, default_forms_xml):
+    """Отдельный XML-документ таблицы. fields_xml, char_xml, default_forms_xml — уже собранные
+    узлы: их рендерит вызывающий навык своими эмиттерами, поэтому тело не зависит от того,
+    какой это навык.
     Возвращает строку: X пишет в общий список строк,
     поэтому «перехват» — запомнить длину, отдать эмиттерам, срезать добавленное
     (в ps1-порте тот же приём выражен через StringBuilder — различие рантаймов, не логики)."""
@@ -1877,7 +1834,7 @@ def build_eds_table_xml(src_name, table_name, entry, fields_xml):
     X('\t\t</InternalInfo>')
 
     X('\t\t<Properties>')
-    emit_eds_table_properties('\t\t\t', src_name, table_name, entry['props'])
+    emit_eds_table_properties('\t\t\t', src_name, table_name, entry['props'], char_xml, default_forms_xml)
     X('\t\t</Properties>')
 
     if fields_xml:
@@ -1892,10 +1849,6 @@ def build_eds_table_xml(src_name, table_name, entry, fields_xml):
     chunk = '\r\n'.join(lines[before:])
     del lines[before:]
     return chunk
-
-# ============================================================
-# DSL key normalization
-# ============================================================
 
 
 def resolve_operation_key(key):
@@ -2236,6 +2189,15 @@ def process_add(add_def):
             src_dir = os.path.join(os.path.dirname(resolved_path), obj_name)
             tables_dir = os.path.join(src_dir, "Tables")
             for tbl_name, entry in get_eds_tables(items).items():
+                # Характеристики и слоты форм точечным добавлением не задаются: первые требуют
+                # эмиттера характеристик (живёт в meta-compile), вторые назначает form-add при
+                # добавлении формы. Молча проглотить ключ нельзя — модель решит, что он сработал.
+                tv = entry['props'] or {}
+                bad_key = next((k for k in ('characteristics', 'defaultObjectForm', 'defaultRecordForm',
+                                            'defaultListForm', 'defaultChoiceForm') if tv.get(k)), None)
+                if bad_key:
+                    warn(f"Ключ '{bad_key}' не поддержан при добавлении таблицы: форму назначает form-add, характеристики — meta-compile. Таблица '{tbl_name}' пропущена.")
+                    continue
                 if tbl_name in existing_names:
                     warn(f"Table '{tbl_name}' already exists, skipping")
                     continue
@@ -2247,7 +2209,7 @@ def process_add(add_def):
                 for f in entry["fields"]:
                     field_parts.append(build_attribute_fragment(parse_attribute_shorthand(f), "eds-field", "\t\t\t", "Field"))
                 fields_xml = "\r\n".join(field_parts)
-                table_xml = build_eds_table_xml(obj_name, tbl_name, entry, fields_xml)
+                table_xml = build_eds_table_xml(obj_name, tbl_name, entry, fields_xml, '', '')
                 os.makedirs(tables_dir, exist_ok=True)
                 with open(table_path, "w", encoding="utf-8-sig", newline="") as fh:
                     fh.write(table_xml.rstrip("\r\n"))

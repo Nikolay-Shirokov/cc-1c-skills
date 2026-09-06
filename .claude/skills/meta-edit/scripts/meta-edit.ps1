@@ -1,4 +1,4 @@
-﻿# meta-edit v1.45 — Edit existing 1C metadata object XML
+﻿# meta-edit v1.46 — Edit existing 1C metadata object XML
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -1598,10 +1598,6 @@ $script:childTypeToXmlTag = @{
 # таблица внешнего источника собирается в ОТДЕЛЬНЫЙ файл, и формат этого файла
 # должен быть один и тот же, кем бы он ни был создан. Держит check-inline-drift.mjs.
 
-function Emit-FormRef {
-	param([string]$i, [string]$tag, $val)
-	if ($val) { X "$i<$tag>$(Esc-XmlText (Normalize-FormRef "$val"))</$tag>" } else { X "$i<$tag/>" }
-}
 
 # Шапка пространств имён файла таблицы внешнего источника — копия из meta-compile.
 $script:xmlnsDecl = 'xmlns="http://v8.1c.ru/8.3/MDClasses" xmlns:app="http://v8.1c.ru/8.2/managed-application/core" xmlns:cfg="http://v8.1c.ru/8.1/data/enterprise/current-config" xmlns:cmi="http://v8.1c.ru/8.2/managed-application/cmi" xmlns:ent="http://v8.1c.ru/8.1/data/enterprise" xmlns:lf="http://v8.1c.ru/8.2/managed-application/logform" xmlns:style="http://v8.1c.ru/8.1/data/ui/style" xmlns:sys="http://v8.1c.ru/8.1/data/ui/fonts/system" xmlns:v8="http://v8.1c.ru/8.1/data/core" xmlns:v8ui="http://v8.1c.ru/8.1/data/ui" xmlns:web="http://v8.1c.ru/8.1/data/ui/colors/web" xmlns:win="http://v8.1c.ru/8.1/data/ui/colors/windows" xmlns:xen="http://v8.1c.ru/8.3/xcf/enums" xmlns:xpr="http://v8.1c.ru/8.3/xcf/predef" xmlns:xr="http://v8.1c.ru/8.3/xcf/readable" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"'
@@ -1640,54 +1636,6 @@ function Emit-MLText {
 	X "$indent</$tag>"
 }
 
-function Emit-Characteristics {
-	param([string]$indent, $chars)
-	if (-not $chars -or @($chars).Count -eq 0) { X "$indent<Characteristics/>"; return }
-	X "$indent<Characteristics>"
-	foreach ($ch in @($chars)) {
-		$types  = Get-ChElProp $ch @('types','characteristicTypes','типы')
-		$values = Get-ChElProp $ch @('values','characteristicValues','значения')
-		$tFrom = Normalize-CharFrom "$(Get-ChElProp $types @('from','source','источник'))"
-		$vFrom = Normalize-CharFrom "$(Get-ChElProp $values @('from','source','источник'))"
-		$key = Expand-CharField "$(Get-ChElProp $types @('key','keyField'))" $tFrom
-		$tff = Expand-CharField "$(Get-ChElProp $types @('filterField','typesFilterField'))" $tFrom
-		$obj = Expand-CharField "$(Get-ChElProp $values @('object','objectField'))" $vFrom
-		$typ = Expand-CharField "$(Get-ChElProp $values @('type','typeField'))" $vFrom
-		$val = Expand-CharField "$(Get-ChElProp $values @('value','valueField'))" $vFrom
-		# числовые поля-флаги (обычно -1; иногда 0)
-		$dpf = Get-CharIntField $types @('dataPathField')
-		$mvu = Get-CharIntField $types @('multipleValuesUseField')
-		$mvk = Get-CharIntField $values @('multipleValuesKeyField')
-		$mvo = Get-CharIntField $values @('multipleValuesOrderField')
-		X "$indent`t<xr:Characteristic>"
-		X "$indent`t`t<xr:CharacteristicTypes from=`"$(Esc-Xml $tFrom)`">"
-		X "$indent`t`t`t<xr:KeyField>$(Esc-XmlText $key)</xr:KeyField>"
-		X "$indent`t`t`t<xr:TypesFilterField>$(Esc-XmlText $tff)</xr:TypesFilterField>"
-		# filterValue: $null→nil; голое→xs:string, полный путь→DTR, bool→xs:boolean.
-		$tfvRaw = Get-ChElProp $types @('filterValue','typesFilterValue')
-		if ($null -eq $tfvRaw) { X "$indent`t`t`t<xr:TypesFilterValue xsi:nil=`"true`"/>" }
-		else {
-			$tfvN = Normalize-ChoiceValue $tfvRaw
-			if ([string]::IsNullOrEmpty($tfvN.Text)) { X "$indent`t`t`t<xr:TypesFilterValue xsi:type=`"$($tfvN.XsiType)`"/>" }
-			else { X "$indent`t`t`t<xr:TypesFilterValue xsi:type=`"$($tfvN.XsiType)`">$(Esc-XmlText $tfvN.Text)</xr:TypesFilterValue>" }
-		}
-		# Числовое значение (обычно -1 или 0) — как есть; разворачивать через Expand-CharField нельзя,
-		# оно примет "0" за короткое имя поля и выдаст "<from>.Attribute.0".
-		$dpfOut = if ("$dpf" -match '^-?\d+$') { "$dpf" } else { Esc-XmlText (Expand-CharField "$dpf" $tFrom) }
-		X "$indent`t`t`t<xr:DataPathField>$dpfOut</xr:DataPathField>"
-		X "$indent`t`t`t<xr:MultipleValuesUseField>$mvu</xr:MultipleValuesUseField>"
-		X "$indent`t`t</xr:CharacteristicTypes>"
-		X "$indent`t`t<xr:CharacteristicValues from=`"$(Esc-Xml $vFrom)`">"
-		X "$indent`t`t`t<xr:ObjectField>$(Esc-XmlText $obj)</xr:ObjectField>"
-		X "$indent`t`t`t<xr:TypeField>$(Esc-XmlText $typ)</xr:TypeField>"
-		X "$indent`t`t`t<xr:ValueField>$(Esc-XmlText $val)</xr:ValueField>"
-		X "$indent`t`t`t<xr:MultipleValuesKeyField>$mvk</xr:MultipleValuesKeyField>"
-		X "$indent`t`t`t<xr:MultipleValuesOrderField>$mvo</xr:MultipleValuesOrderField>"
-		X "$indent`t`t</xr:CharacteristicValues>"
-		X "$indent`t</xr:Characteristic>"
-	}
-	X "$indent</Characteristics>"
-}
 
 function Emit-MDRefList {
 	param([string]$indent, [string]$tag, $items)
@@ -1784,7 +1732,10 @@ function Emit-EdsFunction {
 }
 
 function Emit-EdsTableProperties {
-	param([string]$indent, [string]$srcName, [string]$tableName, $t)
+	# $charXml и $defaultFormsXml — уже собранные блоки <Characteristics> и четыре слота
+	# <Default*Form>: их рендерит вызывающий навык своим эмиттером. Так тело не зависит
+	# от хелперов конкретного навыка и годится для копирования (check-inline-drift).
+	param([string]$indent, [string]$srcName, [string]$tableName, $t, [string]$charXml, [string]$defaultFormsXml)
 	$i = $indent
 	$tblSynonym = if ($t -and $null -ne $t.synonym) { $t.synonym } else { Split-CamelCase $tableName }
 	X "$i<Name>$(Esc-XmlText $tableName)</Name>"
@@ -1811,7 +1762,7 @@ function Emit-EdsTableProperties {
 	# с полем родителя — пустая строка (как после загрузки), а без него — nil.
 	if ($t -and $t.parentField) { X "$i<UnfilledParentValue xsi:type=`"xs:string`"/>" }
 	else { X "$i<UnfilledParentValue xsi:nil=`"true`"/>" }
-	Emit-Characteristics $i $(if ($t) { $t.characteristics } else { $null })
+	if ($charXml) { X $charXml.TrimEnd("`r", "`n") } else { X "$i<Characteristics/>" }
 
 	X "$i<UseStandardCommands>$(if ($t -and $t.useStandardCommands -eq $false) { 'false' } else { 'true' })</UseStandardCommands>"
 	X "$i<QuickChoice>$(if ($t -and $t.quickChoice -eq $true) { 'true' } else { 'false' })</QuickChoice>"
@@ -1825,10 +1776,9 @@ function Emit-EdsTableProperties {
 	X "$i<ChoiceDataGetModeOnInputByString>$(if ($t -and $t.choiceDataGetModeOnInputByString) { "$($t.choiceDataGetModeOnInputByString)" } else { 'Directly' })</ChoiceDataGetModeOnInputByString>"
 	X "$i<ChoiceHistoryOnInput>$(if ($t -and $t.choiceHistoryOnInput) { "$($t.choiceHistoryOnInput)" } else { 'Auto' })</ChoiceHistoryOnInput>"
 
-	foreach ($formTag in @("DefaultObjectForm","DefaultRecordForm","DefaultListForm","DefaultChoiceForm")) {
-		$key = $formTag.Substring(0,1).ToLower() + $formTag.Substring(1)
-		Emit-FormRef $i $formTag $(if ($t) { $t.$key } else { $null })
-	}
+	# Пустая строка — четыре слота всё равно обязаны быть: в свойствах таблицы их ровно 38.
+	if ($defaultFormsXml) { X $defaultFormsXml.TrimEnd("`r", "`n") }
+	else { foreach ($formTag in @("DefaultObjectForm","DefaultRecordForm","DefaultListForm","DefaultChoiceForm")) { X "$i<$formTag/>" } }
 	foreach ($presTag in @("ObjectPresentation","ExtendedObjectPresentation","RecordPresentation",
 		"ExtendedRecordPresentation","ListPresentation","ExtendedListPresentation","Explanation")) {
 		$key = $presTag.Substring(0,1).ToLower() + $presTag.Substring(1)
@@ -1845,9 +1795,9 @@ function Emit-EdsTableProperties {
 }
 
 function Build-EdsTableXml {
-	# $fieldsXml — уже собранные узлы <Field>: их рендерит вызывающий навык своим эмиттером
-	# реквизита. Так тело функции не зависит от того, какой это навык.
-	param([string]$srcName, [string]$tableName, $entry, [string]$fieldsXml)
+	# $fieldsXml, $charXml, $defaultFormsXml — уже собранные узлы: их рендерит вызывающий навык
+	# своими эмиттерами. Так тело функции не зависит от того, какой это навык.
+	param([string]$srcName, [string]$tableName, $entry, [string]$fieldsXml, [string]$charXml, [string]$defaultFormsXml)
 	$before = $script:xml.Length
 
 	$tableUuid = New-Guid-String
@@ -1874,7 +1824,7 @@ function Build-EdsTableXml {
 	X "`t`t</InternalInfo>"
 
 	X "`t`t<Properties>"
-	Emit-EdsTableProperties "`t`t`t" $srcName $tableName $entry.props
+	Emit-EdsTableProperties "`t`t`t" $srcName $tableName $entry.props $charXml $defaultFormsXml
 	X "`t`t</Properties>"
 
 	if ($fieldsXml) {
@@ -2285,6 +2235,19 @@ function Process-Add($addDef) {
 				$tablesDir = Join-Path $srcDir "Tables"
 				foreach ($entry in (Get-EdsTables $items).GetEnumerator()) {
 					$tblName = $entry.Key
+					# Характеристики и слоты форм точечным добавлением не задаются: первые требуют
+					# эмиттера характеристик (живёт в meta-compile), вторые назначает form-add при
+					# добавлении формы. Молча проглотить ключ нельзя — модель решит, что он сработал.
+					$tv = $entry.Value.props
+					if ($tv) {
+						foreach ($k in @("characteristics","defaultObjectForm","defaultRecordForm","defaultListForm","defaultChoiceForm")) {
+							if ($tv.$k) {
+								Warn "Ключ '$k' не поддержан при добавлении таблицы: форму назначает form-add, характеристики — meta-compile. Таблица '$tblName' пропущена."
+								$tblName = $null; break
+							}
+						}
+					}
+					if (-not $tblName) { continue }
 					if ($existingNames.ContainsKey($tblName)) {
 						Warn "Table '$tblName' already exists, skipping"
 						continue
@@ -2299,7 +2262,7 @@ function Process-Add($addDef) {
 						$fieldParts += Build-AttributeFragment (Parse-AttributeShorthand $f) "eds-field" "`t`t`t" "Field"
 					}
 					$fieldsXml = $fieldParts -join "`r`n"
-					$tableXml = Build-EdsTableXml $script:objName $tblName $entry.Value $fieldsXml
+					$tableXml = Build-EdsTableXml $script:objName $tblName $entry.Value $fieldsXml "" ""
 					if (-not (Test-Path $tablesDir)) { New-Item -ItemType Directory -Path $tablesDir -Force | Out-Null }
 					[System.IO.File]::WriteAllText($tablePath, $tableXml.TrimEnd("`r", "`n"), (New-Object System.Text.UTF8Encoding($true)))
 					$fragmentXml = "$indent<Table>$(Esc-XmlText $tblName)</Table>"
