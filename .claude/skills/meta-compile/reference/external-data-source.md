@@ -97,8 +97,9 @@
 ]
 ```
 
-Допустимые типы: `Number`, `String`, `Date`, `Boolean`, `UUID`, `BinaryData` и ссылка на таблицу
-внешнего источника — `ExternalDataSourceTableRef.<Источник>.<Таблица>`.
+Допустимые типы: `Number`, `String`, `Date`, `Boolean`, `UUID`, `BinaryData` (двоичные данные;
+`BinaryData(N)` — с ограничением длины) и ссылка на таблицу внешнего источника —
+`ExternalDataSourceTableRef.<Источник>.<Таблица>`.
 
 **Составной тип у поля недопустим** — платформа такую конфигурацию не загружает.
 

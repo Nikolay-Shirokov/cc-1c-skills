@@ -1,0 +1,58 @@
+{
+  "name": "Декомпиляция внешнего источника: таблицы из отдельных файлов, функции, поля",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "ExternalDataSource",
+        "name": "PG",
+        "dataLockControlMode": "AutomaticAndManaged",
+        "tables": {
+          "prices": ["product_id: Number(10,0)", "price: Number(15,2)"],
+          "products": {
+            "nameInDataSource": "eds.public.products",
+            "tableDataType": "ObjectData",
+            "keyFields": ["id"],
+            "presentationField": "name",
+            "transactionsIsolationLevel": "ReadUncommitted",
+            "fields": [
+              "id: Number(10,0)",
+              "name: String(150)",
+              "photo: BinaryData | nullable",
+              { "name": "cost", "type": "Number(15,2)", "nameInDataSource": "cost_net", "readOnly": true }
+            ]
+          }
+        },
+        "functions": {
+          "total": { "expression": "public.f_total(&1, &2)", "returns": "Number(15,2)" },
+          "nextKey": "NEXT VALUE FOR public.seq_key"
+        }
+      },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    }
+  ],
+  "params": {
+    "objectPath": "ExternalDataSources/PG.xml",
+    "outputPath": "draft.json"
+  },
+  "expect": {
+    "files": ["draft.json"],
+    "fileContains": [
+      {
+        "file": "draft.json",
+        "text": [
+          "\"dataLockControlMode\": \"AutomaticAndManaged\"",
+          "\"keyFields\": [\"id\"]",
+          "\"nameInDataSource\": \"eds.public.products\"",
+          "\"transactionsIsolationLevel\": \"ReadUncommitted\"",
+          "photo: BinaryData | nullable",
+          "\"nameInDataSource\": \"cost_net\"",
+          "\"nextKey\": \"NEXT VALUE FOR public.seq_key\""
+        ]
+      }
+    ],
+    "fileNotContains": [
+      { "file": "draft.json", "text": "ValueStorage" }
+    ]
+  }
+}

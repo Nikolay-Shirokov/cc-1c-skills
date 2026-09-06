@@ -1,4 +1,4 @@
-﻿# meta-decompile v0.65 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
+﻿# meta-decompile v0.66 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 #
 # Поддержаны: Catalog, ExchangePlan, ChartOfCharacteristicTypes, ChartOfAccounts, ChartOfCalculationTypes, Document,
@@ -93,7 +93,7 @@ foreach ($c in $rootEl.ChildNodes) { if ($c.NodeType -eq 'Element') { $objNode =
 if (-not $objNode) { [Console]::Error.WriteLine("meta-decompile: пустой MetaDataObject"); exit 3 }
 $objType = $objNode.LocalName
 
-if ($objType -notin @('Catalog', 'ExchangePlan', 'ChartOfCharacteristicTypes', 'ChartOfAccounts', 'ChartOfCalculationTypes', 'Document', 'InformationRegister', 'AccumulationRegister', 'AccountingRegister', 'CalculationRegister', 'BusinessProcess', 'Task', 'Enum', 'Report', 'DataProcessor', 'Constant', 'DefinedType', 'FunctionalOption', 'DocumentJournal', 'Sequence', 'FilterCriterion', 'DocumentNumerator', 'SettingsStorage', 'CommonModule', 'EventSubscription', 'ScheduledJob', 'CommonForm', 'SessionParameter', 'CommonCommand', 'CommandGroup', 'CommonAttribute', 'FunctionalOptionsParameter', 'WSReference', 'CommonPicture', 'CommonTemplate', 'HTTPService', 'WebService')) {
+if ($objType -notin @('Catalog', 'ExchangePlan', 'ChartOfCharacteristicTypes', 'ChartOfAccounts', 'ChartOfCalculationTypes', 'Document', 'InformationRegister', 'AccumulationRegister', 'AccountingRegister', 'CalculationRegister', 'BusinessProcess', 'Task', 'Enum', 'Report', 'DataProcessor', 'Constant', 'DefinedType', 'FunctionalOption', 'DocumentJournal', 'Sequence', 'FilterCriterion', 'DocumentNumerator', 'SettingsStorage', 'CommonModule', 'EventSubscription', 'ScheduledJob', 'CommonForm', 'SessionParameter', 'CommonCommand', 'CommandGroup', 'CommonAttribute', 'FunctionalOptionsParameter', 'WSReference', 'CommonPicture', 'CommonTemplate', 'HTTPService', 'WebService', 'ExternalDataSource')) {
 	[Console]::Error.WriteLine("meta-decompile: тип '$objType' пока не поддержан (…, CommonPicture, CommonTemplate)"); exit 3
 }
 
@@ -206,7 +206,18 @@ function Get-TypeShorthand {
 					if ($dq) { $dn = $dq.SelectSingleNode('v8:DateFractions', $nsm); if ($dn) { $fr = $dn.InnerText } }
 					$parts += $fr; break   # Date | DateTime
 				}
-				'(^|:)base64Binary$' { $parts += 'ValueStorage'; break }
+				'(^|:)base64Binary$' {
+					# xs:base64Binary — это ДвоичныеДанные, если рядом есть свои квалификаторы;
+					# ХранилищеЗначения платформа пишет как v8:ValueStorage, но принимает и эту форму.
+					$bq = $typeNode.SelectSingleNode('v8:BinaryDataQualifiers', $nsm)
+					if ($bq) {
+						$blen = $bq.SelectSingleNode('v8:Length', $nsm)
+						$bal = $bq.SelectSingleNode('v8:AllowedLength', $nsm)
+						if ($blen -and $bal -and $bal.InnerText -eq 'Variable') { $parts += "BinaryData($($blen.InnerText))" }
+						else { $parts += 'BinaryData' }
+					} else { $parts += 'ValueStorage' }
+					break
+				}
 				default            { $parts += (Strip-NsPrefix $raw) }   # cfg:CatalogRef.X → CatalogRef.X
 			}
 		} elseif ($ln -eq 'TypeSet') {
@@ -288,12 +299,19 @@ function Attr-ToDsl {
 	param($attrNode)
 	$ap = $attrNode.SelectSingleNode('md:Properties', $nsm)
 	$nm = ($ap.SelectSingleNode('md:Name', $nsm)).InnerText
+	# Поле внешнего источника: три своих свойства. Имя колонки по умолчанию равно имени поля,
+	# поэтому в DSL попадает только отличающееся.
+	$edsNids = $ap.SelectSingleNode('md:NameInDataSource', $nsm)
+	$edsRo = $ap.SelectSingleNode('md:ReadOnly', $nsm)
+	$edsNull = $ap.SelectSingleNode('md:AllowNull', $nsm)
 	$ts = Get-TypeShorthand ($ap.SelectSingleNode('md:Type', $nsm))
 	$flags = @()
 	$fc = $ap.SelectSingleNode('md:FillChecking', $nsm); if ($fc -and $fc.InnerText -eq 'ShowError') { $flags += 'req' }
 	$ix = $ap.SelectSingleNode('md:Indexing', $nsm)
 	if ($ix) { if ($ix.InnerText -eq 'Index') { $flags += 'index' } elseif ($ix.InnerText -eq 'IndexWithAdditionalOrder') { $flags += 'indexAdditional' } }
 	$ml = $ap.SelectSingleNode('md:MultiLine', $nsm); if ($ml -and $ml.InnerText -eq 'true') { $flags += 'multiline' }
+	if ($edsRo -and $edsRo.InnerText -eq 'true') { $flags += 'readonly' }
+	if ($edsNull -and $edsNull.InnerText -eq 'true') { $flags += 'nullable' }
 
 	# Синоним/подсказка (строка ru-only ИЛИ {ru,en}).
 	$synNode = $ap.SelectSingleNode('md:Synonym', $nsm)
@@ -407,6 +425,7 @@ function Attr-ToDsl {
 	# Пустой <Type/> (реквизит без типа / произвольный) → $ts=''. Отличаем от «дефолтного» отсутствия:
 	# заставляем объектную форму с явным type:'' (компилятор без маркера подставил бы xs:string).
 	$typeEmpty = ($ts -eq '')
+	if ($edsNids -and $edsNids.InnerText -and $edsNids.InnerText -cne $nm) { $extra['nameInDataSource'] = $edsNids.InnerText }
 	if ($synCustom -or $synEmpty -or ($null -ne $ttVal) -or $extra.Count -gt 0 -or $typeEmpty) {
 		$o = [ordered]@{ name = $nm }
 		if ($ts) { $o['type'] = $ts } elseif ($typeEmpty) { $o['type'] = '' }
@@ -1655,6 +1674,116 @@ if ($objType -eq 'ExchangePlan') {
 			if ($ar -eq 'Allow') { [void]$contentItems.Add("${ref}: autoRecord") } else { [void]$contentItems.Add($ref) }
 		}
 		if ($contentItems.Count -gt 0) { $dsl['content'] = $contentItems }
+	}
+}
+
+# --- Внешний источник данных: таблицы (отдельные файлы) и функции (узлы внутри файла) ---
+if ($objType -eq 'ExternalDataSource') {
+	$dlcmVal = P 'DataLockControlMode'
+	if ($dlcmVal -and $dlcmVal -cne 'Automatic') { $dsl['dataLockControlMode'] = $dlcmVal }
+
+	# Короткое имя из полного пути ExternalDataSource.И.Table.Т.Field.П
+	function Short-FieldRef { param([string]$ref) if ($ref) { return ($ref -split '\.')[-1] } else { return $null } }
+	function Field-RefList { param($parent, [string]$tag)
+		$out = [System.Collections.ArrayList]@()
+		foreach ($f in @($parent.SelectNodes("md:$tag/xr:Field", $nsm))) { [void]$out.Add((Short-FieldRef $f.InnerText)) }
+		# Запятая обязательна: return разворачивает коллекцию из одного элемента в скаляр,
+		# и список ключевых полей из одного поля уехал бы в JSON строкой вместо массива.
+		return ,$out
+	}
+
+	$srcDir = Join-Path (Split-Path -Parent (Resolve-Path -LiteralPath $ObjectPath).Path) $objName
+	$childObjsEds = $objNode.SelectSingleNode('md:ChildObjects', $nsm)
+	if ($childObjsEds) {
+		$tablesMap = [ordered]@{}
+		foreach ($tNode in @($childObjsEds.SelectNodes('md:Table', $nsm))) {
+			$tblName = $tNode.InnerText.Trim()
+			$tblPath = Join-Path (Join-Path $srcDir 'Tables') "$tblName.xml"
+			if (-not (Test-Path -LiteralPath $tblPath)) {
+				[Console]::Error.WriteLine("meta-decompile: файл таблицы не найден: $tblPath")
+				continue
+			}
+			$tdoc = New-Object System.Xml.XmlDocument
+			$tdoc.PreserveWhitespace = $true
+			$tdoc.Load($tblPath)
+			$tObjNode = $null
+			foreach ($c in $tdoc.DocumentElement.ChildNodes) { if ($c.NodeType -eq 'Element') { $tObjNode = $c; break } }
+			$tp = $tObjNode.SelectSingleNode('md:Properties', $nsm)
+			function TP { param([string]$tag) $n = $tp.SelectSingleNode("md:$tag", $nsm); if ($n) { return $n.InnerText } else { return $null } }
+
+			$tbl = [ordered]@{}
+			$tSynNode = $tp.SelectSingleNode('md:Synonym', $nsm)
+			$tSyn = Get-MLValue $tSynNode
+			if ($tSyn -is [string]) { if ($tSyn -cne (Split-CamelWords $tblName)) { $tbl['synonym'] = $tSyn } }
+			elseif ($null -ne $tSyn) { $tbl['synonym'] = $tSyn }
+			# Пустой <Synonym/> ≠ авто-синоним из имени: без явного '' компилятор до-генерит его из имени.
+			elseif ($tSynNode) { $tbl['synonym'] = '' }
+			$tCmt = TP 'Comment'; if ($tCmt) { $tbl['comment'] = $tCmt }
+			$tType = TP 'TableType'; if ($tType -and $tType -cne 'Table') { $tbl['tableType'] = $tType }
+			$nids = TP 'NameInDataSource'; if ($nids -and $nids -cne $tblName) { $tbl['nameInDataSource'] = $nids }
+			$expr = TP 'ExpressionInDataSource'; if ($expr) { $tbl['expressionInDataSource'] = $expr }
+			$tdt = TP 'TableDataType'; if ($tdt -and $tdt -cne 'NonobjectData') { $tbl['tableDataType'] = $tdt }
+			$keys = Field-RefList $tp 'KeyFields'; if ($keys.Count -gt 0) { $tbl['keyFields'] = $keys }
+			foreach ($pair in @(@('PresentationField','presentationField'), @('ParentField','parentField'), @('DataVersionField','dataVersionField'))) {
+				$v = Short-FieldRef (TP $pair[0]); if ($v) { $tbl[$pair[1]] = $v }
+			}
+			$ibs = Field-RefList $tp 'InputByString'
+			# Ввод по строке компилятор выводит из поля представления: совпадающий список не пишем.
+			$ibsAuto = if ($tbl['presentationField']) { @($tbl['presentationField']) } else { @() }
+			if (($ibs -join ',') -cne ($ibsAuto -join ',')) { $tbl['inputByString'] = $ibs }
+			$dlf = Field-RefList $tp 'DataLockFields'; if ($dlf.Count -gt 0) { $tbl['dataLockFields'] = $dlf }
+			if ((TP 'ReadOnly') -eq 'true') { $tbl['readOnly'] = $true }
+			$til = TP 'TransactionsIsolationLevel'; if ($til -and $til -cne 'Auto') { $tbl['transactionsIsolationLevel'] = $til }
+			$tdlcm = TP 'DataLockControlMode'; if ($tdlcm -and $tdlcm -cne 'Automatic') { $tbl['dataLockControlMode'] = $tdlcm }
+			if ((TP 'UseStandardCommands') -eq 'false') { $tbl['useStandardCommands'] = $false }
+			if ((TP 'QuickChoice') -eq 'true') { $tbl['quickChoice'] = $true }
+			$tet = TP 'EditType'; if ($tet -and $tet -cne 'InDialog') { $tbl['editType'] = $tet }
+			$basedOn = [System.Collections.ArrayList]@()
+			foreach ($it in @($tp.SelectNodes('md:BasedOn/xr:Item', $nsm))) { [void]$basedOn.Add($it.InnerText) }
+			if ($basedOn.Count -gt 0) { $tbl['basedOn'] = $basedOn }
+
+			$fieldsArr = [System.Collections.ArrayList]@()
+			$tChild = $tObjNode.SelectSingleNode('md:ChildObjects', $nsm)
+			if ($tChild) {
+				foreach ($f in @($tChild.SelectNodes('md:Field', $nsm))) { [void]$fieldsArr.Add((Attr-ToDsl $f)) }
+			}
+			# Таблица без собственных свойств — короткая форма: просто массив полей.
+			if ($tbl.Count -eq 0) { $tablesMap[$tblName] = $fieldsArr }
+			else { $tbl['fields'] = $fieldsArr; $tablesMap[$tblName] = $tbl }
+		}
+		if ($tablesMap.Count -gt 0) { $dsl['tables'] = $tablesMap }
+
+		$fnMap = [ordered]@{}
+		foreach ($fnNode in @($childObjsEds.SelectNodes('md:Function', $nsm))) {
+			$fp = $fnNode.SelectSingleNode('md:Properties', $nsm)
+			$fnName = ($fp.SelectSingleNode('md:Name', $nsm)).InnerText
+			$fnExprNode = $fp.SelectSingleNode('md:ExpressionInDataSource', $nsm)
+			$fnExpr = if ($fnExprNode) { $fnExprNode.InnerText } else { '' }
+			$fnRetNode = $fp.SelectSingleNode('md:ReturnValue', $nsm)
+			$fnReturns = Get-TypeShorthand ($fp.SelectSingleNode('md:Type', $nsm))
+			$fnSyn = Get-MLValue ($fp.SelectSingleNode('md:Synonym', $nsm))
+			$fnCmtNode = $fp.SelectSingleNode('md:Comment', $nsm)
+			$fnCmt = if ($fnCmtNode) { $fnCmtNode.InnerText } else { '' }
+			$fnNoValue = ($fnRetNode -and $fnRetNode.InnerText -eq 'false')
+			$synCustomFn = ($fnSyn -isnot [string]) -and ($null -ne $fnSyn)
+			if ($fnSyn -is [string]) { $synCustomFn = ($fnSyn -cne (Split-CamelWords $fnName)) -and ($fnSyn -ne '') }
+			# Умолчание `returns` компилятора — String, а он даёт String(10): с ним и сверяем,
+			# иначе короткая форма (одна строка выражения) не срабатывала бы никогда.
+			if (-not $fnNoValue -and -not $fnCmt -and -not $synCustomFn -and ($fnReturns -cne 'String(10)')) {
+				$fo = [ordered]@{ expression = $fnExpr; returns = $fnReturns }
+				$fnMap[$fnName] = $fo
+			} elseif (-not $fnNoValue -and -not $fnCmt -and -not $synCustomFn) {
+				# Тип по умолчанию String — короткая форма: одна строка выражения.
+				$fnMap[$fnName] = $fnExpr
+			} else {
+				$fo = [ordered]@{ expression = $fnExpr }
+				if ($fnNoValue) { $fo['returnValue'] = $false } elseif ($fnReturns) { $fo['returns'] = $fnReturns }
+				if ($synCustomFn) { $fo['synonym'] = $fnSyn }
+				if ($fnCmt) { $fo['comment'] = $fnCmt }
+				$fnMap[$fnName] = $fo
+			}
+		}
+		if ($fnMap.Count -gt 0) { $dsl['functions'] = $fnMap }
 	}
 }
 

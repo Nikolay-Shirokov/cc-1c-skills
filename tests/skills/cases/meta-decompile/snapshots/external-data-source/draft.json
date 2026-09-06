@@ -1,0 +1,33 @@
+{
+  "type": "ExternalDataSource",
+  "name": "PG",
+  "dataLockControlMode": "AutomaticAndManaged",
+  "tables": {
+    "prices": ["product_id: Number(10,0)", "price: Number(15,2)"],
+    "products": {
+      "nameInDataSource": "eds.public.products",
+      "tableDataType": "ObjectData",
+      "keyFields": ["id"],
+      "presentationField": "name",
+      "transactionsIsolationLevel": "ReadUncommitted",
+      "fields": [
+        "id: Number(10,0)",
+        "name: String(150)",
+        "photo: BinaryData | nullable",
+        {
+          "name": "cost",
+          "type": "Number(15,2)",
+          "nameInDataSource": "cost_net",
+          "flags": ["readonly"]
+        }
+      ]
+    }
+  },
+  "functions": {
+    "total": {
+      "expression": "public.f_total(&1, &2)",
+      "returns": "Number(15,2)"
+    },
+    "nextKey": "NEXT VALUE FOR public.seq_key"
+  }
+}

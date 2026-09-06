@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-decompile v0.65 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
+# meta-decompile v0.66 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 #
 # Зеркало meta-decompile.ps1 (КАНОН). Структура 1:1 — те же имена функций, порядок, комментарии.
@@ -311,7 +311,18 @@ def get_type_shorthand(type_node):
                         fr = _text(dn)
                 parts.append(fr)   # Date | DateTime
             elif re.search(r'(^|:)base64Binary$', raw, re.I):
-                parts.append('ValueStorage')
+                # xs:base64Binary — это ДвоичныеДанные, если рядом есть свои квалификаторы;
+                # ХранилищеЗначения платформа пишет как v8:ValueStorage, но принимает и эту форму.
+                bq = type_node.find('v8:BinaryDataQualifiers', NS)
+                if bq is not None:
+                    blen = bq.find('v8:Length', NS)
+                    bal = bq.find('v8:AllowedLength', NS)
+                    if blen is not None and bal is not None and _text(bal) == 'Variable':
+                        parts.append(f'BinaryData({_text(blen)})')
+                    else:
+                        parts.append('BinaryData')
+                else:
+                    parts.append('ValueStorage')
             else:
                 parts.append(strip_ns_prefix(raw))   # cfg:CatalogRef.X → CatalogRef.X
         elif ln == 'TypeSet':
@@ -420,6 +431,11 @@ def parse_choice_parameters(parent, tag):
 def attr_to_dsl(attr_node):
     ap = _single(attr_node, 'md:Properties')
     nm = _text(_single(ap, 'md:Name'))
+    # Поле внешнего источника: три своих свойства. Имя колонки по умолчанию равно имени поля,
+    # поэтому в DSL попадает только отличающееся.
+    eds_nids = _single(ap, 'md:NameInDataSource')
+    eds_ro = _single(ap, 'md:ReadOnly')
+    eds_null = _single(ap, 'md:AllowNull')
     ts = get_type_shorthand(_single(ap, 'md:Type'))
     flags = []
     fc = _single(ap, 'md:FillChecking')
@@ -435,6 +451,10 @@ def attr_to_dsl(attr_node):
     ml = _single(ap, 'md:MultiLine')
     if ml is not None and _text(ml) == 'true':
         flags.append('multiline')
+    if eds_ro is not None and _text(eds_ro) == 'true':
+        flags.append('readonly')
+    if eds_null is not None and _text(eds_null) == 'true':
+        flags.append('nullable')
 
     # Синоним/подсказка (строка ru-only ИЛИ {ru,en}).
     syn_node = _single(ap, 'md:Synonym')
@@ -618,6 +638,8 @@ def attr_to_dsl(attr_node):
 
     # Пустой <Type/> (реквизит без типа) → ts=''. Отличаем от «дефолтного» отсутствия: явный type:''.
     type_empty = (ts == '')
+    if eds_nids is not None and _text(eds_nids) and _text(eds_nids) != nm:
+        extra['nameInDataSource'] = _text(eds_nids)
     if syn_custom or syn_empty or (tt_val is not None) or len(extra) > 0 or type_empty:
         o = {'name': nm}
         if ts:
@@ -2112,6 +2134,7 @@ SUPPORTED_TYPES = (
     'FilterCriterion', 'DocumentNumerator', 'SettingsStorage', 'CommonModule', 'EventSubscription', 'ScheduledJob',
     'CommonForm', 'SessionParameter', 'CommonCommand', 'CommandGroup', 'CommonAttribute', 'FunctionalOptionsParameter',
     'WSReference', 'CommonPicture', 'CommonTemplate', 'HTTPService', 'WebService',
+    'ExternalDataSource',
 )
 
 
@@ -2153,6 +2176,150 @@ def main():
     obj_name = P('Name')
 
     build_dsl()
+
+    # --- Внешний источник данных: таблицы (отдельные файлы) и функции (узлы внутри файла) ---
+    if obj_type == 'ExternalDataSource':
+        dlcm_val = P('DataLockControlMode')
+        if dlcm_val and dlcm_val != 'Automatic':
+            dsl['dataLockControlMode'] = dlcm_val
+
+        def short_field_ref(ref):
+            """Короткое имя из полного пути ExternalDataSource.И.Table.Т.Field.П"""
+            return ref.split('.')[-1] if ref else None
+
+        def field_ref_list(parent, tag):
+            return [short_field_ref(_text(f)) for f in parent.findall('md:%s/xr:Field' % tag, NS)]
+
+        src_dir = os.path.join(os.path.dirname(os.path.abspath(args.ObjectPath)), obj_name)
+        child_objs_eds = _single(obj_node, 'md:ChildObjects')
+        if child_objs_eds is not None:
+            tables_map = {}
+            for t_node in child_objs_eds.findall('md:Table', NS):
+                tbl_name = (_text(t_node) or '').strip()
+                tbl_path = os.path.join(src_dir, 'Tables', tbl_name + '.xml')
+                if not os.path.isfile(tbl_path):
+                    sys.stderr.write("meta-decompile: файл таблицы не найден: %s\n" % tbl_path)
+                    continue
+                t_root = etree.parse(tbl_path).getroot()
+                t_obj_node = next((c for c in t_root if isinstance(c.tag, str)), None)
+                tp = _single(t_obj_node, 'md:Properties')
+
+                def TP(tag, _tp=None):
+                    n = _single(_tp if _tp is not None else tp, 'md:%s' % tag)
+                    return _text(n) if n is not None else None
+
+                tbl = {}
+                t_syn_node = _single(tp, 'md:Synonym')
+                t_syn = get_ml_value(t_syn_node)
+                if isinstance(t_syn, str):
+                    if t_syn != split_camel_words(tbl_name):
+                        tbl['synonym'] = t_syn
+                elif t_syn is not None:
+                    tbl['synonym'] = t_syn
+                elif t_syn_node is not None:
+                    # Пустой <Synonym/> != авто-синоним из имени: без явного '' компилятор до-генерит его.
+                    tbl['synonym'] = ''
+                t_cmt = TP('Comment')
+                if t_cmt:
+                    tbl['comment'] = t_cmt
+                t_type = TP('TableType')
+                if t_type and t_type != 'Table':
+                    tbl['tableType'] = t_type
+                nids = TP('NameInDataSource')
+                if nids and nids != tbl_name:
+                    tbl['nameInDataSource'] = nids
+                expr = TP('ExpressionInDataSource')
+                if expr:
+                    tbl['expressionInDataSource'] = expr
+                tdt = TP('TableDataType')
+                if tdt and tdt != 'NonobjectData':
+                    tbl['tableDataType'] = tdt
+                keys = field_ref_list(tp, 'KeyFields')
+                if keys:
+                    tbl['keyFields'] = keys
+                for tag, key in (('PresentationField', 'presentationField'), ('ParentField', 'parentField'),
+                                 ('DataVersionField', 'dataVersionField')):
+                    v = short_field_ref(TP(tag))
+                    if v:
+                        tbl[key] = v
+                ibs = field_ref_list(tp, 'InputByString')
+                # Ввод по строке компилятор выводит из поля представления: совпадающий список не пишем.
+                ibs_auto = [tbl['presentationField']] if tbl.get('presentationField') else []
+                if ibs != ibs_auto:
+                    tbl['inputByString'] = ibs
+                dlf = field_ref_list(tp, 'DataLockFields')
+                if dlf:
+                    tbl['dataLockFields'] = dlf
+                if TP('ReadOnly') == 'true':
+                    tbl['readOnly'] = True
+                til = TP('TransactionsIsolationLevel')
+                if til and til != 'Auto':
+                    tbl['transactionsIsolationLevel'] = til
+                tdlcm = TP('DataLockControlMode')
+                if tdlcm and tdlcm != 'Automatic':
+                    tbl['dataLockControlMode'] = tdlcm
+                if TP('UseStandardCommands') == 'false':
+                    tbl['useStandardCommands'] = False
+                if TP('QuickChoice') == 'true':
+                    tbl['quickChoice'] = True
+                t_et = TP('EditType')
+                if t_et and t_et != 'InDialog':
+                    tbl['editType'] = t_et
+                based_on = [_text(it) for it in tp.findall('md:BasedOn/xr:Item', NS)]
+                if based_on:
+                    tbl['basedOn'] = based_on
+
+                fields_arr = []
+                t_child = _single(t_obj_node, 'md:ChildObjects')
+                if t_child is not None:
+                    for f in t_child.findall('md:Field', NS):
+                        fields_arr.append(attr_to_dsl(f))
+                # Таблица без собственных свойств — короткая форма: просто массив полей.
+                if not tbl:
+                    tables_map[tbl_name] = fields_arr
+                else:
+                    tbl['fields'] = fields_arr
+                    tables_map[tbl_name] = tbl
+            if tables_map:
+                dsl['tables'] = tables_map
+
+            fn_map = {}
+            for fn_node in child_objs_eds.findall('md:Function', NS):
+                fp = _single(fn_node, 'md:Properties')
+                fn_name = _text(_single(fp, 'md:Name'))
+                fn_expr_node = _single(fp, 'md:ExpressionInDataSource')
+                fn_expr = _text(fn_expr_node) if fn_expr_node is not None else ''
+                fn_ret_node = _single(fp, 'md:ReturnValue')
+                fn_returns = get_type_shorthand(_single(fp, 'md:Type'))
+                fn_syn = get_ml_value(_single(fp, 'md:Synonym'))
+                fn_cmt_node = _single(fp, 'md:Comment')
+                fn_cmt = _text(fn_cmt_node) if fn_cmt_node is not None else ''
+                fn_no_value = fn_ret_node is not None and _text(fn_ret_node) == 'false'
+                if isinstance(fn_syn, str):
+                    syn_custom_fn = fn_syn != split_camel_words(fn_name) and fn_syn != ''
+                else:
+                    syn_custom_fn = fn_syn is not None
+                # Умолчание `returns` компилятора — String, а он даёт String(10): с ним и сверяем,
+                # иначе короткая форма (одна строка выражения) не срабатывала бы никогда.
+                if not fn_no_value and not fn_cmt and not syn_custom_fn and fn_returns != 'String(10)':
+                    fn_map[fn_name] = {'expression': fn_expr, 'returns': fn_returns}
+                elif not fn_no_value and not fn_cmt and not syn_custom_fn:
+                    # Тип по умолчанию String — короткая форма: одна строка выражения.
+                    fn_map[fn_name] = fn_expr
+                else:
+                    fo = {'expression': fn_expr}
+                    if fn_no_value:
+                        fo['returnValue'] = False
+                    elif fn_returns:
+                        fo['returns'] = fn_returns
+                    if syn_custom_fn:
+                        fo['synonym'] = fn_syn
+                    if fn_cmt:
+                        fo['comment'] = fn_cmt
+                    fn_map[fn_name] = fo
+            if fn_map:
+                dsl['functions'] = fn_map
+
 
     # === Вывод ===
     json_str = convert_to_compact_json(dsl, 0)

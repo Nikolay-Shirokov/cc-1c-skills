@@ -1,4 +1,4 @@
-﻿# meta-compile v1.106 — Compile 1C metadata object from JSON
+﻿# meta-compile v1.107 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -604,6 +604,10 @@ $script:typeSynonyms["bool"]     = "Boolean"
 # ValueStorage / UUID — прощающий ввод (модель может написать base64Binary / рус. форму → канон).
 $script:typeSynonyms["valuestorage"]         = "ValueStorage"
 $script:typeSynonyms["base64binary"]         = "ValueStorage"
+# ДвоичныеДанные — ОТДЕЛЬНЫЙ тип, не ХранилищеЗначения: платформа пишет его как
+# xs:base64Binary с квалификаторами. Встречается у полей внешних источников данных.
+$script:typeSynonyms["binarydata"]           = "BinaryData"
+$script:typeSynonyms["двоичныеданные"]       = "BinaryData"
 $script:typeSynonyms["хранилищезначений"]    = "ValueStorage"
 $script:typeSynonyms["хранилищезначения"]    = "ValueStorage"
 $script:typeSynonyms["uuid"]                 = "UUID"
@@ -807,6 +811,17 @@ function Emit-TypeContent {
 	}
 
 	# ValueStorage (ХранилищеЗначения) — канон v8:ValueStorage (не xs:base64Binary, хоть 1С и принимает оба).
+	# ДвоичныеДанные — xs:base64Binary с квалификаторами (у полей внешних источников).
+	if ($typeStr -eq "BinaryData" -or $typeStr -match '^BinaryData\(') {
+		$blen = if ($typeStr -match '^BinaryData\((\d+)\)$') { $Matches[1] } else { "4294967292" }
+		$ballowed = if ($typeStr -match '^BinaryData\(\d+\)$') { "Variable" } else { "Fixed" }
+		X "$indent<v8:Type>xs:base64Binary</v8:Type>"
+		X "$indent<v8:BinaryDataQualifiers>"
+		X "$indent`t<v8:Length>$blen</v8:Length>"
+		X "$indent`t<v8:AllowedLength>$ballowed</v8:AllowedLength>"
+		X "$indent</v8:BinaryDataQualifiers>"
+		return
+	}
 	if ($typeStr -eq "ValueStorage") {
 		X "$indent<v8:Type>v8:ValueStorage</v8:Type>"
 		return

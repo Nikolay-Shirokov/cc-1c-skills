@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-compile v1.106 — Compile 1C metadata object from JSON
+# meta-compile v1.107 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -735,6 +735,10 @@ type_synonyms = {
     # ValueStorage / UUID — прощающий ввод (base64Binary / рус. форма → канон).
     'valuestorage': 'ValueStorage',
     'base64binary': 'ValueStorage',
+    # ДвоичныеДанные — ОТДЕЛЬНЫЙ тип, не ХранилищеЗначения: платформа пишет его как
+    # xs:base64Binary с квалификаторами. Встречается у полей внешних источников данных.
+    'binarydata': 'BinaryData',
+    'двоичныеданные': 'BinaryData',
     'хранилищезначений': 'ValueStorage',
     'хранилищезначения': 'ValueStorage',
     'uuid': 'UUID',
@@ -926,6 +930,17 @@ def emit_type_content(indent, type_str):
     # «любой объект категории» → TypeSet (а не конкретный Type с именем).
     if re.match(r'^(CatalogRef|DocumentRef|EnumRef|ChartOfAccountsRef|ChartOfCharacteristicTypesRef|ChartOfCalculationTypesRef|ExchangePlanRef|BusinessProcessRef|TaskRef|AnyRef|AnyIBRef)$', type_str):
         X(f'{indent}<v8:TypeSet>cfg:{type_str}</v8:TypeSet>')
+        return
+    # ДвоичныеДанные — xs:base64Binary с квалификаторами (у полей внешних источников).
+    m_bin = re.match(r'^BinaryData(?:\((\d+)\))?$', type_str)
+    if m_bin:
+        blen = m_bin.group(1) or '4294967292'
+        ballowed = 'Variable' if m_bin.group(1) else 'Fixed'
+        X(f'{indent}<v8:Type>xs:base64Binary</v8:Type>')
+        X(f'{indent}<v8:BinaryDataQualifiers>')
+        X(f'{indent}\t<v8:Length>{blen}</v8:Length>')
+        X(f'{indent}\t<v8:AllowedLength>{ballowed}</v8:AllowedLength>')
+        X(f'{indent}</v8:BinaryDataQualifiers>')
         return
     # ValueStorage (ХранилищеЗначения) — канон v8:ValueStorage (не xs:base64Binary).
     if type_str == 'ValueStorage':
