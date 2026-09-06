@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# form-add v1.28 — Add managed form to 1C config object (Python port)
+# form-add v1.29 — Add managed form to 1C config object (Python port)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -559,6 +559,17 @@ def main():
             "Load": {"main_attr": None, "attr_name": None, "slot": "DefaultLoadForm"},
             "Custom": {"main_attr": None, "attr_name": None, "slot": None},
         },
+        # Таблица внешнего источника — единственный вид, чьё имя в ссылках трёхчастное
+        # (Источник.Таблица): подставляется {2}, а не {1}.
+        "Table": {
+            "Object": {"main_attr": "ExternalDataSourceTableObject.{2}", "attr_name": "Объект",
+                       "slot": "DefaultObjectForm", "saved_data": True, "primary": True},
+            "Record": {"main_attr": "ExternalDataSourceTableRecordManager.{2}", "attr_name": "Запись",
+                       "slot": "DefaultRecordForm", "saved_data": True},
+            "List": {"main_attr": "DynamicList", "attr_name": "Список", "slot": "DefaultListForm"},
+            "Choice": {"main_attr": "DynamicList", "attr_name": "Список", "slot": "DefaultChoiceForm"},
+            "Custom": {"main_attr": None, "attr_name": None, "slot": None},
+        },
     }
 
     # Виды, у которых свойство DefaultForm есть, но собственных форм не бывает.
@@ -604,6 +615,26 @@ def main():
         sys.exit(1)
     object_name = name_node.text
 
+    # Ссылка на объект и имя для типов формы. У всех видов это "Вид.Имя", и только
+    # у таблицы внешнего источника — "ExternalDataSource.<Источник>.Table.<Таблица>", а в именах
+    # типов — "<Источник>.<Таблица>". Имя источника в самом файле таблицы не хранится —
+    # единственное место, где навык смотрит на путь: ExternalDataSources/<Источник>/Tables/<Таблица>.xml
+    object_qualified_name = object_name
+    object_ref = f"{object_type}.{object_name}"
+    table_data_type = "ObjectData"
+    if object_type == "Table":
+        tables_dir = os.path.dirname(object_xml_full)
+        eds_source = os.path.basename(os.path.dirname(tables_dir))
+        if not eds_source or os.path.basename(tables_dir) != "Tables":
+            print("Таблица внешнего источника ожидается по пути "
+                  f"ExternalDataSources/<Источник>/Tables/<Таблица>.xml, а не '{object_xml_full}'", file=sys.stderr)
+            sys.exit(1)
+        object_qualified_name = f"{eds_source}.{object_name}"
+        object_ref = f"ExternalDataSource.{eds_source}.Table.{object_name}"
+        tdt_node = root.find(".//md:Table/md:Properties/md:TableDataType", NSMAP)
+        if tdt_node is not None and tdt_node.text:
+            table_data_type = tdt_node.text.strip()
+
     print()
     print("=== form-add ===")
     print()
@@ -641,10 +672,15 @@ def main():
             purpose = purpose_synonyms[purpose_probe]
 
     if not purpose:
-        for k, rule in kind_purposes.items():
-            if rule.get("primary"):
-                purpose = k
-                break
+        if object_type == "Table" and table_data_type == "NonobjectData":
+            # Пометка primary в таблице видов одна на вид, а у таблицы с составным ключом
+            # формы объекта не бывает — основной становится форма записи.
+            purpose = "Record"
+        else:
+            for k, rule in kind_purposes.items():
+                if rule.get("primary"):
+                    purpose = k
+                    break
     purpose_key = None
     for k in kind_purposes:
         if k.lower() == purpose.lower():
@@ -656,6 +692,19 @@ def main():
         sys.exit(1)
     purpose = purpose_key
     purpose_rule = kind_purposes[purpose]
+
+    # У таблицы внешнего источника набор назначений зависит от вида данных (замерено на
+    # 8.3.24.1691): ObjectData — Object/List/Choice, NonobjectData — Record/List/Choice. Неверная пара
+    # не отвергается схемой формы, а валит загрузку всей конфигурации «Исключением XDTO» без причины.
+    if object_type == "Table":
+        if table_data_type == "NonobjectData" and purpose == "Object":
+            print(f"Таблица '{object_name}' с составным ключом (TableDataType=NonobjectData): "
+                  "формы объекта у неё нет — используйте -Purpose Record.", file=sys.stderr)
+            sys.exit(1)
+        if table_data_type != "NonobjectData" and purpose == "Record":
+            print(f"Таблица '{object_name}' с ключом из одного поля (TableDataType=ObjectData): "
+                  "формы записи у неё нет — используйте -Purpose Object.", file=sys.stderr)
+            sys.exit(1)
 
     # Гард от повторения дефекта: запись таблицы обязана быть заполненной. Пустой main_attr —
     # это произвольная форма (законное состояние), а наполовину заполненная запись означала бы,
@@ -724,13 +773,13 @@ def main():
     # реквизита брался из отдельной карты, и отсутствие вида в ней давало `cfg:.Имя` — молча.
     attributes_block = ''
     if purpose_rule.get("main_attr"):
-        main_attr_type = purpose_rule["main_attr"].format(object_type, object_name)
+        main_attr_type = purpose_rule["main_attr"].format(object_type, object_name, object_qualified_name)
         main_attr_name = purpose_rule["attr_name"]
 
         # Динамический список несёт MainTable, остальные типы — SavedData по записи таблицы.
         tail_lines = ''
         if main_attr_type == "DynamicList":
-            main_table = f"{object_type}.{object_name}"
+            main_table = object_ref
             tail_lines = ('\t\t\t<Settings xsi:type="DynamicList">\n'
                           f'\t\t\t\t<MainTable>{main_table}</MainTable>\n'
                           '\t\t\t</Settings>\n')
@@ -857,7 +906,7 @@ def main():
     # --- SetDefault ---
 
     is_first_form_for_purpose = False
-    default_value = f"{object_type}.{object_name}.Form.{form_name}"
+    default_value = f"{object_ref}.Form.{form_name}"
 
     # Свойство «основная форма» — из записи таблицы. Раньше выбиралось по одному purpose без
     # учёта вида, и для журнала писалось DefaultListForm, которого у журнала нет: слот не

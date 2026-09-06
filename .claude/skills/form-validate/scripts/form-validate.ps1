@@ -1,4 +1,4 @@
-﻿# form-validate v1.18 — Validate 1C managed form
+﻿# form-validate v1.19 — Validate 1C managed form
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -928,6 +928,8 @@ $validCfgPrefixes = @(
 	"ConstantsSet","DataProcessorObject","DocumentObject","DocumentRef"
 	"DynamicList","EnumRef","ExchangePlanObject","ExchangePlanRef"
 	"ExternalDataProcessorObject","ExternalReportObject"
+	"ExternalDataSourceTableObject","ExternalDataSourceTableRecordManager"
+	"ExternalDataSourceTableRef"
 	"InformationRegisterRecordManager","InformationRegisterRecordSet"
 	"ReportObject","TaskObject","TaskRef"
 )

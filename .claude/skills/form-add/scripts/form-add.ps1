@@ -1,4 +1,4 @@
-﻿# form-add v1.28 — Add managed form to 1C config object
+﻿# form-add v1.29 — Add managed form to 1C config object
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -370,6 +370,15 @@ $formKinds = @{
 		"Load"   = @{ MainAttr = $null; AttrName = $null; Slot = "DefaultLoadForm" }
 		"Custom" = @{ MainAttr = $null; AttrName = $null; Slot = $null }
 	}
+	# Таблица внешнего источника — единственный вид, чьё имя в ссылках трёхчастное
+	# (Источник.Таблица): подставляется {2}, а не {1}.
+	"Table" = @{
+		"Object" = @{ MainAttr = "ExternalDataSourceTableObject.{2}"; AttrName = "Объект"; Slot = "DefaultObjectForm"; SavedData = $true; Primary = $true }
+		"Record" = @{ MainAttr = "ExternalDataSourceTableRecordManager.{2}"; AttrName = "Запись"; Slot = "DefaultRecordForm"; SavedData = $true }
+		"List"   = @{ MainAttr = "DynamicList"; AttrName = "Список"; Slot = "DefaultListForm" }
+		"Choice" = @{ MainAttr = "DynamicList"; AttrName = "Список"; Slot = "DefaultChoiceForm" }
+		"Custom" = @{ MainAttr = $null; AttrName = $null; Slot = $null }
+	}
 }
 
 # Виды, у которых свойство DefaultForm есть, но собственных форм не бывает — отказ с причиной,
@@ -422,6 +431,25 @@ if (-not $objectName) {
 Write-Host ""
 Write-Host "=== form-add ==="
 Write-Host ""
+# Ссылка на объект и имя для типов формы. У всех видов это "Вид.Имя", и только
+# у таблицы внешнего источника — "ExternalDataSource.<Источник>.Table.<Таблица>", а в именах
+# типов — "<Источник>.<Таблица>". Имя источника в самом файле таблицы не хранится —
+# единственное место, где навык смотрит на путь: ExternalDataSources/<Источник>/Tables/<Таблица>.xml
+$objectQualifiedName = $objectName
+$objectRef = "$objectType.$objectName"
+if ($objectType -eq "Table") {
+	$tablesDir = Split-Path -Parent $objectXmlFull.Path
+	$edsSource = Split-Path -Leaf (Split-Path -Parent $tablesDir)
+	if (-not $edsSource -or (Split-Path -Leaf $tablesDir) -ne "Tables") {
+		Write-Error "Таблица внешнего источника ожидается по пути ExternalDataSources/<Источник>/Tables/<Таблица>.xml, а не '$($objectXmlFull.Path)'"
+		exit 1
+	}
+	$objectQualifiedName = "$edsSource.$objectName"
+	$objectRef = "ExternalDataSource.$edsSource.Table.$objectName"
+	$tdtNode = $xmlDoc.SelectSingleNode("//md:Table/md:Properties/md:TableDataType", $nsMgr)
+	$tableDataType = if ($tdtNode) { $tdtNode.InnerText.Trim() } else { "ObjectData" }
+}
+
 Write-Host "Object: $objectType.$objectName"
 
 # --- Фаза 2: Валидация Purpose ---
@@ -457,8 +485,14 @@ if ($Purpose) {
 	}
 }
 if (-not $Purpose) {
-	foreach ($p in $kindPurposes.Keys) {
-		if ($kindPurposes[$p].Primary) { $Purpose = $p; break }
+	if ($objectType -eq "Table" -and $tableDataType -eq "NonobjectData") {
+		# Пометка Primary в таблице видов одна на вид, а у таблицы с составным ключом
+		# формы объекта не бывает — основной становится форма записи.
+		$Purpose = "Record"
+	} else {
+		foreach ($p in $kindPurposes.Keys) {
+			if ($kindPurposes[$p].Primary) { $Purpose = $p; break }
+		}
 	}
 }
 $purposeKey = $null
@@ -471,6 +505,20 @@ if (-not $purposeKey) {
 }
 $Purpose = $purposeKey
 $purposeRule = $kindPurposes[$Purpose]
+
+# У таблицы внешнего источника набор назначений зависит от вида данных (замерено на
+# 8.3.24.1691): ObjectData — Object/List/Choice, NonobjectData — Record/List/Choice. Неверная пара
+# не отвергается схемой формы, а валит загрузку всей конфигурации «Исключением XDTO» без причины.
+if ($objectType -eq "Table") {
+	if ($tableDataType -eq "NonobjectData" -and $Purpose -eq "Object") {
+		Write-Error "Таблица '$objectName' с составным ключом (TableDataType=NonobjectData): формы объекта у неё нет — используйте -Purpose Record."
+		exit 1
+	}
+	if ($tableDataType -ne "NonobjectData" -and $Purpose -eq "Record") {
+		Write-Error "Таблица '$objectName' с ключом из одного поля (TableDataType=ObjectData): формы записи у неё нет — используйте -Purpose Object."
+		exit 1
+	}
+}
 
 # Гард от повторения дефекта: запись таблицы обязана быть заполненной. Пустой MainAttr — это
 # произвольная форма (законное состояние), а вот наполовину заполненная запись означала бы, что
@@ -561,13 +609,13 @@ $formXmlPath = Join-Path $formExtDir "Form.xml"
 # реквизита брался из отдельной карты, и отсутствие вида в ней давало `cfg:.Имя` — молча.
 $attributesBlock = ""
 if ($purposeRule.MainAttr) {
-	$mainAttrType = $purposeRule.MainAttr -f $objectType, $objectName
+	$mainAttrType = $purposeRule.MainAttr -f $objectType, $objectName, $objectQualifiedName
 	$mainAttrName = $purposeRule.AttrName
 
 	# Динамический список несёт MainTable, остальные типы — SavedData по записи таблицы.
 	$tailLines = ""
 	if ($mainAttrType -eq "DynamicList") {
-		$mainTable = "$objectType.$objectName"
+		$mainTable = $objectRef
 		$tailLines = "`n`t`t`t<Settings xsi:type=""DynamicList"">`n`t`t`t`t<MainTable>$mainTable</MainTable>`n`t`t`t</Settings>"
 	} elseif ($purposeRule.SavedData) {
 		$tailLines = "`n`t`t`t<SavedData>true</SavedData>"
@@ -713,7 +761,7 @@ if ($insertBefore) {
 $existingForms = $childObjects.SelectNodes("md:Form", $nsMgr)
 $isFirstFormForPurpose = $false
 $defaultPropName = $null
-$defaultValue = "$objectType.$objectName.Form.$FormName"
+$defaultValue = "$objectRef.Form.$FormName"
 
 # Свойство «основная форма» — из записи таблицы. Раньше выбиралось по одному Purpose без учёта
 # вида, и для журнала писалось DefaultListForm, которого у журнала нет: слот не находился, навык

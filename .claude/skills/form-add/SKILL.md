@@ -62,9 +62,14 @@ powershell.exe -NoProfile -File "${CLAUDE_SKILL_DIR}/scripts/form-add.ps1" -Obje
 | DocumentJournal, FilterCriterion | List, Custom |
 | Enum | List, Choice, Custom |
 | SettingsStorage | Save, Load, Custom |
+| Table (таблица внешнего источника) | `tableDataType=ObjectData` — Object, List, Choice, Custom; `NonobjectData` — Record, List, Choice, Custom |
 
 Недопустимое сочетание отклоняется со списком доступных для этого типа. У константы собственных
 форм нет — для неё используется общая форма (`CommonForm`).
+
+Таблица внешнего источника адресуется файлом таблицы:
+`ExternalDataSources/<Источник>/Tables/<Таблица>.xml`. Ссылки в такой форме трёхчастные;
+без `-Purpose` берётся форма объекта, а у таблицы с составным ключом — форма записи.
 
 ## Примеры
 

@@ -1,0 +1,30 @@
+{
+  "name": "Форма записи у таблицы с ключом из одного поля — отказ с подсказкой",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "ExternalDataSource",
+        "name": "PG",
+        "tables": {
+          "products": {
+            "keyFields": ["id"],
+            "tableDataType": "ObjectData",
+            "fields": ["id: Number(10,0)"]
+          }
+        }
+      },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    }
+  ],
+  "params": {
+    "objectPath": "ExternalDataSources/PG/Tables/products.xml",
+    "formName": "ФормаЗаписи"
+  },
+  "args_extra": ["-Purpose", "Record"],
+  "expectError": true,
+  "expect": {
+    "stderrContains": ["формы записи у неё нет", "-Purpose Object"],
+    "filesAbsent": ["ExternalDataSources/PG/Tables/products/Forms/ФормаЗаписи.xml"]
+  }
+}

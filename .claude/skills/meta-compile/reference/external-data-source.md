@@ -143,4 +143,5 @@ uuid, а таблицы, которых нет в описании, остану
 ## Не поддерживается
 
 - **Кубы OLAP** (`Cube`, `DimensionTable`, `Dimension`, `Resource`).
-- **Формы и модули** таблиц — формы добавляют `form-add` и `form-compile`.
+- **Формы и модули** таблиц — форму добавляет навык `form-add`, содержимое собирает `form-compile`.
+  Набор назначений зависит от `tableDataType`: `ObjectData` — Object/List/Choice, `NonobjectData` — Record/List/Choice.

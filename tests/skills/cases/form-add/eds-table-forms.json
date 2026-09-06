@@ -1,0 +1,51 @@
+{
+  "name": "Таблица внешнего источника: формы списка и объекта с трёхчастными ссылками",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "ExternalDataSource",
+        "name": "PG",
+        "tables": {
+          "products": {
+            "keyFields": ["id"],
+            "tableDataType": "ObjectData",
+            "fields": ["id: Number(10,0)", "name: String(150)"]
+          }
+        }
+      },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    {
+      "script": "form-add/scripts/form-add",
+      "args": {
+        "-ObjectPath": "{workDir}/ExternalDataSources/PG/Tables/products.xml",
+        "-FormName": "ФормаСписка",
+        "-Purpose": "List"
+      }
+    }
+  ],
+  "params": {
+    "objectPath": "ExternalDataSources/PG/Tables/products.xml",
+    "formName": "ФормаОбъекта"
+  },
+  "args_extra": ["-Purpose", "Object"],
+  "validatePath": "ExternalDataSources/PG/Tables/products/Forms/ФормаОбъекта",
+  "expect": {
+    "stdoutContains": ["DefaultObjectForm: ExternalDataSource.PG.Table.products.Form.ФормаОбъекта"],
+    "fileContains": [
+      {
+        "file": "ExternalDataSources/PG/Tables/products/Forms/ФормаОбъекта/Ext/Form.xml",
+        "text": "<v8:Type>cfg:ExternalDataSourceTableObject.PG.products</v8:Type>"
+      },
+      {
+        "file": "ExternalDataSources/PG/Tables/products/Forms/ФормаСписка/Ext/Form.xml",
+        "text": "<MainTable>ExternalDataSource.PG.Table.products</MainTable>"
+      },
+      {
+        "file": "ExternalDataSources/PG/Tables/products.xml",
+        "text": ["<Form>ФормаСписка</Form>", "<Form>ФормаОбъекта</Form>"]
+      }
+    ]
+  }
+}

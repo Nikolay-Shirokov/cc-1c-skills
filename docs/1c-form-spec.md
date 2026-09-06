@@ -161,6 +161,7 @@ CommonForms регистрируются в `Configuration.xml`:
 | BusinessProcess | DefaultObjectForm, DefaultListForm, DefaultChoiceForm |
 | Task | DefaultObjectForm, DefaultListForm, DefaultChoiceForm |
 | Constant | DefaultForm — но собственных форм у константы нет, свойство указывает на общую форму |
+| Table | DefaultObjectForm, DefaultRecordForm, DefaultListForm, DefaultChoiceForm |
 | CommonForm | — (регистрируется в Configuration.xml, нет DefaultForm) |
 
 > Report.DefaultForm может указывать на общую форму: `CommonForm.ФормаОтчета`.
@@ -171,13 +172,13 @@ CommonForms регистрируются в `Configuration.xml`:
 
 | Назначение | Свойство объекта | Главный реквизит | Для каких типов |
 |------------|------------------|------------------|-----------------|
-| Форма объекта | DefaultObjectForm | `{Тип}Object.{Имя}` | Catalog, Document, ChartOfAccounts, ChartOfCharacteristicTypes, ChartOfCalculationTypes, ExchangePlan, BusinessProcess, Task |
+| Форма объекта | DefaultObjectForm | `{Тип}Object.{Имя}` | Catalog, Document, ChartOfAccounts, ChartOfCharacteristicTypes, ChartOfCalculationTypes, ExchangePlan, BusinessProcess, Task, Table |
 | Форма обработки/отчёта | DefaultForm | `{Тип}Object.{Имя}` | DataProcessor, Report, ExternalDataProcessor, ExternalReport |
 | Форма группы | DefaultFolderForm | `{Тип}Object.{Имя}` | Catalog, ChartOfCharacteristicTypes |
 | Форма списка | DefaultListForm (у DocumentJournal и FilterCriterion — DefaultForm) | `DynamicList` + `MainTable` | все типы со списком |
 | Форма выбора | DefaultChoiceForm | `DynamicList` + `MainTable` | Catalog, Document, ChartOf*, ExchangePlan, BusinessProcess, Task, Enum |
 | Форма выбора группы | DefaultFolderChoiceForm | `DynamicList` + `MainTable` | Catalog, ChartOfCharacteristicTypes |
-| Форма записи | DefaultRecordForm | `InformationRegisterRecordManager.{Имя}` | InformationRegister |
+| Форма записи | DefaultRecordForm | `InformationRegisterRecordManager.{Имя}` или `ExternalDataSourceTableRecordManager.{Источник}.{Имя}` | InformationRegister, Table |
 | Форма набора записей | — (свойства нет) | `{Тип}RecordSet.{Имя}` | все регистры |
 | Форма сохранения/загрузки настроек | DefaultSaveForm / DefaultLoadForm | нет | SettingsStorage |
 | Произвольная форма | — (свойства нет) | нет | любой тип с собственными формами |
