@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-decompile v0.68 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
+# meta-decompile v0.69 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 #
 # Зеркало meta-decompile.ps1 (КАНОН). Структура 1:1 — те же имена функций, порядок, комментарии.
@@ -2272,6 +2272,15 @@ def main():
                 t_et = TP('EditType')
                 if t_et and t_et != 'InDialog':
                     tbl['editType'] = t_et
+                # Слоты форм — такая же часть свойств таблицы, как у прочих объектов (сами формы
+                # вне скоупа раундтрипа: это отдельные файлы, их делает навык form-add).
+                for xml_tag, dsl_key in (('DefaultObjectForm', 'defaultObjectForm'),
+                                         ('DefaultRecordForm', 'defaultRecordForm'),
+                                         ('DefaultListForm', 'defaultListForm'),
+                                         ('DefaultChoiceForm', 'defaultChoiceForm')):
+                    fv = TP(xml_tag)
+                    if fv:
+                        tbl[dsl_key] = fv
                 based_on = [_text(it) for it in tp.findall('md:BasedOn/xr:Item', NS)]
                 if based_on:
                     tbl['basedOn'] = based_on

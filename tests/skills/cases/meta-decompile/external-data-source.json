@@ -31,7 +31,8 @@
                 "nameInDataSource": "cost_net",
                 "readOnly": true
               }
-            ]
+            ],
+            "defaultListForm": "ExternalDataSource.PG.Table.products.Form.ФормаСписка"
           }
         },
         "functions": {
@@ -67,7 +68,8 @@
           "photo: BinaryData | nullable",
           "\"nameInDataSource\": \"cost_net\"",
           "\"nextKey\": \"NEXT VALUE FOR public.seq_key\"",
-          "sig: BinaryData(256,fixed) | nullable"
+          "sig: BinaryData(256,fixed) | nullable",
+          "\"defaultListForm\": \"ExternalDataSource.PG.Table.products.Form.ФормаСписка\""
         ]
       }
     ],

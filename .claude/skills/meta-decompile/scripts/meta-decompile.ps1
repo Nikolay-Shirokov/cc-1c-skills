@@ -1,4 +1,4 @@
-﻿# meta-decompile v0.68 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
+﻿# meta-decompile v0.69 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 #
 # Поддержаны: Catalog, ExchangePlan, ChartOfCharacteristicTypes, ChartOfAccounts, ChartOfCalculationTypes, Document,
@@ -1744,6 +1744,12 @@ if ($objType -eq 'ExternalDataSource') {
 			if ((TP 'UseStandardCommands') -eq 'false') { $tbl['useStandardCommands'] = $false }
 			if ((TP 'QuickChoice') -eq 'true') { $tbl['quickChoice'] = $true }
 			$tet = TP 'EditType'; if ($tet -and $tet -cne 'InDialog') { $tbl['editType'] = $tet }
+			# Слоты форм — такая же часть свойств таблицы, как у прочих объектов (сами формы
+			# вне скоупа раундтрипа: это отдельные файлы, их делает навык form-add).
+			foreach ($fp in @(@('DefaultObjectForm','defaultObjectForm'), @('DefaultRecordForm','defaultRecordForm'),
+			                  @('DefaultListForm','defaultListForm'), @('DefaultChoiceForm','defaultChoiceForm'))) {
+				$fv = TP $fp[0]; if ($fv) { $tbl[$fp[1]] = $fv }
+			}
 			$basedOn = [System.Collections.ArrayList]@()
 			foreach ($it in @($tp.SelectNodes('md:BasedOn/xr:Item', $nsm))) { [void]$basedOn.Add($it.InnerText) }
 			if ($basedOn.Count -gt 0) { $tbl['basedOn'] = $basedOn }

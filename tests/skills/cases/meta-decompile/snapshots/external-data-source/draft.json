@@ -10,6 +10,7 @@
       "keyFields": ["id"],
       "presentationField": "name",
       "transactionsIsolationLevel": "ReadUncommitted",
+      "defaultListForm": "ExternalDataSource.PG.Table.products.Form.ФормаСписка",
       "fields": [
         "id: Number(10,0)",
         "name: String(150)",
