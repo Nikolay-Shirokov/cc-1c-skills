@@ -1958,3 +1958,33 @@ ChildObjects и модулей.
 | `direction` | `In` | Направление: `In` / `Out` / `InOut` |
 
 Если значение — строка, интерпретируется как `type`.
+
+---
+
+## 18. Внешние источники данных (tables / functions)
+
+Только для `ExternalDataSource`. Полное описание — `.claude/skills/meta-compile/reference/external-data-source.md`:
+таблицы, поля и функции, их свойства и умолчания. Здесь — только форма и связи с общими конвенциями,
+чтобы таблица свойств не жила в двух местах и не разъезжалась.
+
+```json
+{ "type": "ExternalDataSource", "name": "PG",
+  "tables": {
+    "prices": ["product_id: Number(10,0)", "price: Number(15,2)"],
+    "products": { "keyFields": ["id"], "presentationField": "name",
+                  "fields": ["id: Number(10,0)", "name: String(150)"] }
+  },
+  "functions": { "total": { "expression": "public.f_total(&1, &2)", "returns": "Number(15,2)" } } }
+```
+
+- **`tables`** — dict имя → массив полей ЛИБО объект со свойствами и ключом `fields`: та же двойственность,
+  что у `tabularSections` (§5).
+- **Поле** — обычный реквизит (§4) плюс три своих ключа: `nameInDataSource`, `readOnly`, `allowNull`
+  (флаги строковой формы — `readonly`, `nullable`). Составной тип у поля платформа запрещает.
+- **Ссылки на поля** (`keyFields`, `presentationField`, `parentField`, `dataVersionField`, `inputByString`,
+  `dataLockFields`) — короткими именами полей этой же таблицы, как `inputByString` у справочника (§7.1.5).
+- **`functions`** — dict имя → строка (выражение) ЛИБО объект, как `urlTemplates` (§16) и `operations` (§17).
+  Параметры не объекты: они записаны в самом выражении как `&1`, `&2`.
+
+Кубы OLAP не поддерживаются. Таблица — отдельный файл, поэтому `meta-compile` описывает источник целиком,
+а дописать таблицу или функцию в существующий умеет `meta-edit` (`add.tables` / `add.functions`).

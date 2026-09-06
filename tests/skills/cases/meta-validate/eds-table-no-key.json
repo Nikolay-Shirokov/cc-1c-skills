@@ -1,0 +1,46 @@
+{
+  "name": "Таблица внешнего источника без ключа — предупреждение, не ошибка",
+  "setup": "empty-config",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "ExternalDataSource",
+        "name": "PG",
+        "tables": {
+          "products": {
+            "tableDataType": "ObjectData",
+            "keyFields": [
+              "id"
+            ],
+            "presentationField": "name",
+            "dataLockFields": [
+              "id"
+            ],
+            "fields": [
+              "id: Number(10,0)",
+              "name: String(150)"
+            ]
+          },
+          "prices": [
+            "product_id: Number(10,0)",
+            "price: Number(15,2)"
+          ]
+        }
+      },
+      "args": {
+        "-JsonPath": "{inputFile}",
+        "-OutputDir": "{workDir}"
+      }
+    }
+  ],
+  "params": {
+    "objectPath": "ExternalDataSources/PG/Tables/prices.xml"
+  },
+  "expect": {
+    "stdoutContains": [
+      "KeyFields пуст",
+      "0 errors, 1 warnings"
+    ]
+  }
+}

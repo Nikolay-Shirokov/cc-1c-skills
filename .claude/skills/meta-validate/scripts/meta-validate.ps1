@@ -1,4 +1,4 @@
-﻿# meta-validate v1.26 — Validate 1C metadata object structure
+﻿# meta-validate v1.27 — Validate 1C metadata object structure
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -1833,6 +1833,60 @@ if (-not $isAdopted) {
 
 	if ($formRefsChecked -gt 0 -and -not $formRefBad) {
 		Report-OK "20. Form refs: $formRefsChecked resolved"
+	}
+}
+
+# --- Check 21: таблица внешнего источника — ссылки на поля и наличие ключа ---
+# Свойства таблицы ссылаются на её же поля полным путём. Опечатка в имени поля даёт
+# «Неизвестный объект метаданных» при загрузке, а найти её глазами в шестичастном пути трудно.
+if ($mdType -eq "Table") {
+	$fieldNames = @{}
+	if ($childObjNode) {
+		foreach ($f in $childObjNode.SelectNodes("md:Field/md:Properties/md:Name", $ns)) {
+			$fieldNames[$f.InnerText] = $true
+		}
+	}
+	$edsRefsChecked = 0
+	$edsRefsBad = $false
+	foreach ($spec in @(
+		@("KeyFields", "xr:Field"), @("InputByString", "xr:Field"), @("DataLockFields", "xr:Field"),
+		@("PresentationField", $null), @("ParentField", $null), @("DataVersionField", $null))) {
+		$tag = $spec[0]
+		$refs = @()
+		if ($spec[1]) {
+			foreach ($n in $propsNode.SelectNodes("md:$tag/$($spec[1])", $ns)) { $refs += $n.InnerText }
+		} else {
+			$n = $propsNode.SelectSingleNode("md:$tag", $ns)
+			if ($n -and $n.InnerText) { $refs += $n.InnerText }
+		}
+		foreach ($ref in $refs) {
+			$edsRefsChecked++
+			$parts = $ref -split '\.'
+			# Ожидается ExternalDataSource.<Источник>.Table.<Таблица>.Field.<Поле>
+			if ($parts.Count -ne 6 -or $parts[0] -ne "ExternalDataSource" -or $parts[2] -ne "Table" -or $parts[4] -ne "Field") {
+				Report-Error "21. $tag '$ref' — ожидается ExternalDataSource.<Источник>.Table.<Таблица>.Field.<Поле>"
+				$edsRefsBad = $true
+				continue
+			}
+			if ($parts[3] -ne $objName) {
+				Report-Error "21. $tag '$ref' — ссылка на поле ЧУЖОЙ таблицы (эта: $objName)"
+				$edsRefsBad = $true
+				continue
+			}
+			if (-not $fieldNames.ContainsKey($parts[5])) {
+				$known = if ($fieldNames.Count -gt 0) { ($fieldNames.Keys | Sort-Object) -join ", " } else { "полей нет" }
+				Report-Error "21. $tag '$ref' — поля '$($parts[5])' нет в таблице (есть: $known)"
+				$edsRefsBad = $true
+			}
+		}
+	}
+	if ($edsRefsChecked -gt 0 -and -not $edsRefsBad) { Report-OK "21. Field refs: $edsRefsChecked resolved" }
+
+	# Ключ: загрузка XML таблицу без ключа принимает (проверено на платформе), а Конфигуратор
+	# интерактивно требует. Отсюда предупреждение, а не ошибка: рабочие конфигурации без ключа есть.
+	$keyNodes = @($propsNode.SelectNodes("md:KeyFields/xr:Field", $ns))
+	if ($keyNodes.Count -eq 0) {
+		Report-Warn "21. KeyFields пуст — платформа такую таблицу загрузит, но форма записи и набор записей будут недоступны"
 	}
 }
 

@@ -1,4 +1,4 @@
-# meta-validate v1.26 — Validate 1C metadata object structure (Python port)
+# meta-validate v1.27 — Validate 1C metadata object structure (Python port)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import os
@@ -1777,6 +1777,48 @@ if not is_adopted:
 
     if form_refs_checked > 0 and not form_ref_bad:
         report_ok(f"20. Form refs: {form_refs_checked} resolved")
+
+# ── Check 21: таблица внешнего источника — ссылки на поля и наличие ключа ──
+# Свойства таблицы ссылаются на её же поля полным путём. Опечатка в имени поля даёт
+# «Неизвестный объект метаданных» при загрузке, а найти её глазами в шестичастном пути трудно.
+if md_type == "Table":
+    field_names = set()
+    if child_obj_node is not None:
+        for f in find_all(child_obj_node, "md:Field/md:Properties/md:Name"):
+            field_names.add(inner_text(f))
+    eds_refs_checked = 0
+    eds_refs_bad = False
+    for tag, is_list in (("KeyFields", True), ("InputByString", True), ("DataLockFields", True),
+                         ("PresentationField", False), ("ParentField", False), ("DataVersionField", False)):
+        if is_list:
+            refs = [inner_text(n) for n in find_all(props_node, f"md:{tag}/xr:Field")]
+        else:
+            n = find(props_node, f"md:{tag}")
+            refs = [inner_text(n)] if n is not None and inner_text(n) else []
+        for ref in refs:
+            eds_refs_checked += 1
+            parts = ref.split(".")
+            # Ожидается ExternalDataSource.<Источник>.Table.<Таблица>.Field.<Поле>
+            if len(parts) != 6 or parts[0] != "ExternalDataSource" or parts[2] != "Table" or parts[4] != "Field":
+                report_error(f"21. {tag} '{ref}' — ожидается ExternalDataSource.<Источник>.Table.<Таблица>.Field.<Поле>")
+                eds_refs_bad = True
+                continue
+            if parts[3] != obj_name:
+                report_error(f"21. {tag} '{ref}' — ссылка на поле ЧУЖОЙ таблицы (эта: {obj_name})")
+                eds_refs_bad = True
+                continue
+            if parts[5] not in field_names:
+                known = ", ".join(sorted(field_names)) if field_names else "полей нет"
+                report_error(f"21. {tag} '{ref}' — поля '{parts[5]}' нет в таблице (есть: {known})")
+                eds_refs_bad = True
+    if eds_refs_checked > 0 and not eds_refs_bad:
+        report_ok(f"21. Field refs: {eds_refs_checked} resolved")
+
+    # Ключ: загрузка XML таблицу без ключа принимает (проверено на платформе), а Конфигуратор
+    # интерактивно требует. Отсюда предупреждение, а не ошибка: рабочие конфигурации без ключа есть.
+    if not find_all(props_node, "md:KeyFields/xr:Field"):
+        report_warn("21. KeyFields пуст — платформа такую таблицу загрузит, но форма записи и набор записей будут недоступны")
+
 
 # ── Final output ──────────────────────────────────────────────
 

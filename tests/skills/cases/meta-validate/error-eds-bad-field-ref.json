@@ -1,0 +1,27 @@
+{
+  "name": "Ссылка на несуществующее поле таблицы внешнего источника — ошибка",
+  "setup": "empty-config",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "ExternalDataSource",
+        "name": "PG",
+        "tables": {
+          "products": {
+            "tableDataType": "ObjectData",
+            "keyFields": ["id"],
+            "presentationField": "nmae",
+            "fields": ["id: Number(10,0)", "name: String(150)"]
+          }
+        }
+      },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    }
+  ],
+  "params": { "objectPath": "ExternalDataSources/PG/Tables/products.xml" },
+  "expectError": true,
+  "expect": {
+    "stdoutContains": ["PresentationField", "поля 'nmae' нет в таблице"]
+  }
+}
