@@ -1,4 +1,4 @@
-﻿# meta-decompile v0.67 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
+﻿# meta-decompile v0.68 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 #
 # Поддержаны: Catalog, ExchangePlan, ChartOfCharacteristicTypes, ChartOfAccounts, ChartOfCalculationTypes, Document,
@@ -207,8 +207,9 @@ function Get-TypeShorthand {
 					$parts += $fr; break   # Date | DateTime
 				}
 				'(^|:)base64Binary$' {
-					# xs:base64Binary — это ДвоичныеДанные, если рядом есть свои квалификаторы;
-					# ХранилищеЗначения платформа пишет как v8:ValueStorage, но принимает и эту форму.
+					# xs:base64Binary — всегда ДвоичныеДанные (ХранилищеЗначения — это v8:ValueStorage).
+					# Узел без квалификаторов встречается только в рукописном XML: замерено на 8.3.24.1691 —
+					# платформа читает его как безлимит (Length 0, Variable) и так же выгружает обратно.
 					$bq = $typeNode.SelectSingleNode('v8:BinaryDataQualifiers', $nsm)
 					if ($bq) {
 						$blen = $bq.SelectSingleNode('v8:Length', $nsm)
@@ -220,7 +221,7 @@ function Get-TypeShorthand {
 						if ($balVal -eq 'Variable' -and $blenVal) { $parts += "BinaryData($blenVal)" }
 						elseif ($blenVal -and $blenVal -ne '4294967292') { $parts += "BinaryData($blenVal,fixed)" }
 						else { $parts += 'BinaryData' }
-					} else { $parts += 'ValueStorage' }
+					} else { $parts += 'BinaryData(0)' }
 					break
 				}
 				default            { $parts += (Strip-NsPrefix $raw) }   # cfg:CatalogRef.X → CatalogRef.X

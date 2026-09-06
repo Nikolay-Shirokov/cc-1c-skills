@@ -125,6 +125,48 @@ for (const runtime of runtimes) {
       if (!predefAfter.has(id)) fail(`id предопределённого элемента ${id} пропал после добавления новых (перегенерирован?)`);
     }
     console.log(`[${runtime}] проверено ${checked} uuid объекта + ${predefBefore.size} id предопределённых (сохранены при add)`);
+
+    // 4. Внешний источник данных: правки идут в ДВА файла (источник и таблицу), причём таблицу
+    // навык создаёт сам. Уникальный для этого вида риск — пересборка файла источника целиком:
+    // она дала бы источнику новый uuid и осиротила бы уже существующие таблицы.
+    const edsInp = join(work, 'eds.json');
+    writeFileSync(edsInp, JSON.stringify({
+      type: 'ExternalDataSource', name: 'PG',
+      tables: { products: { keyFields: ['id'], fields: ['id: Number(10,0)', 'name: String(150)'] } },
+      functions: { total: { expression: 'public.f_total(&1)', returns: 'Number(15,2)' } },
+    }), 'utf8');
+    skill(runtime, 'meta-compile', ['-JsonPath', edsInp, '-OutputDir', work], work);
+    const srcXml = join(work, 'ExternalDataSources', 'PG.xml');
+    const tblXml = join(work, 'ExternalDataSources', 'PG', 'Tables', 'products.xml');
+    const edsBefore = new Set([...collectUuids(srcXml), ...collectUuids(tblXml)]);
+
+    const edsEdit1 = join(work, 'eds-e1.json');
+    writeFileSync(edsEdit1, JSON.stringify({
+      add: {
+        tables: { sales: { keyFields: ['id'], fields: ['id: Number(10,0)'] } },
+        functions: { nextKey: 'NEXT VALUE FOR public.seq_key' },
+      },
+    }), 'utf8');
+    skill(runtime, 'meta-edit', ['-ObjectPath', srcXml, '-DefinitionFile', edsEdit1, '-NoValidate'], work);
+
+    const edsEdit2 = join(work, 'eds-e2.json');
+    writeFileSync(edsEdit2, JSON.stringify({
+      add: { fields: ['barcode: String(20) | nullable'] },
+      modify: { fields: { name: { name: 'title', type: 'String(200)' } } },
+    }), 'utf8');
+    skill(runtime, 'meta-edit', ['-ObjectPath', tblXml, '-DefinitionFile', edsEdit2, '-NoValidate'], work);
+
+    const edsAfter = new Set([...collectUuids(srcXml), ...collectUuids(tblXml)]);
+    // Правка обязана быть применённой: без этого проверка uuid ничего не значит.
+    if (!readFileSync(tblXml, 'utf8').includes('<Name>title</Name>')) {
+      fail('поле не переименовано — сценарий внешнего источника проверил бы uuid вхолостую');
+    }
+    let edsChecked = 0;
+    for (const uuid of edsBefore) {
+      edsChecked++;
+      if (!edsAfter.has(uuid)) fail(`uuid ${uuid} внешнего источника пропал после правки (пересборка файла?)`);
+    }
+    console.log(`[${runtime}] проверено ${edsChecked} uuid внешнего источника и его таблицы`);
   } catch (e) {
     const detail = (e.stderr || e.message || '').toString();
     console.log(`[${runtime}] ОШИБКА прогона: ${detail.slice(0, 300)}`);

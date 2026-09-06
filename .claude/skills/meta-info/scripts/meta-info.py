@@ -1,4 +1,4 @@
-# meta-info v1.13 — Compact summary of 1C metadata object (Python port)
+# meta-info v1.14 — Compact summary of 1C metadata object (Python port)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import os
@@ -320,10 +320,10 @@ def format_single_type(raw, parent_node):
     if raw == "v8:UUID":
         return "УникальныйИдентификатор"
     if raw == "xs:base64Binary":
-        # ДвоичныеДанные только при своих квалификаторах: без них это вторая форма
-        # ХранилищаЗначения, которую платформа принимает (так же различает meta-decompile).
-        bq = find(parent_node, "v8:BinaryDataQualifiers")
-        return "ДвоичныеДанные" if bq is not None else "ХранилищеЗначения"
+        # xs:base64Binary — всегда ДвоичныеДанные, и без квалификаторов тоже: замерено
+        # на 8.3.24.1691 — такой узел платформа загружает и выгружает обратно как безлимитные
+        # двоичные данные (Length 0, AllowedLength Variable), а не как ХранилищеЗначения.
+        return "ДвоичныеДанные"
     if raw == "v8:Null":
         return "Null"
     # Normalize d5p1:/dNpN: → cfg: (both map to same namespace)

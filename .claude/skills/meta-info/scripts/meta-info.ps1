@@ -1,4 +1,4 @@
-﻿# meta-info v1.13 — Compact summary of 1C metadata object
+﻿# meta-info v1.14 — Compact summary of 1C metadata object
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -233,12 +233,10 @@ function Format-SingleType([string]$raw, $parentNode) {
 		}
 		"v8:ValueStorage" { return "ХранилищеЗначения" }
 		"v8:UUID" { return "УникальныйИдентификатор" }
-		"xs:base64Binary" {
-			# ДвоичныеДанные только при своих квалификаторах: без них это вторая форма
-			# ХранилищаЗначения, которую платформа принимает (так же различает meta-decompile).
-			$bq = $parentNode.SelectSingleNode("v8:BinaryDataQualifiers", $ns)
-			if ($bq) { return "ДвоичныеДанные" } else { return "ХранилищеЗначения" }
-		}
+		# xs:base64Binary — всегда ДвоичныеДанные, и без квалификаторов тоже: замерено
+		# на 8.3.24.1691 — такой узел платформа загружает и выгружает обратно как безлимитные
+		# двоичные данные (Length 0, AllowedLength Variable), а не как ХранилищеЗначения.
+		"xs:base64Binary" { return "ДвоичныеДанные" }
 		"v8:Null" { return "Null" }
 		default {
 			# Normalize d5p1:/dNpN: -> cfg:

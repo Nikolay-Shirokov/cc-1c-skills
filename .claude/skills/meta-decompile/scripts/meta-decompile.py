@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-decompile v0.67 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
+# meta-decompile v0.68 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 #
 # Зеркало meta-decompile.ps1 (КАНОН). Структура 1:1 — те же имена функций, порядок, комментарии.
@@ -311,8 +311,9 @@ def get_type_shorthand(type_node):
                         fr = _text(dn)
                 parts.append(fr)   # Date | DateTime
             elif re.search(r'(^|:)base64Binary$', raw, re.I):
-                # xs:base64Binary — это ДвоичныеДанные, если рядом есть свои квалификаторы;
-                # ХранилищеЗначения платформа пишет как v8:ValueStorage, но принимает и эту форму.
+                # xs:base64Binary — всегда ДвоичныеДанные (ХранилищеЗначения — это v8:ValueStorage).
+                # Узел без квалификаторов встречается только в рукописном XML: замерено на 8.3.24.1691 —
+                # платформа читает его как безлимит (Length 0, Variable) и так же выгружает обратно.
                 bq = type_node.find('v8:BinaryDataQualifiers', NS)
                 if bq is not None:
                     blen = bq.find('v8:Length', NS)
@@ -328,7 +329,7 @@ def get_type_shorthand(type_node):
                     else:
                         parts.append('BinaryData')
                 else:
-                    parts.append('ValueStorage')
+                    parts.append('BinaryData(0)')
             else:
                 parts.append(strip_ns_prefix(raw))   # cfg:CatalogRef.X → CatalogRef.X
         elif ln == 'TypeSet':

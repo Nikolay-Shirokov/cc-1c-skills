@@ -1,0 +1,9 @@
+{
+  "name": "xs:base64Binary без квалификаторов — тоже ДвоичныеДанные (так читает платформа)",
+  "setup": "fixture:base64binary-no-qualifiers",
+  "params": { "objectPath": "Catalogs/Вложения.xml" },
+  "expect": {
+    "stdoutContains": ["ДвоичныеДанные"],
+    "stdoutNotContains": ["ХранилищеЗначения"]
+  }
+}

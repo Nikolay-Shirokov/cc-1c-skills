@@ -1,26 +1,26 @@
 ﻿<?xml version="1.0" encoding="UTF-8"?>
 <MetaDataObject xmlns="http://v8.1c.ru/8.3/MDClasses" xmlns:app="http://v8.1c.ru/8.2/managed-application/core" xmlns:cfg="http://v8.1c.ru/8.1/data/enterprise/current-config" xmlns:cmi="http://v8.1c.ru/8.2/managed-application/cmi" xmlns:ent="http://v8.1c.ru/8.1/data/enterprise" xmlns:lf="http://v8.1c.ru/8.2/managed-application/logform" xmlns:style="http://v8.1c.ru/8.1/data/ui/style" xmlns:sys="http://v8.1c.ru/8.1/data/ui/fonts/system" xmlns:v8="http://v8.1c.ru/8.1/data/core" xmlns:v8ui="http://v8.1c.ru/8.1/data/ui" xmlns:web="http://v8.1c.ru/8.1/data/ui/colors/web" xmlns:win="http://v8.1c.ru/8.1/data/ui/colors/windows" xmlns:xen="http://v8.1c.ru/8.3/xcf/enums" xmlns:xpr="http://v8.1c.ru/8.3/xcf/predef" xmlns:xr="http://v8.1c.ru/8.3/xcf/readable" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" version="2.17">
-	<Catalog uuid="82e04ee9-222e-4bbc-bac8-1c10e85b1ec7">
+	<Catalog uuid="540dce4b-a115-4505-bad0-e1b14f1fba2a">
 		<InternalInfo>
 			<xr:GeneratedType name="CatalogObject.Вложения" category="Object">
-				<xr:TypeId>a11e37c8-2444-4782-b7bd-8aea08cb9e59</xr:TypeId>
-				<xr:ValueId>67e5e532-fae8-43f7-b462-e873cb74032b</xr:ValueId>
+				<xr:TypeId>530584ee-68fe-4c87-874b-31db5d632ed5</xr:TypeId>
+				<xr:ValueId>151b840f-7889-44d7-abe6-f32230786b00</xr:ValueId>
 			</xr:GeneratedType>
 			<xr:GeneratedType name="CatalogRef.Вложения" category="Ref">
-				<xr:TypeId>8f8a87cf-1986-4972-83eb-d7c86b9f53ab</xr:TypeId>
-				<xr:ValueId>26b89d83-cfca-4c88-85f3-7001585e4a9e</xr:ValueId>
+				<xr:TypeId>97f676c1-ad3e-47db-ae76-7453f36679d7</xr:TypeId>
+				<xr:ValueId>c89cba3e-afdd-404f-93f6-ad643fd24ed2</xr:ValueId>
 			</xr:GeneratedType>
 			<xr:GeneratedType name="CatalogSelection.Вложения" category="Selection">
-				<xr:TypeId>5f2cdd97-e03d-485d-ad58-a24996d3d050</xr:TypeId>
-				<xr:ValueId>5cb35f34-0105-4770-bb71-bfefe7c8dde0</xr:ValueId>
+				<xr:TypeId>8ce45d3d-4670-4bbd-af79-53bd8c2eff3e</xr:TypeId>
+				<xr:ValueId>433231d3-72ef-456b-a26b-e6f7bb6073d9</xr:ValueId>
 			</xr:GeneratedType>
 			<xr:GeneratedType name="CatalogList.Вложения" category="List">
-				<xr:TypeId>bc462ca1-8645-40de-8805-05528f49b77d</xr:TypeId>
-				<xr:ValueId>7a34ec0e-1899-4005-aab7-73f55df542cd</xr:ValueId>
+				<xr:TypeId>658db93d-1c94-4f7d-a61d-24d87a4481be</xr:TypeId>
+				<xr:ValueId>4bc9957e-9e0c-495a-8fde-86d0c6a28d59</xr:ValueId>
 			</xr:GeneratedType>
 			<xr:GeneratedType name="CatalogManager.Вложения" category="Manager">
-				<xr:TypeId>772a6cd5-a420-46eb-89f9-580707183957</xr:TypeId>
-				<xr:ValueId>80c973c9-2823-40ee-8149-d6e4a8182a36</xr:ValueId>
+				<xr:TypeId>a80fe341-afcb-4dbd-9460-d88f2893090c</xr:TypeId>
+				<xr:ValueId>1c89452b-5baa-40e7-b4d2-005ad2bd73b9</xr:ValueId>
 			</xr:GeneratedType>
 		</InternalInfo>
 		<Properties>
@@ -87,7 +87,7 @@
 			<ExecuteAfterWriteDataHistoryVersionProcessing>false</ExecuteAfterWriteDataHistoryVersionProcessing>
 		</Properties>
 		<ChildObjects>
-			<Attribute uuid="d698b9a3-d512-4f22-9180-43da2f368708">
+			<Attribute uuid="0fd1ba10-9e6b-4ed1-90d6-1111b17c89e4">
 				<Properties>
 					<Name>Данные</Name>
 					<Synonym>
@@ -127,7 +127,7 @@
 					<DataHistory>Use</DataHistory>
 				</Properties>
 			</Attribute>
-			<Attribute uuid="696051fc-6f36-4ff0-9e6c-9346fa46be51">
+			<Attribute uuid="a4002e49-971b-48c2-a27e-763aa3bc1f2b">
 				<Properties>
 					<Name>Файл</Name>
 					<Synonym>
