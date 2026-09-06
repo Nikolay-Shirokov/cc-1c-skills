@@ -1,0 +1,35 @@
+{
+  "name": "Двоичные данные: безлимит, переменная и фиксированная длина",
+  "input": {
+    "type": "ExternalDataSource",
+    "name": "PG",
+    "tables": {
+      "files": {
+        "keyFields": [
+          "id"
+        ],
+        "fields": [
+          "id: Number(10,0)",
+          "blob: BinaryData",
+          "thumb: BinaryData(4096)",
+          "sig: BinaryData(256,fixed)",
+          "note: BinaryData(64,variable)"
+        ]
+      }
+    }
+  },
+  "validatePath": "ExternalDataSources/PG",
+  "expect": {
+    "fileContains": [
+      {
+        "file": "ExternalDataSources/PG/Tables/files.xml",
+        "text": [
+          "<v8:Length>4294967292</v8:Length>",
+          "<v8:Length>4096</v8:Length>",
+          "<v8:Length>256</v8:Length>",
+          "<v8:Length>64</v8:Length>"
+        ]
+      }
+    ]
+  }
+}

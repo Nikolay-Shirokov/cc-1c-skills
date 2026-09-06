@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-compile v1.108 — Compile 1C metadata object from JSON
+# meta-compile v1.109 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -932,10 +932,18 @@ def emit_type_content(indent, type_str):
         X(f'{indent}<v8:TypeSet>cfg:{type_str}</v8:TypeSet>')
         return
     # ДвоичныеДанные — xs:base64Binary с квалификаторами (у полей внешних источников).
-    m_bin = re.match(r'^BinaryData(?:\((\d+)\))?$', type_str)
-    if m_bin:
+    if re.match(r'^BinaryData(\(|$)', type_str, re.I):
+        # BinaryData — безлимит (так платформа пишет поле внешнего источника: 4294967292/Fixed).
+        # BinaryData(N) — переменной длины, BinaryData(N,fixed) — фиксированной.
+        m_bin = re.match(r'^BinaryData(?:\((\d+)(?:,\s*(fixed|variable))?\))?$', type_str, re.I)
+        if not m_bin:
+            print(f"Неверный тип '{type_str}': ждётся BinaryData, BinaryData(Длина) или BinaryData(Длина,fixed|variable).", file=sys.stderr)
+            sys.exit(1)
         blen = m_bin.group(1) or '4294967292'
-        ballowed = 'Variable' if m_bin.group(1) else 'Fixed'
+        if m_bin.group(2):
+            ballowed = 'Fixed' if m_bin.group(2).lower() == 'fixed' else 'Variable'
+        else:
+            ballowed = 'Variable' if m_bin.group(1) else 'Fixed'
         X(f'{indent}<v8:Type>xs:base64Binary</v8:Type>')
         X(f'{indent}<v8:BinaryDataQualifiers>')
         X(f'{indent}\t<v8:Length>{blen}</v8:Length>')

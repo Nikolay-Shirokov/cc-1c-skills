@@ -1,0 +1,29 @@
+{
+  "name": "Осиротевшая таблица: файла нет, регистрация в источнике снимается",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "ExternalDataSource",
+        "name": "PG",
+        "tables": {
+          "products": { "keyFields": ["id"], "fields": ["id: Number(10,0)"] },
+          "prices": ["product_id: Number(10,0)", "price: Number(15,2)"]
+        }
+      },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    { "deletePath": "ExternalDataSources/PG/Tables/prices.xml" }
+  ],
+  "object": "ExternalDataSource.PG.Table.prices",
+  "expect": {
+    "stdoutContains": ["Object files not found", "Proceeding with deregistration only"],
+    "files": ["ExternalDataSources/PG.xml", "ExternalDataSources/PG/Tables/products.xml"],
+    "fileContains": [
+      { "file": "ExternalDataSources/PG.xml", "text": "<Table>products</Table>" }
+    ],
+    "fileNotContains": [
+      { "file": "ExternalDataSources/PG.xml", "text": "<Table>prices</Table>" }
+    ]
+  }
+}

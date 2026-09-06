@@ -1,4 +1,4 @@
-﻿# meta-compile v1.108 — Compile 1C metadata object from JSON
+﻿# meta-compile v1.109 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -812,9 +812,17 @@ function Emit-TypeContent {
 
 	# ValueStorage (ХранилищеЗначения) — канон v8:ValueStorage (не xs:base64Binary, хоть 1С и принимает оба).
 	# ДвоичныеДанные — xs:base64Binary с квалификаторами (у полей внешних источников).
-	if ($typeStr -eq "BinaryData" -or $typeStr -match '^BinaryData\(') {
-		$blen = if ($typeStr -match '^BinaryData\((\d+)\)$') { $Matches[1] } else { "4294967292" }
-		$ballowed = if ($typeStr -match '^BinaryData\(\d+\)$') { "Variable" } else { "Fixed" }
+	if ($typeStr -match '^BinaryData(\(|$)') {
+		# BinaryData — безлимит (так платформа пишет поле внешнего источника: 4294967292/Fixed).
+		# BinaryData(N) — переменной длины, BinaryData(N,fixed) — фиксированной.
+		$bm = [regex]::Match($typeStr, '^BinaryData(\((\d+)(,\s*(fixed|variable))?\))?$', 'IgnoreCase')
+		if (-not $bm.Success) {
+			Write-Error "Неверный тип '$typeStr': ждётся BinaryData, BinaryData(Длина) или BinaryData(Длина,fixed|variable)."
+			exit 1
+		}
+		$blen = if ($bm.Groups[2].Success) { $bm.Groups[2].Value } else { "4294967292" }
+		$ballowed = if ($bm.Groups[4].Success) { if ($bm.Groups[4].Value.ToLowerInvariant() -eq "fixed") { "Fixed" } else { "Variable" } }
+			elseif ($bm.Groups[2].Success) { "Variable" } else { "Fixed" }
 		X "$indent<v8:Type>xs:base64Binary</v8:Type>"
 		X "$indent<v8:BinaryDataQualifiers>"
 		X "$indent`t<v8:Length>$blen</v8:Length>"

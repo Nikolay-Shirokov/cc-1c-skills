@@ -1,0 +1,24 @@
+{
+  "name": "BinaryData с мусором в скобках — отказ",
+  "input": {
+    "type": "ExternalDataSource",
+    "name": "PG",
+    "tables": {
+      "files": {
+        "keyFields": [
+          "id"
+        ],
+        "fields": [
+          "id: Number(10,0)",
+          "blob: BinaryData(abc)"
+        ]
+      }
+    }
+  },
+  "expectError": true,
+  "expect": {
+    "stderrContains": [
+      "Неверный тип 'BinaryData(abc)'"
+    ]
+  }
+}

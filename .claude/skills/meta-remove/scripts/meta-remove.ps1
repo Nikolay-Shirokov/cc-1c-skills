@@ -1,4 +1,4 @@
-﻿# meta-remove v1.12 — Remove metadata object from 1C configuration dump
+﻿# meta-remove v1.13 — Remove metadata object from 1C configuration dump
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -345,7 +345,7 @@ if (-not $hasXml -and -not $hasDir) {
 		}
 	}
 	if (-not $registeredInCfg) {
-		Write-Host "[ERROR] Object not found: $typePlural/$objName.xml and not registered in Configuration.xml"
+		Write-Host "[ERROR] Object not found: $typePlural/$objName.xml and not registered in $registryLabel"
 		exit 1
 	}
 	Write-Host "[WARN]  Object files not found: $typePlural/$objName.xml"

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-remove v1.12 — Remove metadata object from 1C configuration dump
+# meta-remove v1.13 — Remove metadata object from 1C configuration dump
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -451,7 +451,7 @@ def main():
         # Check if registered in Configuration.xml before proceeding
         cfg_check_tree = etree.parse(registry_xml, etree.XMLParser(remove_blank_text=False))
         cfg_check_root = cfg_check_tree.getroot()
-        child_objects = cfg_check_root.find(f"{{{MD_NS}}}Configuration/{{{MD_NS}}}ChildObjects")
+        child_objects = cfg_check_root.find(f"{{{MD_NS}}}{registry_root}/{{{MD_NS}}}ChildObjects")
         registered_in_cfg = False
         if child_objects is not None:
             for child in child_objects:
@@ -459,7 +459,7 @@ def main():
                     registered_in_cfg = True
                     break
         if not registered_in_cfg:
-            print(f"[ERROR] Object not found: {type_plural}/{obj_name}.xml and not registered in Configuration.xml")
+            print(f"[ERROR] Object not found: {type_plural}/{obj_name}.xml and not registered in {registry_label}")
             sys.exit(1)
         print(f"[WARN]  Object files not found: {type_plural}/{obj_name}.xml")
         print("        Proceeding with deregistration only...")

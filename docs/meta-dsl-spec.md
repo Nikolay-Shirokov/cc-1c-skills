@@ -2080,9 +2080,21 @@ ChildObjects и модулей.
 ]
 ```
 
-Допустимые типы поля: `Number`, `String`, `Date`, `Boolean`, `UUID`, `BinaryData` (и `BinaryData(N)`
-с ограничением длины) и ссылка на таблицу внешнего источника —
-`ExternalDataSourceTableRef.<Источник>.<Таблица>`.
+Допустимые типы поля: `Number`, `String`, `Date`, `Boolean`, `UUID`, `BinaryData` и ссылка на таблицу
+внешнего источника — `ExternalDataSourceTableRef.<Источник>.<Таблица>`.
+
+Формы `BinaryData`:
+
+| Запись | Length | AllowedLength |
+|---|---|---|
+| `BinaryData` | 4294967292 | Fixed |
+| `BinaryData(N)` | N | Variable |
+| `BinaryData(N,fixed)` | N | Fixed |
+| `BinaryData(N,variable)` | N | Variable |
+
+Голая форма — то, что пишет платформа при импорте поля из СУБД. Декомпилятор
+сворачивает в неё только точное совпадение 4294967292/Fixed; любая другая длина возвращается
+со скобками. Посторонний текст в скобках (`BinaryData(abc)`) — ошибка компиляции.
 
 `BinaryData` (ДвоичныеДанные) — **не** `ValueStorage`: платформа пишет его как `xs:base64Binary`
 с `BinaryDataQualifiers`, тогда как ХранилищеЗначения — как `v8:ValueStorage`. Декомпилятор

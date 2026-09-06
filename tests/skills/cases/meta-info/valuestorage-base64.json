@@ -1,0 +1,8 @@
+{
+  "name": "xs:base64Binary без квалификаторов — ХранилищеЗначения, с ними — ДвоичныеДанные",
+  "setup": "fixture:valuestorage-base64",
+  "params": { "objectPath": "Catalogs/Вложения.xml" },
+  "expect": {
+    "stdoutContains": ["ХранилищеЗначения", "ДвоичныеДанные"]
+  }
+}

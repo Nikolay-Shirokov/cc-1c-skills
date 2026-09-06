@@ -1,4 +1,4 @@
-﻿# meta-decompile v0.66 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
+﻿# meta-decompile v0.67 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 #
 # Поддержаны: Catalog, ExchangePlan, ChartOfCharacteristicTypes, ChartOfAccounts, ChartOfCalculationTypes, Document,
@@ -213,7 +213,12 @@ function Get-TypeShorthand {
 					if ($bq) {
 						$blen = $bq.SelectSingleNode('v8:Length', $nsm)
 						$bal = $bq.SelectSingleNode('v8:AllowedLength', $nsm)
-						if ($blen -and $bal -and $bal.InnerText -eq 'Variable') { $parts += "BinaryData($($blen.InnerText))" }
+						$blenVal = if ($blen) { $blen.InnerText.Trim() } else { "" }
+						$balVal = if ($bal) { $bal.InnerText.Trim() } else { "" }
+						# Голым BinaryData сворачиваем ТОЛЬКО точный дефолт компилятора
+						# (4294967292/Fixed), иначе фиксированная длина терялась на раундтрипе.
+						if ($balVal -eq 'Variable' -and $blenVal) { $parts += "BinaryData($blenVal)" }
+						elseif ($blenVal -and $blenVal -ne '4294967292') { $parts += "BinaryData($blenVal,fixed)" }
 						else { $parts += 'BinaryData' }
 					} else { $parts += 'ValueStorage' }
 					break

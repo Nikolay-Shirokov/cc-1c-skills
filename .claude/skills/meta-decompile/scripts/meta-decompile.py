@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-decompile v0.66 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
+# meta-decompile v0.67 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 #
 # Зеркало meta-decompile.ps1 (КАНОН). Структура 1:1 — те же имена функций, порядок, комментарии.
@@ -317,8 +317,14 @@ def get_type_shorthand(type_node):
                 if bq is not None:
                     blen = bq.find('v8:Length', NS)
                     bal = bq.find('v8:AllowedLength', NS)
-                    if blen is not None and bal is not None and _text(bal) == 'Variable':
-                        parts.append(f'BinaryData({_text(blen)})')
+                    blen_val = _text(blen).strip() if blen is not None else ''
+                    bal_val = _text(bal).strip() if bal is not None else ''
+                    # Голым BinaryData сворачиваем ТОЛЬКО точный дефолт компилятора
+                    # (4294967292/Fixed), иначе фиксированная длина терялась на раундтрипе.
+                    if bal_val.lower() == 'variable' and blen_val:
+                        parts.append(f'BinaryData({blen_val})')
+                    elif blen_val and blen_val != '4294967292':
+                        parts.append(f'BinaryData({blen_val},fixed)')
                     else:
                         parts.append('BinaryData')
                 else:
