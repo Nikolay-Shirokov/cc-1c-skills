@@ -55,9 +55,21 @@
 ] } }
 ```
 
-Сам внешний источник точечно не правится: и таблица (отдельный файл), и функция (узел с полным
-набором свойств) собираются `meta-compile` по описанию источника целиком. Удалить таблицу —
-`meta-remove ExternalDataSource.<Источник>.Table.<Таблица>`.
+## add-tables / add-functions (внешний источник данных)
+
+На файле источника (`ExternalDataSources/<Имя>.xml`) добавляются таблицы и функции. Таблица —
+единственная операция навыка, создающая **файл**: `<Источник>/Tables/<Имя>.xml` плюс имя в
+`ChildObjects` источника. Синтаксис таблицы тот же, что в `meta-compile`
+(см. `reference/external-data-source.md` там же).
+
+```json
+{ "add": {
+  "tables": { "sales": { "keyFields": ["id"], "fields": ["id: Number(10,0)", "summa: Number(15,2)"] } },
+  "functions": { "nextKey": "NEXT VALUE FOR public.seq_key" }
+} }
+```
+
+Удалить таблицу — `meta-remove ExternalDataSource.<Источник>.Table.<Таблица>`.
 
 ## add-ts
 

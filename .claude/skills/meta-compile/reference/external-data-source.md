@@ -122,6 +122,21 @@
 }
 ```
 
+## Добавить в существующий источник
+
+`meta-compile` описывает источник **целиком**: повторный запуск заменяет его файл и выдаёт новый
+uuid, а таблицы, которых нет в описании, останутся на диске сиротами. Чтобы дописать таблицу или
+функцию в уже существующий источник, есть `meta-edit`:
+
+```json
+{ "add": {
+  "tables": { "sales": { "keyFields": ["id"], "fields": ["id: Number(10,0)", "summa: Number(15,2)"] } },
+  "functions": { "nextKey": "NEXT VALUE FOR public.seq_key" }
+} }
+```
+
+Удалить таблицу — `meta-remove ExternalDataSource.<Источник>.Table.<Таблица>`.
+
 ## Не поддерживается
 
 - **Кубы OLAP** (`Cube`, `DimensionTable`, `Dimension`, `Resource`).

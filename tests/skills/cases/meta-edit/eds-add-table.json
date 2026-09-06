@@ -1,0 +1,48 @@
+{
+  "name": "Таблица и функция в существующий внешний источник",
+  "setup": "empty-config",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "ExternalDataSource",
+        "name": "PG",
+        "tables": { "products": { "keyFields": ["id"], "fields": ["id: Number(10,0)"] } }
+      },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    }
+  ],
+  "params": { "objectPath": "ExternalDataSources/PG.xml" },
+  "input": {
+    "add": {
+      "tables": {
+        "sales": {
+          "nameInDataSource": "eds.public.sales",
+          "tableDataType": "ObjectData",
+          "keyFields": ["id"],
+          "fields": ["id: Number(10,0)", "summa: Number(15,2)", "comment: String(0) | nullable"]
+        }
+      },
+      "functions": { "nextKey": "NEXT VALUE FOR public.seq_key" }
+    }
+  },
+  "expect": {
+    "stdoutContains": ["Added table: sales", "Added function: nextKey"],
+    "files": ["ExternalDataSources/PG/Tables/sales.xml", "ExternalDataSources/PG/Tables/products.xml"],
+    "fileContains": [
+      {
+        "file": "ExternalDataSources/PG.xml",
+        "text": ["<Table>products</Table>", "<Table>sales</Table>", "NEXT VALUE FOR public.seq_key"]
+      },
+      {
+        "file": "ExternalDataSources/PG/Tables/sales.xml",
+        "text": [
+          "<NameInDataSource>eds.public.sales</NameInDataSource>",
+          "<TableDataType>ObjectData</TableDataType>",
+          "<xr:Field>ExternalDataSource.PG.Table.sales.Field.id</xr:Field>",
+          "<xr:GeneratedType name=\"ExternalDataSourceTableRef.PG.sales\" category=\"Ref\">"
+        ]
+      }
+    ]
+  }
+}

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-edit v1.44 — Edit existing 1C metadata object XML
+# meta-edit v1.45 — Edit existing 1C metadata object XML
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -322,6 +322,8 @@ CFG_NS = "http://v8.1c.ru/8.1/data/enterprise/current-config"
 # Версия формата правимого файла — из его же корня. Нужна эмиттерам: часть свойств
 # появилась в поздних версиях (напр. <Color> у значения перечисления — в 2.21).
 is_format_221 = False
+# Версия формата файла объекта: ею же помечается файл таблицы внешнего источника.
+format_version = "2.17"
 # Префикс current-config, объявленный в КОРНЕ правимого файла (у платформы — cfg).
 # None = корень его не объявляет → эмиттер ссылочных типов остаётся на локальной форме.
 cfg_prefix = None
@@ -504,6 +506,8 @@ child_type_synonyms = {
     "commands": "commands", "команды": "commands",
     "properties": "properties", "свойства": "properties",
     "fields": "fields", "поля": "fields",
+    "tables": "tables", "таблицы": "tables",
+    "functions": "functions", "функции": "functions",
 }
 
 type_synonyms = {
@@ -1551,9 +1555,7 @@ valid_child_types = {
     "CalculationRegister": ["dimensions", "resources", "attributes", "forms", "templates", "commands"],
     "DocumentJournal": ["columns", "forms", "templates", "commands"],
     "Constant": ["forms"],
-    # Внешний источник данных правится целиком через meta-compile: и таблица (отдельный файл),
-    # и функция (узел с полным набором свойств) требуют эмиттера, который живёт там.
-    "ExternalDataSource": [],
+    "ExternalDataSource": ["tables", "functions"],
     "Table": ["fields", "forms", "templates", "commands"],
 }
 
@@ -1577,7 +1579,319 @@ child_type_to_xml_tag = {
     "templates": "Template",
     "commands": "Command",
     "fields": "Field",
+    "tables": "Table",
+    "functions": "Function",
 }
+
+# ============================================================
+# Section 8b: Внешние источники данных — копии из meta-compile
+# ============================================================
+# Тела ниже скопированы из meta-compile и обязаны совпадать с ним байт в байт:
+# таблица внешнего источника собирается в ОТДЕЛЬНЫЙ файл, и формат этого файла
+# должен быть один и тот же, кем бы он ни был создан. Держит check-inline-drift.mjs.
+
+xmlns_decl = 'xmlns="http://v8.1c.ru/8.3/MDClasses" xmlns:app="http://v8.1c.ru/8.2/managed-application/core" xmlns:cfg="http://v8.1c.ru/8.1/data/enterprise/current-config" xmlns:cmi="http://v8.1c.ru/8.2/managed-application/cmi" xmlns:ent="http://v8.1c.ru/8.1/data/enterprise" xmlns:lf="http://v8.1c.ru/8.2/managed-application/logform" xmlns:style="http://v8.1c.ru/8.1/data/ui/style" xmlns:sys="http://v8.1c.ru/8.1/data/ui/fonts/system" xmlns:v8="http://v8.1c.ru/8.1/data/core" xmlns:v8ui="http://v8.1c.ru/8.1/data/ui" xmlns:web="http://v8.1c.ru/8.1/data/ui/colors/web" xmlns:win="http://v8.1c.ru/8.1/data/ui/colors/windows" xmlns:xen="http://v8.1c.ru/8.3/xcf/enums" xmlns:xpr="http://v8.1c.ru/8.3/xcf/predef" xmlns:xr="http://v8.1c.ru/8.3/xcf/readable" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"'
+lines = []
+
+def emit_form_ref(i, tag, val):
+    """Ссылка на форму по умолчанию: непустая → <Tag>значение</Tag>, иначе <Tag/>."""
+    if val:
+        X(f'{i}<{tag}>{esc_xml_text(normalize_form_ref(str(val)))}</{tag}>')
+    else:
+        X(f'{i}<{tag}/>')
+
+def X(text):
+    lines.append(text)
+
+# ML-значение: строка → один <v8:item> ru; dict {lang: content} → item на язык (в порядке ключей).
+
+def emit_ml_items(indent, val):
+    if isinstance(val, dict):
+        for k, v in val.items():
+            X(f'{indent}<v8:item>')
+            X(f'{indent}\t<v8:lang>{k}</v8:lang>')
+            X(f'{indent}\t<v8:content>{esc_xml_text(str(v))}</v8:content>')
+            X(f'{indent}</v8:item>')
+    else:
+        X(f'{indent}<v8:item>')
+        X(f'{indent}\t<v8:lang>ru</v8:lang>')
+        X(f'{indent}\t<v8:content>{esc_xml_text(str(val))}</v8:content>')
+        X(f'{indent}</v8:item>')
+
+def emit_mltext(indent, tag, text):
+    # Пусто (None / '') → самозакрывающийся тег.
+    if text is None or (isinstance(text, str) and text == ''):
+        X(f'{indent}<{tag}/>')
+        return
+    X(f'{indent}<{tag}>')
+    emit_ml_items(f'{indent}\t', text)
+    X(f'{indent}</{tag}>')
+
+def emit_characteristics(indent, chars):
+    if not chars:
+        X(f'{indent}<Characteristics/>')
+        return
+    X(f'{indent}<Characteristics>')
+    for ch in chars:
+        types = ch_el_prop(ch, ['types', 'characteristicTypes', 'типы'])
+        values = ch_el_prop(ch, ['values', 'characteristicValues', 'значения'])
+        t_from = normalize_char_from(ch_el_prop(types, ['from', 'source', 'источник']) or '')
+        v_from = normalize_char_from(ch_el_prop(values, ['from', 'source', 'источник']) or '')
+        key = expand_char_field(ch_el_prop(types, ['key', 'keyField']), t_from)
+        tff = expand_char_field(ch_el_prop(types, ['filterField', 'typesFilterField']), t_from)
+        obj = expand_char_field(ch_el_prop(values, ['object', 'objectField']), v_from)
+        typ = expand_char_field(ch_el_prop(values, ['type', 'typeField']), v_from)
+        val = expand_char_field(ch_el_prop(values, ['value', 'valueField']), v_from)
+        dpf = char_int_field(types, ['dataPathField'])
+        mvu = char_int_field(types, ['multipleValuesUseField'])
+        mvk = char_int_field(values, ['multipleValuesKeyField'])
+        mvo = char_int_field(values, ['multipleValuesOrderField'])
+        X(f'{indent}\t<xr:Characteristic>')
+        X(f'{indent}\t\t<xr:CharacteristicTypes from="{esc_xml(t_from)}">')
+        X(f'{indent}\t\t\t<xr:KeyField>{esc_xml_text(key)}</xr:KeyField>')
+        X(f'{indent}\t\t\t<xr:TypesFilterField>{esc_xml_text(tff)}</xr:TypesFilterField>')
+        # filterValue: None→nil; голое→xs:string, полный путь→DTR, bool→xs:boolean.
+        tfv_raw = ch_el_prop(types, ['filterValue', 'typesFilterValue'])
+        if tfv_raw is None:
+            X(f'{indent}\t\t\t<xr:TypesFilterValue xsi:nil="true"/>')
+        else:
+            tfv_xt, tfv_tx = normalize_choice_value(tfv_raw)
+            if tfv_tx == '' or tfv_tx is None:
+                X(f'{indent}\t\t\t<xr:TypesFilterValue xsi:type="{tfv_xt}"/>')
+            else:
+                X(f'{indent}\t\t\t<xr:TypesFilterValue xsi:type="{tfv_xt}">{esc_xml_text(tfv_tx)}</xr:TypesFilterValue>')
+        # Числовое значение (обычно -1 или 0) — как есть; expand_char_field примет "0" за короткое
+        # имя поля и выдаст "<from>.Attribute.0".
+        dpf_out = str(dpf) if re.fullmatch(r'-?\d+', str(dpf)) else esc_xml_text(expand_char_field(str(dpf), t_from))
+        X(f'{indent}\t\t\t<xr:DataPathField>{dpf_out}</xr:DataPathField>')
+        X(f'{indent}\t\t\t<xr:MultipleValuesUseField>{mvu}</xr:MultipleValuesUseField>')
+        X(f'{indent}\t\t</xr:CharacteristicTypes>')
+        X(f'{indent}\t\t<xr:CharacteristicValues from="{esc_xml(v_from)}">')
+        X(f'{indent}\t\t\t<xr:ObjectField>{esc_xml_text(obj)}</xr:ObjectField>')
+        X(f'{indent}\t\t\t<xr:TypeField>{esc_xml_text(typ)}</xr:TypeField>')
+        X(f'{indent}\t\t\t<xr:ValueField>{esc_xml_text(val)}</xr:ValueField>')
+        X(f'{indent}\t\t\t<xr:MultipleValuesKeyField>{mvk}</xr:MultipleValuesKeyField>')
+        X(f'{indent}\t\t\t<xr:MultipleValuesOrderField>{mvo}</xr:MultipleValuesOrderField>')
+        X(f'{indent}\t\t</xr:CharacteristicValues>')
+        X(f'{indent}\t</xr:Characteristic>')
+    X(f'{indent}</Characteristics>')
+
+def emit_md_ref_list(indent, tag, items):
+    """Список MDObjectRef (Documents/RegisterRecords/DocumentMap/…) с <xr:Item>. omit-on-empty."""
+    arr = list(items) if items else []
+    if arr:
+        X(f'{indent}<{tag}>')
+        for it in arr:
+            X(f'{indent}\t<xr:Item xsi:type="xr:MDObjectRef">{esc_xml_text(normalize_md_object_ref(str(it)))}</xr:Item>')
+        X(f'{indent}</{tag}>')
+    else:
+        X(f'{indent}<{tag}/>')
+
+def get_eds_tables(val):
+    """Таблицы: dict имя → массив полей ЛИБО объект со свойствами и ключом fields/columns."""
+    tables = {}
+    if not val:
+        return tables
+
+    def entry(v):
+        if isinstance(v, list):
+            return {'props': None, 'fields': list(v)}
+        f = v.get('fields') if v.get('fields') is not None else v.get('columns')
+        return {'props': v, 'fields': list(f) if f else []}
+
+    if isinstance(val, list):
+        for t in val:
+            tables[str(t.get('name'))] = entry(t)
+    else:
+        for k, v in val.items():
+            tables[k] = entry(v)
+    return tables
+
+def get_eds_field_ref(src_name, table_name, field_name):
+    """Ссылка на поле таблицы: в DSL короткое имя, в XML — полный путь."""
+    if not field_name:
+        return ''
+    if str(field_name).startswith('ExternalDataSource.'):
+        return str(field_name)
+    return f'ExternalDataSource.{src_name}.Table.{table_name}.Field.{field_name}'
+
+def emit_eds_field_ref_list(indent, tag, names, src_name, table_name):
+    items = [n for n in (names or []) if n]
+    if not items:
+        X(f'{indent}<{tag}/>')
+        return
+    X(f'{indent}<{tag}>')
+    for n in items:
+        X(f'{indent}\t<xr:Field>{esc_xml_text(get_eds_field_ref(src_name, table_name, n))}</xr:Field>')
+    X(f'{indent}</{tag}>')
+
+def emit_eds_field_ref_scalar(indent, tag, name, src_name, table_name):
+    if not name:
+        X(f'{indent}<{tag}/>')
+        return
+    X(f'{indent}<{tag}>{esc_xml_text(get_eds_field_ref(src_name, table_name, name))}</{tag}>')
+
+def emit_eds_function(indent, fn_name, val, type_xml):
+    """Функция внешнего источника. Параметров как объектов метаданных нет: они записаны прямо
+    в выражении как &1, &2 (см. reference/external-data-source.md).
+
+    type_xml — уже собранный узел <Type> возвращаемого значения: его рендерит вызывающий навык
+    своим эмиттером типов. Так тело функции не зависит от того, какой это навык."""
+    fn_synonym = None
+    fn_comment = ''
+    returns = ''
+    return_value = True
+    if isinstance(val, str):
+        expr = val
+    else:
+        expr = str(val.get('expression') or val.get('expressionInDataSource') or '')
+        returns = str(val.get('returns') or val.get('returnType') or '')
+        if val.get('returnValue') is not None:
+            return_value = val.get('returnValue') is True
+        fn_synonym = val.get('synonym')
+        fn_comment = str(val['comment']) if val.get('comment') else ''
+    if not expr:
+        print(f"ERROR: Функция '{fn_name}' внешнего источника данных: не задано выражение (ключ expression).",
+              file=sys.stderr)
+        sys.exit(1)
+    X(f'{indent}<Function uuid="{new_uuid()}">')
+    X(f'{indent}\t<Properties>')
+    X(f'{indent}\t\t<Name>{esc_xml_text(fn_name)}</Name>')
+    emit_mltext(f'{indent}\t\t', 'Synonym', fn_synonym)
+    if fn_comment:
+        X(f'{indent}\t\t<Comment>{esc_xml_text(fn_comment)}</Comment>')
+    else:
+        X(f'{indent}\t\t<Comment/>')
+    X(f'{indent}\t\t<ReturnValue>{"true" if return_value else "false"}</ReturnValue>')
+    if return_value and type_xml:
+        X(type_xml.rstrip('\r\n'))
+    else:
+        X(f'{indent}\t\t<Type/>')
+    X(f'{indent}\t\t<ExpressionInDataSource>{esc_xml_text(expr)}</ExpressionInDataSource>')
+    X(f'{indent}\t</Properties>')
+    X(f'{indent}</Function>')
+
+def emit_eds_table_properties(indent, src_name, table_name, t):
+    """Свойства таблицы: 38 узлов в порядке выгрузки платформы."""
+    i = indent
+    t = t or {}
+    tbl_synonym = t['synonym'] if t.get('synonym') is not None else split_camel_case(table_name)
+    X(f'{i}<Name>{esc_xml_text(table_name)}</Name>')
+    emit_mltext(i, 'Synonym', tbl_synonym)
+    if t.get('comment'):
+        X(f'{i}<Comment>{esc_xml_text(str(t["comment"]))}</Comment>')
+    else:
+        X(f'{i}<Comment/>')
+
+    table_type = str(t.get('tableType') or 'Table')
+    X(f'{i}<TableType>{table_type}</TableType>')
+    # Имя в источнике по умолчанию равно имени объекта — так поступает и платформа.
+    if t.get('nameInDataSource'):
+        nids = str(t['nameInDataSource'])
+    elif table_type == 'Expression':
+        nids = ''
+    else:
+        nids = table_name
+    X(f'{i}<NameInDataSource>{esc_xml_text(nids)}</NameInDataSource>' if nids else f'{i}<NameInDataSource/>')
+    expr = str(t.get('expressionInDataSource') or t.get('expression') or '')
+    X(f'{i}<ExpressionInDataSource>{esc_xml_text(expr)}</ExpressionInDataSource>' if expr else f'{i}<ExpressionInDataSource/>')
+    X(f'{i}<TableDataType>{t.get("tableDataType") or "NonobjectData"}</TableDataType>')
+
+    emit_eds_field_ref_list(i, 'KeyFields', t.get('keyFields'), src_name, table_name)
+    emit_eds_field_ref_scalar(i, 'PresentationField', t.get('presentationField'), src_name, table_name)
+    emit_eds_field_ref_scalar(i, 'ParentField', t.get('parentField'), src_name, table_name)
+    # Признака незаполненного родителя отдельным узлом нет: NULL против «Заданного значения»
+    # различаются формой самого значения (xsi:nil против типизированного).
+    # ВАЖНО: платформа при загрузке XML сбрасывает заданное значение в пустую строку — проверено
+    # на её собственной выгрузке. Задать его можно только интерактивно, поэтому дефолт у таблицы
+    # с полем родителя — пустая строка (как после загрузки), а без него — nil.
+    if t.get('parentField'):
+        X(f'{i}<UnfilledParentValue xsi:type="xs:string"/>')
+    else:
+        X(f'{i}<UnfilledParentValue xsi:nil="true"/>')
+    emit_characteristics(i, t.get('characteristics'))
+
+    X(f'{i}<UseStandardCommands>{"false" if t.get("useStandardCommands") is False else "true"}</UseStandardCommands>')
+    X(f'{i}<QuickChoice>{"true" if t.get("quickChoice") is True else "false"}</QuickChoice>')
+    # Ввод по строке: ключа нет → выводим из поля представления (так делает платформа при загрузке).
+    # Явный список, в том числе пустой, уважаем как есть — отсюда presence-aware проверка.
+    if 'inputByString' in t:
+        ibs = t.get('inputByString')
+    elif t.get('presentationField'):
+        ibs = [t['presentationField']]
+    else:
+        ibs = None
+    emit_eds_field_ref_list(i, 'InputByString', ibs, src_name, table_name)
+    X(f'{i}<CreateOnInput>{t.get("createOnInput") or "Auto"}</CreateOnInput>')
+    X(f'{i}<SearchStringModeOnInputByString>{t.get("searchStringModeOnInputByString") or "Begin"}</SearchStringModeOnInputByString>')
+    X(f'{i}<ChoiceDataGetModeOnInputByString>{t.get("choiceDataGetModeOnInputByString") or "Directly"}</ChoiceDataGetModeOnInputByString>')
+    X(f'{i}<ChoiceHistoryOnInput>{t.get("choiceHistoryOnInput") or "Auto"}</ChoiceHistoryOnInput>')
+
+    for form_tag in ('DefaultObjectForm', 'DefaultRecordForm', 'DefaultListForm', 'DefaultChoiceForm'):
+        key = form_tag[0].lower() + form_tag[1:]
+        emit_form_ref(i, form_tag, t.get(key))
+    for pres_tag in ('ObjectPresentation', 'ExtendedObjectPresentation', 'RecordPresentation',
+                     'ExtendedRecordPresentation', 'ListPresentation', 'ExtendedListPresentation', 'Explanation'):
+        key = pres_tag[0].lower() + pres_tag[1:]
+        emit_mltext(i, pres_tag, t.get(key))
+    X(f'{i}<IncludeHelpInContents>{"true" if t.get("includeHelpInContents") is True else "false"}</IncludeHelpInContents>')
+    X(f'{i}<ReadOnly>{"true" if t.get("readOnly") is True else "false"}</ReadOnly>')
+    X(f'{i}<TransactionsIsolationLevel>{t.get("transactionsIsolationLevel") or "Auto"}</TransactionsIsolationLevel>')
+    emit_eds_field_ref_scalar(i, 'DataVersionField', t.get('dataVersionField'), src_name, table_name)
+    X(f'{i}<EditType>{t.get("editType") or "InDialog"}</EditType>')
+    emit_md_ref_list(i, 'BasedOn', t.get('basedOn'))
+    emit_eds_field_ref_list(i, 'DataLockFields', t.get('dataLockFields'), src_name, table_name)
+    X(f'{i}<DataLockControlMode>{t.get("dataLockControlMode") or "Automatic"}</DataLockControlMode>')
+
+EDS_TABLE_GENERATED_TYPES = (
+    ('ExternalDataSourceTableManager', 'Manager'),
+    ('ExternalDataSourceTableObject', 'Object'),
+    ('ExternalDataSourceTableRef', 'Ref'),
+    ('ExternalDataSourceTableList', 'List'),
+    ('ExternalDataSourceTableRecord', 'Record'),
+    ('ExternalDataSourceTableRecordSet', 'RecordSet'),
+    ('ExternalDataSourceTableRecordKey', 'RecordKey'),
+    ('ExternalDataSourceTableRecordManager', 'RecordManager'),
+)
+
+
+def build_eds_table_xml(src_name, table_name, entry, fields_xml):
+    """Отдельный XML-документ таблицы. fields_xml — уже собранные узлы <Field>: их рендерит
+    вызывающий навык своим эмиттером реквизита, поэтому тело не зависит от того, какой это навык.
+    Возвращает строку: X пишет в общий список строк,
+    поэтому «перехват» — запомнить длину, отдать эмиттерам, срезать добавленное
+    (в ps1-порте тот же приём выражен через StringBuilder — различие рантаймов, не логики)."""
+    before = len(lines)
+
+    X('<?xml version="1.0" encoding="UTF-8"?>')
+    X(f'<MetaDataObject {xmlns_decl} version="{format_version}">')
+    X(f'\t<Table uuid="{new_uuid()}">')
+    # InternalInfo у таблицы эмитится здесь, а не через generated_types: имя элемента
+    # трёхчастное (Префикс.Источник.Таблица), общая карта такой формы не знает.
+    X('\t\t<InternalInfo>')
+    for prefix, category in EDS_TABLE_GENERATED_TYPES:
+        X(f'\t\t\t<xr:GeneratedType name="{prefix}.{src_name}.{table_name}" category="{category}">')
+        X(f'\t\t\t\t<xr:TypeId>{new_uuid()}</xr:TypeId>')
+        X(f'\t\t\t\t<xr:ValueId>{new_uuid()}</xr:ValueId>')
+        X('\t\t\t</xr:GeneratedType>')
+    X('\t\t</InternalInfo>')
+
+    X('\t\t<Properties>')
+    emit_eds_table_properties('\t\t\t', src_name, table_name, entry['props'])
+    X('\t\t</Properties>')
+
+    if fields_xml:
+        X('\t\t<ChildObjects>')
+        X(fields_xml.rstrip('\r\n'))
+        X('\t\t</ChildObjects>')
+    else:
+        X('\t\t<ChildObjects/>')
+    X('\t</Table>')
+    X('</MetaDataObject>')
+
+    chunk = '\r\n'.join(lines[before:])
+    del lines[before:]
+    return chunk
 
 # ============================================================
 # DSL key normalization
@@ -1913,6 +2227,61 @@ def process_add(add_def):
                 info(f"Added attribute: {parsed['name']}")
                 add_count += 1
                 existing_names[parsed["name"]] = "Attribute"
+
+        elif child_type == "tables":
+            # Таблица внешнего источника — ОТДЕЛЬНЫЙ файл рядом с файлом источника плюс имя
+            # в его ChildObjects. Единственная операция навыка, создающая файл: без неё
+            # добавить таблицу в существующий источник было нечем (пересборка источника
+            # целиком меняет его uuid и оставляет файлы выброшенных таблиц сиротами).
+            src_dir = os.path.join(os.path.dirname(resolved_path), obj_name)
+            tables_dir = os.path.join(src_dir, "Tables")
+            for tbl_name, entry in get_eds_tables(items).items():
+                if tbl_name in existing_names:
+                    warn(f"Table '{tbl_name}' already exists, skipping")
+                    continue
+                table_path = os.path.join(tables_dir, f"{tbl_name}.xml")
+                if os.path.exists(table_path):
+                    warn(f"\u0424\u0430\u0439\u043b \u0442\u0430\u0431\u043b\u0438\u0446\u044b \u0443\u0436\u0435 \u0441\u0443\u0449\u0435\u0441\u0442\u0432\u0443\u0435\u0442: {table_path} \u2014 \u043f\u0440\u043e\u043f\u0443\u0441\u043a\u0430\u044e")
+                    continue
+                field_parts = []
+                for f in entry["fields"]:
+                    field_parts.append(build_attribute_fragment(parse_attribute_shorthand(f), "eds-field", "\t\t\t", "Field"))
+                fields_xml = "\r\n".join(field_parts)
+                table_xml = build_eds_table_xml(obj_name, tbl_name, entry, fields_xml)
+                os.makedirs(tables_dir, exist_ok=True)
+                with open(table_path, "w", encoding="utf-8-sig", newline="") as fh:
+                    fh.write(table_xml.rstrip("\r\n"))
+                nodes = import_fragment(f"{indent}<Table>{esc_xml_text(tbl_name)}</Table>")
+                ref_node = find_insertion_point("Table", {"name": tbl_name})
+                for node in nodes:
+                    insert_before_element(child_objects_el, node, ref_node, indent)
+                info(f"Added table: {tbl_name} ({table_path})")
+                add_count += 1
+                existing_names[tbl_name] = "Table"
+
+        elif child_type == "functions":
+            # Функция живёт узлом внутри файла источника — отдельного файла у неё нет.
+            for fn_name, fn_val in items.items():
+                if fn_name in existing_names:
+                    warn(f"Function '{fn_name}' already exists, skipping")
+                    continue
+                if isinstance(fn_val, str):
+                    fn_returns, fn_no_value = "String", False
+                else:
+                    fn_returns = str(fn_val.get("returns") or fn_val.get("returnType") or "String")
+                    fn_no_value = fn_val.get("returnValue") is not None and fn_val.get("returnValue") is not True
+                fn_type_xml = "" if fn_no_value else build_value_type_xml(f"{indent}\t\t", fn_returns)
+                before = len(lines)
+                emit_eds_function(indent, fn_name, fn_val, fn_type_xml)
+                fragment_xml = "\r\n".join(lines[before:])
+                del lines[before:]
+                nodes = import_fragment(fragment_xml)
+                ref_node = find_insertion_point("Function", {"name": fn_name})
+                for node in nodes:
+                    insert_before_element(child_objects_el, node, ref_node, indent)
+                info(f"Added function: {fn_name}")
+                add_count += 1
+                existing_names[fn_name] = "Function"
 
         elif child_type == "fields":
             # Поле таблицы внешнего источника: тот же парсер реквизита, свой тег и контекст.
@@ -3399,11 +3768,12 @@ def main():
     xml_root = xml_tree.getroot()
 
     # Префикс current-config берём из объявлений корня — им и пишем ссылочные типы.
-    global cfg_prefix, is_format_221
+    global cfg_prefix, is_format_221, format_version
     cfg_prefix = next((p for p, u in (xml_root.nsmap or {}).items() if u == CFG_NS and p), None)
     _fv = xml_root.get("version") or "2.17"
     _m = re.match(r'^(\d+)\.(\d+)$', _fv)
     is_format_221 = bool(_m) and int(_m.group(1)) * 100 + int(_m.group(2)) >= 221
+    format_version = _fv
 
     # --- Detect object type ---
     if localname(xml_root) != "MetaDataObject":

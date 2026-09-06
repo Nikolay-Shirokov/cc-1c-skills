@@ -1,4 +1,4 @@
-﻿# meta-edit v1.44 — Edit existing 1C metadata object XML
+﻿# meta-edit v1.45 — Edit existing 1C metadata object XML
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -466,6 +466,8 @@ $script:childTypeSynonyms = @{
 	"commands" = "commands"; "команды" = "commands"
 	"properties" = "properties"; "свойства" = "properties"
 	"fields" = "fields"; "поля" = "fields"
+	"tables" = "tables"; "таблицы" = "tables"
+	"functions" = "functions"; "функции" = "functions"
 }
 
 # Type synonyms (from meta-compile)
@@ -1561,9 +1563,7 @@ $script:validChildTypes = @{
 	"CalculationRegister"        = @("dimensions","resources","attributes","forms","templates","commands")
 	"DocumentJournal"            = @("columns","forms","templates","commands")
 	"Constant"                   = @("forms")
-	# Внешний источник данных правится целиком через meta-compile: и таблица (отдельный файл),
-	# и функция (узел с полным набором свойств) требуют эмиттера, который живёт там.
-	"ExternalDataSource"         = @()
+	"ExternalDataSource"         = @("tables","functions")
 	"Table"                      = @("fields","forms","templates","commands")
 }
 
@@ -1587,6 +1587,309 @@ $script:childTypeToXmlTag = @{
 	"templates"       = "Template"
 	"commands"        = "Command"
 	"fields"          = "Field"
+	"tables"          = "Table"
+	"functions"       = "Function"
+}
+
+# ============================================================
+# Section 8b: Внешние источники данных — копии из meta-compile
+# ============================================================
+# Тела ниже скопированы из meta-compile и обязаны совпадать с ним байт в байт:
+# таблица внешнего источника собирается в ОТДЕЛЬНЫЙ файл, и формат этого файла
+# должен быть один и тот же, кем бы он ни был создан. Держит check-inline-drift.mjs.
+
+function Emit-FormRef {
+	param([string]$i, [string]$tag, $val)
+	if ($val) { X "$i<$tag>$(Esc-XmlText (Normalize-FormRef "$val"))</$tag>" } else { X "$i<$tag/>" }
+}
+
+# Шапка пространств имён файла таблицы внешнего источника — копия из meta-compile.
+$script:xmlnsDecl = 'xmlns="http://v8.1c.ru/8.3/MDClasses" xmlns:app="http://v8.1c.ru/8.2/managed-application/core" xmlns:cfg="http://v8.1c.ru/8.1/data/enterprise/current-config" xmlns:cmi="http://v8.1c.ru/8.2/managed-application/cmi" xmlns:ent="http://v8.1c.ru/8.1/data/enterprise" xmlns:lf="http://v8.1c.ru/8.2/managed-application/logform" xmlns:style="http://v8.1c.ru/8.1/data/ui/style" xmlns:sys="http://v8.1c.ru/8.1/data/ui/fonts/system" xmlns:v8="http://v8.1c.ru/8.1/data/core" xmlns:v8ui="http://v8.1c.ru/8.1/data/ui" xmlns:web="http://v8.1c.ru/8.1/data/ui/colors/web" xmlns:win="http://v8.1c.ru/8.1/data/ui/colors/windows" xmlns:xen="http://v8.1c.ru/8.3/xcf/enums" xmlns:xpr="http://v8.1c.ru/8.3/xcf/predef" xmlns:xr="http://v8.1c.ru/8.3/xcf/readable" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"'
+
+$script:xml = New-Object System.Text.StringBuilder 32768
+
+function X {
+	param([string]$text)
+	$script:xml.AppendLine($text) | Out-Null
+}
+
+function Emit-MLItems {
+	param([string]$indent, $val)
+	if ($val -is [System.Collections.IDictionary]) {
+		foreach ($k in $val.Keys) {
+			X "$indent<v8:item>"; X "$indent`t<v8:lang>$k</v8:lang>"; X "$indent`t<v8:content>$(Esc-XmlText "$($val[$k])")</v8:content>"; X "$indent</v8:item>"
+		}
+	} elseif ($val -is [System.Management.Automation.PSCustomObject]) {
+		foreach ($p in $val.PSObject.Properties) {
+			X "$indent<v8:item>"; X "$indent`t<v8:lang>$($p.Name)</v8:lang>"; X "$indent`t<v8:content>$(Esc-XmlText "$($p.Value)")</v8:content>"; X "$indent</v8:item>"
+		}
+	} else {
+		X "$indent<v8:item>"; X "$indent`t<v8:lang>ru</v8:lang>"; X "$indent`t<v8:content>$(Esc-XmlText "$val")</v8:content>"; X "$indent</v8:item>"
+	}
+}
+
+function Emit-MLText {
+	param([string]$indent, [string]$tag, $text)
+	# Пусто (null / пустая строка) → самозакрывающийся тег.
+	if (($null -eq $text) -or (($text -is [string]) -and ($text -eq ''))) {
+		X "$indent<$tag/>"
+		return
+	}
+	X "$indent<$tag>"
+	Emit-MLItems "$indent`t" $text
+	X "$indent</$tag>"
+}
+
+function Emit-Characteristics {
+	param([string]$indent, $chars)
+	if (-not $chars -or @($chars).Count -eq 0) { X "$indent<Characteristics/>"; return }
+	X "$indent<Characteristics>"
+	foreach ($ch in @($chars)) {
+		$types  = Get-ChElProp $ch @('types','characteristicTypes','типы')
+		$values = Get-ChElProp $ch @('values','characteristicValues','значения')
+		$tFrom = Normalize-CharFrom "$(Get-ChElProp $types @('from','source','источник'))"
+		$vFrom = Normalize-CharFrom "$(Get-ChElProp $values @('from','source','источник'))"
+		$key = Expand-CharField "$(Get-ChElProp $types @('key','keyField'))" $tFrom
+		$tff = Expand-CharField "$(Get-ChElProp $types @('filterField','typesFilterField'))" $tFrom
+		$obj = Expand-CharField "$(Get-ChElProp $values @('object','objectField'))" $vFrom
+		$typ = Expand-CharField "$(Get-ChElProp $values @('type','typeField'))" $vFrom
+		$val = Expand-CharField "$(Get-ChElProp $values @('value','valueField'))" $vFrom
+		# числовые поля-флаги (обычно -1; иногда 0)
+		$dpf = Get-CharIntField $types @('dataPathField')
+		$mvu = Get-CharIntField $types @('multipleValuesUseField')
+		$mvk = Get-CharIntField $values @('multipleValuesKeyField')
+		$mvo = Get-CharIntField $values @('multipleValuesOrderField')
+		X "$indent`t<xr:Characteristic>"
+		X "$indent`t`t<xr:CharacteristicTypes from=`"$(Esc-Xml $tFrom)`">"
+		X "$indent`t`t`t<xr:KeyField>$(Esc-XmlText $key)</xr:KeyField>"
+		X "$indent`t`t`t<xr:TypesFilterField>$(Esc-XmlText $tff)</xr:TypesFilterField>"
+		# filterValue: $null→nil; голое→xs:string, полный путь→DTR, bool→xs:boolean.
+		$tfvRaw = Get-ChElProp $types @('filterValue','typesFilterValue')
+		if ($null -eq $tfvRaw) { X "$indent`t`t`t<xr:TypesFilterValue xsi:nil=`"true`"/>" }
+		else {
+			$tfvN = Normalize-ChoiceValue $tfvRaw
+			if ([string]::IsNullOrEmpty($tfvN.Text)) { X "$indent`t`t`t<xr:TypesFilterValue xsi:type=`"$($tfvN.XsiType)`"/>" }
+			else { X "$indent`t`t`t<xr:TypesFilterValue xsi:type=`"$($tfvN.XsiType)`">$(Esc-XmlText $tfvN.Text)</xr:TypesFilterValue>" }
+		}
+		# Числовое значение (обычно -1 или 0) — как есть; разворачивать через Expand-CharField нельзя,
+		# оно примет "0" за короткое имя поля и выдаст "<from>.Attribute.0".
+		$dpfOut = if ("$dpf" -match '^-?\d+$') { "$dpf" } else { Esc-XmlText (Expand-CharField "$dpf" $tFrom) }
+		X "$indent`t`t`t<xr:DataPathField>$dpfOut</xr:DataPathField>"
+		X "$indent`t`t`t<xr:MultipleValuesUseField>$mvu</xr:MultipleValuesUseField>"
+		X "$indent`t`t</xr:CharacteristicTypes>"
+		X "$indent`t`t<xr:CharacteristicValues from=`"$(Esc-Xml $vFrom)`">"
+		X "$indent`t`t`t<xr:ObjectField>$(Esc-XmlText $obj)</xr:ObjectField>"
+		X "$indent`t`t`t<xr:TypeField>$(Esc-XmlText $typ)</xr:TypeField>"
+		X "$indent`t`t`t<xr:ValueField>$(Esc-XmlText $val)</xr:ValueField>"
+		X "$indent`t`t`t<xr:MultipleValuesKeyField>$mvk</xr:MultipleValuesKeyField>"
+		X "$indent`t`t`t<xr:MultipleValuesOrderField>$mvo</xr:MultipleValuesOrderField>"
+		X "$indent`t`t</xr:CharacteristicValues>"
+		X "$indent`t</xr:Characteristic>"
+	}
+	X "$indent</Characteristics>"
+}
+
+function Emit-MDRefList {
+	param([string]$indent, [string]$tag, $items)
+	$arr = @(); if ($items) { $arr = @($items) }
+	if ($arr.Count -gt 0) {
+		X "$indent<$tag>"
+		foreach ($it in $arr) { X "$indent`t<xr:Item xsi:type=`"xr:MDObjectRef`">$(Esc-XmlText (Normalize-MDObjectRef "$it"))</xr:Item>" }
+		X "$indent</$tag>"
+	} else {
+		X "$indent<$tag/>"
+	}
+}
+
+function Get-EdsTables {
+	param($val)
+	$tables = [ordered]@{}
+	if (-not $val) { return $tables }
+	function New-EdsTableEntry { param($v)
+		if ($v -is [array] -or $v.GetType().Name -eq 'Object[]') {
+			return @{ props = $null; fields = @($v) }
+		}
+		$f = if ($null -ne $v.fields) { @($v.fields) } elseif ($null -ne $v.columns) { @($v.columns) } else { @() }
+		return @{ props = $v; fields = $f }
+	}
+	if ($val -is [array] -or $val.GetType().Name -eq 'Object[]') {
+		foreach ($t in $val) { $tables["$($t.name)"] = New-EdsTableEntry $t }
+	} else {
+		$val.PSObject.Properties | ForEach-Object { $tables[$_.Name] = New-EdsTableEntry $_.Value }
+	}
+	return $tables
+}
+
+function Get-EdsFieldRef {
+	param([string]$srcName, [string]$tableName, [string]$fieldName)
+	if (-not $fieldName) { return "" }
+	if ($fieldName -like "ExternalDataSource.*") { return $fieldName }
+	return "ExternalDataSource.$srcName.Table.$tableName.Field.$fieldName"
+}
+
+function Emit-EdsFieldRefList {
+	param([string]$indent, [string]$tag, $names, [string]$srcName, [string]$tableName)
+	$list = @($names | Where-Object { $_ })
+	if ($list.Count -eq 0) { X "$indent<$tag/>"; return }
+	X "$indent<$tag>"
+	foreach ($n in $list) {
+		X "$indent`t<xr:Field>$(Esc-XmlText (Get-EdsFieldRef $srcName $tableName "$n"))</xr:Field>"
+	}
+	X "$indent</$tag>"
+}
+
+function Emit-EdsFieldRefScalar {
+	param([string]$indent, [string]$tag, $name, [string]$srcName, [string]$tableName)
+	if (-not $name) { X "$indent<$tag/>"; return }
+	X "$indent<$tag>$(Esc-XmlText (Get-EdsFieldRef $srcName $tableName "$name"))</$tag>"
+}
+
+function Emit-EdsFunction {
+	# $typeXml — уже собранный узел <Type> возвращаемого значения: его рендерит вызывающий навык
+	# своим эмиттером типов. Так тело функции не зависит от того, какой это навык.
+	param([string]$indent, [string]$fnName, $val, [string]$typeXml)
+	$expr = ""
+	$returns = ""
+	$returnValue = $true
+	$fnSynonym = $null
+	$fnComment = ""
+	if ($val -is [string]) {
+		$expr = "$val"
+	} else {
+		$expr = if ($val.expression) { "$($val.expression)" } elseif ($val.expressionInDataSource) { "$($val.expressionInDataSource)" } else { "" }
+		$returns = if ($val.returns) { "$($val.returns)" } elseif ($val.returnType) { "$($val.returnType)" } else { "" }
+		if ($null -ne $val.returnValue) { $returnValue = ($val.returnValue -eq $true) }
+		$fnSynonym = $val.synonym
+		$fnComment = if ($val.comment) { "$($val.comment)" } else { "" }
+	}
+	if (-not $expr) {
+		Write-Error "Функция '$fnName' внешнего источника данных: не задано выражение (ключ expression)."
+		exit 1
+	}
+	$uuid = New-Guid-String
+	X "$indent<Function uuid=`"$uuid`">"
+	X "$indent`t<Properties>"
+	X "$indent`t`t<Name>$(Esc-XmlText $fnName)</Name>"
+	Emit-MLText "$indent`t`t" "Synonym" $fnSynonym
+	if ($fnComment) { X "$indent`t`t<Comment>$(Esc-XmlText $fnComment)</Comment>" } else { X "$indent`t`t<Comment/>" }
+	X "$indent`t`t<ReturnValue>$(if ($returnValue) { 'true' } else { 'false' })</ReturnValue>"
+	if ($returnValue -and $typeXml) {
+		X $typeXml.TrimEnd("`r", "`n")
+	} else {
+		X "$indent`t`t<Type/>"
+	}
+	X "$indent`t`t<ExpressionInDataSource>$(Esc-XmlText $expr)</ExpressionInDataSource>"
+	X "$indent`t</Properties>"
+	X "$indent</Function>"
+}
+
+function Emit-EdsTableProperties {
+	param([string]$indent, [string]$srcName, [string]$tableName, $t)
+	$i = $indent
+	$tblSynonym = if ($t -and $null -ne $t.synonym) { $t.synonym } else { Split-CamelCase $tableName }
+	X "$i<Name>$(Esc-XmlText $tableName)</Name>"
+	Emit-MLText $i "Synonym" $tblSynonym
+	if ($t -and $t.comment) { X "$i<Comment>$(Esc-XmlText "$($t.comment)")</Comment>" } else { X "$i<Comment/>" }
+
+	$tableType = if ($t -and $t.tableType) { "$($t.tableType)" } else { "Table" }
+	X "$i<TableType>$tableType</TableType>"
+	# Имя в источнике по умолчанию равно имени объекта — так поступает и платформа.
+	$nids = if ($t -and $t.nameInDataSource) { "$($t.nameInDataSource)" } elseif ($tableType -eq "Expression") { "" } else { $tableName }
+	if ($nids) { X "$i<NameInDataSource>$(Esc-XmlText $nids)</NameInDataSource>" } else { X "$i<NameInDataSource/>" }
+	$expr = if ($t -and $t.expressionInDataSource) { "$($t.expressionInDataSource)" } elseif ($t -and $t.expression) { "$($t.expression)" } else { "" }
+	if ($expr) { X "$i<ExpressionInDataSource>$(Esc-XmlText $expr)</ExpressionInDataSource>" } else { X "$i<ExpressionInDataSource/>" }
+	$dataType = if ($t -and $t.tableDataType) { "$($t.tableDataType)" } else { "NonobjectData" }
+	X "$i<TableDataType>$dataType</TableDataType>"
+
+	Emit-EdsFieldRefList $i "KeyFields" $(if ($t) { $t.keyFields } else { $null }) $srcName $tableName
+	Emit-EdsFieldRefScalar $i "PresentationField" $(if ($t) { $t.presentationField } else { $null }) $srcName $tableName
+	Emit-EdsFieldRefScalar $i "ParentField" $(if ($t) { $t.parentField } else { $null }) $srcName $tableName
+	# Признака незаполненного родителя отдельным узлом нет: NULL против «Заданного значения»
+	# различаются формой самого значения (xsi:nil против типизированного).
+	# ВАЖНО: платформа при загрузке XML сбрасывает заданное значение в пустую строку — проверено
+	# на её собственной выгрузке. Задать его можно только интерактивно, поэтому дефолт у таблицы
+	# с полем родителя — пустая строка (как после загрузки), а без него — nil.
+	if ($t -and $t.parentField) { X "$i<UnfilledParentValue xsi:type=`"xs:string`"/>" }
+	else { X "$i<UnfilledParentValue xsi:nil=`"true`"/>" }
+	Emit-Characteristics $i $(if ($t) { $t.characteristics } else { $null })
+
+	X "$i<UseStandardCommands>$(if ($t -and $t.useStandardCommands -eq $false) { 'false' } else { 'true' })</UseStandardCommands>"
+	X "$i<QuickChoice>$(if ($t -and $t.quickChoice -eq $true) { 'true' } else { 'false' })</QuickChoice>"
+	# Ввод по строке: ключа нет → выводим из поля представления (так делает платформа при загрузке).
+	# Явный список, в том числе пустой, уважаем как есть — отсюда presence-aware проверка.
+	$ibsGiven = ($t -and $t.PSObject -and $t.PSObject.Properties -and ($t.PSObject.Properties.Name -contains 'inputByString'))
+	$ibs = if ($ibsGiven) { $t.inputByString } elseif ($t -and $t.presentationField) { @($t.presentationField) } else { $null }
+	Emit-EdsFieldRefList $i "InputByString" $ibs $srcName $tableName
+	X "$i<CreateOnInput>$(if ($t -and $t.createOnInput) { "$($t.createOnInput)" } else { 'Auto' })</CreateOnInput>"
+	X "$i<SearchStringModeOnInputByString>$(if ($t -and $t.searchStringModeOnInputByString) { "$($t.searchStringModeOnInputByString)" } else { 'Begin' })</SearchStringModeOnInputByString>"
+	X "$i<ChoiceDataGetModeOnInputByString>$(if ($t -and $t.choiceDataGetModeOnInputByString) { "$($t.choiceDataGetModeOnInputByString)" } else { 'Directly' })</ChoiceDataGetModeOnInputByString>"
+	X "$i<ChoiceHistoryOnInput>$(if ($t -and $t.choiceHistoryOnInput) { "$($t.choiceHistoryOnInput)" } else { 'Auto' })</ChoiceHistoryOnInput>"
+
+	foreach ($formTag in @("DefaultObjectForm","DefaultRecordForm","DefaultListForm","DefaultChoiceForm")) {
+		$key = $formTag.Substring(0,1).ToLower() + $formTag.Substring(1)
+		Emit-FormRef $i $formTag $(if ($t) { $t.$key } else { $null })
+	}
+	foreach ($presTag in @("ObjectPresentation","ExtendedObjectPresentation","RecordPresentation",
+		"ExtendedRecordPresentation","ListPresentation","ExtendedListPresentation","Explanation")) {
+		$key = $presTag.Substring(0,1).ToLower() + $presTag.Substring(1)
+		Emit-MLText $i $presTag $(if ($t) { $t.$key } else { $null })
+	}
+	X "$i<IncludeHelpInContents>$(if ($t -and $t.includeHelpInContents -eq $true) { 'true' } else { 'false' })</IncludeHelpInContents>"
+	X "$i<ReadOnly>$(if ($t -and $t.readOnly -eq $true) { 'true' } else { 'false' })</ReadOnly>"
+	X "$i<TransactionsIsolationLevel>$(if ($t -and $t.transactionsIsolationLevel) { "$($t.transactionsIsolationLevel)" } else { 'Auto' })</TransactionsIsolationLevel>"
+	Emit-EdsFieldRefScalar $i "DataVersionField" $(if ($t) { $t.dataVersionField } else { $null }) $srcName $tableName
+	X "$i<EditType>$(if ($t -and $t.editType) { "$($t.editType)" } else { 'InDialog' })</EditType>"
+	Emit-MDRefList $i "BasedOn" $(if ($t) { $t.basedOn } else { $null })
+	Emit-EdsFieldRefList $i "DataLockFields" $(if ($t) { $t.dataLockFields } else { $null }) $srcName $tableName
+	X "$i<DataLockControlMode>$(if ($t -and $t.dataLockControlMode) { "$($t.dataLockControlMode)" } else { 'Automatic' })</DataLockControlMode>"
+}
+
+function Build-EdsTableXml {
+	# $fieldsXml — уже собранные узлы <Field>: их рендерит вызывающий навык своим эмиттером
+	# реквизита. Так тело функции не зависит от того, какой это навык.
+	param([string]$srcName, [string]$tableName, $entry, [string]$fieldsXml)
+	$before = $script:xml.Length
+
+	$tableUuid = New-Guid-String
+	X '<?xml version="1.0" encoding="UTF-8"?>'
+	X "<MetaDataObject $($script:xmlnsDecl) version=`"$($script:formatVersion)`">"
+	X "`t<Table uuid=`"$tableUuid`">"
+	# InternalInfo у таблицы эмитится здесь, а не через $script:generatedTypes: имя элемента
+	# трёхчастное (Префикс.Источник.Таблица), общая карта такой формы не знает.
+	X "`t`t<InternalInfo>"
+	foreach ($pair in @(
+		@("ExternalDataSourceTableManager",       "Manager"),
+		@("ExternalDataSourceTableObject",        "Object"),
+		@("ExternalDataSourceTableRef",           "Ref"),
+		@("ExternalDataSourceTableList",          "List"),
+		@("ExternalDataSourceTableRecord",        "Record"),
+		@("ExternalDataSourceTableRecordSet",     "RecordSet"),
+		@("ExternalDataSourceTableRecordKey",     "RecordKey"),
+		@("ExternalDataSourceTableRecordManager", "RecordManager"))) {
+		X "`t`t`t<xr:GeneratedType name=`"$($pair[0]).$srcName.$tableName`" category=`"$($pair[1])`">"
+		X "`t`t`t`t<xr:TypeId>$(New-Guid-String)</xr:TypeId>"
+		X "`t`t`t`t<xr:ValueId>$(New-Guid-String)</xr:ValueId>"
+		X "`t`t`t</xr:GeneratedType>"
+	}
+	X "`t`t</InternalInfo>"
+
+	X "`t`t<Properties>"
+	Emit-EdsTableProperties "`t`t`t" $srcName $tableName $entry.props
+	X "`t`t</Properties>"
+
+	if ($fieldsXml) {
+		X "`t`t<ChildObjects>"
+		X $fieldsXml.TrimEnd("`r", "`n")
+		X "`t`t</ChildObjects>"
+	} else {
+		X "`t`t<ChildObjects/>"
+	}
+	X "`t</Table>"
+	X "</MetaDataObject>"
+
+	$chunk = $script:xml.ToString($before, $script:xml.Length - $before)
+	[void]$script:xml.Remove($before, $script:xml.Length - $before)
+	return $chunk
 }
 
 # ============================================================
@@ -1971,6 +2274,71 @@ function Process-Add($addDef) {
 					Info "Added attribute: $($parsed.name)"
 					$script:addCount++
 					$existingNames[$parsed.name] = "Attribute"
+				}
+			}
+			"tables" {
+				# Таблица внешнего источника — ОТДЕЛЬНЫЙ файл рядом с файлом источника плюс имя
+				# в его ChildObjects. Единственная операция навыка, создающая файл: без неё
+				# добавить таблицу в существующий источник было нечем (пересборка источника
+				# целиком меняет его uuid и оставляет файлы выброшенных таблиц сиротами).
+				$srcDir = Join-Path (Split-Path -Parent $resolvedPath) $script:objName
+				$tablesDir = Join-Path $srcDir "Tables"
+				foreach ($entry in (Get-EdsTables $items).GetEnumerator()) {
+					$tblName = $entry.Key
+					if ($existingNames.ContainsKey($tblName)) {
+						Warn "Table '$tblName' already exists, skipping"
+						continue
+					}
+					$tablePath = Join-Path $tablesDir "$tblName.xml"
+					if (Test-Path $tablePath) {
+						Warn "Файл таблицы уже существует: $tablePath — пропускаю"
+						continue
+					}
+					$fieldParts = @()
+					foreach ($f in @($entry.Value.fields)) {
+						$fieldParts += Build-AttributeFragment (Parse-AttributeShorthand $f) "eds-field" "`t`t`t" "Field"
+					}
+					$fieldsXml = $fieldParts -join "`r`n"
+					$tableXml = Build-EdsTableXml $script:objName $tblName $entry.Value $fieldsXml
+					if (-not (Test-Path $tablesDir)) { New-Item -ItemType Directory -Path $tablesDir -Force | Out-Null }
+					[System.IO.File]::WriteAllText($tablePath, $tableXml.TrimEnd("`r", "`n"), (New-Object System.Text.UTF8Encoding($true)))
+					$fragmentXml = "$indent<Table>$(Esc-XmlText $tblName)</Table>"
+					$nodes = Import-Fragment $fragmentXml
+					$refNode = Find-InsertionPoint "Table" @{ name = $tblName }
+					foreach ($node in $nodes) {
+						Insert-BeforeElement $script:childObjectsEl $node $refNode $indent
+					}
+					Info "Added table: $tblName ($tablePath)"
+					$script:addCount++
+					$existingNames[$tblName] = "Table"
+				}
+			}
+			"functions" {
+				# Функция живёт узлом внутри файла источника — отдельного файла у неё нет.
+				foreach ($prop in $items.PSObject.Properties) {
+					$fnName = $prop.Name
+					if ($existingNames.ContainsKey($fnName)) {
+						Warn "Function '$fnName' already exists, skipping"
+						continue
+					}
+					$before = $script:xml.Length
+					$fnVal = $prop.Value
+					$fnReturns = if ($fnVal -is [string]) { "String" }
+					             elseif ($fnVal.returns) { "$($fnVal.returns)" }
+					             elseif ($fnVal.returnType) { "$($fnVal.returnType)" } else { "String" }
+					$fnNoValue = (-not ($fnVal -is [string])) -and ($null -ne $fnVal.returnValue) -and ($fnVal.returnValue -ne $true)
+					$fnTypeXml = if ($fnNoValue) { "" } else { Build-ValueTypeXml "$indent`t`t" $fnReturns }
+					Emit-EdsFunction $indent $fnName $fnVal $fnTypeXml
+					$fragmentXml = $script:xml.ToString($before, $script:xml.Length - $before)
+					[void]$script:xml.Remove($before, $script:xml.Length - $before)
+					$nodes = Import-Fragment $fragmentXml
+					$refNode = Find-InsertionPoint "Function" @{ name = $fnName }
+					foreach ($node in $nodes) {
+						Insert-BeforeElement $script:childObjectsEl $node $refNode $indent
+					}
+					Info "Added function: $fnName"
+					$script:addCount++
+					$existingNames[$fnName] = "Function"
 				}
 			}
 			"fields" {

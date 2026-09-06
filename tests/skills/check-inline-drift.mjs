@@ -31,6 +31,25 @@ const SKILLS = join(ROOT, '.claude', 'skills');
 // Заготовку по новой семье печатает: node debug/inline-utils/scan-dupes.mjs --stub <py>:<ps1>
 
 const FAMILIES = [
+  // ─── внешние источники данных: формат файла таблицы один на всех ─────────
+  // Таблица внешнего источника — отдельный файл, и создать его может как meta-compile
+  // (источник целиком), так и meta-edit (добавить таблицу в существующий). Формат обязан
+  // быть один и тот же, поэтому эмиттеры скопированы, а не написаны заново.
+  ...[
+    // Общие утилиты (Emit-MLText, Emit-FormRef, X и т.п.) сюда не входят: они живут в доброй
+    // половине навыков и сводить их — отдельная работа, не относящаяся к внешним источникам.
+    ['Get-EdsTables', 'get_eds_tables'],
+    ['Get-EdsFieldRef', 'get_eds_field_ref'],
+    ['Emit-EdsFieldRefList', 'emit_eds_field_ref_list'],
+    ['Emit-EdsFieldRefScalar', 'emit_eds_field_ref_scalar'],
+    ['Emit-EdsFunction', 'emit_eds_function'],
+    ['Emit-EdsTableProperties', 'emit_eds_table_properties'],
+    ['Build-EdsTableXml', 'build_eds_table_xml'],
+  ].map(([ps1, py]) => ({
+    name: `внешние источники: ${py}`, py, ps1,
+    variants: [{ id: 'full', authority: 'meta-compile', consumers: ['meta-edit'] }],
+  })),
+
   // ─── support-guard: запрет правки объекта на поддержке ───────────────────
   {
     name: 'support-guard: assert_edit_allowed', py: 'assert_edit_allowed', ps1: 'Assert-EditAllowed',

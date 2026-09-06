@@ -1,4 +1,4 @@
-﻿# meta-compile v1.105 — Compile 1C metadata object from JSON
+﻿# meta-compile v1.106 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -4411,7 +4411,9 @@ function Emit-ExternalDataSourceProperties {
 # Функция внешнего источника. Параметров как объектов метаданных нет: они записаны прямо
 # в выражении как &1, &2 (см. reference/external-data-source.md).
 function Emit-EdsFunction {
-	param([string]$indent, [string]$fnName, $val)
+	# $typeXml — уже собранный узел <Type> возвращаемого значения: его рендерит вызывающий навык
+	# своим эмиттером типов. Так тело функции не зависит от того, какой это навык.
+	param([string]$indent, [string]$fnName, $val, [string]$typeXml)
 	$expr = ""
 	$returns = ""
 	$returnValue = $true
@@ -4437,8 +4439,8 @@ function Emit-EdsFunction {
 	Emit-MLText "$indent`t`t" "Synonym" $fnSynonym
 	if ($fnComment) { X "$indent`t`t<Comment>$(Esc-XmlText $fnComment)</Comment>" } else { X "$indent`t`t<Comment/>" }
 	X "$indent`t`t<ReturnValue>$(if ($returnValue) { 'true' } else { 'false' })</ReturnValue>"
-	if ($returnValue) {
-		Emit-ValueType "$indent`t`t" $(if ($returns) { $returns } else { "String" })
+	if ($returnValue -and $typeXml) {
+		X $typeXml.TrimEnd("`r", "`n")
 	} else {
 		X "$indent`t`t<Type/>"
 	}
@@ -4474,10 +4476,7 @@ function Emit-EdsTableProperties {
 	# ВАЖНО: платформа при загрузке XML сбрасывает заданное значение в пустую строку — проверено
 	# на её собственной выгрузке. Задать его можно только интерактивно, поэтому дефолт у таблицы
 	# с полем родителя — пустая строка (как после загрузки), а без него — nil.
-	$upv = if ($t) { $t.unfilledParentValue } else { $null }
-	$hasParent = ($t -and $t.parentField)
-	if ($null -ne $upv) { Emit-MinMaxValue $i "UnfilledParentValue" $upv }
-	elseif ($hasParent) { X "$i<UnfilledParentValue xsi:type=`"xs:string`"/>" }
+	if ($t -and $t.parentField) { X "$i<UnfilledParentValue xsi:type=`"xs:string`"/>" }
 	else { X "$i<UnfilledParentValue xsi:nil=`"true`"/>" }
 	Emit-Characteristics $i $(if ($t) { $t.characteristics } else { $null })
 
@@ -4516,7 +4515,9 @@ function Emit-EdsTableProperties {
 # поэтому «перехват» — запомнить длину, отдать эмиттерам, вырезать добавленное
 # (тот же приём, что у составного типа).
 function Build-EdsTableXml {
-	param([string]$srcName, [string]$tableName, $entry)
+	# $fieldsXml — уже собранные узлы <Field>: их рендерит вызывающий навык своим эмиттером
+	# реквизита. Так тело функции не зависит от того, какой это навык.
+	param([string]$srcName, [string]$tableName, $entry, [string]$fieldsXml)
 	$before = $script:xml.Length
 
 	$tableUuid = New-Guid-String
@@ -4546,13 +4547,9 @@ function Build-EdsTableXml {
 	Emit-EdsTableProperties "`t`t`t" $srcName $tableName $entry.props
 	X "`t`t</Properties>"
 
-	$fields = @($entry.fields)
-	if ($fields.Count -gt 0) {
+	if ($fieldsXml) {
 		X "`t`t<ChildObjects>"
-		foreach ($f in $fields) {
-			$parsed = Parse-AttributeShorthand $f
-			Emit-Attribute "`t`t`t" $parsed "eds-field" "Field"
-		}
+		X $fieldsXml.TrimEnd("`r", "`n")
 		X "`t`t</ChildObjects>"
 	} else {
 		X "`t`t<ChildObjects/>"
@@ -5021,7 +5018,19 @@ if ($objType -eq "ExternalDataSource") {
 			X "`t`t`t<Table>$(Esc-XmlText $tblName)</Table>"
 		}
 		foreach ($fnName in $functions.Keys) {
-			Emit-EdsFunction "`t`t`t" $fnName $functions[$fnName]
+			$fnVal = $functions[$fnName]
+			$fnReturns = if ($fnVal -is [string]) { "String" }
+			             elseif ($fnVal.returns) { "$($fnVal.returns)" }
+			             elseif ($fnVal.returnType) { "$($fnVal.returnType)" } else { "String" }
+			$fnNoValue = (-not ($fnVal -is [string])) -and ($null -ne $fnVal.returnValue) -and ($fnVal.returnValue -ne $true)
+			$fnTypeXml = ""
+			if (-not $fnNoValue) {
+				$typeBefore = $script:xml.Length
+				Emit-ValueType "`t`t`t`t`t" $fnReturns
+				$fnTypeXml = $script:xml.ToString($typeBefore, $script:xml.Length - $typeBefore)
+				[void]$script:xml.Remove($typeBefore, $script:xml.Length - $typeBefore)
+			}
+			Emit-EdsFunction "`t`t`t" $fnName $fnVal $fnTypeXml
 		}
 		X "`t`t</ChildObjects>"
 	} else {
@@ -5310,6 +5319,13 @@ function Write-XmlFileKeepEol([string]$path, [string]$text, $encoding) {
 	[System.IO.File]::WriteAllText($path, $text.TrimEnd("`r", "`n"), $encoding)
 }
 
+# Объект с таким именем уже есть: компиляция заменит его файл ЦЕЛИКОМ и выдаст новый uuid —
+# ссылки на прежний объект (из кода, состава подсистем, типов реквизитов) станут висячими.
+# Для доработки существующего объекта есть meta-edit; молчать об этом нельзя.
+if (Test-Path $mainXmlPath) {
+	Write-Warning "$objType '$objName' уже существует ($typePlural/$objName.xml) — файл будет перезаписан, объект получит НОВЫЙ uuid, ссылки на прежний сломаются. Для правки существующего объекта используйте meta-edit."
+}
+
 Write-XmlFileKeepEol $mainXmlPath $metadataXml $enc
 
 # Таблицы внешнего источника — отдельными файлами в <Источник>/Tables/.
@@ -5319,7 +5335,14 @@ if ($objType -eq "ExternalDataSource" -and $script:edsTables.Count -gt 0) {
 	$tablesDir = Join-Path $objSubDir "Tables"
 	if (-not (Test-Path $tablesDir)) { New-Item -ItemType Directory -Path $tablesDir -Force | Out-Null }
 	foreach ($tblName in $script:edsTables.Keys) {
-		$tableXml = Build-EdsTableXml $objName $tblName $script:edsTables[$tblName]
+		$entry = $script:edsTables[$tblName]
+		$fieldsBefore = $script:xml.Length
+		foreach ($f in @($entry.fields)) {
+			Emit-Attribute "`t`t`t" (Parse-AttributeShorthand $f) "eds-field" "Field"
+		}
+		$fieldsXml = $script:xml.ToString($fieldsBefore, $script:xml.Length - $fieldsBefore)
+		[void]$script:xml.Remove($fieldsBefore, $script:xml.Length - $fieldsBefore)
+		$tableXml = Build-EdsTableXml $objName $tblName $entry $fieldsXml
 		$tablePath = Join-Path $tablesDir "$tblName.xml"
 		Write-XmlFileKeepEol $tablePath $tableXml $enc
 		$edsTablesCreated += $tablePath

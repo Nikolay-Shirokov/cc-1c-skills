@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-compile v1.105 — Compile 1C metadata object from JSON
+# meta-compile v1.106 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -4403,9 +4403,12 @@ def emit_external_data_source_properties(indent):
     X(f'{i}<DataLockControlMode>{dlcm}</DataLockControlMode>')
 
 
-def emit_eds_function(indent, fn_name, val):
+def emit_eds_function(indent, fn_name, val, type_xml):
     """Функция внешнего источника. Параметров как объектов метаданных нет: они записаны прямо
-    в выражении как &1, &2 (см. reference/external-data-source.md)."""
+    в выражении как &1, &2 (см. reference/external-data-source.md).
+
+    type_xml — уже собранный узел <Type> возвращаемого значения: его рендерит вызывающий навык
+    своим эмиттером типов. Так тело функции не зависит от того, какой это навык."""
     fn_synonym = None
     fn_comment = ''
     returns = ''
@@ -4432,8 +4435,8 @@ def emit_eds_function(indent, fn_name, val):
     else:
         X(f'{indent}\t\t<Comment/>')
     X(f'{indent}\t\t<ReturnValue>{"true" if return_value else "false"}</ReturnValue>')
-    if return_value:
-        emit_value_type(f'{indent}\t\t', returns or 'String')
+    if return_value and type_xml:
+        X(type_xml.rstrip('\r\n'))
     else:
         X(f'{indent}\t\t<Type/>')
     X(f'{indent}\t\t<ExpressionInDataSource>{esc_xml_text(expr)}</ExpressionInDataSource>')
@@ -4475,10 +4478,7 @@ def emit_eds_table_properties(indent, src_name, table_name, t):
     # ВАЖНО: платформа при загрузке XML сбрасывает заданное значение в пустую строку — проверено
     # на её собственной выгрузке. Задать его можно только интерактивно, поэтому дефолт у таблицы
     # с полем родителя — пустая строка (как после загрузки), а без него — nil.
-    upv = t.get('unfilledParentValue')
-    if upv is not None:
-        emit_min_max_value(i, 'UnfilledParentValue', upv)
-    elif t.get('parentField'):
+    if t.get('parentField'):
         X(f'{i}<UnfilledParentValue xsi:type="xs:string"/>')
     else:
         X(f'{i}<UnfilledParentValue xsi:nil="true"/>')
@@ -4529,8 +4529,10 @@ EDS_TABLE_GENERATED_TYPES = (
 )
 
 
-def build_eds_table_xml(src_name, table_name, entry):
-    """Отдельный XML-документ таблицы. Возвращает строку: X пишет в общий список строк,
+def build_eds_table_xml(src_name, table_name, entry, fields_xml):
+    """Отдельный XML-документ таблицы. fields_xml — уже собранные узлы <Field>: их рендерит
+    вызывающий навык своим эмиттером реквизита, поэтому тело не зависит от того, какой это навык.
+    Возвращает строку: X пишет в общий список строк,
     поэтому «перехват» — запомнить длину, отдать эмиттерам, срезать добавленное
     (в ps1-порте тот же приём выражен через StringBuilder — различие рантаймов, не логики)."""
     before = len(lines)
@@ -4552,11 +4554,9 @@ def build_eds_table_xml(src_name, table_name, entry):
     emit_eds_table_properties('\t\t\t', src_name, table_name, entry['props'])
     X('\t\t</Properties>')
 
-    fields = entry['fields']
-    if fields:
+    if fields_xml:
         X('\t\t<ChildObjects>')
-        for f in fields:
-            emit_attribute('\t\t\t', parse_attribute_shorthand(f), 'eds-field', 'Field')
+        X(fields_xml.rstrip('\r\n'))
         X('\t\t</ChildObjects>')
     else:
         X('\t\t<ChildObjects/>')
@@ -4996,7 +4996,18 @@ if obj_type == 'ExternalDataSource':
         for tbl_name in eds_tables:
             X(f'\t\t\t<Table>{esc_xml_text(tbl_name)}</Table>')
         for fn_name, fn_val in functions.items():
-            emit_eds_function('\t\t\t', fn_name, fn_val)
+            if isinstance(fn_val, str):
+                fn_returns, fn_no_value = 'String', False
+            else:
+                fn_returns = str(fn_val.get('returns') or fn_val.get('returnType') or 'String')
+                fn_no_value = fn_val.get('returnValue') is not None and fn_val.get('returnValue') is not True
+            fn_type_xml = ''
+            if not fn_no_value:
+                type_before = len(lines)
+                emit_value_type('\t\t\t\t\t', fn_returns)
+                fn_type_xml = '\r\n'.join(lines[type_before:])
+                del lines[type_before:]
+            emit_eds_function('\t\t\t', fn_name, fn_val, fn_type_xml)
         X('\t\t</ChildObjects>')
     else:
         X('\t\t<ChildObjects/>')
@@ -5069,6 +5080,12 @@ os.makedirs(type_dir, exist_ok=True)
 if obj_type not in types_no_sub_dir:
     os.makedirs(obj_sub_dir, exist_ok=True)
 
+# Объект с таким именем уже есть: компиляция заменит его файл ЦЕЛИКОМ и выдаст новый uuid —
+# ссылки на прежний объект (из кода, состава подсистем, типов реквизитов) станут висячими.
+# Для доработки существующего объекта есть meta-edit; молчать об этом нельзя.
+if os.path.exists(main_xml_path):
+    print(f"WARNING: {obj_type} '{obj_name}' уже существует ({type_plural}/{obj_name}.xml) — файл будет перезаписан, объект получит НОВЫЙ uuid, ссылки на прежний сломаются. Для правки существующего объекта используйте meta-edit.", file=sys.stderr)
+
 write_xml_file_keep_eol(main_xml_path, metadata_xml)
 
 # Таблицы внешнего источника — отдельными файлами в <Источник>/Tables/.
@@ -5078,7 +5095,13 @@ if obj_type == 'ExternalDataSource' and eds_tables:
     tables_dir = os.path.join(obj_sub_dir, 'Tables')
     os.makedirs(tables_dir, exist_ok=True)
     for tbl_name in eds_tables:
-        table_xml = build_eds_table_xml(obj_name, tbl_name, eds_tables[tbl_name])
+        entry = eds_tables[tbl_name]
+        fields_before = len(lines)
+        for f in entry['fields']:
+            emit_attribute('\t\t\t', parse_attribute_shorthand(f), 'eds-field', 'Field')
+        fields_xml = '\r\n'.join(lines[fields_before:])
+        del lines[fields_before:]
+        table_xml = build_eds_table_xml(obj_name, tbl_name, entry, fields_xml)
         table_path = os.path.join(tables_dir, f'{tbl_name}.xml')
         write_xml_file_keep_eol(table_path, table_xml)
         eds_tables_created.append(table_path)
