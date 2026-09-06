@@ -1,4 +1,4 @@
-﻿# meta-compile v1.109 — Compile 1C metadata object from JSON
+﻿# meta-compile v1.110 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -612,6 +612,23 @@ $script:typeSynonyms["хранилищезначений"]    = "ValueStorage"
 $script:typeSynonyms["хранилищезначения"]    = "ValueStorage"
 $script:typeSynonyms["uuid"]                 = "UUID"
 $script:typeSynonyms["уникальныйидентификатор"] = "UUID"
+# Типы СУБД — прощающий ввод: модель, проектирующая внешний источник по схеме БД, пишет типы
+# так, как они названы в information_schema. Соответствие замерено на стенде PostgreSQL: то же
+# самое даёт Конфигуратор при импорте структуры таблицы. Только однозначные: boolean НЕ включён
+# (в DSL это уже Булево, а psqlODBC при импорте отдаёт Строка(5) — два разных смысла), как и
+# text/real/money/json — для них замера нет.
+$script:typeSynonyms["integer"]              = "Number(10,0)"
+$script:typeSynonyms["int"]                  = "Number(10,0)"
+$script:typeSynonyms["int4"]                 = "Number(10,0)"
+$script:typeSynonyms["bigint"]               = "Number(19,0)"
+$script:typeSynonyms["int8"]                 = "Number(19,0)"
+$script:typeSynonyms["smallint"]             = "Number(5,0)"
+$script:typeSynonyms["int2"]                 = "Number(5,0)"
+$script:typeSynonyms["varchar"]              = "String"
+$script:typeSynonyms["character varying"]    = "String"
+$script:typeSynonyms["numeric"]              = "Number"
+$script:typeSynonyms["timestamp"]            = "DateTime"
+$script:typeSynonyms["bytea"]                = "BinaryData"
 # Платформенные типы, требующие префикса v8: (коллекции/периоды, частые в реквизитах обработок/отчётов).
 $script:v8PlatformTypes = @("ValueTable","ValueTree","ValueList","ValueListType","StandardPeriod",
 	"StandardBeginningDate","PointInTime","TypeDescription","FixedArray","FixedMap","FixedStructure")

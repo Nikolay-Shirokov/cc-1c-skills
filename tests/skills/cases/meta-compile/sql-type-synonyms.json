@@ -1,0 +1,53 @@
+{
+  "name": "Типы СУБД на входе: переводятся в типы 1С",
+  "input": {
+    "type": "ExternalDataSource",
+    "name": "PG",
+    "tables": {
+      "t": {
+        "keyFields": [
+          "id"
+        ],
+        "fields": [
+          "id: integer",
+          "big: bigint",
+          "small: smallint",
+          "name: varchar(150)",
+          "descr: character varying(50)",
+          "price: numeric(15,2)",
+          "created: timestamp",
+          "born: date",
+          "uid: uuid",
+          "blob: bytea"
+        ]
+      }
+    }
+  },
+  "validatePath": "ExternalDataSources/PG",
+  "expect": {
+    "fileContains": [
+      {
+        "file": "ExternalDataSources/PG/Tables/t.xml",
+        "text": [
+          "<v8:Digits>10</v8:Digits>",
+          "<v8:Digits>19</v8:Digits>",
+          "<v8:Digits>5</v8:Digits>",
+          "<v8:Length>150</v8:Length>",
+          "<v8:DateFractions>DateTime</v8:DateFractions>",
+          "<v8:Type>v8:UUID</v8:Type>",
+          "<v8:Type>xs:base64Binary</v8:Type>"
+        ]
+      }
+    ],
+    "fileNotContains": [
+      {
+        "file": "ExternalDataSources/PG/Tables/t.xml",
+        "text": [
+          "integer",
+          "varchar",
+          "bytea"
+        ]
+      }
+    ]
+  }
+}

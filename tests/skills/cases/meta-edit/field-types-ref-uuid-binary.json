@@ -1,0 +1,71 @@
+{
+  "name": "Ссылка на таблицу, UUID и двоичные данные при точечной правке",
+  "setup": "empty-config",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "ExternalDataSource",
+        "name": "PG",
+        "tables": {
+          "products": {
+            "keyFields": [
+              "id"
+            ],
+            "tableDataType": "ObjectData",
+            "fields": [
+              "id: Number(10,0)"
+            ]
+          },
+          "prices": {
+            "keyFields": [
+              "id"
+            ],
+            "fields": [
+              "id: Number(10,0)"
+            ]
+          }
+        }
+      },
+      "args": {
+        "-JsonPath": "{inputFile}",
+        "-OutputDir": "{workDir}"
+      }
+    }
+  ],
+  "params": {
+    "objectPath": "ExternalDataSources/PG/Tables/prices.xml"
+  },
+  "input": {
+    "add": {
+      "fields": [
+        "product_id: ExternalDataSourceTableRef.PG.products",
+        "uid: uuid",
+        "photo: bytea"
+      ]
+    }
+  },
+  "expect": {
+    "fileContains": [
+      {
+        "file": "ExternalDataSources/PG/Tables/prices.xml",
+        "text": [
+          "<v8:Type>cfg:ExternalDataSourceTableRef.PG.products</v8:Type>",
+          "<v8:Type>v8:UUID</v8:Type>",
+          "<v8:Type>xs:base64Binary</v8:Type>",
+          "<v8:AllowedLength>Fixed</v8:AllowedLength>"
+        ]
+      }
+    ],
+    "fileNotContains": [
+      {
+        "file": "ExternalDataSources/PG/Tables/prices.xml",
+        "text": [
+          "<v8:Type>BinaryData</v8:Type>",
+          "<v8:Type>UUID</v8:Type>",
+          "<v8:Type>ExternalDataSourceTableRef.PG.products</v8:Type>"
+        ]
+      }
+    ]
+  }
+}

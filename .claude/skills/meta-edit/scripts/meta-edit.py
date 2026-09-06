@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-edit v1.50 — Edit existing 1C metadata object XML
+# meta-edit v1.51 — Edit existing 1C metadata object XML
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -540,6 +540,41 @@ type_synonyms = {
     "catalogref": "CatalogRef",
     "documentref": "DocumentRef",
     "enumref": "EnumRef",
+    # Ниже — записи, которых в этом навыке не было: словарь дополнен до набора meta-compile,
+    # который является авторитетом. Расхождение держит tests/skills/check-type-synonyms.mjs.
+    "время": "Time",
+    "time": "Time",
+    "base64binary": "ValueStorage",
+    "binarydata": "BinaryData",
+    "двоичныеданные": "BinaryData",
+    "хранилищезначений": "ValueStorage",
+    "uuid": "UUID",
+    "уникальныйидентификатор": "UUID",
+    "integer": "Number(10,0)",
+    "int": "Number(10,0)",
+    "int4": "Number(10,0)",
+    "bigint": "Number(19,0)",
+    "int8": "Number(19,0)",
+    "smallint": "Number(5,0)",
+    "int2": "Number(5,0)",
+    "varchar": "String",
+    "character varying": "String",
+    "numeric": "Number",
+    "timestamp": "DateTime",
+    "bytea": "BinaryData",
+    "таблицазначений": "ValueTable",
+    "деревозначений": "ValueTree",
+    "списокзначений": "ValueListType",
+    "стандартныйпериод": "StandardPeriod",
+    "внешнийисточникданныхтаблицассылка": "ExternalDataSourceTableRef",
+}
+
+# Платформенные типы, требующие префикса v8: (коллекции/периоды, частые в реквизитах
+# обработок и отчётов, где набор типов шире, чем у хранимых объектов). Копия реестра meta-compile.
+V8_PLATFORM_TYPES = {
+    "ValueTable", "ValueTree", "ValueList", "ValueListType", "StandardPeriod",
+    "StandardBeginningDate", "PointInTime", "TypeDescription", "FixedArray", "FixedMap",
+    "FixedStructure",
 }
 
 # ============================================================
@@ -666,6 +701,54 @@ def build_type_content_xml(indent, type_str):
         lines.append(f"{indent}</v8:DateQualifiers>")
         return "\r\n".join(lines)
 
+    # Time — третья доля даты, наравне с Date/DateTime.
+    if type_str == "Time":
+        lines.append(f"{indent}<v8:Type>xs:dateTime</v8:Type>")
+        lines.append(f"{indent}<v8:DateQualifiers>")
+        lines.append(f"{indent}\t<v8:DateFractions>Time</v8:DateFractions>")
+        lines.append(f"{indent}</v8:DateQualifiers>")
+        return "\r\n".join(lines)
+
+    # UUID
+    if type_str == "UUID":
+        lines.append(f"{indent}<v8:Type>v8:UUID</v8:Type>")
+        return "\r\n".join(lines)
+
+    # BinaryData — xs:base64Binary СО своими квалификаторами (в отличие от ХранилищаЗначения).
+    # Формы и умолчание — как в meta-compile, который здесь авторитет системы типов.
+    if re.match(r"^BinaryData(\(|$)", type_str, re.I):
+        m_bin = re.match(r"^BinaryData(?:\((\d+)(?:,\s*(fixed|variable))?\))?$", type_str, re.I)
+        if not m_bin:
+            print(f"Неверный тип '{type_str}': ждётся BinaryData, BinaryData(Длина) или BinaryData(Длина,fixed|variable).", file=sys.stderr)
+            sys.exit(1)
+        blen = m_bin.group(1) or "4294967292"
+        if m_bin.group(2):
+            ballowed = "Fixed" if m_bin.group(2).lower() == "fixed" else "Variable"
+        else:
+            ballowed = "Variable" if m_bin.group(1) else "Fixed"
+        lines.append(f"{indent}<v8:Type>xs:base64Binary</v8:Type>")
+        lines.append(f"{indent}<v8:BinaryDataQualifiers>")
+        lines.append(f"{indent}\t<v8:Length>{blen}</v8:Length>")
+        lines.append(f"{indent}\t<v8:AllowedLength>{ballowed}</v8:AllowedLength>")
+        lines.append(f"{indent}</v8:BinaryDataQualifiers>")
+        return "\r\n".join(lines)
+
+    # Платформенные типы (коллекции/периоды) — префикс v8:, объявлен в шапке файла.
+    if type_str in V8_PLATFORM_TYPES:
+        lines.append(f"{indent}<v8:Type>v8:{type_str}</v8:Type>")
+        return "\r\n".join(lines)
+
+    # Характеристика ПВХ — множество типов, как и ОпределяемыйТип.
+    if re.match(r"^Characteristic\.(.+)$", type_str):
+        lines.append(f"{indent}<v8:TypeSet>cfg:{type_str}</v8:TypeSet>")
+        return "\r\n".join(lines)
+
+    # Голый метатип-категория без имени объекта — «любой объект категории», это TypeSet.
+    if re.match(r"^(CatalogRef|DocumentRef|EnumRef|ChartOfAccountsRef|ChartOfCharacteristicTypesRef|"
+                r"ChartOfCalculationTypesRef|ExchangePlanRef|BusinessProcessRef|TaskRef|AnyRef|AnyIBRef)$", type_str):
+        lines.append(f"{indent}<v8:TypeSet>cfg:{type_str}</v8:TypeSet>")
+        return "\r\n".join(lines)
+
     # DefinedType
     m = re.match(r"^DefinedType\.(.+)$", type_str)
     if m:
@@ -682,7 +765,8 @@ def build_type_content_xml(indent, type_str):
     # объявление не добавит, так что иначе получился бы неразрешимый префикс.
     m = re.match(
         r"^(CatalogRef|DocumentRef|EnumRef|ChartOfAccountsRef|ChartOfCharacteristicTypesRef|"
-        r"ChartOfCalculationTypesRef|ExchangePlanRef|BusinessProcessRef|TaskRef)\.(.+)$",
+        r"ChartOfCalculationTypesRef|ExchangePlanRef|BusinessProcessRef|BusinessProcessRoutePointRef|"
+        r"TaskRef|ExternalDataSourceTableRef)\.(.+)$",
         type_str,
     )
     if m:

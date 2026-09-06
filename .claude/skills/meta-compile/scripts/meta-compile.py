@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-compile v1.109 — Compile 1C metadata object from JSON
+# meta-compile v1.110 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -743,6 +743,23 @@ type_synonyms = {
     'хранилищезначения': 'ValueStorage',
     'uuid': 'UUID',
     'уникальныйидентификатор': 'UUID',
+    # Типы СУБД — прощающий ввод: модель, проектирующая внешний источник по схеме БД, пишет типы
+    # так, как они названы в information_schema. Соответствие замерено на стенде PostgreSQL: то же
+    # самое даёт Конфигуратор при импорте структуры таблицы. Только однозначные: boolean НЕ включён
+    # (в DSL это уже Булево, а psqlODBC при импорте отдаёт Строка(5) — два разных смысла), как и
+    # text/real/money/json — для них замера нет.
+    'integer': 'Number(10,0)',
+    'int': 'Number(10,0)',
+    'int4': 'Number(10,0)',
+    'bigint': 'Number(19,0)',
+    'int8': 'Number(19,0)',
+    'smallint': 'Number(5,0)',
+    'int2': 'Number(5,0)',
+    'varchar': 'String',
+    'character varying': 'String',
+    'numeric': 'Number',
+    'timestamp': 'DateTime',
+    'bytea': 'BinaryData',
     # Reference synonyms (Russian, lowercase)
     'справочникссылка': 'CatalogRef',
     'документссылка': 'DocumentRef',

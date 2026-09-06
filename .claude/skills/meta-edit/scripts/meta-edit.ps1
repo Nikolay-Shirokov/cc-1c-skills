@@ -1,4 +1,4 @@
-﻿# meta-edit v1.50 — Edit existing 1C metadata object XML
+﻿# meta-edit v1.51 — Edit existing 1C metadata object XML
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -502,6 +502,38 @@ $script:typeSynonyms["catalogref"]                    = "CatalogRef"
 $script:typeSynonyms["documentref"]                   = "DocumentRef"
 $script:typeSynonyms["enumref"]                       = "EnumRef"
 
+# Платформенные типы, требующие префикса v8: (коллекции/периоды, частые в реквизитах
+# обработок и отчётов, где набор типов шире, чем у хранимых объектов). Копия реестра meta-compile.
+$script:v8PlatformTypes = @("ValueTable","ValueTree","ValueList","ValueListType","StandardPeriod",
+	"StandardBeginningDate","PointInTime","TypeDescription","FixedArray","FixedMap","FixedStructure")
+# Ниже — записи, которых в этом навыке не было: словарь дополнен до набора meta-compile,
+# который является авторитетом. Расхождение держит tests/skills/check-type-synonyms.mjs.
+$script:typeSynonyms["время"] = "Time"
+$script:typeSynonyms["time"] = "Time"
+$script:typeSynonyms["base64binary"] = "ValueStorage"
+$script:typeSynonyms["binarydata"] = "BinaryData"
+$script:typeSynonyms["двоичныеданные"] = "BinaryData"
+$script:typeSynonyms["хранилищезначений"] = "ValueStorage"
+$script:typeSynonyms["uuid"] = "UUID"
+$script:typeSynonyms["уникальныйидентификатор"] = "UUID"
+$script:typeSynonyms["integer"] = "Number(10,0)"
+$script:typeSynonyms["int"] = "Number(10,0)"
+$script:typeSynonyms["int4"] = "Number(10,0)"
+$script:typeSynonyms["bigint"] = "Number(19,0)"
+$script:typeSynonyms["int8"] = "Number(19,0)"
+$script:typeSynonyms["smallint"] = "Number(5,0)"
+$script:typeSynonyms["int2"] = "Number(5,0)"
+$script:typeSynonyms["varchar"] = "String"
+$script:typeSynonyms["character varying"] = "String"
+$script:typeSynonyms["numeric"] = "Number"
+$script:typeSynonyms["timestamp"] = "DateTime"
+$script:typeSynonyms["bytea"] = "BinaryData"
+$script:typeSynonyms["таблицазначений"] = "ValueTable"
+$script:typeSynonyms["деревозначений"] = "ValueTree"
+$script:typeSynonyms["списокзначений"] = "ValueListType"
+$script:typeSynonyms["стандартныйпериод"] = "StandardPeriod"
+$script:typeSynonyms["внешнийисточникданныхтаблицассылка"] = "ExternalDataSourceTableRef"
+
 # ============================================================
 # Section 4: Type system
 # ============================================================
@@ -649,6 +681,58 @@ function Build-TypeContentXml {
 		return $sb.ToString().TrimEnd("`r","`n")
 	}
 
+	# Time — третья доля даты, наравне с Date/DateTime.
+	if ($typeStr -eq "Time") {
+		$sb.AppendLine("$indent<v8:Type>xs:dateTime</v8:Type>") | Out-Null
+		$sb.AppendLine("$indent<v8:DateQualifiers>") | Out-Null
+		$sb.AppendLine("$indent`t<v8:DateFractions>Time</v8:DateFractions>") | Out-Null
+		$sb.AppendLine("$indent</v8:DateQualifiers>") | Out-Null
+		return $sb.ToString().TrimEnd("`r","`n")
+	}
+
+	# UUID
+	if ($typeStr -eq "UUID") {
+		$sb.AppendLine("$indent<v8:Type>v8:UUID</v8:Type>") | Out-Null
+		return $sb.ToString().TrimEnd("`r","`n")
+	}
+
+	# BinaryData — xs:base64Binary СО своими квалификаторами (в отличие от ХранилищаЗначения).
+	# Формы и умолчание — как в meta-compile, который здесь авторитет системы типов.
+	if ($typeStr -match '^BinaryData(\(|$)') {
+		$bm = [regex]::Match($typeStr, '^BinaryData(\((\d+)(,\s*(fixed|variable))?\))?$', 'IgnoreCase')
+		if (-not $bm.Success) {
+			Write-Error "Неверный тип '$typeStr': ждётся BinaryData, BinaryData(Длина) или BinaryData(Длина,fixed|variable)."
+			exit 1
+		}
+		$blen = if ($bm.Groups[2].Success) { $bm.Groups[2].Value } else { "4294967292" }
+		$ballowed = if ($bm.Groups[4].Success) { if ($bm.Groups[4].Value.ToLowerInvariant() -eq "fixed") { "Fixed" } else { "Variable" } }
+			elseif ($bm.Groups[2].Success) { "Variable" } else { "Fixed" }
+		$sb.AppendLine("$indent<v8:Type>xs:base64Binary</v8:Type>") | Out-Null
+		$sb.AppendLine("$indent<v8:BinaryDataQualifiers>") | Out-Null
+		$sb.AppendLine("$indent`t<v8:Length>$blen</v8:Length>") | Out-Null
+		$sb.AppendLine("$indent`t<v8:AllowedLength>$ballowed</v8:AllowedLength>") | Out-Null
+		$sb.AppendLine("$indent</v8:BinaryDataQualifiers>") | Out-Null
+		return $sb.ToString().TrimEnd("`r","`n")
+	}
+
+	# Платформенные типы (коллекции/периоды) — префикс v8:, объявлен в шапке файла.
+	if ($script:v8PlatformTypes -contains $typeStr) {
+		$sb.AppendLine("$indent<v8:Type>v8:$typeStr</v8:Type>") | Out-Null
+		return $sb.ToString().TrimEnd("`r","`n")
+	}
+
+	# Характеристика ПВХ — множество типов, как и ОпределяемыйТип.
+	if ($typeStr -match '^Characteristic\.(.+)$') {
+		$sb.AppendLine("$indent<v8:TypeSet>cfg:$typeStr</v8:TypeSet>") | Out-Null
+		return $sb.ToString().TrimEnd("`r","`n")
+	}
+
+	# Голый метатип-категория без имени объекта — «любой объект категории», это TypeSet.
+	if ($typeStr -match '^(CatalogRef|DocumentRef|EnumRef|ChartOfAccountsRef|ChartOfCharacteristicTypesRef|ChartOfCalculationTypesRef|ExchangePlanRef|BusinessProcessRef|TaskRef|AnyRef|AnyIBRef)$') {
+		$sb.AppendLine("$indent<v8:TypeSet>cfg:$typeStr</v8:TypeSet>") | Out-Null
+		return $sb.ToString().TrimEnd("`r","`n")
+	}
+
 	# DefinedType
 	if ($typeStr -match '^DefinedType\.(.+)$') {
 		$dtName = $Matches[1]
@@ -663,7 +747,7 @@ function Build-TypeContentXml {
 	# Если корень URI не объявляет (файл не от платформы), остаёмся на самодостаточной
 	# локальной форме: префикс тут — ТЕКСТ узла, XML-слой про него не знает и сам
 	# объявление не добавит, так что иначе получился бы неразрешимый префикс.
-	if ($typeStr -match '^(CatalogRef|DocumentRef|EnumRef|ChartOfAccountsRef|ChartOfCharacteristicTypesRef|ChartOfCalculationTypesRef|ExchangePlanRef|BusinessProcessRef|TaskRef)\.(.+)$') {
+	if ($typeStr -match '^(CatalogRef|DocumentRef|EnumRef|ChartOfAccountsRef|ChartOfCharacteristicTypesRef|ChartOfCalculationTypesRef|ExchangePlanRef|BusinessProcessRef|BusinessProcessRoutePointRef|TaskRef|ExternalDataSourceTableRef)\.(.+)$') {
 		if ($script:cfgPrefix) {
 			$sb.AppendLine("$indent<v8:Type>$($script:cfgPrefix):$typeStr</v8:Type>") | Out-Null
 		} else {
