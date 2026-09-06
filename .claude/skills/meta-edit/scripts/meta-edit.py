@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-edit v1.49 — Edit existing 1C metadata object XML
+# meta-edit v1.50 — Edit existing 1C metadata object XML
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -757,17 +757,23 @@ def import_fragment(xml_string):
 
 def get_child_indent(container):
     """Detect indentation of children inside a container element."""
+    # В контейнере с детьми первый пробельный узел — это отступ ПЕРЕД первым ребёнком.
+    # В пустом (только что раскрытом) единственный пробельный узел — отступ ЗАКРЫВАЮЩЕГО
+    # тега, то есть уровень самого контейнера: ребёнку нужен на табуляцию глубже. Без этой
+    # поправки первый ребёнок вставал вровень с <ChildObjects>.
+    has_elements = len(container) > 0
+    extra = "" if has_elements else "\t"
     # Check container.text (text before first child)
     if container.text and "\n" in container.text:
         after_nl = container.text.rsplit("\n", 1)[-1]
         if after_nl and not after_nl.strip():
-            return after_nl
+            return after_nl + extra
     # Check tail of child elements
     for child in container:
         if child.tail and "\n" in child.tail:
             after_nl = child.tail.rsplit("\n", 1)[-1]
             if after_nl and not after_nl.strip():
-                return after_nl
+                return after_nl + extra
     # Fallback: count depth
     depth = 0
     current = container

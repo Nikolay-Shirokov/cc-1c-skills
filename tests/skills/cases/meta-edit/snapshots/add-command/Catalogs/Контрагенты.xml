@@ -87,27 +87,27 @@
 			<ExecuteAfterWriteDataHistoryVersionProcessing>false</ExecuteAfterWriteDataHistoryVersionProcessing>
 		</Properties>
 		<ChildObjects>
-		<Command uuid="UUID-012">
-			<Properties>
-				<Name>ОткрытьДосье</Name>
-				<Synonym>
-					<v8:item>
-						<v8:lang>ru</v8:lang>
-						<v8:content>Открыть досье</v8:content>
-					</v8:item>
-				</Synonym>
-				<Comment/>
-				<Group>FormNavigationPanelGoTo</Group>
-				<CommandParameterType/>
-				<ParameterUseMode>Single</ParameterUseMode>
-				<ModifiesData>false</ModifiesData>
-				<Representation>Auto</Representation>
-				<ToolTip/>
-				<Picture/>
-				<Shortcut/>
-				<OnMainServerUnavalableBehavior>Auto</OnMainServerUnavalableBehavior>
-			</Properties>
-		</Command>
+			<Command uuid="UUID-012">
+				<Properties>
+					<Name>ОткрытьДосье</Name>
+					<Synonym>
+						<v8:item>
+							<v8:lang>ru</v8:lang>
+							<v8:content>Открыть досье</v8:content>
+						</v8:item>
+					</Synonym>
+					<Comment/>
+					<Group>FormNavigationPanelGoTo</Group>
+					<CommandParameterType/>
+					<ParameterUseMode>Single</ParameterUseMode>
+					<ModifiesData>false</ModifiesData>
+					<Representation>Auto</Representation>
+					<ToolTip/>
+					<Picture/>
+					<Shortcut/>
+					<OnMainServerUnavalableBehavior>Auto</OnMainServerUnavalableBehavior>
+				</Properties>
+			</Command>
 		</ChildObjects>
 	</Catalog>
 </MetaDataObject>

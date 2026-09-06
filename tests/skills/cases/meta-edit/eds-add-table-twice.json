@@ -7,21 +7,61 @@
       "input": {
         "type": "ExternalDataSource",
         "name": "PG",
-        "tables": { "products": { "keyFields": ["id"], "fields": ["id: Number(10,0)"] } }
+        "tables": {
+          "products": {
+            "keyFields": [
+              "id"
+            ],
+            "fields": [
+              "id: Number(10,0)"
+            ]
+          }
+        }
       },
-      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+      "args": {
+        "-JsonPath": "{inputFile}",
+        "-OutputDir": "{workDir}"
+      }
     },
     {
       "script": "meta-edit/scripts/meta-edit",
-      "input": { "add": { "tables": { "sales": ["id: Number(10,0)"] } } },
-      "args": { "-DefinitionFile": "{inputFile}", "-ObjectPath": "{workDir}/ExternalDataSources/PG.xml" }
+      "input": {
+        "add": {
+          "tables": {
+            "sales": [
+              "id: Number(10,0)"
+            ]
+          }
+        }
+      },
+      "args": {
+        "-DefinitionFile": "{inputFile}",
+        "-ObjectPath": "{workDir}/ExternalDataSources/PG.xml"
+      }
     },
-    { "deletePath": "ExternalDataSources/PG/Tables/sales.xml" }
+    {
+      "deletePath": "ExternalDataSources/PG/Tables/sales.xml"
+    }
   ],
-  "params": { "objectPath": "ExternalDataSources/PG.xml" },
-  "input": { "add": { "tables": { "sales": ["id: Number(10,0)"] } } },
+  "params": {
+    "objectPath": "ExternalDataSources/PG.xml"
+  },
+  "input": {
+    "add": {
+      "tables": {
+        "sales": [
+          "id: Number(10,0)"
+        ]
+      }
+    }
+  },
   "expect": {
-    "stdoutContains": ["already exists"],
-    "filesAbsent": ["ExternalDataSources/PG/Tables/sales.xml"]
-  }
+    "stdoutContains": [
+      "already exists"
+    ],
+    "filesAbsent": [
+      "ExternalDataSources/PG/Tables/sales.xml"
+    ]
+  },
+  "skipPlatformVerify": "кейс нарочно удаляет файл таблицы, оставляя висячую регистрацию: такую конфигурацию платформа не загрузит по условию кейса, а не из-за дефекта навыка"
 }

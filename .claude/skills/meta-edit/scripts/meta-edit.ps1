@@ -1,4 +1,4 @@
-﻿# meta-edit v1.49 — Edit existing 1C metadata object XML
+﻿# meta-edit v1.50 — Edit existing 1C metadata object XML
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -749,11 +749,21 @@ function Import-Fragment([string]$xmlString) {
 }
 
 function Get-ChildIndent($container) {
+	# В контейнере с детьми первый пробельный узел — это отступ ПЕРЕД первым ребёнком.
+	# В пустом (только что раскрытом) единственный пробельный узел — отступ ЗАКРЫВАЮЩЕГО
+	# тега, то есть уровень самого контейнера: ребёнку нужен на табуляцию глубже. Без этой
+	# поправки первый ребёнок вставал вровень с <ChildObjects>.
+	$hasElements = $false
+	foreach ($child in $container.ChildNodes) {
+		if ($child.NodeType -eq 'Element') { $hasElements = $true; break }
+	}
 	foreach ($child in $container.ChildNodes) {
 		if ($child.NodeType -eq 'Whitespace' -or $child.NodeType -eq 'SignificantWhitespace') {
 			$text = $child.Value
-			if ($text -match '^\r?\n(\t+)$') { return $Matches[1] }
-			if ($text -match '^\r?\n(\t+)') { return $Matches[1] }
+			$found = $null
+			if ($text -match '^\r?\n(\t+)$') { $found = $Matches[1] }
+			elseif ($text -match '^\r?\n(\t+)') { $found = $Matches[1] }
+			if ($null -ne $found) { return $(if ($hasElements) { $found } else { "$found`t" }) }
 		}
 	}
 	# Fallback: count depth
