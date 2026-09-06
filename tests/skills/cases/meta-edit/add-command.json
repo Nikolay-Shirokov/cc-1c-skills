@@ -1,0 +1,45 @@
+{
+  "name": "Команда объекта добавляется целиком (файла у неё нет)",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "Catalog",
+        "name": "Контрагенты"
+      },
+      "args": {
+        "-JsonPath": "{inputFile}",
+        "-OutputDir": "{workDir}"
+      }
+    }
+  ],
+  "params": {
+    "objectPath": "Catalogs/Контрагенты"
+  },
+  "input": {
+    "add": {
+      "commands": [
+        "ОткрытьДосье"
+      ]
+    }
+  },
+  "expect": {
+    "stdoutContains": [
+      "Added command: ОткрытьДосье"
+    ],
+    "fileContains": [
+      {
+        "file": "Catalogs/Контрагенты.xml",
+        "text": [
+          "<Command uuid=",
+          "<ParameterUseMode>Single</ParameterUseMode>",
+          "<ModifiesData>false</ModifiesData>",
+          "<OnMainServerUnavalableBehavior>Auto</OnMainServerUnavalableBehavior>"
+        ]
+      }
+    ],
+    "files": [
+      "Catalogs/Контрагенты/Commands/ОткрытьДосье/Ext/CommandModule.bsl"
+    ]
+  }
+}

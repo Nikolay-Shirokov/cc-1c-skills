@@ -133,15 +133,18 @@ JSON — строки и/или объекты (для групп с вложе�
 Ключи объекта: `name`, `code`, `description`, `isFolder`, `childItems` (дерево). Тип кода (строковый/числовой)
 берётся из объекта автоматически.
 
-## add-enumValue / add-form / add-template / add-command
+## add-enumValue / add-command
 
 Просто имена (batch через `;;`):
 ```powershell
 -Operation add-enumValue -Value "Значение1 ;; Значение2 ;; Значение3"
--Operation add-form -Value "ФормаЭлемента ;; ФормаСписка"
--Operation add-template -Value "ПечатнаяФорма"
 -Operation add-command -Value "Команда1"
 ```
+
+Команда создаётся вместе с заготовкой модуля `Commands/<Имя>/Ext/CommandModule.bsl`.
+
+Формы и макеты этот навык не добавляет и не удаляет — у них есть собственные файлы:
+`form-add` / `form-remove` и `template-add` / `template-remove`.
 
 ## remove-*
 

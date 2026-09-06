@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-edit v1.47 — Edit existing 1C metadata object XML
+# meta-edit v1.48 — Edit existing 1C metadata object XML
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -1478,33 +1478,31 @@ def build_column_fragment(col_def, indent):
     return "\r\n".join(lines)
 
 
-def build_simple_child_fragment(tag_name, name, indent):
-    """Build XML fragment for Form, Template, Command -- just a name wrapper."""
+def build_command_fragment(name, indent):
+    """Build XML fragment for a Command (it has no separate file -- all inline).
+
+    Property order is the platform's -- do not reorder.
+    """
     uid = new_uuid()
     synonym = split_camel_case(name)
     lines = []
-    lines.append(f'{indent}<{tag_name} uuid="{uid}">')
+    lines.append(f'{indent}<Command uuid="{uid}">')
     lines.append(f"{indent}\t<Properties>")
     lines.append(f"{indent}\t\t<Name>{esc_xml_text(name)}</Name>")
     lines.append(build_mltext_xml(f"{indent}\t\t", "Synonym", synonym))
     lines.append(f"{indent}\t\t<Comment/>")
-    # Forms get additional properties
-    if tag_name == "Form":
-        lines.append(f"{indent}\t\t<FormType>Ordinary</FormType>")
-        lines.append(f"{indent}\t\t<IncludeHelpInContents>false</IncludeHelpInContents>")
-        lines.append(f"{indent}\t\t<UsePurposes/>")
-    if tag_name == "Template":
-        lines.append(f"{indent}\t\t<TemplateType>SpreadsheetDocument</TemplateType>")
-    if tag_name == "Command":
-        lines.append(f"{indent}\t\t<Group>FormNavigationPanelGoTo</Group>")
-        lines.append(f"{indent}\t\t<Representation>Auto</Representation>")
-        lines.append(f"{indent}\t\t<ToolTip/>")
-        lines.append(f"{indent}\t\t<Picture/>")
-        lines.append(f"{indent}\t\t<Shortcut/>")
+    lines.append(f"{indent}\t\t<Group>FormNavigationPanelGoTo</Group>")
+    lines.append(f"{indent}\t\t<CommandParameterType/>")
+    lines.append(f"{indent}\t\t<ParameterUseMode>Single</ParameterUseMode>")
+    lines.append(f"{indent}\t\t<ModifiesData>false</ModifiesData>")
+    lines.append(f"{indent}\t\t<Representation>Auto</Representation>")
+    lines.append(f"{indent}\t\t<ToolTip/>")
+    lines.append(f"{indent}\t\t<Picture/>")
+    lines.append(f"{indent}\t\t<Shortcut/>")
+    lines.append(f"{indent}\t\t<OnMainServerUnavalableBehavior>Auto</OnMainServerUnavalableBehavior>")
     lines.append(f"{indent}\t</Properties>")
-    lines.append(f"{indent}</{tag_name}>")
+    lines.append(f"{indent}</Command>")
     return "\r\n".join(lines)
-
 
 # ============================================================
 # Name uniqueness check
@@ -1567,7 +1565,7 @@ valid_child_types = {
 
 # Canonical child order in ChildObjects
 child_order = [
-    "Resource", "Dimension", "Attribute", "TabularSection", "Field", "Function",
+    "Resource", "Dimension", "Attribute", "TabularSection", "Field", "Table", "Function",
     "AccountingFlag", "ExtDimensionAccountingFlag",
     "EnumValue", "Column", "AddressingAttribute", "Recalculation",
     "Form", "Template", "Command",
@@ -2350,26 +2348,42 @@ def process_add(add_def):
                 add_count += 1
                 existing_names[col_name] = "Column"
 
-        elif child_type in ("forms", "templates", "commands"):
-            tag_map = {"forms": "Form", "templates": "Template", "commands": "Command"}
-            tag = tag_map[child_type]
+        elif child_type in ("forms", "templates"):
+            # Форма и макет регистрируются голым текстом (<Form>Имя</Form>) и требуют ещё и
+            # собственных файлов. И то и другое делают form-add / template-add -- дублировать
+            # эту ответственность здесь нельзя: получится висячая регистрация без файла.
+            skill_name = "form-add" if child_type == "forms" else "template-add"
+            what_name = "Форму" if child_type == "forms" else "Макет"
+            warn(
+                f"{what_name} добавляет навык {skill_name} "
+                "(он создаёт и файл, и запись в ChildObjects). "
+                "meta-edit этого не делает — операция пропущена."
+            )
+
+        elif child_type == "commands":
             for item in items:
                 if isinstance(item, str):
                     item_name = item
                 else:
                     item_name = str(item.get("name", ""))
                 if item_name in existing_names:
-                    warn(f"{tag} '{item_name}' already exists, skipping")
+                    warn(f"Command '{item_name}' already exists, skipping")
                     continue
-                fragment_xml = build_simple_child_fragment(tag, item_name, indent)
+                # У команды есть модуль обработчика (Commands/<Имя>/Ext/CommandModule.bsl) — в корпусе
+                # он есть у всех команд без исключения. Пишем ту же заготовку, что и meta-compile.
+                cmd_ext_dir = os.path.join(os.path.dirname(resolved_path), obj_name, "Commands", item_name, "Ext")
+                cmd_mod_path = os.path.join(cmd_ext_dir, "CommandModule.bsl")
+                os.makedirs(cmd_ext_dir, exist_ok=True)
+                with open(cmd_mod_path, "w", encoding="utf-8-sig", newline="") as fh:
+                    fh.write("&НаКлиенте\r\nПроцедура ОбработкаКоманды(ПараметрКоманды, ПараметрыВыполненияКоманды)\r\n\r\n\t// Вставьте обработчик команды.\r\n\r\nКонецПроцедуры\r\n")
+                fragment_xml = build_command_fragment(item_name, indent)
                 nodes = import_fragment(fragment_xml)
-                ref_node = find_insertion_point(tag, {"after": "", "before": ""})
+                ref_node = find_insertion_point("Command", {"after": "", "before": ""})
                 for node in nodes:
                     insert_before_element(child_objects_el, node, ref_node, indent)
-                info(f"Added {tag.lower()}: {item_name}")
+                info(f"Added command: {item_name} ({cmd_mod_path})")
                 add_count += 1
-                existing_names[item_name] = tag
-
+                existing_names[item_name] = "Command"
 
 # ============================================================
 # REMOVE operations
@@ -2387,6 +2401,16 @@ def process_remove(remove_def):
             continue
         if child_type == "properties":
             warn("Cannot remove properties -- use modify instead")
+            continue
+        if child_type in ("forms", "templates"):
+            # Снять регистрацию мало — надо удалить и файлы; это делают form-remove / template-remove.
+            skill_name = "form-remove" if child_type == "forms" else "template-remove"
+            what_name = "Форму" if child_type == "forms" else "Макет"
+            warn(
+                f"{what_name} удаляет навык {skill_name} "
+                "(он убирает и файлы, и запись в ChildObjects). "
+                "meta-edit этого не делает — операция пропущена."
+            )
             continue
 
         xml_tag = child_type_to_xml_tag.get(child_type)

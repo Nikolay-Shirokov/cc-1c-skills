@@ -1,4 +1,4 @@
-﻿# meta-edit v1.47 — Edit existing 1C metadata object XML
+﻿# meta-edit v1.48 — Edit existing 1C metadata object XML
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -904,6 +904,9 @@ function Collapse-ChildObjectsIfEmpty {
 		while ($script:childObjectsEl.HasChildNodes) {
 			$script:childObjectsEl.RemoveChild($script:childObjectsEl.FirstChild) | Out-Null
 		}
+		# XmlDocument помнит, что у узла были дети, и пишет <ChildObjects></ChildObjects>.
+		# Платформа и py-порт дают <ChildObjects/> — сбрасываем флаг явно.
+		$script:childObjectsEl.IsEmpty = $true
 	}
 }
 
@@ -1458,35 +1461,29 @@ function Build-ColumnFragment {
 	return $sb.ToString()
 }
 
-function Build-SimpleChildFragment {
-	param([string]$tagName, [string]$name, [string]$indent)
-	# For Form, Template, Command — just a name wrapper
+function Build-CommandFragment {
+	param([string]$name, [string]$indent)
+	# Команда объекта описывается целиком внутри ChildObjects (отдельного файла у неё нет).
+	# Порядок свойств платформенный — переставлять нельзя.
 	$uuid = New-Guid-String
 	$synonym = Split-CamelCase $name
 	$sb = New-Object System.Text.StringBuilder
-	$sb.AppendLine("$indent<$tagName uuid=`"$uuid`">") | Out-Null
+	$sb.AppendLine("$indent<Command uuid=`"$uuid`">") | Out-Null
 	$sb.AppendLine("$indent`t<Properties>") | Out-Null
 	$sb.AppendLine("$indent`t`t<Name>$(Esc-XmlText $name)</Name>") | Out-Null
 	$sb.AppendLine($(Build-MLTextXml "$indent`t`t" "Synonym" $synonym)) | Out-Null
 	$sb.AppendLine("$indent`t`t<Comment/>") | Out-Null
-	# Forms get additional properties
-	if ($tagName -eq "Form") {
-		$sb.AppendLine("$indent`t`t<FormType>Ordinary</FormType>") | Out-Null
-		$sb.AppendLine("$indent`t`t<IncludeHelpInContents>false</IncludeHelpInContents>") | Out-Null
-		$sb.AppendLine("$indent`t`t<UsePurposes/>") | Out-Null
-	}
-	if ($tagName -eq "Template") {
-		$sb.AppendLine("$indent`t`t<TemplateType>SpreadsheetDocument</TemplateType>") | Out-Null
-	}
-	if ($tagName -eq "Command") {
-		$sb.AppendLine("$indent`t`t<Group>FormNavigationPanelGoTo</Group>") | Out-Null
-		$sb.AppendLine("$indent`t`t<Representation>Auto</Representation>") | Out-Null
-		$sb.AppendLine("$indent`t`t<ToolTip/>") | Out-Null
-		$sb.AppendLine("$indent`t`t<Picture/>") | Out-Null
-		$sb.AppendLine("$indent`t`t<Shortcut/>") | Out-Null
-	}
+	$sb.AppendLine("$indent`t`t<Group>FormNavigationPanelGoTo</Group>") | Out-Null
+	$sb.AppendLine("$indent`t`t<CommandParameterType/>") | Out-Null
+	$sb.AppendLine("$indent`t`t<ParameterUseMode>Single</ParameterUseMode>") | Out-Null
+	$sb.AppendLine("$indent`t`t<ModifiesData>false</ModifiesData>") | Out-Null
+	$sb.AppendLine("$indent`t`t<Representation>Auto</Representation>") | Out-Null
+	$sb.AppendLine("$indent`t`t<ToolTip/>") | Out-Null
+	$sb.AppendLine("$indent`t`t<Picture/>") | Out-Null
+	$sb.AppendLine("$indent`t`t<Shortcut/>") | Out-Null
+	$sb.AppendLine("$indent`t`t<OnMainServerUnavalableBehavior>Auto</OnMainServerUnavalableBehavior>") | Out-Null
 	$sb.AppendLine("$indent`t</Properties>") | Out-Null
-	$sb.Append("$indent</$tagName>") | Out-Null
+	$sb.Append("$indent</Command>") | Out-Null
 	return $sb.ToString()
 }
 
@@ -1576,7 +1573,7 @@ $script:validChildTypes = @{
 
 # Canonical child order in ChildObjects
 $script:childOrder = @(
-	"Resource", "Dimension", "Attribute", "TabularSection", "Field", "Function",
+	"Resource", "Dimension", "Attribute", "TabularSection", "Field", "Table", "Function",
 	"AccountingFlag", "ExtDimensionAccountingFlag",
 	"EnumValue", "Column", "AddressingAttribute", "Recalculation",
 	"Form", "Template", "Command"
@@ -2421,24 +2418,36 @@ function Process-Add($addDef) {
 					$existingNames[$colName] = "Column"
 				}
 			}
-			{ $_ -in @("forms","templates","commands") } {
-				$tagMap = @{ "forms" = "Form"; "templates" = "Template"; "commands" = "Command" }
-				$tag = $tagMap[$childType]
+			{ $_ -in @("forms","templates") } {
+				# Форма и макет регистрируются голым текстом (<Form>Имя</Form>) и требуют ещё и
+				# собственных файлов. И то и другое делают form-add / template-add — дублировать
+				# эту ответственность здесь нельзя: получится висячая регистрация без файла.
+				$skillName = if ($childType -eq "forms") { "form-add" } else { "template-add" }
+				$whatName  = if ($childType -eq "forms") { "Форму" } else { "Макет" }
+				Warn "$whatName добавляет навык $skillName (он создаёт и файл, и запись в ChildObjects). meta-edit этого не делает — операция пропущена."
+			}
+			"commands" {
 				foreach ($item in $items) {
 					$itemName = if ($item -is [string]) { "$item" } else { "$($item.name)" }
 					if ($existingNames.ContainsKey($itemName)) {
-						Warn "$tag '$itemName' already exists, skipping"
+						Warn "Command '$itemName' already exists, skipping"
 						continue
 					}
-					$fragmentXml = Build-SimpleChildFragment $tag $itemName $indent
+					# У команды есть модуль обработчика (Commands/<Имя>/Ext/CommandModule.bsl) — в корпусе
+					# он есть у всех команд без исключения. Пишем ту же заготовку, что и meta-compile.
+					$cmdExtDir = Join-Path (Join-Path (Join-Path (Join-Path (Split-Path -Parent $resolvedPath) $script:objName) "Commands") $itemName) "Ext"
+					$cmdModPath = Join-Path $cmdExtDir "CommandModule.bsl"
+					if (-not (Test-Path $cmdExtDir)) { New-Item -ItemType Directory -Path $cmdExtDir -Force | Out-Null }
+					[System.IO.File]::WriteAllText($cmdModPath, "&НаКлиенте`r`nПроцедура ОбработкаКоманды(ПараметрКоманды, ПараметрыВыполненияКоманды)`r`n`r`n`t// Вставьте обработчик команды.`r`n`r`nКонецПроцедуры`r`n", (New-Object System.Text.UTF8Encoding($true)))
+					$fragmentXml = Build-CommandFragment $itemName $indent
 					$nodes = Import-Fragment $fragmentXml
-					$refNode = Find-InsertionPoint $tag @{ after = ""; before = "" }
+					$refNode = Find-InsertionPoint "Command" @{ after = ""; before = "" }
 					foreach ($node in $nodes) {
 						Insert-BeforeElement $script:childObjectsEl $node $refNode $indent
 					}
-					Info "Added $($tag.ToLower()): $itemName"
+					Info "Added command: $itemName ($cmdModPath)"
 					$script:addCount++
-					$existingNames[$itemName] = $tag
+					$existingNames[$itemName] = "Command"
 				}
 			}
 		}
@@ -2461,6 +2470,13 @@ function Process-Remove($removeDef) {
 		}
 		if ($childType -eq "properties") {
 			Warn "Cannot remove properties — use modify instead"
+			return
+		}
+		if ($childType -in @("forms","templates")) {
+			# Снять регистрацию мало — надо удалить и файлы; это делают form-remove / template-remove.
+			$skillName = if ($childType -eq "forms") { "form-remove" } else { "template-remove" }
+			$whatName  = if ($childType -eq "forms") { "Форму" } else { "Макет" }
+			Warn "$whatName удаляет навык $skillName (он убирает и файлы, и запись в ChildObjects). meta-edit этого не делает — операция пропущена."
 			return
 		}
 

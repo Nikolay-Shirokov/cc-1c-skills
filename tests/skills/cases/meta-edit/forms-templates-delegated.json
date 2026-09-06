@@ -1,0 +1,24 @@
+{
+  "name": "Формы и макеты meta-edit не регистрирует — отсылает к form-add/template-add",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "Catalog", "name": "Контрагенты" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    }
+  ],
+  "params": { "objectPath": "Catalogs/Контрагенты" },
+  "input": {
+    "add": { "forms": ["ФормаЭлемента"], "templates": ["ПечатнаяФорма"] },
+    "remove": { "forms": ["ФормаСписка"] }
+  },
+  "expect": {
+    "stdoutContains": ["form-add", "template-add", "form-remove"],
+    "fileNotContains": [
+      {
+        "file": "Catalogs/Контрагенты.xml",
+        "text": ["<Form", "<Template"]
+      }
+    ]
+  }
+}
