@@ -1,4 +1,4 @@
-﻿# meta-edit v1.48 — Edit existing 1C metadata object XML
+﻿# meta-edit v1.49 — Edit existing 1C metadata object XML
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -2246,7 +2246,7 @@ function Process-Add($addDef) {
 					if ($tv) {
 						foreach ($k in @("characteristics","defaultObjectForm","defaultRecordForm","defaultListForm","defaultChoiceForm")) {
 							if ($tv.$k) {
-								Warn "Ключ '$k' не поддержан при добавлении таблицы: форму назначает form-add, характеристики — meta-compile. Таблица '$tblName' пропущена."
+								Warn "Ключ '$k' не поддержан при добавлении таблицы: форму назначает навык form-add, характеристики — навык meta-compile. Таблица '$tblName' пропущена."
 								$tblName = $null; break
 							}
 						}

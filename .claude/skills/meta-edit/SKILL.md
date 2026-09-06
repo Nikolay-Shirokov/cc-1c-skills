@@ -35,60 +35,34 @@ powershell.exe -NoProfile -File "${CLAUDE_SKILL_DIR}/scripts/meta-edit.ps1" -Def
 | DefinitionFile | JSON-файл с операциями (альтернатива Operation) |
 | NoValidate | Не запускать meta-validate после правки |
 
-## Операции — сводная таблица
+## Частые операции
 
-Batch через `;;` во всех операциях. Подробный синтаксис — в файлах по ссылкам.
-
-### Дочерние элементы — [child-operations.md](child-operations.md)
+Batch через `;;` во всех операциях.
 
 | Операция | Формат Value | Пример |
 |----------|-------------|--------|
 | `add-attribute` | `Имя: Тип \| флаги` | `"Сумма: Число(15,2) \| req, index"` |
-| `add-ts` | `ТЧ: Рекв1: Тип1, Рекв2: Тип2` | `"Товары: Ном: CatalogRef.Ном, Кол: Число(15,3)"` |
 | `add-dimension` | `Имя: Тип \| флаги` | `"Организация: CatalogRef.Организации \| master"` |
 | `add-resource` | `Имя: Тип` | `"Сумма: Число(15,2)"` |
-| `add-enumValue` | `Имя` | `"Значение1 ;; Значение2"` |
 | `add-column` | `Имя: Тип` | `"Тип: EnumRef.ТипыДокументов"` |
-| `add-command` | `Имя` | `"ОткрытьДосье"` |
+| `add-ts` | `ТЧ: Рекв1: Тип1, Рекв2: Тип2` | `"Товары: Ном: CatalogRef.Ном, Кол: Число(15,3)"` |
 | `add-ts-attribute` | `ТЧ.Имя: Тип` | `"Товары.Скидка: Число(15,2)"` |
 | `remove-*` | `Имя` | `"СтарыйРеквизит ;; ЕщёОдин"` |
 | `remove-ts-attribute` | `ТЧ.Имя` | `"Товары.УстаревшийРекв"` |
 | `modify-attribute` | `Имя: ключ=значение` | `"СтароеИмя: name=НовоеИмя, type=Строка(500)"` |
 | `modify-ts-attribute` | `ТЧ.Имя: ключ=значение` | `"Товары.Рекв: name=НовоеИмя"` |
 | `modify-ts` | `ТЧ: ключ=значение` | `"Товары: synonym=Товарный состав"` |
+| `modify-property` | `Ключ=Значение` | `"CodeLength=11 ;; DescriptionLength=150"` |
 
 Позиционная вставка: `"Склад: CatalogRef.Склады >> after Организация"`.
 
-Форма — `form-add` / `form-remove`, макет — `template-add` / `template-remove`: кроме записи в `ChildObjects`
-у них есть собственные файлы, и `meta-edit` их не трогает.
-
-`modify-attribute` умеет и структурные свойства реквизита — формат/подсказку, форму и параметры выбора,
-значение заполнения, границы (`Format`, `ChoiceForm`, `ChoiceParameters`, `FillValue`, `MinValue`/`MaxValue` и др.).
-
-### Свойства объекта — [properties-reference.md](properties-reference.md)
-
-| Операция | Формат Value | Пример |
-|----------|-------------|--------|
-| `modify-property` | `Ключ=Значение` | `"CodeLength=11 ;; DescriptionLength=150"` |
-| `add-owner` | `MetaType.Name` | `"Catalog.Контрагенты ;; Catalog.Организации"` |
-| `add-registerRecord` | `MetaType.Name` | `"AccumulationRegister.ОстаткиТоваров"` |
-| `add-basedOn` | `MetaType.Name` | `"Document.ЗаказКлиента"` |
-| `add-inputByString` | `Путь поля` | `"StandardAttribute.Description"` |
-| `set-owners` / `set-registerRecords` / `set-basedOn` / `set-inputByString` | Замена всего списка | `"Catalog.Орг ;; Catalog.Контр"` |
-| `remove-owner` / `remove-registerRecord` / ... | Удаление из списка | `"Catalog.Контрагенты"` |
-
-### JSON DSL — [json-dsl.md](json-dsl.md)
-
-Для комбинированных операций (add + remove + modify в одном файле), синонимы ключей/типов, таблица поддерживаемых объектов.
+Составной тип — через `+`: `"Значение: Строка + Число(15,2) + Дата"`.
 
 ## Быстрые примеры
 
 ```powershell
 # Добавить реквизиты
 -Operation add-attribute -Value "Комментарий: Строка(200) ;; Сумма: Число(15,2) | index"
-
-# Составной тип (несколько типов через +)
--Operation add-attribute -Value "Значение: Строка + Число(15,2) + Дата + CatalogRef.Контрагенты"
 
 # Добавить ТЧ с реквизитами
 -Operation add-ts -Value "Товары: Ном: CatalogRef.Ном | req, Кол: Число(15,3), Цена: Число(15,2)"
@@ -105,6 +79,21 @@ Batch через `;;` во всех операциях. Подробный си�
 # Владельцы справочника
 -Operation set-owners -Value "Catalog.Контрагенты ;; Catalog.Организации"
 ```
+
+## Индекс: что правишь → файл
+
+| Что нужно | Файл |
+|-----------|------|
+| Реквизит, измерение, ресурс, графа: флаги, составные типы, структурные свойства (`Format`, `ChoiceParameters`, `FillValue`, …) | `reference/attributes.md` |
+| Табличная часть и её реквизиты | `reference/tabular-sections.md` |
+| Свойства самого объекта, списочные свойства (владельцы, движения, основание, ввод по строке) | `reference/properties.md` |
+| Предопределённые элементы | `reference/predefined.md` |
+| Значения перечисления, команды | `reference/other-children.md` |
+| Внешний источник данных: поля, таблицы, функции | `reference/external-data-source.md` |
+| Комбинированные операции в одном JSON, синонимы ключей и типов, какие дети допустимы у типа объекта | `reference/json-dsl.md` |
+
+Форму добавляет и удаляет навык `form-add` / `form-remove`, макет — навык `template-add` /
+`template-remove`: кроме записи в `ChildObjects` у них есть собственные файлы, и `meta-edit` их не трогает.
 
 ## Верификация
 

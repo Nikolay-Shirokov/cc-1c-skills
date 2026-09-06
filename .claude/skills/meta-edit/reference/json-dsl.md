@@ -120,7 +120,7 @@ powershell.exe -NoProfile -File ${CLAUDE_SKILL_DIR}/scripts/meta-edit.ps1 -Defin
 | properties | свойства |
 
 Формы и макеты `meta-edit` не добавляет и не удаляет: кроме записи в `ChildObjects` у них есть собственные файлы.
-Форма — `form-add` / `form-remove`, макет — `template-add` / `template-remove`. Команда файла не имеет — её `meta-edit` добавляет сам.
+Форма — навыки `form-add` / `form-remove`, макет — `template-add` / `template-remove`. Команда файла не имеет — её `meta-edit` добавляет сам.
 
 ## Составные типы
 
@@ -150,4 +150,4 @@ powershell.exe -NoProfile -File ${CLAUDE_SKILL_DIR}/scripts/meta-edit.ps1 -Defin
 | ExternalDataSource | tables, functions |
 | Table (таблица внешнего источника) | fields, commands |
 
-У `Constant` добавлять нечего: единственный её ребёнок — форма, а форму добавляет `form-add`.
+У `Constant` добавлять нечего: единственный её ребёнок — форма, а форму добавляет навык `form-add`.

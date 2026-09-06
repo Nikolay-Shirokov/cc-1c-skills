@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-edit v1.48 — Edit existing 1C metadata object XML
+# meta-edit v1.49 — Edit existing 1C metadata object XML
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -2200,7 +2200,7 @@ def process_add(add_def):
                 bad_key = next((k for k in ('characteristics', 'defaultObjectForm', 'defaultRecordForm',
                                             'defaultListForm', 'defaultChoiceForm') if tv.get(k)), None)
                 if bad_key:
-                    warn(f"Ключ '{bad_key}' не поддержан при добавлении таблицы: форму назначает form-add, характеристики — meta-compile. Таблица '{tbl_name}' пропущена.")
+                    warn(f"Ключ '{bad_key}' не поддержан при добавлении таблицы: форму назначает навык form-add, характеристики — навык meta-compile. Таблица '{tbl_name}' пропущена.")
                     continue
                 if tbl_name in existing_names:
                     warn(f"Table '{tbl_name}' already exists, skipping")

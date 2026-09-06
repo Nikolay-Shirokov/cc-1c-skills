@@ -160,8 +160,12 @@ def scan_skills(skills_dir):
 
 
 def collect_md_files(skill_dir):
-    """Return list of .md files in a skill directory."""
-    return sorted(glob.glob(os.path.join(skill_dir, '*.md')))
+    """Return list of .md files in a skill directory, including subdirectories.
+
+    Команды запуска живут не только в SKILL.md: у навыков с каскадом инструкций
+    они есть и в reference/*.md. Нерекурсивный обход молча оставлял бы их на старом рантайме.
+    """
+    return sorted(glob.glob(os.path.join(skill_dir, '**', '*.md'), recursive=True))
 
 
 def classify_skill_runtime(skill_dir):

@@ -26,7 +26,7 @@ python scripts/switch-to-python.py
 python scripts/switch-to-powershell.py
 ```
 
-Скрипты обрабатывают все `.md` файлы в `.claude/skills/*/` (SKILL.md, json-dsl.md и др.). Идемпотентны — повторный запуск безопасен. Python-only навыки (img-grid) пропускаются при переключении на PowerShell.
+Скрипты обрабатывают все `.md` файлы навыка, включая подкаталоги (SKILL.md, `reference/*.md` и др.). Идемпотентны — повторный запуск безопасен. Python-only навыки (img-grid) пропускаются при переключении на PowerShell.
 
 ## Принцип самодостаточности
 
