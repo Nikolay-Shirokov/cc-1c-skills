@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ClientApplicationInterface xmlns="http://v8.1c.ru/8.2/managed-application/core" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:type="InterfaceLayouter">
+	<top>
+		<panel id="UUID-001">
+			<uuid>UUID-002</uuid>
+		</panel>
+	</top>
+	<left>
+		<panel id="UUID-003">
+			<uuid>UUID-004</uuid>
+		</panel>
+	</left>
+	<panelDef id="UUID-004"/>
+	<panelDef id="UUID-005"/>
+	<panelDef id="UUID-006"/>
+	<panelDef id="UUID-002"/>
+	<panelDef id="UUID-007"/>
+</ClientApplicationInterface>

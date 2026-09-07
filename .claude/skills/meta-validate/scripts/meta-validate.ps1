@@ -1,4 +1,4 @@
-﻿# meta-validate v1.27 — Validate 1C metadata object structure
+﻿# meta-validate v1.28 — Validate 1C metadata object structure
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -1623,6 +1623,106 @@ if ($script:configDir) {
 			Report-OK "16. Reference types: $($checkedRefs.Count) resolved"
 		}
 	}
+}
+
+# --- Check 22: имя типа — грамматика (уровень 1) и словарь по контексту владельца (уровень 2) ---
+# УРОВЕНЬ 1 не зависит ни от версии платформы, ни от состава конфигурации: содержимое <v8:Type>
+# всегда несёт префикс пространства имён (xs:/v8:/cfg:/dNpM:/ent:/…). Голое имя платформа не примет
+# никогда — так выглядит и тип СУБД («varchar(150)»), и опечатка («Srting(20)»).
+# УРОВЕНЬ 2 — словарь: у хранимого объекта набор типов у́же, чем у обработки или отчёта, где
+# доступны ТаблицаЗначений, ОписаниеТипов, Картинка и прочие рантайм-типы. Здесь только
+# предупреждение: список конечен, но пополняется с версиями платформы.
+$knownXsTypes = @("xs:string", "xs:decimal", "xs:boolean", "xs:dateTime", "xs:base64Binary")
+$knownV8Types = @("ValueStorage", "UUID", "Null", "Type", "ValueTable", "ValueTree", "ValueList",
+	"ValueListType", "StandardPeriod", "StandardBeginningDate", "PointInTime", "TypeDescription",
+	"FixedArray", "FixedMap", "FixedStructure", "FillChecking", "Universal")
+# Ссылочные метатипы: с именем объекта (<Метатип>.<Имя>) — конкретный тип, без имени — множество.
+$refMetaTypes = @("CatalogRef", "DocumentRef", "EnumRef", "ChartOfAccountsRef",
+	"ChartOfCharacteristicTypesRef", "ChartOfCalculationTypesRef", "ExchangePlanRef",
+	"BusinessProcessRef", "BusinessProcessRoutePointRef", "TaskRef", "AnyRef", "AnyIBRef")
+# Прочие имена пространства current-config без точки — платформенные, состав конфигурации их не меняет.
+$cfgBareNames = @("ConstantsSet", "ReportBuilder", "FilterCriterion", "DynamicList")
+# Виды, чьи реквизиты ХРАНЯТСЯ в базе: там рантайм-типы недопустимы. У обработки и отчёта — наоборот.
+$storedOwnerTypes = @("Catalog", "Document", "DocumentJournal", "InformationRegister",
+	"AccumulationRegister", "AccountingRegister", "CalculationRegister", "ChartOfAccounts",
+	"ChartOfCharacteristicTypes", "ChartOfCalculationTypes", "ExchangePlan", "BusinessProcess",
+	"Task", "Constant", "Table")
+
+function Test-StorableType([string]$t) {
+	if ($knownXsTypes -contains $t) { return $true }
+	if ($t -eq "v8:ValueStorage" -or $t -eq "v8:UUID" -or $t -eq "v8:Null") { return $true }
+	$m = [regex]::Match($t, '^(?:cfg|d\d+p\d+):(.+)$')
+	if (-not $m.Success) { return $false }
+	$name = $m.Groups[1].Value
+	$base = if ($name.Contains('.')) { $name.Substring(0, $name.IndexOf('.')) } else { $name }
+	if ($refMetaTypes -contains $base) { return $true }
+	if ($base -eq "DefinedType" -or $base -eq "Characteristic" -or $base -eq "ExternalDataSourceTableRef") { return $true }
+	return $false
+}
+
+$typeNodes22 = @($xmlDoc.SelectNodes("//v8:Type", $ns)) + @($xmlDoc.SelectNodes("//v8:TypeSet", $ns))
+# Уровень 2 смотрит только на типы САМИХ реквизитов: параметры команд, характеристики и стандартные
+# реквизиты живут по другим правилам, и мешать их в один котёл нельзя.
+$attrTypePaths = @("Attribute", "Dimension", "Resource", "Column", "Field", "AddressingAttribute",
+	"AccountingFlag", "ExtDimensionAccountingFlag")
+$badGrammar = @{}
+$unknownVocab = @{}
+$notStorable = @{}
+$typesSeen = 0
+foreach ($tn in $typeNodes22) {
+	$t = "$($tn.InnerText)".Trim()
+	if (-not $t) { continue }
+	$typesSeen++
+	if (-not $t.Contains(':')) {
+		$badGrammar[$t] = $true
+		continue
+	}
+	$prefix = $t.Substring(0, $t.IndexOf(':'))
+	$local = $t.Substring($t.IndexOf(':') + 1)
+	if ($prefix -eq "xs") {
+		if ($knownXsTypes -notcontains $t) { $unknownVocab[$t] = $true }
+	} elseif ($prefix -eq "v8") {
+		if ($knownV8Types -notcontains $local) { $unknownVocab[$t] = $true }
+	} elseif ($prefix -eq "cfg" -or $prefix -match '^d\d+p\d+$') {
+		# Имя объекта конфигурации проверяет Check 16; здесь — только форма и платформенная часть.
+		if (-not $local.Contains('.')) {
+			if (($refMetaTypes -notcontains $local) -and ($cfgBareNames -notcontains $local) -and
+			    ($local -notmatch '^[A-Za-z][A-Za-z0-9]*(Object|Manager|List|Selection|RecordSet|RecordKey|RecordManager)$')) {
+				$unknownVocab[$t] = $true
+			}
+		} elseif ($local -notmatch '^[A-Za-z][A-Za-z0-9]*\.[^.]+(\.[^.]+)?$') {
+			$badGrammar[$t] = $true
+		}
+	}
+	# Прочие пространства (ent:, v8ui:, dcs*:, mxl: …) — форму имени не навязываем: там свои словари.
+
+	if ($storedOwnerTypes -contains $mdType) {
+		$owner = $tn.ParentNode          # <Type>
+		$props = if ($owner) { $owner.ParentNode } else { $null }     # <Properties>
+		$child = if ($props) { $props.ParentNode } else { $null }     # <Attribute>/<Field>/…
+		if ($child -and ($attrTypePaths -contains $child.LocalName) -and -not (Test-StorableType $t)) {
+			$notStorable[$t] = $child.LocalName
+		}
+	}
+}
+
+if ($badGrammar.Count -gt 0) {
+	foreach ($bk in ($badGrammar.Keys | Sort-Object)) {
+		Report-Error "22. Тип '$bk' — не имя типа платформы: нет префикса пространства имён либо неверна форма ссылочного типа. При загрузке — «Неизвестное имя типа»"
+	}
+}
+if ($notStorable.Count -gt 0) {
+	foreach ($nk in ($notStorable.Keys | Sort-Object)) {
+		Report-Warn "22. Тип '$nk' у элемента $($notStorable[$nk]) объекта ${mdType}: такие типы бывают у реквизитов обработок и отчётов, но не у хранимых в базе"
+	}
+}
+if ($unknownVocab.Count -gt 0) {
+	foreach ($uk in ($unknownVocab.Keys | Sort-Object)) {
+		Report-Warn "22. Тип '$uk' не в списке известных платформенных типов — проверьте написание (список пополняется с версиями платформы)"
+	}
+}
+if ($badGrammar.Count -eq 0 -and $notStorable.Count -eq 0 -and $unknownVocab.Count -eq 0 -and $typesSeen -gt 0) {
+	Report-OK "22. Type names: $typesSeen checked"
 }
 
 # --- Check 18: свойства, появившиеся в новых версиях формата ---

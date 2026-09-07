@@ -1,4 +1,4 @@
-﻿# meta-compile v1.110 — Compile 1C metadata object from JSON
+﻿# meta-compile v1.111 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -911,8 +911,21 @@ function Emit-TypeContent {
 		return
 	}
 
-	# Fallback — emit as-is
-	X "$indent<v8:Type>$typeStr</v8:Type>"
+	# Имя с готовым префиксом пропускаем как есть: это законный ввод (v8:ValueTable, ent:AccountType,
+	# v8ui:Color …), и своё пространство имён выбрал вызывающий. Правильность имени судит
+	# meta-validate (проверка 22) — там виден весь файл и вид владельца.
+	if ($typeStr.Contains(':')) {
+		X "$indent<v8:Type>$typeStr</v8:Type>"
+		return
+	}
+
+	# Голое имя без префикса и без совпадения с известной формой — не тип платформы. Раньше
+	# такое имя уходило в XML дословно, и отказ приходил только от платформы при загрузке
+	# всей конфигурации — «Неизвестное имя типа», без указания объекта и реквизита.
+	Write-Error ("Неизвестный тип '$typeStr'. Допустимые формы: String(N), Number(D,F), Boolean, " +
+		"Date/DateTime/Time, ValueStorage, UUID, BinaryData; ссылочные <Вид>Ref.<Имя>; " +
+		"DefinedType.<Имя>, Characteristic.<Имя>; типы платформы с префиксом (v8:ValueTable, ent:AccountType).")
+	exit 1
 }
 
 function Emit-ValueType {

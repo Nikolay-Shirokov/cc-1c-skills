@@ -1,4 +1,4 @@
-# meta-validate v1.27 — Validate 1C metadata object structure (Python port)
+# meta-validate v1.28 — Validate 1C metadata object structure (Python port)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import os
@@ -1568,6 +1568,103 @@ if config_dir:
             report_warn(f"16. Ссылочный тип '{uk}' не найден в конфигурации ({unknown_refs[uk]}/)")
         if not absent_refs and not missing_refs and not unknown_refs and checked_refs:
             report_ok(f"16. Reference types: {len(checked_refs)} resolved")
+
+# ── Check 22: имя типа — грамматика (уровень 1) и словарь по контексту владельца (уровень 2) ──
+# УРОВЕНЬ 1 не зависит ни от версии платформы, ни от состава конфигурации: содержимое <v8:Type>
+# всегда несёт префикс пространства имён (xs:/v8:/cfg:/dNpM:/ent:/…). Голое имя платформа не примет
+# никогда — так выглядит и тип СУБД («varchar(150)»), и опечатка («Srting(20)»).
+# УРОВЕНЬ 2 — словарь: у хранимого объекта набор типов у́же, чем у обработки или отчёта, где
+# доступны ТаблицаЗначений, ОписаниеТипов, Картинка и прочие рантайм-типы. Здесь только
+# предупреждение: список конечен, но пополняется с версиями платформы.
+KNOWN_XS_TYPES = {"xs:string", "xs:decimal", "xs:boolean", "xs:dateTime", "xs:base64Binary"}
+KNOWN_V8_TYPES = {
+    "ValueStorage", "UUID", "Null", "Type", "ValueTable", "ValueTree", "ValueList",
+    "ValueListType", "StandardPeriod", "StandardBeginningDate", "PointInTime", "TypeDescription",
+    "FixedArray", "FixedMap", "FixedStructure", "FillChecking", "Universal",
+}
+# Ссылочные метатипы: с именем объекта (<Метатип>.<Имя>) — конкретный тип, без имени — множество.
+REF_META_TYPES = {
+    "CatalogRef", "DocumentRef", "EnumRef", "ChartOfAccountsRef",
+    "ChartOfCharacteristicTypesRef", "ChartOfCalculationTypesRef", "ExchangePlanRef",
+    "BusinessProcessRef", "BusinessProcessRoutePointRef", "TaskRef", "AnyRef", "AnyIBRef",
+}
+# Прочие имена пространства current-config без точки — платформенные, состав конфигурации их не меняет.
+CFG_BARE_NAMES = {"ConstantsSet", "ReportBuilder", "FilterCriterion", "DynamicList"}
+# Виды, чьи реквизиты ХРАНЯТСЯ в базе: там рантайм-типы недопустимы. У обработки и отчёта — наоборот.
+STORED_OWNER_TYPES = {
+    "Catalog", "Document", "DocumentJournal", "InformationRegister", "AccumulationRegister",
+    "AccountingRegister", "CalculationRegister", "ChartOfAccounts", "ChartOfCharacteristicTypes",
+    "ChartOfCalculationTypes", "ExchangePlan", "BusinessProcess", "Task", "Constant", "Table",
+}
+ATTR_TYPE_HOLDERS = {
+    "Attribute", "Dimension", "Resource", "Column", "Field", "AddressingAttribute",
+    "AccountingFlag", "ExtDimensionAccountingFlag",
+}
+
+
+def _is_storable_type(t):
+    if t in KNOWN_XS_TYPES:
+        return True
+    if t in ("v8:ValueStorage", "v8:UUID", "v8:Null"):
+        return True
+    m = re.match(r"^(?:cfg|d\d+p\d+):(.+)$", t)
+    if not m:
+        return False
+    name = m.group(1)
+    base = name.split(".", 1)[0]
+    if base in REF_META_TYPES:
+        return True
+    return base in ("DefinedType", "Characteristic", "ExternalDataSourceTableRef")
+
+
+type_nodes_22 = root.findall(".//v8:Type", NS) + root.findall(".//v8:TypeSet", NS)
+bad_grammar = {}
+unknown_vocab = {}
+not_storable = {}
+types_seen = 0
+for tn in type_nodes_22:
+    t = (tn.text or "").strip()
+    if not t:
+        continue
+    types_seen += 1
+    if ":" not in t:
+        bad_grammar[t] = True
+        continue
+    prefix, local = t.split(":", 1)
+    if prefix == "xs":
+        if t not in KNOWN_XS_TYPES:
+            unknown_vocab[t] = True
+    elif prefix == "v8":
+        if local not in KNOWN_V8_TYPES:
+            unknown_vocab[t] = True
+    elif prefix == "cfg" or re.match(r"^d\d+p\d+$", prefix):
+        # Имя объекта конфигурации проверяет Check 16; здесь — только форма и платформенная часть.
+        if "." not in local:
+            if (local not in REF_META_TYPES and local not in CFG_BARE_NAMES
+                    and not re.match(r"^[A-Za-z][A-Za-z0-9]*(Object|Manager|List|Selection|RecordSet|RecordKey|RecordManager)$", local)):
+                unknown_vocab[t] = True
+        elif not re.match(r"^[A-Za-z][A-Za-z0-9]*\.[^.]+(\.[^.]+)?$", local):
+            bad_grammar[t] = True
+    # Прочие пространства (ent:, v8ui:, dcs*:, mxl: …) — форму имени не навязываем: там свои словари.
+
+    if md_type in STORED_OWNER_TYPES:
+        owner = tn.getparent()                                  # <Type>
+        props = owner.getparent() if owner is not None else None   # <Properties>
+        child = props.getparent() if props is not None else None   # <Attribute>/<Field>/…
+        if child is not None and etree.QName(child).localname in ATTR_TYPE_HOLDERS and not _is_storable_type(t):
+            not_storable[t] = etree.QName(child).localname
+
+for bk in sorted(bad_grammar):
+    report_error(f"22. Тип '{bk}' — не имя типа платформы: нет префикса пространства имён либо "
+                 "неверна форма ссылочного типа. При загрузке — «Неизвестное имя типа»")
+for nk in sorted(not_storable):
+    report_warn(f"22. Тип '{nk}' у элемента {not_storable[nk]} объекта {md_type}: такие типы "
+                "бывают у реквизитов обработок и отчётов, но не у хранимых в базе")
+for uk in sorted(unknown_vocab):
+    report_warn(f"22. Тип '{uk}' не в списке известных платформенных типов — проверьте написание "
+                "(список пополняется с версиями платформы)")
+if not bad_grammar and not not_storable and not unknown_vocab and types_seen:
+    report_ok(f"22. Type names: {types_seen} checked")
 
 # ── Check 18: свойства, появившиеся в новых версиях формата ──
 # Реестр «тег → минимальная версия формата». Служит двум целям: (1) поймать свойство в файле со

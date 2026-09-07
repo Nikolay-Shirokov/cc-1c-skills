@@ -1,0 +1,29 @@
+{
+  "name": "Тип с готовым префиксом проходит как есть",
+  "input": {
+    "type": "DataProcessor",
+    "name": "ОбработкаТест",
+    "attributes": [
+      {
+        "name": "Таблица",
+        "type": "v8:ValueTable"
+      },
+      {
+        "name": "Цвет",
+        "type": "v8ui:Color"
+      }
+    ]
+  },
+  "validatePath": "DataProcessors/ОбработкаТест",
+  "expect": {
+    "fileContains": [
+      {
+        "file": "DataProcessors/ОбработкаТест.xml",
+        "text": [
+          "<v8:Type>v8:ValueTable</v8:Type>",
+          "<v8:Type>v8ui:Color</v8:Type>"
+        ]
+      }
+    ]
+  }
+}

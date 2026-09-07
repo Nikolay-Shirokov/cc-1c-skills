@@ -79,6 +79,23 @@ JSON DSL для описания объектов метаданных конф�
 | `Time` | `xs:dateTime` + DateFractions=Time (только время) |
 | `ValueStorage` | `v8:ValueStorage` (ХранилищеЗначения) |
 | `UUID` | `v8:UUID` (УникальныйИдентификатор) |
+| `BinaryData` или `BinaryData(N[,fixed\|variable])` | `xs:base64Binary` + BinaryDataQualifiers (ДвоичныеДанные) |
+
+Типы СУБД на входе компилятор переводит сам — соответствие замерено на стенде PostgreSQL и совпадает
+с тем, что делает Конфигуратор при импорте структуры таблицы:
+
+| Тип СУБД | Тип 1С | | Тип СУБД | Тип 1С |
+|---|---|---|---|---|
+| `integer`, `int`, `int4` | `Number(10,0)` | | `timestamp` | `DateTime` |
+| `bigint`, `int8` | `Number(19,0)` | | `date` | `Date` |
+| `smallint`, `int2` | `Number(5,0)` | | `uuid` | `UUID` |
+| `varchar(n)`, `character varying(n)` | `String(n)` | | `bytea` | `BinaryData` |
+| `numeric(p,s)`, `decimal(p,s)` | `Number(p,s)` | | | |
+
+Важное ограничение: типы 1С получает ОТ ДРАЙВЕРА ODBC, а не из схемы БД. Поэтому `boolean`
+в список НЕ входит: в DSL это Булево, а psqlODBC при реальном импорте отдаёт `Строка(5)` (опция
+драйвера *Bools as Char*). `text`, `real`, `double precision`, `money`, `json` и массивы не поддержаны —
+для них замера нет.
 
 ### 3.2 Ссылочные типы
 
@@ -96,6 +113,13 @@ JSON DSL для описания объектов метаданных конф�
 | `DefinedType.Xxx` | `cfg:DefinedType.Xxx` (через `v8:TypeSet`) |
 | `Characteristic.Xxx` | `cfg:Characteristic.Xxx` (через `v8:TypeSet`) |
 | `CatalogRef` / `DocumentRef` / … / `AnyRef` / `AnyIBRef` (голый, без имени) | `cfg:<метатип>` (через `v8:TypeSet`) |
+| `BusinessProcessRoutePointRef.Xxx` | `cfg:BusinessProcessRoutePointRef.Xxx` (точка маршрута) |
+| `ExternalDataSourceTableRef.<Источник>.<Таблица>` | `cfg:ExternalDataSourceTableRef.И.Т` (имя трёхчастное) |
+
+
+Ссылаться на таблицу внешнего источника можно, только если у неё `tableDataType: ObjectData`.
+При `NonobjectData` платформа отвечает «Неизвестное имя типа» — хотя категория `Ref` в `GeneratedType`
+такой таблицы объявлена наравне с остальными семью. Замерено на 8.3.24.1691.
 
 **Тип-множество (`v8:TypeSet`)** — тип, подразумевающий набор типов:
 - `DefinedType.Xxx` (Определяемый тип) и `Characteristic.Xxx` (значение Характеристики из ПВХ — «Вид субконто»/

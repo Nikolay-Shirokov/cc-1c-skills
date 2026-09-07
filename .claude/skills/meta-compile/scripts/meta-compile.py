@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-compile v1.110 — Compile 1C metadata object from JSON
+# meta-compile v1.111 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -1022,8 +1022,21 @@ def emit_type_content(indent, type_str):
         else:
             X(f'{indent}<v8:Type xmlns:d5p1="http://v8.1c.ru/8.1/data/enterprise/current-config">d5p1:{type_str}</v8:Type>')
         return
-    # Fallback
-    X(f'{indent}<v8:Type>{type_str}</v8:Type>')
+    # Имя с готовым префиксом пропускаем как есть: это законный ввод (v8:ValueTable, ent:AccountType,
+    # v8ui:Color …), и своё пространство имён выбрал вызывающий. Правильность имени судит
+    # meta-validate (проверка 22) — там виден весь файл и вид владельца.
+    if ':' in type_str:
+        X(f'{indent}<v8:Type>{type_str}</v8:Type>')
+        return
+
+    # Голое имя без префикса и без совпадения с известной формой — не тип платформы. Раньше
+    # такое имя уходило в XML дословно, и отказ приходил только от платформы при загрузке
+    # всей конфигурации — «Неизвестное имя типа», без указания объекта и реквизита.
+    print(f"Неизвестный тип '{type_str}'. Допустимые формы: String(N), Number(D,F), Boolean, "
+          "Date/DateTime/Time, ValueStorage, UUID, BinaryData; ссылочные <Вид>Ref.<Имя>; "
+          "DefinedType.<Имя>, Characteristic.<Имя>; типы платформы с префиксом (v8:ValueTable, ent:AccountType).",
+          file=sys.stderr)
+    sys.exit(1)
 
 def emit_value_type(indent, type_str):
     X(f'{indent}<Type>')

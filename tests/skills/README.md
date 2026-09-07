@@ -105,6 +105,7 @@ node tests/skills/check-inline-drift.mjs --list # реестр: семья → �
 |---|---|
 | `check-enum-drift.mjs` | allowlist-ы значений перечислений: meta-compile (авторитет) ↔ meta-validate ↔ meta-edit |
 | `check-uuid-invariant.mjs` | uuid объекта и сущностей не перегенерируются при правке |
+| `check-type-synonyms.mjs` | словари типов: по общему ключу meta-edit понимает то же, что meta-compile (авторитет) |
 | `check-inline-drift.mjs` | копии общих inline-утилит совпадают с эталонами своих вариантов |
 | `check-type-maps.mjs` | карты типов метаданных согласованы с таблицей `ChildObjects` из `docs/1c-configuration-spec.md` |
 | `check-format-versions.mjs` | проверенный диапазон версий формата: границы одинаковы во всех навыках и сходятся с лестницей из `docs/1c-configuration-spec.md` |

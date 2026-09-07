@@ -1,0 +1,14 @@
+{
+  "name": "Имя типа без префикса пространства имён — ошибка; рантайм-тип у хранимого реквизита — предупреждение",
+  "setup": "fixture:type-no-prefix",
+  "params": { "objectPath": "Catalogs/Вложения.xml" },
+  "expectError": true,
+  "expect": {
+    "stdoutContains": [
+      "22. Тип 'varchar(20)'",
+      "Неизвестное имя типа",
+      "22. Тип 'v8:ValueTable'",
+      "не у хранимых в базе"
+    ]
+  }
+}
