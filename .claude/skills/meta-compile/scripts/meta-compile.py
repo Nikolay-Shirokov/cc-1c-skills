@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-compile v1.111 — Compile 1C metadata object from JSON
+# meta-compile v1.112 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -758,6 +758,7 @@ type_synonyms = {
     'varchar': 'String',
     'character varying': 'String',
     'numeric': 'Number',
+    'decimal': 'Number',
     'timestamp': 'DateTime',
     'bytea': 'BinaryData',
     # Reference synonyms (Russian, lowercase)

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-edit v1.51 — Edit existing 1C metadata object XML
+# meta-edit v1.52 — Edit existing 1C metadata object XML
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -560,6 +560,7 @@ type_synonyms = {
     "varchar": "String",
     "character varying": "String",
     "numeric": "Number",
+    "decimal": "Number",
     "timestamp": "DateTime",
     "bytea": "BinaryData",
     "таблицазначений": "ValueTable",

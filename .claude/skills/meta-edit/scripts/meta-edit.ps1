@@ -1,4 +1,4 @@
-﻿# meta-edit v1.51 — Edit existing 1C metadata object XML
+﻿# meta-edit v1.52 — Edit existing 1C metadata object XML
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -526,6 +526,7 @@ $script:typeSynonyms["int2"] = "Number(5,0)"
 $script:typeSynonyms["varchar"] = "String"
 $script:typeSynonyms["character varying"] = "String"
 $script:typeSynonyms["numeric"] = "Number"
+$script:typeSynonyms["decimal"] = "Number"
 $script:typeSynonyms["timestamp"] = "DateTime"
 $script:typeSynonyms["bytea"] = "BinaryData"
 $script:typeSynonyms["таблицазначений"] = "ValueTable"

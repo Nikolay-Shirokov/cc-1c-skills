@@ -1,4 +1,4 @@
-﻿# meta-compile v1.111 — Compile 1C metadata object from JSON
+﻿# meta-compile v1.112 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -627,6 +627,7 @@ $script:typeSynonyms["int2"]                 = "Number(5,0)"
 $script:typeSynonyms["varchar"]              = "String"
 $script:typeSynonyms["character varying"]    = "String"
 $script:typeSynonyms["numeric"]              = "Number"
+$script:typeSynonyms["decimal"]              = "Number"
 $script:typeSynonyms["timestamp"]            = "DateTime"
 $script:typeSynonyms["bytea"]                = "BinaryData"
 # Платформенные типы, требующие префикса v8: (коллекции/периоды, частые в реквизитах обработок/отчётов).

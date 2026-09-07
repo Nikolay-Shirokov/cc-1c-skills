@@ -15,6 +15,7 @@
           "name: varchar(150)",
           "descr: character varying(50)",
           "price: numeric(15,2)",
+          "price2: decimal(12,3)",
           "created: timestamp",
           "born: date",
           "uid: uuid",
@@ -35,7 +36,8 @@
           "<v8:Length>150</v8:Length>",
           "<v8:DateFractions>DateTime</v8:DateFractions>",
           "<v8:Type>v8:UUID</v8:Type>",
-          "<v8:Type>xs:base64Binary</v8:Type>"
+          "<v8:Type>xs:base64Binary</v8:Type>",
+          "<v8:Digits>12</v8:Digits>"
         ]
       }
     ],

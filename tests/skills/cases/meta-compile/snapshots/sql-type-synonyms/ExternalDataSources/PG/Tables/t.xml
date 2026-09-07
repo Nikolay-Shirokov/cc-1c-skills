@@ -335,6 +335,48 @@
 			</Field>
 			<Field uuid="UUID-024">
 				<Properties>
+					<Name>price2</Name>
+					<Synonym>
+						<v8:item>
+							<v8:lang>ru</v8:lang>
+							<v8:content>price2</v8:content>
+						</v8:item>
+					</Synonym>
+					<Comment/>
+					<Type>
+						<v8:Type>xs:decimal</v8:Type>
+						<v8:NumberQualifiers>
+							<v8:Digits>12</v8:Digits>
+							<v8:FractionDigits>3</v8:FractionDigits>
+							<v8:AllowedSign>Any</v8:AllowedSign>
+						</v8:NumberQualifiers>
+					</Type>
+					<PasswordMode>false</PasswordMode>
+					<Format/>
+					<EditFormat/>
+					<ToolTip/>
+					<MarkNegatives>false</MarkNegatives>
+					<Mask/>
+					<MultiLine>false</MultiLine>
+					<ExtendedEdit>false</ExtendedEdit>
+					<MinValue xsi:nil="true"/>
+					<MaxValue xsi:nil="true"/>
+					<FillFromFillingValue>false</FillFromFillingValue>
+					<FillValue xsi:type="xs:decimal">0</FillValue>
+					<FillChecking>DontCheck</FillChecking>
+					<ChoiceParameterLinks/>
+					<ChoiceParameters/>
+					<QuickChoice>Auto</QuickChoice>
+					<CreateOnInput>Auto</CreateOnInput>
+					<ChoiceHistoryOnInput>Auto</ChoiceHistoryOnInput>
+					<ChoiceForm/>
+					<NameInDataSource>price2</NameInDataSource>
+					<ReadOnly>false</ReadOnly>
+					<AllowNull>false</AllowNull>
+				</Properties>
+			</Field>
+			<Field uuid="UUID-025">
+				<Properties>
 					<Name>created</Name>
 					<Synonym>
 						<v8:item>
@@ -373,7 +415,7 @@
 					<AllowNull>false</AllowNull>
 				</Properties>
 			</Field>
-			<Field uuid="UUID-025">
+			<Field uuid="UUID-026">
 				<Properties>
 					<Name>born</Name>
 					<Synonym>
@@ -413,7 +455,7 @@
 					<AllowNull>false</AllowNull>
 				</Properties>
 			</Field>
-			<Field uuid="UUID-026">
+			<Field uuid="UUID-027">
 				<Properties>
 					<Name>uid</Name>
 					<Synonym>
@@ -450,7 +492,7 @@
 					<AllowNull>false</AllowNull>
 				</Properties>
 			</Field>
-			<Field uuid="UUID-027">
+			<Field uuid="UUID-028">
 				<Properties>
 					<Name>blob</Name>
 					<Synonym>
