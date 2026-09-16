@@ -24,6 +24,7 @@ allowed-tools:
 | JsonPath   | режим 1      | Путь к JSON-определению формы   |
 | OutputPath | да           | Путь к выходному Form.xml       |
 | FromObject | режим 2      | Флаг (без значения) — генерация по метаданным объекта |
+| KeepIdsFrom | нет         | Прежний Form.xml: сохранить его id элементов, реквизитов, колонок, команд и имена companion (может совпадать с OutputPath) |
 
 ## Команда
 
@@ -33,7 +34,23 @@ powershell.exe -NoProfile -File "${CLAUDE_SKILL_DIR}/scripts/form-compile.ps1" -
 
 # Режим from-object (объект и purpose выводятся из OutputPath; Document и Catalog)
 powershell.exe -NoProfile -File "${CLAUDE_SKILL_DIR}/scripts/form-compile.ps1" -FromObject -OutputPath "<.../TypePlural/ObjectName/Forms/FormName/Ext/Form.xml>"
+
+# Пересборка существующей формы (после /form-decompile) с сохранением id
+powershell.exe -NoProfile -File "${CLAUDE_SKILL_DIR}/scripts/form-compile.ps1" -JsonPath "<json>" -OutputPath "<Form.xml>" -KeepIdsFrom "<Form.xml>"
 ```
+
+### Сохранение id (`-KeepIdsFrom`)
+
+Компилятор нумерует id заново и называет companion по шаблону `<Владелец>РасширеннаяПодсказка`. Форма из Конфигуратора
+нумерована иначе (отдельные пулы у элементов, реквизитов и команд), а у старых форм companion часто с английскими именами
+(`СписокExtendedTooltip`) — пересборка без ключа переписывает каждый id и имя. С ключом:
+
+- элементы, реквизиты и команды сохраняют id по имени; колонки — по реквизиту, таблице доп. колонок и имени; companion
+  (ContextMenu, ExtendedTooltip, AutoCommandBar, Search*/ViewStatusAddition) — id и имя по владельцу и тегу;
+- удалённому элементу id не достаётся; новый получает следующий после максимума своего пула в прежней форме, поэтому номер
+  удалённого не переиспользуется; переименованный элемент считается новым;
+- меняются только значения `name`/`id` в открывающих тегах, остальной вывод тот же; при расхождении — `[ERROR]`, exit 1,
+  файл не пишется. Итог в stdout: `[keep-ids] kept: N, companion names restored: N, new: N, removed: N`.
 
 ## JSON DSL — справка
 

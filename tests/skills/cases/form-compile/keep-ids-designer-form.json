@@ -1,0 +1,99 @@
+{
+  "name": "-KeepIdsFrom на месте: форма из Конфигуратора сохраняет id, английские имена companion и отдельные пулы; удалённому id не достаётся, новый — после максимума",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "DataProcessor",
+        "name": "СохранениеИд",
+        "tabularSections": [
+          {
+            "name": "Товары",
+            "attributes": [
+              {
+                "name": "Количество",
+                "type": "Number",
+                "length": 10
+              }
+            ]
+          }
+        ]
+      },
+      "args": {
+        "-JsonPath": "{inputFile}",
+        "-OutputDir": "{workDir}"
+      }
+    },
+    {
+      "script": "form-add/scripts/form-add",
+      "args": {
+        "-ObjectPath": "{workDir}/DataProcessors/СохранениеИд.xml",
+        "-FormName": "Форма"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "DataProcessors/СохранениеИд/Forms/Форма/Ext/Form.xml",
+        "content": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\r\n<Form xmlns=\"http://v8.1c.ru/8.3/xcf/logform\" xmlns:app=\"http://v8.1c.ru/8.2/managed-application/core\" xmlns:cfg=\"http://v8.1c.ru/8.1/data/enterprise/current-config\" xmlns:dcscor=\"http://v8.1c.ru/8.1/data-composition-system/core\" xmlns:dcssch=\"http://v8.1c.ru/8.1/data-composition-system/schema\" xmlns:dcsset=\"http://v8.1c.ru/8.1/data-composition-system/settings\" xmlns:ent=\"http://v8.1c.ru/8.1/data/enterprise\" xmlns:lf=\"http://v8.1c.ru/8.2/managed-application/logform\" xmlns:style=\"http://v8.1c.ru/8.1/data/ui/style\" xmlns:sys=\"http://v8.1c.ru/8.1/data/ui/fonts/system\" xmlns:v8=\"http://v8.1c.ru/8.1/data/core\" xmlns:v8ui=\"http://v8.1c.ru/8.1/data/ui\" xmlns:web=\"http://v8.1c.ru/8.1/data/ui/colors/web\" xmlns:win=\"http://v8.1c.ru/8.1/data/ui/colors/windows\" xmlns:xr=\"http://v8.1c.ru/8.3/xcf/readable\" xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" version=\"2.17\">\r\n\t<Title>\r\n\t\t<v8:item>\r\n\t\t\t<v8:lang>ru</v8:lang>\r\n\t\t\t<v8:content>Сохранение id</v8:content>\r\n\t\t</v8:item>\r\n\t</Title>\r\n\t<AutoTitle>false</AutoTitle>\r\n\t<AutoCommandBar name=\"ФормаКоманднаяПанель\" id=\"-1\"/>\r\n\t<ChildItems>\r\n\t\t<InputField name=\"Комментарий\" id=\"7\">\r\n\t\t\t<DataPath>Комментарий</DataPath>\r\n\t\t\t<ContextMenu name=\"КомментарийContextMenu\" id=\"8\"/>\r\n\t\t\t<ExtendedTooltip name=\"КомментарийExtendedTooltip\" id=\"9\"/>\r\n\t\t</InputField>\r\n\t\t<Table name=\"Товары\" id=\"10\">\r\n\t\t\t<DataPath>Объект.Товары</DataPath>\r\n\t\t\t<ContextMenu name=\"ТоварыContextMenu\" id=\"11\"/>\r\n\t\t\t<AutoCommandBar name=\"ТоварыCommandBar\" id=\"12\"/>\r\n\t\t\t<ExtendedTooltip name=\"ТоварыExtendedTooltip\" id=\"13\"/>\r\n\t\t\t<SearchStringAddition name=\"ТоварыSearchString\" id=\"14\">\r\n\t\t\t\t<AdditionSource>\r\n\t\t\t\t\t<Item>Товары</Item>\r\n\t\t\t\t\t<Type>SearchStringRepresentation</Type>\r\n\t\t\t\t</AdditionSource>\r\n\t\t\t\t<ContextMenu name=\"ТоварыSearchStringContextMenu\" id=\"15\"/>\r\n\t\t\t\t<ExtendedTooltip name=\"ТоварыSearchStringExtendedTooltip\" id=\"16\"/>\r\n\t\t\t</SearchStringAddition>\r\n\t\t\t<ViewStatusAddition name=\"ТоварыViewStatus\" id=\"17\">\r\n\t\t\t\t<AdditionSource>\r\n\t\t\t\t\t<Item>Товары</Item>\r\n\t\t\t\t\t<Type>ViewStatusRepresentation</Type>\r\n\t\t\t\t</AdditionSource>\r\n\t\t\t\t<ContextMenu name=\"ТоварыViewStatusContextMenu\" id=\"18\"/>\r\n\t\t\t\t<ExtendedTooltip name=\"ТоварыViewStatusExtendedTooltip\" id=\"19\"/>\r\n\t\t\t</ViewStatusAddition>\r\n\t\t\t<SearchControlAddition name=\"ТоварыSearchControl\" id=\"20\">\r\n\t\t\t\t<AdditionSource>\r\n\t\t\t\t\t<Item>Товары</Item>\r\n\t\t\t\t\t<Type>SearchControl</Type>\r\n\t\t\t\t</AdditionSource>\r\n\t\t\t\t<ContextMenu name=\"ТоварыSearchControlContextMenu\" id=\"21\"/>\r\n\t\t\t\t<ExtendedTooltip name=\"ТоварыSearchControlExtendedTooltip\" id=\"22\"/>\r\n\t\t\t</SearchControlAddition>\r\n\t\t\t<ChildItems>\r\n\t\t\t\t<InputField name=\"ТоварыКоличество\" id=\"23\">\r\n\t\t\t\t\t<DataPath>Объект.Товары.Количество</DataPath>\r\n\t\t\t\t\t<ContextMenu name=\"ТоварыКоличествоContextMenu\" id=\"24\"/>\r\n\t\t\t\t\t<ExtendedTooltip name=\"ТоварыКоличествоExtendedTooltip\" id=\"25\"/>\r\n\t\t\t\t</InputField>\r\n\t\t\t</ChildItems>\r\n\t\t</Table>\r\n\t\t<Button name=\"Обновить\" id=\"26\">\r\n\t\t\t<CommandName>Form.Command.Обновить</CommandName>\r\n\t\t\t<ExtendedTooltip name=\"ОбновитьExtendedTooltip\" id=\"27\"/>\r\n\t\t</Button>\r\n\t<LabelDecoration name=\"Удаляемое\" id=\"40\"><ContextMenu name=\"УдаляемоеКонтекстноеМеню\" id=\"41\"/><ExtendedTooltip name=\"УдаляемоеРасширеннаяПодсказка\" id=\"42\"/></LabelDecoration>\r\n\t</ChildItems>\r\n\t<Attributes>\r\n\t\t<Attribute name=\"Объект\" id=\"1\">\r\n\t\t\t<Type>\r\n\t\t\t\t<v8:Type>cfg:DataProcessorObject.СохранениеИд</v8:Type>\r\n\t\t\t</Type>\r\n\t\t\t<MainAttribute>true</MainAttribute>\r\n\t\t</Attribute>\r\n\t\t<Attribute name=\"Комментарий\" id=\"2\">\r\n\t\t\t<Title>\r\n\t\t\t\t<v8:item>\r\n\t\t\t\t\t<v8:lang>ru</v8:lang>\r\n\t\t\t\t\t<v8:content>Комментарий</v8:content>\r\n\t\t\t\t</v8:item>\r\n\t\t\t</Title>\r\n\t\t\t<Type>\r\n\t\t\t\t<v8:Type>xs:string</v8:Type>\r\n\t\t\t\t<v8:StringQualifiers>\r\n\t\t\t\t\t<v8:Length>0</v8:Length>\r\n\t\t\t\t\t<v8:AllowedLength>Variable</v8:AllowedLength>\r\n\t\t\t\t</v8:StringQualifiers>\r\n\t\t\t</Type>\r\n\t\t</Attribute>\r\n\t\t</Attributes>\r\n\t<Commands>\r\n\t\t<Command name=\"Обновить\" id=\"1\">\r\n\t\t\t<Title>\r\n\t\t\t\t<v8:item>\r\n\t\t\t\t\t<v8:lang>ru</v8:lang>\r\n\t\t\t\t\t<v8:content>Обновить</v8:content>\r\n\t\t\t\t</v8:item>\r\n\t\t\t</Title>\r\n\t\t\t<Action>ОбновитьОбработка</Action>\r\n\t\t</Command>\r\n\t</Commands>\r\n</Form>"
+      }
+    }
+  ],
+  "params": {
+    "outputPath": "DataProcessors/СохранениеИд/Forms/Форма/Ext/Form.xml"
+  },
+  "args_extra": [
+    "-KeepIdsFrom",
+    "{workDir}/DataProcessors/СохранениеИд/Forms/Форма/Ext/Form.xml"
+  ],
+  "expect": {
+    "stdoutContains": "[keep-ids] kept: 25, companion names restored: 17, new: 4, removed: 3"
+  },
+  "input": {
+    "title": "Сохранение id",
+    "elements": [
+      {
+        "input": "Комментарий",
+        "path": "Комментарий"
+      },
+      {
+        "table": "Товары",
+        "path": "Объект.Товары",
+        "columns": [
+          {
+            "input": "ТоварыКоличество",
+            "path": "Объект.Товары.Количество"
+          }
+        ]
+      },
+      {
+        "input": "Новое",
+        "path": "Новое"
+      },
+      {
+        "button": "Обновить",
+        "command": "Обновить"
+      }
+    ],
+    "attributes": [
+      {
+        "name": "Объект",
+        "type": "DataProcessorObject.СохранениеИд",
+        "main": true
+      },
+      {
+        "name": "Комментарий",
+        "type": "string"
+      },
+      {
+        "name": "Новое",
+        "type": "string"
+      }
+    ],
+    "commands": [
+      {
+        "name": "Обновить",
+        "action": "ОбновитьОбработка"
+      }
+    ]
+  }
+}

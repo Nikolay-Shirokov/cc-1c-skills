@@ -1,4 +1,4 @@
-﻿# form-compile v1.198 — Compile 1C managed form from JSON or object metadata (гвард на группу additionalColumns без ключа columns)
+﻿# form-compile v1.199 — Compile 1C managed form from JSON or object metadata (-KeepIdsFrom: id и имена companion из прежней формы)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -11,7 +11,8 @@ param(
 	[string]$ObjectPath,
 	[string]$Purpose,
 	[string]$Preset = "erp-standard",
-	[string]$EmitDsl
+	[string]$EmitDsl,
+	[string]$KeepIdsFrom
 )
 
 $ErrorActionPreference = "Stop"
@@ -1597,6 +1598,16 @@ if ($FromObject -and $JsonPath) {
 if (-not $FromObject -and -not $JsonPath) {
 	Write-Error "Either -JsonPath or -FromObject is required."
 	exit 1
+}
+
+# -KeepIdsFrom: прежний Form.xml читаем ДО сборки — путь может совпадать с -OutputPath.
+$script:keepIdsOldText = $null
+if ($KeepIdsFrom) {
+	if (-not (Test-Path -LiteralPath $KeepIdsFrom -PathType Leaf)) {
+		[Console]::Error.WriteLine("[ERROR] -KeepIdsFrom: file not found: $KeepIdsFrom")
+		exit 1
+	}
+	$script:keepIdsOldText = [System.IO.File]::ReadAllText((Resolve-Path -LiteralPath $KeepIdsFrom).Path, [System.Text.Encoding]::UTF8)
 }
 
 if ($FromObject) {
@@ -6737,6 +6748,99 @@ Emit-CommandInterface -ci $def.commandInterface -indent "`t"
 # 12j. Close
 X '</Form>'
 
+# --- 12k. -KeepIdsFrom: id и имена companion из прежнего Form.xml ---
+# Компилятор нумерует id заново и называет companion по шаблону <Владелец>РасширеннаяПодсказка. Форма из
+# Конфигуратора нумерована иначе, а у старых форм companion часто с английскими именами (СписокExtendedTooltip),
+# поэтому пересборка без правок переписывала бы каждый id. Сопоставление по имени, у каждого вида свой пул:
+#   элементы — по имени (уникально в форме); companion (ExtendedTooltip, ContextMenu, AutoCommandBar,
+#   Search*/ViewStatusAddition) — по владельцу и тегу, им возвращаются и id, и имя;
+#   реквизиты, команды — по имени; колонки — по реквизиту, таблице доп. колонок и имени.
+# Удалённому элементу id не достаётся; новый получает следующий после максимума пула в прежней форме, так что номер
+# удалённого не переиспользуется. Переименованный элемент — новый. Меняются только значения name/id в открывающих
+# тегах, остальной вывод байт в байт; при расхождении текста и XML — исключение, файл не пишется.
+
+$script:keepIdsCompanionTags = @('ExtendedTooltip', 'ContextMenu', 'AutoCommandBar', 'SearchStringAddition', 'ViewStatusAddition', 'SearchControlAddition')
+
+function Get-FormIdEntries([System.Xml.XmlDocument]$doc) {
+	$entries = New-Object System.Collections.Generic.List[object]
+	$keyOf = @{}
+	foreach ($node in $doc.SelectNodes('//*[@id]')) {
+		$tag = $node.LocalName
+		$name = $node.GetAttribute('name')
+		$parent = $node.PSBase.ParentNode
+		$isCompanion = $script:keepIdsCompanionTags -contains $tag
+		if ($tag -eq 'Attribute') { $pool = 'Attribute'; $key = "Attribute:$name" }
+		elseif ($tag -eq 'Command') { $pool = 'Command'; $key = "Command:$name" }
+		elseif ($tag -eq 'Column') {
+			$pool = 'Column'
+			$attr = $node.SelectSingleNode('ancestor::*[local-name()="Attribute"][1]')
+			$attrName = if ($attr) { $attr.GetAttribute('name') } else { '' }
+			$table = if ($parent.LocalName -eq 'AdditionalColumns') { $parent.GetAttribute('table') } else { '' }
+			$key = "Column:$attrName|$table|$name"
+		}
+		elseif ($isCompanion) {
+			$pool = 'Item'
+			$ownerKey = if ($keyOf.ContainsKey($parent)) { $keyOf[$parent] } else { 'Form' }
+			$key = "$ownerKey/$tag"
+		}
+		else { $pool = 'Item'; $key = "Item:$name" }
+		$keyOf[$node] = $key
+		$entries.Add([pscustomobject]@{ Tag = $tag; Name = $name; Id = [int]$node.GetAttribute('id'); Pool = $pool; Key = $key; Companion = $isCompanion; NewId = $null; NewName = $null })
+	}
+	return ,$entries
+}
+
+function Restore-FormIds([string]$OldText, [string]$NewText) {
+	$oldDoc = New-Object System.Xml.XmlDocument; $oldDoc.LoadXml($OldText)
+	$newDoc = New-Object System.Xml.XmlDocument; $newDoc.LoadXml($NewText)
+	$old = Get-FormIdEntries $oldDoc
+	$new = Get-FormIdEntries $newDoc
+
+	$oldByKey = New-Object 'System.Collections.Generic.Dictionary[string,object]' ([StringComparer]::Ordinal)
+	$ambiguous = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::Ordinal)
+	$maxByPool = @{}
+	foreach ($e in $old) {
+		if ($oldByKey.ContainsKey($e.Key)) { [void]$ambiguous.Add($e.Key) } else { $oldByKey[$e.Key] = $e }
+		if (-not $maxByPool.ContainsKey($e.Pool) -or $e.Id -gt $maxByPool[$e.Pool]) { $maxByPool[$e.Pool] = $e.Id }
+	}
+	$kept = 0; $renamed = 0; $added = 0
+	$newKeys = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::Ordinal)
+	foreach ($e in $new) {
+		[void]$newKeys.Add($e.Key)
+		if ($oldByKey.ContainsKey($e.Key) -and -not $ambiguous.Contains($e.Key)) {
+			$o = $oldByKey[$e.Key]
+			$e.NewId = $o.Id
+			$e.NewName = if ($e.Companion) { $o.Name } else { $e.Name }
+			if ($e.NewName -cne $e.Name) { $renamed++ }
+			$kept++
+		}
+	}
+	foreach ($e in $new) {
+		if ($null -ne $e.NewId) { continue }
+		$next = if ($maxByPool.ContainsKey($e.Pool)) { $maxByPool[$e.Pool] + 1 } else { 1 }
+		$e.NewId = $next; $e.NewName = $e.Name
+		$maxByPool[$e.Pool] = $next
+		$added++
+	}
+	$removed = @($old | Where-Object { -not $newKeys.Contains($_.Key) }).Count
+
+	$tags = [regex]::Matches($NewText, '<([A-Za-z]+) name="([^"]*)" id="(-?\d+)"')
+	if ($tags.Count -ne $new.Count) { throw "$($tags.Count) opening tags with name and id in the text, $($new.Count) nodes with id in XML" }
+	$sb = New-Object System.Text.StringBuilder
+	$pos = 0
+	for ($i = 0; $i -lt $tags.Count; $i++) {
+		$m = $tags[$i]; $e = $new[$i]
+		if ($m.Groups[1].Value -cne $e.Tag -or $m.Groups[2].Value -cne [System.Security.SecurityElement]::Escape($e.Name)) {
+			throw "tag $i <$($m.Groups[1].Value) name=`"$($m.Groups[2].Value)`"> does not match node <$($e.Tag) name=`"$($e.Name)`">"
+		}
+		[void]$sb.Append($NewText, $pos, $m.Index - $pos)
+		[void]$sb.Append('<' + $e.Tag + ' name="' + [System.Security.SecurityElement]::Escape($e.NewName) + '" id="' + $e.NewId + '"')
+		$pos = $m.Index + $m.Length
+	}
+	[void]$sb.Append($NewText, $pos, $NewText.Length - $pos)
+	return [pscustomobject]@{ Text = $sb.ToString(); Kept = $kept; Renamed = $renamed; Added = $added; Removed = $removed }
+}
+
 # --- 13. Write output ---
 
 $outPath = if ([System.IO.Path]::IsPathRooted($OutputPath)) { $OutputPath } else { Join-Path (Get-Location) $OutputPath }
@@ -6745,8 +6849,19 @@ if (-not (Test-Path $outDir)) {
 	New-Item -ItemType Directory -Path $outDir -Force | Out-Null
 }
 
+$outText = $xml.ToString().TrimEnd("`r", "`n")
+if ($null -ne $script:keepIdsOldText) {
+	try { $kept = Restore-FormIds -OldText $script:keepIdsOldText -NewText $outText }
+	catch {
+		[Console]::Error.WriteLine("[ERROR] -KeepIdsFrom: $($_.Exception.Message)")
+		exit 1
+	}
+	$outText = $kept.Text
+	Write-Host "[keep-ids] kept: $($kept.Kept), companion names restored: $($kept.Renamed), new: $($kept.Added), removed: $($kept.Removed)"
+}
+
 $enc = New-Object System.Text.UTF8Encoding($true)
-[System.IO.File]::WriteAllText($outPath, $xml.ToString().TrimEnd("`r", "`n"), $enc)
+[System.IO.File]::WriteAllText($outPath, $outText, $enc)
 
 # --- 13b. Auto-register form in parent object XML ---
 
