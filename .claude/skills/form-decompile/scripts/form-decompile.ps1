@@ -1494,7 +1494,7 @@ function Build-DLParameter {
 		$t = Get-LangText $titleNode
 		if ($null -ne $t) {
 			$auto = Title-FromName -name $name
-			if (-not (($t -is [string]) -and ($t -eq $auto))) { $o['title'] = $t }
+			if (-not (($t -is [string]) -and ($t -ceq $auto))) { $o['title'] = $t }
 		}
 	}
 	# valueType
@@ -2691,7 +2691,7 @@ if ($attrsNode) {
 		if ($tNode) {
 			$t = Get-LangTextWS $tNode   # восстановление значимого пробела (whitespace-заголовок реквизита)
 			if ($null -ne $t) {
-				if ($isMain -or -not ($t -is [string]) -or $t -ne (Title-FromName $ao['name'])) { $ao['title'] = $t }
+				if ($isMain -or -not ($t -is [string]) -or $t -cne (Title-FromName $ao['name'])) { $ao['title'] = $t }
 			}
 		} elseif (-not $isMain) {
 			$ao['title'] = ''

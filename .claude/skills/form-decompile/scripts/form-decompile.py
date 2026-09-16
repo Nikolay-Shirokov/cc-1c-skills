@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# form-decompile v0.150 — Decompile 1C managed Form.xml to JSON DSL (draft)
+# form-decompile v0.151 — Decompile 1C managed Form.xml to JSON DSL (draft)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 # ВНИМАНИЕ: раундтрип не гарантируется. Навык исключён из авто-использования моделью.
 #
@@ -616,12 +616,6 @@ def _ps_truthy(v):
             return _ps_truthy(v[0])
         return True
     return True
-
-
-# Зеркало PowerShell -eq/-ne для строк: регистронезависимое сравнение (PS по умолчанию ignore-case).
-# Нужно там, где сравниваются произвольно-регистровые строки (заголовок vs авто-вывод из имени).
-def _ps_ieq(a, b):
-    return a.lower() == b.lower()
 
 
 # Зеркало PowerShell "$v" (строковая интерполяция): bool→True/False, float без хвостового .0,
@@ -1690,7 +1684,7 @@ def build_dl_parameter(p_node):
         t = get_lang_text(title_node)
         if t is not None:
             auto = title_from_name(name)
-            if not (isinstance(t, str) and _ps_ieq(t, auto)):
+            if not (isinstance(t, str) and t == auto):
                 o['title'] = t
     vt_node = p_node.find('dcssch:valueType', NS)
     type_val = None
@@ -3333,7 +3327,7 @@ def main():
             if t_node is not None:
                 t = get_lang_text_ws(t_node)
                 if t is not None:
-                    if is_main or not isinstance(t, str) or not _ps_ieq(t, title_from_name(ao['name'])):
+                    if is_main or not isinstance(t, str) or t != title_from_name(ao['name']):
                         ao['title'] = t
             elif not is_main:
                 ao['title'] = ''
