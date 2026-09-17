@@ -1,0 +1,15 @@
+{
+  "name": "Поиск: английское имя метода из заголовка",
+  "params": {
+    "v8Path": ".",
+    "cacheDir": "cache"
+  },
+  "args_extra": [
+    "-Search",
+    "Array.Add"
+  ],
+  "expect": {
+    "stdoutContains": "shcntx:objects/catalog2/Array/methods/Add1.html"
+  },
+  "noSnapshot": "навык только читает книги справки и печатает текст; файлы в workDir — копия фикстуры и индекс заголовков"
+}

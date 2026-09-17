@@ -1,0 +1,27 @@
+{
+  "name": "Длинная страница по частям: -Limit и -Offset",
+  "params": {
+    "v8Path": ".",
+    "cacheDir": "cache"
+  },
+  "args_extra": [
+    "-Page",
+    "shcntx:objects/catalog2/Array/methods/Insert1.html",
+    "-Limit",
+    "5",
+    "-Offset",
+    "5"
+  ],
+  "expect": {
+    "stdoutContains": [
+      "- Пункт 1",
+      "- Пункт 5",
+      "[ОБРЕЗАНО] Показано 5 из 25 строк. Используйте -Offset 10 для продолжения."
+    ],
+    "stdoutNotContains": [
+      "Синтетическая длинная страница",
+      "- Пункт 6"
+    ]
+  },
+  "noSnapshot": "навык только читает книги справки и печатает текст; файлы в workDir — копия фикстуры и индекс заголовков"
+}

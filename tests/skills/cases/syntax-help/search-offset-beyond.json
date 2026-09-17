@@ -1,0 +1,17 @@
+{
+  "name": "Offset за пределами вывода — сообщение, не ошибка",
+  "params": {
+    "v8Path": ".",
+    "cacheDir": "cache"
+  },
+  "args_extra": [
+    "-Search",
+    "Массив",
+    "-Offset",
+    "100"
+  ],
+  "expect": {
+    "stdoutContains": "[INFO] Offset 100 exceeds total lines (6)"
+  },
+  "noSnapshot": "навык только читает книги справки и печатает текст; файлы в workDir — копия фикстуры и индекс заголовков"
+}
