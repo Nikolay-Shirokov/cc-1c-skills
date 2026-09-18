@@ -1,4 +1,4 @@
-﻿# meta-info v1.14 — Compact summary of 1C metadata object
+﻿# meta-info v1.15 — Compact summary of 1C metadata object
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -146,6 +146,8 @@ $objectTypeMap = @{
 	"CatalogObject"="СправочникОбъект"; "DocumentObject"="ДокументОбъект"
 	"ChartOfAccountsObject"="ПланСчетовОбъект"
 	"ChartOfCharacteristicTypesObject"="ПВХОбъект"
+	"ChartOfCalculationTypesObject"="ПланВидовРасчетаОбъект"
+	"ConstantValueManager"="КонстантаМенеджерЗначения"
 	"BusinessProcessObject"="БизнесПроцессОбъект"; "TaskObject"="ЗадачаОбъект"
 	"ExchangePlanObject"="ПланОбменаОбъект"
 	"InformationRegisterRecordSet"="НаборЗаписейРС"
@@ -580,6 +582,49 @@ function Format-SourceType([string]$raw) {
 	}
 	if ($raw -match '^cfg:(.+)$') { return $Matches[1] }
 	return $raw
+}
+
+# Источники подписки бывают не только списком типов (v8:Type), но и набором (v8:TypeSet) -
+# определяемым типом или целым классом («все документы»). Без разбора набора подписка на
+# определяемый тип выглядит как подписка без источников.
+function Get-SubscriptionSources($sourceNode) {
+	$types = @()
+	foreach ($t in $sourceNode.SelectNodes("v8:Type", $ns)) { $types += Format-SourceType $t.InnerText }
+	$sets = @()
+	foreach ($t in $sourceNode.SelectNodes("v8:TypeSet", $ns)) {
+		$raw = $t.InnerText -replace '^d\d+p\d+:', 'cfg:'
+		if ($raw -match '^cfg:DefinedType\.(.+)$') {
+			$dtName = $Matches[1]
+			# Корень конфигурации - на два уровня выше EventSubscriptions\<Имя>.xml.
+			$cfgRoot = Split-Path (Split-Path $ObjectPath -Parent) -Parent
+			$dtPath = Join-Path (Join-Path $cfgRoot "DefinedTypes") "$dtName.xml"
+			$members = @()
+			$missing = -not (Test-Path -LiteralPath $dtPath)
+			if (-not $missing) {
+				[xml]$dtDoc = Get-Content -LiteralPath $dtPath -Encoding UTF8
+				$dtNs = New-Object System.Xml.XmlNamespaceManager($dtDoc.NameTable)
+				$dtNs.AddNamespace("md", "http://v8.1c.ru/8.3/MDClasses")
+				$dtNs.AddNamespace("v8", "http://v8.1c.ru/8.1/data/core")
+				$dtType = $dtDoc.SelectSingleNode("/md:MetaDataObject/md:DefinedType/md:Properties/md:Type", $dtNs)
+				if ($dtType) {
+					foreach ($m in $dtType.SelectNodes("v8:Type", $dtNs)) { $members += Format-SourceType $m.InnerText }
+					foreach ($m in $dtType.SelectNodes("v8:TypeSet", $dtNs)) { $members += Format-SingleTypeSet $m.InnerText }
+				}
+			}
+			$sets += [pscustomobject]@{ Label = "ОпределяемыйТип.$dtName"; Members = $members; Missing = $missing; Expandable = $true }
+		} elseif ($raw -match '^cfg:(\w+)$' -and $objectTypeMap.ContainsKey($Matches[1])) {
+			$sets += [pscustomobject]@{ Label = "$($objectTypeMap[$Matches[1]]) (все)"; Members = @(); Missing = $false; Expandable = $false }
+		} else {
+			$sets += [pscustomobject]@{ Label = (Format-SingleTypeSet $raw); Members = @(); Missing = $false; Expandable = $false }
+		}
+	}
+	return [pscustomobject]@{ Types = $types; Sets = $sets }
+}
+
+function Format-SourceSetSummary($set) {
+	if ($set.Missing) { return "$($set.Label) - файла типа нет в выгрузке" }
+	if ($set.Expandable) { return "$($set.Label) (типов: $(@($set.Members).Count))" }
+	return $set.Label
 }
 
 function Get-HTTPEndpoints($childObjs) {
@@ -1061,8 +1106,11 @@ if (-not $drillDone) {
 			}
 			$source = $props.SelectSingleNode("md:Source", $ns)
 			if ($source) {
-				$srcCount = $source.SelectNodes("v8:Type", $ns).Count
-				if ($srcCount -gt 0) { $esParts += "Источники: $srcCount" }
+				$src = Get-SubscriptionSources $source
+				$srcParts = @()
+				if (@($src.Types).Count -gt 0) { $srcParts += "$(@($src.Types).Count)" }
+				foreach ($set in $src.Sets) { $srcParts += $set.Label }
+				if ($srcParts.Count -gt 0) { $esParts += "Источники: " + ($srcParts -join " + ") }
 			}
 			if ($esParts.Count -gt 0) { Out ($esParts -join " | ") }
 		}
@@ -1250,16 +1298,30 @@ if (-not $drillDone) {
 			}
 			$source = $props.SelectSingleNode("md:Source", $ns)
 			if ($source) {
-				$srcTypes = @()
-				foreach ($t in $source.SelectNodes("v8:Type", $ns)) {
-					$srcTypes += Format-SourceType $t.InnerText
-				}
-				if ($srcTypes.Count -gt 0) {
+				$src = Get-SubscriptionSources $source
+				$srcTypes = @($src.Types)
+				$srcSets = @($src.Sets)
+				$srcTotal = $srcTypes.Count + $srcSets.Count
+				if ($srcTotal -gt 0) {
 					if ($Mode -eq "full") {
-						Out "Источники ($($srcTypes.Count)):"
+						Out "Источники ($srcTotal):"
 						foreach ($s in $srcTypes) { Out "  $s" }
+						foreach ($set in $srcSets) {
+							if ($set.Expandable -and -not $set.Missing) {
+								Out "  $(Format-SourceSetSummary $set):"
+								foreach ($m in @($set.Members)) { Out "    $m" }
+							} else {
+								Out "  $(Format-SourceSetSummary $set)"
+							}
+						}
+					} elseif ($srcSets.Count -eq 0) {
+						Out "Источники ($srcTotal)"
 					} else {
-						Out "Источники ($($srcTypes.Count))"
+						# Набор называем и в сводке: по одному числу не видно, что подписка
+						# срабатывает на целый класс объектов или на состав определяемого типа.
+						Out "Источники ($srcTotal):"
+						foreach ($set in $srcSets) { Out "  $(Format-SourceSetSummary $set)" }
+						if ($srcTypes.Count -gt 0) { Out "  и еще типов: $($srcTypes.Count) (-Mode full)" }
 					}
 				}
 			}

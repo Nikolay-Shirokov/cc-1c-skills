@@ -1,0 +1,26 @@
+{
+  "name": "Подписка: источники-наборы в brief - число явных типов и имена наборов",
+  "setup": "empty-config",
+  "preRun": [
+    { "script": "meta-compile/scripts/meta-compile", "input": { "type": "Catalog", "name": "Товары" }, "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" } },
+    { "script": "meta-compile/scripts/meta-compile", "input": { "type": "Document", "name": "Заказ" }, "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" } },
+    { "script": "meta-compile/scripts/meta-compile", "input": { "type": "CommonModule", "name": "Обработчики", "server": true }, "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" } },
+    { "script": "meta-compile/scripts/meta-compile", "input": { "type": "DefinedType", "name": "Коллекция", "valueTypes": ["CatalogObject.Товары", "DocumentObject.Заказ"] }, "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" } },
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "EventSubscription",
+        "name": "Смешанная",
+        "source": ["DocumentObject.Заказ", "DefinedType.Коллекция", "DocumentObject", "ConstantValueManager"],
+        "event": "BeforeWrite",
+        "handler": "Обработчики.ПередЗаписью"
+      },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    }
+  ],
+  "params": { "objectPath": "EventSubscriptions/Смешанная.xml" },
+  "args_extra": ["-Mode", "brief"],
+  "expect": {
+    "stdoutContains": ["Источники: 1 + ОпределяемыйТип.Коллекция + ДокументОбъект (все) + КонстантаМенеджерЗначения (все)"]
+  }
+}

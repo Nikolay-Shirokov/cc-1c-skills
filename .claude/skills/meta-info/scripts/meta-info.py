@@ -1,4 +1,4 @@
-# meta-info v1.14 — Compact summary of 1C metadata object (Python port)
+# meta-info v1.15 — Compact summary of 1C metadata object (Python port)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import os
@@ -219,6 +219,8 @@ object_type_map = {
     "CatalogObject": "СправочникОбъект", "DocumentObject": "ДокументОбъект",
     "ChartOfAccountsObject": "ПланСчетовОбъект",
     "ChartOfCharacteristicTypesObject": "ПВХОбъект",
+    "ChartOfCalculationTypesObject": "ПланВидовРасчетаОбъект",
+    "ConstantValueManager": "КонстантаМенеджерЗначения",
     "BusinessProcessObject": "БизнесПроцессОбъект", "TaskObject": "ЗадачаОбъект",
     "ExchangePlanObject": "ПланОбменаОбъект",
     "InformationRegisterRecordSet": "НаборЗаписейРС",
@@ -654,6 +656,49 @@ def format_source_type(raw):
     if m:
         return m.group(1)
     return raw
+
+
+# Источники подписки бывают не только списком типов (v8:Type), но и набором (v8:TypeSet) -
+# определяемым типом или целым классом («все документы»). Без разбора набора подписка на
+# определяемый тип выглядит как подписка без источников.
+def get_subscription_sources(source_node):
+    types = [format_source_type(inner_text(t)) for t in find_all(source_node, "v8:Type")]
+    sets = []
+    for t in find_all(source_node, "v8:TypeSet"):
+        raw = re.sub(r'^d\d+p\d+:', 'cfg:', inner_text(t))
+        m = re.match(r'^cfg:DefinedType\.(.+)$', raw)
+        if m:
+            dt_name = m.group(1)
+            # Корень конфигурации - на два уровня выше EventSubscriptions/<Имя>.xml.
+            cfg_root = os.path.dirname(os.path.dirname(object_path))
+            dt_path = os.path.join(cfg_root, "DefinedTypes", f"{dt_name}.xml")
+            members = []
+            missing = not os.path.isfile(dt_path)
+            if not missing:
+                dt_root = etree.parse(dt_path, parser_xml).getroot()
+                dt_type = find(dt_root, "/md:MetaDataObject/md:DefinedType/md:Properties/md:Type")
+                if dt_type is not None:
+                    members += [format_source_type(inner_text(x)) for x in find_all(dt_type, "v8:Type")]
+                    members += [format_single_type_set(inner_text(x)) for x in find_all(dt_type, "v8:TypeSet")]
+            sets.append({"label": f"ОпределяемыйТип.{dt_name}", "members": members,
+                         "missing": missing, "expandable": True})
+            continue
+        m = re.match(r'^cfg:(\w+)$', raw)
+        if m and m.group(1) in object_type_map:
+            sets.append({"label": f"{object_type_map[m.group(1)]} (все)", "members": [],
+                         "missing": False, "expandable": False})
+        else:
+            sets.append({"label": format_single_type_set(raw), "members": [],
+                         "missing": False, "expandable": False})
+    return types, sets
+
+
+def format_source_set_summary(s):
+    if s["missing"]:
+        return f"{s['label']} - файла типа нет в выгрузке"
+    if s["expandable"]:
+        return f"{s['label']} (типов: {len(s['members'])})"
+    return s["label"]
 
 
 def get_http_endpoints(child_objs):
@@ -1114,9 +1159,13 @@ if not drill_done:
                 es_parts.append(f"Обработчик: {h_name}")
             source = find(props, "md:Source")
             if source is not None:
-                src_count = len(find_all(source, "v8:Type"))
-                if src_count > 0:
-                    es_parts.append(f"Источники: {src_count}")
+                src_types, src_sets = get_subscription_sources(source)
+                src_parts = []
+                if src_types:
+                    src_parts.append(str(len(src_types)))
+                src_parts += [s["label"] for s in src_sets]
+                if src_parts:
+                    es_parts.append("Источники: " + " + ".join(src_parts))
             if es_parts:
                 out(" | ".join(es_parts))
 
@@ -1283,16 +1332,30 @@ if not drill_done:
                 out(f"Обработчик: {h_name}")
             source = find(props, "md:Source")
             if source is not None:
-                src_types = []
-                for t in find_all(source, "v8:Type"):
-                    src_types.append(format_source_type(inner_text(t)))
-                if src_types:
+                src_types, src_sets = get_subscription_sources(source)
+                src_total = len(src_types) + len(src_sets)
+                if src_total > 0:
                     if mode == "full":
-                        out(f"Источники ({len(src_types)}):")
+                        out(f"Источники ({src_total}):")
                         for s in src_types:
                             out(f"  {s}")
+                        for s in src_sets:
+                            if s["expandable"] and not s["missing"]:
+                                out(f"  {format_source_set_summary(s)}:")
+                                for m3 in s["members"]:
+                                    out(f"    {m3}")
+                            else:
+                                out(f"  {format_source_set_summary(s)}")
+                    elif not src_sets:
+                        out(f"Источники ({src_total})")
                     else:
-                        out(f"Источники ({len(src_types)})")
+                        # Набор называем и в сводке: по одному числу не видно, что подписка
+                        # срабатывает на целый класс объектов или на состав определяемого типа.
+                        out(f"Источники ({src_total}):")
+                        for s in src_sets:
+                            out(f"  {format_source_set_summary(s)}")
+                        if src_types:
+                            out(f"  и еще типов: {len(src_types)} (-Mode full)")
 
         # HTTPService
         if md_type == "HTTPService":
