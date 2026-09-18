@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# form-compile v1.198 — Compile 1C managed form from JSON or object metadata (гвард на группу additionalColumns без ключа columns)
+# form-compile v1.199 — Compile 1C managed form from JSON or object metadata (-KeepIdsFrom: id и имена companion из прежней формы)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import copy
@@ -2251,6 +2251,107 @@ def write_utf8_bom(path, content):
     # и LF на macOS, то есть вывод навыка зависел бы от ОС.
     with open(path, 'w', encoding='utf-8-sig', newline='') as f:
         f.write(content)
+
+
+# --- -KeepIdsFrom: id и имена companion из прежнего Form.xml (зеркало Restore-FormIds в ps1) ---
+# Сопоставление по имени, у каждого вида свой пул: элементы — по имени; companion — по владельцу и тегу
+# (им возвращаются id и имя); реквизиты, команды — по имени; колонки — по реквизиту, таблице доп. колонок
+# и имени. Удалённому id не достаётся, новый — после максимума пула прежней формы. Меняются только значения
+# name/id в открывающих тегах; при расхождении текста и XML — ValueError, файл не пишется.
+
+_KEEP_IDS_COMPANION_TAGS = ('ExtendedTooltip', 'ContextMenu', 'AutoCommandBar',
+                            'SearchStringAddition', 'ViewStatusAddition', 'SearchControlAddition')
+
+
+def _keep_ids_local(tag):
+    return tag.split('}')[-1] if isinstance(tag, str) else ''
+
+
+def _keep_ids_entries(text):
+    root = ET.fromstring(text.encode('utf-8'))
+    parent_of = {child: parent for parent in root.iter() for child in parent}
+    key_of = {}
+    entries = []
+    for node in root.iter():
+        if 'id' not in node.attrib:
+            continue
+        tag = _keep_ids_local(node.tag)
+        name = node.attrib.get('name', '')
+        parent = parent_of.get(node)
+        companion = tag in _KEEP_IDS_COMPANION_TAGS
+        if tag == 'Attribute':
+            pool, key = 'Attribute', 'Attribute:' + name
+        elif tag == 'Command':
+            pool, key = 'Command', 'Command:' + name
+        elif tag == 'Column':
+            pool = 'Column'
+            attr = parent
+            while attr is not None and _keep_ids_local(attr.tag) != 'Attribute':
+                attr = parent_of.get(attr)
+            attr_name = attr.attrib.get('name', '') if attr is not None else ''
+            table = parent.attrib.get('table', '') if parent is not None and _keep_ids_local(parent.tag) == 'AdditionalColumns' else ''
+            key = 'Column:' + attr_name + '|' + table + '|' + name
+        elif companion:
+            pool = 'Item'
+            key = key_of.get(parent, 'Form') + '/' + tag
+        else:
+            pool, key = 'Item', 'Item:' + name
+        key_of[node] = key
+        entries.append({'tag': tag, 'name': name, 'id': int(node.attrib['id']), 'pool': pool,
+                        'key': key, 'companion': companion, 'new_id': None, 'new_name': None})
+    return entries
+
+
+def _keep_ids_escape(s):
+    # Зеркало [System.Security.SecurityElement]::Escape
+    return (s.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+             .replace('"', '&quot;').replace("'", '&apos;'))
+
+
+def restore_form_ids(old_text, new_text):
+    old = _keep_ids_entries(old_text)
+    new = _keep_ids_entries(new_text)
+    old_by_key, ambiguous, max_by_pool = {}, set(), {}
+    for e in old:
+        if e['key'] in old_by_key:
+            ambiguous.add(e['key'])
+        else:
+            old_by_key[e['key']] = e
+        if e['pool'] not in max_by_pool or e['id'] > max_by_pool[e['pool']]:
+            max_by_pool[e['pool']] = e['id']
+    kept = renamed = added = 0
+    new_keys = set()
+    for e in new:
+        new_keys.add(e['key'])
+        o = old_by_key.get(e['key'])
+        if o is not None and e['key'] not in ambiguous:
+            e['new_id'] = o['id']
+            e['new_name'] = o['name'] if e['companion'] else e['name']
+            if e['new_name'] != e['name']:
+                renamed += 1
+            kept += 1
+    for e in new:
+        if e['new_id'] is not None:
+            continue
+        nxt = max_by_pool[e['pool']] + 1 if e['pool'] in max_by_pool else 1
+        e['new_id'], e['new_name'] = nxt, e['name']
+        max_by_pool[e['pool']] = nxt
+        added += 1
+    removed = sum(1 for e in old if e['key'] not in new_keys)
+
+    tags = list(re.finditer(r'<([A-Za-z]+) name="([^"]*)" id="(-?\d+)"', new_text))
+    if len(tags) != len(new):
+        raise ValueError(f"{len(tags)} opening tags with name and id in the text, {len(new)} nodes with id in XML")
+    out, pos = [], 0
+    for i, m in enumerate(tags):
+        e = new[i]
+        if m.group(1) != e['tag'] or m.group(2) != _keep_ids_escape(e['name']):
+            raise ValueError(f"tag {i} <{m.group(1)} name=\"{m.group(2)}\"> does not match node <{e['tag']} name=\"{e['name']}\">")
+        out.append(new_text[pos:m.start()])
+        out.append('<' + e['tag'] + ' name="' + _keep_ids_escape(e['new_name']) + '" id="' + str(e['new_id']) + '"')
+        pos = m.end()
+    out.append(new_text[pos:])
+    return {'text': ''.join(out), 'kept': kept, 'renamed': renamed, 'added': added, 'removed': removed}
 
 
 
@@ -6356,6 +6457,7 @@ def main():
     parser.add_argument('-Purpose', type=str, default=None)
     parser.add_argument('-Preset', type=str, default='erp-standard')
     parser.add_argument('-EmitDsl', type=str, default=None)
+    parser.add_argument('-KeepIdsFrom', type=str, default=None)
     args = ci_parse_args(parser)
 
     # Form name -> purpose mapping
@@ -6377,6 +6479,15 @@ def main():
     if not args.FromObject and not args.JsonPath:
         print("Either -JsonPath or -FromObject is required.", file=sys.stderr)
         sys.exit(1)
+
+    # -KeepIdsFrom: прежний Form.xml читаем ДО сборки — путь может совпадать с -OutputPath.
+    keep_ids_old_text = None
+    if args.KeepIdsFrom:
+        if not os.path.isfile(args.KeepIdsFrom):
+            print(f"[ERROR] -KeepIdsFrom: file not found: {args.KeepIdsFrom}", file=sys.stderr)
+            sys.exit(1)
+        with open(args.KeepIdsFrom, 'r', encoding='utf-8-sig') as f:
+            keep_ids_old_text = f.read()
 
     # Normalize OutputPath in from-object mode: append /Ext/Form.xml if missing
     if args.FromObject:
@@ -6789,6 +6900,14 @@ def main():
         os.makedirs(out_dir, exist_ok=True)
 
     content = '\r\n'.join(lines)
+    if keep_ids_old_text is not None:
+        try:
+            kept = restore_form_ids(keep_ids_old_text, content)
+        except (ValueError, ET.ParseError) as e:
+            print(f"[ERROR] -KeepIdsFrom: {e}", file=sys.stderr)
+            sys.exit(1)
+        content = kept['text']
+        print(f"[keep-ids] kept: {kept['kept']}, companion names restored: {kept['renamed']}, new: {kept['added']}, removed: {kept['removed']}")
     write_utf8_bom(out_path, content)
 
     # --- 4. Auto-register form in parent object XML ---

@@ -44,5 +44,5 @@ JSON-черновик в формате `/form-compile` — **не полное 
 
 1. `/form-decompile <Form.xml> -OutputPath draft.json` — получить черновик.
 2. Поправить JSON под задачу.
-3. `/form-compile -JsonPath draft.json -OutputPath new/Form.xml` — собрать обратно.
+3. `/form-compile -JsonPath draft.json -OutputPath new/Form.xml` — собрать обратно. Пересобирая форму на её же место, добавьте `-KeepIdsFrom <Form.xml>`: id и имена companion останутся прежними, diff сведётся к реальной правке.
 4. `/form-validate` + `/form-info` — проверить результат.

@@ -1,0 +1,91 @@
+{
+  "name": "-KeepIdsFrom на несуществующий файл → [ERROR] exit 1",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "DataProcessor",
+        "name": "СохранениеИд",
+        "tabularSections": [
+          {
+            "name": "Товары",
+            "attributes": [
+              {
+                "name": "Количество",
+                "type": "Number",
+                "length": 10
+              }
+            ]
+          }
+        ]
+      },
+      "args": {
+        "-JsonPath": "{inputFile}",
+        "-OutputDir": "{workDir}"
+      }
+    },
+    {
+      "script": "form-add/scripts/form-add",
+      "args": {
+        "-ObjectPath": "{workDir}/DataProcessors/СохранениеИд.xml",
+        "-FormName": "Форма"
+      }
+    }
+  ],
+  "params": {
+    "outputPath": "DataProcessors/СохранениеИд/Forms/Форма/Ext/Form.xml"
+  },
+  "args_extra": [
+    "-KeepIdsFrom",
+    "{workDir}/нет/Form.xml"
+  ],
+  "expectError": "-KeepIdsFrom: file not found",
+  "input": {
+    "title": "Сохранение id",
+    "elements": [
+      {
+        "input": "Комментарий",
+        "path": "Комментарий"
+      },
+      {
+        "table": "Товары",
+        "path": "Объект.Товары",
+        "columns": [
+          {
+            "input": "ТоварыКоличество",
+            "path": "Объект.Товары.Количество"
+          }
+        ]
+      },
+      {
+        "input": "Новое",
+        "path": "Новое"
+      },
+      {
+        "button": "Обновить",
+        "command": "Обновить"
+      }
+    ],
+    "attributes": [
+      {
+        "name": "Объект",
+        "type": "DataProcessorObject.СохранениеИд",
+        "main": true
+      },
+      {
+        "name": "Комментарий",
+        "type": "string"
+      },
+      {
+        "name": "Новое",
+        "type": "string"
+      }
+    ],
+    "commands": [
+      {
+        "name": "Обновить",
+        "action": "ОбновитьОбработка"
+      }
+    ]
+  }
+}
