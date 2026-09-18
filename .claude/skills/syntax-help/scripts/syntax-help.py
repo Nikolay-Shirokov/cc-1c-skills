@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# syntax-help v1.0 — Search and read the 1C platform syntax helper (.hbk)
+# syntax-help v1.0 — Search and read the 1C platform help (.hbk): syntax helper and other help books
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import glob
@@ -77,7 +77,7 @@ parser = argparse.ArgumentParser(allow_abbrev=False)
 parser.add_argument("-Search", default="")
 parser.add_argument("-Page", default="")
 parser.add_argument("-InText", action="store_true")
-parser.add_argument("-Book", default="shlang,shcntx,shquery")
+parser.add_argument("-Book", default="")
 parser.add_argument("-Language", default="ru")
 parser.add_argument("-V8Path", default="")
 parser.add_argument("-CacheDir", default="")
@@ -186,8 +186,9 @@ class HelpBook:
         self.archive = archive
 
 
-# Страницы книги — zip в элементе FileStorage.
-def open_help_book(book_name):
+# Страницы книги — zip в элементе FileStorage. skip_unreadable — для поиска по всем книгам:
+# нечитаемая книга пропускается с предупреждением, а не обрывает поиск.
+def open_help_book(book_name, skip_unreadable=False):
     path = os.path.join(bin_dir, f"{book_name}_{args.Language}.hbk")
     if not os.path.isfile(path):
         print(f"[ERROR] Help book not found: {path}")
@@ -200,6 +201,9 @@ def open_help_book(book_name):
             raise ValueError("no FileStorage item")
         archive = zipfile.ZipFile(io.BytesIO(read_container_document(data, items["FileStorage"])))
     except Exception as e:
+        if skip_unreadable:
+            print(f"[WARN] Skipped unreadable help book {path}: {e}")
+            return None
         print(f"[ERROR] Cannot read help book {path}: {e}")
         sys.exit(1)
     return HelpBook(book_name, path, archive)
@@ -293,9 +297,26 @@ else:
     query = re.sub(r"\s+", " ", args.Search).strip()
     q = query.lower()
     words = q.split(" ")
+    # Без -Book — все книги справки каталога: кроме синтакс-помощника там параметры запуска и
+    # ключи пакетного режима (1cv8), конфигуратор, хранилище, отладчик, СКД.
+    all_books = not args.Book.strip()
+    if all_books:
+        suffix = f"_{args.Language}.hbk"
+        book_names = sorted(
+            name[:-len(suffix)] for name in os.listdir(bin_dir)
+            if len(name) > len(suffix) and name.lower().endswith(suffix.lower())
+            and os.path.isfile(os.path.join(bin_dir, name))
+        )
+        if not book_names:
+            print(f"[ERROR] No help books *{suffix} in {bin_dir}")
+            sys.exit(1)
+    else:
+        book_names = [b.strip() for b in args.Book.split(",") if b.strip()]
     hits = []
-    for book_name in [b.strip() for b in args.Book.split(",") if b.strip()]:
-        book = open_help_book(book_name)
+    for book_name in book_names:
+        book = open_help_book(book_name, skip_unreadable=all_books)
+        if book is None:
+            continue
         for entry_path, title in get_help_index(book):
             t = title.lower()
             rank = -1

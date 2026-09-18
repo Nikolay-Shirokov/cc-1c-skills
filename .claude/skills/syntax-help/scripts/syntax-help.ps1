@@ -1,4 +1,4 @@
-﻿# syntax-help v1.0 — Search and read the 1C platform syntax helper (.hbk)
+﻿# syntax-help v1.0 — Search and read the 1C platform help (.hbk): syntax helper and other help books
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 # NB: *nix-раскладку платформы (/opt/1cv8/<ver>/1cv8, без .exe) знает только .py-порт — PS на *nix не исполняется.
 [CmdletBinding(PositionalBinding=$false)]
@@ -6,7 +6,7 @@ param(
 	[string]$Search,
 	[string]$Page,
 	[switch]$InText,
-	[string]$Book = "shlang,shcntx,shquery",
+	[string]$Book,
 	[string]$Language = "ru",
 	[string]$V8Path,
 	[string]$CacheDir,
@@ -125,8 +125,9 @@ function Get-ContainerItems([byte[]]$Data) {
 	return $items
 }
 
-# Страницы книги — zip в элементе FileStorage.
-function Open-HelpBook([string]$BookName) {
+# Страницы книги — zip в элементе FileStorage. -SkipUnreadable — для поиска по всем книгам:
+# нечитаемая книга пропускается с предупреждением, а не обрывает поиск.
+function Open-HelpBook([string]$BookName, [switch]$SkipUnreadable) {
 	$path = Join-Path $binDir ("{0}_{1}.hbk" -f $BookName, $Language)
 	if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
 		Write-Host "[ERROR] Help book not found: $path"
@@ -139,6 +140,10 @@ function Open-HelpBook([string]$BookName) {
 		$zipBytes = Read-ContainerDocument $data $items['FileStorage']
 		$archive = New-Object System.IO.Compression.ZipArchive((New-Object System.IO.MemoryStream(,$zipBytes)), [System.IO.Compression.ZipArchiveMode]::Read)
 	} catch {
+		if ($SkipUnreadable) {
+			Write-Host "[WARN] Skipped unreadable help book ${path}: $($_.Exception.Message)"
+			return $null
+		}
 		Write-Host "[ERROR] Cannot read help book ${path}: $($_.Exception.Message)"
 		exit 1
 	}
@@ -231,9 +236,26 @@ if ($hasPage) {
 	# слова по отдельности, совпадение только в тексте; внутри группы — короткие заголовки выше.
 	$query = ($Search -replace '\s+', ' ').Trim()
 	$words = @($query.Split(' '))
+	# Без -Book — все книги справки каталога: кроме синтакс-помощника там параметры запуска и
+	# ключи пакетного режима (1cv8), конфигуратор, хранилище, отладчик, СКД.
+	$allBooks = [string]::IsNullOrWhiteSpace($Book)
+	if ($allBooks) {
+		$suffix = "_$Language.hbk"
+		$bookNames = [string[]]@(Get-ChildItem -LiteralPath $binDir -File |
+			Where-Object { $_.Name.Length -gt $suffix.Length -and $_.Name.EndsWith($suffix, [StringComparison]::OrdinalIgnoreCase) } |
+			ForEach-Object { $_.Name.Substring(0, $_.Name.Length - $suffix.Length) })
+		if ($bookNames.Count -eq 0) {
+			Write-Host "[ERROR] No help books *$suffix in $binDir"
+			exit 1
+		}
+		[Array]::Sort($bookNames, [StringComparer]::Ordinal)
+	} else {
+		$bookNames = @($Book.Split(',') | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+	}
 	$hits = New-Object System.Collections.Generic.List[string]
-	foreach ($bookName in @($Book.Split(',') | ForEach-Object { $_.Trim() } | Where-Object { $_ })) {
-		$helpBook = Open-HelpBook $bookName
+	foreach ($bookName in $bookNames) {
+		$helpBook = Open-HelpBook $bookName -SkipUnreadable:$allBooks
+		if (-not $helpBook) { continue }
 		foreach ($row in (Get-HelpIndex $helpBook)) {
 			$title = $row.Title
 			$rank = -1

@@ -146,6 +146,14 @@ write('shquery_ru.hbk', [
   ['LEFTJOIN', page('Левое внешнее соединение', '<p>Синтетическая страница: ЛЕВОЕ СОЕДИНЕНИЕ.</p>')],
 ], false);
 
+// Книга вне синтакс-помощника: её находит только поиск без -Book. Картинка — как в настоящих
+// книгах: двоичная запись без <h1>, в индекс заголовков не попадает.
+write('1cv8_ru.hbk', [
+  ['zif3_dumpconfigtofiles', page('DumpConfigToFiles',
+    '<p>Синтетическая страница ключа пакетного режима: выгрузка конфигурации в файлы.</p>')],
+  ['dump_dialog.png', Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0xFF, 0xFE, 0x00, 0xC0, 0x80])],
+], false);
+
 mkdirSync(OUT, { recursive: true });
 writeFileSync(join(OUT, 'broken_ru.hbk'), Buffer.from('not a 1C container', 'ascii'));
 writeFileSync(join(OUT, '.v8-project.json'), '{\n  "v8path": "."\n}\n');
