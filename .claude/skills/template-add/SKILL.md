@@ -50,7 +50,7 @@ powershell.exe -NoProfile -File "${CLAUDE_SKILL_DIR}/scripts/add-template.ps1" -
 
 | Пользователь пишет                          | TemplateType        | Расширение | Содержимое              |
 |---------------------------------------------|---------------------|------------|-------------------------|
-| HTML                                        | HTMLDocument        | `.html`    | Пустой HTML-документ    |
+| HTML                                        | HTMLDocument        | `.xml` + `Template/ru.html` | Пустой HTML-документ (`Template.xml` — `<Help><Page>ru</Page></Help>`, страница — `Template/ru.html`, картинки — в `Template/_files/`) |
 | Text, текстовый документ, текст             | TextDocument        | `.txt`     | Пустой файл             |
 | SpreadsheetDocument, табличный документ, MXL | SpreadsheetDocument | `.xml`     | Минимальный spreadsheet |
 | BinaryData, двоичные данные                 | BinaryData          | `.bin`     | Пустой файл             |

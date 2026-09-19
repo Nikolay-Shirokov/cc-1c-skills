@@ -212,7 +212,7 @@ def assert_edit_allowed(target_path, require):
         return
 
 TYPE_MAP = {
-    "HTML": {"TemplateType": "HTMLDocument", "Ext": ".html"},
+    "HTML": {"TemplateType": "HTMLDocument", "Ext": ".xml"},
     "Text": {"TemplateType": "TextDocument", "Ext": ".txt"},
     "SpreadsheetDocument": {"TemplateType": "SpreadsheetDocument", "Ext": ".xml"},
     "BinaryData": {"TemplateType": "BinaryData", "Ext": ".bin"},
@@ -459,6 +459,22 @@ def main():
     template_file_path = os.path.join(template_ext_dir, f"Template{tmpl['Ext']}")
 
     if template_type == "HTML":
+        # HTML-макет платформа выгружает как справку: Ext/Template.xml (<Help><Page>ru</Page></Help>)
+        # и страница Ext/Template/ru.html (картинки — рядом в _files/). Одиночный Ext/Template.html
+        # платформа молча игнорирует: загрузка проходит, а макет в базе пустой (8.3.27).
+        template_file_path = os.path.join(template_ext_dir, "Template.xml")
+        page_xml = (
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<Help xmlns="http://v8.1c.ru/8.3/xcf/extrnprops"'
+            ' xmlns:xs="http://www.w3.org/2001/XMLSchema"'
+            ' xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"'
+            f' version="{format_version}">\n'
+            '\t<Page>ru</Page>\n'
+            '</Help>'
+        )
+        write_xml_file(template_file_path, page_xml)
+        page_dir = os.path.join(template_ext_dir, "Template")
+        os.makedirs(page_dir, exist_ok=True)
         content = (
             '<!DOCTYPE html>\n'
             '<html>\n'
@@ -470,7 +486,7 @@ def main():
             '</body>\n'
             '</html>'
         )
-        write_utf8_bom(template_file_path, content)
+        write_utf8_bom(os.path.join(page_dir, "ru.html"), content)
 
     elif template_type == "Text":
         write_utf8_bom(template_file_path, "")

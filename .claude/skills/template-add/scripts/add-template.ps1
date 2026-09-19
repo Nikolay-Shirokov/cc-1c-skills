@@ -157,7 +157,7 @@ function Assert-EditAllowed([string]$targetPath, [string]$require) {
 # --- Маппинг типов ---
 
 $typeMap = @{
-	"HTML"                = @{ TemplateType = "HTMLDocument";        Ext = ".html" }
+	"HTML"                = @{ TemplateType = "HTMLDocument";        Ext = ".xml" }
 	"Text"                = @{ TemplateType = "TextDocument";        Ext = ".txt" }
 	"SpreadsheetDocument" = @{ TemplateType = "SpreadsheetDocument"; Ext = ".xml" }
 	"BinaryData"          = @{ TemplateType = "BinaryData";          Ext = ".bin" }
@@ -311,6 +311,19 @@ $templateFilePath = Join-Path $templateExtDir "Template$($tmpl.Ext)"
 
 switch ($TemplateType) {
 	"HTML" {
+		# HTML-макет платформа выгружает как справку: Ext/Template.xml (<Help><Page>ru</Page></Help>)
+		# и страница Ext/Template/ru.html (картинки — рядом в _files/). Одиночный Ext/Template.html
+		# платформа молча игнорирует: загрузка проходит, а макет в базе пустой (8.3.27).
+		$templateFilePath = Join-Path $templateExtDir "Template.xml"
+		$pageXml = @"
+<?xml version="1.0" encoding="UTF-8"?>
+<Help xmlns="http://v8.1c.ru/8.3/xcf/extrnprops" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" version="$formatVersion">
+	<Page>ru</Page>
+</Help>
+"@
+		Write-XmlFile $templateFilePath $pageXml $encBom
+		$pageDir = Join-Path $templateExtDir "Template"
+		New-Item -ItemType Directory -Path $pageDir -Force | Out-Null
 		$content = @"
 <!DOCTYPE html>
 <html>
@@ -322,7 +335,8 @@ switch ($TemplateType) {
 </body>
 </html>
 "@
-		[System.IO.File]::WriteAllText($templateFilePath, $content, $encBom)
+		$content = $content -replace "`r`n", "`n"
+		[System.IO.File]::WriteAllText((Join-Path $pageDir "ru.html"), $content, $encBom)
 	}
 	"Text" {
 		[System.IO.File]::WriteAllText($templateFilePath, "", $encBom)
