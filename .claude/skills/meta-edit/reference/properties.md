@@ -46,6 +46,9 @@
 -Operation add-registeredDocument -Value "Document.РасходныйОрдер"
 ```
 
+Нет элемента свойства в `Properties` (так у заимствованного объекта расширения — там только изменённые
+свойства) — `add-*` и `set-*` создают его в конце `Properties`, как `modify.properties`.
+
 ### add-inputByString / add-dataLockField
 
 Пути полей (короткое имя реквизита разворачивается в полный путь автоматически):

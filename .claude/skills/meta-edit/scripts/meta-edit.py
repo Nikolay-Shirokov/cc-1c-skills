@@ -3461,6 +3461,21 @@ def find_property_element(prop_name):
     return None
 
 
+# Операции add-*/set-* над свойством-списком: нет элемента — создаём, как modify.properties
+# в DSL (create-if-missing, append в конец Properties). Типичный случай — заимствованный
+# объект расширения: в его Properties только изменённые свойства, RegisterRecords/BasedOn
+# там нет, пока их не задали. Раньше навык печатал WARN, не менял файл и выходил с кодом 0.
+def get_or_create_list_property_element(prop_name):
+    prop_el = find_property_element(prop_name)
+    if prop_el is not None:
+        return prop_el
+    new_nodes = import_fragment(f"<{prop_name}/>")
+    if not new_nodes:
+        return None
+    insert_property_in_order(properties_el, new_nodes[0], None, prop_name)
+    return new_nodes[0]
+
+
 def get_complex_property_values(prop_el):
     values = []
     for child in prop_el:
@@ -3480,7 +3495,7 @@ def add_complex_property_item(property_name, values):
     if map_entry.get("mdref"):
         values = [normalize_md_object_ref(str(v), map_entry.get("root")) for v in values]
 
-    prop_el = find_property_element(property_name)
+    prop_el = get_or_create_list_property_element(property_name)
     if prop_el is None:
         warn(f"Property element '{property_name}' not found in Properties")
         return
@@ -3558,7 +3573,7 @@ def set_complex_property(property_name, values):
     if map_entry.get("mdref"):
         values = [normalize_md_object_ref(str(v), map_entry.get("root")) for v in values]
 
-    prop_el = find_property_element(property_name)
+    prop_el = get_or_create_list_property_element(property_name)
     if prop_el is None:
         warn(f"Property element '{property_name}' not found in Properties")
         return

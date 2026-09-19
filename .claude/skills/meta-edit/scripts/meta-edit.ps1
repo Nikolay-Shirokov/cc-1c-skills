@@ -3520,6 +3520,19 @@ function Find-PropertyElement([string]$propName) {
 	return $null
 }
 
+# Операции add-*/set-* над свойством-списком: нет элемента — создаём, как modify.properties
+# в DSL (create-if-missing, append в конец Properties). Типичный случай — заимствованный
+# объект расширения: в его Properties только изменённые свойства, RegisterRecords/BasedOn
+# там нет, пока их не задали. Раньше навык печатал WARN, не менял файл и выходил с кодом 0.
+function Get-OrCreateListPropertyElement([string]$propName) {
+	$propEl = Find-PropertyElement $propName
+	if ($propEl) { return $propEl }
+	$newNodes = Import-Fragment "<$propName/>"
+	if ($newNodes.Count -eq 0) { return $null }
+	Insert-PropertyInOrder $script:propertiesEl $newNodes[0] $null $propName
+	return $newNodes[0]
+}
+
 function Get-ComplexPropertyValues([System.Xml.XmlElement]$propEl) {
 	$values = @()
 	foreach ($child in $propEl.ChildNodes) {
@@ -3536,7 +3549,7 @@ function Add-ComplexPropertyItem([string]$propertyName, [string[]]$values) {
 	if ($mapEntry.expand) { $values = @($values | ForEach-Object { Expand-DataPath "$_" }) }
 	if ($mapEntry.mdref) { $values = @($values | ForEach-Object { Normalize-MDObjectRef "$_" $mapEntry.root }) }
 
-	$propEl = Find-PropertyElement $propertyName
+	$propEl = Get-OrCreateListPropertyElement $propertyName
 	if (-not $propEl) {
 		Warn "Property element '$propertyName' not found in Properties"
 		return
@@ -3625,7 +3638,7 @@ function Set-ComplexProperty([string]$propertyName, [string[]]$values) {
 	if ($mapEntry.expand) { $values = @($values | ForEach-Object { Expand-DataPath "$_" }) }
 	if ($mapEntry.mdref) { $values = @($values | ForEach-Object { Normalize-MDObjectRef "$_" $mapEntry.root }) }
 
-	$propEl = Find-PropertyElement $propertyName
+	$propEl = Get-OrCreateListPropertyElement $propertyName
 	if (-not $propEl) {
 		Warn "Property element '$propertyName' not found in Properties"
 		return

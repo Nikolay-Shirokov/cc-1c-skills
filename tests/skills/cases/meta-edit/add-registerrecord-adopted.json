@@ -1,0 +1,10 @@
+{
+  "name": "add-registerRecord у заимствованного документа: <RegisterRecords> создаётся (раньше — WARN, файл без изменений, код 0)",
+  "setup": "fixture:adopted-document",
+  "params": { "objectPath": "Documents/Прих.xml" },
+  "input": {
+    "_complex": [
+      { "action": "add", "property": "RegisterRecords", "values": ["AccumulationRegister.Ост"] }
+    ]
+  }
+}

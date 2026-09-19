@@ -1,0 +1,34 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<MetaDataObject xmlns="http://v8.1c.ru/8.3/MDClasses" xmlns:app="http://v8.1c.ru/8.2/managed-application/core" xmlns:cfg="http://v8.1c.ru/8.1/data/enterprise/current-config" xmlns:cmi="http://v8.1c.ru/8.2/managed-application/cmi" xmlns:ent="http://v8.1c.ru/8.1/data/enterprise" xmlns:lf="http://v8.1c.ru/8.2/managed-application/logform" xmlns:style="http://v8.1c.ru/8.1/data/ui/style" xmlns:sys="http://v8.1c.ru/8.1/data/ui/fonts/system" xmlns:v8="http://v8.1c.ru/8.1/data/core" xmlns:v8ui="http://v8.1c.ru/8.1/data/ui" xmlns:web="http://v8.1c.ru/8.1/data/ui/colors/web" xmlns:win="http://v8.1c.ru/8.1/data/ui/colors/windows" xmlns:xen="http://v8.1c.ru/8.3/xcf/enums" xmlns:xpr="http://v8.1c.ru/8.3/xcf/predef" xmlns:xr="http://v8.1c.ru/8.3/xcf/readable" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" version="2.20">
+	<Document uuid="8c4fbb87-f4c5-43bf-a37e-73f789f8acb4">
+		<InternalInfo>
+			<xr:GeneratedType name="DocumentObject.Прих" category="Object">
+				<xr:TypeId>64e7e172-5311-42c3-80a0-d2d322a5ac1d</xr:TypeId>
+				<xr:ValueId>803bb438-0a4b-480b-89b0-d28357e286a1</xr:ValueId>
+			</xr:GeneratedType>
+			<xr:GeneratedType name="DocumentRef.Прих" category="Ref">
+				<xr:TypeId>9a6d368a-576f-4424-b48a-635d16aa3795</xr:TypeId>
+				<xr:ValueId>749a58b6-dcf6-4de7-8292-11817b0c6dc5</xr:ValueId>
+			</xr:GeneratedType>
+			<xr:GeneratedType name="DocumentSelection.Прих" category="Selection">
+				<xr:TypeId>ebb954bd-2361-4287-b418-4d00eb638d78</xr:TypeId>
+				<xr:ValueId>878dd3fb-f762-4dea-af25-5802ae4a89d8</xr:ValueId>
+			</xr:GeneratedType>
+			<xr:GeneratedType name="DocumentList.Прих" category="List">
+				<xr:TypeId>d94249ff-aaf3-429f-a241-35ee732f53e3</xr:TypeId>
+				<xr:ValueId>20673f83-f44a-41ec-a7ab-ccebad4f0c76</xr:ValueId>
+			</xr:GeneratedType>
+			<xr:GeneratedType name="DocumentManager.Прих" category="Manager">
+				<xr:TypeId>6bcb0183-9ce3-4712-a980-5c8007c3b731</xr:TypeId>
+				<xr:ValueId>3159a9e5-2530-46c8-8dd2-b9fb72aa7346</xr:ValueId>
+			</xr:GeneratedType>
+		</InternalInfo>
+		<Properties>
+			<ObjectBelonging>Adopted</ObjectBelonging>
+			<Name>Прих</Name>
+			<Comment/>
+			<ExtendedConfigurationObject>9c13a864-c051-4887-a2b2-adc00b73e1ec</ExtendedConfigurationObject>
+		</Properties>
+		<ChildObjects/>
+	</Document>
+</MetaDataObject>
