@@ -462,7 +462,6 @@ def main():
         # HTML-макет платформа выгружает как справку: Ext/Template.xml (<Help><Page>ru</Page></Help>)
         # и страница Ext/Template/ru.html (картинки — рядом в _files/). Одиночный Ext/Template.html
         # платформа молча игнорирует: загрузка проходит, а макет в базе пустой (8.3.27).
-        template_file_path = os.path.join(template_ext_dir, "Template.xml")
         page_xml = (
             '<?xml version="1.0" encoding="UTF-8"?>\n'
             '<Help xmlns="http://v8.1c.ru/8.3/xcf/extrnprops"'

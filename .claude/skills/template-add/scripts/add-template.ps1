@@ -314,7 +314,6 @@ switch ($TemplateType) {
 		# HTML-макет платформа выгружает как справку: Ext/Template.xml (<Help><Page>ru</Page></Help>)
 		# и страница Ext/Template/ru.html (картинки — рядом в _files/). Одиночный Ext/Template.html
 		# платформа молча игнорирует: загрузка проходит, а макет в базе пустой (8.3.27).
-		$templateFilePath = Join-Path $templateExtDir "Template.xml"
 		$pageXml = @"
 <?xml version="1.0" encoding="UTF-8"?>
 <Help xmlns="http://v8.1c.ru/8.3/xcf/extrnprops" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" version="$formatVersion">
