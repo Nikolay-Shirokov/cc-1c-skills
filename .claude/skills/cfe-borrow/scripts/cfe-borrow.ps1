@@ -1278,6 +1278,25 @@ function Borrow-Form {
 		Info "  Created: $moduleBslFile"
 	}
 
+	# 6b. Файлы формы рядом с Form.xml — встроенные картинки элементов (Items/<Элемент>/Picture.png).
+	# Form.xml ссылается на них через <xr:Abs>; без файла платформа отвергает расширение:
+	# «Файл не найден - ...\Ext\Form\Items\<Элемент>\Picture.png». Модуль формы источника не переносится,
+	# уже лежащие файлы не перезаписываются — как Module.bsl выше.
+	$srcAuxDir = [System.IO.Path]::GetFullPath((Join-Path (Split-Path $srcFormXmlPath -Parent) "Form"))
+	if (Test-Path -LiteralPath $srcAuxDir) {
+		$srcModule = Join-Path $srcAuxDir "Module.bsl"
+		foreach ($file in (Get-ChildItem -LiteralPath $srcAuxDir -Recurse -File | Sort-Object FullName)) {
+			if ($file.FullName -eq $srcModule) { continue }
+			$rel = $file.FullName.Substring($srcAuxDir.Length).TrimStart('\', '/')
+			$dst = Join-Path $moduleDir $rel
+			if (Test-Path -LiteralPath $dst) { continue }
+			$dstDir = Split-Path $dst -Parent
+			if (-not (Test-Path -LiteralPath $dstDir)) { New-Item -ItemType Directory -Path $dstDir -Force | Out-Null }
+			Copy-Item -LiteralPath $file.FullName -Destination $dst
+			Info "  Copied: $dst"
+		}
+	}
+
 	# 7. Register form in parent object ChildObjects
 	Register-FormInObject $typeName $objName $formName
 

@@ -1,0 +1,22 @@
+{
+  "name": "Заимствование формы: встроенная картинка элемента (Ext/Form/Items/<Элемент>/Picture.png) переносится в расширение",
+  "setup": "fixture:form-item-picture",
+  "preRun": [
+    {
+      "script": "cfe-init/scripts/cfe-init",
+      "args": { "-Name": "Тест", "-OutputDir": "{workDir}/cfe", "-ConfigPath": "{workDir}" }
+    }
+  ],
+  "params": { "extensionPath": "cfe", "object": "Document.Расход.Form.ФормаДокумента" },
+  "noSnapshot": "эталон пишется и сверяется как UTF-8 текст — двоичная картинка в нём портится; побайтное совпадение картинки с исходной держит filesEqual, ссылку в Form.xml — fileContains",
+  "expect": {
+    "fileContains": {
+      "file": "cfe/Documents/Расход/Forms/ФормаДокумента/Ext/Form.xml",
+      "text": ["<xr:Abs>Picture.png</xr:Abs>"]
+    },
+    "filesEqual": {
+      "actual": "cfe/Documents/Расход/Forms/ФормаДокумента/Ext/Form/Items/Логотип/Picture.png",
+      "expected": "Documents/Расход/Forms/ФормаДокумента/Ext/Form/Items/Логотип/Picture.png"
+    }
+  }
+}

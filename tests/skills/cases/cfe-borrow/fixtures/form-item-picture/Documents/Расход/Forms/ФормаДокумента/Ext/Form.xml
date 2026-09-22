@@ -1,0 +1,60 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<Form xmlns="http://v8.1c.ru/8.3/xcf/logform" xmlns:cfg="http://v8.1c.ru/8.1/data/enterprise/current-config" xmlns:v8="http://v8.1c.ru/8.1/data/core" xmlns:xr="http://v8.1c.ru/8.3/xcf/readable" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" version="2.17">
+	<Title>
+		<v8:item>
+			<v8:lang>ru</v8:lang>
+			<v8:content>Расход</v8:content>
+		</v8:item>
+	</Title>
+	<AutoTitle>false</AutoTitle>
+	<CommandSet>
+		<ExcludedCommand>Post</ExcludedCommand>
+		<ExcludedCommand>PostAndClose</ExcludedCommand>
+		<ExcludedCommand>Write</ExcludedCommand>
+	</CommandSet>
+	<AutoTime>DontUse</AutoTime>
+	<UsePostingMode>Regular</UsePostingMode>
+	<RepostOnWrite>false</RepostOnWrite>
+	<AutoCommandBar name="ФормаКоманднаяПанель" id="-1"/>
+	<ChildItems>
+		<InputField name="Комментарий" id="1">
+			<DataPath>Объект.Комментарий</DataPath>
+			<ExtendedTooltip name="КомментарийРасширеннаяПодсказка" id="2"/>
+		</InputField>
+		<Table name="Товары" id="3">
+			<DataPath>Объект.Товары</DataPath>
+			<RowPictureDataPath>Объект.Товары.ИндексКартинки</RowPictureDataPath>
+			<CommandSet>
+				<ExcludedCommand>MoveUp</ExcludedCommand>
+				<ExcludedCommand>SortListAsc</ExcludedCommand>
+			</CommandSet>
+			<ChildItems>
+				<InputField name="ТоварыКоличество" id="4">
+					<DataPath>Объект.Товары.Количество</DataPath>
+					<ExtendedTooltip name="ТоварыКоличествоРасширеннаяПодсказка" id="5"/>
+				</InputField>
+			</ChildItems>
+			<ExtendedTooltip name="ТоварыРасширеннаяПодсказка" id="6"/>
+		</Table>
+		<PictureDecoration name="Логотип" id="8">
+			<Picture>
+				<xr:Abs>Picture.png</xr:Abs>
+				<xr:LoadTransparent>false</xr:LoadTransparent>
+			</Picture>
+			<ContextMenu name="ЛоготипКонтекстноеМеню" id="9"/>
+			<ExtendedTooltip name="ЛоготипРасширеннаяПодсказка" id="10"/>
+		</PictureDecoration>
+	</ChildItems>
+	<Attributes>
+		<Attribute name="Объект" id="7">
+			<Type>
+				<v8:Type>cfg:DocumentObject.Расход</v8:Type>
+			</Type>
+			<MainAttribute>true</MainAttribute>
+			<SavedData>true</SavedData>
+		</Attribute>
+	</Attributes>
+	<CommandInterface>
+		<NavigationPanel/>
+	</CommandInterface>
+</Form>

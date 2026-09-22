@@ -41,6 +41,9 @@ tests/web-test/_suite-root/prepare-ran.txt
 # Скриншоты и видео (артефакты тестирования web-test)
 *.png
 *.mp4
+# ...но в кейсах навыков картинка — вход теста (встроенная картинка элемента формы,
+# Ext/Form/Items/<Элемент>/Picture.png): без неё фикстура и эталон неполные.
+!tests/skills/cases/**/*.png
 
 # Навыки, скопированные для других AI-платформ (генерируются scripts/switch.py)
 .agents/skills/

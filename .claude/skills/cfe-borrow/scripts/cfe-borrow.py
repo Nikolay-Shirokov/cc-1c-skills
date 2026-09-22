@@ -6,6 +6,7 @@ import argparse
 import json
 import os
 import re
+import shutil
 import sys
 import uuid
 from lxml import etree
@@ -2190,6 +2191,26 @@ def main():
         else:
             write_utf8_bom(module_bsl_file, "")
             info(f"  Created: {module_bsl_file}")
+
+        # 6b. Файлы формы рядом с Form.xml — встроенные картинки элементов (Items/<Элемент>/Picture.png).
+        # Form.xml ссылается на них через <xr:Abs>; без файла платформа отвергает расширение:
+        # «Файл не найден - ...\Ext\Form\Items\<Элемент>\Picture.png». Модуль формы источника не переносится,
+        # уже лежащие файлы не перезаписываются — как Module.bsl выше.
+        src_aux_dir = os.path.join(os.path.dirname(src_form_xml_path), "Form")
+        if os.path.isdir(src_aux_dir):
+            for root, dirs, files in os.walk(src_aux_dir):
+                dirs.sort()
+                for name in sorted(files):
+                    src_file = os.path.join(root, name)
+                    rel = os.path.relpath(src_file, src_aux_dir)
+                    if rel == "Module.bsl":
+                        continue
+                    dst_file = os.path.join(module_dir, rel)
+                    if os.path.exists(dst_file):
+                        continue
+                    os.makedirs(os.path.dirname(dst_file), exist_ok=True)
+                    shutil.copyfile(src_file, dst_file)
+                    info(f"  Copied: {dst_file}")
 
         # 7. Register form in parent object ChildObjects
         register_form_in_object(type_name, obj_name, form_name)

@@ -51,7 +51,8 @@ allowed-tools:
 1. **Метаданные формы** — `Forms/ИмяФормы.xml` с `ObjectBelonging=Adopted`, `FormType=Managed`
 2. **Form.xml** — `Forms/ИмяФормы/Ext/Form.xml` с копией исходной формы + `<BaseForm>` (начальное состояние)
 3. **Module.bsl** — пустой файл `Forms/ИмяФормы/Ext/Form/Module.bsl`
-4. **Регистрация** — `<Form>` в ChildObjects родительского объекта
+4. **Файлы формы** — встроенные картинки элементов (`Forms/ИмяФормы/Ext/Form/Items/<Элемент>/Picture.png`) копируются из источника: Form.xml ссылается на них, без них платформа не загружает расширение
+5. **Регистрация** — `<Form>` в ChildObjects родительского объекта
 
 ### Заимствование основного реквизита формы (-BorrowMainAttribute)
 
