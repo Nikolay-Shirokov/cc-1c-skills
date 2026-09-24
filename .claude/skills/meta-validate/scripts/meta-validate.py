@@ -1,4 +1,4 @@
-# meta-validate v1.29 — Validate 1C metadata object structure (Python port)
+# meta-validate v1.30 — Validate 1C metadata object structure (Python port)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import os
@@ -213,6 +213,71 @@ def format_rank(ver):
     return int(m.group(1)) * 100 + int(m.group(2)) if m else 0
 
 
+# Корень автономной внешней обработки/отчёта. Копия общего эталона (семья
+# support-guard: is_external_root, авторитет — cf-edit).
+def _sg_is_external_root(xml_path):
+    if not os.path.isfile(xml_path):
+        return False
+    try:
+        mx = etree.parse(xml_path).getroot()
+        for child in mx:
+            if isinstance(child.tag, str):
+                return child.tag.split("}")[-1] in ("ExternalDataProcessor", "ExternalReport")
+    except Exception:
+        return False
+    return False
+
+
+# Версия формата выгрузки. Копия общего эталона (семья detect_format_version, авторитет —
+# form-compile): та же ветка для автономной EPF/ERF, где версию несёт корень обработки.
+def detect_format_version(d):
+    while d:
+        # Автономная внешняя обработка/отчёт: своего Configuration.xml у неё нет, версию несёт
+        # корень самой обработки. Без этого форма и макет внутри обработки 2.21 писались бы 2.17.
+        ext_path = d + ".xml"
+        if os.path.isfile(ext_path):
+            with open(ext_path, "r", encoding="utf-8-sig") as f:
+                ext_head = f.read(2000)
+            if re.search(r'<(ExternalDataProcessor|ExternalReport)[ >]', ext_head):
+                m = re.search(r'<MetaDataObject[^>]+version="(\d+\.\d+)"', ext_head)
+                if m:
+                    return m.group(1)
+        cfg_path = os.path.join(d, "Configuration.xml")
+        if os.path.isfile(cfg_path):
+            with open(cfg_path, "r", encoding="utf-8-sig") as f:
+                head = f.read(2000)
+            m = re.search(r'<MetaDataObject[^>]+version="(\d+\.\d+)"', head)
+            if m:
+                return m.group(1)
+        parent = os.path.dirname(d)
+        if parent == d:
+            break
+        d = parent
+    return "2.17"
+
+
+# ── version anchor (check 24) ────────────────────────────────
+# Проба config_dir выше поднимается на 4 уровня и служит межобъектным проверкам. Для сверки версии
+# нужен именно якорь — Configuration.xml либо корень автономной EPF/ERF, в чьём дереве лежит файл:
+# без якоря detect_format_version вернула бы дефолт 2.17, и сравнивать было бы не с чем.
+version_anchor = ''
+walk_dir = os.path.dirname(resolved_path)
+for _ in range(15):
+    parent = os.path.dirname(walk_dir)
+    if parent == walk_dir:
+        break
+    # Порядок проверок тот же, что у detect_format_version: сначала корень автономной обработки,
+    # потом Configuration.xml — иначе дескриптор внутри EPF, лежащей в дереве конфигурации, взял бы
+    # версию конфигурации.
+    if _sg_is_external_root(walk_dir + '.xml'):
+        version_anchor = walk_dir + '.xml'
+        break
+    if os.path.isfile(os.path.join(walk_dir, 'Configuration.xml')):
+        version_anchor = os.path.join(walk_dir, 'Configuration.xml')
+        break
+    walk_dir = parent
+
+
 # ── Reference tables ─────────────────────────────────────────
 
 guid_pattern = re.compile(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$')
@@ -239,6 +304,20 @@ structural_only_types = (
     "FunctionalOption", "FunctionalOptionsParameter", "Language", "Style", "StyleItem",
     "WSReference", "XDTOPackage", "DocumentNumerator", "Sequence",
 )
+
+# Вложенные дескрипторы объекта: Forms/<Имя>.xml и Templates/<Имя>.xml. Корень тот же MetaDataObject,
+# но в ChildObjects они не регистрируются и первым сегментом MDObjectRef не бывают — в known_roots
+# проверки 17 их не добавлять. Раньше падали как "Unrecognized": в ЗУП КОРП это 41 % файлов MetaDataObject.
+nested_descriptor_types = ("Form", "Template")
+# Вид формы/макета — единственное содержательное свойство вложенного дескриптора; по нему платформа
+# выбирает читателя тела (Ext/Form.xml либо Ext/Template.*). Значения — docs/1c-configuration-spec.md,
+# свойства FormType и TemplateType. Список отдельный от valid_property_values: у авторитета meta-compile
+# этих ключей нет (формы и макеты создают form-add и template-add).
+descriptor_kind_values = {
+    "FormType": ("Managed", "Ordinary"),
+    "TemplateType": ("SpreadsheetDocument", "BinaryData", "HTMLDocument", "TextDocument", "ActiveDocument",
+                     "DataCompositionSchema", "DataCompositionAppearanceTemplate", "GraphicalSchema", "AddIn"),
+}
 
 # GeneratedType categories by type
 generated_type_categories = {
@@ -482,7 +561,7 @@ elif len(child_elements) > 1:
 type_node = child_elements[0]
 md_type = local_name(type_node)
 
-if md_type not in valid_types and md_type not in structural_only_types:
+if md_type not in valid_types and md_type not in structural_only_types and md_type not in nested_descriptor_types:
     report_error(f"1. Unrecognized metadata type: {md_type}")
     finalize()
     sys.exit(1)
@@ -507,6 +586,25 @@ output_lines.insert(0, f"=== Validation: {md_type}.{obj_name} ===")
 if check1_ok:
     report_ok(f"1. Root structure: MetaDataObject/{md_type}, version {version}")
 
+# ── Check 24: версия формата файла совпадает с версией выгрузки ──
+# Версию задаёт платформа, которой выгружали, и в пределах одной выгрузки она едина. Файл новее —
+# «Неизвестная версия формата N загружаемого файла»: платформа не читает файл, который новее её самой;
+# файл старее она прочтёт, но выгрузка перестаёт быть однородной. Типичный источник — мерж веток с
+# разной платформой выгрузки: новые файлы фичи git добавляет без конфликта, со штампом своей ветки.
+# Проверка стоит до ранних выходов ниже: она нужна каждому корню, включая structural-only и вложенные
+# дескрипторы. Источник версии — общий helper, он же покрывает автономную EPF/ERF без Configuration.xml.
+
+if not stopped and version_anchor:
+    dump_ver = detect_format_version(os.path.dirname(resolved_path))
+
+    if not version:
+        report_ok("24. Format version: not comparable")
+    elif version != dump_ver:
+        report_error(f"24. Format version {version} differs from the dump ({dump_ver}) "
+                     "— a dump carries one version, the platform refuses a file it cannot read")
+    else:
+        report_ok(f"24. Format version: {version}, matches the dump")
+
 # ── Structural-only types: базовая проверка (Name), без type-specific правил ──
 if md_type in structural_only_types:
     if obj_name == "(unknown)":
@@ -515,6 +613,27 @@ if md_type in structural_only_types:
         report_error(f"3. Properties: Name '{obj_name}' is not a valid 1C identifier")
     else:
         report_ok(f'3. Properties: Name="{obj_name}" (базовая структурная проверка для {md_type})')
+    finalize()
+    sys.exit(1 if errors > 0 else 0)
+
+# ── Вложенные дескрипторы Form/Template: Name и вид формы/макета, без type-specific правил ──
+if md_type in nested_descriptor_types:
+    if obj_name == "(unknown)":
+        report_error("3. Properties: missing or empty Name")
+    elif not ident_pattern.match(obj_name):
+        report_error(f"3. Properties: Name '{obj_name}' is not a valid 1C identifier")
+    else:
+        report_ok(f'3. Properties: Name="{obj_name}" (базовая структурная проверка для {md_type})')
+    kind_prop = "FormType" if md_type == "Form" else "TemplateType"
+    kind_node = find(props_node, f"md:{kind_prop}") if props_node is not None else None
+    kind_value = inner_text(kind_node) if kind_node is not None else ""
+    allowed = descriptor_kind_values[kind_prop]
+    if not kind_value:
+        report_error(f"3. Property '{kind_prop}' is missing on <{md_type}>")
+    elif kind_value not in allowed:
+        report_error(f"3. Property '{kind_prop}' has invalid value '{kind_value}' (allowed: {', '.join(allowed)})")
+    else:
+        report_ok(f"3. Property '{kind_prop}' = {kind_value}")
     finalize()
     sys.exit(1 if errors > 0 else 0)
 

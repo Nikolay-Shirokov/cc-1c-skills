@@ -1,0 +1,10 @@
+{
+  "name": "Дескриптор формы с FormType вне перечисления (Unmanaged) — ошибка: платформа знает только Managed и Ordinary",
+  "setup": "fixture:form-descriptor-bad-formtype",
+  "params": { "objectPath": "Catalogs/Товары/Forms/ФормаЭлемента.xml" },
+  "expectError": true,
+  "expect": {
+    "stdoutContains": ["3. Property 'FormType' has invalid value 'Unmanaged' (allowed: Managed, Ordinary)"],
+    "stdoutNotContains": ["Unrecognized metadata type"]
+  }
+}

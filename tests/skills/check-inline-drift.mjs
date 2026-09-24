@@ -79,8 +79,9 @@ const FAMILIES = [
           // *-info навыки читают тем же хелпером СОСТОЯНИЕ поддержки для вывода, а не запрещают
           // правку. Тело то же, поэтому семья общая.
           'form-info', 'meta-info', 'mxl-info', 'role-info', 'skd-info', 'subsystem-info',
-          // form-validate отличает автономную обработку от конфигурации: границей служит тот же корень
-          'form-validate'] },
+          // form-validate и meta-validate отличают автономную обработку от конфигурации: границей
+          // служит тот же корень — он же якорь версии выгрузки для сверки штампа файла
+          'form-validate', 'meta-validate'] },
     ],
   },
   {
@@ -120,7 +121,7 @@ const FAMILIES = [
       // конфигурации не бывает. Поэтому вариант один на всех, переключателя не нужно.
       { id: 'base', authority: 'form-compile',
         consumers: ['cfe-borrow', 'cfe-patch-method', 'form-add', 'form-validate', 'help-add', 'interface-edit',
-          'meta-compile', 'mxl-compile', 'role-compile', 'role-edit', 'subsystem-compile', 'template-add', 'xdto-compile'] },
+          'meta-compile', 'meta-validate', 'mxl-compile', 'role-compile', 'role-edit', 'subsystem-compile', 'template-add', 'xdto-compile'] },
     ],
   },
   {

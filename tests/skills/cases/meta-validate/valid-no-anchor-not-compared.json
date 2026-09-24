@@ -1,0 +1,10 @@
+{
+  "name": "Одиночный объект без Configuration.xml выше по дереву — версию не с чем сравнивать: проверка 24 молчит, а не сверяет с дефолтом 2.17",
+  "setup": "fixture:catalog-218-trm",
+  "params": { "objectPath": "Catalogs/Договоры.xml" },
+  "noSnapshot": "meta-validate только читает и печатает — эталон зафиксировал бы фикстуру, а не выход проверяемого навыка; проверяется stdout",
+  "expect": {
+    "stdoutNotContains": ["differs from the dump", "matches the dump", "24. Format version"]
+  },
+  "skipPlatformVerify": "фикстура — одиночный объект без Configuration.xml: загружать нечего"
+}

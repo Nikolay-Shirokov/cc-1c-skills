@@ -1,0 +1,9 @@
+{
+  "name": "Штамп общей формы 2.18 при выгрузке 2.20 — ошибка проверки 24 (файл пришёл мержем из ветки с другой платформой)",
+  "setup": "fixture:dump-version-mismatch",
+  "params": { "objectPath": "CommonForms/ФормаПроверки.xml" },
+  "expectError": true,
+  "expect": {
+    "stdoutContains": ["24. Format version 2.18 differs from the dump (2.20)"]
+  }
+}

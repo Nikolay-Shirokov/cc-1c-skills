@@ -1,4 +1,4 @@
-﻿# meta-validate v1.29 — Validate 1C metadata object structure
+﻿# meta-validate v1.30 — Validate 1C metadata object structure
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -167,6 +167,69 @@ function Get-FormatRank([string]$ver) {
 	return 0
 }
 
+# Корень автономной внешней обработки/отчёта. Копия общего эталона (семья
+# support-guard: is_external_root, авторитет — cf-edit).
+function Test-ExternalObjectRoot([string]$xmlPath) {
+	if (-not (Test-Path $xmlPath)) { return $false }
+	try {
+		[xml]$mx = Get-Content -Path $xmlPath -Encoding UTF8
+		$el = $mx.DocumentElement.FirstChild
+		while ($el -and $el.NodeType -ne 'Element') { $el = $el.NextSibling }
+		if ($el) { return @('ExternalDataProcessor','ExternalReport') -contains $el.LocalName }
+	} catch {}
+	return $false
+}
+
+# Версия формата выгрузки. Копия общего эталона (семья detect_format_version, авторитет —
+# form-compile): та же ветка для автономной EPF/ERF, где версию несёт корень обработки.
+function Detect-FormatVersion([string]$dir) {
+	$d = $dir
+	while ($d) {
+		# Автономная внешняя обработка/отчёт: своего Configuration.xml у неё нет, версию несёт
+		# корень самой обработки. Без этого форма и макет внутри обработки 2.21 писались бы 2.17.
+		$extPath = "$d.xml"
+		if (Test-Path $extPath) {
+			$extText = [System.IO.File]::ReadAllText($extPath, [System.Text.Encoding]::UTF8)
+			$extHead = $extText.Substring(0, [Math]::Min(2000, $extText.Length))
+			if ($extHead -match '<(ExternalDataProcessor|ExternalReport)[ >]' -and $extHead -match '<MetaDataObject[^>]+version="(\d+\.\d+)"') { return $Matches[1] }
+		}
+		$cfgPath = Join-Path $d "Configuration.xml"
+		if (Test-Path $cfgPath) {
+			$cfgText = [System.IO.File]::ReadAllText($cfgPath, [System.Text.Encoding]::UTF8)
+			# Длину среза берём по СТРОКЕ, а не по размеру файла: размер в БАЙТАХ, Substring считает
+			# СИМВОЛЫ, и на кириллице байт больше — короткий Configuration.xml ронял навык исключением.
+			$head = $cfgText.Substring(0, [Math]::Min(2000, $cfgText.Length))
+			if ($head -match '<MetaDataObject[^>]+version="(\d+\.\d+)"') { return $Matches[1] }
+		}
+		$parent = Split-Path $d -Parent
+		if ($parent -eq $d) { break }
+		$d = $parent
+	}
+	return "2.17"
+}
+
+# --- Якорь версии выгрузки (проверка 24) ---
+# Проба configDir выше поднимается на 4 уровня и служит межобъектным проверкам. Для сверки версии
+# нужен именно якорь — Configuration.xml либо корень автономной EPF/ERF, в чьём дереве лежит файл:
+# без якоря Detect-FormatVersion вернула бы дефолт 2.17, и сравнивать было бы не с чем.
+$script:versionAnchor = $null
+$walkDir = Split-Path $resolvedPath -Parent
+for ($i = 0; $i -lt 15; $i++) {
+	if (-not $walkDir -or $walkDir -eq (Split-Path $walkDir)) { break }
+	# Порядок проверок тот же, что у Detect-FormatVersion: сначала корень автономной обработки,
+	# потом Configuration.xml — иначе дескриптор внутри EPF, лежащей в дереве конфигурации, взял бы
+	# версию конфигурации.
+	if (Test-ExternalObjectRoot "$walkDir.xml") {
+		$script:versionAnchor = "$walkDir.xml"
+		break
+	}
+	if (Test-Path (Join-Path $walkDir "Configuration.xml")) {
+		$script:versionAnchor = Join-Path $walkDir "Configuration.xml"
+		break
+	}
+	$walkDir = Split-Path $walkDir
+}
+
 # --- Reference tables ---
 
 $guidPattern = '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
@@ -193,6 +256,20 @@ $structuralOnlyTypes = @(
 	"FunctionalOption","FunctionalOptionsParameter","Language","Style","StyleItem",
 	"WSReference","XDTOPackage","DocumentNumerator","Sequence"
 )
+
+# Вложенные дескрипторы объекта: Forms/<Имя>.xml и Templates/<Имя>.xml. Корень тот же MetaDataObject,
+# но в ChildObjects они не регистрируются и первым сегментом MDObjectRef не бывают — в knownRoots
+# проверки 17 их не добавлять. Раньше падали как "Unrecognized": в ЗУП КОРП это 41 % файлов MetaDataObject.
+$nestedDescriptorTypes = @("Form","Template")
+# Вид формы/макета — единственное содержательное свойство вложенного дескриптора; по нему платформа
+# выбирает читателя тела (Ext/Form.xml либо Ext/Template.*). Значения — docs/1c-configuration-spec.md,
+# свойства FormType и TemplateType. Список отдельный от validPropertyValues: у авторитета meta-compile
+# этих ключей нет (формы и макеты создают form-add и template-add).
+$descriptorKindValues = @{
+	"FormType"     = @("Managed","Ordinary")
+	"TemplateType" = @("SpreadsheetDocument","BinaryData","HTMLDocument","TextDocument","ActiveDocument",
+	                   "DataCompositionSchema","DataCompositionAppearanceTemplate","GraphicalSchema","AddIn")
+}
 
 # GeneratedType categories by type
 $generatedTypeCategories = @{
@@ -410,7 +487,7 @@ if ($childElements.Count -eq 0) {
 $typeNode = $childElements[0]
 $mdType = $typeNode.LocalName
 
-if (($validTypes -notcontains $mdType) -and ($structuralOnlyTypes -notcontains $mdType)) {
+if (($validTypes -notcontains $mdType) -and ($structuralOnlyTypes -notcontains $mdType) -and ($nestedDescriptorTypes -notcontains $mdType)) {
 	Report-Error "1. Unrecognized metadata type: $mdType"
 	& $finalize
 	exit 1
@@ -438,6 +515,26 @@ if ($check1Ok) {
 	Report-OK "1. Root structure: MetaDataObject/$mdType, version $version"
 }
 
+# --- Check 24: версия формата файла совпадает с версией выгрузки ---
+# Версию задаёт платформа, которой выгружали, и в пределах одной выгрузки она едина. Файл новее —
+# «Неизвестная версия формата N загружаемого файла»: платформа не читает файл, который новее её самой;
+# файл старее она прочтёт, но выгрузка перестаёт быть однородной. Типичный источник — мерж веток с
+# разной платформой выгрузки: новые файлы фичи git добавляет без конфликта, со штампом своей ветки.
+# Проверка стоит до ранних выходов ниже: она нужна каждому корню, включая structural-only и вложенные
+# дескрипторы. Источник версии — общий helper, он же покрывает автономную EPF/ERF без Configuration.xml.
+
+if (-not $script:stopped -and $script:versionAnchor) {
+	$dumpVer = Detect-FormatVersion (Split-Path $resolvedPath -Parent)
+
+	if (-not $version) {
+		Report-OK "24. Format version: not comparable"
+	} elseif ($version -ne $dumpVer) {
+		Report-Error "24. Format version $version differs from the dump ($dumpVer) — a dump carries one version, the platform refuses a file it cannot read"
+	} else {
+		Report-OK "24. Format version: $version, matches the dump"
+	}
+}
+
 # --- Structural-only types: базовая проверка (Name), без type-specific правил ---
 if ($structuralOnlyTypes -contains $mdType) {
 	if ($objName -eq "(unknown)") {
@@ -446,6 +543,32 @@ if ($structuralOnlyTypes -contains $mdType) {
 		Report-Error "3. Properties: Name '$objName' is not a valid 1C identifier"
 	} else {
 		Report-OK "3. Properties: Name=`"$objName`" (базовая структурная проверка для $mdType)"
+	}
+	& $finalize
+	if ($script:errors -gt 0) { exit 1 }
+	exit 0
+}
+
+# --- Вложенные дескрипторы Form/Template: Name и вид формы/макета, без type-specific правил ---
+if ($nestedDescriptorTypes -contains $mdType) {
+	if ($objName -eq "(unknown)") {
+		Report-Error "3. Properties: missing or empty Name"
+	} elseif ($objName -notmatch $identPattern) {
+		Report-Error "3. Properties: Name '$objName' is not a valid 1C identifier"
+	} else {
+		Report-OK "3. Properties: Name=`"$objName`" (базовая структурная проверка для $mdType)"
+	}
+	$kindProp = if ($mdType -eq "Form") { "FormType" } else { "TemplateType" }
+	$kindNode = if ($propsNode) { $propsNode.SelectSingleNode("md:$kindProp", $ns) } else { $null }
+	$kindValue = if ($kindNode) { $kindNode.InnerText } else { "" }
+	$allowed = $descriptorKindValues[$kindProp]
+	# Регистрозависимо, как у платформы и как в py-порте (-contains сравнивает без учёта регистра).
+	if (-not $kindValue) {
+		Report-Error "3. Property '$kindProp' is missing on <$mdType>"
+	} elseif ($allowed -cnotcontains $kindValue) {
+		Report-Error "3. Property '$kindProp' has invalid value '$kindValue' (allowed: $($allowed -join ', '))"
+	} else {
+		Report-OK "3. Property '$kindProp' = $kindValue"
 	}
 	& $finalize
 	if ($script:errors -gt 0) { exit 1 }
