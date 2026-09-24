@@ -1,0 +1,47 @@
+{
+  "name": "Заимствование формы: многострочный текст в BaseForm не получает лишний таб — снимок совпадает с формой и источником",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "Document", "name": "Доставка" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    {
+      "script": "form-add/scripts/form-add",
+      "args": { "-ObjectPath": "{workDir}/Documents/Доставка.xml", "-FormName": "ФормаДокумента" }
+    },
+    {
+      "script": "form-compile/scripts/form-compile",
+      "input": {
+        "title": "Доставка",
+        "elements": [
+          { "label": "АдресПередачи", "title": "Адрес передачи\nтовара" },
+          { "label": "Пояснение", "title": "Режим используется при позднем получении документов.\n" }
+        ],
+        "attributes": [ { "name": "Объект", "type": "DocumentObject.Доставка", "main": true } ]
+      },
+      "args": { "-JsonPath": "{inputFile}", "-OutputPath": "{workDir}/Documents/Доставка/Forms/ФормаДокумента/Ext/Form.xml" }
+    },
+    {
+      "script": "cfe-init/scripts/cfe-init",
+      "args": { "-Name": "Тест", "-OutputDir": "{workDir}/cfe", "-ConfigPath": "{workDir}" }
+    }
+  ],
+  "params": { "extensionPath": "cfe", "object": "Document.Доставка.Form.ФормаДокумента" },
+  "expect": {
+    "fileContains": {
+      "file": "cfe/Documents/Доставка/Forms/ФормаДокумента/Ext/Form.xml",
+      "text": [
+        "Адрес передачи\r\nтовара</v8:content>",
+        "документов.\r\n</v8:content>"
+      ]
+    },
+    "fileNotContains": {
+      "file": "cfe/Documents/Доставка/Forms/ФормаДокумента/Ext/Form.xml",
+      "text": [
+        "\tтовара</v8:content>",
+        "документов.\r\n\t</v8:content>"
+      ]
+    }
+  }
+}

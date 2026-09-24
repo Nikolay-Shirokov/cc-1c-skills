@@ -1,0 +1,55 @@
+{
+  "name": "Заимствование формы: картинка декорации не переносится и не заимствуется, картинка кнопки её контекстного меню — переносится",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "CommonPicture", "name": "Предупреждение" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "CommonPicture", "name": "Обновить" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "Document", "name": "Проверка" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    {
+      "script": "form-add/scripts/form-add",
+      "args": { "-ObjectPath": "{workDir}/Documents/Проверка.xml", "-FormName": "ФормаДокумента" }
+    },
+    {
+      "script": "form-compile/scripts/form-compile",
+      "input": {
+        "title": "Проверка",
+        "elements": [
+          {
+            "picture": "КартинкаПредупреждение", "src": "CommonPicture.Предупреждение",
+            "contextMenu": [ { "button": "Обновить", "stdCommand": "Close", "picture": "CommonPicture.Обновить" } ]
+          }
+        ],
+        "attributes": [ { "name": "Объект", "type": "DocumentObject.Проверка", "main": true } ]
+      },
+      "args": { "-JsonPath": "{inputFile}", "-OutputPath": "{workDir}/Documents/Проверка/Forms/ФормаДокумента/Ext/Form.xml" }
+    },
+    {
+      "script": "cfe-init/scripts/cfe-init",
+      "args": { "-Name": "Тест", "-OutputDir": "{workDir}/cfe", "-ConfigPath": "{workDir}" }
+    }
+  ],
+  "params": { "extensionPath": "cfe", "object": "Document.Проверка.Form.ФормаДокумента" },
+  "expect": {
+    "files": [ "cfe/CommonPictures/Обновить.xml" ],
+    "filesAbsent": [ "cfe/CommonPictures/Предупреждение.xml" ],
+    "fileContains": {
+      "file": "cfe/Documents/Проверка/Forms/ФормаДокумента/Ext/Form.xml",
+      "text": [ "<xr:Ref>CommonPicture.Обновить</xr:Ref>" ]
+    },
+    "fileNotContains": {
+      "file": "cfe/Documents/Проверка/Forms/ФормаДокумента/Ext/Form.xml",
+      "text": [ "CommonPicture.Предупреждение" ]
+    }
+  }
+}

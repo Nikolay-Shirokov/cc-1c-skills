@@ -24,11 +24,11 @@
 	<Attributes/>
 	<BaseForm version="2.17">
 		<Title>
-		<v8:item>
-			<v8:lang>ru</v8:lang>
-			<v8:content>Размещение</v8:content>
-		</v8:item>
-	</Title>
+			<v8:item>
+				<v8:lang>ru</v8:lang>
+				<v8:content>Размещение</v8:content>
+			</v8:item>
+		</Title>
 		<AutoTitle>false</AutoTitle>
 		<AutoCommandBar name="ФормаКоманднаяПанель" id="-1"/>
 		<ChildItems>

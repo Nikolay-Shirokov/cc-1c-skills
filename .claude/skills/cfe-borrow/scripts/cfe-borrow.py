@@ -76,6 +76,45 @@ def strip_form_bindings(xml, main_attr_name):
     return xml
 
 
+def strip_decoration_pictures(xml):
+    """Картинка декорации (PictureDecoration) в заимствованную форму не переносится: Конфигуратор не
+    хранит её ни в форме, ни в <BaseForm> — даже если сама картинка заимствована. Кнопки, подменю,
+    поля картинки и таблицы (Picture/HeaderPicture/ValuesPicture/RowsPicture) свои картинки сохраняют.
+    Замер на выгрузках Конфигуратора (6 заимствованных форм, КА 2.5 и ЗУП 3.1): из 29 декораций с
+    CommonPicture/StdPicture картинка не осталась ни у одной. Скрипт картинку оставлял и ради неё
+    заимствовал общую картинку — форма расходилась с тем, что делает Конфигуратор.
+    Своя <Picture> декорации стоит раньше её <ContextMenu>/<ExtendedTooltip>: картинки кнопок
+    контекстного меню не задеваются. Встроенная картинка (не ссылка) не замерена — не трогаем."""
+    def repl(m):
+        own = re.sub(r'\s*<Picture>\s*<xr:Ref>(?:CommonPicture|StdPicture)\.\w+</xr:Ref>.*?</Picture>',
+                     '', m.group(2), count=1, flags=re.DOTALL)
+        return m.group(1) + own
+    return re.sub(r'(<PictureDecoration\b[^>]*[^/]>)(.*?)(?=<ContextMenu\b|<ExtendedTooltip\b|</PictureDecoration>)',
+                  repl, xml, flags=re.DOTALL)
+
+
+def indent_for_base_form(xml, first_indent):
+    """Сдвиг блока на уровень вглубь для <BaseForm>; first_indent — отступ первой строки.
+    Таб добавляется только в пробельные промежутки между тегами. Построчный сдвиг попадал и в
+    многострочный текст: строки продолжения <v8:content> — часть значения, и снимок получал
+    «Адрес передачи\\n\\tтовара» при «Адрес передачи\\nтовара» в форме и в источнике. Форма расходилась
+    со своей BaseForm, и Конфигуратор показывал такой заголовок изменённым в расширении.
+    Промежуток из одних пробелов между открывающим и закрывающим тегом одного элемента — тоже
+    значение, его не сдвигаем."""
+    parts = re.split(r'''(<(?:[^>"']|"[^"]*"|'[^']*')*>)''', xml)
+    for i in range(0, len(parts), 2):
+        seg = parts[i]
+        if '\n' not in seg or seg.strip():
+            continue
+        prev_tag = parts[i - 1] if i > 0 else ''
+        next_tag = parts[i + 1] if i + 1 < len(parts) else ''
+        m = re.match(r'<([\w:.-]+)[^>]*(?<!/)>$', prev_tag)
+        if m and next_tag == f'</{m.group(1)}>':
+            continue
+        parts[i] = seg.replace('\n', '\n\t')
+    return first_indent + ''.join(parts)
+
+
 DROPPED_LINKS = []
 
 
@@ -1947,6 +1986,8 @@ def main():
             child_items_xml = re.sub(r'\s*<TypeLink>\s*<xr:DataPath>Items\.[^<]*</xr:DataPath>.*?</TypeLink>', '', child_items_xml, flags=re.DOTALL)
             # Strip element-level Events
             child_items_xml = re.sub(r'\s*<Events>.*?</Events>', '', child_items_xml, flags=re.DOTALL)
+            # Картинки декораций — до сбора ссылок: иначе заимствуется картинка, которой в форме не будет
+            child_items_xml = strip_decoration_pictures(child_items_xml)
 
             # Collect CommonPicture references from ChildItems and AutoCommandBar
             referenced_pictures = {}
@@ -2133,36 +2174,22 @@ def main():
             parts.append("\t<Attributes/>")
         parts.append("\r\n")
 
-        # BaseForm: same content, indented one more level
+        # BaseForm: same content, indented one more level (многострочный текст не сдвигается)
         parts.append(f'\t<BaseForm version="{form_version}">\r\n')
 
         for prop_xml in form_props:
             prop_xml_clean = ns_strip_pattern.sub("", prop_xml)
-            parts.append(f"\t\t{prop_xml_clean}\r\n")
+            parts.append(indent_for_base_form(prop_xml_clean, "\t\t") + "\r\n")
         if auto_cmd_xml:
-            ac_lines = auto_cmd_xml.split("\n")
-            for li, line in enumerate(ac_lines):
-                if li == 0:
-                    parts.append(f"\t\t{line}")
-                else:
-                    parts.append(f"\t{line}")
-                parts.append("\r\n")
+            parts.append(indent_for_base_form(auto_cmd_xml, "\t\t") + "\r\n")
         if child_items_xml:
-            ci_lines = child_items_xml.split("\n")
-            for li, line in enumerate(ci_lines):
-                if li == 0:
-                    parts.append(f"\t\t{line}")
-                else:
-                    parts.append(f"\t{line}")
-                parts.append("\r\n")
+            parts.append(indent_for_base_form(child_items_xml, "\t\t") + "\r\n")
 
         # BaseForm Attributes: same as main section
         if borrow_main_attr and main_attr_info:
             parts.append("\t\t<Attributes>\r\n")
-            # В BaseForm та же секция на уровень глубже — приём переиндентации тот же, что у ChildItems
-            for li, line in enumerate(main_attr_info['Xml'].split('\n')):
-                parts.append(f"\t\t\t{line}" if li == 0 else f"\t{line}")
-                parts.append("\r\n")
+            # В BaseForm та же секция на уровень глубже — сдвиг тот же, что у ChildItems
+            parts.append(indent_for_base_form(main_attr_info['Xml'], "\t\t\t") + "\r\n")
             parts.append("\t\t</Attributes>")
         else:
             parts.append("\t\t<Attributes/>")
