@@ -1,6 +1,5 @@
 {
   "name": "С -ConfigSrc: модуль есть, но не в контексте / модуля нет — разные подсказки, без -Checks off (fake platform)",
-  "osOnly": "win32",
   "fakePlatform": {
     "exit": 0,
     "log": "",
@@ -32,15 +31,15 @@
   ],
   "args_extra": [
     "-V8Path",
-    "{workDir}\\fake.cmd",
+    "{fakePlatform}",
     "-InfoBasePath",
-    "{workDir}\\ib",
+    "{workDir}/ib",
     "-SourceFile",
-    "{workDir}\\src\\Тест.xml",
+    "{workDir}/src/Тест.xml",
     "-OutputFile",
-    "{workDir}\\build\\Тест.epf",
+    "{workDir}/build/Тест.epf",
     "-ConfigSrc",
-    "{workDir}\\cfgsrc"
+    "{workDir}/cfgsrc"
   ],
   "expect": {
     "stdoutContains": [
