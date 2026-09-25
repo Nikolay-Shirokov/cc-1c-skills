@@ -1,0 +1,58 @@
+{
+  "name": "С -ConfigSrc: модуль есть, но не в контексте / модуля нет — разные подсказки, без -Checks off (fake platform)",
+  "osOnly": "win32",
+  "fakePlatform": {
+    "exit": 0,
+    "log": "",
+    "check": {
+      "exit": 101,
+      "log": "﻿{Обработка.Тест.МодульОбъекта(2,2)}: Переменная не определена (ОбщегоНазначения)\r\n\t<<?>>ОбщегоНазначения.СообщитьПользователю(\"x\"); (Проверка: Сервер)\r\n{Обработка.Тест.МодульОбъекта(3,2)}: Переменная не определена (ОбщегоНазначениеее)\r\n\t<<?>>ОбщегоНазначениеее.Метод(); (Проверка: Сервер)\r\n"
+    }
+  },
+  "preRun": [
+    {
+      "script": "epf-init/scripts/init",
+      "args": {
+        "-Name": "Тест",
+        "-SrcDir": "{workDir}/src"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "src/Тест/Ext/ObjectModule.bsl",
+        "content": "Процедура Проба()\r\n\tОбщегоНазначения.СообщитьПользователю(\"x\");\r\nКонецПроцедуры\r\n"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "cfgsrc/CommonModules/ОбщегоНазначения.xml",
+        "content": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<MetaDataObject xmlns=\"http://v8.1c.ru/8.3/MDClasses\" version=\"2.17\">\n\t<CommonModule uuid=\"10000000-0000-0000-0000-000000000001\">\n\t\t<Properties>\n\t\t\t<Name>ОбщегоНазначения</Name>\n\t\t\t<Server>true</Server>\n\t\t</Properties>\n\t</CommonModule>\n</MetaDataObject>\n"
+      }
+    }
+  ],
+  "args_extra": [
+    "-V8Path",
+    "{workDir}\\fake.cmd",
+    "-InfoBasePath",
+    "{workDir}\\ib",
+    "-SourceFile",
+    "{workDir}\\src\\Тест.xml",
+    "-OutputFile",
+    "{workDir}\\build\\Тест.epf",
+    "-ConfigSrc",
+    "{workDir}\\cfgsrc"
+  ],
+  "expect": {
+    "stdoutContains": [
+      "Общие модули из configSrc: ОбщегоНазначения",
+      "[hint] общий модуль ОбщегоНазначения есть в configSrc, но недоступен в контексте проверки",
+      "[hint] общего модуля ОбщегоНазначениеее нет в configSrc"
+    ],
+    "stdoutNotContains": [
+      "/LoadExternalDataProcessorOrReportFromFiles",
+      "-Checks off"
+    ]
+  },
+  "expectError": true,
+  "noSnapshot": "сборка отменена — артефакта нет по замыслу"
+}

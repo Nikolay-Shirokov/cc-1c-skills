@@ -1,4 +1,4 @@
-﻿# epf-build v1.19 — Build external data processor or report (EPF/ERF) from XML sources
+﻿# epf-build v1.20 — Build external data processor or report (EPF/ERF) from XML sources
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 # NB: *nix-раскладку платформы (/opt/1cv8/<ver>/1cv8, без .exe) знает только .py-порт — PS на *nix не исполняется.
 <#
@@ -32,6 +32,9 @@
 
 .PARAMETER OutputFile
     Путь к выходному EPF/ERF-файлу
+
+.PARAMETER ConfigSrc
+    Каталог XML-выгрузки целевой конфигурации (общие модули для проверки исходников)
 
 .PARAMETER AdditionalV8Arguments
     Дополнительные аргументы запуска 1cv8.exe (например /UseHwLicenses+)
@@ -80,6 +83,10 @@ param(
     # Контексты синтаксической проверки. По умолчанию ThinClient,Server.
     [Parameter(Mandatory=$false)]
     [string]$Context,
+    # Выгрузка конфигурации, в которой будет работать обработка: её общие модули видны проверке.
+    # Без параметра берётся configSrc базы из .v8-project.json.
+    [Parameter(Mandatory=$false)]
+    [string]$ConfigSrc,
 
     [Parameter(Mandatory=$false)]
     [string[]]$AdditionalV8Arguments = @(),
@@ -262,6 +269,7 @@ $V8Path = ConvertTo-CleanPath $V8Path '-V8Path'
 $InfoBasePath = ConvertTo-CleanPath $InfoBasePath '-InfoBasePath'
 $SourceFile = ConvertTo-CleanPath $SourceFile '-SourceFile'
 $OutputFile = ConvertTo-CleanPath $OutputFile '-OutputFile'
+$ConfigSrc = ConvertTo-CleanPath $ConfigSrc '-ConfigSrc'
 
 function Assert-InfoBaseExists {
     # These skills work on a ready infobase. Saying so up front beats the platform's
@@ -481,6 +489,24 @@ function Resolve-SourcePath {
 	return $null
 }
 
+# «Переменная не определена (X)» при обращении X.… — чаще всего общий модуль конфигурации, которого
+# проверке не показали. Платформа печатает строку кода следующей строкой лога с меткой <<?>> перед X.
+# Подсказка одна на имя; сама ошибка остаётся ошибкой.
+function Get-UndefinedModuleHint {
+	param([string]$Line, [string]$CodeLine, $Hinted)
+	$m = [regex]::Match($Line, 'Переменная не определена \(([^)]+)\)')
+	if (-not $m.Success) { return $null }
+	$name = $m.Groups[1].Value
+	if (-not [regex]::IsMatch($CodeLine, '<<\?>>\s*' + [regex]::Escape($name) + '\s*\.')) { return $null }
+	if (-not $Hinted.Add($name)) { return $null }
+	if (-not $checkConfigSrc) { return "похоже на общий модуль конфигурации — выгрузка конфигурации проверке не передана" }
+	$cmDir = Join-Path $checkConfigSrc "CommonModules"
+	$inCfg = (Test-Path -LiteralPath $cmDir -PathType Container) -and
+		@(Get-ChildItem -LiteralPath $cmDir -Filter "*.xml" -File | Where-Object { $_.BaseName.Equals($name, [StringComparison]::OrdinalIgnoreCase) }).Count -gt 0
+	if ($inCfg) { return "общий модуль $name есть в configSrc, но недоступен в контексте проверки (см. «Проверка: …» в строке выше)" }
+	return "общего модуля $name нет в configSrc ($checkConfigSrc)"
+}
+
 # $true, если платформа нашла проблемы — вызывающий не собирает артефакт.
 function Invoke-SourceCheck {
 	param([string]$Exe, [string]$BasePath, [string[]]$Flags, [string]$SourceDir, [string[]]$ExtraArgs)
@@ -508,10 +534,19 @@ function Invoke-SourceCheck {
 		Write-Host "Error: платформа нашла проблемы в исходниках — сборка отменена" -ForegroundColor Red
 		# Пустой лог при ненулевом коде — отказ не по находкам (база занята, нет лицензии); молчать нельзя.
 		if ($lines.Count -eq 0) { Write-Host "  платформа вернула код $($res.ExitCode) без сообщений" -ForegroundColor Red }
-		foreach ($l in $lines) {
+		$hinted = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+		for ($i = 0; $i -lt $lines.Count; $i++) {
+			$l = $lines[$i]
 			Write-Host "  $($l.TrimEnd())" -ForegroundColor Red
 			$srcPath = Resolve-SourcePath $l $SourceDir
 			if ($srcPath) { Write-Host "    -> $srcPath" -ForegroundColor Red }
+			# Подсказка — под строкой кода, которую платформа печатает следом за ошибкой.
+			$hint = if ($i -gt 0) { Get-UndefinedModuleHint $lines[$i - 1] $l $hinted } else { $null }
+			if ($hint) { Write-Host "    [hint] $hint" -ForegroundColor Yellow }
+		}
+		if ($hinted.Count -gt 0 -and -not $checkConfigSrc) {
+			Write-Host "[hint] Общие модули конфигурации проверке не видны: $(@($hinted) -join ', ')." -ForegroundColor Yellow
+			Write-Host "       Укажите -ConfigSrc (каталог выгрузки конфигурации) или базу с configSrc в .v8-project.json; либо соберите без проверки: -Checks off" -ForegroundColor Yellow
 		}
 		return $true
 	} finally {
@@ -566,6 +601,31 @@ elseif ($checkList.Count -gt 0 -and $checkList -notcontains 'modules') {
 }
 $sourceDir = Split-Path $SourceFile -Parent
 
+# Выгрузка целевой конфигурации для проверки: явный -ConfigSrc, иначе configSrc базы из реестра.
+# Без неё обращения к общим модулям конфигурации проверка считает неопределёнными переменными.
+function Resolve-ConfigSrc {
+    if ($ConfigSrc) {
+        if (-not (Test-Path -LiteralPath $ConfigSrc -PathType Container)) {
+            Write-Host "Error: -ConfigSrc not found: $ConfigSrc" -ForegroundColor Red
+            exit 1
+        }
+        return (Resolve-Path -LiteralPath $ConfigSrc).Path
+    }
+    $db = Find-ProjectDatabase
+    if (-not $db -or -not $db.configSrc) { return $null }
+    $p = [string]$db.configSrc
+    if (-not [System.IO.Path]::IsPathRooted($p)) {
+        $pf = Find-V8Project (Get-Location).Path
+        $p = Join-Path (Split-Path $pf -Parent) $p
+    }
+    if (-not (Test-Path -LiteralPath $p -PathType Container)) {
+        Write-Host "WARNING: configSrc базы не найден: $p — общие модули конфигурации проверке недоступны" -ForegroundColor Yellow
+        return $null
+    }
+    return $p
+}
+$checkConfigSrc = if ($checkList.Count -gt 0) { Resolve-ConfigSrc } else { $null }
+
 function New-StubBase {
     # Стаб запускает свои процессы платформы (CREATEINFOBASE, LoadConfigFromFiles, UpdateDBCfg) —
     # им нужны те же дополнительные аргументы, что и сборке. Передаются только явные: файл проекта
@@ -576,6 +636,7 @@ function New-StubBase {
     $q = { param($s) "'" + ($s -replace "'", "''") + "'" }
     $stubCmd = "& $(& $q $stubScript) -SourceDir $(& $q $sourceDir) -V8Path $(& $q $V8Path) -TempBasePath $(& $q $BasePath)"
     if ($Embed) { $stubCmd += " -EmbedSourceFile $(& $q $SourceFile)" }
+    if ($Embed -and $checkConfigSrc) { $stubCmd += " -ConfigSrc $(& $q $checkConfigSrc)" }
     if ($AdditionalV8Arguments.Count -gt 0) {
         $stubCmd += " -AdditionalV8Arguments " + (($AdditionalV8Arguments | ForEach-Object { & $q $_ }) -join ',')
     }

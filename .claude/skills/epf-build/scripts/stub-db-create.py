@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# stub-db-create v1.11 — Create temp 1C infobase with metadata stubs for EPF/ERF build
+# stub-db-create v1.12 — Create temp 1C infobase with metadata stubs for EPF/ERF build
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -1216,6 +1216,100 @@ def add_source_object_to_config(source_xml, cfg_dir):
     return {'tag': cfg_tag, 'name': name}
 
 
+# --- Общие модули целевой конфигурации, к которым обращается код ---
+# Проверка модулей (замер 8.3.24, 8.3.27) требует от общего модуля только двух вещей: чтобы он
+# существовал и был доступен в контексте вызова. Методы, их экспорт и число параметров она не
+# сверяет. Поэтому двойнику хватает имени и флагов контекста из настоящей выгрузки, тело пустое,
+# и зависимости модуля за ним не тянутся. Двойник получает только имя, которое есть в выгрузке:
+# неизвестное имя остаётся ошибкой проверки, а не угадывается.
+
+COMMON_MODULE_FLAGS = ['Global', 'ClientManagedApplication', 'Server', 'ExternalConnection',
+                       'ClientOrdinaryApplication', 'ServerCall', 'Privileged']
+
+
+def remove_bsl_noise(code):
+    # Код без строковых литералов и комментариев: слова в них — не обращения к модулям.
+    out = []
+    for line in re.split(r'\r?\n', code):
+        # Продолжение многострочной строки («|ВЫБРАТЬ …»): литерал до закрывающей кавычки, после
+        # неё может идти код («|ГДЕ …"; Х = Модуль.Метод();»).
+        line = re.sub(r'^\s*\|(?:[^"]|"")*("|$)', '""', line)
+        # Литерал до закрывающей кавычки или, если строка продолжится ниже, до конца строки.
+        line = re.sub(r'"(?:[^"]|"")*("|$)', '""', line)
+        ci = line.find('//')
+        if ci >= 0:
+            line = line[:ci]
+        out.append(line)
+    return '\n'.join(out) + '\n'
+
+
+def scan_common_modules(source_dir, config_src):
+    """\u0418\u043c\u044f \u0438\u0437 \u0432\u044b\u0433\u0440\u0443\u0437\u043a\u0438 -> {\u0444\u043b\u0430\u0433: 'true'|'false'} \u0434\u043b\u044f \u043e\u0431\u0449\u0438\u0445 \u043c\u043e\u0434\u0443\u043b\u0435\u0439, \u043a \u043a\u043e\u0442\u043e\u0440\u044b\u043c \u043e\u0431\u0440\u0430\u0449\u0430\u0435\u0442\u0441\u044f \u043a\u043e\u0434."""
+    result = {}
+    if not config_src:
+        return result
+    cm_dir = os.path.join(config_src, 'CommonModules')
+    if not os.path.isdir(cm_dir):
+        print('WARNING: \u0432 -ConfigSrc \u043d\u0435\u0442 \u043a\u0430\u0442\u0430\u043b\u043e\u0433\u0430 CommonModules: %s' % config_src)
+        return result
+    # Идентификаторы 1С регистронезависимы — и имена модулей в коде тоже.
+    known = {}
+    for fn in os.listdir(cm_dir):
+        full = os.path.join(cm_dir, fn)
+        if fn.lower().endswith('.xml') and os.path.isfile(full):
+            known[os.path.splitext(fn)[0].casefold()] = full
+    used = set()
+    for root, _dirs, files in os.walk(source_dir):
+        for fn in files:
+            if not fn.lower().endswith('.bsl'):
+                continue
+            # Битые байты (файл не в UTF-8) заменяются, как в PS-мастере, а не валят заглушку.
+            with open(os.path.join(root, fn), 'r', encoding='utf-8-sig', errors='replace') as fh:
+                code = remove_bsl_noise(fh.read())
+            for m in re.finditer(r'(?<![\w.])([^\W\d]\w*)\s*\.', code):
+                used.add(m.group(1).casefold())
+    names = sorted(os.path.splitext(os.path.basename(known[u]))[0] for u in used if u in known)
+    for n in names:
+        with open(known[n.casefold()], 'r', encoding='utf-8-sig') as fh:
+            t = fh.read()
+        flags = {}
+        for fl in COMMON_MODULE_FLAGS:
+            m = re.search(r'<%s>(true|false)</%s>' % (fl, fl), t, re.IGNORECASE)
+            flags[fl] = m.group(1).lower() if m else 'false'
+        result[n] = flags
+    if result:
+        print('\u041e\u0431\u0449\u0438\u0435 \u043c\u043e\u0434\u0443\u043b\u0438 \u0438\u0437 configSrc: %s' % ', '.join(result.keys()))
+    else:
+        print('\u041e\u0431\u0449\u0438\u0435 \u043c\u043e\u0434\u0443\u043b\u0438 \u0438\u0437 configSrc: \u043d\u0435 \u043f\u043e\u043d\u0430\u0434\u043e\u0431\u0438\u043b\u0438\u0441\u044c')
+    return result
+
+
+def write_common_module_stubs(cfg_dir, ns_decl, common_modules):
+    # Пустые двойники с флагами контекста из выгрузки.
+    if not common_modules:
+        return
+    cm_out = os.path.join(cfg_dir, 'CommonModules')
+    os.makedirs(cm_out, exist_ok=True)
+    for name, flags in common_modules.items():
+        flag_xml = ''.join('\n\t\t\t<%s>%s</%s>' % (fl, flags[fl], fl) for fl in COMMON_MODULE_FLAGS)
+        cm_xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<MetaDataObject {ns_decl}>
+\t<CommonModule uuid="{new_uuid()}">
+\t\t<Properties>
+\t\t\t<Name>{name}</Name>
+\t\t\t<Synonym/>
+\t\t\t<Comment/>{flag_xml}
+\t\t\t<ReturnValuesReuse>DontUse</ReturnValuesReuse>
+\t\t</Properties>
+\t</CommonModule>
+</MetaDataObject>
+"""
+        write_bom(os.path.join(cm_out, name + '.xml'), cm_xml)
+        ext_dir = os.path.join(cm_out, name, 'Ext')
+        os.makedirs(ext_dir, exist_ok=True)
+        write_bom(os.path.join(ext_dir, 'Module.bsl'), '')
+
+
 def main():
     sys.stdout.reconfigure(encoding='utf-8')
     sys.stderr.reconfigure(encoding='utf-8')
@@ -1227,6 +1321,9 @@ def main():
     # XML проверяемой обработки/отчёта: объект кладётся в конфигурацию-заглушку, чтобы платформа
     # смогла проверить его штатными проверками. Без параметра стаб работает как раньше.
     parser.add_argument('-EmbedSourceFile', default='')
+    # Выгрузка целевой конфигурации: общие модули, к которым обращается код, получают в заглушке
+    # пустых двойников с настоящими флагами контекста.
+    parser.add_argument('-ConfigSrc', default='')
     parser.add_argument('-AdditionalV8Arguments', nargs='*', default=[],
                         help='Extra 1cv8 arguments, e.g. /UseHwLicenses+')
     parser.add_argument('-AdditionalIbcmdArguments', nargs='*', default=[],
@@ -1239,12 +1336,14 @@ def main():
     args.V8Path = clean_path(args.V8Path, "-V8Path")
     args.TempBasePath = clean_path(args.TempBasePath, "-TempBasePath")
     args.EmbedSourceFile = clean_path(args.EmbedSourceFile, "-EmbedSourceFile")
+    args.ConfigSrc = clean_path(args.ConfigSrc, "-ConfigSrc")
 
     type_map = scan_ref_types(args.SourceDir)
     register_columns = scan_register_columns(args.SourceDir)
+    common_modules = scan_common_modules(args.SourceDir, args.ConfigSrc)
     has_ref_types = len(type_map) > 0
     embed_requested = bool(args.EmbedSourceFile and args.EmbedSourceFile.strip())
-    need_cfg = has_ref_types or embed_requested
+    need_cfg = has_ref_types or embed_requested or len(common_modules) > 0
     stub_format_version = detect_stub_format_version(args.SourceDir)
     stub_compat = stub_compatibility_mode(stub_format_version)
     ns_decl = f'{NS} version="{stub_format_version}"'
@@ -1279,6 +1378,8 @@ def main():
             co_xml += f'\n\t\t\t<xr:ContainedObject>\n\t\t\t\t<xr:ClassId>{CLASS_IDS[i]}</xr:ClassId>\n\t\t\t\t<xr:ObjectId>{co_ids[i]}</xr:ObjectId>\n\t\t\t</xr:ContainedObject>'
 
         child_xml = '\n\t\t\t<Language>\u0420\u0443\u0441\u0441\u043a\u0438\u0439</Language>'  # Русский
+        for cm_name in common_modules:
+            child_xml += '\n\t\t\t<CommonModule>%s</CommonModule>' % cm_name
         for meta_type, names in type_map.items():
             if meta_type not in META_INFO:
                 continue
@@ -1380,6 +1481,8 @@ def main():
 </MetaDataObject>
 """
         write_bom(os.path.join(lang_dir, '\u0420\u0443\u0441\u0441\u043a\u0438\u0439.xml'), lang_xml)
+
+        write_common_module_stubs(cfg_dir, ns_decl, common_modules)
 
         # Metadata stubs
         for meta_type, names in type_map.items():

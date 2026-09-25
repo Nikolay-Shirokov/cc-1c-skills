@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# epf-build v1.19 — Build external data processor or report (EPF/ERF) from XML sources
+# epf-build v1.20 — Build external data processor or report (EPF/ERF) from XML sources
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -513,7 +513,7 @@ def resolve_source_path(line, source_dir):
 
 
 # True, если платформа нашла проблемы — вызывающий не собирает артефакт.
-def invoke_source_check(exe, base_path, flags, source_dir, extra_args):
+def invoke_source_check(exe, base_path, flags, source_dir, extra_args, config_src=None):
     exe_dir = os.path.dirname(exe)
     exe_leaf = os.path.basename(exe)
     if exe_leaf.lower().startswith('ibcmd'):
@@ -547,14 +547,71 @@ def invoke_source_check(exe, base_path, flags, source_dir, extra_args):
         # Пустой лог при ненулевом коде — отказ не по находкам (база занята, нет лицензии); молчать нельзя.
         if not lines:
             print(f'  платформа вернула код {result.returncode} без сообщений')
-        for l in lines:
+        hinted = []
+        for i, l in enumerate(lines):
             print(f'  {l.rstrip()}')
             src_path = resolve_source_path(l, source_dir)
             if src_path:
                 print(f'    -> {src_path}')
+            # Подсказка — под строкой кода, которую платформа печатает следом за ошибкой.
+            hint = get_undefined_module_hint(lines[i - 1], l, hinted, config_src) if i > 0 else None
+            if hint:
+                print(f'    [hint] {hint}')
+        if hinted and not config_src:
+            print('[hint] \u041e\u0431\u0449\u0438\u0435 \u043c\u043e\u0434\u0443\u043b\u0438 \u043a\u043e\u043d\u0444\u0438\u0433\u0443\u0440\u0430\u0446\u0438\u0438 \u043f\u0440\u043e\u0432\u0435\u0440\u043a\u0435 \u043d\u0435 \u0432\u0438\u0434\u043d\u044b: %s.' % ', '.join(hinted))
+            print('       \u0423\u043a\u0430\u0436\u0438\u0442\u0435 -ConfigSrc (\u043a\u0430\u0442\u0430\u043b\u043e\u0433 \u0432\u044b\u0433\u0440\u0443\u0437\u043a\u0438 \u043a\u043e\u043d\u0444\u0438\u0433\u0443\u0440\u0430\u0446\u0438\u0438) \u0438\u043b\u0438 \u0431\u0430\u0437\u0443 \u0441 configSrc \u0432 .v8-project.json; \u043b\u0438\u0431\u043e \u0441\u043e\u0431\u0435\u0440\u0438\u0442\u0435 \u0431\u0435\u0437 \u043f\u0440\u043e\u0432\u0435\u0440\u043a\u0438: -Checks off')
         return True
     finally:
         shutil.rmtree(d, ignore_errors=True)
+
+
+# Выгрузка целевой конфигурации для проверки: явный -ConfigSrc, иначе configSrc базы из реестра.
+# Без неё обращения к общим модулям конфигурации проверка считает неопределёнными переменными.
+def resolve_config_src(args):
+    if args.ConfigSrc:
+        if not os.path.isdir(args.ConfigSrc):
+            print('Error: -ConfigSrc not found: %s' % args.ConfigSrc)
+            sys.exit(1)
+        return os.path.abspath(args.ConfigSrc)
+    db = find_project_database(args)
+    if not db or not db.get('configSrc'):
+        return None
+    p = str(db['configSrc'])
+    # Реестр пишут и на Windows: относительный путь может прийти с обратными слешами.
+    if os.sep == '/':
+        p = p.replace('\\', '/')
+    if not os.path.isabs(p):
+        pf = _sg_find_v8project(os.getcwd())
+        p = os.path.join(os.path.dirname(pf), p)
+    if not os.path.isdir(p):
+        print('WARNING: configSrc \u0431\u0430\u0437\u044b \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d: %s \u2014 \u043e\u0431\u0449\u0438\u0435 \u043c\u043e\u0434\u0443\u043b\u0438 \u043a\u043e\u043d\u0444\u0438\u0433\u0443\u0440\u0430\u0446\u0438\u0438 \u043f\u0440\u043e\u0432\u0435\u0440\u043a\u0435 \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u043d\u044b' % p)
+        return None
+    return p
+
+
+# «Переменная не определена (X)» при обращении X.… — чаще всего общий модуль конфигурации, которого
+# проверке не показали. Платформа печатает строку кода следующей строкой лога с меткой <<?>> перед X.
+# Подсказка одна на имя; сама ошибка остаётся ошибкой.
+def get_undefined_module_hint(line, code_line, hinted, config_src):
+    m = re.search(r'\u041f\u0435\u0440\u0435\u043c\u0435\u043d\u043d\u0430\u044f \u043d\u0435 \u043e\u043f\u0440\u0435\u0434\u0435\u043b\u0435\u043d\u0430 \(([^)]+)\)', line)
+    if not m:
+        return None
+    name = m.group(1)
+    if not re.search(r'<<\?>>\s*' + re.escape(name) + r'\s*\.', code_line):
+        return None
+    if any(h.casefold() == name.casefold() for h in hinted):
+        return None
+    hinted.append(name)
+    if not config_src:
+        return '\u043f\u043e\u0445\u043e\u0436\u0435 \u043d\u0430 \u043e\u0431\u0449\u0438\u0439 \u043c\u043e\u0434\u0443\u043b\u044c \u043a\u043e\u043d\u0444\u0438\u0433\u0443\u0440\u0430\u0446\u0438\u0438 \u2014 \u0432\u044b\u0433\u0440\u0443\u0437\u043a\u0430 \u043a\u043e\u043d\u0444\u0438\u0433\u0443\u0440\u0430\u0446\u0438\u0438 \u043f\u0440\u043e\u0432\u0435\u0440\u043a\u0435 \u043d\u0435 \u043f\u0435\u0440\u0435\u0434\u0430\u043d\u0430'
+    cm_dir = os.path.join(config_src, 'CommonModules')
+    in_cfg = os.path.isdir(cm_dir) and any(
+        f.lower().endswith('.xml') and os.path.splitext(f)[0].casefold() == name.casefold()
+        and os.path.isfile(os.path.join(cm_dir, f))
+        for f in os.listdir(cm_dir))
+    if in_cfg:
+        return '\u043e\u0431\u0449\u0438\u0439 \u043c\u043e\u0434\u0443\u043b\u044c %s \u0435\u0441\u0442\u044c \u0432 configSrc, \u043d\u043e \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u0435\u043d \u0432 \u043a\u043e\u043d\u0442\u0435\u043a\u0441\u0442\u0435 \u043f\u0440\u043e\u0432\u0435\u0440\u043a\u0438 (\u0441\u043c. \u00ab\u041f\u0440\u043e\u0432\u0435\u0440\u043a\u0430: \u2026\u00bb \u0432 \u0441\u0442\u0440\u043e\u043a\u0435 \u0432\u044b\u0448\u0435)' % name
+    return '\u043e\u0431\u0449\u0435\u0433\u043e \u043c\u043e\u0434\u0443\u043b\u044f %s \u043d\u0435\u0442 \u0432 configSrc (%s)' % (name, config_src)
 
 
 # Проверять ли исходники: -Checks off сильнее настройки проекта externalCheck.
@@ -601,6 +658,9 @@ def main():
     parser.add_argument("-Checks", default="")
     # Контексты синтаксической проверки. По умолчанию ThinClient,Server.
     parser.add_argument("-Context", default="")
+    # Выгрузка конфигурации, в которой будет работать обработка: её общие модули видны проверке.
+    # Без параметра берётся configSrc базы из .v8-project.json.
+    parser.add_argument("-ConfigSrc", default="")
     parser.add_argument("-AdditionalV8Arguments", nargs="*", default=[],
                         help="Extra 1cv8 arguments, e.g. /UseHwLicenses+")
     parser.add_argument("-AdditionalIbcmdArguments", nargs="*", default=[],
@@ -614,6 +674,7 @@ def main():
     assert_infobase_exists(args.InfoBasePath)
     args.SourceFile = clean_path(args.SourceFile, "-SourceFile")
     args.OutputFile = clean_path(args.OutputFile, "-OutputFile")
+    args.ConfigSrc = clean_path(args.ConfigSrc, "-ConfigSrc")
 
     # --- Resolve V8Path ---
     v8path = resolve_v8path(args.V8Path, args)
@@ -643,6 +704,7 @@ def main():
         print('Error: -Context задан, но в -Checks нет modules — контексты относятся только к ней')
         sys.exit(1)
     source_dir = os.path.dirname(os.path.abspath(args.SourceFile))
+    check_config_src = resolve_config_src(args) if check_list else None
 
     def new_stub_base(base_path, embed):
         # The stub runs its own platform processes (CREATEINFOBASE, LoadConfigFromFiles,
@@ -653,6 +715,8 @@ def main():
                     "-TempBasePath", base_path]
         if embed:
             stub_cmd += ["-EmbedSourceFile", args.SourceFile]
+        if embed and check_config_src:
+            stub_cmd += ["-ConfigSrc", check_config_src]
         if v8_extra:
             stub_cmd += ["-AdditionalV8Arguments"] + list(v8_extra)
         if ibcmd_extra:
@@ -700,7 +764,8 @@ def main():
         # Проверку ведёт 1cv8, поэтому ibcmd-шные дополнительные аргументы ей не отдаём.
         check_extra = [] if engine == "ibcmd" else extra_args
         found = invoke_source_check(v8path, check_base_path,
-                                    get_check_flags(check_list, context_list), source_dir, check_extra)
+                                    get_check_flags(check_list, context_list), source_dir, check_extra,
+                                    check_config_src)
         if found:
             if auto_created_base and os.path.exists(auto_created_base):
                 shutil.rmtree(auto_created_base, ignore_errors=True)

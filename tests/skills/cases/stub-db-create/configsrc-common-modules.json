@@ -1,0 +1,129 @@
+{
+  "name": "Общие модули из -ConfigSrc: только те, к которым обращается код, с флагами из выгрузки",
+  "fakePlatform": {
+    "exit": 1,
+    "log": ""
+  },
+  "preRun": [
+    {
+      "writeFile": {
+        "path": "src/Проба.xml",
+        "content": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<MetaDataObject xmlns=\"http://v8.1c.ru/8.3/MDClasses\" xmlns:v8=\"http://v8.1c.ru/8.1/data/core\" xmlns:xr=\"http://v8.1c.ru/8.3/xcf/readable\" version=\"2.17\">\n\t<ExternalDataProcessor uuid=\"aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb\">\n\t\t<InternalInfo>\n\t\t\t<xr:GeneratedType name=\"ExternalDataProcessorObject.Проба\" category=\"Object\">\n\t\t\t\t<xr:TypeId>cccccccc-4444-5555-6666-dddddddddddd</xr:TypeId>\n\t\t\t\t<xr:ValueId>eeeeeeee-7777-8888-9999-ffffffffffff</xr:ValueId>\n\t\t\t</xr:GeneratedType>\n\t\t</InternalInfo>\n\t\t<Properties>\n\t\t\t<Name>Проба</Name>\n\t\t</Properties>\n\t\t<ChildObjects/>\n\t</ExternalDataProcessor>\n</MetaDataObject>\n"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "src/Проба/Ext/ObjectModule.bsl",
+        "content": "Процедура Проба()\r\n\tОбщМод.Метод();\r\n\tобщмод2.Метод(\"ЛишнийМодуль.Х\"); // КомментМодуль.Х\r\n\tТекст = \"ВЫБРАТЬ\r\n\t|ТекстМодуль.Поле\";\r\n\tНетВКонфиге.Метод();\r\n\tЗапрос.Текст = Модуль3 .Поле;\r\nТ = \"ВЫБРАТЬ\r\n\t|ГДЕ Ложь\"; Модуль4.Метод();\r\nКонецПроцедуры\r\n"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "cfgsrc/CommonModules/ОбщМод.xml",
+        "content": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<MetaDataObject xmlns=\"http://v8.1c.ru/8.3/MDClasses\" version=\"2.20\">\n\t<CommonModule uuid=\"10000000-0000-0000-0000-000000000001\">\n\t\t<Properties>\n\t\t\t<Name>ОбщМод</Name>\n\t\t\t<Global>false</Global>\n\t\t\t<ClientManagedApplication>false</ClientManagedApplication>\n\t\t\t<Server>true</Server>\n\t\t\t<ExternalConnection>true</ExternalConnection>\n\t\t\t<ClientOrdinaryApplication>false</ClientOrdinaryApplication>\n\t\t\t<ServerCall>true</ServerCall>\n\t\t\t<Privileged>false</Privileged>\n\t\t\t<ReturnValuesReuse>DuringRequest</ReturnValuesReuse>\n\t\t</Properties>\n\t</CommonModule>\n</MetaDataObject>\n"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "cfgsrc/CommonModules/ОбщМод2.xml",
+        "content": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<MetaDataObject xmlns=\"http://v8.1c.ru/8.3/MDClasses\" version=\"2.20\">\n\t<CommonModule uuid=\"10000000-0000-0000-0000-000000000002\">\n\t\t<Properties>\n\t\t\t<Name>ОбщМод2</Name>\n\t\t\t<ClientManagedApplication>true</ClientManagedApplication>\n\t\t\t<Server>true</Server>\n\t\t</Properties>\n\t</CommonModule>\n</MetaDataObject>\n"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "cfgsrc/CommonModules/Модуль3.xml",
+        "content": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<MetaDataObject xmlns=\"http://v8.1c.ru/8.3/MDClasses\" version=\"2.20\">\n\t<CommonModule uuid=\"10000000-0000-0000-0000-000000000003\">\n\t\t<Properties>\n\t\t\t<Name>Модуль3</Name>\n\t\t\t<Server>true</Server>\n\t\t</Properties>\n\t</CommonModule>\n</MetaDataObject>\n"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "cfgsrc/CommonModules/ЛишнийМодуль.xml",
+        "content": "<MetaDataObject/>\n"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "cfgsrc/CommonModules/КомментМодуль.xml",
+        "content": "<MetaDataObject/>\n"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "cfgsrc/CommonModules/ТекстМодуль.xml",
+        "content": "<MetaDataObject/>\n"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "cfgsrc/CommonModules/НеИспользуется.xml",
+        "content": "<MetaDataObject/>\n"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "cfgsrc/CommonModules/Модуль4.xml",
+        "content": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<MetaDataObject xmlns=\"http://v8.1c.ru/8.3/MDClasses\" version=\"2.20\">\n\t<CommonModule uuid=\"10000000-0000-0000-0000-000000000004\">\n\t\t<Properties>\n\t\t\t<Name>Модуль4</Name>\n\t\t\t<Server>true</Server>\n\t\t</Properties>\n\t</CommonModule>\n</MetaDataObject>\n"
+      }
+    }
+  ],
+  "args_extra": [
+    "-SourceDir",
+    "{workDir}/src",
+    "-V8Path",
+    "{fakePlatform}",
+    "-TempBasePath",
+    "{workDir}/base",
+    "-EmbedSourceFile",
+    "{workDir}/src/Проба.xml",
+    "-ConfigSrc",
+    "{workDir}/cfgsrc"
+  ],
+  "expect": {
+    "stdoutContains": [
+      "Общие модули из configSrc: Модуль3, Модуль4, ОбщМод, ОбщМод2"
+    ],
+    "files": [
+      "base/cfg/CommonModules/ОбщМод/Ext/Module.bsl",
+      "base/cfg/CommonModules/ОбщМод2/Ext/Module.bsl",
+      "base/cfg/CommonModules/Модуль3.xml"
+    ],
+    "filesAbsent": [
+      "base/cfg/CommonModules/ЛишнийМодуль.xml",
+      "base/cfg/CommonModules/КомментМодуль.xml",
+      "base/cfg/CommonModules/ТекстМодуль.xml",
+      "base/cfg/CommonModules/НеИспользуется.xml",
+      "base/cfg/CommonModules/НетВКонфиге.xml"
+    ],
+    "fileContains": [
+      {
+        "file": "base/cfg/CommonModules/ОбщМод.xml",
+        "text": [
+          "<Name>ОбщМод</Name>",
+          "<ClientManagedApplication>false</ClientManagedApplication>",
+          "<Server>true</Server>",
+          "<ExternalConnection>true</ExternalConnection>",
+          "<ServerCall>true</ServerCall>",
+          "version=\"2.17\""
+        ]
+      },
+      {
+        "file": "base/cfg/CommonModules/ОбщМод2.xml",
+        "text": [
+          "<Name>ОбщМод2</Name>",
+          "<ClientManagedApplication>true</ClientManagedApplication>",
+          "<ServerCall>false</ServerCall>"
+        ]
+      },
+      {
+        "file": "base/cfg/Configuration.xml",
+        "text": [
+          "<CommonModule>ОбщМод</CommonModule>",
+          "<CommonModule>ОбщМод2</CommonModule>",
+          "<CommonModule>Модуль3</CommonModule>"
+        ]
+      }
+    ]
+  },
+  "expectError": true,
+  "noSnapshot": "платформа фейковая: проверяется сгенерированная конфигурация, а не база"
+}

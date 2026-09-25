@@ -1,0 +1,44 @@
+{
+  "name": "Неопределённый общий модуль без configSrc: подсказка про -ConfigSrc и -Checks off (fake platform)",
+  "osOnly": "win32",
+  "fakePlatform": {
+    "exit": 0,
+    "log": "",
+    "check": {
+      "exit": 101,
+      "log": "﻿{Обработка.Тест.МодульОбъекта(2,2)}: Переменная не определена (ОбщегоНазначения)\r\n\t<<?>>ОбщегоНазначения.СообщитьПользователю(\"x\"); (Проверка: Сервер)\r\n{Обработка.Тест.МодульОбъекта(3,2)}: Переменная не определена (ОбщегоНазначения)\r\n\t<<?>>ОбщегоНазначения.Прочее(); (Проверка: Сервер)\r\n{Обработка.Тест.МодульОбъекта(4,2)}: Переменная не определена (Сумма)\r\n\tХ = <<?>>Сумма + 1; (Проверка: Сервер)\r\n"
+    }
+  },
+  "preRun": [
+    {
+      "script": "epf-init/scripts/init",
+      "args": {
+        "-Name": "Тест",
+        "-SrcDir": "{workDir}/src"
+      }
+    }
+  ],
+  "args_extra": [
+    "-V8Path",
+    "{workDir}\\fake.cmd",
+    "-InfoBasePath",
+    "{workDir}\\ib",
+    "-SourceFile",
+    "{workDir}\\src\\Тест.xml",
+    "-OutputFile",
+    "{workDir}\\build\\Тест.epf"
+  ],
+  "expect": {
+    "stdoutContains": [
+      "[hint] похоже на общий модуль конфигурации",
+      "[hint] Общие модули конфигурации проверке не видны: ОбщегоНазначения.",
+      "-Checks off"
+    ],
+    "stdoutNotContains": [
+      "/LoadExternalDataProcessorOrReportFromFiles",
+      "проверке не видны: ОбщегоНазначения, Сумма"
+    ]
+  },
+  "expectError": true,
+  "noSnapshot": "сборка отменена — артефакта нет по замыслу"
+}

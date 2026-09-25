@@ -60,6 +60,7 @@ powershell.exe -NoProfile -File "${CLAUDE_SKILL_DIR}/../epf-build/scripts/epf-bu
 | `-OutputFile <путь>` | да | Путь к выходному ERF-файлу |
 | `-Checks <список>` | нет | Что проверить перед сборкой: `modules`, `handlers`, `unreferenced`, `empty-handlers`, `config`; `off` — не проверять. По умолчанию `modules,handlers` |
 | `-Context <список>` | нет | Контексты проверки `modules`: `ThinClient`, `Server`, `ExternalConnection`, `ThickClientOrdinaryApplication`. По умолчанию `ThinClient,Server` |
+| `-ConfigSrc <путь>` | нет | Каталог XML-выгрузки конфигурации, в которой будет работать отчёт. По умолчанию — `configSrc` указанной базы из `.v8-project.json` |
 | `-AdditionalV8Arguments <список>` | нет | Доп. аргументы запуска `1cv8.exe` через запятую, напр. `/UseHwLicenses+` |
 | `-AdditionalIbcmdArguments <список>` | нет | Доп. аргументы `ibcmd` через запятую, в форме `--ключ=значение` |
 
@@ -73,6 +74,12 @@ powershell.exe -NoProfile -File "${CLAUDE_SKILL_DIR}/../epf-build/scripts/epf-bu
 или ключом `"externalCheck": false` в `.v8-project.json`.
 
 Проверка идёт на отдельной временной базе, даже если база указана: чужую конфигурацию навык не трогает.
+
+Общие модули конфигурации (`ОбщегоНазначения`, `УправлениеПечатью` и т.п.) проверка видит только
+при известной выгрузке конфигурации — `-ConfigSrc` или `configSrc` базы в `.v8-project.json`.
+Без неё обращения к ним — ошибка «Переменная не определена»; тогда укажи выгрузку или собери
+с `-Checks off`. Методы глобальных общих модулей, вызванные без имени модуля, проверка не видит
+и с выгрузкой — для такого кода остаётся `-Checks off`.
 
 ## Примеры
 
