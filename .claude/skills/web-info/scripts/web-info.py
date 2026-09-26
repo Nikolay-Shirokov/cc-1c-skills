@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# web-info v1.5 — Apache & 1C publication status
+# web-info v1.6 — Apache & 1C publication status
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 """
@@ -110,20 +110,31 @@ def main():
     with open(conf_file, 'r', encoding='utf-8-sig') as f:
         conf_content = f.read()
 
-    # Extract port from global block
+    # Extract Listen from global block (fallback — whole file): "Listen [host:]port [proto]"
     port = '\u2014'
-    m = re.search(r'(?m)^Listen\s+(\d+)', conf_content)
+    listen_host = ''
+    listen_scope = conf_content
+    m = re.search(r'(?s)# --- 1C: global ---(.*?)# --- End: global ---', conf_content)
     if m:
-        port = m.group(1)
+        listen_scope = m.group(1)
+    m = re.search(r'(?mi)^[ \t]*Listen[ \t]+(?:(\[[^\]]+\]|[^\s:\[\]]+):)?(\d+)\b', listen_scope)
+    if m:
+        port = m.group(2)
+        if m.group(1) and m.group(1) not in ('0.0.0.0', '*', '[::]'):
+            listen_host = m.group(1)
+    # Адрес привязки явный — по нему и URL, и проба; иначе все интерфейсы → localhost
+    url_host = listen_host if listen_host else 'localhost'
+    probe_host = listen_host.strip('[]') if listen_host else '127.0.0.1'
     # Проверяем именно TCP-порт: запрос к публикации поднял бы сеанс 1С и занял лицензию
     port_state = ''
     if port != '—':
         try:
-            with socket.create_connection(('127.0.0.1', int(port)), timeout=1):
+            with socket.create_connection((probe_host, int(port)), timeout=1):
                 port_state = ' (слушается)'
         except OSError:
             port_state = ' (не отвечает)'
-    print(f'Port:   {port}{port_state}')
+    port_label = f'{listen_host}:{port}' if listen_host else port
+    print(f'Port:   {port_label}{port_state}')
 
     # Extract wsap24 path
     m = re.search(r'LoadModule\s+_1cws_module\s+"([^"]+)"', conf_content)
@@ -170,7 +181,7 @@ def main():
                     svc_tags.append('OData')
             svc_label = '   [' + ' '.join(svc_tags) + ']' if svc_tags else ''
 
-            url = f'http://localhost:{port}/{app_name}'
+            url = f'http://{url_host}:{port}/{app_name}'
             print(f'  {app_name}   {url}   {ib_info}{svc_label}')
 
     # --- Error log ---

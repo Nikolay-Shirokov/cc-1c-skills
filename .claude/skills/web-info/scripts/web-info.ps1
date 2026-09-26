@@ -1,4 +1,4 @@
-﻿# web-info v1.5 — Apache & 1C publication status
+﻿# web-info v1.6 — Apache & 1C publication status
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 <#
 .SYNOPSIS
@@ -77,17 +77,34 @@ if (-not (Test-Path $confFile)) {
 
 $confContent = [System.IO.File]::ReadAllText($confFile)
 
-# Extract port from global block
+# Extract Listen from global block (fallback — whole file): "Listen [host:]port [proto]"
 $port = "—"
-if ($confContent -match '(?m)^Listen\s+(\d+)') {
-    $port = $Matches[1]
+$listenHost = ""
+$listenScope = $confContent
+if ($confContent -match '(?s)# --- 1C: global ---(.*?)# --- End: global ---') {
+    $listenScope = $Matches[1]
 }
+if ($listenScope -match '(?m)^[ \t]*Listen[ \t]+(?:(\[[^\]]+\]|[^\s:\[\]]+):)?(\d+)\b') {
+    $port = $Matches[2]
+    if ($Matches[1] -and @('0.0.0.0', '*', '[::]') -notcontains $Matches[1]) {
+        $listenHost = $Matches[1]
+    }
+}
+# Адрес привязки явный — по нему и URL, и проба; иначе все интерфейсы → localhost
+$urlHost = if ($listenHost) { $listenHost } else { "localhost" }
+$probeHost = if ($listenHost) { $listenHost.Trim('[', ']') } else { "127.0.0.1" }
 # Проверяем именно TCP-порт: запрос к публикации поднял бы сеанс 1С и занял лицензию
 $portState = ""
 if ($port -ne "—") {
-    $client = New-Object System.Net.Sockets.TcpClient
+    # Конструктор по умолчанию — только IPv4: для IPv6-литерала нужно семейство адреса
+    $probeAddr = $null
+    if ([System.Net.IPAddress]::TryParse($probeHost, [ref]$probeAddr)) {
+        $client = New-Object System.Net.Sockets.TcpClient($probeAddr.AddressFamily)
+    } else {
+        $client = New-Object System.Net.Sockets.TcpClient
+    }
     try {
-        $async = $client.BeginConnect("127.0.0.1", [int]$port, $null, $null)
+        $async = $client.BeginConnect($probeHost, [int]$port, $null, $null)
         if ($async.AsyncWaitHandle.WaitOne(1000) -and $client.Connected) {
             $portState = " (слушается)"
         } else {
@@ -99,7 +116,8 @@ if ($port -ne "—") {
         $client.Close()
     }
 }
-Write-Host "Port:   $port$portState"
+$portLabel = if ($listenHost) { "${listenHost}:$port" } else { $port }
+Write-Host "Port:   $portLabel$portState"
 
 # Extract wsap24 path
 if ($confContent -match 'LoadModule\s+_1cws_module\s+"([^"]+)"') {
@@ -149,7 +167,7 @@ if ($pubMatches.Count -eq 0) {
         }
         $svcLabel = if ($svcTags.Count -gt 0) { "   [" + ($svcTags -join " ") + "]" } else { "" }
 
-        $url = "http://localhost:$port/$appName"
+        $url = "http://${urlHost}:$port/$appName"
         Write-Host "  $appName" -ForegroundColor White -NoNewline
         Write-Host "   $url" -ForegroundColor Gray -NoNewline
         Write-Host "   $ibInfo" -ForegroundColor DarkGray -NoNewline

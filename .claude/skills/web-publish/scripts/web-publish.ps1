@@ -1,4 +1,4 @@
-﻿# web-publish v1.11 — Publish 1C infobase via Apache (+_version_dir/_version_key: общий эталон db-семейства)
+﻿# web-publish v1.12 — Publish 1C infobase via Apache (+_version_dir/_version_key: общий эталон db-семейства)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 <#
 .SYNOPSIS
@@ -349,9 +349,20 @@ $vrdPathFwd = $vrdPath -replace '\\','/'
 # --- Global block (Listen + LoadModule) ---
 $globalMarkerStart = "# --- 1C: global ---"
 $globalMarkerEnd = "# --- End: global ---"
+# Адрес привязки, вписанный в наш блок руками (Listen 127.0.0.1:port), при перезаписи сохраняем
+$listenHost = ""
+$globalPattern = [regex]::Escape($globalMarkerStart) + '([\s\S]*?)' + [regex]::Escape($globalMarkerEnd)
+if ($confContent -match $globalPattern -and
+    $Matches[1] -match '(?m)^[ \t]*Listen[ \t]+(?:(\[[^\]]+\]|[^\s:\[\]]+):)?(\d+)\b') {
+    if ($Matches[1] -and @('0.0.0.0', '*', '[::]') -notcontains $Matches[1]) {
+        $listenHost = $Matches[1]
+    }
+}
+$listenArg = if ($listenHost) { "${listenHost}:$Port" } else { "$Port" }
+$urlHost = if ($listenHost) { $listenHost } else { "localhost" }
 $globalBlock = @"
 $globalMarkerStart
-Listen $Port
+Listen $listenArg
 LoadModule _1cws_module "$wsapDllFwd"
 $globalMarkerEnd
 "@
@@ -362,7 +373,7 @@ if ($confContent -match [regex]::Escape($globalMarkerStart)) {
     $confContent = [regex]::Replace($confContent, $pattern, $globalBlock)
 } else {
     # Comment out default Listen to avoid port conflict
-    $confContent = $confContent -replace '(?m)^(Listen\s+\d+)', '#$1  # commented by web-publish'
+    $confContent = $confContent -replace '(?m)^([ \t]*Listen\b[^\r\n]*)', '#$1  # commented by web-publish'
     # Append global block
     $confContent = $confContent.TrimEnd() + "`n`n" + $globalBlock + "`n"
 }
@@ -460,7 +471,7 @@ if ($httpdCheck) {
 # --- Result ---
 Write-Host ""
 Write-Host "=== Публикация готова ===" -ForegroundColor Green
-Write-Host "URL:          http://localhost:$Port/$AppName" -ForegroundColor Cyan
-Write-Host "OData:        http://localhost:$Port/$AppName/odata/standard.odata" -ForegroundColor Cyan
-Write-Host "HTTP-сервисы: http://localhost:$Port/$AppName/hs/<RootUrl>/..." -ForegroundColor Cyan
-Write-Host "Web-сервисы:  http://localhost:$Port/$AppName/ws/<Имя>?wsdl" -ForegroundColor Cyan
+Write-Host "URL:          http://${urlHost}:$Port/$AppName" -ForegroundColor Cyan
+Write-Host "OData:        http://${urlHost}:$Port/$AppName/odata/standard.odata" -ForegroundColor Cyan
+Write-Host "HTTP-сервисы: http://${urlHost}:$Port/$AppName/hs/<RootUrl>/..." -ForegroundColor Cyan
+Write-Host "Web-сервисы:  http://${urlHost}:$Port/$AppName/ws/<Имя>?wsdl" -ForegroundColor Cyan

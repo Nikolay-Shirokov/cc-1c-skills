@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# web-publish v1.11 — Publish 1C infobase via Apache (+_version_dir/_version_key: общий эталон db-семейства)
+# web-publish v1.12 — Publish 1C infobase via Apache (+_version_dir/_version_key: общий эталон db-семейства)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 """
@@ -408,9 +408,19 @@ def main():
     # --- Global block (Listen + LoadModule) ---
     global_marker_start = '# --- 1C: global ---'
     global_marker_end = '# --- End: global ---'
+    # Адрес привязки, вписанный в наш блок руками (Listen 127.0.0.1:port), при перезаписи сохраняем
+    listen_host = ''
+    global_pattern = re.escape(global_marker_start) + r'([\s\S]*?)' + re.escape(global_marker_end)
+    m = re.search(global_pattern, conf_content)
+    if m:
+        m = re.search(r'(?mi)^[ \t]*Listen[ \t]+(?:(\[[^\]]+\]|[^\s:\[\]]+):)?(\d+)\b', m.group(1))
+        if m and m.group(1) and m.group(1) not in ('0.0.0.0', '*', '[::]'):
+            listen_host = m.group(1)
+    listen_arg = f'{listen_host}:{port}' if listen_host else f'{port}'
+    url_host = listen_host if listen_host else 'localhost'
     global_block = (
         f'{global_marker_start}\n'
-        f'Listen {port}\n'
+        f'Listen {listen_arg}\n'
         f'LoadModule _1cws_module "{wsap_dll_fwd}"\n'
         f'{global_marker_end}'
     )
@@ -421,7 +431,7 @@ def main():
         conf_content = re.sub(pattern, global_block, conf_content)
     else:
         # Comment out default Listen to avoid port conflict
-        conf_content = re.sub(r'(?m)^(Listen\s+\d+)', r'#\1  # commented by web-publish', conf_content)
+        conf_content = re.sub(r'(?mi)^([ \t]*Listen\b[^\r\n]*)', r'#\1  # commented by web-publish', conf_content)
         # Append global block
         conf_content = conf_content.rstrip() + '\n\n' + global_block + '\n'
 
@@ -536,10 +546,10 @@ def main():
     # --- Result ---
     print('')
     print('=== Публикация готова ===')
-    print(f'URL:          http://localhost:{port}/{app_name}')
-    print(f'OData:        http://localhost:{port}/{app_name}/odata/standard.odata')
-    print(f'HTTP-сервисы: http://localhost:{port}/{app_name}/hs/<RootUrl>/...')
-    print(f'Web-сервисы:  http://localhost:{port}/{app_name}/ws/<Имя>?wsdl')
+    print(f'URL:          http://{url_host}:{port}/{app_name}')
+    print(f'OData:        http://{url_host}:{port}/{app_name}/odata/standard.odata')
+    print(f'HTTP-сервисы: http://{url_host}:{port}/{app_name}/hs/<RootUrl>/...')
+    print(f'Web-сервисы:  http://{url_host}:{port}/{app_name}/ws/<Имя>?wsdl')
 
 
 if __name__ == '__main__':
