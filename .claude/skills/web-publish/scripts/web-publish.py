@@ -408,19 +408,25 @@ def main():
     # --- Global block (Listen + LoadModule) ---
     global_marker_start = '# --- 1C: global ---'
     global_marker_end = '# --- End: global ---'
-    # Адрес привязки, вписанный в наш блок руками (Listen 127.0.0.1:port), при перезаписи сохраняем
-    listen_host = ''
+    # Адреса привязки, вписанные в наш блок руками (Listen 127.0.0.1:port + Listen [::1]:port),
+    # при перезаписи сохраняем все — меняется только порт
+    listen_hosts = []
     global_pattern = re.escape(global_marker_start) + r'([\s\S]*?)' + re.escape(global_marker_end)
     m = re.search(global_pattern, conf_content)
     if m:
-        m = re.search(r'(?mi)^[ \t]*Listen[ \t]+(?:(\[[^\]]+\]|[^\s:\[\]]+):)?(\d+)\b', m.group(1))
-        if m and m.group(1) and m.group(1) not in ('0.0.0.0', '*', '[::]'):
-            listen_host = m.group(1)
-    listen_arg = f'{listen_host}:{port}' if listen_host else f'{port}'
-    url_host = listen_host if listen_host else 'localhost'
+        for lm in re.finditer(r'(?mi)^[ \t]*Listen[ \t]+(?:(\[[^\]]+\]|[^\s:\[\]]+):)?(\d+)\b', m.group(1)):
+            h = lm.group(1) or ''
+            if h not in listen_hosts:
+                listen_hosts.append(h)
+    if not listen_hosts:
+        listen_hosts = ['']
+    listen_lines = '\n'.join(f'Listen {h}:{port}' if h else f'Listen {port}' for h in listen_hosts)
+    # URL — по первому адресу; «все интерфейсы» → localhost
+    first_host = listen_hosts[0]
+    url_host = first_host if first_host and first_host not in ('0.0.0.0', '*', '[::]') else 'localhost'
     global_block = (
         f'{global_marker_start}\n'
-        f'Listen {listen_arg}\n'
+        f'{listen_lines}\n'
         f'LoadModule _1cws_module "{wsap_dll_fwd}"\n'
         f'{global_marker_end}'
     )

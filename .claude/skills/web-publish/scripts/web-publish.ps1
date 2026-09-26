@@ -349,20 +349,24 @@ $vrdPathFwd = $vrdPath -replace '\\','/'
 # --- Global block (Listen + LoadModule) ---
 $globalMarkerStart = "# --- 1C: global ---"
 $globalMarkerEnd = "# --- End: global ---"
-# Адрес привязки, вписанный в наш блок руками (Listen 127.0.0.1:port), при перезаписи сохраняем
-$listenHost = ""
+# Адреса привязки, вписанные в наш блок руками (Listen 127.0.0.1:port + Listen [::1]:port),
+# при перезаписи сохраняем все — меняется только порт
+$listenHosts = @()
 $globalPattern = [regex]::Escape($globalMarkerStart) + '([\s\S]*?)' + [regex]::Escape($globalMarkerEnd)
-if ($confContent -match $globalPattern -and
-    $Matches[1] -match '(?m)^[ \t]*Listen[ \t]+(?:(\[[^\]]+\]|[^\s:\[\]]+):)?(\d+)\b') {
-    if ($Matches[1] -and @('0.0.0.0', '*', '[::]') -notcontains $Matches[1]) {
-        $listenHost = $Matches[1]
+if ($confContent -match $globalPattern) {
+    foreach ($lm in [regex]::Matches($Matches[1], '(?mi)^[ \t]*Listen[ \t]+(?:(\[[^\]]+\]|[^\s:\[\]]+):)?(\d+)\b')) {
+        $h = $lm.Groups[1].Value
+        if ($listenHosts -cnotcontains $h) { $listenHosts += $h }
     }
 }
-$listenArg = if ($listenHost) { "${listenHost}:$Port" } else { "$Port" }
-$urlHost = if ($listenHost) { $listenHost } else { "localhost" }
+if ($listenHosts.Count -eq 0) { $listenHosts = @("") }
+$listenLines = ($listenHosts | ForEach-Object { if ($_) { "Listen ${_}:$Port" } else { "Listen $Port" } }) -join "`n"
+# URL — по первому адресу; «все интерфейсы» → localhost
+$firstHost = $listenHosts[0]
+$urlHost = if ($firstHost -and @('0.0.0.0', '*', '[::]') -notcontains $firstHost) { $firstHost } else { "localhost" }
 $globalBlock = @"
 $globalMarkerStart
-Listen $listenArg
+$listenLines
 LoadModule _1cws_module "$wsapDllFwd"
 $globalMarkerEnd
 "@
