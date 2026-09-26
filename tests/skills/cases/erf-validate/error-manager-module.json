@@ -1,0 +1,20 @@
+{
+  "name": "Валидатор находит ошибку: модуль менеджера у внешнего отчёта (#108)",
+  "preRun": [
+    {
+      "script": "erf-init/scripts/init",
+      "args": { "-Name": "ТестовыйОтчёт", "-SrcDir": "{workDir}" }
+    },
+    {
+      "writeFile": {
+        "path": "ТестовыйОтчёт/Ext/ManagerModule.bsl",
+        "content": "Процедура Тест() Экспорт\nКонецПроцедуры\n"
+      }
+    }
+  ],
+  "params": { "objectPath": "ТестовыйОтчёт.xml" },
+  "expectError": true,
+  "expect": {
+    "stdoutContains": ["нет модуля менеджера"]
+  }
+}

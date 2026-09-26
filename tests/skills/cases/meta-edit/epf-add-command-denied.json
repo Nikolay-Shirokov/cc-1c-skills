@@ -1,0 +1,22 @@
+{
+  "name": "Внешняя обработка: команду объекта не добавлять — платформа её выбросит (#108)",
+  "setup": "none",
+  "skipValidation": true,
+  "preRun": [
+    {
+      "script": "epf-init/scripts/init",
+      "args": { "-Name": "Проба", "-SrcDir": "{workDir}" }
+    }
+  ],
+  "params": { "objectPath": "Проба.xml", "objectName": "Проба" },
+  "input": {
+    "add": {
+      "commands": ["ПробнаяКоманда"]
+    }
+  },
+  "expect": {
+    "stdoutContains": ["commands not allowed for ExternalDataProcessor", "Validation OK"],
+    "fileNotContains": [{ "file": "Проба.xml", "text": ["<Command"] }],
+    "filesAbsent": ["Проба/Commands"]
+  }
+}

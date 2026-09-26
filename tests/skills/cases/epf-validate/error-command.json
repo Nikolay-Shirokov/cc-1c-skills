@@ -1,0 +1,9 @@
+{
+  "name": "Валидатор находит ошибку: команда объекта у внешней обработки (#108)",
+  "setup": "fixture:epf-command",
+  "params": { "objectPath": "Тест.xml" },
+  "expectError": true,
+  "expect": {
+    "stdoutContains": ["у внешней обработки/отчёта команд объекта нет"]
+  }
+}

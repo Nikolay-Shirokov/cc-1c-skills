@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# epf-validate v1.6 — Validate 1C external data processor / report structure
+# epf-validate v1.7 — Validate 1C external data processor / report structure
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 # Works for both EPF (ExternalDataProcessor) and ERF (ExternalReport) — auto-detects
 
@@ -49,14 +49,14 @@ CLASS_IDS = {
     "ExternalReport": "e41aff26-25cf-4bb6-b6c1-3f478a75f374",
 }
 
-ALLOWED_CHILD_TYPES = {"Attribute", "TabularSection", "Form", "Template", "Command"}
+# Команд объекта у внешней обработки/отчёта нет: платформа выбрасывает их при сборке (#108).
+ALLOWED_CHILD_TYPES = {"Attribute", "TabularSection", "Form", "Template"}
 
 CHILD_TYPE_ORDER = {
     "Attribute": 0,
     "TabularSection": 1,
     "Form": 2,
     "Template": 3,
-    "Command": 4,
 }
 
 
@@ -381,6 +381,10 @@ def main():
                 continue
             child_tag = localname(child)
 
+            if child_tag == "Command":
+                report_error("4. ChildObjects: Command — у внешней обработки/отчёта команд объекта нет, платформа выбросит его при сборке")
+                check4_ok = False
+                continue
             if child_tag not in ALLOWED_CHILD_TYPES:
                 report_error(f"4. ChildObjects: disallowed element '{child_tag}'")
                 check4_ok = False
@@ -390,7 +394,7 @@ def main():
 
             this_order = CHILD_TYPE_ORDER.get(child_tag, -1)
             if this_order < last_order and order_ok:
-                report_warn(f"4. ChildObjects: '{child_tag}' appears after higher-order elements (expected: Attribute, TabularSection, Form, Template, Command)")
+                report_warn(f"4. ChildObjects: '{child_tag}' appears after higher-order elements (expected: Attribute, TabularSection, Form, Template)")
                 order_ok = False
             last_order = this_order
 
@@ -597,7 +601,6 @@ def main():
         name_kinds = [
             ("Attribute", f"{{{MD_NS}}}Attribute"),
             ("TabularSection", f"{{{MD_NS}}}TabularSection"),
-            ("Command", f"{{{MD_NS}}}Command"),
         ]
 
         for kind, xpath in name_kinds:
@@ -677,6 +680,12 @@ def main():
     obj_module = os.path.join(obj_dir, "Ext", "ObjectModule.bsl")
     if os.path.isfile(obj_module):
         files_checked += 1
+
+    # Модуля менеджера у внешней обработки/отчёта нет: платформа выбрасывает файл без сообщения.
+    mgr_module = os.path.join(obj_dir, "Ext", "ManagerModule.bsl")
+    if os.path.isfile(mgr_module):
+        report_error("9. Ext/ManagerModule.bsl — у внешней обработки/отчёта нет модуля менеджера, платформа выбросит его молча")
+        check9_ok = False
 
     if check9_ok:
         if files_checked > 0:

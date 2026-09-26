@@ -1705,6 +1705,9 @@ $script:validChildTypes = @{
 	"Task"                       = @("attributes","tabularSections","forms","templates","commands")
 	"Report"                     = @("attributes","tabularSections","forms","templates","commands")
 	"DataProcessor"              = @("attributes","tabularSections","forms","templates","commands")
+	# Внешняя обработка/отчёт: команд объекта нет — платформа выбрасывает их при сборке.
+	"ExternalDataProcessor"      = @("attributes","tabularSections","forms","templates")
+	"ExternalReport"             = @("attributes","tabularSections","forms","templates")
 	"Enum"                       = @("enumValues","forms","templates","commands")
 	"InformationRegister"        = @("dimensions","resources","attributes","forms","templates","commands")
 	"AccumulationRegister"       = @("dimensions","resources","attributes","forms","templates","commands")

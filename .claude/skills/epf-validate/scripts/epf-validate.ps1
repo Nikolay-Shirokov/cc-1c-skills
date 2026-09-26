@@ -1,4 +1,4 @@
-﻿# epf-validate v1.6 — Validate 1C external data processor / report structure
+﻿# epf-validate v1.7 — Validate 1C external data processor / report structure
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 # Works for both EPF (ExternalDataProcessor) and ERF (ExternalReport) — auto-detects
 [CmdletBinding(PositionalBinding=$false)]
@@ -135,7 +135,8 @@ $classIds = @{
 	"ExternalReport"        = "e41aff26-25cf-4bb6-b6c1-3f478a75f374"
 }
 
-$allowedChildTypes = @("Attribute","TabularSection","Form","Template","Command")
+# Команд объекта у внешней обработки/отчёта нет: платформа выбрасывает их при сборке (#108).
+$allowedChildTypes = @("Attribute","TabularSection","Form","Template")
 
 # Expected order of child types in ChildObjects
 $childTypeOrder = @{
@@ -143,7 +144,6 @@ $childTypeOrder = @{
 	"TabularSection" = 1
 	"Form"           = 2
 	"Template"       = 3
-	"Command"        = 4
 }
 
 $validPropertyValues = @{
@@ -410,6 +410,11 @@ if ($childObjNode) {
 		if ($child.NodeType -ne 'Element') { continue }
 		$childTag = $child.LocalName
 
+		if ($childTag -eq "Command") {
+			Report-Error "4. ChildObjects: Command — у внешней обработки/отчёта команд объекта нет, платформа выбросит его при сборке"
+			$check4Ok = $false
+			continue
+		}
 		if ($allowedChildTypes -notcontains $childTag) {
 			Report-Error "4. ChildObjects: disallowed element '$childTag'"
 			$check4Ok = $false
@@ -424,7 +429,7 @@ if ($childObjNode) {
 		# Check ordering
 		$thisOrder = $childTypeOrder[$childTag]
 		if ($thisOrder -lt $lastOrder -and $orderOk) {
-			Report-Warn "4. ChildObjects: '$childTag' appears after higher-order elements (expected: Attribute, TabularSection, Form, Template, Command)"
+			Report-Warn "4. ChildObjects: '$childTag' appears after higher-order elements (expected: Attribute, TabularSection, Form, Template)"
 			$orderOk = $false
 		}
 		$lastOrder = $thisOrder
@@ -665,14 +670,13 @@ if ($script:stopped) { & $finalize; exit 1 }
 
 $check8Ok = $true
 
-# Collect all names: attributes + tabular sections + forms + templates + commands
+# Collect all names: attributes + tabular sections + forms + templates
 $allNames = @{}
 
 if ($childObjNode) {
 	$nameKinds = @(
 		@{ XPath = "md:Attribute"; Kind = "Attribute" },
-		@{ XPath = "md:TabularSection"; Kind = "TabularSection" },
-		@{ XPath = "md:Command"; Kind = "Command" }
+		@{ XPath = "md:TabularSection"; Kind = "TabularSection" }
 	)
 
 	foreach ($nk in $nameKinds) {
@@ -775,6 +779,13 @@ foreach ($tn in $templateNames) {
 $objModule = Join-Path (Join-Path $objDir "Ext") "ObjectModule.bsl"
 if (Test-Path $objModule) {
 	$filesChecked++
+}
+
+# Модуля менеджера у внешней обработки/отчёта нет: платформа выбрасывает файл без сообщения.
+$mgrModule = Join-Path (Join-Path $objDir "Ext") "ManagerModule.bsl"
+if (Test-Path $mgrModule) {
+	Report-Error "9. Ext/ManagerModule.bsl — у внешней обработки/отчёта нет модуля менеджера, платформа выбросит его молча"
+	$check9Ok = $false
 }
 
 if ($check9Ok) {
