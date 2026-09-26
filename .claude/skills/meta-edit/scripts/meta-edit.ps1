@@ -1,4 +1,4 @@
-﻿# meta-edit v1.53 — Edit existing 1C metadata object XML
+﻿# meta-edit v1.54 — Edit existing 1C metadata object XML
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -3897,15 +3897,17 @@ Info "Saved: $resolvedPath"
 # ============================================================
 
 if (-not $NoValidate) {
-	$validateScript = Join-Path (Join-Path $PSScriptRoot "..\..\meta-validate") "scripts\meta-validate.ps1"
+	# Внешняя обработка/отчёт — автономный объект, meta-validate его не знает (#108).
+	$validateSkill = if (@('ExternalDataProcessor','ExternalReport') -contains $script:objType) { "epf-validate" } else { "meta-validate" }
+	$validateScript = Join-Path (Join-Path $PSScriptRoot "..\..\$validateSkill") "scripts\$validateSkill.ps1"
 	$validateScript = [System.IO.Path]::GetFullPath($validateScript)
 	if (Test-Path $validateScript) {
 		Write-Host ""
-		Write-Host "--- Running meta-validate ---" -ForegroundColor DarkGray
+		Write-Host "--- Running $validateSkill ---" -ForegroundColor DarkGray
 		& powershell.exe -NoProfile -File $validateScript -ObjectPath $resolvedPath
 	} else {
 		Write-Host ""
-		Write-Host "[SKIP] meta-validate not found at: $validateScript" -ForegroundColor DarkGray
+		Write-Host "[SKIP] $validateSkill not found at: $validateScript" -ForegroundColor DarkGray
 	}
 }
 

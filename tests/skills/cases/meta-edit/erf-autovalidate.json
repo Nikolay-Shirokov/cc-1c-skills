@@ -1,0 +1,24 @@
+{
+  "name": "Внешний отчёт: автопроверка через epf-validate, не meta-validate (#108)",
+  "setup": "none",
+  "skipValidation": true,
+  "preRun": [
+    {
+      "script": "erf-init/scripts/init",
+      "args": { "-Name": "ПробаОтчёт", "-SrcDir": "{workDir}" }
+    }
+  ],
+  "params": { "objectPath": "ПробаОтчёт.xml", "objectName": "ПробаОтчёт" },
+  "input": {
+    "add": {
+      "attributes": ["Текст: String(50)"],
+      "tabularSections": [
+        { "name": "Строки", "attrs": ["Сумма: Number(15,2)"] }
+      ]
+    }
+  },
+  "expect": {
+    "stdoutContains": ["--- Running epf-validate ---", "Validation OK"],
+    "stdoutNotContains": ["Unrecognized metadata type", "meta-validate"]
+  }
+}

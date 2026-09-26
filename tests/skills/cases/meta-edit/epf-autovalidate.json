@@ -1,0 +1,24 @@
+{
+  "name": "Внешняя обработка: автопроверка через epf-validate, не meta-validate (#108)",
+  "setup": "none",
+  "skipValidation": true,
+  "preRun": [
+    {
+      "script": "epf-init/scripts/init",
+      "args": { "-Name": "Проба", "-SrcDir": "{workDir}" }
+    }
+  ],
+  "params": { "objectPath": "Проба.xml", "objectName": "Проба" },
+  "input": {
+    "add": {
+      "attributes": ["Текст: String(50)"],
+      "tabularSections": [
+        { "name": "Строки", "attrs": ["Сумма: Number(15,2)"] }
+      ]
+    }
+  },
+  "expect": {
+    "stdoutContains": ["--- Running epf-validate ---", "Validation OK"],
+    "stdoutNotContains": ["Unrecognized metadata type", "meta-validate"]
+  }
+}

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-edit v1.53 — Edit existing 1C metadata object XML
+# meta-edit v1.54 — Edit existing 1C metadata object XML
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -3985,16 +3985,20 @@ def main():
 
     # --- Auto-validate ---
     if not args.NoValidate:
+        # Внешняя обработка/отчёт — автономный объект, meta-validate его не знает (#108).
+        validate_skill = "epf-validate" if obj_type in ("ExternalDataProcessor", "ExternalReport") else "meta-validate"
         script_dir = os.path.dirname(os.path.abspath(__file__))
-        validate_script = os.path.normpath(os.path.join(script_dir, "..", "..", "meta-validate", "scripts", "meta-validate.py"))
+        validate_script = os.path.normpath(os.path.join(script_dir, "..", "..", validate_skill, "scripts", f"{validate_skill}.py"))
         if os.path.exists(validate_script):
             print()
-            print("--- Running meta-validate ---")
+            print(f"--- Running {validate_skill} ---")
             python_exe = sys.executable
+            # Буфер stdout сбросить до запуска: иначе вывод дочернего процесса обгоняет наш.
+            sys.stdout.flush()
             subprocess.run([python_exe, validate_script, "-ObjectPath", resolved_path])
         else:
             print()
-            print(f"[SKIP] meta-validate not found at: {validate_script}")
+            print(f"[SKIP] {validate_skill} not found at: {validate_script}")
 
     # --- Summary ---
     print()

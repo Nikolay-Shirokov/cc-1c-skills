@@ -713,7 +713,7 @@ const EPF_SKILLS = new Map([
 
 // Skills that produce either an EPF/ERF source or a full Configuration —
 // route is auto-detected after the main script runs.
-const EPF_OR_CONFIG_SKILLS = new Set(['template-add', 'help-add']);
+const EPF_OR_CONFIG_SKILLS = new Set(['template-add', 'help-add', 'meta-edit']);
 
 // Диагностика падения навыка. Оба потока вместе: ps1 печатает строку ошибки в stdout, py — в
 // stderr, а лог платформы оба кладут в stdout. Читать только `stderr || stdout` значило на
@@ -918,8 +918,12 @@ async function verifyCase(skillName, caseName, skillConfig, caseData, opts) {
   // setup кейса перекрывает setup навыка — как в runner.mjs. Без этого кейсы с гейтом по версии
   // формата (empty-config-218/220/221) проверялись на конфигурации 2.17, то есть платформа не
   // видела ровно того поведения, ради которого кейс написан.
+  // Кейс навыка «EPF или конфигурация» с setup `none` правит внешнюю обработку: пустая конфигурация
+  // вокруг неё — ложный PASS (корневой XML обработки платформа при загрузке конфигурации не видит).
   const caseSetup = typeof caseData.setup === 'string' ? caseData.setup : null;
-  const setupType = (caseSetup && caseSetup.startsWith('empty-config')) ? caseSetup : (skillConfig.setup || 'empty-config');
+  const caseSetupWins = caseSetup && (caseSetup.startsWith('empty-config') ||
+    (caseSetup === 'none' && EPF_OR_CONFIG_SKILLS.has(skillName)));
+  const setupType = caseSetupWins ? caseSetup : (skillConfig.setup || 'empty-config');
   const isStandalone = STANDALONE_SKILLS.has(skillName);
   let epfExt = EPF_SKILLS.get(skillName);
   let isEpf = !!epfExt;
