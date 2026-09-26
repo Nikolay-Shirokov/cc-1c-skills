@@ -1,0 +1,29 @@
+{
+  "name": "Повторное заимствование формы не затирает картинку элемента, заменённую в расширении",
+  "setup": "fixture:form-item-pictures",
+  "preRun": [
+    {
+      "script": "cfe-init/scripts/cfe-init",
+      "args": { "-Name": "Тест", "-OutputDir": "{workDir}/cfe", "-ConfigPath": "{workDir}" }
+    },
+    {
+      "script": "cfe-borrow/scripts/cfe-borrow",
+      "args": { "-ExtensionPath": "{workDir}/cfe", "-ConfigPath": "{workDir}", "-Object": "Document.Расход.Form.ФормаДокумента" }
+    },
+    {
+      "writeFile": { "path": "cfe/Documents/Расход/Forms/ФормаДокумента/Ext/Form/Items/ФормаОбновитьКартинкой/Picture.png", "content": "картинка расширения" }
+    }
+  ],
+  "params": { "extensionPath": "cfe", "object": "Document.Расход.Form.ФормаДокумента" },
+  "skipPlatformVerify": "картинка кнопки в расширении подменена текстовым маркером — это не изображение",
+  "expect": {
+    "fileContains": {
+      "file": "cfe/Documents/Расход/Forms/ФормаДокумента/Ext/Form/Items/ФормаОбновитьКартинкой/Picture.png",
+      "text": ["картинка расширения"]
+    },
+    "filesEqual": {
+      "actual": "cfe/Documents/Расход/Forms/ФормаДокумента/Ext/Form/Items/Товары/RowsPicture.png",
+      "expected": "Documents/Расход/Forms/ФормаДокумента/Ext/Form/Items/Товары/RowsPicture.png"
+    }
+  }
+}

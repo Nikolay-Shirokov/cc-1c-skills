@@ -1,4 +1,4 @@
-﻿# cfe-borrow v1.37 — Borrow objects from configuration into extension (CFE)
+﻿# cfe-borrow v1.38 — Borrow objects from configuration into extension (CFE)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -958,6 +958,20 @@ function Borrow-Form {
 		$autoCmdXml = Rewrite-ChoiceParameterLinks $autoCmdXml $srcAttrUuids $formAttrIds $srcMainAttrName ([bool]$mainAttrInfo)
 	}
 
+	# Картинка декорации в заимствованную форму не переносится: Конфигуратор выбрасывает <Picture>
+	# у PictureDecoration из обеих частей формы при любом виде картинки (своя, общая, стандартная)
+	# и не тянет за ней ни файл, ни общую картинку. Замер 8.3.27: 10 декораций в 5 формах УТ.
+	# Картинки кнопок, таблиц и полей картинки остаются — вместе с файлами, см. копирование ниже.
+	if ($srcChildItems) {
+		foreach ($decoPic in @($srcChildItems.SelectNodes(".//*[local-name()='PictureDecoration']/*[local-name()='Picture']"))) {
+			$prevWs = $decoPic.PreviousSibling
+			if ($prevWs -and ($prevWs.NodeType -eq 'Whitespace' -or $prevWs.NodeType -eq 'SignificantWhitespace')) {
+				$decoPic.ParentNode.RemoveChild($prevWs) | Out-Null
+			}
+			$decoPic.ParentNode.RemoveChild($decoPic) | Out-Null
+		}
+	}
+
 	# ChildItems: copy full tree, clean up base-config references
 	$childItemsXml = ""
 	if ($srcChildItems) {
@@ -1278,10 +1292,49 @@ function Borrow-Form {
 		Info "  Created: $moduleBslFile"
 	}
 
+	# 6b. Встроенные картинки элементов. Form.xml ссылается на них как <xr:Abs>Файл</xr:Abs>, а сам файл
+	# лежит в Ext/Form/Items/<Элемент>/<Файл>; без него платформа отвергает расширение («Файл не найден»).
+	# Конфигуратор копирует их байт в байт. Берём ровно то, на что ссылается скелет (картинки декораций
+	# выброшены выше). Уже лежащий файл не перезаписываем: его могли заменить в расширении.
+	$picFiles = @()
+	$srcItemsDir = Join-Path (Join-Path (Split-Path $srcFormXmlPath -Parent) "Form") "Items"
+	$picRels = New-Object System.Collections.Generic.List[string]
+	foreach ($sect in @($srcAutoCmd, $srcChildItems)) {
+		if (-not $sect) { continue }
+		foreach ($absNode in @($sect.SelectNodes(".//*[local-name()='Abs' and namespace-uri()='http://v8.1c.ru/8.3/xcf/readable']"))) {
+			$picOwner = $absNode.ParentNode.ParentNode
+			$picElName = $picOwner.GetAttribute("name")
+			$picFileName = $absNode.InnerText.Trim()
+			if (-not $picElName -or -not $picFileName) { continue }
+			$rel = "$picElName/$picFileName"
+			if (-not $picRels.Contains($rel)) { $picRels.Add($rel) }
+		}
+	}
+	$picRelArr = $picRels.ToArray()
+	[Array]::Sort($picRelArr, [System.StringComparer]::Ordinal)
+	foreach ($rel in $picRelArr) {
+		$picParts = $rel.Split('/')
+		$srcPic = Join-Path (Join-Path $srcItemsDir $picParts[0]) $picParts[1]
+		$dstPicDir = Join-Path (Join-Path $moduleDir "Items") $picParts[0]
+		$dstPic = Join-Path $dstPicDir $picParts[1]
+		if (Test-Path -LiteralPath $dstPic) {
+			Info "  Preserved existing: $dstPic"
+			continue
+		}
+		if (-not (Test-Path -LiteralPath $srcPic)) {
+			Warn "  Картинка элемента не найдена в источнике: $srcPic"
+			continue
+		}
+		if (-not (Test-Path -LiteralPath $dstPicDir)) { New-Item -ItemType Directory -Path $dstPicDir -Force | Out-Null }
+		Copy-Item -LiteralPath $srcPic -Destination $dstPic
+		$picFiles += $dstPic
+		Info "  Copied: $dstPic"
+	}
+
 	# 7. Register form in parent object ChildObjects
 	Register-FormInObject $typeName $objName $formName
 
-	return @($formMetaFile, $formXmlFile, $moduleBslFile)
+	return @($formMetaFile, $formXmlFile, $moduleBslFile) + $picFiles
 }
 
 # --- 10d. Helper: register form in parent object's ChildObjects ---

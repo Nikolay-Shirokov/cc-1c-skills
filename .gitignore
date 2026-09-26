@@ -41,6 +41,8 @@ tests/web-test/_suite-root/prepare-ran.txt
 # Скриншоты и видео (артефакты тестирования web-test)
 *.png
 *.mp4
+# ...кроме кейсов навыков: там картинка — вход теста или эталон (картинки элементов формы)
+!tests/skills/cases/**/*.png
 
 # Навыки, скопированные для других AI-платформ (генерируются scripts/switch.py)
 .agents/skills/

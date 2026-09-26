@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-# cfe-borrow v1.37 — Borrow objects from configuration into extension (CFE)
+# cfe-borrow v1.38 — Borrow objects from configuration into extension (CFE)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
 import json
 import os
 import re
+import shutil
 import sys
 import uuid
 from lxml import etree
@@ -1931,6 +1932,22 @@ def main():
                 src_child_items = fc
                 break
 
+        # Картинка декорации в заимствованную форму не переносится: Конфигуратор выбрасывает <Picture>
+        # у PictureDecoration из обеих частей формы при любом виде картинки (своя, общая, стандартная)
+        # и не тянет за ней ни файл, ни общую картинку. Замер 8.3.27: 10 декораций в 5 формах УТ.
+        # Картинки кнопок, таблиц и полей картинки остаются — вместе с файлами, см. копирование ниже.
+        if src_child_items is not None:
+            for deco in [e for e in src_child_items.iter() if isinstance(e.tag, str) and localname(e) == "PictureDecoration"]:
+                for deco_pic in [c for c in deco if isinstance(c.tag, str) and localname(c) == "Picture"]:
+                    # Отступ перед картинкой — хвост предыдущего узла; как в PS-порте, уходит он,
+                    # а хвост самой картинки занимает его место.
+                    prev = deco_pic.getprevious()
+                    if prev is not None:
+                        prev.tail = deco_pic.tail
+                    else:
+                        deco.text = deco_pic.tail
+                    deco.remove(deco_pic)
+
         if src_child_items is not None:
             child_items_xml = decode_numeric_entities(etree.tostring(src_child_items, encoding="unicode", with_tail=False))
             child_items_xml = ns_strip_pattern.sub("", child_items_xml)
@@ -2191,10 +2208,45 @@ def main():
             write_utf8_bom(module_bsl_file, "")
             info(f"  Created: {module_bsl_file}")
 
+        # 6b. Встроенные картинки элементов. Form.xml ссылается на них как <xr:Abs>Файл</xr:Abs>, а сам файл
+        # лежит в Ext/Form/Items/<Элемент>/<Файл>; без него платформа отвергает расширение («Файл не найден»).
+        # Конфигуратор копирует их байт в байт. Берём ровно то, на что ссылается скелет (картинки декораций
+        # выброшены выше). Уже лежащий файл не перезаписываем: его могли заменить в расширении.
+        pic_files = []
+        src_items_dir = os.path.join(os.path.dirname(src_form_xml_path), "Form", "Items")
+        pic_rels = []
+        for sect in (src_auto_cmd, src_child_items):
+            if sect is None:
+                continue
+            for abs_node in sect.iter("{http://v8.1c.ru/8.3/xcf/readable}Abs"):
+                pic_owner = abs_node.getparent().getparent()
+                pic_el_name = pic_owner.get("name") if pic_owner is not None else None
+                pic_file_name = (abs_node.text or "").strip()
+                if not pic_el_name or not pic_file_name:
+                    continue
+                rel = f"{pic_el_name}/{pic_file_name}"
+                if rel not in pic_rels:
+                    pic_rels.append(rel)
+        for rel in sorted(pic_rels):
+            pic_el_name, pic_file_name = rel.split("/", 1)
+            src_pic = os.path.join(src_items_dir, pic_el_name, pic_file_name)
+            dst_pic_dir = os.path.join(module_dir, "Items", pic_el_name)
+            dst_pic = os.path.join(dst_pic_dir, pic_file_name)
+            if os.path.exists(dst_pic):
+                info(f"  Preserved existing: {dst_pic}")
+                continue
+            if not os.path.isfile(src_pic):
+                warn(f"  Картинка элемента не найдена в источнике: {src_pic}")
+                continue
+            os.makedirs(dst_pic_dir, exist_ok=True)
+            shutil.copyfile(src_pic, dst_pic)
+            pic_files.append(dst_pic)
+            info(f"  Copied: {dst_pic}")
+
         # 7. Register form in parent object ChildObjects
         register_form_in_object(type_name, obj_name, form_name)
 
-        return [form_meta_file, form_xml_file, module_bsl_file]
+        return [form_meta_file, form_xml_file, module_bsl_file] + pic_files
 
     # --- 9. Parse -Object into items ---
     items = []

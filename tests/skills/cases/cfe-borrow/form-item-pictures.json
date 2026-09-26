@@ -1,0 +1,35 @@
+{
+  "name": "Заимствование формы: картинки кнопок, строк таблицы и поля картинки переносятся файлами, картинка декорации выбрасывается (как у Конфигуратора)",
+  "setup": "fixture:form-item-pictures",
+  "preRun": [
+    {
+      "script": "cfe-init/scripts/cfe-init",
+      "args": { "-Name": "Тест", "-OutputDir": "{workDir}/cfe", "-ConfigPath": "{workDir}" }
+    }
+  ],
+  "params": { "extensionPath": "cfe", "object": "Document.Расход.Form.ФормаДокумента" },
+  "expect": {
+    "filesEqual": [
+      { "actual": "cfe/Documents/Расход/Forms/ФормаДокумента/Ext/Form/Items/ФормаОбновитьКартинкой/Picture.png", "expected": "Documents/Расход/Forms/ФормаДокумента/Ext/Form/Items/ФормаОбновитьКартинкой/Picture.png" },
+      { "actual": "cfe/Documents/Расход/Forms/ФормаДокумента/Ext/Form/Items/Товары/RowsPicture.png", "expected": "Documents/Расход/Forms/ФормаДокумента/Ext/Form/Items/Товары/RowsPicture.png" },
+      { "actual": "cfe/Documents/Расход/Forms/ФормаДокумента/Ext/Form/Items/ТоварыИндексКартинки/HeaderPicture.png", "expected": "Documents/Расход/Forms/ФормаДокумента/Ext/Form/Items/ТоварыИндексКартинки/HeaderPicture.png" },
+      { "actual": "cfe/Documents/Расход/Forms/ФормаДокумента/Ext/Form/Items/ТоварыИндексКартинки/ValuesPicture.png", "expected": "Documents/Расход/Forms/ФормаДокумента/Ext/Form/Items/ТоварыИндексКартинки/ValuesPicture.png" }
+    ],
+    "fileContains": {
+      "file": "cfe/Documents/Расход/Forms/ФормаДокумента/Ext/Form.xml",
+      "text": [
+        "<xr:Abs>RowsPicture.png</xr:Abs>",
+        "<xr:Abs>HeaderPicture.png</xr:Abs>",
+        "<xr:Abs>ValuesPicture.png</xr:Abs>"
+      ]
+    },
+    "fileNotContains": {
+      "file": "cfe/Documents/Расход/Forms/ФормаДокумента/Ext/Form.xml",
+      "text": ["CommonPicture.Пустая"]
+    },
+    "filesAbsent": [
+      "cfe/Documents/Расход/Forms/ФормаДокумента/Ext/Form/Items/Логотип",
+      "cfe/CommonPictures/Пустая.xml"
+    ]
+  }
+}

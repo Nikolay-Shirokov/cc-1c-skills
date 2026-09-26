@@ -639,6 +639,15 @@ function listFilesRecursive(dir, base = '') {
   return result.sort();
 }
 
+// Двоичный файл (встроенная картинка элемента формы и т.п.) пишется и сверяется байт в байт:
+// текстовый путь через UTF-8 портит его (невалидные последовательности → U+FFFD), и сверка
+// испорченного с испорченным проходит при любом содержимом. Признак — NUL-байт или байты,
+// не переживающие декодирование UTF-8 туда-обратно.
+function isBinaryBuffer(buf) {
+  if (buf.includes(0)) return true;
+  return !Buffer.from(buf.toString('utf8'), 'utf8').equals(buf);
+}
+
 // Строгий режим: отсутствие эталона НЕ проходит молча. Кейс либо сверяется со снэпшотом,
 // либо явно объявляет `"noSnapshot": "<причина>"`. Иначе потерянный (или не созданный при
 // добавлении кейса) эталон неотличим от намеренного отсутствия — тест зелёный, а не проверяет ничего.
@@ -669,8 +678,17 @@ function compareSnapshot(workDir, snapshotDir, snapshotConfig, caseData) {
       continue;
     }
 
-    const actualRaw = readFileSync(actualPath, 'utf8');
-    const snapshotRaw = readFileSync(snapshotPath, 'utf8');
+    const actualBuf = readFileSync(actualPath);
+    const snapshotBuf = readFileSync(snapshotPath);
+    if (isBinaryBuffer(actualBuf) || isBinaryBuffer(snapshotBuf)) {
+      if (!actualBuf.equals(snapshotBuf)) {
+        diffs.push({ file: relFile, type: 'content', line: '<двоичный>',
+          expected: `<двоичный файл, ${snapshotBuf.length} байт>`, actual: `<двоичный файл, ${actualBuf.length} байт>` });
+      }
+      continue;
+    }
+    const actualRaw = actualBuf.toString('utf8');
+    const snapshotRaw = snapshotBuf.toString('utf8');
 
     const actual = normalizeContent(actualRaw, snapshotConfig, relFile);
     const expected = normalizeContent(snapshotRaw, snapshotConfig, relFile);
@@ -742,7 +760,9 @@ function updateSnapshot(workDir, snapshotDir, snapshotConfig, caseData) {
     const dst = join(snapshotDir, relFile);
     mkdirSync(dirname(dst), { recursive: true });
 
-    const raw = readFileSync(src, 'utf8');
+    const buf = readFileSync(src);
+    if (isBinaryBuffer(buf)) { writeFileSync(dst, buf); continue; }
+    const raw = buf.toString('utf8');
     const normalized = normalizeContent(raw, snapshotConfig, relFile);
     writeFileSync(dst, normalized, 'utf8');
   }
