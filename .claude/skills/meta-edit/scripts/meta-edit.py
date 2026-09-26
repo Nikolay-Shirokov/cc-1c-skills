@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-edit v1.54 — Edit existing 1C metadata object XML
+# meta-edit v1.55 — Edit existing 1C metadata object XML
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -2988,13 +2988,18 @@ def normalize_md_object_ref(ref, default_root=None):
 
 # mdref — значения списка суть MDObjectRef-пути → прогоняем через normalize_md_object_ref.
 # root — корень для голого имени без точки.
+# types — у каких объектов свойство есть (Properties выгрузок ERP, БП, УТ, УНФ).
+# adopted — у каких заимствованных объектов расширение может менять свойство (8.3.27): прочие
+# списки платформа либо контролирует на равенство основной конфигурации (Owners, RegisteredDocuments —
+# расширение не применяется), либо молча выбрасывает при загрузке.
+ref_object_types = ["Catalog", "Document", "ChartOfAccounts", "ChartOfCalculationTypes", "ChartOfCharacteristicTypes", "ExchangePlan", "BusinessProcess", "Task"]
 complex_property_map = {
-    "Owners": {"tag": "xr:Item", "attr": 'xsi:type="xr:MDObjectRef"', "mdref": True, "root": "Catalog"},
-    "RegisterRecords": {"tag": "xr:Item", "attr": 'xsi:type="xr:MDObjectRef"', "mdref": True},
-    "BasedOn": {"tag": "xr:Item", "attr": 'xsi:type="xr:MDObjectRef"', "mdref": True},
-    "InputByString": {"tag": "xr:Field", "attr": None},
-    "DataLockFields": {"tag": "xr:Field", "attr": None, "expand": True},
-    "RegisteredDocuments": {"tag": "xr:Item", "attr": 'xsi:type="xr:MDObjectRef"', "mdref": True},
+    "Owners": {"tag": "xr:Item", "attr": 'xsi:type="xr:MDObjectRef"', "mdref": True, "root": "Catalog", "types": ["Catalog"]},
+    "RegisterRecords": {"tag": "xr:Item", "attr": 'xsi:type="xr:MDObjectRef"', "mdref": True, "types": ["Document", "Sequence"], "adopted": ["Document"]},
+    "BasedOn": {"tag": "xr:Item", "attr": 'xsi:type="xr:MDObjectRef"', "mdref": True, "types": ref_object_types},
+    "InputByString": {"tag": "xr:Field", "attr": None, "types": ref_object_types},
+    "DataLockFields": {"tag": "xr:Field", "attr": None, "expand": True, "types": ref_object_types},
+    "RegisteredDocuments": {"tag": "xr:Item", "attr": 'xsi:type="xr:MDObjectRef"', "mdref": True, "types": ["DocumentJournal"]},
 }
 
 # Известные свойства объекта (union по корпусу acc+erp 8.3.24) — allowlist для modify-property.
@@ -3514,6 +3519,28 @@ def find_property_element(prop_name):
     return None
 
 
+# Элемент свойства-списка. Свойство, которого у типа объекта нет, — ошибка (раньше на справочнике
+# add-registerRecord тихо не делал ничего). У заимствованного объекта расширения в Properties только
+# изменённые свойства, поэтому отсутствующий элемент при create создаём (в конец, как modify_properties);
+# у обычного объекта выгрузка содержит все свойства, и отсутствие элемента — ошибка.
+def get_list_property_element(prop_name, create):
+    map_entry = complex_property_map.get(prop_name)
+    if map_entry and obj_type not in map_entry["types"]:
+        die(f"Свойство '{prop_name}' не применимо к {obj_type}")
+    belonging = find_property_element("ObjectBelonging")
+    is_adopted = belonging is not None and (belonging.text or "") == "Adopted"
+    if is_adopted and obj_type not in (map_entry or {}).get("adopted", []):
+        die(f"Свойство '{prop_name}' заимствованного объекта {obj_type}.{obj_name} расширение не меняет — значение берётся из основной конфигурации")
+    prop_el = find_property_element(prop_name)
+    if prop_el is not None or not create:
+        return prop_el
+    if not is_adopted:
+        die(f"В Properties объекта {obj_type}.{obj_name} нет элемента '{prop_name}' — файл не из выгрузки платформы?")
+    new_nodes = import_fragment(f"<{prop_name}/>")
+    insert_property_in_order(properties_el, new_nodes[0], None, prop_name)
+    return new_nodes[0]
+
+
 def get_complex_property_values(prop_el):
     values = []
     for child in prop_el:
@@ -3533,10 +3560,7 @@ def add_complex_property_item(property_name, values):
     if map_entry.get("mdref"):
         values = [normalize_md_object_ref(str(v), map_entry.get("root")) for v in values]
 
-    prop_el = find_property_element(property_name)
-    if prop_el is None:
-        warn(f"Property element '{property_name}' not found in Properties")
-        return
+    prop_el = get_list_property_element(property_name, True)
 
     # Get existing values to check duplicates
     existing = get_complex_property_values(prop_el)
@@ -3576,7 +3600,7 @@ def remove_complex_property_item(property_name, values):
         values = [expand_data_path(str(v)) for v in values]
     if map_entry and map_entry.get("mdref"):
         values = [normalize_md_object_ref(str(v), map_entry.get("root")) for v in values]
-    prop_el = find_property_element(property_name)
+    prop_el = get_list_property_element(property_name, False)
     if prop_el is None:
         warn(f"Property element '{property_name}' not found in Properties")
         return
@@ -3611,9 +3635,9 @@ def set_complex_property(property_name, values):
     if map_entry.get("mdref"):
         values = [normalize_md_object_ref(str(v), map_entry.get("root")) for v in values]
 
-    prop_el = find_property_element(property_name)
+    # Пустой список на отсутствующем элементе: очищать нечего, пустой элемент не создаём
+    prop_el = get_list_property_element(property_name, len(values) > 0)
     if prop_el is None:
-        warn(f"Property element '{property_name}' not found in Properties")
         return
 
     indent = get_child_indent(properties_el)

@@ -1292,7 +1292,9 @@ async function verifyCase(skillName, caseName, skillConfig, caseData, opts) {
       return result;
     }
 
-    if (CFE_SKILLS.has(skillName)) {
+    // Кейс навыка не из CFE_SKILLS тоже может править расширение (meta-edit над заимствованным
+    // объектом) — признак тот же params.extensionPath.
+    if (CFE_SKILLS.has(skillName) || caseData.params?.extensionPath) {
       // CFE: two-stage load — base config first, then extension.
       // Каталог расширения берём из кейса, а не хардкодим: при жёстком 'ext' кейс, назвавший
       // каталог иначе, молча терял вторую половину проверки — блок ниже обходился по existsSync,

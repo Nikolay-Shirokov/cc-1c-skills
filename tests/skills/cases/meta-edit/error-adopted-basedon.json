@@ -1,0 +1,104 @@
+{
+  "name": "Ввод на основании у заимствованного документа: отказ — платформа выбросила бы свойство при загрузке расширения",
+  "setup": "empty-config-220",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "AccumulationRegister",
+        "name": "Ост",
+        "dimensions": [
+          "Товар: String(10)"
+        ],
+        "resources": [
+          "Кол: Number(10,0)"
+        ]
+      },
+      "args": {
+        "-JsonPath": "{inputFile}",
+        "-OutputDir": "{workDir}"
+      }
+    },
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "AccumulationRegister",
+        "name": "Ост2",
+        "dimensions": [
+          "Товар: String(10)"
+        ],
+        "resources": [
+          "Кол: Number(10,0)"
+        ]
+      },
+      "args": {
+        "-JsonPath": "{inputFile}",
+        "-OutputDir": "{workDir}"
+      }
+    },
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "Document",
+        "name": "Расх",
+        "registerRecords": [
+          "AccumulationRegister.Ост",
+          "AccumulationRegister.Ост2"
+        ]
+      },
+      "args": {
+        "-JsonPath": "{inputFile}",
+        "-OutputDir": "{workDir}"
+      }
+    },
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "Document",
+        "name": "Прих"
+      },
+      "args": {
+        "-JsonPath": "{inputFile}",
+        "-OutputDir": "{workDir}"
+      }
+    },
+    {
+      "script": "cfe-init/scripts/cfe-init",
+      "args": {
+        "-Name": "Расш",
+        "-OutputDir": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}"
+      }
+    },
+    {
+      "script": "cfe-borrow/scripts/cfe-borrow",
+      "args": {
+        "-ExtensionPath": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}",
+        "-Object": "Document.Прих ;; AccumulationRegister.Ост ;; AccumulationRegister.Ост2"
+      }
+    }
+  ],
+  "params": {
+    "objectPath": "cfe/Documents/Прих.xml",
+    "extensionPath": "cfe"
+  },
+  "input": {
+    "modify": {
+      "properties": {
+        "BasedOn": [
+          "Document.Расх"
+        ]
+      }
+    }
+  },
+  "expectError": "расширение не меняет",
+  "expect": {
+    "fileNotContains": [
+      {
+        "file": "cfe/Documents/Прих.xml",
+        "text": "BasedOn"
+      }
+    ]
+  }
+}

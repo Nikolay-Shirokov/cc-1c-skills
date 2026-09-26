@@ -29,12 +29,14 @@
 
 | Свойство | Объекты | Inline-значение |
 |----------|---------|-----------------|
-| Owners | Catalog, ChartOfCharacteristicTypes | `Catalog.XXX` |
-| RegisterRecords | Document | `AccumulationRegister.XXX` |
-| BasedOn | Document, Catalog, BP, Task | `Document.XXX` |
-| InputByString | Catalog, ChartOf*, Task | `StandardAttribute.Description` |
-| DataLockFields | Catalog, Document, регистры и др. | `Организация` (короткое имя реквизита → полный путь) |
+| Owners | Catalog | `Catalog.XXX` |
+| RegisterRecords | Document, Sequence | `AccumulationRegister.XXX` |
+| BasedOn | ссылочные* | `Document.XXX` |
+| InputByString | ссылочные* | `StandardAttribute.Description` |
+| DataLockFields | ссылочные* | `Организация` (короткое имя реквизита → полный путь) |
 | RegisteredDocuments | DocumentJournal | `Document.XXX` |
+
+\* Catalog, Document, ChartOfCharacteristicTypes, ChartOfAccounts, ChartOfCalculationTypes, ExchangePlan, BusinessProcess, Task.
 
 ### add-owner / add-registerRecord / add-basedOn / add-registeredDocument
 

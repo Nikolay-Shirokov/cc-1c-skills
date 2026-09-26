@@ -1,0 +1,112 @@
+{
+  "name": "Движения заимствованного документа: inline add-registerRecord создаёт элемент RegisterRecords (раньше — WARN, файл без изменений, код 0)",
+  "setup": "empty-config-220",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "AccumulationRegister",
+        "name": "Ост",
+        "dimensions": [
+          "Товар: String(10)"
+        ],
+        "resources": [
+          "Кол: Number(10,0)"
+        ]
+      },
+      "args": {
+        "-JsonPath": "{inputFile}",
+        "-OutputDir": "{workDir}"
+      }
+    },
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "AccumulationRegister",
+        "name": "Ост2",
+        "dimensions": [
+          "Товар: String(10)"
+        ],
+        "resources": [
+          "Кол: Number(10,0)"
+        ]
+      },
+      "args": {
+        "-JsonPath": "{inputFile}",
+        "-OutputDir": "{workDir}"
+      }
+    },
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "Document",
+        "name": "Расх",
+        "registerRecords": [
+          "AccumulationRegister.Ост",
+          "AccumulationRegister.Ост2"
+        ]
+      },
+      "args": {
+        "-JsonPath": "{inputFile}",
+        "-OutputDir": "{workDir}"
+      }
+    },
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "Document",
+        "name": "Прих"
+      },
+      "args": {
+        "-JsonPath": "{inputFile}",
+        "-OutputDir": "{workDir}"
+      }
+    },
+    {
+      "script": "cfe-init/scripts/cfe-init",
+      "args": {
+        "-Name": "Расш",
+        "-OutputDir": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}"
+      }
+    },
+    {
+      "script": "cfe-borrow/scripts/cfe-borrow",
+      "args": {
+        "-ExtensionPath": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}",
+        "-Object": "Document.Прих ;; AccumulationRegister.Ост ;; AccumulationRegister.Ост2"
+      }
+    },
+    {
+      "script": "meta-edit/scripts/meta-edit",
+      "args": {
+        "-ObjectPath": "{workDir}/cfe/Documents/Прих.xml",
+        "-Operation": "add-registerRecord",
+        "-Value": "AccumulationRegister.Ост",
+        "-NoValidate": true
+      }
+    }
+  ],
+  "params": {
+    "objectPath": "cfe/Documents/Прих.xml",
+    "extensionPath": "cfe"
+  },
+  "input": {
+    "modify": {
+      "properties": {
+        "Comment": "движения из расширения"
+      }
+    }
+  },
+  "expect": {
+    "fileContains": [
+      {
+        "file": "cfe/Documents/Прих.xml",
+        "text": [
+          "<xr:Item xsi:type=\"xr:MDObjectRef\">AccumulationRegister.Ост</xr:Item>"
+        ]
+      }
+    ]
+  }
+}

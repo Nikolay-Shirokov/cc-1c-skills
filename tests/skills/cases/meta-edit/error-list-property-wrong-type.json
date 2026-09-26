@@ -1,0 +1,20 @@
+{
+  "name": "Свойство-список, которого у типа нет (движения у справочника): отказ, файл не меняется",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "Catalog", "name": "Контрагенты" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    }
+  ],
+  "params": { "objectPath": "Catalogs/Контрагенты" },
+  "input": {
+    "modify": { "properties": { "RegisterRecords": ["AccumulationRegister.Продажи"] } }
+  },
+  "expectError": "не применимо к Catalog",
+  "expect": {
+    "fileNotContains": [
+      { "file": "Catalogs/Контрагенты.xml", "text": "RegisterRecords" }
+    ]
+  }
+}

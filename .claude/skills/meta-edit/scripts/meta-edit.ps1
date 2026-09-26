@@ -1,4 +1,4 @@
-﻿# meta-edit v1.54 — Edit existing 1C metadata object XML
+﻿# meta-edit v1.55 — Edit existing 1C metadata object XML
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -372,6 +372,13 @@ function Warn($msg) {
 
 function Info($msg) {
 	Write-Host "[INFO] $msg" -ForegroundColor Cyan
+}
+
+# Операцию выполнить нельзя: в stderr и exit 1 до сохранения — файл не меняется.
+# Console.Error, а не Write-Error: под ErrorActionPreference=Stop тот бросает исключение.
+function Die($msg) {
+	[Console]::Error.WriteLine($msg)
+	exit 1
 }
 
 # ============================================================
@@ -3126,13 +3133,18 @@ function Normalize-MDObjectRef {
 
 # mdref — значения списка суть MDObjectRef-пути → прогоняем через Normalize-MDObjectRef.
 # root — корень для голого имени без точки.
+# types — у каких объектов свойство есть (Properties выгрузок ERP, БП, УТ, УНФ).
+# adopted — у каких заимствованных объектов расширение может менять свойство (8.3.27): прочие
+# списки платформа либо контролирует на равенство основной конфигурации (Owners, RegisteredDocuments —
+# расширение не применяется), либо молча выбрасывает при загрузке.
+$script:refObjectTypes = @('Catalog','Document','ChartOfAccounts','ChartOfCalculationTypes','ChartOfCharacteristicTypes','ExchangePlan','BusinessProcess','Task')
 $script:complexPropertyMap = @{
-	"Owners"          = @{ tag = "xr:Item"; attr = 'xsi:type="xr:MDObjectRef"'; mdref = $true; root = 'Catalog' }
-	"RegisterRecords" = @{ tag = "xr:Item"; attr = 'xsi:type="xr:MDObjectRef"'; mdref = $true }
-	"BasedOn"         = @{ tag = "xr:Item"; attr = 'xsi:type="xr:MDObjectRef"'; mdref = $true }
-	"InputByString"   = @{ tag = "xr:Field"; attr = $null }
-	"DataLockFields"      = @{ tag = "xr:Field"; attr = $null; expand = $true }
-	"RegisteredDocuments" = @{ tag = "xr:Item"; attr = 'xsi:type="xr:MDObjectRef"'; mdref = $true }
+	"Owners"          = @{ tag = "xr:Item"; attr = 'xsi:type="xr:MDObjectRef"'; mdref = $true; root = 'Catalog'; types = @('Catalog') }
+	"RegisterRecords" = @{ tag = "xr:Item"; attr = 'xsi:type="xr:MDObjectRef"'; mdref = $true; types = @('Document','Sequence'); adopted = @('Document') }
+	"BasedOn"         = @{ tag = "xr:Item"; attr = 'xsi:type="xr:MDObjectRef"'; mdref = $true; types = $script:refObjectTypes }
+	"InputByString"   = @{ tag = "xr:Field"; attr = $null; types = $script:refObjectTypes }
+	"DataLockFields"      = @{ tag = "xr:Field"; attr = $null; expand = $true; types = $script:refObjectTypes }
+	"RegisteredDocuments" = @{ tag = "xr:Item"; attr = 'xsi:type="xr:MDObjectRef"'; mdref = $true; types = @('DocumentJournal') }
 }
 
 # Известные свойства объекта (union по корпусу acc+erp 8.3.24) — allowlist для modify-property.
@@ -3573,6 +3585,30 @@ function Find-PropertyElement([string]$propName) {
 	return $null
 }
 
+# Элемент свойства-списка. Свойство, которого у типа объекта нет, — ошибка (раньше на справочнике
+# add-registerRecord тихо не делал ничего). У заимствованного объекта расширения в Properties только
+# изменённые свойства, поэтому отсутствующий элемент при $create создаём (в конец, как Modify-Properties);
+# у обычного объекта выгрузка содержит все свойства, и отсутствие элемента — ошибка.
+function Get-ListPropertyElement([string]$propName, [bool]$create) {
+	$mapEntry = $script:complexPropertyMap[$propName]
+	if ($mapEntry -and $mapEntry.types -cnotcontains $script:objType) {
+		Die "Свойство '$propName' не применимо к $($script:objType)"
+	}
+	$belonging = Find-PropertyElement 'ObjectBelonging'
+	$isAdopted = $belonging -and $belonging.InnerText -ceq 'Adopted'
+	if ($isAdopted -and $mapEntry.adopted -cnotcontains $script:objType) {
+		Die "Свойство '$propName' заимствованного объекта $($script:objType).$($script:objName) расширение не меняет — значение берётся из основной конфигурации"
+	}
+	$propEl = Find-PropertyElement $propName
+	if ($propEl -or -not $create) { return $propEl }
+	if (-not $isAdopted) {
+		Die "В Properties объекта $($script:objType).$($script:objName) нет элемента '$propName' — файл не из выгрузки платформы?"
+	}
+	$newNodes = Import-Fragment "<$propName/>"
+	Insert-PropertyInOrder $script:propertiesEl $newNodes[0] $null $propName
+	return $newNodes[0]
+}
+
 function Get-ComplexPropertyValues([System.Xml.XmlElement]$propEl) {
 	$values = @()
 	foreach ($child in $propEl.ChildNodes) {
@@ -3589,11 +3625,7 @@ function Add-ComplexPropertyItem([string]$propertyName, [string[]]$values) {
 	if ($mapEntry.expand) { $values = @($values | ForEach-Object { Expand-DataPath "$_" }) }
 	if ($mapEntry.mdref) { $values = @($values | ForEach-Object { Normalize-MDObjectRef "$_" $mapEntry.root }) }
 
-	$propEl = Find-PropertyElement $propertyName
-	if (-not $propEl) {
-		Warn "Property element '$propertyName' not found in Properties"
-		return
-	}
+	$propEl = Get-ListPropertyElement $propertyName $true
 
 	# Get existing values to check duplicates
 	$existing = Get-ComplexPropertyValues $propEl
@@ -3638,7 +3670,7 @@ function Remove-ComplexPropertyItem([string]$propertyName, [string[]]$values) {
 	$mapEntry = $script:complexPropertyMap[$propertyName]
 	if ($mapEntry -and $mapEntry.expand) { $values = @($values | ForEach-Object { Expand-DataPath "$_" }) }
 	if ($mapEntry -and $mapEntry.mdref) { $values = @($values | ForEach-Object { Normalize-MDObjectRef "$_" $mapEntry.root }) }
-	$propEl = Find-PropertyElement $propertyName
+	$propEl = Get-ListPropertyElement $propertyName $false
 	if (-not $propEl) {
 		Warn "Property element '$propertyName' not found in Properties"
 		return
@@ -3678,11 +3710,9 @@ function Set-ComplexProperty([string]$propertyName, [string[]]$values) {
 	if ($mapEntry.expand) { $values = @($values | ForEach-Object { Expand-DataPath "$_" }) }
 	if ($mapEntry.mdref) { $values = @($values | ForEach-Object { Normalize-MDObjectRef "$_" $mapEntry.root }) }
 
-	$propEl = Find-PropertyElement $propertyName
-	if (-not $propEl) {
-		Warn "Property element '$propertyName' not found in Properties"
-		return
-	}
+	# Пустой список на отсутствующем элементе: очищать нечего, пустой элемент не создаём
+	$propEl = Get-ListPropertyElement $propertyName ($values.Count -gt 0)
+	if (-not $propEl) { return }
 
 	$indent = Get-ChildIndent $script:propertiesEl
 	$childIndent = "$indent`t"
