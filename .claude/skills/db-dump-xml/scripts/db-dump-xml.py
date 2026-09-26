@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# db-dump-xml v1.23 — Dump 1C configuration to XML files
+# db-dump-xml v1.24 — Dump 1C configuration to XML files
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse

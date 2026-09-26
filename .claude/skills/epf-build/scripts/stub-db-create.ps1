@@ -1,4 +1,4 @@
-﻿# stub-db-create v1.12 — Create temp 1C infobase with metadata stubs for EPF/ERF build
+﻿# stub-db-create v1.13 — Create temp 1C infobase with metadata stubs for EPF/ERF build
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -21,6 +21,11 @@ param(
 
 	[string[]]$AdditionalIbcmdArguments = @()
 )
+
+# Необработанная ошибка (напр. привязка параметра) внутри try/finally без catch завершала
+# скрипт с кодом 0 — ложный успех без запуска платформы. Любая такая ошибка — код 1.
+# py-порт: необработанное исключение и так даёт код 1.
+trap { Write-Host "Error: $($_.Exception.Message) ($($_.InvocationInfo.ScriptName):$($_.InvocationInfo.ScriptLineNumber))" -ForegroundColor Red; exit 1 }
 
 $ErrorActionPreference = "Stop"
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -422,7 +427,7 @@ $needCfg = $hasRefTypes -or $embedRequested -or $commonModules.Count -gt 0
 
 # --- 2. Determine TempBasePath ---
 if (-not $TempBasePath) {
-	$TempBasePath = Join-Path $env:TEMP "epf_stub_db_$(Get-Random)"
+	$TempBasePath = Join-Path ([IO.Path]::GetTempPath()) "epf_stub_db_$(Get-Random)"
 }
 
 # --- 3. If registers need a registrator, add stub document ---
@@ -1751,7 +1756,7 @@ function Format-ArgToken {
 $extraArgString = -join ($extraArgs | ForEach-Object { Format-ArgToken $_ })
 if ($stubEngine -eq "ibcmd") {
 	Write-Host "Creating infobase (ibcmd): $TempBasePath"
-	$ibData = Join-Path $env:TEMP "stub_data_$(Get-Random)"
+	$ibData = Join-Path ([IO.Path]::GetTempPath()) "stub_data_$(Get-Random)"
 	New-Item -ItemType Directory -Path $ibData -Force | Out-Null
 	$ibArgs = @("infobase", "create", "--db-path=$TempBasePath", "--create-database")
 	if ($needCfg) { $ibArgs += "--import=$(Join-Path $TempBasePath 'cfg')", "--apply", "--force" }
@@ -1787,7 +1792,7 @@ if ($needCfg) {
 	$cfgDir = Join-Path $TempBasePath "cfg"
 	# LoadConfigFromFiles
 	Write-Host "Loading configuration from files..."
-	$loadLog = Join-Path $env:TEMP "stub_load_log.txt"
+	$loadLog = Join-Path ([IO.Path]::GetTempPath()) "stub_load_log.txt"
 	$loadArgs = "DESIGNER /F`"$TempBasePath`" /LoadConfigFromFiles `"$cfgDir`" /Out `"$loadLog`" /DisableStartupDialogs" + $extraArgString
 	$proc = Invoke-PlatformProcess $V8Path @($loadArgs) -PreQuoted
 	if ($proc.ExitCode -ne 0) {
@@ -1799,7 +1804,7 @@ if ($needCfg) {
 
 	# UpdateDBCfg
 	Write-Host "Updating database configuration..."
-	$updateLog = Join-Path $env:TEMP "stub_update_log.txt"
+	$updateLog = Join-Path ([IO.Path]::GetTempPath()) "stub_update_log.txt"
 	$updateArgs = "DESIGNER /F`"$TempBasePath`" /UpdateDBCfg /Out `"$updateLog`" /DisableStartupDialogs" + $extraArgString
 	$proc = Invoke-PlatformProcess $V8Path @($updateArgs) -PreQuoted
 	if ($proc.ExitCode -ne 0) {

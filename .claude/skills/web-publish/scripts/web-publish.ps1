@@ -1,4 +1,4 @@
-﻿# web-publish v1.10 — Publish 1C infobase via Apache (+_version_dir/_version_key: общий эталон db-семейства)
+﻿# web-publish v1.11 — Publish 1C infobase via Apache (+_version_dir/_version_key: общий эталон db-семейства)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 <#
 .SYNOPSIS
@@ -205,8 +205,8 @@ if (-not (Test-Path $httpdExe)) {
     }
 
     Write-Host "Apache не найден. Скачиваю..." -ForegroundColor Cyan
-    $tmpZip = Join-Path $env:TEMP "apache24.zip"
-    $tmpDir = Join-Path $env:TEMP "apache24_extract"
+    $tmpZip = Join-Path ([IO.Path]::GetTempPath()) "apache24.zip"
+    $tmpDir = Join-Path ([IO.Path]::GetTempPath()) "apache24_extract"
 
     try {
         [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12

@@ -1,4 +1,4 @@
-﻿# epf-dump v1.16 — Dump external data processor or report (EPF/ERF) to XML sources
+﻿# epf-dump v1.17 — Dump external data processor or report (EPF/ERF) to XML sources
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 # NB: *nix-раскладку платформы (/opt/1cv8/<ver>/1cv8, без .exe) знает только .py-порт — PS на *nix не исполняется.
 <#
@@ -85,6 +85,11 @@ param(
     [Parameter(Mandatory=$false)]
     [string[]]$AdditionalIbcmdArguments = @()
 )
+
+# Необработанная ошибка (напр. привязка параметра) внутри try/finally без catch завершала
+# скрипт с кодом 0 — ложный успех без запуска платформы. Любая такая ошибка — код 1.
+# py-порт: необработанное исключение и так даёт код 1.
+trap { Write-Host "Error: $($_.Exception.Message) ($($_.InvocationInfo.ScriptName):$($_.InvocationInfo.ScriptLineNumber))" -ForegroundColor Red; exit 1 }
 
 $OutputEncoding = [System.Text.Encoding]::UTF8
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -474,7 +479,7 @@ if (-not (Test-Path $OutputDir)) {
 }
 
 # --- Temp dir ---
-$tempDir = Join-Path $env:TEMP "epf_dump_$(Get-Random)"
+$tempDir = Join-Path ([IO.Path]::GetTempPath()) "epf_dump_$(Get-Random)"
 New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
 
 try {
@@ -554,7 +559,7 @@ try {
     exit $exitCode
 
 } finally {
-    if (Test-Path $tempDir) {
+    if ($tempDir -and (Test-Path $tempDir)) {
         Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
     }
 }

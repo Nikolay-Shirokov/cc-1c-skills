@@ -1,4 +1,4 @@
-﻿# db-load-xml v1.31 — Load 1C configuration from XML files
+﻿# db-load-xml v1.32 — Load 1C configuration from XML files
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 # NB: *nix-раскладку платформы (/opt/1cv8/<ver>/1cv8, без .exe) знает только .py-порт — PS на *nix не исполняется.
 <#
@@ -131,6 +131,11 @@ param(
     [Parameter(Mandatory=$false)]
     [string[]]$AdditionalIbcmdArguments = @()
 )
+
+# Необработанная ошибка (напр. привязка параметра) внутри try/finally без catch завершала
+# скрипт с кодом 0 — ложный успех без запуска платформы. Любая такая ошибка — код 1.
+# py-порт: необработанное исключение и так даёт код 1.
+trap { Write-Host "Error: $($_.Exception.Message) ($($_.InvocationInfo.ScriptName):$($_.InvocationInfo.ScriptLineNumber))" -ForegroundColor Red; exit 1 }
 
 $OutputEncoding = [System.Text.Encoding]::UTF8
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -627,7 +632,7 @@ function Invoke-ApplyCheck {
     $exeLeaf = Split-Path $Exe -Leaf
     $v8 = if ($exeLeaf -match '^ibcmd') { Join-Path $exeDir ("1cv8" + [System.IO.Path]::GetExtension($Exe)) } else { $Exe }
     if (-not (Test-Path $v8)) { return @{ Skipped = $true; Reason = "1cv8 not found at $v8"; ExitCode = 0; Lines = @() } }
-    $dir = Join-Path $env:TEMP "apply_check_$(Get-Random)"
+    $dir = Join-Path ([IO.Path]::GetTempPath()) "apply_check_$(Get-Random)"
     New-Item -ItemType Directory -Path $dir -Force | Out-Null
     try {
         $a = @("DESIGNER") + $ConnArgs + @("/CheckCanApplyConfigurationExtensions")
@@ -643,7 +648,7 @@ function Invoke-ApplyCheck {
         }
         return @{ Skipped = $false; Reason = ''; ExitCode = $res.ExitCode; Lines = $lines }
     } finally {
-        if (Test-Path $dir) { Remove-Item -Path $dir -Recurse -Force -ErrorAction SilentlyContinue }
+        if ($dir -and (Test-Path $dir)) { Remove-Item -Path $dir -Recurse -Force -ErrorAction SilentlyContinue }
     }
 }
 
@@ -726,7 +731,7 @@ if ($Mode -eq "Partial" -and $AllExtensions) {
 }
 
 # --- Temp dir ---
-$tempDir = Join-Path $env:TEMP "db_load_xml_$(Get-Random)"
+$tempDir = Join-Path ([IO.Path]::GetTempPath()) "db_load_xml_$(Get-Random)"
 New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
 
 try {
@@ -940,7 +945,7 @@ try {
     exit $exitCode
 
 } finally {
-    if (Test-Path $tempDir) {
+    if ($tempDir -and (Test-Path $tempDir)) {
         Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
     }
 }

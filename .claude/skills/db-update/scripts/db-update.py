@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# db-update v1.21 — Update 1C database configuration
+# db-update v1.22 — Update 1C database configuration
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse

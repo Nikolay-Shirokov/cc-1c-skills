@@ -23,6 +23,7 @@ const GUARDS = [
   ['check-agent-portability.mjs', 'исходники навыков: без привязки к конкретному AI-агенту'],
   ['check-error-streams.mjs', 'сообщения об ошибках: один и тот же поток в обоих портах'],
   ['check-nonascii-fs.mjs', 'fsutil: удаление и копирование держат не-ASCII пути, копии не разошлись'],
+  ['check-ps-portability.mjs', '.ps1: без $env:TEMP, необработанная ошибка у db-*/epf-* даёт код 1'],
 ];
 
 let failed = 0;

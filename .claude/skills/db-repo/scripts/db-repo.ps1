@@ -1,4 +1,4 @@
-﻿# db-repo v1.16 — 1C configuration repository operations
+﻿# db-repo v1.17 — 1C configuration repository operations
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 # NB: движок только 1cv8 — ibcmd работу с хранилищем не поддерживает (нет такого режима).
 <#
@@ -175,6 +175,11 @@ param(
     [Parameter(Mandatory=$false)]
     [string[]]$AdditionalV8Arguments = @()
 )
+
+# Необработанная ошибка (напр. привязка параметра) внутри try/finally без catch завершала
+# скрипт с кодом 0 — ложный успех без запуска платформы. Любая такая ошибка — код 1.
+# py-порт: необработанное исключение и так даёт код 1.
+trap { Write-Host "Error: $($_.Exception.Message) ($($_.InvocationInfo.ScriptName):$($_.InvocationInfo.ScriptLineNumber))" -ForegroundColor Red; exit 1 }
 
 $OutputEncoding = [System.Text.Encoding]::UTF8
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -749,7 +754,7 @@ function Write-ReceivedWarning {
     $owners = Get-OwnerObjects $Received
     $hasRoot = @($Received | Where-Object { ($_ -split '\.').Count -eq 1 }).Count -gt 0
     if ($owners.Count -gt 0) {
-        $listPath = Join-Path $env:TEMP "db-repo-received.txt"
+        $listPath = Join-Path ([IO.Path]::GetTempPath()) "db-repo-received.txt"
         $utf8Bom = New-Object System.Text.UTF8Encoding($true)
         [System.IO.File]::WriteAllLines($listPath, $owners, $utf8Bom)
         Write-Host "Исходники в проекте устарели по этим объектам. Перевыгрузите их ПЕРЕД правкой," -ForegroundColor Yellow
@@ -838,7 +843,7 @@ $script:ListLimit = 20
 function Save-ObjectList {
     param([string[]]$Names, [string]$Key)
     if (-not $Key) { $Key = 'objects' }
-    $path = Join-Path $env:TEMP "db-repo-$Key.txt"
+    $path = Join-Path ([IO.Path]::GetTempPath()) "db-repo-$Key.txt"
     $utf8Bom = New-Object System.Text.UTF8Encoding($true)
     [System.IO.File]::WriteAllLines($path, $Names, $utf8Bom)
     return $path
@@ -1097,7 +1102,7 @@ if ($WithChildren) {
 switch ($cmd) {
     'report'     {
         # Отчёт печатается в вывод, поэтому путь нужен только если его хотят сохранить.
-        if (-not $OutputFile) { $OutputFile = Join-Path $env:TEMP "db-repo-report.$ReportFormat" }
+        if (-not $OutputFile) { $OutputFile = Join-Path ([IO.Path]::GetTempPath()) "db-repo-report.$ReportFormat" }
     }
     'dump-cfg'   { if (-not $OutputFile) { Write-Host "Error: -OutputFile (path to the .cf file) is required for dump-cfg" -ForegroundColor Red; exit 1 } }
     'add-user'   { if (-not $NewUser -or -not $Rights) { Write-Host "Error: -NewUser and -Rights are required for add-user" -ForegroundColor Red; exit 1 } }
@@ -1107,7 +1112,7 @@ switch ($cmd) {
 
 $extraArgs = @(Resolve-ExtraArgs $AdditionalV8Arguments @{})
 
-$tempDir = Join-Path $env:TEMP "db_repo_$(Get-Random)"
+$tempDir = Join-Path ([IO.Path]::GetTempPath()) "db_repo_$(Get-Random)"
 New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
 
 try {
@@ -1275,7 +1280,7 @@ try {
     exit $verdict
 
 } finally {
-    if (Test-Path $tempDir) {
+    if ($tempDir -and (Test-Path $tempDir)) {
         Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
     }
 }

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# db-load-dt v1.17 — Load 1C information base from DT file
+# db-load-dt v1.18 — Load 1C information base from DT file
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse

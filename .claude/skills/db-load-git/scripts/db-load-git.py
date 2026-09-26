@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# db-load-git v1.29 — Load Git changes into 1C database
+# db-load-git v1.30 — Load Git changes into 1C database
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse

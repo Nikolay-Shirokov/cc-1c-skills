@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# db-load-cf v1.19 — Load 1C configuration from CF file
+# db-load-cf v1.20 — Load 1C configuration from CF file
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse

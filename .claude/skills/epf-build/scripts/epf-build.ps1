@@ -1,4 +1,4 @@
-﻿# epf-build v1.20 — Build external data processor or report (EPF/ERF) from XML sources
+﻿# epf-build v1.21 — Build external data processor or report (EPF/ERF) from XML sources
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 # NB: *nix-раскладку платформы (/opt/1cv8/<ver>/1cv8, без .exe) знает только .py-порт — PS на *nix не исполняется.
 <#
@@ -94,6 +94,11 @@ param(
     [Parameter(Mandatory=$false)]
     [string[]]$AdditionalIbcmdArguments = @()
 )
+
+# Необработанная ошибка (напр. привязка параметра) внутри try/finally без catch завершала
+# скрипт с кодом 0 — ложный успех без запуска платформы. Любая такая ошибка — код 1.
+# py-порт: необработанное исключение и так даёт код 1.
+trap { Write-Host "Error: $($_.Exception.Message) ($($_.InvocationInfo.ScriptName):$($_.InvocationInfo.ScriptLineNumber))" -ForegroundColor Red; exit 1 }
 
 $OutputEncoding = [System.Text.Encoding]::UTF8
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -517,7 +522,7 @@ function Invoke-SourceCheck {
 		Write-Host "[note] source check skipped: 1cv8 not found at $v8" -ForegroundColor Yellow
 		return $false
 	}
-	$dir = Join-Path $env:TEMP "epf_check_$(Get-Random)"
+	$dir = Join-Path ([IO.Path]::GetTempPath()) "epf_check_$(Get-Random)"
 	New-Item -ItemType Directory -Path $dir -Force | Out-Null
 	try {
 		$outFile = Join-Path $dir "check_log.txt"
@@ -550,7 +555,7 @@ function Invoke-SourceCheck {
 		}
 		return $true
 	} finally {
-		if (Test-Path $dir) { Remove-Item -Path $dir -Recurse -Force -ErrorAction SilentlyContinue }
+		if ($dir -and (Test-Path $dir)) { Remove-Item -Path $dir -Recurse -Force -ErrorAction SilentlyContinue }
 	}
 }
 
@@ -652,7 +657,7 @@ $autoCreatedBase = $null
 $checkBase = $null
 $checkBasePath = $null
 if (-not $InfoBasePath -and (-not $InfoBaseServer -or -not $InfoBaseRef)) {
-    $autoBasePath = Join-Path $env:TEMP "epf_stub_db_$(Get-Random)"
+    $autoBasePath = Join-Path ([IO.Path]::GetTempPath()) "epf_stub_db_$(Get-Random)"
     Write-Host "No database specified. Creating temporary stub database..."
     if ((New-StubBase $autoBasePath -Embed:($checkList.Count -gt 0)) -ne 0) {
         # С внедрённой обработкой база падает прежде всего из-за самих исходников
@@ -671,7 +676,7 @@ if (-not $InfoBasePath -and (-not $InfoBaseServer -or -not $InfoBaseRef)) {
 } elseif ($checkList.Count -gt 0) {
     # Базу указали снаружи: класть проверяемую обработку в чужую конфигурацию нельзя, поэтому под
     # проверку поднимается своя временная база, а сборка идёт на указанной.
-    $checkBase = Join-Path $env:TEMP "epf_check_db_$(Get-Random)"
+    $checkBase = Join-Path ([IO.Path]::GetTempPath()) "epf_check_db_$(Get-Random)"
     Write-Host "Creating temporary database for the source check..."
     if ((New-StubBase $checkBase -Embed) -ne 0) {
         Write-Host "Error: платформа не приняла исходники при подготовке проверки — сборка отменена" -ForegroundColor Red
@@ -706,7 +711,7 @@ if ($outDir -and -not (Test-Path $outDir)) {
 }
 
 # --- Temp dir ---
-$tempDir = Join-Path $env:TEMP "epf_build_$(Get-Random)"
+$tempDir = Join-Path ([IO.Path]::GetTempPath()) "epf_build_$(Get-Random)"
 New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
 
 try {
@@ -786,7 +791,7 @@ try {
     exit $exitCode
 
 } finally {
-    if (Test-Path $tempDir) {
+    if ($tempDir -and (Test-Path $tempDir)) {
         Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
     }
     if ($autoCreatedBase -and (Test-Path $autoCreatedBase)) {
