@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# cfe-borrow v1.38 — Borrow objects from configuration into extension (CFE)
+# cfe-borrow v1.39 — Borrow objects from configuration into extension (CFE)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -2005,8 +2005,8 @@ def main():
                 cp_name = pm.group(1)
                 if cp_name not in borrowed_pic_set:
                     child_items_xml = child_items_xml[:pm.start()] + child_items_xml[pm.end():]
-            # Strip StdPicture blocks (except Print)
-            child_items_xml = re.sub(r'\s*<Picture>\s*<xr:Ref>StdPicture\.(?!Print\b)\w+</xr:Ref>.*?</Picture>', '', child_items_xml, flags=re.DOTALL)
+            # Стандартные картинки (StdPicture.*) не вырезаются: Конфигуратор оставляет их у кнопок, подменю
+            # и страниц в обеих частях формы (эталоны 8.3.27, 26 элементов в 3 формах).
 
             # Same Picture strip for AutoCommandBar
             if auto_cmd_xml:
@@ -2015,7 +2015,6 @@ def main():
                     cp_name = pm.group(1)
                     if cp_name not in borrowed_pic_set:
                         auto_cmd_xml = auto_cmd_xml[:pm.start()] + auto_cmd_xml[pm.end():]
-                auto_cmd_xml = re.sub(r'\s*<Picture>\s*<xr:Ref>StdPicture\.(?!Print\b)\w+</xr:Ref>.*?</Picture>', '', auto_cmd_xml, flags=re.DOTALL)
 
             # Auto-borrow StyleItems referenced in ChildItems
             referenced_styles = set()

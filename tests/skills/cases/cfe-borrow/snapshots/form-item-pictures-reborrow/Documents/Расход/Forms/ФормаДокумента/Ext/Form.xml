@@ -26,6 +26,42 @@
 				</Picture>
 				<ExtendedTooltip name="ФормаОбновитьКартинкойРасширеннаяПодсказка" id="9"/>
 			</Button>
+			<Button name="ФормаЗакрытьСтандартной" id="19">
+				<Type>CommandBarButton</Type>
+				<Representation>Picture</Representation>
+				<CommandName>Form.StandardCommand.Close</CommandName>
+				<Picture>
+					<xr:Ref>StdPicture.Refresh</xr:Ref>
+					<xr:LoadTransparent>true</xr:LoadTransparent>
+				</Picture>
+				<ExtendedTooltip name="ФормаЗакрытьСтандартнойРасширеннаяПодсказка" id="20"/>
+			</Button>
+			<Popup name="ПодменюСоздать" id="21">
+				<Title>
+					<v8:item>
+						<v8:lang>ru</v8:lang>
+						<v8:content>Создать</v8:content>
+					</v8:item>
+				</Title>
+				<Picture>
+					<xr:Ref>StdPicture.CreateListItem</xr:Ref>
+					<xr:LoadTransparent>true</xr:LoadTransparent>
+				</Picture>
+				<ExtendedTooltip name="ПодменюСоздатьРасширеннаяПодсказка" id="22"/>
+			</Popup>
+			<Popup name="ПодменюПечать" id="23">
+				<Title>
+					<v8:item>
+						<v8:lang>ru</v8:lang>
+						<v8:content>Печать</v8:content>
+					</v8:item>
+				</Title>
+				<Picture>
+					<xr:Ref>StdPicture.Print</xr:Ref>
+					<xr:LoadTransparent>true</xr:LoadTransparent>
+				</Picture>
+				<ExtendedTooltip name="ПодменюПечатьРасширеннаяПодсказка" id="24"/>
+			</Popup>
 		</ChildItems>
 	</AutoCommandBar>
 	<ChildItems>
@@ -81,6 +117,24 @@
 			<ContextMenu name="ОбщаяКартинкаКонтекстноеМеню" id="17"/>
 			<ExtendedTooltip name="ОбщаяКартинкаРасширеннаяПодсказка" id="18"/>
 		</PictureDecoration>
+		<Pages name="Страницы" id="25">
+			<ExtendedTooltip name="СтраницыРасширеннаяПодсказка" id="26"/>
+			<ChildItems>
+				<Page name="СтраницаНастройки" id="27">
+					<Title>
+						<v8:item>
+							<v8:lang>ru</v8:lang>
+							<v8:content>Настройки</v8:content>
+						</v8:item>
+					</Title>
+					<Picture>
+						<xr:Ref>StdPicture.DataCompositionSettingsWizard</xr:Ref>
+						<xr:LoadTransparent>true</xr:LoadTransparent>
+					</Picture>
+					<ExtendedTooltip name="СтраницаНастройкиРасширеннаяПодсказка" id="28"/>
+				</Page>
+			</ChildItems>
+		</Pages>
 	</ChildItems>
 	<Attributes>
 		<Attribute name="Объект" id="7">

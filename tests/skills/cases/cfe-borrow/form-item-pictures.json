@@ -1,5 +1,5 @@
 {
-  "name": "Заимствование формы: картинки кнопок, строк таблицы и поля картинки переносятся файлами, картинка декорации выбрасывается (как у Конфигуратора)",
+  "name": "Заимствование формы: картинки кнопок, строк таблицы и поля картинки переносятся файлами, стандартные картинки кнопок, подменю и страниц остаются, картинка декорации выбрасывается (как у Конфигуратора)",
   "setup": "fixture:form-item-pictures",
   "preRun": [
     {
@@ -20,7 +20,11 @@
       "text": [
         "<xr:Abs>RowsPicture.png</xr:Abs>",
         "<xr:Abs>HeaderPicture.png</xr:Abs>",
-        "<xr:Abs>ValuesPicture.png</xr:Abs>"
+        "<xr:Abs>ValuesPicture.png</xr:Abs>",
+        "<xr:Ref>StdPicture.Refresh</xr:Ref>",
+        "<xr:Ref>StdPicture.CreateListItem</xr:Ref>",
+        "<xr:Ref>StdPicture.DataCompositionSettingsWizard</xr:Ref>",
+        "<xr:Ref>StdPicture.Print</xr:Ref>"
       ]
     },
     "fileNotContains": {

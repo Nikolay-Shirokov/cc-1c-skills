@@ -1,4 +1,4 @@
-﻿# cfe-borrow v1.38 — Borrow objects from configuration into extension (CFE)
+﻿# cfe-borrow v1.39 — Borrow objects from configuration into extension (CFE)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -1043,8 +1043,8 @@ function Borrow-Form {
 				$childItemsXml = $childItemsXml.Remove($pm.Index, $pm.Length)
 			}
 		}
-		# Strip StdPicture blocks (except Print)
-		$childItemsXml = [regex]::Replace($childItemsXml, '(?s)\s*<Picture>\s*<xr:Ref>StdPicture\.(?!Print\b)\w+</xr:Ref>.*?</Picture>', '')
+		# Стандартные картинки (StdPicture.*) не вырезаются: Конфигуратор оставляет их у кнопок, подменю
+		# и страниц в обеих частях формы (эталоны 8.3.27, 26 элементов в 3 формах).
 
 		# Same Picture strip for AutoCommandBar
 		if ($autoCmdXml) {
@@ -1056,7 +1056,6 @@ function Borrow-Form {
 					$autoCmdXml = $autoCmdXml.Remove($pm.Index, $pm.Length)
 				}
 			}
-			$autoCmdXml = [regex]::Replace($autoCmdXml, '(?s)\s*<Picture>\s*<xr:Ref>StdPicture\.(?!Print\b)\w+</xr:Ref>.*?</Picture>', '')
 		}
 
 		# Auto-borrow StyleItems referenced in ChildItems
