@@ -5,18 +5,35 @@
   "preRun": [
     {
       "script": "epf-init/scripts/init",
-      "args": { "-Name": "Проба", "-SrcDir": "{workDir}" }
+      "args": {
+        "-Name": "Проба",
+        "-SrcDir": "{workDir}"
+      }
     }
   ],
-  "params": { "objectPath": "Проба.xml", "objectName": "Проба" },
+  "params": {
+    "objectPath": "Проба.xml",
+    "objectName": "Проба"
+  },
   "input": {
     "add": {
-      "commands": ["ПробнаяКоманда"]
+      "commands": [
+        "ПробнаяКоманда"
+      ]
     }
   },
   "expect": {
-    "stdoutContains": ["commands not allowed for ExternalDataProcessor", "Validation OK"],
-    "fileNotContains": [{ "file": "Проба.xml", "text": ["<Command"] }],
-    "filesAbsent": ["Проба/Commands"]
-  }
+    "fileNotContains": [
+      {
+        "file": "Проба.xml",
+        "text": [
+          "<Command"
+        ]
+      }
+    ],
+    "filesAbsent": [
+      "Проба/Commands"
+    ]
+  },
+  "expectError": "commands not allowed for ExternalDataProcessor"
 }

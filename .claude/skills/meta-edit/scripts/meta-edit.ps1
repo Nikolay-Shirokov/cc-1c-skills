@@ -1,4 +1,4 @@
-﻿# meta-edit v1.55 — Edit existing 1C metadata object XML
+﻿# meta-edit v1.56 — Edit existing 1C metadata object XML
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -379,6 +379,14 @@ function Info($msg) {
 function Die($msg) {
 	[Console]::Error.WriteLine($msg)
 	exit 1
+}
+
+# Побочные файлы (таблица внешнего источника, модуль команды, предопределённые) пишутся после
+# основного XML: отказ посреди определения не оставляет на диске ни одного изменения.
+$script:pendingWrites = [ordered]@{}
+
+function Test-PendingOrFile([string]$path) {
+	return ($script:pendingWrites.Contains($path) -or (Test-Path $path))
 }
 
 # ============================================================
@@ -2099,8 +2107,7 @@ function Convert-InlineToDefinition([string]$operation, [string]$value) {
 		foreach ($item in $items) {
 			$dotIdx = $item.IndexOf('.')
 			if ($dotIdx -le 0) {
-				Warn "Invalid ts-attribute format (expected TSName.AttrDef): $item"
-				continue
+				Die "Invalid ts-attribute format (expected TSName.AttrDef): $item"
 			}
 			$tsName = $item.Substring(0, $dotIdx).Trim()
 			$rest = $item.Substring($dotIdx + 1).Trim()
@@ -2126,8 +2133,7 @@ function Convert-InlineToDefinition([string]$operation, [string]$value) {
 					foreach ($elemDef in $tsGroups[$tsName]) {
 						$colonIdx = $elemDef.IndexOf(':')
 						if ($colonIdx -le 0) {
-							Warn "Invalid modify format (expected Name: key=val): $elemDef"
-							continue
+							Die "Invalid modify format (expected Name: key=val): $elemDef"
 						}
 						$elemName = $elemDef.Substring(0, $colonIdx).Trim()
 						$changesPart = $elemDef.Substring($colonIdx + 1).Trim()
@@ -2237,7 +2243,7 @@ function Convert-InlineToDefinition([string]$operation, [string]$value) {
 						$v = $kv.Substring($eqIdx + 1).Trim()
 						$propsObj | Add-Member -NotePropertyName $k -NotePropertyValue $v
 					} else {
-						Warn "Invalid property format (expected Key=Value): $kv"
+						Die "Invalid property format (expected Key=Value): $kv"
 					}
 				}
 				$modifyObj = New-Object PSCustomObject
@@ -2250,8 +2256,7 @@ function Convert-InlineToDefinition([string]$operation, [string]$value) {
 				foreach ($elemDef in $elemDefs) {
 					$colonIdx = $elemDef.IndexOf(':')
 					if ($colonIdx -le 0) {
-						Warn "Invalid modify format (expected Name: key=val): $elemDef"
-						continue
+						Die "Invalid modify format (expected Name: key=val): $elemDef"
 					}
 					$elemName = $elemDef.Substring(0, $colonIdx).Trim()
 					$changesPart = $elemDef.Substring($colonIdx + 1).Trim()
@@ -2340,8 +2345,7 @@ function Process-Add($addDef) {
 		$childType = Resolve-ChildTypeKey $rawKey
 
 		if (-not $childType) {
-			Warn "Unknown add child type: $rawKey"
-			return
+			Die "Unknown add child type: $rawKey"
 		}
 
 		# Validate allowed. Проверяем НАЛИЧИЕ ключа, а не истинность списка: пустой список
@@ -2350,15 +2354,13 @@ function Process-Add($addDef) {
 		if ($script:validChildTypes.ContainsKey($script:objType)) {
 			$allowed = $script:validChildTypes[$script:objType]
 			if ($childType -notin $allowed) {
-				Warn "$childType not allowed for $($script:objType), skipping"
-				return
+				Die "$childType not allowed for $($script:objType)"
 			}
 		}
 
 		$xmlTag = $script:childTypeToXmlTag[$childType]
 		if (-not $xmlTag) {
-			Warn "No XML tag mapping for $childType"
-			return
+			Die "No XML tag mapping for $childType"
 		}
 
 		Ensure-ChildObjectsOpen
@@ -2401,8 +2403,7 @@ function Process-Add($addDef) {
 					if ($tv) {
 						foreach ($k in @("characteristics","defaultObjectForm","defaultRecordForm","defaultListForm","defaultChoiceForm")) {
 							if ($tv.$k) {
-								Warn "Ключ '$k' не поддержан при добавлении таблицы: форму назначает навык form-add, характеристики — навык meta-compile. Таблица '$tblName' пропущена."
-								$tblName = $null; break
+								Die "Ключ '$k' не поддержан при добавлении таблицы: форму назначает навык form-add, характеристики — навык meta-compile."
 							}
 						}
 					}
@@ -2412,7 +2413,7 @@ function Process-Add($addDef) {
 						continue
 					}
 					$tablePath = Join-Path $tablesDir "$tblName.xml"
-					if (Test-Path $tablePath) {
+					if (Test-PendingOrFile $tablePath) {
 						Warn "Файл таблицы уже существует: $tablePath — пропускаю"
 						continue
 					}
@@ -2422,8 +2423,7 @@ function Process-Add($addDef) {
 					}
 					$fieldsXml = $fieldParts -join "`r`n"
 					$tableXml = Build-EdsTableXml $script:objName $tblName $entry.Value $fieldsXml "" ""
-					if (-not (Test-Path $tablesDir)) { New-Item -ItemType Directory -Path $tablesDir -Force | Out-Null }
-					[System.IO.File]::WriteAllText($tablePath, $tableXml.TrimEnd("`r", "`n"), (New-Object System.Text.UTF8Encoding($true)))
+					$script:pendingWrites[$tablePath] = $tableXml.TrimEnd("`r", "`n")
 					$fragmentXml = "$indent<Table>$(Esc-XmlText $tblName)</Table>"
 					$nodes = Import-Fragment $fragmentXml
 					$refNode = Find-InsertionPoint "Table" @{ name = $tblName }
@@ -2579,7 +2579,7 @@ function Process-Add($addDef) {
 				# эту ответственность здесь нельзя: получится висячая регистрация без файла.
 				$skillName = if ($childType -eq "forms") { "form-add" } else { "template-add" }
 				$whatName  = if ($childType -eq "forms") { "Форму" } else { "Макет" }
-				Warn "$whatName добавляет навык $skillName (он создаёт и файл, и запись в ChildObjects). meta-edit этого не делает — операция пропущена."
+				Die "$whatName добавляет навык $skillName (он создаёт и файл, и запись в ChildObjects). meta-edit этого не делает."
 			}
 			"commands" {
 				foreach ($item in $items) {
@@ -2592,8 +2592,7 @@ function Process-Add($addDef) {
 					# он есть у всех команд без исключения. Пишем ту же заготовку, что и meta-compile.
 					$cmdExtDir = Join-Path (Join-Path (Join-Path (Join-Path (Split-Path -Parent $resolvedPath) $script:objName) "Commands") $itemName) "Ext"
 					$cmdModPath = Join-Path $cmdExtDir "CommandModule.bsl"
-					if (-not (Test-Path $cmdExtDir)) { New-Item -ItemType Directory -Path $cmdExtDir -Force | Out-Null }
-					[System.IO.File]::WriteAllText($cmdModPath, "&НаКлиенте`r`nПроцедура ОбработкаКоманды(ПараметрКоманды, ПараметрыВыполненияКоманды)`r`n`r`n`t// Вставьте обработчик команды.`r`n`r`nКонецПроцедуры`r`n", (New-Object System.Text.UTF8Encoding($true)))
+					$script:pendingWrites[$cmdModPath] = "&НаКлиенте`r`nПроцедура ОбработкаКоманды(ПараметрКоманды, ПараметрыВыполненияКоманды)`r`n`r`n`t// Вставьте обработчик команды.`r`n`r`nКонецПроцедуры`r`n"
 					$fragmentXml = Build-CommandFragment $itemName $indent
 					$nodes = Import-Fragment $fragmentXml
 					$refNode = Find-InsertionPoint "Command" @{ after = ""; before = "" }
@@ -2620,19 +2619,16 @@ function Process-Remove($removeDef) {
 		$childType = Resolve-ChildTypeKey $rawKey
 
 		if (-not $childType) {
-			Warn "Unknown remove child type: $rawKey"
-			return
+			Die "Unknown remove child type: $rawKey"
 		}
 		if ($childType -eq "properties") {
-			Warn "Cannot remove properties — use modify instead"
-			return
+			Die "Cannot remove properties — use modify instead"
 		}
 		if ($childType -in @("forms","templates")) {
 			# Снять регистрацию мало — надо удалить и файлы; это делают form-remove / template-remove.
 			$skillName = if ($childType -eq "forms") { "form-remove" } else { "template-remove" }
 			$whatName  = if ($childType -eq "forms") { "Форму" } else { "Макет" }
-			Warn "$whatName удаляет навык $skillName (он убирает и файлы, и запись в ChildObjects). meta-edit этого не делает — операция пропущена."
-			return
+			Die "$whatName удаляет навык $skillName (он убирает и файлы, и запись в ChildObjects). meta-edit этого не делает."
 		}
 
 		$xmlTag = $script:childTypeToXmlTag[$childType]
@@ -2687,8 +2683,7 @@ function Modify-Properties($propsDef) {
 				Insert-PropertyInOrder $script:propertiesEl $newNodes[0] $null $propName
 				$propEl = $newNodes[0]
 			} else {
-				Warn "Property '$propName': could not create element"
-				return
+				Die "Property '$propName': could not create element"
 			}
 		}
 
@@ -2750,8 +2745,7 @@ function Modify-Properties($propsDef) {
 function Modify-ChildElements($modifyDef, [string]$childType) {
 	$xmlTag = $script:childTypeToXmlTag[$childType]
 	if (-not $xmlTag -or -not $script:childObjectsEl) {
-		Warn "No ChildObjects or unknown tag for $childType"
-		return
+		Die "No ChildObjects or unknown tag for $childType"
 	}
 
 	$modifyDef.PSObject.Properties | ForEach-Object {
@@ -2760,8 +2754,7 @@ function Modify-ChildElements($modifyDef, [string]$childType) {
 
 		$el = Find-ElementByName $script:childObjectsEl $xmlTag $elemName
 		if (-not $el) {
-			Warn "$xmlTag '$elemName' not found for modify"
-			return
+			Die "$xmlTag '$elemName' not found for modify"
 		}
 
 		# Find Properties inside the element
@@ -2772,8 +2765,7 @@ function Modify-ChildElements($modifyDef, [string]$childType) {
 			}
 		}
 		if (-not $propsEl) {
-			Warn "$xmlTag '$elemName': no Properties element found"
-			return
+			Die "$xmlTag '$elemName': no Properties element found"
 		}
 
 		$changes.PSObject.Properties | ForEach-Object {
@@ -2793,8 +2785,7 @@ function Modify-ChildElements($modifyDef, [string]$childType) {
 				switch ($changeProp) {
 					"add" {
 						if (-not $tsChildObjEl) {
-							Warn "TS '$elemName' has no ChildObjects element, cannot add attributes"
-							return
+							Die "TS '$elemName' has no ChildObjects element, cannot add attributes"
 						}
 						# Ensure ChildObjects is open (not self-closing empty)
 						$hasTsChildElements = $false
@@ -2846,8 +2837,7 @@ function Modify-ChildElements($modifyDef, [string]$childType) {
 					}
 					"modify" {
 						if (-not $tsChildObjEl) {
-							Warn "TS '$elemName' has no ChildObjects, cannot modify attributes"
-							return
+							Die "TS '$elemName' has no ChildObjects, cannot modify attributes"
 						}
 						# Temporarily swap childObjectsEl and recurse
 						$savedChildObjEl = $script:childObjectsEl
@@ -3074,8 +3064,7 @@ function Process-Modify($modifyDef) {
 		$childType = Resolve-ChildTypeKey $rawKey
 
 		if (-not $childType) {
-			Warn "Unknown modify child type: $rawKey"
-			return
+			Die "Unknown modify child type: $rawKey"
 		}
 
 		if ($childType -eq "properties") {
@@ -3621,7 +3610,7 @@ function Get-ComplexPropertyValues([System.Xml.XmlElement]$propEl) {
 
 function Add-ComplexPropertyItem([string]$propertyName, [string[]]$values) {
 	$mapEntry = $script:complexPropertyMap[$propertyName]
-	if (-not $mapEntry) { Warn "Unknown complex property: $propertyName"; return }
+	if (-not $mapEntry) { Die "Unknown complex property: $propertyName" }
 	if ($mapEntry.expand) { $values = @($values | ForEach-Object { Expand-DataPath "$_" }) }
 	if ($mapEntry.mdref) { $values = @($values | ForEach-Object { Normalize-MDObjectRef "$_" $mapEntry.root }) }
 
@@ -3706,7 +3695,7 @@ function Remove-ComplexPropertyItem([string]$propertyName, [string[]]$values) {
 
 function Set-ComplexProperty([string]$propertyName, [string[]]$values) {
 	$mapEntry = $script:complexPropertyMap[$propertyName]
-	if (-not $mapEntry) { Warn "Unknown complex property: $propertyName"; return }
+	if (-not $mapEntry) { Die "Unknown complex property: $propertyName" }
 	if ($mapEntry.expand) { $values = @($values | ForEach-Object { Expand-DataPath "$_" }) }
 	if ($mapEntry.mdref) { $values = @($values | ForEach-Object { Normalize-MDObjectRef "$_" $mapEntry.root }) }
 
@@ -3830,17 +3819,15 @@ function Add-PredefinedItems($items) {
 	$itemsXml = ""
 	foreach ($it in @($items)) { $itemsXml += (Build-PredefItemXml "`t" $it $codeType) }
 	$utf8Bom = New-Object System.Text.UTF8Encoding($true)
-	if (Test-Path $path) {
-		$text = [System.IO.File]::ReadAllText($path, $utf8Bom)
+	if (Test-PendingOrFile $path) {
+		$text = if ($script:pendingWrites.Contains($path)) { $script:pendingWrites[$path] } else { [System.IO.File]::ReadAllText($path, $utf8Bom) }
 		$text = $text.Replace("</PredefinedData>", "$itemsXml</PredefinedData>")
 	} else {
-		$extDir = Split-Path $path
-		if (-not (Test-Path $extDir)) { New-Item -ItemType Directory -Path $extDir -Force | Out-Null }
 		$hdr = "<?xml version=`"1.0`" encoding=`"UTF-8`"?>`r`n<PredefinedData xmlns=`"http://v8.1c.ru/8.3/xcf/predef`" xmlns:v8=`"http://v8.1c.ru/8.1/data/core`" xmlns:xr=`"http://v8.1c.ru/8.3/xcf/readable`" xmlns:xs=`"http://www.w3.org/2001/XMLSchema`" xmlns:xsi=`"http://www.w3.org/2001/XMLSchema-instance`" xsi:type=`"$xsiType`" version=`"$version`">`r`n"
 		$text = "$hdr$itemsXml</PredefinedData>`r`n"
 	}
 	# Создаваемый файл — по канону: без перевода строки в конце.
-	[System.IO.File]::WriteAllText($path, $text.TrimEnd("`r", "`n"), $utf8Bom)
+	$script:pendingWrites[$path] = $text.TrimEnd("`r", "`n")
 	$n = @($items).Count
 	Info "Added $n predefined item(s) → $path"
 	$script:addCount += $n
@@ -3872,8 +3859,7 @@ $def.PSObject.Properties | ForEach-Object {
 	if ($prop.Name -eq "_complex") { return }
 	$opKey = Resolve-OperationKey $prop.Name
 	if (-not $opKey) {
-		Warn "Unknown operation: $($prop.Name)"
-		return
+		Die "Unknown operation: $($prop.Name)"
 	}
 
 	switch ($opKey) {
@@ -3924,6 +3910,12 @@ $text = ($text -replace "`r`n", "`n") -replace "`n", $targetEol
 [System.IO.File]::WriteAllText($resolvedPath, $text, $utf8Bom)
 
 Info "Saved: $resolvedPath"
+
+foreach ($pw in $script:pendingWrites.GetEnumerator()) {
+	$pwDir = Split-Path $pw.Key
+	if (-not (Test-Path $pwDir)) { New-Item -ItemType Directory -Path $pwDir -Force | Out-Null }
+	[System.IO.File]::WriteAllText($pw.Key, $pw.Value, $utf8Bom)
+}
 
 # ============================================================
 # Section 15: Auto-validate

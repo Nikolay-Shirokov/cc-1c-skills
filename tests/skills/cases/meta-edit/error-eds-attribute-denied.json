@@ -1,5 +1,5 @@
 {
-  "name": "Поле в таблицу внешнего источника",
+  "name": "Реквизит в таблицу внешнего источника: отказ, поля из того же определения тоже не записаны",
   "setup": "empty-config",
   "preRun": [
     {
@@ -38,32 +38,23 @@
           "nameInDataSource": "cost_net",
           "readOnly": true
         }
+      ],
+      "attributes": [
+        "Лишний: String(10)"
       ]
     }
   },
   "expect": {
-    "stdoutContains": [
-      "Added field: barcode",
-      "Added field: cost"
-    ],
-    "fileContains": [
-      {
-        "file": "ExternalDataSources/PG/Tables/products.xml",
-        "text": [
-          "<NameInDataSource>cost_net</NameInDataSource>",
-          "<AllowNull>true</AllowNull>",
-          "<Field uuid="
-        ]
-      }
-    ],
     "fileNotContains": [
       {
         "file": "ExternalDataSources/PG/Tables/products.xml",
         "text": [
           "<Attribute uuid=",
-          "<Indexing>"
+          "barcode",
+          "cost_net"
         ]
       }
     ]
-  }
+  },
+  "expectError": "attributes not allowed for Table"
 }

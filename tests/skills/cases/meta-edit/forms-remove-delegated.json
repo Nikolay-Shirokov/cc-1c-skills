@@ -1,5 +1,5 @@
 {
-  "name": "Формы и макеты meta-edit не регистрирует — отсылает к form-add/template-add",
+  "name": "Форму meta-edit не удаляет — отсылает к form-remove",
   "preRun": [
     {
       "script": "meta-compile/scripts/meta-compile",
@@ -17,12 +17,9 @@
     "objectPath": "Catalogs/Контрагенты"
   },
   "input": {
-    "add": {
+    "remove": {
       "forms": [
-        "ФормаЭлемента"
-      ],
-      "templates": [
-        "ПечатнаяФорма"
+        "ФормаСписка"
       ]
     }
   },
@@ -37,5 +34,5 @@
       }
     ]
   },
-  "expectError": "form-add"
+  "expectError": "form-remove"
 }

@@ -1,5 +1,5 @@
 {
-  "name": "Формы и макеты meta-edit не регистрирует — отсылает к form-add/template-add",
+  "name": "Отказ посреди определения: ни XML, ни модуль команды из той же правки не записаны",
   "preRun": [
     {
       "script": "meta-compile/scripts/meta-compile",
@@ -18,24 +18,26 @@
   },
   "input": {
     "add": {
-      "forms": [
-        "ФормаЭлемента"
+      "commands": [
+        "ОткрытьДосье"
       ],
-      "templates": [
-        "ПечатнаяФорма"
+      "реквизитыОпечатка": [
+        "Лишний: String(10)"
       ]
     }
   },
+  "expectError": "Unknown add child type",
   "expect": {
     "fileNotContains": [
       {
         "file": "Catalogs/Контрагенты.xml",
         "text": [
-          "<Form",
-          "<Template"
+          "<Command uuid="
         ]
       }
+    ],
+    "filesAbsent": [
+      "Catalogs/Контрагенты/Commands/ОткрытьДосье/Ext/CommandModule.bsl"
     ]
-  },
-  "expectError": "form-add"
+  }
 }
