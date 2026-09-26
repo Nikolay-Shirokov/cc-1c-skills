@@ -1,0 +1,21 @@
+{
+  "name": "Без -Book поиск идёт по всем книгам каталога; нечитаемая пропускается с предупреждением",
+  "params": {
+    "v8Path": ".",
+    "cacheDir": "cache"
+  },
+  "args_extra": [
+    "-Search",
+    "DumpConfigToFiles"
+  ],
+  "expect": {
+    "stdoutContains": [
+      "[WARN] Skipped unreadable help book",
+      "broken_ru.hbk",
+      "Found: 1",
+      "1cv8:zif3_dumpconfigtofiles | DumpConfigToFiles"
+    ],
+    "stdoutNotContains": "dump_dialog.png"
+  },
+  "noSnapshot": "навык только читает книги справки и печатает текст; файлы в workDir — копия фикстуры и индекс заголовков"
+}

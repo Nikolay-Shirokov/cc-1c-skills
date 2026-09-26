@@ -1,0 +1,16 @@
+{
+  "name": "Ошибка: путь к платформе не существует",
+  "params": {
+    "v8Path": "no-such-dir",
+    "cacheDir": "cache"
+  },
+  "args_extra": [
+    "-Search",
+    "Массив"
+  ],
+  "expectError": true,
+  "expect": {
+    "stdoutContains": "[ERROR] Platform path not found"
+  },
+  "noSnapshot": "навык только читает книги справки и печатает текст; файлы в workDir — копия фикстуры и индекс заголовков"
+}

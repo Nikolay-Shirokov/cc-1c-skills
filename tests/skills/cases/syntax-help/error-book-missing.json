@@ -1,0 +1,18 @@
+{
+  "name": "Ошибка: книги нет в каталоге платформы",
+  "params": {
+    "v8Path": ".",
+    "cacheDir": "cache"
+  },
+  "args_extra": [
+    "-Search",
+    "Массив",
+    "-Book",
+    "nosuch"
+  ],
+  "expectError": true,
+  "expect": {
+    "stdoutContains": "[ERROR] Help book not found"
+  },
+  "noSnapshot": "навык только читает книги справки и печатает текст; файлы в workDir — копия фикстуры и индекс заголовков"
+}

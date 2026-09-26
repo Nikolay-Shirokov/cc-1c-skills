@@ -386,7 +386,7 @@ const FAMILIES = [
     variants: [
       { id: 'base', authority: 'db-create',
         consumers: ['db-dump-cf', 'db-dump-dt', 'db-dump-xml', 'db-load-cf', 'db-load-dt', 'db-load-git',
-          'db-load-xml', 'db-repo', 'db-run', 'db-update', 'epf-build', 'epf-dump', 'web-publish', 'db-cfe-admin'] },
+          'db-load-xml', 'db-repo', 'db-run', 'db-update', 'epf-build', 'epf-dump', 'web-publish', 'db-cfe-admin', 'syntax-help'] },
     ],
   },
   {
@@ -394,7 +394,7 @@ const FAMILIES = [
     variants: [
       { id: 'base', authority: 'db-create',
         consumers: ['db-dump-cf', 'db-dump-dt', 'db-dump-xml', 'db-load-cf', 'db-load-dt', 'db-load-git',
-          'db-load-xml', 'db-repo', 'db-run', 'db-update', 'epf-build', 'epf-dump', 'web-publish', 'db-cfe-admin'] },
+          'db-load-xml', 'db-repo', 'db-run', 'db-update', 'epf-build', 'epf-dump', 'web-publish', 'db-cfe-admin', 'syntax-help'] },
     ],
   },
   {
@@ -412,7 +412,7 @@ const FAMILIES = [
     variants: [
       { id: 'base', authority: 'db-create',
         consumers: ['db-dump-cf', 'db-dump-dt', 'db-dump-xml', 'db-load-cf', 'db-load-dt', 'db-load-git',
-          'db-load-xml', 'db-repo', 'db-run', 'db-update', 'epf-build', 'epf-dump', 'web-publish', 'db-cfe-admin'] },
+          'db-load-xml', 'db-repo', 'db-run', 'db-update', 'epf-build', 'epf-dump', 'web-publish', 'db-cfe-admin', 'syntax-help'] },
     ],
   },
 
@@ -519,7 +519,7 @@ const FAMILIES = [
           'meta-remove', 'meta-validate', 'mxl-compile', 'mxl-decompile', 'mxl-info', 'mxl-validate',
           'role-compile', 'role-edit', 'role-info', 'role-validate', 'skd-compile', 'skd-decompile', 'skd-edit',
           'skd-info', 'skd-validate', 'subsystem-compile', 'subsystem-edit', 'subsystem-info',
-          'subsystem-validate', 'support-edit', 'template-add', 'template-remove', 'web-info',
+          'subsystem-validate', 'support-edit', 'syntax-help', 'template-add', 'template-remove', 'web-info',
           'web-publish', 'web-stop', 'web-unpublish', 'xdto-compile', 'xdto-decompile', 'xdto-edit',
           'xdto-info', 'xdto-validate'] },
     ],

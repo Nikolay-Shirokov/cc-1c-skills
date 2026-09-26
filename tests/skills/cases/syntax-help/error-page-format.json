@@ -1,0 +1,16 @@
+{
+  "name": "Ошибка: -Page без книги",
+  "params": {
+    "v8Path": ".",
+    "cacheDir": "cache"
+  },
+  "args_extra": [
+    "-Page",
+    "Pragma"
+  ],
+  "expectError": true,
+  "expect": {
+    "stdoutContains": "[ERROR] -Page expects <book>:<path>"
+  },
+  "noSnapshot": "навык только читает книги справки и печатает текст; файлы в workDir — копия фикстуры и индекс заголовков"
+}

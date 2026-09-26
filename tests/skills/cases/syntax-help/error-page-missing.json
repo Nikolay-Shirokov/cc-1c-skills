@@ -1,0 +1,16 @@
+{
+  "name": "Ошибка: страницы нет в книге",
+  "params": {
+    "v8Path": ".",
+    "cacheDir": "cache"
+  },
+  "args_extra": [
+    "-Page",
+    "shlang:НетТакой"
+  ],
+  "expectError": true,
+  "expect": {
+    "stdoutContains": "[ERROR] Page not found: shlang:НетТакой"
+  },
+  "noSnapshot": "навык только читает книги справки и печатает текст; файлы в workDir — копия фикстуры и индекс заголовков"
+}

@@ -1,0 +1,18 @@
+{
+  "name": "Ошибка: без -Book в каталоге нет ни одной книги на этом языке",
+  "params": {
+    "v8Path": ".",
+    "cacheDir": "cache"
+  },
+  "args_extra": [
+    "-Search",
+    "Массив",
+    "-Language",
+    "xx"
+  ],
+  "expectError": true,
+  "expect": {
+    "stdoutContains": "[ERROR] No help books *_xx.hbk"
+  },
+  "noSnapshot": "навык только читает книги справки и печатает текст; файлы в workDir — копия фикстуры и индекс заголовков"
+}
