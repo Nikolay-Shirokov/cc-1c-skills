@@ -1306,6 +1306,12 @@ function Borrow-Form {
 			$picElName = $picOwner.GetAttribute("name")
 			$picFileName = $absNode.InnerText.Trim()
 			if (-not $picElName -or -not $picFileName) { continue }
+			# Платформа пишет сюда голое имя файла. Иное (путь, «..») — не наша выгрузка: мимо Items не ходим.
+			if ($picElName -match '[\\/]' -or $picFileName -match '[\\/]' -or
+				$picElName -match '^\.\.?$' -or $picFileName -match '^\.\.?$') {
+				Warn "  Картинка элемента пропущена — не имя файла: $picElName / $picFileName"
+				continue
+			}
 			$rel = "$picElName/$picFileName"
 			if (-not $picRels.Contains($rel)) { $picRels.Add($rel) }
 		}
@@ -1321,7 +1327,7 @@ function Borrow-Form {
 			Info "  Preserved existing: $dstPic"
 			continue
 		}
-		if (-not (Test-Path -LiteralPath $srcPic)) {
+		if (-not (Test-Path -LiteralPath $srcPic -PathType Leaf)) {
 			Warn "  Картинка элемента не найдена в источнике: $srcPic"
 			continue
 		}

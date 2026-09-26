@@ -24,6 +24,7 @@
     "filesEqual": {
       "actual": "cfe/Documents/Расход/Forms/ФормаДокумента/Ext/Form/Items/Товары/RowsPicture.png",
       "expected": "Documents/Расход/Forms/ФормаДокумента/Ext/Form/Items/Товары/RowsPicture.png"
-    }
+    },
+    "stdoutContains": ["Preserved existing: ", "ФормаОбновитьКартинкой"]
   }
 }

@@ -2224,6 +2224,11 @@ def main():
                 pic_file_name = (abs_node.text or "").strip()
                 if not pic_el_name or not pic_file_name:
                     continue
+                # Платформа пишет сюда голое имя файла. Иное (путь, «..») — не наша выгрузка: мимо Items не ходим.
+                if ("\\" in pic_el_name or "\\" in pic_file_name or "/" in pic_el_name or "/" in pic_file_name
+                        or pic_el_name in (".", "..") or pic_file_name in (".", "..")):
+                    warn(f"  Картинка элемента пропущена — не имя файла: {pic_el_name} / {pic_file_name}")
+                    continue
                 rel = f"{pic_el_name}/{pic_file_name}"
                 if rel not in pic_rels:
                     pic_rels.append(rel)

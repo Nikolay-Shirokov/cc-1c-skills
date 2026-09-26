@@ -1,0 +1,21 @@
+{
+  "name": "Картинка элемента, которой нет в источнике: предупреждение, остальные картинки переносятся",
+  "setup": "fixture:form-item-pictures",
+  "preRun": [
+    {
+      "script": "cfe-init/scripts/cfe-init",
+      "args": { "-Name": "Тест", "-OutputDir": "{workDir}/cfe", "-ConfigPath": "{workDir}" }
+    },
+    { "deletePath": "Documents/Расход/Forms/ФормаДокумента/Ext/Form/Items/Товары/RowsPicture.png" }
+  ],
+  "params": { "extensionPath": "cfe", "object": "Document.Расход.Form.ФормаДокумента" },
+  "skipPlatformVerify": "источник намеренно без файла картинки, на которую ссылается его Form.xml, — платформа такую конфигурацию не загрузит",
+  "expect": {
+    "stdoutContains": ["[WARN]   Картинка элемента не найдена в источнике: ", "RowsPicture.png"],
+    "filesAbsent": ["cfe/Documents/Расход/Forms/ФормаДокумента/Ext/Form/Items/Товары"],
+    "filesEqual": {
+      "actual": "cfe/Documents/Расход/Forms/ФормаДокумента/Ext/Form/Items/ФормаОбновитьКартинкой/Picture.png",
+      "expected": "Documents/Расход/Forms/ФормаДокумента/Ext/Form/Items/ФормаОбновитьКартинкой/Picture.png"
+    }
+  }
+}
