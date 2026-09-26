@@ -44,17 +44,17 @@
 	</Attributes>
 	<BaseForm version="2.17">
 		<Title>
-		<v8:item>
-			<v8:lang>ru</v8:lang>
-			<v8:content>Расход</v8:content>
-		</v8:item>
-	</Title>
+			<v8:item>
+				<v8:lang>ru</v8:lang>
+				<v8:content>Расход</v8:content>
+			</v8:item>
+		</Title>
 		<AutoTitle>false</AutoTitle>
 		<CommandSet>
-		<ExcludedCommand>Post</ExcludedCommand>
-		<ExcludedCommand>PostAndClose</ExcludedCommand>
-		<ExcludedCommand>Write</ExcludedCommand>
-	</CommandSet>
+			<ExcludedCommand>Post</ExcludedCommand>
+			<ExcludedCommand>PostAndClose</ExcludedCommand>
+			<ExcludedCommand>Write</ExcludedCommand>
+		</CommandSet>
 		<AutoTime>DontUse</AutoTime>
 		<UsePostingMode>Regular</UsePostingMode>
 		<RepostOnWrite>false</RepostOnWrite>
