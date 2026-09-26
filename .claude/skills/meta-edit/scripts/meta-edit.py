@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-edit v1.56 — Edit existing 1C metadata object XML
+# meta-edit v1.57 — Edit existing 1C metadata object XML
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -2580,6 +2580,16 @@ def modify_properties(props_def):
     global modify_count
 
     for prop_name, prop_value in props_def.items():
+        # Свойство-список: наличие элемента решает get_list_property_element (тип объекта, заимствование)
+        if prop_name in complex_property_map:
+            values_list = []
+            if isinstance(prop_value, list):
+                values_list = [str(v) for v in prop_value]
+            else:
+                values_list = [v.strip() for v in str(prop_value).split(";;") if v.strip()]
+            set_complex_property(prop_name, values_list)
+            continue
+
         # Find the property element in Properties
         prop_el = None
         for child in properties_el:
@@ -2598,16 +2608,6 @@ def modify_properties(props_def):
                 prop_el = new_nodes[0]
             else:
                 die(f"Property '{prop_name}': could not create element")
-
-        # Complex property: Owners, RegisterRecords, BasedOn, InputByString
-        if prop_name in complex_property_map:
-            values_list = []
-            if isinstance(prop_value, list):
-                values_list = [str(v) for v in prop_value]
-            else:
-                values_list = [v.strip() for v in str(prop_value).split(";;") if v.strip()]
-            set_complex_property(prop_name, values_list)
-            continue
 
         # Handle boolean values
         value_str = str(prop_value)

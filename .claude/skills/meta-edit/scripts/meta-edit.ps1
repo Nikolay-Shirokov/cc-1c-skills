@@ -1,4 +1,4 @@
-﻿# meta-edit v1.56 — Edit existing 1C metadata object XML
+﻿# meta-edit v1.57 — Edit existing 1C metadata object XML
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -2663,6 +2663,18 @@ function Modify-Properties($propsDef) {
 		$propName = $_.Name
 		$propValue = $_.Value
 
+		# Свойство-список: наличие элемента решает Get-ListPropertyElement (тип объекта, заимствование)
+		if ($script:complexPropertyMap.ContainsKey($propName)) {
+			$valuesList = @()
+			if ($propValue -is [array]) {
+				$valuesList = @($propValue | ForEach-Object { "$_" })
+			} else {
+				$valuesList = @("$propValue" -split ';;' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+			}
+			Set-ComplexProperty $propName $valuesList
+			return
+		}
+
 		# Find the property element in Properties
 		$propEl = $null
 		foreach ($child in $script:propertiesEl.ChildNodes) {
@@ -2685,18 +2697,6 @@ function Modify-Properties($propsDef) {
 			} else {
 				Die "Property '$propName': could not create element"
 			}
-		}
-
-		# Complex property: Owners, RegisterRecords, BasedOn, InputByString
-		if ($script:complexPropertyMap.ContainsKey($propName)) {
-			$valuesList = @()
-			if ($propValue -is [array]) {
-				$valuesList = @($propValue | ForEach-Object { "$_" })
-			} else {
-				$valuesList = @("$propValue" -split ';;' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
-			}
-			Set-ComplexProperty $propName $valuesList
-			return
 		}
 
 		# Handle boolean values
