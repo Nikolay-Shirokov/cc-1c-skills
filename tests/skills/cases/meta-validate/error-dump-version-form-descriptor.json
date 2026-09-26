@@ -1,0 +1,10 @@
+{
+  "name": "Дескриптор формы Forms/<Имя>.xml распознан как Form (не «Unrecognized metadata type») и сверен с выгрузкой: 2.18 против 2.20 — ошибка",
+  "setup": "fixture:dump-version-mismatch",
+  "params": { "objectPath": "Catalogs/Товары/Forms/ФормаЭлемента.xml" },
+  "expectError": true,
+  "expect": {
+    "stdoutContains": ["24. Format version 2.18 differs from the dump (2.20)"],
+    "stdoutNotContains": ["Unrecognized metadata type"]
+  }
+}

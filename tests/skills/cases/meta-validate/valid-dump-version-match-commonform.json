@@ -1,0 +1,11 @@
+{
+  "name": "Штамп общей формы совпадает с выгрузкой (2.20) — проверка 24 OK",
+  "setup": "fixture:dump-version-match",
+  "params": { "objectPath": "CommonForms/ФормаПроверки.xml" },
+  "noSnapshot": "meta-validate только читает и печатает — эталон зафиксировал бы фикстуру, а не выход проверяемого навыка; проверяется stdout",
+  "expect": {
+    "stdoutContains": ["=== Validation OK: CommonForm.ФормаПроверки (3 checks) ==="],
+    "stdoutNotContains": ["differs from the dump", "Unrecognized metadata type"]
+  },
+  "skipPlatformVerify": "фикстура — фрагмент выгрузки без Ext/Form.xml и модулей: платформа его не загрузит, проверяется вывод валидатора"
+}

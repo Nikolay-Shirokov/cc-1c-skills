@@ -770,7 +770,7 @@ Ext/                               # Расширение конфигураци
         <Name>ФормаЭлемента</Name>
         <Synonym>...</Synonym>
         <Comment/>
-        <FormType>Ordinary</FormType>   <!-- Ordinary = управляемая форма -->
+        <FormType>Managed</FormType>   <!-- Managed = управляемая форма, Ordinary = обычная (толстый клиент) -->
     </Properties>
 </Form>
 ```
@@ -785,7 +785,7 @@ Ext/                               # Расширение конфигураци
         <Name>ОсновнаяСхемаКомпоновкиДанных</Name>
         <Synonym>...</Synonym>
         <Comment/>
-        <TemplateType>DataCompositionSchema</TemplateType>  <!-- DataCompositionSchema | SpreadsheetDocument | HTMLDocument | TextDocument | BinaryData | ActiveDocument -->
+        <TemplateType>DataCompositionSchema</TemplateType>  <!-- SpreadsheetDocument | BinaryData | HTMLDocument | TextDocument | ActiveDocument | DataCompositionSchema | DataCompositionAppearanceTemplate | GraphicalSchema | AddIn — см. 1c-configuration-spec.md, «Template» -->
     </Properties>
 </Template>
 ```

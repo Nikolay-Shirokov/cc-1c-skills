@@ -1,0 +1,11 @@
+{
+  "name": "Дескриптор макета Templates/<Имя>.xml в версии выгрузки — Template распознан, Name и TemplateType проверены, проверка 24 OK",
+  "setup": "fixture:dump-version-match",
+  "params": { "objectPath": "Catalogs/Товары/Templates/Макет.xml" },
+  "noSnapshot": "meta-validate только читает и печатает — эталон зафиксировал бы фикстуру, а не выход проверяемого навыка; проверяется stdout",
+  "expect": {
+    "stdoutContains": ["=== Validation OK: Template.Макет (4 checks) ==="],
+    "stdoutNotContains": ["differs from the dump", "Unrecognized metadata type", "[ERROR]"]
+  },
+  "skipPlatformVerify": "фикстура — фрагмент выгрузки без тела макета: платформа его не загрузит, проверяется вывод валидатора"
+}

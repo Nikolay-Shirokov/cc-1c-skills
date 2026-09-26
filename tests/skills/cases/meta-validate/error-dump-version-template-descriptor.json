@@ -1,0 +1,10 @@
+{
+  "name": "Дескриптор макета Templates/<Имя>.xml распознан как Template (не «Unrecognized metadata type») и сверен с выгрузкой: 2.18 против 2.20 — ошибка",
+  "setup": "fixture:dump-version-mismatch",
+  "params": { "objectPath": "Catalogs/Товары/Templates/Макет.xml" },
+  "expectError": true,
+  "expect": {
+    "stdoutContains": ["24. Format version 2.18 differs from the dump (2.20)"],
+    "stdoutNotContains": ["Unrecognized metadata type"]
+  }
+}
