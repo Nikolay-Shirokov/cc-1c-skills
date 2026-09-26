@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# stub-db-create v1.13 — Create temp 1C infobase with metadata stubs for EPF/ERF build
+# stub-db-create v1.14 — Create temp 1C infobase with metadata stubs for EPF/ERF build
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -1653,7 +1653,7 @@ def main():
         cfg_dir = os.path.join(temp_base, 'cfg')
         # LoadConfigFromFiles
         print('Loading configuration from files...')
-        load_log = os.path.join(tempfile.gettempdir(), 'stub_load_log.txt')
+        load_log = os.path.join(temp_base, 'load_log.txt')
         result = run_v8(args.V8Path, ['DESIGNER', f'/F"{temp_base}"', '/LoadConfigFromFiles', f'"{cfg_dir}"',
                                       '/Out', f'"{load_log}"',
                                       '/DisableStartupDialogs'] + [quote_if_needed(a) for a in extra_args])
@@ -1673,7 +1673,7 @@ def main():
 
         # UpdateDBCfg
         print('Updating database configuration...')
-        update_log = os.path.join(tempfile.gettempdir(), 'stub_update_log.txt')
+        update_log = os.path.join(temp_base, 'update_log.txt')
         result = run_v8(args.V8Path, ['DESIGNER', f'/F"{temp_base}"', '/UpdateDBCfg', '/Out', f'"{update_log}"',
                                       '/DisableStartupDialogs'] + [quote_if_needed(a) for a in extra_args])
         if result.returncode != 0:

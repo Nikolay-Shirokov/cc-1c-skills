@@ -1,4 +1,4 @@
-﻿# db-repo v1.17 — 1C configuration repository operations
+﻿# db-repo v1.18 — 1C configuration repository operations
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 # NB: движок только 1cv8 — ibcmd работу с хранилищем не поддерживает (нет такого режима).
 <#
@@ -754,7 +754,7 @@ function Write-ReceivedWarning {
     $owners = Get-OwnerObjects $Received
     $hasRoot = @($Received | Where-Object { ($_ -split '\.').Count -eq 1 }).Count -gt 0
     if ($owners.Count -gt 0) {
-        $listPath = Join-Path ([IO.Path]::GetTempPath()) "db-repo-received.txt"
+        $listPath = Join-Path ([IO.Path]::GetTempPath()) "db-repo-received-$(Get-Random).txt"
         $utf8Bom = New-Object System.Text.UTF8Encoding($true)
         [System.IO.File]::WriteAllLines($listPath, $owners, $utf8Bom)
         Write-Host "Исходники в проекте устарели по этим объектам. Перевыгрузите их ПЕРЕД правкой," -ForegroundColor Yellow
@@ -843,7 +843,7 @@ $script:ListLimit = 20
 function Save-ObjectList {
     param([string[]]$Names, [string]$Key)
     if (-not $Key) { $Key = 'objects' }
-    $path = Join-Path ([IO.Path]::GetTempPath()) "db-repo-$Key.txt"
+    $path = Join-Path ([IO.Path]::GetTempPath()) "db-repo-$Key-$(Get-Random).txt"
     $utf8Bom = New-Object System.Text.UTF8Encoding($true)
     [System.IO.File]::WriteAllLines($path, $Names, $utf8Bom)
     return $path
@@ -1102,7 +1102,7 @@ if ($WithChildren) {
 switch ($cmd) {
     'report'     {
         # Отчёт печатается в вывод, поэтому путь нужен только если его хотят сохранить.
-        if (-not $OutputFile) { $OutputFile = Join-Path ([IO.Path]::GetTempPath()) "db-repo-report.$ReportFormat" }
+        if (-not $OutputFile) { $OutputFile = Join-Path ([IO.Path]::GetTempPath()) "db-repo-report-$(Get-Random).$ReportFormat" }
     }
     'dump-cfg'   { if (-not $OutputFile) { Write-Host "Error: -OutputFile (path to the .cf file) is required for dump-cfg" -ForegroundColor Red; exit 1 } }
     'add-user'   { if (-not $NewUser -or -not $Rights) { Write-Host "Error: -NewUser and -Rights are required for add-user" -ForegroundColor Red; exit 1 } }

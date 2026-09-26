@@ -1,4 +1,4 @@
-﻿# stub-db-create v1.13 — Create temp 1C infobase with metadata stubs for EPF/ERF build
+﻿# stub-db-create v1.14 — Create temp 1C infobase with metadata stubs for EPF/ERF build
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -1792,7 +1792,7 @@ if ($needCfg) {
 	$cfgDir = Join-Path $TempBasePath "cfg"
 	# LoadConfigFromFiles
 	Write-Host "Loading configuration from files..."
-	$loadLog = Join-Path ([IO.Path]::GetTempPath()) "stub_load_log.txt"
+	$loadLog = Join-Path $TempBasePath "load_log.txt"
 	$loadArgs = "DESIGNER /F`"$TempBasePath`" /LoadConfigFromFiles `"$cfgDir`" /Out `"$loadLog`" /DisableStartupDialogs" + $extraArgString
 	$proc = Invoke-PlatformProcess $V8Path @($loadArgs) -PreQuoted
 	if ($proc.ExitCode -ne 0) {
@@ -1804,7 +1804,7 @@ if ($needCfg) {
 
 	# UpdateDBCfg
 	Write-Host "Updating database configuration..."
-	$updateLog = Join-Path ([IO.Path]::GetTempPath()) "stub_update_log.txt"
+	$updateLog = Join-Path $TempBasePath "update_log.txt"
 	$updateArgs = "DESIGNER /F`"$TempBasePath`" /UpdateDBCfg /Out `"$updateLog`" /DisableStartupDialogs" + $extraArgString
 	$proc = Invoke-PlatformProcess $V8Path @($updateArgs) -PreQuoted
 	if ($proc.ExitCode -ne 0) {

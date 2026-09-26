@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# db-repo v1.17 — 1C configuration repository operations
+# db-repo v1.18 — 1C configuration repository operations
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 # NB: движок только 1cv8 — ibcmd работу с хранилищем не поддерживает (нет такого режима).
 """Работа с хранилищем конфигурации 1С.
@@ -674,7 +674,7 @@ def print_received_warning(received):
     owners = owner_objects(received)
     has_root = any(len(n.split(".")) == 1 for n in received)
     if owners:
-        list_path = os.path.join(tempfile.gettempdir(), "db-repo-received.txt")
+        list_path = os.path.join(tempfile.gettempdir(), "db-repo-received-%d.txt" % random.randint(1, 2 ** 31))
         with open(list_path, "w", encoding="utf-8-sig", newline="\n") as f:
             f.write("\n".join(owners) + "\n")
         print("Исходники в проекте устарели по этим объектам. Перевыгрузите их ПЕРЕД правкой,")
@@ -760,7 +760,7 @@ LIST_LIMIT = 20
 def save_object_list(names, key):
     if not key:
         key = "objects"
-    path = os.path.join(tempfile.gettempdir(), "db-repo-%s.txt" % key)
+    path = os.path.join(tempfile.gettempdir(), "db-repo-%s-%d.txt" % (key, random.randint(1, 2 ** 31)))
     with open(path, "w", encoding="utf-8-sig", newline="\n") as f:
         f.write("\n".join(names) + "\n")
     return path
@@ -1052,7 +1052,7 @@ def main():
 
     if cmd == "report" and not args.OutputFile:
         # Отчёт печатается в вывод, поэтому путь нужен только если его хотят сохранить.
-        args.OutputFile = os.path.join(tempfile.gettempdir(), "db-repo-report.%s" % args.ReportFormat)
+        args.OutputFile = os.path.join(tempfile.gettempdir(), "db-repo-report-%d.%s" % (random.randint(1, 2 ** 31), args.ReportFormat))
     if cmd == "dump-cfg" and not args.OutputFile:
         print("Error: -OutputFile (path to the .cf file) is required for dump-cfg")
         sys.exit(1)
