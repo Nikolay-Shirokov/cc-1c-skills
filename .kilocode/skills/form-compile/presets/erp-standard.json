@@ -1,0 +1,68 @@
+{
+  "name": "erp-standard",
+  "description": "ERP 8.3.24 standard form layout",
+
+  "document.item": {
+    "header": {
+      "position": "insidePage",
+      "layout": "2col",
+      "distribute": "even",
+      "dateTitle": "от"
+    },
+    "footer": {
+      "fields": ["Комментарий"],
+      "position": "insidePage"
+    },
+    "tabularSections": {
+      "container": "pages",
+      "exclude": ["ДополнительныеРеквизиты"],
+      "lineNumber": true
+    },
+    "additional": {
+      "position": "page",
+      "layout": "2col",
+      "bspGroup": true
+    },
+    "properties": {
+      "autoTitle": false
+    }
+  },
+
+  "catalog.item": {
+    "codeDescription": {
+      "layout": "horizontal",
+      "order": "descriptionFirst"
+    },
+    "parent": {
+      "title": "Входит в группу",
+      "position": "afterCodeDescription"
+    },
+    "tabularSections": {
+      "exclude": ["ДополнительныеРеквизиты", "Представления"]
+    }
+  },
+
+  "informationRegister.record": {
+    "properties": {
+      "windowOpeningMode": "LockOwnerWindow"
+    }
+  },
+
+  "informationRegister.list": {},
+
+  "accumulationRegister.list": {},
+
+  "chartOfCharacteristicTypes.item": {
+    "basedOn": "catalog.item"
+  },
+
+  "exchangePlan.item": {
+    "basedOn": "catalog.item"
+  },
+
+  "chartOfAccounts.item": {
+    "parent": {
+      "title": "Подчинен счету"
+    }
+  }
+}
