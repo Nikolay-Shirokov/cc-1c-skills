@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-edit v1.57 — Edit existing 1C metadata object XML
+# meta-edit v1.58 — Edit existing 1C metadata object XML
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -2580,6 +2580,7 @@ def modify_properties(props_def):
     global modify_count
 
     for prop_name, prop_value in props_def.items():
+        prop_name = canonical_name(prop_name, list(known_object_props) + list(complex_property_map))
         # Свойство-список: наличие элемента решает get_list_property_element (тип объекта, заимствование)
         if prop_name in complex_property_map:
             values_list = []
@@ -2670,6 +2671,7 @@ def modify_child_elements(modify_def, child_type):
             die(f"{xml_tag} '{elem_name}': no Properties element found")
 
         for change_prop, change_value in changes.items():
+            change_prop = canonical_name(change_prop, child_modify_keys + list(known_child_props))
             # TS child attribute operations (add/remove/modify attrs inside a TabularSection)
             if xml_tag == "TabularSection" and change_prop in ("add", "remove", "modify"):
                 # Find ChildObjects inside this TS element
@@ -2759,7 +2761,8 @@ def modify_child_elements(modify_def, child_type):
                                 for gc in item_el:
                                     if localname(gc) == "content":
                                         current_syn = (gc.text or "").strip()
-                        if current_syn == old_synonym or not current_syn:
+                        # Без учёта регистра: авто-синоним «ИНН» против разбивки «Инн» (так в PS-мастере)
+                        if current_syn.lower() == old_synonym.lower() or not current_syn:
                             new_synonym = split_camel_case(new_name)
                             syn_indent = get_child_indent(props_el)
                             new_syn_xml = build_mltext_xml(syn_indent, "Synonym", new_synonym)
@@ -3021,6 +3024,13 @@ known_object_props = {
 }
 
 # Известные свойства дочерних элементов (union Attribute/Dimension/Resource) — allowlist default-ветки modify-child.
+# Ключи веток modify дочернего элемента в их написании. Стоят перед known_child_props: при канонизации
+# первый выигрывает, и Name уходит в ветку переименования name, а не в скалярную.
+child_modify_keys = [
+    "add", "remove", "modify", "name", "type", "synonym", "Format", "EditFormat", "ToolTip", "ChoiceForm", "MinValue",
+    "MaxValue", "LinkByType", "ChoiceParameterLinks", "ChoiceParameters", "FillValue",
+]
+
 known_child_props = {
     'AccountingFlag', 'Balance', 'BaseDimension', 'ChoiceFoldersAndItems', 'ChoiceForm', 'ChoiceHistoryOnInput',
     'ChoiceParameterLinks', 'ChoiceParameters', 'Comment', 'CreateOnInput', 'DataHistory', 'DenyIncompleteValues',
@@ -3498,6 +3508,17 @@ def build_fill_value_explicit_xml(type_str, spec):
     if r['Text'] == '' and r['XsiType'] == 'xs:string':
         return '<FillValue xsi:type="xs:string"/>'
     return f'<FillValue xsi:type="{r["XsiType"]}">{esc_xml_text(r["Text"])}</FillValue>'
+
+
+# Прощающий ввод: ключ свойства в любом регистре сводим к каноническому имени из списка (первое
+# совпадение без учёта регистра). Дальше работаем только с ним — в XML уходит имя тега, а не
+# написание из входа. Неизвестное возвращается как есть — его отвергнет allowlist.
+def canonical_name(name, canon):
+    low = name.lower()
+    for c in canon:
+        if c.lower() == low:
+            return c
+    return name
 
 
 def find_property_element(prop_name):

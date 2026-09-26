@@ -1,4 +1,4 @@
-﻿# meta-edit v1.57 — Edit existing 1C metadata object XML
+﻿# meta-edit v1.58 — Edit existing 1C metadata object XML
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -2660,7 +2660,7 @@ function Process-Remove($removeDef) {
 
 function Modify-Properties($propsDef) {
 	$propsDef.PSObject.Properties | ForEach-Object {
-		$propName = $_.Name
+		$propName = Get-CanonicalName $_.Name ($script:knownObjectProps + @($script:complexPropertyMap.Keys))
 		$propValue = $_.Value
 
 		# Свойство-список: наличие элемента решает Get-ListPropertyElement (тип объекта, заимствование)
@@ -2769,7 +2769,7 @@ function Modify-ChildElements($modifyDef, [string]$childType) {
 		}
 
 		$changes.PSObject.Properties | ForEach-Object {
-			$changeProp = $_.Name
+			$changeProp = Get-CanonicalName $_.Name ($script:childModifyKeys + $script:knownChildProps)
 			$changeValue = $_.Value
 
 			# TS child attribute operations (add/remove/modify attrs inside a TabularSection)
@@ -2883,7 +2883,8 @@ function Modify-ChildElements($modifyDef, [string]$childType) {
 									}
 								}
 							}
-							if ($currentSyn -eq $oldSynonym -or -not $currentSyn) {
+							# Без учёта регистра: авто-синоним «ИНН» против разбивки «Инн»
+							if ($currentSyn -ieq $oldSynonym -or -not $currentSyn) {
 								$newSynonym = Split-CamelCase $newName
 								$synXml = Build-MLTextXml (Get-ChildIndent $propsEl) "Synonym" $newSynonym
 								$newSynNodes = Import-Fragment $synXml
@@ -3175,6 +3176,13 @@ $script:knownChildProps = @(
 	'FillValue','Format','FullTextSearch','Indexing','LinkByType','MainFilter','MarkNegatives','Mask','Master',
 	'MaxValue','MinValue','MultiLine','Name','PasswordMode','QuickChoice','RegisterRecordsMap','ScheduleLink',
 	'Synonym','ToolTip','Type','Use','UseInTotals'
+)
+
+# Ключи веток modify дочернего элемента в их написании. Стоят перед knownChildProps: при канонизации
+# первый выигрывает, и Name уходит в ветку переименования name, а не в скалярную.
+$script:childModifyKeys = @(
+	'add','remove','modify','name','type','synonym','Format','EditFormat','ToolTip','ChoiceForm','MinValue','MaxValue',
+	'LinkByType','ChoiceParameterLinks','ChoiceParameters','FillValue'
 )
 
 # Канонический порядок свойств реквизита (последовательность Build-AttributeFragment) — для вставки в позицию.
@@ -3563,6 +3571,14 @@ function Build-FillValueExplicitXml([string]$typeStr, $spec) {
 	$r = Resolve-FillValueSpec "$spec" $typeStr
 	if ($r.Text -eq '' -and $r.XsiType -eq 'xs:string') { return "<FillValue xsi:type=`"xs:string`"/>" }
 	return "<FillValue xsi:type=`"$($r.XsiType)`">$(Esc-XmlText $r.Text)</FillValue>"
+}
+
+# Прощающий ввод: ключ свойства в любом регистре сводим к каноническому имени из списка (первое
+# совпадение без учёта регистра). Дальше работаем только с ним — в XML уходит имя тега, а не
+# написание из входа. Неизвестное возвращается как есть — его отвергнет allowlist.
+function Get-CanonicalName([string]$name, [string[]]$canon) {
+	foreach ($c in $canon) { if ($c -eq $name) { return $c } }
+	return $name
 }
 
 function Find-PropertyElement([string]$propName) {

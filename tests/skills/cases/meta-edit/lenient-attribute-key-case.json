@@ -1,0 +1,55 @@
+{
+  "name": "Прощающий ввод: ключи свойств реквизита в другом регистре — канонические теги, Name переименовывает",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "Catalog",
+        "name": "Контрагенты",
+        "attributes": [
+          "ИНН: String(12)"
+        ]
+      },
+      "args": {
+        "-JsonPath": "{inputFile}",
+        "-OutputDir": "{workDir}"
+      }
+    }
+  ],
+  "params": {
+    "objectPath": "Catalogs/Контрагенты"
+  },
+  "input": {
+    "modify": {
+      "attributes": {
+        "ИНН": {
+          "Name": "КодНалогоплательщика",
+          "indexing": "Index",
+          "fillchecking": "ShowError"
+        }
+      }
+    }
+  },
+  "expect": {
+    "fileContains": [
+      {
+        "file": "Catalogs/Контрагенты.xml",
+        "text": [
+          "<Name>КодНалогоплательщика</Name>",
+          "<v8:content>Код налогоплательщика</v8:content>",
+          "<Indexing>Index</Indexing>",
+          "<FillChecking>ShowError</FillChecking>"
+        ]
+      }
+    ],
+    "fileNotContains": [
+      {
+        "file": "Catalogs/Контрагенты.xml",
+        "text": [
+          "<indexing",
+          "<fillchecking"
+        ]
+      }
+    ]
+  }
+}

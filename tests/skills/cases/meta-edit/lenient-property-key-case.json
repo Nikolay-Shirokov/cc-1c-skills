@@ -1,0 +1,38 @@
+{
+  "name": "Прощающий ввод: ключ свойства объекта в другом регистре — в XML каноническое имя",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "Catalog",
+        "name": "Контрагенты"
+      },
+      "args": {
+        "-JsonPath": "{inputFile}",
+        "-OutputDir": "{workDir}"
+      }
+    }
+  ],
+  "params": {
+    "objectPath": "Catalogs/Контрагенты"
+  },
+  "input": {
+    "modify": {
+      "properties": {
+        "codeLength": 11,
+        "hierarchical": true
+      }
+    }
+  },
+  "expect": {
+    "fileContains": [
+      {
+        "file": "Catalogs/Контрагенты.xml",
+        "text": [
+          "<CodeLength>11</CodeLength>",
+          "<Hierarchical>true</Hierarchical>"
+        ]
+      }
+    ]
+  }
+}
