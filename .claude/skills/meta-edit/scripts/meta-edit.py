@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-edit v1.58 — Edit existing 1C metadata object XML
+# meta-edit v1.59 — Edit existing 1C metadata object XML
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -3541,10 +3541,12 @@ def get_list_property_element(prop_name, create):
     if is_adopted and obj_type not in (map_entry or {}).get("adopted", []):
         die(f"Свойство '{prop_name}' заимствованного объекта {obj_type}.{obj_name} расширение не меняет — значение берётся из основной конфигурации")
     prop_el = find_property_element(prop_name)
-    if prop_el is not None or not create:
+    if prop_el is not None:
         return prop_el
     if not is_adopted:
         die(f"В Properties объекта {obj_type}.{obj_name} нет элемента '{prop_name}' — файл не из выгрузки платформы?")
+    if not create:
+        return None
     new_nodes = import_fragment(f"<{prop_name}/>")
     insert_property_in_order(properties_el, new_nodes[0], None, prop_name)
     return new_nodes[0]

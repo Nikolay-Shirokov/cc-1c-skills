@@ -1,4 +1,4 @@
-﻿# meta-edit v1.58 — Edit existing 1C metadata object XML
+﻿# meta-edit v1.59 — Edit existing 1C metadata object XML
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -3605,10 +3605,11 @@ function Get-ListPropertyElement([string]$propName, [bool]$create) {
 		Die "Свойство '$propName' заимствованного объекта $($script:objType).$($script:objName) расширение не меняет — значение берётся из основной конфигурации"
 	}
 	$propEl = Find-PropertyElement $propName
-	if ($propEl -or -not $create) { return $propEl }
+	if ($propEl) { return $propEl }
 	if (-not $isAdopted) {
 		Die "В Properties объекта $($script:objType).$($script:objName) нет элемента '$propName' — файл не из выгрузки платформы?"
 	}
+	if (-not $create) { return $null }
 	$newNodes = Import-Fragment "<$propName/>"
 	Insert-PropertyInOrder $script:propertiesEl $newNodes[0] $null $propName
 	return $newNodes[0]
