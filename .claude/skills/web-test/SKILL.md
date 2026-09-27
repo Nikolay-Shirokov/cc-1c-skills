@@ -617,6 +617,7 @@ On error (auto-screenshot taken):
 - **Startup time** — 1C loads 30-60s on initial connect (built into `start`)
 - **Fuzzy matching** — all name lookups: exact > startsWith > includes
 - **Clipboard paste** — all text fields filled via Ctrl+V (triggers 1C events properly). The OS clipboard is automatically saved before each action and restored after, so a local user's clipboard survives a test run. Opt out with `--no-preserve-clipboard` (any command), `WEB_TEST_PRESERVE_CLIPBOARD=0` env, or `preserveClipboard: false` in `webtest.config.mjs`
+- **1C browser extension** — loaded automatically when found in a Chrome/Edge profile. With it, file dialogs of forms that put files on the server (e.g. «Добавить из файла...» in the extensions list) open the native OS dialog, which automation cannot drive. Start the browser with `WEB_TEST_EXTENSION_PATH=none` (env of `start`/`run`) to launch without the extension: the web client then shows its own HTML file dialog, handled via Playwright `filechooser`. A directory path in the same variable loads the extension from there
 - **Cyrillic in bash** — use `cat <<'SCRIPT' | node $RUN exec -` to avoid escaping issues
 - **Non-breaking spaces** — 1C uses `\u00a0` instead of regular spaces. All matching is normalized internally
 - **Section panel display** — `navigateSection()` works with any panel position (side, top) but requires "Picture and text" or "Text" display mode. Icon-only mode is not supported — API cannot read section names from icons alone

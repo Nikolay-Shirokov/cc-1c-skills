@@ -1,4 +1,4 @@
-// web-test core/session v1.21 — Browser session lifecycle: connect/disconnect/attach/detach, multi-context registry.
+// web-test core/session v1.22 — Browser session lifecycle: connect/disconnect/attach/detach, multi-context registry.
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import { chromium } from 'playwright';
@@ -21,9 +21,14 @@ import { getPageState } from '../nav/navigation.mjs';
 /**
  * Find the 1C browser extension in Chrome/Edge user profiles.
  * Returns the path to the latest version, or null if not found.
- * Can be overridden via extensionPath in .v8-project.json.
+ * Override: the extensionPath option of connect()/createContext(), else the WEB_TEST_EXTENSION_PATH
+ * environment variable - a directory with the unpacked extension, or `none` to launch without it.
  */
 function findExtension(overridePath) {
+  // WEB_TEST_EXTENSION_PATH=none launches without the 1C browser extension: the web client then
+  // falls back to its own HTML "Выбор файлов" dialog, which Playwright can drive and record.
+  if (!overridePath && process.env.WEB_TEST_EXTENSION_PATH) overridePath = process.env.WEB_TEST_EXTENSION_PATH;
+  if (overridePath === 'none') return null;
   if (overridePath) {
     try { if (statSync(overridePath).isDirectory()) return overridePath; } catch {}
     return null;
