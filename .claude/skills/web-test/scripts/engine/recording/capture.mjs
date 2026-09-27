@@ -1,4 +1,4 @@
-// web-test recording/capture v1.17 — Recording lifecycle (CDP screencast + ffmpeg pipe), screenshot, wait helpers.
+// web-test recording/capture v1.18 — Recording lifecycle (CDP screencast + ffmpeg pipe), screenshot, wait helpers.
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import { spawn } from 'child_process';
@@ -95,7 +95,9 @@ export async function startRecording(outputPath, opts = {}) {
     '-c:v', 'libx264',            // H.264 codec
     '-preset', 'fast',             // good quality/speed balance
     '-crf', '23',                  // default quality (good for screen content)
-    '-vf', 'scale=in_range=full:out_range=limited', // JPEG full→H.264 limited range
+    // libx264 + yuv420p reject odd sizes, and a maximized window can give one (1920x945):
+    // crop to even width/height first (drops at most one pixel row/column).
+    '-vf', 'crop=trunc(iw/2)*2:trunc(ih/2)*2,scale=in_range=full:out_range=limited', // JPEG full→H.264 limited range
     '-pix_fmt', 'yuv420p',        // broad compatibility
     '-color_range', 'tv',          // limited range (16-235) — standard for H.264 players
     '-movflags', '+faststart',     // web-friendly MP4
@@ -202,6 +204,13 @@ export async function stopRecording() {
 
   // Close ffmpeg stdin and wait for encoding to finish
   await new Promise((resolve, reject) => {
+    // ffmpeg that already died (bad input size, codec error) never emits 'close' again:
+    // report its own error instead of waiting 30s for a misleading timeout.
+    if (ffmpeg.exitCode !== null) {
+      reject(new Error(`ffmpeg exited early with code ${ffmpeg.exitCode}: ${recorder?.ffmpegError || ''}`));
+      return;
+    }
+
     const timeout = setTimeout(() => {
       ffmpeg.kill('SIGKILL');
       reject(new Error('ffmpeg timed out after 30s'));
