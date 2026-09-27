@@ -130,4 +130,67 @@ export default async function({
     assert.ok(!after.includes('__web_test_highlight'), 'highlight overlay удалён');
     await closeForm();
   });
+
+  // Длительность самого видео (ffprobe), а не stopRecording().duration: та считается по часам
+  // и замедления видео не видит.
+  const { resolveFfmpeg, getAudioDuration } = await import(
+    new URL('../../.claude/skills/web-test/scripts/engine/recording/tts.mjs', import.meta.url));
+  const videoSeconds = (file) => getAudioDuration(file, resolveFfmpeg());
+
+  await step('odd viewport: окно нечетной высоты пишется, ffmpeg не падает', async () => {
+    const p = await getPage();
+    const oddPath = path.join(dir, 'odd.mp4');
+    try { fs.unlinkSync(oddPath); } catch {}
+    // Нечетная высота через CDP-эмуляцию: так ее потом можно снять без следа для следующих тестов.
+    const cdp = await p.context().newCDPSession(p);
+    await cdp.send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 721, deviceScaleFactor: 1, mobile: false });
+    try {
+      await startRecording(oddPath, { fps: 15 });
+      await wait(2);
+      const result = await stopRecording();
+      log(`odd viewport: size=${result.size}B video=${videoSeconds(result.file)}s`);
+      assert.ok(result.size > 10000, `mp4 при высоте 721 > 10KB (got ${result.size})`);
+    } finally {
+      await cdp.send('Emulation.clearDeviceMetricsOverride').catch(() => {});
+      await cdp.detach().catch(() => {});
+    }
+  });
+
+  await step('frame grid: на странице с анимацией видео не длиннее реального времени', async () => {
+    const p = await getPage();
+    const animPath = path.join(dir, 'animated.mp4');
+    try { fs.unlinkSync(animPath); } catch {}
+    // Элемент перекрашивается на каждом кадре браузера: screencast шлет кадры чаще fps.
+    await p.evaluate(() => {
+      const d = document.createElement('div');
+      d.id = '__web_test_anim_probe';
+      d.style.cssText = 'position:fixed;left:0;top:0;width:40px;height:40px;z-index:999999';
+      document.body.appendChild(d);
+      let i = 0;
+      const tick = () => {
+        if (!d.isConnected) return;
+        d.style.background = i++ % 2 ? '#f00' : '#00f';
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    });
+    // Четный размер через эмуляцию: шаг проверяет только сетку кадров, независимо от окна.
+    const cdp = await p.context().newCDPSession(p);
+    await cdp.send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 720, deviceScaleFactor: 1, mobile: false });
+    try {
+      const t0 = Date.now();
+      await startRecording(animPath, { fps: 10 });
+      await p.waitForTimeout(6000);
+      const result = await stopRecording();
+      const wall = (Date.now() - t0) / 1000;
+      const video = videoSeconds(result.file);
+      log(`animated: video=${video}s wall=${wall.toFixed(1)}s`);
+      assert.ok(video <= wall + 0.5, `видео не длиннее реального времени (video ${video}s, wall ${wall.toFixed(1)}s)`);
+      assert.ok(video >= wall - 1.5, `видео не короче реального времени (video ${video}s, wall ${wall.toFixed(1)}s)`);
+    } finally {
+      await p.evaluate(() => document.getElementById('__web_test_anim_probe')?.remove());
+      await cdp.send('Emulation.clearDeviceMetricsOverride').catch(() => {});
+      await cdp.detach().catch(() => {});
+    }
+  });
 }

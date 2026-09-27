@@ -61,6 +61,7 @@ Start recording the browser viewport to an MP4 file.
 
 - Output directory is created automatically if it doesn't exist
 - A viewport with odd width or height (a maximized window often gives e.g. 1920x945) is cropped by one pixel to an even size: libx264 with yuv420p cannot encode odd sizes
+- Frames are placed on a wall-clock grid of 1/fps counted from the start, so the video lasts exactly as long as the recording did. A page that repaints faster than `fps` (animations) does not stretch the video: extra frames within one slot are dropped; static periods repeat the last frame
 - Throws if already recording or browser not connected
 - Recording auto-stops when `disconnect()` is called
 

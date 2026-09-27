@@ -112,40 +112,38 @@ export async function startRecording(outputPath, opts = {}) {
   // Frame handler shared across CDP sessions (lives in recorder, not closure):
   // when the active context switches, we attach a new CDP session and route its
   // frames to the same ffmpeg pipe — preserving a single continuous timeline.
+  // Frames sit on a wall-clock grid of 1/fps slots counted from startTime. A page that repaints
+  // faster than fps (animated background) used to turn every screencast frame into a video frame,
+  // so the video ran in slow motion and narration drifted from the picture: 159 s of wall time
+  // became 183 s of video. Now extra frames within one slot are dropped (the newest is kept as
+  // lastFrameBuf) and gaps are filled with the last frame.
+  const writeFrame = (b) => {
+    ffmpeg.stdin.write(b);
+    recorder.framesWritten++;
+    recorder.videoTimeMs = recorder.framesWritten * frameDuration;
+  };
+  const dueFrames = () => Math.floor((Date.now() - recorder.startTime) / frameDuration);
+
   const frameHandler = async ({ data, sessionId }, cdp) => {
     if (!recorder) return;
     const buf = Buffer.from(data, 'base64');
-    const now = Date.now();
     if (!ffmpeg.stdin.destroyed) {
-      let framesWritten = 0;
-      if (recorder.lastFrameTime && recorder.lastFrameBuf) {
-        const gap = now - recorder.lastFrameTime;
-        const dupes = Math.round(gap / frameDuration) - 1;
-        for (let i = 0; i < dupes && i < fps * 30; i++) {
-          ffmpeg.stdin.write(recorder.lastFrameBuf);
-          framesWritten++;
-        }
-      }
-      ffmpeg.stdin.write(buf);
-      framesWritten++;
-      recorder.videoTimeMs += framesWritten * frameDuration;
+      const due = dueFrames();
+      while (recorder.framesWritten < due - 1) writeFrame(recorder.lastFrameBuf || buf);
+      if (recorder.framesWritten < due) writeFrame(buf);
     }
-    recorder.lastFrameTime = now;
+    recorder.lastFrameTime = Date.now();
     recorder.lastFrameBuf = buf;
     try { await cdp.send('Page.screencastFrameAck', { sessionId }); } catch {}
   };
 
-  // Duplicate the last frame to fill wall-clock gaps (static periods, context switches).
+  // Fill the grid up to "now" with the last frame (static periods, context switches, before a
+  // caption timestamp is taken).
   const _flushFrames = () => {
-    if (!recorder || !recorder.lastFrameBuf || !recorder.lastFrameTime || ffmpeg.stdin.destroyed) return;
-    const now = Date.now();
-    const gap = now - recorder.lastFrameTime;
-    const dupes = Math.round(gap / frameDuration);
-    for (let i = 0; i < dupes; i++) {
-      ffmpeg.stdin.write(recorder.lastFrameBuf);
-      recorder.videoTimeMs += frameDuration;
-    }
-    if (dupes > 0) recorder.lastFrameTime = now;
+    if (!recorder || !recorder.lastFrameBuf || ffmpeg.stdin.destroyed) return;
+    const due = dueFrames();
+    while (recorder.framesWritten < due) writeFrame(recorder.lastFrameBuf);
+    recorder.lastFrameTime = Date.now();
   };
 
   // Attach screencast to a specific page. Stops the old CDP first (if any).
@@ -174,6 +172,7 @@ export async function startRecording(outputPath, opts = {}) {
     ffmpegError: '',
     captions: [],
     videoTimeMs: 0,
+    framesWritten: 0,
     frameDuration,
     lastFrameTime: null,
     lastFrameBuf: null,
