@@ -1,0 +1,16 @@
+{
+  "name": "Без -V8Path платформа берётся из v8path в .v8-project.json",
+  "params": {
+    "cacheDir": "cache"
+  },
+  "cwd": "workDir",
+  "args_extra": [
+    "-Search",
+    "Цикл"
+  ],
+  "expect": {
+    "stdoutContains": "shlang:Loop | Цикл Для каждого",
+    "stdoutNotContains": "Auto-selected"
+  },
+  "noSnapshot": "навык только читает книги справки и печатает текст; файлы в workDir — копия фикстуры и индекс заголовков"
+}

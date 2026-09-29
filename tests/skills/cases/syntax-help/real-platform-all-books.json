@@ -1,0 +1,16 @@
+{
+  "name": "Установленная платформа без -Book: ключ пакетного режима из книги 1cv8 (пропуск без 1С)",
+  "setup": "external:C:/Program Files/1cv8",
+  "args_extra": [
+    "-Search",
+    "DumpConfigToFiles"
+  ],
+  "expect": {
+    "stdoutContains": [
+      "1cv8:",
+      "| DumpConfigToFiles"
+    ],
+    "stdoutNotContains": "[WARN]"
+  },
+  "noSnapshot": "навык только читает книги справки и печатает текст; файлы в workDir — копия фикстуры и индекс заголовков"
+}

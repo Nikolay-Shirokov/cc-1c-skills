@@ -1,0 +1,19 @@
+{
+  "name": "Поиск -InText находит слово из текста страницы",
+  "params": {
+    "v8Path": ".",
+    "cacheDir": "cache"
+  },
+  "args_extra": [
+    "-Search",
+    "компилируется",
+    "-InText",
+    "-Book",
+    "shlang"
+  ],
+  "expect": {
+    "stdoutContains": "shlang:Pragma | Директивы компиляции",
+    "stdoutNotContains": "shlang:Loop"
+  },
+  "noSnapshot": "навык только читает книги справки и печатает текст; файлы в workDir — копия фикстуры и индекс заголовков"
+}

@@ -1,0 +1,22 @@
+{
+  "name": "Поиск: заголовок, начинающийся с запроса, выше вхождения в середине",
+  "params": {
+    "v8Path": ".",
+    "cacheDir": "cache"
+  },
+  "args_extra": [
+    "-Search",
+    "Массив",
+    "-Limit",
+    "2"
+  ],
+  "expect": {
+    "stdoutContains": [
+      "Found: 5",
+      "shcntx:objects/catalog2/Array.html | Массив (Array)",
+      "[ОБРЕЗАНО] Показано 2 из 6 строк"
+    ],
+    "stdoutNotContains": "ФМассив"
+  },
+  "noSnapshot": "навык только читает книги справки и печатает текст; файлы в workDir — копия фикстуры и индекс заголовков"
+}

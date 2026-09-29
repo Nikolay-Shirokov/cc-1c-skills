@@ -1,0 +1,12 @@
+{
+  "name": "Ошибка: не задан ни -Search, ни -Page",
+  "params": {
+    "v8Path": ".",
+    "cacheDir": "cache"
+  },
+  "expectError": true,
+  "expect": {
+    "stdoutContains": "[ERROR] Specify exactly one of -Search or -Page"
+  },
+  "noSnapshot": "навык только читает книги справки и печатает текст; файлы в workDir — копия фикстуры и индекс заголовков"
+}

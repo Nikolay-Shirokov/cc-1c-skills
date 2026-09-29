@@ -1,0 +1,17 @@
+{
+  "name": "Английская книга: -Language root",
+  "params": {
+    "v8Path": ".",
+    "cacheDir": "cache"
+  },
+  "args_extra": [
+    "-Page",
+    "shlang:Pragma",
+    "-Language",
+    "root"
+  ],
+  "expect": {
+    "stdoutContains": "Compilation directives"
+  },
+  "noSnapshot": "навык только читает книги справки и печатает текст; файлы в workDir — копия фикстуры и индекс заголовков"
+}

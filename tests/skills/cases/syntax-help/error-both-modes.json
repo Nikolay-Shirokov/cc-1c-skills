@@ -1,0 +1,18 @@
+{
+  "name": "Ошибка: заданы и -Search, и -Page",
+  "params": {
+    "v8Path": ".",
+    "cacheDir": "cache"
+  },
+  "args_extra": [
+    "-Search",
+    "Массив",
+    "-Page",
+    "shlang:Pragma"
+  ],
+  "expectError": true,
+  "expect": {
+    "stdoutContains": "[ERROR] Specify exactly one of -Search or -Page"
+  },
+  "noSnapshot": "навык только читает книги справки и печатает текст; файлы в workDir — копия фикстуры и индекс заголовков"
+}

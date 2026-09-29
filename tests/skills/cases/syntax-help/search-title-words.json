@@ -1,0 +1,19 @@
+{
+  "name": "Поиск: слова заголовка в любом порядке и регистре",
+  "params": {
+    "v8Path": ".",
+    "cacheDir": "cache"
+  },
+  "args_extra": [
+    "-Search",
+    "добавить МАССИВ"
+  ],
+  "expect": {
+    "stdoutContains": [
+      "Found: 1",
+      "shcntx:objects/catalog2/Array/methods/Add1.html | Массив.Добавить (Array.Add)"
+    ],
+    "stdoutNotContains": "Количество"
+  },
+  "noSnapshot": "навык только читает книги справки и печатает текст; файлы в workDir — копия фикстуры и индекс заголовков"
+}

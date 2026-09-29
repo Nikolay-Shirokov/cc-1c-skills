@@ -1,0 +1,18 @@
+{
+  "script": "syntax-help/scripts/syntax-help",
+  "setup": "fixture:books",
+  "args": [
+    {
+      "flag": "-V8Path",
+      "from": "workPath",
+      "field": "v8Path",
+      "optional": true
+    },
+    {
+      "flag": "-CacheDir",
+      "from": "workPath",
+      "field": "cacheDir",
+      "optional": true
+    }
+  ]
+}
