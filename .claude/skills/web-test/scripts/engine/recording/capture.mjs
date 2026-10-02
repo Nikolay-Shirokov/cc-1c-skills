@@ -1,4 +1,4 @@
-// web-test recording/capture v1.17 — Recording lifecycle (CDP screencast + ffmpeg pipe), screenshot, wait helpers.
+// web-test recording/capture v1.18 — Recording lifecycle (CDP screencast + ffmpeg pipe), screenshot, wait helpers.
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import { spawn } from 'child_process';
@@ -95,7 +95,9 @@ export async function startRecording(outputPath, opts = {}) {
     '-c:v', 'libx264',            // H.264 codec
     '-preset', 'fast',             // good quality/speed balance
     '-crf', '23',                  // default quality (good for screen content)
-    '-vf', 'scale=in_range=full:out_range=limited', // JPEG full→H.264 limited range
+    // libx264 + yuv420p reject odd sizes, and a maximized window can give one (1920x945):
+    // crop to even width/height first (drops at most one pixel row/column).
+    '-vf', 'crop=trunc(iw/2)*2:trunc(ih/2)*2,scale=in_range=full:out_range=limited', // JPEG full→H.264 limited range
     '-pix_fmt', 'yuv420p',        // broad compatibility
     '-color_range', 'tv',          // limited range (16-235) — standard for H.264 players
     '-movflags', '+faststart',     // web-friendly MP4
@@ -110,40 +112,38 @@ export async function startRecording(outputPath, opts = {}) {
   // Frame handler shared across CDP sessions (lives in recorder, not closure):
   // when the active context switches, we attach a new CDP session and route its
   // frames to the same ffmpeg pipe — preserving a single continuous timeline.
+  // Frames sit on a wall-clock grid of 1/fps slots counted from startTime. A page that repaints
+  // faster than fps (animated background) used to turn every screencast frame into a video frame,
+  // so the video ran in slow motion and narration drifted from the picture: 159 s of wall time
+  // became 183 s of video. Now extra frames within one slot are dropped (the newest is kept as
+  // lastFrameBuf) and gaps are filled with the last frame.
+  const writeFrame = (b) => {
+    ffmpeg.stdin.write(b);
+    recorder.framesWritten++;
+    recorder.videoTimeMs = recorder.framesWritten * frameDuration;
+  };
+  const dueFrames = () => Math.floor((Date.now() - recorder.startTime) / frameDuration);
+
   const frameHandler = async ({ data, sessionId }, cdp) => {
     if (!recorder) return;
     const buf = Buffer.from(data, 'base64');
-    const now = Date.now();
     if (!ffmpeg.stdin.destroyed) {
-      let framesWritten = 0;
-      if (recorder.lastFrameTime && recorder.lastFrameBuf) {
-        const gap = now - recorder.lastFrameTime;
-        const dupes = Math.round(gap / frameDuration) - 1;
-        for (let i = 0; i < dupes && i < fps * 30; i++) {
-          ffmpeg.stdin.write(recorder.lastFrameBuf);
-          framesWritten++;
-        }
-      }
-      ffmpeg.stdin.write(buf);
-      framesWritten++;
-      recorder.videoTimeMs += framesWritten * frameDuration;
+      const due = dueFrames();
+      while (recorder.framesWritten < due - 1) writeFrame(recorder.lastFrameBuf || buf);
+      if (recorder.framesWritten < due) writeFrame(buf);
     }
-    recorder.lastFrameTime = now;
+    recorder.lastFrameTime = Date.now();
     recorder.lastFrameBuf = buf;
     try { await cdp.send('Page.screencastFrameAck', { sessionId }); } catch {}
   };
 
-  // Duplicate the last frame to fill wall-clock gaps (static periods, context switches).
+  // Fill the grid up to "now" with the last frame (static periods, context switches, before a
+  // caption timestamp is taken).
   const _flushFrames = () => {
-    if (!recorder || !recorder.lastFrameBuf || !recorder.lastFrameTime || ffmpeg.stdin.destroyed) return;
-    const now = Date.now();
-    const gap = now - recorder.lastFrameTime;
-    const dupes = Math.round(gap / frameDuration);
-    for (let i = 0; i < dupes; i++) {
-      ffmpeg.stdin.write(recorder.lastFrameBuf);
-      recorder.videoTimeMs += frameDuration;
-    }
-    if (dupes > 0) recorder.lastFrameTime = now;
+    if (!recorder || !recorder.lastFrameBuf || ffmpeg.stdin.destroyed) return;
+    const due = dueFrames();
+    while (recorder.framesWritten < due) writeFrame(recorder.lastFrameBuf);
+    recorder.lastFrameTime = Date.now();
   };
 
   // Attach screencast to a specific page. Stops the old CDP first (if any).
@@ -172,6 +172,7 @@ export async function startRecording(outputPath, opts = {}) {
     ffmpegError: '',
     captions: [],
     videoTimeMs: 0,
+    framesWritten: 0,
     frameDuration,
     lastFrameTime: null,
     lastFrameBuf: null,
@@ -202,6 +203,13 @@ export async function stopRecording() {
 
   // Close ffmpeg stdin and wait for encoding to finish
   await new Promise((resolve, reject) => {
+    // ffmpeg that already died (bad input size, codec error) never emits 'close' again:
+    // report its own error instead of waiting 30s for a misleading timeout.
+    if (ffmpeg.exitCode !== null) {
+      reject(new Error(`ffmpeg exited early with code ${ffmpeg.exitCode}: ${recorder?.ffmpegError || ''}`));
+      return;
+    }
+
     const timeout = setTimeout(() => {
       ffmpeg.kill('SIGKILL');
       reject(new Error('ffmpeg timed out after 30s'));

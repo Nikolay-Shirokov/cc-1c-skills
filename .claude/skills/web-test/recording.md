@@ -60,6 +60,8 @@ Start recording the browser viewport to an MP4 file.
 | `opts.speechRate` | number | 70 | Ms per character for smart TTS wait. Increase for slower TTS providers (e.g. 85 for ElevenLabs) |
 
 - Output directory is created automatically if it doesn't exist
+- A viewport with odd width or height (a maximized window often gives e.g. 1920x945) is cropped by one pixel to an even size: libx264 with yuv420p cannot encode odd sizes
+- Frames are placed on a wall-clock grid of 1/fps counted from the start, so the video lasts exactly as long as the recording did. A page that repaints faster than `fps` (animations) does not stretch the video: extra frames within one slot are dropped; static periods repeat the last frame
 - Throws if already recording or browser not connected
 - Recording auto-stops when `disconnect()` is called
 
@@ -73,6 +75,8 @@ Stop recording and finalize the MP4 file. Saves `.captions.json` next to the vid
 | `duration` | number | Recording duration in seconds |
 | `size` | number | File size in bytes |
 | `captions` | number | Number of captions collected during recording |
+
+Throws with ffmpeg's own stderr if the encoder exited during recording (unsupported input, codec error), instead of waiting for a timeout.
 
 ### `isRecording()` → boolean
 
