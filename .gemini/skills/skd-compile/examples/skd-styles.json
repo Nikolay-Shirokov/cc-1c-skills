@@ -1,0 +1,30 @@
+{
+  "header": {
+    "font": "Arial",
+    "fontSize": 10,
+    "bold": false,
+    "italic": false,
+    "hAlign": "Center",
+    "vAlign": "Center",
+    "wrap": true,
+    "bgColor": "style:ReportHeaderBackColor",
+    "textColor": null,
+    "borderColor": "style:ReportLineColor",
+    "borders": true
+  },
+  "data": {
+    "bgColor": "style:ReportGroup1BackColor",
+    "borderColor": "style:ReportLineColor"
+  },
+  "total": {
+    "bold": true,
+    "borderColor": "style:ReportLineColor"
+  },
+  "myProjectStyle": {
+    "bgColor": "#FFE0E0",
+    "textColor": "#990000",
+    "fontSize": 12,
+    "bold": true,
+    "hAlign": "Right"
+  }
+}
