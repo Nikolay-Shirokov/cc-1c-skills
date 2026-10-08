@@ -478,7 +478,7 @@ Clear filters. Without arguments clears all, with `{ field }` clears specific ba
 
 See [recording.md](recording.md) for setup (ffmpeg), highlight mode, TTS narration, API details, and examples.
 If `.v8-project.json` has `ffmpegPath`, pass it to `startRecording({ ffmpegPath })`.
-If `.v8-project.json` has `tts` config, pass it to `addNarration()` (provider, voice, apiKey).
+If `.v8-project.json` has `tts` config, pass it to `addNarration()` (provider, voice, apiKey, model, instructions).
 
 ## Common patterns
 
