@@ -1,4 +1,4 @@
-// web-test recording/captions v1.17 — Overlay primitives: captions, title slides, image overlays.
+// web-test recording/captions v1.18 — Overlay primitives: captions, title slides, image overlays.
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import { existsSync as fsExistsSync, readFileSync } from 'fs';
@@ -27,6 +27,7 @@ export async function showCaption(text, opts = {}) {
   if (recorder && (text.trim() || typeof opts.speech === 'string') && opts.speech !== false) {
     const speech = typeof opts.speech === 'string' ? opts.speech : text;
     // Use video timeline position (accounts for frame duplication) instead of wall-clock
+    recorder._flushFrames?.(); // caption time on the frame grid, not the last received frame
     recorder.captions.push({ text: text || speech, speech, time: Math.round(recorder.videoTimeMs), ...(opts.voice ? { voice: opts.voice } : {}) });
     // Estimate TTS duration and wait so the video has enough screen time for voiceover
     smartWaitMs = Math.max(2000, speech.length * (recorder.speechRate || 70));
@@ -114,6 +115,7 @@ export async function showTitleSlide(text, opts = {}) {
   if (recorder && speech && speech !== false) {
     const captionText = typeof speech === 'string' ? speech : text.replace(/\n/g, ' ');
     if (captionText) {
+      recorder._flushFrames?.(); // caption time on the frame grid, not the last received frame
       recorder.captions.push({ text: captionText, speech: captionText, time: Math.round(recorder.videoTimeMs), ...(opts.voice ? { voice: opts.voice } : {}) });
       smartWaitMs = Math.max(2000, captionText.length * (recorder.speechRate || 70));
     }
@@ -225,6 +227,7 @@ export async function showImage(imagePath, opts = {}) {
   if (recorder && speech && speech !== false) {
     const captionText = typeof speech === 'string' ? speech : '';
     if (captionText) {
+      recorder._flushFrames?.(); // caption time on the frame grid, not the last received frame
       recorder.captions.push({ text: captionText, speech: captionText, time: Math.round(recorder.videoTimeMs), ...(opts.voice ? { voice: opts.voice } : {}) });
       smartWaitMs = Math.max(2000, captionText.length * (recorder.speechRate || 70));
     }
