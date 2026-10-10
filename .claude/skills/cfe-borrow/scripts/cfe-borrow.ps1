@@ -1,4 +1,4 @@
-﻿# cfe-borrow v1.44 — Borrow objects from configuration into extension (CFE)
+﻿# cfe-borrow v1.45 — Borrow objects from configuration into extension (CFE)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -624,8 +624,11 @@ $commonModuleProps = @("Global","ClientManagedApplication","Server","ExternalCon
 # отвергает загрузку — «Неверный путь к данным». Конфигуратор переносит ровно их (эталоны
 # Issue66Example7_1 и Issue66Example2). Проверено сплошным прогоном по типам: у регистра сведений
 # без InformationRegisterPeriodicity не разрешается «Запись.Period».
+# Тем же путём переносится код языка: платформа принимает заимствованный язык и без него, но
+# конфигуратор пишет LanguageCode у любого заимствованного языка, основного и неосновного (замер 8.3.24).
 $script:typeGateProps = @{
 	"InformationRegister" = @("InformationRegisterPeriodicity","WriteMode")
+	"Language" = @("LanguageCode")
 }
 # Владельцы справочника — список <xr:Item>, а не скаляр: переносится фрагментом, как __TypeXml
 $script:typesWithOwners = @("Catalog","ChartOfCharacteristicTypes")

@@ -1,0 +1,39 @@
+{
+  "name": "Заимствование неосновного языка: код языка переносится из источника",
+  "setup": "fixture:base-en",
+  "preRun": [
+    {
+      "script": "cfe-init/scripts/cfe-init",
+      "args": {
+        "-Name": "Тест",
+        "-OutputDir": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}"
+      }
+    }
+  ],
+  "params": {
+    "extensionPath": "cfe",
+    "object": "Language.Русский"
+  },
+  "expect": {
+    "files": [
+      "cfe/Languages/Русский.xml",
+      "cfe/Languages/Английский.xml"
+    ],
+    "fileContains": [
+      {
+        "file": "cfe/Languages/Русский.xml",
+        "text": [
+          "<ExtendedConfigurationObject>3af90778-73e8-4893-a154-e74ed4bf7fd6</ExtendedConfigurationObject>\r\n\t\t\t<LanguageCode>ru</LanguageCode>"
+        ]
+      },
+      {
+        "file": "cfe/Configuration.xml",
+        "text": [
+          "<DefaultLanguage>Language.Английский</DefaultLanguage>",
+          "<Language>Русский</Language>"
+        ]
+      }
+    ]
+  }
+}
