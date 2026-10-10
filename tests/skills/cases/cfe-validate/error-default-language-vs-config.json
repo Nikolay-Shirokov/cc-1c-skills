@@ -1,0 +1,20 @@
+{
+  "name": "С -ConfigPath ловится основной язык, не совпадающий с конфигурацией-источником",
+  "setup": "fixture:base-en",
+  "preRun": [
+    {
+      "script": "cfe-init/scripts/cfe-init",
+      "args": { "-Name": "Тест", "-OutputDir": "{workDir}/cfe" }
+    }
+  ],
+  "params": { "extensionPath": "cfe" },
+  "args_extra": ["-ConfigPath", "{workDir}"],
+  "expectError": true,
+  "noSnapshot": "негативный кейс: навык ничего не пишет, проверяется текст и код возврата",
+  "expect": {
+    "stdoutContains": [
+      "18. DefaultLanguage расширения \"Language.Русский\", а у конфигурации-источника \"Language.Английский\"",
+      "18. Language.Русский: ExtendedConfigurationObject нулевой"
+    ]
+  }
+}

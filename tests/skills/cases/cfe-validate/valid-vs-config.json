@@ -1,0 +1,63 @@
+{
+  "name": "С -ConfigPath заимствованные объект, реквизиты, ТЧ, форма и язык сходятся с источником",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "Catalog",
+        "name": "Товары",
+        "attributes": [
+          "Артикул: String(10)"
+        ],
+        "tabularSections": {
+          "Цены": [
+            "Цена: Number(15,2)"
+          ]
+        }
+      },
+      "args": {
+        "-JsonPath": "{inputFile}",
+        "-OutputDir": "{workDir}"
+      }
+    },
+    {
+      "script": "form-add/scripts/form-add",
+      "args": {
+        "-ObjectPath": "{workDir}/Catalogs/Товары.xml",
+        "-FormName": "ФормаЭлемента"
+      }
+    },
+    {
+      "script": "cfe-init/scripts/cfe-init",
+      "args": {
+        "-Name": "Тест",
+        "-OutputDir": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}"
+      }
+    },
+    {
+      "script": "cfe-borrow/scripts/cfe-borrow",
+      "args": {
+        "-ExtensionPath": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}",
+        "-Object": "Catalog.Товары.Form.ФормаЭлемента",
+        "-BorrowMainAttribute": "All"
+      }
+    }
+  ],
+  "params": {
+    "extensionPath": "cfe"
+  },
+  "args_extra": [
+    "-ConfigPath",
+    "{workDir}",
+    "-Detailed"
+  ],
+  "noSnapshot": "навык ничего не пишет, проверяется текст",
+  "expect": {
+    "stdoutContains": [
+      "[OK]    18. Source config:",
+      "=== Result: 0 errors"
+    ]
+  }
+}

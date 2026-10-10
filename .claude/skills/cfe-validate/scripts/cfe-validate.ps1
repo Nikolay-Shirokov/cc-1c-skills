@@ -1,4 +1,4 @@
-﻿# cfe-validate v1.18 — Validate 1C configuration extension structure (CFE)
+﻿# cfe-validate v1.19 — Validate 1C configuration extension structure (CFE)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -1093,13 +1093,20 @@ if ($script:borrowedFormsWithTree.Count -eq 0) {
 # «Объект.Партнер» валиден и без заимствования реквизита (наследуется от базы), а «Объект.Товары.Артикул»
 # не разрешится нигде, если Артикул — не реквизит объекта и не колонка из <Columns> самой формы.
 # Такой путь платформа отвергает на загрузке: «Неверный путь к данным».
+# Каталог конфигурации-источника из -ConfigPath (каталог или путь к Configuration.xml). Общий для
+# проверок 14 и 18; есть ли там Configuration.xml, каждая проверка решает и сообщает сама.
+function Get-SourceConfigRoot {
+	$root = $ConfigPath
+	if (-not [System.IO.Path]::IsPathRooted($root)) { $root = Join-Path (Get-Location).Path $root }
+	if ((Test-Path $root) -and -not (Test-Path $root -PathType Container)) { $root = Split-Path $root -Parent }
+	return $root
+}
+
 if (-not $script:stopped -and $script:borrowedFormsWithTree.Count -gt 0) {
 	if (-not $ConfigPath) {
 		Out-Line "[INFO]  14. Пути Объект.* против конфигурации-источника не проверялись: не задан -ConfigPath"
 	} else {
-		$cfgRoot = $ConfigPath
-		if (-not [System.IO.Path]::IsPathRooted($cfgRoot)) { $cfgRoot = Join-Path (Get-Location).Path $cfgRoot }
-		if ((Test-Path $cfgRoot) -and -not (Test-Path $cfgRoot -PathType Container)) { $cfgRoot = Split-Path $cfgRoot -Parent }
+		$cfgRoot = Get-SourceConfigRoot
 
 		if (-not (Test-Path (Join-Path $cfgRoot "Configuration.xml"))) {
 			Report-Warn "14. -ConfigPath '$ConfigPath': Configuration.xml не найден — проверка путей пропущена"
@@ -1384,6 +1391,156 @@ if ($version) {
 		Report-Warn "17. Format version differs from the extension ($version): $shown — the platform loads it, but the dump is no longer uniform (typical after merging branches dumped by different platforms)"
 	} elseif ($verErrors -eq 0 -and $verBodiesOk -gt 0) {
 		Report-OK "17. Format version: $verBodiesOk stamped part(s) agree with their descriptors and the extension"
+	}
+}
+
+# --- Check 18: заимствованные объекты и основной язык против конфигурации-источника ---
+# ОбъектРасширяемойКонфигурации контролируется у самого объекта и у каждого заимствованного
+# подобъекта (реквизит, ТЧ, колонка ТЧ, форма — замер 8.3.24), ОсновнойЯзык — у расширения.
+# Расхождение платформа принимает при загрузке, а применять расширение отказывается, и по
+# сообщению не видно, откуда взялся чужой UUID. Нулевой UUID (cfe-init без -ConfigPath) не
+# совпадёт ни с чем — его видно и без источника.
+
+# UUID, по которому подобъект связан с основной конфигурацией: в расширении —
+# ExtendedConfigurationObject (у собственных подобъектов его нет), в источнике — атрибут uuid.
+function Get-MdIdValue {
+	param($el, [bool]$fromExtension)
+	if ($fromExtension) {
+		$n = $el.SelectSingleNode("*[local-name()='Properties']/*[local-name()='ExtendedConfigurationObject']")
+		if ($n) { return $n.InnerText.Trim() }
+		return $null
+	}
+	return $el.GetAttribute("uuid")
+}
+
+# Подобъекты с собственными свойствами (реквизиты, ТЧ и их колонки, значения перечисления, команды
+# и т.п.) лежат в ChildObjects целиком — обходим их рекурсивно. Форма там — только имя; её UUID
+# лежит в дескрипторе Forms/<Имя>.xml.
+function Add-MdIdEntries {
+	param($idx, $el, [string]$prefix, [bool]$fromExtension, [string]$formsDir)
+	$co = $el.SelectSingleNode("*[local-name()='ChildObjects']")
+	if (-not $co) { return }
+	foreach ($sub in $co.ChildNodes) {
+		if ($sub.NodeType -ne 'Element') { continue }
+		$nameNode = $sub.SelectSingleNode("*[local-name()='Properties']/*[local-name()='Name']")
+		if ($nameNode) {
+			$key = "$prefix.$($sub.LocalName).$($nameNode.InnerText.Trim())"
+			$v = Get-MdIdValue $sub $fromExtension
+			if ($v) { $idx[$key] = $v }
+			Add-MdIdEntries $idx $sub $key $fromExtension ""
+		} elseif ($sub.LocalName -eq "Form" -and $formsDir -and $sub.InnerText.Trim()) {
+			$formName = $sub.InnerText.Trim()
+			$formFile = Join-Path $formsDir "$formName.xml"
+			if (-not (Test-Path -LiteralPath $formFile)) { continue }
+			try {
+				$fDoc = New-Object System.Xml.XmlDocument
+				$fDoc.Load($formFile)
+			} catch { continue }
+			$fEl = $fDoc.DocumentElement.SelectSingleNode("*[local-name()='Form']")
+			if (-not $fEl) { continue }
+			$v = Get-MdIdValue $fEl $fromExtension
+			if ($v) { $idx["$prefix.Form.$formName"] = $v }
+		}
+	}
+}
+
+# Индекс «путь подобъекта → UUID связи» по файлу объекта; $null — файла нет или он не читается.
+function Get-MdIdIndex {
+	param([string]$typeDir, [string]$typeName, [string]$objName, [bool]$fromExtension)
+	$objFile = Join-Path $typeDir "$objName.xml"
+	if (-not (Test-Path -LiteralPath $objFile)) { return $null }
+	try {
+		$doc = New-Object System.Xml.XmlDocument
+		$doc.Load($objFile)
+	} catch { return $null }
+	$objEl = $null
+	foreach ($c in $doc.DocumentElement.ChildNodes) {
+		if ($c.NodeType -eq 'Element') { $objEl = $c; break }
+	}
+	if (-not $objEl) { return $null }
+	# Сравнение имён — Ordinal, как в py-порте: [ordered]@{} в PowerShell регистронезависим.
+	$idx = New-Object System.Collections.Specialized.OrderedDictionary ([StringComparer]::Ordinal)
+	$top = "$typeName.$objName"
+	$v = Get-MdIdValue $objEl $fromExtension
+	if ($v) { $idx[$top] = $v }
+	Add-MdIdEntries $idx $objEl $top $fromExtension (Join-Path (Join-Path $typeDir $objName) "Forms")
+	return $idx
+}
+
+if (-not $script:stopped -and $childObjNode) {
+	$zeroGuid = "00000000-0000-0000-0000-000000000000"
+	$srcRoot = $null
+	if ($ConfigPath) {
+		$srcRoot = Get-SourceConfigRoot
+		if (-not (Test-Path (Join-Path $srcRoot "Configuration.xml"))) {
+			Report-Warn "18. -ConfigPath '$ConfigPath': Configuration.xml не найден — сверка с конфигурацией-источником пропущена"
+			$srcRoot = $null
+		}
+	}
+
+	$check18Ok = $true
+	$check18Count = 0
+
+	if ($srcRoot) {
+		$srcCfgDoc = New-Object System.Xml.XmlDocument
+		$srcCfgDoc.Load((Join-Path $srcRoot "Configuration.xml"))
+		$srcDefLangNode = $srcCfgDoc.SelectSingleNode("//*[local-name()='Configuration']/*[local-name()='Properties']/*[local-name()='DefaultLanguage']")
+		$srcDefLang = if ($srcDefLangNode) { $srcDefLangNode.InnerText.Trim() } else { "" }
+		if ($defLang.Trim() -and $srcDefLang) {
+			$check18Count++
+			if ($defLang.Trim() -cne $srcDefLang) {
+				Report-Error "18. DefaultLanguage расширения `"$defLang`", а у конфигурации-источника `"$srcDefLang`" — платформа загрузит расширение, но не применит («ОсновнойЯзык не совпадает»)"
+				$check18Ok = $false
+			}
+		}
+	}
+
+	foreach ($child in $childObjNode.ChildNodes) {
+		if ($script:stopped) { break }
+		if ($child.NodeType -ne 'Element') { continue }
+		$typeName = $child.LocalName
+		if (-not $childTypeDirMap.ContainsKey($typeName)) { continue }
+		$objName18 = $child.InnerText.Trim()
+		if (-not $objName18) { continue }
+		$dirName = $childTypeDirMap[$typeName]
+		$extIdx = Get-MdIdIndex (Join-Path $configDir $dirName) $typeName $objName18 $true
+		if (-not $extIdx -or $extIdx.Count -eq 0) { continue }
+
+		if (-not $srcRoot) {
+			foreach ($key in $extIdx.Keys) {
+				$check18Count++
+				if ($extIdx[$key] -ceq $zeroGuid) {
+					Report-Warn "18. ${key}: ExtendedConfigurationObject нулевой — платформа загрузит расширение, но не применит. Создайте расширение и заимствуйте объекты с -ConfigPath"
+				}
+			}
+			continue
+		}
+
+		$srcIdx = Get-MdIdIndex (Join-Path $srcRoot $dirName) $typeName $objName18 $false
+		if ($null -eq $srcIdx) {
+			Report-Error "18. ${typeName}.${objName18}: заимствованного объекта нет в конфигурации-источнике ($dirName/$objName18.xml)"
+			$check18Ok = $false
+			continue
+		}
+		foreach ($key in $extIdx.Keys) {
+			$check18Count++
+			$extId = $extIdx[$key]
+			if (-not $srcIdx.Contains($key)) {
+				Report-Error "18. ${key}: заимствованного подобъекта нет в конфигурации-источнике"
+				$check18Ok = $false
+			} elseif ($extId.ToLowerInvariant() -cne $srcIdx[$key].ToLowerInvariant()) {
+				$what = if ($extId -ceq $zeroGuid) { "нулевой" } else { "$extId" }
+				Report-Error "18. ${key}: ExtendedConfigurationObject $what, а UUID в конфигурации-источнике $($srcIdx[$key]) — платформа загрузит расширение, но не применит («ОбъектРасширяемойКонфигурации не совпадает»)"
+				$check18Ok = $false
+			}
+			if ($script:stopped) { break }
+		}
+	}
+
+	if (-not $ConfigPath) {
+		Out-Line "[INFO]  18. Заимствованные объекты и основной язык против конфигурации-источника не сверялись: не задан -ConfigPath"
+	} elseif ($srcRoot -and $check18Ok -and $check18Count -gt 0) {
+		Report-OK "18. Source config: $check18Count link(s) agree (DefaultLanguage, ExtendedConfigurationObject)"
 	}
 }
 

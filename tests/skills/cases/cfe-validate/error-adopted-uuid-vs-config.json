@@ -1,0 +1,87 @@
+{
+  "name": "С -ConfigPath ловится заимствование, чей UUID разошёлся с пересозданным объектом источника",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "Catalog",
+        "name": "Товары",
+        "attributes": [
+          "Артикул: String(10)"
+        ]
+      },
+      "args": {
+        "-JsonPath": "{inputFile}",
+        "-OutputDir": "{workDir}"
+      }
+    },
+    {
+      "script": "form-add/scripts/form-add",
+      "args": {
+        "-ObjectPath": "{workDir}/Catalogs/Товары.xml",
+        "-FormName": "ФормаЭлемента"
+      }
+    },
+    {
+      "script": "cfe-init/scripts/cfe-init",
+      "args": {
+        "-Name": "Тест",
+        "-OutputDir": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}"
+      }
+    },
+    {
+      "script": "cfe-borrow/scripts/cfe-borrow",
+      "args": {
+        "-ExtensionPath": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}",
+        "-Object": "Catalog.Товары.Form.ФормаЭлемента",
+        "-BorrowMainAttribute": "All"
+      }
+    },
+    {
+      "deletePath": "Catalogs/Товары.xml"
+    },
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "Catalog",
+        "name": "Товары",
+        "attributes": [
+          "Артикул: String(10)"
+        ]
+      },
+      "args": {
+        "-JsonPath": "{inputFile}",
+        "-OutputDir": "{workDir}"
+      }
+    },
+    {
+      "deletePath": "Catalogs/Товары/Forms"
+    },
+    {
+      "script": "form-add/scripts/form-add",
+      "args": {
+        "-ObjectPath": "{workDir}/Catalogs/Товары.xml",
+        "-FormName": "ФормаЭлемента"
+      }
+    }
+  ],
+  "params": {
+    "extensionPath": "cfe"
+  },
+  "args_extra": [
+    "-ConfigPath",
+    "{workDir}"
+  ],
+  "expectError": true,
+  "noSnapshot": "негативный кейс: навык ничего не пишет, проверяется текст и код возврата",
+  "expect": {
+    "stdoutContains": [
+      "18. Catalog.Товары: ExtendedConfigurationObject",
+      "18. Catalog.Товары.Attribute.Артикул: ExtendedConfigurationObject",
+      "18. Catalog.Товары.Form.ФормаЭлемента: ExtendedConfigurationObject"
+    ],
+    "stdoutNotContains": "нет в конфигурации-источнике"
+  }
+}
