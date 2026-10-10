@@ -247,6 +247,8 @@
 		<ChildObjects>
 			<Language>Русский</Language>
 			<DefinedType>СсылкаНаКонтрагента</DefinedType>
+			<Catalog>Контрагенты</Catalog>
+			<Catalog>Организации</Catalog>
 		</ChildObjects>
 	</Configuration>
 </MetaDataObject>

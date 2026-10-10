@@ -7,7 +7,6 @@
     "useStandardCommands": false,
     "mainDataCompositionSchema": "Report.АнализПродаж.Template.ОсновнаяСхемаКомпоновкиДанных",
     "variantsStorage": "SettingsStorage.ХранилищеВариантовОтчетов",
-    "defaultForm": "Report.АнализПродаж.Form.Форма",
     "extendedPresentation": { "ru": "Анализ продаж", "en": "Sales analysis" },
     "attributes": [
       "Период: StandardPeriod",

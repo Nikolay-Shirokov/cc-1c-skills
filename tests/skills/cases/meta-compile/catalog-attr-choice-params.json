@@ -1,5 +1,8 @@
 {
   "name": "Реквизит: ChoiceParameterLinks + ChoiceParameters (ограничение выбора)",
+  "preRun": [
+    { "script": "meta-compile/scripts/meta-compile", "input": [{"type": "Catalog", "name": "БанковскиеСчета"}, {"type": "Catalog", "name": "Валюты"}, {"type": "Catalog", "name": "ВидыТранспорта"}, {"type": "Catalog", "name": "Номенклатура"}, {"type": "Catalog", "name": "Партнеры"}], "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" } }
+  ],
   "input": {
     "type": "Catalog",
     "name": "ТестВыбора",

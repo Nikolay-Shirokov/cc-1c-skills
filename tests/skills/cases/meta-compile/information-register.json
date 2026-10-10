@@ -1,5 +1,8 @@
 {
   "name": "Регистр сведений с периодичностью",
+  "preRun": [
+    { "script": "meta-compile/scripts/meta-compile", "input": [{"type": "Catalog", "name": "Валюты"}], "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" } }
+  ],
   "input": {
     "type": "InformationRegister",
     "name": "КурсыВалют",

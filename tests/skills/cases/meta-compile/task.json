@@ -1,5 +1,8 @@
 {
   "name": "Задача исполнителя с адресацией",
+  "preRun": [
+    { "script": "meta-compile/scripts/meta-compile", "input": [{"type": "Catalog", "name": "Пользователи"}, {"type": "Catalog", "name": "РолиИсполнителей"}], "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" } }
+  ],
   "input": {
     "type": "Task",
     "name": "ЗадачаИсполнителя",

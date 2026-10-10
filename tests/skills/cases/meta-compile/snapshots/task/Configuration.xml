@@ -246,6 +246,8 @@
 		</Properties>
 		<ChildObjects>
 			<Language>Русский</Language>
+			<Catalog>Пользователи</Catalog>
+			<Catalog>РолиИсполнителей</Catalog>
 			<Task>ЗадачаИсполнителя</Task>
 		</ChildObjects>
 	</Configuration>

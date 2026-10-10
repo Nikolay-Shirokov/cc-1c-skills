@@ -1,5 +1,8 @@
 {
   "name": "Справочник с разными типами реквизитов",
+  "preRun": [
+    { "script": "meta-compile/scripts/meta-compile", "input": [{"type": "Catalog", "name": "ФизическиеЛица"}, {"type": "Enum", "name": "СтатусыКонтрагентов", "values": ["Значение1"]}], "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" } }
+  ],
   "input": {
     "type": "Catalog",
     "name": "Контрагенты",

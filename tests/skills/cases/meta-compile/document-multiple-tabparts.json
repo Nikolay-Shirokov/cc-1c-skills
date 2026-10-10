@@ -1,5 +1,8 @@
 {
   "name": "Документ с несколькими ТЧ и реквизитами",
+  "preRun": [
+    { "script": "meta-compile/scripts/meta-compile", "input": [{"type": "Catalog", "name": "Валюты"}, {"type": "Catalog", "name": "Контрагенты"}, {"type": "Catalog", "name": "Номенклатура"}, {"type": "Catalog", "name": "Организации"}, {"type": "Catalog", "name": "Склады"}], "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" } }
+  ],
   "input": {
     "type": "Document",
     "name": "РеализацияТоваров",

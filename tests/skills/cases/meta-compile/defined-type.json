@@ -1,5 +1,8 @@
 {
   "name": "Определяемый тип составной",
+  "preRun": [
+    { "script": "meta-compile/scripts/meta-compile", "input": [{"type": "Catalog", "name": "БанковскиеСчета"}, {"type": "Catalog", "name": "Кассы"}], "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" } }
+  ],
   "input": {
     "type": "DefinedType",
     "name": "ДенежныеСредства",

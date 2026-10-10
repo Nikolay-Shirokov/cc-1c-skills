@@ -4,7 +4,6 @@
     "type": "DocumentJournal",
     "name": "ДвиженияДенег",
     "comment": "(Демо)",
-    "defaultForm": "DocumentJournal.ДвиженияДенег.Form.ФормаСписка",
     "registeredDocuments": [
       "Документ.ПоступлениеНаСчет",
       "Document.СписаниеСоСчета"

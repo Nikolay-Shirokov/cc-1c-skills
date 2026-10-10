@@ -247,6 +247,7 @@
 		<ChildObjects>
 			<Language>Русский</Language>
 			<ExchangePlan>ОбменСФилиалами</ExchangePlan>
+			<Catalog>Организации</Catalog>
 		</ChildObjects>
 	</Configuration>
 </MetaDataObject>

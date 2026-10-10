@@ -1,5 +1,8 @@
 {
   "name": "InputByString / DataLockFields / BasedOn каталога (+нормализация MDObjectRef: CatalogRef./рус. → Catalog.)",
+  "preRun": [
+    { "script": "meta-compile/scripts/meta-compile", "input": [{"type": "Catalog", "name": "Контрагенты"}, {"type": "Catalog", "name": "Организации"}], "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" } }
+  ],
   "input": {
     "type": "Catalog",
     "name": "ДоговорыКонтрагентов",

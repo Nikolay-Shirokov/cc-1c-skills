@@ -1,5 +1,8 @@
 {
   "name": "Константа с типом-ссылкой",
+  "preRun": [
+    { "script": "meta-compile/scripts/meta-compile", "input": [{"type": "Catalog", "name": "Валюты"}], "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" } }
+  ],
   "input": {
     "type": "Constant",
     "name": "ОсновнаяВалюта",

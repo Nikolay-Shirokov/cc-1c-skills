@@ -247,6 +247,7 @@
 		<ChildObjects>
 			<Language>Русский</Language>
 			<Catalog>ТестХарактеристик</Catalog>
+			<ChartOfCharacteristicTypes>ДополнительныеРеквизиты</ChartOfCharacteristicTypes>
 		</ChildObjects>
 	</Configuration>
 </MetaDataObject>

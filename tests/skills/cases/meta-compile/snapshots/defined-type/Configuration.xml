@@ -247,6 +247,8 @@
 		<ChildObjects>
 			<Language>Русский</Language>
 			<DefinedType>ДенежныеСредства</DefinedType>
+			<Catalog>БанковскиеСчета</Catalog>
+			<Catalog>Кассы</Catalog>
 		</ChildObjects>
 	</Configuration>
 </MetaDataObject>

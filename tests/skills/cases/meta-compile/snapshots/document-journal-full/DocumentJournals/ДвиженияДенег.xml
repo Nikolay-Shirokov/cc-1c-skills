@@ -24,7 +24,7 @@
 				</v8:item>
 			</Synonym>
 			<Comment>(Демо)</Comment>
-			<DefaultForm>DocumentJournal.ДвиженияДенег.Form.ФормаСписка</DefaultForm>
+			<DefaultForm/>
 			<AuxiliaryForm/>
 			<UseStandardCommands>true</UseStandardCommands>
 			<RegisteredDocuments>

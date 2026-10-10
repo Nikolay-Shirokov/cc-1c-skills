@@ -247,6 +247,7 @@
 		<ChildObjects>
 			<Language>Русский</Language>
 			<Constant>ОсновнаяВалюта</Constant>
+			<Catalog>Валюты</Catalog>
 		</ChildObjects>
 	</Configuration>
 </MetaDataObject>

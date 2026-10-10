@@ -60,10 +60,10 @@
 			<SearchStringModeOnInputByString>AnyPart</SearchStringModeOnInputByString>
 			<FullTextSearchOnInputByString>Use</FullTextSearchOnInputByString>
 			<ChoiceDataGetModeOnInputByString>Directly</ChoiceDataGetModeOnInputByString>
-			<DefaultObjectForm>Catalog.НастройкиОбмена.Form.ФормаЭлемента</DefaultObjectForm>
+			<DefaultObjectForm/>
 			<DefaultFolderForm/>
-			<DefaultListForm>Catalog.НастройкиОбмена.Form.ФормаСписка</DefaultListForm>
-			<DefaultChoiceForm>Catalog.НастройкиОбмена.Form.ФормаВыбора</DefaultChoiceForm>
+			<DefaultListForm/>
+			<DefaultChoiceForm/>
 			<DefaultFolderChoiceForm/>
 			<AuxiliaryObjectForm/>
 			<AuxiliaryFolderForm/>

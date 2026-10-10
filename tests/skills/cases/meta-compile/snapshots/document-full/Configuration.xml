@@ -246,6 +246,9 @@
 		</Properties>
 		<ChildObjects>
 			<Language>Русский</Language>
+			<Catalog>Контрагенты</Catalog>
+			<Catalog>Номенклатура</Catalog>
+			<Catalog>Пользователи</Catalog>
 			<Document>РеализацияУслуг</Document>
 		</ChildObjects>
 	</Configuration>

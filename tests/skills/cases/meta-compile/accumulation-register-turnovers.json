@@ -1,5 +1,8 @@
 {
   "name": "Оборотный регистр накопления (без ВидДвижения)",
+  "preRun": [
+    { "script": "meta-compile/scripts/meta-compile", "input": [{"type": "Catalog", "name": "Номенклатура"}], "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" } }
+  ],
   "input": {
     "type": "AccumulationRegister",
     "name": "ПродажиОбороты",

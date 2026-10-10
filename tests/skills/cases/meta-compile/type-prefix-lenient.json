@@ -1,5 +1,8 @@
 {
   "name": "Префикс cfg:/d5p1: у ссылочного типа срезается (копипаста из выгрузки)",
+  "preRun": [
+    { "script": "meta-compile/scripts/meta-compile", "input": [{"type": "Catalog", "name": "Склады"}], "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" } }
+  ],
   "input": {
     "type": "Catalog",
     "name": "Товары",

@@ -1,5 +1,8 @@
 {
   "name": "Регистр бухгалтерии без корреспонденции и с периодом корректировки",
+  "preRun": [
+    { "script": "meta-compile/scripts/meta-compile", "input": [{"type": "Catalog", "name": "Организации"}], "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" } }
+  ],
   "input": {
     "type": "AccountingRegister",
     "name": "Международный",

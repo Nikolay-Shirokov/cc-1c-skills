@@ -246,6 +246,11 @@
 		</Properties>
 		<ChildObjects>
 			<Language>Русский</Language>
+			<Catalog>БанковскиеСчета</Catalog>
+			<Catalog>Валюты</Catalog>
+			<Catalog>ВидыТранспорта</Catalog>
+			<Catalog>Номенклатура</Catalog>
+			<Catalog>Партнеры</Catalog>
 			<Catalog>ТестВыбора</Catalog>
 		</ChildObjects>
 	</Configuration>

@@ -246,6 +246,7 @@
 		</Properties>
 		<ChildObjects>
 			<Language>Русский</Language>
+			<Catalog>Валюты</Catalog>
 			<InformationRegister>КурсыВалют</InformationRegister>
 		</ChildObjects>
 	</Configuration>

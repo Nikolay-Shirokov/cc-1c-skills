@@ -1,5 +1,8 @@
 {
   "name": "Регистр расчёта с периодичностью",
+  "preRun": [
+    { "script": "meta-compile/scripts/meta-compile", "input": [{"type": "Catalog", "name": "Сотрудники"}], "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" } }
+  ],
   "input": {
     "type": "CalculationRegister",
     "name": "Начисления",

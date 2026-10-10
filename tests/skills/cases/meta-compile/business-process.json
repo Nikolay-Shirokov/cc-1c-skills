@@ -1,5 +1,8 @@
 {
   "name": "Бизнес-процесс согласования",
+  "preRun": [
+    { "script": "meta-compile/scripts/meta-compile", "input": [{"type": "Catalog", "name": "Пользователи"}], "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" } }
+  ],
   "input": {
     "type": "BusinessProcess",
     "name": "СогласованиеДокумента",

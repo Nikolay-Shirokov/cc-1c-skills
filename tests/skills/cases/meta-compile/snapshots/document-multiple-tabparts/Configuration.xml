@@ -246,6 +246,11 @@
 		</Properties>
 		<ChildObjects>
 			<Language>Русский</Language>
+			<Catalog>Валюты</Catalog>
+			<Catalog>Контрагенты</Catalog>
+			<Catalog>Номенклатура</Catalog>
+			<Catalog>Организации</Catalog>
+			<Catalog>Склады</Catalog>
 			<Document>РеализацияТоваров</Document>
 		</ChildObjects>
 	</Configuration>

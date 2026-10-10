@@ -1,5 +1,8 @@
 {
   "name": "Значение заполнения реквизита (fillValue)",
+  "preRun": [
+    { "script": "meta-compile/scripts/meta-compile", "input": [{"type": "Catalog", "name": "Валюты"}, {"type": "Catalog", "name": "СтраныМира", "predefined": ["Россия"]}, {"type": "Enum", "name": "Периодичность", "values": ["Месяц", "Год"]}], "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" } }
+  ],
   "input": {
     "type": "Catalog",
     "name": "ТестЗаполнения",

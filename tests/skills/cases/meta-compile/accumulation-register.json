@@ -1,5 +1,8 @@
 {
   "name": "Регистр накопления остатков",
+  "preRun": [
+    { "script": "meta-compile/scripts/meta-compile", "input": [{"type": "Catalog", "name": "Номенклатура"}, {"type": "Catalog", "name": "Склады"}], "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" } }
+  ],
   "input": {
     "type": "AccumulationRegister",
     "name": "ОстаткиТоваров",

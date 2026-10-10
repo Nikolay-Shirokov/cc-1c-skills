@@ -1,5 +1,8 @@
 {
   "name": "Документ: движения, проведение, нумерация, кастомизация ТЧ/реквизитов",
+  "preRun": [
+    { "script": "meta-compile/scripts/meta-compile", "input": [{"type": "Catalog", "name": "Контрагенты"}, {"type": "Catalog", "name": "Номенклатура"}, {"type": "Catalog", "name": "Пользователи"}], "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" } }
+  ],
   "input": {
     "type": "Document",
     "name": "РеализацияУслуг",

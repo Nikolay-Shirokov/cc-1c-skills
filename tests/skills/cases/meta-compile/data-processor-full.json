@@ -5,7 +5,6 @@
     "name": "ЗагрузкаТаблиц",
     "comment": "(Демо)",
     "useStandardCommands": false,
-    "defaultForm": "DataProcessor.ЗагрузкаТаблиц.Form.Форма",
     "attributes": [
       { "name": "Таблица", "type": "ValueTree" },
       { "name": "Произвольные", "type": "" }

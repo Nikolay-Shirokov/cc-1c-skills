@@ -1,6 +1,7 @@
 {
   "name": "Добавление реквизита к табличной части",
   "preRun": [
+    { "script": "meta-compile/scripts/meta-compile", "input": [{"type": "Catalog", "name": "Номенклатура"}], "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" } },
     {
       "script": "meta-compile/scripts/meta-compile",
       "input": {

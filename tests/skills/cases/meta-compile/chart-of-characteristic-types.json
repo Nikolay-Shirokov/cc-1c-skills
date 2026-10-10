@@ -1,5 +1,8 @@
 {
   "name": "План видов характеристик с типами значений",
+  "preRun": [
+    { "script": "meta-compile/scripts/meta-compile", "input": [{"type": "Catalog", "name": "ЗначенияСвойств"}], "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" } }
+  ],
   "input": {
     "type": "ChartOfCharacteristicTypes",
     "name": "ДополнительныеРеквизитыИСведения",

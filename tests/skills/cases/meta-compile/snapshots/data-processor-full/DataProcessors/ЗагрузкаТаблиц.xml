@@ -21,7 +21,7 @@
 			</Synonym>
 			<Comment>(Демо)</Comment>
 			<UseStandardCommands>false</UseStandardCommands>
-			<DefaultForm>DataProcessor.ЗагрузкаТаблиц.Form.Форма</DefaultForm>
+			<DefaultForm/>
 			<AuxiliaryForm/>
 			<IncludeHelpInContents>false</IncludeHelpInContents>
 			<ExtendedPresentation/>

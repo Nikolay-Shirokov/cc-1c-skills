@@ -1,6 +1,7 @@
 {
   "name": "Пары субконто берутся из плана счетов, а не из DSL",
   "preRun": [
+    { "script": "meta-compile/scripts/meta-compile", "input": [{"type": "Catalog", "name": "Организации"}], "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" } },
     {
       "script": "meta-compile/scripts/meta-compile",
       "input": { "type": "ChartOfCharacteristicTypes", "name": "ВидыСубконто", "valueType": "String(50)" },

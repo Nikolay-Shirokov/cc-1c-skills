@@ -1,5 +1,8 @@
 {
   "name": "Регистр бухгалтерии с корреспонденцией",
+  "preRun": [
+    { "script": "meta-compile/scripts/meta-compile", "input": [{"type": "Catalog", "name": "Организации"}], "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" } }
+  ],
   "input": {
     "type": "AccountingRegister",
     "name": "Хозрасчетный",

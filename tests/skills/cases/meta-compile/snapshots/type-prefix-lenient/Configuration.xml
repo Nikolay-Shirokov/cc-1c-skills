@@ -246,6 +246,7 @@
 		</Properties>
 		<ChildObjects>
 			<Language>Русский</Language>
+			<Catalog>Склады</Catalog>
 			<Catalog>Товары</Catalog>
 		</ChildObjects>
 	</Configuration>

@@ -246,6 +246,7 @@
 		</Properties>
 		<ChildObjects>
 			<Language>Русский</Language>
+			<Catalog>Номенклатура</Catalog>
 			<AccumulationRegister>ПродажиОбороты</AccumulationRegister>
 		</ChildObjects>
 	</Configuration>

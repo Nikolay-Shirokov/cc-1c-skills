@@ -1,5 +1,8 @@
 {
   "name": "Определяемый тип — составной",
+  "preRun": [
+    { "script": "meta-compile/scripts/meta-compile", "input": [{"type": "Catalog", "name": "Контрагенты"}, {"type": "Catalog", "name": "Организации"}], "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" } }
+  ],
   "input": {
     "type": "DefinedType",
     "name": "СсылкаНаКонтрагента",

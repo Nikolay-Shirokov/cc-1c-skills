@@ -1,5 +1,8 @@
 {
   "name": "План обмена с реквизитами",
+  "preRun": [
+    { "script": "meta-compile/scripts/meta-compile", "input": [{"type": "Catalog", "name": "Организации"}], "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" } }
+  ],
   "input": {
     "type": "ExchangePlan",
     "name": "ОбменСФилиалами",

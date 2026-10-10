@@ -1,5 +1,8 @@
 {
   "name": "Реквизит-Характеристика: TypeSet + LinkByType (связь по типу)",
+  "preRun": [
+    { "script": "meta-compile/scripts/meta-compile", "input": [{"type": "ChartOfCharacteristicTypes", "name": "ДополнительныеРеквизиты", "codeLength": 9, "descriptionLength": 100}], "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" } }
+  ],
   "input": {
     "type": "Catalog",
     "name": "ТестХарактеристик",

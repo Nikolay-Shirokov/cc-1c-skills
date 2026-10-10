@@ -246,6 +246,8 @@
 		</Properties>
 		<ChildObjects>
 			<Language>Русский</Language>
+			<Catalog>Контрагенты</Catalog>
+			<Catalog>Организации</Catalog>
 			<Catalog>ДоговорыКонтрагентов</Catalog>
 		</ChildObjects>
 	</Configuration>

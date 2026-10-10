@@ -21,7 +21,7 @@
 			</Synonym>
 			<Comment>(Демо)</Comment>
 			<UseStandardCommands>false</UseStandardCommands>
-			<DefaultForm>Report.АнализПродаж.Form.Форма</DefaultForm>
+			<DefaultForm/>
 			<AuxiliaryForm/>
 			<MainDataCompositionSchema>Report.АнализПродаж.Template.ОсновнаяСхемаКомпоновкиДанных</MainDataCompositionSchema>
 			<DefaultSettingsForm/>
