@@ -1,0 +1,82 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<MetaDataObject xmlns="http://v8.1c.ru/8.3/MDClasses" xmlns:app="http://v8.1c.ru/8.2/managed-application/core" xmlns:cfg="http://v8.1c.ru/8.1/data/enterprise/current-config" xmlns:cmi="http://v8.1c.ru/8.2/managed-application/cmi" xmlns:ent="http://v8.1c.ru/8.1/data/enterprise" xmlns:lf="http://v8.1c.ru/8.2/managed-application/logform" xmlns:style="http://v8.1c.ru/8.1/data/ui/style" xmlns:sys="http://v8.1c.ru/8.1/data/ui/fonts/system" xmlns:v8="http://v8.1c.ru/8.1/data/core" xmlns:v8ui="http://v8.1c.ru/8.1/data/ui" xmlns:web="http://v8.1c.ru/8.1/data/ui/colors/web" xmlns:win="http://v8.1c.ru/8.1/data/ui/colors/windows" xmlns:xen="http://v8.1c.ru/8.3/xcf/enums" xmlns:xpr="http://v8.1c.ru/8.3/xcf/predef" xmlns:xr="http://v8.1c.ru/8.3/xcf/readable" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" version="2.17">
+	<Catalog uuid="05e21310-5681-44a2-9496-f9e92e99f715">
+		<InternalInfo>
+			<xr:GeneratedType name="CatalogObject.Товары" category="Object">
+				<xr:TypeId>bbd46e6d-a14a-4bb5-8d34-771dff515173</xr:TypeId>
+				<xr:ValueId>96ea8569-4abd-43de-92fb-0a366440b9a6</xr:ValueId>
+			</xr:GeneratedType>
+			<xr:GeneratedType name="CatalogRef.Товары" category="Ref">
+				<xr:TypeId>cbb31e6d-e2e4-4337-a295-3b4966448bc6</xr:TypeId>
+				<xr:ValueId>e8d1d9d3-8cca-4de5-a9db-21dd24cd04c9</xr:ValueId>
+			</xr:GeneratedType>
+			<xr:GeneratedType name="CatalogSelection.Товары" category="Selection">
+				<xr:TypeId>63aa584f-c2a1-4b4b-bcfe-ccbe9ceea77e</xr:TypeId>
+				<xr:ValueId>bc578e33-e064-420f-bdc1-9f363852c5b7</xr:ValueId>
+			</xr:GeneratedType>
+			<xr:GeneratedType name="CatalogList.Товары" category="List">
+				<xr:TypeId>e13bdb85-859c-4466-a86c-8317f171123c</xr:TypeId>
+				<xr:ValueId>456e6fc9-3d7c-4400-a979-a1bacc452401</xr:ValueId>
+			</xr:GeneratedType>
+			<xr:GeneratedType name="CatalogManager.Товары" category="Manager">
+				<xr:TypeId>d9f98a2f-1fff-4f57-90d6-b648dfafa884</xr:TypeId>
+				<xr:ValueId>54a2e035-8891-4051-876b-f4565fbf8acd</xr:ValueId>
+			</xr:GeneratedType>
+		</InternalInfo>
+		<Properties>
+			<ObjectBelonging>Adopted</ObjectBelonging>
+			<Name>Товары</Name>
+			<Comment/>
+			<ExtendedConfigurationObject>0263e37b-0f1b-4d66-9e3f-d5fefd04288c</ExtendedConfigurationObject>
+			<Hierarchical>false</Hierarchical>
+			<CodeLength>9</CodeLength>
+			<DescriptionLength>25</DescriptionLength>
+			<CodeType>String</CodeType>
+			<CodeAllowedLength>Variable</CodeAllowedLength>
+		</Properties>
+		<ChildObjects>
+			<Form>ФормаЭлемента</Form>
+		
+			<Attribute uuid="0dd7b5fc-bafe-4453-a05f-dc5223755487">
+				<InternalInfo/>
+				<Properties>
+					<ObjectBelonging>Adopted</ObjectBelonging>
+					<Name>артикул</Name>
+					<Comment/>
+					<ExtendedConfigurationObject>b41a4644-c44c-4d1d-8201-d3c8e988a560</ExtendedConfigurationObject>
+					<Type><v8:Type>xs:string</v8:Type><v8:StringQualifiers><v8:Length>10</v8:Length><v8:AllowedLength>Variable</v8:AllowedLength></v8:StringQualifiers></Type>
+				</Properties>
+			</Attribute>
+			<TabularSection uuid="bde1f852-dcd5-4248-9a96-238a3ef8fa01">
+				<InternalInfo>
+					<xr:GeneratedType name="CatalogTabularSection.Товары.Цены" category="TabularSection">
+						<xr:TypeId>9543d7f7-5029-450f-929d-c226caae6011</xr:TypeId>
+						<xr:ValueId>4c302ac8-d3de-4d00-b97a-69d6dfcd078a</xr:ValueId>
+					</xr:GeneratedType>
+					<xr:GeneratedType name="CatalogTabularSectionRow.Товары.Цены" category="TabularSectionRow">
+						<xr:TypeId>083470ac-04f6-4227-86a2-4f022b4bdaa2</xr:TypeId>
+						<xr:ValueId>ee5bfaad-17e0-4db3-a8fa-11342092bf1a</xr:ValueId>
+					</xr:GeneratedType>
+				</InternalInfo>
+				<Properties>
+					<ObjectBelonging>Adopted</ObjectBelonging>
+					<Name>Цены</Name>
+					<Comment/>
+					<ExtendedConfigurationObject>cdec11a5-ac9a-43bf-9dd3-e15cacb36199</ExtendedConfigurationObject>
+				</Properties>
+				<ChildObjects>
+					<Attribute uuid="ef8e526f-57c8-4a07-81fc-e312f78d7b0c">
+						<InternalInfo/>
+						<Properties>
+							<ObjectBelonging>Adopted</ObjectBelonging>
+							<Name>Цена</Name>
+							<Comment/>
+							<ExtendedConfigurationObject>5c52a0ef-2043-46ed-8093-81f63bb81a9b</ExtendedConfigurationObject>
+							<Type><v8:Type>xs:decimal</v8:Type><v8:NumberQualifiers><v8:Digits>15</v8:Digits><v8:FractionDigits>2</v8:FractionDigits><v8:AllowedSign>Any</v8:AllowedSign></v8:NumberQualifiers></Type>
+						</Properties>
+					</Attribute>
+				</ChildObjects>
+			</TabularSection>
+		</ChildObjects>
+	</Catalog>
+</MetaDataObject>

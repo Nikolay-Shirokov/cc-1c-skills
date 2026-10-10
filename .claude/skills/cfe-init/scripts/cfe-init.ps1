@@ -101,7 +101,7 @@ if ($ConfigPath) {
 			Write-Host "[WARN] No <Language> element in $baseLangFile"
 		}
 	} else {
-		Write-Host "[WARN] Base config language not found: $baseLangFile"
+		Write-Host "[WARN] Base config language not found: $baseLangFile — UUID left zero, LanguageCode defaults to $langCode"
 	}
 
 	# Имя основной роли конфигуратор строит по варианту встроенного языка БАЗЫ: при English —

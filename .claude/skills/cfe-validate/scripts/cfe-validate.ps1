@@ -1088,11 +1088,6 @@ if ($script:borrowedFormsWithTree.Count -eq 0) {
 	Report-OK "13. TypeLink: clean"
 }
 
-# --- Check 14: пути Объект.* заимствованных форм против конфигурации-источника ---
-# Требует -ConfigPath: отличить живой путь от висячего можно только по исходному объекту.
-# «Объект.Партнер» валиден и без заимствования реквизита (наследуется от базы), а «Объект.Товары.Артикул»
-# не разрешится нигде, если Артикул — не реквизит объекта и не колонка из <Columns> самой формы.
-# Такой путь платформа отвергает на загрузке: «Неверный путь к данным».
 # Каталог конфигурации-источника из -ConfigPath (каталог или путь к Configuration.xml). Общий для
 # проверок 14 и 18; есть ли там Configuration.xml, каждая проверка решает и сообщает сама.
 function Get-SourceConfigRoot {
@@ -1102,6 +1097,11 @@ function Get-SourceConfigRoot {
 	return $root
 }
 
+# --- Check 14: пути Объект.* заимствованных форм против конфигурации-источника ---
+# Требует -ConfigPath: отличить живой путь от висячего можно только по исходному объекту.
+# «Объект.Партнер» валиден и без заимствования реквизита (наследуется от базы), а «Объект.Товары.Артикул»
+# не разрешится нигде, если Артикул — не реквизит объекта и не колонка из <Columns> самой формы.
+# Такой путь платформа отвергает на загрузке: «Неверный путь к данным».
 if (-not $script:stopped -and $script:borrowedFormsWithTree.Count -gt 0) {
 	if (-not $ConfigPath) {
 		Out-Line "[INFO]  14. Пути Объект.* против конфигурации-источника не проверялись: не задан -ConfigPath"
@@ -1110,6 +1110,7 @@ if (-not $script:stopped -and $script:borrowedFormsWithTree.Count -gt 0) {
 
 		if (-not (Test-Path (Join-Path $cfgRoot "Configuration.xml"))) {
 			Report-Warn "14. -ConfigPath '$ConfigPath': Configuration.xml не найден — проверка путей пропущена"
+			$script:srcRootWarned = $true
 		} else {
 			$check14Ok = $true
 			$pathCheckCount = 0
@@ -1413,11 +1414,36 @@ function Get-MdIdValue {
 	return $el.GetAttribute("uuid")
 }
 
+# Подобъекты, у которых в ChildObjects владельца только имя, а описание — в отдельном файле
+# <каталог владельца>/<Имя владельца>/<Каталог>/<Имя>.xml.
+$nestedFileDirs = @{ "Form"="Forms"; "Template"="Templates"; "Subsystem"="Subsystems"; "Recalculation"="Recalculations" }
+
+# Объект или подобъект из отдельного файла: сам файл и всё, что под ним. $false — файла нет или он
+# не читается.
+function Add-MdIdFile {
+	param($idx, [string]$objFile, [string]$key, [bool]$fromExtension)
+	if (-not (Test-Path -LiteralPath $objFile)) { return $false }
+	try {
+		$doc = New-Object System.Xml.XmlDocument
+		$doc.Load($objFile)
+	} catch { return $false }
+	$objEl = $null
+	foreach ($c in $doc.DocumentElement.ChildNodes) {
+		if ($c.NodeType -eq 'Element') { $objEl = $c; break }
+	}
+	if (-not $objEl) { return $false }
+	$v = Get-MdIdValue $objEl $fromExtension
+	if ($v) { $idx[$key] = $v }
+	$ownDir = Join-Path (Split-Path $objFile -Parent) ([System.IO.Path]::GetFileNameWithoutExtension($objFile))
+	Add-MdIdEntries $idx $objEl $key $fromExtension $ownDir
+	return $true
+}
+
 # Подобъекты с собственными свойствами (реквизиты, ТЧ и их колонки, значения перечисления, команды
-# и т.п.) лежат в ChildObjects целиком — обходим их рекурсивно. Форма там — только имя; её UUID
-# лежит в дескрипторе Forms/<Имя>.xml.
+# и т.п.) лежат в ChildObjects целиком — обходим их рекурсивно. Формы, макеты, вложенные подсистемы
+# и перерасчёты там — только имя: их UUID в отдельном файле под каталогом владельца.
 function Add-MdIdEntries {
-	param($idx, $el, [string]$prefix, [bool]$fromExtension, [string]$formsDir)
+	param($idx, $el, [string]$prefix, [bool]$fromExtension, [string]$ownDir)
 	$co = $el.SelectSingleNode("*[local-name()='ChildObjects']")
 	if (-not $co) { return }
 	foreach ($sub in $co.ChildNodes) {
@@ -1428,18 +1454,10 @@ function Add-MdIdEntries {
 			$v = Get-MdIdValue $sub $fromExtension
 			if ($v) { $idx[$key] = $v }
 			Add-MdIdEntries $idx $sub $key $fromExtension ""
-		} elseif ($sub.LocalName -eq "Form" -and $formsDir -and $sub.InnerText.Trim()) {
-			$formName = $sub.InnerText.Trim()
-			$formFile = Join-Path $formsDir "$formName.xml"
-			if (-not (Test-Path -LiteralPath $formFile)) { continue }
-			try {
-				$fDoc = New-Object System.Xml.XmlDocument
-				$fDoc.Load($formFile)
-			} catch { continue }
-			$fEl = $fDoc.DocumentElement.SelectSingleNode("*[local-name()='Form']")
-			if (-not $fEl) { continue }
-			$v = Get-MdIdValue $fEl $fromExtension
-			if ($v) { $idx["$prefix.Form.$formName"] = $v }
+		} elseif ($ownDir -and $nestedFileDirs.ContainsKey($sub.LocalName) -and $sub.InnerText.Trim()) {
+			$subName = $sub.InnerText.Trim()
+			$subFile = Join-Path (Join-Path $ownDir $nestedFileDirs[$sub.LocalName]) "$subName.xml"
+			Add-MdIdFile $idx $subFile "$prefix.$($sub.LocalName).$subName" $fromExtension | Out-Null
 		}
 	}
 }
@@ -1447,34 +1465,33 @@ function Add-MdIdEntries {
 # Индекс «путь подобъекта → UUID связи» по файлу объекта; $null — файла нет или он не читается.
 function Get-MdIdIndex {
 	param([string]$typeDir, [string]$typeName, [string]$objName, [bool]$fromExtension)
-	$objFile = Join-Path $typeDir "$objName.xml"
-	if (-not (Test-Path -LiteralPath $objFile)) { return $null }
-	try {
-		$doc = New-Object System.Xml.XmlDocument
-		$doc.Load($objFile)
-	} catch { return $null }
-	$objEl = $null
-	foreach ($c in $doc.DocumentElement.ChildNodes) {
-		if ($c.NodeType -eq 'Element') { $objEl = $c; break }
-	}
-	if (-not $objEl) { return $null }
-	# Сравнение имён — Ordinal, как в py-порте: [ordered]@{} в PowerShell регистронезависим.
-	$idx = New-Object System.Collections.Specialized.OrderedDictionary ([StringComparer]::Ordinal)
-	$top = "$typeName.$objName"
-	$v = Get-MdIdValue $objEl $fromExtension
-	if ($v) { $idx[$top] = $v }
-	Add-MdIdEntries $idx $objEl $top $fromExtension (Join-Path (Join-Path $typeDir $objName) "Forms")
+	# Имена в 1С регистронезависимы — ключи тоже (в py-порте сравнение через upper()).
+	$idx = New-Object System.Collections.Specialized.OrderedDictionary ([StringComparer]::OrdinalIgnoreCase)
+	if (-not (Add-MdIdFile $idx (Join-Path $typeDir "$objName.xml") "$typeName.$objName" $fromExtension)) { return $null }
 	return $idx
 }
 
 if (-not $script:stopped -and $childObjNode) {
 	$zeroGuid = "00000000-0000-0000-0000-000000000000"
 	$srcRoot = $null
+	$srcCfgDoc = $null
 	if ($ConfigPath) {
 		$srcRoot = Get-SourceConfigRoot
-		if (-not (Test-Path (Join-Path $srcRoot "Configuration.xml"))) {
-			Report-Warn "18. -ConfigPath '$ConfigPath': Configuration.xml не найден — сверка с конфигурацией-источником пропущена"
+		$srcCfgFile = Join-Path $srcRoot "Configuration.xml"
+		if (-not (Test-Path $srcCfgFile)) {
+			# Проверка 14 об этом уже сказала — второй раз не повторяем.
+			if (-not $script:srcRootWarned) {
+				Report-Warn "18. -ConfigPath '$ConfigPath': Configuration.xml не найден — сверка с конфигурацией-источником пропущена"
+			}
 			$srcRoot = $null
+		} else {
+			try {
+				$srcCfgDoc = New-Object System.Xml.XmlDocument
+				$srcCfgDoc.Load($srcCfgFile)
+			} catch {
+				Report-Warn "18. -ConfigPath '$ConfigPath': Configuration.xml не читается — сверка с конфигурацией-источником пропущена"
+				$srcRoot = $null
+			}
 		}
 	}
 
@@ -1482,13 +1499,12 @@ if (-not $script:stopped -and $childObjNode) {
 	$check18Count = 0
 
 	if ($srcRoot) {
-		$srcCfgDoc = New-Object System.Xml.XmlDocument
-		$srcCfgDoc.Load((Join-Path $srcRoot "Configuration.xml"))
 		$srcDefLangNode = $srcCfgDoc.SelectSingleNode("//*[local-name()='Configuration']/*[local-name()='Properties']/*[local-name()='DefaultLanguage']")
 		$srcDefLang = if ($srcDefLangNode) { $srcDefLangNode.InnerText.Trim() } else { "" }
-		if ($defLang.Trim() -and $srcDefLang) {
+		$extDefLang = if ($defLang) { $defLang.Trim() } else { "" }
+		if ($extDefLang -and $srcDefLang) {
 			$check18Count++
-			if ($defLang.Trim() -cne $srcDefLang) {
+			if (-not [string]::Equals($extDefLang, $srcDefLang, [StringComparison]::OrdinalIgnoreCase)) {
 				Report-Error "18. DefaultLanguage расширения `"$defLang`", а у конфигурации-источника `"$srcDefLang`" — платформа загрузит расширение, но не применит («ОсновнойЯзык не совпадает»)"
 				$check18Ok = $false
 			}

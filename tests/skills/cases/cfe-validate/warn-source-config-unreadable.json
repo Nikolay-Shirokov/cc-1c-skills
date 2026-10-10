@@ -1,0 +1,16 @@
+{
+  "name": "Нечитаемый Configuration.xml источника — предупреждение, остальной отчёт на месте",
+  "preRun": [
+    {
+      "script": "cfe-init/scripts/cfe-init",
+      "args": { "-Name": "Тест", "-OutputDir": "{workDir}/cfe", "-ConfigPath": "{workDir}" }
+    },
+    { "writeFile": { "path": "src/Configuration.xml", "content": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<MetaDataObject" } }
+  ],
+  "params": { "extensionPath": "cfe" },
+  "args_extra": ["-ConfigPath", "{workDir}/src"],
+  "noSnapshot": "навык ничего не пишет, проверяется текст",
+  "expect": {
+    "stdoutContains": ["18. -ConfigPath", "Configuration.xml не читается — сверка с конфигурацией-источником пропущена", "=== Result: 0 errors, 1 warnings"]
+  }
+}

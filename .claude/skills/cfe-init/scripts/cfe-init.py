@@ -157,7 +157,7 @@ def main():
             except Exception:
                 print(f"[WARN] Could not parse {base_lang_file}")
         else:
-            print(f"[WARN] Base config language not found: {base_lang_file}")
+            print(f"[WARN] Base config language not found: {base_lang_file} — UUID left zero, LanguageCode defaults to {lang_code}")
 
         # Имя основной роли конфигуратор строит по варианту встроенного языка БАЗЫ: при English —
         # <Префикс>DefaultRole. Сам вариант расширения он при этом оставляет Russian (замер 8.3.24).
