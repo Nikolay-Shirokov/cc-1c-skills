@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# cfe-init v1.11 — Create 1C configuration extension scaffold (CFE) (+write_xml_file/write_utf8_bom: общий эталон записи)
+# cfe-init v1.12 — Create 1C configuration extension scaffold (CFE) (+write_xml_file/write_utf8_bom: общий эталон записи)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 """Generates minimal XML source files for a 1C configuration extension."""
 import sys, os, re, argparse, uuid
@@ -98,6 +98,9 @@ def main():
 
     # --- Resolve ConfigPath ---
     base_lang_uuid = "00000000-0000-0000-0000-000000000000"
+    lang_name = "Русский"
+    lang_code = "ru"
+    role_suffix = "ОсновнаяРоль"
     if args.ConfigPath:
         config_path = args.ConfigPath
         if not os.path.isabs(config_path):
@@ -113,32 +116,64 @@ def main():
             print(f"Config file not found: {config_path}", file=sys.stderr)
             sys.exit(1)
         cfg_dir = os.path.dirname(os.path.abspath(config_path))
+        ns = {'md': 'http://v8.1c.ru/8.3/MDClasses'}
+        try:
+            base_cfg_root = ET.parse(os.path.abspath(config_path)).getroot()
+        except Exception:
+            base_cfg_root = None
 
-        # Read Language UUID from base config
-        base_lang_file = os.path.join(cfg_dir, "Languages", "Русский.xml")
+        # Основной язык базы. Он контролируемый: расширение с другим основным языком платформа
+        # загружает, но не применяет («ОсновнойЯзык не совпадает»). Имя — из DefaultLanguage, а не
+        # «Русский»: в многоязычной конфигурации Русский.xml бывает и у неосновного языка — с чужим UUID.
+        def_lang_node = None
+        if base_cfg_root is not None:
+            def_lang_node = base_cfg_root.find('.//md:Configuration/md:Properties/md:DefaultLanguage', ns)
+        m = re.match(r'^Language\.(.+)$', (def_lang_node.text or '').strip()) if def_lang_node is not None else None
+        if m:
+            lang_name = m.group(1)
+            print(f"[INFO] Base config DefaultLanguage: {lang_name}")
+        else:
+            print(f"[WARN] DefaultLanguage not found in base config, using default: {lang_name}")
+        base_lang_file = os.path.join(cfg_dir, "Languages", f"{lang_name}.xml")
         if os.path.exists(base_lang_file):
             try:
                 base_tree = ET.parse(base_lang_file)
                 base_root = base_tree.getroot()
+                lang_el = None
                 for child in base_root:
                     if child.tag.endswith('}Language') or child.tag == 'Language':
-                        base_lang_uuid = child.get('uuid', base_lang_uuid)
-                        print(f"[INFO] Base config Language UUID: {base_lang_uuid}")
+                        lang_el = child
                         break
+                if lang_el is not None:
+                    base_lang_uuid = lang_el.get('uuid', base_lang_uuid)
+                    print(f"[INFO] Base config Language UUID: {base_lang_uuid}")
+                    code_node = lang_el.find('md:Properties/md:LanguageCode', ns)
+                    if code_node is not None and (code_node.text or '').strip():
+                        lang_code = code_node.text.strip()
+                    else:
+                        print(f"[WARN] No LanguageCode in {base_lang_file}, using default: {lang_code}")
+                else:
+                    print(f"[WARN] No <Language> element in {base_lang_file}")
             except Exception:
                 print(f"[WARN] Could not parse {base_lang_file}")
         else:
             print(f"[WARN] Base config language not found: {base_lang_file}")
 
+        # Имя основной роли конфигуратор строит по варианту встроенного языка БАЗЫ: при English —
+        # <Префикс>DefaultRole. Сам вариант расширения он при этом оставляет Russian (замер 8.3.24).
+        if base_cfg_root is not None:
+            sv_node = base_cfg_root.find('.//md:Configuration/md:Properties/md:ScriptVariant', ns)
+            if sv_node is not None and (sv_node.text or '').strip() == 'English':
+                role_suffix = "DefaultRole"
+
         # Read CompatibilityMode and InterfaceCompatibilityMode from base config
         try:
-            base_cfg_tree = ET.parse(os.path.abspath(config_path))
-            base_cfg_root = base_cfg_tree.getroot()
+            if base_cfg_root is None:
+                raise ValueError("base config not parsed")
             fmt_ver = base_cfg_root.get("version")
             if fmt_ver:
                 format_version = fmt_ver
                 print(f"[INFO] Base config format version: {format_version}")
-            ns = {'md': 'http://v8.1c.ru/8.3/MDClasses'}
             compat_node = base_cfg_root.find('.//md:Configuration/md:Properties/md:CompatibilityMode', ns)
             if compat_node is not None and compat_node.text:
                 compat = compat_node.text.strip()
@@ -168,7 +203,7 @@ def main():
     # --- Synonym XML ---
     synonym_xml = ""
     if synonym:
-        synonym_xml = f"\r\n\t\t\t\t<v8:item>\r\n\t\t\t\t\t<v8:lang>ru</v8:lang>\r\n\t\t\t\t\t<v8:content>{esc_xml_text(synonym)}</v8:content>\r\n\t\t\t\t</v8:item>\r\n\t\t\t"
+        synonym_xml = f"\r\n\t\t\t\t<v8:item>\r\n\t\t\t\t\t<v8:lang>{esc_xml_text(lang_code)}</v8:lang>\r\n\t\t\t\t\t<v8:content>{esc_xml_text(synonym)}</v8:content>\r\n\t\t\t\t</v8:item>\r\n\t\t\t"
 
     # Элемент целиком, а не значение внутри пары: при пустом значении Конфигуратор
     # пишет <Vendor/>, а не <Vendor></Vendor>.
@@ -176,7 +211,7 @@ def main():
     version_el = f"<Version>{esc_xml_text(version)}</Version>" if version else "<Version/>"
 
     # --- Role name ---
-    role_name = f"{name_prefix}ОсновнаяРоль"
+    role_name = f"{name_prefix}{role_suffix}"
 
     # --- DefaultRoles XML ---
     # Элемент целиком: без роли Конфигуратор пишет <DefaultRoles/>, а не пустую пару.
@@ -187,7 +222,7 @@ def main():
                             '\r\n\t\t\t</DefaultRoles>')
 
     # --- ChildObjects ---
-    child_objects_xml = f"\r\n\t\t\t<Language>Русский</Language>"
+    child_objects_xml = f"\r\n\t\t\t<Language>{esc_xml_text(lang_name)}</Language>"
     if not args.NoRole:
         child_objects_xml += f"\r\n\t\t\t<Role>{role_name}</Role>"
     child_objects_xml += "\r\n\t\t"
@@ -265,7 +300,7 @@ def main():
 \t\t\t{default_roles_el}
 \t\t\t{vendor_el}
 \t\t\t{version_el}{f221_captions}
-\t\t\t<DefaultLanguage>Language.Русский</DefaultLanguage>
+\t\t\t<DefaultLanguage>Language.{esc_xml_text(lang_name)}</DefaultLanguage>
 \t\t\t<BriefInformation/>
 \t\t\t<DetailedInformation/>
 \t\t\t<Copyright/>
@@ -277,17 +312,17 @@ def main():
 \t</Configuration>
 </MetaDataObject>'''
 
-    # --- Languages/Русский.xml (adopted format) ---
+    # --- Languages/<основной язык>.xml (adopted format) ---
     lang_xml = f'''<?xml version="1.0" encoding="UTF-8"?>
 <MetaDataObject {xmlns_decl} version="{format_version}">
 \t<Language uuid="{uuid_lang}">
 \t\t<InternalInfo/>
 \t\t<Properties>
 \t\t\t<ObjectBelonging>Adopted</ObjectBelonging>
-\t\t\t<Name>Русский</Name>
+\t\t\t<Name>{esc_xml_text(lang_name)}</Name>
 \t\t\t<Comment/>
 \t\t\t<ExtendedConfigurationObject>{base_lang_uuid}</ExtendedConfigurationObject>
-\t\t\t<LanguageCode>ru</LanguageCode>
+\t\t\t<LanguageCode>{esc_xml_text(lang_code)}</LanguageCode>
 \t\t</Properties>
 \t</Language>
 </MetaDataObject>'''
@@ -311,7 +346,7 @@ def main():
 
     # --- Write files ---
     write_xml_file(cfg_file, cfg_xml)
-    lang_file = os.path.join(lang_dir, "Русский.xml")
+    lang_file = os.path.join(lang_dir, f"{lang_name}.xml")
     write_xml_file(lang_file, lang_xml)
 
     # --- Role ---

@@ -1,0 +1,29 @@
+{
+  "name": "Основной язык и имя роли — от базовой конфигурации (основной Английский, ScriptVariant English)",
+  "setup": "fixture:base-en",
+  "params": { "name": "РасшEn", "outputDir": "cfe" },
+  "validatePath": "cfe",
+  "expect": {
+    "files": ["cfe/Languages/Английский.xml", "cfe/Roles/РасшEn_DefaultRole.xml"],
+    "filesAbsent": ["cfe/Languages/Русский.xml"],
+    "fileContains": [
+      {
+        "file": "cfe/Configuration.xml",
+        "text": [
+          "<DefaultLanguage>Language.Английский</DefaultLanguage>",
+          "<Language>Английский</Language>",
+          "<v8:lang>en</v8:lang>",
+          "<ScriptVariant>Russian</ScriptVariant>",
+          "Role.РасшEn_DefaultRole"
+        ]
+      },
+      {
+        "file": "cfe/Languages/Английский.xml",
+        "text": [
+          "<ExtendedConfigurationObject>9b10a8ed-79ff-44d4-97f8-79a290c537af</ExtendedConfigurationObject>",
+          "<LanguageCode>en</LanguageCode>"
+        ]
+      }
+    ]
+  }
+}

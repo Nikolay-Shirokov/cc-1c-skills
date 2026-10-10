@@ -10,11 +10,11 @@ allowed-tools:
 
 # /cfe-init — Создание расширения конфигурации 1С
 
-Создаёт scaffold расширения: `Configuration.xml`, `Languages/Русский.xml`, опционально `Roles/`.
+Создаёт scaffold расширения: `Configuration.xml`, язык в `Languages/`, опционально `Roles/`.
 
 ## Подготовка
 
-Если есть выгрузка базовой конфигурации, передай `-ConfigPath` — скрипт автоматически определит `CompatibilityMode` и UUID языка из базовой конфигурации.
+Если есть выгрузка базовой конфигурации, передай `-ConfigPath` — скрипт автоматически возьмёт из базовой конфигурации `CompatibilityMode` и язык.
 
 ### Авто-определение ConfigPath
 
@@ -38,7 +38,7 @@ allowed-tools:
 | `Version` | Версия расширения | — |
 | `Vendor` | Поставщик | — |
 | `CompatibilityMode` | Режим совместимости; при заданном `ConfigPath` определяется по базовой конфигурации и этот параметр не нужен | `Version8_3_24` |
-| `ConfigPath` | Путь к выгрузке базовой конфигурации (авто-определяет CompatibilityMode и Language UUID) | — |
+| `ConfigPath` | Путь к выгрузке базовой конфигурации (авто-определяет CompatibilityMode и язык) | — |
 | `NoRole` | Без основной роли | false |
 
 ## Команда
