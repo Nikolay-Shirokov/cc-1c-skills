@@ -5,14 +5,14 @@
 	<ChildItems>
 		<Table name="Список" id="1">
 			<DataPath>Список</DataPath>
-			<RowPictureDataPath>Список.DefaultPicture</RowPictureDataPath>
+			<RowPictureDataPath>~Список.DefaultPicture</RowPictureDataPath>
 			<ChildItems>
 				<InputField name="СписокСклад" id="2">
-					<DataPath>Список.Склад</DataPath>
+					<DataPath>~Список.Склад</DataPath>
 					<ExtendedTooltip name="СписокСкладРасширеннаяПодсказка" id="3"/>
 				</InputField>
 				<InputField name="СписокПредставление" id="4">
-					<DataPath>Список.ПредставлениеСостояния</DataPath>
+					<DataPath>~Список.ПредставлениеСостояния</DataPath>
 					<ExtendedTooltip name="СписокПредставлениеРасширеннаяПодсказка" id="5"/>
 				</InputField>
 			</ChildItems>
@@ -42,14 +42,14 @@
 		<ChildItems>
 			<Table name="Список" id="1">
 				<DataPath>Список</DataPath>
-				<RowPictureDataPath>Список.DefaultPicture</RowPictureDataPath>
+				<RowPictureDataPath>~Список.DefaultPicture</RowPictureDataPath>
 				<ChildItems>
 					<InputField name="СписокСклад" id="2">
-						<DataPath>Список.Склад</DataPath>
+						<DataPath>~Список.Склад</DataPath>
 						<ExtendedTooltip name="СписокСкладРасширеннаяПодсказка" id="3"/>
 					</InputField>
 					<InputField name="СписокПредставление" id="4">
-						<DataPath>Список.ПредставлениеСостояния</DataPath>
+						<DataPath>~Список.ПредставлениеСостояния</DataPath>
 						<ExtendedTooltip name="СписокПредставлениеРасширеннаяПодсказка" id="5"/>
 					</InputField>
 				</ChildItems>
