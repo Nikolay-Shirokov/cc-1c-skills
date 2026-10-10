@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# cfe-borrow v1.45 — Borrow objects from configuration into extension (CFE)
+# cfe-borrow v1.46 — Borrow objects from configuration into extension (CFE)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -2547,10 +2547,26 @@ def main():
         parts.append("\t</BaseForm>\r\n")
         parts.append("</Form>")
 
+        # Динамический список с ручным запросом: в расширении его запрос компилируется в контексте
+        # расширения, и любой объект запроса, которого там нет, делает невалидными все поля списка
+        # («Неверный путь к данным»). Конфигуратор такие пути пишет с тильдой — платформа разрешает их
+        # после наложения на основную конфигурацию; путь, разрешимый и так, она при загрузке разрешает
+        # и выгружает уже без тильды (замер 8.3.24). Поэтому тильда — без разбора запроса — всем
+        # привязкам к полям списка, которые платформа проверяет при загрузке: *DataPath элементов
+        # (DataPath, FooterDataPath, RowPictureDataPath…) и <Field> в UseAlways реквизита. Сам список
+        # (DataPath без поля) — как есть; пути отбора и оформления (dcsset:/dcscor:) при загрузке не
+        # проверяются, их не трогаем.
+        form_xml_text = "".join(parts)
+        if with_main_attr and '<ManualQuery>true</ManualQuery>' in main_attr_info['Xml']:
+            dl_field_pat = r'(<(?:\w*DataPath|Field)>)(?=' + re.escape(main_attr_info['Name']) + r'\.)'
+            form_xml_text, dl_count = re.subn(dl_field_pat, r'\1~', form_xml_text)
+            if dl_count > 0:
+                info(f"  Поля динамического списка с ручным запросом: пути с тильдой ({dl_count}) — разрешатся после наложения")
+
         form_xml_dir = os.path.join(ext_form_dir, "Ext")
         os.makedirs(form_xml_dir, exist_ok=True)
         form_xml_file = os.path.join(form_xml_dir, "Form.xml")
-        write_xml_file(form_xml_file, "".join(parts))
+        write_xml_file(form_xml_file, form_xml_text)
         info(f"  Created: {form_xml_file}")
         if DROPPED_LINKS:
             uniq = sorted(set(DROPPED_LINKS))

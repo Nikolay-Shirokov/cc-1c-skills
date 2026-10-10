@@ -277,7 +277,7 @@
       },
       {
         "file": "cfe/CommonForms/ФайлыВТоме/Ext/Form.xml",
-        "text": "<ExcludedCommand>Find</ExcludedCommand>"
+        "text": ["<ExcludedCommand>Find</ExcludedCommand>", "<DataPath>~Список.Автор</DataPath>", "<Field>~Список.Ссылка</Field>"]
       },
       {
         "file": "cfe/CommonForms/ВыборСвойства/Ext/Form.xml",

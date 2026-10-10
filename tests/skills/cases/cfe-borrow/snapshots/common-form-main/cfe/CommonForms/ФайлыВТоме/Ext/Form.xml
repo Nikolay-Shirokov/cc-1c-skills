@@ -5,7 +5,7 @@
 		<Table name="Список" id="1">
 			<CommandBarLocation>None</CommandBarLocation>
 			<DataPath>Список</DataPath>
-			<RowPictureDataPath>Список.DefaultPicture</RowPictureDataPath>
+			<RowPictureDataPath>~Список.DefaultPicture</RowPictureDataPath>
 			<CommandSet>
 				<ExcludedCommand>Find</ExcludedCommand>
 			</CommandSet>
@@ -54,12 +54,12 @@
 			</SearchControlAddition>
 			<ChildItems>
 				<InputField name="СписокСсылка" id="14">
-					<DataPath>Список.Ссылка</DataPath>
+					<DataPath>~Список.Ссылка</DataPath>
 					<ContextMenu name="СписокСсылкаКонтекстноеМеню" id="15"/>
 					<ExtendedTooltip name="СписокСсылкаРасширеннаяПодсказка" id="16"/>
 				</InputField>
 				<InputField name="СписокАвтор" id="17">
-					<DataPath>Список.Автор</DataPath>
+					<DataPath>~Список.Автор</DataPath>
 					<ContextMenu name="СписокАвторКонтекстноеМеню" id="18"/>
 					<ExtendedTooltip name="СписокАвторРасширеннаяПодсказка" id="19"/>
 				</InputField>
@@ -102,7 +102,7 @@
 			<Table name="Список" id="1">
 				<CommandBarLocation>None</CommandBarLocation>
 				<DataPath>Список</DataPath>
-				<RowPictureDataPath>Список.DefaultPicture</RowPictureDataPath>
+				<RowPictureDataPath>~Список.DefaultPicture</RowPictureDataPath>
 				<CommandSet>
 					<ExcludedCommand>Find</ExcludedCommand>
 				</CommandSet>
@@ -151,12 +151,12 @@
 				</SearchControlAddition>
 				<ChildItems>
 					<InputField name="СписокСсылка" id="14">
-						<DataPath>Список.Ссылка</DataPath>
+						<DataPath>~Список.Ссылка</DataPath>
 						<ContextMenu name="СписокСсылкаКонтекстноеМеню" id="15"/>
 						<ExtendedTooltip name="СписокСсылкаРасширеннаяПодсказка" id="16"/>
 					</InputField>
 					<InputField name="СписокАвтор" id="17">
-						<DataPath>Список.Автор</DataPath>
+						<DataPath>~Список.Автор</DataPath>
 						<ContextMenu name="СписокАвторКонтекстноеМеню" id="18"/>
 						<ExtendedTooltip name="СписокАвторРасширеннаяПодсказка" id="19"/>
 					</InputField>

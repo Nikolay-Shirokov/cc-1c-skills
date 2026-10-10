@@ -7,7 +7,7 @@
 			<DataPath>Список</DataPath>
 			<ChildItems>
 				<InputField name="СписокКомментарий" id="2">
-					<DataPath>Список.Комментарий</DataPath>
+					<DataPath>~Список.Комментарий</DataPath>
 					<ExtendedTooltip name="СписокКомментарийРасширеннаяПодсказка" id="3"/>
 				</InputField>
 			</ChildItems>
@@ -21,7 +21,7 @@
 			</Type>
 			<MainAttribute>true</MainAttribute>
 			<UseAlways>
-				<Field>Список.Ссылка</Field>
+				<Field>~Список.Ссылка</Field>
 			</UseAlways>
 			<Settings xsi:type="DynamicList">
 				<ManualQuery>true</ManualQuery>
@@ -51,7 +51,7 @@
 				<DataPath>Список</DataPath>
 				<ChildItems>
 					<InputField name="СписокКомментарий" id="2">
-						<DataPath>Список.Комментарий</DataPath>
+						<DataPath>~Список.Комментарий</DataPath>
 						<ExtendedTooltip name="СписокКомментарийРасширеннаяПодсказка" id="3"/>
 					</InputField>
 				</ChildItems>
@@ -65,7 +65,7 @@
 				</Type>
 				<MainAttribute>true</MainAttribute>
 				<UseAlways>
-					<Field>Список.Ссылка</Field>
+					<Field>~Список.Ссылка</Field>
 				</UseAlways>
 				<Settings xsi:type="DynamicList">
 					<ManualQuery>true</ManualQuery>

@@ -1,4 +1,4 @@
-﻿# cfe-borrow v1.45 — Borrow objects from configuration into extension (CFE)
+﻿# cfe-borrow v1.46 — Borrow objects from configuration into extension (CFE)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -1444,6 +1444,25 @@ function Borrow-Form {
 	$formXmlSb.Append("`r`n") | Out-Null
 	$formXmlSb.Append("</Form>") | Out-Null
 
+	# Динамический список с ручным запросом: в расширении его запрос компилируется в контексте
+	# расширения, и любой объект запроса, которого там нет, делает невалидными все поля списка
+	# («Неверный путь к данным»). Конфигуратор такие пути пишет с тильдой — платформа разрешает их
+	# после наложения на основную конфигурацию; путь, разрешимый и так, она при загрузке разрешает
+	# и выгружает уже без тильды (замер 8.3.24). Поэтому тильда — без разбора запроса — всем
+	# привязкам к полям списка, которые платформа проверяет при загрузке: *DataPath элементов
+	# (DataPath, FooterDataPath, RowPictureDataPath…) и <Field> в UseAlways реквизита. Сам список
+	# (DataPath без поля) — как есть; пути отбора и оформления (dcsset:/dcscor:) при загрузке не
+	# проверяются, их не трогаем.
+	$formXmlText = $formXmlSb.ToString()
+	if ($withMainAttr -and $mainAttrInfo.Xml -match '<ManualQuery>true</ManualQuery>') {
+		$dlFieldPat = '(<(?:\w*DataPath|Field)>)(?=' + [regex]::Escape($mainAttrInfo.Name) + '\.)'
+		$script:dlCount = 0
+		$formXmlText = [regex]::Replace($formXmlText, $dlFieldPat, { param($m) $script:dlCount++; $m.Groups[1].Value + '~' })
+		if ($script:dlCount -gt 0) {
+			Info "  Поля динамического списка с ручным запросом: пути с тильдой ($($script:dlCount)) — разрешатся после наложения"
+		}
+	}
+
 	# Write Form.xml
 	$formXmlDir = Join-Path $extFormDir "Ext"
 	if (-not (Test-Path $formXmlDir)) {
@@ -1454,7 +1473,6 @@ function Borrow-Form {
 	# CDATA/комментария ` />` может быть содержимым (там `>` не экранируется),
 	# поэтому они идут первыми ветками альтернации и возвращаются как есть.
 	# Здесь источник не XmlWriter, а OuterXml исходного документа — спацовывает так же.
-	$formXmlText = $formXmlSb.ToString()
 	$formXmlText = [regex]::Replace($formXmlText, '(?s)<!\[CDATA\[.*?\]\]>|<!--.*?-->|(?<=\S) />', { param($m) if ($m.Value -eq ' />') { '/>' } else { $m.Value } })
 	# Файл создаём мы — канон выгрузки: CRLF в разделителях строк.
 	$formXmlText = ($formXmlText -replace "`r`n", "`n") -replace "`n", "`r`n"
