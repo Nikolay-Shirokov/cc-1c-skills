@@ -1483,7 +1483,8 @@ def main():
                 add_md_id_file(idx, sub_file, f'{prefix}.{sub_type}.{sub_name}', from_extension)
 
     # Индекс «путь подобъекта → UUID связи» по файлу объекта; None — файла нет или он не читается.
-    # Имена в 1С регистронезависимы: сверка ключей через upper() (в PS1 — OrdinalIgnoreCase).
+    # Ключи сравниваются с учётом регистра: имя заимствованного подобъекта платформа сверяет точно
+    # (контролируемое свойство «Имя», замер 8.3.24), хотя в коде 1С имена регистронезависимы.
     def md_id_index(type_dir, type_name, obj_name, from_extension):
         idx = {}
         if not add_md_id_file(idx, os.path.join(type_dir, f'{obj_name}.xml'), f'{type_name}.{obj_name}', from_extension):
@@ -1518,7 +1519,7 @@ def main():
             ext_def_lang = (def_lang or '').strip()
             if ext_def_lang and src_def_lang:
                 check18_count += 1
-                if ext_def_lang.upper() != src_def_lang.upper():
+                if ext_def_lang != src_def_lang:
                     r.error(f'18. DefaultLanguage расширения "{def_lang}", а у конфигурации-источника "{src_def_lang}" — платформа загрузит расширение, но не применит («ОсновнойЯзык не совпадает»)')
                     check18_ok = False
 
@@ -1546,17 +1547,19 @@ def main():
                 continue
 
             src_idx = md_id_index(os.path.join(src_root, dir_name), type_name, obj_name18, False)
-            if src_idx is not None:
-                src_idx = {k.upper(): v for k, v in src_idx.items()}
             if src_idx is None:
                 r.error(f'18. {type_name}.{obj_name18}: заимствованного объекта нет в конфигурации-источнике ({dir_name}/{obj_name18}.xml)')
                 check18_ok = False
                 continue
             for key, ext_id in ext_idx.items():
                 check18_count += 1
-                src_id = src_idx.get(key.upper())
+                src_id = src_idx.get(key)
                 if src_id is None:
-                    r.error(f'18. {key}: заимствованного подобъекта нет в конфигурации-источнике')
+                    case_twin = next((sk for sk in src_idx if sk.upper() == key.upper()), None)
+                    if case_twin:
+                        r.error(f'18. {key}: в конфигурации-источнике имя в другом регистре ({case_twin}) — платформа загрузит расширение, но не применит («контролируемое свойство Имя не совпадает»)')
+                    else:
+                        r.error(f'18. {key}: заимствованного подобъекта нет в конфигурации-источнике')
                     check18_ok = False
                 elif ext_id.lower() != src_id.lower():
                     what = 'нулевой' if ext_id == zero_guid else ext_id

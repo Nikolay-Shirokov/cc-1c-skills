@@ -1465,8 +1465,9 @@ function Add-MdIdEntries {
 # Индекс «путь подобъекта → UUID связи» по файлу объекта; $null — файла нет или он не читается.
 function Get-MdIdIndex {
 	param([string]$typeDir, [string]$typeName, [string]$objName, [bool]$fromExtension)
-	# Имена в 1С регистронезависимы — ключи тоже (в py-порте сравнение через upper()).
-	$idx = New-Object System.Collections.Specialized.OrderedDictionary ([StringComparer]::OrdinalIgnoreCase)
+	# Ключи — Ordinal: имя заимствованного подобъекта платформа сверяет С УЧЁТОМ регистра (контролируемое
+	# свойство «Имя», замер 8.3.24), хотя в коде 1С имена регистронезависимы. [ordered]@{} так не умеет.
+	$idx = New-Object System.Collections.Specialized.OrderedDictionary ([StringComparer]::Ordinal)
 	if (-not (Add-MdIdFile $idx (Join-Path $typeDir "$objName.xml") "$typeName.$objName" $fromExtension)) { return $null }
 	return $idx
 }
@@ -1504,7 +1505,7 @@ if (-not $script:stopped -and $childObjNode) {
 		$extDefLang = if ($defLang) { $defLang.Trim() } else { "" }
 		if ($extDefLang -and $srcDefLang) {
 			$check18Count++
-			if (-not [string]::Equals($extDefLang, $srcDefLang, [StringComparison]::OrdinalIgnoreCase)) {
+			if ($extDefLang -cne $srcDefLang) {
 				Report-Error "18. DefaultLanguage расширения `"$defLang`", а у конфигурации-источника `"$srcDefLang`" — платформа загрузит расширение, но не применит («ОсновнойЯзык не совпадает»)"
 				$check18Ok = $false
 			}
@@ -1542,7 +1543,15 @@ if (-not $script:stopped -and $childObjNode) {
 			$check18Count++
 			$extId = $extIdx[$key]
 			if (-not $srcIdx.Contains($key)) {
-				Report-Error "18. ${key}: заимствованного подобъекта нет в конфигурации-источнике"
+				$caseTwin = $null
+				foreach ($sk in $srcIdx.Keys) {
+					if ([string]::Equals($sk, $key, [StringComparison]::OrdinalIgnoreCase)) { $caseTwin = $sk; break }
+				}
+				if ($caseTwin) {
+					Report-Error "18. ${key}: в конфигурации-источнике имя в другом регистре ($caseTwin) — платформа загрузит расширение, но не применит («контролируемое свойство Имя не совпадает»)"
+				} else {
+					Report-Error "18. ${key}: заимствованного подобъекта нет в конфигурации-источнике"
+				}
 				$check18Ok = $false
 			} elseif ($extId.ToLowerInvariant() -cne $srcIdx[$key].ToLowerInvariant()) {
 				$what = if ($extId -ceq $zeroGuid) { "нулевой" } else { "$extId" }

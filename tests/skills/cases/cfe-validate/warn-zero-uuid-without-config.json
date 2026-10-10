@@ -3,15 +3,21 @@
   "preRun": [
     {
       "script": "cfe-init/scripts/cfe-init",
-      "args": { "-Name": "Тест", "-OutputDir": "{workDir}/cfe" }
+      "args": {
+        "-Name": "Тест",
+        "-OutputDir": "{workDir}/cfe"
+      }
     }
   ],
-  "params": { "extensionPath": "cfe" },
+  "params": {
+    "extensionPath": "cfe"
+  },
   "noSnapshot": "навык ничего не пишет, проверяется текст",
   "expect": {
     "stdoutContains": [
       "[WARN]  18. Language.Русский: ExtendedConfigurationObject нулевой",
       "[INFO]  18."
     ]
-  }
+  },
+  "skipPlatformVerify": "расширение намеренно неприменимо: нулевой ExtendedConfigurationObject у языка — проверяется предупреждение валидатора"
 }

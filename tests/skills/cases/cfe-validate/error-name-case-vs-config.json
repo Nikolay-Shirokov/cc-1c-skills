@@ -1,0 +1,11 @@
+{
+  "name": "С -ConfigPath ловится имя подобъекта, отличающееся от источника только регистром",
+  "setup": "fixture:name-case-vs-config",
+  "params": { "extensionPath": "." },
+  "args_extra": ["-ConfigPath", "{workDir}/src"],
+  "expectError": true,
+  "noSnapshot": "негативный кейс: навык ничего не пишет, проверяется текст и код возврата",
+  "expect": {
+    "stdoutContains": "18. Catalog.Товары.Attribute.артикул: в конфигурации-источнике имя в другом регистре (Catalog.Товары.Attribute.Артикул)"
+  }
+}
