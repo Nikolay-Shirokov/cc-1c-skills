@@ -262,6 +262,19 @@ For OpenAI-compatible provider:
 }
 ```
 
+`gpt-4o-mini-tts` accepts free-form speaking instructions. Without them it reads Russian with a noticeable English accent; an instruction like the one below removes most of it (voice `cedar` gave the least accent in our trials):
+```json
+{
+  "tts": {
+    "provider": "openai",
+    "apiKey": "sk-...",
+    "model": "gpt-4o-mini-tts",
+    "voice": "cedar",
+    "instructions": "Ты носитель русского языка. Говори по-русски без иностранного акцента, спокойно и отчетливо, как диктор обучающего видео."
+  }
+}
+```
+
 For ElevenLabs:
 ```json
 {
@@ -299,6 +312,7 @@ Generate TTS and merge audio with video. Call after `stopRecording()`.
 | `opts.apiKey` | `string` | API key (for openai) |
 | `opts.apiUrl` | `string` | Endpoint (for openai) |
 | `opts.model` | `string` | Model (for openai, default: `tts-1`) |
+| `opts.instructions` | `string` | Speaking style instructions (openai `gpt-4o-mini-tts` and newer; ignored by `tts-1`/`tts-1-hd`) |
 | `opts.ffmpegPath` | `string` | Path to ffmpeg binary |
 | `opts.outputPath` | `string` | Output file (default: `video-narrated.mp4`) |
 

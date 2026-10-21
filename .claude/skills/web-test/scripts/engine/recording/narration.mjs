@@ -1,4 +1,4 @@
-// web-test recording/narration v1.18 — Post-process: generate TTS audio for captions and merge with recorded video.
+// web-test recording/narration v1.19 — Post-process: generate TTS audio for captions and merge with recorded video.
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import { execFileSync } from 'child_process';
@@ -24,6 +24,7 @@ import {
  * @param {string} [opts.apiKey] — API key (for openai provider)
  * @param {string} [opts.apiUrl] — API endpoint (for openai provider)
  * @param {string} [opts.model] — model name (for openai provider, default: 'tts-1')
+ * @param {string} [opts.instructions] — speaking style/accent instructions (openai gpt-4o-mini-tts and newer)
  * @param {string} [opts.ffmpegPath] — path to ffmpeg binary
  * @param {string} [opts.outputPath] — output file path (default: video-narrated.mp4)
  * @returns {{ file: string, duration: number, size: number, captions: number, warnings?: string[] }}
@@ -33,7 +34,7 @@ export async function addNarration(videoPath, opts = {}) {
   videoPath = resolveProjectPath(videoPath);
   const ffmpegPath = resolveFfmpeg(opts.ffmpegPath);
   const ttsProvider = getTtsProvider(opts.provider || 'edge');
-  const ttsOpts = { voice: opts.voice, apiKey: opts.apiKey, apiUrl: opts.apiUrl, model: opts.model };
+  const ttsOpts = { voice: opts.voice, apiKey: opts.apiKey, apiUrl: opts.apiUrl, model: opts.model, instructions: opts.instructions };
 
   // Resolve captions: explicit > lastCaptions > .captions.json
   let captions = opts.captions;

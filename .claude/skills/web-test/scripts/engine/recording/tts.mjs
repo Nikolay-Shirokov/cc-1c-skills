@@ -1,4 +1,4 @@
-// web-test recording/tts v1.17 — TTS providers (edge/openai/elevenlabs) and ffmpeg/ffprobe helpers.
+// web-test recording/tts v1.18 — TTS providers (edge/openai/elevenlabs) and ffmpeg/ffprobe helpers.
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import { execFileSync, spawn } from 'child_process';
@@ -92,7 +92,7 @@ export async function edgeTtsProvider(text, outputPath, opts = {}) {
  * OpenAI-compatible TTS provider. Requires apiKey.
  * @param {string} text — text to synthesize
  * @param {string} outputPath — path for the output mp3 file
- * @param {object} opts — { apiKey, apiUrl, voice, model }
+ * @param {object} opts — { apiKey, apiUrl, voice, model, instructions }
  */
 export async function openaiTtsProvider(text, outputPath, opts = {}) {
   const apiUrl = opts.apiUrl || 'https://api.openai.com/v1/audio/speech';
@@ -105,6 +105,8 @@ export async function openaiTtsProvider(text, outputPath, opts = {}) {
       input: text,
       voice: opts.voice || 'alloy',
       response_format: 'mp3',
+      // gpt-4o-mini-tts takes free-form style instructions (e.g. "native speaker, no accent")
+      ...(opts.instructions ? { instructions: opts.instructions } : {}),
     }),
   });
   if (!resp.ok) throw new Error(`OpenAI TTS error ${resp.status}: ${await resp.text()}`);
