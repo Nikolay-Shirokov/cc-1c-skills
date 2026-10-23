@@ -1,0 +1,4 @@
+scripts/node_modules/
+.browser-session.json
+*.png
+*.mp4
