@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// build-webtest-db v0.2 — Собирает синтетическую web-test конфигурацию в постоянные пути
+// build-webtest-db v0.3 — Собирает синтетическую web-test конфигурацию в постоянные пути
 // и накатывает её в зарегистрированную базу `webtest` (см. .v8-project.json).
 //
 // Двойной режим:
@@ -19,7 +19,7 @@ import { join, resolve, dirname } from 'path';
 // fs.rmSync/fs.cpSync напрямую не зовём: на Windows они молча ничего не делают,
 // когда в пути есть не-ASCII символы. Подробности и таблица сборок — в самом модуле.
 import { removePathSync } from '../common/fsutil.mjs';
-import { fileURLToPath } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const ROOT      = dirname(__filename);
@@ -178,7 +178,7 @@ export function platformLoadSteps() {
  * Imports the build-webtest-config.test.mjs steps array.
  */
 export async function loadBuildSteps() {
-  const buildModule = await import(`file://${join(ROOT, 'integration/build-webtest-config.test.mjs').replace(/\\/g, '/')}`);
+  const buildModule = await import(pathToFileURL(join(ROOT, 'integration/build-webtest-config.test.mjs')).href);
   return buildModule.steps;
 }
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// skill-test-runner v0.6 — Snapshot-based regression tests for 1C skill scripts
+// skill-test-runner v0.7 — Snapshot-based regression tests for 1C skill scripts
 // Usage: node tests/skills/runner.mjs [filter] [--update-snapshots] [--runtime python] [--json report.json] [--concurrency N] [--with-validation]
 
 import { execFileSync, execFile } from 'child_process';
@@ -8,6 +8,7 @@ import { existsSync, mkdirSync, mkdtempSync, unlinkSync, readFileSync, writeFile
 import { createHash } from 'crypto';
 import { join, resolve, dirname, relative, basename, extname } from 'path';
 import { tmpdir, cpus } from 'os';
+import { fileURLToPath, pathToFileURL } from 'url';
 // fs.rmSync/fs.cpSync напрямую не зовём: на Windows они молча ничего не делают, когда в пути
 // есть не-ASCII символы — кириллическое имя пользователя в %TEMP%, кириллическое имя объекта 1С
 // в deletePath. Подробности и таблица сборок — в самом модуле.
@@ -16,7 +17,7 @@ import { runGitStep } from '../common/git-step.mjs';
 
 // ─── Paths ──────────────────────────────────────────────────────────────────
 
-const ROOT      = resolve(dirname(new URL(import.meta.url).pathname).replace(/^\/([A-Z]:)/i, '$1'));
+const ROOT      = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(ROOT, '../..');
 const SKILLS    = resolve(REPO_ROOT, '.claude/skills');
 const CASES     = resolve(ROOT, 'cases');
@@ -527,6 +528,14 @@ const KNOWN_EXPECT_KEYS = new Set([
   'fileContains', 'fileNotContains', 'filesEqual', 'maxDurationMs',
 ]);
 
+// Сверка stderr (expectError, stderrContains/NotContains) без переводов строк: PS 5.1 режет
+// запись Write-Error по ширине буфера (120), а в начале записи стоит полный путь к скрипту —
+// место разрыва зависит от пути к клону и попадало внутрь проверяемой фразы («…уже существуе⏎т»).
+function stderrIncludes(stderr, expected) {
+  const flat = (s) => s.replace(/\r?\n/g, '');
+  return flat(stderr).includes(flat(expected));
+}
+
 function checkExpectKeys(caseData) {
   if (!caseData.expect) return [];
   const unknown = Object.keys(caseData.expect).filter(k => !KNOWN_EXPECT_KEYS.has(k));
@@ -992,7 +1001,7 @@ async function runCaseAsync(testCase, opts) {
     errors.push(...checkMaxDuration(caseData, execMs));
     if (caseData.expectError) {
       if (exitCode === 0) errors.push('Expected error (non-zero exit) but got exitCode=0');
-      if (typeof caseData.expectError === 'string' && !stderr.includes(caseData.expectError)) {
+      if (typeof caseData.expectError === 'string' && !stderrIncludes(stderr, caseData.expectError)) {
         errors.push(`Expected stderr to contain "${caseData.expectError}", got: ${stderr.substring(0, 200)}`);
       }
     } else {
@@ -1028,7 +1037,7 @@ async function runCaseAsync(testCase, opts) {
         const needles = Array.isArray(caseData.expect.stderrContains)
           ? caseData.expect.stderrContains : [caseData.expect.stderrContains];
         for (const needle of needles) {
-          if (!stderr.includes(needle)) errors.push(`stderr does not contain "${needle}"`);
+          if (!stderrIncludes(stderr, needle)) errors.push(`stderr does not contain "${needle}"`);
         }
       }
       // Отсутствие текста в stderr — для «лишних» предупреждений: навык отработал, но пожаловался зря.
@@ -1036,7 +1045,7 @@ async function runCaseAsync(testCase, opts) {
         const needles = Array.isArray(caseData.expect.stderrNotContains)
           ? caseData.expect.stderrNotContains : [caseData.expect.stderrNotContains];
         for (const needle of needles) {
-          if (stderr.includes(needle)) errors.push(`stderr unexpectedly contains "${needle}"`);
+          if (stderrIncludes(stderr, needle)) errors.push(`stderr unexpectedly contains "${needle}"`);
         }
       }
       // Отсутствие файла — тоже утверждение, и нужно оно чаще всего НЕГАТИВНОМУ кейсу:
@@ -1239,7 +1248,7 @@ function runCase(testCase, opts) {
       if (exitCode === 0) {
         errors.push('Expected error (non-zero exit) but got exitCode=0');
       }
-      if (typeof caseData.expectError === 'string' && !stderr.includes(caseData.expectError)) {
+      if (typeof caseData.expectError === 'string' && !stderrIncludes(stderr, caseData.expectError)) {
         errors.push(`Expected stderr to contain "${caseData.expectError}", got: ${stderr.substring(0, 200)}`);
       }
     } else {
@@ -1282,7 +1291,7 @@ function runCase(testCase, opts) {
         const needles = Array.isArray(caseData.expect.stderrContains)
           ? caseData.expect.stderrContains : [caseData.expect.stderrContains];
         for (const needle of needles) {
-          if (!stderr.includes(needle)) errors.push(`stderr does not contain "${needle}"`);
+          if (!stderrIncludes(stderr, needle)) errors.push(`stderr does not contain "${needle}"`);
         }
       }
       // Отсутствие текста в stderr — для «лишних» предупреждений: навык отработал, но пожаловался зря.
@@ -1290,7 +1299,7 @@ function runCase(testCase, opts) {
         const needles = Array.isArray(caseData.expect.stderrNotContains)
           ? caseData.expect.stderrNotContains : [caseData.expect.stderrNotContains];
         for (const needle of needles) {
-          if (stderr.includes(needle)) errors.push(`stderr unexpectedly contains "${needle}"`);
+          if (stderrIncludes(stderr, needle)) errors.push(`stderr unexpectedly contains "${needle}"`);
         }
       }
       // Отсутствие файла — тоже утверждение, и нужно оно чаще всего НЕГАТИВНОМУ кейсу:
@@ -1543,10 +1552,15 @@ async function discoverIntegration(filter) {
     const testName = file.replace(/\.test\.mjs$/, '');
     const id = `integration/${testName}`;
     if (filter && !id.startsWith(filter) && !id.includes(filter)) continue;
-    const mod = await import(`file://${join(INTEGRATION, file).replace(/\\/g, '/')}`);
+    // pathToFileURL, а не `file://` + путь: `#`, `%`, `?` в пути к клону ломают самодельный URL (#137).
+    const mod = await import(pathToFileURL(join(INTEGRATION, file)).href);
     const engines = Array.isArray(mod.engines) && mod.engines.length ? mod.engines : ['1cv8'];
     results.push({ id, name: mod.name || testName, steps: mod.steps || [], file, cache: mod.cache, setup: mod.setup || 'empty-config', requiresPlatform: !!mod.requiresPlatform, engines });
   }
+  // Тесты, снимающие фикстуру в кэш (`cache`), — первыми: их потребитель (`setup: 'base-config'`
+  // у build-cfe) стоит по алфавиту раньше и на пустом кэше падал в первом же прогоне.
+  // sort стабилен — внутри групп остаётся алфавитный порядок readdirSync.
+  results.sort((a, b) => (b.cache ? 1 : 0) - (a.cache ? 1 : 0));
   return results;
 }
 
@@ -1746,6 +1760,12 @@ function printIntegrationReport(results, opts) {
         }
       }
     }
+    // Ошибки уровня теста (фикстура, импорт модуля) шагом не являются: без этой печати тест
+    // падал голым «✗ (0.0s)» без причины.
+    const stepErrors = new Set(r.steps.map(s => s.error));
+    for (const err of (r.errors || []).filter(e => !stepErrors.has(e))) {
+      for (const line of err.split('\n')) console.log(`    ${line}`);
+    }
   }
   const passed = results.filter(r => r.passed).length;
   const failed = results.filter(r => !r.passed).length;
@@ -1779,6 +1799,9 @@ async function main() {
         integrationResults.push(...await runIntegrationTest(test, opts));
       }
       integrationOk = printIntegrationReport(integrationResults, opts);
+    } else if (isIntegrationFilter) {
+      console.error(`No integration tests found in ${INTEGRATION} (filter: "${opts.filter}")`);
+      integrationOk = false;
     }
   }
 
@@ -1812,8 +1835,12 @@ async function main() {
       }
       const wallTime = ((performance.now() - wallStart) / 1000).toFixed(1);
       casesOk = printReport(results, opts, wallTime);
-    } else if (opts.filter && !isIntegrationFilter) {
-      console.log('No test cases found.' + (opts.filter ? ` Filter: "${opts.filter}"` : ''));
+    } else {
+      // Пустая выборка — ошибка, а не зелёный прогон: так проявляются опечатка в фильтре
+      // и неверный корень кейсов (#137 — путь с кириллицей или «~» давал 0 кейсов и exit 0).
+      console.error(`No test cases found in ${CASES}` + (opts.filter ? ` (filter: "${opts.filter}")` : ''));
+      if (opts.filter) console.error('Integration tests are selected by the "integration/" prefix.');
+      casesOk = false;
     }
   }
 

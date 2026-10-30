@@ -17,6 +17,7 @@ import { existsSync, mkdirSync, mkdtempSync, unlinkSync, readFileSync, writeFile
          readdirSync, statSync, copyFileSync, chmodSync } from 'fs';
 import { join, resolve, dirname, basename } from 'path';
 import { tmpdir } from 'os';
+import { fileURLToPath } from 'url';
 // fs.rmSync/fs.cpSync напрямую не зовём: на Windows они молча ничего не делают, когда в пути
 // есть не-ASCII символы. Подробности и таблица сборок — в самом модуле.
 import { removePathSync, copyTreeSync } from '../common/fsutil.mjs';
@@ -24,7 +25,7 @@ import { runGitStep } from '../common/git-step.mjs';
 
 // ─── Paths ──────────────────────────────────────────────────────────────────
 
-const ROOT      = resolve(dirname(new URL(import.meta.url).pathname).replace(/^\/([A-Z]:)/i, '$1'));
+const ROOT      = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(ROOT, '../..');
 const SKILLS    = resolve(REPO_ROOT, '.claude/skills');
 const CASES     = resolve(ROOT, 'cases');
@@ -1095,7 +1096,9 @@ async function verifyCase(skillName, caseName, skillConfig, caseData, opts) {
     } catch (e) {
       const detail = errDetail(e);
       if (caseData.expectError) {
-        if (typeof caseData.expectError === 'string' && !detail.includes(caseData.expectError)) {
+        // Без переводов строк — как в runner.mjs: PS 5.1 переносит Write-Error по ширине буфера.
+        if (typeof caseData.expectError === 'string'
+            && !detail.replace(/\r?\n/g, '').includes(caseData.expectError.replace(/\r?\n/g, ''))) {
           log(skillName, false, `expected "${caseData.expectError}" in stderr, got: ${detail.substring(0, 200)}`);
           result.errors.push(`${skillName}: stderr does not contain "${caseData.expectError}"`);
           return result;
