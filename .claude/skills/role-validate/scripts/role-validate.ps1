@@ -543,9 +543,12 @@ foreach ($obj in $objects) {
 	}
 }
 
-Report-OK "$objCount objects, $rightCount rights"
-if ($rlsCount -gt 0) {
-	Report-OK "$rlsCount RLS restrictions"
+# После остановки счётчики частичные — сводку не печатаем, чтобы не выдавать её за полную.
+if (-not $script:stopped) {
+	Report-OK "$objCount objects, $rightCount rights"
+	if ($rlsCount -gt 0) {
+		Report-OK "$rlsCount RLS restrictions"
+	}
 }
 
 # 3e. Templates

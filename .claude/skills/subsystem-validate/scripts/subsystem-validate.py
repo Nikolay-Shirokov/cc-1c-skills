@@ -455,7 +455,7 @@ def main():
         result = f'=== Validation OK: Subsystem.{sub_name} ({checks} checks) ==='
     else:
         r.out('')
-        if r.errors >= r.max_errors:
+        if r.stopped and r.errors >= r.max_errors:
             r.out(f'Stopped after {r.max_errors} errors. Fix and re-run.')
         r.out(f'=== Result: {r.errors} errors, {r.warnings} warnings ({checks} checks) ===')
         result = '\r\n'.join(r.lines) + '\r\n'

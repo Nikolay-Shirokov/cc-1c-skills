@@ -585,9 +585,11 @@ def main():
                     sug_str = f" Did you mean: {', '.join(similar)}?" if similar else ''
                     report_error(f"{obj_name}: right '{r_name}' does not exist for type '{object_type}'.{sug_str}")
 
-    report_ok(f'{obj_count} objects, {right_count} rights')
-    if rls_count > 0:
-        report_ok(f'{rls_count} RLS restrictions')
+    # После остановки счётчики частичные — сводку не печатаем, чтобы не выдавать её за полную.
+    if not stopped:
+        report_ok(f'{obj_count} objects, {right_count} rights')
+        if rls_count > 0:
+            report_ok(f'{rls_count} RLS restrictions')
 
     # 3e. Templates
     templates = root.findall(f'{{{RIGHTS_NS}}}restrictionTemplate')
@@ -704,7 +706,7 @@ def main():
                             inferred_role_name = nel.text or ''
                             break
                     break
-        except etree.XMLSyntaxError:
+        except Exception:
             pass
     if not inferred_role_name:
         inferred_role_name = os.path.basename(role_dir)

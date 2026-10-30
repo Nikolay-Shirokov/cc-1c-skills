@@ -189,7 +189,7 @@ def finalize():
         result = f"=== Validation OK: {md_type}.{obj_name} ({checks} checks) ==="
     else:
         out_line("")
-        if errors >= max_errors:
+        if stopped and errors >= max_errors:
             out_line(f"Stopped after {max_errors} errors. Fix and re-run.")
         out_line(f"=== Result: {errors} errors, {warnings} warnings ({checks} checks) ===")
         result = "\n".join(output_lines)

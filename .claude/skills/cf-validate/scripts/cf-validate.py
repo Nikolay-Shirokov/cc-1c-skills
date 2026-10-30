@@ -203,7 +203,7 @@ class Reporter:
             result = f'=== Validation OK: Configuration.{self.obj_name} ({checks} checks) ==='
         else:
             self.out('')
-            if self.errors >= self.max_errors:
+            if self.stopped and self.errors >= self.max_errors:
                 self.out(f'Stopped after {self.max_errors} errors. Fix and re-run.')
             self.out(f'=== Result: {self.errors} errors, {self.warnings} warnings ({checks} checks) ===')
             result = self.text()

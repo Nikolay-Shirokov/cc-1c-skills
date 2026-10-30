@@ -132,7 +132,7 @@ def finalize():
         result = f"=== Validation OK: {file_name} ({checks} checks) ==="
     else:
         out_line("")
-        if state["errors"] >= max_errors:
+        if state["stopped"] and state["errors"] >= max_errors:
             out_line(f"Stopped after {max_errors} errors. Fix and re-run.")
         out_line(f"=== Result: {state['errors']} errors, {state['warnings']} warnings ({checks} checks) ===")
         result = "\n".join(output)

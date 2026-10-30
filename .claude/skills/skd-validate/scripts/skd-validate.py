@@ -117,7 +117,7 @@ def finalize():
     else:
         out_line("")
         note = f"; {xsd_note}" if xsd_note else ""
-        if errors >= max_errors:
+        if stopped and errors >= max_errors:
             out_line(f"Stopped after {max_errors} errors. Fix and re-run.")
         out_line(f"=== Result: {errors} errors, {warnings} warnings ({checks} checks{note}) ===")
         result = "\n".join(output_lines)
