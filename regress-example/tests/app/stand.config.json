@@ -1,0 +1,25 @@
+{
+  "_note": "Пути — от корня проекта. Пароли сюда не кладут: файл в репозитории, пароли — в .v8-project.json (см. README).",
+  "v8path": "C:\\Program Files\\1cv8\\8.3.24.1691\\bin\\1cv8.exe",
+  "_note_configEngine": "необязательно: путь к ibcmd.exe — быстрее грузит типовую; расширения всё равно через v8path",
+  "configEngine": null,
+  "user": "Администратор",
+  "label": "Стенд примера",
+  "standBase": "base/stand",
+  "dtPath": "etalon/app.dt",
+  "cfSrc": "src/cf",
+  "cfeSrc": "src/cfe",
+  "port": 9292,
+  "_note_apachePath": "свой экземпляр Apache стенда; web-publish скачает его при первом подъёме",
+  "apachePath": "tools/apache24",
+  "_note_skillsRoots": "где искать навыки, от корня проекта; в обычном проекте не нужен: каталоги навыков всех платформ (.claude/skills, .cursor/skills, .codex/skills…) проверяются сами",
+  "skillsRoots": ["../.claude/skills"],
+  "_note_extensions": "свойства подключения расширений после загрузки (safeMode, unsafeActionProtection, active: on/off). В безопасном режиме платформа не даёт перехватывать модули объектов — и пишет об этом только в журнал регистрации",
+  "extensions": { "Доработки": { "safeMode": "off" } },
+  "publications": [
+    { "appName": "app-admin", "user": "Администратор" },
+    { "appName": "app-init", "user": "Инициатор" },
+    { "appName": "app-appr", "user": "Согласующий" },
+    { "appName": "app", "user": null }
+  ]
+}

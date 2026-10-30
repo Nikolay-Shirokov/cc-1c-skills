@@ -1,0 +1,12 @@
+[
+  {
+    "name": "Заблокировано известным дефектом (ожидаемо красный)",
+    "matchedStatuses": ["failed"],
+    "messageRegex": "(?s).*(ТЕКСТ ОШИБКИ ИЗВЕСТНОГО ДЕФЕКТА|ЕЩЁ ОДИН ТЕКСТ).*"
+  },
+  {
+    "name": "Инфраструктура стенда (лицензии / вход / старт клиента / зависание)",
+    "matchedStatuses": ["broken", "failed"],
+    "messageRegex": "(?s).*(Browser not connected|Target page.*closed|context setup failed|timed out|Timeout|1C startup blocked|requires interactive login|rejected the credentials|may not run the web client|no free licence|Не обнаружено свободной лицензии|context pool exhausted).*"
+  }
+]
