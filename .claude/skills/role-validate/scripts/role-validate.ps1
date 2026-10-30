@@ -1,4 +1,4 @@
-﻿# role-validate v1.9 — Validate 1C role structure
+﻿# role-validate v1.10 — Validate 1C role structure
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -451,6 +451,7 @@ $rightCount = 0
 $rlsCount = 0
 
 foreach ($obj in $objects) {
+	if ($script:stopped) { break }
 	$objName = ""
 	foreach ($child in $obj.ChildNodes) {
 		if ($child.LocalName -eq "name") {
@@ -487,6 +488,7 @@ foreach ($obj in $objects) {
 
 	# Check rights
 	foreach ($child in $obj.ChildNodes) {
+		if ($script:stopped) { break }
 		if ($child.LocalName -ne "right") { continue }
 
 		$rName = ""
@@ -548,7 +550,7 @@ if ($rlsCount -gt 0) {
 
 # 3e. Templates
 $templates = $root.GetElementsByTagName("restrictionTemplate", $rightsNs)
-if ($templates.Count -gt 0) {
+if (-not $script:stopped -and $templates.Count -gt 0) {
 	$tplNames = @()
 	foreach ($tpl in $templates) {
 		$tName = ""
@@ -573,7 +575,7 @@ if ($templates.Count -gt 0) {
 
 # --- 4. Validate metadata ---
 
-if (Test-Path $MetadataPath) {
+if (-not $script:stopped -and (Test-Path $MetadataPath)) {
 	Out-Line ""
 	try {
 		[xml]$metaXml = Get-Content -Path $MetadataPath -Encoding UTF8
@@ -613,7 +615,7 @@ if (Test-Path $MetadataPath) {
 # роль может расходиться — платформа такое грузит, это лишь неоднородность выгрузки (типично после
 # мержа веток, выгруженных разными платформами).
 $rightsVer = $root.GetAttribute("version")
-if ($rightsVer) {
+if (-not $script:stopped -and $rightsVer) {
 	$ownerPath = Get-ExtBodyOwner $resolvedRights
 	$ownerVer = if ($ownerPath) { Get-RootVersion $ownerPath } else { $null }
 	$dumpAnchor = Find-DumpAnchor (Split-Path $resolvedRights -Parent)
@@ -644,7 +646,7 @@ if (Test-Path $MetadataPath) {
 	} catch { }
 }
 
-if (Test-Path $configXmlPath) {
+if (-not $script:stopped -and (Test-Path $configXmlPath)) {
 	Out-Line ""
 	try {
 		[xml]$cfgXml = Get-Content -Path $configXmlPath -Encoding UTF8
@@ -681,6 +683,7 @@ if ($script:errors -eq 0 -and $script:warnings -eq 0 -and -not $Detailed) {
 	$result = "=== Validation OK: Role.$inferredRoleName ($checks checks) ==="
 } else {
 	Out-Line ""
+	if ($script:stopped) { Out-Line "Stopped after $MaxErrors errors. Fix and re-run." }
 	Out-Line "=== Result: $($script:errors) errors, $($script:warnings) warnings ($checks checks) ==="
 	$result = $script:output.ToString()
 }

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# role-validate v1.9 — Validate 1C role Rights.xml structure
+# role-validate v1.10 — Validate 1C role Rights.xml structure
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 """Validates role Rights.xml: root element, global flags, objects, rights, RLS, templates."""
 import sys, os, argparse, re
@@ -492,6 +492,8 @@ def main():
     rls_count = 0
 
     for obj in objects:
+        if stopped:
+            break
         obj_name = ''
         for child in obj:
             if not isinstance(child.tag, str):
@@ -528,6 +530,8 @@ def main():
 
         # Check rights
         for child in obj:
+            if stopped:
+                break
             if not isinstance(child.tag, str):
                 continue
             if etree.QName(child.tag).localname != 'right' or etree.QName(child.tag).namespace != RIGHTS_NS:
@@ -587,7 +591,7 @@ def main():
 
     # 3e. Templates
     templates = root.findall(f'{{{RIGHTS_NS}}}restrictionTemplate')
-    if len(templates) > 0:
+    if not stopped and len(templates) > 0:
         tpl_names = []
         for tpl in templates:
             t_name = ''
@@ -615,7 +619,7 @@ def main():
 
     # --- 4. Validate metadata (optional) ---
     inferred_role_name = ''
-    if os.path.isfile(metadata_path):
+    if not stopped and os.path.isfile(metadata_path):
         lines.append('')
 
         try:
@@ -671,7 +675,7 @@ def main():
     # роль может расходиться — платформа такое грузит, это лишь неоднородность выгрузки (типично после
     # мержа веток, выгруженных разными платформами).
     rights_ver = root.get('version', '')
-    if rights_ver:
+    if not stopped and rights_ver:
         owner_path = ext_body_owner(resolved_path)
         owner_ver = root_version(owner_path) if owner_path else None
         dump_anchor = find_dump_anchor(os.path.dirname(resolved_path))
@@ -690,10 +694,22 @@ def main():
     config_dir = os.path.dirname(roles_dir)            # config root
     config_xml_path = os.path.join(config_dir, 'Configuration.xml')
 
+    # После остановки секция 4 пропущена — имя роли всё равно берём из метаданных (как PS).
+    if not inferred_role_name and os.path.isfile(metadata_path):
+        try:
+            for el in etree.parse(metadata_path).getroot().iter():
+                if isinstance(el.tag, str) and etree.QName(el.tag).localname == 'Role':
+                    for nel in el.iter():
+                        if isinstance(nel.tag, str) and etree.QName(nel.tag).localname == 'Name':
+                            inferred_role_name = nel.text or ''
+                            break
+                    break
+        except etree.XMLSyntaxError:
+            pass
     if not inferred_role_name:
         inferred_role_name = os.path.basename(role_dir)
 
-    if os.path.exists(config_xml_path):
+    if not stopped and os.path.exists(config_xml_path):
         lines.append('')
         try:
             cfg_parser = etree.XMLParser(remove_blank_text=False)
@@ -724,6 +740,8 @@ def main():
         result = f'=== Validation OK: Role.{inferred_role_name} ({checks} checks) ==='
     else:
         lines.append('')
+        if stopped:
+            lines.append(f'Stopped after {args.MaxErrors} errors. Fix and re-run.')
         lines.append(f'=== Result: {errors} errors, {warnings} warnings ({checks} checks) ===')
         result = '\n'.join(lines)
     write_output(result)

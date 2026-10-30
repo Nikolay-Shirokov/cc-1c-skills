@@ -1,13 +1,16 @@
 {
-  "name": "Ошибка: блоки прав на типы без прав в ролях",
+  "name": "Ошибка: блоки прав на типы без прав в ролях; -MaxErrors останавливает проверку",
   "setup": "fixture:no-rights-types",
   "params": { "rightsPath": "Roles/РольВсеТипы/Ext/Rights.xml" },
+  "args_extra": ["-MaxErrors", "2"],
   "expectError": true,
   "noSnapshot": "негативный кейс: навык ничего не пишет, проверяется текст и код возврата",
   "expect": {
     "stdoutContains": [
       "Enum.ЮрФизЛицо: type 'Enum' has no rights in roles",
-      "CommonModule.ОбщегоНазначения: type 'CommonModule' has no rights in roles"
-    ]
+      "CommonModule.ОбщегоНазначения: type 'CommonModule' has no rights in roles",
+      "Stopped after 2 errors"
+    ],
+    "stdoutNotContains": "DefinedType.Контрагент"
   }
 }
