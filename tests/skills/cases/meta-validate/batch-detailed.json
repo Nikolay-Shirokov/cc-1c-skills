@@ -1,0 +1,16 @@
+{
+  "name": "Пакетная проверка: -Detailed доходит до каждого объекта",
+  "setup": "fixture:composite-defined-type",
+  "cwd": "workDir",
+  "params": { "objectPath": "Catalogs/Договоры.xml|Catalogs/Товары.xml" },
+  "args_extra": ["-Detailed"],
+  "noSnapshot": "проверка только читает, проверяется вывод",
+  "expect": {
+    "stdoutContains": [
+      "=== Validation: Catalog.Договоры",
+      "=== Validation: Catalog.Товары",
+      "[OK]",
+      "=== Batch: 2 objects"
+    ]
+  }
+}

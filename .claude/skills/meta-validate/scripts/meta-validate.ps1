@@ -1,4 +1,4 @@
-﻿# meta-validate v1.43 — Validate 1C metadata object structure
+﻿# meta-validate v1.44 — Validate 1C metadata object structure
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -23,7 +23,7 @@ if ($pathList.Count -gt 1) {
 	$batchOk = 0
 	$batchFail = 0
 	foreach ($singlePath in $pathList) {
-		$callArgs = @{ ObjectPath = $singlePath; MaxErrors = $MaxErrors; Verbose = $Detailed }
+		$callArgs = @{ ObjectPath = $singlePath; MaxErrors = $MaxErrors; Detailed = $Detailed }
 		if ($OutFile) {
 			$baseName = [System.IO.Path]::GetFileNameWithoutExtension($OutFile)
 			$ext = [System.IO.Path]::GetExtension($OutFile)

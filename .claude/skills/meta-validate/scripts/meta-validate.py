@@ -1,4 +1,4 @@
-# meta-validate v1.43 — Validate 1C metadata object structure (Python port)
+# meta-validate v1.44 — Validate 1C metadata object structure (Python port)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import os
