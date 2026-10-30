@@ -1,0 +1,18 @@
+{
+  "name": "Заимствованный общий модуль: ExtendedConfigurationObject — without-config",
+  "setup": "fixture:adopted-module-optional-link",
+  "params": {
+    "extensionPath": "."
+  },
+  "args_extra": [
+    "-Detailed"
+  ],
+  "noSnapshot": "Статическая фикстура; валидатор только читает, проверяются диагностики и код возврата.",
+  "expect": {
+    "stdoutContains": [
+      "9. Borrowed objects: 1/1 validated",
+      "=== Result: 0 errors"
+    ],
+    "stdoutNotContains": "missing ExtendedConfigurationObject"
+  }
+}

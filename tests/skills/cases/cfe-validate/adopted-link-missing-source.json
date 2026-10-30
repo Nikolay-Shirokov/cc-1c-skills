@@ -1,0 +1,25 @@
+{
+  "name": "Заимствованный общий модуль: ExtendedConfigurationObject — missing-source",
+  "setup": "fixture:adopted-module-optional-link",
+  "params": {
+    "extensionPath": "."
+  },
+  "args_extra": [
+    "-Detailed",
+    "-ConfigPath",
+    "{workDir}/src"
+  ],
+  "noSnapshot": "Статическая фикстура; валидатор только читает, проверяются диагностики и код возврата.",
+  "preRun": [
+    {
+      "deletePath": "src/CommonModules/SharedModule.xml"
+    }
+  ],
+  "expectError": true,
+  "expect": {
+    "stdoutContains": [
+      "18. CommonModule.SharedModule: borrowed object is missing"
+    ],
+    "stdoutNotContains": "missing ExtendedConfigurationObject"
+  }
+}

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# cfe-validate v1.32 — Validate 1C configuration extension structure (CFE)
+# cfe-validate v1.33 — Validate 1C configuration extension structure (CFE)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 """Validates extension Configuration.xml: root, InternalInfo, extension properties, ChildObjects, borrowed objects."""
 import sys, os, argparse, re
@@ -1017,11 +1017,9 @@ def main():
                 borrowed_count += 1
 
                 ext_obj = obj_props.find(f'{{{MD}}}ExtendedConfigurationObject')
-                if ext_obj is None or not (ext_obj.text or ''):
-                    r.error(f'9. Borrowed {type_name}.{child_name}: missing ExtendedConfigurationObject')
-                    check9_ok = False
-                elif not GUID_PATTERN.match(ext_obj.text):
-                    r.error(f"9. Borrowed {type_name}.{child_name}: invalid ExtendedConfigurationObject UUID '{ext_obj.text}'")
+                # UUID связи может отсутствовать в платформенной выгрузке; заданный UUID должен быть корректным.
+                if ext_obj is not None and not GUID_PATTERN.match(ext_obj.text or ''):
+                    r.error(f"9. Borrowed {type_name}.{child_name}: invalid ExtendedConfigurationObject UUID '{ext_obj.text or ''}'")
                     check9_ok = False
                 else:
                     borrowed_ok_count += 1
@@ -1830,7 +1828,9 @@ def main():
         if obj_el is None:
             return False
         v = md_id_value(obj_el, from_extension)
-        if v:
+        belonging = obj_el.xpath("*[local-name()='Properties']/*[local-name()='ObjectBelonging']")
+        # Заимствованный объект без UUID тоже должен проверяться на наличие в источнике.
+        if v or (from_extension and belonging and belonging[0].text == 'Adopted'):
             idx[key] = v
         own_dir = os.path.join(os.path.dirname(obj_file), os.path.splitext(os.path.basename(obj_file))[0])
         add_md_id_entries(idx, obj_el, key, from_extension, own_dir)
@@ -1996,7 +1996,7 @@ def main():
                     else:
                         r.error(f'18. {key}: borrowed sub-object is missing from the source configuration')
                     check18_ok = False
-                elif ext_id.lower() != src_id.lower():
+                elif ext_id and ext_id.lower() != src_id.lower():
                     what = 'zero' if ext_id == zero_guid else ext_id
                     r.error(f'18. {key}: ExtendedConfigurationObject is {what}, but the UUID in the source configuration is {src_id} — the platform loads the extension but does not apply it («ОбъектРасширяемойКонфигурации не совпадает»)')
                     check18_ok = False

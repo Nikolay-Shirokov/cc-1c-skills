@@ -1,0 +1,28 @@
+{
+  "name": "Заимствованный общий модуль: ExtendedConfigurationObject — malformed",
+  "setup": "fixture:adopted-module-optional-link",
+  "params": {
+    "extensionPath": "."
+  },
+  "args_extra": [
+    "-Detailed",
+    "-ConfigPath",
+    "{workDir}/src"
+  ],
+  "noSnapshot": "Статическая фикстура; валидатор только читает, проверяются диагностики и код возврата.",
+  "preRun": [
+    {
+      "writeFile": {
+        "path": "CommonModules/SharedModule.xml",
+        "content": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\r\n<MetaDataObject xmlns=\"http://v8.1c.ru/8.3/MDClasses\" xmlns:app=\"http://v8.1c.ru/8.2/managed-application/core\" xmlns:cfg=\"http://v8.1c.ru/8.1/data/enterprise/current-config\" xmlns:cmi=\"http://v8.1c.ru/8.2/managed-application/cmi\" xmlns:ent=\"http://v8.1c.ru/8.1/data/enterprise\" xmlns:lf=\"http://v8.1c.ru/8.2/managed-application/logform\" xmlns:style=\"http://v8.1c.ru/8.1/data/ui/style\" xmlns:sys=\"http://v8.1c.ru/8.1/data/ui/fonts/system\" xmlns:v8=\"http://v8.1c.ru/8.1/data/core\" xmlns:v8ui=\"http://v8.1c.ru/8.1/data/ui\" xmlns:web=\"http://v8.1c.ru/8.1/data/ui/colors/web\" xmlns:win=\"http://v8.1c.ru/8.1/data/ui/colors/windows\" xmlns:xen=\"http://v8.1c.ru/8.3/xcf/enums\" xmlns:xpr=\"http://v8.1c.ru/8.3/xcf/predef\" xmlns:xr=\"http://v8.1c.ru/8.3/xcf/readable\" xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" version=\"2.20\">\r\n\t<CommonModule uuid=\"4ef6bde2-e7ec-45ec-b66a-cda30472e681\">\r\n\t\t<InternalInfo>\r\n\t\t\t<xr:PropertyState>\r\n\t\t\t\t<xr:Property>Module</xr:Property>\r\n\t\t\t\t<xr:State>Extended</xr:State>\r\n\t\t\t</xr:PropertyState>\r\n\t\t</InternalInfo>\r\n\t\t<Properties>\r\n\t\t\t<ObjectBelonging>Adopted</ObjectBelonging>\r\n\t\t\t<Name>SharedModule</Name>\r\n\t\t\t<Comment/>\r\n\t\t\t<ExtendedConfigurationObject>invalid-uuid</ExtendedConfigurationObject>\r\n\t\t\t<Global>false</Global>\r\n\t\t\t<ClientManagedApplication>false</ClientManagedApplication>\r\n\t\t\t<Server>false</Server>\r\n\t\t\t<ExternalConnection>false</ExternalConnection>\r\n\t\t\t<ClientOrdinaryApplication>false</ClientOrdinaryApplication>\r\n\t\t\t<ServerCall>false</ServerCall>\r\n\t\t</Properties>\r\n\t</CommonModule>\r\n</MetaDataObject>"
+      }
+    }
+  ],
+  "expectError": true,
+  "expect": {
+    "stdoutContains": [
+      "9. Borrowed CommonModule.SharedModule: invalid ExtendedConfigurationObject UUID"
+    ],
+    "stdoutNotContains": "missing ExtendedConfigurationObject"
+  }
+}

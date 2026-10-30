@@ -1,4 +1,4 @@
-﻿# cfe-validate v1.32 — Validate 1C configuration extension structure (CFE)
+﻿# cfe-validate v1.33 — Validate 1C configuration extension structure (CFE)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -954,10 +954,8 @@ if ($childObjNode) {
 			$borrowedCount++
 
 			$extObj = $objProps.SelectSingleNode("md:ExtendedConfigurationObject", $objNs)
-			if (-not $extObj -or -not $extObj.InnerText) {
-				Report-Error "9. Borrowed ${typeName}.${childName}: missing ExtendedConfigurationObject"
-				$check9Ok = $false
-			} elseif ($extObj.InnerText -notmatch $guidPattern) {
+			# UUID связи может отсутствовать в платформенной выгрузке; заданный UUID должен быть корректным.
+			if ($extObj -and $extObj.InnerText -notmatch $guidPattern) {
 				Report-Error "9. Borrowed ${typeName}.${childName}: invalid ExtendedConfigurationObject UUID '$($extObj.InnerText)'"
 				$check9Ok = $false
 			} else {
@@ -1796,7 +1794,9 @@ function Add-MdIdFile {
 	}
 	if (-not $objEl) { return $false }
 	$v = Get-MdIdValue $objEl $fromExtension
-	if ($v) { $idx[$key] = $v }
+	$belonging = $objEl.SelectSingleNode("*[local-name()='Properties']/*[local-name()='ObjectBelonging']")
+	# Заимствованный объект без UUID тоже должен проверяться на наличие в источнике.
+	if ($v -or ($fromExtension -and $belonging -and $belonging.InnerText -eq 'Adopted')) { $idx[$key] = $v }
 	$ownDir = Join-Path (Split-Path $objFile -Parent) ([System.IO.Path]::GetFileNameWithoutExtension($objFile))
 	Add-MdIdEntries $idx $objEl $key $fromExtension $ownDir
 	return $true
@@ -1968,7 +1968,7 @@ if (-not $script:stopped -and $childObjNode) {
 					Report-Error "18. ${key}: borrowed sub-object is missing from the source configuration"
 				}
 				$check18Ok = $false
-			} elseif ($extId.ToLowerInvariant() -cne $srcIdx[$key].ToLowerInvariant()) {
+			} elseif ($extId -and $extId.ToLowerInvariant() -cne $srcIdx[$key].ToLowerInvariant()) {
 				$what = if ($extId -ceq $zeroGuid) { "zero" } else { "$extId" }
 				Report-Error "18. ${key}: ExtendedConfigurationObject is $what, but the UUID in the source configuration is $($srcIdx[$key]) — the platform loads the extension but does not apply it («ОбъектРасширяемойКонфигурации не совпадает»)"
 				$check18Ok = $false
