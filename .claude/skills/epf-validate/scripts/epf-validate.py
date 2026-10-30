@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# epf-validate v1.11 — Validate 1C external data processor / report structure
+# epf-validate v1.12 — Validate 1C external data processor / report structure
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 # Works for both EPF (ExternalDataProcessor) and ERF (ExternalReport) — auto-detects
 
@@ -179,6 +179,8 @@ def main():
             result = f"=== Validation OK: {short_type}.{obj_name} ({checks} checks) ==="
         else:
             out_line("")
+            if errors >= max_errors:
+                out_line(f"Stopped after {max_errors} errors. Fix and re-run.")
             out_line(f"=== Result: {errors} errors, {warnings} warnings ({checks} checks) ===")
             result = "\n".join(output_lines)
         print(result)

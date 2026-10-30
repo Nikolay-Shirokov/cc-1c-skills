@@ -1,4 +1,4 @@
-﻿# meta-validate v1.44 — Validate 1C metadata object structure
+﻿# meta-validate v1.45 — Validate 1C metadata object structure
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -142,6 +142,7 @@ $finalize = {
 		$result = "=== Validation OK: $mdType.$objName ($checks checks) ==="
 	} else {
 		Out-Line ""
+		if ($script:errors -ge $MaxErrors) { Out-Line "Stopped after $MaxErrors errors. Fix and re-run." }
 		Out-Line "=== Result: $($script:errors) errors, $($script:warnings) warnings ($checks checks) ==="
 		$result = $script:output.ToString()
 	}

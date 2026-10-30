@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# interface-validate v1.6 — Validate 1C CommandInterface.xml structure
+# interface-validate v1.7 — Validate 1C CommandInterface.xml structure
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 """Validates CommandInterface.xml sections, command references, order, duplicates."""
 import sys, os, argparse, re
@@ -488,6 +488,8 @@ def main():
         result = f'=== Validation OK: CommandInterface ({context_name}) ({checks} checks) ==='
     else:
         r.out('')
+        if r.errors >= r.max_errors:
+            r.out(f'Stopped after {r.max_errors} errors. Fix and re-run.')
         r.out(f'=== Result: {r.errors} errors, {r.warnings} warnings ({checks} checks) ===')
         result = '\r\n'.join(r.lines) + '\r\n'
 

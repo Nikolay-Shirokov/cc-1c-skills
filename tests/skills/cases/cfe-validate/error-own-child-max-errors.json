@@ -56,7 +56,10 @@
   "expectError": true,
   "noSnapshot": "негативный кейс: навык ничего не пишет, проверяется текст ошибки",
   "expect": {
-    "stdoutContains": "own Attribute.Тест_Первый",
+    "stdoutContains": [
+      "own Attribute.Тест_Первый",
+      "Stopped after 1 errors"
+    ],
     "stdoutNotContains": "own Attribute.Тест_Второй"
   }
 }

@@ -1,4 +1,4 @@
-# xdto-validate v1.6 — Validate a 1C XDTO package (Python port)
+# xdto-validate v1.7 — Validate a 1C XDTO package (Python port)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import os
@@ -132,6 +132,8 @@ def finalize():
         result = f"=== Validation OK: {file_name} ({checks} checks) ==="
     else:
         out_line("")
+        if state["errors"] >= max_errors:
+            out_line(f"Stopped after {max_errors} errors. Fix and re-run.")
         out_line(f"=== Result: {state['errors']} errors, {state['warnings']} warnings ({checks} checks) ===")
         result = "\n".join(output)
     print(result)

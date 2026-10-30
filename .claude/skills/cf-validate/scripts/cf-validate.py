@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# cf-validate v1.13 — Validate 1C configuration XML structure
+# cf-validate v1.14 — Validate 1C configuration XML structure
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 """Validates Configuration.xml: root structure, InternalInfo, properties, ChildObjects, languages."""
 import sys, os, argparse, re
@@ -203,6 +203,8 @@ class Reporter:
             result = f'=== Validation OK: Configuration.{self.obj_name} ({checks} checks) ==='
         else:
             self.out('')
+            if self.errors >= self.max_errors:
+                self.out(f'Stopped after {self.max_errors} errors. Fix and re-run.')
             self.out(f'=== Result: {self.errors} errors, {self.warnings} warnings ({checks} checks) ===')
             result = self.text()
 

@@ -1,4 +1,4 @@
-﻿# cf-validate v1.13 — Validate 1C configuration root structure
+﻿# cf-validate v1.14 — Validate 1C configuration root structure
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -78,6 +78,7 @@ $finalize = {
 		$result = "=== Validation OK: Configuration.$objName ($checks checks) ==="
 	} else {
 		Out-Line ""
+		if ($script:errors -ge $MaxErrors) { Out-Line "Stopped after $MaxErrors errors. Fix and re-run." }
 		Out-Line "=== Result: $($script:errors) errors, $($script:warnings) warnings ($checks checks) ==="
 		$result = $script:output.ToString()
 	}

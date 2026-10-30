@@ -1,4 +1,4 @@
-﻿# xdto-validate v1.6 — Validate a 1C XDTO package
+﻿# xdto-validate v1.7 — Validate a 1C XDTO package
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -111,6 +111,7 @@ $finalize = {
 		$result = "=== Validation OK: $fileName ($checks checks) ==="
 	} else {
 		Out-Line ""
+		if ($script:errors -ge $MaxErrors) { Out-Line "Stopped after $MaxErrors errors. Fix and re-run." }
 		Out-Line "=== Result: $($script:errors) errors, $($script:warnings) warnings ($checks checks) ==="
 		$result = $script:output.ToString()
 	}

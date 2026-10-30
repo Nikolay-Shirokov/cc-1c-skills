@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# subsystem-validate v1.7 — Validate 1C subsystem XML structure
+# subsystem-validate v1.8 — Validate 1C subsystem XML structure
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 """Validates subsystem XML file structure, properties, content items, child objects."""
 import sys, os, argparse, re
@@ -455,6 +455,8 @@ def main():
         result = f'=== Validation OK: Subsystem.{sub_name} ({checks} checks) ==='
     else:
         r.out('')
+        if r.errors >= r.max_errors:
+            r.out(f'Stopped after {r.max_errors} errors. Fix and re-run.')
         r.out(f'=== Result: {r.errors} errors, {r.warnings} warnings ({checks} checks) ===')
         result = '\r\n'.join(r.lines) + '\r\n'
 

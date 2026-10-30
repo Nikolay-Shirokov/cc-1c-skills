@@ -1,4 +1,4 @@
-﻿# epf-validate v1.11 — Validate 1C external data processor / report structure
+﻿# epf-validate v1.12 — Validate 1C external data processor / report structure
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 # Works for both EPF (ExternalDataProcessor) and ERF (ExternalReport) — auto-detects
 [CmdletBinding(PositionalBinding=$false)]
@@ -100,6 +100,7 @@ $finalize = {
 		$result = "=== Validation OK: $shortType.$objName ($checks checks) ==="
 	} else {
 		Out-Line ""
+		if ($script:errors -ge $MaxErrors) { Out-Line "Stopped after $MaxErrors errors. Fix and re-run." }
 		Out-Line "=== Result: $($script:errors) errors, $($script:warnings) warnings ($checks checks) ==="
 		$result = $script:output.ToString()
 	}

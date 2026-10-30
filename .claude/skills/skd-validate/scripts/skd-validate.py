@@ -1,4 +1,4 @@
-# skd-validate v1.8 — Validate 1C DCS structure (Python port)
+# skd-validate v1.9 — Validate 1C DCS structure (Python port)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import os
@@ -117,6 +117,8 @@ def finalize():
     else:
         out_line("")
         note = f"; {xsd_note}" if xsd_note else ""
+        if errors >= max_errors:
+            out_line(f"Stopped after {max_errors} errors. Fix and re-run.")
         out_line(f"=== Result: {errors} errors, {warnings} warnings ({checks} checks{note}) ===")
         result = "\n".join(output_lines)
     print(result)

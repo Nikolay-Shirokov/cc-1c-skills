@@ -1,4 +1,4 @@
-﻿# mxl-validate v1.10 — Validate 1C spreadsheet
+﻿# mxl-validate v1.11 — Validate 1C spreadsheet
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(

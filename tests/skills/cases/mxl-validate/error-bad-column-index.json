@@ -1,6 +1,13 @@
 {
-  "name": "Ошибка: индекс колонки ячейки за пределами размера",
+  "name": "Ошибка: индекс колонки ячейки за пределами размера; -MaxErrors останавливает проверку",
   "setup": "fixture:bad-column-index",
   "params": { "templatePath": "Template.xml" },
-  "expectError": true
+  "args_extra": ["-MaxErrors", "1"],
+  "expectError": true,
+  "expect": {
+    "stdoutContains": [
+      "[ERROR] Row 0: column index 50 >= column count (2)",
+      "Stopped after 1 errors"
+    ]
+  }
 }

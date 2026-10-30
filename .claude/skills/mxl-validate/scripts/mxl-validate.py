@@ -1,5 +1,5 @@
 ﻿#!/usr/bin/env python3
-# mxl-validate v1.10 — Validate 1C spreadsheet document Template.xml
+# mxl-validate v1.11 — Validate 1C spreadsheet document Template.xml
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 """Validates spreadsheet Template.xml: height, palette refs, column/row indices, areas, merges."""
 import sys, os, re, argparse
@@ -594,6 +594,8 @@ def main():
         result = f'=== Validation OK: Template.{template_display_name} ({checks} checks) ==='
     else:
         r.lines.append('')
+        if r.stopped:
+            r.lines.append(f'Stopped after {r.max_errors} errors. Fix and re-run.')
         r.lines.append(f'=== Result: {r.errors} errors, {r.warnings} warnings ({checks} checks) ===')
         result = '\n'.join(r.lines)
 

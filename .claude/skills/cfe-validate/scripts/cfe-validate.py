@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# cfe-validate v1.31 — Validate 1C configuration extension structure (CFE)
+# cfe-validate v1.32 — Validate 1C configuration extension structure (CFE)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 """Validates extension Configuration.xml: root, InternalInfo, extension properties, ChildObjects, borrowed objects."""
 import sys, os, argparse, re
@@ -373,6 +373,8 @@ class Reporter:
             result = f'=== Validation OK: Extension.{self.obj_name} ({checks} checks) ==='
         else:
             self.out('')
+            if self.errors >= self.max_errors:
+                self.out(f'Stopped after {self.max_errors} errors. Fix and re-run.')
             self.out(f'=== Result: {self.errors} errors, {self.warnings} warnings ({checks} checks) ===')
             result = self.text()
 

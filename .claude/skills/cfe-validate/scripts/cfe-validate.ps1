@@ -1,4 +1,4 @@
-﻿# cfe-validate v1.31 — Validate 1C configuration extension structure (CFE)
+﻿# cfe-validate v1.32 — Validate 1C configuration extension structure (CFE)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -82,6 +82,7 @@ $finalize = {
 		$result = "=== Validation OK: Extension.$objName ($checks checks) ==="
 	} else {
 		Out-Line ""
+		if ($script:errors -ge $MaxErrors) { Out-Line "Stopped after $MaxErrors errors. Fix and re-run." }
 		Out-Line "=== Result: $($script:errors) errors, $($script:warnings) warnings ($checks checks) ==="
 		$result = $script:output.ToString()
 	}

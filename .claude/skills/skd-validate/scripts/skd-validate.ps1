@@ -1,4 +1,4 @@
-﻿# skd-validate v1.8 — Validate 1C DCS structure
+﻿# skd-validate v1.9 — Validate 1C DCS structure
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -94,6 +94,7 @@ $finalize = {
 	} else {
 		Out-Line ""
 		$note = if ($script:xsdNote) { "; $($script:xsdNote)" } else { "" }
+		if ($script:errors -ge $MaxErrors) { Out-Line "Stopped after $MaxErrors errors. Fix and re-run." }
 		Out-Line "=== Result: $($script:errors) errors, $($script:warnings) warnings ($checks checks$note) ==="
 		$result = $script:output.ToString()
 	}

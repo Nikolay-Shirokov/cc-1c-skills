@@ -1,4 +1,4 @@
-﻿# interface-validate v1.6 — Validate 1C CommandInterface.xml structure
+﻿# interface-validate v1.7 — Validate 1C CommandInterface.xml structure
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -466,6 +466,7 @@ if ($script:errors -eq 0 -and $script:warnings -eq 0 -and -not $Detailed) {
 	$result = "=== Validation OK: CommandInterface ($contextName) ($checks checks) ==="
 } else {
 	Out-Line ""
+	if ($script:errors -ge $MaxErrors) { Out-Line "Stopped after $MaxErrors errors. Fix and re-run." }
 	Out-Line "=== Result: $($script:errors) errors, $($script:warnings) warnings ($checks checks) ==="
 	$result = $script:output.ToString()
 }
