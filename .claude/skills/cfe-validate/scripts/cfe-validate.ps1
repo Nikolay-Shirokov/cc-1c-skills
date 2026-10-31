@@ -889,7 +889,8 @@ function Validate-BorrowedSubItem {
 	}
 	$subExt = $subProps.SelectSingleNode("md:ExtendedConfigurationObject", $nsm)
 	if (-not $subExt) {
-		$script:noLinkItems.Add("${context}.${subType}.$($subName.InnerText)")
+		$subNameVal = if ($subName) { $subName.InnerText } else { "?" }
+		$script:noLinkItems.Add("${context}.${subType}.${subNameVal}")
 	} elseif ($subExt.InnerText -notmatch $guidPattern) {
 		Report-Error "${checkNum}. ${context}: ${subType}.$($subName.InnerText) invalid ExtendedConfigurationObject"
 		$ok = $false
@@ -1864,8 +1865,10 @@ function Get-SourceObjectName {
 	$f = Join-Path $typeDir "$objName.xml"
 	if (-not (Test-Path -LiteralPath $f)) {
 		if (-not (Test-Path -LiteralPath $typeDir)) { return $null }
+		# -Filter на Windows ловит и «.xmlbak» через короткие имена 8.3 — расширение сверяем явно
 		$twin = Get-ChildItem -LiteralPath $typeDir -Filter "*.xml" -File |
-			Where-Object { [string]::Equals($_.BaseName, $objName, [StringComparison]::OrdinalIgnoreCase) } |
+			Where-Object { $_.Extension -ieq ".xml" -and [string]::Equals($_.BaseName, $objName, [StringComparison]::OrdinalIgnoreCase) } |
+			Sort-Object Name |
 			Select-Object -First 1
 		if (-not $twin) { return $null }
 		$f = $twin.FullName
@@ -1999,7 +2002,8 @@ if (-not $script:stopped -and $childObjNode) {
 		}
 
 		$srcName = Get-SourceObjectName (Join-Path $srcRoot $dirName) $objName18
-		if ($srcName -and $srcName -cne $objName18) {
+		# Только расхождение регистра: имя, отличающееся иначе (файл назван не по объекту), — не наш случай
+		if ($srcName -and $srcName -cne $objName18 -and [string]::Equals($srcName, $objName18, [StringComparison]::OrdinalIgnoreCase)) {
 			Report-Error "18. ${typeName}.${objName18}: the source configuration has this name in a different case (${typeName}.${srcName}) — the platform rejects the extension («контролируемое свойство Имя не совпадает»)"
 			$check18Ok = $false
 			continue
@@ -2011,8 +2015,9 @@ if (-not $script:stopped -and $childObjNode) {
 			continue
 		}
 		foreach ($key in $extIdx.Keys) {
-			$check18Count++
 			$extId = $extIdx[$key]
+			# В итог «связи совпадают» — только сверенные UUID; о незаданных сказала проверка 9
+			if ($extId) { $check18Count++ }
 			if (-not $srcIdx.Contains($key)) {
 				$caseTwin = $null
 				foreach ($sk in $srcIdx.Keys) {

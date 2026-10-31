@@ -2030,7 +2030,8 @@ def main():
                 continue
 
             src_name = source_object_name(os.path.join(src_root, dir_name), obj_name18)
-            if src_name and src_name != obj_name18:
+            # Только расхождение регистра: имя, отличающееся иначе (файл назван не по объекту), — не наш случай
+            if src_name and src_name != obj_name18 and src_name.upper() == obj_name18.upper():
                 r.error(f'18. {type_name}.{obj_name18}: the source configuration has this name in a different case ({type_name}.{src_name}) — the platform rejects the extension («контролируемое свойство Имя не совпадает»)')
                 check18_ok = False
                 continue
@@ -2040,7 +2041,9 @@ def main():
                 check18_ok = False
                 continue
             for key, ext_id in ext_idx.items():
-                check18_count += 1
+                # В итог «связи совпадают» — только сверенные UUID; о незаданных сказала проверка 9
+                if ext_id:
+                    check18_count += 1
                 src_id = src_idx.get(key)
                 if src_id is None:
                     case_twin = next((sk for sk in src_idx if sk.upper() == key.upper()), None)
