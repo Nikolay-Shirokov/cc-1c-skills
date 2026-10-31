@@ -1,0 +1,28 @@
+{
+  "name": "Заданный, но некорректный или пустой ExtendedConfigurationObject — по-прежнему ошибка",
+  "setup": "fixture:adopted-without-link",
+  "preRun": [
+    {
+      "writeFile": {
+        "path": "CommonModules/SharedModule.xml",
+        "content": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<MetaDataObject xmlns=\"http://v8.1c.ru/8.3/MDClasses\" xmlns:xr=\"http://v8.1c.ru/8.3/xcf/readable\" version=\"2.20\">\n\t<CommonModule uuid=\"ad3f95af-e857-4764-9b25-7651c51b908d\">\n\t\t<Properties>\n\t\t\t<ObjectBelonging>Adopted</ObjectBelonging>\n\t\t\t<Name>SharedModule</Name>\n\t\t\t<ExtendedConfigurationObject>not-a-guid</ExtendedConfigurationObject>\n\t\t\t<Server>true</Server>\n\t\t\t<ServerCall>true</ServerCall>\n\t\t</Properties>\n\t</CommonModule>\n</MetaDataObject>\n"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "Catalogs/Items/Forms/ItemForm.xml",
+        "content": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<MetaDataObject xmlns=\"http://v8.1c.ru/8.3/MDClasses\" xmlns:xr=\"http://v8.1c.ru/8.3/xcf/readable\" version=\"2.20\">\n\t<Form uuid=\"75f644f1-9732-4d92-afa1-e11b50b6d274\">\n\t\t<Properties>\n\t\t\t<ObjectBelonging>Adopted</ObjectBelonging>\n\t\t\t<Name>ItemForm</Name>\n\t\t\t<ExtendedConfigurationObject/>\n\t\t\t<FormType>Managed</FormType>\n\t\t</Properties>\n\t</Form>\n</MetaDataObject>\n"
+      }
+    }
+  ],
+  "params": { "extensionPath": "." },
+  "expectError": true,
+  "noSnapshot": "негативный кейс: навык ничего не пишет, проверяется текст и код возврата",
+  "expect": {
+    "stdoutContains": [
+      "9. Borrowed CommonModule.SharedModule: invalid ExtendedConfigurationObject UUID 'not-a-guid'",
+      "11. Catalog.Items.Form.ItemForm: invalid ExtendedConfigurationObject",
+      "[WARN]  9. 2 borrowed element(s) without ExtendedConfigurationObject (Catalog.Items, Catalog.Items.Attribute.Article)"
+    ]
+  }
+}

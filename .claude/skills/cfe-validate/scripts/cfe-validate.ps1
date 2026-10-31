@@ -1,4 +1,4 @@
-﻿# cfe-validate v1.32 — Validate 1C configuration extension structure (CFE)
+﻿# cfe-validate v1.33 — Validate 1C configuration extension structure (CFE)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -888,15 +888,19 @@ function Validate-BorrowedSubItem {
 		$ok = $false
 	}
 	$subExt = $subProps.SelectSingleNode("md:ExtendedConfigurationObject", $nsm)
-	if (-not $subExt -or -not $subExt.InnerText) {
-		Report-Error "${checkNum}. ${context}: ${subType}.$($subName.InnerText) missing ExtendedConfigurationObject"
-		$ok = $false
+	if (-not $subExt) {
+		$script:noLinkItems.Add("${context}.${subType}.$($subName.InnerText)")
 	} elseif ($subExt.InnerText -notmatch $guidPattern) {
 		Report-Error "${checkNum}. ${context}: ${subType}.$($subName.InnerText) invalid ExtendedConfigurationObject"
 		$ok = $false
 	}
 	return $ok
 }
+
+# Заимствованные элементы без ExtendedConfigurationObject (проверки 9–11). Платформа такие принимает и
+# связывает по имени, но штатно элемент пишется всегда: без него не видно, что объект источника
+# пересоздан, — расширение молча прицепится к новому (замер 8.3.23–8.5.1). Итог — одно предупреждение.
+$script:noLinkItems = New-Object System.Collections.Generic.List[string]
 
 if ($childObjNode) {
 	$borrowedCount = 0
@@ -954,9 +958,9 @@ if ($childObjNode) {
 			$borrowedCount++
 
 			$extObj = $objProps.SelectSingleNode("md:ExtendedConfigurationObject", $objNs)
-			if (-not $extObj -or -not $extObj.InnerText) {
-				Report-Error "9. Borrowed ${typeName}.${childName}: missing ExtendedConfigurationObject"
-				$check9Ok = $false
+			if (-not $extObj) {
+				$script:noLinkItems.Add("${typeName}.${childName}")
+				$borrowedOk++
 			} elseif ($extObj.InnerText -notmatch $guidPattern) {
 				Report-Error "9. Borrowed ${typeName}.${childName}: invalid ExtendedConfigurationObject UUID '$($extObj.InnerText)'"
 				$check9Ok = $false
@@ -1201,8 +1205,10 @@ foreach ($fi in $script:formList) {
 					# У общей формы это описание самого объекта — его уже проверила проверка 9
 					if ($isBorrowed -and -not $fi.IsCommon) {
 						$fmExt = $fmProps.SelectSingleNode("md:ExtendedConfigurationObject", $fmNs)
-						if (-not $fmExt -or $fmExt.InnerText -notmatch $guidPattern) {
-							Report-Error "11. ${ctx}: invalid/missing ExtendedConfigurationObject"
+						if (-not $fmExt) {
+							$script:noLinkItems.Add($ctx)
+						} elseif ($fmExt.InnerText -notmatch $guidPattern) {
+							Report-Error "11. ${ctx}: invalid ExtendedConfigurationObject"
 							$check11Ok = $false
 						}
 					}
@@ -1253,6 +1259,12 @@ if ($formCount -eq 0) {
 } elseif ($check11Ok) {
 	$bfCount = $script:borrowedFormsWithTree.Count
 	Report-OK "11. Borrowed forms: $formCount validated ($bfCount with BaseForm)"
+}
+
+if ($script:noLinkItems.Count -gt 0) {
+	$shown = ($script:noLinkItems | Select-Object -First 5) -join ", "
+	if ($script:noLinkItems.Count -gt 5) { $shown += ", …" }
+	Report-Warn "9. $($script:noLinkItems.Count) borrowed element(s) without ExtendedConfigurationObject ($shown): the platform binds them by name only, so a recreated source object is picked up silently — re-borrow them to restore the link"
 }
 
 if ($script:stopped) { & $finalize; exit 1 }
@@ -1777,6 +1789,15 @@ function Get-MdIdValue {
 	return $el.GetAttribute("uuid")
 }
 
+# Заимствованный элемент расширения попадает в индекс и без ExtendedConfigurationObject — со значением
+# $null: платформа связывает его по имени, и наличие в источнике с точным именем сверяется всё равно.
+function Test-AdoptedMdEl {
+	param($el, [bool]$fromExtension)
+	if (-not $fromExtension) { return $false }
+	$ob = $el.SelectSingleNode("*[local-name()='Properties']/*[local-name()='ObjectBelonging']")
+	return [bool]($ob -and $ob.InnerText.Trim() -eq 'Adopted')
+}
+
 # Подобъекты, у которых в ChildObjects владельца только имя, а описание — в отдельном файле
 # <каталог владельца>/<Имя владельца>/<Каталог>/<Имя>.xml.
 $nestedFileDirs = @{ "Form"="Forms"; "Template"="Templates"; "Subsystem"="Subsystems"; "Recalculation"="Recalculations" }
@@ -1796,7 +1817,7 @@ function Add-MdIdFile {
 	}
 	if (-not $objEl) { return $false }
 	$v = Get-MdIdValue $objEl $fromExtension
-	if ($v) { $idx[$key] = $v }
+	if ($v -or (Test-AdoptedMdEl $objEl $fromExtension)) { $idx[$key] = $v }
 	$ownDir = Join-Path (Split-Path $objFile -Parent) ([System.IO.Path]::GetFileNameWithoutExtension($objFile))
 	Add-MdIdEntries $idx $objEl $key $fromExtension $ownDir
 	return $true
@@ -1815,7 +1836,7 @@ function Add-MdIdEntries {
 		if ($nameNode) {
 			$key = "$prefix.$($sub.LocalName).$($nameNode.InnerText.Trim())"
 			$v = Get-MdIdValue $sub $fromExtension
-			if ($v) { $idx[$key] = $v }
+			if ($v -or (Test-AdoptedMdEl $sub $fromExtension)) { $idx[$key] = $v }
 			Add-MdIdEntries $idx $sub $key $fromExtension ""
 		} elseif ($ownDir -and $nestedFileDirs.ContainsKey($sub.LocalName) -and $sub.InnerText.Trim()) {
 			$subName = $sub.InnerText.Trim()
@@ -1856,7 +1877,8 @@ function Get-OwnNameCollisions {
 	foreach ($sub in $co.ChildNodes) {
 		if ($sub.NodeType -ne 'Element') { continue }
 		if ($sub.LocalName -in @('Form','Template')) {
-			# Собственная форма или макет — файл есть и в нём нет ExtendedConfigurationObject. Нет файла или
+			# Собственная форма или макет — файл есть и в нём нет ни ObjectBelonging=Adopted, ни
+			# ExtendedConfigurationObject (у заимствованной формы последнего может не быть). Нет файла или
 			# не читается — не судим (об отсутствии файла формы говорит проверка 10)
 			$fName = $sub.InnerText.Trim()
 			if (-not $fName) { continue }
@@ -1865,6 +1887,7 @@ function Get-OwnNameCollisions {
 			$fDoc = New-Object System.Xml.XmlDocument
 			try { $fDoc.Load($fFile) } catch { continue }
 			if ($fDoc.SelectSingleNode("//*[local-name()='Properties']/*[local-name()='ExtendedConfigurationObject']")) { continue }
+			if ($fDoc.SelectSingleNode("//*[local-name()='Properties']/*[local-name()='ObjectBelonging' and normalize-space()='Adopted']")) { continue }
 			$keys += "$prefix.$($sub.LocalName).$fName"
 			continue
 		}
@@ -1968,7 +1991,7 @@ if (-not $script:stopped -and $childObjNode) {
 					Report-Error "18. ${key}: borrowed sub-object is missing from the source configuration"
 				}
 				$check18Ok = $false
-			} elseif ($extId.ToLowerInvariant() -cne $srcIdx[$key].ToLowerInvariant()) {
+			} elseif ($extId -and $extId.ToLowerInvariant() -cne $srcIdx[$key].ToLowerInvariant()) {
 				$what = if ($extId -ceq $zeroGuid) { "zero" } else { "$extId" }
 				Report-Error "18. ${key}: ExtendedConfigurationObject is $what, but the UUID in the source configuration is $($srcIdx[$key]) — the platform loads the extension but does not apply it («ОбъектРасширяемойКонфигурации не совпадает»)"
 				$check18Ok = $false

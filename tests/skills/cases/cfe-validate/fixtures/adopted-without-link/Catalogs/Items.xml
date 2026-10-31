@@ -1,0 +1,54 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<MetaDataObject xmlns="http://v8.1c.ru/8.3/MDClasses" xmlns:app="http://v8.1c.ru/8.2/managed-application/core" xmlns:cfg="http://v8.1c.ru/8.1/data/enterprise/current-config" xmlns:cmi="http://v8.1c.ru/8.2/managed-application/cmi" xmlns:ent="http://v8.1c.ru/8.1/data/enterprise" xmlns:lf="http://v8.1c.ru/8.2/managed-application/logform" xmlns:style="http://v8.1c.ru/8.1/data/ui/style" xmlns:sys="http://v8.1c.ru/8.1/data/ui/fonts/system" xmlns:v8="http://v8.1c.ru/8.1/data/core" xmlns:v8ui="http://v8.1c.ru/8.1/data/ui" xmlns:web="http://v8.1c.ru/8.1/data/ui/colors/web" xmlns:win="http://v8.1c.ru/8.1/data/ui/colors/windows" xmlns:xen="http://v8.1c.ru/8.3/xcf/enums" xmlns:xpr="http://v8.1c.ru/8.3/xcf/predef" xmlns:xr="http://v8.1c.ru/8.3/xcf/readable" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" version="2.20">
+	<Catalog uuid="c6025ccd-d3e8-4fb6-ac31-da1d88e33c95">
+		<InternalInfo>
+			<xr:GeneratedType name="CatalogObject.Items" category="Object">
+				<xr:TypeId>e5b7123b-3a88-42c4-9c58-dc2719607070</xr:TypeId>
+				<xr:ValueId>63aa851d-f9b9-49c5-a688-4614c179783c</xr:ValueId>
+			</xr:GeneratedType>
+			<xr:GeneratedType name="CatalogRef.Items" category="Ref">
+				<xr:TypeId>3264f570-dd10-47cf-b1eb-6626bcd17c71</xr:TypeId>
+				<xr:ValueId>0d52122e-d93c-432b-9ee8-4fdb764e5260</xr:ValueId>
+			</xr:GeneratedType>
+			<xr:GeneratedType name="CatalogSelection.Items" category="Selection">
+				<xr:TypeId>47f39c87-ae16-42e8-a016-06f80a30d8db</xr:TypeId>
+				<xr:ValueId>e9b28520-b6e1-42ad-b6d8-f84c9f374c47</xr:ValueId>
+			</xr:GeneratedType>
+			<xr:GeneratedType name="CatalogList.Items" category="List">
+				<xr:TypeId>9624c6ca-6dd8-45e5-b893-3934eb1229c7</xr:TypeId>
+				<xr:ValueId>a0d66896-d8a9-4ed3-be2b-a1a5a630a309</xr:ValueId>
+			</xr:GeneratedType>
+			<xr:GeneratedType name="CatalogManager.Items" category="Manager">
+				<xr:TypeId>56ec0a4a-9bce-43ba-976f-b71d9908a760</xr:TypeId>
+				<xr:ValueId>36ff630c-51b6-41a7-95d9-523671153dab</xr:ValueId>
+			</xr:GeneratedType>
+			<xr:PropertyState>
+				<xr:Property>ObjectModule</xr:Property>
+				<xr:State>Extended</xr:State>
+			</xr:PropertyState>
+		</InternalInfo>
+		<Properties>
+			<ObjectBelonging>Adopted</ObjectBelonging>
+			<Name>Items</Name>
+			<Comment/>
+		</Properties>
+		<ChildObjects>
+			<Attribute uuid="cd80b2cd-ee13-49c4-b684-4b0b5330abc4">
+				<InternalInfo/>
+				<Properties>
+					<ObjectBelonging>Adopted</ObjectBelonging>
+					<Name>Article</Name>
+					<Comment/>
+					<Type>
+						<v8:Type>xs:string</v8:Type>
+						<v8:StringQualifiers>
+							<v8:Length>25</v8:Length>
+							<v8:AllowedLength>Variable</v8:AllowedLength>
+						</v8:StringQualifiers>
+					</Type>
+				</Properties>
+			</Attribute>
+			<Form>ItemForm</Form>
+		</ChildObjects>
+	</Catalog>
+</MetaDataObject>

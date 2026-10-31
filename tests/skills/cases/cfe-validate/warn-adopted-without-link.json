@@ -1,0 +1,11 @@
+{
+  "name": "Заимствование без ExtendedConfigurationObject (выгрузка платформы) — одно сводное предупреждение, не ошибка",
+  "setup": "fixture:adopted-without-link",
+  "params": { "extensionPath": "." },
+  "args_extra": ["-ConfigPath", "{workDir}/src"],
+  "noSnapshot": "навык ничего не пишет, проверяется текст и код возврата",
+  "expect": {
+    "stdoutContains": "[WARN]  9. 4 borrowed element(s) without ExtendedConfigurationObject (CommonModule.SharedModule, Catalog.Items, Catalog.Items.Attribute.Article, Catalog.Items.Form.ItemForm)",
+    "stdoutNotContains": "[ERROR]"
+  }
+}

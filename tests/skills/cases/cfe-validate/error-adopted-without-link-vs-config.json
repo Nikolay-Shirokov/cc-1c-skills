@@ -1,0 +1,14 @@
+{
+  "name": "С -ConfigPath ловится заимствованный объект без ExtendedConfigurationObject, которого нет в источнике",
+  "setup": "fixture:adopted-without-link",
+  "preRun": [
+    { "deletePath": "src/CommonModules/SharedModule.xml" }
+  ],
+  "params": { "extensionPath": "." },
+  "args_extra": ["-ConfigPath", "{workDir}/src"],
+  "expectError": true,
+  "noSnapshot": "негативный кейс: навык ничего не пишет, проверяется текст и код возврата",
+  "expect": {
+    "stdoutContains": "18. CommonModule.SharedModule: borrowed object is missing from the source configuration"
+  }
+}

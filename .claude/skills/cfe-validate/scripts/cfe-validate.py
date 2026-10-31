@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# cfe-validate v1.32 — Validate 1C configuration extension structure (CFE)
+# cfe-validate v1.33 — Validate 1C configuration extension structure (CFE)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 """Validates extension Configuration.xml: root, InternalInfo, extension properties, ChildObjects, borrowed objects."""
 import sys, os, argparse, re
@@ -952,13 +952,17 @@ def main():
             ok = False
         sub_ext = sub_props.find(f'{{{MD}}}ExtendedConfigurationObject')
         sub_name_val = (sub_name.text or '') if sub_name is not None else '?'
-        if sub_ext is None or not (sub_ext.text or ''):
-            r.error(f'{check_num}. {context}: {sub_type}.{sub_name_val} missing ExtendedConfigurationObject')
-            ok = False
-        elif not GUID_PATTERN.match(sub_ext.text):
+        if sub_ext is None:
+            no_link_items.append(f'{context}.{sub_type}.{sub_name_val}')
+        elif not GUID_PATTERN.match(sub_ext.text or ''):
             r.error(f'{check_num}. {context}: {sub_type}.{sub_name_val} invalid ExtendedConfigurationObject')
             ok = False
         return ok
+
+    # Заимствованные элементы без ExtendedConfigurationObject (проверки 9–11). Платформа такие принимает и
+    # связывает по имени, но штатно элемент пишется всегда: без него не видно, что объект источника
+    # пересоздан, — расширение молча прицепится к новому (замер 8.3.23–8.5.1). Итог — одно предупреждение.
+    no_link_items = []
 
     if child_obj_node is not None:
         borrowed_count = 0
@@ -1017,11 +1021,11 @@ def main():
                 borrowed_count += 1
 
                 ext_obj = obj_props.find(f'{{{MD}}}ExtendedConfigurationObject')
-                if ext_obj is None or not (ext_obj.text or ''):
-                    r.error(f'9. Borrowed {type_name}.{child_name}: missing ExtendedConfigurationObject')
-                    check9_ok = False
-                elif not GUID_PATTERN.match(ext_obj.text):
-                    r.error(f"9. Borrowed {type_name}.{child_name}: invalid ExtendedConfigurationObject UUID '{ext_obj.text}'")
+                if ext_obj is None:
+                    no_link_items.append(f'{type_name}.{child_name}')
+                    borrowed_ok_count += 1
+                elif not GUID_PATTERN.match(ext_obj.text or ''):
+                    r.error(f"9. Borrowed {type_name}.{child_name}: invalid ExtendedConfigurationObject UUID '{ext_obj.text or ''}'")
                     check9_ok = False
                 else:
                     borrowed_ok_count += 1
@@ -1256,8 +1260,10 @@ def main():
                         # У общей формы это описание самого объекта — его уже проверила проверка 9
                         if is_borrowed and not is_common:
                             fm_ext = fm_props.find(f'{{{MD}}}ExtendedConfigurationObject')
-                            if fm_ext is None or not (fm_ext.text or '') or not GUID_PATTERN.match(fm_ext.text or ''):
-                                r.error(f'11. {ctx}: invalid/missing ExtendedConfigurationObject')
+                            if fm_ext is None:
+                                no_link_items.append(ctx)
+                            elif not GUID_PATTERN.match(fm_ext.text or ''):
+                                r.error(f'11. {ctx}: invalid ExtendedConfigurationObject')
                                 check11_ok = False
                         fm_type = fm_props.find(f'{{{MD}}}FormType')
                         if fm_type is not None and (fm_type.text or '') != 'Managed':
@@ -1295,6 +1301,12 @@ def main():
     elif check11_ok:
         bf_count = len(borrowed_forms_with_tree)
         r.ok(f'11. Borrowed forms: {form_count} validated ({bf_count} with BaseForm)')
+
+    if no_link_items:
+        shown = ', '.join(no_link_items[:5])
+        if len(no_link_items) > 5:
+            shown += ', …'
+        r.warn(f'9. {len(no_link_items)} borrowed element(s) without ExtendedConfigurationObject ({shown}): the platform binds them by name only, so a recreated source object is picked up silently — re-borrow them to restore the link')
 
     if r.stopped:
         r.finalize(out_file)
@@ -1809,6 +1821,14 @@ def main():
             return (n[0].text or '').strip() if n else None
         return el.get('uuid') or None
 
+    # Заимствованный элемент расширения попадает в индекс и без ExtendedConfigurationObject — со значением
+    # None: платформа связывает его по имени, и наличие в источнике с точным именем сверяется всё равно.
+    def is_adopted_md_el(el, from_extension):
+        if not from_extension:
+            return False
+        ob = el.xpath("*[local-name()='Properties']/*[local-name()='ObjectBelonging']")
+        return bool(ob) and (ob[0].text or '').strip() == 'Adopted'
+
     # Подобъекты, у которых в ChildObjects владельца только имя, а описание — в отдельном файле
     # <каталог владельца>/<Имя владельца>/<Каталог>/<Имя>.xml.
     nested_file_dirs = {'Form': 'Forms', 'Template': 'Templates', 'Subsystem': 'Subsystems', 'Recalculation': 'Recalculations'}
@@ -1830,7 +1850,7 @@ def main():
         if obj_el is None:
             return False
         v = md_id_value(obj_el, from_extension)
-        if v:
+        if v or is_adopted_md_el(obj_el, from_extension):
             idx[key] = v
         own_dir = os.path.join(os.path.dirname(obj_file), os.path.splitext(os.path.basename(obj_file))[0])
         add_md_id_entries(idx, obj_el, key, from_extension, own_dir)
@@ -1851,7 +1871,7 @@ def main():
             if name_node:
                 key = f'{prefix}.{sub_type}.{(name_node[0].text or "").strip()}'
                 v = md_id_value(sub, from_extension)
-                if v:
+                if v or is_adopted_md_el(sub, from_extension):
                     idx[key] = v
                 add_md_id_entries(idx, sub, key, from_extension, '')
             elif own_dir and sub_type in nested_file_dirs and (sub.text or '').strip():
@@ -1890,7 +1910,8 @@ def main():
                 continue
             ln = etree.QName(sub.tag).localname
             if ln in ('Form', 'Template'):
-                # Собственная форма или макет — файл есть и в нём нет ExtendedConfigurationObject. Нет файла или
+                # Собственная форма или макет — файл есть и в нём нет ни ObjectBelonging=Adopted, ни
+                # ExtendedConfigurationObject (у заимствованной формы последнего может не быть). Нет файла или
                 # не читается — не судим (об отсутствии файла формы говорит проверка 10)
                 f_name = (sub.text or '').strip()
                 if not f_name:
@@ -1903,6 +1924,8 @@ def main():
                 except Exception:
                     continue
                 if f_root.xpath("//*[local-name()='Properties']/*[local-name()='ExtendedConfigurationObject']"):
+                    continue
+                if f_root.xpath("//*[local-name()='Properties']/*[local-name()='ObjectBelonging' and normalize-space()='Adopted']"):
                     continue
                 keys.append(f'{prefix}.{ln}.{f_name}')
                 continue
@@ -1996,7 +2019,7 @@ def main():
                     else:
                         r.error(f'18. {key}: borrowed sub-object is missing from the source configuration')
                     check18_ok = False
-                elif ext_id.lower() != src_id.lower():
+                elif ext_id and ext_id.lower() != src_id.lower():
                     what = 'zero' if ext_id == zero_guid else ext_id
                     r.error(f'18. {key}: ExtendedConfigurationObject is {what}, but the UUID in the source configuration is {src_id} — the platform loads the extension but does not apply it («ОбъектРасширяемойКонфигурации не совпадает»)')
                     check18_ok = False
