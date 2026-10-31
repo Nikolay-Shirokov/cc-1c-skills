@@ -1888,6 +1888,31 @@ def main():
             return None
         return idx
 
+    # Имя объекта по его описанию в источнике; файл ищется без учёта регистра. Ключи индекса строятся из
+    # имени в расширении, а на Windows файл источника находится и при другом регистре — без этой сверки
+    # расхождение имени самого объекта не видно. None — файла нет или он не читается.
+    def source_object_name(type_dir, obj_name):
+        f = os.path.join(type_dir, f'{obj_name}.xml')
+        if not os.path.isfile(f):
+            if not os.path.isdir(type_dir):
+                return None
+            twin = next((n for n in sorted(os.listdir(type_dir))
+                         if n.lower().endswith('.xml') and n[:-4].upper() == obj_name.upper()
+                         and os.path.isfile(os.path.join(type_dir, n))), None)
+            if twin is None:
+                return None
+            f = os.path.join(type_dir, twin)
+        try:
+            doc_root = etree.parse(f).getroot()
+        except Exception:
+            return None
+        for c in doc_root:
+            if not isinstance(c.tag, str):
+                continue
+            n = c.xpath("*[local-name()='Properties']/*[local-name()='Name']")
+            return (n[0].text or '').strip() if n else None
+        return None
+
     # Собственные подобъекты заимствованного объекта, одноимённые (без учёта регистра) с незаимствованным
     # подобъектом источника того же вида на том же уровне: реквизит, ТЧ, колонка заимствованной ТЧ, значение
     # перечисления, форма, команда, макет. Платформа расширение загружает, а базу не обновляет: «Уже существует объект с
@@ -2004,6 +2029,11 @@ def main():
                         r.warn(f'18. {key}: ExtendedConfigurationObject is zero — the platform loads the extension but does not apply it. Create the extension and borrow objects with -ConfigPath')
                 continue
 
+            src_name = source_object_name(os.path.join(src_root, dir_name), obj_name18)
+            if src_name and src_name != obj_name18:
+                r.error(f'18. {type_name}.{obj_name18}: the source configuration has this name in a different case ({type_name}.{src_name}) — the platform rejects the extension («контролируемое свойство Имя не совпадает»)')
+                check18_ok = False
+                continue
             src_idx = md_id_index(os.path.join(src_root, dir_name), type_name, obj_name18, False)
             if src_idx is None:
                 r.error(f'18. {type_name}.{obj_name18}: borrowed object is missing from the source configuration ({dir_name}/{obj_name18}.xml)')

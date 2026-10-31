@@ -1856,6 +1856,33 @@ function Get-MdIdIndex {
 	return $idx
 }
 
+# Имя объекта по его описанию в источнике; файл ищется без учёта регистра. Ключи индекса строятся из
+# имени в расширении, а на Windows файл источника находится и при другом регистре — без этой сверки
+# расхождение имени самого объекта не видно. $null — файла нет или он не читается.
+function Get-SourceObjectName {
+	param([string]$typeDir, [string]$objName)
+	$f = Join-Path $typeDir "$objName.xml"
+	if (-not (Test-Path -LiteralPath $f)) {
+		if (-not (Test-Path -LiteralPath $typeDir)) { return $null }
+		$twin = Get-ChildItem -LiteralPath $typeDir -Filter "*.xml" -File |
+			Where-Object { [string]::Equals($_.BaseName, $objName, [StringComparison]::OrdinalIgnoreCase) } |
+			Select-Object -First 1
+		if (-not $twin) { return $null }
+		$f = $twin.FullName
+	}
+	try {
+		$doc = New-Object System.Xml.XmlDocument
+		$doc.Load($f)
+	} catch { return $null }
+	foreach ($c in $doc.DocumentElement.ChildNodes) {
+		if ($c.NodeType -ne 'Element') { continue }
+		$n = $c.SelectSingleNode("*[local-name()='Properties']/*[local-name()='Name']")
+		if ($n) { return $n.InnerText.Trim() }
+		return $null
+	}
+	return $null
+}
+
 # Собственные подобъекты заимствованного объекта, одноимённые (без учёта регистра) с незаимствованным
 # подобъектом источника того же вида на том же уровне: реквизит, ТЧ, колонка заимствованной ТЧ, значение
 # перечисления, форма, команда, макет. Платформа расширение загружает, а базу не обновляет: «Уже существует объект с
@@ -1971,6 +1998,12 @@ if (-not $script:stopped -and $childObjNode) {
 			continue
 		}
 
+		$srcName = Get-SourceObjectName (Join-Path $srcRoot $dirName) $objName18
+		if ($srcName -and $srcName -cne $objName18) {
+			Report-Error "18. ${typeName}.${objName18}: the source configuration has this name in a different case (${typeName}.${srcName}) — the platform rejects the extension («контролируемое свойство Имя не совпадает»)"
+			$check18Ok = $false
+			continue
+		}
 		$srcIdx = Get-MdIdIndex (Join-Path $srcRoot $dirName) $typeName $objName18 $false
 		if ($null -eq $srcIdx) {
 			Report-Error "18. ${typeName}.${objName18}: borrowed object is missing from the source configuration ($dirName/$objName18.xml)"
