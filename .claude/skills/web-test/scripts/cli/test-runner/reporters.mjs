@@ -35,11 +35,14 @@ export function writeAllure(results, reportDir, severityIndex) {
     const suite = dirname(tr.file);
     const suiteLabel = (suite && suite !== '.') ? suite : 'root';
     const severity = resolveSeverity(tr, severityIndex);
+    const parameters = allureParameters(tr.param);
+    // Without historyId Allure keeps no history: trends and the per-test History tab stay empty.
+    // Key = file (suite-root relative when a suite root is found) + name + the params row: rows
+    // whose names coincide or carry only a positional [i] stay apart and survive reordering.
+    const historyKey = [`${tr.file}#${tr.name}`, ...(parameters || []).map(p => `${p.name}=${p.value}`)].join('\n');
     const out = {
       uuid,
-      // Without historyId Allure keeps no history: trends and the per-test History tab stay empty.
-      // tr.file is suite-root relative and a params row has its own name, so the key is stable.
-      historyId: createHash('md5').update(`${tr.file}#${tr.name}`).digest('hex'),
+      historyId: createHash('md5').update(historyKey).digest('hex'),
       name: tr.name,
       fullName: tr.file,
       status: tr.status,
@@ -51,11 +54,7 @@ export function writeAllure(results, reportDir, severityIndex) {
         { name: 'suite', value: suiteLabel },
         { name: 'severity', value: severity },
       ],
-      ...(tr.param && typeof tr.param === 'object' && {
-        parameters: Object.entries(tr.param).map(([name, v]) => ({
-          name, value: v !== null && typeof v === 'object' ? JSON.stringify(v) : String(v),
-        })),
-      }),
+      ...(parameters && { parameters }),
       steps: (tr.steps || []).map(allureStep),
       attachments: [
         ...(tr.screenshot ? [{ name: 'Screenshot on failure', source: basename(tr.screenshot), type: 'image/png' }] : []),
@@ -74,6 +73,18 @@ export function writeAllure(results, reportDir, severityIndex) {
     }
     writeFileSync(resolve(reportDir, `${uuid}-result.json`), JSON.stringify(out, null, 2));
   }
+}
+
+/** The params row as Allure parameters: object keys, or a single `value` for a scalar row. */
+function allureParameters(param) {
+  if (param === undefined) return null;
+  const show = (v) => {
+    if (v === null || typeof v !== 'object') return String(v);
+    try { return JSON.stringify(v); } catch { return String(v); } // cycle / BigInt inside
+  };
+  return param !== null && typeof param === 'object'
+    ? Object.entries(param).map(([name, v]) => ({ name, value: show(v) }))
+    : [{ name: 'value', value: show(param) }];
 }
 
 function allureStep(s) {
