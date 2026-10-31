@@ -1,0 +1,593 @@
+# xdto-validate v1.7 — Validate a 1C XDTO package (Python port)
+# Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
+import argparse
+import os
+import sys
+
+from lxml import etree
+
+# Эти пространства имён предоставляет сама платформа — пакетов в конфигурации
+# для них нет и быть не должно (выведено по корпусу)
+PLATFORM_NS = {
+    "http://v8.1c.ru/8.1/data/core",
+    "http://v8.1c.ru/8.1/data/enterprise",
+    "http://v8.1c.ru/8.1/data/enterprise/current-config",
+    "http://v8.1c.ru/8.1/data-composition-system/settings",
+    "http://v8.1c.ru/8.3/data/ext",
+    "http://www.w3.org/2001/XMLSchema",
+}
+
+
+sys.stdout.reconfigure(encoding="utf-8")
+sys.stderr.reconfigure(encoding="utf-8")
+
+# Регистронезависимый ввод — паритет с PS1: в PowerShell имена параметров и [ValidateSet]
+# регистр не различают, в argparse совпадение точное.
+def ci_parse_args(parser, argv=None):
+    """parse_args по правилам PS: имена параметров и значения choices регистронезависимы."""
+    argv = list(sys.argv[1:] if argv is None else argv)
+    names = {s.lower(): s for a in parser._actions for s in a.option_strings}
+    for i, tok in enumerate(argv):
+        if tok.startswith('-') and tok.lower() in names:
+            argv[i] = names[tok.lower()]
+    # choices — зеркало [ValidateSet]; канонизируем ДО разбора, иначе argparse отвергнет регистр
+    choice_map = {}
+    for a in parser._actions:
+        if a.choices:
+            for s in a.option_strings:
+                choice_map[s] = {str(c).lower(): c for c in a.choices}
+    for i in range(len(argv) - 1):
+        m = choice_map.get(argv[i])
+        if m and argv[i + 1].lower() in m:
+            argv[i + 1] = m[argv[i + 1].lower()]
+    return parser.parse_args(argv)
+
+
+XS_NS = "http://www.w3.org/2001/XMLSchema"
+XSI_NS = "http://www.w3.org/2001/XMLSchema-instance"
+MD_NS = "http://v8.1c.ru/8.3/MDClasses"
+
+parser = argparse.ArgumentParser(allow_abbrev=False)
+parser.add_argument("-PackagePath", "-Path", required=True)
+parser.add_argument("-ConfigDir", default="")
+parser.add_argument("-Detailed", action="store_true")
+parser.add_argument("-MaxErrors", type=int, default=20)
+parser.add_argument("-OutFile", default="")
+args = ci_parse_args(parser)
+
+package_path = os.path.abspath(args.PackagePath)
+detailed = args.Detailed
+max_errors = args.MaxErrors
+out_file = args.OutFile
+
+# ── reporting ────────────────────────────────────────────────
+
+state = {"errors": 0, "warnings": 0, "ok": 0, "stopped": False}
+output = []
+
+
+def out_line(s):
+    output.append(s)
+
+
+def report_ok(msg):
+    state["ok"] += 1
+    if detailed:
+        out_line(f"[OK]    {msg}")
+
+
+def report_error(msg):
+    state["errors"] += 1
+    out_line(f"[ERROR] {msg}")
+    if state["errors"] >= max_errors:
+        state["stopped"] = True
+
+
+def report_warn(msg):
+    state["warnings"] += 1
+    out_line(f"[WARN]  {msg}")
+
+
+# ── resolve paths ────────────────────────────────────────────
+
+bin_path = None
+md_path = None
+
+if os.path.isfile(package_path):
+    if os.path.basename(package_path) == "Package.bin":
+        bin_path = package_path
+        pkg_dir = os.path.dirname(os.path.dirname(package_path))
+        if os.path.exists(pkg_dir + ".xml"):
+            md_path = pkg_dir + ".xml"
+    elif package_path.endswith(".xml"):
+        md_path = package_path
+        stem = os.path.join(os.path.dirname(package_path),
+                            os.path.splitext(os.path.basename(package_path))[0])
+        c = os.path.join(stem, "Ext", "Package.bin")
+        if os.path.exists(c):
+            bin_path = c
+elif os.path.isdir(package_path):
+    c = os.path.join(package_path, "Ext", "Package.bin")
+    if os.path.exists(c):
+        bin_path = c
+        m = package_path.rstrip("\\/") + ".xml"
+        if os.path.exists(m):
+            md_path = m
+
+if not bin_path:
+    print(f"[ERROR] Ext/Package.bin not found for path: {package_path}")
+    sys.exit(1)
+
+file_name = os.path.basename(os.path.dirname(os.path.dirname(bin_path)))
+
+config_dir = args.ConfigDir
+if not config_dir:
+    # .../XDTOPackages/<Имя>/Ext/Package.bin -> .../XDTOPackages -> корень
+    config_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(bin_path))))
+
+
+def finalize():
+    checks = state["ok"] + state["errors"] + state["warnings"]
+    if state["errors"] == 0 and state["warnings"] == 0 and not detailed:
+        result = f"=== Validation OK: {file_name} ({checks} checks) ==="
+    else:
+        out_line("")
+        if state["stopped"] and state["errors"] >= max_errors:
+            out_line(f"Stopped after {max_errors} errors. Fix and re-run.")
+        out_line(f"=== Result: {state['errors']} errors, {state['warnings']} warnings ({checks} checks) ===")
+        result = "\n".join(output)
+    print(result)
+    if out_file:
+        with open(out_file, "w", encoding="utf-8-sig", newline="") as f:
+            f.write("\n".join(output))
+
+
+def _parse_xml(source, from_string=False):
+    """Разбор с узким отступлением для не-URI пространств имён.
+
+    Платформа допускает в targetNamespace произвольную строку (в выгрузке БП есть
+    пакет с кириллическим «ДопФайлУниверсальный»), .NET такое принимает, а libxml2
+    отвергает. Откатываемся на восстанавливающий разбор ТОЛЬКО на этой ошибке,
+    иначе по-настоящему битый XML перестал бы отличаться от корректного.
+    """
+    try:
+        return (etree.fromstring(source) if from_string else etree.parse(source))
+    except etree.XMLSyntaxError as e:
+        if "is not a valid URI" not in str(e):
+            raise
+        p = etree.XMLParser(recover=True)
+        return (etree.fromstring(source, p) if from_string else etree.parse(source, p))
+
+
+def local(el):
+    return etree.QName(el).localname
+
+
+# ── 1. well-formedness ───────────────────────────────────────
+
+try:
+    doc = _parse_xml(bin_path)
+except Exception as e:  # noqa: BLE001
+    report_error(f"Package.bin is not well-formed XML: {e}")
+    finalize()
+    sys.exit(1)
+
+pkg = doc.getroot()
+if local(pkg) != "package":
+    report_error(f"Expected root <package>, found <{local(pkg)}>")
+    finalize()
+    sys.exit(1)
+report_ok("Package.bin: well-formed XML, root <package>")
+
+target_ns = pkg.get("targetNamespace")
+if not target_ns:
+    report_error("<package> has no targetNamespace")
+else:
+    report_ok(f"targetNamespace: {target_ns}")
+
+# ── 2. encoding ──────────────────────────────────────────────
+
+with open(bin_path, "rb") as f:
+    head = f.read(3)
+if head != b"\xef\xbb\xbf":
+    report_warn("Package.bin has no UTF-8 BOM — the platform writes the file with a BOM")
+else:
+    report_ok("Encoding: UTF-8 with BOM")
+
+# ── 3. declarations ──────────────────────────────────────────
+
+imports = []
+local_types = set()
+object_type_names = set()
+value_type_names = set()
+global_props = set()
+top_sequence = []
+
+for n in pkg:
+    if not isinstance(n.tag, str):
+        continue
+    ln = local(n)
+    top_sequence.append(ln)
+    if ln == "import":
+        imports.append(n.get("namespace"))
+    elif ln == "objectType":
+        local_types.add(n.get("name"))
+        object_type_names.add(n.get("name"))
+    elif ln == "valueType":
+        local_types.add(n.get("name"))
+        value_type_names.add(n.get("name"))
+    elif ln == "property" and n.get("name"):
+        global_props.add(n.get("name"))
+
+# ── порядок элементов верхнего уровня ────────────────────────
+# Модель требует import -> property -> valueType -> objectType. Нарушение платформа
+# не прощает: db-update падает с «Ошибка преобразования данных XDTO».
+TOP_ORDER = ["import", "property", "valueType", "objectType"]
+prev_rank = -1
+order_ok = True
+for t in top_sequence:
+    if t not in TOP_ORDER:
+        continue
+    rank = TOP_ORDER.index(t)
+    if rank < prev_rank:
+        report_error(f"Top-level element order violated: <{t}> after <{TOP_ORDER[prev_rank]}>. "
+                     "The model requires import -> property -> valueType -> objectType; "
+                     "the platform rejects the package on configuration update")
+        order_ok = False
+        break
+    prev_rank = rank
+if order_ok:
+    report_ok("Top-level element order is correct")
+
+# ── 4. duplicate type names ──────────────────────────────────
+
+seen = set()
+for n in pkg:
+    if not isinstance(n.tag, str) or local(n) not in ("objectType", "valueType"):
+        continue
+    nm = n.get("name")
+    if not nm:
+        report_error(f"<{local(n)}> has no name attribute")
+        continue
+    if nm in seen:
+        report_error(f"Duplicate type name: {nm}")
+    else:
+        seen.add(nm)
+if local_types:
+    report_ok(f"{len(local_types)} type(s), names are unique")
+
+# ── 5. type references resolve ───────────────────────────────
+
+used_namespaces = set()
+any_type_props = []
+REF_ATTRS = ("type", "base", "ref", "itemType")
+
+
+def resolve_ref(el, attr, raw):
+    if not raw:
+        return
+    if raw.startswith("{"):
+        close = raw.find("}")
+        if close < 0:
+            report_error(f'Invalid Clark notation in {attr}="{raw}"')
+            return
+        ns = raw[1:close]
+        loc = raw[close + 1:]
+    else:
+        parts = raw.split(":")
+        if len(parts) == 2:
+            ns = el.nsmap.get(parts[0])
+            loc = parts[1]
+            if not ns:
+                report_error(f'Prefix "{parts[0]}" is not declared: {attr}="{raw}" (element {local(el)})')
+                return
+        else:
+            ns = None
+            loc = parts[0]
+
+    if ns in (XS_NS, XSI_NS):
+        if loc == "anyType":
+            any_type_props.append(el)
+        return
+    if ns == target_ns:
+        if attr == "ref":
+            if loc not in global_props:
+                report_error(f'ref="{raw}" does not resolve: the package has no global property "{loc}"')
+        elif loc not in local_types:
+            report_error(f'{attr}="{raw}" does not resolve: the package has no type "{loc}"')
+        return
+    if ns:
+        used_namespaces.add(ns)
+        if ns not in imports:
+            report_error(f'{attr}="{raw}" refers to "{ns}", but <import namespace="{ns}"/> is not declared')
+
+
+node_count = 0
+for el in pkg.iter():
+    if not isinstance(el.tag, str):
+        continue
+    node_count += 1
+    for a in REF_ATTRS:
+        if el.get(a) is not None:
+            resolve_ref(el, a, el.get(a))
+    if el.get("memberTypes"):
+        for m in el.get("memberTypes").split():
+            resolve_ref(el, "memberTypes", m)
+    if state["stopped"]:
+        break
+if not state["stopped"]:
+    report_ok(f"{node_count} nodes: type references resolve")
+
+if state["stopped"]:
+    finalize()
+    sys.exit(1)
+
+# ── 6. silent degradation to xs:anyType ──────────────────────
+
+if any_type_props and imports:
+    names = [p.get("name") for p in any_type_props if p.get("name")]
+    shown = ", ".join(names[:5])
+    report_warn(
+        f'Properties with type="xs:anyType": {len(any_type_props)} despite declared imports ({shown}). '
+        "The type is unresolved — such a property cannot be filled structurally. Usually a trace of an XML Schema import: the platform silently replaces an unresolved "
+        "foreign type with anyType"
+    )
+
+# ── 7. unused imports ────────────────────────────────────────
+
+# Сам по себе неиспользуемый импорт безвреден и встречается в четверти пакетов
+# типовых конфигураций. Сигналом он становится только вместе с anyType.
+unused = [i for i in imports if i not in used_namespaces]
+if unused and any_type_props:
+    report_warn(f'Import(s) with no type used: {", ".join(unused)} — '
+                "together with anyType this indicates an unresolved dependency")
+if imports and not unused:
+    report_ok(f"{len(imports)} import(s) — all used")
+
+# ── 8. nillable on attribute-form properties ─────────────────
+
+nill_attrs = [p.get("name") for p in pkg.iter()
+              if isinstance(p.tag, str) and local(p) == "property"
+              and p.get("form") == "Attribute" and p.get("nillable") == "true"]
+if nill_attrs:
+    report_warn(
+        f'Properties with nillable="true" and form="Attribute": {len(nill_attrs)} ({", ".join(nill_attrs[:5])}). '
+        "The XSD specification does not allow nillable on attributes — XML Schema export in Designer will lose them"
+    )
+
+# ── 9. facet consistency ─────────────────────────────────────
+
+facet_checked = 0
+for t in pkg.iter():
+    if not isinstance(t.tag, str) or local(t) not in ("valueType", "typeDef"):
+        continue
+    if local(t) == "typeDef" and t.get(f"{{{XSI_NS}}}type") == "ObjectType":
+        continue
+    facet_checked += 1
+    nm = t.get("name") or "(anonymous type)"
+
+    if t.get("length") and (t.get("minLength") or t.get("maxLength")):
+        # Спецификация XSD это запрещает, но платформа такие типы хранит — предупреждение, не ошибка
+        report_warn(f"{nm} : length is set together with minLength/maxLength — "
+                    "the XSD specification treats them as mutually exclusive")
+    min_l, max_l = t.get("minLength"), t.get("maxLength")
+    if min_l and max_l and int(min_l) > int(max_l):
+        report_error(f"{nm} : minLength ({min_l}) is greater than maxLength ({max_l})")
+    td, fd = t.get("totalDigits"), t.get("fractionDigits")
+    if td and fd and int(fd) > int(td):
+        report_error(f"{nm} : fractionDigits ({fd}) is greater than totalDigits ({td})")
+    ws = t.get("whiteSpace")
+    if ws and ws not in ("preserve", "replace", "collapse"):
+        report_error(f'{nm} : invalid whiteSpace="{ws}"')
+    var = t.get("variety")
+    if var and var not in ("Atomic", "List", "Union"):
+        report_error(f'{nm} : invalid variety="{var}"')
+    if var == "List" and t.get("itemType") is None:
+        report_warn(f'{nm} : variety="List" without itemType')
+    if state["stopped"]:
+        break
+if facet_checked and not state["stopped"]:
+    report_ok(f"{facet_checked} simple type(s): facets are consistent")
+
+if state["stopped"]:
+    finalize()
+    sys.exit(1)
+
+# ── 10. property form / bounds ───────────────────────────────
+
+for p in pkg.iter():
+    if not isinstance(p.tag, str) or local(p) != "property":
+        continue
+    form = p.get("form")
+    if form and form not in ("Element", "Attribute", "Text"):
+        report_error(f'Property "{p.get("name")}": invalid form="{form}"')
+    ub = p.get("upperBound")
+    if ub and ub != "-1" and int(ub) < 1:
+        report_error(f'Property "{p.get("name")}": upperBound="{ub}" (allowed: -1 or a number ≥ 1)')
+    lb = p.get("lowerBound")
+    if lb and ub and ub != "-1" and int(lb) > int(ub):
+        report_error(f'Property "{p.get("name")}": lowerBound ({lb}) is greater than upperBound ({ub})')
+    if p.get("name") is None and p.get("ref") is None:
+        report_error("Property without name or ref")
+    # В модели XDTO fixed — булев признак, само значение лежит в default.
+    # В XML-схеме наоборот: fixed="V" совмещает признак и значение.
+    fx = p.get("fixed")
+    if fx is not None:
+        p_name = p.get("name") if p.get("name") is not None else p.get("ref")
+        if fx not in ("true", "false"):
+            report_error(
+                f'Property "{p_name}": fixed="{fx}" — in the model this is a boolean flag; '
+                "the value goes in default (XML Schema combines flag and value in fixed)"
+            )
+        elif fx == "true" and p.get("default") is None:
+            report_error(
+                f'Property "{p_name}": fixed="true" without default — '
+                f"the platform rejects the package («Отсутствует фиксированное значение свойства '{p_name}'»)"
+            )
+    if state["stopped"]:
+        break
+if not state["stopped"]:
+    report_ok("Properties: form, cardinalities and fixed values are correct")
+
+# ── 10b. structural consistency ──────────────────────────────
+
+struct_ok = True
+for t in pkg.iter():
+    if not isinstance(t.tag, str) or local(t) not in ("objectType", "typeDef"):
+        continue
+    if local(t) == "typeDef" and t.get(f"{{{XSI_NS}}}type") != "ObjectType":
+        continue
+    tn = t.get("name") or "(anonymous type)"
+    prop_names = set()
+    for c in t:
+        if not isinstance(c.tag, str) or local(c) != "property":
+            continue
+        pn = c.get("name")
+        if pn:
+            if pn in prop_names:
+                report_error(f'{tn} : duplicate property name "{pn}"')
+                struct_ok = False
+            prop_names.add(pn)
+    if state["stopped"]:
+        break
+
+for p_ in pkg.iter():
+    if not isinstance(p_.tag, str) or local(p_) != "property":
+        continue
+    pn = p_.get("name") or p_.get("ref")
+    if p_.get("name") is not None and p_.get("ref") is not None:
+        report_error(f'Property "{pn}": both name and ref are set — only one is allowed')
+        struct_ok = False
+    inline = next((c for c in p_ if isinstance(c.tag, str) and local(c) == "typeDef"), None)
+    if inline is not None and p_.get("type") is not None:
+        report_error(f'Property "{pn}": both type and a nested <typeDef> are set — only one is allowed')
+        struct_ok = False
+    if inline is not None and inline.get(f"{{{XSI_NS}}}type") is None:
+        report_error(f'Property "{pn}": nested <typeDef> has no xsi:type (ValueType or ObjectType)')
+        struct_ok = False
+    if state["stopped"]:
+        break
+
+# Анонимный тип внутри valueType задаёт базовый тип и xsi:type не несёт
+for vt in pkg.iter():
+    if not isinstance(vt.tag, str) or local(vt) != "valueType":
+        continue
+    for c in vt:
+        if isinstance(c.tag, str) and local(c) == "typeDef" and c.get(f"{{{XSI_NS}}}type") is not None:
+            report_warn(f'{vt.get("name")} : <typeDef> inside <valueType> has xsi:type — '
+                        "the platform does not write it here")
+
+# Род базового типа должен совпадать
+for t in pkg.iter():
+    if not isinstance(t.tag, str) or t.get("base") is None:
+        continue
+    kind = local(t)
+    if kind not in ("objectType", "valueType"):
+        continue
+    parts = t.get("base").split(":")
+    if len(parts) != 2:
+        continue
+    if t.nsmap.get(parts[0]) != target_ns:
+        continue
+    if kind == "objectType" and parts[1] in value_type_names:
+        report_error(f'{t.get("name")} : base="{t.get("base")}" refers to a valueType, '
+                     "but an objectType can only inherit from an objectType")
+        struct_ok = False
+    if kind == "valueType" and parts[1] in object_type_names:
+        report_error(f'{t.get("name")} : base="{t.get("base")}" refers to an objectType, '
+                     "but a valueType can only be built on a simple type")
+        struct_ok = False
+
+# Union без состава
+for t in pkg.iter():
+    if not isinstance(t.tag, str) or local(t) not in ("valueType", "typeDef"):
+        continue
+    if t.get("variety") != "Union" or t.get("memberTypes") is not None:
+        continue
+    if not any(isinstance(c.tag, str) and local(c) == "typeDef" for c in t):
+        tn = t.get("name") or "(anonymous type)"
+        report_warn(f'{tn} : variety="Union" without memberTypes or nested types — the union is empty')
+
+if struct_ok and not state["stopped"]:
+    report_ok("Type and property structure is consistent")
+
+if state["stopped"]:
+    finalize()
+    sys.exit(1)
+
+# ── 11. metadata object ──────────────────────────────────────
+
+if md_path:
+    md = _parse_xml(md_path)
+    md_name = md.find(f".//{{{MD_NS}}}XDTOPackage/{{{MD_NS}}}Properties/{{{MD_NS}}}Name")
+    md_ns = md.find(f".//{{{MD_NS}}}XDTOPackage/{{{MD_NS}}}Properties/{{{MD_NS}}}Namespace")
+    if md_name is None:
+        report_error("The metadata object has no <Name>")
+    elif (md_name.text or "") != file_name:
+        report_error(f'<Name>{md_name.text}</Name> does not match the directory name "{file_name}"')
+    else:
+        report_ok(f"Metadata object: Name = {md_name.text}")
+    if md_ns is not None and (md_ns.text or "") != target_ns:
+        report_error(f"<Namespace>{md_ns.text}</Namespace> does not match the package targetNamespace ({target_ns})")
+    elif md_ns is not None:
+        report_ok("Metadata object Namespace matches targetNamespace")
+else:
+    report_warn("Metadata object file <Name>.xml not found next to the package directory")
+
+# ── 12. registration + namespace uniqueness ──────────────────
+
+config_xml = os.path.join(config_dir, "Configuration.xml")
+if os.path.exists(config_xml):
+    cfg = _parse_xml(config_xml)
+    registered = any((e.text or "") == file_name
+                     for e in cfg.iterfind(f".//{{{MD_NS}}}Configuration/{{{MD_NS}}}ChildObjects/{{{MD_NS}}}XDTOPackage"))
+    if registered:
+        report_ok("Registered in Configuration.xml")
+    else:
+        report_error(f"<XDTOPackage>{file_name}</XDTOPackage> is missing from ChildObjects in "
+                     "Configuration.xml — the platform will not see the package")
+
+    pkg_root = os.path.join(config_dir, "XDTOPackages")
+    if os.path.isdir(pkg_root):
+        clash = []
+        for other in sorted(os.listdir(pkg_root)):
+            if other == file_name:
+                continue
+            ob = os.path.join(pkg_root, other, "Ext", "Package.bin")
+            if not os.path.exists(ob):
+                continue
+            try:
+                if _parse_xml(ob).getroot().get("targetNamespace") == target_ns:
+                    clash.append(other)
+            except Exception:  # noqa: BLE001
+                pass
+        # Платформа отвергает пакет, если импортируемого namespace нет в конфигурации:
+        # «Ошибка проверки модели XDTO: xdto-package-3.3 … не определен»
+        known_ns = {}
+        for other in sorted(os.listdir(pkg_root)):
+            ob = os.path.join(pkg_root, other, "Ext", "Package.bin")
+            if not os.path.exists(ob):
+                continue
+            try:
+                known_ns[_parse_xml(ob).getroot().get("targetNamespace")] = other
+            except Exception:  # noqa: BLE001
+                pass
+        missing_imports = [i for i in imports if i not in known_ns and i not in PLATFORM_NS]
+        if missing_imports:
+            report_error("Imported packages are not defined in the configuration: "
+                         + ", ".join(missing_imports)
+                         + ". The platform rejects the package on configuration update — "
+                           "build the dependencies first")
+        elif imports:
+            report_ok("All imports resolve to configuration packages")
+
+        if clash:
+            report_warn(f'targetNamespace "{target_ns}" is also declared in package(s): {", ".join(clash)}. '
+                        "The platform allows this, but an <import> of this namespace becomes ambiguous")
+        else:
+            report_ok("targetNamespace is unique in the configuration")
+else:
+    report_warn(f"Configuration.xml not found ({config_dir}) — registration and namespace uniqueness checks skipped")
+
+finalize()
+sys.exit(1 if state["errors"] > 0 else 0)
