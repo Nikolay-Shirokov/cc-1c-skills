@@ -374,7 +374,7 @@ export default async function({ fillFields, getFormState, assert }, { type, fiel
 }
 ```
 
-Each `params` entry becomes its own test in the report. `{key}` placeholders in `name` get substituted; without placeholders, a `[index]` suffix is added. `ctx.testInfo.param` carries the current row.
+Each `params` entry becomes its own test in the report. `{key}` placeholders in `name` get substituted; without placeholders, a `[index]` suffix is added. `ctx.testInfo.param` carries the current row. In Allure the row's values show as the test's parameters; a test's history is keyed by file + name, so renaming a test (or changing a value that feeds a `{key}` in the name) starts a new history line.
 
 ## Running
 

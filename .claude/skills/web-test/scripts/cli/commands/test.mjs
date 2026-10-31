@@ -1,4 +1,4 @@
-// web-test cli/commands/test v1.12 — regression test runner
+// web-test cli/commands/test v1.13 — regression test runner
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import { existsSync, writeFileSync, mkdirSync, renameSync, copyFileSync, unlinkSync } from 'fs';
 import { resolve, dirname, basename, relative } from 'path';
@@ -395,7 +395,7 @@ export async function cmdTest(rawArgs) {
   function recordSkipped(t) {
     const reason = typeof t.skip === 'string' ? t.skip : '';
     W.write(`  ○ ${t.name}${reason ? ` (skip: ${reason})` : ' (skip)'}\n`);
-    recordResult({ name: t.name, file: t.file, tags: t.tags, contexts: declaredContextsOf(t), status: 'skipped', duration: 0, attempts: 0, steps: [], output: '', error: null, screenshot: null });
+    recordResult({ name: t.name, file: t.file, tags: t.tags, param: t.param, contexts: declaredContextsOf(t), status: 'skipped', duration: 0, attempts: 0, steps: [], output: '', error: null, screenshot: null });
     skipCount++;
   }
 
@@ -586,7 +586,7 @@ export async function cmdTest(rawArgs) {
       } catch (e) {
         W.write(`  ✗ ${t.name} (context setup failed: ${e.message})\n`);
         flushDiag();
-        recordResult({ name: t.name, file: t.file, tags: t.tags, contexts: declaredContexts, status: 'failed', duration: 0, attempts: 0, steps: [], output: '', error: { message: e.message }, screenshot: null });
+        recordResult({ name: t.name, file: t.file, tags: t.tags, param: t.param, contexts: declaredContexts, status: 'failed', duration: 0, attempts: 0, steps: [], output: '', error: { message: e.message }, screenshot: null });
         failCount++;
         if (opts.bail) break;
         continue;
@@ -701,7 +701,7 @@ export async function cmdTest(rawArgs) {
             await bounded(browser.stopRecording(), D.stopRecording, 'stopRecording');
           }
           const dur = elapsed(t0);
-          testResult = { name: t.name, file: t.file, tags: t.tags, contexts: testContextNames, severity: t.severity, status: 'passed', duration: dur, attempts: attempt, start: t0, stop: Date.now(), steps, output: output.join('\n'), error: null, screenshot: null, video: videoFile };
+          testResult = { name: t.name, file: t.file, tags: t.tags, param: t.param, contexts: testContextNames, severity: t.severity, status: 'passed', duration: dur, attempts: attempt, start: t0, stop: Date.now(), steps, output: output.join('\n'), error: null, screenshot: null, video: videoFile };
           lastError = null;
           break;
 
@@ -794,7 +794,7 @@ export async function cmdTest(rawArgs) {
           }
           lastError = errInfo;
           const dur = elapsed(t0);
-          testResult = { name: t.name, file: t.file, tags: t.tags, contexts: testContextNames, severity: t.severity, status: 'failed', duration: dur, attempts: attempt, start: t0, stop: Date.now(), steps, output: output.join('\n'), error: errInfo, screenshot: shotFile, video: videoFile };
+          testResult = { name: t.name, file: t.file, tags: t.tags, param: t.param, contexts: testContextNames, severity: t.severity, status: 'failed', duration: dur, attempts: attempt, start: t0, stop: Date.now(), steps, output: output.join('\n'), error: errInfo, screenshot: shotFile, video: videoFile };
 
           // A wedged renderer is not flakiness — retrying just buys another full timeout
           // plus another abort. Stop after the first hang.

@@ -1,8 +1,8 @@
-// web-test cli/test-runner/reporters v1.0 — Allure/JUnit writers + extras sync
+// web-test cli/test-runner/reporters v1.1 — Allure/JUnit writers + extras sync
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import { writeFileSync, existsSync, readdirSync, copyFileSync, statSync } from 'fs';
 import { resolve, dirname, basename, relative } from 'path';
-import { randomUUID } from 'crypto';
+import { randomUUID, createHash } from 'crypto';
 import { xmlEscape } from '../util.mjs';
 import { resolveSeverity } from './severity.mjs';
 
@@ -37,6 +37,9 @@ export function writeAllure(results, reportDir, severityIndex) {
     const severity = resolveSeverity(tr, severityIndex);
     const out = {
       uuid,
+      // Without historyId Allure keeps no history: trends and the per-test History tab stay empty.
+      // tr.file is suite-root relative and a params row has its own name, so the key is stable.
+      historyId: createHash('md5').update(`${tr.file}#${tr.name}`).digest('hex'),
       name: tr.name,
       fullName: tr.file,
       status: tr.status,
@@ -48,6 +51,11 @@ export function writeAllure(results, reportDir, severityIndex) {
         { name: 'suite', value: suiteLabel },
         { name: 'severity', value: severity },
       ],
+      ...(tr.param && typeof tr.param === 'object' && {
+        parameters: Object.entries(tr.param).map(([name, v]) => ({
+          name, value: v !== null && typeof v === 'object' ? JSON.stringify(v) : String(v),
+        })),
+      }),
       steps: (tr.steps || []).map(allureStep),
       attachments: [
         ...(tr.screenshot ? [{ name: 'Screenshot on failure', source: basename(tr.screenshot), type: 'image/png' }] : []),
