@@ -1,0 +1,23 @@
+{
+  "name": "-Check: расширение из Конфигуратора с режимами контроля (Notify, Extended, составной тип) совпадает с источником",
+  "setup": "fixture:adopted-modes",
+  "params": {
+    "extensionPath": "cfe"
+  },
+  "args_extra": [
+    "-Check"
+  ],
+  "noSnapshot": "-Check ничего не пишет: проверяется отчёт",
+  "expect": {
+    "stdoutContains": [
+      "[UP-TO-DATE] Catalog.Items",
+      "[UP-TO-DATE] Catalog.Items.Attribute.Value",
+      "[UP-TO-DATE] CommonModule.SharedModule",
+      "[UP-TO-DATE] InformationRegister.Rates"
+    ],
+    "stdoutNotContains": [
+      "OUTDATED",
+      "[WARN]"
+    ]
+  }
+}

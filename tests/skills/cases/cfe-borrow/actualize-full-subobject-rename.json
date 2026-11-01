@@ -1,0 +1,94 @@
+{
+  "name": "-Actualize: реквизит переименован в источнике, связь потеряна, тип сужен — всё приведено, упоминания в коде перечислены",
+  "setup": "fixture:adopted-modes",
+  "preRun": [
+    {
+      "editFile": "Catalogs/Items.xml",
+      "replace": "<CodeLength>9</CodeLength>",
+      "with": "<CodeLength>11</CodeLength>"
+    },
+    {
+      "editFile": "Catalogs/Items.xml",
+      "replace": "<DescriptionLength>25</DescriptionLength>",
+      "with": "<DescriptionLength>50</DescriptionLength>"
+    },
+    {
+      "editFile": "Catalogs/Items.xml",
+      "replace": "<v8:Digits>10</v8:Digits>",
+      "with": "<v8:Digits>12</v8:Digits>"
+    },
+    {
+      "editFile": "Catalogs/Items.xml",
+      "replace": "<v8:Type>cfg:CatalogRef.Owners0</v8:Type>",
+      "with": ""
+    },
+    {
+      "editFile": "CommonModules/SharedModule.xml",
+      "replace": "<ExternalConnection>false</ExternalConnection>",
+      "with": "<ExternalConnection>true</ExternalConnection>"
+    },
+    {
+      "editFile": "InformationRegisters/Rates.xml",
+      "replace": "<InformationRegisterPeriodicity>Day</InformationRegisterPeriodicity>",
+      "with": "<InformationRegisterPeriodicity>Month</InformationRegisterPeriodicity>"
+    },
+    {
+      "editFile": "Catalogs/Items.xml",
+      "replace": "<Name>Article</Name>",
+      "with": "<Name>Артикул</Name>"
+    },
+    {
+      "editFile": "cfe/Documents/Docs.xml",
+      "replace": "\r\n\t\t\t<ExtendedConfigurationObject>81a26ce5-f36f-499e-9525-7ec8752b0e8f</ExtendedConfigurationObject>",
+      "with": ""
+    },
+    {
+      "writeFile": {
+        "path": "cfe/Catalogs/Items/Ext/ObjectModule.bsl",
+        "content": "&После(\"ПередЗаписью\")\nПроцедура Patch_ПередЗаписью(Отказ)\n\tArticle = СокрЛП(Article);\nКонецПроцедуры\n"
+      }
+    }
+  ],
+  "params": {
+    "extensionPath": "cfe"
+  },
+  "args_extra": [
+    "-Actualize"
+  ],
+  "expect": {
+    "stdoutContains": [
+      "[RENAMED] Catalog.Items.Attribute.Article",
+      "renamed: Article -> Артикул",
+      "'Article' is still mentioned",
+      "Catalogs/Items/Ext/ObjectModule.bsl:3",
+      "[ACTUALIZED] Document.Docs",
+      "ExtendedConfigurationObject: link restored (81a26ce5-f36f-499e-9525-7ec8752b0e8f)",
+      "Type (check part): CatalogRef.Owners0 -> (removed: not in the source)"
+    ],
+    "stdoutNotContains": [
+      "[WARN]"
+    ],
+    "fileContains": [
+      {
+        "file": "cfe/Catalogs/Items.xml",
+        "text": [
+          "<Name>Артикул</Name>",
+          "<v8:Length>20</v8:Length>"
+        ]
+      },
+      {
+        "file": "cfe/Documents/Docs.xml",
+        "text": [
+          "<ExtendedConfigurationObject>81a26ce5-f36f-499e-9525-7ec8752b0e8f</ExtendedConfigurationObject>"
+        ]
+      }
+    ],
+    "fileNotContains": {
+      "file": "cfe/Catalogs/Items.xml",
+      "text": [
+        "cfg:CatalogRef.Owners0",
+        "<Name>Article</Name>"
+      ]
+    }
+  }
+}

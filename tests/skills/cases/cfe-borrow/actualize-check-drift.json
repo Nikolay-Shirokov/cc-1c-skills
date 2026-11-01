@@ -1,0 +1,66 @@
+{
+  "name": "-Check: источник изменил контролируемые свойства — отчёт по режимам, exit 1, расширение не тронуто",
+  "setup": "fixture:adopted-modes",
+  "preRun": [
+    {
+      "editFile": "Catalogs/Items.xml",
+      "replace": "<CodeLength>9</CodeLength>",
+      "with": "<CodeLength>11</CodeLength>"
+    },
+    {
+      "editFile": "Catalogs/Items.xml",
+      "replace": "<DescriptionLength>25</DescriptionLength>",
+      "with": "<DescriptionLength>50</DescriptionLength>"
+    },
+    {
+      "editFile": "Catalogs/Items.xml",
+      "replace": "<v8:Digits>10</v8:Digits>",
+      "with": "<v8:Digits>12</v8:Digits>"
+    },
+    {
+      "editFile": "Catalogs/Items.xml",
+      "replace": "<v8:Type>cfg:CatalogRef.Owners0</v8:Type>",
+      "with": ""
+    },
+    {
+      "editFile": "CommonModules/SharedModule.xml",
+      "replace": "<ExternalConnection>false</ExternalConnection>",
+      "with": "<ExternalConnection>true</ExternalConnection>"
+    },
+    {
+      "editFile": "InformationRegisters/Rates.xml",
+      "replace": "<InformationRegisterPeriodicity>Day</InformationRegisterPeriodicity>",
+      "with": "<InformationRegisterPeriodicity>Month</InformationRegisterPeriodicity>"
+    }
+  ],
+  "params": {
+    "extensionPath": "cfe"
+  },
+  "args_extra": [
+    "-Check"
+  ],
+  "expectError": true,
+  "noSnapshot": "-Check ничего не пишет: проверяется отчёт и неизменность файла",
+  "expect": {
+    "stdoutContains": [
+      "[OUTDATED] Catalog.Items",
+      "CodeLength: 9 -> 11",
+      "DescriptionLength (mode: Notify): 25 -> 50",
+      "Type (notify part): Number(10,2) -> Number(12,2)",
+      "Type (check part): CatalogRef.Owners0 -> (removed: not in the source)",
+      "ExternalConnection (mode: Notify): false -> true",
+      "InformationRegisterPeriodicity: Day -> Month"
+    ],
+    "stdoutNotContains": [
+      "Type (extend part)"
+    ],
+    "fileContains": {
+      "file": "cfe/Catalogs/Items.xml",
+      "text": [
+        "<CodeLength>9</CodeLength>",
+        "<DescriptionLength>25</DescriptionLength>",
+        "<v8:Digits>10</v8:Digits>"
+      ]
+    }
+  }
+}

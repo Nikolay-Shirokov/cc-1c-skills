@@ -1,0 +1,44 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<MetaDataObject xmlns="http://v8.1c.ru/8.3/MDClasses" xmlns:app="http://v8.1c.ru/8.2/managed-application/core" xmlns:cfg="http://v8.1c.ru/8.1/data/enterprise/current-config" xmlns:cmi="http://v8.1c.ru/8.2/managed-application/cmi" xmlns:ent="http://v8.1c.ru/8.1/data/enterprise" xmlns:lf="http://v8.1c.ru/8.2/managed-application/logform" xmlns:style="http://v8.1c.ru/8.1/data/ui/style" xmlns:sys="http://v8.1c.ru/8.1/data/ui/fonts/system" xmlns:v8="http://v8.1c.ru/8.1/data/core" xmlns:v8ui="http://v8.1c.ru/8.1/data/ui" xmlns:web="http://v8.1c.ru/8.1/data/ui/colors/web" xmlns:win="http://v8.1c.ru/8.1/data/ui/colors/windows" xmlns:xen="http://v8.1c.ru/8.3/xcf/enums" xmlns:xpr="http://v8.1c.ru/8.3/xcf/predef" xmlns:xr="http://v8.1c.ru/8.3/xcf/readable" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" version="2.20">
+	<InformationRegister uuid="5f349d2e-cfb8-428b-9f27-af598f838f94">
+		<InternalInfo>
+			<xr:GeneratedType name="InformationRegisterRecord.Rates" category="Record">
+				<xr:TypeId>dc79b66a-a190-413e-bdec-86bcf2e747fa</xr:TypeId>
+				<xr:ValueId>39543079-0c3c-4989-a574-752d1c29480b</xr:ValueId>
+			</xr:GeneratedType>
+			<xr:GeneratedType name="InformationRegisterManager.Rates" category="Manager">
+				<xr:TypeId>5ff9e292-fb61-476d-b2f9-d5edd1ffaa2e</xr:TypeId>
+				<xr:ValueId>fc1c1caa-23ba-4c8a-b25a-2ab0e6ceaf0c</xr:ValueId>
+			</xr:GeneratedType>
+			<xr:GeneratedType name="InformationRegisterSelection.Rates" category="Selection">
+				<xr:TypeId>7773914d-39cc-41f7-b244-05d839123aa4</xr:TypeId>
+				<xr:ValueId>922b6158-5cc8-424b-bab3-fa93930c1bb5</xr:ValueId>
+			</xr:GeneratedType>
+			<xr:GeneratedType name="InformationRegisterList.Rates" category="List">
+				<xr:TypeId>bc2d5c55-758b-4fb8-9b3f-17841ef52fe8</xr:TypeId>
+				<xr:ValueId>4ffa943a-05c8-488c-bbed-7c8bd09f5a14</xr:ValueId>
+			</xr:GeneratedType>
+			<xr:GeneratedType name="InformationRegisterRecordSet.Rates" category="RecordSet">
+				<xr:TypeId>857b9818-cee6-4c9b-9406-0c9223b3417d</xr:TypeId>
+				<xr:ValueId>7d07e7bc-470e-49db-898e-95479afeeae3</xr:ValueId>
+			</xr:GeneratedType>
+			<xr:GeneratedType name="InformationRegisterRecordKey.Rates" category="RecordKey">
+				<xr:TypeId>7381aa9e-7ed3-447f-a9b3-91277d3278b5</xr:TypeId>
+				<xr:ValueId>1fe50519-eabc-46ab-965d-389ac2456320</xr:ValueId>
+			</xr:GeneratedType>
+			<xr:GeneratedType name="InformationRegisterRecordManager.Rates" category="RecordManager">
+				<xr:TypeId>d4c91a58-68cd-48f5-8e81-873078838c71</xr:TypeId>
+				<xr:ValueId>1124ae48-4e40-49b7-ae35-9f7c483b8e1c</xr:ValueId>
+			</xr:GeneratedType>
+		</InternalInfo>
+		<Properties>
+			<ObjectBelonging>Adopted</ObjectBelonging>
+			<Name>Rates</Name>
+			<Comment/>
+			<ExtendedConfigurationObject>59bf05c5-9076-46b8-9149-7b6a7be72824</ExtendedConfigurationObject>
+			<InformationRegisterPeriodicity>Day</InformationRegisterPeriodicity>
+			<WriteMode>Independent</WriteMode>
+		</Properties>
+		<ChildObjects/>
+	</InformationRegister>
+</MetaDataObject>

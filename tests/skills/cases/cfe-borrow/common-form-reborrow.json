@@ -103,7 +103,7 @@
       "file": "cfe/CommonForms/Подбор/Ext/Form/Module.bsl",
       "text": "// код расширения"
     },
-    "stdoutContains": "Preserved existing Module.bsl",
+    "stdoutContains": "[UP-TO-DATE] CommonForm.Подбор",
     "stdoutNotContains": "Already in ChildObjects"
   }
 }

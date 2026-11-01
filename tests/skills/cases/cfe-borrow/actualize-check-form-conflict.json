@@ -1,0 +1,72 @@
+{
+  "name": "-Check: форма источника изменилась в элементе, который правит расширение, — конфликт в отчёте, Form.xml не тронут",
+  "setup": "fixture:main-attr-kinds",
+  "preRun": [
+    {
+      "script": "cfe-init/scripts/cfe-init",
+      "args": {
+        "-Name": "Тест",
+        "-OutputDir": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}"
+      }
+    },
+    {
+      "script": "cfe-borrow/scripts/cfe-borrow",
+      "args": {
+        "-ExtensionPath": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}",
+        "-Object": "Document.Расход.Form.ФормаДокумента",
+        "-BorrowMainAttribute": "Form"
+      }
+    },
+    {
+      "script": "form-edit/scripts/form-edit",
+      "input": {
+        "title": "Расход (доработка)",
+        "elements": [
+          {
+            "set": "Комментарий",
+            "title": "Примечание"
+          }
+        ]
+      },
+      "args": {
+        "-FormPath": "{workDir}/cfe/Documents/Расход/Forms/ФормаДокумента/Ext/Form.xml",
+        "-JsonPath": "{inputFile}"
+      }
+    },
+    {
+      "editFile": "Documents/Расход/Forms/ФормаДокумента/Ext/Form.xml",
+      "replace": "<DataPath>Объект.Комментарий</DataPath>",
+      "with": "<DataPath>Объект.Комментарий</DataPath>\r\n\t\t\t<Width>40</Width>"
+    }
+  ],
+  "params": {
+    "extensionPath": "cfe"
+  },
+  "args_extra": [
+    "-Check"
+  ],
+  "expectError": true,
+  "noSnapshot": "-Check ничего не пишет: проверяется отчёт",
+  "expect": {
+    "stdoutContains": [
+      "[FORM CHANGED IN SOURCE] Document.Расход.Form.ФормаДокумента",
+      "changed in the source: Комментарий",
+      "conflict: Комментарий is edited by the extension and changed in the source"
+    ],
+    "fileContains": {
+      "file": "cfe/Documents/Расход/Forms/ФормаДокумента/Ext/Form.xml",
+      "text": [
+        "Расход (доработка)",
+        "Примечание"
+      ]
+    },
+    "fileNotContains": {
+      "file": "cfe/Documents/Расход/Forms/ФормаДокумента/Ext/Form.xml",
+      "text": [
+        "<Width>40</Width>"
+      ]
+    }
+  }
+}

@@ -70,7 +70,7 @@
   },
   "expect": {
     "stdoutContains": [
-      "Already borrowed: TabularSection Строки",
+      "[UP-TO-DATE] ChartOfCharacteristicTypes.ВидыСубконто.TabularSection.Строки",
       "[WARN]",
       "own attributes cannot be added"
     ]

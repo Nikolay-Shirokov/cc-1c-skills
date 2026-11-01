@@ -1,0 +1,32 @@
+{
+  "name": "-Check: объект пересоздан в источнике (тёзка с другим UUID) и объект удалён — не трогаются, exit 1",
+  "setup": "fixture:adopted-modes",
+  "preRun": [
+    {
+      "editFile": "Catalogs/Owners0.xml",
+      "replace": "<Catalog uuid=\"a5350b58-0465-46ec-971c-76dae96b62d0\">",
+      "with": "<Catalog uuid=\"0e7c7f1e-1111-4a2b-9c3d-5e6f7a8b9c0d\">"
+    },
+    {
+      "deletePath": "Documents/Docs.xml"
+    },
+    {
+      "deletePath": "Documents/Docs"
+    }
+  ],
+  "params": {
+    "extensionPath": "cfe"
+  },
+  "args_extra": [
+    "-Check"
+  ],
+  "expectError": true,
+  "noSnapshot": "-Check ничего не пишет: проверяется отчёт",
+  "expect": {
+    "stdoutContains": [
+      "[REPLACED] Catalog.Owners0",
+      "another UUID (0e7c7f1e-1111-4a2b-9c3d-5e6f7a8b9c0d)",
+      "[NOT FOUND] Document.Docs"
+    ]
+  }
+}

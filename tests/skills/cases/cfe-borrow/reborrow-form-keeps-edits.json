@@ -1,0 +1,56 @@
+{
+  "name": "Повторное заимствование формы не затирает правки расширения в Form.xml",
+  "setup": "fixture:main-attr-kinds",
+  "preRun": [
+    {
+      "script": "cfe-init/scripts/cfe-init",
+      "args": {
+        "-Name": "Тест",
+        "-OutputDir": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}"
+      }
+    },
+    {
+      "script": "cfe-borrow/scripts/cfe-borrow",
+      "args": {
+        "-ExtensionPath": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}",
+        "-Object": "Document.Расход.Form.ФормаДокумента",
+        "-BorrowMainAttribute": "Form"
+      }
+    },
+    {
+      "script": "form-edit/scripts/form-edit",
+      "input": {
+        "title": "Расход (доработка)",
+        "elements": [
+          {
+            "set": "Комментарий",
+            "title": "Примечание"
+          }
+        ]
+      },
+      "args": {
+        "-FormPath": "{workDir}/cfe/Documents/Расход/Forms/ФормаДокумента/Ext/Form.xml",
+        "-JsonPath": "{inputFile}"
+      }
+    }
+  ],
+  "params": {
+    "extensionPath": "cfe"
+  },
+  "object": "Document.Расход.Form.ФормаДокумента",
+  "expect": {
+    "stdoutContains": [
+      "Actualizing form Document.Расход.Form.ФормаДокумента",
+      "[UP-TO-DATE] Document.Расход.Form.ФормаДокумента"
+    ],
+    "fileContains": {
+      "file": "cfe/Documents/Расход/Forms/ФормаДокумента/Ext/Form.xml",
+      "text": [
+        "Расход (доработка)",
+        "Примечание"
+      ]
+    }
+  }
+}

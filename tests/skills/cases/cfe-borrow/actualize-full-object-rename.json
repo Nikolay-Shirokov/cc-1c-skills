@@ -1,0 +1,99 @@
+{
+  "name": "-Actualize: объект переименован в источнике — файлы, ChildObjects и ссылки на тип в XML расширения следом",
+  "setup": "fixture:adopted-modes",
+  "preRun": [
+    {
+      "movePath": {
+        "from": "Catalogs/Owners0.xml",
+        "to": "Catalogs/Владельцы.xml"
+      }
+    },
+    {
+      "movePath": {
+        "from": "Catalogs/Owners0",
+        "to": "Catalogs/Владельцы"
+      }
+    },
+    {
+      "editFile": "Catalogs/Владельцы.xml",
+      "replace": "<Name>Owners0</Name>",
+      "with": "<Name>Владельцы</Name>"
+    },
+    {
+      "editFile": "Catalogs/Владельцы.xml",
+      "replace": ".Owners0\"",
+      "with": ".Владельцы\"",
+      "all": true
+    },
+    {
+      "editFile": "Catalogs/Владельцы.xml",
+      "replace": "Catalog.Owners0.",
+      "with": "Catalog.Владельцы.",
+      "all": true
+    },
+    {
+      "editFile": "Configuration.xml",
+      "replace": "<Catalog>Owners0</Catalog>",
+      "with": "<Catalog>Владельцы</Catalog>"
+    },
+    {
+      "editFile": "Catalogs/Items.xml",
+      "replace": "cfg:CatalogRef.Owners0",
+      "with": "cfg:CatalogRef.Владельцы"
+    },
+    {
+      "editFile": "Catalogs/Sub.xml",
+      "replace": "Catalog.Owners0",
+      "with": "Catalog.Владельцы"
+    }
+  ],
+  "params": {
+    "extensionPath": "cfe"
+  },
+  "args_extra": [
+    "-Actualize"
+  ],
+  "expect": {
+    "stdoutContains": [
+      "[RENAMED] Catalog.Owners0",
+      "renamed: Owners0 -> Владельцы",
+      "[UP-TO-DATE] Catalog.Sub"
+    ],
+    "fileContains": [
+      {
+        "file": "cfe/Configuration.xml",
+        "text": [
+          "<Catalog>Владельцы</Catalog>"
+        ]
+      },
+      {
+        "file": "cfe/Catalogs/Владельцы.xml",
+        "text": [
+          "<Name>Владельцы</Name>",
+          "CatalogRef.Владельцы\""
+        ]
+      },
+      {
+        "file": "cfe/Catalogs/Items.xml",
+        "text": [
+          "<v8:Type>cfg:CatalogRef.Владельцы</v8:Type>"
+        ]
+      },
+      {
+        "file": "cfe/Catalogs/Sub.xml",
+        "text": [
+          "Catalog.Владельцы</xr:Item>"
+        ]
+      }
+    ],
+    "fileNotContains": {
+      "file": "cfe/Configuration.xml",
+      "text": [
+        "<Catalog>Owners0</Catalog>"
+      ]
+    },
+    "stdoutNotContains": [
+      "is still mentioned"
+    ]
+  }
+}

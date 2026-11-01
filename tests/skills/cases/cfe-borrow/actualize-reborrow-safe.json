@@ -1,0 +1,66 @@
+{
+  "name": "Повтор по заимствованному объекту освежает его из источника, переопределённое (Extended) не трогает",
+  "setup": "fixture:adopted-modes",
+  "preRun": [
+    {
+      "editFile": "Catalogs/Items.xml",
+      "replace": "<CodeLength>9</CodeLength>",
+      "with": "<CodeLength>11</CodeLength>"
+    },
+    {
+      "editFile": "Catalogs/Items.xml",
+      "replace": "<DescriptionLength>25</DescriptionLength>",
+      "with": "<DescriptionLength>50</DescriptionLength>"
+    },
+    {
+      "editFile": "Catalogs/Items.xml",
+      "replace": "<v8:Digits>10</v8:Digits>",
+      "with": "<v8:Digits>12</v8:Digits>"
+    },
+    {
+      "editFile": "Catalogs/Items.xml",
+      "replace": "<v8:Type>cfg:CatalogRef.Owners0</v8:Type>",
+      "with": ""
+    },
+    {
+      "editFile": "CommonModules/SharedModule.xml",
+      "replace": "<ExternalConnection>false</ExternalConnection>",
+      "with": "<ExternalConnection>true</ExternalConnection>"
+    },
+    {
+      "editFile": "InformationRegisters/Rates.xml",
+      "replace": "<InformationRegisterPeriodicity>Day</InformationRegisterPeriodicity>",
+      "with": "<InformationRegisterPeriodicity>Month</InformationRegisterPeriodicity>"
+    }
+  ],
+  "params": {
+    "extensionPath": "cfe"
+  },
+  "object": "Catalog.Items",
+  "expect": {
+    "stdoutContains": [
+      "[ACTUALIZED] Catalog.Items",
+      "[ACTUALIZED] Catalog.Items.Attribute.Value",
+      "Type (check part): CatalogRef.Owners0 -> (removed: not in the source)"
+    ],
+    "stdoutNotContains": [
+      "Already in ChildObjects",
+      "[WARN]"
+    ],
+    "fileContains": {
+      "file": "cfe/Catalogs/Items.xml",
+      "text": [
+        "<CodeLength>11</CodeLength>",
+        "<DescriptionLength>50</DescriptionLength>",
+        "<v8:Digits>12</v8:Digits>",
+        "<v8:Length>20</v8:Length>"
+      ]
+    },
+    "fileNotContains": {
+      "file": "cfe/Catalogs/Items.xml",
+      "text": [
+        "cfg:CatalogRef.Owners0"
+      ]
+    }
+  }
+}

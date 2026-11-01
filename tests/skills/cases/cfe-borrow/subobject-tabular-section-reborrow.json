@@ -88,7 +88,7 @@
   },
   "expect": {
     "stdoutContains": [
-      "Already borrowed: TabularSection Товары"
+      "[UP-TO-DATE] Document.ЗаказКлиента.TabularSection.Товары"
     ],
     "fileContains": {
       "file": "cfe/Documents/ЗаказКлиента.xml",
