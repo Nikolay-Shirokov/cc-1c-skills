@@ -1,0 +1,44 @@
+{
+  "name": "Реквизит переименован в источнике; в пакете объект, затем реквизит под старым именем — второй элемент идёт под новым",
+  "setup": "fixture:main-attr-kinds",
+  "preRun": [
+    {
+      "script": "cfe-init/scripts/cfe-init",
+      "args": {
+        "-Name": "Тест",
+        "-OutputDir": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}"
+      }
+    },
+    {
+      "script": "cfe-borrow/scripts/cfe-borrow",
+      "args": {
+        "-ExtensionPath": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}",
+        "-Object": "Document.Расход.Form.ФормаДокумента",
+        "-BorrowMainAttribute": "All"
+      }
+    },
+    {
+      "editFile": "Documents/Расход.xml",
+      "replace": "<Name>Комментарий</Name>",
+      "with": "<Name>Примечание</Name>"
+    }
+  ],
+  "params": {
+    "extensionPath": "cfe"
+  },
+  "object": "Document.Расход ;; Document.Расход.Attribute.Комментарий",
+  "expect": {
+    "stdoutContains": [
+      "renamed: Комментарий -> Примечание",
+      "Actualizing Document.Расход.Attribute.Примечание"
+    ],
+    "fileContains": {
+      "file": "cfe/Documents/Расход.xml",
+      "text": [
+        "<Name>Примечание</Name>"
+      ]
+    }
+  }
+}

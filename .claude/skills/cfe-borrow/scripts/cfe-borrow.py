@@ -2727,7 +2727,7 @@ def main():
         borrow_reference_type_shells([sa["TypeXml"] for sa in sub_resolved["Attributes"]])
         return sub_resolved["Attributes"]
 
-    def borrow_form(type_name, obj_name, form_name, borrow_main_attr=False, render_only=False):
+    def borrow_form(type_name, obj_name, form_name, borrow_main_attr=False, render_only=False, rebuild=False):
         dir_name = CHILD_TYPE_DIR_MAP[type_name]
 
         # Общая форма — сама объект конфигурации: описание CommonForms/<Имя>.xml с корнем <CommonForm>,
@@ -2799,7 +2799,8 @@ def main():
         if not render_only:
             os.makedirs(form_meta_dir, exist_ok=True)
 
-        if not render_only:
+        # rebuild: форма уже заимствована — пересобирается только Form.xml, метаданные и регистрация как есть
+        if not render_only and not rebuild:
             write_xml_file(form_meta_file, "\n".join(form_meta_lines))
             info(f"  Created: {form_meta_file}")
 
@@ -3285,7 +3286,7 @@ def main():
         if is_common_form:
             if not common_form_registered:
                 add_to_child_objects(type_name, obj_name)
-        else:
+        elif not rebuild:
             register_form_in_object(type_name, obj_name, form_name)
 
         return [form_meta_file, form_xml_file, module_bsl_file] + pic_files
@@ -3505,7 +3506,8 @@ def main():
     # Режим: Check — только отчёт; Apply (повтор -Object, -Actualize) — правки. Все правки идут по тому же
     # UUID (связь, свойства, имя вслед за источником), поэтому данные целы; перепривязку к объекту с другим
     # UUID — единственное, что грозит потерей данных, — не делаем, только сообщаем.
-    act = {"mode": "Apply", "rows": [], "src_head_cache": {}, "src_uuid_index": {}, "ext_renames": None}
+    act = {"mode": "Apply", "rows": [], "src_head_cache": {}, "src_uuid_index": {}, "ext_renames": None,
+           "pending_mentions": [], "unresolved": [], "obj_renamed": {}, "sub_renamed": {}}
 
     def read_text(path):
         # Как ReadAllText: BOM снят, переводы строк как в файле
@@ -3525,8 +3527,9 @@ def main():
                 return
 
     # Заметка строки отчёта: Applied — правка сделана (в -Check — нет)
-    def add_act_note(row, text, applied):
-        row["Notes"].append({"Text": text, "Applied": bool(applied)})
+    # Info — заметка для сведения: на статус строки и код возврата не влияет
+    def add_act_note(row, text, applied, info=False):
+        row["Notes"].append({"Text": text, "Applied": bool(applied), "Info": bool(info)})
 
     def test_edit_allowed():
         return act["mode"] != "Check"
@@ -3747,9 +3750,11 @@ def main():
                 act["ext_renames"][f"{t}.{n}"] = id_["Src"]["Name"]
         return act["ext_renames"]
 
-    # Префиксы ссылок на объект вида: сам вид (MDObjectRef) и его порождённые типы (CatalogRef, …)
+    # Префиксы ссылок на объект вида: сам вид (MDObjectRef), его порождённые типы (CatalogRef, …) и типы
+    # табличных частей (CatalogTabularSection.Имя.ТЧ, CatalogTabularSectionRow.Имя.ТЧ)
     def get_type_ref_prefixes(type_name):
-        return [type_name] + [g["prefix"] for g in GENERATED_TYPES.get(type_name, [])]
+        return ([type_name, f"{type_name}TabularSection", f"{type_name}TabularSectionRow"]
+                + [g["prefix"] for g in GENERATED_TYPES.get(type_name, [])])
 
     def type_ref_alternation(type_name):
         return '|'.join(re.escape(p) for p in sorted(get_type_ref_prefixes(type_name), key=len, reverse=True))
@@ -3820,6 +3825,16 @@ def main():
             note += " (removed: not in the source)"
         add_act_edit(ctx, row, part["Start"], part["End"], "".join(sb), note)
 
+    # Группы объявленных свойств. Контролируемые (замеры М2/М4/М5, ПР #99) приводятся к источнику по режимам.
+    # Дополнения — список расширения сливается со списком источника (замер М10: движения документа, состав
+    # подсистемы): там своё расширения, к источнику не приводим. Прочие — не трогаем, только сообщаем о
+    # расхождении: свойство может оказаться дополнением, и замена стёрла бы чужое.
+    controlled_props = ['Type', 'Owners', 'Global', 'ClientManagedApplication', 'Server', 'ExternalConnection',
+                        'ClientOrdinaryApplication', 'ServerCall', 'Hierarchical', 'CodeLength', 'DescriptionLength', 'CodeType',
+                        'CodeAllowedLength', 'NumberType', 'NumberLength', 'NumberAllowedLength', 'InformationRegisterPeriodicity',
+                        'WriteMode', 'LanguageCode', 'RegisteredDocuments', 'ExtDimensionTypes', 'MaxExtDimensionCount']
+    additive_props = ['RegisterRecords', 'Content']
+
     # Свойства заимствованного элемента против источника — по режимам
     def sync_adopted_properties(ctx, row, ext_el, src_text, src_el):
         text = ctx["Text"]
@@ -3838,8 +3853,15 @@ def main():
             state = states.get(c["Local"])
             if state == 'Extended':
                 continue
+            if c["Local"] in additive_props:
+                continue
             sc = src_kids.get(c["Local"])
             if not sc:
+                continue
+            if c["Local"] not in controlled_props:
+                if (get_norm_xml(convert_renamed_refs(get_xml_outer(text, c), True))
+                        != get_norm_xml(get_xml_outer(src_text, sc))):
+                    add_act_note(row, f"{c['Local']}: differs from the source, not refreshed (not a known controlled property)", False, True)
                 continue
             mode_tag = ' (mode: Notify)' if state == 'Notify' else ''
             if c["Local"] == 'Owners':
@@ -3876,6 +3898,9 @@ def main():
                                                                get_line_indent(text, c["Start"]), ctx["Eol"]), False)
                 add_act_edit(ctx, row, c["Start"], c["End"], new,
                              f"Type{mode_tag}: {format_type_summary(text, model, None)} -> {format_type_summary(src_text, src_model, None)}")
+                # Новые ссылочные типы — оболочками, как при первом заимствовании (ниже 8.3.25 иначе «Неизвестное имя типа»)
+                if test_edit_allowed():
+                    ctx["Shells"].append({"Row": row, "Xml": new})
                 continue
             ext_norm = get_norm_xml(convert_renamed_refs(get_xml_outer(text, c), True))
             src_norm = get_norm_xml(get_xml_outer(src_text, sc))
@@ -3936,7 +3961,20 @@ def main():
         cache = act["src_head_cache"]
         if file in cache:
             return cache[file]
-        text = read_text(file)
+        # Читаем порциями до первого </Name>: файл объекта бывает в мегабайты, а нужна только шапка
+        parts = []
+        tail = ''
+        with open(file, "r", encoding="utf-8-sig", errors="replace", newline="") as fh:
+            while True:
+                chunk = fh.read(16384)
+                if not chunk:
+                    break
+                parts.append(chunk)
+                # Новая порция и 6 символов перед ней — тег мог разойтись по границе порций
+                if '</Name>' in tail + chunk:
+                    break
+                tail = (tail + chunk)[-6:]
+        text = "".join(parts)
         u = re.search(r'<MetaDataObject[^>]*>\s*<\w+\s+uuid="([^"]+)"', text)
         n = re.search(r'<Name>([^<]*)</Name>', text)
         h = {"Uuid": u.group(1).lower() if u else '', "Name": n.group(1) if n else '', "File": file}
@@ -4052,42 +4090,72 @@ def main():
             res.extend(walk_files_ps_order(d))
         return res
 
-    def read_all_lines(path):
-        text = read_text(path)
-        if text == '':
-            return []
-        lines = re.split(r'\r\n|\r|\n', text)
-        if lines and lines[-1] == '' and re.search(r'(\r\n|\r|\n)\Z', text):
-            lines.pop()
-        return lines
-
-    # Оставшиеся упоминания старого имени в расширении (код, запросы) — для ручной правки
-    def find_name_mentions(name):
-        res = []
-        rx = re.compile(r'(?<![\wА-Яа-яЁё])' + re.escape(name) + r'(?![\wА-Яа-яЁё])', re.IGNORECASE)
+    # Оставшиеся упоминания старых имён в коде расширения — для ручной правки: модули целиком, в XML —
+    # только тексты запросов (<QueryText> динамического списка, <query> схемы компоновки); заголовки и
+    # имена элементов формы к ссылкам не относятся. Один проход по файлам на все имена.
+    # Ключи — без регистра, как у хеш-таблицы PS
+    def find_name_mentions(names):
+        res = {}
+        for n in names:
+            res[n.lower()] = []
+        if not names:
+            return res
+        alt = '|'.join(re.escape(n) for n in sorted(names, key=len, reverse=True))
+        rx = re.compile(r'(?<![\wА-Яа-яЁё])(?:' + alt + r')(?![\wА-Яа-яЁё])', re.IGNORECASE)
         # Пути — относительно того же ext_dir, от которого идёт обход (короткое имя NSHIRO~1 не мешает)
         for full in walk_files_ps_order(ext_dir):
             low = full.lower()
             if not (low.endswith('.bsl') or low.endswith('.xml')):
                 continue
             rel = os.path.relpath(full, ext_dir).replace('\\', '/').lstrip('/')
-            # Configuration.xml записывается в конце запуска — его ChildObjects переименование уже учло
-            if rel.lower() == 'configuration.xml':
-                continue
-            lines = read_all_lines(full)
-            for i, line in enumerate(lines):
-                if rx.search(line):
-                    res.append(f"{rel}:{i + 1}")
+            text = read_text(full)
+            hits = []
+            if low.endswith('.bsl'):
+                for m in rx.finditer(text):
+                    hits.append((m.group(0), m.start()))
+            else:
+                for q in re.finditer(r'(?s)<(QueryText|query)>(.*?)</\1>', text):
+                    for m in rx.finditer(q.group(2)):
+                        hits.append((m.group(0), q.start(2) + m.start()))
+            for val, idx in hits:
+                lst = res.get(val.lower())
+                if lst is None:
+                    continue
+                loc = f"{rel}:{text.count(chr(10), 0, idx) + 1}"
+                if not any(x.lower() == loc.lower() for x in lst):
+                    lst.append(loc)
         return res
 
-    def add_mentions_note(row, old):
-        m = find_name_mentions(old)
-        if not m:
+    # Упоминания ищутся в конце запуска — по итоговым файлам и путям, после всех переименований.
+    # Смена только регистра — не повод: имена в коде 1С регистронезависимы.
+    def add_mentions_note(row, old, new):
+        if old.lower() == new.lower():
             return
-        shown = ', '.join(m[:10])
-        if len(m) > 10:
-            shown += f", … ({len(m)} total)"
-        add_act_note(row, f"'{old}' is still mentioned (code and queries are not changed) — fix by hand: {shown}", False)
+        act["pending_mentions"].append({"Row": row, "Name": old})
+
+    def resolve_pending_mentions():
+        if not act["pending_mentions"]:
+            return
+        names = []
+        for pm in act["pending_mentions"]:
+            if pm["Name"] not in names:
+                names.append(pm["Name"])
+        found = find_name_mentions(names)
+        for pm in act["pending_mentions"]:
+            m = found.get(pm["Name"].lower(), [])
+            if not m:
+                continue
+            shown = ', '.join(m[:10])
+            if len(m) > 10:
+                shown += f", … ({len(m)} total)"
+            add_act_note(pm["Row"], f"'{pm['Name']}' is still mentioned in the code — fix by hand: {shown}", False)
+        act["pending_mentions"].clear()
+
+    # Переименование файла или каталога через временное имя: Move-Item в PS 5.1 не меняет регистр имени
+    def move_path_via_temp(frm, to):
+        tmp = os.path.join(os.path.dirname(frm), "__rename_" + uuid.uuid4().hex)
+        os.rename(frm, tmp)
+        os.rename(tmp, to)
 
     # Переименование заимствованного объекта следом за источником (как «Переименовать, сохранив
     # соответствие» Конфигуратора): файл и каталог, Name, ChildObjects расширения, имена GeneratedType,
@@ -4099,13 +4167,10 @@ def main():
         if os.path.exists(new_file) and old.lower() != new.lower():
             add_act_note(row, f"cannot rename: {type_name}.{new} already exists in the extension", False)
             return False
-        tmp = os.path.join(d, "__rename_" + uuid.uuid4().hex)
-        os.rename(old_file, tmp + ".xml")
-        os.rename(tmp + ".xml", new_file)
+        move_path_via_temp(old_file, new_file)
         old_dir = os.path.join(d, old)
         if os.path.isdir(old_dir):
-            os.rename(old_dir, tmp)
-            os.rename(tmp, os.path.join(d, new))
+            move_path_via_temp(old_dir, os.path.join(d, new))
         rx = re.compile(r'(?<![\w.])((?:' + type_ref_alternation(type_name) + r')\.)' + re.escape(old) + r'(?![\wА-Яа-яЁё])')
         cfg_long = os.path.normcase(os.path.abspath(ext_resolved))
         for full in walk_files_ps_order(ext_dir):
@@ -4136,6 +4201,8 @@ def main():
         add_to_child_objects(type_name, new)
         if act["ext_renames"] is not None:
             act["ext_renames"].pop(f"{type_name}.{old}", None)
+        # Ключ без регистра — как у хеш-таблицы PS
+        act["obj_renamed"][f"{type_name}.{old}".lower()] = new
         return True
 
     # Заимствованная форма против формы источника. Своей пересборки на этом этапе нет: в рантайме
@@ -4276,22 +4343,25 @@ def main():
         src_form_xml = os.path.join(src_forms_dir, src_form_name, "Ext", "Form.xml")
         if id_["Kind"] == 'Renamed':
             row["Status"] = 'RENAMED'
-            if test_edit_allowed():
-                f_dir = os.path.dirname(meta_file)
+            f_dir = os.path.dirname(meta_file)
+            if (test_edit_allowed() and form_name.lower() != src_form_name.lower()
+                    and os.path.exists(os.path.join(f_dir, f"{src_form_name}.xml"))):
+                add_act_note(row, f"cannot rename: form {src_form_name} already exists in the extension", False)
+            elif test_edit_allowed():
                 t = read_text(meta_file)
                 t = re.sub(r'(<Name>)' + re.escape(form_name) + r'(</Name>)',
                            lambda m: m.group(1) + src_form_name + m.group(2), t, count=1)
                 write_text_keep_bom(meta_file, t, _detect_xml_style(meta_file))
-                os.rename(meta_file, os.path.join(f_dir, f"{src_form_name}.xml"))
+                move_path_via_temp(meta_file, os.path.join(f_dir, f"{src_form_name}.xml"))
                 if os.path.exists(os.path.join(f_dir, form_name)):
-                    os.rename(os.path.join(f_dir, form_name), os.path.join(f_dir, src_form_name))
+                    move_path_via_temp(os.path.join(f_dir, form_name), os.path.join(f_dir, src_form_name))
                 ext_form_xml = os.path.join(f_dir, src_form_name, "Ext", "Form.xml")
                 # Регистрация формы в ChildObjects владельца — правкой его текста
                 reg = re.search('<Form>' + re.escape(form_name) + '</Form>', obj_ctx["Text"])
                 if reg:
                     obj_ctx["Edits"].append({"Start": reg.start(), "End": reg.end(), "Text": f"<Form>{src_form_name}</Form>"})
                 add_act_note(row, f"renamed: {form_name} -> {src_form_name}", True)
-                add_mentions_note(row, form_name)
+                add_mentions_note(row, form_name, src_form_name)
             else:
                 add_act_note(row, f"renamed in the source: {form_name} -> {src_form_name}", False)
         compare_borrowed_form(row, ext_form_xml, type_name, src_obj_name, src_form_name, src_form_xml)
@@ -4331,12 +4401,16 @@ def main():
                     if ok:
                         ctx["Edits"].append({"Start": n_el["Start"], "End": n_el["End"], "Text": f"<Name>{new_name}</Name>"})
                         renames.append({"Prefix": form_prefix, "Old": name, "New": new_name, "Row": row})
+                        # Ключ без регистра — как у хеш-таблицы PS
+                        act["sub_renamed"][f"{path_prefix}.{c['Local']}.{name}".lower()] = new_name
                     add_act_note(row, f"renamed: {name} -> {new_name}" if ok else f"renamed in the source: {name} -> {new_name}", ok)
                 sync_adopted_properties(ctx, row, c, src_text, id_["Src"]["El"])
             if is_ts:
                 nested = {"Kind": 'Attribute', "Name": col_only} if col_only else None
+                # Пути колонок в формах — по имени ТЧ, какое будет в расширении: новое, если ТЧ переименована здесь же
+                ts_path_name = id_["Src"]["Name"] if (in_scope and id_["Kind"] == 'Renamed' and test_edit_allowed()) else name
                 sync_adopted_children(ctx, c, src_text, id_["Src"]["El"], f"{path_prefix}.TabularSection.{name}",
-                                      f"{form_prefix}.{id_['Src']['Name']}", nested, None, renames)
+                                      f"{form_prefix}.{ts_path_name}", nested, None, renames)
 
     # Один заимствованный объект (с подобъектами и формами — по области): возвращает итоговое имя
     def actualize_borrowed_object(type_name, obj_name, scope):
@@ -4347,7 +4421,7 @@ def main():
         if not root or not test_element_adopted(text, root):
             info(f"{type_name}.{obj_name}: own object of the extension — nothing to actualize")
             return obj_name
-        ctx = {"Text": text, "Edits": [], "Eol": get_text_eol(text)}
+        ctx = {"Text": text, "Edits": [], "Eol": get_text_eol(text), "Shells": []}
         row = new_act_row(f"{type_name}.{obj_name}")
         id_ = resolve_file_identity(os.path.join(cfg_dir, dir_name), obj_name, get_element_link(text, root))
         set_identity_status(row, id_, obj_name)
@@ -4375,11 +4449,18 @@ def main():
                 if scope["Kind"] == 'Form' and fn != scope["FormName"]:
                     continue
                 actualize_borrowed_form(ctx, type_name, obj_name, fn, src_name)
-        if scope["Kind"] != 'Object' and not row["Notes"] and not row["Status"]:
-            remove_act_row(row)
+        # Строка самого объекта при повторе по подобъекту или форме — только если с объектом что-то произошло
+        row["Optional"] = scope["Kind"] != 'Object'
         if ctx["Edits"]:
             style = _detect_xml_style(obj_file)
             write_text_keep_bom(obj_file, apply_text_edits(text, ctx["Edits"]), style)
+        for sh in ctx["Shells"]:
+            for rt in collect_reference_types([sh["Xml"]]):
+                if test_object_borrowed(rt["TypeName"], rt["ObjName"]):
+                    continue
+                borrow_object_shell(rt["TypeName"], rt["ObjName"])
+                if test_object_borrowed(rt["TypeName"], rt["ObjName"]):
+                    add_act_note(sh["Row"], f"borrowed as a shell: {rt['TypeName']}.{rt['ObjName']}", True)
         # Переименованные подобъекты — пути к данным в формах этого объекта
         for rn in renames:
             forms_dir = os.path.join(ext_dir, dir_name, obj_name, "Forms")
@@ -4390,13 +4471,13 @@ def main():
                         cnt += rename_form_data_paths(fx, rn["Prefix"], rn["Old"], rn["New"])
             if cnt > 0:
                 add_act_note(rn["Row"], f"form data paths updated: {cnt}", True)
-            add_mentions_note(rn["Row"], rn["Old"])
+            add_mentions_note(rn["Row"], rn["Old"], rn["New"])
         if id_["Kind"] == 'Renamed':
             row["Status"] = 'RENAMED'
             if test_edit_allowed():
                 if rename_borrowed_object(type_name, obj_name, src_name, row):
                     add_act_note(row, f"renamed: {obj_name} -> {src_name} (files, ChildObjects, type references in the extension XML)", True)
-                    add_mentions_note(row, obj_name)
+                    add_mentions_note(row, obj_name, src_name)
                     return src_name
             else:
                 add_act_note(row, f"renamed in the source: {obj_name} -> {src_name}", False)
@@ -4404,16 +4485,20 @@ def main():
 
     # Отчёт актуализации: строка на элемент, отложенные правки — с пометкой
     def write_act_report():
+        resolve_pending_mentions()
         if not act["rows"]:
             return 0
         print()
         print("=== Actualization check ===" if act["mode"] == 'Check' else "=== Actualization ===")
         not_up_to_date = 0
         for r in act["rows"]:
+            if r.get("Optional") and not r["Notes"] and not r["Status"]:
+                continue
             changes = [n for n in r["Notes"] if n["Applied"]]
+            counted = [n for n in r["Notes"] if not n.get("Info")]
             st = r["Status"]
             if not st:
-                if not r["Notes"]:
+                if not counted:
                     st = 'UP-TO-DATE'
                 elif act["mode"] == 'Check':
                     st = 'OUTDATED'
@@ -4423,6 +4508,8 @@ def main():
                     st = 'OUTDATED'
             if st != 'UP-TO-DATE':
                 not_up_to_date += 1
+            if st == 'REPLACED' or st == 'NOT FOUND':
+                act["unresolved"].append(f"{r['Path']} ({st.lower()})")
             print(f"[{st}] {r['Path']}")
             for n in r["Notes"]:
                 print(f"    - {n['Text']}")
@@ -4464,6 +4551,23 @@ def main():
                     return True
             return False
         return False
+
+    # В заимствованной форме нет правок расширения: основная часть совпадает с BaseForm (так её и создаёт
+    # заимствование). Тогда пересобрать её — например, с основным реквизитом — нечего терять.
+    def test_form_unedited(form_xml):
+        if not os.path.exists(form_xml):
+            return False
+        text = read_text(form_xml)
+        fm = re.search(r'<Form[\s>]', text)
+        form = get_xml_element_at(text, fm.start() if fm else 0)
+        if not form:
+            return False
+        base = get_xml_child(text, form, 'BaseForm')
+        if not base:
+            return False
+        main = "".join(get_norm_xml(get_xml_outer(text, c)) for c in get_xml_children(text, form) if c["Local"] != 'BaseForm')
+        orig = "".join(get_norm_xml(get_xml_outer(text, c)) for c in get_xml_children(text, base))
+        return main == orig
 
     def test_form_borrowed(pi):
         if pi["IsCommonForm"]:
@@ -4548,6 +4652,28 @@ def main():
         if pi.get("Error"):
             print(pi["Error"], file=sys.stderr)
             sys.exit(1)
+        # Объект переименован раньше в этом запуске (вслед за источником) — элемент пакета идёт под новым именем
+        orig_obj_name = pi["ObjName"]
+        renamed_to = act["obj_renamed"].get(f"{pi['TypeName']}.{pi['ObjName']}".lower())
+        if renamed_to:
+            item = re.sub(r'^([^.]+)\.' + re.escape(pi["ObjName"]) + r'(?=\.|$)',
+                          lambda m: m.group(1) + '.' + renamed_to, item, flags=re.IGNORECASE)
+            pi = split_borrow_item(item)
+        # То же для подобъекта (и колонки ТЧ), переименованного раньше в этом запуске. Ключ — под тем именем
+        # объекта, какое было при переименовании подобъекта: прежним, если объект переименован следом
+        if pi["SubKind"]:
+            sub_key = f"{pi['TypeName']}.{pi['ObjName']}.{pi['SubKind']}.{pi['SubName']}"
+            old_key = f"{pi['TypeName']}.{orig_obj_name}.{pi['SubKind']}.{pi['SubName']}"
+            sub_new = act["sub_renamed"].get(sub_key.lower()) or act["sub_renamed"].get(old_key.lower())
+            col_new = None
+            if pi.get("ColName"):
+                col_new = (act["sub_renamed"].get(f"{sub_key}.Attribute.{pi['ColName']}".lower())
+                           or act["sub_renamed"].get(f"{old_key}.Attribute.{pi['ColName']}".lower()))
+            if sub_new or col_new:
+                item = f"{pi['TypeName']}.{pi['ObjName']}.{pi['SubKind']}.{sub_new if sub_new else pi['SubName']}"
+                if pi.get("ColName"):
+                    item += f".Attribute.{col_new if col_new else pi['ColName']}"
+                pi = split_borrow_item(item)
         type_name, obj_name, form_name, is_common_form = pi["TypeName"], pi["ObjName"], pi["FormName"], pi["IsCommonForm"]
 
         dir_name = CHILD_TYPE_DIR_MAP[type_name]
@@ -4555,7 +4681,7 @@ def main():
         if pi["SubKind"]:
             if test_sub_borrowed(pi):
                 info(f"Actualizing {item}...")
-                actualize_borrowed_object(type_name, obj_name, {"Kind": 'Sub', "SubKind": pi["SubKind"],
+                obj_name = actualize_borrowed_object(type_name, obj_name, {"Kind": 'Sub', "SubKind": pi["SubKind"],
                                                                 "SubName": pi["SubName"], "ColName": pi["ColName"]})
                 # ТЧ целиком просят под собственные реквизиты — то же предупреждение, что при первом заимствовании
                 if pi["SubKind"] == 'TabularSection' and not pi["ColName"]:
@@ -4582,12 +4708,17 @@ def main():
                 ensure_parent_borrowed(type_name, obj_name)
 
             has_bma = borrow_main_attribute_mode is not None
+            rebuild_form = False
             if form_exists:
                 # Уже заимствованную форму не переписываем: в Form.xml правки расширения
                 if is_common_form:
-                    actualize_borrowed_object(type_name, obj_name, {"Kind": 'Object'})
+                    new_name = actualize_borrowed_object(type_name, obj_name, {"Kind": 'Object'})
                 else:
-                    actualize_borrowed_object(type_name, obj_name, {"Kind": 'Form', "FormName": form_name})
+                    new_name = actualize_borrowed_object(type_name, obj_name, {"Kind": 'Form', "FormName": form_name})
+                if new_name != obj_name:
+                    item = f"{type_name}.{new_name}" if is_common_form else f"{type_name}.{new_name}.Form.{form_name}"
+                    pi = split_borrow_item(item)
+                    obj_name = new_name
                 if has_bma:
                     if is_common_form:
                         ex_form_xml = os.path.join(ext_dir, dir_name, obj_name, "Ext", "Form.xml")
@@ -4595,15 +4726,21 @@ def main():
                         ex_form_xml = os.path.join(ext_dir, dir_name, obj_name, "Forms", form_name, "Ext", "Form.xml")
                     if (os.path.exists(ex_form_xml)
                             and not re.search('<MainAttribute>true</MainAttribute>', read_text(ex_form_xml), re.IGNORECASE)):
-                        warn("  The form is already borrowed without its main attribute; Form.xml is kept, so the attributes "
-                             "below are borrowed into the object but the form does not show them")
-            else:
-                form_files = borrow_form(type_name, obj_name, form_name, borrow_main_attr=has_bma)
+                        # Форма без основного реквизита: правок расширения нет — пересобираем с ним, есть — не трогаем
+                        if test_form_unedited(ex_form_xml):
+                            info("  The form has no edits of the extension — rebuilt with its main attribute")
+                            rebuild_form = True
+                        else:
+                            warn("  The form is already borrowed without its main attribute and has edits of the extension; Form.xml is kept, "
+                                 "so the attributes below are borrowed into the object but the form does not show them")
+            if not form_exists or rebuild_form:
+                form_files = borrow_form(type_name, obj_name, form_name, borrow_main_attr=has_bma, rebuild=rebuild_form)
                 borrowed_files.extend(form_files)
                 # Замер на 8.3.26: платформа помечает форму расширенной сразу при заимствовании,
                 # даже если элементы не менялись. Флаг живёт в метаданных формы, не у владельца.
                 set_property_state_flag(form_files[0], "Form", format_version)
-                borrowed_count += 1
+                if not rebuild_form:
+                    borrowed_count += 1
 
             # Borrow main attribute if requested
             if has_bma and is_common_form:
@@ -4777,6 +4914,13 @@ def main():
     for f in borrowed_files:
         print(f"    - {f}")
     write_act_report()
+    # Заимствованное, которое не удалось сопоставить с источником (пересоздано, пропало), осталось как было —
+    # остальное применено, поэтому код 0, а не отказ; решение по ним — за человеком
+    if act["unresolved"]:
+        shown = ', '.join(act["unresolved"][:5])
+        if len(act["unresolved"]) > 5:
+            shown += ", …"
+        warn(f"{len(act['unresolved'])} element(s) left unresolved ({shown}): all other changes are applied; these need a decision")
     sys.exit(0)
 
 

@@ -1,0 +1,55 @@
+{
+  "name": "Повтор по одной колонке ТЧ, когда в источнике переименованы и ТЧ, и колонка: пути формы — по имени ТЧ в расширении",
+  "setup": "fixture:main-attr-kinds",
+  "preRun": [
+    {
+      "script": "cfe-init/scripts/cfe-init",
+      "args": {
+        "-Name": "Тест",
+        "-OutputDir": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}"
+      }
+    },
+    {
+      "script": "cfe-borrow/scripts/cfe-borrow",
+      "args": {
+        "-ExtensionPath": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}",
+        "-Object": "Document.Расход.Form.ФормаДокумента",
+        "-BorrowMainAttribute": "All"
+      }
+    },
+    {
+      "editFile": "Documents/Расход.xml",
+      "replace": "<Name>Товары</Name>",
+      "with": "<Name>Позиции</Name>"
+    },
+    {
+      "editFile": "Documents/Расход.xml",
+      "replace": "<Name>Количество</Name>",
+      "with": "<Name>Кол</Name>"
+    }
+  ],
+  "params": {
+    "extensionPath": "cfe"
+  },
+  "object": "Document.Расход.TabularSection.Товары.Attribute.Количество",
+  "expect": {
+    "stdoutContains": [
+      "renamed: Количество -> Кол",
+      "form data paths updated"
+    ],
+    "fileContains": {
+      "file": "cfe/Documents/Расход/Forms/ФормаДокумента/Ext/Form.xml",
+      "text": [
+        "Объект.Товары.Кол<"
+      ]
+    },
+    "fileNotContains": {
+      "file": "cfe/Documents/Расход/Forms/ФормаДокумента/Ext/Form.xml",
+      "text": [
+        "Объект.Товары.Количество<"
+      ]
+    }
+  }
+}

@@ -1,0 +1,52 @@
+{
+  "name": "Тип реквизита в источнике стал ссылкой на незаимствованный объект — тип обновлён, объект заимствован оболочкой",
+  "setup": "fixture:adopted-modes",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "Catalog",
+        "name": "NewCat"
+      },
+      "args": {
+        "-JsonPath": "{inputFile}",
+        "-OutputDir": "{workDir}"
+      }
+    },
+    {
+      "editFile": "Catalogs/Items.xml",
+      "replace": "<v8:Type>xs:string</v8:Type>\r\n\t\t\t\t\t\t<v8:StringQualifiers>\r\n\t\t\t\t\t\t\t<v8:Length>25</v8:Length>\r\n\t\t\t\t\t\t\t<v8:AllowedLength>Variable</v8:AllowedLength>\r\n\t\t\t\t\t\t</v8:StringQualifiers>",
+      "with": "<v8:Type>cfg:CatalogRef.NewCat</v8:Type>"
+    }
+  ],
+  "params": {
+    "extensionPath": "cfe"
+  },
+  "object": "Catalog.Items.Attribute.Article",
+  "expect": {
+    "stdoutContains": [
+      "Type: String(25) -> CatalogRef.NewCat",
+      "borrowed as a shell: Catalog.NewCat"
+    ],
+    "fileContains": [
+      {
+        "file": "cfe/Catalogs/Items.xml",
+        "text": [
+          "<v8:Type>cfg:CatalogRef.NewCat</v8:Type>"
+        ]
+      },
+      {
+        "file": "cfe/Configuration.xml",
+        "text": [
+          "<Catalog>NewCat</Catalog>"
+        ]
+      },
+      {
+        "file": "cfe/Catalogs/NewCat.xml",
+        "text": [
+          "<ObjectBelonging>Adopted</ObjectBelonging>"
+        ]
+      }
+    ]
+  }
+}

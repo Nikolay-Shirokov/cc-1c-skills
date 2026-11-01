@@ -1,0 +1,78 @@
+{
+  "name": "Форма в источнике переименована только регистром — переименована и в расширении",
+  "setup": "fixture:main-attr-kinds",
+  "preRun": [
+    {
+      "script": "cfe-init/scripts/cfe-init",
+      "args": {
+        "-Name": "Тест",
+        "-OutputDir": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}"
+      }
+    },
+    {
+      "script": "cfe-borrow/scripts/cfe-borrow",
+      "args": {
+        "-ExtensionPath": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}",
+        "-Object": "Document.Расход.Form.ФормаДокумента"
+      }
+    },
+    {
+      "editFile": "Documents/Расход/Forms/ФормаДокумента.xml",
+      "replace": "<Name>ФормаДокумента</Name>",
+      "with": "<Name>Формадокумента</Name>"
+    },
+    {
+      "editFile": "Documents/Расход.xml",
+      "replace": "<Form>ФормаДокумента</Form>",
+      "with": "<Form>Формадокумента</Form>"
+    },
+    {
+      "movePath": {
+        "from": "Documents/Расход/Forms/ФормаДокумента.xml",
+        "to": "Documents/Расход/Forms/Формадокумента.xml"
+      }
+    },
+    {
+      "movePath": {
+        "from": "Documents/Расход/Forms/ФормаДокумента",
+        "to": "Documents/Расход/Forms/Формадокумента"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "cfe/Documents/Расход/Forms/ФормаДокумента/Ext/Form/Module.bsl",
+        "content": "// ПолучитьФорму(\"Документ.Расход.Форма.ФормаДокумента\")\n"
+      }
+    }
+  ],
+  "params": {
+    "extensionPath": "cfe"
+  },
+  "args_extra": [
+    "-Actualize"
+  ],
+  "expect": {
+    "stdoutContains": [
+      "renamed: ФормаДокумента -> Формадокумента"
+    ],
+    "fileContains": [
+      {
+        "file": "cfe/Documents/Расход.xml",
+        "text": [
+          "<Form>Формадокумента</Form>"
+        ]
+      },
+      {
+        "file": "cfe/Documents/Расход/Forms/Формадокумента.xml",
+        "text": [
+          "<Name>Формадокумента</Name>"
+        ]
+      }
+    ],
+    "stdoutNotContains": [
+      "still mentioned"
+    ]
+  }
+}

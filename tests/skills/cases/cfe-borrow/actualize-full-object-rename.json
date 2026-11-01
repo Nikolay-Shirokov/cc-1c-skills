@@ -45,6 +45,12 @@
       "editFile": "Catalogs/Sub.xml",
       "replace": "Catalog.Owners0",
       "with": "Catalog.Владельцы"
+    },
+    {
+      "writeFile": {
+        "path": "cfe/Reports/Отчет/Templates/Схема/Ext/Template.xml",
+        "content": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<DataCompositionSchema>\n\t<dataSet>\n\t\t<query>ВЫБРАТЬ Т.Ссылка\nИЗ Справочник.Owners0 КАК Т</query>\n\t</dataSet>\n\t<title>Owners0</title>\n</DataCompositionSchema>\n"
+      }
     }
   ],
   "params": {
@@ -57,7 +63,8 @@
     "stdoutContains": [
       "[RENAMED] Catalog.Owners0",
       "renamed: Owners0 -> Владельцы",
-      "[UP-TO-DATE] Catalog.Sub"
+      "[UP-TO-DATE] Catalog.Sub",
+      "'Owners0' is still mentioned in the code — fix by hand: Reports/Отчет/Templates/Схема/Ext/Template.xml:5"
     ],
     "fileContains": [
       {
@@ -93,7 +100,7 @@
       ]
     },
     "stdoutNotContains": [
-      "is still mentioned"
+      "Template.xml:7"
     ]
   }
 }

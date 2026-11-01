@@ -1,0 +1,28 @@
+{
+  "name": "Повтор по объекту, пересозданному в источнике (тёзка с другим UUID): не тронут, предупреждение о неразрешённом, код 0",
+  "setup": "fixture:adopted-modes",
+  "preRun": [
+    {
+      "editFile": "Catalogs/Owners0.xml",
+      "replace": "<Catalog uuid=\"a5350b58-0465-46ec-971c-76dae96b62d0\">",
+      "with": "<Catalog uuid=\"0e7c7f1e-1111-4a2b-9c3d-5e6f7a8b9c0d\">"
+    }
+  ],
+  "params": {
+    "extensionPath": "cfe"
+  },
+  "object": "Catalog.Owners0",
+  "noSnapshot": "объект не тронут: проверяется отчёт и код возврата",
+  "expect": {
+    "stdoutContains": [
+      "[REPLACED] Catalog.Owners0",
+      "1 element(s) left unresolved (Catalog.Owners0 (replaced)): all other changes are applied"
+    ],
+    "fileContains": {
+      "file": "cfe/Catalogs/Owners0.xml",
+      "text": [
+        "<ExtendedConfigurationObject>a5350b58-0465-46ec-971c-76dae96b62d0</ExtendedConfigurationObject>"
+      ]
+    }
+  }
+}

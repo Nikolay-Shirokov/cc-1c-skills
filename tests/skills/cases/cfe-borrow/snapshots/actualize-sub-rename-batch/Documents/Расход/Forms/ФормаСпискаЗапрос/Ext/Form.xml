@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Form xmlns="http://v8.1c.ru/8.3/xcf/logform" xmlns:cfg="http://v8.1c.ru/8.1/data/enterprise/current-config" xmlns:dcscor="http://v8.1c.ru/8.1/data-composition-system/core" xmlns:dcsset="http://v8.1c.ru/8.1/data-composition-system/settings" xmlns:v8="http://v8.1c.ru/8.1/data/core" xmlns:xr="http://v8.1c.ru/8.3/xcf/readable" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" version="2.17">
+	<AutoTitle>false</AutoTitle>
+	<AutoCommandBar name="ФормаКоманднаяПанель" id="-1"/>
+	<ChildItems>
+		<Table name="Список" id="1">
+			<DataPath>Список</DataPath>
+			<ChildItems>
+				<InputField name="СписокКомментарий" id="2">
+					<DataPath>Список.Комментарий</DataPath>
+					<ExtendedTooltip name="СписокКомментарийРасширеннаяПодсказка" id="3"/>
+				</InputField>
+			</ChildItems>
+			<ExtendedTooltip name="СписокРасширеннаяПодсказка" id="4"/>
+		</Table>
+	</ChildItems>
+	<Attributes>
+		<Attribute name="Список" id="1">
+			<Type>
+				<v8:Type>cfg:DynamicList</v8:Type>
+			</Type>
+			<MainAttribute>true</MainAttribute>
+			<UseAlways>
+				<Field>Список.Ссылка</Field>
+			</UseAlways>
+			<Settings xsi:type="DynamicList">
+				<ManualQuery>true</ManualQuery>
+				<MainTable>Document.Расход</MainTable>
+				<DynamicDataRead>true</DynamicDataRead>
+				<AutoFillAvailableFields>true</AutoFillAvailableFields>
+				<CustomQuery>ВЫБРАТЬ&#10;	ДокументРасход.Ссылка,&#10;	ДокументРасход.Комментарий,&#10;	ДокументРасход.Склад&#10;ИЗ&#10;	Документ.Расход КАК ДокументРасход</CustomQuery>
+				<QueryText>ВЫБРАТЬ&#10;	ДокументРасход.Ссылка,&#10;	ДокументРасход.Комментарий,&#10;	ДокументРасход.Склад&#10;ИЗ&#10;	Документ.Расход КАК ДокументРасход</QueryText>
+			</Settings>
+		</Attribute>
+	</Attributes>
+</Form>

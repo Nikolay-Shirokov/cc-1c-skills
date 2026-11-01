@@ -1,0 +1,91 @@
+{
+  "name": "В источнике переименованы и документ, и его реквизит; пакет называет оба старыми именами — второй элемент идёт под новыми",
+  "setup": "fixture:main-attr-kinds",
+  "preRun": [
+    {
+      "script": "cfe-init/scripts/cfe-init",
+      "args": {
+        "-Name": "Тест",
+        "-OutputDir": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}"
+      }
+    },
+    {
+      "script": "cfe-borrow/scripts/cfe-borrow",
+      "args": {
+        "-ExtensionPath": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}",
+        "-Object": "Document.Расход.Form.ФормаДокумента",
+        "-BorrowMainAttribute": "All"
+      }
+    },
+    {
+      "editFile": "Documents/Расход.xml",
+      "replace": "<Name>Комментарий</Name>",
+      "with": "<Name>Примечание</Name>"
+    },
+    {
+      "editFile": "Documents/Расход.xml",
+      "replace": "Расход",
+      "with": "Отгрузка",
+      "all": true
+    },
+    {
+      "editFile": "Documents/Расход/Forms/ФормаДокумента/Ext/Form.xml",
+      "replace": "Расход",
+      "with": "Отгрузка",
+      "all": true
+    },
+    {
+      "editFile": "Documents/Расход/Forms/ФормаСписка/Ext/Form.xml",
+      "replace": "Расход",
+      "with": "Отгрузка",
+      "all": true
+    },
+    {
+      "editFile": "Documents/Расход/Forms/ФормаСпискаЗапрос/Ext/Form.xml",
+      "replace": "Расход",
+      "with": "Отгрузка",
+      "all": true
+    },
+    {
+      "editFile": "Configuration.xml",
+      "replace": "Расход",
+      "with": "Отгрузка",
+      "all": true
+    },
+    {
+      "movePath": {
+        "from": "Documents/Расход.xml",
+        "to": "Documents/Отгрузка.xml"
+      }
+    },
+    {
+      "movePath": {
+        "from": "Documents/Расход",
+        "to": "Documents/Отгрузка"
+      }
+    }
+  ],
+  "params": {
+    "extensionPath": "cfe"
+  },
+  "object": "Document.Расход ;; Document.Расход.Attribute.Комментарий",
+  "expect": {
+    "stdoutContains": [
+      "renamed: Расход -> Отгрузка",
+      "renamed: Комментарий -> Примечание",
+      "Actualizing Document.Отгрузка.Attribute.Примечание"
+    ],
+    "stdoutNotContains": [
+      "[ERROR]",
+      "Borrowing Document"
+    ],
+    "fileContains": {
+      "file": "cfe/Documents/Отгрузка.xml",
+      "text": [
+        "<Name>Примечание</Name>"
+      ]
+    }
+  }
+}

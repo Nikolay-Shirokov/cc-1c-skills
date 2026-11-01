@@ -1,0 +1,46 @@
+{
+  "name": "Повтор с -BorrowMainAttribute по форме без правок расширения — форма пересобрана с основным реквизитом",
+  "setup": "fixture:main-attr-kinds",
+  "preRun": [
+    {
+      "script": "cfe-init/scripts/cfe-init",
+      "args": {
+        "-Name": "Тест",
+        "-OutputDir": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}"
+      }
+    },
+    {
+      "script": "cfe-borrow/scripts/cfe-borrow",
+      "args": {
+        "-ExtensionPath": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}",
+        "-Object": "Document.Расход.Form.ФормаДокумента"
+      }
+    }
+  ],
+  "params": {
+    "extensionPath": "cfe"
+  },
+  "object": "Document.Расход.Form.ФормаДокумента",
+  "args_extra": [
+    "-BorrowMainAttribute",
+    "Form"
+  ],
+  "expect": {
+    "stdoutContains": [
+      "rebuilt with its main attribute"
+    ],
+    "fileContains": {
+      "file": "cfe/Documents/Расход/Forms/ФормаДокумента/Ext/Form.xml",
+      "text": [
+        "<MainAttribute>true</MainAttribute>",
+        "<DataPath>Объект.Комментарий</DataPath>"
+      ]
+    },
+    "stdoutNotContains": [
+      "already in ChildObjects",
+      "[WARN]"
+    ]
+  }
+}

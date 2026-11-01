@@ -1,0 +1,19 @@
+{
+  "name": "-Check по объекту, которого нет в расширении: [NOT BORROWED], exit 1",
+  "setup": "fixture:adopted-modes",
+  "params": {
+    "extensionPath": "cfe"
+  },
+  "object": "Catalog.Нет ;; Catalog.Items",
+  "args_extra": [
+    "-Check"
+  ],
+  "expectError": true,
+  "noSnapshot": "-Check ничего не пишет: проверяется отчёт и код возврата",
+  "expect": {
+    "stdoutContains": [
+      "[NOT BORROWED] Catalog.Нет",
+      "[UP-TO-DATE] Catalog.Items"
+    ]
+  }
+}

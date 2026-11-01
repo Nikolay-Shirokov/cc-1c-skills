@@ -1,0 +1,60 @@
+{
+  "name": "Дополнения расширения (свои движения документа) актуализация не трогает; неизвестное объявленное свойство — только в отчёте",
+  "setup": "fixture:adopted-modes",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "AccumulationRegister",
+        "name": "Patch_R",
+        "dimensions": [
+          "K: String(10)"
+        ],
+        "resources": [
+          "S: Number(10,2)"
+        ]
+      },
+      "args": {
+        "-JsonPath": "{inputFile}",
+        "-OutputDir": "{workDir}/cfe"
+      }
+    },
+    {
+      "editFile": "cfe/Documents/Docs.xml",
+      "replace": "<ExtendedConfigurationObject>81a26ce5-f36f-499e-9525-7ec8752b0e8f</ExtendedConfigurationObject>",
+      "with": "<ExtendedConfigurationObject>81a26ce5-f36f-499e-9525-7ec8752b0e8f</ExtendedConfigurationObject>\r\n\t\t\t<RegisterRecords>\r\n\t\t\t\t<xr:Item xsi:type=\"xr:MDObjectRef\">AccumulationRegister.Patch_R</xr:Item>\r\n\t\t\t</RegisterRecords>"
+    },
+    {
+      "editFile": "cfe/InformationRegisters/Rates.xml",
+      "replace": "<InformationRegisterPeriodicity>",
+      "with": "<UseStandardCommands>false</UseStandardCommands>\r\n\t\t\t<InformationRegisterPeriodicity>"
+    }
+  ],
+  "params": {
+    "extensionPath": "cfe"
+  },
+  "args_extra": [
+    "-Actualize"
+  ],
+  "expect": {
+    "stdoutContains": [
+      "[UP-TO-DATE] Document.Docs",
+      "[UP-TO-DATE] InformationRegister.Rates",
+      "UseStandardCommands: differs from the source, not refreshed (not a known controlled property)"
+    ],
+    "fileContains": [
+      {
+        "file": "cfe/Documents/Docs.xml",
+        "text": [
+          "AccumulationRegister.Patch_R"
+        ]
+      },
+      {
+        "file": "cfe/InformationRegisters/Rates.xml",
+        "text": [
+          "<UseStandardCommands>false</UseStandardCommands>"
+        ]
+      }
+    ]
+  }
+}

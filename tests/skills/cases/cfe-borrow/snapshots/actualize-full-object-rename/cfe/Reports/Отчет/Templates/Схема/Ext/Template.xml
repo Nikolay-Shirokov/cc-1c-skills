@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<DataCompositionSchema>
+	<dataSet>
+		<query>ВЫБРАТЬ Т.Ссылка
+ИЗ Справочник.Owners0 КАК Т</query>
+	</dataSet>
+	<title>Owners0</title>
+</DataCompositionSchema>
