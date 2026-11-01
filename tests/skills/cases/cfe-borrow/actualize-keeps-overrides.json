@@ -1,0 +1,45 @@
+{
+  "name": "Переопределённое в расширении (Extended, часть ExtendValue) при изменении того же свойства в источнике не трогается",
+  "setup": "fixture:adopted-modes",
+  "preRun": [
+    {
+      "editFile": "cfe/Catalogs/Items.xml",
+      "replace": "<xr:Property>DescriptionLength</xr:Property>",
+      "with": "<xr:Property>CodeLength</xr:Property>\r\n\t\t\t\t<xr:State>Extended</xr:State>\r\n\t\t\t</xr:PropertyState>\r\n\t\t\t<xr:PropertyState>\r\n\t\t\t\t<xr:Property>DescriptionLength</xr:Property>"
+    },
+    {
+      "editFile": "cfe/Catalogs/Items.xml",
+      "replace": "<CodeLength>9</CodeLength>",
+      "with": "<CodeLength>12</CodeLength>"
+    },
+    {
+      "editFile": "Catalogs/Items.xml",
+      "replace": "<CodeLength>9</CodeLength>",
+      "with": "<CodeLength>11</CodeLength>"
+    },
+    {
+      "editFile": "Catalogs/Items.xml",
+      "replace": "<v8:Length>10</v8:Length>",
+      "with": "<v8:Length>15</v8:Length>"
+    }
+  ],
+  "params": {
+    "extensionPath": "cfe"
+  },
+  "args_extra": [
+    "-Actualize"
+  ],
+  "expect": {
+    "stdoutContains": [
+      "[UP-TO-DATE] Catalog.Items",
+      "[UP-TO-DATE] Catalog.Items.Attribute.Value"
+    ],
+    "fileContains": {
+      "file": "cfe/Catalogs/Items.xml",
+      "text": [
+        "<CodeLength>12</CodeLength>",
+        "<v8:Length>20</v8:Length>"
+      ]
+    }
+  }
+}
