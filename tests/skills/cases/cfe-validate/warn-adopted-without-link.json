@@ -7,7 +7,8 @@
   "expect": {
     "stdoutContains": [
       "[WARN]  9. 4 borrowed element(s) without ExtendedConfigurationObject (CommonModule.SharedModule, Catalog.Items, Catalog.Items.Attribute.Article, Catalog.Items.Form.ItemForm)",
-      "18. Source config: 1 link(s) agree"
+      "18. Source config: 1 link(s) agree",
+      "restore the link: /cfe-borrow -Actualize"
     ],
     "stdoutNotContains": "[ERROR]"
   }

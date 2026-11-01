@@ -1,0 +1,24 @@
+{
+  "name": "Режимы контроля против режима совместимости расширения: Notify с 8.3.15, переопределение типа с 8.3.18",
+  "setup": "fixture:adopted-modes",
+  "preRun": [
+    {
+      "editFile": "Configuration.xml",
+      "replace": "<ConfigurationExtensionCompatibilityMode>Version8_3_27</ConfigurationExtensionCompatibilityMode>",
+      "with": "<ConfigurationExtensionCompatibilityMode>Version8_3_14</ConfigurationExtensionCompatibilityMode>"
+    }
+  ],
+  "params": {
+    "extensionPath": "."
+  },
+  "expectError": true,
+  "noSnapshot": "навык ничего не пишет, проверяется текст и код возврата",
+  "expect": {
+    "stdoutContains": [
+      "[ERROR] 20. CommonModule.SharedModule: ExternalConnection — mode Notify requires extension compatibility mode 8.3.15 or later (current: Version8_3_14)",
+      "[ERROR] 20. Catalog.Items: DescriptionLength — mode Notify requires extension compatibility mode 8.3.15",
+      "[ERROR] 20. Catalog.Items.Attribute.Value: Type — type override requires extension compatibility mode 8.3.18"
+    ],
+    "stdoutNotContains": "Module — "
+  }
+}

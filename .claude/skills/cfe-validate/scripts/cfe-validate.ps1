@@ -1,4 +1,4 @@
-﻿# cfe-validate v1.33 — Validate 1C configuration extension structure (CFE)
+﻿# cfe-validate v1.34 — Validate 1C configuration extension structure (CFE)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -1265,7 +1265,7 @@ if ($formCount -eq 0) {
 if ($script:noLinkItems.Count -gt 0) {
 	$shown = ($script:noLinkItems | Select-Object -First 5) -join ", "
 	if ($script:noLinkItems.Count -gt 5) { $shown += ", …" }
-	Report-Warn "9. $($script:noLinkItems.Count) borrowed element(s) without ExtendedConfigurationObject ($shown): the platform binds them by name only, so a recreated source object is picked up silently — re-borrow them to restore the link"
+	Report-Warn "9. $($script:noLinkItems.Count) borrowed element(s) without ExtendedConfigurationObject ($shown): the platform binds them by name only, so a recreated source object is picked up silently — restore the link: /cfe-borrow -Actualize"
 }
 
 if ($script:stopped) { & $finalize; exit 1 }
@@ -1943,6 +1943,159 @@ function Get-OwnNameCollisions {
 	return $result
 }
 
+# Объявленные свойства заимствованного против источника. Контролируется то, что объявлено в Properties;
+# режим — <xr:PropertyState> в InternalInfo: нет — проверять и запрещать, Notify — проверять, не
+# запрещать, Extended — переопределять, MultiState — у составного типа свой режим на часть типов
+# (xr:CheckValue / xr:ExtendValue / xr:NotifyValue). Замер 8.3.27: расхождение без режима — расширение
+# не применяется; Notify — применяется, проверка сообщает; Тип — не применяется в любом режиме контроля.
+function Get-MdPropStates($el) {
+	$states = [ordered]@{}
+	foreach ($ps in @($el.SelectNodes("*[local-name()='InternalInfo']/*[local-name()='PropertyState']"))) {
+		$p = $ps.SelectSingleNode("*[local-name()='Property']"); $s = $ps.SelectSingleNode("*[local-name()='State']")
+		if ($p -and $s) { $states[$p.InnerText.Trim()] = $s.InnerText.Trim() }
+	}
+	return $states
+}
+
+function Get-NormOuterXml($node) {
+	return (([regex]::Replace($node.OuterXml, '\s+xmlns(?::\w+)?="[^"]*"', '')) -replace '>\s+<', '><').Trim()
+}
+
+# Описание типов: состав (Type / TypeSet / TypeId) и квалификаторы по виду
+function Get-TypeDesc($typeNode) {
+	$types = @(); $quals = @{}
+	foreach ($c in $typeNode.ChildNodes) {
+		if ($c.NodeType -ne 'Element') { continue }
+		if ($c.LocalName -in @('Type', 'TypeSet', 'TypeId')) { $types += "$($c.LocalName)|$($c.InnerText.Trim())" }
+		elseif ($c.LocalName.EndsWith('Qualifiers')) { $quals[$c.LocalName] = Get-NormOuterXml $c }
+	}
+	return @{ Types = $types; Quals = $quals }
+}
+
+$script:qualKindByType = @{ 'Type|xs:string' = 'StringQualifiers'; 'Type|xs:decimal' = 'NumberQualifiers'; 'Type|xs:dateTime' = 'DateQualifiers'; 'Type|xs:base64Binary' = 'BinaryDataQualifiers' }
+
+function Format-TypeDesc($typeNode) {
+	$parts = @()
+	foreach ($c in $typeNode.ChildNodes) {
+		if ($c.NodeType -ne 'Element' -or $c.LocalName -notin @('Type', 'TypeSet', 'TypeId')) { continue }
+		$v = $c.InnerText.Trim()
+		switch ($v) {
+			'xs:string' { $l = $typeNode.SelectSingleNode("*[local-name()='StringQualifiers']/*[local-name()='Length']"); $v = if ($l) { "String($($l.InnerText))" } else { 'String' } }
+			'xs:decimal' { $dg = $typeNode.SelectSingleNode("*[local-name()='NumberQualifiers']/*[local-name()='Digits']"); $fd = $typeNode.SelectSingleNode("*[local-name()='NumberQualifiers']/*[local-name()='FractionDigits']"); $v = if ($dg) { "Number($($dg.InnerText),$(if ($fd) { $fd.InnerText } else { 0 }))" } else { 'Number' } }
+			'xs:boolean' { $v = 'Boolean' }
+			'xs:dateTime' { $v = 'Date' }
+			default { $v = $v -replace '^\w+:', '' }
+		}
+		$parts += $v
+	}
+	return ($parts -join ', ')
+}
+
+# Заявленная часть типа согласуется с источником: каждый тип есть в источнике, квалификаторы нужных ему
+# видов — те же. $exact — весь тип без режимов: состав должен совпасть целиком.
+function Test-TypePartFits($part, $src, [bool]$exact) {
+	if ($exact -and $part.Types.Count -ne $src.Types.Count) { return $false }
+	foreach ($t in $part.Types) {
+		if ($src.Types -cnotcontains $t) { return $false }
+		$k = $script:qualKindByType[$t]
+		if ($k -and $part.Quals.ContainsKey($k) -and $part.Quals[$k] -cne $src.Quals[$k]) { return $false }
+		if ($k -and $exact -and $part.Quals.ContainsKey($k) -ne $src.Quals.ContainsKey($k)) { return $false }
+	}
+	return $true
+}
+
+# Элементы файла объекта по ключам «Вид.Имя[.Вид.Имя…]» — та же схема, что у индекса UUID
+function Get-MdElementMap {
+	param([string]$objFile, [string]$key)
+	$map = New-Object System.Collections.Specialized.OrderedDictionary ([StringComparer]::Ordinal)
+	if (-not (Test-Path -LiteralPath $objFile)) { return $map }
+	$doc = New-Object System.Xml.XmlDocument
+	try { $doc.Load($objFile) } catch { return $map }
+	$objEl = $null
+	foreach ($c in $doc.DocumentElement.ChildNodes) { if ($c.NodeType -eq 'Element') { $objEl = $c; break } }
+	if (-not $objEl) { return $map }
+	$map[$key] = $objEl
+	$stack = New-Object System.Collections.Stack
+	$stack.Push(@($objEl, $key))
+	while ($stack.Count -gt 0) {
+		$cur = $stack.Pop()
+		$co = $cur[0].SelectSingleNode("*[local-name()='ChildObjects']")
+		if (-not $co) { continue }
+		foreach ($sub in $co.ChildNodes) {
+			if ($sub.NodeType -ne 'Element') { continue }
+			$n = $sub.SelectSingleNode("*[local-name()='Properties']/*[local-name()='Name']")
+			if (-not $n) { continue }
+			$k = "$($cur[1]).$($sub.LocalName).$($n.InnerText.Trim())"
+			$map[$k] = $sub
+			$stack.Push(@($sub, $k))
+		}
+	}
+	return $map
+}
+
+$script:check18Props = 0
+function Compare-AdoptedProperties([string]$key, $extEl, $srcEl) {
+	$ok = $true
+	$ep = $extEl.SelectSingleNode("*[local-name()='Properties']")
+	$sp = $srcEl.SelectSingleNode("*[local-name()='Properties']")
+	if (-not $ep -or -not $sp) { return $true }
+	$states = Get-MdPropStates $extEl
+	$hint = "refresh with /cfe-borrow (report: -Check)"
+	foreach ($c in $ep.ChildNodes) {
+		if ($c.NodeType -ne 'Element') { continue }
+		$prop = $c.LocalName
+		if ($prop -in @('ObjectBelonging', 'Name', 'Comment', 'ExtendedConfigurationObject')) { continue }
+		$state = $states[$prop]
+		if ($state -ceq 'Extended') { continue }
+		$s = $sp.SelectSingleNode("*[local-name()='$prop']")
+		if (-not $s) { continue }
+		if ($prop -ceq 'Owners') {
+			# Заявленные владельцы — подмножество владельцев источника (добавить владельца в источнике можно)
+			$srcItems = @($s.ChildNodes | Where-Object { $_.NodeType -eq 'Element' } | ForEach-Object { $_.InnerText.Trim() })
+			$propOk = $true
+			foreach ($it in @($c.ChildNodes | Where-Object { $_.NodeType -eq 'Element' })) {
+				if ($srcItems -cnotcontains $it.InnerText.Trim()) {
+					Report-Error "18. ${key}: owner $($it.InnerText.Trim()) is declared in the extension but not in the source configuration — the platform rejects the extension («Значение контролируемого свойства Владельцы не совпадает»); $hint"
+					$ok = $false; $propOk = $false
+				}
+			}
+			if ($propOk) { $script:check18Props++ }
+			continue
+		}
+		if ($prop -ceq 'Type') {
+			$sd = Get-TypeDesc $s
+			$xsiType = $c.GetAttribute('type', 'http://www.w3.org/2001/XMLSchema-instance')
+			if ($state -ceq 'MultiState' -or $xsiType -match 'ExtendedProperty') {
+				$propOk = $true
+				foreach ($part in $c.ChildNodes) {
+					if ($part.NodeType -ne 'Element' -or $part.LocalName -notin @('CheckValue', 'NotifyValue')) { continue }
+					if (-not (Test-TypePartFits (Get-TypeDesc $part) $sd $false)) {
+						$label = if ($part.LocalName -ceq 'CheckValue') { 'check' } else { 'notify' }
+						Report-Error "18. ${key}: Type ($label part) $(Format-TypeDesc $part) does not match the source configuration ($(Format-TypeDesc $s)) — the platform loads the extension but does not apply it («Значение контролируемого свойства Тип не совпадает»); $hint"
+						$ok = $false; $propOk = $false
+					}
+				}
+				if ($propOk) { $script:check18Props++ }
+				continue
+			}
+			if (-not (Test-TypePartFits (Get-TypeDesc $c) $sd $true)) {
+				Report-Error "18. ${key}: Type $(Format-TypeDesc $c) differs from the source configuration ($(Format-TypeDesc $s)) — the platform loads the extension but does not apply it («Значение контролируемого свойства Тип не совпадает»); $hint"
+				$ok = $false
+			} else { $script:check18Props++ }
+			continue
+		}
+		if ((Get-NormOuterXml $c) -ceq (Get-NormOuterXml $s)) { $script:check18Props++; continue }
+		$was = $c.InnerText.Trim(); $now = $s.InnerText.Trim()
+		if ($state -ceq 'Notify') {
+			Report-Warn "18. ${key}: $prop ($was) differs from the source configuration ($now), mode Notify — the extension is applied, the applicability check reports the mismatch; $hint"
+		} else {
+			Report-Error "18. ${key}: $prop ($was) differs from the source configuration ($now) — the platform loads the extension but does not apply it («Значение контролируемого свойства … не совпадает»); $hint"
+			$ok = $false
+		}
+	}
+	return $ok
+}
+
 if (-not $script:stopped -and $childObjNode) {
 	$zeroGuid = "00000000-0000-0000-0000-000000000000"
 	$srcRoot = $null
@@ -2046,12 +2199,22 @@ if (-not $script:stopped -and $childObjNode) {
 			$check18Ok = $false
 			if ($script:stopped) { break }
 		}
+		if ($script:stopped) { break }
+		# Объявленные свойства — у элементов, которые нашлись в источнике под тем же ключом
+		$extEls = Get-MdElementMap (Join-Path (Join-Path $configDir $dirName) "$objName18.xml") "$typeName.$objName18"
+		$srcEls = Get-MdElementMap (Join-Path (Join-Path $srcRoot $dirName) "$objName18.xml") "$typeName.$objName18"
+		foreach ($k in $extEls.Keys) {
+			if (-not $srcEls.Contains($k) -or -not $extIdx.Contains($k)) { continue }
+			if (-not (Compare-AdoptedProperties $k $extEls[$k] $srcEls[$k])) { $check18Ok = $false }
+			if ($script:stopped) { break }
+		}
 	}
 
 	if (-not $ConfigPath) {
 		Out-Line "[INFO]  18. Borrowed objects and the default language were not compared with the source configuration: -ConfigPath not set"
 	} elseif ($srcRoot -and $check18Ok -and $check18Count -gt 0) {
-		Report-OK "18. Source config: $check18Count link(s) agree (DefaultLanguage, ExtendedConfigurationObject)"
+		$propsAgree = if ($script:check18Props -gt 0) { "; $($script:check18Props) controlled property value(s) agree" } else { "" }
+		Report-OK "18. Source config: $check18Count link(s) agree (DefaultLanguage, ExtendedConfigurationObject)$propsAgree"
 	}
 }
 
@@ -2297,6 +2460,53 @@ foreach ($bslFile in (Get-ChildItem -Path $extRootDir -Recurse -Filter *.bsl -Fi
 }
 if ($ctrlCount -gt 0) {
 	Out-Line "[INFO]  Controlled methods (&ИзменениеИКонтроль): $ctrlCount — not checked for staleness here. Check with: /cfe-patch-method -Check -ExtensionPath <ext> -ConfigPath <cf>"
+}
+
+# --- Check 20: режимы контроля заимствованного против режима совместимости расширения ---
+# Замер 8.3.27 (база и расширение в одном режиме): переопределение свойства — с 8.3.14, «Предупреждать»
+# (Notify) — с 8.3.15, переопределение типа (Extended у Type, MultiState) — с 8.3.18. Ниже — отказ
+# загрузки. Пометка Extended у модуля или формы — не переопределение свойства: её нет в Properties.
+if (-not $script:stopped -and $childObjNode -and $propsNode) {
+	$cmNode = $propsNode.SelectSingleNode("md:ConfigurationExtensionCompatibilityMode", $ns)
+	$cmText = if ($cmNode) { $cmNode.InnerText.Trim() } else { "" }
+	$cmMinor = $null
+	if ($cmText -match '^Version8_3_(\d+)$') { $cmMinor = [int]$Matches[1] }
+	elseif ($cmText -match '^Version8_[12]') { $cmMinor = 0 }
+	if ($null -ne $cmMinor -and $cmMinor -lt 18) {
+		$modeChecked = 0
+		$check20Ok = $true
+		foreach ($child in $childObjNode.ChildNodes) {
+			if ($script:stopped) { break }
+			if ($child.NodeType -ne 'Element' -or -not $childTypeDirMap.ContainsKey($child.LocalName)) { continue }
+			$n20 = $child.InnerText.Trim()
+			if (-not $n20) { continue }
+			$f20 = Join-Path (Join-Path $configDir $childTypeDirMap[$child.LocalName]) "$n20.xml"
+			if (-not (Test-Path -LiteralPath $f20)) { continue }
+			$els20 = Get-MdElementMap $f20 "$($child.LocalName).$n20"
+			foreach ($k in $els20.Keys) {
+				$el = $els20[$k]
+				$states = Get-MdPropStates $el
+				$p20 = $el.SelectSingleNode("*[local-name()='Properties']")
+				foreach ($prop in $states.Keys) {
+					$st = $states[$prop]
+					if (-not $p20 -or -not $p20.SelectSingleNode("*[local-name()='$prop']")) { continue }
+					$need = $null
+					if ($prop -ceq 'Type' -and ($st -ceq 'MultiState' -or $st -ceq 'Extended')) { $need = 18; $what = "type override" }
+					elseif ($st -ceq 'Notify') { $need = 15; $what = "mode Notify" }
+					elseif ($st -ceq 'Extended') { $need = 14; $what = "property override" }
+					if (-not $need) { continue }
+					$modeChecked++
+					if ($cmMinor -lt $need) {
+						Report-Error "20. ${k}: $prop — $what requires extension compatibility mode 8.3.$need or later (current: $cmText) — the platform rejects the extension («… недопустимо в режиме совместимости»)"
+						$check20Ok = $false
+					}
+				}
+			}
+		}
+		if ($modeChecked -gt 0 -and $check20Ok) {
+			Report-OK "20. Control modes fit the extension compatibility mode $cmText ($modeChecked)"
+		}
+	}
 }
 
 # --- Final output ---

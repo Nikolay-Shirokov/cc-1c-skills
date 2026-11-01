@@ -1,0 +1,61 @@
+{
+  "name": "Объявленные свойства заимствованного против источника — по режимам контроля: без режима и тип — ошибка, Notify — предупреждение, Extended — не сверяется",
+  "setup": "fixture:adopted-modes",
+  "preRun": [
+    {
+      "editFile": "src/Catalogs/Items.xml",
+      "replace": "<CodeLength>9</CodeLength>",
+      "with": "<CodeLength>11</CodeLength>"
+    },
+    {
+      "editFile": "src/Catalogs/Items.xml",
+      "replace": "<DescriptionLength>25</DescriptionLength>",
+      "with": "<DescriptionLength>50</DescriptionLength>"
+    },
+    {
+      "editFile": "src/Catalogs/Items.xml",
+      "replace": "<v8:Digits>10</v8:Digits>",
+      "with": "<v8:Digits>12</v8:Digits>"
+    },
+    {
+      "editFile": "src/Catalogs/Items.xml",
+      "replace": "<v8:Type>cfg:CatalogRef.Owners0</v8:Type>",
+      "with": ""
+    },
+    {
+      "editFile": "src/CommonModules/SharedModule.xml",
+      "replace": "<ExternalConnection>false</ExternalConnection>",
+      "with": "<ExternalConnection>true</ExternalConnection>"
+    },
+    {
+      "editFile": "src/Catalogs/Sub.xml",
+      "replace": "Catalog.Owners0</xr:Item>",
+      "with": "Catalog.Items</xr:Item>"
+    }
+  ],
+  "params": {
+    "extensionPath": "."
+  },
+  "args_extra": [
+    "-ConfigPath",
+    "{workDir}/src",
+    "-Detailed"
+  ],
+  "expectError": true,
+  "noSnapshot": "навык ничего не пишет, проверяется текст и код возврата",
+  "expect": {
+    "stdoutContains": [
+      "[ERROR] 18. Catalog.Items: CodeLength (9) differs from the source configuration (11)",
+      "[WARN]  18. Catalog.Items: DescriptionLength (25) differs from the source configuration (50), mode Notify",
+      "[ERROR] 18. Catalog.Items.Attribute.Value: Type (check part) CatalogRef.Owners0 does not match",
+      "[ERROR] 18. Catalog.Items.Attribute.Value: Type (notify part) Number(10,2) does not match",
+      "[WARN]  18. CommonModule.SharedModule: ExternalConnection (false) differs from the source configuration (true), mode Notify",
+      "[ERROR] 18. Catalog.Sub: owner Catalog.Owners0 is declared in the extension but not in the source configuration",
+      "/cfe-borrow"
+    ],
+    "stdoutNotContains": [
+      "extend part",
+      "String(20)"
+    ]
+  }
+}

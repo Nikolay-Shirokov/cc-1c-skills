@@ -1,0 +1,32 @@
+{
+  "name": "Расхождение только в режиме Notify (проверять, не запрещать) — предупреждение, расширение применяется",
+  "setup": "fixture:adopted-modes",
+  "preRun": [
+    {
+      "editFile": "src/Catalogs/Items.xml",
+      "replace": "<DescriptionLength>25</DescriptionLength>",
+      "with": "<DescriptionLength>50</DescriptionLength>"
+    },
+    {
+      "editFile": "src/CommonModules/SharedModule.xml",
+      "replace": "<ExternalConnection>false</ExternalConnection>",
+      "with": "<ExternalConnection>true</ExternalConnection>"
+    }
+  ],
+  "params": {
+    "extensionPath": "."
+  },
+  "args_extra": [
+    "-ConfigPath",
+    "{workDir}/src",
+    "-Detailed"
+  ],
+  "noSnapshot": "навык ничего не пишет, проверяется текст и код возврата",
+  "expect": {
+    "stdoutContains": [
+      "[WARN]  18. Catalog.Items: DescriptionLength (25) differs",
+      "[WARN]  18. CommonModule.SharedModule: ExternalConnection (false) differs"
+    ],
+    "stdoutNotContains": "[ERROR]"
+  }
+}

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# cfe-validate v1.33 — Validate 1C configuration extension structure (CFE)
+# cfe-validate v1.34 — Validate 1C configuration extension structure (CFE)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 """Validates extension Configuration.xml: root, InternalInfo, extension properties, ChildObjects, borrowed objects."""
 import sys, os, argparse, re
@@ -1306,7 +1306,7 @@ def main():
         shown = ', '.join(no_link_items[:5])
         if len(no_link_items) > 5:
             shown += ', …'
-        r.warn(f'9. {len(no_link_items)} borrowed element(s) without ExtendedConfigurationObject ({shown}): the platform binds them by name only, so a recreated source object is picked up silently — re-borrow them to restore the link')
+        r.warn(f'9. {len(no_link_items)} borrowed element(s) without ExtendedConfigurationObject ({shown}): the platform binds them by name only, so a recreated source object is picked up silently — restore the link: /cfe-borrow -Actualize')
 
     if r.stopped:
         r.finalize(out_file)
@@ -1976,6 +1976,197 @@ def main():
                 result.append({'Own': k, 'Src': src_ci[k.upper()]})
         return result
 
+    # InnerText узла как в .NET XmlDocument (без PreserveWhitespace): текст потомков без комментариев
+    # и без пробельных узлов между тегами
+    def xml_inner_text(el):
+        return ''.join(t for t in el.itertext() if t.strip())
+
+    # Объявленные свойства заимствованного против источника. Контролируется то, что объявлено в Properties;
+    # режим — <xr:PropertyState> в InternalInfo: нет — проверять и запрещать, Notify — проверять, не
+    # запрещать, Extended — переопределять, MultiState — у составного типа свой режим на часть типов
+    # (xr:CheckValue / xr:ExtendValue / xr:NotifyValue). Замер 8.3.27: расхождение без режима — расширение
+    # не применяется; Notify — применяется, проверка сообщает; Тип — не применяется в любом режиме контроля.
+    # Ключ — имя свойства в верхнем регистре (поиск без учёта регистра), значение — (имя, режим).
+    def md_prop_states(el):
+        states = {}
+        for ps in el.xpath("*[local-name()='InternalInfo']/*[local-name()='PropertyState']"):
+            p = ps.xpath("*[local-name()='Property']")
+            s = ps.xpath("*[local-name()='State']")
+            if p and s:
+                name = xml_inner_text(p[0]).strip()
+                prev = states.get(name.upper())
+                states[name.upper()] = (prev[0] if prev else name, xml_inner_text(s[0]).strip())
+        return states
+
+    def norm_outer_xml(node):
+        x = etree.tostring(node, encoding='unicode', with_tail=False)
+        x = re.sub(r'\s+xmlns(?::\w+)?="[^"]*"', '', x)
+        return re.sub(r'>\s+<', '><', x).strip()
+
+    # Описание типов: состав (Type / TypeSet / TypeId) и квалификаторы по виду
+    def type_desc(type_node):
+        types = []
+        quals = {}
+        for c in type_node:
+            if not isinstance(c.tag, str):
+                continue
+            ln = etree.QName(c.tag).localname
+            if ln.upper() in ('TYPE', 'TYPESET', 'TYPEID'):
+                types.append(f'{ln}|{xml_inner_text(c).strip()}')
+            elif ln.endswith('Qualifiers'):
+                quals[ln.upper()] = norm_outer_xml(c)
+        return {'Types': types, 'Quals': quals}
+
+    qual_kind_by_type = {'TYPE|XS:STRING': 'StringQualifiers', 'TYPE|XS:DECIMAL': 'NumberQualifiers', 'TYPE|XS:DATETIME': 'DateQualifiers', 'TYPE|XS:BASE64BINARY': 'BinaryDataQualifiers'}
+
+    def format_type_desc(type_node):
+        parts = []
+        for c in type_node:
+            if not isinstance(c.tag, str) or etree.QName(c.tag).localname.upper() not in ('TYPE', 'TYPESET', 'TYPEID'):
+                continue
+            v = xml_inner_text(c).strip()
+            vl = v.lower()
+            if vl == 'xs:string':
+                ln_ = type_node.xpath("*[local-name()='StringQualifiers']/*[local-name()='Length']")
+                v = f'String({xml_inner_text(ln_[0])})' if ln_ else 'String'
+            elif vl == 'xs:decimal':
+                dg = type_node.xpath("*[local-name()='NumberQualifiers']/*[local-name()='Digits']")
+                fd = type_node.xpath("*[local-name()='NumberQualifiers']/*[local-name()='FractionDigits']")
+                v = f'Number({xml_inner_text(dg[0])},{xml_inner_text(fd[0]) if fd else 0})' if dg else 'Number'
+            elif vl == 'xs:boolean':
+                v = 'Boolean'
+            elif vl == 'xs:datetime':
+                v = 'Date'
+            else:
+                v = re.sub(r'^\w+:', '', v, count=1)
+            parts.append(v)
+        return ', '.join(parts)
+
+    # Заявленная часть типа согласуется с источником: каждый тип есть в источнике, квалификаторы нужных ему
+    # видов — те же. exact — весь тип без режимов: состав должен совпасть целиком.
+    def type_part_fits(part, src, exact):
+        if exact and len(part['Types']) != len(src['Types']):
+            return False
+        for t in part['Types']:
+            if t not in src['Types']:
+                return False
+            k = qual_kind_by_type.get(t.upper())
+            if not k:
+                continue
+            ku = k.upper()
+            if ku in part['Quals'] and part['Quals'][ku] != src['Quals'].get(ku):
+                return False
+            if exact and (ku in part['Quals']) != (ku in src['Quals']):
+                return False
+        return True
+
+    # Элементы файла объекта по ключам «Вид.Имя[.Вид.Имя…]» — та же схема, что у индекса UUID
+    def md_element_map(obj_file, key):
+        m = {}
+        if not os.path.exists(obj_file):
+            return m
+        try:
+            doc_root = etree.parse(obj_file).getroot()
+        except Exception:
+            return m
+        obj_el = next((c for c in doc_root if isinstance(c.tag, str)), None)
+        if obj_el is None:
+            return m
+        m[key] = obj_el
+        stack = [(obj_el, key)]
+        while stack:
+            cur_el, cur_key = stack.pop()
+            co = cur_el.xpath("*[local-name()='ChildObjects']")
+            if not co:
+                continue
+            for sub in co[0]:
+                if not isinstance(sub.tag, str):
+                    continue
+                n = sub.xpath("*[local-name()='Properties']/*[local-name()='Name']")
+                if not n:
+                    continue
+                k = f'{cur_key}.{etree.QName(sub.tag).localname}.{xml_inner_text(n[0]).strip()}'
+                m[k] = sub
+                stack.append((sub, k))
+        return m
+
+    check18_props = [0]
+
+    def compare_adopted_properties(key, ext_el, src_el):
+        ok = True
+        ep = ext_el.xpath("*[local-name()='Properties']")
+        sp = src_el.xpath("*[local-name()='Properties']")
+        if not ep or not sp:
+            return True
+        ep, sp = ep[0], sp[0]
+        states = md_prop_states(ext_el)
+        hint = 'refresh with /cfe-borrow (report: -Check)'
+        for c in ep:
+            if not isinstance(c.tag, str):
+                continue
+            prop = etree.QName(c.tag).localname
+            if prop.upper() in ('OBJECTBELONGING', 'NAME', 'COMMENT', 'EXTENDEDCONFIGURATIONOBJECT'):
+                continue
+            st = states.get(prop.upper())
+            state = st[1] if st else None
+            if state == 'Extended':
+                continue
+            s = sp.xpath(f"*[local-name()='{prop}']")
+            if not s:
+                continue
+            s = s[0]
+            if prop == 'Owners':
+                # Заявленные владельцы — подмножество владельцев источника (добавить владельца в источнике можно)
+                src_items = [xml_inner_text(x).strip() for x in s if isinstance(x.tag, str)]
+                prop_ok = True
+                for it in c:
+                    if not isinstance(it.tag, str):
+                        continue
+                    it_text = xml_inner_text(it).strip()
+                    if it_text not in src_items:
+                        r.error(f'18. {key}: owner {it_text} is declared in the extension but not in the source configuration — the platform rejects the extension («Значение контролируемого свойства Владельцы не совпадает»); {hint}')
+                        ok = False
+                        prop_ok = False
+                if prop_ok:
+                    check18_props[0] += 1
+                continue
+            if prop == 'Type':
+                sd = type_desc(s)
+                xsi_type = c.get('{http://www.w3.org/2001/XMLSchema-instance}type') or ''
+                if state == 'MultiState' or re.search('ExtendedProperty', xsi_type, re.IGNORECASE):
+                    prop_ok = True
+                    for part in c:
+                        if not isinstance(part.tag, str):
+                            continue
+                        part_ln = etree.QName(part.tag).localname
+                        if part_ln.upper() not in ('CHECKVALUE', 'NOTIFYVALUE'):
+                            continue
+                        if not type_part_fits(type_desc(part), sd, False):
+                            label = 'check' if part_ln == 'CheckValue' else 'notify'
+                            r.error(f'18. {key}: Type ({label} part) {format_type_desc(part)} does not match the source configuration ({format_type_desc(s)}) — the platform loads the extension but does not apply it («Значение контролируемого свойства Тип не совпадает»); {hint}')
+                            ok = False
+                            prop_ok = False
+                    if prop_ok:
+                        check18_props[0] += 1
+                    continue
+                if not type_part_fits(type_desc(c), sd, True):
+                    r.error(f'18. {key}: Type {format_type_desc(c)} differs from the source configuration ({format_type_desc(s)}) — the platform loads the extension but does not apply it («Значение контролируемого свойства Тип не совпадает»); {hint}')
+                    ok = False
+                else:
+                    check18_props[0] += 1
+                continue
+            if norm_outer_xml(c) == norm_outer_xml(s):
+                check18_props[0] += 1
+                continue
+            was = xml_inner_text(c).strip()
+            now = xml_inner_text(s).strip()
+            if state == 'Notify':
+                r.warn(f'18. {key}: {prop} ({was}) differs from the source configuration ({now}), mode Notify — the extension is applied, the applicability check reports the mismatch; {hint}')
+            else:
+                r.error(f'18. {key}: {prop} ({was}) differs from the source configuration ({now}) — the platform loads the extension but does not apply it («Значение контролируемого свойства … не совпадает»); {hint}')
+                ok = False
+        return ok
+
     if not r.stopped and child_obj_node is not None:
         zero_guid = '00000000-0000-0000-0000-000000000000'
         src_root = None
@@ -2070,11 +2261,24 @@ def main():
                 check18_ok = False
                 if r.stopped:
                     break
+            if r.stopped:
+                break
+            # Объявленные свойства — у элементов, которые нашлись в источнике под тем же ключом
+            ext_els = md_element_map(os.path.join(config_dir, dir_name, f'{obj_name18}.xml'), f'{type_name}.{obj_name18}')
+            src_els = md_element_map(os.path.join(src_root, dir_name, f'{obj_name18}.xml'), f'{type_name}.{obj_name18}')
+            for k in ext_els:
+                if k not in src_els or k not in ext_idx:
+                    continue
+                if not compare_adopted_properties(k, ext_els[k], src_els[k]):
+                    check18_ok = False
+                if r.stopped:
+                    break
 
         if not config_path_arg:
             r.out('[INFO]  18. Borrowed objects and the default language were not compared with the source configuration: -ConfigPath not set')
         elif src_root and check18_ok and check18_count > 0:
-            r.ok(f'18. Source config: {check18_count} link(s) agree (DefaultLanguage, ExtendedConfigurationObject)')
+            props_agree = f'; {check18_props[0]} controlled property value(s) agree' if check18_props[0] > 0 else ''
+            r.ok(f'18. Source config: {check18_count} link(s) agree (DefaultLanguage, ExtendedConfigurationObject){props_agree}')
 
     # --- Check 19: ссылки на объекты, которых нет в расширении ---
     # Объект основной конфигурации виден расширению, только если он заимствован (замер 8.3.24/8.3.27):
@@ -2283,6 +2487,59 @@ def main():
                     pass
     if ctrl_count > 0:
         r.out('[INFO]  Controlled methods (&ИзменениеИКонтроль): %d — not checked for staleness here. Check with: /cfe-patch-method -Check -ExtensionPath <ext> -ConfigPath <cf>' % ctrl_count)
+
+    # --- Check 20: режимы контроля заимствованного против режима совместимости расширения ---
+    # Замер 8.3.27 (база и расширение в одном режиме): переопределение свойства — с 8.3.14, «Предупреждать»
+    # (Notify) — с 8.3.15, переопределение типа (Extended у Type, MultiState) — с 8.3.18. Ниже — отказ
+    # загрузки. Пометка Extended у модуля или формы — не переопределение свойства: её нет в Properties.
+    if not r.stopped and child_obj_node is not None and props_node is not None:
+        cm_node = props_node.find('md:ConfigurationExtensionCompatibilityMode', NS)
+        cm_text = xml_inner_text(cm_node).strip() if cm_node is not None else ''
+        cm_minor = None
+        m20 = re.match(r'^Version8_3_(\d+)$', cm_text, re.IGNORECASE)
+        if m20:
+            cm_minor = int(m20.group(1))
+        elif re.match(r'^Version8_[12]', cm_text, re.IGNORECASE):
+            cm_minor = 0
+        if cm_minor is not None and cm_minor < 18:
+            mode_checked = 0
+            check20_ok = True
+            for child in child_obj_node:
+                if r.stopped:
+                    break
+                if not isinstance(child.tag, str):
+                    continue
+                ln20 = etree.QName(child.tag).localname
+                if ln20 not in CHILD_TYPE_DIR_MAP:
+                    continue
+                n20 = (child.text or '').strip()
+                if not n20:
+                    continue
+                f20 = os.path.join(config_dir, CHILD_TYPE_DIR_MAP[ln20], f'{n20}.xml')
+                if not os.path.exists(f20):
+                    continue
+                els20 = md_element_map(f20, f'{ln20}.{n20}')
+                for k, el in els20.items():
+                    states = md_prop_states(el)
+                    p20 = el.xpath("*[local-name()='Properties']")
+                    for prop, st in states.values():
+                        if not p20 or not p20[0].xpath(f"*[local-name()='{prop}']"):
+                            continue
+                        need = None
+                        if prop == 'Type' and (st == 'MultiState' or st == 'Extended'):
+                            need, what = 18, 'type override'
+                        elif st == 'Notify':
+                            need, what = 15, 'mode Notify'
+                        elif st == 'Extended':
+                            need, what = 14, 'property override'
+                        if not need:
+                            continue
+                        mode_checked += 1
+                        if cm_minor < need:
+                            r.error(f'20. {k}: {prop} — {what} requires extension compatibility mode 8.3.{need} or later (current: {cm_text}) — the platform rejects the extension («… недопустимо в режиме совместимости»)')
+                            check20_ok = False
+            if mode_checked > 0 and check20_ok:
+                r.ok(f'20. Control modes fit the extension compatibility mode {cm_text} ({mode_checked})')
 
     # --- Final output ---
     r.finalize(out_file)

@@ -1,0 +1,37 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<MetaDataObject xmlns="http://v8.1c.ru/8.3/MDClasses" xmlns:app="http://v8.1c.ru/8.2/managed-application/core" xmlns:cfg="http://v8.1c.ru/8.1/data/enterprise/current-config" xmlns:cmi="http://v8.1c.ru/8.2/managed-application/cmi" xmlns:ent="http://v8.1c.ru/8.1/data/enterprise" xmlns:lf="http://v8.1c.ru/8.2/managed-application/logform" xmlns:style="http://v8.1c.ru/8.1/data/ui/style" xmlns:sys="http://v8.1c.ru/8.1/data/ui/fonts/system" xmlns:v8="http://v8.1c.ru/8.1/data/core" xmlns:v8ui="http://v8.1c.ru/8.1/data/ui" xmlns:web="http://v8.1c.ru/8.1/data/ui/colors/web" xmlns:win="http://v8.1c.ru/8.1/data/ui/colors/windows" xmlns:xen="http://v8.1c.ru/8.3/xcf/enums" xmlns:xpr="http://v8.1c.ru/8.3/xcf/predef" xmlns:xr="http://v8.1c.ru/8.3/xcf/readable" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" version="2.20">
+	<Document uuid="f311782a-69b7-430b-bdb7-a9b09adf2c40">
+		<InternalInfo>
+			<xr:GeneratedType name="DocumentObject.Docs" category="Object">
+				<xr:TypeId>82c24a2d-16c0-4e6a-8acd-d91b82643f68</xr:TypeId>
+				<xr:ValueId>81848054-9fe7-4534-9339-67efc7ae0938</xr:ValueId>
+			</xr:GeneratedType>
+			<xr:GeneratedType name="DocumentRef.Docs" category="Ref">
+				<xr:TypeId>1c3a7f4b-4fa7-48ee-9ca3-e03da0d035bd</xr:TypeId>
+				<xr:ValueId>824bd1f0-201a-4e5a-ac8c-4802917c0e11</xr:ValueId>
+			</xr:GeneratedType>
+			<xr:GeneratedType name="DocumentSelection.Docs" category="Selection">
+				<xr:TypeId>f89c3cc1-1b19-4e4f-ada3-b2e176a053cb</xr:TypeId>
+				<xr:ValueId>0ec6d552-9313-4d67-bbc1-fb2257388ef9</xr:ValueId>
+			</xr:GeneratedType>
+			<xr:GeneratedType name="DocumentList.Docs" category="List">
+				<xr:TypeId>a8cb1da2-2c5d-4641-b670-bcf34bed85d6</xr:TypeId>
+				<xr:ValueId>77c4f541-bcbd-46b7-8d29-1acd118904d8</xr:ValueId>
+			</xr:GeneratedType>
+			<xr:GeneratedType name="DocumentManager.Docs" category="Manager">
+				<xr:TypeId>bd4cd0d8-7cdc-468c-ae3d-f187611a0d80</xr:TypeId>
+				<xr:ValueId>9e176375-d7bd-4bfe-a78b-150d503c6ce6</xr:ValueId>
+			</xr:GeneratedType>
+		</InternalInfo>
+		<Properties>
+			<ObjectBelonging>Adopted</ObjectBelonging>
+			<Name>Docs</Name>
+			<Comment/>
+			<ExtendedConfigurationObject>81a26ce5-f36f-499e-9525-7ec8752b0e8f</ExtendedConfigurationObject>
+			<NumberType>String</NumberType>
+			<NumberLength>11</NumberLength>
+			<RegisterRecords/>
+		</Properties>
+		<ChildObjects/>
+	</Document>
+</MetaDataObject>
