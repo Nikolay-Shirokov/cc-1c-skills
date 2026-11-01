@@ -2054,7 +2054,9 @@ function Compare-AdoptedProperties([string]$key, $extEl, $srcEl) {
 		$prop = $c.LocalName
 		if ($prop -in @('ObjectBelonging', 'Name', 'Comment', 'ExtendedConfigurationObject')) { continue }
 		$state = $states[$prop]
-		if ($state -ceq 'Extended') { continue }
+		# Переопределение типа платформа принимает только частями (MultiState, xr:ExtendValue); одиночный
+		# Extended у Type она не применяет и сверяет тип как контролируемый (замер М13, 8.3.27)
+		if ($state -ceq 'Extended' -and $prop -cne 'Type') { continue }
 		# Дополнения: список расширения сливается со списком источника — расхождение тут норма
 		if ($script:additiveProps -ccontains $prop) { continue }
 		$s = $sp.SelectSingleNode("*[local-name()='$prop']")

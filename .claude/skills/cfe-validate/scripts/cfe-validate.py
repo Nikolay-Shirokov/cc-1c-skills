@@ -2117,7 +2117,9 @@ def main():
                 continue
             st = states.get(prop.upper())
             state = st[1] if st else None
-            if state == 'Extended':
+            # Переопределение типа платформа принимает только частями (MultiState, xr:ExtendValue); одиночный
+            # Extended у Type она не применяет и сверяет тип как контролируемый (замер М13, 8.3.27)
+            if state == 'Extended' and prop != 'Type':
                 continue
             # Дополнения: список расширения сливается со списком источника — расхождение тут норма
             if prop in additive_props:

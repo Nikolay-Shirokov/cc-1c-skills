@@ -1,0 +1,31 @@
+{
+  "name": "Type в режиме Extended (одиночный, не MultiState) расходится с источником — ошибка: платформа такое переопределение не применяет",
+  "setup": "fixture:adopted-modes",
+  "preRun": [
+    {
+      "editFile": "Catalogs/Items.xml",
+      "replace": "<InternalInfo/>\r\n\t\t\t\t<Properties>\r\n\t\t\t\t\t<ObjectBelonging>Adopted</ObjectBelonging>\r\n\t\t\t\t\t<Name>Article</Name>",
+      "with": "<InternalInfo>\r\n\t\t\t\t\t<xr:PropertyState>\r\n\t\t\t\t\t\t<xr:Property>Type</xr:Property>\r\n\t\t\t\t\t\t<xr:State>Extended</xr:State>\r\n\t\t\t\t\t</xr:PropertyState>\r\n\t\t\t\t</InternalInfo>\r\n\t\t\t\t<Properties>\r\n\t\t\t\t\t<ObjectBelonging>Adopted</ObjectBelonging>\r\n\t\t\t\t\t<Name>Article</Name>"
+    },
+    {
+      "editFile": "Catalogs/Items.xml",
+      "replace": "<v8:Length>25</v8:Length>",
+      "with": "<v8:Length>40</v8:Length>"
+    }
+  ],
+  "params": {
+    "extensionPath": "."
+  },
+  "args_extra": [
+    "-ConfigPath",
+    "{workDir}/src",
+    "-Detailed"
+  ],
+  "expectError": true,
+  "noSnapshot": "навык ничего не пишет, проверяется текст и код возврата",
+  "expect": {
+    "stdoutContains": [
+      "[ERROR] 18. Catalog.Items.Attribute.Article: Type String(40) differs from the source configuration (String(25))"
+    ]
+  }
+}
