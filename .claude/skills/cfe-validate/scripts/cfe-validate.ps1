@@ -2033,6 +2033,14 @@ function Get-MdElementMap {
 	return $map
 }
 
+# Группы объявленных свойств — те же, что у cfe-borrow: контролируемые сверяются по режимам, дополнения
+# (список расширения сливается со списком источника — замер М10) не сверяются, прочие — предупреждение.
+$script:controlledProps = @('Type', 'Owners', 'Global', 'ClientManagedApplication', 'Server', 'ExternalConnection',
+	'ClientOrdinaryApplication', 'ServerCall', 'Hierarchical', 'CodeLength', 'DescriptionLength', 'CodeType',
+	'CodeAllowedLength', 'NumberType', 'NumberLength', 'NumberAllowedLength', 'InformationRegisterPeriodicity',
+	'WriteMode', 'LanguageCode', 'RegisteredDocuments', 'ExtDimensionTypes', 'MaxExtDimensionCount')
+$script:additiveProps = @('RegisterRecords', 'Content')
+
 $script:check18Props = 0
 function Compare-AdoptedProperties([string]$key, $extEl, $srcEl) {
 	$ok = $true
@@ -2047,8 +2055,16 @@ function Compare-AdoptedProperties([string]$key, $extEl, $srcEl) {
 		if ($prop -in @('ObjectBelonging', 'Name', 'Comment', 'ExtendedConfigurationObject')) { continue }
 		$state = $states[$prop]
 		if ($state -ceq 'Extended') { continue }
+		# Дополнения: список расширения сливается со списком источника — расхождение тут норма
+		if ($script:additiveProps -ccontains $prop) { continue }
 		$s = $sp.SelectSingleNode("*[local-name()='$prop']")
 		if (-not $s) { continue }
+		if ($script:controlledProps -cnotcontains $prop) {
+			if ((Get-NormOuterXml $c) -cne (Get-NormOuterXml $s)) {
+				Report-Warn "18. ${key}: $prop ($($c.InnerText.Trim())) differs from the source configuration ($($s.InnerText.Trim())) — not a known controlled property: if the platform controls it, the extension is not applied"
+			}
+			continue
+		}
 		if ($prop -ceq 'Owners') {
 			# Заявленные владельцы — подмножество владельцев источника (добавить владельца в источнике можно)
 			$srcItems = @($s.ChildNodes | Where-Object { $_.NodeType -eq 'Element' } | ForEach-Object { $_.InnerText.Trim() })

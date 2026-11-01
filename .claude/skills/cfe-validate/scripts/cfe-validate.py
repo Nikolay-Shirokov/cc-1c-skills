@@ -2090,6 +2090,14 @@ def main():
                 stack.append((sub, k))
         return m
 
+    # Группы объявленных свойств — те же, что у cfe-borrow: контролируемые сверяются по режимам, дополнения
+    # (список расширения сливается со списком источника — замер М10) не сверяются, прочие — предупреждение.
+    controlled_props = ['Type', 'Owners', 'Global', 'ClientManagedApplication', 'Server', 'ExternalConnection',
+                        'ClientOrdinaryApplication', 'ServerCall', 'Hierarchical', 'CodeLength', 'DescriptionLength', 'CodeType',
+                        'CodeAllowedLength', 'NumberType', 'NumberLength', 'NumberAllowedLength', 'InformationRegisterPeriodicity',
+                        'WriteMode', 'LanguageCode', 'RegisteredDocuments', 'ExtDimensionTypes', 'MaxExtDimensionCount']
+    additive_props = ['RegisterRecords', 'Content']
+
     check18_props = [0]
 
     def compare_adopted_properties(key, ext_el, src_el):
@@ -2111,10 +2119,17 @@ def main():
             state = st[1] if st else None
             if state == 'Extended':
                 continue
+            # Дополнения: список расширения сливается со списком источника — расхождение тут норма
+            if prop in additive_props:
+                continue
             s = sp.xpath(f"*[local-name()='{prop}']")
             if not s:
                 continue
             s = s[0]
+            if prop not in controlled_props:
+                if norm_outer_xml(c) != norm_outer_xml(s):
+                    r.warn(f'18. {key}: {prop} ({xml_inner_text(c).strip()}) differs from the source configuration ({xml_inner_text(s).strip()}) — not a known controlled property: if the platform controls it, the extension is not applied')
+                continue
             if prop == 'Owners':
                 # Заявленные владельцы — подмножество владельцев источника (добавить владельца в источнике можно)
                 src_items = [xml_inner_text(x).strip() for x in s if isinstance(x.tag, str)]
