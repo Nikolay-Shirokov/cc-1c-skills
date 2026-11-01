@@ -3507,7 +3507,7 @@ def main():
     # UUID (связь, свойства, имя вслед за источником), поэтому данные целы; перепривязку к объекту с другим
     # UUID — единственное, что грозит потерей данных, — не делаем, только сообщаем.
     act = {"mode": "Apply", "rows": [], "src_head_cache": {}, "src_uuid_index": {}, "ext_renames": None,
-           "pending_mentions": [], "unresolved": [], "obj_renamed": {}, "sub_renamed": {}}
+           "pending_mentions": [], "unresolved": [], "obj_renamed": {}, "sub_renamed": {}, "swap_pending": []}
 
     def read_text(path):
         # Как ReadAllText: BOM снят, переводы строк как в файле
@@ -3851,7 +3851,9 @@ def main():
             if c["Local"] in ('ObjectBelonging', 'Name', 'Comment', 'ExtendedConfigurationObject'):
                 continue
             state = states.get(c["Local"])
-            if state == 'Extended':
+            # Переопределение типа платформа принимает только частями (MultiState, xr:ExtendValue); одиночный
+            # Extended у Type она не применяет и сверяет тип как контролируемый (замер М13, 8.3.27)
+            if state == 'Extended' and c["Local"] != 'Type':
                 continue
             if c["Local"] in additive_props:
                 continue
@@ -4062,41 +4064,53 @@ def main():
             row["Status"] = 'NOT FOUND'
             add_act_note(row, "not found in the source by link or by name — not changed", False)
 
+    # Переименования одного уровня применяются ОДНИМ проходом по карте «старое → новое»: по очереди обмен
+    # именами (A ↔ B) вернул бы первое переименование вторым, и поле формы молча показало бы другой реквизит.
+    # Возвращают число замен по каждому старому имени (ключи — без регистра, как у хеш-таблицы PS).
+    def new_rename_regex_alt(rmap):
+        return '|'.join(re.escape(k) for k in sorted(rmap.keys(), key=len, reverse=True))
+
+    def rename_evaluator(rmap, counts):
+        def ev(m):
+            o = m.group(2)
+            counts[o.lower()] = 1 + counts.get(o.lower(), 0)
+            return m.group(1) + rmap[o]
+        return ev
+
     # Сегменты путей к данным формы: <Основной>[.<ТЧ>].<Старое> → .<Новое> (DataPath*, Field, в форме и BaseForm)
-    def rename_form_data_paths(form_xml, prefix_path, old, new):
+    def rename_form_data_paths(form_xml, prefix_path, rmap):
+        counts = {}
         if not os.path.exists(form_xml):
-            return 0
+            return counts
         style = _detect_xml_style(form_xml)
         text = read_text(form_xml)
         main = re.search(r'<Attribute name="([^"]+)"[^>]*>(?:(?!</Attribute>).)*?<MainAttribute>true</MainAttribute>', text, re.S)
         if not main:
-            return 0
+            return counts
         pre = re.escape(main.group(1) + prefix_path + '.')
-        rx = re.compile(r'(<(?:\w*DataPath|Field)>~?' + pre + ')' + re.escape(old) + r'(?=[.<])')
-        text, n = rx.subn(lambda m: m.group(1) + new, text)
-        if n > 0:
-            write_text_keep_bom(form_xml, text, style)
-        return n
+        rx = re.compile(r'(<(?:\w*DataPath|Field)>~?' + pre + ')(' + new_rename_regex_alt(rmap) + r')(?=[.<])')
+        n = rx.sub(rename_evaluator(rmap, counts), text)
+        if counts:
+            write_text_keep_bom(form_xml, n, style)
+        return counts
 
     # Ссылки на переименованный подобъект в XML расширения — MDObjectRef вида Enum.X.EnumValue.Старое,
     # Catalog.X.Attribute.Старое (параметры выбора форм, права ролей, поля блокировки). Configuration.xml
     # пишется в конце из дерева — подобъектов в нём нет.
-    def rename_sub_object_refs(ref_path, old, new):
-        rx = re.compile(r'(?<![\w.])(' + re.escape(ref_path + '.') + ')' + re.escape(old) + r'(?![\wА-Яа-яЁё])')
+    def rename_sub_object_refs(ref_path, rmap):
+        counts = {}
+        rx = re.compile(r'(?<![\w.])(' + re.escape(ref_path + '.') + ')(' + new_rename_regex_alt(rmap) + r')(?![\wА-Яа-яЁё])')
         cfg_long = os.path.normcase(os.path.abspath(ext_resolved))
-        total = 0
         for full in walk_files_ps_order(ext_dir):
             if not full.lower().endswith('.xml'):
                 continue
             if os.path.normcase(os.path.abspath(full)) == cfg_long:
                 continue
             t = read_text(full)
-            t2, n = rx.subn(lambda m: m.group(1) + new, t)
-            if n == 0:
+            if not rx.search(t):
                 continue
-            write_text_keep_bom(full, t2, _detect_xml_style(full))
-            total += n
-        return total
+            write_text_keep_bom(full, rx.sub(rename_evaluator(rmap, counts), t), _detect_xml_style(full))
+        return counts
 
     # Файлы каталога в порядке Get-ChildItem -Recurse: файлы каталога, затем подкаталоги по порядку
     def walk_files_ps_order(top):
@@ -4154,10 +4168,12 @@ def main():
 
     # Упоминания ищутся в конце запуска — по итоговым файлам и путям, после всех переименований.
     # Смена только регистра — не повод: имена в коде 1С регистронезависимы.
-    def add_mentions_note(row, old, new):
+    # taken_by — кем старое имя теперь занято в источнике (тёзка, обмен именами): код со старым именем
+    # скомпилируется и молча будет работать с другим объектом — упоминания становятся предупреждением
+    def add_mentions_note(row, old, new, taken_by=''):
         if old.lower() == new.lower():
             return
-        act["pending_mentions"].append({"Row": row, "Name": old})
+        act["pending_mentions"].append({"Row": row, "Name": old, "TakenBy": taken_by})
 
     def resolve_pending_mentions():
         if not act["pending_mentions"]:
@@ -4174,7 +4190,11 @@ def main():
             shown = ', '.join(m[:10])
             if len(m) > 10:
                 shown += f", … ({len(m)} total)"
-            add_act_note(pm["Row"], f"'{pm['Name']}' is still mentioned in the code — fix by hand: {shown}", False)
+            if pm.get("TakenBy"):
+                add_act_note(pm["Row"], f"'{pm['Name']}' is still mentioned in the code, and in the source this name now belongs "
+                                        f"to another object ({pm['TakenBy']}) — the code would silently use it; fix by hand: {shown}", False)
+            else:
+                add_act_note(pm["Row"], f"'{pm['Name']}' is still mentioned in the code — fix by hand: {shown}", False)
         act["pending_mentions"].clear()
 
     # Переименование файла или каталога через временное имя: Move-Item в PS 5.1 не меняет регистр имени
@@ -4188,11 +4208,47 @@ def main():
     # ссылки в XML расширения (cfg:CatalogRef.Old, Catalog.Old, …). Код и тексты запросов — не трогаем.
     def rename_borrowed_object(type_name, old, new, row):
         d = os.path.join(ext_dir, CHILD_TYPE_DIR_MAP[type_name])
-        old_file = os.path.join(d, f"{old}.xml")
         new_file = os.path.join(d, f"{new}.xml")
         if os.path.exists(new_file) and old.lower() != new.lower():
-            add_act_note(row, f"cannot rename: {type_name}.{new} already exists in the extension", False)
-            return False
+            # Обмен именами в источнике (A ↔ B): имя занято заимствованным объектом, который сам переименован
+            # в источнике, — уводим его на временное имя, своё новое имя он получит в свою очередь
+            renames_map = get_ext_renames()
+            blocker_key = ci_dict_key(renames_map, f"{type_name}.{new}")
+            blocker_to = renames_map[blocker_key] if blocker_key is not None else None
+            if not blocker_to:
+                add_act_note(row, f"cannot rename: {type_name}.{new} already exists in the extension", False)
+                return False
+            tmp = "__swap_" + uuid.uuid4().hex[:8]
+            move_borrowed_object_name(type_name, new, tmp)
+            del renames_map[blocker_key]
+            renames_map[f"{type_name}.{tmp}"] = blocker_to
+            # Ключ без регистра — как у хеш-таблицы PS
+            act["obj_renamed"][f"{type_name}.{new}".lower()] = tmp
+            act["swap_pending"].append({"TypeName": type_name, "Tmp": tmp, "Shown": new})
+        move_borrowed_object_name(type_name, old, new)
+        if act["ext_renames"] is not None:
+            k = ci_dict_key(act["ext_renames"], f"{type_name}.{old}")
+            if k is not None:
+                del act["ext_renames"][k]
+        # Ключ без регистра — как у хеш-таблицы PS
+        act["obj_renamed"][f"{type_name}.{old}".lower()] = new
+        return True
+
+    # Ключ словаря без учёта регистра — как у хеш-таблицы PS (None — такого нет)
+    def ci_dict_key(d, key):
+        if key in d:
+            return key
+        low = key.lower()
+        for k in d:
+            if k.lower() == low:
+                return k
+        return None
+
+    # Файлы, имена, ссылки в XML расширения и ChildObjects — от старого имени объекта к новому
+    def move_borrowed_object_name(type_name, old, new):
+        d = os.path.join(ext_dir, CHILD_TYPE_DIR_MAP[type_name])
+        old_file = os.path.join(d, f"{old}.xml")
+        new_file = os.path.join(d, f"{new}.xml")
         move_path_via_temp(old_file, new_file)
         old_dir = os.path.join(d, old)
         if os.path.isdir(old_dir):
@@ -4225,11 +4281,6 @@ def main():
                     child_objs_el.text = child.tail
                 child_objs_el.remove(child)
         add_to_child_objects(type_name, new)
-        if act["ext_renames"] is not None:
-            act["ext_renames"].pop(f"{type_name}.{old}", None)
-        # Ключ без регистра — как у хеш-таблицы PS
-        act["obj_renamed"][f"{type_name}.{old}".lower()] = new
-        return True
 
     # Заимствованная форма против формы источника. Своей пересборки на этом этапе нет: в рантайме
     # платформа сама сливает BaseForm / форму расширения / текущую форму источника (замер М1), поэтому
@@ -4404,6 +4455,23 @@ def main():
             if not (c["Local"] in CHILD_OBJECT_KINDS or c["Local"] == 'TabularSection' or c["Local"] == 'EnumValue'):
                 continue
             if not test_element_adopted(text, c):
+                # Собственный подобъект, одноимённый (без учёта регистра) с подобъектом источника того же вида:
+                # платформа не обновит базу («Уже существует объект с именем …», замер М14). Переименовать своё —
+                # решение человека: у него данные
+                if not only:
+                    own = get_md_element_name(text, c)
+                    for sc in get_xml_children(src_text, get_xml_child(src_text, src_parent, 'ChildObjects')):
+                        if sc["Local"] != c["Local"]:
+                            continue
+                        sn = get_md_element_name(src_text, sc)
+                        if not ps_ieq(sn, own):
+                            continue
+                        cr = new_act_row(f"{path_prefix}.{c['Local']}.{own or ''}")
+                        cr["Status"] = 'NAME CONFLICT'
+                        add_act_note(cr, f"own {c['Local']}: the source now has a {c['Local']} with this name ({sn or ''}) — the platform "
+                                         f"does not update the database («Уже существует объект с именем …»); rename the own "
+                                         f"{c['Local']} by hand", False)
+                        break
                 continue
             name = get_md_element_name(text, c)
             if only and not (c["Local"] == only["Kind"] and name == only["Name"]):
@@ -4429,8 +4497,14 @@ def main():
                     ok = test_edit_allowed()
                     if ok:
                         ctx["Edits"].append({"Start": n_el["Start"], "End": n_el["End"], "Text": f"<Name>{new_name}</Name>"})
+                        # Старое имя в источнике занято другим подобъектом того же вида (тёзка, обмен именами)?
+                        taken = ''
+                        for sc in get_xml_children(src_text, get_xml_child(src_text, src_parent, 'ChildObjects')):
+                            if sc["Local"] == c["Local"] and get_md_element_name(src_text, sc) == name:
+                                taken = f"another {c['Local']} {name} of this object"
+                                break
                         renames.append({"Prefix": form_prefix, "Old": name, "New": new_name, "Row": row,
-                                        "RefPath": f"{ref_prefix}.{c['Local']}"})
+                                        "RefPath": f"{ref_prefix}.{c['Local']}", "TakenBy": taken})
                         # Ключ без регистра — как у хеш-таблицы PS
                         act["sub_renamed"][f"{path_prefix}.{c['Local']}.{name}".lower()] = new_name
                     add_act_note(row, f"renamed: {name} -> {new_name}" if ok else f"renamed in the source: {name} -> {new_name}", ok)
@@ -4443,6 +4517,60 @@ def main():
                                       f"{form_prefix}.{ts_path_name}", nested, None, renames,
                                       f"{ref_prefix}.TabularSection.{ts_path_name}")
 
+    # -ieq PS: без учёта регистра, $null равен только $null
+    def ps_ieq(a, b):
+        if a is None or b is None:
+            return a is None and b is None
+        return a.lower() == b.lower()
+
+    # UUID заимствованных подобъектов объекта (реквизиты, ТЧ и их колонки, значения перечисления…)
+    def get_adopted_child_links(text, el):
+        res = []
+        for c in get_xml_children(text, get_xml_child(text, el, 'ChildObjects')):
+            if not get_xml_child(text, c, 'Properties'):
+                continue
+            if test_element_adopted(text, c):
+                lnk = get_element_link(text, c)
+                if lnk:
+                    res.append(lnk.lower())
+            res.extend(get_adopted_child_links(text, c))
+        return res
+
+    # Связи у объекта нет — по имени нельзя отличить переименование с тёзкой от того же объекта. Подсказка —
+    # заимствованные подобъекты: их ECO указывают, в каком объекте источника они теперь (замер М14: по имени
+    # расширение привязалось к тёзке, а данные своих реквизитов остались у переименованного объекта).
+    def resolve_identity_by_children(id_, src_dir, text, root, row):
+        links = []
+        for lnk in get_adopted_child_links(text, root):
+            if lnk not in links:
+                links.append(lnk)
+        if not links:
+            if id_["Kind"] == 'NoLink':
+                add_act_note(row, "the link is restored by name: if the source object was renamed and a new one was created under "
+                                  "this name, the extension now refers to the new one — check", False, True)
+            return id_
+
+        def has(file):
+            with open(file, "r", encoding="utf-8-sig", errors="replace", newline="") as fh:
+                ft = fh.read().lower()
+            return any(f'uuid="{u}"' in ft for u in links)
+        if id_["Kind"] == 'NoLink' and has(id_["Src"]["File"]):
+            return id_
+        if os.path.isdir(src_dir):
+            own_file = os.path.normcase(os.path.abspath(id_["Src"]["File"])) if id_.get("Src") else None
+            for fn in sorted(os.listdir(src_dir), key=lambda s: s.upper()):
+                full = os.path.join(src_dir, fn)
+                if not fn.lower().endswith('.xml') or not os.path.isfile(full):
+                    continue
+                if own_file and os.path.normcase(os.path.abspath(full)) == own_file:
+                    continue
+                if has(full):
+                    h = read_source_head(full)
+                    add_act_note(row, f"no link in the extension; the borrowed sub-objects are found in {h['Name']} of the source — "
+                                      f"the object was renamed there", False, True)
+                    return {"Kind": 'Renamed', "Src": h}
+        return id_
+
     # Один заимствованный объект (с подобъектами и формами — по области): возвращает итоговое имя
     def actualize_borrowed_object(type_name, obj_name, scope):
         dir_name = CHILD_TYPE_DIR_MAP[type_name]
@@ -4453,24 +4581,32 @@ def main():
             info(f"{type_name}.{obj_name}: own object of the extension — nothing to actualize")
             return obj_name
         ctx = {"Text": text, "Edits": [], "Eol": get_text_eol(text), "Shells": []}
-        row = new_act_row(f"{type_name}.{obj_name}")
-        id_ = resolve_file_identity(os.path.join(cfg_dir, dir_name), obj_name, get_element_link(text, root))
+        # На временном имени (обмен именами) объект показывается под прежним
+        shown = obj_name
+        for sw in act["swap_pending"]:
+            if sw["TypeName"].lower() == type_name.lower() and sw["Tmp"] == obj_name:
+                shown = sw["Shown"]
+        row = new_act_row(f"{type_name}.{shown}")
+        obj_link = get_element_link(text, root)
+        id_ = resolve_file_identity(os.path.join(cfg_dir, dir_name), obj_name, obj_link)
+        if not obj_link:
+            id_ = resolve_identity_by_children(id_, os.path.join(cfg_dir, dir_name), text, root, row)
         set_identity_status(row, id_, obj_name)
         if id_["Kind"] in ('Replaced', 'Missing'):
             return obj_name
         src_text = read_text(id_["Src"]["File"])
         src_root = get_md_root(src_text)
         src_name = id_["Src"]["Name"]
-        if id_["Kind"] == 'NoLink':
+        if not obj_link and id_.get("Src"):
             add_missing_link(ctx, row, root, id_["Src"]["Uuid"])
         if scope["Kind"] == 'Object':
             sync_adopted_properties(ctx, row, root, src_text, src_root)
         renames = []
         if scope["Kind"] == 'Object':
-            sync_adopted_children(ctx, root, src_text, src_root, f"{type_name}.{obj_name}", '', None, None, renames,
+            sync_adopted_children(ctx, root, src_text, src_root, f"{type_name}.{shown}", '', None, None, renames,
                                   f"{type_name}.{obj_name}")
         elif scope["Kind"] == 'Sub':
-            sync_adopted_children(ctx, root, src_text, src_root, f"{type_name}.{obj_name}", '',
+            sync_adopted_children(ctx, root, src_text, src_root, f"{type_name}.{shown}", '',
                                   {"Kind": scope["SubKind"], "Name": scope["SubName"]}, scope.get("ColName"), renames,
                                   f"{type_name}.{obj_name}")
         if type_name == 'CommonForm' and scope["Kind"] == 'Object':
@@ -4496,25 +4632,47 @@ def main():
                 if test_object_borrowed(rt["TypeName"], rt["ObjName"]):
                     add_act_note(sh["Row"], f"borrowed as a shell: {rt['TypeName']}.{rt['ObjName']}", True)
         # Переименованные подобъекты — пути к данным в формах этого объекта
+        # Группы по уровню (путь формы, путь ссылки) — в порядке появления: ТЧ переименовывается раньше
+        # своих колонок, их пути уже идут по новому имени ТЧ
+        forms_dir = os.path.join(ext_dir, dir_name, obj_name, "Forms")
+        # Ключи групп — без регистра, как у [ordered] PS; карта внутри группы — с регистром (Ordinal)
+        path_groups = {}
+        ref_groups = {}
         for rn in renames:
-            forms_dir = os.path.join(ext_dir, dir_name, obj_name, "Forms")
-            cnt = 0
-            if os.path.exists(forms_dir):
-                for fx in walk_files_ps_order(forms_dir):
-                    if os.path.basename(fx).lower() == 'form.xml':
-                        cnt += rename_form_data_paths(fx, rn["Prefix"], rn["Old"], rn["New"])
+            path_groups.setdefault(rn["Prefix"].lower(), (rn["Prefix"], {}))[1][rn["Old"]] = rn["New"]
+            ref_groups.setdefault(rn["RefPath"].lower(), (rn["RefPath"], {}))[1][rn["Old"]] = rn["New"]
+        path_counts = {}
+        ref_counts = {}
+        for pfx, pmap in path_groups.values():
+            if not os.path.exists(forms_dir):
+                break
+            for fx in walk_files_ps_order(forms_dir):
+                if os.path.basename(fx).lower() != 'form.xml':
+                    continue
+                c = rename_form_data_paths(fx, pfx, pmap)
+                for k in c:
+                    key = f"{pfx}|{k}".lower()
+                    path_counts[key] = c[k] + path_counts.get(key, 0)
+        for rp, rmap in ref_groups.values():
+            c = rename_sub_object_refs(rp, rmap)
+            for k in c:
+                ref_counts[f"{rp}|{k}".lower()] = c[k]
+        for rn in renames:
+            cnt = path_counts.get(f"{rn['Prefix']}|{rn['Old']}".lower(), 0)
             if cnt > 0:
                 add_act_note(rn["Row"], f"form data paths updated: {cnt}", True)
-            ref_cnt = rename_sub_object_refs(rn["RefPath"], rn["Old"], rn["New"])
+            ref_cnt = ref_counts.get(f"{rn['RefPath']}|{rn['Old']}".lower(), 0)
             if ref_cnt > 0:
                 add_act_note(rn["Row"], f"references in the extension XML updated: {ref_cnt}", True)
-            add_mentions_note(rn["Row"], rn["Old"], rn["New"])
+            add_mentions_note(rn["Row"], rn["Old"], rn["New"], rn.get("TakenBy", ''))
         if id_["Kind"] == 'Renamed':
             row["Status"] = 'RENAMED'
             if test_edit_allowed():
                 if rename_borrowed_object(type_name, obj_name, src_name, row):
-                    add_act_note(row, f"renamed: {obj_name} -> {src_name} (files, ChildObjects, type references in the extension XML)", True)
-                    add_mentions_note(row, obj_name, src_name)
+                    add_act_note(row, f"renamed: {shown} -> {src_name} (files, ChildObjects, type references in the extension XML)", True)
+                    old_src = os.path.join(cfg_dir, dir_name, f"{shown}.xml")
+                    taken = f"{type_name}.{shown}" if (os.path.exists(old_src) and read_source_head(old_src)["Name"] == shown) else ''
+                    add_mentions_note(row, shown, src_name, taken)
                     return src_name
             else:
                 add_act_note(row, f"renamed in the source: {obj_name} -> {src_name}", False)
@@ -4545,7 +4703,7 @@ def main():
                     st = 'OUTDATED'
             if st != 'UP-TO-DATE':
                 not_up_to_date += 1
-            if st == 'REPLACED' or st == 'NOT FOUND':
+            if st == 'REPLACED' or st == 'NOT FOUND' or st == 'NAME CONFLICT':
                 act["unresolved"].append(f"{r['Path']} ({st.lower()})")
             print(f"[{st}] {r['Path']}")
             for n in r["Notes"]:
@@ -4845,6 +5003,13 @@ def main():
             if is_new or args.Module:
                 for kind in resolve_module_kinds(type_name):
                     borrowed_files.append(new_borrowed_module_file(type_name, obj_name, kind))
+
+    # --- 14. (хвост) Обмен именами: объект, уведённый на временное имя, получает своё новое имя, даже если
+    # сам не был в области запуска — временное имя в расширении не остаётся
+    for sw in list(act["swap_pending"]):
+        if f"{sw['TypeName']}.{sw['Tmp']}".lower() in act["obj_renamed"]:
+            continue
+        actualize_borrowed_object(sw["TypeName"], sw["Tmp"], {"Kind": 'Object'})
 
     # --- 14a. Основные таблицы динамических списков заимствованных форм — оболочками ---
     # Объект основной таблицы списка обязан быть в расширении («Неверно указана главная таблица

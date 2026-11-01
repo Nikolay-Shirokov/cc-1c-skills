@@ -1,0 +1,84 @@
+{
+  "name": "У объекта нет связи, в источнике он переименован и под старым именем создан другой — связь по заимствованным подобъектам, не к тёзке",
+  "setup": "fixture:adopted-modes",
+  "preRun": [
+    {
+      "movePath": {
+        "from": "Catalogs/Items.xml",
+        "to": "Catalogs/Товары.xml"
+      }
+    },
+    {
+      "movePath": {
+        "from": "Catalogs/Items",
+        "to": "Catalogs/Товары"
+      }
+    },
+    {
+      "editFile": "Catalogs/Товары.xml",
+      "replace": "<Name>Items</Name>",
+      "with": "<Name>Товары</Name>"
+    },
+    {
+      "editFile": "Catalogs/Товары.xml",
+      "replace": ".Items\"",
+      "with": ".Товары\"",
+      "all": true
+    },
+    {
+      "editFile": "Catalogs/Товары.xml",
+      "replace": "Catalog.Items.",
+      "with": "Catalog.Товары.",
+      "all": true
+    },
+    {
+      "editFile": "Configuration.xml",
+      "replace": "<Catalog>Items</Catalog>",
+      "with": "<Catalog>Товары</Catalog>"
+    },
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "Catalog",
+        "name": "Items"
+      },
+      "args": {
+        "-JsonPath": "{inputFile}",
+        "-OutputDir": "{workDir}"
+      }
+    },
+    {
+      "editFile": "cfe/Catalogs/Items.xml",
+      "replace": "\r\n\t\t\t<ExtendedConfigurationObject>5549f69c-6736-444b-866e-492fd2cb253f</ExtendedConfigurationObject>",
+      "with": ""
+    }
+  ],
+  "params": {
+    "extensionPath": "cfe"
+  },
+  "args_extra": [
+    "-Actualize"
+  ],
+  "expect": {
+    "stdoutContains": [
+      "[RENAMED] Catalog.Items",
+      "the borrowed sub-objects are found in Товары of the source",
+      "renamed: Items -> Товары"
+    ],
+    "fileContains": [
+      {
+        "file": "cfe/Catalogs/Товары.xml",
+        "text": [
+          "<Name>Товары</Name>",
+          "<Name>Article</Name>"
+        ]
+      },
+      {
+        "file": "cfe/Configuration.xml",
+        "text": [
+          "<Catalog>Товары</Catalog>"
+        ]
+      }
+    ]
+  }
+}

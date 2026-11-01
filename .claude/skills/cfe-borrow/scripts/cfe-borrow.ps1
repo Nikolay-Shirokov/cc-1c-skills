@@ -3880,7 +3880,9 @@ function Sync-AdoptedProperties($ctx, $row, $extEl, [string]$srcText, $srcEl) {
 	foreach ($c in (Get-XmlChildren $text $props)) {
 		if (@('ObjectBelonging', 'Name', 'Comment', 'ExtendedConfigurationObject') -ccontains $c.Local) { continue }
 		$state = $states[$c.Local]
-		if ($state -ceq 'Extended') { continue }
+		# Переопределение типа платформа принимает только частями (MultiState, xr:ExtendValue); одиночный
+		# Extended у Type она не применяет и сверяет тип как контролируемый (замер М13, 8.3.27)
+		if ($state -ceq 'Extended' -and $c.Local -cne 'Type') { continue }
 		if ($script:additiveProps -ccontains $c.Local) { continue }
 		$sc = $srcKids[$c.Local]
 		if (-not $sc) { continue }
@@ -4065,39 +4067,43 @@ function Set-IdentityStatus($row, $id, [string]$oldName) {
 	}
 }
 
+# Переименования одного уровня применяются ОДНИМ проходом по карте «старое → новое»: по очереди обмен
+# именами (A ↔ B) вернул бы первое переименование вторым, и поле формы молча показало бы другой реквизит.
+# Возвращают число замен по каждому старому имени.
+function New-RenameRegexAlt($map) {
+	return (@($map.Keys) | Sort-Object -Property Length -Descending | ForEach-Object { [regex]::Escape($_) }) -join '|'
+}
+
 # Сегменты путей к данным формы: <Основной>[.<ТЧ>].<Старое> → .<Новое> (DataPath*, Field, в форме и BaseForm)
-function Rename-FormDataPaths([string]$formXml, [string]$prefixPath, [string]$old, [string]$new) {
-	if (-not (Test-Path -LiteralPath $formXml)) { return 0 }
+function Rename-FormDataPaths([string]$formXml, [string]$prefixPath, $map) {
+	$counts = @{}
+	if (-not (Test-Path -LiteralPath $formXml)) { return $counts }
 	$style = Detect-XmlStyle $formXml
 	$text = [System.IO.File]::ReadAllText($formXml)
 	$main = [regex]::Match($text, '<Attribute name="([^"]+)"[^>]*>(?:(?!</Attribute>).)*?<MainAttribute>true</MainAttribute>', 'Singleline')
-	if (-not $main.Success) { return 0 }
+	if (-not $main.Success) { return $counts }
 	$pre = [regex]::Escape($main.Groups[1].Value + $prefixPath + '.')
-	$re = [regex]('(<(?:\w*DataPath|Field)>~?' + $pre + ')' + [regex]::Escape($old) + '(?=[.<])')
-	$n = $re.Matches($text).Count
-	if ($n -gt 0) {
-		$text = $re.Replace($text, '${1}' + $new.Replace('$', '$$'))
-		[System.IO.File]::WriteAllText($formXml, $text, (Get-StyleEncoding $style))
-	}
-	return $n
+	$re = [regex]('(<(?:\w*DataPath|Field)>~?' + $pre + ')(' + (New-RenameRegexAlt $map) + ')(?=[.<])')
+	$n = $re.Replace($text, { param($m) $o = $m.Groups[2].Value; $counts[$o] = 1 + [int]$counts[$o]; $m.Groups[1].Value + $map[$o] })
+	if ($counts.Count -gt 0) { [System.IO.File]::WriteAllText($formXml, $n, (Get-StyleEncoding $style)) }
+	return $counts
 }
 
 # Ссылки на переименованный подобъект в XML расширения — MDObjectRef вида Enum.X.EnumValue.Старое,
 # Catalog.X.Attribute.Старое (параметры выбора форм, права ролей, поля блокировки). Configuration.xml
 # пишется в конце из $script:xmlDoc — подобъектов в нём нет.
-function Rename-SubObjectRefs([string]$refPath, [string]$old, [string]$new) {
-	$re = [regex]('(?<![\w.])(' + [regex]::Escape("$refPath.") + ')' + [regex]::Escape($old) + '(?![\wА-Яа-яЁё])')
+function Rename-SubObjectRefs([string]$refPath, $map) {
+	$counts = @{}
+	$re = [regex]('(?<![\w.])(' + [regex]::Escape("$refPath.") + ')(' + (New-RenameRegexAlt $map) + ')(?![\wА-Яа-яЁё])')
 	$cfgLong = (Get-Item -LiteralPath $extResolvedPath).FullName
-	$total = 0
 	foreach ($f in (Get-ChildItem -LiteralPath $extDir -Recurse -File -Filter '*.xml')) {
 		if ($f.FullName -eq $cfgLong) { continue }
 		$t = [System.IO.File]::ReadAllText($f.FullName)
-		$n = $re.Matches($t).Count
-		if ($n -eq 0) { continue }
-		[System.IO.File]::WriteAllText($f.FullName, $re.Replace($t, '${1}' + $new.Replace('$', '$$')), (Get-StyleEncoding (Detect-XmlStyle $f.FullName)))
-		$total += $n
+		if (-not $re.IsMatch($t)) { continue }
+		$n = $re.Replace($t, { param($m) $o = $m.Groups[2].Value; $counts[$o] = 1 + [int]$counts[$o]; $m.Groups[1].Value + $map[$o] })
+		[System.IO.File]::WriteAllText($f.FullName, $n, (Get-StyleEncoding (Detect-XmlStyle $f.FullName)))
 	}
-	return $total
+	return $counts
 }
 
 # Оставшиеся упоминания старых имён в коде расширения — для ручной правки: модули целиком, в XML —
@@ -4134,9 +4140,11 @@ function Find-NameMentions([string[]]$names) {
 # Упоминания ищутся в конце запуска — по итоговым файлам и путям, после всех переименований.
 # Смена только регистра — не повод: имена в коде 1С регистронезависимы.
 $script:pendingMentions = New-Object System.Collections.Generic.List[object]
-function Add-MentionsNote($row, [string]$old, [string]$new) {
+# $takenBy — кем старое имя теперь занято в источнике (тёзка, обмен именами): код со старым именем
+# скомпилируется и молча будет работать с другим объектом — упоминания становятся предупреждением
+function Add-MentionsNote($row, [string]$old, [string]$new, [string]$takenBy = '') {
 	if ($old -ieq $new) { return }
-	$script:pendingMentions.Add(@{ Row = $row; Name = $old })
+	$script:pendingMentions.Add(@{ Row = $row; Name = $old; TakenBy = $takenBy })
 }
 
 function Resolve-PendingMentions {
@@ -4147,7 +4155,11 @@ function Resolve-PendingMentions {
 		if ($m.Count -eq 0) { continue }
 		$shown = ($m | Select-Object -First 10) -join ', '
 		if ($m.Count -gt 10) { $shown += ", … ($($m.Count) total)" }
-		Add-ActNote $pm.Row "'$($pm.Name)' is still mentioned in the code — fix by hand: $shown" $false
+		if ($pm.TakenBy) {
+			Add-ActNote $pm.Row "'$($pm.Name)' is still mentioned in the code, and in the source this name now belongs to another object ($($pm.TakenBy)) — the code would silently use it; fix by hand: $shown" $false
+		} else {
+			Add-ActNote $pm.Row "'$($pm.Name)' is still mentioned in the code — fix by hand: $shown" $false
+		}
 	}
 	$script:pendingMentions.Clear()
 }
@@ -4164,11 +4176,34 @@ function Move-PathViaTemp([string]$from, [string]$to) {
 # ссылки в XML расширения (cfg:CatalogRef.Old, Catalog.Old, …). Код и тексты запросов — не трогаем.
 function Rename-BorrowedObject([string]$typeName, [string]$old, [string]$new, $row) {
 	$dir = Join-Path $extDir $childTypeDirMap[$typeName]
-	$oldFile = Join-Path $dir "$old.xml"; $newFile = Join-Path $dir "$new.xml"
+	$newFile = Join-Path $dir "$new.xml"
 	if ((Test-Path -LiteralPath $newFile) -and ($old -ine $new)) {
-		Add-ActNote $row "cannot rename: $typeName.$new already exists in the extension" $false
-		return $false
+		# Обмен именами в источнике (A ↔ B): имя занято заимствованным объектом, который сам переименован
+		# в источнике, — уводим его на временное имя, своё новое имя он получит в свою очередь
+		$renamesMap = Get-ExtRenames
+		$blockerTo = $renamesMap["$typeName.$new"]
+		if (-not $blockerTo) {
+			Add-ActNote $row "cannot rename: $typeName.$new already exists in the extension" $false
+			return $false
+		}
+		$tmp = "__swap_" + [guid]::NewGuid().ToString('N').Substring(0, 8)
+		Move-BorrowedObjectName $typeName $new $tmp
+		$renamesMap.Remove("$typeName.$new")
+		$renamesMap["$typeName.$tmp"] = $blockerTo
+		$script:objRenamed["$typeName.$new"] = $tmp
+		$script:swapPending.Add(@{ TypeName = $typeName; Tmp = $tmp; Shown = $new })
 	}
+	Move-BorrowedObjectName $typeName $old $new
+	if ($null -ne $script:extRenames) { $script:extRenames.Remove("$typeName.$old") }
+	$script:objRenamed["$typeName.$old"] = $new
+	return $true
+}
+
+# Файлы, имена, ссылки в XML расширения и ChildObjects — от старого имени объекта к новому
+$script:swapPending = New-Object System.Collections.Generic.List[object]
+function Move-BorrowedObjectName([string]$typeName, [string]$old, [string]$new) {
+	$dir = Join-Path $extDir $childTypeDirMap[$typeName]
+	$oldFile = Join-Path $dir "$old.xml"; $newFile = Join-Path $dir "$new.xml"
 	Move-PathViaTemp $oldFile $newFile
 	$oldDir = Join-Path $dir $old
 	if (Test-Path -LiteralPath $oldDir -PathType Container) { Move-PathViaTemp $oldDir (Join-Path $dir $new) }
@@ -4199,9 +4234,6 @@ function Rename-BorrowedObject([string]$typeName, [string]$old, [string]$new, $r
 		}
 	}
 	Add-ToChildObjects $typeName $new
-	if ($null -ne $script:extRenames) { $script:extRenames.Remove("$typeName.$old") }
-	$script:objRenamed["$typeName.$old"] = $new
-	return $true
 }
 
 # Заимствованная форма против формы источника. Своей пересборки на этом этапе нет: в рантайме
@@ -4335,7 +4367,24 @@ function Sync-AdoptedChildren($ctx, $extParent, [string]$srcText, $srcParent, [s
 	foreach ($c in (Get-XmlChildren $text $co)) {
 		# Значения перечисления заимствуются вместе с формой (параметры выбора) — сверяются так же
 		if (-not ($script:childObjectKinds -ccontains $c.Local -or $c.Local -ceq 'TabularSection' -or $c.Local -ceq 'EnumValue')) { continue }
-		if (-not (Test-ElementAdopted $text $c)) { continue }
+		if (-not (Test-ElementAdopted $text $c)) {
+			# Собственный подобъект, одноимённый (без учёта регистра) с подобъектом источника того же вида:
+			# платформа не обновит базу («Уже существует объект с именем …», замер М14). Переименовать своё —
+			# решение человека: у него данные
+			if (-not $only) {
+				$own = Get-MdElementName $text $c
+				foreach ($sc in (Get-XmlChildren $srcText (Get-XmlChild $srcText $srcParent 'ChildObjects'))) {
+					if ($sc.Local -cne $c.Local) { continue }
+					$sn = Get-MdElementName $srcText $sc
+					if ($sn -ine $own) { continue }
+					$cr = New-ActRow "$pathPrefix.$($c.Local).$own"
+					$cr.Status = 'NAME CONFLICT'
+					Add-ActNote $cr "own $($c.Local): the source now has a $($c.Local) with this name ($sn) — the platform does not update the database («Уже существует объект с именем …»); rename the own $($c.Local) by hand" $false
+					break
+				}
+			}
+			continue
+		}
 		$name = Get-MdElementName $text $c
 		if ($only -and -not ($c.Local -ceq $only.Kind -and $name -ceq $only.Name)) { continue }
 		$isTs = $c.Local -ceq 'TabularSection'
@@ -4358,7 +4407,12 @@ function Sync-AdoptedChildren($ctx, $extParent, [string]$srcText, $srcParent, [s
 				$ok = Test-EditAllowed
 				if ($ok) {
 					$ctx.Edits.Add(@{ Start = $nEl.Start; End = $nEl.End; Text = "<Name>$newName</Name>" })
-					$renames.Add(@{ Prefix = $formPrefix; Old = $name; New = $newName; Row = $row; RefPath = "$refPrefix.$($c.Local)" })
+					# Старое имя в источнике занято другим подобъектом того же вида (тёзка, обмен именами)?
+					$taken = ''
+					foreach ($sc in (Get-XmlChildren $srcText (Get-XmlChild $srcText $srcParent 'ChildObjects'))) {
+						if ($sc.Local -ceq $c.Local -and (Get-MdElementName $srcText $sc) -ceq $name) { $taken = "another $($c.Local) $name of this object"; break }
+					}
+					$renames.Add(@{ Prefix = $formPrefix; Old = $name; New = $newName; Row = $row; RefPath = "$refPrefix.$($c.Local)"; TakenBy = $taken })
 					$script:subRenamed["$pathPrefix.$($c.Local).$name"] = $newName
 				}
 				Add-ActNote $row $(if ($ok) { "renamed: $name -> $newName" } else { "renamed in the source: $name -> $newName" }) $ok
@@ -4374,6 +4428,44 @@ function Sync-AdoptedChildren($ctx, $extParent, [string]$srcText, $srcParent, [s
 	}
 }
 
+# UUID заимствованных подобъектов объекта (реквизиты, ТЧ и их колонки, значения перечисления…)
+function Get-AdoptedChildLinks([string]$text, $el) {
+	$res = @()
+	foreach ($c in (Get-XmlChildren $text (Get-XmlChild $text $el 'ChildObjects'))) {
+		if (-not (Get-XmlChild $text $c 'Properties')) { continue }
+		if (Test-ElementAdopted $text $c) {
+			$l = Get-ElementLink $text $c
+			if ($l) { $res += $l.ToLowerInvariant() }
+		}
+		$res += @(Get-AdoptedChildLinks $text $c)
+	}
+	return $res
+}
+
+# Связи у объекта нет — по имени нельзя отличить переименование с тёзкой от того же объекта. Подсказка —
+# заимствованные подобъекты: их ECO указывают, в каком объекте источника они теперь (замер М14: по имени
+# расширение привязалось к тёзке, а данные своих реквизитов остались у переименованного объекта).
+function Resolve-IdentityByChildren($id, [string]$srcDir, [string]$text, $root, $row) {
+	$links = @(Get-AdoptedChildLinks $text $root | Select-Object -Unique)
+	if ($links.Count -eq 0) {
+		if ($id.Kind -eq 'NoLink') { Add-ActNote $row "the link is restored by name: if the source object was renamed and a new one was created under this name, the extension now refers to the new one — check" $false $true }
+		return $id
+	}
+	$has = { param($file) $ft = [System.IO.File]::ReadAllText($file).ToLowerInvariant(); foreach ($u in $links) { if ($ft.Contains("uuid=`"$u`"")) { return $true } }; return $false }
+	if ($id.Kind -eq 'NoLink' -and (& $has $id.Src.File)) { return $id }
+	if (Test-Path -LiteralPath $srcDir) {
+		foreach ($f in (Get-ChildItem -LiteralPath $srcDir -Filter '*.xml' -File)) {
+			if ($f.Extension -ne '.xml' -or ($id.Src -and $f.FullName -eq $id.Src.File)) { continue }
+			if (& $has $f.FullName) {
+				$h = Read-SourceHead $f.FullName
+				Add-ActNote $row "no link in the extension; the borrowed sub-objects are found in $($h.Name) of the source — the object was renamed there" $false $true
+				return @{ Kind = 'Renamed'; Src = $h }
+			}
+		}
+	}
+	return $id
+}
+
 # Один заимствованный объект (с подобъектами и формами — по области): возвращает итоговое имя
 function Actualize-BorrowedObject([string]$typeName, [string]$objName, $scope) {
 	$dirName = $childTypeDirMap[$typeName]
@@ -4385,22 +4477,27 @@ function Actualize-BorrowedObject([string]$typeName, [string]$objName, $scope) {
 		return $objName
 	}
 	$ctx = @{ Text = $text; Edits = (New-Object System.Collections.Generic.List[object]); Eol = (Get-TextEol $text); Shells = (New-Object System.Collections.Generic.List[object]) }
-	$row = New-ActRow "$typeName.$objName"
-	$id = Resolve-FileIdentity (Join-Path $cfgDir $dirName) $objName (Get-ElementLink $text $root)
+	# На временном имени (обмен именами) объект показывается под прежним
+	$shown = $objName
+	foreach ($sw in $script:swapPending) { if ($sw.TypeName -eq $typeName -and $sw.Tmp -ceq $objName) { $shown = $sw.Shown } }
+	$row = New-ActRow "$typeName.$shown"
+	$objLink = Get-ElementLink $text $root
+	$id = Resolve-FileIdentity (Join-Path $cfgDir $dirName) $objName $objLink
+	if (-not $objLink) { $id = Resolve-IdentityByChildren $id (Join-Path $cfgDir $dirName) $text $root $row }
 	Set-IdentityStatus $row $id $objName
 	if ($id.Kind -eq 'Replaced' -or $id.Kind -eq 'Missing') { return $objName }
 	$srcText = [System.IO.File]::ReadAllText($id.Src.File)
 	$srcRoot = Get-MdRoot $srcText
 	$srcName = $id.Src.Name
-	if ($id.Kind -eq 'NoLink') { Add-MissingLink $ctx $row $root $id.Src.Uuid }
+	if (-not $objLink -and $id.Src) { Add-MissingLink $ctx $row $root $id.Src.Uuid }
 	if ($scope.Kind -eq 'Object') {
 		Sync-AdoptedProperties $ctx $row $root $srcText $srcRoot
 	}
 	$renames = New-Object System.Collections.Generic.List[object]
 	if ($scope.Kind -eq 'Object') {
-		Sync-AdoptedChildren $ctx $root $srcText $srcRoot "$typeName.$objName" '' $null $null $renames "$typeName.$objName"
+		Sync-AdoptedChildren $ctx $root $srcText $srcRoot "$typeName.$shown" '' $null $null $renames "$typeName.$objName"
 	} elseif ($scope.Kind -eq 'Sub') {
-		Sync-AdoptedChildren $ctx $root $srcText $srcRoot "$typeName.$objName" '' @{ Kind = $scope.SubKind; Name = $scope.SubName } $scope.ColName $renames "$typeName.$objName"
+		Sync-AdoptedChildren $ctx $root $srcText $srcRoot "$typeName.$shown" '' @{ Kind = $scope.SubKind; Name = $scope.SubName } $scope.ColName $renames "$typeName.$objName"
 	}
 	if ($typeName -eq 'CommonForm' -and $scope.Kind -eq 'Object') {
 		Compare-BorrowedForm $row (Join-Path (Join-Path (Join-Path $extDir $dirName) $objName) "Ext/Form.xml") $typeName $srcName $srcName (Join-Path (Join-Path (Join-Path $cfgDir $dirName) $srcName) "Ext/Form.xml")
@@ -4426,23 +4523,43 @@ function Actualize-BorrowedObject([string]$typeName, [string]$objName, $scope) {
 		}
 	}
 	# Переименованные подобъекты — пути к данным в формах этого объекта
+	# Группы по уровню (путь формы, путь ссылки) — в порядке появления: ТЧ переименовывается раньше
+	# своих колонок, их пути уже идут по новому имени ТЧ
+	$formsDir = Join-Path (Join-Path (Join-Path $extDir $dirName) $objName) "Forms"
+	$pathGroups = [ordered]@{}; $refGroups = [ordered]@{}
 	foreach ($rn in $renames) {
-		$formsDir = Join-Path (Join-Path (Join-Path $extDir $dirName) $objName) "Forms"
-		$cnt = 0
-		if (Test-Path -LiteralPath $formsDir) {
-			foreach ($fx in (Get-ChildItem -LiteralPath $formsDir -Recurse -File -Filter 'Form.xml')) { $cnt += Rename-FormDataPaths $fx.FullName $rn.Prefix $rn.Old $rn.New }
+		if (-not $pathGroups.Contains($rn.Prefix)) { $pathGroups[$rn.Prefix] = New-Object System.Collections.Hashtable ([System.StringComparer]::Ordinal) }
+		if (-not $refGroups.Contains($rn.RefPath)) { $refGroups[$rn.RefPath] = New-Object System.Collections.Hashtable ([System.StringComparer]::Ordinal) }
+		$pathGroups[$rn.Prefix][$rn.Old] = $rn.New
+		$refGroups[$rn.RefPath][$rn.Old] = $rn.New
+	}
+	$pathCounts = @{}; $refCounts = @{}
+	foreach ($pfx in $pathGroups.Keys) {
+		if (-not (Test-Path -LiteralPath $formsDir)) { break }
+		foreach ($fx in (Get-ChildItem -LiteralPath $formsDir -Recurse -File -Filter 'Form.xml')) {
+			$c = Rename-FormDataPaths $fx.FullName $pfx $pathGroups[$pfx]
+			foreach ($k in $c.Keys) { $pathCounts["$pfx|$k"] = $c[$k] + [int]$pathCounts["$pfx|$k"] }
 		}
+	}
+	foreach ($rp in $refGroups.Keys) {
+		$c = Rename-SubObjectRefs $rp $refGroups[$rp]
+		foreach ($k in $c.Keys) { $refCounts["$rp|$k"] = $c[$k] }
+	}
+	foreach ($rn in $renames) {
+		$cnt = [int]$pathCounts["$($rn.Prefix)|$($rn.Old)"]
 		if ($cnt -gt 0) { Add-ActNote $rn.Row "form data paths updated: $cnt" $true }
-		$refCnt = Rename-SubObjectRefs $rn.RefPath $rn.Old $rn.New
+		$refCnt = [int]$refCounts["$($rn.RefPath)|$($rn.Old)"]
 		if ($refCnt -gt 0) { Add-ActNote $rn.Row "references in the extension XML updated: $refCnt" $true }
-		Add-MentionsNote $rn.Row $rn.Old $rn.New
+		Add-MentionsNote $rn.Row $rn.Old $rn.New $rn.TakenBy
 	}
 	if ($id.Kind -eq 'Renamed') {
 		$row.Status = 'RENAMED'
 		if (Test-EditAllowed) {
 			if (Rename-BorrowedObject $typeName $objName $srcName $row) {
-				Add-ActNote $row "renamed: $objName -> $srcName (files, ChildObjects, type references in the extension XML)" $true
-				Add-MentionsNote $row $objName $srcName
+				Add-ActNote $row "renamed: $shown -> $srcName (files, ChildObjects, type references in the extension XML)" $true
+				$oldSrc = Join-Path (Join-Path $cfgDir $dirName) "$shown.xml"
+				$taken = if ((Test-Path -LiteralPath $oldSrc) -and (Read-SourceHead $oldSrc).Name -ceq $shown) { "$typeName.$shown" } else { '' }
+				Add-MentionsNote $row $shown $srcName $taken
 				return $srcName
 			}
 		} else {
@@ -4474,7 +4591,7 @@ function Write-ActReport {
 			else { $st = 'OUTDATED' }
 		}
 		if ($st -ne 'UP-TO-DATE') { $notUpToDate++ }
-		if ($st -eq 'REPLACED' -or $st -eq 'NOT FOUND') { $script:actUnresolved += "$($r.Path) ($($st.ToLower()))" }
+		if ($st -eq 'REPLACED' -or $st -eq 'NOT FOUND' -or $st -eq 'NAME CONFLICT') { $script:actUnresolved += "$($r.Path) ($($st.ToLower()))" }
 		Write-Host "[$st] $($r.Path)"
 		foreach ($n in $r.Notes) { Write-Host "    - $($n.Text)" }
 	}
@@ -4784,6 +4901,13 @@ foreach ($item in $items) {
 			}
 		}
 	}
+}
+
+# --- 14. (хвост) Обмен именами: объект, уведённый на временное имя, получает своё новое имя, даже если
+# сам не был в области запуска — временное имя в расширении не остаётся
+foreach ($sw in $script:swapPending.ToArray()) {
+	if ($script:objRenamed.ContainsKey("$($sw.TypeName).$($sw.Tmp)")) { continue }
+	Actualize-BorrowedObject $sw.TypeName $sw.Tmp @{ Kind = 'Object' } | Out-Null
 }
 
 # --- 14a. Основные таблицы динамических списков заимствованных форм — оболочками ---

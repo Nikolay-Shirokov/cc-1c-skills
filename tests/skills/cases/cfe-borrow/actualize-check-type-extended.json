@@ -1,0 +1,30 @@
+{
+  "name": "-Check: Type в режиме Extended (одиночный) платформа не переопределяет — сверяется как контролируемый",
+  "setup": "fixture:adopted-modes",
+  "preRun": [
+    {
+      "editFile": "cfe/Catalogs/Items.xml",
+      "replace": "<InternalInfo/>\r\n\t\t\t\t<Properties>\r\n\t\t\t\t\t<ObjectBelonging>Adopted</ObjectBelonging>\r\n\t\t\t\t\t<Name>Article</Name>",
+      "with": "<InternalInfo>\r\n\t\t\t\t\t<xr:PropertyState>\r\n\t\t\t\t\t\t<xr:Property>Type</xr:Property>\r\n\t\t\t\t\t\t<xr:State>Extended</xr:State>\r\n\t\t\t\t\t</xr:PropertyState>\r\n\t\t\t\t</InternalInfo>\r\n\t\t\t\t<Properties>\r\n\t\t\t\t\t<ObjectBelonging>Adopted</ObjectBelonging>\r\n\t\t\t\t\t<Name>Article</Name>"
+    },
+    {
+      "editFile": "cfe/Catalogs/Items.xml",
+      "replace": "<v8:Length>25</v8:Length>",
+      "with": "<v8:Length>40</v8:Length>"
+    }
+  ],
+  "params": {
+    "extensionPath": "cfe"
+  },
+  "args_extra": [
+    "-Check"
+  ],
+  "expectError": true,
+  "noSnapshot": "-Check ничего не пишет: проверяется отчёт",
+  "expect": {
+    "stdoutContains": [
+      "[OUTDATED] Catalog.Items.Attribute.Article",
+      "Type: String(40) -> String(25)"
+    ]
+  }
+}

@@ -1,0 +1,133 @@
+{
+  "name": "Объекты обменялись именами в источнике — оба переименованы через временное имя, ссылки ведут к тем же объектам (по UUID)",
+  "setup": "fixture:adopted-modes",
+  "preRun": [
+    {
+      "movePath": {
+        "from": "Catalogs/Items.xml",
+        "to": "Catalogs/__t.xml"
+      }
+    },
+    {
+      "movePath": {
+        "from": "Catalogs/Owners0.xml",
+        "to": "Catalogs/Items.xml"
+      }
+    },
+    {
+      "movePath": {
+        "from": "Catalogs/__t.xml",
+        "to": "Catalogs/Owners0.xml"
+      }
+    },
+    {
+      "movePath": {
+        "from": "Catalogs/Items",
+        "to": "Catalogs/__t"
+      }
+    },
+    {
+      "movePath": {
+        "from": "Catalogs/Owners0",
+        "to": "Catalogs/Items"
+      }
+    },
+    {
+      "movePath": {
+        "from": "Catalogs/__t",
+        "to": "Catalogs/Owners0"
+      }
+    },
+    {
+      "editFile": "Catalogs/Items.xml",
+      "replace": ".Owners0\"",
+      "with": ".Items\"",
+      "all": true
+    },
+    {
+      "editFile": "Catalogs/Items.xml",
+      "replace": "<Name>Owners0</Name>",
+      "with": "<Name>Items</Name>"
+    },
+    {
+      "editFile": "Catalogs/Items.xml",
+      "replace": "Catalog.Owners0.",
+      "with": "Catalog.Items.",
+      "all": true
+    },
+    {
+      "editFile": "Catalogs/Owners0.xml",
+      "replace": ".Items\"",
+      "with": ".Owners0\"",
+      "all": true
+    },
+    {
+      "editFile": "Catalogs/Owners0.xml",
+      "replace": "<Name>Items</Name>",
+      "with": "<Name>Owners0</Name>"
+    },
+    {
+      "editFile": "Catalogs/Owners0.xml",
+      "replace": "Catalog.Items.",
+      "with": "Catalog.Owners0.",
+      "all": true
+    },
+    {
+      "editFile": "Catalogs/Owners0.xml",
+      "replace": "cfg:CatalogRef.Owners0",
+      "with": "cfg:CatalogRef.Items"
+    },
+    {
+      "editFile": "Catalogs/Sub.xml",
+      "replace": "Catalog.Owners0",
+      "with": "Catalog.Items"
+    }
+  ],
+  "params": {
+    "extensionPath": "cfe"
+  },
+  "args_extra": [
+    "-Actualize"
+  ],
+  "expect": {
+    "stdoutContains": [
+      "[RENAMED] Catalog.Items",
+      "renamed: Items -> Owners0",
+      "[RENAMED] Catalog.Owners0",
+      "renamed: Owners0 -> Items",
+      "'Items' is still mentioned in the code, and in the source this name now belongs to another object (Catalog.Items) — the code would silently use it"
+    ],
+    "stdoutNotContains": [
+      "cannot rename",
+      "[RENAMED] Catalog.__swap_"
+    ],
+    "fileContains": [
+      {
+        "file": "cfe/Catalogs/Owners0.xml",
+        "text": [
+          "<Name>Owners0</Name>",
+          "<Name>Article</Name>",
+          "cfg:CatalogRef.Items"
+        ]
+      },
+      {
+        "file": "cfe/Catalogs/Items.xml",
+        "text": [
+          "<Name>Items</Name>"
+        ]
+      },
+      {
+        "file": "cfe/Catalogs/Sub.xml",
+        "text": [
+          "Catalog.Items</xr:Item>"
+        ]
+      }
+    ],
+    "fileNotContains": {
+      "file": "cfe/Configuration.xml",
+      "text": [
+        "__swap_"
+      ]
+    }
+  }
+}

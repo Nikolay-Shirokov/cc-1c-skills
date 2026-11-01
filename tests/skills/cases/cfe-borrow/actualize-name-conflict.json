@@ -1,0 +1,41 @@
+{
+  "name": "В источнике появился реквизит с именем собственного реквизита расширения — столкновение в отчёте как нерешённое, ничего не тронуто",
+  "setup": "fixture:adopted-modes",
+  "preRun": [
+    {
+      "script": "meta-edit/scripts/meta-edit",
+      "args": {
+        "-ObjectPath": "{workDir}/cfe/Catalogs/Items.xml",
+        "-Operation": "add-attribute",
+        "-Value": "Patch_Note: String(10)"
+      }
+    },
+    {
+      "script": "meta-edit/scripts/meta-edit",
+      "args": {
+        "-ObjectPath": "{workDir}/Catalogs/Items.xml",
+        "-Operation": "add-attribute",
+        "-Value": "PATCH_NOTE: String(50)"
+      }
+    }
+  ],
+  "params": {
+    "extensionPath": "cfe"
+  },
+  "args_extra": [
+    "-Actualize"
+  ],
+  "expect": {
+    "stdoutContains": [
+      "[NAME CONFLICT] Catalog.Items.Attribute.Patch_Note",
+      "own Attribute: the source now has a Attribute with this name (PATCH_NOTE)",
+      "left unresolved (Catalog.Items.Attribute.Patch_Note (name conflict))"
+    ],
+    "fileContains": {
+      "file": "cfe/Catalogs/Items.xml",
+      "text": [
+        "<Name>Patch_Note</Name>"
+      ]
+    }
+  }
+}
