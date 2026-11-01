@@ -22,6 +22,7 @@ import { fileURLToPath } from 'url';
 // есть не-ASCII символы. Подробности и таблица сборок — в самом модуле.
 import { removePathSync, copyTreeSync } from '../common/fsutil.mjs';
 import { runGitStep } from '../common/git-step.mjs';
+import { runFileStep } from '../common/file-step.mjs';
 
 // ─── Paths ──────────────────────────────────────────────────────────────────
 
@@ -654,8 +655,14 @@ function runPreSteps(preRun, workDir, runtime, log) {
       log(`preRun: git ${step.git.join(' ')}`, true);
       continue;
     }
+    // editFile / movePath — как в runner.mjs
+    const fileStep = runFileStep(workDir, step);
+    if (fileStep) {
+      log(`preRun: ${fileStep}`, true);
+      continue;
+    }
     if (!step.script) {
-      throw new Error(`preRun: шаг без script/writeFile/deletePath/git — ${JSON.stringify(step).slice(0, 120)}`);
+      throw new Error(`preRun: шаг без script/writeFile/deletePath/git/editFile/movePath — ${JSON.stringify(step).slice(0, 120)}`);
     }
     const preArgs = [];
     for (const [flag, value] of Object.entries(step.args || {})) {

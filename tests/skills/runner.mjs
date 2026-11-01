@@ -14,6 +14,7 @@ import { fileURLToPath, pathToFileURL } from 'url';
 // в deletePath. Подробности и таблица сборок — в самом модуле.
 import { removePathSync, copyTreeSync } from '../common/fsutil.mjs';
 import { runGitStep } from '../common/git-step.mjs';
+import { runFileStep } from '../common/file-step.mjs';
 
 // ─── Paths ──────────────────────────────────────────────────────────────────
 
@@ -899,7 +900,9 @@ async function runCaseAsync(testCase, opts) {
     const extRel = caseData.params?.extensionPath || caseData.params?.outputDir;
     if (typeof extRel === 'string' && extRel && extRel !== '.' && !extRel.includes('/') && !extRel.includes('\\')) {
       const clash = readdirSync(workDir).find(e => e.toLowerCase() === extRel.toLowerCase());
-      if (clash) {
+      // Фикстура, которая сама несёт расширение (каталог с Configuration.xml), — не коллизия:
+      // слипается только с платформенным Ext/ конфигурации
+      if (clash && !existsSync(join(workDir, clash, 'Configuration.xml'))) {
         throw new Error(
           `Каталог расширения "${extRel}" совпадает с "${clash}" из фикстуры конфигурации.\n`
           + `  На регистронезависимой ФС это один каталог — эталон зафиксирует слипшееся дерево.\n`
@@ -943,6 +946,8 @@ async function runCaseAsync(testCase, opts) {
           runGitStep(workDir, step.git);
           continue;
         }
+        // editFile / movePath — правка и переименование в workDir (tests/common/file-step.mjs)
+        if (runFileStep(workDir, step)) continue;
         const preScript = resolveScript(step.script, opts.runtime);
         const preArgs = [];
         for (const [flag, value] of Object.entries(step.args || {})) {
