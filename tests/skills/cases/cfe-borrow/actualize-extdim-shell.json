@@ -1,0 +1,82 @@
+{
+  "name": "Виды субконто плана счетов сменились в источнике — свойство обновлено, новый ПВХ заимствован оболочкой",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": [
+        {
+          "type": "ChartOfCharacteristicTypes",
+          "name": "Kinds",
+          "valueType": "String(10)"
+        },
+        {
+          "type": "ChartOfCharacteristicTypes",
+          "name": "Kinds2",
+          "valueType": "String(10)"
+        },
+        {
+          "type": "ChartOfAccounts",
+          "name": "Accounts",
+          "extDimensionTypes": "ChartOfCharacteristicTypes.Kinds",
+          "maxExtDimensionCount": 3
+        }
+      ],
+      "args": {
+        "-JsonPath": "{inputFile}",
+        "-OutputDir": "{workDir}"
+      }
+    },
+    {
+      "script": "cfe-init/scripts/cfe-init",
+      "args": {
+        "-Name": "Тест",
+        "-OutputDir": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}"
+      }
+    },
+    {
+      "script": "cfe-borrow/scripts/cfe-borrow",
+      "args": {
+        "-ExtensionPath": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}",
+        "-Object": "ChartOfAccounts.Accounts ;; ChartOfCharacteristicTypes.Kinds"
+      }
+    },
+    {
+      "editFile": "cfe/ChartsOfAccounts/Accounts.xml",
+      "replace": "</Properties>",
+      "with": "\t<ExtDimensionTypes>ChartOfCharacteristicTypes.Kinds</ExtDimensionTypes>\r\n\t\t\t<MaxExtDimensionCount>3</MaxExtDimensionCount>\r\n\t\t</Properties>"
+    },
+    {
+      "editFile": "ChartsOfAccounts/Accounts.xml",
+      "replace": "<ExtDimensionTypes>ChartOfCharacteristicTypes.Kinds</ExtDimensionTypes>",
+      "with": "<ExtDimensionTypes>ChartOfCharacteristicTypes.Kinds2</ExtDimensionTypes>"
+    }
+  ],
+  "params": {
+    "extensionPath": "cfe"
+  },
+  "args_extra": [
+    "-Actualize"
+  ],
+  "expect": {
+    "stdoutContains": [
+      "ExtDimensionTypes: ChartOfCharacteristicTypes.Kinds -> ChartOfCharacteristicTypes.Kinds2",
+      "borrowed as a shell: ChartOfCharacteristicTypes.Kinds2"
+    ],
+    "fileContains": [
+      {
+        "file": "cfe/Configuration.xml",
+        "text": [
+          "<ChartOfCharacteristicTypes>Kinds2</ChartOfCharacteristicTypes>"
+        ]
+      },
+      {
+        "file": "cfe/ChartsOfAccounts/Accounts.xml",
+        "text": [
+          "<ExtDimensionTypes>ChartOfCharacteristicTypes.Kinds2</ExtDimensionTypes>"
+        ]
+      }
+    ]
+  }
+}

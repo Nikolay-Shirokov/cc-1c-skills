@@ -3914,6 +3914,12 @@ def main():
                 was = '…'
                 now = '(source value)'
             add_act_edit(ctx, row, c["Start"], c["End"], new, f"{c['Local']}{mode_tag}: {was} -> {now}")
+            # Виды субконто — ссылка на ПВХ: он обязан быть в расширении (иначе «ВидыСубконто не совпадает»,
+            # замер 8.3.27), как при первом заимствовании
+            if c["Local"] == 'ExtDimensionTypes' and test_edit_allowed():
+                edm = re.search(r'^(\w+)\.([^.]+)$', now, re.IGNORECASE)
+                if edm:
+                    ctx["Shells"].append({"Row": row, "Ref": {"TypeName": edm.group(1), "ObjName": edm.group(2)}})
 
     # Связь заимствованного элемента: дописать отсутствующий ECO (данные своих реквизитов при этом целы — М3)
     def add_missing_link(ctx, row, ext_el, uuid_):
@@ -4071,6 +4077,26 @@ def main():
         if n > 0:
             write_text_keep_bom(form_xml, text, style)
         return n
+
+    # Ссылки на переименованный подобъект в XML расширения — MDObjectRef вида Enum.X.EnumValue.Старое,
+    # Catalog.X.Attribute.Старое (параметры выбора форм, права ролей, поля блокировки). Configuration.xml
+    # пишется в конце из дерева — подобъектов в нём нет.
+    def rename_sub_object_refs(ref_path, old, new):
+        rx = re.compile(r'(?<![\w.])(' + re.escape(ref_path + '.') + ')' + re.escape(old) + r'(?![\wА-Яа-яЁё])')
+        cfg_long = os.path.normcase(os.path.abspath(ext_resolved))
+        total = 0
+        for full in walk_files_ps_order(ext_dir):
+            if not full.lower().endswith('.xml'):
+                continue
+            if os.path.normcase(os.path.abspath(full)) == cfg_long:
+                continue
+            t = read_text(full)
+            t2, n = rx.subn(lambda m: m.group(1) + new, t)
+            if n == 0:
+                continue
+            write_text_keep_bom(full, t2, _detect_xml_style(full))
+            total += n
+        return total
 
     # Файлы каталога в порядке Get-ChildItem -Recurse: файлы каталога, затем подкаталоги по порядку
     def walk_files_ps_order(top):
@@ -4368,11 +4394,14 @@ def main():
 
     # Заимствованные подобъекты одного уровня (реквизиты, ТЧ, измерения…) против источника.
     # only — {Kind, Name} (один подобъект) или None (все); col_only — одна колонка ТЧ из only.
-    def sync_adopted_children(ctx, ext_parent, src_text, src_parent, path_prefix, form_prefix, only, col_only, renames):
+    # ref_prefix — путь элемента в ссылках MDObjectRef (Catalog.X / Catalog.X.TabularSection.ТЧ) по именам, какие
+    # будут в расширении: по нему переименованный подобъект ищется в XML расширения.
+    def sync_adopted_children(ctx, ext_parent, src_text, src_parent, path_prefix, form_prefix, only, col_only, renames, ref_prefix):
         text = ctx["Text"]
         co = get_xml_child(text, ext_parent, 'ChildObjects')
         for c in get_xml_children(text, co):
-            if not (c["Local"] in CHILD_OBJECT_KINDS or c["Local"] == 'TabularSection'):
+            # Значения перечисления заимствуются вместе с формой (параметры выбора) — сверяются так же
+            if not (c["Local"] in CHILD_OBJECT_KINDS or c["Local"] == 'TabularSection' or c["Local"] == 'EnumValue'):
                 continue
             if not test_element_adopted(text, c):
                 continue
@@ -4400,7 +4429,8 @@ def main():
                     ok = test_edit_allowed()
                     if ok:
                         ctx["Edits"].append({"Start": n_el["Start"], "End": n_el["End"], "Text": f"<Name>{new_name}</Name>"})
-                        renames.append({"Prefix": form_prefix, "Old": name, "New": new_name, "Row": row})
+                        renames.append({"Prefix": form_prefix, "Old": name, "New": new_name, "Row": row,
+                                        "RefPath": f"{ref_prefix}.{c['Local']}"})
                         # Ключ без регистра — как у хеш-таблицы PS
                         act["sub_renamed"][f"{path_prefix}.{c['Local']}.{name}".lower()] = new_name
                     add_act_note(row, f"renamed: {name} -> {new_name}" if ok else f"renamed in the source: {name} -> {new_name}", ok)
@@ -4410,7 +4440,8 @@ def main():
                 # Пути колонок в формах — по имени ТЧ, какое будет в расширении: новое, если ТЧ переименована здесь же
                 ts_path_name = id_["Src"]["Name"] if (in_scope and id_["Kind"] == 'Renamed' and test_edit_allowed()) else name
                 sync_adopted_children(ctx, c, src_text, id_["Src"]["El"], f"{path_prefix}.TabularSection.{name}",
-                                      f"{form_prefix}.{ts_path_name}", nested, None, renames)
+                                      f"{form_prefix}.{ts_path_name}", nested, None, renames,
+                                      f"{ref_prefix}.TabularSection.{ts_path_name}")
 
     # Один заимствованный объект (с подобъектами и формами — по области): возвращает итоговое имя
     def actualize_borrowed_object(type_name, obj_name, scope):
@@ -4436,10 +4467,12 @@ def main():
             sync_adopted_properties(ctx, row, root, src_text, src_root)
         renames = []
         if scope["Kind"] == 'Object':
-            sync_adopted_children(ctx, root, src_text, src_root, f"{type_name}.{obj_name}", '', None, None, renames)
+            sync_adopted_children(ctx, root, src_text, src_root, f"{type_name}.{obj_name}", '', None, None, renames,
+                                  f"{type_name}.{obj_name}")
         elif scope["Kind"] == 'Sub':
             sync_adopted_children(ctx, root, src_text, src_root, f"{type_name}.{obj_name}", '',
-                                  {"Kind": scope["SubKind"], "Name": scope["SubName"]}, scope.get("ColName"), renames)
+                                  {"Kind": scope["SubKind"], "Name": scope["SubName"]}, scope.get("ColName"), renames,
+                                  f"{type_name}.{obj_name}")
         if type_name == 'CommonForm' and scope["Kind"] == 'Object':
             compare_borrowed_form(row, os.path.join(ext_dir, dir_name, obj_name, "Ext", "Form.xml"), type_name, src_name, src_name,
                                   os.path.join(cfg_dir, dir_name, src_name, "Ext", "Form.xml"))
@@ -4455,7 +4488,8 @@ def main():
             style = _detect_xml_style(obj_file)
             write_text_keep_bom(obj_file, apply_text_edits(text, ctx["Edits"]), style)
         for sh in ctx["Shells"]:
-            for rt in collect_reference_types([sh["Xml"]]):
+            refs = [sh["Ref"]] if sh.get("Ref") else collect_reference_types([sh["Xml"]])
+            for rt in refs:
                 if test_object_borrowed(rt["TypeName"], rt["ObjName"]):
                     continue
                 borrow_object_shell(rt["TypeName"], rt["ObjName"])
@@ -4471,6 +4505,9 @@ def main():
                         cnt += rename_form_data_paths(fx, rn["Prefix"], rn["Old"], rn["New"])
             if cnt > 0:
                 add_act_note(rn["Row"], f"form data paths updated: {cnt}", True)
+            ref_cnt = rename_sub_object_refs(rn["RefPath"], rn["Old"], rn["New"])
+            if ref_cnt > 0:
+                add_act_note(rn["Row"], f"references in the extension XML updated: {ref_cnt}", True)
             add_mentions_note(rn["Row"], rn["Old"], rn["New"])
         if id_["Kind"] == 'Renamed':
             row["Status"] = 'RENAMED'

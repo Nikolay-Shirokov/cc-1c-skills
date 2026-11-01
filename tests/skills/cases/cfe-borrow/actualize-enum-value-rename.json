@@ -1,0 +1,125 @@
+{
+  "name": "Значение перечисления, заимствованное через параметры выбора формы, переименовано в источнике — переименовано и ссылки формы обновлены",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": [
+        {
+          "type": "Enum",
+          "name": "Colors",
+          "values": [
+            "Red",
+            "Green",
+            "Blue"
+          ]
+        },
+        {
+          "type": "Document",
+          "name": "Order",
+          "attributes": [
+            "Color: EnumRef.Colors"
+          ]
+        }
+      ],
+      "args": {
+        "-JsonPath": "{inputFile}",
+        "-OutputDir": "{workDir}"
+      }
+    },
+    {
+      "script": "form-add/scripts/form-add",
+      "args": {
+        "-ObjectPath": "{workDir}/Documents/Order.xml",
+        "-FormName": "OrderForm"
+      }
+    },
+    {
+      "script": "form-compile/scripts/form-compile",
+      "input": {
+        "title": "Заказ",
+        "elements": [
+          {
+            "input": "Color",
+            "path": "Объект.Color",
+            "choiceParameters": [
+              {
+                "name": "Отбор.Ссылка",
+                "value": [
+                  "Enum.Colors.Red",
+                  "Enum.Colors.Blue"
+                ]
+              }
+            ]
+          }
+        ],
+        "attributes": [
+          {
+            "name": "Объект",
+            "type": "DocumentObject.Order",
+            "main": true
+          }
+        ]
+      },
+      "args": {
+        "-JsonPath": "{inputFile}",
+        "-OutputPath": "{workDir}/Documents/Order/Forms/OrderForm/Ext/Form.xml"
+      }
+    },
+    {
+      "script": "cfe-init/scripts/cfe-init",
+      "args": {
+        "-Name": "Тест",
+        "-OutputDir": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}"
+      }
+    },
+    {
+      "script": "cfe-borrow/scripts/cfe-borrow",
+      "args": {
+        "-ExtensionPath": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}",
+        "-Object": "Document.Order.Form.OrderForm",
+        "-BorrowMainAttribute": "All"
+      }
+    },
+    {
+      "editFile": "Enums/Colors.xml",
+      "replace": "<Name>Red</Name>",
+      "with": "<Name>Crimson</Name>"
+    }
+  ],
+  "params": {
+    "extensionPath": "cfe"
+  },
+  "args_extra": [
+    "-Actualize"
+  ],
+  "expect": {
+    "stdoutContains": [
+      "[RENAMED] Enum.Colors.EnumValue.Red",
+      "renamed: Red -> Crimson",
+      "references in the extension XML updated: 2",
+      "[UP-TO-DATE] Enum.Colors.EnumValue.Blue"
+    ],
+    "fileContains": [
+      {
+        "file": "cfe/Enums/Colors.xml",
+        "text": [
+          "<Name>Crimson</Name>"
+        ]
+      },
+      {
+        "file": "cfe/Documents/Order/Forms/OrderForm/Ext/Form.xml",
+        "text": [
+          "Enum.Colors.EnumValue.Crimson"
+        ]
+      }
+    ],
+    "fileNotContains": {
+      "file": "cfe/Documents/Order/Forms/OrderForm/Ext/Form.xml",
+      "text": [
+        "Enum.Colors.EnumValue.Red<"
+      ]
+    }
+  }
+}
