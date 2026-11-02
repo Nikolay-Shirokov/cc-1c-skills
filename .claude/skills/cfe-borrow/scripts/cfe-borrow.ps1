@@ -1,4 +1,4 @@
-﻿# cfe-borrow v1.62 — Borrow objects from configuration into extension (CFE)
+﻿# cfe-borrow v1.63 — Borrow objects from configuration into extension (CFE)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -3889,10 +3889,10 @@ $script:controlledProps = @('Type', 'Owners', 'Global', 'ClientManagedApplicatio
 	'WriteMode', 'LanguageCode', 'RegisteredDocuments', 'ExtDimensionTypes', 'MaxExtDimensionCount')
 $script:additiveProps = @('RegisterRecords', 'Content')
 # Свойства, для которых Конфигуратор переопределения не предлагает (замер М4). Платформа Extended у них
-# принимает, но при выгрузке теряет, и своя же выгрузка не грузится (замер М15: Hierarchical,
+# принимает, но при выгрузке теряет, и своя же выгрузка не грузится (замеры М15, М16: Hierarchical,
 # InformationRegisterPeriodicity) — сверяем как контролируемые, режим убираем
 $script:noOverrideProps = @('Hierarchical', 'InformationRegisterPeriodicity', 'WriteMode', 'Global',
-	'ClientManagedApplication', 'Server', 'ExternalConnection', 'ClientOrdinaryApplication', 'ServerCall')
+	'ClientManagedApplication', 'Server', 'ExternalConnection', 'ClientOrdinaryApplication', 'ServerCall', 'CodeAllowedLength', 'LanguageCode')
 
 # Свойства заимствованного элемента против источника — по режимам
 function Sync-AdoptedProperties($ctx, $row, $extEl, [string]$srcText, $srcEl) {
@@ -4079,8 +4079,13 @@ function Resolve-ItemByLink([string]$item) {
 		$sf = Join-Path $srcDir "$($pi.ObjName).xml"
 		if (-not (Test-Path -LiteralPath $sf)) { return $item }
 		$h = Read-SourceHead $sf
-		$names = @((Get-ExtLinkIndex $pi.TypeName)[$h.Uuid])
-		if ($names.Count -ne 1 -or -not $names[0]) { return $item }
+		$names = @((Get-ExtLinkIndex $pi.TypeName)[$h.Uuid] | Where-Object { $_ })
+		if ($names.Count -gt 1) {
+			# Дубль уже есть — ещё одна копия с той же связью только усугубит
+			Write-Error "$($pi.TypeName).$($pi.ObjName): the extension already has several borrowed objects bound to this source object ($(($names | ForEach-Object { "$($pi.TypeName).$_" }) -join ', ')) — the platform does not load such an extension; ask the user which one is extra and remove it by hand. Extension not changed"
+			exit 1
+		}
+		if ($names.Count -ne 1) { return $item }
 		Info "$($pi.TypeName).$($pi.ObjName) is borrowed as $($pi.TypeName).$($names[0]) (renamed in the source)"
 		$item = $item -replace ('^([^.]+)\.' + [regex]::Escape($pi.ObjName) + '(?=\.|$)'), ('$1.' + $names[0].Replace('$', '$$'))
 		$pi = Split-BorrowItem $item
@@ -4109,6 +4114,29 @@ function Resolve-ItemByLink([string]$item) {
 				$item = "$($pi.TypeName).$($pi.ObjName).$($pi.SubKind).$en"
 				if ($pi.ColName) { $item += ".Attribute.$($pi.ColName)" }
 				break
+			}
+		}
+	}
+	# Форма: заимствована под прежним именем (переименована в источнике) — та же связь
+	if ($pi.FormName -and (Test-ObjectBorrowed $pi.TypeName $pi.ObjName) -and -not (Test-FormBorrowed $pi)) {
+		$ext = [System.IO.File]::ReadAllText((Join-Path (Join-Path $extDir $pi.DirName) "$($pi.ObjName).xml"))
+		$srcObj = $pi.ObjName
+		$ol = Get-ElementLink $ext (Get-MdRoot $ext)
+		if ($ol) { $hs = (Get-SourceUuidIndex $srcDir)[$ol.ToLowerInvariant()]; if ($hs) { $srcObj = $hs.Name } }
+		$sff = Join-Path (Join-Path (Join-Path $srcDir $srcObj) "Forms") "$($pi.FormName).xml"
+		$extForms = Join-Path (Join-Path (Join-Path $extDir $pi.DirName) $pi.ObjName) "Forms"
+		if ((Test-Path -LiteralPath $sff) -and (Test-Path -LiteralPath $extForms)) {
+			$fu = (Read-SourceHead $sff).Uuid
+			foreach ($ef in (Get-ChildItem -LiteralPath $extForms -Filter '*.xml' -File)) {
+				if ($ef.Extension -ne '.xml') { continue }
+				$et = [System.IO.File]::ReadAllText($ef.FullName)
+				$el = Get-ElementLink $et (Get-MdRoot $et)
+				if ($fu -and $el -and $el.ToLowerInvariant() -eq $fu) {
+					$en = Get-MdElementName $et (Get-MdRoot $et)
+					Info "$($pi.TypeName).$($pi.ObjName).Form.$($pi.FormName) is borrowed as form $en (renamed in the source)"
+					$item = "$($pi.TypeName).$($pi.ObjName).Form.$en"
+					break
+				}
 			}
 		}
 	}
@@ -4589,6 +4617,11 @@ function Resolve-IdentityByChildren($id, [string]$srcDir, [string]$text, $root, 
 		if ($id.Kind -eq 'NoLink') { Add-ActNote $row "the link is restored by name: if the source object was renamed and a new one was created under this name, the extension now refers to the new one — check" $false $true }
 		return $id
 	}
+	# Частый случай — подобъекты там же, в файле с этим именем: он один и читается без индекса каталога
+	if ($id.Kind -eq 'NoLink') {
+		$ft = [System.IO.File]::ReadAllText($id.Src.File).ToLowerInvariant()
+		foreach ($u in $links) { if ($ft.Contains("uuid=`"$u`"")) { return $id } }
+	}
 	$idx = Get-SourceChildUuidIndex $srcDir
 	$files = @($links | ForEach-Object { $idx[$_] } | Where-Object { $_ } | Select-Object -Unique)
 	# Каталог один — сравниваем по имени файла (пути бывают в короткой и длинной форме)
@@ -4644,7 +4677,8 @@ function Actualize-BorrowedObject([string]$typeName, [string]$objName, $scope) {
 		# Индекс — по состоянию до правок; за запуск имена меняются (обмен через временное имя), поэтому
 		# двойник подтверждается текущей связью в его файле
 		$twins = @((Get-ExtLinkIndex $typeName)[$objLink.ToLowerInvariant()] | Where-Object {
-			if ($_ -ceq $objName -or -not (Test-ObjectBorrowed $typeName $_)) { return $false }
+			# Имена в 1С без учёта регистра: «goods» в ChildObjects и «Goods» в файле — один объект
+			if ($_ -ieq $objName -or -not (Test-ObjectBorrowed $typeName $_)) { return $false }
 			$tt = [System.IO.File]::ReadAllText((Join-Path (Join-Path $extDir $dirName) "$_.xml"))
 			$tl = Get-ElementLink $tt (Get-MdRoot $tt)
 			return [bool]($tl -and $tl.ToLowerInvariant() -eq $objLink.ToLowerInvariant())
@@ -4652,13 +4686,14 @@ function Actualize-BorrowedObject([string]$typeName, [string]$objName, $scope) {
 		if ($twins.Count -gt 0) {
 			$row.Status = 'DUPLICATE LINK'
 			Add-ActNote $row "bound to the same source object as $(($twins | ForEach-Object { "$typeName.$_" }) -join ', ') — the platform does not load the extension; remove the extra one by hand (both may hold data)" $false
+			$script:actBlocked["$typeName.$objName"] = $true
 			return $objName
 		}
 	}
 	$id = Resolve-FileIdentity (Join-Path $cfgDir $dirName) $objName $objLink
 	if (-not $objLink) { $id = Resolve-IdentityByChildren $id (Join-Path $cfgDir $dirName) $text $root $row }
 	Set-IdentityStatus $row $id $objName
-	if ($id.Kind -eq 'Replaced' -or $id.Kind -eq 'Missing') { return $objName }
+	if ($id.Kind -eq 'Replaced' -or $id.Kind -eq 'Missing') { $script:actBlocked["$typeName.$objName"] = $true; return $objName }
 	$srcText = [System.IO.File]::ReadAllText($id.Src.File)
 	$srcRoot = Get-MdRoot $srcText
 	$srcName = $id.Src.Name
@@ -4748,6 +4783,8 @@ function Actualize-BorrowedObject([string]$typeName, [string]$objName, $scope) {
 $script:actUnresolved = @()
 $script:objRenamed = @{}
 $script:subRenamed = @{}
+# Объекты, оставленные без изменений до решения человека (подмена, нет в источнике, дубль связи)
+$script:actBlocked = @{}
 $script:formRenamed = @{}
 function Write-ActReport {
 	Resolve-PendingMentions
@@ -4927,6 +4964,15 @@ foreach ($item in $items) {
 			$pi = Split-BorrowItem $item
 		}
 	}
+	# И для формы, переименованной раньше в этом запуске (ключ — под именем объекта на момент переименования)
+	if ($pi.FormName -and -not $pi.IsCommonForm) {
+		$fNew = $script:formRenamed["$($pi.TypeName).$($pi.ObjName).$($pi.FormName)"]
+		if (-not $fNew) { $fNew = $script:formRenamed["$($pi.TypeName).$origObjName.$($pi.FormName)"] }
+		if ($fNew) {
+			$item = "$($pi.TypeName).$($pi.ObjName).Form.$fNew"
+			$pi = Split-BorrowItem $item
+		}
+	}
 	$typeName = $pi.TypeName; $objName = $pi.ObjName; $formName = $pi.FormName; $isCommonForm = $pi.IsCommonForm
 	$dirName = $childTypeDirMap[$typeName]
 
@@ -5077,7 +5123,7 @@ foreach ($item in $items) {
 		}
 		# У заимствованного раньше модуль создаётся при явном вызове по объекту (-Object): у типа с единственным
 		# модулем — всегда, у прочих — по -Module. Массовый -Actualize модулей не добавляет (оболочки остаются без них)
-		if ($isNew -or $Module -or $Object) {
+		if (($isNew -or $Module -or $Object) -and -not $script:actBlocked["$typeName.$objName"]) {
 			foreach ($kind in (Resolve-ModuleKinds $typeName)) {
 				$script:borrowedFiles += (New-BorrowedModuleFile $typeName $objName $kind)
 			}

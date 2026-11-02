@@ -1,0 +1,45 @@
+{
+  "name": "В расширении уже два объекта с одной связью, источник переименовал объект и его зовут по новому имени — отказ без изменений, третьей копии нет",
+  "setup": "fixture:adopted-modes",
+  "preRun": [
+    {
+      "editFile": "cfe/Catalogs/Owners0.xml",
+      "replace": "<ExtendedConfigurationObject>a5350b58-0465-46ec-971c-76dae96b62d0</ExtendedConfigurationObject>",
+      "with": "<ExtendedConfigurationObject>5549f69c-6736-444b-866e-492fd2cb253f</ExtendedConfigurationObject>"
+    },
+    {
+      "movePath": {
+        "from": "Catalogs/Items.xml",
+        "to": "Catalogs/Goods.xml"
+      }
+    },
+    {
+      "editFile": "Catalogs/Goods.xml",
+      "replace": "<Name>Items</Name>",
+      "with": "<Name>Goods</Name>"
+    },
+    {
+      "editFile": "Configuration.xml",
+      "replace": "<Catalog>Items</Catalog>",
+      "with": "<Catalog>Goods</Catalog>"
+    }
+  ],
+  "params": {
+    "extensionPath": "cfe"
+  },
+  "object": "Catalog.Goods",
+  "expectError": true,
+  "noSnapshot": "отказ до записи: расширение не тронуто",
+  "expect": {
+    "fileNotContains": {
+      "file": "cfe/Configuration.xml",
+      "text": [
+        "<Catalog>Goods</Catalog>"
+      ]
+    },
+    "stderrContains": [
+      "Catalog.Goods: the extension already has several borrowed objects bound to this source object (Catalog.Items, Catalog.Owners0)",
+      "Extension not changed"
+    ]
+  }
+}

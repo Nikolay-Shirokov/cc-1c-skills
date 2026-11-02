@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# cfe-borrow v1.62 — Borrow objects from configuration into extension (CFE)
+# cfe-borrow v1.63 — Borrow objects from configuration into extension (CFE)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -3510,7 +3510,9 @@ def main():
     # UUID — единственное, что грозит потерей данных, — не делаем, только сообщаем.
     act = {"mode": "Apply", "rows": [], "src_head_cache": {}, "src_uuid_index": {}, "ext_renames": None,
            "pending_mentions": [], "unresolved": [], "obj_renamed": {}, "sub_renamed": {}, "swap_pending": [],
-           "form_renamed": {}, "ext_link_index": {}, "src_child_uuid_index": {}}
+           "form_renamed": {}, "ext_link_index": {}, "src_child_uuid_index": {},
+           # Объекты, оставленные без изменений до решения человека (подмена, нет в источнике, дубль связи)
+           "act_blocked": {}}
 
     def read_text(path):
         # Как ReadAllText: BOM снят, переводы строк как в файле
@@ -3858,10 +3860,10 @@ def main():
                         'WriteMode', 'LanguageCode', 'RegisteredDocuments', 'ExtDimensionTypes', 'MaxExtDimensionCount']
     additive_props = ['RegisterRecords', 'Content']
     # Свойства, для которых Конфигуратор переопределения не предлагает (замер М4). Платформа Extended у них
-    # принимает, но при выгрузке теряет, и своя же выгрузка не грузится (замер М15: Hierarchical,
+    # принимает, но при выгрузке теряет, и своя же выгрузка не грузится (замеры М15, М16: Hierarchical,
     # InformationRegisterPeriodicity) — сверяем как контролируемые, режим убираем
     no_override_props = ['Hierarchical', 'InformationRegisterPeriodicity', 'WriteMode', 'Global',
-                         'ClientManagedApplication', 'Server', 'ExternalConnection', 'ClientOrdinaryApplication', 'ServerCall']
+                         'ClientManagedApplication', 'Server', 'ExternalConnection', 'ClientOrdinaryApplication', 'ServerCall', 'CodeAllowedLength', 'LanguageCode']
 
     # Свойства заимствованного элемента против источника — по режимам
     def sync_adopted_properties(ctx, row, ext_el, src_text, src_el):
@@ -4075,8 +4077,13 @@ def main():
             if not os.path.exists(sf):
                 return item
             h = read_source_head(sf)
-            names = get_ext_link_index(pi["TypeName"]).get(h["Uuid"]) or []
-            if len(names) != 1 or not names[0]:
+            names = [x for x in (get_ext_link_index(pi["TypeName"]).get(h["Uuid"]) or []) if x]
+            if len(names) > 1:
+                # Дубль уже есть — ещё одна копия с той же связью только усугубит
+                lst = ', '.join(f"{pi['TypeName']}.{x}" for x in names)
+                print(f"{pi['TypeName']}.{pi['ObjName']}: the extension already has several borrowed objects bound to this source object ({lst}) — the platform does not load such an extension; ask the user which one is extra and remove it by hand. Extension not changed", file=sys.stderr)
+                sys.exit(1)
+            if len(names) != 1:
                 return item
             info(f"{pi['TypeName']}.{pi['ObjName']} is borrowed as {pi['TypeName']}.{names[0]} (renamed in the source)")
             item = re.sub(r'^([^.]+)\.' + re.escape(pi["ObjName"]) + r'(?=\.|$)', lambda m: m.group(1) + '.' + names[0],
@@ -4115,6 +4122,30 @@ def main():
                     if pi.get("ColName"):
                         item += f".Attribute.{pi['ColName']}"
                     break
+        # Форма: заимствована под прежним именем (переименована в источнике) — та же связь
+        if pi.get("FormName") and test_object_borrowed(pi["TypeName"], pi["ObjName"]) and not test_form_borrowed(pi):
+            ext = read_text(os.path.join(ext_dir, pi["DirName"], f"{pi['ObjName']}.xml"))
+            src_obj = pi["ObjName"]
+            ol = get_element_link(ext, get_md_root(ext))
+            if ol:
+                hs = get_source_uuid_index(src_dir).get(ol.lower())
+                if hs:
+                    src_obj = hs["Name"]
+            sff = os.path.join(src_dir, src_obj, "Forms", f"{pi['FormName']}.xml")
+            ext_forms = os.path.join(ext_dir, pi["DirName"], pi["ObjName"], "Forms")
+            if os.path.exists(sff) and os.path.exists(ext_forms):
+                fu = read_source_head(sff)["Uuid"]
+                for fn in sorted(os.listdir(ext_forms), key=lambda s: s.upper()):
+                    full = os.path.join(ext_forms, fn)
+                    if not fn.lower().endswith('.xml') or not os.path.isfile(full):
+                        continue
+                    et = read_text(full)
+                    el = get_element_link(et, get_md_root(et))
+                    if fu and el and el.lower() == fu:
+                        en = get_md_element_name(et, get_md_root(et))
+                        info(f"{pi['TypeName']}.{pi['ObjName']}.Form.{pi['FormName']} is borrowed as form {en} (renamed in the source)")
+                        item = f"{pi['TypeName']}.{pi['ObjName']}.Form.{en}"
+                        break
         return item
 
     def get_source_uuid_index(d):
@@ -4697,6 +4728,12 @@ def main():
                 add_act_note(row, "the link is restored by name: if the source object was renamed and a new one was created under "
                                   "this name, the extension now refers to the new one — check", False, True)
             return id_
+        # Частый случай — подобъекты там же, в файле с этим именем: он один и читается без индекса каталога
+        if id_["Kind"] == 'NoLink':
+            ft = read_text(id_["Src"]["File"]).lower()
+            for u in links:
+                if f'uuid="{u}"' in ft:
+                    return id_
         idx = get_source_child_uuid_index(src_dir)
         files = []
         for u in links:
@@ -4758,7 +4795,8 @@ def main():
             # двойник подтверждается текущей связью в его файле
             twins = []
             for tw in get_ext_link_index(type_name).get(obj_link.lower()) or []:
-                if tw == obj_name or not test_object_borrowed(type_name, tw):
+                # Имена в 1С без учёта регистра: «goods» в ChildObjects и «Goods» в файле — один объект
+                if tw.lower() == obj_name.lower() or not test_object_borrowed(type_name, tw):
                     continue
                 tt = read_text(os.path.join(ext_dir, dir_name, f"{tw}.xml"))
                 tl = get_element_link(tt, get_md_root(tt))
@@ -4767,12 +4805,14 @@ def main():
             if twins:
                 row["Status"] = 'DUPLICATE LINK'
                 add_act_note(row, f"bound to the same source object as {', '.join(f'{type_name}.{x}' for x in twins)} — the platform does not load the extension; remove the extra one by hand (both may hold data)", False)
+                act["act_blocked"][f"{type_name}.{obj_name}".lower()] = True
                 return obj_name
         id_ = resolve_file_identity(os.path.join(cfg_dir, dir_name), obj_name, obj_link)
         if not obj_link:
             id_ = resolve_identity_by_children(id_, os.path.join(cfg_dir, dir_name), text, root, row)
         set_identity_status(row, id_, obj_name)
         if id_["Kind"] in ('Replaced', 'Missing'):
+            act["act_blocked"][f"{type_name}.{obj_name}".lower()] = True
             return obj_name
         src_text = read_text(id_["Src"]["File"])
         src_root = get_md_root(src_text)
@@ -5054,6 +5094,15 @@ def main():
                 if pi.get("ColName"):
                     item += f".Attribute.{col_new if col_new else pi['ColName']}"
                 pi = split_borrow_item(item)
+        # И для формы, переименованной раньше в этом запуске (ключ — под именем объекта на момент переименования)
+        if pi.get("FormName") and not pi.get("IsCommonForm"):
+            fr = {k.lower(): v for k, v in act["form_renamed"].items()}
+            f_new = fr.get(f"{pi['TypeName']}.{pi['ObjName']}.{pi['FormName']}".lower())
+            if not f_new:
+                f_new = fr.get(f"{pi['TypeName']}.{orig_obj_name}.{pi['FormName']}".lower())
+            if f_new:
+                item = f"{pi['TypeName']}.{pi['ObjName']}.Form.{f_new}"
+                pi = split_borrow_item(item)
         type_name, obj_name, form_name, is_common_form = pi["TypeName"], pi["ObjName"], pi["FormName"], pi["IsCommonForm"]
 
         dir_name = CHILD_TYPE_DIR_MAP[type_name]
@@ -5190,7 +5239,7 @@ def main():
                 borrowed_count += 1
             # У заимствованного раньше модуль создаётся при явном вызове по объекту (-Object): у типа с единственным
             # модулем — всегда, у прочих — по -Module. Массовый -Actualize модулей не добавляет (оболочки остаются без них)
-            if is_new or args.Module or args.Object:
+            if (is_new or args.Module or args.Object) and not act["act_blocked"].get(f"{type_name}.{obj_name}".lower()):
                 for kind in resolve_module_kinds(type_name):
                     borrowed_files.append(new_borrowed_module_file(type_name, obj_name, kind))
 

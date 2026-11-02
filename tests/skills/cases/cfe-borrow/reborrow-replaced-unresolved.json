@@ -1,28 +1,43 @@
 {
-  "name": "Повтор по объекту, пересозданному в источнике (тёзка с другим UUID): не тронут, предупреждение о неразрешённом, код 0",
+  "name": "Повтор по объектам, пересозданным в источнике (тёзка с другим UUID): не тронуты (модуль общего модуля не создаётся), предупреждение о неразрешённом, код 0",
   "setup": "fixture:adopted-modes",
   "preRun": [
     {
       "editFile": "Catalogs/Owners0.xml",
       "replace": "<Catalog uuid=\"a5350b58-0465-46ec-971c-76dae96b62d0\">",
       "with": "<Catalog uuid=\"0e7c7f1e-1111-4a2b-9c3d-5e6f7a8b9c0d\">"
+    },
+    {
+      "editFile": "CommonModules/SharedModule.xml",
+      "replace": "<CommonModule uuid=\"ddf19fa8-6cd4-4c55-b2bc-8865d79e1aa3\">",
+      "with": "<CommonModule uuid=\"0e7c7f1e-2222-4a2b-9c3d-5e6f7a8b9c0d\">"
+    },
+    {
+      "deletePath": "cfe/CommonModules/SharedModule/Ext/Module.bsl"
     }
   ],
   "params": {
     "extensionPath": "cfe"
   },
-  "object": "Catalog.Owners0",
+  "object": "Catalog.Owners0 ;; CommonModule.SharedModule",
   "noSnapshot": "объект не тронут: проверяется отчёт и код возврата",
   "expect": {
     "stdoutContains": [
       "[REPLACED] Catalog.Owners0",
-      "1 element(s) left unresolved (Catalog.Owners0 (replaced)): all other changes are applied"
+      "[REPLACED] CommonModule.SharedModule",
+      "2 element(s) left unresolved (Catalog.Owners0 (replaced), CommonModule.SharedModule (replaced)): all other changes are applied"
     ],
     "fileContains": {
       "file": "cfe/Catalogs/Owners0.xml",
       "text": [
         "<ExtendedConfigurationObject>a5350b58-0465-46ec-971c-76dae96b62d0</ExtendedConfigurationObject>"
       ]
-    }
+    },
+    "stdoutNotContains": [
+      "Created:"
+    ],
+    "filesAbsent": [
+      "cfe/CommonModules/SharedModule/Ext/Module.bsl"
+    ]
   }
 }

@@ -1,0 +1,75 @@
+{
+  "name": "Пакет «объект ;; его форма под прежним именем», форма переименована в источнике: первый элемент переименовывает форму, второй идёт под новым именем — второй формы нет",
+  "setup": "fixture:main-attr-kinds",
+  "preRun": [
+    {
+      "script": "cfe-init/scripts/cfe-init",
+      "args": {
+        "-Name": "Тест",
+        "-OutputDir": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}"
+      }
+    },
+    {
+      "script": "cfe-borrow/scripts/cfe-borrow",
+      "args": {
+        "-ExtensionPath": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}",
+        "-Object": "Document.Расход.Form.ФормаДокумента"
+      }
+    },
+    {
+      "editFile": "cfe/Documents/Расход.xml",
+      "replace": "</ExtendedConfigurationObject>",
+      "with": "</ExtendedConfigurationObject>\r\n\t\t\t<DefaultObjectForm>Document.Расход.Form.ФормаДокумента</DefaultObjectForm>"
+    },
+    {
+      "editFile": "Documents/Расход/Forms/ФормаДокумента.xml",
+      "replace": "<Name>ФормаДокумента</Name>",
+      "with": "<Name>ФормаРасхода</Name>"
+    },
+    {
+      "editFile": "Documents/Расход.xml",
+      "replace": "<Form>ФормаДокумента</Form>",
+      "with": "<Form>ФормаРасхода</Form>"
+    },
+    {
+      "movePath": {
+        "from": "Documents/Расход/Forms/ФормаДокумента.xml",
+        "to": "Documents/Расход/Forms/ФормаРасхода.xml"
+      }
+    },
+    {
+      "movePath": {
+        "from": "Documents/Расход/Forms/ФормаДокумента",
+        "to": "Documents/Расход/Forms/ФормаРасхода"
+      }
+    }
+  ],
+  "params": {
+    "extensionPath": "cfe"
+  },
+  "object": "Document.Расход ;; Document.Расход.Form.ФормаДокумента",
+  "noSnapshot": "сценарий тот же, что reborrow-form-add-main-attr: проверяется отсутствие второй формы",
+  "expect": {
+    "stdoutContains": [
+      "renamed: ФормаДокумента -> ФормаРасхода"
+    ],
+    "stdoutNotContains": [
+      "Borrowing form",
+      "Source form not found"
+    ],
+    "fileContains": {
+      "file": "cfe/Documents/Расход.xml",
+      "text": [
+        "<Form>ФормаРасхода</Form>"
+      ]
+    },
+    "fileNotContains": {
+      "file": "cfe/Documents/Расход.xml",
+      "text": [
+        "<Form>ФормаДокумента</Form>"
+      ]
+    }
+  }
+}
