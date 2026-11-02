@@ -1,0 +1,24 @@
+{
+  "name": "Валидатор находит ошибку: неограниченная строка в общем реквизите-разделителе (индекс не задан, но разделитель всё равно в хеше)",
+  "setup": "empty-config",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": [
+        { "type": "Catalog", "name": "Спр" },
+        { "type": "SessionParameter", "name": "ОбластьЗначение", "valueType": "String(0)" },
+        { "type": "SessionParameter", "name": "ОбластьИспользование", "valueType": "Boolean" },
+        { "type": "CommonAttribute", "name": "Область", "valueType": "String(0)", "content": ["Catalog.Спр"],
+          "dataSeparation": "Separate", "dataSeparationValue": "SessionParameter.ОбластьЗначение",
+          "dataSeparationUse": "SessionParameter.ОбластьИспользование" }
+      ],
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    }
+  ],
+  "params": { "objectPath": "CommonAttributes/Область.xml" },
+  "expectError": true,
+  "noSnapshot": "навык ничего не пишет, проверяется текст",
+  "expect": {
+    "stdoutContains": "26. CommonAttribute 'Область': unlimited String in a data separator — the load passes but /UpdateDBCfg fails"
+  }
+}

@@ -1,4 +1,4 @@
-# meta-validate v1.46 — Validate 1C metadata object structure (Python port)
+# meta-validate v1.47 — Validate 1C metadata object structure (Python port)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import os
@@ -841,6 +841,46 @@ def check4():
         report_warn("4. No Properties block to check")
 
 
+# ── Check 26: неограниченная строка там, где платформе нужен индекс ──
+# Замер 8.3.24: измерение регистра со строкой длины 0 (в том числе в составном типе) загружается
+# молча, а /UpdateDBCfg падает ошибкой СУБД; индексируемый реквизит с таким типом платформа отвергает
+# при загрузке («При установленном типе недопустимо индексирование»). Общий реквизит-разделитель
+# (DataSeparation=Separate) участвует в хеше при любом Indexing: загрузка молчит, /UpdateDBCfg падает
+# ошибкой SDBL. Строка без StringQualifiers — та же длина 0.
+def is_unlimited_string(type_node):
+    if type_node is None:
+        return False
+    if not [t for t in find_all(type_node, "v8:Type") if re.search(r'(^|:)string$', inner_text(t).strip(), re.I)]:
+        return False
+    ln = find_all(type_node, "v8:StringQualifiers/v8:Length")
+    return not ln or inner_text(ln[0]).strip() == '0'
+
+
+def check26():
+    # Измерения — всегда; прочие (реквизиты, реквизиты ТЧ, ресурсы, реквизиты адресации, общий реквизит) —
+    # если у них есть Indexing, отличный от DontIndex.
+    idx_targets = find_all(root, "//md:Dimension/md:Properties|//md:Properties[md:Indexing]")
+    for p26 in idx_targets:
+        is_dim = local_name(p26.getparent()) == 'Dimension'
+        sep = find_all(p26, "md:DataSeparation")
+        is_sep = local_name(p26.getparent()) == 'CommonAttribute' and bool(sep) and inner_text(sep[0]).strip() == 'Separate'
+        ix = find_all(p26, "md:Indexing")
+        ix_val = inner_text(ix[0]).strip() if ix else ''
+        if not is_dim and not is_sep and (not ix_val or ix_val == 'DontIndex'):
+            continue
+        t26 = find_all(p26, "md:Type")
+        if not is_unlimited_string(t26[0] if t26 else None):
+            continue
+        n26 = find_all(p26, "md:Name")
+        nm26 = inner_text(n26[0]).strip() if n26 else '?'
+        if is_sep:
+            report_error(f"26. CommonAttribute '{nm26}': unlimited String in a data separator — the load passes but /UpdateDBCfg fails; set a length (e.g. String(150))")
+        elif is_dim:
+            report_error(f"26. Dimension '{nm26}': unlimited String — a dimension is indexed, the load passes but /UpdateDBCfg fails; set a length (e.g. String(150))")
+        else:
+            report_error(f"26. {local_name(p26.getparent())} '{nm26}': unlimited String with Indexing={ix_val} — the platform rejects the load; set a length or DontIndex")
+
+
 # ── Structural-only types: базовая проверка (Name) и значения перечислений, без type-specific правил ──
 if md_type in structural_only_types:
     if obj_name == "(unknown)":
@@ -850,6 +890,7 @@ if md_type in structural_only_types:
     else:
         report_ok(f'3. Properties: Name="{obj_name}" (basic structure check for {md_type})')
     check4()
+    check26()
     finalize()
     sys.exit(1 if errors > 0 else 0)
 
@@ -2147,38 +2188,7 @@ for ls in find_all(root, '|'.join(f"//md:{t}|//xr:{t}" for t in local_string_tag
     where = f" of '{owner_name}'" if owner_name and owner_name != obj_name else ''
     report_error(f"25. <{local_name(ls)}>{where} holds plain text '{plain}' — a multilingual string needs <v8:item> elements; the platform rejects the load")
 
-# ── Check 26: неограниченная строка там, где платформе нужен индекс ──
-# Замер 8.3.24: измерение регистра со строкой длины 0 (в том числе в составном типе) загружается
-# молча, а /UpdateDBCfg падает ошибкой СУБД; индексируемый реквизит с таким типом платформа отвергает
-# при загрузке («При установленном типе недопустимо индексирование»). Строка без StringQualifiers —
-# та же длина 0.
-def is_unlimited_string(type_node):
-    if type_node is None:
-        return False
-    if not [t for t in find_all(type_node, "v8:Type") if re.search(r'(^|:)string$', inner_text(t).strip(), re.I)]:
-        return False
-    ln = find_all(type_node, "v8:StringQualifiers/v8:Length")
-    return not ln or inner_text(ln[0]).strip() == '0'
-
-
-# Измерения — всегда; прочие (реквизиты, реквизиты ТЧ, ресурсы, реквизиты адресации, общий реквизит) —
-# если у них есть Indexing, отличный от DontIndex.
-idx_targets = find_all(root, "//md:Dimension/md:Properties|//md:Properties[md:Indexing]")
-for p26 in idx_targets:
-    is_dim = local_name(p26.getparent()) == 'Dimension'
-    ix = find_all(p26, "md:Indexing")
-    ix_val = inner_text(ix[0]).strip() if ix else ''
-    if not is_dim and (not ix_val or ix_val == 'DontIndex'):
-        continue
-    t26 = find_all(p26, "md:Type")
-    if not is_unlimited_string(t26[0] if t26 else None):
-        continue
-    n26 = find_all(p26, "md:Name")
-    nm26 = inner_text(n26[0]).strip() if n26 else '?'
-    if is_dim:
-        report_error(f"26. Dimension '{nm26}': unlimited String — a register dimension is indexed, the load passes but /UpdateDBCfg fails; set a length (e.g. String(150))")
-    else:
-        report_error(f"26. {local_name(p26.getparent())} '{nm26}': unlimited String with Indexing={ix_val} — the platform rejects the load; set a length or DontIndex")
+check26()
 
 # ── Check 17: MDObjectRef form — ссылка на ОБЪЕКТ метаданных, а не на тип ссылки ──
 # Owners/BasedOn/RegisterRecords/RegisteredDocuments/References содержат путь вида "Catalog.Валюты".

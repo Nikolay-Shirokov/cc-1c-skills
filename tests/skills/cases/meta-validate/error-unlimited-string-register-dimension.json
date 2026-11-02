@@ -18,7 +18,7 @@
   "noSnapshot": "навык ничего не пишет, проверяется текст",
   "expect": {
     "stdoutContains": [
-      "26. Dimension 'Изм': unlimited String — a register dimension is indexed",
+      "26. Dimension 'Изм': unlimited String — a dimension is indexed",
       "26. Dimension 'Сост': unlimited String"
     ],
     "stdoutNotContains": ["'Норм'", "'Комм'"]
