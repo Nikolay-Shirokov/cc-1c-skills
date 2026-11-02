@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# cfe-borrow v1.59 — Borrow objects from configuration into extension (CFE)
+# cfe-borrow v1.60 — Borrow objects from configuration into extension (CFE)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -3934,6 +3934,13 @@ def main():
             anchor = get_xml_child(text, props, 'Name')
         if not anchor:
             return
+        # Нулевой UUID (cfe-init без -ConfigPath) ни с чем не совпадает — заменяем значение на месте
+        zero = get_xml_child(text, props, 'ExtendedConfigurationObject')
+        if zero:
+            add_act_edit(ctx, row, zero["Start"], zero["End"],
+                         f"<ExtendedConfigurationObject>{uuid_}</ExtendedConfigurationObject>",
+                         f"ExtendedConfigurationObject: zero link replaced ({uuid_})")
+            return
         ind = get_line_indent(text, anchor["Start"])
         add_act_edit(ctx, row, anchor["End"], anchor["End"],
                      ctx["Eol"] + ind + f"<ExtendedConfigurationObject>{uuid_}</ExtendedConfigurationObject>",
@@ -3954,7 +3961,11 @@ def main():
             return None
         e = get_xml_child(text, props, 'ExtendedConfigurationObject')
         if e:
-            return get_xml_inner(text, e).strip()
+            # Нулевой UUID — связи нет (след cfe-init без -ConfigPath), а не пересозданный объект
+            v = get_xml_inner(text, e).strip()
+            if v == '00000000-0000-0000-0000-000000000000':
+                return None
+            return v
         return None
 
     def test_element_adopted(text, el):

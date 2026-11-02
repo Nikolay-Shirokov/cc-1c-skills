@@ -1,4 +1,4 @@
-﻿# cfe-borrow v1.59 — Borrow objects from configuration into extension (CFE)
+﻿# cfe-borrow v1.60 — Borrow objects from configuration into extension (CFE)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -3949,6 +3949,12 @@ function Add-MissingLink($ctx, $row, $extEl, [string]$uuid) {
 	$anchor = Get-XmlChild $text $props 'Comment'
 	if (-not $anchor) { $anchor = Get-XmlChild $text $props 'Name' }
 	if (-not $anchor) { return }
+	# Нулевой UUID (cfe-init без -ConfigPath) ни с чем не совпадает — заменяем значение на месте
+	$zero = Get-XmlChild $text $props 'ExtendedConfigurationObject'
+	if ($zero) {
+		Add-ActEdit $ctx $row $zero.Start $zero.End "<ExtendedConfigurationObject>$uuid</ExtendedConfigurationObject>" "ExtendedConfigurationObject: zero link replaced ($uuid)"
+		return
+	}
 	$ind = Get-LineIndent $text $anchor.Start
 	Add-ActEdit $ctx $row $anchor.End $anchor.End ($ctx.Eol + $ind + "<ExtendedConfigurationObject>$uuid</ExtendedConfigurationObject>") "ExtendedConfigurationObject: link restored ($uuid)"
 }
@@ -3965,7 +3971,12 @@ function Get-ElementLink([string]$text, $el) {
 	$props = Get-XmlChild $text $el 'Properties'
 	if (-not $props) { return $null }
 	$e = Get-XmlChild $text $props 'ExtendedConfigurationObject'
-	if ($e) { return (Get-XmlInner $text $e).Trim() }
+	if ($e) {
+		# Нулевой UUID — связи нет (след cfe-init без -ConfigPath), а не пересозданный объект
+		$v = (Get-XmlInner $text $e).Trim()
+		if ($v -ceq '00000000-0000-0000-0000-000000000000') { return $null }
+		return $v
+	}
 	return $null
 }
 

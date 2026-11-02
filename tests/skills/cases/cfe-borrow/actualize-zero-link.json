@@ -1,0 +1,39 @@
+{
+  "name": "Нулевая связь (cfe-init без -ConfigPath) у объекта и реквизита — это не пересоздание: связь дописывается из источника",
+  "setup": "fixture:adopted-modes",
+  "preRun": [
+    {
+      "editFile": "cfe/Catalogs/Items.xml",
+      "replace": "5549f69c-6736-444b-866e-492fd2cb253f",
+      "with": "00000000-0000-0000-0000-000000000000"
+    },
+    {
+      "editFile": "cfe/Catalogs/Items.xml",
+      "replace": "ccf316f6-82c3-4de2-b1bc-2a2951958d33",
+      "with": "00000000-0000-0000-0000-000000000000"
+    }
+  ],
+  "params": {
+    "extensionPath": "cfe"
+  },
+  "args_extra": [
+    "-Actualize"
+  ],
+  "expect": {
+    "stdoutContains": [
+      "ExtendedConfigurationObject: zero link replaced (5549f69c-6736-444b-866e-492fd2cb253f)",
+      "ExtendedConfigurationObject: zero link replaced (ccf316f6-82c3-4de2-b1bc-2a2951958d33)"
+    ],
+    "stdoutNotContains": [
+      "REPLACED]",
+      "left unresolved"
+    ],
+    "fileContains": {
+      "file": "cfe/Catalogs/Items.xml",
+      "text": [
+        "<ExtendedConfigurationObject>5549f69c-6736-444b-866e-492fd2cb253f</ExtendedConfigurationObject>",
+        "<ExtendedConfigurationObject>ccf316f6-82c3-4de2-b1bc-2a2951958d33</ExtendedConfigurationObject>"
+      ]
+    }
+  }
+}
