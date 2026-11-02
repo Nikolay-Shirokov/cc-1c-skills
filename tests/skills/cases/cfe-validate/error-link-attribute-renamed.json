@@ -21,7 +21,7 @@
       "args": {
         "-ObjectPath": "{workDir}/src/Catalogs/Items.xml",
         "-Operation": "add-attribute",
-        "-Value": "Article: Number(5)"
+        "-Value": "Article: Number(5,0)"
       }
     }
   ],
