@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# cfe-borrow v1.60 — Borrow objects from configuration into extension (CFE)
+# cfe-borrow v1.61 — Borrow objects from configuration into extension (CFE)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -2903,13 +2903,14 @@ def main():
         if borrow_main_attr and main_attr_info is None and not render_only:
             warn("  У формы нет основного реквизита — -BorrowMainAttribute проигнорирован")
 
-        # AutoCommandBar: keep ChildItems (buttons with CommandName->0), Autofill->false
+        # AutoCommandBar: keep ChildItems (buttons with CommandName->0). Autofill — как в источнике: Конфигуратор
+        # копирует значение, а true (умолчание) не пишет (замер М7б, эталон заимствования Конфигуратором)
         auto_cmd_xml = ""
         if src_auto_cmd is not None:
             auto_cmd_xml = decode_numeric_entities(etree.tostring(src_auto_cmd, encoding="unicode", with_tail=False))
             auto_cmd_xml = ns_strip_pattern.sub("", auto_cmd_xml)
             auto_cmd_xml = re.sub(r'<CommandName>[^<]*</CommandName>', '<CommandName>0</CommandName>', auto_cmd_xml)
-            auto_cmd_xml = auto_cmd_xml.replace('<Autofill>true</Autofill>', '<Autofill>false</Autofill>')
+            auto_cmd_xml = re.sub(r'^(<AutoCommandBar\b[^>]*>)\s*<Autofill>true</Autofill>', r'\1', auto_cmd_xml)
             # Вложенный CommandSet выбрасывается целиком, а не опустошается: Конфигуратор в заимствованной
             # форме оставляет только корневой (тот идёт свойством формы, здесь его нет).
             auto_cmd_xml = re.sub(r'(?s)\s*<CommandSet>.*?</CommandSet>', '', auto_cmd_xml)
@@ -2917,6 +2918,7 @@ def main():
             # Strip data-binding tags whose root attribute isn't borrowed
             auto_cmd_xml = strip_form_bindings(auto_cmd_xml, main_attr_name)
             auto_cmd_xml = rewrite_choice_parameter_links(auto_cmd_xml, link_ctx)
+            auto_cmd_xml = re.sub(r'^<AutoCommandBar\b([^>]*[^/])>\s*</AutoCommandBar>\Z', r'<AutoCommandBar\1/>', auto_cmd_xml)
 
         # ChildItems: copy full tree, clean up base-config references
         child_items_xml = ""

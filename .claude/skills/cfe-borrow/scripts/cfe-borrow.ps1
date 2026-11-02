@@ -1,4 +1,4 @@
-﻿# cfe-borrow v1.60 — Borrow objects from configuration into extension (CFE)
+﻿# cfe-borrow v1.61 — Borrow objects from configuration into extension (CFE)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -1278,13 +1278,14 @@ function Borrow-Form {
 	}
 	$linkCtx = Get-LinkContext $srcFormEl $srcMainAttrName ([bool]$mainAttrInfo) $borrowedNames $srcAttrUuids $formAttrIds
 
-	# AutoCommandBar: keep ChildItems (buttons with CommandName→0), Autofill→false
+	# AutoCommandBar: keep ChildItems (buttons with CommandName→0). Autofill — как в источнике: Конфигуратор
+	# копирует значение, а true (умолчание) не пишет (замер М7б, эталон заимствования Конфигуратором)
 	$autoCmdXml = ""
 	if ($srcAutoCmd) {
 		$autoCmdXml = $srcAutoCmd.OuterXml
 		$autoCmdXml = [regex]::Replace($autoCmdXml, $nsStripPattern, '')
 		$autoCmdXml = [regex]::Replace($autoCmdXml, '<CommandName>[^<]*</CommandName>', '<CommandName>0</CommandName>')
-		$autoCmdXml = $autoCmdXml -replace '<Autofill>true</Autofill>', '<Autofill>false</Autofill>'
+		$autoCmdXml = [regex]::Replace($autoCmdXml, '^(<AutoCommandBar\b[^>]*>)\s*<Autofill>true</Autofill>', '$1')
 		# Вложенный CommandSet выбрасывается целиком, а не опустошается: Конфигуратор в заимствованной
 		# форме оставляет только корневой (тот идёт свойством формы, здесь его нет).
 		$autoCmdXml = [regex]::Replace($autoCmdXml, '(?s)\s*<CommandSet>.*?</CommandSet>', '')
@@ -1292,6 +1293,7 @@ function Borrow-Form {
 		# Strip data-binding tags whose root attribute isn't borrowed
 		$autoCmdXml = Strip-FormBindings $autoCmdXml $mainAttrName
 		$autoCmdXml = Rewrite-ChoiceParameterLinks $autoCmdXml $linkCtx
+		$autoCmdXml = [regex]::Replace($autoCmdXml, '^<AutoCommandBar\b([^>]*[^/])>\s*</AutoCommandBar>$', '<AutoCommandBar$1/>')
 	}
 
 	# Картинка декорации в заимствованную форму не переносится: Конфигуратор выбрасывает <Picture>
