@@ -39,7 +39,7 @@
 			<FoldersOnTop>true</FoldersOnTop>
 			<UseStandardCommands>true</UseStandardCommands>
 			<Owners>
-				<xr:Item xsi:type="xr:MDObjectRef">Catalog.Items</xr:Item>
+				<xr:Item xsi:type="xr:MDObjectRef">Catalog.Items</xr:Item><xr:Item xsi:type="xr:MDObjectRef">Catalog.Owners0</xr:Item>
 			</Owners>
 			<SubordinationUse>ToItems</SubordinationUse>
 			<CodeLength>9</CodeLength>

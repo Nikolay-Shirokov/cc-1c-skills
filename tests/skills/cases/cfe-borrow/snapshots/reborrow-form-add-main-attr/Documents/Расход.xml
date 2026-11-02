@@ -165,7 +165,7 @@
 				</Properties>
 			</Attribute>
 			<Form>ФормаСписка</Form>
-			<Form>ФормаДокумента</Form>
+			<Form>ФормаРасхода</Form>
 			<Form>ФормаСпискаЗапрос</Form>
 			<TabularSection uuid="UUID-014">
 				<InternalInfo>

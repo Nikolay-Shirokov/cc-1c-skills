@@ -1,5 +1,5 @@
 {
-  "name": "Объекты обменялись именами в источнике — оба переименованы через временное имя, ссылки ведут к тем же объектам (по UUID)",
+  "name": "Объекты обменялись именами в источнике — оба переименованы через временное имя, ссылки (тип, владельцы) ведут к тем же объектам по UUID",
   "setup": "fixture:adopted-modes",
   "preRun": [
     {
@@ -81,6 +81,16 @@
       "editFile": "Catalogs/Sub.xml",
       "replace": "Catalog.Owners0",
       "with": "Catalog.Items"
+    },
+    {
+      "editFile": "Catalogs/Sub.xml",
+      "replace": "Catalog.Items</xr:Item>",
+      "with": "Catalog.Items</xr:Item><xr:Item xsi:type=\"xr:MDObjectRef\">Catalog.Owners0</xr:Item>"
+    },
+    {
+      "editFile": "cfe/Catalogs/Sub.xml",
+      "replace": "Catalog.Owners0</xr:Item>",
+      "with": "Catalog.Owners0</xr:Item><xr:Item xsi:type=\"xr:MDObjectRef\">Catalog.Items</xr:Item>"
     }
   ],
   "params": {
@@ -99,7 +109,8 @@
     ],
     "stdoutNotContains": [
       "cannot rename",
-      "[RENAMED] Catalog.__swap_"
+      "[RENAMED] Catalog.__swap_",
+      "Owners: removed"
     ],
     "fileContains": [
       {
@@ -119,7 +130,8 @@
       {
         "file": "cfe/Catalogs/Sub.xml",
         "text": [
-          "Catalog.Items</xr:Item>"
+          "Catalog.Items</xr:Item>",
+          "Catalog.Owners0</xr:Item>"
         ]
       }
     ],

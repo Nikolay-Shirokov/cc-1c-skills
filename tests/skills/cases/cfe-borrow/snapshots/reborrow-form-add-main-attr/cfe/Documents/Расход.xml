@@ -31,6 +31,7 @@
 			<NumberType>String</NumberType>
 			<NumberLength>11</NumberLength>
 			<NumberAllowedLength>Variable</NumberAllowedLength>
+			<DefaultObjectForm>Document.Расход.Form.ФормаРасхода</DefaultObjectForm>
 		</Properties>
 		<ChildObjects>
 			<Attribute uuid="UUID-013">
@@ -43,7 +44,7 @@
 					<Type><v8:Type>xs:string</v8:Type><v8:StringQualifiers><v8:Length>100</v8:Length><v8:AllowedLength>Variable</v8:AllowedLength></v8:StringQualifiers></Type>
 				</Properties>
 			</Attribute>
-			<Form>ФормаДокумента</Form>
+			<Form>ФормаРасхода</Form>
 			<TabularSection uuid="UUID-015">
 				<InternalInfo>
 					<xr:GeneratedType name="DocumentTabularSection.Расход.Товары" category="TabularSection">

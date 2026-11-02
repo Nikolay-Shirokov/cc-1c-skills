@@ -1,5 +1,5 @@
 {
-  "name": "Переопределённое в расширении (Extended, часть ExtendValue) при изменении того же свойства в источнике не трогается",
+  "name": "Переопределённое в расширении (Extended, часть ExtendValue) при изменении того же свойства в источнике не трогается; Extended у свойства без переопределения (Hierarchical) убирается, значение — из источника",
   "setup": "fixture:adopted-modes",
   "preRun": [
     {
@@ -21,6 +21,16 @@
       "editFile": "Catalogs/Items.xml",
       "replace": "<v8:Length>10</v8:Length>",
       "with": "<v8:Length>15</v8:Length>"
+    },
+    {
+      "editFile": "cfe/Catalogs/Items.xml",
+      "replace": "<xr:Property>CodeLength</xr:Property>",
+      "with": "<xr:Property>Hierarchical</xr:Property>\r\n\t\t\t\t<xr:State>Extended</xr:State>\r\n\t\t\t</xr:PropertyState>\r\n\t\t\t<xr:PropertyState>\r\n\t\t\t\t<xr:Property>CodeLength</xr:Property>"
+    },
+    {
+      "editFile": "cfe/Catalogs/Items.xml",
+      "replace": "<Hierarchical>false</Hierarchical>",
+      "with": "<Hierarchical>true</Hierarchical>"
     }
   ],
   "params": {
@@ -32,7 +42,9 @@
   "expect": {
     "stdoutContains": [
       "[UP-TO-DATE] Catalog.Items",
-      "[UP-TO-DATE] Catalog.Items.Attribute.Value"
+      "[UP-TO-DATE] Catalog.Items.Attribute.Value",
+      "Hierarchical: override mode removed — not supported for this property",
+      "Hierarchical: true -> false"
     ],
     "fileContains": {
       "file": "cfe/Catalogs/Items.xml",

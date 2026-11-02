@@ -1,5 +1,5 @@
 {
-  "name": "Повтор по заимствованному объекту освежает его из источника, переопределённое (Extended) не трогает",
+  "name": "Повтор по заимствованным объектам освежает их из источника, переопределённое (Extended) не трогает; пропавший модуль общего модуля создаётся снова",
   "setup": "fixture:adopted-modes",
   "preRun": [
     {
@@ -31,12 +31,15 @@
       "editFile": "InformationRegisters/Rates.xml",
       "replace": "<InformationRegisterPeriodicity>Day</InformationRegisterPeriodicity>",
       "with": "<InformationRegisterPeriodicity>Month</InformationRegisterPeriodicity>"
+    },
+    {
+      "deletePath": "cfe/CommonModules/SharedModule/Ext/Module.bsl"
     }
   ],
   "params": {
     "extensionPath": "cfe"
   },
-  "object": "Catalog.Items",
+  "object": "Catalog.Items ;; CommonModule.SharedModule ;; InformationRegister.Rates",
   "expect": {
     "stdoutContains": [
       "[ACTUALIZED] Catalog.Items",

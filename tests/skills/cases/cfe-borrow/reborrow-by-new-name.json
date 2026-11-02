@@ -1,0 +1,82 @@
+{
+  "name": "Объект и реквизит переименованы в источнике, повтор зовут по новым именам — актуализируется заимствованное под прежними (та же связь), второй с той же связью не появляется",
+  "setup": "fixture:adopted-modes",
+  "preRun": [
+    {
+      "movePath": {
+        "from": "Catalogs/Items.xml",
+        "to": "Catalogs/Goods.xml"
+      }
+    },
+    {
+      "movePath": {
+        "from": "Catalogs/Items",
+        "to": "Catalogs/Goods"
+      }
+    },
+    {
+      "editFile": "Catalogs/Goods.xml",
+      "replace": "<Name>Items</Name>",
+      "with": "<Name>Goods</Name>"
+    },
+    {
+      "editFile": "Catalogs/Goods.xml",
+      "replace": ".Items\"",
+      "with": ".Goods\"",
+      "all": true
+    },
+    {
+      "editFile": "Catalogs/Goods.xml",
+      "replace": "Catalog.Items.",
+      "with": "Catalog.Goods.",
+      "all": true
+    },
+    {
+      "editFile": "Catalogs/Goods.xml",
+      "replace": "<Name>Article</Name>",
+      "with": "<Name>Sku</Name>"
+    },
+    {
+      "editFile": "Configuration.xml",
+      "replace": "<Catalog>Items</Catalog>",
+      "with": "<Catalog>Goods</Catalog>"
+    }
+  ],
+  "params": {
+    "extensionPath": "cfe"
+  },
+  "object": "Catalog.Goods.Attribute.Sku ;; Catalog.Goods",
+  "expect": {
+    "stdoutContains": [
+      "Catalog.Goods is borrowed as Catalog.Items (renamed in the source)",
+      "Attribute Article (renamed in the source)",
+      "renamed: Items -> Goods",
+      "renamed: Article -> Sku"
+    ],
+    "stdoutNotContains": [
+      "Borrowing Catalog.Goods",
+      "DUPLICATE LINK"
+    ],
+    "fileContains": [
+      {
+        "file": "cfe/Catalogs/Goods.xml",
+        "text": [
+          "<Name>Goods</Name>",
+          "<Name>Sku</Name>"
+        ]
+      },
+      {
+        "file": "cfe/Configuration.xml",
+        "text": [
+          "<Catalog>Goods</Catalog>"
+        ]
+      }
+    ],
+    "fileNotContains": {
+      "file": "cfe/Configuration.xml",
+      "text": [
+        "<Catalog>Items</Catalog>"
+      ]
+    }
+  }
+}

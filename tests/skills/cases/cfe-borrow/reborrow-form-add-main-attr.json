@@ -1,5 +1,5 @@
 {
-  "name": "Повтор с -BorrowMainAttribute по форме без правок расширения — форма пересобрана с основным реквизитом",
+  "name": "Повтор с -BorrowMainAttribute по форме без правок расширения, переименованной в источнике — форма переименована вместе со ссылками на неё и пересобрана с основным реквизитом",
   "setup": "fixture:main-attr-kinds",
   "preRun": [
     {
@@ -17,6 +17,33 @@
         "-ConfigPath": "{workDir}",
         "-Object": "Document.Расход.Form.ФормаДокумента"
       }
+    },
+    {
+      "editFile": "cfe/Documents/Расход.xml",
+      "replace": "</ExtendedConfigurationObject>",
+      "with": "</ExtendedConfigurationObject>\r\n\t\t\t<DefaultObjectForm>Document.Расход.Form.ФормаДокумента</DefaultObjectForm>"
+    },
+    {
+      "editFile": "Documents/Расход/Forms/ФормаДокумента.xml",
+      "replace": "<Name>ФормаДокумента</Name>",
+      "with": "<Name>ФормаРасхода</Name>"
+    },
+    {
+      "editFile": "Documents/Расход.xml",
+      "replace": "<Form>ФормаДокумента</Form>",
+      "with": "<Form>ФормаРасхода</Form>"
+    },
+    {
+      "movePath": {
+        "from": "Documents/Расход/Forms/ФормаДокумента.xml",
+        "to": "Documents/Расход/Forms/ФормаРасхода.xml"
+      }
+    },
+    {
+      "movePath": {
+        "from": "Documents/Расход/Forms/ФормаДокумента",
+        "to": "Documents/Расход/Forms/ФормаРасхода"
+      }
     }
   ],
   "params": {
@@ -29,15 +56,25 @@
   ],
   "expect": {
     "stdoutContains": [
-      "rebuilt with its main attribute"
+      "rebuilt with its main attribute",
+      "renamed: ФормаДокумента -> ФормаРасхода"
     ],
-    "fileContains": {
-      "file": "cfe/Documents/Расход/Forms/ФормаДокумента/Ext/Form.xml",
-      "text": [
-        "<MainAttribute>true</MainAttribute>",
-        "<DataPath>Объект.Комментарий</DataPath>"
-      ]
-    },
+    "fileContains": [
+      {
+        "file": "cfe/Documents/Расход/Forms/ФормаРасхода/Ext/Form.xml",
+        "text": [
+          "<MainAttribute>true</MainAttribute>",
+          "<DataPath>Объект.Комментарий</DataPath>"
+        ]
+      },
+      {
+        "file": "cfe/Documents/Расход.xml",
+        "text": [
+          "<Form>ФормаРасхода</Form>",
+          "<DefaultObjectForm>Document.Расход.Form.ФормаРасхода</DefaultObjectForm>"
+        ]
+      }
+    ],
     "stdoutNotContains": [
       "already in ChildObjects",
       "[WARN]"

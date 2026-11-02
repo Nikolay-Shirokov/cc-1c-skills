@@ -19,7 +19,7 @@
 			<Global>false</Global>
 			<ClientManagedApplication>false</ClientManagedApplication>
 			<Server>true</Server>
-			<ExternalConnection>false</ExternalConnection>
+			<ExternalConnection>true</ExternalConnection>
 			<ClientOrdinaryApplication>false</ClientOrdinaryApplication>
 			<ServerCall>true</ServerCall>
 		</Properties>

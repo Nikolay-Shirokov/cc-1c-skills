@@ -36,7 +36,7 @@
 			<Name>Rates</Name>
 			<Comment/>
 			<ExtendedConfigurationObject>UUID-016</ExtendedConfigurationObject>
-			<InformationRegisterPeriodicity>Day</InformationRegisterPeriodicity>
+			<InformationRegisterPeriodicity>Month</InformationRegisterPeriodicity>
 			<WriteMode>Independent</WriteMode>
 		</Properties>
 		<ChildObjects/>

@@ -4,7 +4,7 @@
 		<InternalInfo/>
 		<Properties>
 			<ObjectBelonging>Adopted</ObjectBelonging>
-			<Name>ФормаДокумента</Name>
+			<Name>ФормаРасхода</Name>
 			<Comment/>
 			<ExtendedConfigurationObject>UUID-002</ExtendedConfigurationObject>
 			<FormType>Managed</FormType>
