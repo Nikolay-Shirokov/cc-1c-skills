@@ -1,0 +1,31 @@
+{
+  "name": "Примитивные типы полей и параметров: регистр, пробелы, синонимы Number/numeric, String и Date; значение параметра по виду типа",
+  "params": {
+    "outputPath": "Template.xml"
+  },
+  "input": {
+    "dataSets": [
+      {
+        "name": "Основной",
+        "query": "ВЫБРАТЬ 1 КАК Поле1",
+        "fields": [
+          "Голое: Number",
+          "СПробелом: Decimal(15, 2)",
+          "Регистр: numeric(10,2,NONNEG)",
+          "Стр: String",
+          "СтрДлина: String(10)",
+          "СтрФикс: Строка(3, Fixed)",
+          "Дат: Date",
+          "ДатВр: DateTime",
+          "Бул: Boolean"
+        ]
+      }
+    ],
+    "parameters": [
+      "ПЧисло: numeric = 12",
+      "ПЧислоПусто: Число(15,2)",
+      "ПСтрока: String(10) = abc"
+    ]
+  },
+  "validatePath": "Template.xml"
+}

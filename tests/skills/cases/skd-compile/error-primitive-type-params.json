@@ -1,0 +1,8 @@
+{
+  "name": "Ошибка: лишний параметр числового типа поля (раньше уходил в XML как есть)",
+  "params": { "outputPath": "Template.xml" },
+  "input": {
+    "dataSets": [{ "name": "Основной", "query": "ВЫБРАТЬ 1 КАК Поле1", "fields": ["Сумма: decimal(15,2,3)"] }]
+  },
+  "expectError": "Invalid type 'decimal(15,2,3)'"
+}

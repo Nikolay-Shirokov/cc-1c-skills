@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# form-compile v1.224 — Compile 1C managed form from JSON or object metadata
+# form-compile v1.225 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import copy
@@ -4518,6 +4518,69 @@ def resolve_type_str(type_str):
     if resolved:
         return resolved
     return type_str
+# Разбор примитивного типа DSL: Number / String / Date / DateTime / Time — с синонимами
+# (decimal, numeric, Число, Строка, Дата …), в любом регистре, с пробелами в скобках.
+# Тело общее у всех навыков-компиляторов (семья в check-inline-drift); умолчание для голого типа
+# зависит от места (хранимый реквизит — 10,0 и 10, СКД — без ограничения) и приходит аргументами.
+# Возврат: None — не примитив (ссылки, Boolean, …); {'error'} — база примитива узнана, а
+# параметры нет (вызывающий сообщает ошибку своим способом); иначе описание квалификаторов.
+def parse_primitive_type(type_str, def_digits, def_fraction, def_length):
+    m = re.match(r'^\s*([^\s(]+)\s*(\(.*)?$', type_str or '')
+    if not m:
+        return None
+    rest = m.group(2) or ''
+    kind = {
+        'number': 'Number', 'decimal': 'Number', 'numeric': 'Number', 'число': 'Number',
+        'string': 'String', 'строка': 'String',
+        'date': 'Date', 'дата': 'Date', 'datetime': 'DateTime', 'датавремя': 'DateTime',
+        'time': 'Time', 'время': 'Time',
+    }.get(m.group(1).lower())
+    if not kind:
+        return None
+    bad = {'error': (f"Invalid type '{type_str}'. Expected Number, Number(D), Number(D,F), Number(D,F,nonneg), "
+                     "String, String(N), String(N,fixed), Date, DateTime, Time")}
+    parts = []
+    if rest:
+        m2 = re.match(r'^\((.*)\)\s*$', rest)
+        if not m2:
+            return bad
+        parts = [p.strip().lower() for p in m2.group(1).split(',')]
+    if kind == 'Number':
+        sign = 'Any'
+        if parts and (parts[-1] == 'nonneg' or parts[-1] == 'any'):
+            if parts[-1] == 'nonneg':
+                sign = 'Nonnegative'
+            parts = parts[:-1]
+        if len(parts) > 2:
+            return bad
+        for p in parts:
+            if not re.match(r'^[0-9]{1,9}$', p):
+                return bad
+        d = int(parts[0]) if len(parts) >= 1 else def_digits
+        f = int(parts[1]) if len(parts) >= 2 else (0 if len(parts) == 1 else def_fraction)
+        # Дробная часть у числа без ограничения (0,F) платформа молча обнуляет — это ошибка ввода
+        if d > 38 or f > d:
+            return bad
+        return {'kind': 'Number', 'digits': d, 'fraction': f, 'sign': sign}
+    if kind == 'String':
+        allowed = 'Variable'
+        if len(parts) == 2:
+            if parts[1] == 'fixed' or parts[1] == 'fix':
+                allowed = 'Fixed'
+            elif parts[1] != 'variable':
+                return bad
+        if len(parts) > 2 or (len(parts) >= 1 and not re.match(r'^[0-9]{1,9}$', parts[0])):
+            return bad
+        length = int(parts[0]) if len(parts) >= 1 else def_length
+        # Фиксированную длину у неограниченной строки платформа молча снимает — это ошибка ввода
+        if allowed == 'Fixed' and length == 0:
+            return bad
+        return {'kind': 'String', 'length': length, 'allowed': allowed}
+    if parts:
+        return bad
+    return {'kind': 'Date', 'fractions': kind}
+
+
 def emit_single_type(lines, type_str, indent):
     type_str = resolve_type_str(type_str)
     # TypeId — тип, заданный глобальным стабильным GUID (<v8:TypeId>, не <v8:Type>). Платформа так
@@ -4528,45 +4591,34 @@ def emit_single_type(lines, type_str, indent):
         lines.append(f'{indent}<v8:TypeId>{m.group(1)}</v8:TypeId>')
         return
     # boolean
-    if type_str == 'boolean':
+    if type_str.lower() == 'boolean':
         lines.append(f'{indent}<v8:Type>xs:boolean</v8:Type>')
         return
 
-    # string or string(N) or string(N,fixed) (AllowedLength: Variable дефолт / Fixed)
-    m = re.match(r'^string(\((\d+)(\s*,\s*(fixed|variable))?\))?$', type_str, re.IGNORECASE)
-    if m:
-        length = m.group(2) if m.group(2) else '0'
-        al = 'Fixed' if (m.group(4) and m.group(4).lower() == 'fixed') else 'Variable'
-        lines.append(f'{indent}<v8:Type>xs:string</v8:Type>')
-        lines.append(f'{indent}<v8:StringQualifiers>')
-        lines.append(f'{indent}\t<v8:Length>{length}</v8:Length>')
-        lines.append(f'{indent}\t<v8:AllowedLength>{al}</v8:AllowedLength>')
-        lines.append(f'{indent}</v8:StringQualifiers>')
-        return
-
-    # decimal(D,F) or decimal(D,F,nonneg)
-    m = re.match(r'^decimal\((\d+),(\d+)(,nonneg)?\)$', type_str)
-    if m:
-        digits = m.group(1)
-        fraction = m.group(2)
-        sign = 'Nonnegative' if m.group(3) else 'Any'
-        lines.append(f'{indent}<v8:Type>xs:decimal</v8:Type>')
-        lines.append(f'{indent}<v8:NumberQualifiers>')
-        lines.append(f'{indent}\t<v8:Digits>{digits}</v8:Digits>')
-        lines.append(f'{indent}\t<v8:FractionDigits>{fraction}</v8:FractionDigits>')
-        lines.append(f'{indent}\t<v8:AllowedSign>{sign}</v8:AllowedSign>')
-        lines.append(f'{indent}</v8:NumberQualifiers>')
-        return
-
-    # date / dateTime / time
-    m = re.match(r'^(date|dateTime|time)$', type_str)
-    if m:
-        fractions_map = {'date': 'Date', 'dateTime': 'DateTime', 'time': 'Time'}
-        fractions = fractions_map[type_str]
-        lines.append(f'{indent}<v8:Type>xs:dateTime</v8:Type>')
-        lines.append(f'{indent}<v8:DateQualifiers>')
-        lines.append(f'{indent}\t<v8:DateFractions>{fractions}</v8:DateFractions>')
-        lines.append(f'{indent}</v8:DateQualifiers>')
+    # Примитивы: string / decimal / date / dateTime / time. Голое число реквизита формы — 10,0,
+    # голая строка — неограниченная.
+    prim = parse_primitive_type(type_str, 10, 0, 0)
+    if prim:
+        if prim.get('error'):
+            raise ValueError(prim['error'])
+        if prim['kind'] == 'String':
+            lines.append(f'{indent}<v8:Type>xs:string</v8:Type>')
+            lines.append(f'{indent}<v8:StringQualifiers>')
+            lines.append(f'{indent}\t<v8:Length>{prim["length"]}</v8:Length>')
+            lines.append(f'{indent}\t<v8:AllowedLength>{prim["allowed"]}</v8:AllowedLength>')
+            lines.append(f'{indent}</v8:StringQualifiers>')
+        elif prim['kind'] == 'Number':
+            lines.append(f'{indent}<v8:Type>xs:decimal</v8:Type>')
+            lines.append(f'{indent}<v8:NumberQualifiers>')
+            lines.append(f'{indent}\t<v8:Digits>{prim["digits"]}</v8:Digits>')
+            lines.append(f'{indent}\t<v8:FractionDigits>{prim["fraction"]}</v8:FractionDigits>')
+            lines.append(f'{indent}\t<v8:AllowedSign>{prim["sign"]}</v8:AllowedSign>')
+            lines.append(f'{indent}</v8:NumberQualifiers>')
+        else:
+            lines.append(f'{indent}<v8:Type>xs:dateTime</v8:Type>')
+            lines.append(f'{indent}<v8:DateQualifiers>')
+            lines.append(f'{indent}\t<v8:DateFractions>{prim["fractions"]}</v8:DateFractions>')
+            lines.append(f'{indent}</v8:DateQualifiers>')
         return
 
     # V8 types
@@ -6855,7 +6907,28 @@ def is_dl_empty_value(v):
     return sv == '' or sv == '_' or sv.lower() == 'null'
 
 
+# Вид значения для ветвлений эмиттеров значений (параметры, пустые значения): примитив любого
+# написания (Число(15,2), numeric, String(10)) → decimal / string / date / dateTime / time, прочее —
+# через синонимы навыка. Квалификаторы значению не нужны и отбрасываются.
+def get_value_kind_type(type_str):
+    if not type_str:
+        return type_str
+    prim = parse_primitive_type(type_str, 0, 0, 0)
+    if prim and not prim.get('error'):
+        if prim['kind'] == 'Number':
+            return 'decimal'
+        if prim['kind'] == 'String':
+            return 'string'
+        if prim['fractions'] == 'Date':
+            return 'date'
+        if prim['fractions'] == 'Time':
+            return 'time'
+        return 'dateTime'
+    return resolve_type_str(type_str)
+
+
 def emit_dl_value(lines, type_str, val, indent, value_list_allowed=False):
+    type_str = get_value_kind_type(type_str)
     if is_dl_empty_value(val):
         # Дин-список: пустое значение платформа ВСЕГДА пишет как xsi:nil (даже при известном типе).
         if value_list_allowed:
@@ -6989,6 +7062,7 @@ def _test_empty_value(v):
 
 
 def emit_empty_value(lines, type_str, indent, tag_prefix='', value_list_allowed=False):
+    type_str = get_value_kind_type(type_str)
     if value_list_allowed:
         return
     t = type_str or ''
@@ -7065,7 +7139,7 @@ def emit_data_parameters(lines, items, indent, block_view_mode=None):
         if dp.get('use') is False:
             lines.append(f'{indent}\t\t<dcscor:use>false</dcscor:use>')
         lines.append(f'{indent}\t\t<dcscor:parameter>{esc_xml_text(str(dp.get("parameter", "")))}</dcscor:parameter>')
-        vtype = str(dp.get('valueType') or '')
+        vtype = get_value_kind_type(str(dp.get('valueType') or ''))
         val = dp.get('value')
         if isinstance(val, list):
             # Список значений параметра (valueListAllowed) — отдельный <dcscor:value> на каждое.
@@ -7160,7 +7234,7 @@ def emit_dl_parameter(lines, p, parsed, indent):
     if isinstance(pv, list):
         for v in pv:
             emit_dl_value(lines, parsed.get('type', ''), v, ci, False)
-    elif parsed.get('value_explicit') and pv is not None and str(pv) == '' and (str(parsed.get('type', '')) == '' or re.match(r'^string', str(parsed.get('type', '')))):
+    elif parsed.get('value_explicit') and pv is not None and str(pv) == '' and (str(parsed.get('type', '')) == '' or re.match(r'^string', get_value_kind_type(str(parsed.get('type', ''))))):
         # Явный пустой СТРОКОВЫЙ параметр (value:"" от декомпилятора) → типизированный пустой
         # <dcssch:value xsi:type="xs:string"/>, НЕ nil. Решается ФОРМОЙ value (""→typed-empty,
         # null/отсутствие→nil), независимо от valueListAllowed; декомпилятор различает ""/null.

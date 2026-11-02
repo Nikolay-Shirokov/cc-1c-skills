@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-compile v1.126 — Compile 1C metadata object from JSON
+# meta-compile v1.127 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -976,6 +976,69 @@ def resolve_type_str(type_str):
     if resolved:
         return resolved
     return type_str
+# Разбор примитивного типа DSL: Number / String / Date / DateTime / Time — с синонимами
+# (decimal, numeric, Число, Строка, Дата …), в любом регистре, с пробелами в скобках.
+# Тело общее у всех навыков-компиляторов (семья в check-inline-drift); умолчание для голого типа
+# зависит от места (хранимый реквизит — 10,0 и 10, СКД — без ограничения) и приходит аргументами.
+# Возврат: None — не примитив (ссылки, Boolean, …); {'error'} — база примитива узнана, а
+# параметры нет (вызывающий сообщает ошибку своим способом); иначе описание квалификаторов.
+def parse_primitive_type(type_str, def_digits, def_fraction, def_length):
+    m = re.match(r'^\s*([^\s(]+)\s*(\(.*)?$', type_str or '')
+    if not m:
+        return None
+    rest = m.group(2) or ''
+    kind = {
+        'number': 'Number', 'decimal': 'Number', 'numeric': 'Number', 'число': 'Number',
+        'string': 'String', 'строка': 'String',
+        'date': 'Date', 'дата': 'Date', 'datetime': 'DateTime', 'датавремя': 'DateTime',
+        'time': 'Time', 'время': 'Time',
+    }.get(m.group(1).lower())
+    if not kind:
+        return None
+    bad = {'error': (f"Invalid type '{type_str}'. Expected Number, Number(D), Number(D,F), Number(D,F,nonneg), "
+                     "String, String(N), String(N,fixed), Date, DateTime, Time")}
+    parts = []
+    if rest:
+        m2 = re.match(r'^\((.*)\)\s*$', rest)
+        if not m2:
+            return bad
+        parts = [p.strip().lower() for p in m2.group(1).split(',')]
+    if kind == 'Number':
+        sign = 'Any'
+        if parts and (parts[-1] == 'nonneg' or parts[-1] == 'any'):
+            if parts[-1] == 'nonneg':
+                sign = 'Nonnegative'
+            parts = parts[:-1]
+        if len(parts) > 2:
+            return bad
+        for p in parts:
+            if not re.match(r'^[0-9]{1,9}$', p):
+                return bad
+        d = int(parts[0]) if len(parts) >= 1 else def_digits
+        f = int(parts[1]) if len(parts) >= 2 else (0 if len(parts) == 1 else def_fraction)
+        # Дробная часть у числа без ограничения (0,F) платформа молча обнуляет — это ошибка ввода
+        if d > 38 or f > d:
+            return bad
+        return {'kind': 'Number', 'digits': d, 'fraction': f, 'sign': sign}
+    if kind == 'String':
+        allowed = 'Variable'
+        if len(parts) == 2:
+            if parts[1] == 'fixed' or parts[1] == 'fix':
+                allowed = 'Fixed'
+            elif parts[1] != 'variable':
+                return bad
+        if len(parts) > 2 or (len(parts) >= 1 and not re.match(r'^[0-9]{1,9}$', parts[0])):
+            return bad
+        length = int(parts[0]) if len(parts) >= 1 else def_length
+        # Фиксированную длину у неограниченной строки платформа молча снимает — это ошибка ввода
+        if allowed == 'Fixed' and length == 0:
+            return bad
+        return {'kind': 'String', 'length': length, 'allowed': allowed}
+    if parts:
+        return bad
+    return {'kind': 'Date', 'fractions': kind}
+
+
 def emit_type_content(indent, type_str):
     if not type_str:
         return
@@ -1026,46 +1089,32 @@ def emit_type_content(indent, type_str):
     if type_str == 'Boolean':
         X(f'{indent}<v8:Type>xs:boolean</v8:Type>')
         return
-    # String or String(N) or String(N,fixed|variable) — AllowedLength: Variable дефолт / Fixed (фикс. длина).
-    m = re.match(r'^String(\((\d+)(\s*,\s*(fixed|variable))?\))?$', type_str)
-    if m:
-        length = m.group(2) if m.group(2) else '10'
-        al = 'Fixed' if (m.group(4) and m.group(4).lower() == 'fixed') else 'Variable'
-        X(f'{indent}<v8:Type>xs:string</v8:Type>')
-        X(f'{indent}<v8:StringQualifiers>')
-        X(f'{indent}\t<v8:Length>{length}</v8:Length>')
-        X(f'{indent}\t<v8:AllowedLength>{al}</v8:AllowedLength>')
-        X(f'{indent}</v8:StringQualifiers>')
-        return
-    # Number without params -> Number(10,0)
-    if type_str == 'Number':
-        X(f'{indent}<v8:Type>xs:decimal</v8:Type>')
-        X(f'{indent}<v8:NumberQualifiers>')
-        X(f'{indent}\t<v8:Digits>10</v8:Digits>')
-        X(f'{indent}\t<v8:FractionDigits>0</v8:FractionDigits>')
-        X(f'{indent}\t<v8:AllowedSign>Any</v8:AllowedSign>')
-        X(f'{indent}</v8:NumberQualifiers>')
-        return
-
-    # Number(D,F) or Number(D,F,nonneg)
-    m = re.match(r'^Number\((\d+),(\d+)(,nonneg)?\)$', type_str)
-    if m:
-        digits = m.group(1)
-        fraction = m.group(2)
-        sign = 'Nonnegative' if m.group(3) else 'Any'
-        X(f'{indent}<v8:Type>xs:decimal</v8:Type>')
-        X(f'{indent}<v8:NumberQualifiers>')
-        X(f'{indent}\t<v8:Digits>{digits}</v8:Digits>')
-        X(f'{indent}\t<v8:FractionDigits>{fraction}</v8:FractionDigits>')
-        X(f'{indent}\t<v8:AllowedSign>{sign}</v8:AllowedSign>')
-        X(f'{indent}</v8:NumberQualifiers>')
-        return
-    # Date / DateTime / Time — общая структура xs:dateTime + DateFractions (различаются лишь составом).
-    if type_str in ('Date', 'DateTime', 'Time'):
-        X(f'{indent}<v8:Type>xs:dateTime</v8:Type>')
-        X(f'{indent}<v8:DateQualifiers>')
-        X(f'{indent}\t<v8:DateFractions>{type_str}</v8:DateFractions>')
-        X(f'{indent}</v8:DateQualifiers>')
+    # Примитивы: String / Number / Date / DateTime / Time. Голый тип хранимого реквизита — String(10)
+    # и Number(10,0): без ограничения платформа допускает, но по умолчанию его не даём.
+    prim = parse_primitive_type(type_str, 10, 0, 10)
+    if prim:
+        if prim.get('error'):
+            print(prim['error'], file=sys.stderr)
+            sys.exit(1)
+        if prim['kind'] == 'String':
+            X(f'{indent}<v8:Type>xs:string</v8:Type>')
+            X(f'{indent}<v8:StringQualifiers>')
+            X(f'{indent}\t<v8:Length>{prim["length"]}</v8:Length>')
+            X(f'{indent}\t<v8:AllowedLength>{prim["allowed"]}</v8:AllowedLength>')
+            X(f'{indent}</v8:StringQualifiers>')
+        elif prim['kind'] == 'Number':
+            X(f'{indent}<v8:Type>xs:decimal</v8:Type>')
+            X(f'{indent}<v8:NumberQualifiers>')
+            X(f'{indent}\t<v8:Digits>{prim["digits"]}</v8:Digits>')
+            X(f'{indent}\t<v8:FractionDigits>{prim["fraction"]}</v8:FractionDigits>')
+            X(f'{indent}\t<v8:AllowedSign>{prim["sign"]}</v8:AllowedSign>')
+            X(f'{indent}</v8:NumberQualifiers>')
+        else:
+            # Date / DateTime / Time — общая структура xs:dateTime + DateFractions.
+            X(f'{indent}<v8:Type>xs:dateTime</v8:Type>')
+            X(f'{indent}<v8:DateQualifiers>')
+            X(f'{indent}\t<v8:DateFractions>{prim["fractions"]}</v8:DateFractions>')
+            X(f'{indent}</v8:DateQualifiers>')
         return
     # TypeSet — тип-множество: ОпределяемыйТип (DefinedType) ИЛИ Характеристика ПВХ (Characteristic).
     if re.match(r'^(DefinedType|Characteristic)\.(.+)$', type_str):
@@ -1214,12 +1263,12 @@ def get_fill_type_category(type_str):
     t = resolve_type_str(type_str)
     if re.match(r'^Boolean$', t):
         return 'Boolean'
-    if re.match(r'^String(\(|$)', t):
-        return 'String'
-    if re.match(r'^Number(\(|$)', t):
-        return 'Number'
-    if re.match(r'^(Date|DateTime)$', t):
-        return 'Date'
+    prim = parse_primitive_type(t, 10, 0, 10)
+    if prim and not prim.get('error'):
+        if prim['kind'] != 'Date':
+            return prim['kind']
+        if prim['fractions'] != 'Time':
+            return 'Date'
     return 'Other'               # ссылки, TypeSet, ValueStorage, … → nil-дефолт
 
 # Прощающий ввод для ссылочных путей DTR: рус/англ корни, ПустаяСсылка/EmptyRef, ЗначениеПеречисления/EnumValue.
@@ -1410,17 +1459,30 @@ def emit_fill_value(indent, type_str, spec, has_spec, type_empty=False):
 # 5. Attribute shorthand parser
 # ---------------------------------------------------------------------------
 
+# Флаг nonneg — то же, что хвост ,nonneg у числового типа; к нечисловому типу не применяется.
+def add_nonneg_flag(type_str, flags):
+    if not type_str or 'nonneg' not in [str(f).lower() for f in (flags or [])]:
+        return type_str
+    prim = parse_primitive_type(resolve_type_str(type_str), 10, 0, 10)
+    if prim and prim.get('kind') == 'Number':
+        return f"Number({prim['digits']},{prim['fraction']},nonneg)"
+    return type_str
+
+
 def build_type_str(obj, value_type_only=False):
     # value_type_only — для корневого определения объекта: там ключ type означает ВИД объекта
     # (Constant, Catalog, …), а не тип значения, и подхватывать его нельзя.
     t = str(obj.get('valueType') or ('' if value_type_only else obj.get('type')) or '')
     if t and '(' not in t:
-        if t == 'String' and obj.get('length'):
+        # Вид — по общему разбору: синонимы (Число, decimal, Строка …) те же, что в строковой записи
+        prim = parse_primitive_type(resolve_type_str(t), 10, 0, 10)
+        if prim and prim.get('kind') == 'String' and obj.get('length'):
             t = f"String({obj['length']})"
-        elif t == 'Number' and obj.get('length'):
-            prec = obj.get('precision', 0)
+        elif prim and prim.get('kind') == 'Number' and (obj.get('length') or obj.get('precision') or obj.get('nonneg') or obj.get('nonnegative')):
+            length = obj.get('length') or prim['digits']
+            prec = obj.get('precision') or 0
             nn = ',nonneg' if obj.get('nonneg') or obj.get('nonnegative') else ''
-            t = f"Number({obj['length']},{prec}{nn})"
+            t = f"Number({length},{prec}{nn})"
     return t
 
 def parse_attribute_shorthand(val):
@@ -1446,6 +1508,7 @@ def parse_attribute_shorthand(val):
         parsed['name'] = colon_parts[0].strip()
         if len(colon_parts) > 1:
             parsed['type'] = colon_parts[1].strip()
+        parsed['type'] = add_nonneg_flag(parsed['type'], parsed['flags'])
         parsed['synonym'] = split_camel_case(parsed['name'])
         return parsed
     # Object form. synonym/tooltip — сквозной проброс (строка ИЛИ dict {ru,en}), НЕ стрингифаим.
@@ -1464,7 +1527,7 @@ def parse_attribute_shorthand(val):
         qc = ''
     return {
         'name': name,
-        'type': build_type_str(val),
+        'type': add_nonneg_flag(build_type_str(val), val.get('flags')),
         # Явный `type: ""` (ключ есть, значение пустое) ≠ отсутствие: пустой <Type/> (реквизит без типа).
         'typeEmpty': ('type' in val and str(val.get('type') or '').strip() == '' and not val.get('valueType')),
         'synonym': val['synonym'] if val.get('synonym') is not None else split_camel_case(name),

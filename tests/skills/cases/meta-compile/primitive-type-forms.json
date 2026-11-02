@@ -1,0 +1,40 @@
+{
+  "name": "Примитивные типы: голые, (D), пробелы, регистр, синонимы, nonneg и fixed; объектная форма с синонимом и flags",
+  "input": {
+    "type": "Catalog",
+    "name": "Типы",
+    "attributes": [
+      "Голое: Number",
+      "Целое: Число(8)",
+      "СПробелом: Number(15, 2)",
+      "Регистр: number(15,2,NONNEG)",
+      "Флаг: Number(12,3) | nonneg",
+      "Дец: decimal(10,nonneg)",
+      "Нум: numeric(5)",
+      "Стр: String",
+      "СтрФикс: String(9, Fixed)",
+      "СтрФикс2: Строка(3,fix)",
+      "Дат: дата",
+      "ДатВр: DATETIME",
+      {
+        "name": "ОбъДец",
+        "type": "decimal",
+        "length": 15,
+        "precision": 2
+      },
+      {
+        "name": "ОбъСтр",
+        "type": "Строка",
+        "length": 100
+      },
+      {
+        "name": "ОбъФлаг",
+        "type": "Number(12,3)",
+        "flags": [
+          "nonneg"
+        ]
+      }
+    ]
+  },
+  "validatePath": "Catalogs/Типы"
+}

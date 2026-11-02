@@ -1,4 +1,4 @@
-﻿# mxl-compile v1.61 — Compile 1C spreadsheet from JSON
+﻿# mxl-compile v1.62 — Compile 1C spreadsheet from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -827,6 +827,61 @@ function Resolve-TypeStr {
 # палитра распухнет на дубли и все ссылки <f> уедут.
 # Умолчания здесь ПЛАТФОРМЕННЫЕ, а не как у реквизита метаданных: голая строка — безлимитная
 # (Length 0), голое число — 0,0 (проверено на макетах, собранных Конфигуратором).
+# Разбор примитивного типа DSL: Number / String / Date / DateTime / Time — с синонимами
+# (decimal, numeric, Число, Строка, Дата …), в любом регистре, с пробелами в скобках.
+# Тело общее у всех навыков-компиляторов (семья в check-inline-drift); умолчание для голого типа
+# зависит от места (хранимый реквизит — 10,0 и 10, СКД — без ограничения) и приходит аргументами.
+# Возврат: $null — не примитив (ссылки, Boolean, …); @{ Error } — база примитива узнана, а
+# параметры нет (вызывающий сообщает ошибку своим способом); иначе описание квалификаторов.
+function Parse-PrimitiveType {
+	param([string]$typeStr, [int]$defDigits, [int]$defFraction, [int]$defLength)
+	if ($typeStr -notmatch '^\s*([^\s(]+)\s*(\(.*)?$') { return $null }
+	$rest = if ($Matches.ContainsKey(2)) { $Matches[2] } else { '' }
+	$kind = switch -exact ($Matches[1].ToLowerInvariant()) {
+		'number' { 'Number' } 'decimal' { 'Number' } 'numeric' { 'Number' } 'число' { 'Number' }
+		'string' { 'String' } 'строка' { 'String' }
+		'date' { 'Date' } 'дата' { 'Date' } 'datetime' { 'DateTime' } 'датавремя' { 'DateTime' }
+		'time' { 'Time' } 'время' { 'Time' }
+		default { $null }
+	}
+	if (-not $kind) { return $null }
+	$bad = @{ Error = ("Invalid type '$typeStr'. Expected Number, Number(D), Number(D,F), Number(D,F,nonneg), " +
+		"String, String(N), String(N,fixed), Date, DateTime, Time") }
+	$parts = @()
+	if ($rest) {
+		if ($rest -notmatch '^\((.*)\)\s*$') { return $bad }
+		$parts = @($Matches[1] -split ',' | ForEach-Object { $_.Trim().ToLowerInvariant() })
+	}
+	if ($kind -eq 'Number') {
+		$sign = 'Any'
+		if ($parts.Count -gt 0 -and ($parts[-1] -eq 'nonneg' -or $parts[-1] -eq 'any')) {
+			if ($parts[-1] -eq 'nonneg') { $sign = 'Nonnegative' }
+			$parts = @(if ($parts.Count -gt 1) { $parts[0..($parts.Count - 2)] })
+		}
+		if ($parts.Count -gt 2) { return $bad }
+		foreach ($p in $parts) { if ($p -notmatch '^[0-9]{1,9}$') { return $bad } }
+		$d = if ($parts.Count -ge 1) { [int]$parts[0] } else { $defDigits }
+		$f = if ($parts.Count -ge 2) { [int]$parts[1] } elseif ($parts.Count -eq 1) { 0 } else { $defFraction }
+		# Дробная часть у числа без ограничения (0,F) платформа молча обнуляет — это ошибка ввода
+		if ($d -gt 38 -or $f -gt $d) { return $bad }
+		return @{ Kind = 'Number'; Digits = $d; Fraction = $f; Sign = $sign }
+	}
+	if ($kind -eq 'String') {
+		$allowed = 'Variable'
+		if ($parts.Count -eq 2) {
+			if ($parts[1] -eq 'fixed' -or $parts[1] -eq 'fix') { $allowed = 'Fixed' }
+			elseif ($parts[1] -ne 'variable') { return $bad }
+		}
+		if ($parts.Count -gt 2 -or ($parts.Count -ge 1 -and $parts[0] -notmatch '^[0-9]{1,9}$')) { return $bad }
+		$len = if ($parts.Count -ge 1) { [int]$parts[0] } else { $defLength }
+		# Фиксированную длину у неограниченной строки платформа молча снимает — это ошибка ввода
+		if ($allowed -eq 'Fixed' -and $len -eq 0) { return $bad }
+		return @{ Kind = 'String'; Length = $len; Allowed = $allowed }
+	}
+	if ($parts.Count -gt 0) { return $bad }
+	return @{ Kind = 'Date'; Fractions = $kind }
+}
+
 function Get-CanonValueType {
 	param([string]$typeStr, [string]$where)
 	$parts = @()
@@ -836,19 +891,24 @@ function Get-CanonValueType {
 		if (-not $p) { continue }
 		$canon = $null
 		$kind = $null
+		$prim = Parse-PrimitiveType $p 0 0 0
 		if ($p -ceq 'Boolean') {
 			$canon = 'Boolean'; $kind = 'Boolean'
-		} elseif ($p -match '^String(\((\d+)(\s*,\s*(fixed|variable))?\))?$') {
-			$len = if ($Matches[2]) { $Matches[2] } else { '0' }
-			$al = if ($Matches[4] -and $Matches[4].ToLowerInvariant() -eq 'fixed') { 'fixed' } else { 'variable' }
-			$canon = "String($len,$al)"; $kind = 'String'
-		} elseif ($p -match '^Number(\((\d+)(\s*,\s*(\d+))?(\s*,\s*(nonneg|any))?\))?$') {
-			$digits = if ($Matches[2]) { $Matches[2] } else { '0' }
-			$fraction = if ($Matches[4]) { $Matches[4] } else { '0' }
-			$sign = if ($Matches[6] -and $Matches[6].ToLowerInvariant() -eq 'nonneg') { 'nonneg' } else { 'any' }
-			$canon = "Number($digits,$fraction,$sign)"; $kind = 'Number'
-		} elseif ($p -ceq 'Date' -or $p -ceq 'DateTime' -or $p -ceq 'Time') {
-			$canon = $p; $kind = 'Date'
+		} elseif ($prim) {
+			# Примитивы: голый тип ячейки — без ограничения (Number 0,0, String 0).
+			if ($prim.Error) {
+				[Console]::Error.WriteLine("$($prim.Error) ($where)")
+				exit 1
+			}
+			if ($prim.Kind -eq 'String') {
+				$al = if ($prim.Allowed -eq 'Fixed') { 'fixed' } else { 'variable' }
+				$canon = "String($($prim.Length),$al)"; $kind = 'String'
+			} elseif ($prim.Kind -eq 'Number') {
+				$sign = if ($prim.Sign -eq 'Nonnegative') { 'nonneg' } else { 'any' }
+				$canon = "Number($($prim.Digits),$($prim.Fraction),$sign)"; $kind = 'Number'
+			} else {
+				$canon = $prim.Fractions; $kind = 'Date'
+			}
 		} elseif ($p -match '^(DefinedType|Characteristic)\.(.+)$') {
 			$canon = $p; $kind = "set:$p"
 		} elseif ($p.Contains('.')) {

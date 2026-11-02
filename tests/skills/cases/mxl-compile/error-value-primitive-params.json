@@ -1,0 +1,14 @@
+{
+  "name": "Ошибка: лишний параметр числового типа ячейки",
+  "input": {
+    "columns": 1,
+    "areas": [
+      {
+        "name": "Ввод",
+        "rows": [{ "cells": [{ "col": 1, "valueType": "Number(15,2,3)" }] }]
+      }
+    ]
+  },
+  "params": { "outputPath": "Template.xml" },
+  "expectError": "Invalid type 'Number(15,2,3)'"
+}

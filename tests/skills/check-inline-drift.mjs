@@ -298,6 +298,32 @@ const FAMILIES = [
     ],
   },
 
+  {
+    name: 'parse_primitive_type', py: 'parse_primitive_type', ps1: 'Parse-PrimitiveType',
+    // Number/String/Date: грамматика и синонимы одни на все навыки; умолчание голого типа зависит
+    // от места (хранимый реквизит 10,0/10, СКД и макет — без ограничения) и приходит аргументами.
+    variants: [
+      { id: 'base', authority: 'meta-compile', consumers: ['meta-edit', 'form-compile', 'form-edit', 'skd-compile', 'skd-edit', 'mxl-compile'] },
+    ],
+  },
+
+  {
+    name: 'get_value_kind_type', py: 'get_value_kind_type', ps1: 'Get-ValueKindType',
+    // Вид значения для эмиттеров значений параметров: примитив любого написания → decimal/string/date/…
+    variants: [
+      { id: 'base', authority: 'skd-compile', consumers: ['skd-edit', 'form-compile', 'form-edit'] },
+    ],
+  },
+  {
+    name: 'add_nonneg_flag', py: 'add_nonneg_flag', ps1: 'Add-NonnegFlag',
+    variants: [{ id: 'base', authority: 'meta-compile', consumers: ['meta-edit'] }],
+  },
+  {
+    name: 'get_fill_type_category', py: 'get_fill_type_category', ps1: 'Get-FillTypeCategory',
+    // Категория типа реквизита для пустого FillValue — одна у создания и правки
+    variants: [{ id: 'base', authority: 'meta-compile', consumers: ['meta-edit'] }],
+  },
+
   // ─── Экранирование XML ───────────────────────────────────────────────────
   // Платформа в ТЕКСТЕ элемента экранирует только & < > (кавычка и апостроф остаются сырыми —
   // проверено раундтрипом через базу), а в ЗНАЧЕНИИ АТРИБУТА добавляет &quot;: внутри "..."

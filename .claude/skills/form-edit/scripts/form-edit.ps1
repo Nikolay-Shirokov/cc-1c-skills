@@ -1,4 +1,4 @@
-﻿# form-edit v1.46 — Edit 1C managed form elements
+﻿# form-edit v1.47 — Edit 1C managed form elements
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -2677,6 +2677,61 @@ function Emit-Type {
 	X "$indent</$tag>"
 }
 
+# Разбор примитивного типа DSL: Number / String / Date / DateTime / Time — с синонимами
+# (decimal, numeric, Число, Строка, Дата …), в любом регистре, с пробелами в скобках.
+# Тело общее у всех навыков-компиляторов (семья в check-inline-drift); умолчание для голого типа
+# зависит от места (хранимый реквизит — 10,0 и 10, СКД — без ограничения) и приходит аргументами.
+# Возврат: $null — не примитив (ссылки, Boolean, …); @{ Error } — база примитива узнана, а
+# параметры нет (вызывающий сообщает ошибку своим способом); иначе описание квалификаторов.
+function Parse-PrimitiveType {
+	param([string]$typeStr, [int]$defDigits, [int]$defFraction, [int]$defLength)
+	if ($typeStr -notmatch '^\s*([^\s(]+)\s*(\(.*)?$') { return $null }
+	$rest = if ($Matches.ContainsKey(2)) { $Matches[2] } else { '' }
+	$kind = switch -exact ($Matches[1].ToLowerInvariant()) {
+		'number' { 'Number' } 'decimal' { 'Number' } 'numeric' { 'Number' } 'число' { 'Number' }
+		'string' { 'String' } 'строка' { 'String' }
+		'date' { 'Date' } 'дата' { 'Date' } 'datetime' { 'DateTime' } 'датавремя' { 'DateTime' }
+		'time' { 'Time' } 'время' { 'Time' }
+		default { $null }
+	}
+	if (-not $kind) { return $null }
+	$bad = @{ Error = ("Invalid type '$typeStr'. Expected Number, Number(D), Number(D,F), Number(D,F,nonneg), " +
+		"String, String(N), String(N,fixed), Date, DateTime, Time") }
+	$parts = @()
+	if ($rest) {
+		if ($rest -notmatch '^\((.*)\)\s*$') { return $bad }
+		$parts = @($Matches[1] -split ',' | ForEach-Object { $_.Trim().ToLowerInvariant() })
+	}
+	if ($kind -eq 'Number') {
+		$sign = 'Any'
+		if ($parts.Count -gt 0 -and ($parts[-1] -eq 'nonneg' -or $parts[-1] -eq 'any')) {
+			if ($parts[-1] -eq 'nonneg') { $sign = 'Nonnegative' }
+			$parts = @(if ($parts.Count -gt 1) { $parts[0..($parts.Count - 2)] })
+		}
+		if ($parts.Count -gt 2) { return $bad }
+		foreach ($p in $parts) { if ($p -notmatch '^[0-9]{1,9}$') { return $bad } }
+		$d = if ($parts.Count -ge 1) { [int]$parts[0] } else { $defDigits }
+		$f = if ($parts.Count -ge 2) { [int]$parts[1] } elseif ($parts.Count -eq 1) { 0 } else { $defFraction }
+		# Дробная часть у числа без ограничения (0,F) платформа молча обнуляет — это ошибка ввода
+		if ($d -gt 38 -or $f -gt $d) { return $bad }
+		return @{ Kind = 'Number'; Digits = $d; Fraction = $f; Sign = $sign }
+	}
+	if ($kind -eq 'String') {
+		$allowed = 'Variable'
+		if ($parts.Count -eq 2) {
+			if ($parts[1] -eq 'fixed' -or $parts[1] -eq 'fix') { $allowed = 'Fixed' }
+			elseif ($parts[1] -ne 'variable') { return $bad }
+		}
+		if ($parts.Count -gt 2 -or ($parts.Count -ge 1 -and $parts[0] -notmatch '^[0-9]{1,9}$')) { return $bad }
+		$len = if ($parts.Count -ge 1) { [int]$parts[0] } else { $defLength }
+		# Фиксированную длину у неограниченной строки платформа молча снимает — это ошибка ввода
+		if ($allowed -eq 'Fixed' -and $len -eq 0) { return $bad }
+		return @{ Kind = 'String'; Length = $len; Allowed = $allowed }
+	}
+	if ($parts.Count -gt 0) { return $bad }
+	return @{ Kind = 'Date'; Fractions = $kind }
+}
+
 function Emit-SingleType {
 	param([string]$typeStr, [string]$indent)
 
@@ -2696,43 +2751,30 @@ function Emit-SingleType {
 		return
 	}
 
-	# string or string(N) or string(N,fixed) (AllowedLength: Variable дефолт / Fixed)
-	if ($typeStr -match '^string(\((\d+)(\s*,\s*(fixed|variable))?\))?$') {
-		$len = if ($Matches[2]) { $Matches[2] } else { "0" }
-		$al = if ($Matches[4] -and $Matches[4].ToLower() -eq 'fixed') { 'Fixed' } else { 'Variable' }
-		X "$indent<v8:Type>xs:string</v8:Type>"
-		X "$indent<v8:StringQualifiers>"
-		X "$indent`t<v8:Length>$len</v8:Length>"
-		X "$indent`t<v8:AllowedLength>$al</v8:AllowedLength>"
-		X "$indent</v8:StringQualifiers>"
-		return
-	}
-
-	# decimal(D,F) or decimal(D,F,nonneg)
-	if ($typeStr -match '^decimal\((\d+),(\d+)(,nonneg)?\)$') {
-		$digits = $Matches[1]
-		$fraction = $Matches[2]
-		$sign = if ($Matches[3]) { "Nonnegative" } else { "Any" }
-		X "$indent<v8:Type>xs:decimal</v8:Type>"
-		X "$indent<v8:NumberQualifiers>"
-		X "$indent`t<v8:Digits>$digits</v8:Digits>"
-		X "$indent`t<v8:FractionDigits>$fraction</v8:FractionDigits>"
-		X "$indent`t<v8:AllowedSign>$sign</v8:AllowedSign>"
-		X "$indent</v8:NumberQualifiers>"
-		return
-	}
-
-	# date / dateTime / time
-	if ($typeStr -match '^(date|dateTime|time)$') {
-		$fractions = switch ($typeStr) {
-			"date"     { "Date" }
-			"dateTime" { "DateTime" }
-			"time"     { "Time" }
+	# Примитивы: string / decimal / date / dateTime / time. Голое число реквизита формы — 10,0,
+	# голая строка — неограниченная.
+	$prim = Parse-PrimitiveType $typeStr 10 0 0
+	if ($prim) {
+		if ($prim.Error) { throw $prim.Error }
+		if ($prim.Kind -eq 'String') {
+			X "$indent<v8:Type>xs:string</v8:Type>"
+			X "$indent<v8:StringQualifiers>"
+			X "$indent`t<v8:Length>$($prim.Length)</v8:Length>"
+			X "$indent`t<v8:AllowedLength>$($prim.Allowed)</v8:AllowedLength>"
+			X "$indent</v8:StringQualifiers>"
+		} elseif ($prim.Kind -eq 'Number') {
+			X "$indent<v8:Type>xs:decimal</v8:Type>"
+			X "$indent<v8:NumberQualifiers>"
+			X "$indent`t<v8:Digits>$($prim.Digits)</v8:Digits>"
+			X "$indent`t<v8:FractionDigits>$($prim.Fraction)</v8:FractionDigits>"
+			X "$indent`t<v8:AllowedSign>$($prim.Sign)</v8:AllowedSign>"
+			X "$indent</v8:NumberQualifiers>"
+		} else {
+			X "$indent<v8:Type>xs:dateTime</v8:Type>"
+			X "$indent<v8:DateQualifiers>"
+			X "$indent`t<v8:DateFractions>$($prim.Fractions)</v8:DateFractions>"
+			X "$indent</v8:DateQualifiers>"
 		}
-		X "$indent<v8:Type>xs:dateTime</v8:Type>"
-		X "$indent<v8:DateQualifiers>"
-		X "$indent`t<v8:DateFractions>$fractions</v8:DateFractions>"
-		X "$indent</v8:DateQualifiers>"
 		return
 	}
 
@@ -5385,8 +5427,26 @@ function Test-DLEmptyValue {
 	return $false
 }
 
+# Вид значения для ветвлений эмиттеров значений (параметры, пустые значения): примитив любого
+# написания (Число(15,2), numeric, String(10)) → decimal / string / date / dateTime / time, прочее —
+# через синонимы навыка. Квалификаторы значению не нужны и отбрасываются.
+function Get-ValueKindType {
+	param([string]$typeStr)
+	if (-not $typeStr) { return $typeStr }
+	$prim = Parse-PrimitiveType $typeStr 0 0 0
+	if ($prim -and -not $prim.Error) {
+		if ($prim.Kind -eq 'Number') { return 'decimal' }
+		if ($prim.Kind -eq 'String') { return 'string' }
+		if ($prim.Fractions -eq 'Date') { return 'date' }
+		if ($prim.Fractions -eq 'Time') { return 'time' }
+		return 'dateTime'
+	}
+	return Resolve-TypeStr $typeStr
+}
+
 function Emit-DLValue {
 	param([string]$type, $val, [string]$indent, [bool]$valueListAllowed = $false)
+	$type = Get-ValueKindType $type
 	if (Test-DLEmptyValue $val) {
 		# Дин-список: пустое значение платформа ВСЕГДА пишет как xsi:nil, даже при известном
 		# типе (в отличие от типизированного пустого в параметрах отчёта СКД).
@@ -5502,6 +5562,7 @@ function Test-EmptyValue {
 
 function Emit-EmptyValue {
 	param([string]$type, [string]$indent, [string]$tagPrefix = "", [bool]$valueListAllowed = $false)
+	$type = Get-ValueKindType $type
 	if ($valueListAllowed) { return }
 	$t = if ($null -eq $type) { "" } else { "$type" }
 	$tBare = if ($t -match '^xs:(.+)$') { $matches[1] } else { $t }
@@ -5578,7 +5639,7 @@ function Emit-DataParameters {
 			# Нет значения и нет valueType → НЕ эмитим value-узел (form дин-список: use=false плейсхолдер).
 			# (В отличие от skd-settings, где значение всегда присутствует.)
 		} elseif ($null -ne $dp.value) {
-			$vtype = "$($dp.valueType)"
+			$vtype = Get-ValueKindType "$($dp.valueType)"
 			if (($dp.value -is [PSCustomObject] -or $dp.value -is [hashtable] -or $dp.value -is [System.Collections.IDictionary]) -and ($dp.value.variant)) {
 				$_hasDate = $false; $_hasSD = $false
 				if ($dp.value -is [PSCustomObject]) { $_hasDate = [bool]$dp.value.PSObject.Properties['date']; $_hasSD = [bool]$dp.value.PSObject.Properties['startDate'] }
@@ -5647,7 +5708,7 @@ function Emit-DLParameter {
 	$valIsArray = ($parsed.value -is [array]) -or ($parsed.value -is [System.Collections.IList] -and $parsed.value -isnot [string])
 	if ($valIsArray) {
 		foreach ($v in @($parsed.value)) { Emit-DLValue -type $parsed.type -val $v -indent $ci -valueListAllowed $false }
-	} elseif ($parsed.valueExplicit -and ($null -ne $parsed.value) -and ("$($parsed.value)" -eq '') -and (("$($parsed.type)" -eq '') -or ("$($parsed.type)" -match '^string'))) {
+	} elseif ($parsed.valueExplicit -and ($null -ne $parsed.value) -and ("$($parsed.value)" -eq '') -and (("$($parsed.type)" -eq '') -or ((Get-ValueKindType "$($parsed.type)") -match '^string'))) {
 		# Явный пустой СТРОКОВЫЙ параметр (value:"" от декомпилятора) → типизированный пустой
 		# <dcssch:value xsi:type="xs:string"/>, НЕ nil. Решается ФОРМОЙ value (""→typed-empty,
 		# null/отсутствие→nil), независимо от valueListAllowed; декомпилятор различает ""/null

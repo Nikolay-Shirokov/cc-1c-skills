@@ -1,4 +1,4 @@
-﻿# skd-compile v1.141 — Compile 1C DCS from JSON
+﻿# skd-compile v1.142 — Compile 1C DCS from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -531,6 +531,61 @@ function Emit-ValueType {
 	Emit-SingleValueType -typeStr "$typeStr" -indent $indent
 }
 
+# Разбор примитивного типа DSL: Number / String / Date / DateTime / Time — с синонимами
+# (decimal, numeric, Число, Строка, Дата …), в любом регистре, с пробелами в скобках.
+# Тело общее у всех навыков-компиляторов (семья в check-inline-drift); умолчание для голого типа
+# зависит от места (хранимый реквизит — 10,0 и 10, СКД — без ограничения) и приходит аргументами.
+# Возврат: $null — не примитив (ссылки, Boolean, …); @{ Error } — база примитива узнана, а
+# параметры нет (вызывающий сообщает ошибку своим способом); иначе описание квалификаторов.
+function Parse-PrimitiveType {
+	param([string]$typeStr, [int]$defDigits, [int]$defFraction, [int]$defLength)
+	if ($typeStr -notmatch '^\s*([^\s(]+)\s*(\(.*)?$') { return $null }
+	$rest = if ($Matches.ContainsKey(2)) { $Matches[2] } else { '' }
+	$kind = switch -exact ($Matches[1].ToLowerInvariant()) {
+		'number' { 'Number' } 'decimal' { 'Number' } 'numeric' { 'Number' } 'число' { 'Number' }
+		'string' { 'String' } 'строка' { 'String' }
+		'date' { 'Date' } 'дата' { 'Date' } 'datetime' { 'DateTime' } 'датавремя' { 'DateTime' }
+		'time' { 'Time' } 'время' { 'Time' }
+		default { $null }
+	}
+	if (-not $kind) { return $null }
+	$bad = @{ Error = ("Invalid type '$typeStr'. Expected Number, Number(D), Number(D,F), Number(D,F,nonneg), " +
+		"String, String(N), String(N,fixed), Date, DateTime, Time") }
+	$parts = @()
+	if ($rest) {
+		if ($rest -notmatch '^\((.*)\)\s*$') { return $bad }
+		$parts = @($Matches[1] -split ',' | ForEach-Object { $_.Trim().ToLowerInvariant() })
+	}
+	if ($kind -eq 'Number') {
+		$sign = 'Any'
+		if ($parts.Count -gt 0 -and ($parts[-1] -eq 'nonneg' -or $parts[-1] -eq 'any')) {
+			if ($parts[-1] -eq 'nonneg') { $sign = 'Nonnegative' }
+			$parts = @(if ($parts.Count -gt 1) { $parts[0..($parts.Count - 2)] })
+		}
+		if ($parts.Count -gt 2) { return $bad }
+		foreach ($p in $parts) { if ($p -notmatch '^[0-9]{1,9}$') { return $bad } }
+		$d = if ($parts.Count -ge 1) { [int]$parts[0] } else { $defDigits }
+		$f = if ($parts.Count -ge 2) { [int]$parts[1] } elseif ($parts.Count -eq 1) { 0 } else { $defFraction }
+		# Дробная часть у числа без ограничения (0,F) платформа молча обнуляет — это ошибка ввода
+		if ($d -gt 38 -or $f -gt $d) { return $bad }
+		return @{ Kind = 'Number'; Digits = $d; Fraction = $f; Sign = $sign }
+	}
+	if ($kind -eq 'String') {
+		$allowed = 'Variable'
+		if ($parts.Count -eq 2) {
+			if ($parts[1] -eq 'fixed' -or $parts[1] -eq 'fix') { $allowed = 'Fixed' }
+			elseif ($parts[1] -ne 'variable') { return $bad }
+		}
+		if ($parts.Count -gt 2 -or ($parts.Count -ge 1 -and $parts[0] -notmatch '^[0-9]{1,9}$')) { return $bad }
+		$len = if ($parts.Count -ge 1) { [int]$parts[0] } else { $defLength }
+		# Фиксированную длину у неограниченной строки платформа молча снимает — это ошибка ввода
+		if ($allowed -eq 'Fixed' -and $len -eq 0) { return $bad }
+		return @{ Kind = 'String'; Length = $len; Allowed = $allowed }
+	}
+	if ($parts.Count -gt 0) { return $bad }
+	return @{ Kind = 'Date'; Fractions = $kind }
+}
+
 function Emit-SingleValueType {
 	param([string]$typeStr, [string]$indent)
 
@@ -545,52 +600,30 @@ function Emit-SingleValueType {
 		return
 	}
 
-	# string, string(N), string(N,fix) — fix → AllowedLength=Fixed
-	if ($typeStr -match '^string(\((\d+)(,(fix|fixed))?\))?$') {
-		$len = if ($Matches[2]) { $Matches[2] } else { "0" }
-		$al = if ($Matches[4]) { "Fixed" } else { "Variable" }
-		X "$indent<v8:Type>xs:string</v8:Type>"
-		X "$indent<v8:StringQualifiers>"
-		X "$indent`t<v8:Length>$len</v8:Length>"
-		X "$indent`t<v8:AllowedLength>$al</v8:AllowedLength>"
-		X "$indent</v8:StringQualifiers>"
-		return
-	}
-
-	# decimal forms (defaults — bare decimal = money 10,2; decimal(N) = integer N,0):
-	#   decimal                       → 10,2,Any
-	#   decimal(N)                    → N,0,Any
-	#   decimal(N,nonneg)             → N,0,Nonnegative
-	#   decimal(N,M)                  → N,M,Any
-	#   decimal(N,M,nonneg)           → N,M,Nonnegative
-	if ($typeStr -match '^decimal(\((\d+)(,(\d+))?(,nonneg)?\))?$') {
-		if (-not $Matches[1]) {
-			$digits = "10"; $fraction = "2"; $sign = "Any"
+	# Примитивы: string / decimal / date / dateTime / time. Голый тип поля СКД — без ограничения
+	# (decimal 0,0, string 0): так пишет платформа, СКД разрядность не навязывает.
+	$prim = Parse-PrimitiveType $typeStr 0 0 0
+	if ($prim) {
+		if ($prim.Error) { Write-Error $prim.Error; exit 1 }
+		if ($prim.Kind -eq 'String') {
+			X "$indent<v8:Type>xs:string</v8:Type>"
+			X "$indent<v8:StringQualifiers>"
+			X "$indent`t<v8:Length>$($prim.Length)</v8:Length>"
+			X "$indent`t<v8:AllowedLength>$($prim.Allowed)</v8:AllowedLength>"
+			X "$indent</v8:StringQualifiers>"
+		} elseif ($prim.Kind -eq 'Number') {
+			X "$indent<v8:Type>xs:decimal</v8:Type>"
+			X "$indent<v8:NumberQualifiers>"
+			X "$indent`t<v8:Digits>$($prim.Digits)</v8:Digits>"
+			X "$indent`t<v8:FractionDigits>$($prim.Fraction)</v8:FractionDigits>"
+			X "$indent`t<v8:AllowedSign>$($prim.Sign)</v8:AllowedSign>"
+			X "$indent</v8:NumberQualifiers>"
 		} else {
-			$digits = $Matches[2]
-			$fraction = if ($Matches[4]) { $Matches[4] } else { "0" }
-			$sign = if ($Matches[5]) { "Nonnegative" } else { "Any" }
+			X "$indent<v8:Type>xs:dateTime</v8:Type>"
+			X "$indent<v8:DateQualifiers>"
+			X "$indent`t<v8:DateFractions>$($prim.Fractions)</v8:DateFractions>"
+			X "$indent</v8:DateQualifiers>"
 		}
-		X "$indent<v8:Type>xs:decimal</v8:Type>"
-		X "$indent<v8:NumberQualifiers>"
-		X "$indent`t<v8:Digits>$digits</v8:Digits>"
-		X "$indent`t<v8:FractionDigits>$fraction</v8:FractionDigits>"
-		X "$indent`t<v8:AllowedSign>$sign</v8:AllowedSign>"
-		X "$indent</v8:NumberQualifiers>"
-		return
-	}
-
-	# date / dateTime / time — all use xs:dateTime, differ only in DateFractions
-	if ($typeStr -match '^(date|dateTime|time)$') {
-		$fractions = switch ($typeStr) {
-			"date"     { "Date" }
-			"dateTime" { "DateTime" }
-			"time"     { "Time" }
-		}
-		X "$indent<v8:Type>xs:dateTime</v8:Type>"
-		X "$indent<v8:DateQualifiers>"
-		X "$indent`t<v8:DateFractions>$fractions</v8:DateFractions>"
-		X "$indent</v8:DateQualifiers>"
 		return
 	}
 
@@ -1923,8 +1956,26 @@ function Test-DataParamList {
 	return (($v -is [array]) -or ($v -is [System.Collections.IList] -and $v -isnot [string])) -and @($v).Count -gt 1
 }
 
+# Вид значения для ветвлений эмиттеров значений (параметры, пустые значения): примитив любого
+# написания (Число(15,2), numeric, String(10)) → decimal / string / date / dateTime / time, прочее —
+# через синонимы навыка. Квалификаторы значению не нужны и отбрасываются.
+function Get-ValueKindType {
+	param([string]$typeStr)
+	if (-not $typeStr) { return $typeStr }
+	$prim = Parse-PrimitiveType $typeStr 0 0 0
+	if ($prim -and -not $prim.Error) {
+		if ($prim.Kind -eq 'Number') { return 'decimal' }
+		if ($prim.Kind -eq 'String') { return 'string' }
+		if ($prim.Fractions -eq 'Date') { return 'date' }
+		if ($prim.Fractions -eq 'Time') { return 'time' }
+		return 'dateTime'
+	}
+	return Resolve-TypeStr $typeStr
+}
+
 function Emit-EmptyValue {
 	param([string]$type, [string]$indent, [string]$tagPrefix = "", [bool]$valueListAllowed = $false)
+	$type = Get-ValueKindType $type
 
 	if ($valueListAllowed) { return }
 	$t = if ($null -eq $type) { "" } else { "$type" }
@@ -1956,6 +2007,7 @@ function Emit-EmptyValue {
 
 function Emit-ParamValue {
 	param([string]$type, $val, [string]$indent, [bool]$valueListAllowed = $false)
+	$type = Get-ValueKindType $type
 
 	if (Test-EmptyValue $val) {
 		Emit-EmptyValue -type $type -indent $indent -tagPrefix "" -valueListAllowed $valueListAllowed
@@ -3252,6 +3304,7 @@ function Emit-DataParameters {
 				$decl = $script:allParams | Where-Object { $_.name -eq "$($dp.parameter)" } | Select-Object -First 1
 				if ($decl -and $decl.type -and $decl.type -notmatch '\s') { $vtype = $decl.type }
 			}
+			$vtype = Get-ValueKindType $vtype
 			if (Test-StandardPeriodValue $dp.value) {
 				Emit-StandardPeriodValue $dp.value "dcscor:value" "$indent`t`t"
 			} else {

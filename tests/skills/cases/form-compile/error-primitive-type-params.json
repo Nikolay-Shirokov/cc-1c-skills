@@ -1,0 +1,15 @@
+{
+  "name": "Ошибка: лишний параметр числового типа реквизита формы",
+  "preRun": [
+    { "script": "meta-compile/scripts/meta-compile", "input": { "type": "DataProcessor", "name": "Типы" }, "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" } },
+    { "script": "form-add/scripts/form-add", "args": { "-ObjectPath": "{workDir}/DataProcessors/Типы.xml", "-FormName": "Форма" } }
+  ],
+  "params": { "outputPath": "DataProcessors/Типы/Forms/Форма/Ext/Form.xml" },
+  "input": {
+    "attributes": [
+      { "name": "Объект", "type": "DataProcessorObject.Типы", "main": true },
+      { "name": "Сумма", "type": "decimal(15,2,3)" }
+    ]
+  },
+  "expectError": "Invalid type 'decimal(15,2,3)'"
+}

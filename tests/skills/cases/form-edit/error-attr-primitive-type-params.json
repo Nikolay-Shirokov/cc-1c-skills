@@ -1,0 +1,11 @@
+{
+  "name": "Ошибка: нечисловая длина строки у добавляемого реквизита",
+  "preRun": [
+    { "script": "meta-compile/scripts/meta-compile", "input": { "type": "DataProcessor", "name": "Типы" }, "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" } },
+    { "script": "form-add/scripts/form-add", "args": { "-ObjectPath": "{workDir}/DataProcessors/Типы.xml", "-FormName": "Форма" } },
+    { "script": "form-compile/scripts/form-compile", "input": { "attributes": [{ "name": "Объект", "type": "DataProcessorObject.Типы", "main": true }] }, "args": { "-JsonPath": "{inputFile}", "-OutputPath": "{workDir}/DataProcessors/Типы/Forms/Форма/Ext/Form.xml" } }
+  ],
+  "params": { "formPath": "DataProcessors/Типы/Forms/Форма/Ext/Form.xml" },
+  "input": { "attributes": [ { "name": "Стр", "type": "string(abc)" } ] },
+  "expectError": "Invalid type 'string(abc)'"
+}

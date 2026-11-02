@@ -1,0 +1,24 @@
+{
+  "name": "Ячейки-поля ввода: синонимы decimal/numeric, (D), регистр хвостов, fix",
+  "input": {
+    "columns": 3,
+    "areas": [
+      {
+        "name": "Ввод",
+        "rows": [
+          { "cells": [
+            { "col": 1, "valueType": "decimal" },
+            { "col": 2, "valueType": "Decimal(15, 2, NONNEG)" },
+            { "col": 3, "valueType": "numeric(8)" }
+          ]},
+          { "cells": [
+            { "col": 1, "valueType": "String(10, Fixed)" },
+            { "col": 2, "valueType": "string(3,fix)" },
+            { "col": 3, "valueType": "datetime" }
+          ]}
+        ]
+      }
+    ]
+  },
+  "params": { "outputPath": "Template.xml" }
+}

@@ -1,4 +1,4 @@
-# skd-edit v1.50 — Atomic 1C DCS editor (Python port)
+# skd-edit v1.51 — Atomic 1C DCS editor (Python port)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import json
@@ -1038,6 +1038,69 @@ def build_available_value_fragment(item, declared_type, indent):
 
 # ── 4. Build-* functions (XML fragment generators) ──────────
 
+# Разбор примитивного типа DSL: Number / String / Date / DateTime / Time — с синонимами
+# (decimal, numeric, Число, Строка, Дата …), в любом регистре, с пробелами в скобках.
+# Тело общее у всех навыков-компиляторов (семья в check-inline-drift); умолчание для голого типа
+# зависит от места (хранимый реквизит — 10,0 и 10, СКД — без ограничения) и приходит аргументами.
+# Возврат: None — не примитив (ссылки, Boolean, …); {'error'} — база примитива узнана, а
+# параметры нет (вызывающий сообщает ошибку своим способом); иначе описание квалификаторов.
+def parse_primitive_type(type_str, def_digits, def_fraction, def_length):
+    m = re.match(r'^\s*([^\s(]+)\s*(\(.*)?$', type_str or '')
+    if not m:
+        return None
+    rest = m.group(2) or ''
+    kind = {
+        'number': 'Number', 'decimal': 'Number', 'numeric': 'Number', 'число': 'Number',
+        'string': 'String', 'строка': 'String',
+        'date': 'Date', 'дата': 'Date', 'datetime': 'DateTime', 'датавремя': 'DateTime',
+        'time': 'Time', 'время': 'Time',
+    }.get(m.group(1).lower())
+    if not kind:
+        return None
+    bad = {'error': (f"Invalid type '{type_str}'. Expected Number, Number(D), Number(D,F), Number(D,F,nonneg), "
+                     "String, String(N), String(N,fixed), Date, DateTime, Time")}
+    parts = []
+    if rest:
+        m2 = re.match(r'^\((.*)\)\s*$', rest)
+        if not m2:
+            return bad
+        parts = [p.strip().lower() for p in m2.group(1).split(',')]
+    if kind == 'Number':
+        sign = 'Any'
+        if parts and (parts[-1] == 'nonneg' or parts[-1] == 'any'):
+            if parts[-1] == 'nonneg':
+                sign = 'Nonnegative'
+            parts = parts[:-1]
+        if len(parts) > 2:
+            return bad
+        for p in parts:
+            if not re.match(r'^[0-9]{1,9}$', p):
+                return bad
+        d = int(parts[0]) if len(parts) >= 1 else def_digits
+        f = int(parts[1]) if len(parts) >= 2 else (0 if len(parts) == 1 else def_fraction)
+        # Дробная часть у числа без ограничения (0,F) платформа молча обнуляет — это ошибка ввода
+        if d > 38 or f > d:
+            return bad
+        return {'kind': 'Number', 'digits': d, 'fraction': f, 'sign': sign}
+    if kind == 'String':
+        allowed = 'Variable'
+        if len(parts) == 2:
+            if parts[1] == 'fixed' or parts[1] == 'fix':
+                allowed = 'Fixed'
+            elif parts[1] != 'variable':
+                return bad
+        if len(parts) > 2 or (len(parts) >= 1 and not re.match(r'^[0-9]{1,9}$', parts[0])):
+            return bad
+        length = int(parts[0]) if len(parts) >= 1 else def_length
+        # Фиксированную длину у неограниченной строки платформа молча снимает — это ошибка ввода
+        if allowed == 'Fixed' and length == 0:
+            return bad
+        return {'kind': 'String', 'length': length, 'allowed': allowed}
+    if parts:
+        return bad
+    return {'kind': 'Date', 'fractions': kind}
+
+
 def build_value_type_xml(type_str, indent):
     if not type_str:
         return ""
@@ -1054,47 +1117,35 @@ def build_value_type_xml(type_str, indent):
     type_str = resolve_type_str(str(type_str))
     lines = []
 
-    if type_str == "boolean":
+    if type_str.lower() == "boolean":
         lines.append(f"{indent}<v8:Type>xs:boolean</v8:Type>")
         return "\n".join(lines)
 
-    # string, string(N), string(N,fix) — fix → AllowedLength=Fixed
-    m = re.match(r'^string(\((\d+)(,(fix|fixed))?\))?$', type_str)
-    if m:
-        length = m.group(2) if m.group(2) else "0"
-        al = "Fixed" if m.group(4) else "Variable"
-        lines.append(f"{indent}<v8:Type>xs:string</v8:Type>")
-        lines.append(f"{indent}<v8:StringQualifiers>")
-        lines.append(f"{indent}\t<v8:Length>{length}</v8:Length>")
-        lines.append(f"{indent}\t<v8:AllowedLength>{al}</v8:AllowedLength>")
-        lines.append(f"{indent}</v8:StringQualifiers>")
-        return "\n".join(lines)
-
-    # decimal — bare = 10,2; decimal(N) = N,0
-    m = re.match(r'^decimal(\((\d+)(,(\d+))?(,nonneg)?\))?$', type_str)
-    if m:
-        if not m.group(1):
-            digits, fraction, sign = "10", "2", "Any"
+    # Примитивы: string / decimal / date / dateTime / time. Голый тип поля СКД — без ограничения
+    # (decimal 0,0, string 0), как в skd-compile.
+    prim = parse_primitive_type(type_str, 0, 0, 0)
+    if prim:
+        if prim.get('error'):
+            print(prim['error'], file=sys.stderr)
+            sys.exit(1)
+        if prim['kind'] == 'String':
+            lines.append(f"{indent}<v8:Type>xs:string</v8:Type>")
+            lines.append(f"{indent}<v8:StringQualifiers>")
+            lines.append(f"{indent}\t<v8:Length>{prim['length']}</v8:Length>")
+            lines.append(f"{indent}\t<v8:AllowedLength>{prim['allowed']}</v8:AllowedLength>")
+            lines.append(f"{indent}</v8:StringQualifiers>")
+        elif prim['kind'] == 'Number':
+            lines.append(f"{indent}<v8:Type>xs:decimal</v8:Type>")
+            lines.append(f"{indent}<v8:NumberQualifiers>")
+            lines.append(f"{indent}\t<v8:Digits>{prim['digits']}</v8:Digits>")
+            lines.append(f"{indent}\t<v8:FractionDigits>{prim['fraction']}</v8:FractionDigits>")
+            lines.append(f"{indent}\t<v8:AllowedSign>{prim['sign']}</v8:AllowedSign>")
+            lines.append(f"{indent}</v8:NumberQualifiers>")
         else:
-            digits = m.group(2)
-            fraction = m.group(4) if m.group(4) else "0"
-            sign = "Nonnegative" if m.group(5) else "Any"
-        lines.append(f"{indent}<v8:Type>xs:decimal</v8:Type>")
-        lines.append(f"{indent}<v8:NumberQualifiers>")
-        lines.append(f"{indent}\t<v8:Digits>{digits}</v8:Digits>")
-        lines.append(f"{indent}\t<v8:FractionDigits>{fraction}</v8:FractionDigits>")
-        lines.append(f"{indent}\t<v8:AllowedSign>{sign}</v8:AllowedSign>")
-        lines.append(f"{indent}</v8:NumberQualifiers>")
-        return "\n".join(lines)
-
-    # date / dateTime / time — all xs:dateTime
-    m = re.match(r'^(date|dateTime|time)$', type_str)
-    if m:
-        fractions = {"date": "Date", "dateTime": "DateTime", "time": "Time"}[type_str]
-        lines.append(f"{indent}<v8:Type>xs:dateTime</v8:Type>")
-        lines.append(f"{indent}<v8:DateQualifiers>")
-        lines.append(f"{indent}\t<v8:DateFractions>{fractions}</v8:DateFractions>")
-        lines.append(f"{indent}</v8:DateQualifiers>")
+            lines.append(f"{indent}<v8:Type>xs:dateTime</v8:Type>")
+            lines.append(f"{indent}<v8:DateQualifiers>")
+            lines.append(f"{indent}\t<v8:DateFractions>{prim['fractions']}</v8:DateFractions>")
+            lines.append(f"{indent}</v8:DateQualifiers>")
         return "\n".join(lines)
 
     if type_str == "StandardPeriod":
@@ -1127,8 +1178,29 @@ def is_empty_value(v):
     return False
 
 
+# Вид значения для ветвлений эмиттеров значений (параметры, пустые значения): примитив любого
+# написания (Число(15,2), numeric, String(10)) → decimal / string / date / dateTime / time, прочее —
+# через синонимы навыка. Квалификаторы значению не нужны и отбрасываются.
+def get_value_kind_type(type_str):
+    if not type_str:
+        return type_str
+    prim = parse_primitive_type(type_str, 0, 0, 0)
+    if prim and not prim.get('error'):
+        if prim['kind'] == 'Number':
+            return 'decimal'
+        if prim['kind'] == 'String':
+            return 'string'
+        if prim['fractions'] == 'Date':
+            return 'date'
+        if prim['fractions'] == 'Time':
+            return 'time'
+        return 'dateTime'
+    return resolve_type_str(type_str)
+
+
 def build_empty_value_xml(type_str, indent, tag_prefix="", tag_name="value", value_list_allowed=False):
     """Type-aware empty <value> fragment. Returns None when valueListAllowed (omit)."""
+    type_str = get_value_kind_type(type_str)
     if value_list_allowed:
         return None
     t = "" if type_str is None else str(type_str)
@@ -1295,6 +1367,7 @@ def build_calc_field_fragment(parsed, indent):
 
 def build_param_value_xml(type_str, value, indent, tag_name="value", tag_ns=""):
     """Return list of XML lines for <value xsi:type=...>...</value>."""
+    type_str = get_value_kind_type(type_str)
     val_str = "" if value is None else str(value)
     open_tag = f"{tag_ns}:{tag_name}" if tag_ns else tag_name
     lines = []

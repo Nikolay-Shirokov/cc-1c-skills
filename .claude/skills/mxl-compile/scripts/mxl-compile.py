@@ -1,5 +1,5 @@
 ﻿#!/usr/bin/env python3
-# mxl-compile v1.61 — Compile 1C spreadsheet from JSON
+# mxl-compile v1.62 — Compile 1C spreadsheet from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import hashlib
@@ -612,6 +612,69 @@ def resolve_type_str(type_str):
     return type_str
 
 
+# Разбор примитивного типа DSL: Number / String / Date / DateTime / Time — с синонимами
+# (decimal, numeric, Число, Строка, Дата …), в любом регистре, с пробелами в скобках.
+# Тело общее у всех навыков-компиляторов (семья в check-inline-drift); умолчание для голого типа
+# зависит от места (хранимый реквизит — 10,0 и 10, СКД — без ограничения) и приходит аргументами.
+# Возврат: None — не примитив (ссылки, Boolean, …); {'error'} — база примитива узнана, а
+# параметры нет (вызывающий сообщает ошибку своим способом); иначе описание квалификаторов.
+def parse_primitive_type(type_str, def_digits, def_fraction, def_length):
+    m = re.match(r'^\s*([^\s(]+)\s*(\(.*)?$', type_str or '')
+    if not m:
+        return None
+    rest = m.group(2) or ''
+    kind = {
+        'number': 'Number', 'decimal': 'Number', 'numeric': 'Number', 'число': 'Number',
+        'string': 'String', 'строка': 'String',
+        'date': 'Date', 'дата': 'Date', 'datetime': 'DateTime', 'датавремя': 'DateTime',
+        'time': 'Time', 'время': 'Time',
+    }.get(m.group(1).lower())
+    if not kind:
+        return None
+    bad = {'error': (f"Invalid type '{type_str}'. Expected Number, Number(D), Number(D,F), Number(D,F,nonneg), "
+                     "String, String(N), String(N,fixed), Date, DateTime, Time")}
+    parts = []
+    if rest:
+        m2 = re.match(r'^\((.*)\)\s*$', rest)
+        if not m2:
+            return bad
+        parts = [p.strip().lower() for p in m2.group(1).split(',')]
+    if kind == 'Number':
+        sign = 'Any'
+        if parts and (parts[-1] == 'nonneg' or parts[-1] == 'any'):
+            if parts[-1] == 'nonneg':
+                sign = 'Nonnegative'
+            parts = parts[:-1]
+        if len(parts) > 2:
+            return bad
+        for p in parts:
+            if not re.match(r'^[0-9]{1,9}$', p):
+                return bad
+        d = int(parts[0]) if len(parts) >= 1 else def_digits
+        f = int(parts[1]) if len(parts) >= 2 else (0 if len(parts) == 1 else def_fraction)
+        # Дробная часть у числа без ограничения (0,F) платформа молча обнуляет — это ошибка ввода
+        if d > 38 or f > d:
+            return bad
+        return {'kind': 'Number', 'digits': d, 'fraction': f, 'sign': sign}
+    if kind == 'String':
+        allowed = 'Variable'
+        if len(parts) == 2:
+            if parts[1] == 'fixed' or parts[1] == 'fix':
+                allowed = 'Fixed'
+            elif parts[1] != 'variable':
+                return bad
+        if len(parts) > 2 or (len(parts) >= 1 and not re.match(r'^[0-9]{1,9}$', parts[0])):
+            return bad
+        length = int(parts[0]) if len(parts) >= 1 else def_length
+        # Фиксированную длину у неограниченной строки платформа молча снимает — это ошибка ввода
+        if allowed == 'Fixed' and length == 0:
+            return bad
+        return {'kind': 'String', 'length': length, 'allowed': allowed}
+    if parts:
+        return bad
+    return {'kind': 'Date', 'fractions': kind}
+
+
 def canon_value_type(type_str, where):
     """Канон типа: развёрнутая запись со всеми умолчаниями. Она же ложится в ключ дедупликации
     палитры, поэтому «Число(15,3)» и «Number(15,3)» обязаны дать ОДНУ запись формата — иначе
@@ -624,21 +687,22 @@ def canon_value_type(type_str, where):
         p = resolve_type_str(raw.strip())
         if not p:
             continue
-        m_str = re.match(r'^String(\((\d+)(\s*,\s*(fixed|variable))?\))?$', p)
-        m_num = re.match(r'^Number(\((\d+)(\s*,\s*(\d+))?(\s*,\s*(nonneg|any))?\))?$', p)
+        prim = parse_primitive_type(p, 0, 0, 0)
         if p == 'Boolean':
             canon, kind = 'Boolean', 'Boolean'
-        elif m_str:
-            length = m_str.group(2) if m_str.group(2) else '0'
-            al = 'fixed' if (m_str.group(4) and m_str.group(4).lower() == 'fixed') else 'variable'
-            canon, kind = f'String({length},{al})', 'String'
-        elif m_num:
-            digits = m_num.group(2) if m_num.group(2) else '0'
-            fraction = m_num.group(4) if m_num.group(4) else '0'
-            sign = 'nonneg' if (m_num.group(6) and m_num.group(6).lower() == 'nonneg') else 'any'
-            canon, kind = f'Number({digits},{fraction},{sign})', 'Number'
-        elif p in ('Date', 'DateTime', 'Time'):
-            canon, kind = p, 'Date'
+        elif prim:
+            # Примитивы: голый тип ячейки — без ограничения (Number 0,0, String 0).
+            if prim.get('error'):
+                print(f"{prim['error']} ({where})", file=sys.stderr)
+                sys.exit(1)
+            if prim['kind'] == 'String':
+                al = 'fixed' if prim['allowed'] == 'Fixed' else 'variable'
+                canon, kind = f"String({prim['length']},{al})", 'String'
+            elif prim['kind'] == 'Number':
+                sign = 'nonneg' if prim['sign'] == 'Nonnegative' else 'any'
+                canon, kind = f"Number({prim['digits']},{prim['fraction']},{sign})", 'Number'
+            else:
+                canon, kind = prim['fractions'], 'Date'
         elif re.match(r'^(DefinedType|Characteristic)\.(.+)$', p):
             canon, kind = p, f'set:{p}'
         elif '.' in p:

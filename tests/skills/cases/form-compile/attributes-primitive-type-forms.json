@@ -1,0 +1,24 @@
+{
+  "name": "Примитивные типы реквизитов формы: голые, (D), пробелы, регистр, синонимы, fixed",
+  "preRun": [
+    { "script": "meta-compile/scripts/meta-compile", "input": { "type": "DataProcessor", "name": "Типы" }, "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" } },
+    { "script": "form-add/scripts/form-add", "args": { "-ObjectPath": "{workDir}/DataProcessors/Типы.xml", "-FormName": "Форма" } }
+  ],
+  "params": { "outputPath": "DataProcessors/Типы/Forms/Форма/Ext/Form.xml" },
+  "validatePath": "DataProcessors/Типы/Forms/Форма/Ext/Form.xml",
+  "input": {
+    "attributes": [
+      { "name": "Объект", "type": "DataProcessorObject.Типы", "main": true },
+      { "name": "Голое", "type": "decimal" },
+      { "name": "ГолоеNumber", "type": "Number" },
+      { "name": "Целое", "type": "Число(8)" },
+      { "name": "СПробелом", "type": "decimal(15, 2)" },
+      { "name": "Регистр", "type": "Decimal(15,2,NONNEG)" },
+      { "name": "Стр", "type": "String" },
+      { "name": "СтрФикс", "type": "string(9, fix)" },
+      { "name": "Дат", "type": "Date" },
+      { "name": "ДатВр", "type": "DateTime" },
+      { "name": "Бул", "type": "Boolean" }
+    ]
+  }
+}

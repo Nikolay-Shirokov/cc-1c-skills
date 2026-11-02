@@ -1,0 +1,13 @@
+{
+  "name": "Ошибка: лишний параметр числового типа (раньше уходил в XML как есть)",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "Catalog", "name": "Типы" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    }
+  ],
+  "params": { "objectPath": "Catalogs/Типы" },
+  "input": { "add": { "attributes": ["Сумма: Number(15,2,3)"] } },
+  "expectError": "Invalid type 'Number(15,2,3)'"
+}

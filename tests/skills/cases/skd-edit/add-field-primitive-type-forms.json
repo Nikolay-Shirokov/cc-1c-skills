@@ -1,0 +1,16 @@
+{
+  "name": "add-field: примитивные типы — регистр, пробелы, синонимы Number/numeric, String и Date",
+  "preRun": [
+    {
+      "script": "skd-compile/scripts/skd-compile",
+      "input": { "dataSets": [{ "name": "Основной", "query": "ВЫБРАТЬ 1 КАК Поле1", "fields": ["Поле1: decimal(1,0)"] }] },
+      "args": { "-DefinitionFile": "{inputFile}", "-OutputPath": "{workDir}/Template.xml" }
+    }
+  ],
+  "params": {
+    "templatePath": "Template.xml",
+    "operation": "add-field",
+    "value": "Голое: Number;;СПробелом: Decimal(15, 2);;Регистр: numeric(10,2,NONNEG);;СтрДлина: String(10);;СтрФикс: Строка(3, Fixed);;Дат: Date;;ДатВр: DateTime;;Бул: Boolean"
+  },
+  "validatePath": "Template.xml"
+}

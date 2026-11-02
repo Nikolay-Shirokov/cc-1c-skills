@@ -1,0 +1,9 @@
+{
+  "name": "Ошибка: лишний параметр числового типа",
+  "input": {
+    "type": "Catalog",
+    "name": "Типы",
+    "attributes": [ "Сумма: Number(15,2,3)" ]
+  },
+  "expectError": "Invalid type 'Number(15,2,3)'"
+}
