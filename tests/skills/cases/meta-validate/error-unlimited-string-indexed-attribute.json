@@ -1,0 +1,26 @@
+{
+  "name": "Валидатор находит ошибку: индексируемый реквизит и реквизит ТЧ с неограниченной строкой; без индекса — можно",
+  "setup": "empty-config",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "Catalog",
+        "name": "Спр",
+        "attributes": ["Ключ: String(0) | index", "Текст: String(0)"],
+        "tabularSections": { "Строки": ["КлючСтроки: String(0) | index"] }
+      },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    }
+  ],
+  "params": { "objectPath": "Catalogs/Спр.xml" },
+  "expectError": true,
+  "noSnapshot": "навык ничего не пишет, проверяется текст",
+  "expect": {
+    "stdoutContains": [
+      "26. Attribute 'Ключ': unlimited String with Indexing=Index — the platform rejects the load",
+      "26. Attribute 'КлючСтроки': unlimited String with Indexing=Index"
+    ],
+    "stdoutNotContains": ["'Текст'"]
+  }
+}

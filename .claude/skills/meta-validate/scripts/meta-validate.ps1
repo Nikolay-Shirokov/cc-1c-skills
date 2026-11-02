@@ -1,4 +1,4 @@
-﻿# meta-validate v1.45 — Validate 1C metadata object structure
+﻿# meta-validate v1.46 — Validate 1C metadata object structure
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -2200,6 +2200,35 @@ foreach ($ls in @($xmlDoc.SelectNodes($lsXPath, $ns))) {
 	$owner = $ls.ParentNode.SelectSingleNode("md:Name|xr:Name", $ns)
 	$where = if ($owner -and $owner.InnerText.Trim() -ne $objName) { " of '$($owner.InnerText.Trim())'" } else { "" }
 	Report-Error "25. <$($ls.LocalName)>$where holds plain text '$plain' — a multilingual string needs <v8:item> elements; the platform rejects the load"
+}
+
+# --- Check 26: неограниченная строка там, где платформе нужен индекс ---
+# Замер 8.3.24: измерение регистра со строкой длины 0 (в том числе в составном типе) загружается
+# молча, а /UpdateDBCfg падает ошибкой СУБД; индексируемый реквизит с таким типом платформа отвергает
+# при загрузке («При установленном типе недопустимо индексирование»). Строка без StringQualifiers —
+# та же длина 0.
+function Test-UnlimitedString($typeNode) {
+	if (-not $typeNode) { return $false }
+	$str = @($typeNode.SelectNodes("v8:Type", $ns) | Where-Object { $_.InnerText.Trim() -match '(^|:)string$' })
+	if ($str.Count -eq 0) { return $false }
+	$len = $typeNode.SelectSingleNode("v8:StringQualifiers/v8:Length", $ns)
+	return (-not $len -or $len.InnerText.Trim() -eq '0')
+}
+# Измерения — всегда; прочие (реквизиты, реквизиты ТЧ, ресурсы, реквизиты адресации, общий реквизит) —
+# если у них есть Indexing, отличный от DontIndex.
+$idxTargets = @($xmlDoc.SelectNodes("//md:Dimension/md:Properties|//md:Properties[md:Indexing]", $ns))
+foreach ($p26 in $idxTargets) {
+	$isDim = $p26.ParentNode.LocalName -eq 'Dimension'
+	$ix = $p26.SelectSingleNode("md:Indexing", $ns)
+	if (-not $isDim -and (-not $ix -or $ix.InnerText.Trim() -eq 'DontIndex')) { continue }
+	if (-not (Test-UnlimitedString ($p26.SelectSingleNode("md:Type", $ns)))) { continue }
+	$n26 = $p26.SelectSingleNode("md:Name", $ns)
+	$nm26 = if ($n26) { $n26.InnerText.Trim() } else { '?' }
+	if ($isDim) {
+		Report-Error "26. Dimension '$nm26': unlimited String — a register dimension is indexed, the load passes but /UpdateDBCfg fails; set a length (e.g. String(150))"
+	} else {
+		Report-Error "26. $($p26.ParentNode.LocalName) '$nm26': unlimited String with Indexing=$($ix.InnerText.Trim()) — the platform rejects the load; set a length or DontIndex"
+	}
 }
 
 # --- Check 17: MDObjectRef form — ссылка должна указывать на ОБЪЕКТ метаданных, а не на тип ссылки ---

@@ -865,7 +865,6 @@ def build_type_content_xml(indent, type_str):
         lines.append(f"{indent}<v8:Type>xs:boolean</v8:Type>")
         return "\r\n".join(lines)
 
-    # ValueStorage
     # ValueStorage (ХранилищеЗначения) — v8:ValueStorage. xs:base64Binary платформа читает как ДвоичныеДанные.
     if type_str == "ValueStorage":
         lines.append(f"{indent}<v8:Type>v8:ValueStorage</v8:Type>")

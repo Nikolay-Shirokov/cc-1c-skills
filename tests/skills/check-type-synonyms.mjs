@@ -57,12 +57,18 @@ function parsePy(skill) {
   const starts = [...text.matchAll(new RegExp(`^${name.replace(/[$]/g, '\\$')} = \\{$`, 'gm'))];
   if (starts.length !== 1) throw new Error(`словарь ${name} в ${skill}.py: литералов ${starts.length}, ждём ровно один`);
   const from = starts[0].index;
-  const end = text.indexOf('\n}', from);
-  const body = text.slice(from, end);
+  // Литерал закрывается `}` в колонке 0; иначе разбор схватил бы остаток файла
+  const close = /^\}\s*$/m;
+  const tail = text.slice(from);
+  const cm = close.exec(tail);
+  if (!cm) throw new Error(`словарь ${name} в ${skill}.py: нет закрывающей } в колонке 0`);
+  // Комментарии внутри литерала отбрасываем: пример 'a': 'b' в них — не запись словаря
+  const body = tail.slice(0, cm.index).split('\n').map((l) => l.replace(/^\s*#.*$/, '')).join('\n');
   const map = new Map();
   const re = /(['"])((?:(?!\1).)*)\1\s*:\s*(['"])((?:(?!\3).)*)\3/g;
   let m;
   while ((m = re.exec(body)) !== null) map.set(unescape(m[2]), unescape(m[4]));
+  if (map.size === 0) throw new Error(`словарь ${name} в ${skill}.py пуст — разбор протух`);
   return map;
 }
 

@@ -1,0 +1,26 @@
+{
+  "name": "Валидатор находит ошибку: неограниченная строка в измерении регистра (одна и в составном типе); в ресурсе — можно",
+  "setup": "empty-config",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "InformationRegister",
+        "name": "Рег",
+        "dimensions": ["Изм: String(0)", "Сост: String(0) + Number(10,0)", "Норм: String(10)"],
+        "resources": ["Комм: String(0)"]
+      },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    }
+  ],
+  "params": { "objectPath": "InformationRegisters/Рег.xml" },
+  "expectError": true,
+  "noSnapshot": "навык ничего не пишет, проверяется текст",
+  "expect": {
+    "stdoutContains": [
+      "26. Dimension 'Изм': unlimited String — a register dimension is indexed",
+      "26. Dimension 'Сост': unlimited String"
+    ],
+    "stdoutNotContains": ["'Норм'", "'Комм'"]
+  }
+}
