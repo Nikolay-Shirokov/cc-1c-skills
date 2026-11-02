@@ -1,4 +1,4 @@
-# form-edit v1.47 — Edit 1C managed form elements (Python port)
+# form-edit v1.48 — Edit 1C managed form elements (Python port)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import bisect
@@ -518,29 +518,6 @@ def X(text):
 
 
 # --- Type emitter ---
-
-_FORM_TYPE_SYNONYMS = {
-    "строка": "string", "число": "decimal", "булево": "boolean",
-    "дата": "date", "датавремя": "dateTime",
-    "number": "decimal", "bool": "boolean",
-    "справочникссылка": "CatalogRef", "справочникобъект": "CatalogObject",
-    "документссылка": "DocumentRef", "документобъект": "DocumentObject",
-    "перечислениессылка": "EnumRef",
-    "плансчетовссылка": "ChartOfAccountsRef",
-    "планвидовхарактеристикссылка": "ChartOfCharacteristicTypesRef",
-    "планвидоврасчётассылка": "ChartOfCalculationTypesRef",
-    "планвидоврасчетассылка": "ChartOfCalculationTypesRef",
-    "планобменассылка": "ExchangePlanRef",
-    "бизнеспроцессссылка": "BusinessProcessRef",
-    "задачассылка": "TaskRef",
-    "определяемыйтип": "DefinedType",
-}
-
-
-# Алиас на локальный словарь: тело resolve_type_str ниже — общая реализация,
-# одинаковая во всех навыках (реестр в tests/skills/check-inline-drift.mjs).
-TYPE_SYNONYMS = _FORM_TYPE_SYNONYMS
-
 
 def _assert_edit_unique(name, seen, ctx):
     # Уникальность имён внутри JSON-определения (1С: своя коллекция — свой неймспейс).

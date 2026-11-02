@@ -1,4 +1,4 @@
-﻿# form-edit v1.47 — Edit 1C managed form elements
+﻿# form-edit v1.48 — Edit 1C managed form elements
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -395,6 +395,17 @@ $script:formTypeSynonyms["планобменассылка"]              = "Exc
 $script:formTypeSynonyms["бизнеспроцессссылка"]           = "BusinessProcessRef"
 $script:formTypeSynonyms["задачассылка"]                  = "TaskRef"
 $script:formTypeSynonyms["определяемыйтип"]             = "DefinedType"
+$script:formTypeSynonyms["характеристика"]             = "Characteristic"
+$script:formTypeSynonyms["любаяссылка"]                = "AnyRef"
+$script:formTypeSynonyms["любаяссылкаиб"]              = "AnyIBRef"
+# Платформенные v8-типы (forgiving: англ. без префикса + рус.) → каноничный с префиксом v8: (эмитим verbatim)
+$script:formTypeSynonyms["standardperiod"]            = "v8:StandardPeriod"
+$script:formTypeSynonyms["стандартныйпериод"]          = "v8:StandardPeriod"
+$script:formTypeSynonyms["standardbeginningdate"]     = "v8:StandardBeginningDate"
+$script:formTypeSynonyms["стандартнаядатаначала"]      = "v8:StandardBeginningDate"
+$script:formTypeSynonyms["uuid"]                      = "v8:UUID"
+$script:formTypeSynonyms["уникальныйидентификатор"]    = "v8:UUID"
+$script:formTypeSynonyms["списокзначений"]            = "ValueList"
 
 # Алиас на локальный словарь: тело Resolve-TypeStr ниже — общая реализация,
 # одинаковая во всех навыках (реестр в tests/skills/check-inline-drift.mjs).
@@ -467,8 +478,6 @@ $script:knownInvalidTypes = @{
 	"FormDecoration"        = "UI element type, not a data type"
 	"FormTable"             = "UI element type, not a data type"
 }
-
-$script:typeSynonyms = $script:formTypeSynonyms
 
 # --- Каталог событий формы (генерируется) ---
 # Тег элемента («Form» — сама форма) → событие → @(суффикс имени обработчика, директива компиляции,
