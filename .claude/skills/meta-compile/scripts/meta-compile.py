@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-compile v1.127 — Compile 1C metadata object from JSON
+# meta-compile v1.128 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -809,9 +809,10 @@ type_synonyms = {
     'date': 'Date',
     'datetime': 'DateTime',
     'bool': 'Boolean',
-    # ValueStorage / UUID — прощающий ввод (base64Binary / рус. форма → канон).
+    # ValueStorage / UUID — прощающий ввод (рус. форма → канон).
     'valuestorage': 'ValueStorage',
-    'base64binary': 'ValueStorage',
+    # base64Binary — имя XML-типа ДвоичныхДанных: платформа читает xs:base64Binary как ДвоичныеДанные (замер 8.3.24).
+    'base64binary': 'BinaryData',
     # ДвоичныеДанные — ОТДЕЛЬНЫЙ тип, не ХранилищеЗначения: платформа пишет его как
     # xs:base64Binary с квалификаторами. Встречается у полей внешних источников данных.
     'binarydata': 'BinaryData',
@@ -1144,7 +1145,7 @@ def emit_type_content(indent, type_str):
         X(f'{indent}\t<v8:AllowedLength>{ballowed}</v8:AllowedLength>')
         X(f'{indent}</v8:BinaryDataQualifiers>')
         return
-    # ValueStorage (ХранилищеЗначения) — канон v8:ValueStorage (не xs:base64Binary).
+    # ValueStorage (ХранилищеЗначения) — v8:ValueStorage. xs:base64Binary платформа читает как ДвоичныеДанные.
     if type_str == 'ValueStorage':
         X(f'{indent}<v8:Type>v8:ValueStorage</v8:Type>')
         return

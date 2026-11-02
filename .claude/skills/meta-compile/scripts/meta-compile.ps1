@@ -1,4 +1,4 @@
-﻿# meta-compile v1.127 — Compile 1C metadata object from JSON
+﻿# meta-compile v1.128 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -680,9 +680,10 @@ $script:typeSynonyms["boolean"]  = "Boolean"
 $script:typeSynonyms["date"]     = "Date"
 $script:typeSynonyms["datetime"] = "DateTime"
 $script:typeSynonyms["bool"]     = "Boolean"
-# ValueStorage / UUID — прощающий ввод (модель может написать base64Binary / рус. форму → канон).
+# ValueStorage / UUID — прощающий ввод (рус. форма → канон).
 $script:typeSynonyms["valuestorage"]         = "ValueStorage"
-$script:typeSynonyms["base64binary"]         = "ValueStorage"
+# base64Binary — имя XML-типа ДвоичныхДанных: платформа читает xs:base64Binary как ДвоичныеДанные (замер 8.3.24).
+$script:typeSynonyms["base64binary"]         = "BinaryData"
 # ДвоичныеДанные — ОТДЕЛЬНЫЙ тип, не ХранилищеЗначения: платформа пишет его как
 # xs:base64Binary с квалификаторами. Встречается у полей внешних источников данных.
 $script:typeSynonyms["binarydata"]           = "BinaryData"
@@ -994,7 +995,7 @@ function Emit-TypeContent {
 		return
 	}
 
-	# ValueStorage (ХранилищеЗначения) — канон v8:ValueStorage (не xs:base64Binary, хоть 1С и принимает оба).
+	# ValueStorage (ХранилищеЗначения) — v8:ValueStorage. xs:base64Binary платформа читает как ДвоичныеДанные.
 	# ДвоичныеДанные — xs:base64Binary с квалификаторами (у полей внешних источников).
 	if ($typeStr -match '^BinaryData(\(|$)') {
 		# BinaryData — безлимит (так платформа пишет поле внешнего источника: 4294967292/Fixed).

@@ -33,7 +33,9 @@
         "flags": [
           "nonneg"
         ]
-      }
+      },
+      "Хранилище: ХранилищеЗначения",
+      "Двоичные: base64Binary"
     ]
   },
   "validatePath": "Catalogs/Типы"

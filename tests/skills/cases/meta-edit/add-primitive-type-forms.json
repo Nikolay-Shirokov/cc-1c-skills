@@ -1,5 +1,5 @@
 {
-  "name": "Примитивные типы при добавлении: голые, (D), пробелы, регистр, синонимы, fixed",
+  "name": "Типы при добавлении: голые, (D), пробелы, регистр, синонимы, fixed, nonneg; ХранилищеЗначения и base64Binary",
   "preRun": [
     {
       "script": "meta-compile/scripts/meta-compile",
@@ -32,7 +32,9 @@
         "Стр: String",
         "СтрФикс: String(9, Fixed)",
         "Дат: DATETIME",
-        "Флаг: Number(12,3) | nonneg"
+        "Флаг: Number(12,3) | nonneg",
+        "Хранилище: ХранилищеЗначения",
+        "Двоичные: base64Binary"
       ]
     },
     "modify": {

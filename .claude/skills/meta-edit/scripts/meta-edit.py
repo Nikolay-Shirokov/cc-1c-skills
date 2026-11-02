@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-edit v1.74 — Edit existing 1C metadata object XML
+# meta-edit v1.75 — Edit existing 1C metadata object XML
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -692,7 +692,7 @@ type_synonyms = {
     # который является авторитетом. Расхождение держит tests/skills/check-type-synonyms.mjs.
     "время": "Time",
     "time": "Time",
-    "base64binary": "ValueStorage",
+    "base64binary": "BinaryData",
     "binarydata": "BinaryData",
     "двоичныеданные": "BinaryData",
     "хранилищезначений": "ValueStorage",
@@ -866,8 +866,9 @@ def build_type_content_xml(indent, type_str):
         return "\r\n".join(lines)
 
     # ValueStorage
+    # ValueStorage (ХранилищеЗначения) — v8:ValueStorage. xs:base64Binary платформа читает как ДвоичныеДанные.
     if type_str == "ValueStorage":
-        lines.append(f"{indent}<v8:Type>xs:base64Binary</v8:Type>")
+        lines.append(f"{indent}<v8:Type>v8:ValueStorage</v8:Type>")
         return "\r\n".join(lines)
 
     # Примитивы: String / Number / Date / DateTime / Time. Голый тип хранимого реквизита — String(10)

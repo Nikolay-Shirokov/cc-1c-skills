@@ -1,4 +1,4 @@
-﻿# meta-edit v1.74 — Edit existing 1C metadata object XML
+﻿# meta-edit v1.75 — Edit existing 1C metadata object XML
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -633,7 +633,7 @@ $script:v8PlatformTypes = @("ValueTable","ValueTree","ValueList","ValueListType"
 # который является авторитетом. Расхождение держит tests/skills/check-type-synonyms.mjs.
 $script:typeSynonyms["время"] = "Time"
 $script:typeSynonyms["time"] = "Time"
-$script:typeSynonyms["base64binary"] = "ValueStorage"
+$script:typeSynonyms["base64binary"] = "BinaryData"
 $script:typeSynonyms["binarydata"] = "BinaryData"
 $script:typeSynonyms["двоичныеданные"] = "BinaryData"
 $script:typeSynonyms["хранилищезначений"] = "ValueStorage"
@@ -811,9 +811,9 @@ function Build-TypeContentXml {
 		return $sb.ToString().TrimEnd("`r","`n")
 	}
 
-	# ValueStorage
+	# ValueStorage (ХранилищеЗначения) — v8:ValueStorage. xs:base64Binary платформа читает как ДвоичныеДанные.
 	if ($typeStr -eq "ValueStorage") {
-		$sb.AppendLine("$indent<v8:Type>xs:base64Binary</v8:Type>") | Out-Null
+		$sb.AppendLine("$indent<v8:Type>v8:ValueStorage</v8:Type>") | Out-Null
 		return $sb.ToString().TrimEnd("`r","`n")
 	}
 
