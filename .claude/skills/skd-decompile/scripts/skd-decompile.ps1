@@ -1,4 +1,4 @@
-﻿# skd-decompile v0.108 — Decompile 1C DCS Template.xml to JSON DSL (draft)
+﻿# skd-decompile v0.109 — Decompile 1C DCS Template.xml to JSON DSL (draft)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -386,7 +386,8 @@ function Get-OneTypeShorthand {
 						$sign = Get-Text $qualNumber "v8:AllowedSign"
 						$signSuf = ''
 						if ($sign -eq 'Nonnegative') { $signSuf = ',nonneg' }
-						# Always explicit (D,F) — JSON readable, no surprise from default folding
+						# Голое decimal у skd-compile — 0,0 (без ограничения); остальное явно
+						if ($d -eq 0 -and $f -eq 0 -and -not $signSuf) { return 'decimal' }
 						if ($f -eq 0) { return "decimal($d$signSuf)" }
 						if ($signSuf) { return "decimal($d,$f$signSuf)" }
 						return "decimal($d,$f)"

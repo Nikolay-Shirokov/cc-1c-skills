@@ -1,4 +1,4 @@
-﻿# form-info v1.14 — Analyze 1C managed form structure
+﻿# form-info v1.15 — Analyze 1C managed form structure
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -219,19 +219,24 @@ function Format-Type($typeNode) {
 		switch -Wildcard ($raw) {
 			"xs:string" {
 				$sq = $typeNode.SelectSingleNode("v8:StringQualifiers/v8:Length", $ns)
+				$al = $typeNode.SelectSingleNode("v8:StringQualifiers/v8:AllowedLength", $ns)
 				$len = if ($sq) { [int]$sq.InnerText } else { 0 }
-				if ($len -gt 0) { $parts += "string($len)" } else { $parts += "string" }
+				if ($al -and $al.InnerText -eq 'Fixed') { $parts += "string($len,fixed)" }
+				elseif ($len -gt 0) { $parts += "string($len)" } else { $parts += "string" }
 			}
 			"xs:decimal" {
 				$nq = $typeNode.SelectSingleNode("v8:NumberQualifiers", $ns)
 				if ($nq) {
 					$d = $nq.SelectSingleNode("v8:Digits", $ns)
 					$f = $nq.SelectSingleNode("v8:FractionDigits", $ns)
+					$s = $nq.SelectSingleNode("v8:AllowedSign", $ns)
 					$digits = if ($d) { $d.InnerText } else { "0" }
 					$frac = if ($f) { $f.InnerText } else { "0" }
-					$parts += "decimal($digits,$frac)"
+					if ($s -and $s.InnerText -eq 'Nonnegative') { $parts += "decimal($digits,$frac,nonneg)" }
+					else { $parts += "decimal($digits,$frac)" }
 				} else {
-					$parts += "decimal"
+					# Без квалификаторов платформа читает число как 0,0; голое decimal значило бы 10,0
+					$parts += "decimal(0,0)"
 				}
 			}
 			"xs:boolean" { $parts += "boolean" }

@@ -1,4 +1,4 @@
-﻿# skd-info v1.14 — Analyze 1C DCS structure
+﻿# skd-info v1.15 — Analyze 1C DCS structure
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -126,7 +126,12 @@ function Get-CompactType($valueTypeNode) {
 			"xs:string"   { $types += "String" }
 			"xs:decimal"  { $types += "Number" }
 			"xs:boolean"  { $types += "Boolean" }
-			"xs:dateTime" { $types += "DateTime" }
+			"xs:dateTime" {
+				# Состав даты — из DateFractions; без квалификатора платформа читает DateTime
+				$df = $valueTypeNode.SelectSingleNode("v8:DateQualifiers/v8:DateFractions", $ns)
+				$frac = if ($df) { $df.InnerText.Trim() } else { "" }
+				$types += if ($frac -eq 'Date') { "Date" } elseif ($frac -eq 'Time') { "Time" } else { "DateTime" }
+			}
 			"v8:StandardPeriod" { $types += "StandardPeriod" }
 			"v8:StandardBeginningDate" { $types += "StandardBeginningDate" }
 			"v8:AccountType" { $types += "AccountType" }

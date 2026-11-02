@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# skd-decompile v0.108 — Decompile 1C DCS Template.xml to JSON DSL (draft)
+# skd-decompile v0.109 — Decompile 1C DCS Template.xml to JSON DSL (draft)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import os
@@ -605,6 +605,9 @@ def get_one_type_shorthand(type_node, qual_number, qual_string, qual_date):
                     sign_suf = ''
                     if sign == 'Nonnegative':
                         sign_suf = ',nonneg'
+                    # Голое decimal у skd-compile — 0,0 (без ограничения); остальное явно
+                    if d == 0 and f == 0 and not sign_suf:
+                        return 'decimal'
                     if f == 0:
                         return "decimal(%d%s)" % (d, sign_suf)
                     if sign_suf:

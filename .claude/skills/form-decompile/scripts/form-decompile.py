@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# form-decompile v0.158 — Decompile 1C managed Form.xml to JSON DSL (draft)
+# form-decompile v0.159 — Decompile 1C managed Form.xml to JSON DSL (draft)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 # ВНИМАНИЕ: раундтрип не гарантируется. Навык исключён из авто-использования моделью.
 #
@@ -1469,10 +1469,13 @@ def decompile_type(type_node):
             ln = type_node.find('v8:StringQualifiers/v8:Length', NS)
             al = type_node.find('v8:StringQualifiers/v8:AllowedLength', NS)
             fixed = (al is not None and _text(al) == 'Fixed')   # Variable = дефолт; Fixed — явно
-            if ln is not None and int(_text(ln)) > 0:
-                short = ('string(%s,fixed)' % _text(ln)) if fixed else ('string(%s)' % _text(ln))
+            ll = _text(ln) if ln is not None else '0'
+            if fixed and int(ll) > 0:   # Fixed при длине 0 платформа не хранит
+                short = 'string(%s,fixed)' % ll
+            elif int(ll) > 0:
+                short = 'string(%s)' % ll
             else:
-                short = 'string'   # Length=0 → всегда Variable (корпус)
+                short = 'string'   # голая строка у form-compile — неограниченная
         elif re.match(r'^xs:decimal$', raw):
             d = type_node.find('v8:NumberQualifiers/v8:Digits', NS)
             f = type_node.find('v8:NumberQualifiers/v8:FractionDigits', NS)
@@ -1481,6 +1484,8 @@ def decompile_type(type_node):
             ff = _text(f) if f is not None else '0'
             if sgn is not None and _text(sgn) == 'Nonnegative':
                 short = 'decimal(%s,%s,nonneg)' % (dd, ff)
+            elif dd == '10' and ff == '0':
+                short = 'decimal'   # голое число у form-compile — 10,0
             else:
                 short = 'decimal(%s,%s)' % (dd, ff)
         elif re.match(r'^xs:boolean$', raw):

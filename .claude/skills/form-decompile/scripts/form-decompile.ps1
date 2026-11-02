@@ -1,4 +1,4 @@
-﻿# form-decompile v0.158 — Decompile 1C managed Form.xml to JSON DSL (draft)
+﻿# form-decompile v0.159 — Decompile 1C managed Form.xml to JSON DSL (draft)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 # ВНИМАНИЕ: раундтрип не гарантируется. Навык исключён из авто-использования моделью.
 [CmdletBinding(PositionalBinding=$false)]
@@ -1302,9 +1302,10 @@ function Decompile-Type {
 				$len = $typeNode.SelectSingleNode("v8:StringQualifiers/v8:Length", $ns)
 				$al = $typeNode.SelectSingleNode("v8:StringQualifiers/v8:AllowedLength", $ns)
 				$fixed = ($al -and $al.InnerText -eq 'Fixed')   # Variable = дефолт (опускаем); Fixed — явно
-				if ($len -and [int]$len.InnerText -gt 0) {
-					$short = if ($fixed) { "string($($len.InnerText),fixed)" } else { "string($($len.InnerText))" }
-				} else { $short = "string" }   # Length=0 → всегда Variable (корпус)
+				$ll = if ($len) { $len.InnerText } else { '0' }
+				if ($fixed -and [int]$ll -gt 0) { $short = "string($ll,fixed)" }   # Fixed при длине 0 платформа не хранит
+				elseif ([int]$ll -gt 0) { $short = "string($ll)" }
+				else { $short = "string" }   # голая строка у form-compile — неограниченная
 				break
 			}
 			'^xs:decimal$' {
@@ -1313,7 +1314,9 @@ function Decompile-Type {
 				$sgn = $typeNode.SelectSingleNode("v8:NumberQualifiers/v8:AllowedSign", $ns)
 				$dd = if ($d) { $d.InnerText } else { '0' }
 				$ff = if ($f) { $f.InnerText } else { '0' }
-				if ($sgn -and $sgn.InnerText -eq 'Nonnegative') { $short = "decimal($dd,$ff,nonneg)" } else { $short = "decimal($dd,$ff)" }
+				if ($sgn -and $sgn.InnerText -eq 'Nonnegative') { $short = "decimal($dd,$ff,nonneg)" }
+				elseif ($dd -eq '10' -and $ff -eq '0') { $short = "decimal" }   # голое число у form-compile — 10,0
+				else { $short = "decimal($dd,$ff)" }
 				break
 			}
 			'^xs:boolean$' { $short = "boolean"; break }

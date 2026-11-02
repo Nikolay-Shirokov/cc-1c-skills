@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# skd-info v1.14 — Analyze 1C DCS structure
+# skd-info v1.15 — Analyze 1C DCS structure
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -98,7 +98,10 @@ def get_compact_type(value_type_node):
         elif raw == "xs:boolean":
             types.append("Boolean")
         elif raw == "xs:dateTime":
-            types.append("DateTime")
+            # Состав даты — из DateFractions; без квалификатора платформа читает DateTime
+            df = value_type_node.find("v8:DateQualifiers/v8:DateFractions", NSMAP)
+            frac = (df.text or "").strip() if df is not None else ""
+            types.append("Date" if frac == "Date" else ("Time" if frac == "Time" else "DateTime"))
         elif raw == "v8:StandardPeriod":
             types.append("StandardPeriod")
         elif raw == "v8:StandardBeginningDate":

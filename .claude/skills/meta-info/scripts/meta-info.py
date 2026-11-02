@@ -1,4 +1,4 @@
-# meta-info v1.16 — Compact summary of 1C metadata object (Python port)
+# meta-info v1.17 — Compact summary of 1C metadata object (Python port)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import os
@@ -431,15 +431,23 @@ def format_type(type_node_el):
 
 def format_single_type(raw, parent_node):
     if raw == "xs:string":
+        # Параметры всегда явно: без квалификаторов платформа читает строку как неограниченную.
         sq = find(parent_node, "v8:StringQualifiers/v8:Length")
-        length = inner_text(sq) if sq is not None else ""
-        return f"Строка({length})" if length else "Строка"
+        al = find(parent_node, "v8:StringQualifiers/v8:AllowedLength")
+        length = inner_text(sq) if sq is not None else "0"
+        if al is not None and inner_text(al) == "Fixed":
+            return f"Строка({length},fixed)"
+        return f"Строка({length})"
     if raw == "xs:decimal":
+        # Параметры всегда явно: без квалификаторов платформа читает число как 0,0.
         dg = find(parent_node, "v8:NumberQualifiers/v8:Digits")
         fr = find(parent_node, "v8:NumberQualifiers/v8:FractionDigits")
-        d = inner_text(dg) if dg is not None else ""
+        sg = find(parent_node, "v8:NumberQualifiers/v8:AllowedSign")
+        d = inner_text(dg) if dg is not None else "0"
         f = inner_text(fr) if fr is not None else "0"
-        return f"Число({d},{f})" if d else "Число"
+        if sg is not None and inner_text(sg) == "Nonnegative":
+            return f"Число({d},{f},nonneg)"
+        return f"Число({d},{f})"
     if raw == "xs:boolean":
         return "Булево"
     if raw == "xs:dateTime":

@@ -16,7 +16,7 @@
   "tabularSections": {
     "Представления": {
       "use": "ForFolderAndItem",
-      "attributes": ["Язык: String(10)", "Текст: String(100)"]
+      "attributes": ["Язык: String", "Текст: String(100)"]
     }
   }
 }

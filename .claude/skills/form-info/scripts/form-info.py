@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# form-info v1.14 — Analyze 1C managed form structure
+# form-info v1.15 — Analyze 1C managed form structure
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -92,8 +92,11 @@ def format_type(type_node):
         raw = t.text or ""
         if raw == "xs:string":
             sq = type_node.find("v8:StringQualifiers/v8:Length", NSMAP)
+            al = type_node.find("v8:StringQualifiers/v8:AllowedLength", NSMAP)
             length = int(sq.text) if sq is not None and sq.text else 0
-            if length > 0:
+            if al is not None and al.text == "Fixed":
+                parts.append(f"string({length},fixed)")
+            elif length > 0:
                 parts.append(f"string({length})")
             else:
                 parts.append("string")
@@ -102,11 +105,16 @@ def format_type(type_node):
             if nq is not None:
                 d = nq.find("v8:Digits", NSMAP)
                 f = nq.find("v8:FractionDigits", NSMAP)
+                s = nq.find("v8:AllowedSign", NSMAP)
                 digits = d.text if d is not None and d.text else "0"
                 frac = f.text if f is not None and f.text else "0"
-                parts.append(f"decimal({digits},{frac})")
+                if s is not None and s.text == "Nonnegative":
+                    parts.append(f"decimal({digits},{frac},nonneg)")
+                else:
+                    parts.append(f"decimal({digits},{frac})")
             else:
-                parts.append("decimal")
+                # Без квалификаторов платформа читает число как 0,0; голое decimal значило бы 10,0
+                parts.append("decimal(0,0)")
         elif raw == "xs:boolean":
             parts.append("boolean")
         elif raw == "xs:dateTime":

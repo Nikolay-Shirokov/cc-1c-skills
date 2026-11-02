@@ -1,4 +1,4 @@
-﻿# meta-decompile v0.70 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
+﻿# meta-decompile v0.71 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 #
 # Поддержаны: Catalog, ExchangePlan, ChartOfCharacteristicTypes, ChartOfAccounts, ChartOfCalculationTypes, Document,
@@ -182,23 +182,29 @@ function Get-TypeShorthand {
 			switch -regex ($raw) {
 				'(^|:)boolean$'    { $parts += 'Boolean'; break }
 				'(^|:)string$'     {
-					$len = '10'; $al = ''
+					# Без квалификаторов платформа читает строку как неограниченную (замер 8.3.24).
+					$len = '0'; $al = ''
 					$sq = if ($next -and $next.LocalName -eq 'StringQualifiers') { $next } else { $typeNode.SelectSingleNode('v8:StringQualifiers', $nsm) }
 					if ($sq) {
 						$l = $sq.SelectSingleNode('v8:Length', $nsm); if ($l) { $len = $l.InnerText }
 						$aln = $sq.SelectSingleNode('v8:AllowedLength', $nsm); if ($aln -and $aln.InnerText -eq 'Fixed') { $al = ',fixed' }
 					}
-					$parts += "String($len$al)"; break
+					# Голый String у meta-compile — String(10): его и сворачиваем, чтобы вывод был кратчайшим.
+					if ($len -eq '10' -and -not $al) { $parts += 'String' } else { $parts += "String($len$al)" }
+					break
 				}
 				'(^|:)decimal$'    {
-					$d = '10'; $f = '0'; $sign = ''
+					# Без квалификаторов платформа читает число как 0,0 — без ограничения (замер 8.3.24).
+					$d = '0'; $f = '0'; $sign = ''
 					$nq = if ($next -and $next.LocalName -eq 'NumberQualifiers') { $next } else { $typeNode.SelectSingleNode('v8:NumberQualifiers', $nsm) }
 					if ($nq) {
 						$dn = $nq.SelectSingleNode('v8:Digits', $nsm); if ($dn) { $d = $dn.InnerText }
 						$fn = $nq.SelectSingleNode('v8:FractionDigits', $nsm); if ($fn) { $f = $fn.InnerText }
 						$sn = $nq.SelectSingleNode('v8:AllowedSign', $nsm); if ($sn -and $sn.InnerText -eq 'Nonnegative') { $sign = ',nonneg' }
 					}
-					$parts += "Number($d,$f$sign)"; break
+					# Голый Number у meta-compile — Number(10,0): сворачиваем в кратчайшую запись.
+					if ($d -eq '10' -and $f -eq '0' -and -not $sign) { $parts += 'Number' } else { $parts += "Number($d,$f$sign)" }
+					break
 				}
 				'(^|:)dateTime$'   {
 					$fr = 'DateTime'
@@ -1779,9 +1785,9 @@ if ($objType -eq 'ExternalDataSource') {
 			$fnNoValue = ($fnRetNode -and $fnRetNode.InnerText -eq 'false')
 			$synCustomFn = ($fnSyn -isnot [string]) -and ($null -ne $fnSyn)
 			if ($fnSyn -is [string]) { $synCustomFn = ($fnSyn -cne (Split-CamelWords $fnName)) -and ($fnSyn -ne '') }
-			# Умолчание `returns` компилятора — String, а он даёт String(10): с ним и сверяем,
-			# иначе короткая форма (одна строка выражения) не срабатывала бы никогда.
-			if (-not $fnNoValue -and -not $fnCmt -and -not $synCustomFn -and ($fnReturns -cne 'String(10)')) {
+			# Умолчание `returns` компилятора — String (он даёт String(10), а Get-TypeShorthand сворачивает
+			# его обратно в String): с ним и сверяем, иначе короткая форма не срабатывала бы никогда.
+			if (-not $fnNoValue -and -not $fnCmt -and -not $synCustomFn -and ($fnReturns -cne 'String')) {
 				$fo = [ordered]@{ expression = $fnExpr; returns = $fnReturns }
 				$fnMap[$fnName] = $fo
 			} elseif (-not $fnNoValue -and -not $fnCmt -and -not $synCustomFn) {

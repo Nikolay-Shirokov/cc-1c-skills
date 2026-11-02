@@ -3,7 +3,7 @@
   "name": "PG",
   "dataLockControlMode": "AutomaticAndManaged",
   "tables": {
-    "prices": ["product_id: Number(10,0)", "price: Number(15,2)"],
+    "prices": ["product_id: Number", "price: Number(15,2)"],
     "products": {
       "nameInDataSource": "eds.public.products",
       "tableDataType": "ObjectData",
@@ -12,7 +12,7 @@
       "transactionsIsolationLevel": "ReadUncommitted",
       "defaultListForm": "ExternalDataSource.PG.Table.products.Form.ФормаСписка",
       "fields": [
-        "id: Number(10,0)",
+        "id: Number",
         "name: String(150)",
         "photo: BinaryData | nullable",
         "sig: BinaryData(256,fixed) | nullable",

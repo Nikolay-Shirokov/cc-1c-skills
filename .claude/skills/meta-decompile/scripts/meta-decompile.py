@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-decompile v0.70 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
+# meta-decompile v0.71 — XML объекта метаданных 1С → JSON-черновик формата meta-compile
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 #
 # Зеркало meta-decompile.ps1 (КАНОН). Структура 1:1 — те же имена функций, порядок, комментарии.
@@ -275,7 +275,8 @@ def get_type_shorthand(type_node):
             if re.search(r'(^|:)boolean$', raw, re.I):
                 parts.append('Boolean')
             elif re.search(r'(^|:)string$', raw, re.I):
-                length = '10'
+                # Без квалификаторов платформа читает строку как неограниченную (замер 8.3.24).
+                length = '0'
                 al = ''
                 sq = nxt if (nxt is not None and _localname(nxt) == 'StringQualifiers') else _single(type_node, 'v8:StringQualifiers')
                 if sq is not None:
@@ -285,9 +286,14 @@ def get_type_shorthand(type_node):
                     aln = _single(sq, 'v8:AllowedLength')
                     if aln is not None and _text(aln) == 'Fixed':
                         al = ',fixed'
-                parts.append("String(%s%s)" % (length, al))
+                # Голый String у meta-compile — String(10): его и сворачиваем, чтобы вывод был кратчайшим.
+                if length == '10' and not al:
+                    parts.append('String')
+                else:
+                    parts.append("String(%s%s)" % (length, al))
             elif re.search(r'(^|:)decimal$', raw, re.I):
-                d = '10'
+                # Без квалификаторов платформа читает число как 0,0 — без ограничения (замер 8.3.24).
+                d = '0'
                 f = '0'
                 sign = ''
                 nq = nxt if (nxt is not None and _localname(nxt) == 'NumberQualifiers') else _single(type_node, 'v8:NumberQualifiers')
@@ -301,7 +307,11 @@ def get_type_shorthand(type_node):
                     sn = _single(nq, 'v8:AllowedSign')
                     if sn is not None and _text(sn) == 'Nonnegative':
                         sign = ',nonneg'
-                parts.append("Number(%s,%s%s)" % (d, f, sign))
+                # Голый Number у meta-compile — Number(10,0): сворачиваем в кратчайшую запись.
+                if d == '10' and f == '0' and not sign:
+                    parts.append('Number')
+                else:
+                    parts.append("Number(%s,%s%s)" % (d, f, sign))
             elif re.search(r'(^|:)dateTime$', raw, re.I):
                 fr = 'DateTime'
                 dq = nxt if (nxt is not None and _localname(nxt) == 'DateQualifiers') else _single(type_node, 'v8:DateQualifiers')
@@ -2315,9 +2325,9 @@ def main():
                     syn_custom_fn = fn_syn != split_camel_words(fn_name) and fn_syn != ''
                 else:
                     syn_custom_fn = fn_syn is not None
-                # Умолчание `returns` компилятора — String, а он даёт String(10): с ним и сверяем,
-                # иначе короткая форма (одна строка выражения) не срабатывала бы никогда.
-                if not fn_no_value and not fn_cmt and not syn_custom_fn and fn_returns != 'String(10)':
+                # Умолчание `returns` компилятора — String (он даёт String(10), а get_type_shorthand сворачивает
+                # его обратно в String): с ним и сверяем, иначе короткая форма не срабатывала бы никогда.
+                if not fn_no_value and not fn_cmt and not syn_custom_fn and fn_returns != 'String':
                     fn_map[fn_name] = {'expression': fn_expr, 'returns': fn_returns}
                 elif not fn_no_value and not fn_cmt and not syn_custom_fn:
                     # Тип по умолчанию String — короткая форма: одна строка выражения.
