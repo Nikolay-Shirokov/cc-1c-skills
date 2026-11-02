@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // Анти-дрейф групп свойств заимствованного объекта: cfe-borrow (актуализация) и cfe-validate
 // (проверка 18) делят их на контролируемые (приводятся к источнику / сверяются по режимам) и
-// дополнения (список расширения сливается со списком источника — не трогаются / не сверяются).
+// дополнения (список расширения сливается со списком источника — не трогаются / не сверяются), а также
+// свойства без переопределения (режим Extended у них недопустим — сверяются как контролируемые).
 // Списки продублированы в четырёх файлах (два навыка × два порта). Разойдутся — навык освежит
 // свойство, о котором валидатор только предупредит, или наоборот.
 //
@@ -16,7 +17,7 @@ const FILES = [
   ['cfe-borrow', 'cfe-borrow.ps1'], ['cfe-borrow', 'cfe-borrow.py'],
   ['cfe-validate', 'cfe-validate.ps1'], ['cfe-validate', 'cfe-validate.py'],
 ];
-const LISTS = [['controlledProps', 'controlled_props'], ['additiveProps', 'additive_props']];
+const LISTS = [['controlledProps', 'controlled_props'], ['additiveProps', 'additive_props'], ['noOverrideProps', 'no_override_props']];
 
 function extract(text, file, psName, pyName) {
   const re = file.endsWith('.ps1')

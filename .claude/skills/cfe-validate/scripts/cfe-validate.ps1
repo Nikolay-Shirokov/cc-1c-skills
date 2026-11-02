@@ -1,4 +1,4 @@
-﻿# cfe-validate v1.35 — Validate 1C configuration extension structure (CFE)
+﻿# cfe-validate v1.36 — Validate 1C configuration extension structure (CFE)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -2111,6 +2111,10 @@ $script:controlledProps = @('Type', 'Owners', 'Global', 'ClientManagedApplicatio
 	'CodeAllowedLength', 'NumberType', 'NumberLength', 'NumberAllowedLength', 'InformationRegisterPeriodicity',
 	'WriteMode', 'LanguageCode', 'RegisteredDocuments', 'ExtDimensionTypes', 'MaxExtDimensionCount')
 $script:additiveProps = @('RegisterRecords', 'Content')
+# Свойства без переопределения (Конфигуратор режим не предлагает, замер М4): Extended у них платформа
+# принимает, но теряет при выгрузке, и своя же выгрузка не грузится (замер М15) — сверяем как контролируемые
+$script:noOverrideProps = @('Hierarchical', 'InformationRegisterPeriodicity', 'WriteMode', 'Global',
+	'ClientManagedApplication', 'Server', 'ExternalConnection', 'ClientOrdinaryApplication', 'ServerCall')
 
 $script:check18Props = 0
 function Compare-AdoptedProperties([string]$key, $extEl, $srcEl) {
@@ -2125,6 +2129,11 @@ function Compare-AdoptedProperties([string]$key, $extEl, $srcEl) {
 		$prop = $c.LocalName
 		if ($prop -in @('ObjectBelonging', 'Name', 'Comment', 'ExtendedConfigurationObject')) { continue }
 		$state = $states[$prop]
+		$noOverride = ''
+		if ($state -ceq 'Extended' -and $script:noOverrideProps -ccontains $prop) {
+			$noOverride = ' — override mode is not supported for this property: the platform accepts it once, drops it on dump, and the next load fails'
+			$state = $null
+		}
 		# Переопределение типа платформа принимает только частями (MultiState, xr:ExtendValue); одиночный
 		# Extended у Type она не применяет и сверяет тип как контролируемый (замер М13, 8.3.27)
 		if ($state -ceq 'Extended' -and $prop -cne 'Type') { continue }
@@ -2177,6 +2186,9 @@ function Compare-AdoptedProperties([string]$key, $extEl, $srcEl) {
 		$was = $c.InnerText.Trim(); $now = $s.InnerText.Trim()
 		if ($state -ceq 'Notify') {
 			Report-Warn "18. ${key}: $prop ($was) differs from the source configuration ($now), mode Notify — the extension is applied, the applicability check reports the mismatch; $hint"
+		} elseif ($noOverride) {
+			Report-Error "18. ${key}: $prop ($was) differs from the source configuration ($now)$noOverride («Значение контролируемого свойства … не совпадает»); $hint"
+			$ok = $false
 		} else {
 			Report-Error "18. ${key}: $prop ($was) differs from the source configuration ($now) — the platform loads the extension but does not apply it («Значение контролируемого свойства … не совпадает»); $hint"
 			$ok = $false
@@ -2222,6 +2234,40 @@ if (-not $script:stopped -and $childObjNode) {
 		}
 	}
 
+	# Дубль связи: два заимствованных элемента связаны с одним объектом источника — платформа расширение
+	# не грузит («Не найден объект …», замер М15). Видно в самом расширении, источник не нужен
+	$dupKeys = @{}
+	$linkOwners = New-Object System.Collections.Specialized.OrderedDictionary
+	foreach ($child in $childObjNode.ChildNodes) {
+		if ($child.NodeType -ne 'Element' -or -not $childTypeDirMap.ContainsKey($child.LocalName)) { continue }
+		$dn = $child.InnerText.Trim()
+		if (-not $dn) { continue }
+		$dix = Get-MdIdIndex (Join-Path $configDir $childTypeDirMap[$child.LocalName]) $child.LocalName $dn $true
+		if (-not $dix) { continue }
+		foreach ($k in $dix.Keys) {
+			$l = $dix[$k]
+			if (-not $l -or $l -ceq $zeroGuid) { continue }
+			$l = $l.ToLowerInvariant()
+			if (-not $linkOwners.Contains($l)) { $linkOwners[$l] = New-Object System.Collections.Generic.List[string] }
+			$linkOwners[$l].Add($k)
+		}
+	}
+	foreach ($l in $linkOwners.Keys) {
+		$ks = $linkOwners[$l]
+		if ($ks.Count -lt 2) { continue }
+		foreach ($k in $ks) { $dupKeys[$k] = $true }
+	}
+	foreach ($l in $linkOwners.Keys) {
+		$ks = $linkOwners[$l]
+		if ($ks.Count -lt 2) { continue }
+		# Подобъекты двух объектов-дублей повторяют ту же ошибку — о них не говорим
+		$ownerDup = @($ks | Where-Object { $p = $_ -split '\.'; $p.Count -gt 2 -and $dupKeys.ContainsKey("$($p[0]).$($p[1])") })
+		if ($ownerDup.Count -eq $ks.Count) { continue }
+		Report-Error "18. $($ks -join ', '): bound to the same source object (ExtendedConfigurationObject $l) — the platform does not load the extension («Не найден объект …»). Ask the user which one is extra and remove it by hand: both may hold data; do not rename one into the other"
+		$check18Ok = $false
+		if ($script:stopped) { break }
+	}
+
 	foreach ($child in $childObjNode.ChildNodes) {
 		if ($script:stopped) { break }
 		if ($child.NodeType -ne 'Element') { continue }
@@ -2232,6 +2278,8 @@ if (-not $script:stopped -and $childObjNode) {
 		$dirName = $childTypeDirMap[$typeName]
 		$extIdx = Get-MdIdIndex (Join-Path $configDir $dirName) $typeName $objName18 $true
 		if (-not $extIdx -or $extIdx.Count -eq 0) { continue }
+		# О дубле сказано выше; советы про переименование к нему неприменимы
+		if ($dupKeys.ContainsKey("$typeName.$objName18")) { continue }
 
 		if (-not $srcRoot) {
 			foreach ($key in $extIdx.Keys) {
@@ -2273,6 +2321,7 @@ if (-not $script:stopped -and $childObjNode) {
 		$linkBad = @{}
 		foreach ($key in $extIdx.Keys) {
 			$extId = $extIdx[$key]
+			if ($dupKeys.ContainsKey($key)) { $linkBad[$key] = $true; continue }
 			# В итог «связи совпадают» — только сверенные UUID; о незаданных сказала проверка 9
 			if ($extId) { $check18Count++ }
 			if (-not $srcIdx.Contains($key)) {

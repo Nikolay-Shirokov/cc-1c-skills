@@ -1,0 +1,40 @@
+{
+  "name": "Нештатное расширение: два заимствованных реквизита с одной связью и Extended у Hierarchical с другим значением — ошибки с подсказкой не переименовывать и не полагаться на переопределение",
+  "setup": "fixture:adopted-modes",
+  "preRun": [
+    {
+      "editFile": "Catalogs/Items.xml",
+      "replace": "\t\t</ChildObjects>",
+      "with": "\t\t\t<Attribute uuid=\"7d2f0a10-5b1e-4c8a-9f3e-2a6b8c4d1e00\">\r\n\t\t\t\t<InternalInfo/>\r\n\t\t\t\t<Properties>\r\n\t\t\t\t\t<ObjectBelonging>Adopted</ObjectBelonging>\r\n\t\t\t\t\t<Name>Article2</Name>\r\n\t\t\t\t\t<Comment/>\r\n\t\t\t\t\t<ExtendedConfigurationObject>ccf316f6-82c3-4de2-b1bc-2a2951958d33</ExtendedConfigurationObject>\r\n\t\t\t\t</Properties>\r\n\t\t\t</Attribute>\r\n\t\t</ChildObjects>"
+    },
+    {
+      "editFile": "Catalogs/Items.xml",
+      "replace": "\t\t</InternalInfo>",
+      "with": "\t\t\t<xr:PropertyState>\r\n\t\t\t\t<xr:Property>Hierarchical</xr:Property>\r\n\t\t\t\t<xr:State>Extended</xr:State>\r\n\t\t\t</xr:PropertyState>\r\n\t\t</InternalInfo>"
+    },
+    {
+      "editFile": "Catalogs/Items.xml",
+      "replace": "<Hierarchical>false</Hierarchical>",
+      "with": "<Hierarchical>true</Hierarchical>"
+    }
+  ],
+  "params": {
+    "extensionPath": "."
+  },
+  "args_extra": [
+    "-ConfigPath",
+    "{workDir}/src"
+  ],
+  "expectError": true,
+  "noSnapshot": "негативный кейс: навык ничего не пишет, проверяется текст и код возврата",
+  "expect": {
+    "stdoutContains": [
+      "18. Catalog.Items.Attribute.Article, Catalog.Items.Attribute.Article2: bound to the same source object (ExtendedConfigurationObject ccf316f6-82c3-4de2-b1bc-2a2951958d33) — the platform does not load the extension",
+      "do not rename one into the other",
+      "18. Catalog.Items: Hierarchical (true) differs from the source configuration (false) — override mode is not supported for this property: the platform accepts it once, drops it on dump, and the next load fails"
+    ],
+    "stdoutNotContains": [
+      "renamed in the source configuration"
+    ]
+  }
+}

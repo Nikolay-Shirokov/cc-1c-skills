@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# cfe-validate v1.35 — Validate 1C configuration extension structure (CFE)
+# cfe-validate v1.36 — Validate 1C configuration extension structure (CFE)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 """Validates extension Configuration.xml: root, InternalInfo, extension properties, ChildObjects, borrowed objects."""
 import sys, os, argparse, re
@@ -2157,6 +2157,10 @@ def main():
                         'CodeAllowedLength', 'NumberType', 'NumberLength', 'NumberAllowedLength', 'InformationRegisterPeriodicity',
                         'WriteMode', 'LanguageCode', 'RegisteredDocuments', 'ExtDimensionTypes', 'MaxExtDimensionCount']
     additive_props = ['RegisterRecords', 'Content']
+    # Свойства без переопределения (Конфигуратор режим не предлагает, замер М4): Extended у них платформа
+    # принимает, но теряет при выгрузке, и своя же выгрузка не грузится (замер М15) — сверяем как контролируемые
+    no_override_props = ['Hierarchical', 'InformationRegisterPeriodicity', 'WriteMode', 'Global',
+                         'ClientManagedApplication', 'Server', 'ExternalConnection', 'ClientOrdinaryApplication', 'ServerCall']
 
     check18_props = [0]
 
@@ -2177,6 +2181,10 @@ def main():
                 continue
             st = states.get(prop.upper())
             state = st[1] if st else None
+            no_override = ''
+            if state == 'Extended' and prop in no_override_props:
+                no_override = ' — override mode is not supported for this property: the platform accepts it once, drops it on dump, and the next load fails'
+                state = None
             # Переопределение типа платформа принимает только частями (MultiState, xr:ExtendValue); одиночный
             # Extended у Type она не применяет и сверяет тип как контролируемый (замер М13, 8.3.27)
             if state == 'Extended' and prop != 'Type':
@@ -2239,6 +2247,9 @@ def main():
             now = xml_inner_text(s).strip()
             if state == 'Notify':
                 r.warn(f'18. {key}: {prop} ({was}) differs from the source configuration ({now}), mode Notify — the extension is applied, the applicability check reports the mismatch; {hint}')
+            elif no_override:
+                r.error(f'18. {key}: {prop} ({was}) differs from the source configuration ({now}){no_override} («Значение контролируемого свойства … не совпадает»); {hint}')
+                ok = False
             else:
                 r.error(f'18. {key}: {prop} ({was}) differs from the source configuration ({now}) — the platform loads the extension but does not apply it («Значение контролируемого свойства … не совпадает»); {hint}')
                 ok = False
@@ -2274,6 +2285,41 @@ def main():
                     r.error(f'18. Extension DefaultLanguage "{def_lang}" differs from the source configuration "{src_def_lang}" — the platform loads the extension but does not apply it («ОсновнойЯзык не совпадает»)')
                     check18_ok = False
 
+        # Дубль связи: два заимствованных элемента связаны с одним объектом источника — платформа расширение
+        # не грузит («Не найден объект …», замер М15). Видно в самом расширении, источник не нужен
+        dup_keys = set()
+        link_owners = {}
+        for child in child_obj_node:
+            if not isinstance(child.tag, str):
+                continue
+            d_type = etree.QName(child.tag).localname
+            if d_type not in CHILD_TYPE_DIR_MAP:
+                continue
+            dn = (child.text or '').strip()
+            if not dn:
+                continue
+            dix = md_id_index(os.path.join(config_dir, CHILD_TYPE_DIR_MAP[d_type]), d_type, dn, True)
+            if not dix:
+                continue
+            for k, lnk in dix.items():
+                if not lnk or lnk == zero_guid:
+                    continue
+                link_owners.setdefault(lnk.lower(), []).append(k)
+        for lnk, ks in link_owners.items():
+            if len(ks) >= 2:
+                dup_keys.update(ks)
+        for lnk, ks in link_owners.items():
+            if len(ks) < 2:
+                continue
+            # Подобъекты двух объектов-дублей повторяют ту же ошибку — о них не говорим
+            owner_dup = [k for k in ks if len(k.split('.')) > 2 and '.'.join(k.split('.')[:2]) in dup_keys]
+            if len(owner_dup) == len(ks):
+                continue
+            r.error(f"18. {', '.join(ks)}: bound to the same source object (ExtendedConfigurationObject {lnk}) — the platform does not load the extension («Не найден объект …»). Ask the user which one is extra and remove it by hand: both may hold data; do not rename one into the other")
+            check18_ok = False
+            if r.stopped:
+                break
+
         for child in child_obj_node:
             if r.stopped:
                 break
@@ -2288,6 +2334,9 @@ def main():
             dir_name = CHILD_TYPE_DIR_MAP[type_name]
             ext_idx = md_id_index(os.path.join(config_dir, dir_name), type_name, obj_name18, True)
             if not ext_idx:
+                continue
+            # О дубле сказано выше; советы про переименование к нему неприменимы
+            if f'{type_name}.{obj_name18}' in dup_keys:
                 continue
 
             if not src_root:
@@ -2324,6 +2373,9 @@ def main():
             # Подобъекты с расхождением связи: свойства у них сверять не с чем (под этим именем другой подобъект)
             link_bad = set()
             for key, ext_id in ext_idx.items():
+                if key in dup_keys:
+                    link_bad.add(key)
+                    continue
                 # В итог «связи совпадают» — только сверенные UUID; о незаданных сказала проверка 9
                 if ext_id:
                     check18_count += 1
