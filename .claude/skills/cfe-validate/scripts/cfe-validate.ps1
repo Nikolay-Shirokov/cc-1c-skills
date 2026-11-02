@@ -1,4 +1,4 @@
-﻿# cfe-validate v1.36 — Validate 1C configuration extension structure (CFE)
+﻿# cfe-validate v1.37 — Validate 1C configuration extension structure (CFE)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -2112,9 +2112,9 @@ $script:controlledProps = @('Type', 'Owners', 'Global', 'ClientManagedApplicatio
 	'WriteMode', 'LanguageCode', 'RegisteredDocuments', 'ExtDimensionTypes', 'MaxExtDimensionCount')
 $script:additiveProps = @('RegisterRecords', 'Content')
 # Свойства без переопределения (Конфигуратор режим не предлагает, замер М4): Extended у них платформа
-# принимает, но теряет при выгрузке, и своя же выгрузка не грузится (замер М15) — сверяем как контролируемые
+# принимает, но теряет при выгрузке, и своя же выгрузка не грузится (замеры М15, М16) — сверяем как контролируемые
 $script:noOverrideProps = @('Hierarchical', 'InformationRegisterPeriodicity', 'WriteMode', 'Global',
-	'ClientManagedApplication', 'Server', 'ExternalConnection', 'ClientOrdinaryApplication', 'ServerCall')
+	'ClientManagedApplication', 'Server', 'ExternalConnection', 'ClientOrdinaryApplication', 'ServerCall', 'CodeAllowedLength', 'LanguageCode')
 
 $script:check18Props = 0
 function Compare-AdoptedProperties([string]$key, $extEl, $srcEl) {
@@ -2238,11 +2238,16 @@ if (-not $script:stopped -and $childObjNode) {
 	# не грузит («Не найден объект …», замер М15). Видно в самом расширении, источник не нужен
 	$dupKeys = @{}
 	$linkOwners = New-Object System.Collections.Specialized.OrderedDictionary
+	# Индексы связей объектов — один разбор файла на запуск, основной цикл берёт их отсюда
+	$extIdxCache = @{}
 	foreach ($child in $childObjNode.ChildNodes) {
 		if ($child.NodeType -ne 'Element' -or -not $childTypeDirMap.ContainsKey($child.LocalName)) { continue }
 		$dn = $child.InnerText.Trim()
 		if (-not $dn) { continue }
+		# Повтор записи в ChildObjects — о нём говорит проверка 5; дублем связи он не является
+		if ($extIdxCache.ContainsKey("$($child.LocalName).$dn")) { continue }
 		$dix = Get-MdIdIndex (Join-Path $configDir $childTypeDirMap[$child.LocalName]) $child.LocalName $dn $true
+		$extIdxCache["$($child.LocalName).$dn"] = $dix
 		if (-not $dix) { continue }
 		foreach ($k in $dix.Keys) {
 			$l = $dix[$k]
@@ -2260,8 +2265,13 @@ if (-not $script:stopped -and $childObjNode) {
 	foreach ($l in $linkOwners.Keys) {
 		$ks = $linkOwners[$l]
 		if ($ks.Count -lt 2) { continue }
-		# Подобъекты двух объектов-дублей повторяют ту же ошибку — о них не говорим
-		$ownerDup = @($ks | Where-Object { $p = $_ -split '\.'; $p.Count -gt 2 -and $dupKeys.ContainsKey("$($p[0]).$($p[1])") })
+		# Подобъекты двух дублей (объектов, табличных частей) повторяют ту же ошибку — о них не говорим
+		$ownerDup = @($ks | Where-Object {
+			$p = $_ -split '\.'
+			$hit = $false
+			for ($n = 2; $n -lt $p.Count; $n += 2) { if ($dupKeys.ContainsKey(($p[0..($n - 1)] -join '.'))) { $hit = $true; break } }
+			$hit
+		})
 		if ($ownerDup.Count -eq $ks.Count) { continue }
 		Report-Error "18. $($ks -join ', '): bound to the same source object (ExtendedConfigurationObject $l) — the platform does not load the extension («Не найден объект …»). Ask the user which one is extra and remove it by hand: both may hold data; do not rename one into the other"
 		$check18Ok = $false
@@ -2276,7 +2286,7 @@ if (-not $script:stopped -and $childObjNode) {
 		$objName18 = $child.InnerText.Trim()
 		if (-not $objName18) { continue }
 		$dirName = $childTypeDirMap[$typeName]
-		$extIdx = Get-MdIdIndex (Join-Path $configDir $dirName) $typeName $objName18 $true
+		$extIdx = if ($extIdxCache.ContainsKey("$typeName.$objName18")) { $extIdxCache["$typeName.$objName18"] } else { Get-MdIdIndex (Join-Path $configDir $dirName) $typeName $objName18 $true }
 		if (-not $extIdx -or $extIdx.Count -eq 0) { continue }
 		# О дубле сказано выше; советы про переименование к нему неприменимы
 		if ($dupKeys.ContainsKey("$typeName.$objName18")) { continue }
@@ -2668,6 +2678,25 @@ if (-not $script:stopped -and $childObjNode -and $propsNode) {
 		}
 		if ($modeChecked -gt 0 -and $check20Ok) {
 			Report-OK "20. Control modes fit the extension compatibility mode $cmText ($modeChecked)"
+		}
+	}
+	# Переопределённая нумерация документа требует объявленного (контролируемого) нумератора — иначе отказ
+	# загрузки (замер М16, 8.3.27)
+	foreach ($child in $childObjNode.ChildNodes) {
+		if ($script:stopped) { break }
+		if ($child.NodeType -ne 'Element' -or $child.LocalName -cne 'Document') { continue }
+		$n20 = $child.InnerText.Trim()
+		if (-not $n20) { continue }
+		$f20 = Join-Path (Join-Path $configDir $childTypeDirMap['Document']) "$n20.xml"
+		if (-not (Test-Path -LiteralPath $f20)) { continue }
+		$root20 = (Get-MdElementMap $f20 "Document.$n20")["Document.$n20"]
+		if (-not $root20) { continue }
+		$p20 = $root20.SelectSingleNode("*[local-name()='Properties']")
+		if (-not $p20 -or $p20.SelectSingleNode("*[local-name()='Numerator']")) { continue }
+		$states = Get-MdPropStates $root20
+		$numOv = @(@('NumberType', 'NumberLength', 'NumberAllowedLength') | Where-Object { $states[$_] -ceq 'Extended' -and $p20.SelectSingleNode("*[local-name()='$_']") })
+		if ($numOv.Count -gt 0) {
+			Report-Error "20. Document.${n20}: numbering is overridden ($($numOv -join ', ')), but Numerator is not declared — the platform rejects the extension («… отключать контролируемость свойства «Нумератор» недопустимо»). Declare Numerator with the source value"
 		}
 	}
 }

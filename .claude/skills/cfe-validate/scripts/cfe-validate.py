@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# cfe-validate v1.36 — Validate 1C configuration extension structure (CFE)
+# cfe-validate v1.37 — Validate 1C configuration extension structure (CFE)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 """Validates extension Configuration.xml: root, InternalInfo, extension properties, ChildObjects, borrowed objects."""
 import sys, os, argparse, re
@@ -2158,9 +2158,9 @@ def main():
                         'WriteMode', 'LanguageCode', 'RegisteredDocuments', 'ExtDimensionTypes', 'MaxExtDimensionCount']
     additive_props = ['RegisterRecords', 'Content']
     # Свойства без переопределения (Конфигуратор режим не предлагает, замер М4): Extended у них платформа
-    # принимает, но теряет при выгрузке, и своя же выгрузка не грузится (замер М15) — сверяем как контролируемые
+    # принимает, но теряет при выгрузке, и своя же выгрузка не грузится (замеры М15, М16) — сверяем как контролируемые
     no_override_props = ['Hierarchical', 'InformationRegisterPeriodicity', 'WriteMode', 'Global',
-                         'ClientManagedApplication', 'Server', 'ExternalConnection', 'ClientOrdinaryApplication', 'ServerCall']
+                         'ClientManagedApplication', 'Server', 'ExternalConnection', 'ClientOrdinaryApplication', 'ServerCall', 'CodeAllowedLength', 'LanguageCode']
 
     check18_props = [0]
 
@@ -2289,6 +2289,8 @@ def main():
         # не грузит («Не найден объект …», замер М15). Видно в самом расширении, источник не нужен
         dup_keys = set()
         link_owners = {}
+        # Индексы связей объектов — один разбор файла на запуск, основной цикл берёт их отсюда
+        ext_idx_cache = {}
         for child in child_obj_node:
             if not isinstance(child.tag, str):
                 continue
@@ -2298,7 +2300,11 @@ def main():
             dn = (child.text or '').strip()
             if not dn:
                 continue
+            # Повтор записи в ChildObjects — о нём говорит проверка 5; дублем связи он не является
+            if f'{d_type}.{dn}' in ext_idx_cache:
+                continue
             dix = md_id_index(os.path.join(config_dir, CHILD_TYPE_DIR_MAP[d_type]), d_type, dn, True)
+            ext_idx_cache[f'{d_type}.{dn}'] = dix
             if not dix:
                 continue
             for k, lnk in dix.items():
@@ -2311,8 +2317,8 @@ def main():
         for lnk, ks in link_owners.items():
             if len(ks) < 2:
                 continue
-            # Подобъекты двух объектов-дублей повторяют ту же ошибку — о них не говорим
-            owner_dup = [k for k in ks if len(k.split('.')) > 2 and '.'.join(k.split('.')[:2]) in dup_keys]
+            # Подобъекты двух дублей (объектов, табличных частей) повторяют ту же ошибку — о них не говорим
+            owner_dup = [k for k in ks if any('.'.join(k.split('.')[:n]) in dup_keys for n in range(2, len(k.split('.')), 2))]
             if len(owner_dup) == len(ks):
                 continue
             r.error(f"18. {', '.join(ks)}: bound to the same source object (ExtendedConfigurationObject {lnk}) — the platform does not load the extension («Не найден объект …»). Ask the user which one is extra and remove it by hand: both may hold data; do not rename one into the other")
@@ -2332,7 +2338,8 @@ def main():
             if not obj_name18:
                 continue
             dir_name = CHILD_TYPE_DIR_MAP[type_name]
-            ext_idx = md_id_index(os.path.join(config_dir, dir_name), type_name, obj_name18, True)
+            ext_idx = (ext_idx_cache[f'{type_name}.{obj_name18}'] if f'{type_name}.{obj_name18}' in ext_idx_cache
+                       else md_id_index(os.path.join(config_dir, dir_name), type_name, obj_name18, True))
             if not ext_idx:
                 continue
             # О дубле сказано выше; советы про переименование к нему неприменимы
@@ -2697,6 +2704,30 @@ def main():
                             check20_ok = False
             if mode_checked > 0 and check20_ok:
                 r.ok(f'20. Control modes fit the extension compatibility mode {cm_text} ({mode_checked})')
+        # Переопределённая нумерация документа требует объявленного (контролируемого) нумератора — иначе отказ
+        # загрузки (замер М16, 8.3.27)
+        for child in child_obj_node:
+            if r.stopped:
+                break
+            if not isinstance(child.tag, str) or etree.QName(child.tag).localname != 'Document':
+                continue
+            n20 = (child.text or '').strip()
+            if not n20:
+                continue
+            f20 = os.path.join(config_dir, CHILD_TYPE_DIR_MAP['Document'], f'{n20}.xml')
+            if not os.path.exists(f20):
+                continue
+            root20 = md_element_map(f20, f'Document.{n20}').get(f'Document.{n20}')
+            if root20 is None:
+                continue
+            p20 = root20.xpath("*[local-name()='Properties']")
+            if not p20 or p20[0].xpath("*[local-name()='Numerator']"):
+                continue
+            states = md_prop_states(root20)
+            num_ov = [x for x in ('NumberType', 'NumberLength', 'NumberAllowedLength')
+                      if states.get(x.upper()) and states[x.upper()][1] == 'Extended' and p20[0].xpath(f"*[local-name()='{x}']")]
+            if num_ov:
+                r.error(f"20. Document.{n20}: numbering is overridden ({', '.join(num_ov)}), but Numerator is not declared — the platform rejects the extension («… отключать контролируемость свойства «Нумератор» недопустимо»). Declare Numerator with the source value")
 
     # --- Final output ---
     r.finalize(out_file)
