@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# cfe-validate v1.34 — Validate 1C configuration extension structure (CFE)
+# cfe-validate v1.35 — Validate 1C configuration extension structure (CFE)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 """Validates extension Configuration.xml: root, InternalInfo, extension properties, ChildObjects, borrowed objects."""
 import sys, os, argparse, re
@@ -1306,7 +1306,7 @@ def main():
         shown = ', '.join(no_link_items[:5])
         if len(no_link_items) > 5:
             shown += ', …'
-        r.warn(f'9. {len(no_link_items)} borrowed element(s) without ExtendedConfigurationObject ({shown}): the platform binds them by name only, so a recreated source object is picked up silently — restore the link: /cfe-borrow -Actualize')
+        r.warn(f'9. {len(no_link_items)} borrowed element(s) without ExtendedConfigurationObject ({shown}), the link to the source object: the platform binds them by name only — if the source object is deleted and recreated under the same name, the extension silently binds to the new one. Restore the link: /cfe-borrow -Actualize')
 
     if r.stopped:
         r.finalize(out_file)
@@ -1913,6 +1913,66 @@ def main():
             return (n[0].text or '').strip() if n else None
         return None
 
+    # Объект источника по UUID: имя или None. Связь расширения указывает на объект, которого под этим именем
+    # нет, — возможно, его переименовали. Индекс UUID → имя по каталогу вида строится один раз, из начала файлов.
+    src_uuid_names = {}
+
+    def find_source_object_by_uuid(type_dir, uuid_):
+        if type_dir not in src_uuid_names:
+            m = {}
+            if os.path.isdir(type_dir):
+                for n in sorted(os.listdir(type_dir)):
+                    f = os.path.join(type_dir, n)
+                    if not n.lower().endswith('.xml') or not os.path.isfile(f):
+                        continue
+                    try:
+                        with open(f, encoding='utf-8-sig', errors='replace') as fh:
+                            head = fh.read(16384)
+                    except OSError:
+                        continue
+                    um = re.search(r'<MetaDataObject\b[^>]*>\s*<\w+\s[^>]*?uuid="([^"]+)"', head)
+                    nm = re.search(r'<Name>([^<]*)</Name>', head)
+                    if um and nm:
+                        m[um.group(1).lower()] = nm.group(1).strip()
+            src_uuid_names[type_dir] = m
+        return src_uuid_names[type_dir].get(uuid_.lower())
+
+    # Ключ подобъекта источника с этим UUID (подобъект переименован) или None
+    def find_idx_key_by_uuid(idx, uuid_):
+        u = uuid_.lower()
+        for k, v in idx.items():
+            if v and v.lower() == u:
+                return k
+        return None
+
+    # Тексты проверки 18 о связи с источником. Читатель — модель без контекста: смысл словами, имя тега —
+    # указатель в файл, и что делать дальше; там, где решение за человеком, — прямо сказать, чего не делать.
+    def link_renamed_text(key, new_key, namesake):
+        tail = f"; the name {key.split('.')[-1]} now belongs to a different object" if namesake else ''
+        if key.startswith('Language.'):
+            return f"18. {key}: renamed in the source configuration to {new_key} (the same language: its UUID matches ExtendedConfigurationObject in the extension){tail} — the platform does not apply the extension. Rename the language in the extension the same way: a language holds no data, so this is safe"
+        return f"18. {key}: renamed in the source configuration to {new_key} (the same object: its UUID matches ExtendedConfigurationObject in the extension), the extension still uses the old name{tail} — the platform does not apply the extension. /cfe-borrow -Actualize renames it in the extension following the UUID and keeps what the extension added (attributes, forms, code); then fix the code mentions it lists"
+
+    def link_missing_text(key, has_link):
+        how = ('neither by name nor by its UUID (ExtendedConfigurationObject) — deleted there or recreated under another name'
+               if has_link else 'no object with this name')
+        return f"18. {key}: missing from the source configuration, {how}. The extension cannot be applied. Ask the user whether to remove it from the extension or restore it in the source; do not delete it by hand: the extension's own data may be bound to it"
+
+    # Язык cfe-borrow не актуализирует; данных у языка нет — UUID правится прямо
+    def language_link_fix(key):
+        n = key[len('Language.'):]
+        return f"Set it to the uuid attribute of the language in the source configuration (Languages/{n}.xml): a language holds no data, so this is safe"
+
+    def link_recreated_text(key, src_uuid, ext_uuid):
+        if key.startswith('Language.'):
+            return f"18. {key}: ExtendedConfigurationObject (the link to the source object) is {ext_uuid}, but the language in the source configuration has UUID {src_uuid} — the platform does not apply the extension. {language_link_fix(key)}"
+        return f"18. {key}: the source object with this name is a different object (UUID {src_uuid}): the one the extension borrowed (ExtendedConfigurationObject {ext_uuid}) is no longer in the source — recreated or deleted. The platform does not apply the extension. Do not edit the UUID by hand or re-borrow: the extension's own data is bound to the old object — ask the user"
+
+    def link_zero_text(key, with_source):
+        how = '' if with_source else ' with -ConfigPath'
+        fix = language_link_fix(key) if key.startswith('Language.') else f'Restore the link: /cfe-borrow -Actualize{how}'
+        return f"18. {key}: ExtendedConfigurationObject (the link to the source object) is zero — it matches nothing, so the platform loads the extension but does not apply it. {fix}"
+
     # Собственные подобъекты заимствованного объекта, одноимённые (без учёта регистра) с незаимствованным
     # подобъектом источника того же вида на том же уровне: реквизит, ТЧ, колонка заимствованной ТЧ, значение
     # перечисления, форма, команда, макет. Платформа расширение загружает, а базу не обновляет: «Уже существует объект с
@@ -2234,7 +2294,7 @@ def main():
                 for key, ext_id in ext_idx.items():
                     check18_count += 1
                     if ext_id == zero_guid:
-                        r.warn(f'18. {key}: ExtendedConfigurationObject is zero — the platform loads the extension but does not apply it. Create the extension and borrow objects with -ConfigPath')
+                        r.warn(link_zero_text(key, False))
                 continue
 
             src_name = source_object_name(os.path.join(src_root, dir_name), obj_name18)
@@ -2244,10 +2304,25 @@ def main():
                 check18_ok = False
                 continue
             src_idx = md_id_index(os.path.join(src_root, dir_name), type_name, obj_name18, False)
-            if src_idx is None:
-                r.error(f'18. {type_name}.{obj_name18}: borrowed object is missing from the source configuration ({dir_name}/{obj_name18}.xml)')
+            # Сам объект: нет под этим именем или под ним другой объект — переименован (ищем по UUID связи),
+            # пересоздан или удалён. Расхождения подобъектов в этом случае — следствие, о них не говорим
+            top_key = f'{type_name}.{obj_name18}'
+            top_link = ext_idx.get(top_key)
+            top_real = bool(top_link and top_link != zero_guid)
+            top_other = (top_real and src_idx is not None and bool(src_idx.get(top_key))
+                         and src_idx[top_key].lower() != top_link.lower())
+            if src_idx is None or top_other:
+                renamed_to = find_source_object_by_uuid(os.path.join(src_root, dir_name), top_link) if top_real else None
+                if renamed_to:
+                    r.error(link_renamed_text(top_key, f'{type_name}.{renamed_to}', src_idx is not None))
+                elif src_idx is None:
+                    r.error(link_missing_text(top_key, top_real))
+                else:
+                    r.error(link_recreated_text(top_key, src_idx[top_key], top_link))
                 check18_ok = False
                 continue
+            # Подобъекты с расхождением связи: свойства у них сверять не с чем (под этим именем другой подобъект)
+            link_bad = set()
             for key, ext_id in ext_idx.items():
                 # В итог «связи совпадают» — только сверенные UUID; о незаданных сказала проверка 9
                 if ext_id:
@@ -2258,11 +2333,24 @@ def main():
                     if case_twin:
                         r.error(f'18. {key}: the source configuration has this name in a different case ({case_twin}) — the platform loads the extension but does not apply it («контролируемое свойство Имя не совпадает»)')
                     else:
-                        r.error(f'18. {key}: borrowed sub-object is missing from the source configuration')
+                        real = bool(ext_id and ext_id != zero_guid)
+                        nk = find_idx_key_by_uuid(src_idx, ext_id) if real else None
+                        if nk:
+                            r.error(link_renamed_text(key, nk, False))
+                        else:
+                            r.error(link_missing_text(key, real))
+                    link_bad.add(key)
                     check18_ok = False
                 elif ext_id and ext_id.lower() != src_id.lower():
-                    what = 'zero' if ext_id == zero_guid else ext_id
-                    r.error(f'18. {key}: ExtendedConfigurationObject is {what}, but the UUID in the source configuration is {src_id} — the platform loads the extension but does not apply it («ОбъектРасширяемойКонфигурации не совпадает»)')
+                    if ext_id == zero_guid:
+                        r.error(link_zero_text(key, True))
+                    else:
+                        nk = find_idx_key_by_uuid(src_idx, ext_id)
+                        if nk:
+                            r.error(link_renamed_text(key, nk, True))
+                        else:
+                            r.error(link_recreated_text(key, src_id, ext_id))
+                    link_bad.add(key)
                     check18_ok = False
                 if r.stopped:
                     break
@@ -2284,7 +2372,7 @@ def main():
             ext_els = md_element_map(os.path.join(config_dir, dir_name, f'{obj_name18}.xml'), f'{type_name}.{obj_name18}')
             src_els = md_element_map(os.path.join(src_root, dir_name, f'{obj_name18}.xml'), f'{type_name}.{obj_name18}')
             for k in ext_els:
-                if k not in src_els or k not in ext_idx:
+                if k not in src_els or k not in ext_idx or k in link_bad:
                     continue
                 if not compare_adopted_properties(k, ext_els[k], src_els[k]):
                     check18_ok = False

@@ -2,13 +2,20 @@
   "name": "С -ConfigPath ловится заимствованный объект без ExtendedConfigurationObject, которого нет в источнике",
   "setup": "fixture:adopted-without-link",
   "preRun": [
-    { "deletePath": "src/CommonModules/SharedModule.xml" }
+    {
+      "deletePath": "src/CommonModules/SharedModule.xml"
+    }
   ],
-  "params": { "extensionPath": "." },
-  "args_extra": ["-ConfigPath", "{workDir}/src"],
+  "params": {
+    "extensionPath": "."
+  },
+  "args_extra": [
+    "-ConfigPath",
+    "{workDir}/src"
+  ],
   "expectError": true,
   "noSnapshot": "негативный кейс: навык ничего не пишет, проверяется текст и код возврата",
   "expect": {
-    "stdoutContains": "18. CommonModule.SharedModule: borrowed object is missing from the source configuration"
+    "stdoutContains": "18. CommonModule.SharedModule: missing from the source configuration, no object with this name. The extension cannot be applied. Ask the user whether to remove it from the extension or restore it in the source; do not delete it by hand"
   }
 }

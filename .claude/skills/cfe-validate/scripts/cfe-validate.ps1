@@ -1,4 +1,4 @@
-﻿# cfe-validate v1.34 — Validate 1C configuration extension structure (CFE)
+﻿# cfe-validate v1.35 — Validate 1C configuration extension structure (CFE)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -1265,7 +1265,7 @@ if ($formCount -eq 0) {
 if ($script:noLinkItems.Count -gt 0) {
 	$shown = ($script:noLinkItems | Select-Object -First 5) -join ", "
 	if ($script:noLinkItems.Count -gt 5) { $shown += ", …" }
-	Report-Warn "9. $($script:noLinkItems.Count) borrowed element(s) without ExtendedConfigurationObject ($shown): the platform binds them by name only, so a recreated source object is picked up silently — restore the link: /cfe-borrow -Actualize"
+	Report-Warn "9. $($script:noLinkItems.Count) borrowed element(s) without ExtendedConfigurationObject ($shown), the link to the source object: the platform binds them by name only — if the source object is deleted and recreated under the same name, the extension silently binds to the new one. Restore the link: /cfe-borrow -Actualize"
 }
 
 if ($script:stopped) { & $finalize; exit 1 }
@@ -1886,6 +1886,77 @@ function Get-SourceObjectName {
 	return $null
 }
 
+# Объект источника по UUID: имя или $null. Связь расширения указывает на объект, которого под этим именем
+# нет, — возможно, его переименовали. Индекс UUID → имя по каталогу вида строится один раз, из начала файлов.
+$script:srcUuidNames = @{}
+function Find-SourceObjectByUuid {
+	param([string]$typeDir, [string]$uuid)
+	if (-not $script:srcUuidNames.ContainsKey($typeDir)) {
+		$m = @{}
+		if (Test-Path -LiteralPath $typeDir) {
+			foreach ($f in (Get-ChildItem -LiteralPath $typeDir -Filter "*.xml" -File)) {
+				if ($f.Extension -ine ".xml") { continue }
+				$head = ''
+				try {
+					$sr = New-Object System.IO.StreamReader($f.FullName)
+					try { $buf = New-Object char[] 16384; $head = New-Object string($buf, 0, $sr.Read($buf, 0, $buf.Length)) } finally { $sr.Dispose() }
+				} catch { continue }
+				$um = [regex]::Match($head, '<MetaDataObject\b[^>]*>\s*<\w+\s[^>]*?uuid="([^"]+)"')
+				$nm = [regex]::Match($head, '<Name>([^<]*)</Name>')
+				if ($um.Success -and $nm.Success) { $m[$um.Groups[1].Value.ToLowerInvariant()] = $nm.Groups[1].Value.Trim() }
+			}
+		}
+		$script:srcUuidNames[$typeDir] = $m
+	}
+	return $script:srcUuidNames[$typeDir][$uuid.ToLowerInvariant()]
+}
+
+# Ключ подобъекта источника с этим UUID (подобъект переименован) или $null
+function Find-IdxKeyByUuid {
+	param($idx, [string]$uuid)
+	$u = $uuid.ToLowerInvariant()
+	foreach ($k in $idx.Keys) {
+		$v = $idx[$k]
+		if ($v -and $v.ToLowerInvariant() -ceq $u) { return $k }
+	}
+	return $null
+}
+
+# Тексты проверки 18 о связи с источником. Читатель — модель без контекста: смысл словами, имя тега —
+# указатель в файл, и что делать дальше; там, где решение за человеком, — прямо сказать, чего не делать.
+function Get-LinkRenamedText {
+	param([string]$key, [string]$newKey, [bool]$namesake)
+	$tail = if ($namesake) { "; the name $(($key -split '\.')[-1]) now belongs to a different object" } else { "" }
+	if ($key -like 'Language.*') {
+		return "18. ${key}: renamed in the source configuration to ${newKey} (the same language: its UUID matches ExtendedConfigurationObject in the extension)$tail — the platform does not apply the extension. Rename the language in the extension the same way: a language holds no data, so this is safe"
+	}
+	return "18. ${key}: renamed in the source configuration to ${newKey} (the same object: its UUID matches ExtendedConfigurationObject in the extension), the extension still uses the old name$tail — the platform does not apply the extension. /cfe-borrow -Actualize renames it in the extension following the UUID and keeps what the extension added (attributes, forms, code); then fix the code mentions it lists"
+}
+function Get-LinkMissingText {
+	param([string]$key, [bool]$hasLink)
+	$how = if ($hasLink) { "neither by name nor by its UUID (ExtendedConfigurationObject) — deleted there or recreated under another name" } else { "no object with this name" }
+	return "18. ${key}: missing from the source configuration, $how. The extension cannot be applied. Ask the user whether to remove it from the extension or restore it in the source; do not delete it by hand: the extension's own data may be bound to it"
+}
+function Get-LinkRecreatedText {
+	param([string]$key, [string]$srcUuid, [string]$extUuid)
+	if ($key -like 'Language.*') {
+		return "18. ${key}: ExtendedConfigurationObject (the link to the source object) is $extUuid, but the language in the source configuration has UUID $srcUuid — the platform does not apply the extension. $(Get-LanguageLinkFix $key)"
+	}
+	return "18. ${key}: the source object with this name is a different object (UUID $srcUuid): the one the extension borrowed (ExtendedConfigurationObject $extUuid) is no longer in the source — recreated or deleted. The platform does not apply the extension. Do not edit the UUID by hand or re-borrow: the extension's own data is bound to the old object — ask the user"
+}
+function Get-LinkZeroText {
+	param([string]$key, [bool]$withSource)
+	$how = if ($withSource) { "" } else { " with -ConfigPath" }
+	$fix = if ($key -like 'Language.*') { Get-LanguageLinkFix $key } else { "Restore the link: /cfe-borrow -Actualize$how" }
+	return "18. ${key}: ExtendedConfigurationObject (the link to the source object) is zero — it matches nothing, so the platform loads the extension but does not apply it. $fix"
+}
+# Язык cfe-borrow не актуализирует; данных у языка нет — UUID правится прямо
+function Get-LanguageLinkFix {
+	param([string]$key)
+	$n = $key.Substring('Language.'.Length)
+	return "Set it to the uuid attribute of the language in the source configuration (Languages/$n.xml): a language holds no data, so this is safe"
+}
+
 # Собственные подобъекты заимствованного объекта, одноимённые (без учёта регистра) с незаимствованным
 # подобъектом источника того же вида на том же уровне: реквизит, ТЧ, колонка заимствованной ТЧ, значение
 # перечисления, форма, команда, макет. Платформа расширение загружает, а базу не обновляет: «Уже существует объект с
@@ -2166,7 +2237,7 @@ if (-not $script:stopped -and $childObjNode) {
 			foreach ($key in $extIdx.Keys) {
 				$check18Count++
 				if ($extIdx[$key] -ceq $zeroGuid) {
-					Report-Warn "18. ${key}: ExtendedConfigurationObject is zero — the platform loads the extension but does not apply it. Create the extension and borrow objects with -ConfigPath"
+					Report-Warn (Get-LinkZeroText $key $false)
 				}
 			}
 			continue
@@ -2180,11 +2251,26 @@ if (-not $script:stopped -and $childObjNode) {
 			continue
 		}
 		$srcIdx = Get-MdIdIndex (Join-Path $srcRoot $dirName) $typeName $objName18 $false
-		if ($null -eq $srcIdx) {
-			Report-Error "18. ${typeName}.${objName18}: borrowed object is missing from the source configuration ($dirName/$objName18.xml)"
+		# Сам объект: нет под этим именем или под ним другой объект — переименован (ищем по UUID связи),
+		# пересоздан или удалён. Расхождения подобъектов в этом случае — следствие, о них не говорим
+		$topKey = "$typeName.$objName18"
+		$topLink = $extIdx[$topKey]
+		$topReal = [bool]($topLink -and $topLink -cne $zeroGuid)
+		$topOther = $topReal -and $null -ne $srcIdx -and $srcIdx[$topKey] -and $srcIdx[$topKey].ToLowerInvariant() -cne $topLink.ToLowerInvariant()
+		if ($null -eq $srcIdx -or $topOther) {
+			$renamedTo = if ($topReal) { Find-SourceObjectByUuid (Join-Path $srcRoot $dirName) $topLink } else { $null }
+			if ($renamedTo) {
+				Report-Error (Get-LinkRenamedText $topKey "$typeName.$renamedTo" ($null -ne $srcIdx))
+			} elseif ($null -eq $srcIdx) {
+				Report-Error (Get-LinkMissingText $topKey $topReal)
+			} else {
+				Report-Error (Get-LinkRecreatedText $topKey $srcIdx[$topKey] $topLink)
+			}
 			$check18Ok = $false
 			continue
 		}
+		# Подобъекты с расхождением связи: свойства у них сверять не с чем (под этим именем другой подобъект)
+		$linkBad = @{}
 		foreach ($key in $extIdx.Keys) {
 			$extId = $extIdx[$key]
 			# В итог «связи совпадают» — только сверенные UUID; о незаданных сказала проверка 9
@@ -2197,12 +2283,22 @@ if (-not $script:stopped -and $childObjNode) {
 				if ($caseTwin) {
 					Report-Error "18. ${key}: the source configuration has this name in a different case ($caseTwin) — the platform loads the extension but does not apply it («контролируемое свойство Имя не совпадает»)"
 				} else {
-					Report-Error "18. ${key}: borrowed sub-object is missing from the source configuration"
+					$real = [bool]($extId -and $extId -cne $zeroGuid)
+					$nk = if ($real) { Find-IdxKeyByUuid $srcIdx $extId } else { $null }
+					if ($nk) { Report-Error (Get-LinkRenamedText $key $nk $false) }
+					else { Report-Error (Get-LinkMissingText $key $real) }
 				}
+				$linkBad[$key] = $true
 				$check18Ok = $false
 			} elseif ($extId -and $extId.ToLowerInvariant() -cne $srcIdx[$key].ToLowerInvariant()) {
-				$what = if ($extId -ceq $zeroGuid) { "zero" } else { "$extId" }
-				Report-Error "18. ${key}: ExtendedConfigurationObject is $what, but the UUID in the source configuration is $($srcIdx[$key]) — the platform loads the extension but does not apply it («ОбъектРасширяемойКонфигурации не совпадает»)"
+				if ($extId -ceq $zeroGuid) {
+					Report-Error (Get-LinkZeroText $key $true)
+				} else {
+					$nk = Find-IdxKeyByUuid $srcIdx $extId
+					if ($nk) { Report-Error (Get-LinkRenamedText $key $nk $true) }
+					else { Report-Error (Get-LinkRecreatedText $key $srcIdx[$key] $extId) }
+				}
+				$linkBad[$key] = $true
 				$check18Ok = $false
 			}
 			if ($script:stopped) { break }
@@ -2222,7 +2318,7 @@ if (-not $script:stopped -and $childObjNode) {
 		$extEls = Get-MdElementMap (Join-Path (Join-Path $configDir $dirName) "$objName18.xml") "$typeName.$objName18"
 		$srcEls = Get-MdElementMap (Join-Path (Join-Path $srcRoot $dirName) "$objName18.xml") "$typeName.$objName18"
 		foreach ($k in $extEls.Keys) {
-			if (-not $srcEls.Contains($k) -or -not $extIdx.Contains($k)) { continue }
+			if (-not $srcEls.Contains($k) -or -not $extIdx.Contains($k) -or $linkBad.ContainsKey($k)) { continue }
 			if (-not (Compare-AdoptedProperties $k $extEls[$k] $srcEls[$k])) { $check18Ok = $false }
 			if ($script:stopped) { break }
 		}

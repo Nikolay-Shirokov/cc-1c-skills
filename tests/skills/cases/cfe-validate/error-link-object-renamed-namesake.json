@@ -1,0 +1,46 @@
+{
+  "setup": "fixture:adopted-modes",
+  "params": {
+    "extensionPath": "."
+  },
+  "args_extra": [
+    "-ConfigPath",
+    "{workDir}/src"
+  ],
+  "expectError": true,
+  "noSnapshot": "негативный кейс: навык ничего не пишет, проверяется текст и код возврата",
+  "name": "Объект переименован в источнике, под старым именем создан другой — ошибка про переименование и тёзку, без ошибок по подобъектам тёзки",
+  "preRun": [
+    {
+      "movePath": {
+        "from": "src/Catalogs/Items.xml",
+        "to": "src/Catalogs/Products.xml"
+      }
+    },
+    {
+      "editFile": "src/Catalogs/Products.xml",
+      "replace": "<Name>Items</Name>",
+      "with": "<Name>Products</Name>"
+    },
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "Catalog",
+        "name": "Items"
+      },
+      "args": {
+        "-JsonPath": "{inputFile}",
+        "-OutputDir": "{workDir}/src"
+      }
+    }
+  ],
+  "expect": {
+    "stdoutContains": [
+      "18. Catalog.Items: renamed in the source configuration to Catalog.Products (the same object: its UUID matches ExtendedConfigurationObject in the extension), the extension still uses the old name; the name Items now belongs to a different object — the platform does not apply the extension. /cfe-borrow -Actualize renames it in the extension following the UUID and keeps what the extension added (attributes, forms, code); then fix the code mentions it lists"
+    ],
+    "stdoutNotContains": [
+      "18. Catalog.Items.Attribute",
+      "is no longer in the source"
+    ]
+  }
+}

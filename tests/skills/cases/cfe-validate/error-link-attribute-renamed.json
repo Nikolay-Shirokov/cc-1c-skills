@@ -1,0 +1,36 @@
+{
+  "setup": "fixture:adopted-modes",
+  "params": {
+    "extensionPath": "."
+  },
+  "args_extra": [
+    "-ConfigPath",
+    "{workDir}/src"
+  ],
+  "expectError": true,
+  "noSnapshot": "негативный кейс: навык ничего не пишет, проверяется текст и код возврата",
+  "name": "Реквизит переименован в источнике, под старым именем создан другой — ошибка называет новое имя, свойства тёзки не сверяются",
+  "preRun": [
+    {
+      "editFile": "src/Catalogs/Items.xml",
+      "replace": "<Name>Article</Name>",
+      "with": "<Name>Code2</Name>"
+    },
+    {
+      "script": "meta-edit/scripts/meta-edit",
+      "args": {
+        "-ObjectPath": "{workDir}/src/Catalogs/Items.xml",
+        "-Operation": "add-attribute",
+        "-Value": "Article: Number(5)"
+      }
+    }
+  ],
+  "expect": {
+    "stdoutContains": [
+      "18. Catalog.Items.Attribute.Article: renamed in the source configuration to Catalog.Items.Attribute.Code2 (the same object: its UUID matches ExtendedConfigurationObject in the extension), the extension still uses the old name; the name Article now belongs to a different object"
+    ],
+    "stdoutNotContains": [
+      "Catalog.Items.Attribute.Article: Type"
+    ]
+  }
+}

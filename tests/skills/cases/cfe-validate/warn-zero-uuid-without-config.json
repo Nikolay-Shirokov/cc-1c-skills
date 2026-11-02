@@ -15,7 +15,7 @@
   "noSnapshot": "навык ничего не пишет, проверяется текст",
   "expect": {
     "stdoutContains": [
-      "[WARN]  18. Language.Русский: ExtendedConfigurationObject is zero",
+      "[WARN]  18. Language.Русский: ExtendedConfigurationObject (the link to the source object) is zero",
       "[INFO]  18."
     ]
   },

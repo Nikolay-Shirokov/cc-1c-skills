@@ -4,17 +4,25 @@
   "preRun": [
     {
       "script": "cfe-init/scripts/cfe-init",
-      "args": { "-Name": "Тест", "-OutputDir": "{workDir}/cfe" }
+      "args": {
+        "-Name": "Тест",
+        "-OutputDir": "{workDir}/cfe"
+      }
     }
   ],
-  "params": { "extensionPath": "cfe" },
-  "args_extra": ["-ConfigPath", "{workDir}"],
+  "params": {
+    "extensionPath": "cfe"
+  },
+  "args_extra": [
+    "-ConfigPath",
+    "{workDir}"
+  ],
   "expectError": true,
   "noSnapshot": "негативный кейс: навык ничего не пишет, проверяется текст и код возврата",
   "expect": {
     "stdoutContains": [
       "18. Extension DefaultLanguage \"Language.Русский\" differs from the source configuration \"Language.Английский\"",
-      "18. Language.Русский: ExtendedConfigurationObject is zero"
+      "18. Language.Русский: ExtendedConfigurationObject (the link to the source object) is zero — it matches nothing, so the platform loads the extension but does not apply it. Set it to the uuid attribute of the language in the source configuration (Languages/Русский.xml)"
     ]
   }
 }

@@ -1,5 +1,5 @@
 {
-  "name": "С -ConfigPath ловится заимствование, чей UUID разошёлся с пересозданным объектом источника",
+  "name": "С -ConfigPath ловится заимствование, чей UUID разошёлся с пересозданным объектом источника — одна ошибка по объекту, без ручной правки UUID",
   "preRun": [
     {
       "script": "meta-compile/scripts/meta-compile",
@@ -78,10 +78,12 @@
   "noSnapshot": "негативный кейс: навык ничего не пишет, проверяется текст и код возврата",
   "expect": {
     "stdoutContains": [
-      "18. Catalog.Товары: ExtendedConfigurationObject",
-      "18. Catalog.Товары.Attribute.Артикул: ExtendedConfigurationObject",
-      "18. Catalog.Товары.Form.ФормаЭлемента: ExtendedConfigurationObject"
+      "18. Catalog.Товары: the source object with this name is a different object (UUID ",
+      "is no longer in the source — recreated or deleted. The platform does not apply the extension. Do not edit the UUID by hand or re-borrow: the extension's own data is bound to the old object — ask the user"
     ],
-    "stdoutNotContains": "missing from the source configuration"
+    "stdoutNotContains": [
+      "missing from the source configuration",
+      "18. Catalog.Товары.Attribute.Артикул:"
+    ]
   }
 }

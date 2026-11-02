@@ -1,11 +1,16 @@
 {
   "name": "С -ConfigPath ловится вложенная подсистема с UUID, которого нет у источника",
   "setup": "fixture:nested-subsystem-stale",
-  "params": { "extensionPath": "." },
-  "args_extra": ["-ConfigPath", "{workDir}/src"],
+  "params": {
+    "extensionPath": "."
+  },
+  "args_extra": [
+    "-ConfigPath",
+    "{workDir}/src"
+  ],
   "expectError": true,
   "noSnapshot": "негативный кейс: навык ничего не пишет, проверяется текст и код возврата",
   "expect": {
-    "stdoutContains": "18. Subsystem.Родитель.Subsystem.Дочерняя: ExtendedConfigurationObject is 11111111-2222-3333-4444-555555555555"
+    "stdoutContains": "18. Subsystem.Родитель.Subsystem.Дочерняя: the source object with this name is a different object (UUID "
   }
 }
