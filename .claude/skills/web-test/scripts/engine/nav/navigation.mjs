@@ -1,4 +1,4 @@
-// web-test nav/navigation v1.18 — Section navigation, openCommand, switchTab, navigateLink (Shift+F11), openFile.
+// web-test nav/navigation v1.19 — Section navigation, openCommand, switchTab, navigateLink (Shift+F11), openFile.
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import {
@@ -77,7 +77,12 @@ export async function openCommand(name) {
   if (highlightMode) try { await highlight(name); await page.waitForTimeout(500); await unhighlight(); } catch {}
   const formBefore = await page.evaluate(detectFormScript());
   const result = await page.evaluate(openCommandScript(name));
-  if (result?.error) throw new Error(`openCommand: "${name}" not found. Available: ${result.available?.join(', ') || 'none'}`);
+  if (result?.error) {
+    // No commands at all: the section's function panel is closed (1C closes it once a command opens a form)
+    const hint = result.available?.length ? result.available.join(', ')
+      : 'none — the function panel is closed; call navigateSection(<section>) to open it (it toggles the panel)';
+    throw new Error(`openCommand: "${name}" not found. Available: ${hint}`);
+  }
 
   await waitForStable(formBefore);
   return await returnFormState();

@@ -124,6 +124,7 @@ await navigateSection('Продажи');
 
 #### `openCommand(name)` → form state
 Open a command from the function panel (fuzzy). Returns form state of the opened form.
+1C closes the function panel once a command opens a form: before the next command of the section call `navigateSection` again (it toggles the panel — called on an open panel it hides it).
 ```js
 const form = await openCommand('Заказы клиентов');
 ```
