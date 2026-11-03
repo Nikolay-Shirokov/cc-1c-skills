@@ -1,4 +1,4 @@
-export const name = 'recording: video, captions, TTS narration, overlays (title/image/highlight)';
+export const name = 'recording: video, captions, TTS narration, overlays (legacy title/image, highlight)';
 export const tags = ['recording'];
 export const timeout = 120000;
 
@@ -77,16 +77,17 @@ export default async function({
     await showTitleSlide('Заголовок', { subtitle: 'подзаголовок' });
     const p = await getPage();
     const view = await p.evaluate(() => ({ w: window.innerWidth, h: window.innerHeight }));
-    const overlays = await p.evaluate(() => [...document.body.children]
-      .filter(c => c.id && c.id.startsWith('__web_test_title'))
-      .map(c => ({ id: c.id, w: c.offsetWidth, h: c.offsetHeight })));
+    // legacy overlays are now static slides (showSlide host, marked with their kind)
+    const overlays = await p.evaluate(() => [...document.querySelectorAll('#__ws_slide[data-kind="title"]')]
+      .map(c => ({ id: c.id, w: c.offsetWidth, h: c.offsetHeight, text: c.shadowRoot.textContent })));
     log(`title overlays: ${JSON.stringify(overlays)}`);
     assert.equal(overlays.length, 1, 'один title overlay');
     assert.equal(overlays[0].w, view.w, 'overlay перекрывает всю ширину viewport');
     assert.equal(overlays[0].h, view.h, 'overlay перекрывает всю высоту viewport');
+    assert.ok(overlays[0].text.includes('Заголовок') && overlays[0].text.includes('подзаголовок'), 'текст титула на месте');
     await hideTitleSlide();
-    const after = await overlayIds();
-    assert.ok(!after.includes('__web_test_title'), 'title overlay удалён');
+    const after = await p.evaluate(() => !!document.getElementById('__ws_slide'));
+    assert.equal(after, false, 'title overlay удалён');
   });
 
   await step('image-overlay: showImage создаёт overlay, hideImage убирает', async () => {
@@ -96,15 +97,15 @@ export default async function({
     fs.writeFileSync(imgPath, png);
     await showImage(imgPath, { style: 'dark' });
     const p = await getPage();
-    const overlays = await p.evaluate(() => [...document.body.children]
-      .filter(c => c.id && c.id.startsWith('__web_test_image'))
-      .map(c => ({ id: c.id, w: c.offsetWidth, h: c.offsetHeight })));
+    const overlays = await p.evaluate(() => [...document.querySelectorAll('#__ws_slide[data-kind="image"]')]
+      .map(c => ({ id: c.id, w: c.offsetWidth, h: c.offsetHeight, imgs: c.shadowRoot.querySelectorAll('img').length })));
     log(`image overlays: ${JSON.stringify(overlays)}`);
     assert.equal(overlays.length, 1, 'один image overlay');
     assert.ok(overlays[0].w > 0 && overlays[0].h > 0, 'overlay имеет размер');
+    assert.equal(overlays[0].imgs, 1, 'картинка без размытой подложки (style: dark)');
     await hideImage();
-    const after = await overlayIds();
-    assert.ok(!after.includes('__web_test_image'), 'image overlay удалён');
+    const after = await p.evaluate(() => !!document.getElementById('__ws_slide'));
+    assert.equal(after, false, 'image overlay удалён');
   });
 
   await step('highlight: setHighlight toggles isHighlightMode; manual highlight/unhighlight создают и убирают overlay', async () => {
@@ -209,7 +210,7 @@ export default async function({
     globalThis.fetch = async (url, init) => { bodies.push(JSON.parse(init.body)); return new Response(mp3); };
     try {
       const narrate = (extra) => addNarration(videoPath, {
-        provider: 'openai', apiKey: 'test', model: 'gpt-4o-mini-tts', ...extra,
+        provider: 'openai', apiKey: 'test', model: 'gpt-4o-mini-tts', cache: false, ...extra,   // fake server: keep it out of the TTS cache
         captions: [{ text: 'a', speech: 'Проверка', time: 0 }],
         outputPath: path.join(dir, 'openai-narrated.mp4'),
       });

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// web-test run v1.22 — CLI entry-point
+// web-test run v1.23 — CLI entry-point
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 /**
  * CLI runner for 1C web client automation.
@@ -16,9 +16,11 @@
  *   node src/run.mjs stop                   — logout + close browser
  *   node src/run.mjs status                 — check session
  *   node src/run.mjs test <dir|file>... [--url]  — run regression tests
+ *   node src/run.mjs play <slides.mjs> --out=<mp4> [--no-narration] — slides video without 1C (record + narrate)
+ *   node src/run.mjs preview <slides.mjs> [--out-dir=]  — a PNG per slide step + checks
  *
  * Внутренности живут в cli/: util, session, exec-context, server,
- * commands/{start,run,exec,shot,stop,status,test}, test-runner/*.
+ * commands/{start,run,exec,shot,stop,status,test,slides}, test-runner/*.
  */
 import * as browser from './browser.mjs';
 import { usage, die } from './cli/util.mjs';
@@ -29,6 +31,7 @@ import { cmdShot } from './cli/commands/shot.mjs';
 import { cmdStop } from './cli/commands/stop.mjs';
 import { cmdStatus } from './cli/commands/status.mjs';
 import { cmdTest } from './cli/commands/test.mjs';
+import { cmdPlay, cmdPreview } from './cli/commands/slides.mjs';
 
 const [,, cmd, ...rawArgs] = process.argv;
 const flags = {
@@ -88,5 +91,7 @@ switch (cmd) {
   case 'stop':   await cmdStop(); break;
   case 'status': await cmdStatus(); break;
   case 'test':   await cmdTest(rawArgs); break;
+  case 'play':   await cmdPlay(args[0], flagValue('out'), { narrate: !rawArgs.includes('--no-narration') }); break;
+  case 'preview': await cmdPreview(args[0], flagValue('out-dir')); break;
   default:       usage();
 }

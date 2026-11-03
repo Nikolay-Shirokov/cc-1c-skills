@@ -1,9 +1,11 @@
-// web-test recording/tts v1.18 — TTS providers (edge/openai/elevenlabs) and ffmpeg/ffprobe helpers.
+// web-test recording/tts v1.19 — TTS providers (edge/openai/elevenlabs), phrase cache and ffmpeg/ffprobe helpers.
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import { execFileSync, spawn } from 'child_process';
-import { existsSync as fsExistsSync, writeFileSync } from 'fs';
-import { resolve as pathResolve } from 'path';
+import { createHash } from 'crypto';
+import { existsSync as fsExistsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
+import { join as pathJoin, resolve as pathResolve } from 'path';
 import { pathToFileURL } from 'url';
 import { projectRoot } from '../core/state.mjs';
 
@@ -144,6 +146,62 @@ export function getTtsProvider(name) {
     case 'elevenlabs': return elevenlabsTtsProvider;
     case 'edge': default: return edgeTtsProvider;
   }
+}
+
+// ── Phrase cache ───────────────────────────────────────────────────────────
+// One synthesis per phrase: slides synthesize ahead to learn exact step lengths, and addNarration
+// takes the same files instead of synthesizing again. Keyed by everything that changes the audio.
+
+const TTS_CACHE_DIR = pathResolve(tmpdir(), 'web-test-tts-cache');
+const _durations = new Map();
+
+function ttsCacheFile(text, opts = {}) {
+  const key = JSON.stringify([opts.provider || 'edge', opts.voice || '', opts.model || '', opts.instructions || '', opts.apiUrl || '', text]);
+  return pathJoin(TTS_CACHE_DIR, createHash('sha1').update(key).digest('hex') + '.mp3');
+}
+
+function durationOf(file, ffmpegPath) {
+  if (!_durations.has(file)) _durations.set(file, getAudioDuration(file, resolveFfmpeg(ffmpegPath)));
+  return _durations.get(file);
+}
+
+/**
+ * Synthesize a phrase once (cached) and measure it.
+ * @param {string} text
+ * @param {object} [opts] — { provider, voice, apiKey, apiUrl, model, instructions, ffmpegPath, cache (false — bypass) }
+ * @returns {Promise<{ file: string, seconds: number }>}
+ */
+export async function synthesizeCached(text, opts = {}) {
+  if (opts.cache === false) {
+    // no cache: a one-off file (tests with a fake provider must not leave audio under a real phrase's key)
+    mkdirSync(TTS_CACHE_DIR, { recursive: true });
+    const file = pathJoin(TTS_CACHE_DIR, `nocache-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.mp3`);
+    await getTtsProvider(opts.provider || 'edge')(text, file, opts);
+    return { file, seconds: getAudioDuration(file, resolveFfmpeg(opts.ffmpegPath)) };
+  }
+  const file = ttsCacheFile(text, opts);
+  if (!fsExistsSync(file) || statSync(file).size === 0) {
+    mkdirSync(TTS_CACHE_DIR, { recursive: true });
+    const part = `${file}.${process.pid}.part.mp3`;
+    await getTtsProvider(opts.provider || 'edge')(text, part, opts);
+    renameSync(part, file);
+  }
+  return { file, seconds: durationOf(file, opts.ffmpegPath) };
+}
+
+/** The project's TTS settings (`.v8-project.json` → `tts`), {} when absent. */
+export function projectTtsOptions() {
+  try {
+    const cfg = JSON.parse(readFileSync(pathJoin(projectRoot, '.v8-project.json'), 'utf8'));
+    return cfg.tts && typeof cfg.tts === 'object' ? { ...cfg.tts } : {};
+  } catch { return {}; }
+}
+
+/** Length of an already cached phrase in seconds, or null (no synthesis). */
+export function cachedSpeechSeconds(text, opts = {}) {
+  const file = ttsCacheFile(text, opts);
+  if (!fsExistsSync(file) || statSync(file).size === 0) return null;
+  try { return durationOf(file, opts.ffmpegPath); } catch { return null; }
 }
 
 // ── TTS audio helpers ──────────────────────────────────────────────────────

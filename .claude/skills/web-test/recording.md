@@ -98,56 +98,57 @@ When `text` is empty but `speech` is a string, the caption is still recorded for
 
 The overlay uses `pointer-events: none` — does not interfere with clicking.
 
-**Smart TTS wait** (during recording): `showCaption` automatically pauses for the estimated TTS speech duration (default ~70ms per character, min 2s; configurable via `startRecording({ speechRate })`). The next `wait()` call accounts for this — if the explicit pause is shorter than the TTS wait already done, no extra delay is added. If longer, only the remaining difference is waited. This means script authors don't need to calculate TTS timing manually.
+**Smart TTS wait** (during recording): `showCaption` automatically pauses for the speech duration — the phrase's real length when it is already in the TTS cache (synthesized ahead or recorded before; cache key: the `.v8-project.json` `tts` settings + `opts.voice`), otherwise an estimate (default ~70ms per character, min 2s; configurable via `startRecording({ speechRate })`). The next `wait()` call accounts for this — if the explicit pause is shorter than the TTS wait already done, no extra delay is added. If longer, only the remaining difference is waited. This means script authors don't need to calculate TTS timing manually.
 
 ### `hideCaption()`
 
 Remove the caption overlay.
 
-### `showTitleSlide(text, opts?)`
+### Title and closing — `showSlide(spec, tts?)`
 
-Display a full-screen title slide overlay (gradient background, centered text). Useful for intro/outro frames in video recordings. Calling again updates the content.
+Almost every video opens with a title card and many end with a closing one. Both are animated slides:
 
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `text` | string | required | Title text (`\n` → line break) |
-| `opts.subtitle` | string | `''` | Smaller text below the title |
-| `opts.background` | string | dark gradient | CSS background |
-| `opts.color` | string | `'#fff'` | Text color |
-| `opts.fontSize` | number | 36 | Title font size in px |
-| `opts.speech` | string \| false | - | TTS narration text. String = custom text, `true` = use title text, omit/false = no narration |
-| `opts.voice` | string | - | Per-caption voice override for `addNarration` |
+```js
+const TTS = { provider: 'edge', voice: 'ru-RU-DmitryNeural' };   // or the "tts" object of .v8-project.json
+const TITLE = {
+  layout: 'title', kicker: 'Видеоинструкция', title: 'Создание заказа\nклиента',
+  subtitle: 'Демонстрация', image: 'docs/video/cover.png', speech: 'Создание заказа клиента.',
+};
+const CLOSING = {
+  layout: 'closing', title: 'Спасибо за внимание', subtitle: 'Компания',
+  contacts: ['site.ru', 'info@site.ru'], qr: 'docs/video/qr.png', speech: 'Спасибо за внимание!',
+};
 
-The overlay covers the entire viewport with `z-index: 999999` and `pointer-events: none`.
+await prepareSlides([TITLE, CLOSING], TTS);  // before startRecording: checks the specs, synthesizes the phrases
+await startRecording('recordings/order.mp4');
+await showSlide(TITLE, TTS);                 // the video opens on the title, not on the 1C page
+await hideSlide();                           // fades to the 1C page
+// ... steps in 1C ...
+await showSlide(CLOSING, TTS);
+const video = await stopRecording();         // stop while the closing card is still on screen
+await hideSlide();
+```
 
-### `hideTitleSlide()`
+| `title` field | | `closing` field | |
+|---|---|---|---|
+| `title` | required; `\n` — line break | `title` | required |
+| `kicker` | small line above (series, product) | `subtitle` | accent line below |
+| `subtitle` | line below the rule | `contacts` | array of lines |
+| `image` | picture in a circle on the right | `image`, `qr` | picture on the right; QR image below the contacts |
+| `speech` | narration | `speech` | narration |
 
-Remove the title slide overlay.
+Both take `voice` (per-slide voice override), `background` (CSS) and `outro` (seconds held after the phrase).
 
-### `showImage(imagePath, opts?)`
+- `showSlide` returns when its narration is over; the slide stays until the next `showSlide` (crossfade) or `hideSlide()`.
+- The slide lasts as long as its phrase really sounds. `prepareSlides` synthesizes the phrases ahead; without it `showSlide` synthesizes itself and the video stands still meanwhile (a warning says so).
+- `{ motion: false }` in the options — a static slide, no animation.
+- Colours: `.v8-project.json` → `"slides": { "theme": { "primary": "#16213e", "accent": "#f0a202" } }` or `setSlideTheme({...})` — see [slides.md](slides.md#theme).
+- Checks run on every step; problems come to the exec output as `[web-test] showSlide(...) WARN ...` (text off the frame, too much text, screen text repeating the narration).
+- `showTitleSlide` / `hideTitleSlide`, `showImage` / `hideImage` — the former static forms; they still work as before.
 
-Display a full-screen image overlay (e.g. presentation slide screenshot). Reads the file, base64-encodes it, and renders as `<img>` in a fixed overlay — captured by CDP screencast automatically.
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `imagePath` | string | required | Path to image file (PNG, JPG, GIF, WebP, SVG) |
-| `opts.style` | `'blur'` \| `'dark'` \| `'light'` \| `'full'` | `'blur'` | Display style preset |
-| `opts.background` | string | - | Custom background (overrides preset) |
-| `opts.shadow` | boolean | preset | Show drop shadow on image |
-| `opts.speech` | string \| false | - | TTS narration text while image is shown |
-| `opts.voice` | string | - | Per-caption voice override for `addNarration` |
-
-**Style presets:**
-- `blur` — blurred+dimmed copy of the image as background, centered image with shadow
-- `dark` — dark background (#2a2a2a) with shadow
-- `light` — white background with shadow
-- `full` — image fills entire screen (contain, no crop), black background, no shadow
-
-Images are auto-scaled: small images scale up (min 50% of viewport), large images scale down (max 92%).
-
-### `hideImage()`
-
-Remove the image overlay.
+**A picture or a presentation slide** with camera focus and numbered callouts, other slide layouts
+(agenda, statement, cards, columns, comparison, process, radial, summary), a page of your own, slide videos
+without 1C (`run.mjs play` / `preview`) — **[slides.md](slides.md)**.
 
 ### `setHighlight(on)`
 
@@ -185,22 +186,18 @@ Remove the highlight overlay.
 ## Example: Record a workflow with highlight, title slide, and captions
 
 ```js
+const TTS = { provider: 'edge', voice: 'ru-RU-DmitryNeural' };
+const TITLE = { layout: 'title', title: 'Создание заказа клиента', subtitle: 'Демонстрация',
+  speech: 'Создание заказа клиента. Демонстрация.' };
+await prepareSlides([TITLE], TTS);
+
 await startRecording('recordings/create-order.mp4');
 
 // Title slide with narration
-await showTitleSlide('Создание заказа клиента', {
-  subtitle: 'Демонстрация',
-  speech: 'Создание заказа клиента. Демонстрация.'
-});
-await wait(1);
-await hideTitleSlide();
+await showSlide(TITLE, TTS);
+await hideSlide();
 
-// Presentation slide (optional)
-await showImage('slides/overview.png', {
-  speech: 'На этом слайде показана общая схема процесса'
-});
-await wait(1);
-await hideImage();
+// A presentation slide with focus on its parts, if needed — see slides.md
 
 setHighlight(true); // enable auto-highlight for all actions
 
@@ -231,7 +228,7 @@ console.log(`Recorded ${result.duration}s, ${(result.size / 1024 / 1024).toFixed
 
 **Caption timing**: show the caption *before* the action — `showCaption` auto-waits for estimated TTS duration during recording. The subsequent `wait()` is absorbed by the credit system (no double-waiting). Add `wait()` *after* the action only when the next step needs the result to load (e.g., form opening).
 
-**Highlight timing**: `setHighlight(true)` enables auto-mode — each action function highlights the target for 500ms, then removes the highlight before performing the action. No manual `highlight()`/`unhighlight()` calls needed. Enable after title slide, disable before `stopRecording()`.
+**Highlight timing**: `setHighlight(true)` enables auto-mode — each action function highlights the target for 500ms, then removes the highlight before performing the action. No manual `highlight()`/`unhighlight()` calls needed. Enable after the title slide, disable before `stopRecording()`.
 
 ## TTS Narration
 
@@ -241,6 +238,8 @@ Add voiceover to recorded videos. Captions shown via `showCaption()` are automat
 
 - **ffmpeg** — same as for video recording (ffprobe must be next to ffmpeg)
 - **node-edge-tts** — `npm install --prefix tools/tts node-edge-tts` (for Edge TTS provider, free, no API key). Also works if installed globally or at project level — the resolver tries multiple locations automatically
+  - version 1.2.12 or newer — older ones get HTTP 403 from the service
+- Phrases are cached (`<temp>/web-test-tts-cache`): `addNarration` reuses what `prepareSlides`/`showSlide` already synthesized and re-recordings do not synthesize again
 
 ### Configuration in `.v8-project.json`
 

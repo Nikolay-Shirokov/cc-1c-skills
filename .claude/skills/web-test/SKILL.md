@@ -500,7 +500,7 @@ Clear filters. Without arguments clears all, with `{ field }` clears specific ba
 #### `getPage()` → Playwright Page (raw, for advanced scripting)
 #### `startRecording(path, opts?)` / `stopRecording()` → MP4 video recording (`{ force: true }` to restart if already recording)
 #### `showCaption(text, opts?)` / `hideCaption()` → text overlay on page
-#### `showTitleSlide(text, opts?)` / `hideTitleSlide()` → full-screen title card (intro/outro)
+#### `showSlide(spec, tts?)` / `hideSlide()` / `prepareSlides(specs, tts?)` → animated slides: title and closing cards ([recording.md](recording.md)), presentation inserts ([slides.md](slides.md))
 #### `isRecording()` → boolean
 #### `setHighlight(on)` / `isHighlightMode()` → auto-highlight mode for video
 #### `highlight(text)` / `unhighlight()` → manual element highlighting (error lists available elements)
@@ -509,7 +509,7 @@ Clear filters. Without arguments clears all, with `{ field }` clears specific ba
 
 See [recording.md](recording.md) for setup (ffmpeg), highlight mode, TTS narration, API details, and examples.
 If `.v8-project.json` has `ffmpegPath`, pass it to `startRecording({ ffmpegPath })`.
-If `.v8-project.json` has `tts` config, pass the whole object to `addNarration()` as options.
+If `.v8-project.json` has `tts` config, pass the whole object to `addNarration()` as options (and to `showSlide`/`prepareSlides`).
 
 ## Common patterns
 

@@ -1,4 +1,4 @@
-// web-test cli/util v1.6 — generic helpers for CLI commands
+// web-test cli/util v1.7 — generic helpers for CLI commands
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 // Wall-clock bounds live in the engine (session.mjs needs them too, and the engine must not
@@ -108,6 +108,11 @@ Commands:
   stop                     Logout and close browser
   status                   Check session status
   test <dir|file>...       Run regression tests (*.test.mjs); accepts multiple paths
+  play <slides.mjs> --out=<file.mp4> [--no-narration]
+                           Slides video without 1C: blank page, recording + narration
+                           (--no-narration: video + captions.json only, narrate later)
+  preview <slides.mjs> [--out-dir=<dir>]
+                           A PNG per slide step + checks (no TTS, no video)
 
 Options for start and run:
   --user=NAME              Log in as this infobase user instead of the publication's one

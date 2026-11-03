@@ -388,10 +388,11 @@ await app.getByRole('button', { name: 'Отправить' }).click();
 | `stopRecording()` | Остановить запись, вернуть `{ file, duration, size }` |
 | `showCaption(text, opts?)` | Текстовая подпись поверх страницы (`speech` — текст озвучки) |
 | `hideCaption()` | Убрать подпись |
-| `showTitleSlide(text, opts?)` | Полноэкранный титульный слайд (`subtitle`, `background`, `speech`) |
-| `hideTitleSlide()` | Убрать титульный слайд |
-| `showImage(path, opts?)` | Полноэкранное изображение (`style`: blur/dark/light/full, `speech`) |
-| `hideImage()` | Убрать изображение |
+| `showSlide(spec, tts?)` | Анимированный слайд по шагам под озвучку: титул, финал, вставки-презентации (шаблоны `title`, `agenda`, `cards`, `process`, `image` с фокусом и др.) — см. [запись видео](web-test-recording-guide.md) |
+| `hideSlide()` | Убрать слайд |
+| `prepareSlides(specs, tts?)` | Проверить спеки и синтезировать фразы до записи |
+| `setSlideTheme(theme)` / `loadSlides(path)` | Цвета слайдов; загрузка модуля со спеками слайдов |
+| `showTitleSlide` / `showImage` (+ `hide…`) | Прежние статичные формы титула и картинки — работают как раньше |
 | `addNarration(videoPath, opts?)` | Озвучка видео по субтитрам (Edge TTS / ElevenLabs / OpenAI) |
 | `getCaptions()` | Субтитры из текущей/последней записи |
 | `isRecording()` | Идёт ли запись (boolean) |

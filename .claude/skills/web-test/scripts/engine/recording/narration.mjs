@@ -1,4 +1,4 @@
-// web-test recording/narration v1.19 — Post-process: generate TTS audio for captions and merge with recorded video.
+// web-test recording/narration v1.20 — Post-process: generate TTS audio for captions and merge with recorded video.
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import { execFileSync } from 'child_process';
@@ -10,7 +10,7 @@ import {
   lastCaptions, lastRecordingDuration, resolveProjectPath,
 } from '../core/state.mjs';
 import {
-  resolveFfmpeg, getTtsProvider, getAudioDuration, generateSilence,
+  resolveFfmpeg, getAudioDuration, generateSilence, synthesizeCached,
 } from './tts.mjs';
 
 /**
@@ -27,14 +27,17 @@ import {
  * @param {string} [opts.instructions] — speaking style (openai gpt-4o-mini-tts)
  * @param {string} [opts.ffmpegPath] — path to ffmpeg binary
  * @param {string} [opts.outputPath] — output file path (default: video-narrated.mp4)
+ * @param {boolean} [opts.cache=true] — reuse/keep phrases in the shared TTS cache (false — synthesize afresh)
  * @returns {{ file: string, duration: number, size: number, captions: number, warnings?: string[] }}
  */
 export async function addNarration(videoPath, opts = {}) {
   if (!videoPath) return { file: null, duration: 0, size: 0, captions: 0 };
   videoPath = resolveProjectPath(videoPath);
   const ffmpegPath = resolveFfmpeg(opts.ffmpegPath);
-  const ttsProvider = getTtsProvider(opts.provider || 'edge');
-  const ttsOpts = { voice: opts.voice, apiKey: opts.apiKey, apiUrl: opts.apiUrl, model: opts.model, instructions: opts.instructions };
+  const ttsOpts = {
+    provider: opts.provider || 'edge', voice: opts.voice, apiKey: opts.apiKey, apiUrl: opts.apiUrl,
+    model: opts.model, instructions: opts.instructions, ffmpegPath, cache: opts.cache,
+  };
 
   // Resolve captions: explicit > lastCaptions > .captions.json
   let captions = opts.captions;
@@ -96,20 +99,17 @@ export async function addNarration(videoPath, opts = {}) {
       const batch = captions.slice(batchStart, batchStart + BATCH_SIZE);
       const promises = batch.map(async (cap, batchIdx) => {
         const idx = batchStart + batchIdx;
-        const ttsFile = pathJoin(tempDir, `tts_${idx}.mp3`);
         const capTtsOpts = cap.voice ? { ...ttsOpts, voice: cap.voice } : ttsOpts;
-        try {
-          await ttsProvider(cap.speech, ttsFile, capTtsOpts);
-        } catch (err) {
-          // Retry once
+        // Shared phrase cache: phrases synthesized ahead (slides) are not synthesized again
+        for (let attempt = 0; attempt < 2; attempt++) {
           try {
-            await ttsProvider(cap.speech, ttsFile, capTtsOpts);
-          } catch (retryErr) {
-            warnings.push(`TTS failed for caption ${idx}: ${retryErr.message || retryErr.cause?.message || String(retryErr)}`);
-            // Generate 1s silence as placeholder
-            generateSilence(ttsFile, 1, ffmpegPath);
+            return (await synthesizeCached(cap.speech, capTtsOpts)).file;
+          } catch (err) {
+            if (attempt === 1) warnings.push(`TTS failed for caption ${idx}: ${err.message || err.cause?.message || String(err)}`);
           }
         }
+        const ttsFile = pathJoin(tempDir, `tts_${idx}.mp3`);
+        generateSilence(ttsFile, 1, ffmpegPath);   // 1s placeholder
         return ttsFile;
       });
       const results = await Promise.all(promises);

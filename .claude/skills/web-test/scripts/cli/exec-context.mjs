@@ -1,4 +1,4 @@
-// web-test cli/exec-context v1.3 — buildContext + executeScript для run/exec/test
+// web-test cli/exec-context v1.4 — buildContext + executeScript для run/exec/test
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import { readFileSync, writeFileSync } from 'fs';
 import { resolve, dirname } from 'path';
@@ -65,6 +65,9 @@ export function buildContext({ noRecord = false } = {}) {
     }
     ctx.isRecording = () => false;
     ctx.getCaptions = () => [];
+    // slides are still drawn (the page state matters for debugging), without TTS and with short holds
+    ctx.showSlide = (spec, opts = {}) => browser.showSlide(spec, { ...opts, fast: 0.3 });
+    ctx.prepareSlides = (specs, opts = {}) => browser.prepareSlides(specs, { ...opts, validateOnly: true });
   }
 
   // Wrap action functions to auto-detect 1C errors (modal, balloon)

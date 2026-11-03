@@ -191,7 +191,7 @@ export default async function({ clerk, manager, step }) {
 **Ошибки:** `fetchErrorStack`
 **Контексты:** `createContext`, `setActiveContext`, `closeContext`, `listContexts`, `hasContext`, `getActiveContext`
 **Запись:** `startRecording`, `stopRecording`, `isRecording`, `addNarration`, `getCaptions`
-**Презентация:** `showCaption`, `hideCaption`, `showTitleSlide`, `hideTitleSlide`, `showImage`, `hideImage`, `highlight`, `unhighlight`, `setHighlight`, `isHighlightMode`
+**Презентация:** `showCaption`, `hideCaption`, `showSlide`, `hideSlide`, `prepareSlides`, `setSlideTheme`, `loadSlides`, `showTitleSlide`, `hideTitleSlide`, `showImage`, `hideImage`, `highlight`, `unhighlight`, `setHighlight`, `isHighlightMode`
 **Утилиты:** `screenshot`, `wait`, `getPage`, `getSession`, `readFileSync`, `writeFileSync`
 
 > `dismissPendingErrors` — внутренняя функция (browser.mjs), на `ctx` не публикуется. Тест её не вызывает напрямую: она срабатывает автоматически перед каждым ACTION_FN и внутри встроенного сброса.
