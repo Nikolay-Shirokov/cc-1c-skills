@@ -1,4 +1,4 @@
-// web-test recording/slides/protocol v1.0 — step-slide protocol: base CSS + theme, page-side mount/step/lint.
+// web-test recording/slides/protocol v1.1 — step-slide protocol: base CSS + theme, page-side mount/step/lint.
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 //
 // A slide is a 1920×1080 page inside a shadow root (its CSS cannot touch a neighbour slide or the
@@ -197,6 +197,8 @@ export function pageStep({ step, maxZoom }) {
 
 /** Fade out (or drop at once) and remove the slide (page side). */
 export function pageHide({ instant }) {
+  // a slide swapped out a moment ago (removed after 650 ms) and legacy overlays go now: none may resurface
+  ['__ws_slide_old', '__web_test_image', '__web_test_title'].forEach((id) => document.getElementById(id)?.remove());
   const host = document.getElementById('__ws_slide');
   if (!host) return false;
   if (instant) { host.remove(); return false; }

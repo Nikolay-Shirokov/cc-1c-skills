@@ -1,4 +1,4 @@
-// web-test cli/commands/slides v1.1 — play / preview: slides without 1C (blank Chromium page 1920×1080)
+// web-test cli/commands/slides v1.2 — play / preview: slides without 1C (blank Chromium page 1920×1080)
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 //
 // A slides module: `export default [spec, ...]`, optional `export const tts = {...}` and `export const theme = {...}`.
@@ -53,21 +53,30 @@ export async function cmdPlay(file, outFile, { narrate = true } = {}) {
       const warnings = [];
       const target = resolve(outFile);
       await browser.startRecording(target);
-      let video;
+      let video, failure = null;
       try {
         for (let n = 0; n < slides.length; n++) {
           const r = await browser.showSlide(slides[n], { ...tts, lint: 'collect', ...(narrate ? {} : { synth: false }) });
           warnings.push(...(r.warnings || []).map((w) => `slide ${n + 1} (${slides[n].layout || 'page'}) ${w}`));
         }
-      } finally {
-        video = await browser.stopRecording();         // ends on the last slide; stopped on a failure too
+      } catch (e) { failure = e; }
+      // stopped on a failure too (ends on the last slide); the slide's error, not ffmpeg's, is the one to report
+      try { video = await browser.stopRecording(); } catch (e) { if (!failure) throw e; }
+      if (failure) throw failure;
+      if (!narrate || !video.captions) {
+        if (narrate) warnings.push('no spoken steps — the video has no narration');
+        return { ok: true, file: video.file, duration: video.duration, captions: video.captions, warnings };
       }
-      if (!narrate) return { ok: true, file: video.file, duration: video.duration, captions: video.captions, warnings };
       // --out is the final narrated video; the silent recording is replaced, its captions.json stays next to it
       const tmp = target.replace(/(\.[^.\\/]+)?$/, '.narrating$1');
       const narrated = await browser.addNarration(video.file, { ...tts, outputPath: tmp });
-      renameSync(tmp, target);
-      return { ok: true, file: target, duration: narrated.duration, captions: video.captions,
+      let file = target;
+      try { renameSync(tmp, target); }
+      catch (e) {
+        file = tmp;
+        warnings.push(`could not replace ${target} (${e.code || e.message}) — the narrated video is ${tmp}`);
+      }
+      return { ok: true, file, duration: narrated.duration, captions: video.captions,
         warnings: [...warnings, ...(narrated.warnings || [])] };
     });
     out(res);

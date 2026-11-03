@@ -37,12 +37,13 @@ export function resolveFfmpeg(explicit) {
 }
 
 function findFfmpeg() {
-  // 1b. .v8-project.json "ffmpegPath" (relative to the project root)
+  // 1b. .v8-project.json "ffmpegPath" (relative to the project root) — a configured path that does not
+  //     work is an error, not a reason to pick some other ffmpeg silently
   const cfgPath = readProjectConfig().ffmpegPath;
   if (cfgPath) {
     const p = pathResolve(projectRoot, cfgPath);
     try { execFileSync(p, ['-version'], { stdio: 'ignore', timeout: 5000 }); return p; }
-    catch { /* fall through */ }
+    catch { throw new Error(`ffmpeg not found at: ${p} (.v8-project.json "ffmpegPath")`); }
   }
 
   // 2. FFMPEG_PATH env var
@@ -268,6 +269,19 @@ export async function synthesizeCached(text, opts = {}) {
 export function projectTtsOptions() {
   const cfg = readProjectConfig();
   return cfg.tts && typeof cfg.tts === 'object' ? { ...cfg.tts } : {};
+}
+
+/**
+ * Caller's TTS options over the project's ones. The project's voice/model/key belong to its provider:
+ * they are taken only when the caller names no provider or the same one (an Edge call must not get an
+ * OpenAI voice).
+ */
+export function mergeTtsOptions(opts = {}) {
+  const own = Object.fromEntries(Object.entries(opts).filter(([, v]) => v !== undefined));
+  const project = projectTtsOptions();
+  const provider = (p) => p || 'edge';
+  if (own.provider && provider(own.provider) !== provider(project.provider)) return own;
+  return { ...project, ...own };
 }
 
 /** Length of an already cached phrase in seconds, or null (no synthesis). */

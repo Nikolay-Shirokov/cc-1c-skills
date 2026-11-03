@@ -10,7 +10,7 @@ import {
   lastCaptions, lastRecordingDuration, resolveProjectPath,
 } from '../core/state.mjs';
 import {
-  resolveFfmpeg, getAudioDuration, generateSilence, synthesizeCached, projectTtsOptions,
+  resolveFfmpeg, getAudioDuration, generateSilence, synthesizeCached, mergeTtsOptions,
 } from './tts.mjs';
 
 /**
@@ -35,7 +35,7 @@ export async function addNarration(videoPath, opts = {}) {
   if (!videoPath) return { file: null, duration: 0, size: 0, captions: 0 };
   videoPath = resolveProjectPath(videoPath);
   const ffmpegPath = resolveFfmpeg(opts.ffmpegPath);
-  const tts = { ...projectTtsOptions(), ...Object.fromEntries(Object.entries(opts).filter(([, v]) => v !== undefined)) };
+  const tts = mergeTtsOptions(opts);
   const ttsOpts = {
     provider: tts.provider || 'edge', voice: tts.voice, apiKey: tts.apiKey, apiUrl: tts.apiUrl,
     model: tts.model, instructions: tts.instructions, ffmpegPath, cache: tts.cache, measure: false,

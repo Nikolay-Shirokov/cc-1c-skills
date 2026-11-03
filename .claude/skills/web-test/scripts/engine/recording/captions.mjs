@@ -4,7 +4,7 @@
 import {
   page, recorder, lastCaptions, ensureConnected,
 } from '../core/state.mjs';
-import { cachedSpeechSeconds, projectTtsOptions } from './tts.mjs';
+import { cachedSpeechSeconds, mergeTtsOptions } from './tts.mjs';
 import { showSlide, hideSlide } from './slides/index.mjs';
 
 /**
@@ -30,7 +30,7 @@ export async function showCaption(text, opts = {}) {
     recorder.captions.push({ text: text || speech, speech, time: Math.round(recorder.videoTimeMs), ...(opts.voice ? { voice: opts.voice } : {}) });
     // Wait so the video has screen time for the voiceover: the phrase's real length when it is already
     // in the TTS cache (synthesized ahead, or a re-recording), otherwise an estimate
-    const cached = cachedSpeechSeconds(speech, { ...projectTtsOptions(), ...(opts.voice ? { voice: opts.voice } : {}) });
+    const cached = cachedSpeechSeconds(speech, mergeTtsOptions(opts.voice ? { voice: opts.voice } : {}));
     smartWaitMs = cached != null ? Math.round(cached * 1000 + 500) : Math.max(2000, speech.length * (recorder.speechRate || 70));
   }
   const position = opts.position || 'bottom';

@@ -1,4 +1,4 @@
-// web-test recording/slides/templates v1.0 — slide templates: spec → { html, css, steps, bg?, push?, maxZoom? }.
+// web-test recording/slides/templates v1.1 — slide templates: spec → { html, css, steps, bg?, push?, maxZoom? }.
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 //
 // Every template is a generator for the step protocol (protocol.mjs): it builds a 1920×1080 page and
@@ -265,10 +265,12 @@ export const templates = {
     });
     const { left: Lf, right: R } = spec;
     const cell = (side, i, x) => `<div class="cp-cell cp-${side} cp-${side}${i}" style="grid-row:${i + 2}">${x === undefined ? '' : esc(x)}</div>`;
-    const arrow = (i) => `<div class="cp-vs cp-a${i}" style="grid-row:${i + 2}">→</div>`;
+    // an arrow only between two filled cells (a row with one side empty has none)
+    const arrow = (i) => (Lf.items[i] !== undefined && R.items[i] !== undefined
+      ? `<div class="cp-vs cp-a${i}" style="grid-row:${i + 2}">→</div>` : '');
     const cells = range(n).map((i) => cell('l', i, Lf.items[i]) + arrow(i) + cell('r', i, R.items[i])).join('');
     const sideSel = (side) => [`.cp-h${side}`, ...range(n).map((i) => `.cp-${side}${i}`)].join(', ');
-    const arrows = range(n).map((i) => `.cp-a${i}`).join(', ');
+    const arrows = range(n).filter((i) => Lf.items[i] !== undefined && R.items[i] !== undefined).map((i) => `.cp-a${i}`).join(', ') || '.cp-none';
     // arrows come with the right side ("became"); a lit row lights its arrow too
     const steps = steps0.map(({ show, row, ...s }) => {
       const st = { ...s };

@@ -1,4 +1,4 @@
-// web-test recording/slides v1.0 — animated step slides: showSlide / hideSlide / prepareSlides / setSlideTheme / loadSlides.
+// web-test recording/slides v1.1 — animated step slides: showSlide / hideSlide / prepareSlides / setSlideTheme / loadSlides.
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 //
 // A slide is a template spec ({ layout, ... }) or a custom page ({ html, css, steps }). Each step is a phrase
@@ -7,7 +7,7 @@
 
 import { pathToFileURL } from 'url';
 import { page, recorder, ensureConnected, resolveProjectPath } from '../../core/state.mjs';
-import { synthesizeCached, cachedSpeechSeconds, projectTtsOptions, readProjectConfig } from '../tts.mjs';
+import { synthesizeCached, cachedSpeechSeconds, mergeTtsOptions, readProjectConfig } from '../tts.mjs';
 import { BASE_CSS, themeVars, pageMount, pageStep, pageHide, pageLint } from './protocol.mjs';
 import { buildSlide } from './templates.mjs';
 
@@ -29,9 +29,7 @@ const themeFor = (spec, opts) => ({ ...projectSlidesTheme(), ...scenarioTheme, .
 // ── helpers ───────────────────────────────────────────────────────────────
 const SLIDE_OPTS = new Set(['theme', 'motion', 'fast', 'synth', 'legacy', 'lint', 'onStep', 'label']);
 function ttsOptions(opts) {
-  const tts = projectTtsOptions();
-  for (const [k, v] of Object.entries(opts)) if (!SLIDE_OPTS.has(k) && v !== undefined) tts[k] = v;
-  return tts;
+  return mergeTtsOptions(Object.fromEntries(Object.entries(opts).filter(([k]) => !SLIDE_OPTS.has(k))));
 }
 
 export async function hold(ms) {
@@ -125,10 +123,11 @@ export async function showSlide(spec, opts = {}) {
     // Hold from before the ground is mounted (its frame must not flush the page's one into the video);
     // a painted frame reaches the screencast with a lag — hence the pause (this time is not in the video).
     const held = rec._holdFrames?.();
-    await page.evaluate(pageMount, { html: '', css: BASE_CSS, bg: built.bg, vars, instant: true, animated: { show: [], all: [] } });
-    if (held) {
-      await page.waitForTimeout(300);
-      rec._releaseFrames();
+    try {
+      await page.evaluate(pageMount, { html: '', css: BASE_CSS, bg: built.bg, vars, instant: true, animated: { show: [], all: [] } });
+      if (held) await page.waitForTimeout(300);
+    } finally {
+      if (held) rec._releaseFrames();   // a failed mount must not leave the recording holding (writing nothing)
     }
   }
   await page.evaluate(pageMount, {
@@ -195,12 +194,13 @@ export async function prepareSlides(specs, opts = {}) {
   if (!validateOnly) {
     // several phrases at a time (like addNarration; ElevenLabs allows fewer parallel requests), two retries each
     const width = tts.provider === 'elevenlabs' ? 2 : 5;
-    let next = 0;
+    let next = 0, failed = false;
     const worker = async () => {
-      while (next < jobs.length) {
+      while (next < jobs.length && !failed) {
         const [text, o] = jobs[next++];
         for (let attempt = 0; ; attempt++) {
-          try { await synthesizeCached(text, o); break; } catch (e) { if (attempt === 2) throw e; }
+          try { await synthesizeCached(text, o); break; }
+          catch (e) { if (attempt === 2 || failed) { failed = true; throw e; } }   // one failure stops the rest (a bad key)
         }
       }
     };
