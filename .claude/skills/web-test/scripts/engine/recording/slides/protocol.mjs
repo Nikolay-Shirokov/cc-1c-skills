@@ -59,7 +59,6 @@ export const BASE_CSS = `
 .ws-focus{animation:wsPulse .5s ease-in-out calc(var(--fi,0) * var(--focus-stagger,0s)) 1 both}
 .ws-links{position:absolute;inset:0;overflow:visible;pointer-events:none}
 .ws-links path{fill:none;stroke:var(--line);stroke-width:3;stroke-linecap:round;--dy:0px;--from-scale:1}
-.ws-links path.ws-t{transition:stroke-dashoffset .7s cubic-bezier(.4,0,.2,1),opacity .4s ease}
 .ws-links path.ws-pending:not(.on){stroke-dashoffset:var(--len)}
 .ws-links path.on{stroke-dashoffset:0}
 .ws-links path.ws-focus{animation:none;stroke:var(--accent)}
@@ -154,9 +153,9 @@ export function pageMount({ html, css, bg, vars, pushSec, animated, instant, sta
   };
   if (instant) { if (pushSec) requestAnimationFrame(() => requestAnimationFrame(start)); }
   else requestAnimationFrame(() => requestAnimationFrame(start));
-  // whatever was on screen goes away once the new slide has faded in (legacy overlays too)
-  setTimeout(() => ['__ws_slide_old', '__web_test_image', '__web_test_title'].forEach((id) => document.getElementById(id)?.remove()),
-    instant ? 0 : 650);
+  // whatever was on screen goes away once the new slide is up (legacy overlays too). Not at once even for an
+  // instant swap: a slide with a big picture paints a moment later, and the page under it must not show through.
+  setTimeout(() => ['__ws_slide_old', '__web_test_image', '__web_test_title'].forEach((id) => document.getElementById(id)?.remove()), 650);
 }
 
 /** Apply one step (page side). */

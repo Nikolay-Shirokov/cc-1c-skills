@@ -59,7 +59,8 @@ Start recording the browser viewport to an MP4 file.
 | `opts.ffmpegPath` | string | auto | Explicit path to ffmpeg binary |
 | `opts.speechRate` | number | 70 | Ms per character for smart TTS wait. Increase for slower TTS providers (e.g. 85 for ElevenLabs) |
 
-- Output directory is created automatically if it doesn't exist
+- `outputPath` is from the project root (or absolute); the output directory is created automatically
+- The video has the browser window's size (a maximized window gives e.g. 1920×1042); slides are drawn at 1920×1080 and scaled to fit
 - Throws if already recording or browser not connected
 - Recording auto-stops when `disconnect()` is called
 

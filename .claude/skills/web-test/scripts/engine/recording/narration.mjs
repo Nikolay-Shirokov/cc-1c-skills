@@ -1,4 +1,4 @@
-// web-test recording/narration v1.20 — Post-process: generate TTS audio for captions and merge with recorded video.
+// web-test recording/narration v1.21 — Post-process: generate TTS audio for captions and merge with recorded video.
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import { execFileSync } from 'child_process';
@@ -10,7 +10,7 @@ import {
   lastCaptions, lastRecordingDuration, resolveProjectPath,
 } from '../core/state.mjs';
 import {
-  resolveFfmpeg, getAudioDuration, generateSilence, synthesizeCached,
+  resolveFfmpeg, getAudioDuration, generateSilence, synthesizeCached, projectTtsOptions,
 } from './tts.mjs';
 
 /**
@@ -19,7 +19,8 @@ import {
  * @param {string} videoPath — path to the recorded MP4 file
  * @param {object} [opts]
  * @param {Array<{text: string, speech: string, time: number, voice?: string}>} [opts.captions] — explicit captions (default: from last recording or .captions.json). Each caption may include a `voice` field to override the global voice for that segment
- * @param {string} [opts.provider='edge'] — TTS provider: 'edge' or 'openai'
+ * Options default to the project's .v8-project.json "tts" settings (the ones slides and captions are timed with).
+ * @param {string} [opts.provider='edge'] — TTS provider: 'edge', 'openai' or 'elevenlabs'
  * @param {string} [opts.voice] — voice name (provider-specific)
  * @param {string} [opts.apiKey] — API key (for openai provider)
  * @param {string} [opts.apiUrl] — API endpoint (for openai provider)
@@ -34,9 +35,10 @@ export async function addNarration(videoPath, opts = {}) {
   if (!videoPath) return { file: null, duration: 0, size: 0, captions: 0 };
   videoPath = resolveProjectPath(videoPath);
   const ffmpegPath = resolveFfmpeg(opts.ffmpegPath);
+  const tts = { ...projectTtsOptions(), ...Object.fromEntries(Object.entries(opts).filter(([, v]) => v !== undefined)) };
   const ttsOpts = {
-    provider: opts.provider || 'edge', voice: opts.voice, apiKey: opts.apiKey, apiUrl: opts.apiUrl,
-    model: opts.model, instructions: opts.instructions, ffmpegPath, cache: opts.cache,
+    provider: tts.provider || 'edge', voice: tts.voice, apiKey: tts.apiKey, apiUrl: tts.apiUrl,
+    model: tts.model, instructions: tts.instructions, ffmpegPath, cache: tts.cache, measure: false,
   };
 
   // Resolve captions: explicit > lastCaptions > .captions.json
@@ -83,18 +85,19 @@ export async function addNarration(videoPath, opts = {}) {
   // Output path
   const ext = extname(videoPath);
   const base = videoPath.slice(0, -ext.length);
-  const outputPath = opts.outputPath || `${base}-narrated${ext}`;
+  const outputPath = opts.outputPath ? resolveProjectPath(opts.outputPath) : `${base}-narrated${ext}`;
 
-  // Temp directory
+  // Temp directory (silence, mix, one-off phrases of cache:false — all removed at the end)
   const tempDir = pathJoin(tmpdir(), `web-test-tts-${Date.now()}`);
   mkdirSync(tempDir, { recursive: true });
+  ttsOpts.tempDir = tempDir;
 
   const warnings = [];
 
   try {
     // Phase 1: Generate TTS audio for each caption
     const ttsFiles = [];
-    const BATCH_SIZE = (opts.provider === 'elevenlabs') ? 2 : 5;
+    const BATCH_SIZE = (ttsOpts.provider === 'elevenlabs') ? 2 : 5;
     for (let batchStart = 0; batchStart < captions.length; batchStart += BATCH_SIZE) {
       const batch = captions.slice(batchStart, batchStart + BATCH_SIZE);
       const promises = batch.map(async (cap, batchIdx) => {

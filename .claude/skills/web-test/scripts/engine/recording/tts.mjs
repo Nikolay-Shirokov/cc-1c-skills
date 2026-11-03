@@ -1,20 +1,48 @@
-// web-test recording/tts v1.19 — TTS providers (edge/openai/elevenlabs), phrase cache and ffmpeg/ffprobe helpers.
+// web-test recording/tts v1.20 — TTS providers (edge/openai/elevenlabs), phrase cache and ffmpeg/ffprobe helpers.
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import { execFileSync, spawn } from 'child_process';
 import { createHash } from 'crypto';
-import { existsSync as fsExistsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'fs';
+import { existsSync as fsExistsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync, utimesSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join as pathJoin, resolve as pathResolve } from 'path';
 import { pathToFileURL } from 'url';
 import { projectRoot } from '../core/state.mjs';
 
+/**
+ * The project's .v8-project.json (parsed), {} when absent. Re-read only when the file changes — callers
+ * on the recording path (every slide, every caption) must not hit the disk and the parser each time.
+ */
+let _cfgCache = { mtime: -1, value: {} };
+export function readProjectConfig() {
+  const file = pathJoin(projectRoot, '.v8-project.json');
+  try {
+    const mtime = statSync(file).mtimeMs;
+    if (mtime !== _cfgCache.mtime) _cfgCache = { mtime, value: JSON.parse(readFileSync(file, 'utf8')) || {} };
+  } catch { _cfgCache = { mtime: -1, value: {} }; }
+  return _cfgCache.value;
+}
+
 /** Resolve ffmpeg binary path. */
+let _autoFfmpeg = null;   // found without an explicit path: probing spawns processes, so once per process
 export function resolveFfmpeg(explicit) {
   // 1. Explicit path
   if (explicit) {
     try { execFileSync(explicit, ['-version'], { stdio: 'ignore', timeout: 5000 }); return explicit; }
     catch { throw new Error(`ffmpeg not found at: ${explicit}`); }
+  }
+  if (_autoFfmpeg) return _autoFfmpeg;
+  _autoFfmpeg = findFfmpeg();
+  return _autoFfmpeg;
+}
+
+function findFfmpeg() {
+  // 1b. .v8-project.json "ffmpegPath" (relative to the project root)
+  const cfgPath = readProjectConfig().ffmpegPath;
+  if (cfgPath) {
+    const p = pathResolve(projectRoot, cfgPath);
+    try { execFileSync(p, ['-version'], { stdio: 'ignore', timeout: 5000 }); return p; }
+    catch { /* fall through */ }
   }
 
   // 2. FFMPEG_PATH env var
@@ -153,7 +181,28 @@ export function getTtsProvider(name) {
 // takes the same files instead of synthesizing again. Keyed by everything that changes the audio.
 
 const TTS_CACHE_DIR = pathResolve(tmpdir(), 'web-test-tts-cache');
+const CACHE_TTL_MS = 30 * 24 * 3600 * 1000;   // phrases unused for 30 days are dropped
 const _durations = new Map();
+const _inflight = new Map();                   // one synthesis per phrase at a time (parallel batches)
+let _pruned = false;
+
+// A cache hit refreshes the file's time, so the 30 days count from the last use, not from synthesis.
+function touch(file) {
+  const now = new Date();
+  try { utimesSync(file, now, now); } catch { /* read-only or gone: harmless */ }
+}
+
+function pruneCache() {
+  if (_pruned) return;
+  _pruned = true;
+  try {
+    const now = Date.now();
+    for (const f of readdirSync(TTS_CACHE_DIR)) {
+      const p = pathJoin(TTS_CACHE_DIR, f);
+      try { if (now - statSync(p).mtimeMs > CACHE_TTL_MS) unlinkSync(p); } catch { /* in use or gone */ }
+    }
+  } catch { /* no cache yet */ }
+}
 
 function ttsCacheFile(text, opts = {}) {
   const key = JSON.stringify([opts.provider || 'edge', opts.voice || '', opts.model || '', opts.instructions || '', opts.apiUrl || '', text]);
@@ -166,41 +215,54 @@ function durationOf(file, ffmpegPath) {
 }
 
 /**
- * Synthesize a phrase once (cached) and measure it.
+ * Synthesize a phrase once (cached) and, unless { measure: false }, measure it.
  * @param {string} text
- * @param {object} [opts] — { provider, voice, apiKey, apiUrl, model, instructions, ffmpegPath, cache (false — bypass) }
- * @returns {Promise<{ file: string, seconds: number }>}
+ * @param {object} [opts] — { provider, voice, apiKey, apiUrl, model, instructions, ffmpegPath,
+ *   cache (false — bypass the cache: a one-off file in opts.tempDir), tempDir, measure (false — no ffprobe) }
+ * @returns {Promise<{ file: string, seconds?: number }>}
  */
 export async function synthesizeCached(text, opts = {}) {
+  const measure = opts.measure !== false;
   if (opts.cache === false) {
     // no cache: a one-off file (tests with a fake provider must not leave audio under a real phrase's key)
-    mkdirSync(TTS_CACHE_DIR, { recursive: true });
-    const file = pathJoin(TTS_CACHE_DIR, `nocache-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.mp3`);
+    const dir = opts.tempDir || TTS_CACHE_DIR;
+    mkdirSync(dir, { recursive: true });
+    const file = pathJoin(dir, `nocache-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.mp3`);
     await getTtsProvider(opts.provider || 'edge')(text, file, opts);
-    return { file, seconds: getAudioDuration(file, resolveFfmpeg(opts.ffmpegPath)) };
+    return measure ? { file, seconds: getAudioDuration(file, resolveFfmpeg(opts.ffmpegPath)) } : { file };
   }
+  pruneCache();
   const file = ttsCacheFile(text, opts);
   if (!fsExistsSync(file) || statSync(file).size === 0) {
-    mkdirSync(TTS_CACHE_DIR, { recursive: true });
-    const part = `${file}.${process.pid}.part.mp3`;
-    await getTtsProvider(opts.provider || 'edge')(text, part, opts);
-    renameSync(part, file);
-  }
-  return { file, seconds: durationOf(file, opts.ffmpegPath) };
+    // the same phrase twice in one parallel batch: the second waits for the first
+    if (!_inflight.has(file)) {
+      _inflight.set(file, (async () => {
+        mkdirSync(TTS_CACHE_DIR, { recursive: true });
+        const part = `${file}.${process.pid}.${Math.random().toString(36).slice(2)}.part.mp3`;
+        try {
+          await getTtsProvider(opts.provider || 'edge')(text, part, opts);
+          renameSync(part, file);
+        } finally {
+          try { unlinkSync(part); } catch { /* renamed */ }
+        }
+      })().finally(() => _inflight.delete(file)));
+    }
+    await _inflight.get(file);
+  } else touch(file);
+  return measure ? { file, seconds: durationOf(file, opts.ffmpegPath) } : { file };
 }
 
 /** The project's TTS settings (`.v8-project.json` → `tts`), {} when absent. */
 export function projectTtsOptions() {
-  try {
-    const cfg = JSON.parse(readFileSync(pathJoin(projectRoot, '.v8-project.json'), 'utf8'));
-    return cfg.tts && typeof cfg.tts === 'object' ? { ...cfg.tts } : {};
-  } catch { return {}; }
+  const cfg = readProjectConfig();
+  return cfg.tts && typeof cfg.tts === 'object' ? { ...cfg.tts } : {};
 }
 
 /** Length of an already cached phrase in seconds, or null (no synthesis). */
 export function cachedSpeechSeconds(text, opts = {}) {
   const file = ttsCacheFile(text, opts);
   if (!fsExistsSync(file) || statSync(file).size === 0) return null;
+  touch(file);
   try { return durationOf(file, opts.ffmpegPath); } catch { return null; }
 }
 

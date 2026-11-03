@@ -43,6 +43,8 @@ export default async function({
     await rejectsWith(() => prepareSlides([{ layout: 'nope' }], { validateOnly: true }), /unknown layout "nope".*title/, 'unknown layout lists the layouts');
     const badShow = { layout: 'cards', cards: [{ title: 'А' }], steps: [{ show: 3 }] };
     await rejectsWith(() => showSlide(badShow, fast), /step 1: show 3/, 'show index out of range');
+    const keyInArray = { layout: 'radial', center: { title: 'Ц' }, cards: [{ title: 'А' }, { title: 'Б' }, { title: 'В' }], steps: [{ show: ['center', 0] }] };
+    await rejectsWith(() => prepareSlides([keyInArray], { validateOnly: true }), /on its own, not in an array/, 'a key inside a show array');
     assert.equal(await slideState(), null, 'nothing was mounted');
   });
 

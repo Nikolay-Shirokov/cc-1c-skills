@@ -1,11 +1,11 @@
-// web-test cli/commands/slides v1.0 — play / preview: slides without 1C (blank Chromium page 1920×1080)
+// web-test cli/commands/slides v1.1 — play / preview: slides without 1C (blank Chromium page 1920×1080)
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 //
 // A slides module: `export default [spec, ...]`, optional `export const tts = {...}` and `export const theme = {...}`.
-//   play <slides.mjs> --out=<file.mp4> [--no-narration]   record + narrate (starts and ends on a slide);
-//                                             --no-narration: video only, captions.json kept for addNarration later
+//   play <slides.mjs> --out=<file.mp4> [--no-narration]   record + narrate into --out (starts and ends on a slide);
+//                                             <file>.captions.json next to it; --no-narration: silent video
 //   preview <slides.mjs> [--out-dir=<dir>]    a PNG per step + checks, no TTS, no video
-import { mkdirSync } from 'fs';
+import { mkdirSync, renameSync } from 'fs';
 import { basename, dirname, join, resolve } from 'path';
 import { pathToFileURL } from 'url';
 import { chromium } from 'playwright';
@@ -51,18 +51,24 @@ export async function cmdPlay(file, outFile, { narrate = true } = {}) {
     await browser.prepareSlides(slides, { ...tts, validateOnly: !narrate });   // validate (+ synthesize ahead)
     const res = await withBlankPage(async () => {
       const warnings = [];
-      await browser.startRecording(resolve(outFile));
-      for (let n = 0; n < slides.length; n++) {
-        const r = await browser.showSlide(slides[n], { ...tts, lint: 'collect', ...(narrate ? {} : { synth: false }) });
-        warnings.push(...(r.warnings || []).map((w) => `slide ${n + 1} (${slides[n].layout || 'page'}) ${w}`));
+      const target = resolve(outFile);
+      await browser.startRecording(target);
+      let video;
+      try {
+        for (let n = 0; n < slides.length; n++) {
+          const r = await browser.showSlide(slides[n], { ...tts, lint: 'collect', ...(narrate ? {} : { synth: false }) });
+          warnings.push(...(r.warnings || []).map((w) => `slide ${n + 1} (${slides[n].layout || 'page'}) ${w}`));
+        }
+      } finally {
+        video = await browser.stopRecording();         // ends on the last slide; stopped on a failure too
       }
-      const video = await browser.stopRecording();     // ends on the last slide
-      if (!narrate) {
-        return { ok: true, file: video.file, duration: video.duration, captions: video.captions, ...(warnings.length ? { warnings } : {}) };
-      }
-      const narrated = await browser.addNarration(video.file, tts);
-      return { ok: true, file: narrated.file, duration: narrated.duration, video: video.file,
-        ...(warnings.length || narrated.warnings ? { warnings: [...warnings, ...(narrated.warnings || [])] } : {}) };
+      if (!narrate) return { ok: true, file: video.file, duration: video.duration, captions: video.captions, warnings };
+      // --out is the final narrated video; the silent recording is replaced, its captions.json stays next to it
+      const tmp = target.replace(/(\.[^.\\/]+)?$/, '.narrating$1');
+      const narrated = await browser.addNarration(video.file, { ...tts, outputPath: tmp });
+      renameSync(tmp, target);
+      return { ok: true, file: target, duration: narrated.duration, captions: video.captions,
+        warnings: [...warnings, ...(narrated.warnings || [])] };
     });
     out(res);
   } catch (e) { fail(e); }
@@ -84,7 +90,7 @@ export async function cmdPreview(file, outDir) {
         });
         warnings.push(...(r.warnings || []).map((w) => `slide ${n + 1} (${slides[n].layout || 'page'}) ${w}`));
       }
-      return { ok: true, dir, shots: shots.length, ...(warnings.length ? { warnings } : {}) };
+      return { ok: true, dir, shots: shots.length, warnings };
     });
     out(res);
   } catch (e) { fail(e); }

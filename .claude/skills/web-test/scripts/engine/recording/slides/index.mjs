@@ -5,11 +5,9 @@
 // plus what changes on screen; a spoken step becomes a caption, so addNarration voices it exactly where its
 // change happens. Step length = the phrase's real TTS length (shared phrase cache, see tts.mjs).
 
-import { readFileSync } from 'fs';
-import { join } from 'path';
 import { pathToFileURL } from 'url';
-import { page, recorder, ensureConnected, resolveProjectPath, projectRoot } from '../../core/state.mjs';
-import { synthesizeCached, cachedSpeechSeconds, projectTtsOptions } from '../tts.mjs';
+import { page, recorder, ensureConnected, resolveProjectPath } from '../../core/state.mjs';
+import { synthesizeCached, cachedSpeechSeconds, projectTtsOptions, readProjectConfig } from '../tts.mjs';
 import { BASE_CSS, themeVars, pageMount, pageStep, pageHide, pageLint } from './protocol.mjs';
 import { buildSlide } from './templates.mjs';
 
@@ -24,10 +22,7 @@ let scenarioTheme = {};
 export function setSlideTheme(theme) { scenarioTheme = { ...(theme || {}) }; }
 
 function projectSlidesTheme() {
-  try {
-    const cfg = JSON.parse(readFileSync(join(projectRoot, '.v8-project.json'), 'utf8'));
-    return cfg.slides?.theme || {};
-  } catch { return {}; }
+  return readProjectConfig().slides?.theme || {};
 }
 const themeFor = (spec, opts) => ({ ...projectSlidesTheme(), ...scenarioTheme, ...(opts.theme || {}), ...(spec.theme || {}) });
 
@@ -100,6 +95,7 @@ export async function showSlide(spec, opts = {}) {
   for (const s of built.steps) {
     if (opts.fast !== undefined) { durs.push(opts.fast); continue; }
     if (!s.speech) { durs.push(s.hold ?? (motion ? 0.8 : 0)); continue; }
+    if (opts.legacy && !rec) { durs.push(0); continue; }   // the former overlays waited for speech only while recording
     const vo = s.voice ? { ...tts, voice: s.voice } : tts;
     let secs = cachedSpeechSeconds(s.speech, vo);
     if (secs == null) {
@@ -119,13 +115,21 @@ export async function showSlide(spec, opts = {}) {
 
   // the first slide right after startRecording appears at once: the video must not open on the page under it
   const onScreen = await page.evaluate(() => !!document.getElementById('__ws_slide'));
-  const first = rec && rec.videoTimeMs < 1000 && !onScreen;
+  const first = rec && !onScreen && (rec.holdSince || rec.videoTimeMs < 1000);
   const instant = !motion || first;
   const vars = themeVars(themeFor(spec, opts));
   if (first) {
     // the slide's ground at once (a tiny payload), the content follows: mounting a slide with a big
     // picture takes a while, and the recording is already running
+    // the video starts over once the ground is on screen: the page held since startRecording is dropped.
+    // Hold from before the ground is mounted (its frame must not flush the page's one into the video);
+    // a painted frame reaches the screencast with a lag — hence the pause (this time is not in the video).
+    const held = rec._holdFrames?.();
     await page.evaluate(pageMount, { html: '', css: BASE_CSS, bg: built.bg, vars, instant: true, animated: { show: [], all: [] } });
+    if (held) {
+      await page.waitForTimeout(300);
+      rec._releaseFrames();
+    }
   }
   await page.evaluate(pageMount, {
     html: built.html, css: BASE_CSS + (built.css || ''), bg: built.bg, vars,

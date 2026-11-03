@@ -33,13 +33,16 @@ function stepsOf(layout, spec, { required = true } = {}) {
   spec.steps.forEach((s, i) => need(layout, s && typeof s === 'object', `step ${i + 1} must be an object`));
   return spec.steps;
 }
-// index-like step.show values: number in range, or one of the extra keys
-function checkShow(layout, steps, n, extra = []) {
+// index-like step.show values: a number in range, or one of the extra keys — inside an array only the
+// keys the template expands there (arrayExtra); the rest are valid on their own only
+function checkShow(layout, steps, n, extra = [], arrayExtra = []) {
   steps.forEach((s, i) => {
     if (s.show === undefined) return;
+    const arr = Array.isArray(s.show);
     for (const v of [].concat(s.show)) {
-      need(layout, (Number.isInteger(v) && v >= 0 && v < n) || extra.includes(v),
-        `step ${i + 1}: show ${JSON.stringify(v)} — expected 0..${n - 1}${extra.length ? ` or ${extra.map((x) => `'${x}'`).join(', ')}` : ''}`);
+      const ok = (Number.isInteger(v) && v >= 0 && v < n) || (arr ? arrayExtra.includes(v) : extra.includes(v));
+      need(layout, ok, `step ${i + 1}: show ${JSON.stringify(v)} — expected 0..${n - 1}`
+        + (extra.length ? ` or ${extra.map((x) => `'${x}'`).join(', ')}${arr && extra.some((x) => !arrayExtra.includes(x)) ? ' (on its own, not in an array)' : ''}` : ''));
     }
   });
 }
@@ -179,7 +182,7 @@ export const templates = {
     const n = spec.cards.length;
     spec.cards.forEach((c, i) => need(L, c && (isStr(c.title) || isStr(c.text) || isArr(c.items)), `card ${i + 1} needs title, text or items`));
     const steps0 = stepsOf(L, spec);
-    checkShow(L, steps0, n, ['all', 'lead']);
+    checkShow(L, steps0, n, ['all', 'lead'], ['all', 'lead']);
     if (steps0.some((s) => [].concat(s.show).includes('lead'))) need(L, spec.lead, 'show "lead" without a "lead" block');
     const cols = spec.columns || (spec.lead ? (n <= 4 ? 2 : 3) : n <= 3 ? n : n <= 4 ? 2 : n <= 6 ? 3 : 4);
     const lead = spec.lead ? `<div class="cd-lead"><b>${esc(spec.lead.title)}</b><p>${esc(spec.lead.text)}</p></div>` : '';
@@ -204,7 +207,8 @@ export const templates = {
 .cd-lead b{display:block;font-size:72px;font-weight:800;color:var(--primary);letter-spacing:.02em}
 .cd-lead b::after{content:'';display:block;width:90px;height:6px;margin-top:14px;border-radius:3px;background:var(--accent)}
 .cd-lead p{margin:18px 0 0;font-size:30px;line-height:1.4;color:var(--ink2)}
-.cd-box{flex:1;align-self:stretch;display:flex;align-items:center;min-width:0}
+.cd-box{flex:1;align-self:stretch;display:flex;flex-direction:column;min-width:0}
+.cd-box::before{content:'';flex:1}.cd-box::after{content:'';flex:2}
 .cd-grid{width:100%;display:grid;grid-template-columns:repeat(${cols},1fr);gap:28px}
 .cd-card{background:#fff;border-radius:16px;border-left:8px solid var(--line);padding:26px 30px;box-shadow:${CARD_SHADOW};--stagger:.12s}
 .cd-card.ws-focus{animation:none;transform:scale(1.03);box-shadow:${LIFT_SHADOW};border-left-color:var(--accent)}
@@ -235,7 +239,8 @@ export const templates = {
       push: true,
       html: titleHtml(spec.title) + `<div class="co-box ws-fit"><div class="co-row">${cols}</div></div>`,
       css: TITLE_CSS + `
-.co-box{position:absolute;left:96px;right:96px;top:${spec.title ? 180 : 60}px;bottom:44px;display:flex;align-items:center}
+.co-box{position:absolute;left:96px;right:96px;top:${spec.title ? 180 : 60}px;bottom:44px;display:flex;flex-direction:column}
+.co-box::before{content:'';flex:1}.co-box::after{content:'';flex:2}
 .co-row{width:100%;display:grid;grid-template-columns:repeat(${n},1fr);gap:32px;align-items:center}
 .co-col{background:#fff;border-radius:18px;overflow:hidden;box-shadow:${CARD_SHADOW};--stagger:.15s}
 .co-col.ws-focus{animation:none;transform:scale(1.025);box-shadow:${LIFT_SHADOW}}
@@ -260,14 +265,17 @@ export const templates = {
     });
     const { left: Lf, right: R } = spec;
     const cell = (side, i, x) => `<div class="cp-cell cp-${side} cp-${side}${i}" style="grid-row:${i + 2}">${x === undefined ? '' : esc(x)}</div>`;
-    const cells = range(n).map((i) => cell('l', i, Lf.items[i]) + cell('r', i, R.items[i])).join('');
+    const arrow = (i) => `<div class="cp-vs cp-a${i}" style="grid-row:${i + 2}">→</div>`;
+    const cells = range(n).map((i) => cell('l', i, Lf.items[i]) + arrow(i) + cell('r', i, R.items[i])).join('');
     const sideSel = (side) => [`.cp-h${side}`, ...range(n).map((i) => `.cp-${side}${i}`)].join(', ');
+    const arrows = range(n).map((i) => `.cp-a${i}`).join(', ');
+    // arrows come with the right side ("became"); a lit row lights its arrow too
     const steps = steps0.map(({ show, row, ...s }) => {
       const st = { ...s };
-      if (show) st.show = show === 'all' ? `${sideSel('l')}, ${sideSel('r')}, .cp-vs` : `${sideSel(show[0])}, .cp-vs`;
+      if (show) st.show = show === 'all' ? `${sideSel('l')}, ${sideSel('r')}, ${arrows}` : show === 'right' ? `${sideSel('r')}, ${arrows}` : sideSel('l');
       if (row !== undefined) {
-        st.show = [st.show, `.cp-l${row}, .cp-r${row}`].filter(Boolean).join(', ');
-        st.focus = `.cp-l${row}, .cp-r${row}`;
+        st.show = [st.show, `.cp-l${row}, .cp-a${row}, .cp-r${row}`].filter(Boolean).join(', ');
+        st.focus = `.cp-l${row}, .cp-a${row}, .cp-r${row}`;
       }
       return st;
     });
@@ -275,14 +283,16 @@ export const templates = {
     return {
       push: true,
       html: titleHtml(spec.title) + `<div class="cp-box ws-fit"><div class="cp-grid"><div class="cp-head cp-hl">${esc(Lf.title)}</div>`
-        + `<div class="cp-vs">→</div><div class="cp-head cp-hr">${esc(R.title)}</div>${cells}</div></div>`,
+        + `<div class="cp-head cp-hr">${esc(R.title)}</div>${cells}</div></div>`,
       css: TITLE_CSS + `
-.cp-box{position:absolute;left:96px;right:96px;top:${spec.title ? 180 : 60}px;bottom:44px;display:flex;align-items:center}
+.cp-box{position:absolute;left:96px;right:96px;top:${spec.title ? 180 : 60}px;bottom:44px;display:flex;flex-direction:column}
+.cp-box::before{content:'';flex:1}.cp-box::after{content:'';flex:2}
 .cp-grid{width:100%;display:grid;grid-template-columns:1fr 90px 1fr;grid-auto-rows:auto;row-gap:18px}
 .cp-head{grid-row:1;padding:18px 30px;border-radius:14px;font-size:38px;font-weight:800;margin-bottom:8px}
 .cp-hl{grid-column:1;background:var(--c3);color:#fff}
 .cp-hr{grid-column:3;background:var(--primary);color:#fff;box-shadow:inset 0 -6px 0 var(--accent)}
-.cp-vs{grid-column:2;grid-row:1 / span ${n + 1};align-self:center;justify-self:center;font-size:72px;font-weight:800;color:var(--line);--dx:-20px;--dy:0px}
+.cp-vs{grid-column:2;align-self:center;justify-self:center;font-size:44px;font-weight:800;color:var(--line);--dx:-14px;--dy:0px}
+.cp-vs.ws-focus{animation:none;color:var(--accent)}
 .cp-cell{padding:18px 26px;border-radius:12px;background:#fff;font-size:30px;line-height:1.3;color:var(--ink2);box-shadow:${CARD_SHADOW};--stagger:.1s}
 .cp-cell:empty{visibility:hidden}
 .cp-l{grid-column:1;color:var(--muted)}
@@ -312,7 +322,7 @@ export const templates = {
     const hasRole = spec.stages.some((s) => s.role), hasItems = spec.stages.some((s) => s.items?.length);
     const person = '<svg viewBox="0 0 64 64" class="pr-ico"><circle cx="32" cy="20" r="12"/><path d="M8 60c0-14 11-22 24-22s24 8 24 22"/></svg>';
     const arrow = (i, rev) => `<svg class="pr-arr pr-${i}a${rev ? ' rev' : ''}" viewBox="0 0 64 40"><path d="M4 20H54M42 8l14 12-14 12"/></svg>`;
-    const colors = ['var(--c1)', 'var(--c2)', 'var(--c4)', 'var(--c5)', 'var(--c3)'];
+    const colors = ['var(--c1)', 'var(--c2)', 'var(--c4)', 'var(--c5)'];
     const stage = (st, i) => `<div class="pr-st pr-${i}" style="--c:${st.color || colors[i % colors.length]}">`
       + `<div class="pr-card pr-c${i}"><h3>${esc(st.title)}</h3>${list(st.items)}</div>`
       + (st.role ? `<div class="pr-role">${person}<b>${esc(st.role)}</b>${st.caption ? `<span>${esc(st.caption)}</span>` : ''}</div>`
@@ -339,7 +349,8 @@ export const templates = {
       push: true,
       html: titleHtml(spec.title) + `<div class="pr-box ws-fit"><div class="pr-flow">${body}</div></div>`,
       css: TITLE_CSS + `
-.pr-box{position:absolute;left:60px;right:60px;top:${spec.title ? 170 : 50}px;bottom:36px;display:flex;align-items:center}
+.pr-box{position:absolute;left:60px;right:60px;top:${spec.title ? 170 : 50}px;bottom:36px;display:flex;flex-direction:column}
+.pr-box::before{content:'';flex:1}.pr-box::after{content:'';flex:2}
 .pr-flow{width:100%;display:flex;flex-direction:column;gap:${twoRows ? 10 : 0}px}
 .pr-row{display:flex;align-items:${hasItems ? 'stretch' : 'center'};gap:${GAPX}px}
 .pr-row.rev{flex-direction:row-reverse}
@@ -464,7 +475,7 @@ export const templates = {
     });
     if (steps.some((s) => s.camera || s.focus)) steps.push({ camera: null, focus: null, hold: spec.outro ?? 1.2 });
     const bg = spec.background || { full: '#ffffff', blur: '#222', dark: '#2a2a2a', light: '#ffffff' }[style];
-    const blurLayer = style === 'blur'
+    const blurLayer = style === 'blur' && !spec.background
       ? `<img src="${url}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;filter:blur(30px) brightness(.5);transform:scale(1.1)"/>` : '';
     // fit 'natural' (legacy showImage): natural size in page pixels, kept within 50–92% of the frame
     const main = spec.fit === 'natural' && style !== 'full'
@@ -496,7 +507,7 @@ ${(spec.shadow ?? framed) ? '.im-main{box-shadow:0 4px 40px rgba(0,0,0,.5)}' : '
     count(L, 'items', spec.items, 1, 8, 'keep 3–5 takeaways');
     const n = spec.items.length;
     const steps0 = stepsOf(L, spec);
-    checkShow(L, steps0, n, ['all', 'next']);
+    checkShow(L, steps0, n, ['all', 'next'], ['all', 'next']);
     if (steps0.some((s) => [].concat(s.show).includes('next'))) need(L, isStr(spec.next), 'show "next" without a "next" text');
     const items = spec.items.map((x, i) => `<li class="sm-${i}"><i>✓</i><span>${esc(x)}</span></li>`).join('');
     const sel = (i) => (i === 'next' ? '.sm-next' : `.sm-${i}`);
@@ -513,7 +524,8 @@ ${(spec.shadow ?? framed) ? '.im-main{box-shadow:0 4px 40px rgba(0,0,0,.5)}' : '
       html: titleHtml(spec.title || 'Итоги') + `<div class="sm-box ws-fit"><ul class="sm-list">${items}</ul></div>`
         + (spec.next ? `<div class="sm-next"><small>${esc(spec.nextLabel || 'Дальше')}</small>${esc(spec.next)}</div>` : ''),
       css: TITLE_CSS + `
-.sm-box{position:absolute;left:96px;right:96px;top:180px;bottom:${spec.next ? 230 : 50}px;display:flex;align-items:center}
+.sm-box{position:absolute;left:96px;right:96px;top:180px;bottom:${spec.next ? 230 : 50}px;display:flex;flex-direction:column}
+.sm-box::before{content:'';flex:1}.sm-box::after{content:'';flex:2}
 .sm-list{width:100%;margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:24px}
 .sm-list li{display:flex;align-items:center;gap:28px;font-size:40px;font-weight:600;color:var(--ink);--stagger:.15s}
 .sm-list i{flex:none;width:60px;height:60px;border-radius:50%;background:var(--line);color:#fff;font-style:normal;font-size:34px;
