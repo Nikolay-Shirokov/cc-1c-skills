@@ -513,8 +513,7 @@ Clear filters. Without arguments clears all, with `{ field }` clears specific ba
 #### `getCaptions()` → caption timestamps from last recording
 
 See [recording.md](recording.md) for setup (ffmpeg), highlight mode, TTS narration, API details, and examples.
-If `.v8-project.json` has `ffmpegPath`, pass it to `startRecording({ ffmpegPath })`.
-If `.v8-project.json` has `tts` config, pass the whole object to `addNarration()` as options (and to `showSlide`/`prepareSlides`).
+`ffmpegPath` and `tts` from `.v8-project.json` are picked up automatically (recording, slides, `addNarration`); pass options only to override them.
 
 ## Common patterns
 

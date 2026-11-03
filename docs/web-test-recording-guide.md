@@ -55,19 +55,15 @@ npm install --prefix tools/tts node-edge-tts
 // Начинаем запись
 await startRecording('recordings/demo.mp4');
 
-// Субтитры + действия
-await showCaption('Переходим в раздел «Продажи»');
-await wait(1.5);
+// Действие, затем подпись к нему
 await navigateSection('Продажи');
+await showCaption('Раздел «Продажи»');
 
-await showCaption('Открываем заказы клиентов');
-await wait(1.5);
 await openCommand('Заказы клиентов');
+await showCaption('Заказы клиентов');
 
-await showCaption('Создаём новый заказ');
-await wait(1.5);
 await clickElement('Создать');
-await wait(2);
+await showCaption('Новый заказ');
 
 // Завершаем запись
 await hideCaption();
@@ -222,22 +218,16 @@ setHighlight(true);   // включить авто
 setHighlight(false);  // выключить перед stopRecording
 ```
 
-### Паузы и ритм
+### Ритм: действие, затем подпись
 
-Ритм «субтитр → пауза → действие» даёт зрителю время прочитать, что произойдёт:
-
-```js
-await showCaption('Проводим документ');   // зритель читает
-await wait(1.5);                           // пауза 1.5 сек
-await clickElement('Провести');            // действие
-```
-
-Пауза после действия нужна только когда загружается следующая форма:
+Сначала действие, потом подпись к нему:
 
 ```js
-await clickElement('Создать');
-await wait(2);   // форма загружается
+await clickElement('Провести');            // действие (с подсветкой, если она включена)
+await showCaption('Документ проведён');    // подпись и голос — над уже открытым результатом
 ```
+
+Подпись с озвучкой держит сценарий, пока звучит фраза, и следующий шаг начинается только после неё. Поэтому при обратном порядке голос рассказывал бы о форме, которой ещё нет на экране. Паузы расставлять не нужно: действие само ждёт результата, подпись — своей фразы.
 
 ### Два голоса (подкаст / диалог)
 
@@ -394,7 +384,7 @@ await hideSlide();
 
 setHighlight(true);
 
-// ... шаги с showCaption + действия ...
+// ... шаги: действие, затем showCaption ...
 
 await hideCaption();
 setHighlight(false);

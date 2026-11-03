@@ -36,14 +36,15 @@ tools/ffmpeg/
 }
 ```
 
-Модель прочитает это поле и передаст в `startRecording({ ffmpegPath })`.
+Движок подхватит это поле сам (запись, озвучка, слайды).
 
 ### Порядок поиска ffmpeg
 
-1. `opts.ffmpegPath` — явный путь (из `.v8-project.json` или параметра)
-2. `FFMPEG_PATH` — переменная окружения
-3. `ffmpeg` — в системном PATH
-4. `tools/ffmpeg/bin/ffmpeg.exe` — относительно корня проекта
+1. `opts.ffmpegPath` — явный путь в параметре
+2. `ffmpegPath` из `.v8-project.json` (от корня проекта)
+3. `FFMPEG_PATH` — переменная окружения
+4. `ffmpeg` — в системном PATH
+5. `tools/ffmpeg/bin/ffmpeg.exe` — относительно корня проекта
 
 ## API
 
@@ -202,24 +203,18 @@ await hideSlide();
 
 setHighlight(true); // enable auto-highlight for all actions
 
-// Steps: caption → pause → action (highlight is automatic)
-await showCaption('Шаг 1. Переходим в раздел «Продажи»');
-await wait(1.5);
+// Steps: action → caption (highlight is automatic)
 await navigateSection('Продажи');
+await showCaption('Шаг 1. Раздел «Продажи»');
 
-await showCaption('Шаг 2. Открываем заказы клиентов');
-await wait(1.5);
 await openCommand('Заказы клиентов');
+await showCaption('Шаг 2. Заказы клиентов');
 
-await showCaption('Шаг 3. Создаём новый заказ');
-await wait(1.5);
 await clickElement('Создать');
-await wait(2); // wait for form to load
+await showCaption('Шаг 3. Новый заказ');
 
-await showCaption('Шаг 4. Заполняем шапку');
-await wait(1.5);
 await fillFields({ 'Организация': 'Конфетпром', 'Контрагент': 'Альфа' });
-await wait(1);
+await showCaption('Шаг 4. Заполняем шапку');
 
 await hideCaption();
 setHighlight(false);
@@ -227,9 +222,9 @@ const result = await stopRecording();
 console.log(`Recorded ${result.duration}s, ${(result.size / 1024 / 1024).toFixed(1)} MB`);
 ```
 
-**Caption timing**: show the caption *before* the action — `showCaption` auto-waits for estimated TTS duration during recording. The subsequent `wait()` is absorbed by the credit system (no double-waiting). Add `wait()` *after* the action only when the next step needs the result to load (e.g., form opening).
+**Caption timing**: do the action first, then show its caption. A narrated `showCaption` holds the script while its phrase sounds, so the next step starts only when the voice stops: caption-then-action would narrate a form that is not on screen yet. Actions wait for their result themselves, and the caption waits for its speech — no extra `wait()` needed.
 
-**Highlight timing**: `setHighlight(true)` enables auto-mode — each action function highlights the target for 500ms, then removes the highlight before performing the action. No manual `highlight()`/`unhighlight()` calls needed. Enable after the title slide, disable before `stopRecording()`.
+**Highlight timing**: `setHighlight(true)` enables auto-mode — each action function highlights the target for 500ms, then removes the highlight before performing the action; the caption follows the action. No manual `highlight()`/`unhighlight()` calls needed. Enable after the title slide, disable before `stopRecording()`.
 
 ## TTS Narration
 
