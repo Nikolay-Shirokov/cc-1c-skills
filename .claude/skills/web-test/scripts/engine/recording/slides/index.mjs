@@ -190,18 +190,23 @@ export async function prepareSlides(specs, opts = {}) {
   if (!Array.isArray(specs)) specs = [specs];
   const { validateOnly, ...rest } = opts;
   const tts = ttsOptions(rest);
-  let phrases = 0;
   const built = specs.map((s) => buildSlide(s));
+  const jobs = built.flatMap((b) => b.steps.filter((s) => s.speech).map((s) => [s.speech, s.voice ? { ...tts, voice: s.voice } : tts]));
   if (!validateOnly) {
-    for (const b of built) {
-      for (const s of b.steps) {
-        if (!s.speech) continue;
-        await synthesizeCached(s.speech, s.voice ? { ...tts, voice: s.voice } : tts);
-        phrases++;
+    // several phrases at a time (like addNarration; ElevenLabs allows fewer parallel requests), two retries each
+    const width = tts.provider === 'elevenlabs' ? 2 : 5;
+    let next = 0;
+    const worker = async () => {
+      while (next < jobs.length) {
+        const [text, o] = jobs[next++];
+        for (let attempt = 0; ; attempt++) {
+          try { await synthesizeCached(text, o); break; } catch (e) { if (attempt === 2) throw e; }
+        }
       }
-    }
+    };
+    await Promise.all(Array.from({ length: Math.min(width, jobs.length) }, worker));
   }
-  return { slides: specs.length, phrases };
+  return { slides: specs.length, phrases: validateOnly ? 0 : jobs.length };
 }
 
 /**

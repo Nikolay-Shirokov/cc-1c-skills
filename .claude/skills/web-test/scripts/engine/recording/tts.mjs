@@ -118,6 +118,18 @@ export async function edgeTtsProvider(text, outputPath, opts = {}) {
   ]);
 }
 
+// A normal phrase takes 1–3 s; a stuck request (seen with OpenAI: 45–60 s at random) is better dropped
+// and asked again — callers retry.
+const TTS_REQUEST_TIMEOUT_MS = 30000;
+async function ttsFetch(service, url, init) {
+  try {
+    return await fetch(url, { ...init, signal: AbortSignal.timeout(TTS_REQUEST_TIMEOUT_MS) });
+  } catch (e) {
+    if (e?.name === 'TimeoutError') throw new Error(`${service} TTS timeout (${TTS_REQUEST_TIMEOUT_MS / 1000}s)`);
+    throw e;
+  }
+}
+
 /**
  * OpenAI-compatible TTS provider. Requires apiKey.
  * @param {string} text — text to synthesize
@@ -127,7 +139,7 @@ export async function edgeTtsProvider(text, outputPath, opts = {}) {
 export async function openaiTtsProvider(text, outputPath, opts = {}) {
   const apiUrl = opts.apiUrl || 'https://api.openai.com/v1/audio/speech';
   if (!opts.apiKey) throw new Error('OpenAI TTS requires apiKey');
-  const resp = await fetch(apiUrl, {
+  const resp = await ttsFetch('OpenAI', apiUrl, {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${opts.apiKey}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -154,7 +166,7 @@ export async function elevenlabsTtsProvider(text, outputPath, opts = {}) {
   const voiceId = opts.voice || 'JBFqnCBsd6RMkjVDRZzb'; // George
   const apiUrl = opts.apiUrl || `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`;
   if (!opts.apiKey) throw new Error('ElevenLabs TTS requires apiKey');
-  const resp = await fetch(apiUrl, {
+  const resp = await ttsFetch('ElevenLabs', apiUrl, {
     method: 'POST',
     headers: { 'xi-api-key': opts.apiKey, 'Content-Type': 'application/json' },
     body: JSON.stringify({

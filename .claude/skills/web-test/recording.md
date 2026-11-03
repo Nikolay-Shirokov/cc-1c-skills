@@ -265,7 +265,7 @@ For OpenAI-compatible provider:
   }
 }
 ```
-If the model supports `instructions` (e.g. `gpt-4o-mini-tts`), a short one removes most of the English accent in Russian speech.
+If the model supports `instructions` (e.g. `gpt-4o-mini-tts`), a short one softens the English accent in Russian speech but does not remove it — for Russian, Edge TTS sounds more native. Some OpenAI requests answer slowly (30–60 s): a request is dropped after 30 s and retried automatically.
 
 For ElevenLabs:
 ```json

@@ -104,11 +104,11 @@ export async function addNarration(videoPath, opts = {}) {
         const idx = batchStart + batchIdx;
         const capTtsOpts = cap.voice ? { ...ttsOpts, voice: cap.voice } : ttsOpts;
         // Shared phrase cache: phrases synthesized ahead (slides) are not synthesized again
-        for (let attempt = 0; attempt < 2; attempt++) {
+        for (let attempt = 0; attempt < 3; attempt++) {
           try {
             return (await synthesizeCached(cap.speech, capTtsOpts)).file;
           } catch (err) {
-            if (attempt === 1) warnings.push(`TTS failed for caption ${idx}: ${err.message || err.cause?.message || String(err)}`);
+            if (attempt === 2) warnings.push(`TTS failed for caption ${idx}: ${err.message || err.cause?.message || String(err)}`);
           }
         }
         const ttsFile = pathJoin(tempDir, `tts_${idx}.mp3`);
