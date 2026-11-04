@@ -1,4 +1,4 @@
-// web-test recording/tts v1.20 — TTS providers (edge/openai/elevenlabs), phrase cache and ffmpeg/ffprobe helpers.
+// web-test recording/tts v1.21 — TTS providers (edge/openai/elevenlabs), phrase cache and ffmpeg/ffprobe helpers.
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import { execFileSync, spawn } from 'child_process';
@@ -266,6 +266,22 @@ export async function synthesizeCached(text, opts = {}) {
 }
 
 /** The project's TTS settings (`.v8-project.json` → `tts`), {} when absent. */
+/**
+ * Words a TTS voice is likely to mispronounce: Latin words, digits glued to letters (1С), capital-letter
+ * abbreviations (СКД). Speech should spell them as spoken ("один эс"); the screen text keeps the written form.
+ * @returns {string[]} distinct tokens, at most 5
+ */
+export function unspokenTokens(text) {
+  const re = /[A-Za-z][A-Za-z0-9]*(?:[.+\-][A-Za-z0-9]+)*|\d+[A-Za-zА-Яа-яЁё]+|(?<![А-Яа-яЁё])[А-ЯЁ]{2,}(?![А-Яа-яЁё])/g;
+  return [...new Set(String(text || '').match(re) || [])].slice(0, 5);
+}
+
+/** The warning text for unspokenTokens, or null. */
+export function unspokenWarning(text) {
+  const t = unspokenTokens(text);
+  return t.length ? `speech has ${t.map((x) => `"${x}"`).join(', ')} — write it as spoken (1С → "один эс")` : null;
+}
+
 export function projectTtsOptions() {
   const cfg = readProjectConfig();
   return cfg.tts && typeof cfg.tts === 'object' ? { ...cfg.tts } : {};

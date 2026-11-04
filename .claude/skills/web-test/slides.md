@@ -17,7 +17,8 @@ await hideSlide();                      // back to the 1C page
 ```
 
 A spoken step becomes a caption, so `addNarration` voices it exactly where its change happens. A step
-lasts as long as its phrase really sounds. Keep the specs in a module: the recording script, `play` and
+lasts as long as its phrase really sounds. Write `speech` as it is spoken: `'один эс'`, `'опен эй ай'` —
+the screen text keeps the written form (`1С`, `OpenAI`). Keep the specs in a module: the recording script, `play` and
 `preview` share it.
 
 Paths in specs (`src`, `image`, `qr`, `file`) and in `loadSlides`, `startRecording`, `addNarration`'s
@@ -134,7 +135,8 @@ coordinates in a minute instead of a re-recording.
 
 Every step is checked; warnings go to the output (`exec`) or to `warnings` (`play`/`preview`):
 text off the frame or not fitting its box, font under 22px, more than ~70 words on screen, a list over 6
-items, a step over ~16 s of speech, screen text repeating the narration word for word.
+items, a step over ~16 s of speech, screen text repeating the narration word for word, speech with Latin
+words or abbreviations the voice may mispronounce (`1С`, `OpenAI`, `СКД`).
 
 ## How to present
 

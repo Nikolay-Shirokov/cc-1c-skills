@@ -1,4 +1,4 @@
-// web-test recording/slides/protocol v1.1 — step-slide protocol: base CSS + theme, page-side mount/step/lint.
+// web-test recording/slides/protocol v1.2 — step-slide protocol: base CSS + theme, page-side mount/step/lint.
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 //
 // A slide is a 1920×1080 page inside a shadow root (its CSS cannot touch a neighbour slide or the
@@ -165,7 +165,8 @@ export function pageStep({ step, maxZoom }) {
   const q = (sel) => (sel ? [...root.querySelectorAll(sel)] : []);
   if (step.clear) root.querySelectorAll('.ws-focus, .ws-dim').forEach((e) => e.classList.remove('ws-focus', 'ws-dim'));
   q(step.undim).forEach((e) => e.classList.remove('ws-dim'));
-  q(step.hide).forEach((e) => { e.style.setProperty('--si', 0); e.classList.remove('on', 'ws-focus'); });
+  // a hidden element drops its dim too: .ws-dim would otherwise keep it on screen at a third of its opacity
+  q(step.hide).forEach((e) => { e.style.setProperty('--si', 0); e.classList.remove('on', 'ws-focus', 'ws-dim'); });
   q(step.show).forEach((e, i) => { e.style.setProperty('--si', i); e.classList.add('on'); });
   q(step.dim).forEach((e) => e.classList.add('ws-dim'));
   if (step.focus !== undefined) {

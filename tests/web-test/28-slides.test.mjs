@@ -72,6 +72,28 @@ export default async function({
     setSlideTheme(null);
   });
 
+  await step('own page: a dimmed element hidden later is gone (no ghost); closing keeps title line breaks', async () => {
+    await showSlide({
+      html: '<div class="pa">А</div><div class="pb">Б</div>', css: '.pa,.pb{position:absolute;top:300px;font-size:60px}.pb{left:900px}',
+      steps: [{ show: '.pa, .pb' }, { dim: '.pa' }, { hide: '.pa' }],
+    }, fast);
+    const pa = await shadow(() => [...document.getElementById('__ws_slide').shadowRoot.querySelector('.pa').classList]);
+    log(`.pa classes after dim → hide: ${pa.join(' ')}`);
+    assert.ok(!pa.includes('ws-dim') && !pa.includes('on'), 'hide drops the dim along with the reveal');
+    await showSlide({ layout: 'closing', title: 'Строка один\nСтрока два' }, fast);
+    const br = await shadow(() => document.getElementById('__ws_slide').shadowRoot.querySelectorAll('.cl-title br').length);
+    assert.equal(br, 1, 'closing title: \\n → line break');
+  });
+
+  await step('speech check: Latin words and abbreviations are flagged, speech written as spoken is not', async () => {
+    const bad = await showSlide({ layout: 'statement', text: 'Живая 1С', speech: 'Живая 1С и голос OpenAI' }, fast);
+    const w = (bad.warnings || []).find((x) => /speech has/.test(x)) || '';
+    log(`warning: ${w}`);
+    assert.ok(w.includes('"1С"') && w.includes('"OpenAI"'), 'both words named');
+    const good = await showSlide({ layout: 'statement', text: 'Живая 1С', speech: 'Живая один эс и голос опен эй ай' }, fast);
+    assert.ok(!(good.warnings || []).some((x) => /speech has/.test(x)), 'no warning for speech written as spoken (screen text is not checked)');
+  });
+
   await step('recording: one caption per spoken step, at increasing times; the first slide starts at once', async () => {
     const video = path.join(dir, 'slides.mp4');
     const agenda = { layout: 'agenda', items: ['Раз', 'Два', 'Три'], current: 1, speech: 'Второй раздел.' };

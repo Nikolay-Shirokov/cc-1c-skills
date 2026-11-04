@@ -1,10 +1,10 @@
-// web-test recording/captions v1.18 — Overlay primitives: captions; legacy title/image overlays over showSlide.
+// web-test recording/captions v1.19 — Overlay primitives: captions; legacy title/image overlays over showSlide.
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import {
   page, recorder, lastCaptions, ensureConnected,
 } from '../core/state.mjs';
-import { cachedSpeechSeconds, mergeTtsOptions } from './tts.mjs';
+import { cachedSpeechSeconds, mergeTtsOptions, unspokenWarning } from './tts.mjs';
 import { showSlide, hideSlide } from './slides/index.mjs';
 
 /**
@@ -32,6 +32,8 @@ export async function showCaption(text, opts = {}) {
     // in the TTS cache (synthesized ahead, or a re-recording), otherwise an estimate
     const cached = cachedSpeechSeconds(speech, mergeTtsOptions(opts.voice ? { voice: opts.voice } : {}));
     smartWaitMs = cached != null ? Math.round(cached * 1000 + 500) : Math.max(2000, speech.length * (recorder.speechRate || 70));
+    const unspoken = unspokenWarning(speech);
+    if (unspoken) console.log(`[web-test] showCaption WARN ${unspoken}`);
   }
   const position = opts.position || 'bottom';
   const fontSize = opts.fontSize || 24;

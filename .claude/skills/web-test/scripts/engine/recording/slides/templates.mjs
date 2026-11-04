@@ -1,4 +1,4 @@
-// web-test recording/slides/templates v1.1 — slide templates: spec → { html, css, steps, bg?, push?, maxZoom? }.
+// web-test recording/slides/templates v1.2 — slide templates: spec → { html, css, steps, bg?, push?, maxZoom? }.
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 //
 // Every template is a generator for the step protocol (protocol.mjs): it builds a 1920×1080 page and
@@ -551,7 +551,7 @@ ${(spec.shadow ?? framed) ? '.im-main{box-shadow:0 4px 40px rgba(0,0,0,.5)}' : '
     return {
       bg: spec.background || 'var(--dark-bg)',
       push: true,
-      html: img + `<div class="cl-box"><h1 class="cl-title">${esc(spec.title)}</h1>`
+      html: img + `<div class="cl-box"><h1 class="cl-title">${esc(spec.title).replace(/\n/g, '<br>')}</h1>`
         + (spec.subtitle ? `<div class="cl-sub">${esc(spec.subtitle)}</div>` : '')
         + (contacts ? `<div class="cl-contacts">${contacts}</div>` : '') + qr + '</div>',
       css: DARK_TEXT + `

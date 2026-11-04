@@ -93,7 +93,7 @@ Display a text overlay on the page (visible in recording). Calling again updates
 | `opts.fontSize` | number | 24 | Font size in px |
 | `opts.background` | string | `'rgba(0,0,0,0.7)'` | Background color |
 | `opts.color` | string | `'#fff'` | Text color |
-| `opts.speech` | string \| false | - | TTS narration text. Omit = use displayed text, string = custom narration, false = skip narration |
+| `opts.speech` | string \| false | - | TTS narration text. Omit = use displayed text, string = custom narration, false = skip narration. Write it as spoken: `'один эс'`, not `'1С'` (a warning names such words) |
 | `opts.voice` | string | - | Per-caption voice override (provider-specific voice name/ID). Used by `addNarration` instead of the global voice |
 
 When `text` is empty but `speech` is a string, the caption is still recorded for TTS (no visible overlay). Useful for narration-only captions (e.g. podcast mode).

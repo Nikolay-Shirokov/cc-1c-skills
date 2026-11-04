@@ -1,4 +1,4 @@
-// web-test recording/slides v1.1 — animated step slides: showSlide / hideSlide / prepareSlides / setSlideTheme / loadSlides.
+// web-test recording/slides v1.2 — animated step slides: showSlide / hideSlide / prepareSlides / setSlideTheme / loadSlides.
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 //
 // A slide is a template spec ({ layout, ... }) or a custom page ({ html, css, steps }). Each step is a phrase
@@ -7,7 +7,7 @@
 
 import { pathToFileURL } from 'url';
 import { page, recorder, ensureConnected, resolveProjectPath } from '../../core/state.mjs';
-import { synthesizeCached, cachedSpeechSeconds, mergeTtsOptions, readProjectConfig } from '../tts.mjs';
+import { synthesizeCached, cachedSpeechSeconds, mergeTtsOptions, readProjectConfig, unspokenWarning } from '../tts.mjs';
 import { BASE_CSS, themeVars, pageMount, pageStep, pageHide, pageLint } from './protocol.mjs';
 import { buildSlide } from './templates.mjs';
 
@@ -50,7 +50,8 @@ function animatedSelectors(steps) {
 const estimate = (text) => Math.max(2, text.length * ((recorder?.speechRate || 70) / 1000));
 const label = (spec, opts) => opts.label || spec.layout || 'page';
 
-// Node-side rules on top of pageLint: little text, short steps, screen text ≠ narration (redundancy).
+// Node-side rules on top of pageLint: little text, short steps, screen text ≠ narration (redundancy),
+// speech written as spoken (no Latin words or abbreviations the voice would mispronounce).
 const norm = (t) => t.toLowerCase().replace(/ё/g, 'е').match(/[a-zа-я0-9]+/g) || [];
 async function lintStep(step, i, seconds) {
   const r = await page.evaluate(pageLint, { showSel: step.show || null });
@@ -58,6 +59,8 @@ async function lintStep(step, i, seconds) {
   if (r.words > 70) w.push(`a lot of text on screen: ~${r.words} words`);
   if (step.speech) {
     if (seconds > 16) w.push(`long step: ~${Math.round(seconds)} s of speech — split it into steps`);
+    const unspoken = unspokenWarning(step.speech);
+    if (unspoken) w.push(unspoken);
     const sp = new Set(norm(step.speech));
     for (const t of r.shown) {
       const words = norm(t);
