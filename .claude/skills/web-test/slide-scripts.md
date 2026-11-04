@@ -35,7 +35,7 @@ return () => { cancelAnimationFrame(raf); r.dispose(); };   // cleanup when the 
 | `theme` | `{ primary, accent, ground, ink }` — the slide's colours (`new THREE.Color(slide.theme.accent)`) |
 | `on('step', (i, step) => …)` | each step, from the first (`i` from 0) |
 | `import(path)` | an ES module from the project (its relative imports load too) |
-| `importMap({ name: path })` | bare names in modules → project files, before the first such import: add-ons import `'three'` by name — `slide.importMap({ three: 'node_modules/three/build/three.module.js', 'three/addons/': 'node_modules/three/examples/jsm/' })` |
+| `importMap({ name: path })` | bare names in modules → project files, before the first such import: add-ons import `'three'` by name — `slide.importMap({ three: 'node_modules/three/build/three.module.js', 'three/addons/': 'node_modules/three/examples/jsm/' })`; then `await import('three/addons/loaders/GLTFLoader.js')` works too |
 | `load(path)` | a classic script (UMD: `lottie.min.js`, …), once per page |
 | `asset(path)` | the address of a project file (a model, JSON, a texture) for `fetch` or a loader |
 | return a function / `onDispose(fn)` | cleanup: stop `requestAnimationFrame`, dispose WebGL |
