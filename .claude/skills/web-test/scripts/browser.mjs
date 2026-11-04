@@ -1,4 +1,4 @@
-// web-test browser v1.21 — engine facade: re-exports the public API from engine/*
+// web-test browser v1.22 — engine facade: re-exports the public API from engine/*
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 /**
  * Public API of the web-test engine. Pure re-export facade — no logic here.
@@ -61,3 +61,4 @@ export {
   highlight, unhighlight, setHighlight, isHighlightMode,
 } from './engine/recording/highlight.mjs';
 export { addNarration } from './engine/recording/narration.mjs';
+export { withMusic } from './engine/recording/music.mjs';

@@ -1,4 +1,4 @@
-// web-test recording/capture v1.19 — Recording lifecycle (CDP screencast + ffmpeg pipe), screenshot, wait helpers.
+// web-test recording/capture v1.20 — Recording lifecycle (CDP screencast + ffmpeg pipe), screenshot, wait helpers.
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import { spawn } from 'child_process';
@@ -6,7 +6,7 @@ import { mkdirSync, statSync, writeFileSync } from 'fs';
 import { dirname } from 'path';
 import {
   page, recorder, lastCaptions,
-  setRecorder, setLastCaptions, setLastRecordingDuration,
+  setRecorder, setLastCaptions, setLastRecordingDuration, setLastMusic,
   resolveProjectPath, ensureConnected,
 } from '../core/state.mjs';
 import { resolveFfmpeg } from './tts.mjs';
@@ -97,6 +97,7 @@ export async function startRecording(outputPath, opts = {}) {
     }
   }
   setLastCaptions([]);
+  setLastMusic([]);
   setLastRecordingDuration(null);
 
   const fps = opts.fps || 25;
@@ -124,6 +125,7 @@ export async function startRecording(outputPath, opts = {}) {
     outputPath: resolvedPath,
     ffmpegError: '',
     captions: [],
+    music: [],   // music stretches (music.mjs: slides with `music`, withMusic)
     framesWritten: 0,
     frameDuration,
     lastFrameBuf: null,
@@ -267,12 +269,16 @@ export async function stopRecording() {
 
   const stats = statSync(outputPath);
 
-  // Preserve captions for addNarration()
+  // Preserve captions (and music stretches) for addNarration(); a stretch still open ends with the video
+  const music = rec.music.map(({ start, end, music: m, mode, depth }) => ({
+    start, end: end ?? Math.round(rec.videoTimeMs), music: m, mode, depth,
+  }));
   setLastCaptions(rec.captions);
+  setLastMusic(music);
   setLastRecordingDuration(duration);
-  if (lastCaptions.length) {
+  if (lastCaptions.length || music.length) {
     const captionsPath = outputPath.replace(/\.[^.]+$/, '.captions.json');
-    const captionsData = { recordingDuration: duration, videoTimestamps: true, captions: lastCaptions };
+    const captionsData = { recordingDuration: duration, videoTimestamps: true, captions: lastCaptions, ...(music.length ? { music } : {}) };
     writeFileSync(captionsPath, JSON.stringify(captionsData, null, 2), 'utf-8');
   }
 
@@ -282,6 +288,7 @@ export async function stopRecording() {
     file: outputPath,
     duration: Math.round(duration * 10) / 10,
     size: stats.size,
-    captions: lastCaptions.length
+    captions: lastCaptions.length,
+    ...(music.length ? { music: music.length } : {}),
   };
 }

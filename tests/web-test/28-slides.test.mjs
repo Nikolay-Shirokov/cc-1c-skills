@@ -5,7 +5,7 @@ export const timeout = 240000;
 // Read-only on the stand: slides are overlays over the current page, nothing is written to 1C.
 export default async function({
   showSlide, hideSlide, prepareSlides, setSlideTheme, showTitleSlide, hideTitleSlide,
-  startRecording, stopRecording, getCaptions, screenshot, getPage,
+  startRecording, stopRecording, getCaptions, screenshot, getPage, withMusic, addNarration,
   assert, step, log,
 }) {
   const fs = await import('fs');
@@ -200,6 +200,57 @@ export default async function({
     assert.ok(fs.existsSync(res.file) && res.size > 10000, 'video written');
   });
 
+  await step('music: stretches and seams; slide music and withMusic are recorded; mixed without speech', async () => {
+    const lib = (f) => import(pathToFileURL(path.resolve('.claude/skills/web-test/scripts/engine/recording', f)).href);
+    const M = await lib('music.mjs');
+    const c = (s, e, music, depth = 0) => ({ start: s * 1000, end: e * 1000, music, mode: 'duck', depth });
+    const segs = (cues, base) => M.musicIntervals(cues, base, 30)
+      .map((x) => [x.music, x.mode, x.segs.map(([a, b]) => [Math.round(a), Math.round(b)])]);
+    assert.deepEqual(segs([c(0, 10, 'bright'), c(10, 20, 'bright')]), [['bright', 'duck', [[0, 20]]]], 'one music in a row flows on');
+    assert.deepEqual(segs([c(0, 10, 'bright'), c(12, 20, 'bright')]), [['bright', 'duck', [[0, 20]]]], 'a short gap is bridged');
+    assert.deepEqual(segs([c(0, 10, 'bright'), c(15, 20, 'bright')]), [['bright', 'duck', [[0, 10], [15, 20]]]], 'a long gap is kept');
+    assert.deepEqual(segs([c(0, 10, 'bright'), c(10, 20, 'calm')]),
+      [['bright', 'duck', [[0, 10]]], ['calm', 'duck', [[10, 20]]]], 'different music: two tracks (cross-fade)');
+    assert.deepEqual(segs([c(0, 30, 'bright'), c(10, 20, 'focus', 1)]),
+      [['bright', 'duck', [[0, 10], [20, 30]]], ['focus', 'duck', [[10, 20]]]], 'the inner stretch wins');
+    assert.deepEqual(segs([c(10, 20, 'bright')], 'warm'),
+      [['warm', 'gaps', [[0, 10], [20, 30]]], ['bright', 'duck', [[10, 20]]]], 'whole-video music around a slide with its own');
+    assert.deepEqual(M.speechGaps([[1, 4], [5, 9], [15, 18]], 25), [[0, 1], [9, 15], [18, 25]], 'pauses of 3 s and more, start and end');
+    const loop = M.renderPreset('bright');
+    assert.ok(Math.abs(loop.seconds - 19.2) < 0.01 && Math.abs(loop.pcm[0] - loop.pcm[loop.pcm.length - 2]) < 300, 'a seamless loop');
+    await rejectsWith(() => showSlide({ layout: 'statement', text: 'А', music: 'no-such-preset' }, fast), /music:/, 'a wrong music spec');
+
+    const video = path.join(dir, 'music.mp4');
+    await hideSlide({ motion: false });
+    await startRecording(video, { fps: 15 });
+    await showSlide({ layout: 'statement', text: 'С музыкой', music: 'bright' }, { ...fast, fast: 1.5 });
+    await showSlide({ layout: 'statement', text: 'Без музыки' }, { ...fast, fast: 1.5 });
+    await withMusic('focus', async () => { await (await getPage()).waitForTimeout(1500); });
+    const res = await stopRecording();
+    await hideSlide({ motion: false });
+    const saved = JSON.parse(fs.readFileSync(video.replace(/\.mp4$/, '.captions.json'), 'utf8')).music;
+    log(`music stretches: ${JSON.stringify(saved)}`);
+    assert.equal(res.music, 2, 'two stretches recorded');
+    assert.deepEqual(saved.map((m) => m.music), ['bright', 'focus']);
+    assert.ok(saved.every((m) => m.end > m.start) && saved[1].start >= saved[0].end, 'the slide stretch ends where the next slide begins');
+
+    // music alone (no speech, no TTS service): it sounds inside its stretch
+    const out = path.join(dir, 'music-mixed.mp4');
+    await addNarration(video, { captions: [], outputPath: out });
+    const { resolveFfmpeg } = await lib('tts.mjs');
+    const { spawnSync } = await import('child_process');
+    const peak = (from, to) => {
+      const r = spawnSync(resolveFfmpeg(), ['-hide_banner', '-ss', String(from), '-to', String(to), '-i', out,
+        '-af', 'volumedetect', '-f', 'null', '-'], { encoding: 'utf8' });
+      const m = /max_volume: (-?[\d.]+|-inf) dB/.exec(r.stderr || '');
+      return !m || m[1] === '-inf' ? -99 : +m[1];
+    };
+    const mid = (saved[0].start + saved[0].end) / 2000;
+    const inSlide = peak(mid - 0.3, mid + 0.3);
+    log(`mixed: peak in the slide stretch ${inSlide} dB`);
+    assert.ok(inSlide > -50, 'music sounds in the slide stretch');
+  });
+
   await step('legacy: showTitleSlide({ speech: true }) narrates the title text (line breaks → spaces)', async () => {
     await startRecording(path.join(dir, 'legacy.mp4'), { fps: 15 });
     await showTitleSlide('Титул\nвторая строка', { speech: true });
@@ -283,5 +334,14 @@ export default async function({
     assert.equal(play.captions, 3, 'a caption per spoken step');
     assert.ok(fs.existsSync(play.file) && play.duration > 3, 'video written');
     assert.ok(fs.existsSync(play.file.replace(/\.mp4$/, '.captions.json')), 'captions.json for a later addNarration');
+    // --no-narration --music: the music alone — no speech synthesized for the spoken steps
+    const withMusicOut = run(['play', 'tests/web-test/_slides/fixture.mjs', `--out=${dir}/play-music.mp4`, '--no-narration', '--music=calm']);
+    assert.equal(withMusicOut.ok, true);
+    const { resolveFfmpeg } = await import(pathToFileURL(path.resolve('.claude/skills/web-test/scripts/engine/recording/tts.mjs')).href);
+    const { spawnSync } = await import('child_process');
+    const det = spawnSync(resolveFfmpeg(), ['-hide_banner', '-i', withMusicOut.file, '-af', 'volumedetect', '-f', 'null', '-'], { encoding: 'utf8' }).stderr;
+    const max = +(/max_volume: (-?[\d.]+) dB/.exec(det) || [0, -99])[1];
+    log(`play --no-narration --music: max ${max} dB`);
+    assert.ok(max > -40 && max < -15, 'music at its level, no voice (a voice peaks far louder)');
   });
 }

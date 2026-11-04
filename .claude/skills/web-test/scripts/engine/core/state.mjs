@@ -1,4 +1,4 @@
-// web-test core/state v1.19 — module-level state for the web-test engine.
+// web-test core/state v1.20 — module-level state for the web-test engine.
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 //
 // Holds the single browser/page/recorder slot plus the multi-context registry,
@@ -28,6 +28,7 @@ export let sessionPrefix = null; // e.g. "http://localhost:8081/bpdemo/ru_RU"
 export let seanceId = null;
 export let recorder = null; // { cdp, ffmpeg, startTime, outputPath, ffmpegError, captions }
 export let lastCaptions = []; // captions from the last completed recording (for addNarration)
+export let lastMusic = []; // music stretches of the last completed recording (for addNarration)
 export let lastRecordingDuration = null; // wall-clock duration of the last recording (seconds)
 export let highlightMode = false;
 export let persistentUserDataDir = null; // temp dir for launchPersistentContext, cleaned on disconnect
@@ -44,6 +45,7 @@ export const setSessionPrefix = (v) => { sessionPrefix = v; };
 export const setSeanceId = (v) => { seanceId = v; };
 export const setRecorder = (v) => { recorder = v; };
 export const setLastCaptions = (v) => { lastCaptions = v; };
+export const setLastMusic = (v) => { lastMusic = v; };
 export const setLastRecordingDuration = (v) => { lastRecordingDuration = v; };
 export const setHighlightMode = (v) => { highlightMode = !!v; };
 export const setPersistentUserDataDir = (v) => { persistentUserDataDir = v; };

@@ -509,7 +509,8 @@ Clear filters. Without arguments clears all, with `{ field }` clears specific ba
 #### `isRecording()` → boolean
 #### `setHighlight(on)` / `isHighlightMode()` → auto-highlight mode for video
 #### `highlight(text)` / `unhighlight()` → manual element highlighting (error lists available elements)
-#### `addNarration(videoPath, opts?)` → narrated MP4 with TTS voiceover
+#### `addNarration(videoPath, opts?)` → narrated MP4 with TTS voiceover (and background music: `{ music: 'bright' }`)
+#### `withMusic(music, fn)` → background music while `fn` runs (long actions without speech); a slide takes `music` too
 #### `getCaptions()` → caption timestamps from last recording
 
 See [recording.md](recording.md) for setup (ffmpeg), highlight mode, TTS narration, API details, and examples.

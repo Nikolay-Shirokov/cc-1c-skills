@@ -1,4 +1,4 @@
-// web-test recording/slides v1.3 — animated step slides: showSlide / hideSlide / prepareSlides / setSlideTheme / loadSlides.
+// web-test recording/slides v1.4 — animated step slides: showSlide / hideSlide / prepareSlides / setSlideTheme / loadSlides.
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 //
 // A slide is a template spec ({ layout, ... }) or a custom page ({ html, css, steps }). Each step is a phrase
@@ -12,6 +12,10 @@ import { synthesizeCached, cachedSpeechSeconds, mergeTtsOptions, readProjectConf
 import { BASE_CSS, themeVars, pageMount, pageStep, pageHide, pageLint, pageScript } from './protocol.mjs';
 import { ASSET_BASE, ensureAssetsRoute, releaseAssetsRoute, encodeAssetPath } from './assets.mjs';
 import { buildSlide } from './templates.mjs';
+import { resolveMusic, musicOpen, musicClose } from '../music.mjs';
+
+// the music stretch of the slide on screen (spec.music): opened on mount, closed when the slide goes
+let slideCue = null;
 
 const LEAD = 0.35;   // the change starts, the voice follows
 const GAP = 0.5;     // breath after a phrase
@@ -105,6 +109,7 @@ async function lintStep(step, i, seconds) {
 export async function showSlide(spec, opts = {}) {
   ensureConnected();
   const built = buildSlide(spec);
+  if (spec.music !== undefined) resolveMusic(spec.music);   // a wrong music spec fails before the slide
   const motion = (opts.motion ?? spec.motion) !== false;
   const tts = ttsOptions(opts);
   const rec = recorder;
@@ -161,6 +166,9 @@ export async function showSlide(spec, opts = {}) {
     pushSec: motion && built.push ? total : 0, animated: animatedSelectors(built.steps), instant, staticMode: !motion,
     hostId: opts.legacy || null,
   });
+  // music follows the slides: the previous slide's stretch ends where this one begins (one preset in a row flows on)
+  musicClose(slideCue);
+  slideCue = spec.music !== undefined ? musicOpen(spec.music, 'duck') : null;
   if (built.script) await runScript(built.script);   // ready before the first step: no race with the steps
   else if (!needsAssets) await releaseAssetsRoute(page);
   await hold(instant ? 60 : 600);
@@ -199,6 +207,8 @@ export async function showSlide(spec, opts = {}) {
 /** Fade the slide out and remove it ({ motion: false } — at once). */
 export async function hideSlide(opts = {}) {
   ensureConnected();
+  musicClose(slideCue);
+  slideCue = null;
   const fading = await page.evaluate(pageHide, { instant: opts.motion === false });
   if (fading) {
     await hold(550);
@@ -219,6 +229,7 @@ export async function prepareSlides(specs, opts = {}) {
   const { validateOnly, ...rest } = opts;
   const tts = ttsOptions(rest);
   const built = specs.map((s) => buildSlide(s));
+  for (const s of specs) if (s.music !== undefined) resolveMusic(s.music);
   const jobs = built.flatMap((b) => b.steps.filter((s) => s.speech).map((s) => [s.speech, s.voice ? { ...tts, voice: s.voice } : tts]));
   if (!validateOnly) {
     // several phrases at a time (like addNarration; ElevenLabs allows fewer parallel requests), two retries each

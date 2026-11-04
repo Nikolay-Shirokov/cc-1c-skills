@@ -1,8 +1,8 @@
-// web-test cli/commands/slides v1.3 — play / preview: slides without 1C (blank Chromium page 1920×1080)
+// web-test cli/commands/slides v1.4 — play / preview: slides without 1C (blank Chromium page 1920×1080)
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 //
 // A slides module: `export default [spec, ...]`, optional `export const tts = {...}` and `export const theme = {...}`.
-//   play <slides.mjs> --out=<file.mp4> [--no-narration]   record + narrate into --out (starts and ends on a slide);
+//   play <slides.mjs> --out=<file.mp4> [--no-narration] [--music=<preset|file>]   record + narrate into --out (starts and ends on a slide);
 //                                             <file>.captions.json next to it; --no-narration: silent video
 //   preview <slides.mjs> [--out-dir=<dir>]    a PNG per step + checks, no TTS, no video
 import { mkdirSync, renameSync } from 'fs';
@@ -12,6 +12,7 @@ import { chromium } from 'playwright';
 import * as browser from '../../browser.mjs';
 import { setBrowser, setPage } from '../../engine/core/state.mjs';
 import { projectTtsOptions } from '../../engine/recording/tts.mjs';
+import { resolveMusic } from '../../engine/recording/music.mjs';
 import { out, die } from '../util.mjs';
 
 async function loadModule(file) {
@@ -44,10 +45,11 @@ async function withBlankPage(fn) {
 
 const fail = (e) => die(e?.message || String(e));
 
-export async function cmdPlay(file, outFile, { narrate = true } = {}) {
+export async function cmdPlay(file, outFile, { narrate = true, music } = {}) {
   const { slides, tts, theme } = await loadModule(file);
   if (!outFile) die('play: --out=<file.mp4> is required');
   try {
+    if (music !== undefined) resolveMusic(music);
     if (theme) browser.setSlideTheme(theme);
     await browser.prepareSlides(slides, { ...tts, validateOnly: !narrate });   // validate (+ synthesize ahead)
     const res = await withBlankPage(async () => {
@@ -64,13 +66,17 @@ export async function cmdPlay(file, outFile, { narrate = true } = {}) {
       // stopped on a failure too (ends on the last slide); the slide's error, not ffmpeg's, is the one to report
       try { video = await browser.stopRecording(); } catch (e) { if (!failure) throw e; }
       if (failure) throw failure;
-      if (!narrate || !video.captions) {
+      const withMusic = music !== undefined || !!video.music;
+      if ((!narrate || !video.captions) && !withMusic) {
         if (narrate) warnings.push('no spoken steps — the video has no narration');
         return { ok: true, file: video.file, duration: video.duration, captions: video.captions, warnings };
       }
       // --out is the final narrated video; the silent recording is replaced, its captions.json stays next to it
       const tmp = target.replace(/(\.[^.\\/]+)?$/, '.narrating$1');
-      const narrated = await browser.addNarration(video.file, { ...tts, outputPath: tmp });
+      // --no-narration with music: the music alone (no TTS calls)
+      const narrated = await browser.addNarration(video.file, {
+        ...tts, outputPath: tmp, ...(music !== undefined ? { music } : {}), ...(narrate ? {} : { captions: [] }),
+      });
       let file = target;
       try { renameSync(tmp, target); }
       catch (e) {

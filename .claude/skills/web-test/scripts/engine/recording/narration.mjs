@@ -1,4 +1,4 @@
-// web-test recording/narration v1.21 — Post-process: generate TTS audio for captions and merge with recorded video.
+// web-test recording/narration v1.22 — Post-process: generate TTS audio for captions and merge with recorded video.
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import { execFileSync } from 'child_process';
@@ -7,8 +7,9 @@ import { extname, join as pathJoin } from 'path';
 import { removePathSync } from '../core/fsutil.mjs';
 import { tmpdir } from 'os';
 import {
-  lastCaptions, lastRecordingDuration, resolveProjectPath,
+  lastCaptions, lastMusic, lastRecordingDuration, resolveProjectPath,
 } from '../core/state.mjs';
+import { musicIntervals, speechGaps, trackEnvelope, sourceFile, resolveMusic } from './music.mjs';
 import {
   resolveFfmpeg, getAudioDuration, generateSilence, synthesizeCached, mergeTtsOptions,
 } from './tts.mjs';
@@ -29,6 +30,10 @@ import {
  * @param {string} [opts.ffmpegPath] — path to ffmpeg binary
  * @param {string} [opts.outputPath] — output file path (default: video-narrated.mp4)
  * @param {boolean} [opts.cache=true] — reuse/keep phrases in the shared TTS cache (false — synthesize afresh)
+ * @param {string|object} [opts.music] — background music over the whole video, in speech pauses: a preset
+ *   (bright, warm, calm, focus, uplift, uplift-soft), a file path or { preset|file, level }. Music stretches of
+ *   the recording (slides with `music`, withMusic) are mixed in anyway
+ * @param {Array} [opts.musicCues] — explicit music stretches (default: from the last recording or .captions.json)
  * @returns {{ file: string, duration: number, size: number, captions: number, warnings?: string[] }}
  */
 export async function addNarration(videoPath, opts = {}) {
@@ -41,18 +46,22 @@ export async function addNarration(videoPath, opts = {}) {
     model: tts.model, instructions: tts.instructions, ffmpegPath, cache: tts.cache, measure: false,
   };
 
-  // Resolve captions: explicit > lastCaptions > .captions.json
+  if (opts.music !== undefined) resolveMusic(opts.music);   // a wrong spec fails before any synthesis
+  // Resolve captions: explicit > lastCaptions > .captions.json (music stretches come from the same source)
   let captions = opts.captions;
+  let musicCues = opts.musicCues;
+  const explicit = Array.isArray(captions);
   let videoTimestamps = true; // new recordings use video-time timestamps (no scaling needed)
   let recordingDuration = null; // wall-clock duration (for legacy scaling fallback)
-  if (!captions || !captions.length) {
-    if (lastCaptions.length) {
+  if (!explicit && !captions?.length) {   // an explicit [] means "no speech" (music only), not "take the last recording"
+    if (lastCaptions.length || lastMusic.length) {
       captions = [...lastCaptions];
+      musicCues ??= lastMusic;
       recordingDuration = lastRecordingDuration;
       // Runtime captions always use video timestamps (set in showCaption)
     }
   }
-  if (!captions || !captions.length) {
+  if (!explicit && !captions?.length) {
     const captionsJsonPath = videoPath.replace(/\.[^.]+$/, '.captions.json');
     if (fsExistsSync(captionsJsonPath)) {
       const raw = JSON.parse(readFileSync(captionsJsonPath, 'utf-8'));
@@ -61,13 +70,18 @@ export async function addNarration(videoPath, opts = {}) {
         captions = raw;
         videoTimestamps = false;
       } else {
-        captions = raw.captions;
+        captions = raw.captions || [];
+        musicCues ??= raw.music;
         videoTimestamps = !!raw.videoTimestamps;
         recordingDuration = raw.recordingDuration || null;
       }
     }
   }
-  if (!captions || !captions.length) {
+  if (explicit) musicCues ??= lastMusic;
+  captions ||= [];
+  musicCues ||= [];
+  const hasMusic = opts.music !== undefined || musicCues.length > 0;
+  if (!captions.length && !hasMusic) {
     throw new Error('No captions available. Record with showCaption() first, or pass opts.captions.');
   }
 
@@ -124,6 +138,7 @@ export async function addNarration(videoPath, opts = {}) {
     const ffmpegInputs = [];
     const filterParts = [];
     const mixLabels = [];
+    const speech = [];   // [start, end] s of each phrase as placed (for music in pauses)
 
     for (let i = 0; i < captions.length; i++) {
       const captionTimeMs = Math.round(captions[i].time);
@@ -147,6 +162,9 @@ export async function addNarration(videoPath, opts = {}) {
         }
       }
 
+      const tempoUsed = filters.length && filters[0].startsWith('atempo=') ? +filters[0].slice(7) : 1;
+      speech.push([captionTimeMs / 1000, captionTimeMs / 1000 + ttsDuration / tempoUsed]);
+
       // Delay to exact caption timestamp (milliseconds)
       if (captionTimeMs > 0) {
         filters.push(`adelay=${captionTimeMs}|${captionTimeMs}`);
@@ -165,13 +183,17 @@ export async function addNarration(videoPath, opts = {}) {
     const filterComplex = filterParts.join(';') + ';' +
       `[0]${mixLabels.join('')}amix=inputs=${captions.length + 1}:normalize=0:duration=first`;
 
-    const narrationPath = pathJoin(tempDir, 'narration.mp3');
-    execFileSync(ffmpegPath, [
-      '-y', '-i', silencePath, ...ffmpegInputs,
-      '-filter_complex', filterComplex,
-      '-t', String(Math.ceil(videoDuration)),
-      '-c:a', 'libmp3lame', '-b:a', '128k', narrationPath,
-    ], { stdio: 'pipe', timeout: 120000 });
+    let narrationPath = pathJoin(tempDir, 'narration.mp3');
+    if (captions.length) {
+      execFileSync(ffmpegPath, [
+        '-y', '-i', silencePath, ...ffmpegInputs,
+        '-filter_complex', filterComplex,
+        '-t', String(Math.ceil(videoDuration)),
+        '-c:a', 'libmp3lame', '-b:a', '128k', narrationPath,
+      ], { stdio: 'pipe', timeout: 120000 });
+    } else narrationPath = silencePath;   // music only
+
+    if (hasMusic) narrationPath = mixMusic(narrationPath, speech, musicCues, opts.music, videoDuration, tempDir, ffmpegPath);
 
     // Phase 4: Merge video + narration audio
     execFileSync(ffmpegPath, [
@@ -198,4 +220,32 @@ export async function addNarration(videoPath, opts = {}) {
     // Cleanup temp directory
     try { removePathSync(tempDir); } catch {}
   }
+}
+
+/**
+ * Mix background music under the narration. Every music in use is one loop over the whole video; its volume
+ * opens on its stretches (music.mjs: seams, cross-fades) — 'gaps' (the whole video) only in speech pauses.
+ * The music bus: no lows (< 250 Hz), a dip in the speech band (2 kHz), its level; then lowered under the voice.
+ */
+function mixMusic(speechPath, speech, cues, base, D, tempDir, ffmpegPath) {
+  const tracks = musicIntervals(cues, base, D).filter((t) => t.segs.length);
+  if (!tracks.length) return speechPath;
+  const gaps = speechGaps(speech, D);
+  const inputs = ['-i', speechPath], parts = [], labels = [];
+  const fmt = 'aformat=sample_rates=44100:channel_layouts=stereo';
+  tracks.forEach((t, i) => {
+    const m = resolveMusic(t.music);
+    inputs.push('-stream_loop', '-1', '-i', sourceFile(m));
+    parts.push(`[${i + 1}:a]${fmt},atrim=0:${D},asetpts=PTS-STARTPTS,volume=${m.level}dB,volume='${trackEnvelope(t, gaps)}':eval=frame[m${i}]`);
+    labels.push(`[m${i}]`);
+  });
+  const bus = labels.length > 1 ? `${labels.join('')}amix=inputs=${labels.length}:normalize=0,` : `${labels[0]}`;
+  parts.push(`${bus}${labels.length > 1 ? '' : 'acopy,'}highpass=f=250,equalizer=f=2000:t=q:w=1.2:g=-4[mus]`);
+  parts.push(`[0:a]${fmt},asplit=2[sp][key]`);
+  parts.push('[mus][key]sidechaincompress=threshold=0.02:ratio=8:attack=25:release=700:knee=4[duck]');
+  parts.push('[sp][duck]amix=inputs=2:normalize=0:duration=first[a]');
+  const out = pathJoin(tempDir, 'narration-music.mp3');
+  execFileSync(ffmpegPath, ['-y', ...inputs, '-filter_complex', parts.join(';'), '-map', '[a]',
+    '-t', String(Math.ceil(D)), '-c:a', 'libmp3lame', '-b:a', '160k', out], { stdio: 'pipe', timeout: 300000 });
+  return out;
 }

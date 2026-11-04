@@ -302,6 +302,7 @@ Generate TTS and merge audio with video. Call after `stopRecording()`.
 | `opts.instructions` | `string` | Speaking style, for models that support it (openai, e.g. `gpt-4o-mini-tts`) |
 | `opts.ffmpegPath` | `string` | Path to ffmpeg binary |
 | `opts.outputPath` | `string` | Output file (default: `video-narrated.mp4`) |
+| `opts.music` | `string | object` | Background music over the whole video, in speech pauses — see Background music |
 
 **Returns:** `{ file, duration, size, captions, warnings? }`
 
@@ -334,6 +335,20 @@ After recording, a `.captions.json` file is saved next to the video. You can re-
 ```js
 const result = await addNarration('recordings/demo.mp4', { voice: 'ru-RU-SvetlanaNeural' });
 ```
+
+### Background music
+
+```js
+await addNarration(video.file, { music: 'bright' });   // the whole video: plays in pauses, fades out under speech
+await showSlide({ ...spec, music: 'bright' }, TTS);      // while this slide is up (a showcase, a 3D scene, the title)
+await withMusic('focus', async () => { /* long actions in 1C without speech */ });
+```
+
+Presets (generated, no licence needed): `bright`, `warm`, `calm`, `focus`, `uplift`, `uplift-soft` — or a file path
+(`'audio/track.mp3'`, its licence is yours to check); `{ preset | file, level }` sets the level (dB, default −22).
+`play` takes `--music=bright`. Seams are handled: one music in a row flows on, short gaps are bridged, different
+music cross-fades. Music helps on titles, showcases and silent stretches; under a dialogue or a dense explanation it
+distracts — keep one preset per video.
 
 ## Troubleshooting
 

@@ -29,7 +29,7 @@ browser window; the video has the window's size.
 
 Pick by the meaning of the slide. `cards`, `columns`, `comparison`, `process`, `radial`, `summary` take a
 slide `title`; `image` has none (the picture carries its own). All take `theme`, `background`, `outro`
-(seconds held at the end). Indexes (`show: 0`, `current`, `row`) count from 0.
+(seconds held at the end), `music` (background music while the slide is up — [recording.md](recording.md)). Indexes (`show: 0`, `current`, `row`) count from 0.
 
 | Layout | When | Fields | Steps (`steps: [{ ..., speech }]`) | Limits |
 |---|---|---|---|---|
