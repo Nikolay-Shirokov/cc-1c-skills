@@ -99,6 +99,7 @@ shrinks its children until they fit. Lines from a centre to items: `<svg class="
 data-round><path data-to=".item1"/></svg>`. The page lives in a shadow root: its CSS touches nothing else.
 `file: 'path.html'` instead of `html` reads the page from a file. Mark a deliberate element `ws-nolint` (a
 speech bubble that repeats the phrase): the checks skip it. Drawn shapes may cross the frame edge; text may not.
+3D, Lottie, an animation from data, a video clip — a page with a script: [slide-scripts.md](slide-scripts.md).
 
 ## Theme
 
@@ -112,6 +113,9 @@ Default: `#16213e` / `#f0a202` / `#f4f6fa` / `#1a1a2e`.
 Layers, each overriding the previous: `.v8-project.json` → `"slides": { "theme": {...} }` (project brand) →
 `setSlideTheme({...})` (scenario) → `showSlide(spec, { theme })` → `spec.theme`.
 
+On a page of your own the theme is CSS variables: `var(--primary)`, `--accent`, `--ground`, `--ink`, `--line`,
+`--muted` (secondary text), `--soft` (quiet tint), `--on-dark` (text on `primary`).
+
 ## Slide videos without 1C, preview
 
 ```bash
@@ -119,11 +123,13 @@ node $RUN preview docs/video/overview-slides.mjs [--out-dir=dir]   # a PNG per s
 node $RUN play docs/video/overview-slides.mjs --out=docs/video/overview.mp4 [--no-narration]
 ```
 
-The module (path from the current directory): `export default [spec, ...]`, optional `export const tts = {...}`
-and `export const theme = {...}`.
+The module (its path from the current directory; paths inside the specs — from the project root):
+`export default [spec, ...]`, optional `export const tts = {...}` and `export const theme = {...}`.
 
 - `preview` writes `<slide>-<step>.png` (both from 1; a template's extra last step is the final all-lit
-  state) into `--out-dir`, by default `<module name>-preview/` next to the module.
+  state) into `--out-dir`, by default `<module name>-preview/` next to the module. Steps run short (~1.6 s,
+  no speech) and the picture is taken at the end of each: motion tied to steps and finished within ~1 s looks
+  as in the video; motion driven by the clock does not.
 - `play` records on a blank page, starting and ending on a slide; `--out` is the final narrated video,
   `<name>.captions.json` is written next to it (re-narrate later with `addNarration`). `--no-narration` —
   a silent video, no TTS calls.

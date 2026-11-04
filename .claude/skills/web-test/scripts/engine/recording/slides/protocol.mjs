@@ -1,4 +1,4 @@
-// web-test recording/slides/protocol v1.3 — step-slide protocol: base CSS + theme, page-side mount/step/lint.
+// web-test recording/slides/protocol v1.4 — step-slide protocol: base CSS + theme, page-side mount/step/lint.
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 //
 // A slide is a 1920×1080 page inside a shadow root (its CSS cannot touch a neighbour slide or the
@@ -155,11 +155,16 @@ export function pageMount({ html, css, bg, vars, pushSec, animated, instant, sta
   else requestAnimationFrame(() => requestAnimationFrame(start));
   // whatever was on screen goes away once the new slide is up (legacy overlays too). Not at once even for an
   // instant swap: a slide with a big picture paints a moment later, and the page under it must not show through.
-  setTimeout(() => ['__ws_slide_old', '__web_test_image', '__web_test_title'].forEach((id) => document.getElementById(id)?.remove()), 650);
+  // a slide's script cleans up (ws-dispose) before its host goes
+  const drop = (id) => document.querySelectorAll('#' + id).forEach((h) => {
+    try { h.shadowRoot?.querySelector('.ws-stage')?.dispatchEvent(new Event('ws-dispose')); } catch {}
+    h.remove();
+  });
+  setTimeout(() => ['__ws_slide_old', '__web_test_image', '__web_test_title'].forEach(drop), 650);
 }
 
-/** Apply one step (page side). */
-export function pageStep({ step, maxZoom }) {
+/** Apply one step (page side); the slide's script hears it as `ws-step` on the stage. */
+export function pageStep({ step, index, maxZoom }) {
   const root = document.getElementById('__ws_slide')?.shadowRoot;
   if (!root) return;
   const q = (sel) => (sel ? [...root.querySelectorAll(sel)] : []);
@@ -173,6 +178,7 @@ export function pageStep({ step, maxZoom }) {
     root.querySelectorAll('.ws-focus').forEach((e) => e.classList.remove('ws-focus'));
     q(step.focus).forEach((e, i) => { e.style.setProperty('--fi', i); e.classList.remove('ws-dim'); e.classList.add('ws-focus'); });
   }
+  root.querySelector('.ws-stage')?.dispatchEvent(new CustomEvent('ws-step', { detail: { index, step } }));
   if (step.camera !== undefined) {
     const cam = root.querySelector('.ws-cam'), spot = root.querySelector('.ws-spot');
     let rect = step.camera;
@@ -199,12 +205,72 @@ export function pageStep({ step, maxZoom }) {
 /** Fade out (or drop at once) and remove the slide (page side). */
 export function pageHide({ instant }) {
   // a slide swapped out a moment ago (removed after 650 ms) and legacy overlays go now: none may resurface
-  ['__ws_slide_old', '__web_test_image', '__web_test_title'].forEach((id) => document.getElementById(id)?.remove());
+  const drop = (h) => {
+    try { h.shadowRoot?.querySelector('.ws-stage')?.dispatchEvent(new Event('ws-dispose')); } catch {}
+    h.remove();
+  };
+  ['__ws_slide_old', '__web_test_image', '__web_test_title'].forEach((id) => document.querySelectorAll('#' + id).forEach(drop));
   const host = document.getElementById('__ws_slide');
   if (!host) return false;
-  if (instant) { host.remove(); return false; }
+  if (instant) { drop(host); return false; }
   host.style.transition = 'opacity .5s ease';
   host.style.opacity = 0;
+  return true;
+}
+
+/**
+ * Run a slide's script (page side). Called as `(pageScript)(opts, userFn, encode)` — an expression built by
+ * showSlide, so the user function and the path encoder (assets.mjs encodeAssetPath) arrive as code. `slide`: the
+ * stage, lookups in the shadow root, theme colours, step events, project files (service address), cleanup.
+ * Resolves when the script is ready.
+ */
+export async function pageScript({ base, timeoutMs }, fn, encode) {
+  const host = document.getElementById('__ws_slide');
+  const root = host.shadowRoot, stage = root.querySelector('.ws-stage');
+  const disposers = [];
+  let disposed = false;
+  const dispose = () => {
+    disposed = true;
+    for (const f of disposers.splice(0)) { try { f(); } catch { /* cleanup must not break the swap */ } }
+  };
+  const url = (p) => encode(base, p);
+  const loaded = (window.__wsLoadedScripts ||= {});
+  const css = getComputedStyle(root.querySelector('.ws-slide'));
+  const theme = Object.fromEntries(['primary', 'accent', 'ground', 'ink'].map((k) => [k, css.getPropertyValue('--' + k).trim()]));
+  const slide = {
+    stage, root, theme,
+    $: (sel) => root.querySelector(sel),
+    $$: (sel) => [...root.querySelectorAll(sel)],
+    on(event, cb) {
+      if (event !== 'step') throw new Error(`slide.on: unknown event "${event}" — "step"`);
+      stage.addEventListener('ws-step', (e) => cb(e.detail.index, e.detail.step));
+    },
+    onDispose: (f) => { if (disposed) f(); else disposers.push(f); },
+    asset: url,
+    import: (p) => import(url(p)),
+    // bare names in modules (import 'three' inside an add-on) → project files; before the first such import
+    importMap(map) {
+      const imports = {};
+      for (const [k, v] of Object.entries(map || {})) imports[k] = url(v);   // a trailing / stays (a prefix)
+      const s = document.createElement('script');
+      s.type = 'importmap'; s.textContent = JSON.stringify({ imports });
+      document.head.appendChild(s);
+    },
+    load: (p) => (loaded[p] ||= new Promise((ok, fail) => {
+      const s = document.createElement('script');
+      s.src = url(p); s.onload = ok; s.onerror = () => { delete loaded[p]; fail(new Error(`cannot load ${p}`)); };
+      document.head.appendChild(s);
+    })),
+  };
+  stage.addEventListener('ws-dispose', dispose, { once: true });
+  // the cleanup the script returns is kept even when it answers after the time-out (or the slide went meanwhile)
+  const run = Promise.resolve().then(() => fn(slide));
+  run.then((ret) => { if (typeof ret === 'function') slide.onDispose(ret); }, () => {});
+  let timer;
+  await Promise.race([
+    run,
+    new Promise((_, fail) => { timer = setTimeout(() => fail(new Error(`not ready in ${timeoutMs / 1000} s`)), timeoutMs); }),
+  ]).finally(() => clearTimeout(timer));
   return true;
 }
 

@@ -1,14 +1,16 @@
-// web-test recording/slides v1.2 — animated step slides: showSlide / hideSlide / prepareSlides / setSlideTheme / loadSlides.
+// web-test recording/slides v1.3 — animated step slides: showSlide / hideSlide / prepareSlides / setSlideTheme / loadSlides.
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 //
 // A slide is a template spec ({ layout, ... }) or a custom page ({ html, css, steps }). Each step is a phrase
 // plus what changes on screen; a spoken step becomes a caption, so addNarration voices it exactly where its
 // change happens. Step length = the phrase's real TTS length (shared phrase cache, see tts.mjs).
 
+import { readFileSync } from 'fs';
 import { pathToFileURL } from 'url';
 import { page, recorder, ensureConnected, resolveProjectPath } from '../../core/state.mjs';
 import { synthesizeCached, cachedSpeechSeconds, mergeTtsOptions, readProjectConfig, unspokenWarning } from '../tts.mjs';
-import { BASE_CSS, themeVars, pageMount, pageStep, pageHide, pageLint } from './protocol.mjs';
+import { BASE_CSS, themeVars, pageMount, pageStep, pageHide, pageLint, pageScript } from './protocol.mjs';
+import { ASSET_BASE, ensureAssetsRoute, releaseAssetsRoute, encodeAssetPath } from './assets.mjs';
 import { buildSlide } from './templates.mjs';
 
 const LEAD = 0.35;   // the change starts, the voice follows
@@ -45,6 +47,23 @@ export async function hold(ms) {
 function animatedSelectors(steps) {
   const of = (k) => steps.flatMap((s) => (s[k] ? [s[k]] : []));
   return { show: of('show'), all: [...of('show'), ...of('hide'), ...of('focus'), ...of('dim')] };
+}
+
+// A page's script runs in the page: built as one expression `(pageScript)(opts, userFn)` — a function is passed as
+// its source (closures of the module do not travel), a file as the body of `async (slide) => { … }`.
+const SCRIPT_TIMEOUT = 20000;
+function scriptExpr(script) {
+  let fn;
+  if (script.fn) {
+    fn = script.fn.toString().trim();
+    // method shorthand `run(slide) { … }` is not an expression: make it a function
+    if (!/^(async\s*)?(function\b|\(|[\w$]+\s*=>)/.test(fn)) fn = fn.replace(/^(async\s+)?/, (m) => `${m}function `);
+  } else fn = `async (slide) => {\n${readFileSync(script.file, 'utf8')}\n}`;
+  return `(${pageScript.toString()})(${JSON.stringify({ base: ASSET_BASE, timeoutMs: SCRIPT_TIMEOUT })}, ${fn}, ${encodeAssetPath.toString()})`;
+}
+async function runScript(script) {
+  try { await page.evaluate(scriptExpr(script)); }
+  catch (e) { throw new Error(`slide script failed: ${String(e.message).replace(/^page\.evaluate:\s*/, '').split('\n')[0]}`); }
 }
 
 const estimate = (text) => Math.max(2, text.length * ((recorder?.speechRate || 70) / 1000));
@@ -133,18 +152,24 @@ export async function showSlide(spec, opts = {}) {
       if (held) rec._releaseFrames();   // a failed mount must not leave the recording holding (writing nothing)
     }
   }
+  // project files (asset: in the page, slide.import/load/asset in its script) — served on this page
+  // routing turns the browser cache off: on only while such a slide is up (the 1C client keeps its cache otherwise)
+  const needsAssets = !!built.script || `${built.html}${built.css || ''}${built.bg || ''}`.includes(ASSET_BASE);
+  if (needsAssets) await ensureAssetsRoute(page);
   await page.evaluate(pageMount, {
     html: built.html, css: BASE_CSS + (built.css || ''), bg: built.bg, vars,
     pushSec: motion && built.push ? total : 0, animated: animatedSelectors(built.steps), instant, staticMode: !motion,
     hostId: opts.legacy || null,
   });
+  if (built.script) await runScript(built.script);   // ready before the first step: no race with the steps
+  else if (!needsAssets) await releaseAssetsRoute(page);
   await hold(instant ? 60 : 600);
 
   const warnings = [];
   let lastSpoken = false;
   for (let i = 0; i < built.steps.length; i++) {
     const s = built.steps[i];
-    await page.evaluate(pageStep, { step: s, maxZoom: built.maxZoom ?? 2 });
+    await page.evaluate(pageStep, { step: s, index: i, maxZoom: built.maxZoom ?? 2 });
     if (s.speech && opts.fast === undefined) {
       const lead = opts.legacy ? 0 : LEAD;
       if (lead) await hold(lead * 1000);
@@ -177,8 +202,9 @@ export async function hideSlide(opts = {}) {
   const fading = await page.evaluate(pageHide, { instant: opts.motion === false });
   if (fading) {
     await hold(550);
-    await page.evaluate(() => document.getElementById('__ws_slide')?.remove());
+    await page.evaluate(pageHide, { instant: true });   // removes it, the slide's script cleaning up first
   }
+  await releaseAssetsRoute(page);
 }
 
 /**

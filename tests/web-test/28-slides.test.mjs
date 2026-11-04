@@ -100,6 +100,73 @@ export default async function({
     assert.ok(!w.some((x) => /repeats the narration/.test(x)), 'a ws-nolint bubble may repeat the phrase');
   });
 
+  await step('page script: ready before the first step, hears steps, loads project files, cleans up', async () => {
+    fs.writeFileSync(`${dir}/mod-b.mjs`, "export const b = 'B';\n");
+    fs.writeFileSync(`${dir}/mod-a.mjs`, "import { b } from './mod-b.mjs';\nexport const a = 'A' + b;\n");
+    fs.writeFileSync(`${dir}/lib.js`, "window.__wsTestLib = 'L';\n");
+    fs.writeFileSync(`${dir}/dep.mjs`, "export const d = 'D';\n");
+    fs.writeFileSync(`${dir}/bare.mjs`, "import { d } from 'wsdep';\nexport const v = d;\n");
+    fs.writeFileSync(`${dir}/pic.png`, await screenshot());
+    await shadow(() => { window.__wsDisposed = 0; });
+    await showSlide({
+      html: '<div class="out" style="position:absolute;left:200px;top:200px;font-size:40px"></div>'
+        + '<img class="pic" src="asset:test-tmp/slides/pic.png" style="position:absolute;left:900px;top:300px;width:400px">',
+      background: 'url(asset:test-tmp/slides/pic.png) center/cover',
+      // written without a space after async: must not be taken for method shorthand
+      script: async(slide)=>{
+        const out = slide.$('.out');
+        const { a } = await slide.import('test-tmp/slides/mod-a.mjs');   // its relative import is served too
+        await slide.load('test-tmp/slides/lib.js');
+        slide.importMap({ wsdep: 'test-tmp/slides/dep.mjs' });
+        const { v } = await slide.import('test-tmp/slides/bare.mjs');   // a bare name through the import map
+        out.dataset.mod = a + window.__wsTestLib + v;
+        out.dataset.accent = slide.theme.accent;
+        slide.on('step', (i) => { out.textContent += i; });
+        return () => { window.__wsDisposed++; };
+      },
+      steps: [{ hold: 0 }, { hold: 0 }, { hold: 0 }],
+    }, fast);
+    const st = await shadow(() => {
+      const r = document.getElementById('__ws_slide').shadowRoot, out = r.querySelector('.out'), img = r.querySelector('.pic');
+      const bg = getComputedStyle(r.querySelector('.ws-slide')).backgroundImage;
+      return { text: out.textContent, mod: out.dataset.mod, accent: out.dataset.accent, src: img.src, w: img.naturalWidth, bg };
+    });
+    log(`script state: ${JSON.stringify({ ...st, src: st.src.slice(0, 60), bg: st.bg.slice(0, 60) })}`);
+    assert.equal(st.text, '012', 'every step heard, from the first');
+    assert.equal(st.mod, 'ABLD', 'slide.import (relative and bare imports) and slide.load');
+    assert.equal(st.accent, '#f0a202', 'slide.theme');
+    assert.ok(st.src.startsWith('https://ws-assets.invalid/') && st.w > 0, 'asset: in html is served');
+    assert.ok(st.bg.includes('ws-assets.invalid'), 'asset: in background');
+    const probe = await shadow(async () => {
+      const status = async (u) => (await fetch('https://ws-assets.invalid/' + u)).status;
+      const part = await fetch('https://ws-assets.invalid/test-tmp/slides/lib.js', { headers: { Range: 'bytes=0-9' } });
+      return {
+        up: await status('%2E%2E%2Fpackage.json'), drive: await status('C%3A%2FWindows%2Fwin.ini'),
+        hidden: await status('.v8-project.json'), git: await status('.git%2FHEAD'),
+        range: [part.status, (await part.text()).length],
+      };
+    });
+    log(`asset probes: ${JSON.stringify(probe)}`);
+    assert.deepEqual([probe.up, probe.drive, probe.hidden, probe.git], [404, 404, 404, 404],
+      'nothing outside the project root, on another drive, or hidden');
+    assert.deepEqual(probe.range, [206, 10], 'a Range request is answered with a part');
+    await hideSlide();
+    assert.equal(await shadow(() => window.__wsDisposed), 1, 'cleanup on hideSlide');
+    const after = await shadow(async () => {
+      try { await fetch('https://ws-assets.invalid/test-tmp/slides/lib.js'); return 'served'; } catch { return 'off'; }
+    });
+    assert.equal(after, 'off', 'project files are not served once the slide is gone (browser cache back on)');
+  });
+
+  await step('page script: an error stops the slide with a clear message; a wrong script field is a spec error', async () => {
+    await rejectsWith(() => showSlide({ html: '<div></div>', script: () => { throw new Error('boom'); } }, fast),
+      /slide script failed: .*boom/, 'script error');
+    await hideSlide({ motion: false });
+    await rejectsWith(() => prepareSlides([{ html: '<div></div>', script: 42 }], { validateOnly: true }), /"script" must be/, 'type');
+    await rejectsWith(() => prepareSlides([{ html: '<div></div>', script: 'test-tmp/slides/none.js' }], { validateOnly: true }),
+      /script not found/, 'missing file');
+  });
+
   await step('speech check: Latin words and abbreviations are flagged, speech written as spoken is not', async () => {
     const bad = await showSlide({ layout: 'statement', text: 'Живая 1С', speech: 'Живая 1С и голос OpenAI' }, fast);
     const w = (bad.warnings || []).find((x) => /speech has/.test(x)) || '';

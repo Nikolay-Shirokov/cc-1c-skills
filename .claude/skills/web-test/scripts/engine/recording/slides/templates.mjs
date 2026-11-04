@@ -1,4 +1,4 @@
-// web-test recording/slides/templates v1.2 — slide templates: spec → { html, css, steps, bg?, push?, maxZoom? }.
+// web-test recording/slides/templates v1.3 — slide templates: spec → { html, css, steps, bg?, push?, maxZoom? }.
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 //
 // Every template is a generator for the step protocol (protocol.mjs): it builds a 1920×1080 page and
@@ -10,6 +10,7 @@ import { existsSync, readFileSync } from 'fs';
 import { extname } from 'path';
 import { resolveProjectPath } from '../../core/state.mjs';
 import { W, H, EASE } from './protocol.mjs';
+import { rewriteAssets } from './assets.mjs';
 
 export const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const r1 = (x) => Math.round(x * 10) / 10;
@@ -591,5 +592,16 @@ export function buildSlide(spec) {
   }
   if (typeof html !== 'string') throw new SpecError(`showSlide: need "layout" (${LAYOUTS.join(', ')}) or "html" / "file"`);
   if (spec.steps !== undefined && !isArr(spec.steps)) throw new SpecError('showSlide(page): "steps" must be an array');
-  return { html, css: spec.css || '', steps: spec.steps || [], bg: spec.background, push: spec.push, maxZoom: spec.maxZoom };
+  // script: a function (runs in the page) or a .js file from the project root (its body, `slide` in scope)
+  let script;
+  if (typeof spec.script === 'function') script = { fn: spec.script };
+  else if (isStr(spec.script)) {
+    const abs = resolveProjectPath(spec.script);
+    if (!existsSync(abs)) throw new SpecError(`showSlide(page): script not found: ${abs}`);
+    script = { file: abs };
+  } else if (spec.script !== undefined) throw new SpecError('showSlide(page): "script" must be a function or a .js path');
+  return {
+    html: rewriteAssets(html), css: rewriteAssets(spec.css || ''), steps: spec.steps || [],
+    bg: rewriteAssets(spec.background), push: spec.push, maxZoom: spec.maxZoom, script,
+  };
 }

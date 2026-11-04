@@ -1,4 +1,4 @@
-// web-test cli/commands/slides v1.2 — play / preview: slides without 1C (blank Chromium page 1920×1080)
+// web-test cli/commands/slides v1.3 — play / preview: slides without 1C (blank Chromium page 1920×1080)
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 //
 // A slides module: `export default [spec, ...]`, optional `export const tts = {...}` and `export const theme = {...}`.
@@ -26,7 +26,8 @@ async function loadModule(file) {
 }
 
 async function withBlankPage(fn) {
-  const b = await chromium.launch({ headless: true });
+  // --enable-gpu: WebGL on the graphics card (3D in a page script); without one Chromium falls back to software
+  const b = await chromium.launch({ headless: true, args: ['--enable-gpu'] });
   try {
     const ctx = await b.newContext({ viewport: { width: 1920, height: 1080 }, deviceScaleFactor: 1 });
     const page = await ctx.newPage();
