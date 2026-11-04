@@ -1,4 +1,4 @@
-// web-test recording/slides/protocol v1.2 — step-slide protocol: base CSS + theme, page-side mount/step/lint.
+// web-test recording/slides/protocol v1.3 — step-slide protocol: base CSS + theme, page-side mount/step/lint.
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 //
 // A slide is a 1920×1080 page inside a shadow root (its CSS cannot touch a neighbour slide or the
@@ -225,13 +225,16 @@ export function pageLint({ showSel }) {
     const cls = typeof el.className === 'string' ? el.className.split(' ').find((c) => c && !c.startsWith('ws-')) : null;
     return cls ? '.' + cls : el.tagName.toLowerCase();
   };
-  const els = [...root.querySelectorAll('.ws-cam *')].filter((e) => !e.matches('.ws-spot, style') && visible(e));
+  // .ws-nolint — a deliberate element (a speech bubble that repeats the phrase, a figure past the edge): not checked
+  const els = [...root.querySelectorAll('.ws-cam *')].filter((e) => !e.matches('.ws-spot, style') && !e.closest('.ws-nolint') && visible(e));
   for (const el of els) {
     const r = el.getBoundingClientRect();
-    if (camIdle && r.width && (r.left < sr.left - tx || r.right > sr.right + tx || r.top < sr.top - ty || r.bottom > sr.bottom + ty)) {
+    const hasText = !!el.textContent.trim();
+    // only text and pictures must stay in the frame; drawn shapes may bleed past the edge
+    if (camIdle && r.width && (hasText || el.tagName === 'IMG')
+      && (r.left < sr.left - tx || r.right > sr.right + tx || r.top < sr.top - ty || r.bottom > sr.bottom + ty)) {
       out.overflow.push(`${name(el)} is outside the frame`);
     }
-    const hasText = !!el.textContent.trim();
     const ov = getComputedStyle(el).overflow !== 'visible';
     if (hasText && ov && el.scrollWidth > el.clientWidth + 2) out.overflow.push(`${name(el)} text does not fit (width)`);
     if (hasText && ov && el.scrollHeight > el.clientHeight + 2) out.overflow.push(`${name(el)} text does not fit (height)`);
@@ -244,7 +247,7 @@ export function pageLint({ showSel }) {
     }
     if (/^(UL|OL)$/.test(el.tagName) && el.children.length > 6) out.longLists.push(`${name(el)}: ${el.children.length} items`);
   }
-  if (showSel) out.shown = [...root.querySelectorAll(showSel)].map((e) => (e.innerText ?? e.textContent ?? '').trim()).filter(Boolean);
+  if (showSel) out.shown = [...root.querySelectorAll(showSel)].filter((e) => !e.closest('.ws-nolint')).map((e) => (e.innerText ?? e.textContent ?? '').trim()).filter(Boolean);
   out.overflow = [...new Set(out.overflow)];
   out.small = [...new Set(out.small)];
   return out;

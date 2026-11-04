@@ -97,7 +97,8 @@ on the state classes `.ws-pending` / `.on`, `.ws-focus`, `.ws-dim`; tune it with
 `--from-scale` (where an element comes from), `--stagger`, `--focus-stagger`, `--pulse`. A `ws-fit` box
 shrinks its children until they fit. Lines from a centre to items: `<svg class="ws-links" data-from=".hub"
 data-round><path data-to=".item1"/></svg>`. The page lives in a shadow root: its CSS touches nothing else.
-`file: 'path.html'` instead of `html` reads the page from a file.
+`file: 'path.html'` instead of `html` reads the page from a file. Mark a deliberate element `ws-nolint` (a
+speech bubble that repeats the phrase): the checks skip it. Drawn shapes may cross the frame edge; text may not.
 
 ## Theme
 

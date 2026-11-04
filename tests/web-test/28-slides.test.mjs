@@ -85,6 +85,21 @@ export default async function({
     assert.equal(br, 1, 'closing title: \\n → line break');
   });
 
+  await step('own page checks: text past the edge is flagged, a drawn shape and a ws-nolint bubble are not', async () => {
+    const r = await showSlide({
+      html: '<svg class="fig" viewBox="0 0 100 100" style="position:absolute;left:1700px;top:700px;width:500px;height:500px">'
+        + '<circle cx="50" cy="50" r="50"/></svg>'
+        + '<div class="edge" style="position:absolute;left:1800px;top:100px;font-size:40px;white-space:nowrap">Текст за краем кадра</div>'
+        + '<div class="bub ws-nolint" style="position:absolute;left:200px;top:400px;font-size:40px">Привет я покажу что теперь умеет запись видео</div>',
+      steps: [{ show: '.fig, .edge, .bub', speech: 'Привет я покажу что теперь умеет запись видео' }],
+    }, fast);
+    const w = r.warnings || [];
+    log(`warnings: ${JSON.stringify(w)}`);
+    assert.ok(w.some((x) => x.includes('.edge is outside the frame')), 'text past the edge is flagged');
+    assert.ok(!w.some((x) => /fig|circle|svg/.test(x)), 'a drawn shape past the edge is not flagged');
+    assert.ok(!w.some((x) => /repeats the narration/.test(x)), 'a ws-nolint bubble may repeat the phrase');
+  });
+
   await step('speech check: Latin words and abbreviations are flagged, speech written as spoken is not', async () => {
     const bad = await showSlide({ layout: 'statement', text: 'Живая 1С', speech: 'Живая 1С и голос OpenAI' }, fast);
     const w = (bad.warnings || []).find((x) => /speech has/.test(x)) || '';
