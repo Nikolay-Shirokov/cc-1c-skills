@@ -1,4 +1,4 @@
-﻿# form-compile v1.226 — Compile 1C managed form from JSON or object metadata
+﻿# form-compile v1.227 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -700,6 +700,7 @@ function Generate-CatalogListDSL($meta, [hashtable]$p, $cfg) {
 	foreach ($attr in (Select-ListAttributes $meta $p $cfg $reserved)) {
 		$columns += [ordered]@{ labelField = $attr.Name; path = "Список.$($attr.Name)" }
 	}
+	Set-ListColumnProps $columns $cfg
 	# Hidden ref
 	if (-not $p.ContainsKey("hiddenRef") -or $p.hiddenRef -eq $true) {
 		$columns += [ordered]@{ labelField = "Ссылка"; path = "Список.Ref"; userVisible = $false }
@@ -923,12 +924,35 @@ function Select-ListAttributes($meta, [hashtable]$p, $cfg, [int]$reserved) {
 		if ($inList) { $res += $attr }
 	}
 	if ($mode -is [string] -and $mode -eq "auto") {
+		# Что оставить: сначала колонки с ролью, затем обязательные (порядок метаданных); предел по числу
+		$orderOf = @{}
+		$withRole = @(); $required = @()
+		foreach ($attr in $res) {
+			$role = Resolve-FieldRole $attr $cfg
+			$orderOf[$attr.Name] = if ($role -and $null -ne $roles[$role].listOrder) { [int]$roles[$role].listOrder } else { 50 }
+			if ($role -and $roles[$role].list -eq $true) { $withRole += $attr } else { $required += $attr }
+		}
+		$res = @($withRole + $required)
 		$max = if ($null -ne $p.maxColumns) { [int]$p.maxColumns - $reserved } else { 999 }
 		if ($max -lt 0) { $max = 0 }
 		if ($res.Count -gt $max) { $res = @($res[0..($max - 1)]) }
 		if ($max -eq 0) { $res = @() }
+		# В каком порядке показать: по listOrder роли (по умолчанию 50), устойчиво по метаданным
+		$kept = @{}; foreach ($attr in $res) { $kept[$attr.Name] = $true }
+		$sorted = @()
+		foreach ($o in @($orderOf.Values | Sort-Object -Unique)) {
+			foreach ($attr in $meta.Attributes) { if ($kept.ContainsKey($attr.Name) -and $orderOf[$attr.Name] -eq $o) { $sorted += $attr } }
+		}
+		$res = $sorted
 	}
 	return ,$res
+}
+
+# Свойства колонок списка по имени колонки (раздел fields.listProps)
+function Set-ListColumnProps($columns, $cfg) {
+	foreach ($c in $columns) {
+		$null = Merge-Props $c (Get-FieldProps @{ Name = [string]$c.labelField; Type = "" } $cfg "listProps" "")
+	}
 }
 
 # Таблица списка + группа пользовательских настроек над ней
@@ -950,6 +974,7 @@ function Generate-DocumentListDSL($meta, [hashtable]$p, $cfg) {
 	foreach ($attr in (Select-ListAttributes $meta $p $cfg 2)) {
 		$columns += [ordered]@{ labelField = $attr.Name; path = "Список.$($attr.Name)" }
 	}
+	Set-ListColumnProps $columns $cfg
 	# Hidden ref
 	if (-not $p.ContainsKey("hiddenRef") -or $p.hiddenRef -eq $true) {
 		$columns += [ordered]@{ labelField = "Ссылка"; path = "Список.Ref"; userVisible = $false }

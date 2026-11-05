@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# form-compile v1.226 — Compile 1C managed form from JSON or object metadata
+# form-compile v1.227 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import copy
@@ -910,11 +910,32 @@ def select_list_attributes(meta, p, cfg, reserved):
         if in_list:
             res.append(attr)
     if isinstance(mode, str) and mode.lower() == 'auto':
+        # Что оставить: сначала колонки с ролью, затем обязательные (порядок метаданных); предел по числу
+        order_of = {}
+        with_role, required = [], []
+        for attr in res:
+            role = resolve_field_role(attr, cfg)
+            lo = _ci_get(roles[role], 'listOrder') if role else None
+            order_of[attr['Name']] = int(lo) if lo is not None else 50
+            if role and _ci_get(roles[role], 'list') is True:
+                with_role.append(attr)
+            else:
+                required.append(attr)
+        res = with_role + required
         mx = int(p['maxColumns']) - reserved if p.get('maxColumns') is not None else 999
         if mx < 0:
             mx = 0
         res = res[:mx]
+        # В каком порядке показать: по listOrder роли (по умолчанию 50), устойчиво по метаданным
+        kept = {a['Name'] for a in res}
+        res = sorted([a for a in meta['Attributes'] if a['Name'] in kept], key=lambda a: order_of[a['Name']])
     return res
+
+
+def set_list_column_props(columns, cfg):
+    """Свойства колонок списка по имени колонки (раздел fields.listProps)."""
+    for c in columns:
+        merge_props(c, get_field_props({'Name': str(c.get('labelField', '')), 'Type': ''}, cfg, 'listProps', ''))
 
 
 def new_list_elements(table_el, p):
@@ -992,6 +1013,7 @@ def generate_catalog_list_dsl(meta, p, cfg):
         reserved += 1
     for attr in select_list_attributes(meta, p, cfg, reserved):
         columns.append(OrderedDict([('labelField', attr['Name']), ('path', f"\u0421\u043f\u0438\u0441\u043e\u043a.{attr['Name']}")]))
+    set_list_column_props(columns, cfg)
     # Hidden ref
     if 'hiddenRef' not in p or p.get('hiddenRef') is True:
         columns.append(OrderedDict([('labelField', '\u0421\u0441\u044b\u043b\u043a\u0430'), ('path', '\u0421\u043f\u0438\u0441\u043e\u043a.Ref'), ('userVisible', False)]))
@@ -1199,6 +1221,7 @@ def generate_document_list_dsl(meta, p, cfg):
     columns.append(OrderedDict([('labelField', '\u0414\u0430\u0442\u0430'), ('path', '\u0421\u043f\u0438\u0441\u043e\u043a.Date')]))
     for attr in select_list_attributes(meta, p, cfg, 2):
         columns.append(OrderedDict([('labelField', attr['Name']), ('path', f"\u0421\u043f\u0438\u0441\u043e\u043a.{attr['Name']}")]))
+    set_list_column_props(columns, cfg)
     # Hidden ref
     if 'hiddenRef' not in p or p.get('hiddenRef') is True:
         columns.append(OrderedDict([('labelField', '\u0421\u0441\u044b\u043b\u043a\u0430'), ('path', '\u0421\u043f\u0438\u0441\u043e\u043a.Ref'), ('userVisible', False)]))

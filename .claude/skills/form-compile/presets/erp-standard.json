@@ -40,22 +40,22 @@
     },
 
     "roles": {
-      "status":       { "names": "^Статус$", "zone": "top" },
+      "status":       { "names": "^Статус$", "zone": "top", "list": true, "listOrder": 10 },
       "counterparty": { "names": "^(Контрагент|Партнер|Клиент|Поставщик)$", "types": "CatalogRef\\.(Контрагенты|Партнеры)$", "zone": "header.left", "list": true },
       "employee":     { "names": "^Сотрудник$", "types": "CatalogRef\\.Сотрудники$", "zone": "header.left" },
-      "organization": { "names": "^Организация$", "types": "CatalogRef\\.Организации$", "zone": "header.right", "list": true },
+      "organization": { "names": "^Организация$", "types": "CatalogRef\\.Организации$", "zone": "header.right", "list": true, "listOrder": 60 },
       "warehouse":    { "names": "^Склад", "types": "CatalogRef\\.Склады$", "zone": "header.right", "list": true },
       "contract":     { "names": "^(Договор|ДоговорКонтрагента)$", "types": "CatalogRef\\.Договор", "zone": "header.right" },
       "operation":    { "names": "^(ХозяйственнаяОперация|ВидОперации)$", "zone": "header.right" },
-      "comment":      { "names": "^Комментарий$", "zone": "main.bottom", "order": -1, "list": true },
-      "amount":       { "names": "^СуммаДокумента$", "zone": "footer", "list": true, "props": { "readOnly": true } },
-      "responsible":  { "names": "^Ответственный$", "zone": "main.bottom", "list": true },
+      "comment":      { "names": "^Комментарий$", "zone": "main.bottom", "order": -1, "list": true, "listOrder": 90 },
+      "amount":       { "names": "^СуммаДокумента$", "zone": "footer", "list": true, "listOrder": 70, "props": { "readOnly": true } },
+      "responsible":  { "names": "^Ответственный$", "zone": "main.bottom", "list": true, "listOrder": 80 },
       "user":         { "types": "CatalogRef\\.Пользователи$", "zone": "additional.left" },
-      "author":       { "names": "^Автор$", "zone": "additional.left", "list": true, "props": { "readOnly": true } },
+      "author":       { "names": "^Автор$", "zone": "additional.left", "list": true, "listOrder": 85, "props": { "readOnly": true } },
       "description":  { "names": "^Описание$", "list": true },
       "department":   { "names": "^Подразделение", "types": "CatalogRef\\.(СтруктураПредприятия|ПодразделенияОрганизаций|Подразделения)$", "zone": "header" },
       "signers":      { "names": "^(Руководитель|ГлавныйБухгалтер|Бухгалтер|Кассир)$", "zone": "additional.left" },
-      "currency":     { "names": "^Валюта", "types": "CatalogRef\\.Валюты$", "zone": "additional.right", "list": true },
+      "currency":     { "names": "^Валюта", "types": "CatalogRef\\.Валюты$", "zone": "additional.right", "list": true, "listOrder": 71 },
       "priceType":    { "names": "^ВидЦен", "zone": "additional.right" },
       "activity":     { "names": "^НаправлениеДеятельности$", "zone": "additional.right" },
       "correction":   { "names": "^(Исправление|СторнируемыйДокумент|ИсправляемыйДокумент|ИсправленныйДокумент)$", "zone": "hidden" }
@@ -79,6 +79,12 @@
         "Номер":       { "width": 10, "horizontalStretch": false },
         "Дата":        { "width": 14, "horizontalStretch": false },
         "Комментарий": { "autoMaxWidth": false, "multiLine": true, "height": 1 }
+      }
+    },
+
+    "listProps": {
+      "byName": {
+        "Дата": { "width": 9 }
       }
     },
 
@@ -131,6 +137,9 @@
   },
 
   "catalog.item": {
+    "properties": {
+      "windowOpeningMode": "LockOwnerWindow"
+    },
     "codeDescription": {
       "layout": "horizontal",
       "order": "descriptionFirst"
