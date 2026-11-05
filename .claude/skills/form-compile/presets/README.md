@@ -1,126 +1,117 @@
-# Form Presets
+# Раскладка `-FromObject` под проект
 
-Пресеты управляют раскладкой форм, генерируемых в режиме `--from-object`.
+Форма по метаданным раскладывается по пресету `erp-standard` (стиль ЕРП/УТ). Если раскладка проекта отличается, а форм много — положите в проект свой пресет, а не правьте каждую форму. Для одной формы проще `-EmitDsl` → правка → `-JsonPath`.
 
-## Как работает
+## Пресет проекта
 
-Цепочка merge (каждый следующий уровень перезаписывает предыдущий через deep merge):
+Файл `<корень проекта>/presets/skills/form/erp-standard.json` — его найдёт любая форма ниже этого каталога. Пишите только то, что меняете: остальное берётся из встроенного пресета.
 
-1. **Hardcoded defaults** -- встроены в скрипт, ориентированы на ERP
-2. **Built-in preset** -- файл из этой папки (`erp-standard.json` по умолчанию)
-3. **Project-level preset** -- файл `presets/skills/form/<name>.json`, поиск вверх от OutputPath
-
-Имя пресета задаётся параметром `--preset` (по умолчанию `erp-standard`).
-
-## Project-level пресет
-
-Чтобы переопределить стандартный пресет в своём проекте, создайте файл:
-
-```
-<project-root>/presets/skills/form/erp-standard.json
-```
-
-Скрипт ищет этот файл, поднимаясь от OutputPath к корню. Первый найденный файл применяется поверх built-in через deep merge -- не нужно копировать весь пресет, достаточно указать только переопределяемые ключи.
-
-## Секции
-
-Ключи верхнего уровня в JSON -- секции вида `{тип}.{назначение}`:
-
-| Секция | Тип объекта | Назначение формы |
-|--------|-------------|------------------|
-| `document.item` | Document | Форма документа |
-| `document.list` | Document | Форма списка |
-| `document.choice` | Document | Форма выбора |
-| `catalog.item` | Catalog | Форма элемента |
-| `catalog.folder` | Catalog | Форма группы |
-| `catalog.list` | Catalog | Форма списка |
-| `catalog.choice` | Catalog | Форма выбора |
-| `informationRegister.record` | InformationRegister | Форма записи |
-| `informationRegister.list` | InformationRegister | Форма списка |
-| `accumulationRegister.list` | AccumulationRegister | Форма списка |
-| `chartOfCharacteristicTypes.*` | ChartOfCharacteristicTypes | item/folder/list/choice |
-| `exchangePlan.*` | ExchangePlan | item/list/choice |
-| `chartOfAccounts.*` | ChartOfAccounts | item/folder/list/choice |
-
-### basedOn
-
-Секция может наследовать от другой:
+Правила в разделе `fields` — объекты с ключами: правило с тем же ключом заменяется, с новым — добавляется, со значением `""` — отключается.
 
 ```json
 {
-  "document.choice": {
-    "basedOn": "document.list",
-    "properties": { "windowOpeningMode": "LockOwnerWindow" }
-  }
-}
-```
-
-## Ключи секций
-
-### Форма объекта (Item/Record)
-
-| Ключ | Описание | Допустимые значения |
-|------|----------|---------------------|
-| `header.position` | Где размещать шапку | `"insidePage"` -- на первой странице, `"abovePages"` -- над страницами |
-| `header.layout` | Колонки шапки | `"1col"`, `"2col"` |
-| `header.distribute` | Распределение в 2 колонках | `"even"`, `"left"`, `"right"` |
-| `header.dateTitle` | Заголовок даты (Document) | строка, напр. `"от"` |
-| `footer.fields` | Поля в подвале | массив имён реквизитов, напр. `["Комментарий"]` |
-| `footer.position` | Где размещать подвал | `"insidePage"`, `"belowPages"`, `"none"` |
-| `tabularSections.container` | Контейнер табчастей | `"pages"` -- на вкладках, `"inline"` -- в корне, `"single-no-pages"` -- одна ТЧ без страниц |
-| `tabularSections.exclude` | Исключить табчасти | массив имён, напр. `["ДополнительныеРеквизиты"]` |
-| `tabularSections.lineNumber` | Колонка НомерСтроки | `true` / `false` |
-| `additional.position` | Блок доп. реквизитов | `"page"` -- отдельная вкладка, `"below"` -- под табчастями, `"none"` -- не создавать |
-| `additional.layout` | Колонки доп. блока | `"1col"`, `"2col"` |
-| `additional.bspGroup` | Группа ДополнительныеРеквизиты | `true` / `false` |
-| `codeDescription.layout` | Код + Наименование | `"horizontal"`, `"vertical"` |
-| `codeDescription.order` | Порядок Код/Наименование | `"descriptionFirst"`, `"codeFirst"` |
-| `parent.title` | Заголовок поля Родитель | строка, напр. `"Входит в группу"` |
-| `parent.position` | Позиция поля Родитель | `"beforeCodeDescription"`, `"afterCodeDescription"`, `"inHeader"` |
-| `owner.readOnly` | Владелец только для чтения | `true` / `false` |
-| `owner.position` | Позиция поля Владелец | `"first"` |
-| `fieldDefaults.ref.choiceButton` | Кнопка выбора для ссылок | `true` / `false` |
-| `fieldDefaults.boolean.element` | Элемент для Boolean | `"check"` (флажок) |
-| `commandBar` | Командная панель формы | `"auto"`, `"none"` |
-| `properties` | Свойства формы | объект: `autoTitle`, `windowOpeningMode` и др. |
-
-### Форма списка (List/Choice)
-
-| Ключ | Описание | Допустимые значения |
-|------|----------|---------------------|
-| `columns` | Какие колонки показывать | `"all"` -- все реквизиты, или массив имён |
-| `columnType` | Тип элемента колонки | `"labelField"`, `"input"` |
-| `hiddenRef` | Скрытая колонка Ref | `true` / `false` |
-| `tableCommandBar` | Командная панель таблицы | `"auto"`, `"none"` |
-| `commandBar` | Командная панель формы | `"auto"`, `"none"` |
-| `choiceMode` | Режим выбора (ChoiceForm) | `true` / `false` |
-| `properties` | Свойства формы | объект: `windowOpeningMode` и др. |
-
-## Пример project-level пресета
-
-```json
-{
-  "name": "my-project",
-  "description": "Стиль форм нашего проекта",
-
-  "document.item": {
-    "header": {
-      "layout": "1col"
+  "fields": {
+    "roles": {
+      "warehouse": { "names": "^(Склад|МестоХранения)$", "zone": "header.left" }
     },
-    "tabularSections": {
-      "exclude": ["ДополнительныеРеквизиты", "СведенияОСертификатах"]
-    },
-    "additional": {
-      "position": "none"
+    "skip": {
+      "attributes": { "legacy": "^Старый" },
+      "tabularSections": { "series": "" }
     }
   },
-
-  "catalog.item": {
-    "codeDescription": {
-      "order": "codeFirst"
-    }
+  "document.item": {
+    "additional": { "right": ["Валюта", "ВидЦены"] }
   }
 }
 ```
 
-Этот файл переопределяет только указанные ключи -- остальное наследуется из built-in пресета.
+## Зоны формы документа
+
+| Зона | Где на форме |
+|------|--------------|
+| `top` | над вкладками (статус) |
+| `header.left` / `header.right` | шапка на вкладке «Основное», левая / правая колонка |
+| `header` | шапка, в более короткую колонку |
+| `main.bottom` | низ «Основного» (комментарий, ответственный — в одну строку) |
+| `additional.left` / `additional.right` / `additional` | вкладка «Дополнительно» |
+| `footer` | под вкладками |
+| `hidden` | не выводить |
+
+Без табличных частей вкладок нет: поля «Дополнительно» попадают в шапку. У формы элемента справочника зон нет — поля идут сверху вниз, `main.bottom` и `hidden` действуют.
+
+## Задачи
+
+**Поставить поле в нужную зону** — закрепление по имени в секции формы, сильнее любых правил:
+
+```json
+"document.item": {
+  "header": { "left": ["Партнер"], "right": ["Склад"] },
+  "additional": { "left": ["Менеджер"], "right": ["Валюта"] },
+  "footer": { "fields": ["Комментарий"], "position": "belowPages" }
+}
+```
+
+`footer.position`: `insidePage` — низ «Основного», `belowPages` — под вкладками.
+
+**Правило для группы полей** — роль в `fields.roles.<ключ>`:
+
+| Ключ | Смысл |
+|------|-------|
+| `names` | регэксп по имени реквизита (без учёта регистра) |
+| `types` | регэксп по типу, если имя не совпало: `"CatalogRef\\.Склады$"` |
+| `zone` | зона из таблицы выше |
+| `props` | свойства поля, например `{ "readOnly": true }` |
+| `list` | `true` — выводить колонкой в форме списка |
+| `order` | порядок внутри зоны (меньше — выше), по умолчанию 0 |
+| `priority` | при совпадении нескольких ролей побеждает больший |
+
+Встроенные роли: `status`, `counterparty`, `employee`, `organization`, `warehouse`, `contract`, `operation`, `comment`, `amount`, `responsible`, `user`, `author`, `description`, `department`, `signers`, `currency`, `priceType`, `activity`, `correction`. Отключить роль: `{ "names": "", "types": "" }`.
+
+**Поля без роли** — `fields.unplaced`: `required` (проверка заполнения «Выдавать ошибку»), `notSearchable` (без полнотекстового поиска), `optional` (остальные); значение — зона.
+
+**Не выводить своё служебное** — регэксп по имени в `fields.skip`:
+- `attributes` — реквизиты шапки; `types` — по типу реквизита;
+- `tabularSections` — табличные части;
+- `columns` — колонки табличных частей;
+- `columnsIfPresent` — колонка, скрытая при наличии другой: `{ "column": "Количество", "when": "КоличествоУпаковок" }`.
+
+**Показать то, что скрыто** — отключите правило (`""`) или закрепите поле в зоне.
+
+**Ширина и вид полей** — `fields.props` (шапка) и `fields.columnProps` (колонки таблиц):
+
+```json
+"props": {
+  "byType": { "ref": { "autoMaxWidth": false, "maxWidth": 28 } },
+  "byName": { "Комментарий": { "multiLine": true, "height": 2 } }
+}
+```
+
+`byName` сильнее `byType`. Типы: `ref`, `enum`, `composite`, `string` (длина > 25), `string25`, `stringUnlimited`, `number`, `date`, `boolean`. Ключи свойств — как у элемента в JSON DSL. `Номер` и `Дата` настраиваются через `byName`, `НомерСтроки` — через `columnProps.byName`.
+
+**Колонки формы списка** — секции `document.list` / `catalog.list`:
+
+| Ключ | Значение |
+|------|----------|
+| `columns` | `"auto"` — номер, дата (наименование, код, владелец) + реквизиты с ролью `list: true` и обязательные; `"all"` — все реквизиты; массив имён — ровно эти |
+| `maxColumns` | предел видимых колонок при `"auto"` |
+| `userSettingsGroup` | `true` — группа пользовательских настроек над списком (быстрые отборы) |
+
+**Прочее**:
+
+| Секция | Ключ | Значение |
+|--------|------|----------|
+| `document.item` | `header.position` | `insidePage` — шапка на «Основном», `abovePages` — над вкладками |
+| | `header.layout` | `2col` / `1col` |
+| | `header.distribute` | `even` — поля без роли в короткую колонку, `left` / `right` — все в одну |
+| | `header.dateTitle` | заголовок даты, по умолчанию «от» |
+| | `additional.position` | `page` — вкладка «Дополнительно», `none` — всё в шапку |
+| | `additional.layout` | `2col` / `1col` |
+| `document.item`, `catalog.item` | `additional.bspGroup` | группа `ГруппаДополнительныеРеквизиты` для доп. реквизитов БСП |
+| | `tabularSections.lineNumber` | колонка номера строки |
+| `catalog.item` | `codeDescription.layout` | `horizontal` / `vertical` |
+| | `codeDescription.order` | `descriptionFirst` / `codeFirst` |
+| | `parent.title`, `parent.position` | заголовок поля «Родитель»; `afterCodeDescription` / `beforeCodeDescription` |
+| любая | `properties` | свойства формы как в JSON DSL (`autoTime`, `windowOpeningMode`…) |
+| формы документа и справочника | `title` | `true` — заголовок формы из синонима объекта (по умолчанию заголовок не задан, как в типовых, — его формирует платформа) |
+
+Секция может наследовать другую: `"basedOn": "catalog.item"`.

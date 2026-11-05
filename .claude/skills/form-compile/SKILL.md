@@ -13,7 +13,7 @@ allowed-tools:
 
 Два режима:
 1. **JSON DSL** — из JSON-определения формы
-2. **From object** (`-FromObject`) — автоматически из метаданных объекта 1С по пресету ERP
+2. **From object** (`-FromObject`) — заготовка формы объекта конфигурации по его метаданным
 
 > **При проектировании формы с нуля (5+ элементов или нечёткие требования)** — вызовите `/form-patterns` для загрузки справочника. Для простых форм (1–3 поля) — не нужно.
 
@@ -24,6 +24,8 @@ allowed-tools:
 | JsonPath   | режим 1      | Путь к JSON-определению формы   |
 | OutputPath | да           | Путь к выходному Form.xml       |
 | FromObject | режим 2      | Флаг (без значения) — генерация по метаданным объекта |
+| Purpose    | нет          | Назначение формы, если имя формы не стандартное |
+| EmitDsl    | нет          | Сохранить сгенерированное JSON-определение в файл |
 
 ## Команда
 
@@ -31,9 +33,21 @@ allowed-tools:
 # Режим JSON DSL
 powershell.exe -NoProfile -File "${CLAUDE_SKILL_DIR}/scripts/form-compile.ps1" -JsonPath "<json>" -OutputPath "<Form.xml>"
 
-# Режим from-object (объект и purpose выводятся из OutputPath; Document и Catalog)
-powershell.exe -NoProfile -File "${CLAUDE_SKILL_DIR}/scripts/form-compile.ps1" -FromObject -OutputPath "<.../TypePlural/ObjectName/Forms/FormName/Ext/Form.xml>"
+# Режим from-object: объект и назначение берутся из пути формы
+powershell.exe -NoProfile -File "${CLAUDE_SKILL_DIR}/scripts/form-compile.ps1" -FromObject -OutputPath "<.../Documents/ИмяОбъекта/Forms/ФормаДокумента/Ext/Form.xml>"
 ```
+
+## Заготовка по метаданным объекта (-FromObject)
+
+Стартовая раскладка формы объекта конфигурации в стиле ЕРП/УТ: поля объекта по местам, служебные реквизиты убраны. Требований задачи она не знает — события, команды, связи полей, итоги, видимость остаются за вами. Если пользователь описал состав или расположение — следуйте описанию, заготовка лишь избавляет от перечисления полей.
+
+```powershell
+powershell.exe -NoProfile -File "${CLAUDE_SKILL_DIR}/scripts/form-compile.ps1" -FromObject -OutputPath "<Form.xml>" -EmitDsl "<form.json>"
+# доработайте <form.json> под задачу по разделу «JSON DSL», затем соберите:
+powershell.exe -NoProfile -File "${CLAUDE_SKILL_DIR}/scripts/form-compile.ps1" -JsonPath "<form.json>" -OutputPath "<Form.xml>"
+```
+
+Объект и назначение формы берутся из пути (`ФормаДокумента`, `ФормаСписка`, `ФормаВыбора`, `ФормаЭлемента`, `ФормаГруппы`, `ФормаЗаписи`); для другого имени формы — `-Purpose Item|List|Choice|Folder|Record`. Одна раскладка на много форм проекта — `presets/README.md`.
 
 ## JSON DSL
 
@@ -363,6 +377,7 @@ powershell.exe -NoProfile -File "${CLAUDE_SKILL_DIR}/scripts/form-compile.ps1" -
 | Командный интерфейс формы (переходы, важные команды) | `command-interface.md` |
 | Выравнивание, предел размера, фокус по умолчанию, узкие экраны | `layout-advanced.md` |
 | Наборы и составные типы | `type-system-advanced.md` |
+| Раскладка `-FromObject` под проект: закрепить поле в зоне, показать скрытое, скрыть своё служебное, ширина полей, колонки списка | `../presets/README.md` |
 
 ## Workflow
 
