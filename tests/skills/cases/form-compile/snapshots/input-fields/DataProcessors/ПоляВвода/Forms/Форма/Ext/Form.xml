@@ -744,6 +744,10 @@
 							</v8:item>
 						</dcscor:value>
 					</dcscor:item>
+					<dcscor:item xsi:type="dcsset:SettingsParameterValue">
+						<dcscor:parameter>Отображать</dcscor:parameter>
+						<dcscor:value xsi:type="xs:boolean">false</dcscor:value>
+					</dcscor:item>
 				</dcsset:appearance>
 			</dcsset:item>
 			<dcsset:item>

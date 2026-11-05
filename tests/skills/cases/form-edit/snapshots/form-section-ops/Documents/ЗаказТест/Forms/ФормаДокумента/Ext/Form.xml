@@ -292,6 +292,10 @@
 						<dcscor:parameter>ЦветТекста</dcscor:parameter>
 						<dcscor:value xsi:type="v8ui:Color">style:SpecialTextColor</dcscor:value>
 					</dcscor:item>
+					<dcscor:item xsi:type="dcsset:SettingsParameterValue">
+						<dcscor:parameter>Отображать</dcscor:parameter>
+						<dcscor:value xsi:type="xs:boolean">false</dcscor:value>
+					</dcscor:item>
 				</dcsset:appearance>
 			</dcsset:item>
 		</ConditionalAppearance>

@@ -1,4 +1,4 @@
-﻿# form-compile v1.229 — Compile 1C managed form from JSON or object metadata
+﻿# form-compile v1.231 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -2523,7 +2523,7 @@ function Emit-AppearanceValue {
 		# Локализуемый текст параметра оформления: платформа объявляет xsi:type на dcscor:value
 		Emit-MLText -tag "dcscor:value" -text $innerVal -indent "$indent`t" -xsiType "v8:LocalStringType"
 	} else {
-		$actualVal = "$innerVal"
+		$actualVal = if ($innerVal -is [bool]) { "$innerVal".ToLower() } else { "$innerVal" }
 		$keyTypeMap = @{
 			'Размещение'           = 'dcscor:DataCompositionTextPlacementType'
 			'ГоризонтальноеПоложение' = 'v8ui:HorizontalAlign'

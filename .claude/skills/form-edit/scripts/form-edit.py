@@ -1,4 +1,4 @@
-# form-edit v1.49 — Edit 1C managed form elements (Python port)
+# form-edit v1.50 — Edit 1C managed form elements (Python port)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import bisect
@@ -2712,7 +2712,7 @@ def emit_appearance_value(lines, key, val, indent):
         # Локализуемый текст параметра оформления: платформа объявляет xsi:type на dcscor:value
         emit_mltext(lines, f'{indent}\t', 'dcscor:value', inner_val, xsi_type='v8:LocalStringType')
     else:
-        actual_val = str(inner_val)
+        actual_val = (str(inner_val).lower() if isinstance(inner_val, bool) else str(inner_val)) if inner_val is not None else ''
         key_type_map = {
             'Размещение': 'dcscor:DataCompositionTextPlacementType',
             'ГоризонтальноеПоложение': 'v8ui:HorizontalAlign',

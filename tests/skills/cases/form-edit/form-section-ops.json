@@ -58,7 +58,8 @@
           "Объект.Статус = Enum.Статусы.EnumValue.Закрыт"
         ],
         "appearance": {
-          "ЦветТекста": "style:SpecialTextColor"
+          "ЦветТекста": "style:SpecialTextColor",
+          "Отображать": false
         }
       }
     ],
