@@ -1,25 +1,21 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Form xmlns="http://v8.1c.ru/8.3/xcf/logform" xmlns:app="http://v8.1c.ru/8.2/managed-application/core" xmlns:cfg="http://v8.1c.ru/8.1/data/enterprise/current-config" xmlns:dcscor="http://v8.1c.ru/8.1/data-composition-system/core" xmlns:dcssch="http://v8.1c.ru/8.1/data-composition-system/schema" xmlns:dcsset="http://v8.1c.ru/8.1/data-composition-system/settings" xmlns:ent="http://v8.1c.ru/8.1/data/enterprise" xmlns:lf="http://v8.1c.ru/8.2/managed-application/logform" xmlns:style="http://v8.1c.ru/8.1/data/ui/style" xmlns:sys="http://v8.1c.ru/8.1/data/ui/fonts/system" xmlns:v8="http://v8.1c.ru/8.1/data/core" xmlns:v8ui="http://v8.1c.ru/8.1/data/ui" xmlns:web="http://v8.1c.ru/8.1/data/ui/colors/web" xmlns:win="http://v8.1c.ru/8.1/data/ui/colors/windows" xmlns:xr="http://v8.1c.ru/8.3/xcf/readable" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" version="2.17">
-	<Title>
-		<v8:item>
-			<v8:lang>ru</v8:lang>
-			<v8:content>Распознанный</v8:content>
-		</v8:item>
-	</Title>
-	<AutoTitle>false</AutoTitle>
+	<AutoTime>CurrentOrLast</AutoTime>
+	<UsePostingMode>Auto</UsePostingMode>
+	<RepostOnWrite>true</RepostOnWrite>
 	<AutoCommandBar name="ФормаКоманднаяПанель" id="-1"/>
 	<ChildItems>
 		<Pages name="ГруппаСтраницы" id="1">
 			<ExtendedTooltip name="ГруппаСтраницыРасширеннаяПодсказка" id="2"/>
 			<ChildItems>
-				<Page name="ГруппаОсновное" id="3">
+				<Page name="СтраницаОсновное" id="3">
 					<Title>
 						<v8:item>
 							<v8:lang>ru</v8:lang>
 							<v8:content>Основное</v8:content>
 						</v8:item>
 					</Title>
-					<ExtendedTooltip name="ГруппаОсновноеРасширеннаяПодсказка" id="4"/>
+					<ExtendedTooltip name="СтраницаОсновноеРасширеннаяПодсказка" id="4"/>
 					<ChildItems>
 						<UsualGroup name="ГруппаШапка" id="5">
 							<Group>Horizontal</Group>
@@ -39,8 +35,8 @@
 											<ChildItems>
 												<InputField name="Номер" id="11">
 													<DataPath>Объект.Number</DataPath>
-													<Width>9</Width>
-													<AutoMaxWidth>false</AutoMaxWidth>
+													<Width>10</Width>
+													<HorizontalStretch>false</HorizontalStretch>
 													<ContextMenu name="НомерКонтекстноеМеню" id="12"/>
 													<ExtendedTooltip name="НомерРасширеннаяПодсказка" id="13"/>
 												</InputField>
@@ -52,15 +48,24 @@
 															<v8:content>от</v8:content>
 														</v8:item>
 													</Title>
+													<Width>14</Width>
+													<HorizontalStretch>false</HorizontalStretch>
 													<ContextMenu name="ДатаКонтекстноеМеню" id="15"/>
 													<ExtendedTooltip name="ДатаРасширеннаяПодсказка" id="16"/>
 												</InputField>
 											</ChildItems>
 										</UsualGroup>
-										<InputField name="Направление" id="17">
+									</ChildItems>
+								</UsualGroup>
+								<UsualGroup name="ГруппаШапкаПраво" id="17">
+									<Group>Vertical</Group>
+									<ShowTitle>false</ShowTitle>
+									<ExtendedTooltip name="ГруппаШапкаПравоРасширеннаяПодсказка" id="18"/>
+									<ChildItems>
+										<InputField name="Направление" id="19">
 											<DataPath>Объект.Направление</DataPath>
-											<ContextMenu name="НаправлениеКонтекстноеМеню" id="18"/>
-											<ExtendedTooltip name="НаправлениеРасширеннаяПодсказка" id="19"/>
+											<ContextMenu name="НаправлениеКонтекстноеМеню" id="20"/>
+											<ExtendedTooltip name="НаправлениеРасширеннаяПодсказка" id="21"/>
 										</InputField>
 									</ChildItems>
 								</UsualGroup>
@@ -68,88 +73,73 @@
 						</UsualGroup>
 					</ChildItems>
 				</Page>
-				<Page name="ГруппаРеквизиты" id="20">
+				<Page name="СтраницаРеквизиты" id="22">
 					<Title>
 						<v8:item>
 							<v8:lang>ru</v8:lang>
 							<v8:content>Реквизиты</v8:content>
 						</v8:item>
 					</Title>
-					<ExtendedTooltip name="ГруппаРеквизитыРасширеннаяПодсказка" id="21"/>
+					<ExtendedTooltip name="СтраницаРеквизитыРасширеннаяПодсказка" id="23"/>
 					<ChildItems>
-						<Table name="Реквизиты" id="22">
+						<Table name="Реквизиты" id="24">
 							<DataPath>Объект.Реквизиты</DataPath>
-							<ContextMenu name="РеквизитыКонтекстноеМеню" id="23"/>
-							<AutoCommandBar name="РеквизитыКоманднаяПанель" id="24"/>
-							<ExtendedTooltip name="РеквизитыРасширеннаяПодсказка" id="25"/>
-							<SearchStringAddition name="РеквизитыСтрокаПоиска" id="26">
+							<ContextMenu name="РеквизитыКонтекстноеМеню" id="25"/>
+							<AutoCommandBar name="РеквизитыКоманднаяПанель" id="26"/>
+							<ExtendedTooltip name="РеквизитыРасширеннаяПодсказка" id="27"/>
+							<SearchStringAddition name="РеквизитыСтрокаПоиска" id="28">
 								<AdditionSource>
 									<Item>Реквизиты</Item>
 									<Type>SearchStringRepresentation</Type>
 								</AdditionSource>
-								<ContextMenu name="РеквизитыСтрокаПоискаКонтекстноеМеню" id="27"/>
-								<ExtendedTooltip name="РеквизитыСтрокаПоискаРасширеннаяПодсказка" id="28"/>
+								<ContextMenu name="РеквизитыСтрокаПоискаКонтекстноеМеню" id="29"/>
+								<ExtendedTooltip name="РеквизитыСтрокаПоискаРасширеннаяПодсказка" id="30"/>
 							</SearchStringAddition>
-							<ViewStatusAddition name="РеквизитыСостояниеПросмотра" id="29">
+							<ViewStatusAddition name="РеквизитыСостояниеПросмотра" id="31">
 								<AdditionSource>
 									<Item>Реквизиты</Item>
 									<Type>ViewStatusRepresentation</Type>
 								</AdditionSource>
-								<ContextMenu name="РеквизитыСостояниеПросмотраКонтекстноеМеню" id="30"/>
-								<ExtendedTooltip name="РеквизитыСостояниеПросмотраРасширеннаяПодсказка" id="31"/>
+								<ContextMenu name="РеквизитыСостояниеПросмотраКонтекстноеМеню" id="32"/>
+								<ExtendedTooltip name="РеквизитыСостояниеПросмотраРасширеннаяПодсказка" id="33"/>
 							</ViewStatusAddition>
-							<SearchControlAddition name="РеквизитыУправлениеПоиском" id="32">
+							<SearchControlAddition name="РеквизитыУправлениеПоиском" id="34">
 								<AdditionSource>
 									<Item>Реквизиты</Item>
 									<Type>SearchControl</Type>
 								</AdditionSource>
-								<ContextMenu name="РеквизитыУправлениеПоискомКонтекстноеМеню" id="33"/>
-								<ExtendedTooltip name="РеквизитыУправлениеПоискомРасширеннаяПодсказка" id="34"/>
+								<ContextMenu name="РеквизитыУправлениеПоискомКонтекстноеМеню" id="35"/>
+								<ExtendedTooltip name="РеквизитыУправлениеПоискомРасширеннаяПодсказка" id="36"/>
 							</SearchControlAddition>
 							<ChildItems>
-								<LabelField name="РеквизитыНомерСтроки" id="35">
+								<LabelField name="РеквизитыНомерСтроки" id="37">
 									<DataPath>Объект.Реквизиты.LineNumber</DataPath>
-									<ContextMenu name="РеквизитыНомерСтрокиКонтекстноеМеню" id="36"/>
-									<ExtendedTooltip name="РеквизитыНомерСтрокиРасширеннаяПодсказка" id="37"/>
+									<Width>3</Width>
+									<HorizontalStretch>false</HorizontalStretch>
+									<ContextMenu name="РеквизитыНомерСтрокиКонтекстноеМеню" id="38"/>
+									<ExtendedTooltip name="РеквизитыНомерСтрокиРасширеннаяПодсказка" id="39"/>
 								</LabelField>
-								<InputField name="РеквизитыЗначение" id="38">
+								<InputField name="РеквизитыЗначение" id="40">
 									<DataPath>Объект.Реквизиты.Значение</DataPath>
-									<ContextMenu name="РеквизитыЗначениеКонтекстноеМеню" id="39"/>
-									<ExtendedTooltip name="РеквизитыЗначениеРасширеннаяПодсказка" id="40"/>
+									<ContextMenu name="РеквизитыЗначениеКонтекстноеМеню" id="41"/>
+									<ExtendedTooltip name="РеквизитыЗначениеРасширеннаяПодсказка" id="42"/>
 								</InputField>
 							</ChildItems>
 						</Table>
 					</ChildItems>
 				</Page>
-				<Page name="ГруппаДополнительно" id="41">
+				<Page name="ГруппаДополнительно" id="43">
 					<Title>
 						<v8:item>
 							<v8:lang>ru</v8:lang>
 							<v8:content>Дополнительно</v8:content>
 						</v8:item>
 					</Title>
-					<ExtendedTooltip name="ГруппаДополнительноРасширеннаяПодсказка" id="42"/>
+					<ExtendedTooltip name="ГруппаДополнительноРасширеннаяПодсказка" id="44"/>
 					<ChildItems>
-						<UsualGroup name="ГруппаПараметры" id="43">
-							<Group>Horizontal</Group>
-							<ShowTitle>false</ShowTitle>
-							<ExtendedTooltip name="ГруппаПараметрыРасширеннаяПодсказка" id="44"/>
-							<ChildItems>
-								<UsualGroup name="ГруппаПараметрыЛево" id="45">
-									<Group>Vertical</Group>
-									<ShowTitle>false</ShowTitle>
-									<ExtendedTooltip name="ГруппаПараметрыЛевоРасширеннаяПодсказка" id="46"/>
-								</UsualGroup>
-								<UsualGroup name="ГруппаПараметрыПраво" id="47">
-									<Group>Vertical</Group>
-									<ShowTitle>false</ShowTitle>
-									<ExtendedTooltip name="ГруппаПараметрыПравоРасширеннаяПодсказка" id="48"/>
-								</UsualGroup>
-							</ChildItems>
-						</UsualGroup>
-						<UsualGroup name="ГруппаДополнительныеРеквизиты" id="49">
+						<UsualGroup name="ГруппаДополнительныеРеквизиты" id="45">
 							<Group>Vertical</Group>
-							<ExtendedTooltip name="ГруппаДополнительныеРеквизитыРасширеннаяПодсказка" id="50"/>
+							<ExtendedTooltip name="ГруппаДополнительныеРеквизитыРасширеннаяПодсказка" id="46"/>
 						</UsualGroup>
 					</ChildItems>
 				</Page>
@@ -166,26 +156,22 @@
 		</Attribute>
 	</Attributes>
 	<BaseForm version="2.17">
-		<Title>
-			<v8:item>
-				<v8:lang>ru</v8:lang>
-				<v8:content>Распознанный</v8:content>
-			</v8:item>
-		</Title>
-		<AutoTitle>false</AutoTitle>
+		<AutoTime>CurrentOrLast</AutoTime>
+		<UsePostingMode>Auto</UsePostingMode>
+		<RepostOnWrite>true</RepostOnWrite>
 		<AutoCommandBar name="ФормаКоманднаяПанель" id="-1"/>
 		<ChildItems>
 			<Pages name="ГруппаСтраницы" id="1">
 				<ExtendedTooltip name="ГруппаСтраницыРасширеннаяПодсказка" id="2"/>
 				<ChildItems>
-					<Page name="ГруппаОсновное" id="3">
+					<Page name="СтраницаОсновное" id="3">
 						<Title>
 							<v8:item>
 								<v8:lang>ru</v8:lang>
 								<v8:content>Основное</v8:content>
 							</v8:item>
 						</Title>
-						<ExtendedTooltip name="ГруппаОсновноеРасширеннаяПодсказка" id="4"/>
+						<ExtendedTooltip name="СтраницаОсновноеРасширеннаяПодсказка" id="4"/>
 						<ChildItems>
 							<UsualGroup name="ГруппаШапка" id="5">
 								<Group>Horizontal</Group>
@@ -205,8 +191,8 @@
 												<ChildItems>
 													<InputField name="Номер" id="11">
 														<DataPath>Объект.Number</DataPath>
-														<Width>9</Width>
-														<AutoMaxWidth>false</AutoMaxWidth>
+														<Width>10</Width>
+														<HorizontalStretch>false</HorizontalStretch>
 														<ContextMenu name="НомерКонтекстноеМеню" id="12"/>
 														<ExtendedTooltip name="НомерРасширеннаяПодсказка" id="13"/>
 													</InputField>
@@ -218,15 +204,24 @@
 																<v8:content>от</v8:content>
 															</v8:item>
 														</Title>
+														<Width>14</Width>
+														<HorizontalStretch>false</HorizontalStretch>
 														<ContextMenu name="ДатаКонтекстноеМеню" id="15"/>
 														<ExtendedTooltip name="ДатаРасширеннаяПодсказка" id="16"/>
 													</InputField>
 												</ChildItems>
 											</UsualGroup>
-											<InputField name="Направление" id="17">
+										</ChildItems>
+									</UsualGroup>
+									<UsualGroup name="ГруппаШапкаПраво" id="17">
+										<Group>Vertical</Group>
+										<ShowTitle>false</ShowTitle>
+										<ExtendedTooltip name="ГруппаШапкаПравоРасширеннаяПодсказка" id="18"/>
+										<ChildItems>
+											<InputField name="Направление" id="19">
 												<DataPath>Объект.Направление</DataPath>
-												<ContextMenu name="НаправлениеКонтекстноеМеню" id="18"/>
-												<ExtendedTooltip name="НаправлениеРасширеннаяПодсказка" id="19"/>
+												<ContextMenu name="НаправлениеКонтекстноеМеню" id="20"/>
+												<ExtendedTooltip name="НаправлениеРасширеннаяПодсказка" id="21"/>
 											</InputField>
 										</ChildItems>
 									</UsualGroup>
@@ -234,88 +229,73 @@
 							</UsualGroup>
 						</ChildItems>
 					</Page>
-					<Page name="ГруппаРеквизиты" id="20">
+					<Page name="СтраницаРеквизиты" id="22">
 						<Title>
 							<v8:item>
 								<v8:lang>ru</v8:lang>
 								<v8:content>Реквизиты</v8:content>
 							</v8:item>
 						</Title>
-						<ExtendedTooltip name="ГруппаРеквизитыРасширеннаяПодсказка" id="21"/>
+						<ExtendedTooltip name="СтраницаРеквизитыРасширеннаяПодсказка" id="23"/>
 						<ChildItems>
-							<Table name="Реквизиты" id="22">
+							<Table name="Реквизиты" id="24">
 								<DataPath>Объект.Реквизиты</DataPath>
-								<ContextMenu name="РеквизитыКонтекстноеМеню" id="23"/>
-								<AutoCommandBar name="РеквизитыКоманднаяПанель" id="24"/>
-								<ExtendedTooltip name="РеквизитыРасширеннаяПодсказка" id="25"/>
-								<SearchStringAddition name="РеквизитыСтрокаПоиска" id="26">
+								<ContextMenu name="РеквизитыКонтекстноеМеню" id="25"/>
+								<AutoCommandBar name="РеквизитыКоманднаяПанель" id="26"/>
+								<ExtendedTooltip name="РеквизитыРасширеннаяПодсказка" id="27"/>
+								<SearchStringAddition name="РеквизитыСтрокаПоиска" id="28">
 									<AdditionSource>
 										<Item>Реквизиты</Item>
 										<Type>SearchStringRepresentation</Type>
 									</AdditionSource>
-									<ContextMenu name="РеквизитыСтрокаПоискаКонтекстноеМеню" id="27"/>
-									<ExtendedTooltip name="РеквизитыСтрокаПоискаРасширеннаяПодсказка" id="28"/>
+									<ContextMenu name="РеквизитыСтрокаПоискаКонтекстноеМеню" id="29"/>
+									<ExtendedTooltip name="РеквизитыСтрокаПоискаРасширеннаяПодсказка" id="30"/>
 								</SearchStringAddition>
-								<ViewStatusAddition name="РеквизитыСостояниеПросмотра" id="29">
+								<ViewStatusAddition name="РеквизитыСостояниеПросмотра" id="31">
 									<AdditionSource>
 										<Item>Реквизиты</Item>
 										<Type>ViewStatusRepresentation</Type>
 									</AdditionSource>
-									<ContextMenu name="РеквизитыСостояниеПросмотраКонтекстноеМеню" id="30"/>
-									<ExtendedTooltip name="РеквизитыСостояниеПросмотраРасширеннаяПодсказка" id="31"/>
+									<ContextMenu name="РеквизитыСостояниеПросмотраКонтекстноеМеню" id="32"/>
+									<ExtendedTooltip name="РеквизитыСостояниеПросмотраРасширеннаяПодсказка" id="33"/>
 								</ViewStatusAddition>
-								<SearchControlAddition name="РеквизитыУправлениеПоиском" id="32">
+								<SearchControlAddition name="РеквизитыУправлениеПоиском" id="34">
 									<AdditionSource>
 										<Item>Реквизиты</Item>
 										<Type>SearchControl</Type>
 									</AdditionSource>
-									<ContextMenu name="РеквизитыУправлениеПоискомКонтекстноеМеню" id="33"/>
-									<ExtendedTooltip name="РеквизитыУправлениеПоискомРасширеннаяПодсказка" id="34"/>
+									<ContextMenu name="РеквизитыУправлениеПоискомКонтекстноеМеню" id="35"/>
+									<ExtendedTooltip name="РеквизитыУправлениеПоискомРасширеннаяПодсказка" id="36"/>
 								</SearchControlAddition>
 								<ChildItems>
-									<LabelField name="РеквизитыНомерСтроки" id="35">
+									<LabelField name="РеквизитыНомерСтроки" id="37">
 										<DataPath>Объект.Реквизиты.LineNumber</DataPath>
-										<ContextMenu name="РеквизитыНомерСтрокиКонтекстноеМеню" id="36"/>
-										<ExtendedTooltip name="РеквизитыНомерСтрокиРасширеннаяПодсказка" id="37"/>
+										<Width>3</Width>
+										<HorizontalStretch>false</HorizontalStretch>
+										<ContextMenu name="РеквизитыНомерСтрокиКонтекстноеМеню" id="38"/>
+										<ExtendedTooltip name="РеквизитыНомерСтрокиРасширеннаяПодсказка" id="39"/>
 									</LabelField>
-									<InputField name="РеквизитыЗначение" id="38">
+									<InputField name="РеквизитыЗначение" id="40">
 										<DataPath>Объект.Реквизиты.Значение</DataPath>
-										<ContextMenu name="РеквизитыЗначениеКонтекстноеМеню" id="39"/>
-										<ExtendedTooltip name="РеквизитыЗначениеРасширеннаяПодсказка" id="40"/>
+										<ContextMenu name="РеквизитыЗначениеКонтекстноеМеню" id="41"/>
+										<ExtendedTooltip name="РеквизитыЗначениеРасширеннаяПодсказка" id="42"/>
 									</InputField>
 								</ChildItems>
 							</Table>
 						</ChildItems>
 					</Page>
-					<Page name="ГруппаДополнительно" id="41">
+					<Page name="ГруппаДополнительно" id="43">
 						<Title>
 							<v8:item>
 								<v8:lang>ru</v8:lang>
 								<v8:content>Дополнительно</v8:content>
 							</v8:item>
 						</Title>
-						<ExtendedTooltip name="ГруппаДополнительноРасширеннаяПодсказка" id="42"/>
+						<ExtendedTooltip name="ГруппаДополнительноРасширеннаяПодсказка" id="44"/>
 						<ChildItems>
-							<UsualGroup name="ГруппаПараметры" id="43">
-								<Group>Horizontal</Group>
-								<ShowTitle>false</ShowTitle>
-								<ExtendedTooltip name="ГруппаПараметрыРасширеннаяПодсказка" id="44"/>
-								<ChildItems>
-									<UsualGroup name="ГруппаПараметрыЛево" id="45">
-										<Group>Vertical</Group>
-										<ShowTitle>false</ShowTitle>
-										<ExtendedTooltip name="ГруппаПараметрыЛевоРасширеннаяПодсказка" id="46"/>
-									</UsualGroup>
-									<UsualGroup name="ГруппаПараметрыПраво" id="47">
-										<Group>Vertical</Group>
-										<ShowTitle>false</ShowTitle>
-										<ExtendedTooltip name="ГруппаПараметрыПравоРасширеннаяПодсказка" id="48"/>
-									</UsualGroup>
-								</ChildItems>
-							</UsualGroup>
-							<UsualGroup name="ГруппаДополнительныеРеквизиты" id="49">
+							<UsualGroup name="ГруппаДополнительныеРеквизиты" id="45">
 								<Group>Vertical</Group>
-								<ExtendedTooltip name="ГруппаДополнительныеРеквизитыРасширеннаяПодсказка" id="50"/>
+								<ExtendedTooltip name="ГруппаДополнительныеРеквизитыРасширеннаяПодсказка" id="46"/>
 							</UsualGroup>
 						</ChildItems>
 					</Page>

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# form-compile v1.225 — Compile 1C managed form from JSON or object metadata
+# form-compile v1.226 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import copy
@@ -399,11 +399,17 @@ def parse_object_meta(object_path):
             f_syn = f_syn_node.text if f_syn_node is not None and f_syn_node.text else f_name
             f_type_node = _et_find(fp, 'md:Type')
             f_type = extract_type(f_type_node)
+            f_len_node = _et_find(fp, 'md:Type/v8:StringQualifiers/v8:Length')
+            f_fill_node = _et_find(fp, 'md:FillChecking')
+            f_fts_node = _et_find(fp, 'md:FullTextSearch')
             result.append({
                 'Name': f_name,
                 'Synonym': f_syn,
                 'Type': f_type,
                 'IsRef': is_ref_type(f_type),
+                'StringLength': int(f_len_node.text) if f_len_node is not None and f_len_node.text else 0,
+                'FillChecking': f_fill_node.text if f_fill_node is not None and f_fill_node.text else '',
+                'FullTextSearch': f_fts_node.text if f_fts_node is not None and f_fts_node.text else '',
             })
         return result
 
@@ -531,7 +537,7 @@ def load_preset(preset_name, script_dir, out_path_resolved):
             'additional': {'position': 'page', 'layout': '2col', 'bspGroup': True},
             'fieldDefaults': {'ref': {'choiceButton': True}, 'boolean': {'element': 'check'}},
             'commandBar': 'auto',
-            'properties': {'autoTitle': False},
+            'properties': {},
         },
         'document.list': {
             'columns': 'all', 'columnType': 'labelField', 'hiddenRef': True,
@@ -670,18 +676,270 @@ def new_field_element(attr_name, data_path, attr_type, field_defaults, extra_pro
     return el
 
 
+# --- Field rules from preset section "fields": skip, roles, props ---
+# Словари правил — объекты с ключами (пресет проекта меняет одно правило через deep merge).
+# Порядок обхода — по отсортированным ключам (ординально), как в PS-каноне.
+
+def get_fields_config(preset_data):
+    v = preset_data.get('fields')
+    return v if isinstance(v, dict) else {}
+
+
+def get_cfg_section(cfg, key):
+    if isinstance(cfg, dict):
+        v = _ci_get(cfg, key)
+        if isinstance(v, dict):
+            return v
+    return {}
+
+
+def _ci_get(d, key):
+    """\u041f\u043e\u0438\u0441\u043a \u043a\u043b\u044e\u0447\u0430 \u0431\u0435\u0437 \u0443\u0447\u0451\u0442\u0430 \u0440\u0435\u0433\u0438\u0441\u0442\u0440\u0430 \u2014 \u043a\u0430\u043a \u0432 \u0445\u044d\u0448\u0442\u0430\u0431\u043b\u0438\u0446\u0435 PS."""
+    if not isinstance(d, dict):
+        return None
+    if key in d:
+        return d[key]
+    kl = key.lower()
+    for k in d:
+        if isinstance(k, str) and k.lower() == kl:
+            return d[k]
+    return None
+
+
+def get_sorted_keys(d):
+    return sorted(str(k) for k in d.keys())
+
+
+def get_field_type_class(f):
+    t = str(f.get('Type', ''))
+    if '|' in t:
+        return 'composite'
+    if re.search(r'EnumRef\.', t, re.I):
+        return 'enum'
+    if re.search(r'Ref\.', t, re.I):
+        return 'ref'
+    if t.lower() == 'xs:string':
+        ln = f.get('StringLength')
+        ln = int(ln) if ln is not None else 0
+        if ln == 0:
+            return 'stringUnlimited'
+        if ln <= 25:
+            return 'string25'
+        return 'string'
+    if t.lower() == 'xs:decimal':
+        return 'number'
+    if t.lower() == 'xs:datetime':
+        return 'date'
+    if t.lower() == 'xs:boolean':
+        return 'boolean'
+    return 'other'
+
+
+def find_matching_rule(rules, text):
+    for k in get_sorted_keys(rules):
+        rx = rules[k]
+        if isinstance(rx, str) and rx != '' and re.search(rx, text, re.I):
+            return k
+    return None
+
+
+def get_skip_reason(f, cfg, kind):
+    skip = get_cfg_section(cfg, 'skip')
+    r = find_matching_rule(get_cfg_section(skip, kind), f['Name'])
+    if r:
+        return r
+    r = find_matching_rule(get_cfg_section(skip, 'types'), str(f.get('Type', '')))
+    if r:
+        return r
+    return None
+
+
+def get_conditional_skips(ts, cfg):
+    res = {}
+    cond = get_cfg_section(get_cfg_section(cfg, 'skip'), 'columnsIfPresent')
+    names = [c['Name'] for c in ts['Columns']]
+    for k in get_sorted_keys(cond):
+        c = cond[k]
+        if isinstance(c, dict) and c.get('column') and c.get('when') and _ps_contains(names, c['when']):
+            res[str(c['column']).lower()] = k
+    return res
+
+
+def _ps_contains(lst, value):
+    """\u041e\u043f\u0435\u0440\u0430\u0442\u043e\u0440 -contains PS: \u0441\u0440\u0430\u0432\u043d\u0435\u043d\u0438\u0435 \u0441\u0442\u0440\u043e\u043a \u0431\u0435\u0437 \u0443\u0447\u0451\u0442\u0430 \u0440\u0435\u0433\u0438\u0441\u0442\u0440\u0430."""
+    vl = str(value).lower()
+    return any(str(x).lower() == vl for x in lst)
+
+
+def resolve_field_role(f, cfg):
+    roles = get_cfg_section(cfg, 'roles')
+    keys = get_sorted_keys(roles)
+    for by in ('names', 'types'):
+        text = str(f['Name']) if by == 'names' else str(f.get('Type', ''))
+        best = None
+        best_pr = None
+        for k in keys:
+            role = roles[k]
+            if not isinstance(role, dict):
+                continue
+            rx = _ci_get(role, by)
+            if not isinstance(rx, str) or rx == '' or not re.search(rx, text, re.I):
+                continue
+            pr = _ci_get(role, 'priority')
+            pr = int(pr) if pr is not None else 0
+            if best_pr is None or pr > best_pr:
+                best = k
+                best_pr = pr
+        if best:
+            return best
+    return None
+
+
+def get_field_props(f, cfg, section, name_override=''):
+    res = OrderedDict()
+    ps = get_cfg_section(cfg, section)
+    by_type = get_cfg_section(ps, 'byType')
+    cls = get_field_type_class(f)
+    bt = _ci_get(by_type, cls)
+    if isinstance(bt, dict):
+        for k in get_sorted_keys(bt):
+            res[k] = bt[k]
+    nm = name_override if name_override else str(f['Name'])
+    bn = _ci_get(get_cfg_section(ps, 'byName'), nm)
+    if isinstance(bn, dict):
+        for k in get_sorted_keys(bn):
+            res[k] = bn[k]
+    return res
+
+
+def merge_props(el, props):
+    if props:
+        for k in props:
+            el[k] = props[k]
+    return el
+
+
+def build_tabular_columns(ts, cfg, fd, line_number, skipped):
+    cols = []
+    if line_number:
+        ln = OrderedDict([('labelField', f"{ts['Name']}\u041d\u043e\u043c\u0435\u0440\u0421\u0442\u0440\u043e\u043a\u0438"), ('path', f"\u041e\u0431\u044a\u0435\u043a\u0442.{ts['Name']}.LineNumber")])
+        cols.append(merge_props(ln, get_field_props({'Name': '\u041d\u043e\u043c\u0435\u0440\u0421\u0442\u0440\u043e\u043a\u0438', 'Type': 'xs:decimal'}, cfg, 'columnProps', '')))
+    cond = get_conditional_skips(ts, cfg)
+    for col in ts['Columns']:
+        if not is_displayable_type(col['Type']):
+            continue
+        why = get_skip_reason(col, cfg, 'columns')
+        if not why and col['Name'].lower() in cond:
+            why = cond[col['Name'].lower()]
+        if why:
+            skipped.append(f"{ts['Name']}.{col['Name']} ({why})")
+            continue
+        el = new_field_element(f"{ts['Name']}{col['Name']}", f"\u041e\u0431\u044a\u0435\u043a\u0442.{ts['Name']}.{col['Name']}", col['Type'], fd, {})
+        cols.append(merge_props(el, get_field_props(col, cfg, 'columnProps', '')))
+    return cols
+
+
+def get_visible_tabular_sections(meta, cfg, p, skipped):
+    legacy = []
+    ts_cfg = p.get('tabularSections') if isinstance(p, dict) else None
+    if ts_cfg and ts_cfg.get('exclude'):
+        legacy = list(ts_cfg['exclude'])
+    ts_rules = get_cfg_section(get_cfg_section(cfg, 'skip'), 'tabularSections')
+    res = []
+    for ts in meta['TabularSections']:
+        why = None
+        if _ps_contains(legacy, ts['Name']):
+            why = 'exclude'
+        if not why:
+            why = find_matching_rule(ts_rules, ts['Name'])
+        if why:
+            skipped.append(f"{ts['Name']} ({why})")
+            continue
+        res.append(ts)
+    return res
+
+
+def get_unique_element_name(base, used):
+    n = base
+    i = 1
+    while n.lower() in used:
+        n = f'{base}{i}'
+        i += 1
+    used[n.lower()] = True
+    return n
+
+
+def _used_names(meta):
+    used = {}
+    for a in meta['Attributes']:
+        used[a['Name'].lower()] = True
+    for ts in meta['TabularSections']:
+        used[ts['Name'].lower()] = True
+        for c in ts['Columns']:
+            used[f"{ts['Name']}{c['Name']}".lower()] = True
+    return used
+
+
+def write_from_object_report(skipped, placed):
+    if skipped:
+        print(f"[from-object] skipped: {', '.join(skipped)}")
+    for z in ('top', 'header.left', 'header.right', 'main.bottom', 'additional.left', 'additional.right', 'footer'):
+        if placed.get(z):
+            print(f"[from-object] {z}: {', '.join(placed[z])}")
+
+
+# Колонки списка в режиме "auto": реквизиты с ролью list:true и обязательные, в порядке метаданных, до maxColumns
+def select_list_attributes(meta, p, cfg, reserved):
+    mode = p.get('columns', 'all') if isinstance(p, dict) else 'all'
+    res = []
+    roles = get_cfg_section(cfg, 'roles')
+    for attr in meta['Attributes']:
+        if not is_displayable_type(attr['Type']):
+            continue
+        if isinstance(mode, str) and mode.lower() == 'all':
+            res.append(attr)
+            continue
+        if isinstance(mode, list):
+            if _ps_contains(mode, attr['Name']):
+                res.append(attr)
+            continue
+        if get_skip_reason(attr, cfg, 'attributes'):
+            continue
+        role = resolve_field_role(attr, cfg)
+        in_list = (role and _ci_get(roles[role], 'list') is True) or (str(attr.get('FillChecking', '')).lower() == 'showerror')
+        if in_list:
+            res.append(attr)
+    if isinstance(mode, str) and mode.lower() == 'auto':
+        mx = int(p['maxColumns']) - reserved if p.get('maxColumns') is not None else 999
+        if mx < 0:
+            mx = 0
+        res = res[:mx]
+    return res
+
+
+def new_list_elements(table_el, p):
+    els = []
+    if p.get('userSettingsGroup') is True:
+        els.append(OrderedDict([('group', 'vertical'), ('name', '\u0413\u0440\u0443\u043f\u043f\u0430\u041f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u0435\u043b\u044c\u0441\u043a\u0438\u0445\u041d\u0430\u0441\u0442\u0440\u043e\u0435\u043a'),
+                                ('title', '\u0413\u0440\u0443\u043f\u043f\u0430 \u043f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u0435\u043b\u044c\u0441\u043a\u0438\u0445 \u043d\u0430\u0441\u0442\u0440\u043e\u0435\u043a'), ('showTitle', False), ('representation', 'none')]))
+        table_el['userSettingsGroup'] = '\u0413\u0440\u0443\u043f\u043f\u0430\u041f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u0435\u043b\u044c\u0441\u043a\u0438\u0445\u041d\u0430\u0441\u0442\u0440\u043e\u0435\u043a'
+    els.append(table_el)
+    return els
+
+
 # --- Catalog DSL generators ---
 
 def generate_catalog_dsl(meta, preset_data, purpose):
     purpose_key = f"catalog.{purpose.lower()}"
     p = preset_data.get(purpose_key, {})
     fd = p.get('fieldDefaults', {})
+    cfg = get_fields_config(preset_data)
 
     dispatch = {
         'Folder': lambda: generate_catalog_folder_dsl(meta, p),
-        'List': lambda: generate_catalog_list_dsl(meta, p),
+        'List': lambda: generate_catalog_list_dsl(meta, p, cfg),
         'Choice': lambda: generate_catalog_choice_dsl(meta, p, preset_data),
-        'Item': lambda: generate_catalog_item_dsl(meta, p, fd),
+        'Item': lambda: generate_catalog_item_dsl(meta, p, fd, cfg),
     }
     return dispatch[purpose]()
 
@@ -719,20 +977,23 @@ def generate_catalog_folder_dsl(meta, p):
     ])
 
 
-def generate_catalog_list_dsl(meta, p):
+def generate_catalog_list_dsl(meta, p, cfg):
     columns = []
     # Description always first
     columns.append(OrderedDict([('labelField', '\u041d\u0430\u0438\u043c\u0435\u043d\u043e\u0432\u0430\u043d\u0438\u0435'), ('path', '\u0421\u043f\u0438\u0441\u043e\u043a.Description')]))
     # Code if present
+    reserved = 1
     if meta.get('CodeLength', 0) > 0:
         columns.append(OrderedDict([('labelField', '\u041a\u043e\u0434'), ('path', '\u0421\u043f\u0438\u0441\u043e\u043a.Code')]))
-    # Custom attributes
-    for attr in meta['Attributes']:
-        if not is_displayable_type(attr['Type']):
-            continue
+        reserved += 1
+    # Owner for subordinate catalogs
+    if meta.get('Owners'):
+        columns.append(OrderedDict([('labelField', '\u0412\u043b\u0430\u0434\u0435\u043b\u0435\u0446'), ('path', '\u0421\u043f\u0438\u0441\u043e\u043a.Owner')]))
+        reserved += 1
+    for attr in select_list_attributes(meta, p, cfg, reserved):
         columns.append(OrderedDict([('labelField', attr['Name']), ('path', f"\u0421\u043f\u0438\u0441\u043e\u043a.{attr['Name']}")]))
     # Hidden ref
-    if p.get('hiddenRef', True) is not False:
+    if 'hiddenRef' not in p or p.get('hiddenRef') is True:
         columns.append(OrderedDict([('labelField', '\u0421\u0441\u044b\u043b\u043a\u0430'), ('path', '\u0421\u043f\u0438\u0441\u043e\u043a.Ref'), ('userVisible', False)]))
 
     table_el = OrderedDict([
@@ -750,63 +1011,68 @@ def generate_catalog_list_dsl(meta, p):
 
     form_props = OrderedDict()
     if p.get('properties'):
-        for k in p['properties']:
-            form_props[k] = p['properties'][k]
+        for k, v in p['properties'].items():
+            form_props[k] = v
 
-    return OrderedDict([
-        ('title', meta['Synonym']),
-        ('properties', form_props),
-        ('elements', [table_el]),
-        ('attributes', [
-            OrderedDict([
-                ('name', '\u0421\u043f\u0438\u0441\u043e\u043a'), ('type', 'DynamicList'), ('main', True),
-                ('settings', OrderedDict([('mainTable', f"Catalog.{meta['Name']}"), ('dynamicDataRead', True)])),
-            ])
-        ]),
-    ])
+    dsl = OrderedDict()
+    if p.get('title') is True:
+        dsl['title'] = meta['Synonym']
+    dsl['properties'] = form_props
+    dsl['elements'] = new_list_elements(table_el, p)
+    dsl['attributes'] = [
+        OrderedDict([
+            ('name', '\u0421\u043f\u0438\u0441\u043e\u043a'), ('type', 'DynamicList'), ('main', True),
+            ('settings', OrderedDict([('mainTable', f"Catalog.{meta['Name']}"), ('dynamicDataRead', True)])),
+        ])
+    ]
+    return dsl
 
 
 def generate_catalog_choice_dsl(meta, p, preset_data):
     # Start from list
-    list_key = 'catalog.list'
-    lp = preset_data.get(list_key, {})
-    dsl = generate_catalog_list_dsl(meta, lp)
+    lp = preset_data.get('catalog.list', {})
+    dsl = generate_catalog_list_dsl(meta, lp, get_fields_config(preset_data))
 
     # Add choice-specific properties
     dsl['properties']['windowOpeningMode'] = 'LockOwnerWindow'
     if p.get('properties'):
-        for k in p['properties']:
-            dsl['properties'][k] = p['properties'][k]
+        for k, v in p['properties'].items():
+            dsl['properties'][k] = v
 
-    # Set ChoiceMode on table
-    dsl['elements'][0]['choiceMode'] = True
+    # Set ChoiceMode on the list table
+    for el in dsl['elements']:
+        if el.get('table') == '\u0421\u043f\u0438\u0441\u043e\u043a':
+            el['choiceMode'] = True
 
     return dsl
 
 
-def generate_catalog_item_dsl(meta, p, fd):
+def generate_catalog_item_dsl(meta, p, fd, cfg):
     header_children = []
+    skipped = []
+    used = _used_names(meta)
 
     # Owner (if subordinate)
-    if meta.get('Owners') and len(meta['Owners']) > 0:
-        owner_el = OrderedDict([('input', '\u0412\u043b\u0430\u0434\u0435\u043b\u0435\u0446'), ('path', '\u041e\u0431\u044a\u0435\u043a\u0442.Owner'), ('readOnly', True)])
-        header_children.append(owner_el)
+    if meta.get('Owners'):
+        header_children.append(OrderedDict([('input', '\u0412\u043b\u0430\u0434\u0435\u043b\u0435\u0446'), ('path', '\u041e\u0431\u044a\u0435\u043a\u0442.Owner'), ('readOnly', True)]))
 
     # Code + Description
-    cd_layout = (p.get('codeDescription') or {}).get('layout', 'horizontal')
-    cd_order = (p.get('codeDescription') or {}).get('order', 'descriptionFirst')
+    cd = p.get('codeDescription') or {}
+    cd_layout = cd.get('layout') or 'horizontal'
+    cd_order = cd.get('order') or 'descriptionFirst'
     has_code = meta.get('CodeLength', 0) > 0
 
     if cd_layout == 'horizontal' and has_code:
-        cd_children = []
         desc_el = OrderedDict([('input', '\u041d\u0430\u0438\u043c\u0435\u043d\u043e\u0432\u0430\u043d\u0438\u0435'), ('path', '\u041e\u0431\u044a\u0435\u043a\u0442.Description')])
         code_el = OrderedDict([('input', '\u041a\u043e\u0434'), ('path', '\u041e\u0431\u044a\u0435\u043a\u0442.Code')])
         if cd_order == 'descriptionFirst':
             cd_children = [desc_el, code_el]
+            cd_name = '\u0413\u0440\u0443\u043f\u043f\u0430\u041d\u0430\u0438\u043c\u0435\u043d\u043e\u0432\u0430\u043d\u0438\u0435\u041a\u043e\u0434'
         else:
             cd_children = [code_el, desc_el]
+            cd_name = '\u0413\u0440\u0443\u043f\u043f\u0430\u041a\u043e\u0434\u041d\u0430\u0438\u043c\u0435\u043d\u043e\u0432\u0430\u043d\u0438\u0435'
         header_children.append(OrderedDict([
-            ('group', 'horizontal'), ('name', '\u0413\u0440\u0443\u043f\u043f\u0430\u041a\u043e\u0434\u041d\u0430\u0438\u043c\u0435\u043d\u043e\u0432\u0430\u043d\u0438\u0435'), ('showTitle', False),
+            ('group', 'horizontal'), ('name', get_unique_element_name(cd_name, used)), ('showTitle', False),
             ('representation', 'none'), ('children', cd_children),
         ]))
     else:
@@ -816,82 +1082,98 @@ def generate_catalog_item_dsl(meta, p, fd):
             header_children.append(OrderedDict([('input', '\u041a\u043e\u0434'), ('path', '\u041e\u0431\u044a\u0435\u043a\u0442.Code')]))
 
     # Parent (for hierarchical catalogs)
-    parent_pos = (p.get('parent') or {}).get('position', 'afterCodeDescription')
-    parent_title = (p.get('parent') or {}).get('title')
+    par = p.get('parent') or {}
+    parent_pos = par.get('position') or 'afterCodeDescription'
+    parent_title = par.get('title') or None
     if meta.get('Hierarchical'):
         parent_el = OrderedDict([('input', '\u0420\u043e\u0434\u0438\u0442\u0435\u043b\u044c'), ('path', '\u041e\u0431\u044a\u0435\u043a\u0442.Parent')])
         if parent_title:
             parent_el['title'] = parent_title
         if parent_pos == 'beforeCodeDescription':
-            insert_idx = 1 if (meta.get('Owners') and len(meta['Owners']) > 0) else 0
+            insert_idx = 1 if meta.get('Owners') else 0
             header_children.insert(insert_idx, parent_el)
         else:
-            # afterCodeDescription (default)
             header_children.append(parent_el)
 
-    # Custom attributes -> header
-    footer_field_names = (p.get('footer') or {}).get('fields', [])
+    # Реквизиты: в шапку по порядку метаданных; роль с зоной main.bottom и footer.fields — вниз формы
+    footer = p.get('footer') or {}
+    footer_field_names = list(footer.get('fields') or [])
+    roles = get_cfg_section(cfg, 'roles')
+    bottom_els = []
+    placed = {'header.left': [], 'main.bottom': []}
 
     for attr in meta['Attributes']:
-        if attr['Name'] in footer_field_names:
-            continue
         if not is_displayable_type(attr['Type']):
             continue
-        header_children.append(new_field_element(attr['Name'], f"\u041e\u0431\u044a\u0435\u043a\u0442.{attr['Name']}", attr['Type'], fd))
+        to_bottom = _ps_contains(footer_field_names, attr['Name'])
+        extra = None
+        if not to_bottom:
+            why = get_skip_reason(attr, cfg, 'attributes')
+            if why:
+                skipped.append(f"{attr['Name']} ({why})")
+                continue
+            role = resolve_field_role(attr, cfg)
+            rz = str(_ci_get(roles[role], 'zone') or '') if role else ''
+            if rz.lower() == 'hidden':
+                skipped.append(f"{attr['Name']} (hidden)")
+                continue
+            if rz.lower() == 'main.bottom':
+                to_bottom = True
+            if role and isinstance(_ci_get(roles[role], 'props'), dict):
+                extra = _ci_get(roles[role], 'props')
+        el = new_field_element(attr['Name'], f"\u041e\u0431\u044a\u0435\u043a\u0442.{attr['Name']}", attr['Type'], fd, {})
+        el = merge_props(el, get_field_props(attr, cfg, 'props', ''))
+        el = merge_props(el, extra)
+        if to_bottom:
+            bottom_els.append(el)
+            placed['main.bottom'].append(attr['Name'])
+        else:
+            header_children.append(el)
+            placed['header.left'].append(attr['Name'])
 
     # Build root elements
     root_elements = []
 
     # ГруппаШапка
     root_elements.append(OrderedDict([
-        ('group', 'vertical'), ('name', '\u0413\u0440\u0443\u043f\u043f\u0430\u0428\u0430\u043f\u043a\u0430'), ('showTitle', False),
+        ('group', 'vertical'), ('name', get_unique_element_name('\u0413\u0440\u0443\u043f\u043f\u0430\u0428\u0430\u043f\u043a\u0430', used)), ('showTitle', False),
         ('representation', 'none'), ('children', header_children),
     ]))
 
     # Tabular sections
-    ts_exclude = ['\u0414\u043e\u043f\u043e\u043b\u043d\u0438\u0442\u0435\u043b\u044c\u043d\u044b\u0435\u0420\u0435\u043a\u0432\u0438\u0437\u0438\u0442\u044b', '\u041f\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043b\u0435\u043d\u0438\u044f']
-    if (p.get('tabularSections') or {}).get('exclude'):
-        ts_exclude = p['tabularSections']['exclude']
-    ts_line_number = (p.get('tabularSections') or {}).get('lineNumber', True)
-
-    visible_ts = [ts for ts in meta['TabularSections'] if ts['Name'] not in ts_exclude]
-
-    for ts in visible_ts:
-        ts_cols = []
-        if ts_line_number:
-            ts_cols.append(OrderedDict([('labelField', f"{ts['Name']}\u041d\u043e\u043c\u0435\u0440\u0421\u0442\u0440\u043e\u043a\u0438"), ('path', f"\u041e\u0431\u044a\u0435\u043a\u0442.{ts['Name']}.LineNumber")]))
-        for col in ts['Columns']:
-            ts_cols.append(new_field_element(f"{ts['Name']}{col['Name']}", f"\u041e\u0431\u044a\u0435\u043a\u0442.{ts['Name']}.{col['Name']}", col['Type'], fd))
+    ts_cfg = p.get('tabularSections') or {}
+    ts_line_number = ts_cfg.get('lineNumber') if ts_cfg.get('lineNumber') is not None else True
+    for ts in get_visible_tabular_sections(meta, cfg, p, skipped):
+        ts_cols = build_tabular_columns(ts, cfg, fd, ts_line_number, skipped)
         root_elements.append(OrderedDict([('table', ts['Name']), ('path', f"\u041e\u0431\u044a\u0435\u043a\u0442.{ts['Name']}"), ('columns', ts_cols)]))
 
-    # Footer fields
-    for fn in footer_field_names:
-        f_attr = next((a for a in meta['Attributes'] if a['Name'] == fn), None)
-        if f_attr:
-            root_elements.append(new_field_element(f_attr['Name'], f"\u041e\u0431\u044a\u0435\u043a\u0442.{f_attr['Name']}", f_attr['Type'], fd))
+    # Нижние поля (Комментарий)
+    root_elements.extend(bottom_els)
 
     # BSP group
-    bsp_group = (p.get('additional') or {}).get('bspGroup', True)
+    add = p.get('additional') or {}
+    bsp_group = add.get('bspGroup') if add.get('bspGroup') is not None else True
     if bsp_group:
-        root_elements.append(OrderedDict([('group', 'vertical'), ('name', '\u0413\u0440\u0443\u043f\u043f\u0430\u0414\u043e\u043f\u043e\u043b\u043d\u0438\u0442\u0435\u043b\u044c\u043d\u044b\u0435\u0420\u0435\u043a\u0432\u0438\u0437\u0438\u0442\u044b'), ('showTitle', True)]))
+        root_elements.append(OrderedDict([('group', 'vertical'), ('name', get_unique_element_name('\u0413\u0440\u0443\u043f\u043f\u0430\u0414\u043e\u043f\u043e\u043b\u043d\u0438\u0442\u0435\u043b\u044c\u043d\u044b\u0435\u0420\u0435\u043a\u0432\u0438\u0437\u0438\u0442\u044b', used)), ('showTitle', True)]))
+
+    write_from_object_report(skipped, placed)
 
     # Properties
     form_props = OrderedDict()
     if p.get('properties'):
-        for k in p['properties']:
+        for k in get_sorted_keys(p['properties']):
             form_props[k] = p['properties'][k]
     # UseForFoldersAndItems
     if meta.get('Hierarchical') and meta.get('HierarchyType') == 'HierarchyFoldersAndItems':
         form_props['useForFoldersAndItems'] = 'Items'
 
-    return OrderedDict([
-        ('title', meta['Synonym']),
-        ('properties', form_props),
-        ('elements', root_elements),
-        ('attributes', [
-            OrderedDict([('name', '\u041e\u0431\u044a\u0435\u043a\u0442'), ('type', f"CatalogObject.{meta['Name']}"), ('main', True)])
-        ]),
-    ])
+    dsl = OrderedDict()
+    if p.get('title') is True:
+        dsl['title'] = meta['Synonym']
+    dsl['properties'] = form_props
+    dsl['elements'] = root_elements
+    dsl['attributes'] = [OrderedDict([('name', '\u041e\u0431\u044a\u0435\u043a\u0442'), ('type', f"CatalogObject.{meta['Name']}"), ('main', True)])]
+    return dsl
 
 
 # --- Document DSL generators ---
@@ -900,27 +1182,25 @@ def generate_document_dsl(meta, preset_data, purpose):
     purpose_key = f"document.{purpose.lower()}"
     p = preset_data.get(purpose_key, {})
     fd = p.get('fieldDefaults', {})
+    cfg = get_fields_config(preset_data)
 
     dispatch = {
-        'List': lambda: generate_document_list_dsl(meta, p),
+        'List': lambda: generate_document_list_dsl(meta, p, cfg),
         'Choice': lambda: generate_document_choice_dsl(meta, p, preset_data),
-        'Item': lambda: generate_document_item_dsl(meta, p, fd),
+        'Item': lambda: generate_document_item_dsl(meta, p, fd, cfg),
     }
     return dispatch[purpose]()
 
 
-def generate_document_list_dsl(meta, p):
+def generate_document_list_dsl(meta, p, cfg):
     columns = []
     # Standard columns: Number + Date
-    columns.append(OrderedDict([('labelField', 'Номер'), ('path', 'Список.Number')]))
-    columns.append(OrderedDict([('labelField', 'Дата'), ('path', 'Список.Date')]))
-    # All custom attributes as labelField
-    for attr in meta['Attributes']:
-        if not is_displayable_type(attr['Type']):
-            continue
+    columns.append(OrderedDict([('labelField', '\u041d\u043e\u043c\u0435\u0440'), ('path', '\u0421\u043f\u0438\u0441\u043e\u043a.Number')]))
+    columns.append(OrderedDict([('labelField', '\u0414\u0430\u0442\u0430'), ('path', '\u0421\u043f\u0438\u0441\u043e\u043a.Date')]))
+    for attr in select_list_attributes(meta, p, cfg, 2):
         columns.append(OrderedDict([('labelField', attr['Name']), ('path', f"\u0421\u043f\u0438\u0441\u043e\u043a.{attr['Name']}")]))
     # Hidden ref
-    if p.get('hiddenRef', True):
+    if 'hiddenRef' not in p or p.get('hiddenRef') is True:
         columns.append(OrderedDict([('labelField', '\u0421\u0441\u044b\u043b\u043a\u0430'), ('path', '\u0421\u043f\u0438\u0441\u043e\u043a.Ref'), ('userVisible', False)]))
 
     table_el = OrderedDict([
@@ -933,226 +1213,251 @@ def generate_document_list_dsl(meta, p):
 
     form_props = OrderedDict()
     if p.get('properties'):
-        for k in p['properties']:
-            form_props[k] = p['properties'][k]
+        for k, v in p['properties'].items():
+            form_props[k] = v
 
-    return OrderedDict([
-        ('title', meta['Synonym']),
-        ('properties', form_props),
-        ('elements', [table_el]),
-        ('attributes', [
-            OrderedDict([
-                ('name', '\u0421\u043f\u0438\u0441\u043e\u043a'), ('type', 'DynamicList'), ('main', True),
-                ('settings', OrderedDict([('mainTable', f"Document.{meta['Name']}"), ('dynamicDataRead', True)])),
-            ])
-        ]),
-    ])
+    dsl = OrderedDict()
+    if p.get('title') is True:
+        dsl['title'] = meta['Synonym']
+    dsl['properties'] = form_props
+    dsl['elements'] = new_list_elements(table_el, p)
+    dsl['attributes'] = [
+        OrderedDict([
+            ('name', '\u0421\u043f\u0438\u0441\u043e\u043a'), ('type', 'DynamicList'), ('main', True),
+            ('settings', OrderedDict([('mainTable', f"Document.{meta['Name']}"), ('dynamicDataRead', True)])),
+        ])
+    ]
+    return dsl
 
 
 def generate_document_choice_dsl(meta, p, preset_data):
-    list_key = 'document.list'
-    lp = preset_data.get(list_key, {})
-    dsl = generate_document_list_dsl(meta, lp)
+    lp = preset_data.get('document.list', {})
+    dsl = generate_document_list_dsl(meta, lp, get_fields_config(preset_data))
 
     dsl['properties']['windowOpeningMode'] = 'LockOwnerWindow'
     if p.get('properties'):
-        for k in p['properties']:
-            dsl['properties'][k] = p['properties'][k]
+        for k, v in p['properties'].items():
+            dsl['properties'][k] = v
 
     return dsl
 
 
-def generate_document_item_dsl(meta, p, fd):
-    header_pos = (p.get('header') or {}).get('position', 'insidePage')
-    header_layout = (p.get('header') or {}).get('layout', '2col')
-    header_distribute = (p.get('header') or {}).get('distribute', 'even')
-    date_title = (p.get('header') or {}).get('dateTitle', '\u043e\u0442')
+def generate_document_item_dsl(meta, p, fd, cfg):
+    hdr = p.get('header') or {}
+    header_pos = hdr.get('position') or 'insidePage'
+    header_layout = hdr.get('layout') or '2col'
+    date_title = hdr.get('dateTitle') or '\u043e\u0442'
 
-    footer_fields = (p.get('footer') or {}).get('fields', [])
-    footer_pos = (p.get('footer') or {}).get('position', 'insidePage')
+    footer = p.get('footer') or {}
+    footer_fields = list(footer.get('fields') or [])
+    footer_pos = footer.get('position') or 'insidePage'
 
-    add_pos = (p.get('additional') or {}).get('position', 'page')
-    add_layout = (p.get('additional') or {}).get('layout', '2col')
-    add_bsp_group = (p.get('additional') or {}).get('bspGroup', True)
-    add_left = (p.get('additional') or {}).get('left', [])
-    add_right = (p.get('additional') or {}).get('right', [])
+    add = p.get('additional') or {}
+    add_pos = add.get('position') or 'page'
+    add_layout = add.get('layout') or '2col'
+    add_bsp_group = add.get('bspGroup') if add.get('bspGroup') is not None else True
+    ts_cfg = p.get('tabularSections') or {}
+    ts_line_number = ts_cfg.get('lineNumber') if ts_cfg.get('lineNumber') is not None else True
 
-    header_right = (p.get('header') or {}).get('right', [])
-
-    ts_exclude = ['\u0414\u043e\u043f\u043e\u043b\u043d\u0438\u0442\u0435\u043b\u044c\u043d\u044b\u0435\u0420\u0435\u043a\u0432\u0438\u0437\u0438\u0442\u044b']
-    if (p.get('tabularSections') or {}).get('exclude'):
-        ts_exclude = p['tabularSections']['exclude']
-    ts_line_number = (p.get('tabularSections') or {}).get('lineNumber', True)
-
-    # Classify attributes
-    claimed = {}
+    # Закреплённые поля: имя → зона (имя без учёта регистра, как ключ хэштаблицы PS)
+    pinned = {}
     for fn in footer_fields:
-        claimed[fn] = 'footer'
-    for fn in header_right:
-        claimed[fn] = 'header.right'
-    for fn in add_left:
-        claimed[fn] = 'additional.left'
-    for fn in add_right:
-        claimed[fn] = 'additional.right'
+        pinned[fn.lower()] = 'footer' if str(footer_pos).lower() == 'belowpages' else 'main.bottom'
+    for src, zone in ((hdr.get('left'), 'header.left'), (hdr.get('right'), 'header.right'),
+                      (add.get('left'), 'additional.left'), (add.get('right'), 'additional.right')):
+        if src:
+            for fn in (src if isinstance(src, list) else [src]):
+                pinned[fn.lower()] = zone
 
-    unclaimed = [attr for attr in meta['Attributes'] if attr['Name'] not in claimed and is_displayable_type(attr['Type'])]
+    roles = get_cfg_section(cfg, 'roles')
+    unplaced = get_cfg_section(cfg, 'unplaced')
+    skipped = []
+    zone_names = ('top', 'header.left', 'header.right', 'header', 'main.bottom', 'additional.left', 'additional.right', 'additional', 'footer')
+    zones = {z: [] for z in zone_names}
 
-    # Distribute unclaimed
-    left_attrs = []
-    right_extra_attrs = []
-    if header_distribute == 'left':
-        left_attrs = unclaimed
-    elif header_distribute == 'right':
-        right_extra_attrs = unclaimed
-    else:  # "even"
-        import math
-        half = math.ceil(len(unclaimed) / 2) if unclaimed else 0
-        left_attrs = unclaimed[:half]
-        right_extra_attrs = unclaimed[half:]
+    # Без табличных частей форма без страниц: поля «Дополнительно» уходят в шапку
+    visible_ts = get_visible_tabular_sections(meta, cfg, p, skipped)
+    use_pages = len(visible_ts) > 0
 
-    # Build ГруппаНомерДата
-    num_date_children = [
-        OrderedDict([('input', '\u041d\u043e\u043c\u0435\u0440'), ('path', '\u041e\u0431\u044a\u0435\u043a\u0442.Number'), ('autoMaxWidth', False), ('width', 9)]),
-        OrderedDict([('input', '\u0414\u0430\u0442\u0430'), ('path', '\u041e\u0431\u044a\u0435\u043a\u0442.Date'), ('title', date_title)]),
-    ]
+    # 1. Зона каждого реквизита: закрепление → роль → правило для нераспознанных
+    for attr in meta['Attributes']:
+        if not is_displayable_type(attr['Type']):
+            continue
+        zone = None
+        extra = None
+        order = 0
+        if attr['Name'].lower() in pinned:
+            zone = pinned[attr['Name'].lower()]
+        else:
+            why = get_skip_reason(attr, cfg, 'attributes')
+            if why:
+                skipped.append(f"{attr['Name']} ({why})")
+                continue
+            role = resolve_field_role(attr, cfg)
+            if role and _ci_get(roles[role], 'zone'):
+                zone = str(_ci_get(roles[role], 'zone'))
+                if isinstance(_ci_get(roles[role], 'props'), dict):
+                    extra = _ci_get(roles[role], 'props')
+                if _ci_get(roles[role], 'order') is not None:
+                    order = int(_ci_get(roles[role], 'order'))
+            else:
+                fc = str(attr.get('FillChecking', '')).lower()
+                fts = str(attr.get('FullTextSearch', '')).lower()
+                kind = 'required' if fc == 'showerror' else ('notSearchable' if fts == 'dontuse' else 'optional')
+                uz = _ci_get(unplaced, kind)
+                zone = str(uz) if uz else 'header'
+        zl = zone.lower()
+        if zl == 'hidden':
+            skipped.append(f"{attr['Name']} (hidden)")
+            continue
+        if (add_pos != 'page' or not use_pages) and zl.startswith('additional'):
+            zone = 'header'
+        if header_layout != '2col' and zone.lower().startswith('header'):
+            zone = 'header.left'
+        if add_layout != '2col' and zone.lower().startswith('additional'):
+            zone = 'additional.left'
+        zone = next((z for z in zone_names if z.lower() == zone.lower()), 'header')
+        zones[zone].append({'Attr': attr, 'Extra': extra, 'Order': order})
+
+    # Нераспознанные — в более короткую колонку (слева ещё группа Номер+Дата); distribute left/right — всё в одну
+    distribute = str(hdr.get('distribute') or 'even')
+    left_count = 1 + len(zones['header.left'])
+    right_count = len(zones['header.right'])
+    if distribute == 'left':
+        right_count = float('inf')
+    if distribute == 'right':
+        left_count = float('inf')
+    for it in zones['header']:
+        if right_count < left_count:
+            zones['header.right'].append(it)
+            right_count += 1
+        else:
+            zones['header.left'].append(it)
+            left_count += 1
+    left_count = len(zones['additional.left'])
+    right_count = len(zones['additional.right'])
+    for it in zones['additional']:
+        if right_count < left_count:
+            zones['additional.right'].append(it)
+            right_count += 1
+        else:
+            zones['additional.left'].append(it)
+            left_count += 1
+
+    used = _used_names(meta)
+    placed = {}
+
+    def build_zone(z):
+        els = []
+        placed[z] = []
+        # Устойчиво по order роли (по умолчанию 0), внутри — порядок метаданных
+        for it in sorted(zones[z], key=lambda x: int(x.get('Order', 0))):
+            a = it['Attr']
+            el = new_field_element(a['Name'], f"\u041e\u0431\u044a\u0435\u043a\u0442.{a['Name']}", a['Type'], fd, {})
+            el = merge_props(el, get_field_props(a, cfg, 'props', ''))
+            el = merge_props(el, it['Extra'])
+            els.append(el)
+            placed[z].append(a['Name'])
+        return els
+
+    # Номер + Дата
+    num_el = merge_props(OrderedDict([('input', '\u041d\u043e\u043c\u0435\u0440'), ('path', '\u041e\u0431\u044a\u0435\u043a\u0442.Number')]),
+                         get_field_props({'Name': '\u041d\u043e\u043c\u0435\u0440', 'Type': ''}, cfg, 'props', '\u041d\u043e\u043c\u0435\u0440'))
+    date_el = merge_props(OrderedDict([('input', '\u0414\u0430\u0442\u0430'), ('path', '\u041e\u0431\u044a\u0435\u043a\u0442.Date'), ('title', date_title)]),
+                          get_field_props({'Name': '\u0414\u0430\u0442\u0430', 'Type': ''}, cfg, 'props', '\u0414\u0430\u0442\u0430'))
     num_date_group = OrderedDict([
-        ('group', 'horizontal'), ('name', '\u0413\u0440\u0443\u043f\u043f\u0430\u041d\u043e\u043c\u0435\u0440\u0414\u0430\u0442\u0430'), ('showTitle', False), ('children', num_date_children),
+        ('group', 'horizontal'), ('name', get_unique_element_name('\u0413\u0440\u0443\u043f\u043f\u0430\u041d\u043e\u043c\u0435\u0440\u0414\u0430\u0442\u0430', used)), ('showTitle', False),
+        ('children', [num_el, date_el]),
     ])
 
-    # Build left column
-    left_children = [num_date_group]
-    for attr in left_attrs:
-        left_children.append(new_field_element(attr['Name'], f"\u041e\u0431\u044a\u0435\u043a\u0442.{attr['Name']}", attr['Type'], fd))
+    left_children = [num_date_group] + build_zone('header.left')
+    right_children = build_zone('header.right')
+    header_name = get_unique_element_name('\u0413\u0440\u0443\u043f\u043f\u0430\u0428\u0430\u043f\u043a\u0430', used)
+    left_group = OrderedDict([('group', 'vertical'), ('name', get_unique_element_name('\u0413\u0440\u0443\u043f\u043f\u0430\u0428\u0430\u043f\u043a\u0430\u041b\u0435\u0432\u043e', used)), ('showTitle', False), ('children', left_children)])
+    header_cols = [left_group]
+    if right_children:
+        header_cols.append(OrderedDict([('group', 'vertical'), ('name', get_unique_element_name('\u0413\u0440\u0443\u043f\u043f\u0430\u0428\u0430\u043f\u043a\u0430\u041f\u0440\u0430\u0432\u043e', used)), ('showTitle', False), ('children', right_children)]))
+    header_group = OrderedDict([
+        ('group', 'horizontal'), ('name', header_name), ('showTitle', False), ('representation', 'none'),
+        ('children', header_cols),
+    ])
 
-    # Build right column
-    right_children = []
-    for rn in header_right:
-        r_attr = next((a for a in meta['Attributes'] if a['Name'] == rn), None)
-        if r_attr:
-            right_children.append(new_field_element(r_attr['Name'], f"\u041e\u0431\u044a\u0435\u043a\u0442.{r_attr['Name']}", r_attr['Type'], fd))
-    for attr in right_extra_attrs:
-        right_children.append(new_field_element(attr['Name'], f"\u041e\u0431\u044a\u0435\u043a\u0442.{attr['Name']}", attr['Type'], fd))
+    top_els = build_zone('top')
+    bottom_els = build_zone('main.bottom')
+    # Несколько нижних полей (Комментарий + Ответственный) — в одну строку
+    if len(bottom_els) > 1:
+        bottom_els = [OrderedDict([('group', 'horizontal'), ('name', get_unique_element_name('\u0413\u0440\u0443\u043f\u043f\u0430' + ''.join(placed['main.bottom']), used)), ('showTitle', False), ('children', bottom_els)])]
+    footer_els = build_zone('footer')
+    add_left_els = build_zone('additional.left')
+    add_right_els = build_zone('additional.right')
+    has_additional = (len(add_left_els) + len(add_right_els)) > 0
 
-    # Header group
-    if header_layout == '2col' and len(right_children) > 0:
-        header_group = OrderedDict([
-            ('group', 'horizontal'), ('name', '\u0413\u0440\u0443\u043f\u043f\u0430\u0428\u0430\u043f\u043a\u0430'), ('showTitle', False), ('representation', 'none'),
-            ('children', [
-                OrderedDict([('group', 'vertical'), ('name', '\u0413\u0440\u0443\u043f\u043f\u0430\u0428\u0430\u043f\u043a\u0430\u041b\u0435\u0432\u043e'), ('showTitle', False), ('children', left_children)]),
-                OrderedDict([('group', 'vertical'), ('name', '\u0413\u0440\u0443\u043f\u043f\u0430\u0428\u0430\u043f\u043a\u0430\u041f\u0440\u0430\u0432\u043e'), ('showTitle', False), ('children', right_children)]),
-            ]),
-        ])
-    else:
-        # 1col or no right items
-        all_header_fields = left_children + right_children
-        header_group = OrderedDict([
-            ('group', 'horizontal'), ('name', '\u0413\u0440\u0443\u043f\u043f\u0430\u0428\u0430\u043f\u043a\u0430'), ('showTitle', False), ('representation', 'none'),
-            ('children', [
-                OrderedDict([('group', 'vertical'), ('name', '\u0413\u0440\u0443\u043f\u043f\u0430\u0428\u0430\u043f\u043a\u0430\u041b\u0435\u0432\u043e'), ('showTitle', False), ('children', all_header_fields)]),
-            ]),
-        ])
-
-    # Footer elements
-    footer_elements = []
-    for fn in footer_fields:
-        f_attr = next((a for a in meta['Attributes'] if a['Name'] == fn), None)
-        if f_attr:
-            footer_elements.append(new_field_element(f_attr['Name'], f"\u041e\u0431\u044a\u0435\u043a\u0442.{f_attr['Name']}", f_attr['Type'], fd))
-
-    # Visible tabular sections
-    visible_ts = [ts for ts in meta['TabularSections'] if ts['Name'] not in ts_exclude]
-
-    # Additional page content
+    # Страница «Дополнительно»
     additional_page = None
-    if add_pos == 'page':
-        add_left_els = []
-        add_right_els = []
-        for aln in add_left:
-            al_attr = next((a for a in meta['Attributes'] if a['Name'] == aln), None)
-            if al_attr:
-                add_left_els.append(new_field_element(al_attr['Name'], f"\u041e\u0431\u044a\u0435\u043a\u0442.{al_attr['Name']}", al_attr['Type'], fd))
-        for arn in add_right:
-            ar_attr = next((a for a in meta['Attributes'] if a['Name'] == arn), None)
-            if ar_attr:
-                add_right_els.append(new_field_element(ar_attr['Name'], f"\u041e\u0431\u044a\u0435\u043a\u0442.{ar_attr['Name']}", ar_attr['Type'], fd))
+    if add_pos == 'page' and use_pages:
         add_page_children = []
-        if add_layout == '2col':
-            add_page_children.append(OrderedDict([
-                ('group', 'horizontal'), ('name', '\u0413\u0440\u0443\u043f\u043f\u0430\u041f\u0430\u0440\u0430\u043c\u0435\u0442\u0440\u044b'), ('showTitle', False),
-                ('children', [
-                    OrderedDict([('group', 'vertical'), ('name', '\u0413\u0440\u0443\u043f\u043f\u0430\u041f\u0430\u0440\u0430\u043c\u0435\u0442\u0440\u044b\u041b\u0435\u0432\u043e'), ('showTitle', False), ('children', add_left_els)]),
-                    OrderedDict([('group', 'vertical'), ('name', '\u0413\u0440\u0443\u043f\u043f\u0430\u041f\u0430\u0440\u0430\u043c\u0435\u0442\u0440\u044b\u041f\u0440\u0430\u0432\u043e'), ('showTitle', False), ('children', add_right_els)]),
-                ]),
-            ]))
-        else:
-            add_page_children.extend(add_left_els + add_right_els)
+        if has_additional:
+            if add_left_els and add_right_els:
+                add_page_children.append(OrderedDict([
+                    ('group', 'horizontal'), ('name', get_unique_element_name('\u0413\u0440\u0443\u043f\u043f\u0430\u041f\u0430\u0440\u0430\u043c\u0435\u0442\u0440\u044b', used)), ('showTitle', False),
+                    ('children', [
+                        OrderedDict([('group', 'vertical'), ('name', get_unique_element_name('\u0413\u0440\u0443\u043f\u043f\u0430\u041f\u0430\u0440\u0430\u043c\u0435\u0442\u0440\u044b\u041b\u0435\u0432\u043e', used)), ('showTitle', False), ('children', add_left_els)]),
+                        OrderedDict([('group', 'vertical'), ('name', get_unique_element_name('\u0413\u0440\u0443\u043f\u043f\u0430\u041f\u0430\u0440\u0430\u043c\u0435\u0442\u0440\u044b\u041f\u0440\u0430\u0432\u043e', used)), ('showTitle', False), ('children', add_right_els)]),
+                    ]),
+                ]))
+            else:
+                add_page_children.extend(add_left_els + add_right_els)
         if add_bsp_group:
-            add_page_children.append(OrderedDict([('group', 'vertical'), ('name', '\u0413\u0440\u0443\u043f\u043f\u0430\u0414\u043e\u043f\u043e\u043b\u043d\u0438\u0442\u0435\u043b\u044c\u043d\u044b\u0435\u0420\u0435\u043a\u0432\u0438\u0437\u0438\u0442\u044b'), ('showTitle', True)]))
-        additional_page = OrderedDict([('page', '\u0413\u0440\u0443\u043f\u043f\u0430\u0414\u043e\u043f\u043e\u043b\u043d\u0438\u0442\u0435\u043b\u044c\u043d\u043e'), ('title', '\u0414\u043e\u043f\u043e\u043b\u043d\u0438\u0442\u0435\u043b\u044c\u043d\u043e'), ('children', add_page_children)])
+            add_page_children.append(OrderedDict([('group', 'vertical'), ('name', get_unique_element_name('\u0413\u0440\u0443\u043f\u043f\u0430\u0414\u043e\u043f\u043e\u043b\u043d\u0438\u0442\u0435\u043b\u044c\u043d\u044b\u0435\u0420\u0435\u043a\u0432\u0438\u0437\u0438\u0442\u044b', used)), ('showTitle', True)]))
+        additional_page = OrderedDict([('page', get_unique_element_name('\u0413\u0440\u0443\u043f\u043f\u0430\u0414\u043e\u043f\u043e\u043b\u043d\u0438\u0442\u0435\u043b\u044c\u043d\u043e', used)), ('title', '\u0414\u043e\u043f\u043e\u043b\u043d\u0438\u0442\u0435\u043b\u044c\u043d\u043e'), ('children', add_page_children)])
 
-    # Build TS page elements
+    # Страницы ТЧ
     ts_pages = []
     for ts in visible_ts:
-        ts_cols = []
-        if ts_line_number:
-            ts_cols.append(OrderedDict([('labelField', f"{ts['Name']}\u041d\u043e\u043c\u0435\u0440\u0421\u0442\u0440\u043e\u043a\u0438"), ('path', f"\u041e\u0431\u044a\u0435\u043a\u0442.{ts['Name']}.LineNumber")]))
-        for col in ts['Columns']:
-            ts_cols.append(new_field_element(f"{ts['Name']}{col['Name']}", f"\u041e\u0431\u044a\u0435\u043a\u0442.{ts['Name']}.{col['Name']}", col['Type'], fd))
+        ts_cols = build_tabular_columns(ts, cfg, fd, ts_line_number, skipped)
         ts_pages.append(OrderedDict([
-            ('page', f"\u0413\u0440\u0443\u043f\u043f\u0430{ts['Name']}"), ('title', ts['Synonym']),
-            ('children', [
-                OrderedDict([('table', ts['Name']), ('path', f"\u041e\u0431\u044a\u0435\u043a\u0442.{ts['Name']}"), ('columns', ts_cols)])
-            ]),
+            ('page', get_unique_element_name(f"\u0421\u0442\u0440\u0430\u043d\u0438\u0446\u0430{ts['Name']}", used)), ('title', ts['Synonym']),
+            ('children', [OrderedDict([('table', ts['Name']), ('path', f"\u041e\u0431\u044a\u0435\u043a\u0442.{ts['Name']}"), ('columns', ts_cols)])]),
         ]))
 
-    # Assemble root elements
+    # Сборка
     root_elements = []
-
-    if len(visible_ts) == 0:
-        # Simple form - no Pages
+    root_elements.extend(top_els)
+    if not use_pages:
         root_elements.append(header_group)
-        if footer_elements:
-            root_elements.extend(footer_elements)
+        root_elements.extend(bottom_els)
+        root_elements.extend(footer_els)
         if add_bsp_group and add_pos != 'none':
-            root_elements.append(OrderedDict([('group', 'vertical'), ('name', '\u0413\u0440\u0443\u043f\u043f\u0430\u0414\u043e\u043f\u043e\u043b\u043d\u0438\u0442\u0435\u043b\u044c\u043d\u044b\u0435\u0420\u0435\u043a\u0432\u0438\u0437\u0438\u0442\u044b'), ('showTitle', True)]))
+            root_elements.append(OrderedDict([('group', 'vertical'), ('name', get_unique_element_name('\u0413\u0440\u0443\u043f\u043f\u0430\u0414\u043e\u043f\u043e\u043b\u043d\u0438\u0442\u0435\u043b\u044c\u043d\u044b\u0435\u0420\u0435\u043a\u0432\u0438\u0437\u0438\u0442\u044b', used)), ('showTitle', True)]))
     else:
-        # Pages form
+        pages_children = []
         if header_pos == 'abovePages':
             root_elements.append(header_group)
-            pages_children = list(ts_pages)
-            if additional_page:
-                pages_children.append(additional_page)
-            root_elements.append(OrderedDict([('pages', '\u0413\u0440\u0443\u043f\u043f\u0430\u0421\u0442\u0440\u0430\u043d\u0438\u0446\u044b'), ('children', pages_children)]))
+            root_elements.extend(bottom_els)
         else:
-            # insidePage (default)
-            osnovnoe_children = [header_group]
-            if footer_pos == 'insidePage' and footer_elements:
-                osnovnoe_children.extend(footer_elements)
-            pages_children = []
-            pages_children.append(OrderedDict([('page', '\u0413\u0440\u0443\u043f\u043f\u0430\u041e\u0441\u043d\u043e\u0432\u043d\u043e\u0435'), ('title', '\u041e\u0441\u043d\u043e\u0432\u043d\u043e\u0435'), ('children', osnovnoe_children)]))
-            pages_children.extend(ts_pages)
-            if additional_page:
-                pages_children.append(additional_page)
-            root_elements.append(OrderedDict([('pages', '\u0413\u0440\u0443\u043f\u043f\u0430\u0421\u0442\u0440\u0430\u043d\u0438\u0446\u044b'), ('children', pages_children)]))
+            osnovnoe = [header_group] + bottom_els
+            pages_children.append(OrderedDict([('page', get_unique_element_name('\u0421\u0442\u0440\u0430\u043d\u0438\u0446\u0430\u041e\u0441\u043d\u043e\u0432\u043d\u043e\u0435', used)), ('title', '\u041e\u0441\u043d\u043e\u0432\u043d\u043e\u0435'), ('children', osnovnoe)]))
+        pages_children.extend(ts_pages)
+        if additional_page is not None:
+            pages_children.append(additional_page)
+        root_elements.append(OrderedDict([('pages', get_unique_element_name('\u0413\u0440\u0443\u043f\u043f\u0430\u0421\u0442\u0440\u0430\u043d\u0438\u0446\u044b', used)), ('children', pages_children)]))
+        root_elements.extend(footer_els)
 
-        # Footer below pages
-        if footer_pos == 'belowPages' and footer_elements:
-            root_elements.extend(footer_elements)
+    write_from_object_report(skipped, placed)
 
     # Properties
-    form_props = OrderedDict([('autoTitle', False)])
+    form_props = OrderedDict()
     if p.get('properties'):
-        for k in p['properties']:
+        for k in get_sorted_keys(p['properties']):
             form_props[k] = p['properties'][k]
 
-    return OrderedDict([
-        ('title', meta['Synonym']),
-        ('properties', form_props),
-        ('elements', root_elements),
-        ('attributes', [
-            OrderedDict([('name', '\u041e\u0431\u044a\u0435\u043a\u0442'), ('type', f"DocumentObject.{meta['Name']}"), ('main', True)])
-        ]),
-    ])
+    dsl = OrderedDict()
+    if p.get('title') is True:
+        dsl['title'] = meta['Synonym']
+    dsl['properties'] = form_props
+    dsl['elements'] = root_elements
+    dsl['attributes'] = [OrderedDict([('name', '\u041e\u0431\u044a\u0435\u043a\u0442'), ('type', f"DocumentObject.{meta['Name']}"), ('main', True)])]
+    return dsl
 
 
 # --- InformationRegister DSL generators ---
@@ -1348,7 +1653,7 @@ def generate_chart_of_characteristic_types_dsl(meta, preset_data, purpose):
                 new_els.append(el)
                 if not inserted and isinstance(el, dict):
                     name = el.get('input') or el.get('group') or ''
-                    if name in ('\u041d\u0430\u0438\u043c\u0435\u043d\u043e\u0432\u0430\u043d\u0438\u0435', '\u0413\u0440\u0443\u043f\u043f\u0430\u041a\u043e\u0434\u041d\u0430\u0438\u043c\u0435\u043d\u043e\u0432\u0430\u043d\u0438\u0435'):
+                    if name in ('\u041d\u0430\u0438\u043c\u0435\u043d\u043e\u0432\u0430\u043d\u0438\u0435', '\u0413\u0440\u0443\u043f\u043f\u0430\u041a\u043e\u0434\u041d\u0430\u0438\u043c\u0435\u043d\u043e\u0432\u0430\u043d\u0438\u0435', '\u0413\u0440\u0443\u043f\u043f\u0430\u041d\u0430\u0438\u043c\u0435\u043d\u043e\u0432\u0430\u043d\u0438\u0435\u041a\u043e\u0434'):
                         new_els.append(vt_el)
                         inserted = True
             if not inserted:
@@ -1388,7 +1693,7 @@ def generate_exchange_plan_dsl(meta, preset_data, purpose):
                 new_els.append(el)
                 if not inserted and isinstance(el, dict):
                     name = el.get('input') or el.get('group') or ''
-                    if name in ('\u041d\u0430\u0438\u043c\u0435\u043d\u043e\u0432\u0430\u043d\u0438\u0435', '\u0413\u0440\u0443\u043f\u043f\u0430\u041a\u043e\u0434\u041d\u0430\u0438\u043c\u0435\u043d\u043e\u0432\u0430\u043d\u0438\u0435'):
+                    if name in ('\u041d\u0430\u0438\u043c\u0435\u043d\u043e\u0432\u0430\u043d\u0438\u0435', '\u0413\u0440\u0443\u043f\u043f\u0430\u041a\u043e\u0434\u041d\u0430\u0438\u043c\u0435\u043d\u043e\u0432\u0430\u043d\u0438\u0435', '\u0413\u0440\u0443\u043f\u043f\u0430\u041d\u0430\u0438\u043c\u0435\u043d\u043e\u0432\u0430\u043d\u0438\u0435\u041a\u043e\u0434'):
                         new_els.append(sent_el)
                         new_els.append(recv_el)
                         inserted = True

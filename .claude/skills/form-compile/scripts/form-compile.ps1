@@ -1,4 +1,4 @@
-﻿# form-compile v1.225 — Compile 1C managed form from JSON or object metadata
+﻿# form-compile v1.226 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -151,11 +151,17 @@ function Parse-ObjectMeta([string]$ObjectPath) {
 			$fSyn = if ($fSynNode) { $fSynNode.InnerText } else { $fName }
 			$fTypeNode = $fp.SelectSingleNode("md:Type", $ns)
 			$fType = & $extractType $fTypeNode
+			$fLenNode = $fp.SelectSingleNode("md:Type/v8:StringQualifiers/v8:Length", $ns)
+			$fFillNode = $fp.SelectSingleNode("md:FillChecking", $ns)
+			$fFtsNode = $fp.SelectSingleNode("md:FullTextSearch", $ns)
 			$result += @{
 				Name = $fName
 				Synonym = $fSyn
 				Type = $fType
 				IsRef = (& $isRefType $fType)
+				StringLength = if ($fLenNode) { [int]$fLenNode.InnerText } else { 0 }
+				FillChecking = if ($fFillNode) { $fFillNode.InnerText } else { "" }
+				FullTextSearch = if ($fFtsNode) { $fFtsNode.InnerText } else { "" }
 			}
 		}
 		return $result
@@ -280,7 +286,7 @@ function Load-Preset([string]$PresetName, [string]$ScriptDir) {
 			additional = @{ position = "page"; layout = "2col"; bspGroup = $true }
 			fieldDefaults = @{ ref = @{ choiceButton = $true }; boolean = @{ element = "check" } }
 			commandBar = "auto"
-			properties = @{ autoTitle = $false }
+			properties = @{}
 		}
 		"document.list" = @{
 			columns = "all"; columnType = "labelField"; hiddenRef = $true
@@ -444,7 +450,7 @@ function New-FieldElement {
 	param([string]$attrName, [string]$dataPath, [string]$attrType, [hashtable]$fieldDefaults, [hashtable]$extraProps)
 
 	$isRef = ($attrType -match 'Ref\.')
-	$isBool = ($attrType -match '^\s*xs:boolean\s*$' -or $attrType -eq 'boolean' -or $attrType -match 'Boolean')
+	$isBool = ($attrType -match '^\s*xs:boolean\s*$' -or $attrType -eq 'boolean' -or $attrType -cmatch 'Boolean')  # с учётом регистра: составной «xs:boolean | …» — поле ввода, не флажок
 
 	# Determine element type
 	$elType = "input"
@@ -466,6 +472,168 @@ function New-FieldElement {
 	return $el
 }
 
+# --- Field rules from preset section "fields": skip, roles, props ---
+# Словари правил — объекты с ключами (пресет проекта меняет одно правило через deep merge).
+# Порядок обхода — по отсортированным ключам: порядок ключей хэштаблицы в PS не сохраняется.
+
+function Get-FieldsConfig([hashtable]$presetData) {
+	if ($presetData.ContainsKey("fields") -and $presetData["fields"] -is [hashtable]) { return $presetData["fields"] }
+	return @{}
+}
+
+function Get-CfgSection($cfg, [string]$key) {
+	if ($cfg -is [hashtable] -and $cfg.ContainsKey($key) -and $cfg[$key] -is [hashtable]) { return $cfg[$key] }
+	return @{}
+}
+
+function Get-SortedKeys([hashtable]$h) {
+	# Ординальный порядок — как sorted() в py-порте
+	[string[]]$arr = @($h.Keys | ForEach-Object { [string]$_ })
+	[Array]::Sort($arr, [StringComparer]::Ordinal)
+	return ,$arr
+}
+
+# Класс типа поля для правил свойств: ref / enum / composite / string / stringUnlimited / string25 / number / date / boolean / other
+function Get-FieldTypeClass($f) {
+	$t = [string]$f.Type
+	if ($t -match '\|') { return "composite" }
+	if ($t -match 'EnumRef\.') { return "enum" }
+	if ($t -match 'Ref\.') { return "ref" }
+	if ($t -eq 'xs:string') {
+		$len = if ($null -ne $f.StringLength) { [int]$f.StringLength } else { 0 }
+		if ($len -eq 0) { return "stringUnlimited" }
+		if ($len -le 25) { return "string25" }
+		return "string"
+	}
+	if ($t -eq 'xs:decimal') { return "number" }
+	if ($t -eq 'xs:dateTime') { return "date" }
+	if ($t -eq 'xs:boolean') { return "boolean" }
+	return "other"
+}
+
+# Первое по ключу правило-регэксп, совпавшее с текстом; $null — ни одно
+function Find-MatchingRule([hashtable]$rules, [string]$text) {
+	foreach ($k in (Get-SortedKeys $rules)) {
+		$rx = $rules[$k]
+		if ($rx -is [string] -and $rx -ne "" -and $text -match $rx) { return $k }
+	}
+	return $null
+}
+
+# Причина отсева реквизита/колонки или $null
+function Get-SkipReason($f, $cfg, [string]$kind) {
+	$skip = Get-CfgSection $cfg "skip"
+	$r = Find-MatchingRule (Get-CfgSection $skip $kind) $f.Name
+	if ($r) { return $r }
+	$r = Find-MatchingRule (Get-CfgSection $skip "types") ([string]$f.Type)
+	if ($r) { return $r }
+	return $null
+}
+
+# Колонки, скрытые при наличии другой колонки (Количество при КоличествоУпаковок)
+function Get-ConditionalSkips($ts, $cfg) {
+	$res = @{}
+	$cond = Get-CfgSection (Get-CfgSection $cfg "skip") "columnsIfPresent"
+	$names = @($ts.Columns | ForEach-Object { $_.Name })
+	foreach ($k in (Get-SortedKeys $cond)) {
+		$c = $cond[$k]
+		if ($c -is [hashtable] -and $c.column -and $c.when -and ($names -contains $c.when)) { $res[[string]$c.column] = $k }
+	}
+	return $res
+}
+
+# Роль поля: сначала по имени, затем по типу; при нескольких — больший priority, затем меньший ключ
+function Resolve-FieldRole($f, $cfg) {
+	$roles = Get-CfgSection $cfg "roles"
+	$keys = Get-SortedKeys $roles
+	foreach ($by in @("names", "types")) {
+		$text = if ($by -eq "names") { [string]$f.Name } else { [string]$f.Type }
+		$best = $null; $bestPr = [int]::MinValue
+		foreach ($k in $keys) {
+			$role = $roles[$k]
+			if (-not ($role -is [hashtable])) { continue }
+			$rx = $role[$by]
+			if (-not ($rx -is [string]) -or $rx -eq "" -or $text -notmatch $rx) { continue }
+			$pr = if ($null -ne $role.priority) { [int]$role.priority } else { 0 }
+			if ($pr -gt $bestPr) { $best = $k; $bestPr = $pr }
+		}
+		if ($best) { return $best }
+	}
+	return $null
+}
+
+# Свойства поля: byType, поверх — byName (имя без учёта регистра)
+function Get-FieldProps($f, $cfg, [string]$section, [string]$nameOverride) {
+	$res = [ordered]@{}
+	$ps = Get-CfgSection $cfg $section
+	$byType = Get-CfgSection $ps "byType"
+	$cls = Get-FieldTypeClass $f
+	if ($byType[$cls] -is [hashtable]) {
+		foreach ($k in (Get-SortedKeys $byType[$cls])) { $res[$k] = $byType[$cls][$k] }
+	}
+	$nm = if ($nameOverride) { $nameOverride } else { [string]$f.Name }
+	$byName = Get-CfgSection $ps "byName"
+	if ($byName[$nm] -is [hashtable]) {
+		foreach ($k in (Get-SortedKeys $byName[$nm])) { $res[$k] = $byName[$nm][$k] }
+	}
+	return $res
+}
+
+function Merge-Props($el, $props) {
+	if ($props) { foreach ($k in $props.Keys) { $el[$k] = $props[$k] } }
+	return $el
+}
+
+# Колонки ТЧ после отсева, с элементами; $skipped — коллекция для отчёта
+function Build-TabularColumns($ts, $cfg, $fd, [bool]$lineNumber, $skipped) {
+	$cols = @()
+	if ($lineNumber) {
+		$ln = [ordered]@{ labelField = "$($ts.Name)НомерСтроки"; path = "Объект.$($ts.Name).LineNumber" }
+		$cols += (Merge-Props $ln (Get-FieldProps @{ Name = "НомерСтроки"; Type = "xs:decimal" } $cfg "columnProps" ""))
+	}
+	$cond = Get-ConditionalSkips $ts $cfg
+	foreach ($col in $ts.Columns) {
+		if (-not (Test-DisplayableType $col.Type)) { continue }
+		$why = Get-SkipReason $col $cfg "columns"
+		if (-not $why -and $cond.ContainsKey($col.Name)) { $why = $cond[$col.Name] }
+		if ($why) { [void]$skipped.Add("$($ts.Name).$($col.Name) ($why)"); continue }
+		$el = New-FieldElement -attrName "$($ts.Name)$($col.Name)" -dataPath "Объект.$($ts.Name).$($col.Name)" -attrType $col.Type -fieldDefaults $fd -extraProps @{}
+		$cols += (Merge-Props $el (Get-FieldProps $col $cfg "columnProps" ""))
+	}
+	return ,$cols
+}
+
+# Видимые ТЧ после отсева
+function Get-VisibleTabularSections($meta, $cfg, [hashtable]$p, $skipped) {
+	$legacy = @()
+	if ($p.tabularSections -and $p.tabularSections.exclude) { $legacy = @($p.tabularSections.exclude) }
+	$tsRules = Get-CfgSection (Get-CfgSection $cfg "skip") "tabularSections"
+	$res = @()
+	foreach ($ts in $meta.TabularSections) {
+		$why = $null
+		if ($legacy -contains $ts.Name) { $why = "exclude" }
+		if (-not $why) { $why = Find-MatchingRule $tsRules $ts.Name }
+		if ($why) { [void]$skipped.Add("$($ts.Name) ($why)"); continue }
+		$res += $ts
+	}
+	return ,$res
+}
+
+# Уникальное имя элемента: базовое, иначе с числовым суффиксом
+function Get-UniqueElementName([string]$base, [hashtable]$used) {
+	$n = $base; $i = 1
+	while ($used.ContainsKey($n)) { $n = "$base$i"; $i++ }
+	$used[$n] = $true
+	return $n
+}
+
+function Write-FromObjectReport($skipped, [hashtable]$placed) {
+	if ($skipped.Count -gt 0) { Write-Host "[from-object] skipped: $(@($skipped) -join ', ')" }
+	foreach ($z in @("top", "header.left", "header.right", "main.bottom", "additional.left", "additional.right", "footer")) {
+		if ($placed.ContainsKey($z) -and $placed[$z].Count -gt 0) { Write-Host "[from-object] $z`: $(@($placed[$z]) -join ', ')" }
+	}
+}
+
 # --- Catalog DSL generators ---
 function Generate-CatalogDSL {
 	param($meta, [hashtable]$presetData, [string]$purpose)
@@ -473,12 +641,13 @@ function Generate-CatalogDSL {
 	$purposeKey = "catalog.$($purpose.ToLower())"
 	$p = if ($presetData.ContainsKey($purposeKey)) { $presetData[$purposeKey] } else { @{} }
 	$fd = if ($p.ContainsKey("fieldDefaults")) { $p.fieldDefaults } else { @{} }
+	$cfg = Get-FieldsConfig $presetData
 
 	switch ($purpose) {
 		"Folder" { return Generate-CatalogFolderDSL $meta $p }
-		"List"   { return Generate-CatalogListDSL $meta $p }
+		"List"   { return Generate-CatalogListDSL $meta $p $cfg }
 		"Choice" { return Generate-CatalogChoiceDSL $meta $p $presetData }
-		"Item"   { return Generate-CatalogItemDSL $meta $p $fd }
+		"Item"   { return Generate-CatalogItemDSL $meta $p $fd $cfg }
 	}
 }
 
@@ -512,18 +681,23 @@ function Generate-CatalogFolderDSL($meta, [hashtable]$p) {
 	}
 }
 
-function Generate-CatalogListDSL($meta, [hashtable]$p) {
+function Generate-CatalogListDSL($meta, [hashtable]$p, $cfg) {
 	# Columns
 	$columns = @()
 	# Description always first
 	$columns += [ordered]@{ labelField = "Наименование"; path = "Список.Description" }
 	# Code if present
+	$reserved = 1
 	if ($meta.CodeLength -gt 0) {
 		$columns += [ordered]@{ labelField = "Код"; path = "Список.Code" }
+		$reserved++
 	}
-	# Custom attributes
-	foreach ($attr in $meta.Attributes) {
-		if (-not (Test-DisplayableType $attr.Type)) { continue }
+	# Owner for subordinate catalogs
+	if ($meta.Owners -and $meta.Owners.Count -gt 0) {
+		$columns += [ordered]@{ labelField = "Владелец"; path = "Список.Owner" }
+		$reserved++
+	}
+	foreach ($attr in (Select-ListAttributes $meta $p $cfg $reserved)) {
 		$columns += [ordered]@{ labelField = $attr.Name; path = "Список.$($attr.Name)" }
 	}
 	# Hidden ref
@@ -548,37 +722,46 @@ function Generate-CatalogListDSL($meta, [hashtable]$p) {
 	$formProps = [ordered]@{}
 	if ($p.properties) { foreach ($k in $p.properties.Keys) { $formProps[$k] = $p.properties[$k] } }
 
-	return [ordered]@{
-		title = $meta.Synonym
-		properties = $formProps
-		elements = @($tableEl)
-		attributes = @(
-			[ordered]@{
-				name = "Список"; type = "DynamicList"; main = $true
-				settings = [ordered]@{ mainTable = "Catalog.$($meta.Name)"; dynamicDataRead = $true }
-			}
-		)
-	}
+	$dsl = [ordered]@{}
+	if ($p.title -eq $true) { $dsl["title"] = $meta.Synonym }
+	$dsl["properties"] = $formProps
+	$dsl["elements"] = (New-ListElements $tableEl $p)
+	$dsl["attributes"] = @(
+		[ordered]@{
+			name = "Список"; type = "DynamicList"; main = $true
+			settings = [ordered]@{ mainTable = "Catalog.$($meta.Name)"; dynamicDataRead = $true }
+		}
+	)
+	return $dsl
 }
 
 function Generate-CatalogChoiceDSL($meta, [hashtable]$p, [hashtable]$presetData) {
 	# Start from list
 	$listKey = "catalog.list"
 	$lp = if ($presetData.ContainsKey($listKey)) { $presetData[$listKey] } else { @{} }
-	$dsl = Generate-CatalogListDSL $meta $lp
+	$dsl = Generate-CatalogListDSL $meta $lp (Get-FieldsConfig $presetData)
 
 	# Add choice-specific properties
 	$dsl.properties["windowOpeningMode"] = "LockOwnerWindow"
 	if ($p.properties) { foreach ($k in $p.properties.Keys) { $dsl.properties[$k] = $p.properties[$k] } }
 
-	# Set ChoiceMode on table
-	$dsl.elements[0]["choiceMode"] = $true
+	# Set ChoiceMode on the list table
+	foreach ($el in $dsl.elements) { if ($el.table -eq "Список") { $el["choiceMode"] = $true } }
 
 	return $dsl
 }
 
-function Generate-CatalogItemDSL($meta, [hashtable]$p, [hashtable]$fd) {
+function Generate-CatalogItemDSL($meta, [hashtable]$p, [hashtable]$fd, $cfg) {
 	$headerChildren = @()
+	$skipped = New-Object System.Collections.ArrayList
+
+	# Занятые имена элементов: реквизиты, ТЧ, колонки
+	$used = @{}
+	foreach ($a in $meta.Attributes) { $used[$a.Name] = $true }
+	foreach ($ts in $meta.TabularSections) {
+		$used[$ts.Name] = $true
+		foreach ($c in $ts.Columns) { $used["$($ts.Name)$($c.Name)"] = $true }
+	}
 
 	# Owner (if subordinate)
 	if ($meta.Owners -and $meta.Owners.Count -gt 0) {
@@ -597,11 +780,13 @@ function Generate-CatalogItemDSL($meta, [hashtable]$p, [hashtable]$fd) {
 		$codeEl = [ordered]@{ input = "Код"; path = "Объект.Code" }
 		if ($cdOrder -eq "descriptionFirst") {
 			$cdChildren = @($descEl, $codeEl)
+			$cdName = "ГруппаНаименованиеКод"
 		} else {
 			$cdChildren = @($codeEl, $descEl)
+			$cdName = "ГруппаКодНаименование"
 		}
 		$headerChildren += [ordered]@{
-			group = "horizontal"; name = "ГруппаКодНаименование"; showTitle = $false
+			group = "horizontal"; name = (Get-UniqueElementName $cdName $used); showTitle = $false
 			representation = "none"; children = $cdChildren
 		}
 	} else {
@@ -633,14 +818,30 @@ function Generate-CatalogItemDSL($meta, [hashtable]$p, [hashtable]$fd) {
 		}
 	}
 
-	# Custom attributes → header
+	# Реквизиты: в шапку по порядку метаданных; роль с зоной main.bottom и footer.fields — вниз формы
 	$footerFieldNames = @()
 	if ($p.footer -and $p.footer.fields) { $footerFieldNames = @($p.footer.fields) }
+	$roles = Get-CfgSection $cfg "roles"
+	$bottomEls = @()
+	$placed = @{ "header.left" = @(); "main.bottom" = @() }
 
 	foreach ($attr in $meta.Attributes) {
-		if ($footerFieldNames -contains $attr.Name) { continue }
 		if (-not (Test-DisplayableType $attr.Type)) { continue }
-		$headerChildren += (New-FieldElement -attrName $attr.Name -dataPath "Объект.$($attr.Name)" -attrType $attr.Type -fieldDefaults $fd -extraProps @{})
+		$toBottom = $footerFieldNames -contains $attr.Name
+		$extra = $null
+		if (-not $toBottom) {
+			$why = Get-SkipReason $attr $cfg "attributes"
+			if ($why) { [void]$skipped.Add("$($attr.Name) ($why)"); continue }
+			$role = Resolve-FieldRole $attr $cfg
+			if ($role -and $roles[$role].zone -eq "hidden") { [void]$skipped.Add("$($attr.Name) (hidden)"); continue }
+			if ($role -and $roles[$role].zone -eq "main.bottom") { $toBottom = $true }
+			if ($role -and $roles[$role].props -is [hashtable]) { $extra = $roles[$role].props }
+		}
+		$el = New-FieldElement -attrName $attr.Name -dataPath "Объект.$($attr.Name)" -attrType $attr.Type -fieldDefaults $fd -extraProps @{}
+		$el = Merge-Props $el (Get-FieldProps $attr $cfg "props" "")
+		$el = Merge-Props $el $extra
+		if ($toBottom) { $bottomEls += $el; $placed["main.bottom"] += $attr.Name }
+		else { $headerChildren += $el; $placed["header.left"] += $attr.Name }
 	}
 
 	# Build root elements
@@ -648,65 +849,44 @@ function Generate-CatalogItemDSL($meta, [hashtable]$p, [hashtable]$fd) {
 
 	# ГруппаШапка
 	$rootElements += [ordered]@{
-		group = "vertical"; name = "ГруппаШапка"; showTitle = $false
+		group = "vertical"; name = (Get-UniqueElementName "ГруппаШапка" $used); showTitle = $false
 		representation = "none"; children = $headerChildren
 	}
 
 	# Tabular sections
-	$tsExclude = @("ДополнительныеРеквизиты", "Представления")
-	if ($p.tabularSections -and $p.tabularSections.exclude) { $tsExclude = @($p.tabularSections.exclude) }
 	$tsLineNumber = if ($p.tabularSections -and $null -ne $p.tabularSections.lineNumber) { $p.tabularSections.lineNumber } else { $true }
-	$tsContainer = if ($p.tabularSections -and $p.tabularSections.container) { $p.tabularSections.container } else { "inline" }
-
-	$visibleTS = @()
-	foreach ($ts in $meta.TabularSections) {
-		if ($tsExclude -contains $ts.Name) { continue }
-		$visibleTS += $ts
+	foreach ($ts in (Get-VisibleTabularSections $meta $cfg $p $skipped)) {
+		$tsCols = Build-TabularColumns $ts $cfg $fd $tsLineNumber $skipped
+		$rootElements += [ordered]@{ table = $ts.Name; path = "Объект.$($ts.Name)"; columns = $tsCols }
 	}
 
-	foreach ($ts in $visibleTS) {
-		$tsCols = @()
-		if ($tsLineNumber) {
-			$tsCols += [ordered]@{ labelField = "$($ts.Name)НомерСтроки"; path = "Объект.$($ts.Name).LineNumber" }
-		}
-		foreach ($col in $ts.Columns) {
-			$colEl = New-FieldElement -attrName "$($ts.Name)$($col.Name)" -dataPath "Объект.$($ts.Name).$($col.Name)" -attrType $col.Type -fieldDefaults $fd -extraProps @{}
-			$tsCols += $colEl
-		}
-		$tableEl = [ordered]@{ table = $ts.Name; path = "Объект.$($ts.Name)"; columns = $tsCols }
-		$rootElements += $tableEl
-	}
-
-	# Footer fields
-	foreach ($fn in $footerFieldNames) {
-		$fAttr = $meta.Attributes | Where-Object { $_.Name -eq $fn }
-		if ($fAttr) {
-			$rootElements += (New-FieldElement -attrName $fAttr.Name -dataPath "Объект.$($fAttr.Name)" -attrType $fAttr.Type -fieldDefaults $fd -extraProps @{})
-		}
-	}
+	# Нижние поля (Комментарий)
+	$rootElements += $bottomEls
 
 	# BSP group
 	$bspGroup = if ($p.additional -and $null -ne $p.additional.bspGroup) { $p.additional.bspGroup } else { $true }
 	if ($bspGroup) {
-		$rootElements += [ordered]@{ group = "vertical"; name = "ГруппаДополнительныеРеквизиты"; showTitle = $true }
+		$rootElements += [ordered]@{ group = "vertical"; name = (Get-UniqueElementName "ГруппаДополнительныеРеквизиты" $used); showTitle = $true }
 	}
+
+	Write-FromObjectReport $skipped $placed
 
 	# Properties
 	$formProps = [ordered]@{}
-	if ($p.properties) { foreach ($k in $p.properties.Keys) { $formProps[$k] = $p.properties[$k] } }
+	if ($p.properties) { foreach ($k in (Get-SortedKeys $p.properties)) { $formProps[$k] = $p.properties[$k] } }
 	# UseForFoldersAndItems
 	if ($meta.Hierarchical -and $meta.HierarchyType -eq "HierarchyFoldersAndItems") {
 		$formProps["useForFoldersAndItems"] = "Items"
 	}
 
-	return [ordered]@{
-		title = $meta.Synonym
-		properties = $formProps
-		elements = $rootElements
-		attributes = @(
-			[ordered]@{ name = "Объект"; type = "CatalogObject.$($meta.Name)"; main = $true }
-		)
-	}
+	$dsl = [ordered]@{}
+	if ($p.title -eq $true) { $dsl["title"] = $meta.Synonym }
+	$dsl["properties"] = $formProps
+	$dsl["elements"] = $rootElements
+	$dsl["attributes"] = @(
+		[ordered]@{ name = "Объект"; type = "CatalogObject.$($meta.Name)"; main = $true }
+	)
+	return $dsl
 }
 
 # --- Document DSL generators ---
@@ -716,22 +896,58 @@ function Generate-DocumentDSL {
 	$purposeKey = "document.$($purpose.ToLower())"
 	$p = if ($presetData.ContainsKey($purposeKey)) { $presetData[$purposeKey] } else { @{} }
 	$fd = if ($p.ContainsKey("fieldDefaults")) { $p.fieldDefaults } else { @{} }
+	$cfg = Get-FieldsConfig $presetData
 
 	switch ($purpose) {
-		"List"   { return Generate-DocumentListDSL $meta $p }
+		"List"   { return Generate-DocumentListDSL $meta $p $cfg }
 		"Choice" { return Generate-DocumentChoiceDSL $meta $p $presetData }
-		"Item"   { return Generate-DocumentItemDSL $meta $p $fd }
+		"Item"   { return Generate-DocumentItemDSL $meta $p $fd $cfg }
 	}
 }
 
-function Generate-DocumentListDSL($meta, [hashtable]$p) {
+# Колонки списка в режиме "auto": реквизиты с ролью list:true и обязательные, в порядке метаданных, до maxColumns
+function Select-ListAttributes($meta, [hashtable]$p, $cfg, [int]$reserved) {
+	$mode = if ($p.ContainsKey("columns")) { $p.columns } else { "all" }
+	$res = @()
+	$roles = Get-CfgSection $cfg "roles"
+	foreach ($attr in $meta.Attributes) {
+		if (-not (Test-DisplayableType $attr.Type)) { continue }
+		if ($mode -is [string] -and $mode -eq "all") { $res += $attr; continue }
+		if ($mode -is [array] -or $mode -is [System.Collections.IList]) {
+			if (@($mode) -contains $attr.Name) { $res += $attr }
+			continue
+		}
+		if (Get-SkipReason $attr $cfg "attributes") { continue }
+		$role = Resolve-FieldRole $attr $cfg
+		$inList = ($role -and $roles[$role].list -eq $true) -or ($attr.FillChecking -eq "ShowError")
+		if ($inList) { $res += $attr }
+	}
+	if ($mode -is [string] -and $mode -eq "auto") {
+		$max = if ($null -ne $p.maxColumns) { [int]$p.maxColumns - $reserved } else { 999 }
+		if ($max -lt 0) { $max = 0 }
+		if ($res.Count -gt $max) { $res = @($res[0..($max - 1)]) }
+		if ($max -eq 0) { $res = @() }
+	}
+	return ,$res
+}
+
+# Таблица списка + группа пользовательских настроек над ней
+function New-ListElements($tableEl, [hashtable]$p) {
+	$els = @()
+	if ($p.userSettingsGroup -eq $true) {
+		$els += [ordered]@{ group = "vertical"; name = "ГруппаПользовательскихНастроек"; title = "Группа пользовательских настроек"; showTitle = $false; representation = "none" }
+		$tableEl["userSettingsGroup"] = "ГруппаПользовательскихНастроек"
+	}
+	$els += $tableEl
+	return ,$els
+}
+
+function Generate-DocumentListDSL($meta, [hashtable]$p, $cfg) {
 	$columns = @()
 	# Standard columns: Number + Date
 	$columns += [ordered]@{ labelField = "Номер"; path = "Список.Number" }
 	$columns += [ordered]@{ labelField = "Дата"; path = "Список.Date" }
-	# All custom attributes as labelField
-	foreach ($attr in $meta.Attributes) {
-		if (-not (Test-DisplayableType $attr.Type)) { continue }
+	foreach ($attr in (Select-ListAttributes $meta $p $cfg 2)) {
 		$columns += [ordered]@{ labelField = $attr.Name; path = "Список.$($attr.Name)" }
 	}
 	# Hidden ref
@@ -750,23 +966,23 @@ function Generate-DocumentListDSL($meta, [hashtable]$p) {
 	$formProps = [ordered]@{}
 	if ($p.properties) { foreach ($k in $p.properties.Keys) { $formProps[$k] = $p.properties[$k] } }
 
-	return [ordered]@{
-		title = $meta.Synonym
-		properties = $formProps
-		elements = @($tableEl)
-		attributes = @(
-			[ordered]@{
-				name = "Список"; type = "DynamicList"; main = $true
-				settings = [ordered]@{ mainTable = "Document.$($meta.Name)"; dynamicDataRead = $true }
-			}
-		)
-	}
+	$dsl = [ordered]@{}
+	if ($p.title -eq $true) { $dsl["title"] = $meta.Synonym }
+	$dsl["properties"] = $formProps
+	$dsl["elements"] = (New-ListElements $tableEl $p)
+	$dsl["attributes"] = @(
+		[ordered]@{
+			name = "Список"; type = "DynamicList"; main = $true
+			settings = [ordered]@{ mainTable = "Document.$($meta.Name)"; dynamicDataRead = $true }
+		}
+	)
+	return $dsl
 }
 
 function Generate-DocumentChoiceDSL($meta, [hashtable]$p, [hashtable]$presetData) {
 	$listKey = "document.list"
 	$lp = if ($presetData.ContainsKey($listKey)) { $presetData[$listKey] } else { @{} }
-	$dsl = Generate-DocumentListDSL $meta $lp
+	$dsl = Generate-DocumentListDSL $meta $lp (Get-FieldsConfig $presetData)
 
 	$dsl.properties["windowOpeningMode"] = "LockOwnerWindow"
 	if ($p.properties) { foreach ($k in $p.properties.Keys) { $dsl.properties[$k] = $p.properties[$k] } }
@@ -774,10 +990,9 @@ function Generate-DocumentChoiceDSL($meta, [hashtable]$p, [hashtable]$presetData
 	return $dsl
 }
 
-function Generate-DocumentItemDSL($meta, [hashtable]$p, [hashtable]$fd) {
+function Generate-DocumentItemDSL($meta, [hashtable]$p, [hashtable]$fd, $cfg) {
 	$headerPos = if ($p.header -and $p.header.position) { $p.header.position } else { "insidePage" }
 	$headerLayout = if ($p.header -and $p.header.layout) { $p.header.layout } else { "2col" }
-	$headerDistribute = if ($p.header -and $p.header.distribute) { $p.header.distribute } else { "even" }
 	$dateTitle = if ($p.header -and $p.header.dateTitle) { $p.header.dateTitle } else { "от" }
 
 	$footerFields = @()
@@ -787,208 +1002,205 @@ function Generate-DocumentItemDSL($meta, [hashtable]$p, [hashtable]$fd) {
 	$addPos = if ($p.additional -and $p.additional.position) { $p.additional.position } else { "page" }
 	$addLayout = if ($p.additional -and $p.additional.layout) { $p.additional.layout } else { "2col" }
 	$addBspGroup = if ($p.additional -and $null -ne $p.additional.bspGroup) { $p.additional.bspGroup } else { $true }
-	$addLeft = @(); $addRight = @()
-	if ($p.additional -and $p.additional.left) { $addLeft = @($p.additional.left) }
-	if ($p.additional -and $p.additional.right) { $addRight = @($p.additional.right) }
-
-	$headerRight = @()
-	if ($p.header -and $p.header.right) { $headerRight = @($p.header.right) }
-
-	$tsExclude = @("ДополнительныеРеквизиты")
-	if ($p.tabularSections -and $p.tabularSections.exclude) { $tsExclude = @($p.tabularSections.exclude) }
 	$tsLineNumber = if ($p.tabularSections -and $null -ne $p.tabularSections.lineNumber) { $p.tabularSections.lineNumber } else { $true }
 
-	# Classify attributes
-	$claimed = @{}
-	foreach ($fn in $footerFields) { $claimed[$fn] = "footer" }
-	foreach ($fn in $headerRight) { $claimed[$fn] = "header.right" }
-	foreach ($fn in $addLeft) { $claimed[$fn] = "additional.left" }
-	foreach ($fn in $addRight) { $claimed[$fn] = "additional.right" }
+	# Закреплённые поля: имя → зона
+	$pinned = @{}
+	foreach ($fn in $footerFields) { $pinned[$fn] = if ($footerPos -eq "belowPages") { "footer" } else { "main.bottom" } }
+	if ($p.header -and $p.header.left) { foreach ($fn in @($p.header.left)) { $pinned[$fn] = "header.left" } }
+	if ($p.header -and $p.header.right) { foreach ($fn in @($p.header.right)) { $pinned[$fn] = "header.right" } }
+	if ($p.additional -and $p.additional.left) { foreach ($fn in @($p.additional.left)) { $pinned[$fn] = "additional.left" } }
+	if ($p.additional -and $p.additional.right) { foreach ($fn in @($p.additional.right)) { $pinned[$fn] = "additional.right" } }
 
-	$unclaimed = @()
+	$roles = Get-CfgSection $cfg "roles"
+	$unplaced = Get-CfgSection $cfg "unplaced"
+	$skipped = New-Object System.Collections.ArrayList
+	$zones = @{}
+	foreach ($z in @("top", "header.left", "header.right", "header", "main.bottom", "additional.left", "additional.right", "additional", "footer")) { $zones[$z] = New-Object System.Collections.ArrayList }
+
+	# Без табличных частей форма без страниц: поля «Дополнительно» уходят в шапку
+	$visibleTS = Get-VisibleTabularSections $meta $cfg $p $skipped
+	$usePages = $visibleTS.Count -gt 0
+
+	# 1. Зона каждого реквизита: закрепление → роль → правило для нераспознанных
 	foreach ($attr in $meta.Attributes) {
-		if (-not $claimed.ContainsKey($attr.Name) -and (Test-DisplayableType $attr.Type)) { $unclaimed += $attr }
-	}
-
-	# Distribute unclaimed
-	$leftAttrs = @(); $rightExtraAttrs = @()
-	switch ($headerDistribute) {
-		"left"  { $leftAttrs = $unclaimed }
-		"right" { $rightExtraAttrs = $unclaimed }
-		default { # "even"
-			$half = [Math]::Ceiling($unclaimed.Count / 2)
-			for ($i = 0; $i -lt $unclaimed.Count; $i++) {
-				if ($i -lt $half) { $leftAttrs += $unclaimed[$i] }
-				else { $rightExtraAttrs += $unclaimed[$i] }
+		if (-not (Test-DisplayableType $attr.Type)) { continue }
+		$zone = $null; $extra = $null; $order = 0
+		if ($pinned.ContainsKey($attr.Name)) {
+			$zone = $pinned[$attr.Name]
+		} else {
+			$why = Get-SkipReason $attr $cfg "attributes"
+			if ($why) { [void]$skipped.Add("$($attr.Name) ($why)"); continue }
+			$role = Resolve-FieldRole $attr $cfg
+			if ($role -and $roles[$role].zone) {
+				$zone = [string]$roles[$role].zone
+				if ($roles[$role].props -is [hashtable]) { $extra = $roles[$role].props }
+				if ($null -ne $roles[$role].order) { $order = [int]$roles[$role].order }
+			} else {
+				$kind = if ($attr.FillChecking -eq "ShowError") { "required" } elseif ($attr.FullTextSearch -eq "DontUse") { "notSearchable" } else { "optional" }
+				$zone = if ($unplaced[$kind]) { [string]$unplaced[$kind] } else { "header" }
 			}
 		}
+		if ($zone -eq "hidden") { [void]$skipped.Add("$($attr.Name) (hidden)"); continue }
+		if (($addPos -ne "page" -or -not $usePages) -and $zone -like "additional*") { $zone = "header" }
+		if ($headerLayout -ne "2col" -and $zone -like "header*") { $zone = "header.left" }
+		if ($addLayout -ne "2col" -and $zone -like "additional*") { $zone = "additional.left" }
+		if (-not $zones.ContainsKey($zone)) { $zone = "header" }
+		[void]$zones[$zone].Add(@{ Attr = $attr; Extra = $extra; Order = $order })
+	}
+	# Нераспознанные — в более короткую колонку (слева ещё группа Номер+Дата); distribute left/right — всё в одну
+	$distribute = if ($p.header -and $p.header.distribute) { [string]$p.header.distribute } else { "even" }
+	$leftCount = 1 + $zones["header.left"].Count
+	$rightCount = $zones["header.right"].Count
+	if ($distribute -eq "left") { $rightCount = [int]::MaxValue }
+	if ($distribute -eq "right") { $leftCount = [int]::MaxValue }
+	foreach ($it in $zones["header"]) {
+		if ($rightCount -lt $leftCount) { [void]$zones["header.right"].Add($it); $rightCount++ } else { [void]$zones["header.left"].Add($it); $leftCount++ }
+	}
+	$leftCount = $zones["additional.left"].Count; $rightCount = $zones["additional.right"].Count
+	foreach ($it in $zones["additional"]) {
+		if ($rightCount -lt $leftCount) { [void]$zones["additional.right"].Add($it); $rightCount++ } else { [void]$zones["additional.left"].Add($it); $leftCount++ }
 	}
 
-	# Build ГруппаНомерДата
-	$numDateChildren = @(
-		[ordered]@{ input = "Номер"; path = "Объект.Number"; autoMaxWidth = $false; width = 9 }
-		[ordered]@{ input = "Дата"; path = "Объект.Date"; title = $dateTitle }
-	)
-	$numDateGroup = [ordered]@{
-		group = "horizontal"; name = "ГруппаНомерДата"; showTitle = $false; children = $numDateChildren
+	# Занятые имена элементов: реквизиты, ТЧ, колонки
+	$used = @{}
+	foreach ($a in $meta.Attributes) { $used[$a.Name] = $true }
+	foreach ($ts in $meta.TabularSections) {
+		$used[$ts.Name] = $true
+		foreach ($c in $ts.Columns) { $used["$($ts.Name)$($c.Name)"] = $true }
 	}
 
-	# Build left column
-	$leftChildren = @($numDateGroup)
-	foreach ($attr in $leftAttrs) {
-		$leftChildren += (New-FieldElement -attrName $attr.Name -dataPath "Объект.$($attr.Name)" -attrType $attr.Type -fieldDefaults $fd -extraProps @{})
-	}
-
-	# Build right column
-	$rightChildren = @()
-	foreach ($rn in $headerRight) {
-		$rAttr = $meta.Attributes | Where-Object { $_.Name -eq $rn }
-		if ($rAttr) {
-			$rightChildren += (New-FieldElement -attrName $rAttr.Name -dataPath "Объект.$($rAttr.Name)" -attrType $rAttr.Type -fieldDefaults $fd -extraProps @{})
+	$placed = @{}
+	$buildZone = {
+		param([string]$z)
+		$els = @()
+		$placed[$z] = @()
+		# Устойчиво по order роли (по умолчанию 0), внутри — порядок метаданных
+		$orders = @($zones[$z] | ForEach-Object { [int]$_.Order } | Sort-Object -Unique)
+		$sorted = @()
+		foreach ($o in $orders) { foreach ($it in $zones[$z]) { if ([int]$it.Order -eq $o) { $sorted += $it } } }
+		foreach ($it in $sorted) {
+			$a = $it.Attr
+			$el = New-FieldElement -attrName $a.Name -dataPath "Объект.$($a.Name)" -attrType $a.Type -fieldDefaults $fd -extraProps @{}
+			$el = Merge-Props $el (Get-FieldProps $a $cfg "props" "")
+			$el = Merge-Props $el $it.Extra
+			$els += $el
+			$placed[$z] += $a.Name
 		}
-	}
-	foreach ($attr in $rightExtraAttrs) {
-		$rightChildren += (New-FieldElement -attrName $attr.Name -dataPath "Объект.$($attr.Name)" -attrType $attr.Type -fieldDefaults $fd -extraProps @{})
+		return ,$els
 	}
 
-	# Header group
-	$headerGroup = $null
-	if ($headerLayout -eq "2col" -and $rightChildren.Count -gt 0) {
+	# Номер + Дата
+	$numEl = Merge-Props ([ordered]@{ input = "Номер"; path = "Объект.Number" }) (Get-FieldProps @{ Name = "Номер"; Type = "" } $cfg "props" "Номер")
+	$dateEl = Merge-Props ([ordered]@{ input = "Дата"; path = "Объект.Date"; title = $dateTitle }) (Get-FieldProps @{ Name = "Дата"; Type = "" } $cfg "props" "Дата")
+	$numDateGroup = [ordered]@{
+		group = "horizontal"; name = (Get-UniqueElementName "ГруппаНомерДата" $used); showTitle = $false; children = @($numEl, $dateEl)
+	}
+
+	$leftChildren = @($numDateGroup) + (& $buildZone "header.left")
+	$rightChildren = & $buildZone "header.right"
+	if ($rightChildren.Count -gt 0) {
 		$headerGroup = [ordered]@{
-			group = "horizontal"; name = "ГруппаШапка"; showTitle = $false; representation = "none"
+			group = "horizontal"; name = (Get-UniqueElementName "ГруппаШапка" $used); showTitle = $false; representation = "none"
 			children = @(
-				[ordered]@{ group = "vertical"; name = "ГруппаШапкаЛево"; showTitle = $false; children = $leftChildren }
-				[ordered]@{ group = "vertical"; name = "ГруппаШапкаПраво"; showTitle = $false; children = $rightChildren }
+				[ordered]@{ group = "vertical"; name = (Get-UniqueElementName "ГруппаШапкаЛево" $used); showTitle = $false; children = $leftChildren }
+				[ordered]@{ group = "vertical"; name = (Get-UniqueElementName "ГруппаШапкаПраво" $used); showTitle = $false; children = $rightChildren }
 			)
 		}
 	} else {
-		# 1col or no right items
-		$allHeaderFields = $leftChildren + $rightChildren
 		$headerGroup = [ordered]@{
-			group = "horizontal"; name = "ГруппаШапка"; showTitle = $false; representation = "none"
+			group = "horizontal"; name = (Get-UniqueElementName "ГруппаШапка" $used); showTitle = $false; representation = "none"
 			children = @(
-				[ordered]@{ group = "vertical"; name = "ГруппаШапкаЛево"; showTitle = $false; children = $allHeaderFields }
+				[ordered]@{ group = "vertical"; name = (Get-UniqueElementName "ГруппаШапкаЛево" $used); showTitle = $false; children = $leftChildren }
 			)
 		}
 	}
 
-	# Footer elements
-	$footerElements = @()
-	foreach ($fn in $footerFields) {
-		$fAttr = $meta.Attributes | Where-Object { $_.Name -eq $fn }
-		if ($fAttr -and (Test-DisplayableType $fAttr.Type)) {
-			$footerElements += (New-FieldElement -attrName $fAttr.Name -dataPath "Объект.$($fAttr.Name)" -attrType $fAttr.Type -fieldDefaults $fd -extraProps @{})
-		}
+	$topEls = & $buildZone "top"
+	$bottomEls = & $buildZone "main.bottom"
+	# Несколько нижних полей (Комментарий + Ответственный) — в одну строку
+	if ($bottomEls.Count -gt 1) {
+		$bottomEls = @([ordered]@{ group = "horizontal"; name = (Get-UniqueElementName ("Группа" + (@($placed["main.bottom"]) -join "")) $used); showTitle = $false; children = $bottomEls })
 	}
+	$footerEls = & $buildZone "footer"
+	$addLeftEls = & $buildZone "additional.left"
+	$addRightEls = & $buildZone "additional.right"
+	$hasAdditional = ($addLeftEls.Count + $addRightEls.Count) -gt 0
 
-	# Visible tabular sections
-	$visibleTS = @()
-	foreach ($ts in $meta.TabularSections) {
-		if ($tsExclude -contains $ts.Name) { continue }
-		$visibleTS += $ts
-	}
-
-	# Additional page content
+	# Страница «Дополнительно»
 	$additionalPage = $null
-	if ($addPos -eq "page") {
-		$addLeftEls = @(); $addRightEls = @()
-		foreach ($aln in $addLeft) {
-			$alAttr = $meta.Attributes | Where-Object { $_.Name -eq $aln }
-			if ($alAttr) {
-				$addLeftEls += (New-FieldElement -attrName $alAttr.Name -dataPath "Объект.$($alAttr.Name)" -attrType $alAttr.Type -fieldDefaults $fd -extraProps @{})
-			}
-		}
-		foreach ($arn in $addRight) {
-			$arAttr = $meta.Attributes | Where-Object { $_.Name -eq $arn }
-			if ($arAttr) {
-				$addRightEls += (New-FieldElement -attrName $arAttr.Name -dataPath "Объект.$($arAttr.Name)" -attrType $arAttr.Type -fieldDefaults $fd -extraProps @{})
-			}
-		}
+	if ($addPos -eq "page" -and $usePages) {
 		$addPageChildren = @()
-		if ($addLayout -eq "2col") {
-			$addPageChildren += [ordered]@{
-				group = "horizontal"; name = "ГруппаПараметры"; showTitle = $false
-				children = @(
-					[ordered]@{ group = "vertical"; name = "ГруппаПараметрыЛево"; showTitle = $false; children = $addLeftEls }
-					[ordered]@{ group = "vertical"; name = "ГруппаПараметрыПраво"; showTitle = $false; children = $addRightEls }
-				)
+		if ($hasAdditional) {
+			if ($addLeftEls.Count -gt 0 -and $addRightEls.Count -gt 0) {
+				$addPageChildren += [ordered]@{
+					group = "horizontal"; name = (Get-UniqueElementName "ГруппаПараметры" $used); showTitle = $false
+					children = @(
+						[ordered]@{ group = "vertical"; name = (Get-UniqueElementName "ГруппаПараметрыЛево" $used); showTitle = $false; children = $addLeftEls }
+						[ordered]@{ group = "vertical"; name = (Get-UniqueElementName "ГруппаПараметрыПраво" $used); showTitle = $false; children = $addRightEls }
+					)
+				}
+			} else {
+				$addPageChildren += @($addLeftEls + $addRightEls)
 			}
-		} else {
-			$addPageChildren += @($addLeftEls + $addRightEls)
 		}
 		if ($addBspGroup) {
-			$addPageChildren += [ordered]@{ group = "vertical"; name = "ГруппаДополнительныеРеквизиты"; showTitle = $true }
+			$addPageChildren += [ordered]@{ group = "vertical"; name = (Get-UniqueElementName "ГруппаДополнительныеРеквизиты" $used); showTitle = $true }
 		}
-		$additionalPage = [ordered]@{ page = "ГруппаДополнительно"; title = "Дополнительно"; children = $addPageChildren }
+		$additionalPage = [ordered]@{ page = (Get-UniqueElementName "ГруппаДополнительно" $used); title = "Дополнительно"; children = $addPageChildren }
 	}
 
-	# Build TS page elements
+	# Страницы ТЧ
 	$tsPages = @()
 	foreach ($ts in $visibleTS) {
-		$tsCols = @()
-		if ($tsLineNumber) {
-			$tsCols += [ordered]@{ labelField = "$($ts.Name)НомерСтроки"; path = "Объект.$($ts.Name).LineNumber" }
-		}
-		foreach ($col in $ts.Columns) {
-			$tsCols += (New-FieldElement -attrName "$($ts.Name)$($col.Name)" -dataPath "Объект.$($ts.Name).$($col.Name)" -attrType $col.Type -fieldDefaults $fd -extraProps @{})
-		}
+		$tsCols = Build-TabularColumns $ts $cfg $fd $tsLineNumber $skipped
 		$tsPages += [ordered]@{
-			page = "Группа$($ts.Name)"; title = $ts.Synonym
+			page = (Get-UniqueElementName "Страница$($ts.Name)" $used); title = $ts.Synonym
 			children = @(
 				[ordered]@{ table = $ts.Name; path = "Объект.$($ts.Name)"; columns = $tsCols }
 			)
 		}
 	}
 
-	# Assemble root elements
+	# Сборка
 	$rootElements = @()
-
-	if ($visibleTS.Count -eq 0) {
-		# Simple form — no Pages
+	$rootElements += $topEls
+	if (-not $usePages) {
 		$rootElements += $headerGroup
-		if ($footerElements.Count -gt 0) { $rootElements += $footerElements }
+		$rootElements += $bottomEls
+		$rootElements += $footerEls
 		if ($addBspGroup -and $addPos -ne "none") {
-			$rootElements += [ordered]@{ group = "vertical"; name = "ГруппаДополнительныеРеквизиты"; showTitle = $true }
+			$rootElements += [ordered]@{ group = "vertical"; name = (Get-UniqueElementName "ГруппаДополнительныеРеквизиты" $used); showTitle = $true }
 		}
 	} else {
-		# Pages form
+		$pagesChildren = @()
 		if ($headerPos -eq "abovePages") {
 			$rootElements += $headerGroup
-			$pagesChildren = @()
-			$pagesChildren += $tsPages
-			if ($additionalPage) { $pagesChildren += $additionalPage }
-			$rootElements += [ordered]@{ pages = "ГруппаСтраницы"; children = $pagesChildren }
+			$rootElements += $bottomEls
 		} else {
-			# insidePage (default)
-			$osnovnoeChildren = @($headerGroup)
-			if ($footerPos -eq "insidePage" -and $footerElements.Count -gt 0) {
-				$osnovnoeChildren += $footerElements
-			}
-			$pagesChildren = @()
-			$pagesChildren += [ordered]@{ page = "ГруппаОсновное"; title = "Основное"; children = $osnovnoeChildren }
-			$pagesChildren += $tsPages
-			if ($additionalPage) { $pagesChildren += $additionalPage }
-			$rootElements += [ordered]@{ pages = "ГруппаСтраницы"; children = $pagesChildren }
+			$osnovnoe = @($headerGroup) + $bottomEls
+			$pagesChildren += [ordered]@{ page = (Get-UniqueElementName "СтраницаОсновное" $used); title = "Основное"; children = $osnovnoe }
 		}
-
-		# Footer below pages
-		if ($footerPos -eq "belowPages" -and $footerElements.Count -gt 0) {
-			$rootElements += $footerElements
-		}
+		$pagesChildren += $tsPages
+		if ($additionalPage) { $pagesChildren += $additionalPage }
+		$rootElements += [ordered]@{ pages = (Get-UniqueElementName "ГруппаСтраницы" $used); children = $pagesChildren }
+		$rootElements += $footerEls
 	}
+
+	Write-FromObjectReport $skipped $placed
 
 	# Properties
-	$formProps = [ordered]@{ autoTitle = $false }
-	if ($p.properties) { foreach ($k in $p.properties.Keys) { $formProps[$k] = $p.properties[$k] } }
+	$formProps = [ordered]@{}
+	if ($p.properties) { foreach ($k in (Get-SortedKeys $p.properties)) { $formProps[$k] = $p.properties[$k] } }
 
-	return [ordered]@{
-		title = $meta.Synonym
-		properties = $formProps
-		elements = $rootElements
-		attributes = @(
-			[ordered]@{ name = "Объект"; type = "DocumentObject.$($meta.Name)"; main = $true }
-		)
-	}
+	$dsl = [ordered]@{}
+	if ($p.title -eq $true) { $dsl["title"] = $meta.Synonym }
+	$dsl["properties"] = $formProps
+	$dsl["elements"] = $rootElements
+	$dsl["attributes"] = @(
+		[ordered]@{ name = "Объект"; type = "DocumentObject.$($meta.Name)"; main = $true }
+	)
+	return $dsl
 }
 
 # ─── InformationRegister ──────────────────────────────────────────────────
@@ -1183,7 +1395,7 @@ function Generate-ChartOfCharacteristicTypesDSL {
 			$newElements += $el
 			if (-not $inserted) {
 				$elName = if ($el.input) { $el.input } elseif ($el.name) { $el.name } elseif ($el.group) { $el.group } else { "" }
-				if ($elName -eq "Наименование" -or $elName -eq "ГруппаКодНаименование") {
+				if ($elName -eq "Наименование" -or $elName -eq "ГруппаКодНаименование" -or $elName -eq "ГруппаНаименованиеКод") {
 					$newElements += $vtEl
 					$inserted = $true
 				}
@@ -1226,7 +1438,7 @@ function Generate-ExchangePlanDSL {
 			$newElements += $el
 			if (-not $inserted) {
 				$elName = if ($el.input) { $el.input } elseif ($el.name) { $el.name } elseif ($el.group) { $el.group } else { "" }
-				if ($elName -eq "Наименование" -or $elName -eq "ГруппаКодНаименование") {
+				if ($elName -eq "Наименование" -or $elName -eq "ГруппаКодНаименование" -or $elName -eq "ГруппаНаименованиеКод") {
 					$newElements += $sentEl
 					$newElements += $recvEl
 					$inserted = $true

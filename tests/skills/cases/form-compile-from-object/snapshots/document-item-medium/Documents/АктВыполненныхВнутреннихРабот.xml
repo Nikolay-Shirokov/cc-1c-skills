@@ -353,6 +353,213 @@
 			</Attribute>
 			<Attribute uuid="UUID-019">
 				<Properties>
+					<Name>Статус</Name>
+					<Synonym>
+						<v8:item>
+							<v8:lang>ru</v8:lang>
+							<v8:content>Статус</v8:content>
+						</v8:item>
+					</Synonym>
+					<Comment/>
+					<Type>
+						<v8:Type>cfg:EnumRef.СтатусыАктов</v8:Type>
+					</Type>
+					<PasswordMode>false</PasswordMode>
+					<Format/>
+					<EditFormat/>
+					<ToolTip/>
+					<MarkNegatives>false</MarkNegatives>
+					<Mask/>
+					<MultiLine>false</MultiLine>
+					<ExtendedEdit>false</ExtendedEdit>
+					<MinValue xsi:nil="true"/>
+					<MaxValue xsi:nil="true"/>
+					<FillFromFillingValue>false</FillFromFillingValue>
+					<FillValue xsi:nil="true"/>
+					<FillChecking>DontCheck</FillChecking>
+					<ChoiceFoldersAndItems>Items</ChoiceFoldersAndItems>
+					<ChoiceParameterLinks/>
+					<ChoiceParameters/>
+					<QuickChoice>Auto</QuickChoice>
+					<CreateOnInput>Auto</CreateOnInput>
+					<ChoiceForm/>
+					<LinkByType/>
+					<ChoiceHistoryOnInput>Auto</ChoiceHistoryOnInput>
+					<Indexing>DontIndex</Indexing>
+					<FullTextSearch>Use</FullTextSearch>
+					<DataHistory>Use</DataHistory>
+				</Properties>
+			</Attribute>
+			<Attribute uuid="UUID-020">
+				<Properties>
+					<Name>СуммаДокумента</Name>
+					<Synonym>
+						<v8:item>
+							<v8:lang>ru</v8:lang>
+							<v8:content>Сумма документа</v8:content>
+						</v8:item>
+					</Synonym>
+					<Comment/>
+					<Type>
+						<v8:Type>xs:decimal</v8:Type>
+						<v8:NumberQualifiers>
+							<v8:Digits>15</v8:Digits>
+							<v8:FractionDigits>2</v8:FractionDigits>
+							<v8:AllowedSign>Any</v8:AllowedSign>
+						</v8:NumberQualifiers>
+					</Type>
+					<PasswordMode>false</PasswordMode>
+					<Format/>
+					<EditFormat/>
+					<ToolTip/>
+					<MarkNegatives>false</MarkNegatives>
+					<Mask/>
+					<MultiLine>false</MultiLine>
+					<ExtendedEdit>false</ExtendedEdit>
+					<MinValue xsi:nil="true"/>
+					<MaxValue xsi:nil="true"/>
+					<FillFromFillingValue>false</FillFromFillingValue>
+					<FillValue xsi:type="xs:decimal">0</FillValue>
+					<FillChecking>DontCheck</FillChecking>
+					<ChoiceFoldersAndItems>Items</ChoiceFoldersAndItems>
+					<ChoiceParameterLinks/>
+					<ChoiceParameters/>
+					<QuickChoice>Auto</QuickChoice>
+					<CreateOnInput>Auto</CreateOnInput>
+					<ChoiceForm/>
+					<LinkByType/>
+					<ChoiceHistoryOnInput>Auto</ChoiceHistoryOnInput>
+					<Indexing>DontIndex</Indexing>
+					<FullTextSearch>Use</FullTextSearch>
+					<DataHistory>Use</DataHistory>
+				</Properties>
+			</Attribute>
+			<Attribute uuid="UUID-021">
+				<Properties>
+					<Name>Автор</Name>
+					<Synonym>
+						<v8:item>
+							<v8:lang>ru</v8:lang>
+							<v8:content>Автор</v8:content>
+						</v8:item>
+					</Synonym>
+					<Comment/>
+					<Type>
+						<v8:Type>cfg:CatalogRef.Пользователи</v8:Type>
+					</Type>
+					<PasswordMode>false</PasswordMode>
+					<Format/>
+					<EditFormat/>
+					<ToolTip/>
+					<MarkNegatives>false</MarkNegatives>
+					<Mask/>
+					<MultiLine>false</MultiLine>
+					<ExtendedEdit>false</ExtendedEdit>
+					<MinValue xsi:nil="true"/>
+					<MaxValue xsi:nil="true"/>
+					<FillFromFillingValue>false</FillFromFillingValue>
+					<FillValue xsi:nil="true"/>
+					<FillChecking>DontCheck</FillChecking>
+					<ChoiceFoldersAndItems>Items</ChoiceFoldersAndItems>
+					<ChoiceParameterLinks/>
+					<ChoiceParameters/>
+					<QuickChoice>Auto</QuickChoice>
+					<CreateOnInput>Auto</CreateOnInput>
+					<ChoiceForm/>
+					<LinkByType/>
+					<ChoiceHistoryOnInput>Auto</ChoiceHistoryOnInput>
+					<Indexing>DontIndex</Indexing>
+					<FullTextSearch>Use</FullTextSearch>
+					<DataHistory>Use</DataHistory>
+				</Properties>
+			</Attribute>
+			<Attribute uuid="UUID-022">
+				<Properties>
+					<Name>УдалитьДатаРаспоряжения</Name>
+					<Synonym>
+						<v8:item>
+							<v8:lang>ru</v8:lang>
+							<v8:content>Удалить дата распоряжения</v8:content>
+						</v8:item>
+					</Synonym>
+					<Comment/>
+					<Type>
+						<v8:Type>xs:dateTime</v8:Type>
+						<v8:DateQualifiers>
+							<v8:DateFractions>Date</v8:DateFractions>
+						</v8:DateQualifiers>
+					</Type>
+					<PasswordMode>false</PasswordMode>
+					<Format/>
+					<EditFormat/>
+					<ToolTip/>
+					<MarkNegatives>false</MarkNegatives>
+					<Mask/>
+					<MultiLine>false</MultiLine>
+					<ExtendedEdit>false</ExtendedEdit>
+					<MinValue xsi:nil="true"/>
+					<MaxValue xsi:nil="true"/>
+					<FillFromFillingValue>false</FillFromFillingValue>
+					<FillValue xsi:nil="true"/>
+					<FillChecking>DontCheck</FillChecking>
+					<ChoiceFoldersAndItems>Items</ChoiceFoldersAndItems>
+					<ChoiceParameterLinks/>
+					<ChoiceParameters/>
+					<QuickChoice>Auto</QuickChoice>
+					<CreateOnInput>Auto</CreateOnInput>
+					<ChoiceForm/>
+					<LinkByType/>
+					<ChoiceHistoryOnInput>Auto</ChoiceHistoryOnInput>
+					<Indexing>DontIndex</Indexing>
+					<FullTextSearch>Use</FullTextSearch>
+					<DataHistory>Use</DataHistory>
+				</Properties>
+			</Attribute>
+			<Attribute uuid="UUID-023">
+				<Properties>
+					<Name>СтраницаТовары</Name>
+					<Synonym>
+						<v8:item>
+							<v8:lang>ru</v8:lang>
+							<v8:content>Страница товары</v8:content>
+						</v8:item>
+					</Synonym>
+					<Comment/>
+					<Type>
+						<v8:Type>xs:string</v8:Type>
+						<v8:StringQualifiers>
+							<v8:Length>10</v8:Length>
+							<v8:AllowedLength>Variable</v8:AllowedLength>
+						</v8:StringQualifiers>
+					</Type>
+					<PasswordMode>false</PasswordMode>
+					<Format/>
+					<EditFormat/>
+					<ToolTip/>
+					<MarkNegatives>false</MarkNegatives>
+					<Mask/>
+					<MultiLine>false</MultiLine>
+					<ExtendedEdit>false</ExtendedEdit>
+					<MinValue xsi:nil="true"/>
+					<MaxValue xsi:nil="true"/>
+					<FillFromFillingValue>false</FillFromFillingValue>
+					<FillValue xsi:type="xs:string"/>
+					<FillChecking>DontCheck</FillChecking>
+					<ChoiceFoldersAndItems>Items</ChoiceFoldersAndItems>
+					<ChoiceParameterLinks/>
+					<ChoiceParameters/>
+					<QuickChoice>Auto</QuickChoice>
+					<CreateOnInput>Auto</CreateOnInput>
+					<ChoiceForm/>
+					<LinkByType/>
+					<ChoiceHistoryOnInput>Auto</ChoiceHistoryOnInput>
+					<Indexing>DontIndex</Indexing>
+					<FullTextSearch>Use</FullTextSearch>
+					<DataHistory>Use</DataHistory>
+				</Properties>
+			</Attribute>
+			<Attribute uuid="UUID-024">
+				<Properties>
 					<Name>СторнируемыйДокумент</Name>
 					<Synonym>
 						<v8:item>
@@ -390,7 +597,7 @@
 					<DataHistory>Use</DataHistory>
 				</Properties>
 			</Attribute>
-			<Attribute uuid="UUID-020">
+			<Attribute uuid="UUID-025">
 				<Properties>
 					<Name>ИсправляемыйДокумент</Name>
 					<Synonym>
@@ -429,7 +636,7 @@
 					<DataHistory>Use</DataHistory>
 				</Properties>
 			</Attribute>
-			<Attribute uuid="UUID-021">
+			<Attribute uuid="UUID-026">
 				<Properties>
 					<Name>Комментарий</Name>
 					<Synonym>
@@ -472,7 +679,7 @@
 					<DataHistory>Use</DataHistory>
 				</Properties>
 			</Attribute>
-			<Attribute uuid="UUID-022">
+			<Attribute uuid="UUID-027">
 				<Properties>
 					<Name>Исправление</Name>
 					<Synonym>
@@ -512,15 +719,15 @@
 				</Properties>
 			</Attribute>
 			<Form>ФормаДокумента</Form>
-			<TabularSection uuid="UUID-023">
+			<TabularSection uuid="UUID-028">
 				<InternalInfo>
 					<xr:GeneratedType name="DocumentTabularSection.АктВыполненныхВнутреннихРабот.Товары" category="TabularSection">
-						<xr:TypeId>UUID-024</xr:TypeId>
-						<xr:ValueId>UUID-025</xr:ValueId>
+						<xr:TypeId>UUID-029</xr:TypeId>
+						<xr:ValueId>UUID-030</xr:ValueId>
 					</xr:GeneratedType>
 					<xr:GeneratedType name="DocumentTabularSectionRow.АктВыполненныхВнутреннихРабот.Товары" category="TabularSectionRow">
-						<xr:TypeId>UUID-026</xr:TypeId>
-						<xr:ValueId>UUID-027</xr:ValueId>
+						<xr:TypeId>UUID-031</xr:TypeId>
+						<xr:ValueId>UUID-032</xr:ValueId>
 					</xr:GeneratedType>
 				</InternalInfo>
 				<Properties>
@@ -564,7 +771,7 @@
 					</StandardAttributes>
 				</Properties>
 				<ChildObjects>
-					<Attribute uuid="UUID-028">
+					<Attribute uuid="UUID-033">
 						<Properties>
 							<Name>Номенклатура</Name>
 							<Synonym>
@@ -601,7 +808,7 @@
 							<DataHistory>Use</DataHistory>
 						</Properties>
 					</Attribute>
-					<Attribute uuid="UUID-029">
+					<Attribute uuid="UUID-034">
 						<Properties>
 							<Name>Характеристика</Name>
 							<Synonym>
@@ -638,7 +845,7 @@
 							<DataHistory>Use</DataHistory>
 						</Properties>
 					</Attribute>
-					<Attribute uuid="UUID-030">
+					<Attribute uuid="UUID-035">
 						<Properties>
 							<Name>Назначение</Name>
 							<Synonym>
@@ -675,7 +882,7 @@
 							<DataHistory>Use</DataHistory>
 						</Properties>
 					</Attribute>
-					<Attribute uuid="UUID-031">
+					<Attribute uuid="UUID-036">
 						<Properties>
 							<Name>Упаковка</Name>
 							<Synonym>
@@ -712,7 +919,7 @@
 							<DataHistory>Use</DataHistory>
 						</Properties>
 					</Attribute>
-					<Attribute uuid="UUID-032">
+					<Attribute uuid="UUID-037">
 						<Properties>
 							<Name>КоличествоУпаковок</Name>
 							<Synonym>
@@ -754,7 +961,7 @@
 							<DataHistory>Use</DataHistory>
 						</Properties>
 					</Attribute>
-					<Attribute uuid="UUID-033">
+					<Attribute uuid="UUID-038">
 						<Properties>
 							<Name>Количество</Name>
 							<Synonym>
@@ -796,7 +1003,7 @@
 							<DataHistory>Use</DataHistory>
 						</Properties>
 					</Attribute>
-					<Attribute uuid="UUID-034">
+					<Attribute uuid="UUID-039">
 						<Properties>
 							<Name>Подразделение</Name>
 							<Synonym>
@@ -833,7 +1040,7 @@
 							<DataHistory>Use</DataHistory>
 						</Properties>
 					</Attribute>
-					<Attribute uuid="UUID-035">
+					<Attribute uuid="UUID-040">
 						<Properties>
 							<Name>ГруппаПродукции</Name>
 							<Synonym>
@@ -870,7 +1077,7 @@
 							<DataHistory>Use</DataHistory>
 						</Properties>
 					</Attribute>
-					<Attribute uuid="UUID-036">
+					<Attribute uuid="UUID-041">
 						<Properties>
 							<Name>АналитикаУчетаНоменклатуры</Name>
 							<Synonym>
@@ -907,7 +1114,7 @@
 							<DataHistory>Use</DataHistory>
 						</Properties>
 					</Attribute>
-					<Attribute uuid="UUID-037">
+					<Attribute uuid="UUID-042">
 						<Properties>
 							<Name>ИдентификаторСтроки</Name>
 							<Synonym>
@@ -951,15 +1158,15 @@
 					</Attribute>
 				</ChildObjects>
 			</TabularSection>
-			<TabularSection uuid="UUID-038">
+			<TabularSection uuid="UUID-043">
 				<InternalInfo>
 					<xr:GeneratedType name="DocumentTabularSection.АктВыполненныхВнутреннихРабот.ДополнительныеРеквизиты" category="TabularSection">
-						<xr:TypeId>UUID-039</xr:TypeId>
-						<xr:ValueId>UUID-040</xr:ValueId>
+						<xr:TypeId>UUID-044</xr:TypeId>
+						<xr:ValueId>UUID-045</xr:ValueId>
 					</xr:GeneratedType>
 					<xr:GeneratedType name="DocumentTabularSectionRow.АктВыполненныхВнутреннихРабот.ДополнительныеРеквизиты" category="TabularSectionRow">
-						<xr:TypeId>UUID-041</xr:TypeId>
-						<xr:ValueId>UUID-042</xr:ValueId>
+						<xr:TypeId>UUID-046</xr:TypeId>
+						<xr:ValueId>UUID-047</xr:ValueId>
 					</xr:GeneratedType>
 				</InternalInfo>
 				<Properties>
@@ -1003,7 +1210,7 @@
 					</StandardAttributes>
 				</Properties>
 				<ChildObjects>
-					<Attribute uuid="UUID-043">
+					<Attribute uuid="UUID-048">
 						<Properties>
 							<Name>Свойство</Name>
 							<Synonym>
@@ -1040,7 +1247,7 @@
 							<DataHistory>Use</DataHistory>
 						</Properties>
 					</Attribute>
-					<Attribute uuid="UUID-044">
+					<Attribute uuid="UUID-049">
 						<Properties>
 							<Name>Значение</Name>
 							<Synonym>
@@ -1081,7 +1288,7 @@
 							<DataHistory>Use</DataHistory>
 						</Properties>
 					</Attribute>
-					<Attribute uuid="UUID-045">
+					<Attribute uuid="UUID-050">
 						<Properties>
 							<Name>ТекстоваяСтрока</Name>
 							<Synonym>
