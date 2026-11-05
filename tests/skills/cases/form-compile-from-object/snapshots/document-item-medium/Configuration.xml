@@ -246,7 +246,6 @@
 		</Properties>
 		<ChildObjects>
 			<Language>Русский</Language>
-			<Catalog>Номенклатура</Catalog>
 			<Document>АктВыполненныхВнутреннихРабот</Document>
 		</ChildObjects>
 	</Configuration>
