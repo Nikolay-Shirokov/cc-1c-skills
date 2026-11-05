@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# form-compile v1.231 — Compile 1C managed form from JSON or object metadata
+# form-compile v1.232 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import copy
@@ -836,6 +836,33 @@ def build_tabular_columns(ts, cfg, fd, line_number, skipped):
             continue
         el = new_field_element(f"{ts['Name']}{col['Name']}", f"\u041e\u0431\u044a\u0435\u043a\u0442.{ts['Name']}.{col['Name']}", col['Type'], fd, {})
         cols.append(merge_props(el, get_field_props(col, cfg, 'columnProps', '')))
+    return set_columns_after(ts, cols, cfg)
+
+
+# Порядок колонок (fields.columnsAfter): колонка встаёт сразу после указанной, если обе выведены
+def set_columns_after(ts, cols, cfg):
+    rules = get_cfg_section(cfg, 'columnsAfter')
+    prefix = '\u041e\u0431\u044a\u0435\u043a\u0442.' + ts['Name'] + '.'
+    for k in get_sorted_keys(rules):
+        r = rules[k]
+        if not isinstance(r, dict) or not _ci_get(r, 'column') or not _ci_get(r, 'after'):
+            continue
+        ci = ai = -1
+        for i, el in enumerate(cols):
+            pth = str(el.get('path', ''))
+            if not pth.startswith(prefix):
+                continue
+            n = pth[len(prefix):]
+            if ci < 0 and re.search(_ci_get(r, 'column'), n, re.I):
+                ci = i
+            if ai < 0 and re.search(_ci_get(r, 'after'), n, re.I):
+                ai = i
+        if ci < 0 or ai < 0 or ci == ai + 1:
+            continue
+        moved = cols[ci]
+        rest = cols[:ci] + cols[ci + 1:]
+        at = ai - 1 if ci < ai else ai
+        cols = rest[:at + 1] + [moved] + rest[at + 1:]
     return cols
 
 

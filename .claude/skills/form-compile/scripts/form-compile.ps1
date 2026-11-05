@@ -1,4 +1,4 @@
-﻿# form-compile v1.231 — Compile 1C managed form from JSON or object metadata
+﻿# form-compile v1.232 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -600,6 +600,31 @@ function Build-TabularColumns($ts, $cfg, $fd, [bool]$lineNumber, $skipped) {
 		if ($why) { [void]$skipped.Add("$($ts.Name).$($col.Name) ($why)"); continue }
 		$el = New-FieldElement -attrName "$($ts.Name)$($col.Name)" -dataPath "Объект.$($ts.Name).$($col.Name)" -attrType $col.Type -fieldDefaults $fd -extraProps @{}
 		$cols += (Merge-Props $el (Get-FieldProps $col $cfg "columnProps" ""))
+	}
+	return ,(Set-ColumnsAfter $ts $cols $cfg)
+}
+
+# Порядок колонок (fields.columnsAfter): колонка встаёт сразу после указанной, если обе выведены
+function Set-ColumnsAfter($ts, $cols, $cfg) {
+	$rules = Get-CfgSection $cfg "columnsAfter"
+	$prefix = "Объект.$($ts.Name)."
+	foreach ($k in (Get-SortedKeys $rules)) {
+		$r = $rules[$k]
+		if (-not ($r -is [hashtable]) -or -not $r.column -or -not $r.after) { continue }
+		$ci = -1; $ai = -1
+		for ($i = 0; $i -lt $cols.Count; $i++) {
+			$pth = [string]$cols[$i].path
+			if (-not $pth.StartsWith($prefix)) { continue }
+			$n = $pth.Substring($prefix.Length)
+			if ($ci -lt 0 -and $n -match $r.column) { $ci = $i }
+			if ($ai -lt 0 -and $n -match $r.after) { $ai = $i }
+		}
+		if ($ci -lt 0 -or $ai -lt 0 -or $ci -eq $ai + 1) { continue }
+		$moved = $cols[$ci]
+		$rest = @(); for ($i = 0; $i -lt $cols.Count; $i++) { if ($i -ne $ci) { $rest += $cols[$i] } }
+		$at = if ($ci -lt $ai) { $ai - 1 } else { $ai }
+		$new = @(); for ($i = 0; $i -lt $rest.Count; $i++) { $new += $rest[$i]; if ($i -eq $at) { $new += $moved } }
+		$cols = $new
 	}
 	return ,$cols
 }

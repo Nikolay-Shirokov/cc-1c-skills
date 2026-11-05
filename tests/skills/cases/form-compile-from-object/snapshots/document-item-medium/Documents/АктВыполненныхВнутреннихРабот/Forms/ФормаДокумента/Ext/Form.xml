@@ -200,18 +200,18 @@
 									<ContextMenu name="ТоварыНазначениеКонтекстноеМеню" id="73"/>
 									<ExtendedTooltip name="ТоварыНазначениеРасширеннаяПодсказка" id="74"/>
 								</InputField>
-								<InputField name="ТоварыУпаковка" id="75">
-									<DataPath>Объект.Товары.Упаковка</DataPath>
-									<Width>10</Width>
-									<ContextMenu name="ТоварыУпаковкаКонтекстноеМеню" id="76"/>
-									<ExtendedTooltip name="ТоварыУпаковкаРасширеннаяПодсказка" id="77"/>
-								</InputField>
-								<InputField name="ТоварыКоличествоУпаковок" id="78">
+								<InputField name="ТоварыКоличествоУпаковок" id="75">
 									<DataPath>Объект.Товары.КоличествоУпаковок</DataPath>
 									<Width>8</Width>
 									<HorizontalStretch>false</HorizontalStretch>
-									<ContextMenu name="ТоварыКоличествоУпаковокКонтекстноеМеню" id="79"/>
-									<ExtendedTooltip name="ТоварыКоличествоУпаковокРасширеннаяПодсказка" id="80"/>
+									<ContextMenu name="ТоварыКоличествоУпаковокКонтекстноеМеню" id="76"/>
+									<ExtendedTooltip name="ТоварыКоличествоУпаковокРасширеннаяПодсказка" id="77"/>
+								</InputField>
+								<InputField name="ТоварыУпаковка" id="78">
+									<DataPath>Объект.Товары.Упаковка</DataPath>
+									<Width>10</Width>
+									<ContextMenu name="ТоварыУпаковкаКонтекстноеМеню" id="79"/>
+									<ExtendedTooltip name="ТоварыУпаковкаРасширеннаяПодсказка" id="80"/>
 								</InputField>
 								<InputField name="ТоварыПодразделение" id="81">
 									<DataPath>Объект.Товары.Подразделение</DataPath>

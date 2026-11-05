@@ -87,6 +87,10 @@
       }
     },
 
+    "columnsAfter": {
+      "packaging": { "column": "^Упаковка$", "after": "^КоличествоУпаковок$" }
+    },
+
     "listProps": {
       "byName": {
         "Дата": { "width": 9 }
