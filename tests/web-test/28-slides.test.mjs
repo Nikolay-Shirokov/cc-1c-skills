@@ -213,6 +213,10 @@ export default async function({
       [['bright', 'duck', [[0, 10]]], ['calm', 'duck', [[10, 20]]]], 'different music: two tracks (cross-fade)');
     assert.deepEqual(segs([c(0, 30, 'bright'), c(10, 20, 'focus', 1)]),
       [['bright', 'duck', [[0, 10], [20, 30]]], ['focus', 'duck', [[10, 20]]]], 'the inner stretch wins');
+    assert.deepEqual(segs([c(0, 30, 'bright'), c(10, 12, 'focus', 1)]),
+      [['bright', 'duck', [[0, 10], [12, 30]]], ['focus', 'duck', [[10, 12]]]], 'no bridge over a short inner stretch of other music');
+    const edges = M.trapezoids([[0, 10]], 2, { D: 10 });
+    assert.ok(edges.includes('(t-(0.000))') && edges.includes('(10.000-t)'), 'at the video start and end the music fades from/to silence');
     assert.deepEqual(segs([c(10, 20, 'bright')], 'warm'),
       [['warm', 'gaps', [[0, 10], [20, 30]]], ['bright', 'duck', [[10, 20]]]], 'whole-video music around a slide with its own');
     assert.deepEqual(M.speechGaps([[1, 4], [5, 9], [15, 18]], 25), [[0, 1], [9, 15], [18, 25]], 'pauses of 3 s and more, start and end');
@@ -249,6 +253,14 @@ export default async function({
     const inSlide = peak(mid - 0.3, mid + 0.3);
     log(`mixed: peak in the slide stretch ${inSlide} dB`);
     assert.ok(inSlide > -50, 'music sounds in the slide stretch');
+    // another video does not get this recording's music stretches (slides.mp4: no music, no speech asked)
+    await rejectsWith(() => addNarration(path.join(dir, 'slides.mp4'), { captions: [], outputPath: path.join(dir, 'other.mp4') }),
+      /No captions available/, 'music of the last recording stays with its own video');
+    // the whole-video music is remembered next to the video for a later re-narration
+    await addNarration(video, { captions: [], outputPath: out, music: 'calm' });
+    const kept = JSON.parse(fs.readFileSync(video.replace(/\.mp4$/, '.captions.json'), 'utf8'));
+    assert.equal(kept.musicBase, 'calm', 'musicBase saved in .captions.json');
+    assert.equal(kept.music.length, 2, 'stretches kept');
   });
 
   await step('legacy: showTitleSlide({ speech: true }) narrates the title text (line breaks → spaces)', async () => {

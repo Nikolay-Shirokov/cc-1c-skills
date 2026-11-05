@@ -302,7 +302,7 @@ Generate TTS and merge audio with video. Call after `stopRecording()`.
 | `opts.instructions` | `string` | Speaking style, for models that support it (openai, e.g. `gpt-4o-mini-tts`) |
 | `opts.ffmpegPath` | `string` | Path to ffmpeg binary |
 | `opts.outputPath` | `string` | Output file (default: `video-narrated.mp4`) |
-| `opts.music` | `string | object` | Background music over the whole video, in speech pauses — see Background music |
+| `opts.music` | `string | object` | Background music over the whole video, in speech pauses — see Background music; remembered in `.captions.json` for re-narration, `false` drops all music |
 
 **Returns:** `{ file, duration, size, captions, warnings? }`
 

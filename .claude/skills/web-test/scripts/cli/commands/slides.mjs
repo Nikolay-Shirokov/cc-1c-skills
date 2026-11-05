@@ -12,7 +12,7 @@ import { chromium } from 'playwright';
 import * as browser from '../../browser.mjs';
 import { setBrowser, setPage } from '../../engine/core/state.mjs';
 import { projectTtsOptions } from '../../engine/recording/tts.mjs';
-import { resolveMusic } from '../../engine/recording/music.mjs';
+import { resolveMusic, PRESETS } from '../../engine/recording/music.mjs';
 import { out, die } from '../util.mjs';
 
 async function loadModule(file) {
@@ -49,6 +49,8 @@ export async function cmdPlay(file, outFile, { narrate = true, music } = {}) {
   const { slides, tts, theme } = await loadModule(file);
   if (!outFile) die('play: --out=<file.mp4> is required');
   try {
+    // a file in --music is from the current directory, like --out and the module (specs' paths are from the project root)
+    if (music !== undefined && !PRESETS[music]) music = resolve(music);
     if (music !== undefined) resolveMusic(music);
     if (theme) browser.setSlideTheme(theme);
     await browser.prepareSlides(slides, { ...tts, validateOnly: !narrate });   // validate (+ synthesize ahead)
@@ -67,8 +69,8 @@ export async function cmdPlay(file, outFile, { narrate = true, music } = {}) {
       try { video = await browser.stopRecording(); } catch (e) { if (!failure) throw e; }
       if (failure) throw failure;
       const withMusic = music !== undefined || !!video.music;
+      if (narrate && !video.captions) warnings.push('no spoken steps — the video has no narration');
       if ((!narrate || !video.captions) && !withMusic) {
-        if (narrate) warnings.push('no spoken steps — the video has no narration');
         return { ok: true, file: video.file, duration: video.duration, captions: video.captions, warnings };
       }
       // --out is the final narrated video; the silent recording is replaced, its captions.json stays next to it

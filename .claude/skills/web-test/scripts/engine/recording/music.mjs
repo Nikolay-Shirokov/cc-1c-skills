@@ -1,4 +1,4 @@
-// web-test recording/music v1.0 — background music: own presets (synthesized, no licence), cues in the
+// web-test recording/music v1.1 — background music: own presets (synthesized, no licence), cues in the
 // recording, intervals with seams, volume envelopes for addNarration.
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 //
@@ -9,7 +9,7 @@
 // pauses ≥ MIN_GAP s, at the start and the end; nearly silent under speech — no "breathing" in a dialogue).
 // Rules from listening: no rare standing-out events (a lone bell, a tick) — a steady even texture; major, no bass.
 
-import { existsSync, mkdirSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, renameSync, unlinkSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { recorder, resolveProjectPath } from '../core/state.mjs';
@@ -124,8 +124,11 @@ export function presetFile(name) {
   const dir = join(tmpdir(), 'web-test-music');
   const file = join(dir, `${name}-v${VERSION}.wav`);
   if (!existsSync(file)) {
+    // a temp name + rename: a parallel run or a killed process never leaves a truncated loop behind
     mkdirSync(dir, { recursive: true });
-    writeFileSync(file, wavBuffer(renderPreset(name)));
+    const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
+    writeFileSync(tmp, wavBuffer(renderPreset(name)));
+    try { renameSync(tmp, file); } catch { try { unlinkSync(tmp); } catch { /* another run won the race */ } }
   }
   return file;
 }
@@ -195,15 +198,23 @@ export function musicIntervals(cues, base, durationSec) {
       .sort((x, y) => x.depth - y.depth || x.s - y.s).at(-1);
     if (top) spans.push({ a, b, key: top.key + '|' + top.mode, music: top.music, mode: top.mode });
   }
-  // per track: merge touching spans and bridge gaps under BRIDGE
+  // per track: merge touching spans; bridge a gap under BRIDGE only when no other music plays in it
+  // (an inner stretch of another music must not get the outer one bridged over it)
   const tracks = new Map();
   for (const sp of spans) {
     if (!tracks.has(sp.key)) tracks.set(sp.key, { music: sp.music, mode: sp.mode, segs: [] });
     const segs = tracks.get(sp.key).segs, last = segs.at(-1);
-    if (last && sp.a - last[1] < BRIDGE) last[1] = sp.b;
+    const free = last && !spans.some((o) => o.key !== sp.key && o.a < sp.a - 1e-6 && o.b > last[1] + 1e-6);
+    if (last && sp.a - last[1] < BRIDGE && free) last[1] = sp.b;
     else segs.push([sp.a, sp.b]);
   }
   return [...tracks.values()];
+}
+
+/** Check every music spec of the cues (and the whole-video one) — before any synthesis. */
+export function checkMusic(cues, base) {
+  if (base !== undefined) resolveMusic(base);
+  for (const c of cues || []) resolveMusic(c.music);
 }
 
 /** Speech spans [start, end] (s) → pauses ≥ MIN_GAP the whole-video music plays in (start and end included). */
@@ -219,21 +230,25 @@ export function speechGaps(spans, D) {
   return gaps;
 }
 
-/** ffmpeg volume expression (of t): a sum of trapezoids; `center` — edges straddle the bounds (cross-fades). */
-export function trapezoids(segs, fade, { center = true } = {}) {
+/**
+ * ffmpeg volume expression (of t): a sum of trapezoids. `center` — edges straddle the bounds (cross-fades);
+ * at the video's start and end an edge lies inside (fades from / to silence, no half-level onset or chop).
+ */
+export function trapezoids(segs, fade, { center = true, D = Infinity } = {}) {
   if (!segs.length) return '0';
   return segs.map(([a, b]) => {
-    const s = center ? a - fade / 2 : a, e = center ? b + fade / 2 : b;
+    const s = a <= 0.05 ? 0 : center ? a - fade / 2 : a;
+    const e = b >= D - 0.05 ? D : center ? b + fade / 2 : b;
     return `clip(min((t-(${s.toFixed(3)}))/${fade},(${e.toFixed(3)}-t)/${fade}),0,1)`;
   }).join('+');
 }
 
 /** The volume expression of one track: duck stretches, or gaps stretches opened only in speech pauses. */
-export function trackEnvelope(track, gaps) {
+export function trackEnvelope(track, gaps, D = Infinity) {
   const edge = track.mode === 'gaps' ? FADE : XFADE;
-  const on = trapezoids(track.segs, edge);
+  const on = trapezoids(track.segs, edge, { D });
   if (track.mode !== 'gaps') return on;
-  const pauses = trapezoids(gaps, FADE, { center: false });
+  const pauses = trapezoids(gaps, FADE, { center: false, D });
   return `(${on})*(${UNDER_SPEECH}+${(1 - UNDER_SPEECH).toFixed(2)}*min(1,${pauses}))`;
 }
 

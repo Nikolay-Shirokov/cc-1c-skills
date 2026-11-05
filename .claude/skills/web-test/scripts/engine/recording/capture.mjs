@@ -97,7 +97,7 @@ export async function startRecording(outputPath, opts = {}) {
     }
   }
   setLastCaptions([]);
-  setLastMusic([]);
+  setLastMusic({ file: null, cues: [] });
   setLastRecordingDuration(null);
 
   const fps = opts.fps || 25;
@@ -189,7 +189,15 @@ export async function startRecording(outputPath, opts = {}) {
     rec.holdSince = 0;
     if (!rec.lastFrameBuf) rec.lastFrameBuf = rec.heldFrom;   // no new frame came: keep what we had
     rec.heldFrom = null;
-    if (!rec.captions.length) rec.clockStart = performance.now();
+    if (!rec.captions.length) {
+      // the video starts over: music stretches opened against the old start move with it
+      const shift = rec.videoTimeMs;
+      rec.clockStart = performance.now();
+      for (const c of rec.music) {
+        c.start = Math.max(0, Math.round(c.start - shift));
+        if (c.end != null) c.end = Math.max(0, Math.round(c.end - shift));
+      }
+    }
   };
 
   // Write the slots that are over (static periods, context switches); `final` also writes
@@ -274,7 +282,7 @@ export async function stopRecording() {
     start, end: end ?? Math.round(rec.videoTimeMs), music: m, mode, depth,
   }));
   setLastCaptions(rec.captions);
-  setLastMusic(music);
+  setLastMusic({ file: outputPath, cues: music });
   setLastRecordingDuration(duration);
   if (lastCaptions.length || music.length) {
     const captionsPath = outputPath.replace(/\.[^.]+$/, '.captions.json');
