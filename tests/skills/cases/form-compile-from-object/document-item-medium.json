@@ -1,5 +1,5 @@
 {
-  "name": "Document Item — средний (АктВВР-like, 16 реквизитов, 2 ТЧ): роли, отсев служебных, дубль имени страницы",
+  "name": "Document Item — средний (АктВВР-like, 16 реквизитов, 3 ТЧ): роли, отсев служебных, дубль имени страницы, ед. изм. номенклатуры с упаковкой",
   "preRun": [
     {
       "script": "meta-compile/scripts/meta-compile",
@@ -43,6 +43,14 @@
             ]
           },
           {
+            "name": "Материалы",
+            "attributes": [
+              { "name": "Номенклатура", "type": "CatalogRef.Номенклатура" },
+              { "name": "Количество", "type": "Number", "length": 15, "precision": 3 },
+              { "name": "Комментарий", "type": "String", "length": 100 }
+            ]
+          },
+          {
             "name": "ДополнительныеРеквизиты",
             "attributes": [
               { "name": "Свойство", "type": "ChartOfCharacteristicTypesRef.ДополнительныеРеквизитыИСведения" },
@@ -52,6 +60,11 @@
           }
         ]
       },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "Catalog", "name": "Номенклатура", "attributes": ["ЕдиницаИзмерения: CatalogRef.УпаковкиЕдиницыИзмерения"] },
       "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
     },
     {

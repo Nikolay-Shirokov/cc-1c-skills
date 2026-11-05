@@ -1,4 +1,4 @@
-﻿# form-compile v1.229 — Compile 1C managed form from JSON or object metadata
+﻿# form-compile v1.230 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -273,6 +273,7 @@ function Parse-ObjectMeta([string]$ObjectPath) {
 		}
 	}
 
+	$meta.SourcePath = [System.IO.Path]::GetFullPath($ObjectPath)
 	return $meta
 }
 
@@ -586,7 +587,7 @@ function Merge-Props($el, $props) {
 }
 
 # Колонки ТЧ после отсева, с элементами; $skipped — коллекция для отчёта
-function Build-TabularColumns($ts, $cfg, $fd, [bool]$lineNumber, $skipped) {
+function Build-TabularColumns($ts, $cfg, $fd, [bool]$lineNumber, $skipped, $meta) {
 	$cols = @()
 	if ($lineNumber) {
 		$ln = [ordered]@{ labelField = "$($ts.Name)НомерСтроки"; path = "Объект.$($ts.Name).LineNumber" }
@@ -600,6 +601,66 @@ function Build-TabularColumns($ts, $cfg, $fd, [bool]$lineNumber, $skipped) {
 		if ($why) { [void]$skipped.Add("$($ts.Name).$($col.Name) ($why)"); continue }
 		$el = New-FieldElement -attrName "$($ts.Name)$($col.Name)" -dataPath "Объект.$($ts.Name).$($col.Name)" -attrType $col.Type -fieldDefaults $fd -extraProps @{}
 		$cols += (Merge-Props $el (Get-FieldProps $col $cfg "columnProps" ""))
+	}
+	return ,(Add-RefColumns $ts $cols $cfg $meta)
+}
+
+# Есть ли у справочника из типа колонки реквизит — по выгрузке рядом с объектом (кэш по файлу)
+$script:catalogAttrCache = @{}
+function Test-CatalogHasAttribute($meta, [string]$typeStr, [string]$attrName) {
+	if (-not $meta -or -not $meta.SourcePath -or $typeStr -match '\|') { return $false }
+	if ($typeStr -notmatch 'CatalogRef\.([^\s]+)') { return $false }
+	$root = [System.IO.Path]::GetDirectoryName([System.IO.Path]::GetDirectoryName($meta.SourcePath))
+	$file = Join-Path (Join-Path $root "Catalogs") "$($Matches[1]).xml"
+	if (-not $script:catalogAttrCache.ContainsKey($file)) {
+		$script:catalogAttrCache[$file] = if (Test-Path $file) { [System.IO.File]::ReadAllText($file) } else { "" }
+	}
+	$text = $script:catalogAttrCache[$file]
+	return ($text -match ('<Attribute uuid="[^"]*">\s*<Properties>\s*<Name>' + [regex]::Escape($attrName) + '</Name>'))
+}
+
+# Колонки через реквизит ссылки (fields.refColumns): Ед. изм. номенклатуры — в ячейке с упаковкой или после количества
+function Add-RefColumns($ts, $cols, $cfg, $meta) {
+	$rules = Get-CfgSection $cfg "refColumns"
+	$colName = {
+		param($el)
+		$pth = [string]$el.path
+		if ($pth -like "Объект.$($ts.Name).*") { return $pth.Substring("Объект.$($ts.Name).".Length) }
+		return ""
+	}
+	foreach ($k in (Get-SortedKeys $rules)) {
+		$r = $rules[$k]
+		if (-not ($r -is [hashtable]) -or -not $r.column -or -not $r.attribute) { continue }
+		$src = $null
+		foreach ($el in $cols) {
+			$n = & $colName $el
+			if ($n -and $n -match $r.column) {
+				$tcol = $ts.Columns | Where-Object { $_.Name -eq $n } | Select-Object -First 1
+				if ($tcol -and (Test-CatalogHasAttribute $meta $tcol.Type $r.attribute)) { $src = $n; break }
+			}
+		}
+		if (-not $src) { continue }
+		$unit = [ordered]@{ labelField = "$($ts.Name)$src$($r.attribute)"; path = "Объект.$($ts.Name).$src.$($r.attribute)" }
+		if ($r.title) { $unit["title"] = $r.title }
+		if ($r.props -is [hashtable]) { foreach ($pk in (Get-SortedKeys $r.props)) { $unit[$pk] = $r.props[$pk] } }
+		$gi = -1; $ai = -1
+		for ($i = 0; $i -lt $cols.Count; $i++) {
+			$n = & $colName $cols[$i]
+			if (-not $n) { continue }
+			if ($gi -lt 0 -and $r.groupWith -and $n -match $r.groupWith) { $gi = $i }
+			if ($ai -lt 0 -and $r.after -and $n -match $r.after) { $ai = $i }
+		}
+		if ($gi -ge 0) {
+			$g = $cols[$gi]; $g["showInHeader"] = $false
+			$grp = [ordered]@{ columnGroup = "inCell"; name = "$($ts.Name)$(& $colName $g)$($r.attribute)" }
+			if ($r.groupTitle) { $grp["title"] = $r.groupTitle }
+			$grp["children"] = @($g, $unit)
+			$cols[$gi] = $grp
+		} elseif ($ai -ge 0) {
+			$new = @()
+			for ($i = 0; $i -lt $cols.Count; $i++) { $new += $cols[$i]; if ($i -eq $ai) { $new += $unit } }
+			$cols = $new
+		}
 	}
 	return ,$cols
 }
@@ -888,7 +949,7 @@ function Generate-CatalogItemDSL($meta, [hashtable]$p, [hashtable]$fd, $cfg) {
 	$tsLineNumber = if ($p.tabularSections -and $null -ne $p.tabularSections.lineNumber) { $p.tabularSections.lineNumber } else { $true }
 	$tableSizes = @()
 	foreach ($ts in (Get-VisibleTabularSections $meta $cfg $p $skipped)) {
-		$tsCols = Build-TabularColumns $ts $cfg $fd $tsLineNumber $skipped
+		$tsCols = Build-TabularColumns $ts $cfg $fd $tsLineNumber $skipped $meta
 		$rootElements += [ordered]@{ table = $ts.Name; path = "Объект.$($ts.Name)"; columns = $tsCols }
 		$tableSizes += @{ Name = $ts.Name; Count = $(if ($tsLineNumber) { $tsCols.Count - 1 } else { $tsCols.Count }) }
 	}
@@ -1212,7 +1273,7 @@ function Generate-DocumentItemDSL($meta, [hashtable]$p, [hashtable]$fd, $cfg) {
 	$tsPages = @()
 	$tableSizes = @()
 	foreach ($ts in $visibleTS) {
-		$tsCols = Build-TabularColumns $ts $cfg $fd $tsLineNumber $skipped
+		$tsCols = Build-TabularColumns $ts $cfg $fd $tsLineNumber $skipped $meta
 		$tableSizes += @{ Name = $ts.Name; Count = $(if ($tsLineNumber) { $tsCols.Count - 1 } else { $tsCols.Count }) }
 		$tsPages += [ordered]@{
 			page = (Get-UniqueElementName "Страница$($ts.Name)" $used); title = $ts.Synonym

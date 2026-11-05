@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# form-compile v1.229 — Compile 1C managed form from JSON or object metadata
+# form-compile v1.230 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import copy
@@ -507,6 +507,7 @@ def parse_object_meta(object_path):
         meta['AccountingFlags'] = extract_fields(child_objs, 'AccountingFlag')
         meta['ExtDimensionAccountingFlags'] = extract_fields(child_objs, 'ExtDimensionAccountingFlag')
 
+    meta['SourcePath'] = os.path.abspath(object_path)
     return meta
 
 
@@ -819,7 +820,7 @@ def merge_props(el, props):
     return el
 
 
-def build_tabular_columns(ts, cfg, fd, line_number, skipped):
+def build_tabular_columns(ts, cfg, fd, line_number, skipped, meta=None):
     cols = []
     if line_number:
         ln = OrderedDict([('labelField', f"{ts['Name']}\u041d\u043e\u043c\u0435\u0440\u0421\u0442\u0440\u043e\u043a\u0438"), ('path', f"\u041e\u0431\u044a\u0435\u043a\u0442.{ts['Name']}.LineNumber")])
@@ -836,6 +837,77 @@ def build_tabular_columns(ts, cfg, fd, line_number, skipped):
             continue
         el = new_field_element(f"{ts['Name']}{col['Name']}", f"\u041e\u0431\u044a\u0435\u043a\u0442.{ts['Name']}.{col['Name']}", col['Type'], fd, {})
         cols.append(merge_props(el, get_field_props(col, cfg, 'columnProps', '')))
+    return add_ref_columns(ts, cols, cfg, meta)
+
+
+# Есть ли у справочника из типа колонки реквизит — по выгрузке рядом с объектом (кэш по файлу)
+_catalog_attr_cache = {}
+
+
+def catalog_has_attribute(meta, type_str, attr_name):
+    if not meta or not meta.get('SourcePath') or '|' in type_str:
+        return False
+    m = re.search(r'CatalogRef\.([^\s]+)', type_str, re.I)
+    if not m:
+        return False
+    root = os.path.dirname(os.path.dirname(meta['SourcePath']))
+    f = os.path.join(root, 'Catalogs', m.group(1) + '.xml')
+    if f not in _catalog_attr_cache:
+        _catalog_attr_cache[f] = open(f, encoding='utf-8-sig').read() if os.path.isfile(f) else ''
+    return bool(re.search(r'<Attribute uuid="[^"]*">\s*<Properties>\s*<Name>' + re.escape(attr_name) + '</Name>',
+                          _catalog_attr_cache[f], re.I))
+
+
+# Колонки через реквизит ссылки (fields.refColumns): Ед. изм. номенклатуры — в ячейке с упаковкой или после количества
+def add_ref_columns(ts, cols, cfg, meta):
+    rules = get_cfg_section(cfg, 'refColumns')
+    prefix = '\u041e\u0431\u044a\u0435\u043a\u0442.' + ts['Name'] + '.'
+
+    def col_name(el):
+        pth = str(el.get('path', '')) if isinstance(el, dict) else ''
+        return pth[len(prefix):] if pth.lower().startswith(prefix.lower()) else ''
+
+    for k in get_sorted_keys(rules):
+        r = rules[k]
+        if not isinstance(r, dict) or not _ci_get(r, 'column') or not _ci_get(r, 'attribute'):
+            continue
+        attr = _ci_get(r, 'attribute')
+        src_col = None
+        for el in cols:
+            n = col_name(el)
+            if n and re.search(_ci_get(r, 'column'), n, re.I):
+                tcol = next((c for c in ts['Columns'] if c['Name'].lower() == n.lower()), None)
+                if tcol and catalog_has_attribute(meta, tcol['Type'], attr):
+                    src_col = n
+                    break
+        if not src_col:
+            continue
+        unit = OrderedDict([('labelField', f"{ts['Name']}{src_col}{attr}"), ('path', f"{prefix}{src_col}.{attr}")])
+        if _ci_get(r, 'title'):
+            unit['title'] = _ci_get(r, 'title')
+        rp = _ci_get(r, 'props')
+        if isinstance(rp, dict):
+            for pk in get_sorted_keys(rp):
+                unit[pk] = rp[pk]
+        gi = ai = -1
+        for i, el in enumerate(cols):
+            n = col_name(el)
+            if not n:
+                continue
+            if gi < 0 and _ci_get(r, 'groupWith') and re.search(_ci_get(r, 'groupWith'), n, re.I):
+                gi = i
+            if ai < 0 and _ci_get(r, 'after') and re.search(_ci_get(r, 'after'), n, re.I):
+                ai = i
+        if gi >= 0:
+            g = cols[gi]
+            g['showInHeader'] = False
+            grp = OrderedDict([('columnGroup', 'inCell'), ('name', f"{ts['Name']}{col_name(g)}{attr}")])
+            if _ci_get(r, 'groupTitle'):
+                grp['title'] = _ci_get(r, 'groupTitle')
+            grp['children'] = [g, unit]
+            cols[gi] = grp
+        elif ai >= 0:
+            cols = cols[:ai + 1] + [unit] + cols[ai + 1:]
     return cols
 
 
@@ -1191,7 +1263,7 @@ def generate_catalog_item_dsl(meta, p, fd, cfg):
     ts_line_number = ts_cfg.get('lineNumber') if ts_cfg.get('lineNumber') is not None else True
     table_sizes = []
     for ts in get_visible_tabular_sections(meta, cfg, p, skipped):
-        ts_cols = build_tabular_columns(ts, cfg, fd, ts_line_number, skipped)
+        ts_cols = build_tabular_columns(ts, cfg, fd, ts_line_number, skipped, meta)
         table_sizes.append({'Name': ts['Name'], 'Count': len(ts_cols) - 1 if ts_line_number else len(ts_cols)})
         root_elements.append(OrderedDict([('table', ts['Name']), ('path', f"\u041e\u0431\u044a\u0435\u043a\u0442.{ts['Name']}"), ('columns', ts_cols)]))
 
@@ -1469,7 +1541,7 @@ def generate_document_item_dsl(meta, p, fd, cfg):
     ts_pages = []
     table_sizes = []
     for ts in visible_ts:
-        ts_cols = build_tabular_columns(ts, cfg, fd, ts_line_number, skipped)
+        ts_cols = build_tabular_columns(ts, cfg, fd, ts_line_number, skipped, meta)
         table_sizes.append({'Name': ts['Name'], 'Count': len(ts_cols) - 1 if ts_line_number else len(ts_cols)})
         ts_pages.append(OrderedDict([
             ('page', get_unique_element_name(f"\u0421\u0442\u0440\u0430\u043d\u0438\u0446\u0430{ts['Name']}", used)), ('title', ts['Synonym']),

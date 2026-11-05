@@ -87,6 +87,18 @@
       }
     },
 
+    "refColumns": {
+      "unit": {
+        "column": "^Номенклатура$",
+        "attribute": "ЕдиницаИзмерения",
+        "title": "Ед. изм.",
+        "props": { "width": 8 },
+        "groupWith": "^Упаковка$",
+        "groupTitle": "Упаковка, единица измерения",
+        "after": "^Количество"
+      }
+    },
+
     "listProps": {
       "byName": {
         "Дата": { "width": 9 }
