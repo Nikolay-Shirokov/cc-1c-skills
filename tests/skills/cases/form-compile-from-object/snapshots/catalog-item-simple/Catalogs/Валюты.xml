@@ -384,15 +384,59 @@
 					<DataHistory>Use</DataHistory>
 				</Properties>
 			</Attribute>
-			<TabularSection uuid="UUID-019">
+			<Attribute uuid="UUID-019">
+				<Properties>
+					<Name>Комментарий</Name>
+					<Synonym>
+						<v8:item>
+							<v8:lang>ru</v8:lang>
+							<v8:content>Комментарий</v8:content>
+						</v8:item>
+					</Synonym>
+					<Comment/>
+					<Type>
+						<v8:Type>xs:string</v8:Type>
+						<v8:StringQualifiers>
+							<v8:Length>10</v8:Length>
+							<v8:AllowedLength>Variable</v8:AllowedLength>
+						</v8:StringQualifiers>
+					</Type>
+					<PasswordMode>false</PasswordMode>
+					<Format/>
+					<EditFormat/>
+					<ToolTip/>
+					<MarkNegatives>false</MarkNegatives>
+					<Mask/>
+					<MultiLine>false</MultiLine>
+					<ExtendedEdit>false</ExtendedEdit>
+					<MinValue xsi:nil="true"/>
+					<MaxValue xsi:nil="true"/>
+					<FillFromFillingValue>false</FillFromFillingValue>
+					<FillValue xsi:type="xs:string"/>
+					<FillChecking>DontCheck</FillChecking>
+					<ChoiceFoldersAndItems>Items</ChoiceFoldersAndItems>
+					<ChoiceParameterLinks/>
+					<ChoiceParameters/>
+					<QuickChoice>Auto</QuickChoice>
+					<CreateOnInput>Auto</CreateOnInput>
+					<ChoiceForm/>
+					<LinkByType/>
+					<ChoiceHistoryOnInput>Auto</ChoiceHistoryOnInput>
+					<Use>ForItem</Use>
+					<Indexing>DontIndex</Indexing>
+					<FullTextSearch>Use</FullTextSearch>
+					<DataHistory>Use</DataHistory>
+				</Properties>
+			</Attribute>
+			<TabularSection uuid="UUID-020">
 				<InternalInfo>
 					<xr:GeneratedType name="CatalogTabularSection.Валюты.Представления" category="TabularSection">
-						<xr:TypeId>UUID-020</xr:TypeId>
-						<xr:ValueId>UUID-021</xr:ValueId>
+						<xr:TypeId>UUID-021</xr:TypeId>
+						<xr:ValueId>UUID-022</xr:ValueId>
 					</xr:GeneratedType>
 					<xr:GeneratedType name="CatalogTabularSectionRow.Валюты.Представления" category="TabularSectionRow">
-						<xr:TypeId>UUID-022</xr:TypeId>
-						<xr:ValueId>UUID-023</xr:ValueId>
+						<xr:TypeId>UUID-023</xr:TypeId>
+						<xr:ValueId>UUID-024</xr:ValueId>
 					</xr:GeneratedType>
 				</InternalInfo>
 				<Properties>
@@ -437,7 +481,7 @@
 					<Use>ForItem</Use>
 				</Properties>
 				<ChildObjects>
-					<Attribute uuid="UUID-024">
+					<Attribute uuid="UUID-025">
 						<Properties>
 							<Name>КодЯзыка</Name>
 							<Synonym>
@@ -478,7 +522,7 @@
 							<DataHistory>Use</DataHistory>
 						</Properties>
 					</Attribute>
-					<Attribute uuid="UUID-025">
+					<Attribute uuid="UUID-026">
 						<Properties>
 							<Name>ПараметрыПрописи</Name>
 							<Synonym>

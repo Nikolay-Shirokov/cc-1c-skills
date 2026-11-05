@@ -1,5 +1,5 @@
 {
-  "name": "Catalog Item — простой справочник (Валюты-like, Code+Description+7 реквизитов)",
+  "name": "Catalog Item — простой справочник (Валюты-like, Code+Description+8 реквизитов, комментарий внизу)",
   "preRun": [
     {
       "script": "meta-compile/scripts/meta-compile",
@@ -15,7 +15,8 @@
           { "name": "ОсновнаяВалюта", "type": "CatalogRef.Валюты" },
           { "name": "ПараметрыПрописи", "type": "String", "length": 200 },
           { "name": "ФормулаРасчетаКурса", "type": "String", "length": 100 },
-          { "name": "СпособУстановкиКурса", "type": "EnumRef.СпособыУстановкиКурсаВалюты" }
+          { "name": "СпособУстановкиКурса", "type": "EnumRef.СпособыУстановкиКурсаВалюты" },
+          { "name": "Комментарий", "type": "String" }
         ],
         "tabularSections": [
           {

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# form-compile v1.232 — Compile 1C managed form from JSON or object metadata
+# form-compile v1.233 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import copy
@@ -1466,7 +1466,11 @@ def generate_document_item_dsl(meta, p, fd, cfg):
     top_els = build_zone('top')
     bottom_els = build_zone('main.bottom')
     # Несколько нижних полей (Комментарий + Ответственный) — в одну строку
+    # (многострочное поле в такой строке — высотой в одну строку, как в ЕРП: 106 из 116; отдельно — блок)
     if len(bottom_els) > 1:
+        for be in bottom_els:
+            if be.get('multiLine') is True and 'height' not in be:
+                be['height'] = 1
         bottom_els = [OrderedDict([('group', 'horizontal'), ('name', get_unique_element_name('\u0413\u0440\u0443\u043f\u043f\u0430' + ''.join(placed['main.bottom']), used)), ('showTitle', False), ('children', bottom_els)])]
     footer_els = build_zone('footer')
     add_left_els = build_zone('additional.left')

@@ -1,4 +1,4 @@
-﻿# form-compile v1.232 — Compile 1C managed form from JSON or object metadata
+﻿# form-compile v1.233 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -1202,7 +1202,9 @@ function Generate-DocumentItemDSL($meta, [hashtable]$p, [hashtable]$fd, $cfg) {
 	$topEls = & $buildZone "top"
 	$bottomEls = & $buildZone "main.bottom"
 	# Несколько нижних полей (Комментарий + Ответственный) — в одну строку
+	# (многострочное поле в такой строке — высотой в одну строку, как в ЕРП: 106 из 116; отдельно — блок)
 	if ($bottomEls.Count -gt 1) {
+		foreach ($be in $bottomEls) { if ($be.multiLine -eq $true -and -not $be.Contains("height")) { $be["height"] = 1 } }
 		$bottomEls = @([ordered]@{ group = "horizontal"; name = (Get-UniqueElementName ("Группа" + (@($placed["main.bottom"]) -join "")) $used); showTitle = $false; children = $bottomEls })
 	}
 	$footerEls = & $buildZone "footer"

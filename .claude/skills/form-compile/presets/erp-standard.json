@@ -10,7 +10,8 @@
         "manualFlags": "Вручную$|ЗаполненоАвтоматически",
         "service": "^(КраткийСоставДокумента|РеквизитДопУпорядочивания|КурсЧислитель|КурсЗнаменатель)$",
         "printSigns": "^(ОснованиеПодписи|Должность)",
-        "hash": "Хеш|Хэш"
+        "hash": "Хеш|Хэш",
+        "accountSettings": "^НастройкаСчетовУчета$"
       },
       "types": {
         "uuid": "UUID"
@@ -83,7 +84,7 @@
       "byName": {
         "Номер":       { "width": 10, "horizontalStretch": false },
         "Дата":        { "width": 14, "horizontalStretch": false },
-        "Комментарий": { "autoMaxWidth": false, "multiLine": true, "height": 1 }
+        "Комментарий": { "autoMaxWidth": false, "multiLine": true }
       }
     },
 

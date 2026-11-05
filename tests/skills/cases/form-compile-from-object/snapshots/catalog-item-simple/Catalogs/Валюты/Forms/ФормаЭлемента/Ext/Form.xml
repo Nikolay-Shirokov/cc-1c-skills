@@ -73,13 +73,20 @@
 				</InputField>
 			</ChildItems>
 		</UsualGroup>
-		<UsualGroup name="ГруппаДополнительныеРеквизиты" id="32">
+		<InputField name="Комментарий" id="32">
+			<DataPath>Объект.Комментарий</DataPath>
+			<AutoMaxWidth>false</AutoMaxWidth>
+			<MultiLine>true</MultiLine>
+			<ContextMenu name="КомментарийКонтекстноеМеню" id="33"/>
+			<ExtendedTooltip name="КомментарийРасширеннаяПодсказка" id="34"/>
+		</InputField>
+		<UsualGroup name="ГруппаДополнительныеРеквизиты" id="35">
 			<Group>Vertical</Group>
-			<ExtendedTooltip name="ГруппаДополнительныеРеквизитыРасширеннаяПодсказка" id="33"/>
+			<ExtendedTooltip name="ГруппаДополнительныеРеквизитыРасширеннаяПодсказка" id="36"/>
 		</UsualGroup>
 	</ChildItems>
 	<Attributes>
-		<Attribute name="Объект" id="34">
+		<Attribute name="Объект" id="37">
 			<Type>
 				<v8:Type>cfg:CatalogObject.Валюты</v8:Type>
 			</Type>
