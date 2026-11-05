@@ -50,7 +50,7 @@
     },
     "stdoutContains": [
       "Module.bsl, module created):",
-      "  + ПриОткрытии — added, lines 3-6"
+      "  + ПриОткрытии — empty stub added, lines 3-6"
     ]
   },
   "skipPlatformVerify": "форма без метаданных (form-add не вызывается) — проверяется создание модуля; такую конфигурацию платформа не загрузит"

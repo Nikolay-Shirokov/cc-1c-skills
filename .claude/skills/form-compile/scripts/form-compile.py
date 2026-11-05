@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# form-compile v1.227 — Compile 1C managed form from JSON or object metadata
+# form-compile v1.228 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import copy
@@ -3811,7 +3811,7 @@ def update_form_module(form_xml_path, shown_form_path):
         st = status[key]
         p = next((x for x in outline['procs'] if x['name'].lower() == key), None)
         if st == 'added':
-            rows.append((p['start'], len(rows), f"  + {b['handler']} \u2014 added, lines {p['start']}-{p['end']}"))
+            rows.append((p['start'], len(rows), f"  + {b['handler']} \u2014 empty stub added, lines {p['start']}-{p['end']}"))
         elif st == 'exists':
             rows.append((p['start'], len(rows), f"  = {b['handler']} \u2014 exists, lines {p['start']}-{p['end']}"))
         else:

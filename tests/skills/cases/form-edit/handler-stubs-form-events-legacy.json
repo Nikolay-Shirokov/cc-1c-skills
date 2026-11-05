@@ -14,7 +14,7 @@
   },
   "expect": {
     "stdoutContains": [
-      "  + ПриОткрытии — added, lines 14-17"
+      "  + ПриОткрытии — empty stub added, lines 14-17"
     ],
     "fileContains": {
       "file": "Documents/ЗаказТест/Forms/ФормаДокумента/Ext/Form/Module.bsl",

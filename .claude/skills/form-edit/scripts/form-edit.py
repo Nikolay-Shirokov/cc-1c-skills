@@ -1,4 +1,4 @@
-# form-edit v1.48 — Edit 1C managed form elements (Python port)
+# form-edit v1.49 — Edit 1C managed form elements (Python port)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import bisect
@@ -1029,7 +1029,7 @@ def update_form_module(form_xml_path, shown_form_path):
         st = status[key]
         p = next((x for x in outline['procs'] if x['name'].lower() == key), None)
         if st == 'added':
-            rows.append((p['start'], len(rows), f"  + {b['handler']} \u2014 added, lines {p['start']}-{p['end']}"))
+            rows.append((p['start'], len(rows), f"  + {b['handler']} \u2014 empty stub added, lines {p['start']}-{p['end']}"))
         elif st == 'exists':
             rows.append((p['start'], len(rows), f"  = {b['handler']} \u2014 exists, lines {p['start']}-{p['end']}"))
         else:

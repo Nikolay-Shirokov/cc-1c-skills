@@ -93,9 +93,9 @@
       ]
     },
     "stdoutContains": [
-      "  + ПриСозданииНаСервере — added, lines 3-6",
-      "  + ТоварыКоличествоПриИзменении — added, lines",
-      "  + Заполнить — added, lines"
+      "  + ПриСозданииНаСервере — empty stub added, lines 3-6",
+      "  + ТоварыКоличествоПриИзменении — empty stub added, lines",
+      "  + Заполнить — empty stub added, lines"
     ]
   }
 }

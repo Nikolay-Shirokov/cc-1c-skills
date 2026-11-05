@@ -1,4 +1,4 @@
-﻿# form-edit v1.48 — Edit 1C managed form elements
+﻿# form-edit v1.49 — Edit 1C managed form elements
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -912,7 +912,7 @@ function Update-FormModule([string]$formXmlPath, [string]$shownFormPath) {
 	foreach ($b in $script:handlerBindings) {
 		$st = $status[$b.handler]
 		$p = @($outline.procs | Where-Object { $_.name -eq $b.handler })[0]
-		if ($st -eq 'added') { $rows += [pscustomobject]@{ line = $p.start; n = $rows.Count; text = "  + $($b.handler) — added, lines $($p.start)-$($p.end)" } }
+		if ($st -eq 'added') { $rows += [pscustomobject]@{ line = $p.start; n = $rows.Count; text = "  + $($b.handler) — empty stub added, lines $($p.start)-$($p.end)" } }
 		elseif ($st -eq 'exists') { $rows += [pscustomobject]@{ line = $p.start; n = $rows.Count; text = "  = $($b.handler) — exists, lines $($p.start)-$($p.end)" } }
 		else { $rows += [pscustomobject]@{ line = [int]::MaxValue; n = $rows.Count; text = "  ? $($b.handler) — $st" } }
 	}

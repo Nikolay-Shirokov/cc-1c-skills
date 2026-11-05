@@ -24,8 +24,8 @@
   },
   "expect": {
     "stdoutContains": [
-      "  + КонтрагентПриИзменении — added, lines 12-15",
-      "  + ТоварыКоличество2ПриИзменении — added, lines 17-20"
+      "  + КонтрагентПриИзменении — empty stub added, lines 12-15",
+      "  + ТоварыКоличество2ПриИзменении — empty stub added, lines 17-20"
     ]
   }
 }
