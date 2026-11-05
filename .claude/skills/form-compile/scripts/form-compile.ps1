@@ -1,4 +1,4 @@
-﻿# form-compile v1.228 — Compile 1C managed form from JSON or object metadata
+﻿# form-compile v1.229 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -376,26 +376,27 @@ function Load-Preset([string]$PresetName, [string]$ScriptDir) {
 		return $result
 	}
 
+	# Convert PSCustomObject to hashtable recursively (нужно и встроенному пресету, и пресету проекта)
+	$toHash = {
+		param($obj)
+		if ($obj -is [System.Management.Automation.PSCustomObject]) {
+			$h = @{}
+			foreach ($p in $obj.PSObject.Properties) {
+				$h[$p.Name] = & $toHash $p.Value
+			}
+			return $h
+		}
+		if ($obj -is [System.Object[]]) {
+			return @($obj | ForEach-Object { & $toHash $_ })
+		}
+		return $obj
+	}
+
 	# Try built-in preset
 	$presetDir = Join-Path (Split-Path $ScriptDir -Parent) "presets"
 	$builtInPath = Join-Path $presetDir "$PresetName.json"
 	if (Test-Path $builtInPath) {
 		$presetJson = ConvertFrom-JsonInput (Read-JsonInputFile $builtInPath) $builtInPath
-		# Convert PSCustomObject to hashtable recursively
-		$toHash = {
-			param($obj)
-			if ($obj -is [System.Management.Automation.PSCustomObject]) {
-				$h = @{}
-				foreach ($p in $obj.PSObject.Properties) {
-					$h[$p.Name] = & $toHash $p.Value
-				}
-				return $h
-			}
-			if ($obj -is [System.Object[]]) {
-				return @($obj | ForEach-Object { & $toHash $_ })
-			}
-			return $obj
-		}
 		$presetHash = & $toHash $presetJson
 		foreach ($k in @($presetHash.Keys)) {
 			$defaults[$k] = & $deepMerge $defaults[$k] $presetHash[$k]
@@ -619,6 +620,17 @@ function Get-VisibleTabularSections($meta, $cfg, [hashtable]$p, $skipped) {
 	return ,$res
 }
 
+# Занятые имена элементов: реквизиты, ТЧ, колонки ТЧ
+function Get-UsedElementNames($meta) {
+	$used = @{}
+	foreach ($a in $meta.Attributes) { $used[$a.Name] = $true }
+	foreach ($ts in $meta.TabularSections) {
+		$used[$ts.Name] = $true
+		foreach ($c in $ts.Columns) { $used["$($ts.Name)$($c.Name)"] = $true }
+	}
+	return $used
+}
+
 # Уникальное имя элемента: базовое, иначе с числовым суффиксом
 function Get-UniqueElementName([string]$base, [hashtable]$used) {
 	$n = $base; $i = 1
@@ -779,12 +791,7 @@ function Generate-CatalogItemDSL($meta, [hashtable]$p, [hashtable]$fd, $cfg) {
 	$skipped = New-Object System.Collections.ArrayList
 
 	# Занятые имена элементов: реквизиты, ТЧ, колонки
-	$used = @{}
-	foreach ($a in $meta.Attributes) { $used[$a.Name] = $true }
-	foreach ($ts in $meta.TabularSections) {
-		$used[$ts.Name] = $true
-		foreach ($c in $ts.Columns) { $used["$($ts.Name)$($c.Name)"] = $true }
-	}
+	$used = Get-UsedElementNames $meta
 
 	# Owner (if subordinate)
 	if ($meta.Owners -and $meta.Owners.Count -gt 0) {
@@ -852,14 +859,15 @@ function Generate-CatalogItemDSL($meta, [hashtable]$p, [hashtable]$fd, $cfg) {
 		if (-not (Test-DisplayableType $attr.Type)) { continue }
 		$toBottom = $footerFieldNames -contains $attr.Name
 		$extra = $null
+		$role = Resolve-FieldRole $attr $cfg
 		if (-not $toBottom) {
 			$why = Get-SkipReason $attr $cfg "attributes"
 			if ($why) { [void]$skipped.Add("$($attr.Name) ($why)"); continue }
-			$role = Resolve-FieldRole $attr $cfg
 			if ($role -and $roles[$role].zone -eq "hidden") { [void]$skipped.Add("$($attr.Name) (hidden)"); continue }
 			if ($role -and $roles[$role].zone -eq "main.bottom") { $toBottom = $true }
-			if ($role -and $roles[$role].props -is [hashtable]) { $extra = $roles[$role].props }
 		}
+		# Свойства роли действуют и для закреплённого поля
+		if ($role -and $roles[$role].props -is [hashtable]) { $extra = $roles[$role].props }
 		$el = New-FieldElement -attrName $attr.Name -dataPath "Объект.$($attr.Name)" -attrType $attr.Type -fieldDefaults $fd -extraProps @{}
 		$el = Merge-Props $el (Get-FieldProps $attr $cfg "props" "")
 		$el = Merge-Props $el $extra
@@ -1076,26 +1084,31 @@ function Generate-DocumentItemDSL($meta, [hashtable]$p, [hashtable]$fd, $cfg) {
 	foreach ($attr in $meta.Attributes) {
 		if (-not (Test-DisplayableType $attr.Type)) { continue }
 		$zone = $null; $extra = $null; $order = 0
-		if ($pinned.ContainsKey($attr.Name)) {
-			$zone = $pinned[$attr.Name]
-		} else {
+		$isPinned = $pinned.ContainsKey($attr.Name)
+		if (-not $isPinned) {
 			$why = Get-SkipReason $attr $cfg "attributes"
 			if ($why) { [void]$skipped.Add("$($attr.Name) ($why)"); continue }
-			$role = Resolve-FieldRole $attr $cfg
-			if ($role -and $roles[$role].zone) {
-				$zone = [string]$roles[$role].zone
-				if ($roles[$role].props -is [hashtable]) { $extra = $roles[$role].props }
-				if ($null -ne $roles[$role].order) { $order = [int]$roles[$role].order }
-			} else {
-				$kind = if ($attr.FillChecking -eq "ShowError") { "required" } elseif ($attr.FullTextSearch -eq "DontUse") { "notSearchable" } else { "optional" }
-				$zone = if ($unplaced[$kind]) { [string]$unplaced[$kind] } else { "header" }
-			}
+		}
+		# Свойства и порядок роли действуют и для закреплённого поля; закрепление меняет только зону
+		$role = Resolve-FieldRole $attr $cfg
+		if ($role) {
+			if ($roles[$role].props -is [hashtable]) { $extra = $roles[$role].props }
+			if ($null -ne $roles[$role].order) { $order = [int]$roles[$role].order }
+		}
+		if ($isPinned) {
+			$zone = $pinned[$attr.Name]
+		} elseif ($role -and $roles[$role].zone) {
+			$zone = [string]$roles[$role].zone
+		} else {
+			$kind = if ($attr.FillChecking -eq "ShowError") { "required" } elseif ($attr.FullTextSearch -eq "DontUse") { "notSearchable" } else { "optional" }
+			$zone = if ($unplaced[$kind]) { [string]$unplaced[$kind] } else { "header" }
 		}
 		if ($zone -eq "hidden") { [void]$skipped.Add("$($attr.Name) (hidden)"); continue }
+		# Неизвестная зона (опечатка в пресете) — в шапку, до поправок под раскладку
+		if (-not $zones.ContainsKey($zone)) { $zone = "header" }
 		if (($addPos -ne "page" -or -not $usePages) -and $zone -like "additional*") { $zone = "header" }
 		if ($headerLayout -ne "2col" -and $zone -like "header*") { $zone = "header.left" }
 		if ($addLayout -ne "2col" -and $zone -like "additional*") { $zone = "additional.left" }
-		if (-not $zones.ContainsKey($zone)) { $zone = "header" }
 		[void]$zones[$zone].Add(@{ Attr = $attr; Extra = $extra; Order = $order })
 	}
 	# Нераспознанные — в более короткую колонку (слева ещё группа Номер+Дата); distribute left/right — всё в одну
@@ -1113,12 +1126,7 @@ function Generate-DocumentItemDSL($meta, [hashtable]$p, [hashtable]$fd, $cfg) {
 	}
 
 	# Занятые имена элементов: реквизиты, ТЧ, колонки
-	$used = @{}
-	foreach ($a in $meta.Attributes) { $used[$a.Name] = $true }
-	foreach ($ts in $meta.TabularSections) {
-		$used[$ts.Name] = $true
-		foreach ($c in $ts.Columns) { $used["$($ts.Name)$($c.Name)"] = $true }
-	}
+	$used = Get-UsedElementNames $meta
 
 	$placed = @{}
 	$buildZone = {
@@ -1424,6 +1432,33 @@ function Generate-AccumulationRegisterListDSL($meta, [hashtable]$p) {
 
 # ─── ChartOfCharacteristicTypes (delegates to Catalog) ────────────────────
 
+# Вставка полей после Наименования/группы «Наименование, код» — на корневом уровне или внутри группы шапки
+function Test-CodeDescriptionMarker($el) {
+	if ($el.input -eq "Наименование") { return $true }
+	return ([string]$el.name -match '^Группа(КодНаименование|НаименованиеКод)\d*$')
+}
+
+function Add-AfterCodeDescription($dsl, $newEls) {
+	# корневой уровень
+	$out = @(); $done = $false
+	foreach ($el in $dsl.elements) {
+		$out += $el
+		if (-not $done -and (Test-CodeDescriptionMarker $el)) { $out += $newEls; $done = $true }
+	}
+	if ($done) { $dsl.elements = $out; return }
+	# внутри групп первого уровня (ГруппаШапка)
+	foreach ($g in $dsl.elements) {
+		if (-not $g.group -or -not $g.children) { continue }
+		$kids = @(); $hit = $false
+		foreach ($el in $g.children) {
+			$kids += $el
+			if (-not $hit -and (Test-CodeDescriptionMarker $el)) { $kids += $newEls; $hit = $true }
+		}
+		if ($hit) { $g.children = $kids; return }
+	}
+	$dsl.elements = @($dsl.elements) + $newEls
+}
+
 function Generate-ChartOfCharacteristicTypesDSL {
 	param($meta, [hashtable]$presetData, [string]$purpose)
 	# Delegate to Catalog generators — meta already has CodeLength, DescriptionLength, etc.
@@ -1445,20 +1480,7 @@ function Generate-ChartOfCharacteristicTypesDSL {
 	# For Item forms: inject ValueType field after Code/Description
 	if ($purpose -eq "Item" -and $dsl.elements) {
 		$vtEl = [ordered]@{ input = "ТипЗначения"; path = "Объект.ValueType" }
-		$newElements = @()
-		$inserted = $false
-		foreach ($el in $dsl.elements) {
-			$newElements += $el
-			if (-not $inserted) {
-				$elName = if ($el.input) { $el.input } elseif ($el.name) { $el.name } elseif ($el.group) { $el.group } else { "" }
-				if ($elName -eq "Наименование" -or $elName -eq "ГруппаКодНаименование" -or $elName -eq "ГруппаНаименованиеКод") {
-					$newElements += $vtEl
-					$inserted = $true
-				}
-			}
-		}
-		if (-not $inserted) { $newElements += $vtEl }
-		$dsl.elements = $newElements
+		Add-AfterCodeDescription $dsl @($vtEl)
 	}
 
 	return $dsl
@@ -1488,21 +1510,7 @@ function Generate-ExchangePlanDSL {
 	if ($purpose -eq "Item" -and $dsl.elements) {
 		$sentEl = [ordered]@{ input = "НомерОтправленного"; path = "Объект.SentNo"; readOnly = $true }
 		$recvEl = [ordered]@{ input = "НомерПринятого"; path = "Объект.ReceivedNo"; readOnly = $true }
-		$newElements = @()
-		$inserted = $false
-		foreach ($el in $dsl.elements) {
-			$newElements += $el
-			if (-not $inserted) {
-				$elName = if ($el.input) { $el.input } elseif ($el.name) { $el.name } elseif ($el.group) { $el.group } else { "" }
-				if ($elName -eq "Наименование" -or $elName -eq "ГруппаКодНаименование" -or $elName -eq "ГруппаНаименованиеКод") {
-					$newElements += $sentEl
-					$newElements += $recvEl
-					$inserted = $true
-				}
-			}
-		}
-		if (-not $inserted) { $newElements += $sentEl; $newElements += $recvEl }
-		$dsl.elements = $newElements
+		Add-AfterCodeDescription $dsl @($sentEl, $recvEl)
 	}
 
 	return $dsl

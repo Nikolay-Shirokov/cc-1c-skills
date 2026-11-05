@@ -27,17 +27,17 @@
 						</InputField>
 					</ChildItems>
 				</UsualGroup>
+				<InputField name="ТипЗначения" id="11">
+					<DataPath>Объект.ValueType</DataPath>
+					<ContextMenu name="ТипЗначенияКонтекстноеМеню" id="12"/>
+					<ExtendedTooltip name="ТипЗначенияРасширеннаяПодсказка" id="13"/>
+				</InputField>
 			</ChildItems>
 		</UsualGroup>
-		<UsualGroup name="ГруппаДополнительныеРеквизиты" id="11">
+		<UsualGroup name="ГруппаДополнительныеРеквизиты" id="14">
 			<Group>Vertical</Group>
-			<ExtendedTooltip name="ГруппаДополнительныеРеквизитыРасширеннаяПодсказка" id="12"/>
+			<ExtendedTooltip name="ГруппаДополнительныеРеквизитыРасширеннаяПодсказка" id="15"/>
 		</UsualGroup>
-		<InputField name="ТипЗначения" id="13">
-			<DataPath>Объект.ValueType</DataPath>
-			<ContextMenu name="ТипЗначенияКонтекстноеМеню" id="14"/>
-			<ExtendedTooltip name="ТипЗначенияРасширеннаяПодсказка" id="15"/>
-		</InputField>
 	</ChildItems>
 	<Attributes>
 		<Attribute name="Объект" id="16">

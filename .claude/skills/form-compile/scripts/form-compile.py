@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# form-compile v1.228 — Compile 1C managed form from JSON or object metadata
+# form-compile v1.229 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import copy
@@ -1103,14 +1103,14 @@ def generate_catalog_item_dsl(meta, p, fd, cfg):
 
     # Code + Description
     cd = p.get('codeDescription') or {}
-    cd_layout = cd.get('layout') or 'horizontal'
-    cd_order = cd.get('order') or 'descriptionFirst'
+    cd_layout = str(cd.get('layout') or 'horizontal').lower()
+    cd_order = str(cd.get('order') or 'descriptionFirst').lower()
     has_code = meta.get('CodeLength', 0) > 0
 
     if cd_layout == 'horizontal' and has_code:
         desc_el = OrderedDict([('input', '\u041d\u0430\u0438\u043c\u0435\u043d\u043e\u0432\u0430\u043d\u0438\u0435'), ('path', '\u041e\u0431\u044a\u0435\u043a\u0442.Description')])
         code_el = OrderedDict([('input', '\u041a\u043e\u0434'), ('path', '\u041e\u0431\u044a\u0435\u043a\u0442.Code')])
-        if cd_order == 'descriptionFirst':
+        if cd_order == 'descriptionfirst':
             cd_children = [desc_el, code_el]
             cd_name = '\u0413\u0440\u0443\u043f\u043f\u0430\u041d\u0430\u0438\u043c\u0435\u043d\u043e\u0432\u0430\u043d\u0438\u0435\u041a\u043e\u0434'
         else:
@@ -1128,13 +1128,13 @@ def generate_catalog_item_dsl(meta, p, fd, cfg):
 
     # Parent (for hierarchical catalogs)
     par = p.get('parent') or {}
-    parent_pos = par.get('position') or 'afterCodeDescription'
+    parent_pos = str(par.get('position') or 'afterCodeDescription').lower()
     parent_title = par.get('title') or None
     if meta.get('Hierarchical'):
         parent_el = OrderedDict([('input', '\u0420\u043e\u0434\u0438\u0442\u0435\u043b\u044c'), ('path', '\u041e\u0431\u044a\u0435\u043a\u0442.Parent')])
         if parent_title:
             parent_el['title'] = parent_title
-        if parent_pos == 'beforeCodeDescription':
+        if parent_pos == 'beforecodedescription':
             insert_idx = 1 if meta.get('Owners') else 0
             header_children.insert(insert_idx, parent_el)
         else:
@@ -1152,20 +1152,21 @@ def generate_catalog_item_dsl(meta, p, fd, cfg):
             continue
         to_bottom = _ps_contains(footer_field_names, attr['Name'])
         extra = None
+        role = resolve_field_role(attr, cfg)
         if not to_bottom:
             why = get_skip_reason(attr, cfg, 'attributes')
             if why:
                 skipped.append(f"{attr['Name']} ({why})")
                 continue
-            role = resolve_field_role(attr, cfg)
             rz = str(_ci_get(roles[role], 'zone') or '') if role else ''
             if rz.lower() == 'hidden':
                 skipped.append(f"{attr['Name']} (hidden)")
                 continue
             if rz.lower() == 'main.bottom':
                 to_bottom = True
-            if role and isinstance(_ci_get(roles[role], 'props'), dict):
-                extra = _ci_get(roles[role], 'props')
+        # Свойства роли действуют и для закреплённого поля
+        if role and isinstance(_ci_get(roles[role], 'props'), dict):
+            extra = _ci_get(roles[role], 'props')
         el = new_field_element(attr['Name'], f"\u041e\u0431\u044a\u0435\u043a\u0442.{attr['Name']}", attr['Type'], fd, {})
         el = merge_props(el, get_field_props(attr, cfg, 'props', ''))
         el = merge_props(el, extra)
@@ -1293,8 +1294,9 @@ def generate_document_choice_dsl(meta, p, preset_data):
 
 def generate_document_item_dsl(meta, p, fd, cfg):
     hdr = p.get('header') or {}
-    header_pos = hdr.get('position') or 'insidePage'
-    header_layout = hdr.get('layout') or '2col'
+    # Значения пресета сравниваются без учёта регистра, как -eq/-ne в PS-каноне
+    header_pos = str(hdr.get('position') or 'insidePage').lower()
+    header_layout = str(hdr.get('layout') or '2col').lower()
     date_title = hdr.get('dateTitle') or '\u043e\u0442'
 
     footer = p.get('footer') or {}
@@ -1302,8 +1304,8 @@ def generate_document_item_dsl(meta, p, fd, cfg):
     footer_pos = footer.get('position') or 'insidePage'
 
     add = p.get('additional') or {}
-    add_pos = add.get('position') or 'page'
-    add_layout = add.get('layout') or '2col'
+    add_pos = str(add.get('position') or 'page').lower()
+    add_layout = str(add.get('layout') or '2col').lower()
     add_bsp_group = add.get('bspGroup') if add.get('bspGroup') is not None else True
     ts_cfg = p.get('tabularSections') or {}
     ts_line_number = ts_cfg.get('lineNumber') if ts_cfg.get('lineNumber') is not None else True
@@ -1335,41 +1337,44 @@ def generate_document_item_dsl(meta, p, fd, cfg):
         zone = None
         extra = None
         order = 0
-        if attr['Name'].lower() in pinned:
-            zone = pinned[attr['Name'].lower()]
-        else:
+        is_pinned = attr['Name'].lower() in pinned
+        if not is_pinned:
             why = get_skip_reason(attr, cfg, 'attributes')
             if why:
                 skipped.append(f"{attr['Name']} ({why})")
                 continue
-            role = resolve_field_role(attr, cfg)
-            if role and _ci_get(roles[role], 'zone'):
-                zone = str(_ci_get(roles[role], 'zone'))
-                if isinstance(_ci_get(roles[role], 'props'), dict):
-                    extra = _ci_get(roles[role], 'props')
-                if _ci_get(roles[role], 'order') is not None:
-                    order = int(_ci_get(roles[role], 'order'))
-            else:
-                fc = str(attr.get('FillChecking', '')).lower()
-                fts = str(attr.get('FullTextSearch', '')).lower()
-                kind = 'required' if fc == 'showerror' else ('notSearchable' if fts == 'dontuse' else 'optional')
-                uz = _ci_get(unplaced, kind)
-                zone = str(uz) if uz else 'header'
-        zl = zone.lower()
-        if zl == 'hidden':
+        # Свойства и порядок роли действуют и для закреплённого поля; закрепление меняет только зону
+        role = resolve_field_role(attr, cfg)
+        if role:
+            if isinstance(_ci_get(roles[role], 'props'), dict):
+                extra = _ci_get(roles[role], 'props')
+            if _ci_get(roles[role], 'order') is not None:
+                order = int(_ci_get(roles[role], 'order'))
+        if is_pinned:
+            zone = pinned[attr['Name'].lower()]
+        elif role and _ci_get(roles[role], 'zone'):
+            zone = str(_ci_get(roles[role], 'zone'))
+        else:
+            fc = str(attr.get('FillChecking', '')).lower()
+            fts = str(attr.get('FullTextSearch', '')).lower()
+            kind = 'required' if fc == 'showerror' else ('notSearchable' if fts == 'dontuse' else 'optional')
+            uz = _ci_get(unplaced, kind)
+            zone = str(uz) if uz else 'header'
+        if zone.lower() == 'hidden':
             skipped.append(f"{attr['Name']} (hidden)")
             continue
-        if (add_pos != 'page' or not use_pages) and zl.startswith('additional'):
-            zone = 'header'
-        if header_layout != '2col' and zone.lower().startswith('header'):
-            zone = 'header.left'
-        if add_layout != '2col' and zone.lower().startswith('additional'):
-            zone = 'additional.left'
+        # Неизвестная зона (опечатка в пресете) — в шапку, до поправок под раскладку
         zone = next((z for z in zone_names if z.lower() == zone.lower()), 'header')
+        if (add_pos != 'page' or not use_pages) and zone.startswith('additional'):
+            zone = 'header'
+        if header_layout != '2col' and zone.startswith('header'):
+            zone = 'header.left'
+        if add_layout != '2col' and zone.startswith('additional'):
+            zone = 'additional.left'
         zones[zone].append({'Attr': attr, 'Extra': extra, 'Order': order})
 
     # Нераспознанные — в более короткую колонку (слева ещё группа Номер+Дата); distribute left/right — всё в одну
-    distribute = str(hdr.get('distribute') or 'even')
+    distribute = str(hdr.get('distribute') or 'even').lower()
     left_count = 1 + len(zones['header.left'])
     right_count = len(zones['header.right'])
     if distribute == 'left':
@@ -1482,7 +1487,7 @@ def generate_document_item_dsl(meta, p, fd, cfg):
             root_elements.append(OrderedDict([('group', 'vertical'), ('name', get_unique_element_name('\u0413\u0440\u0443\u043f\u043f\u0430\u0414\u043e\u043f\u043e\u043b\u043d\u0438\u0442\u0435\u043b\u044c\u043d\u044b\u0435\u0420\u0435\u043a\u0432\u0438\u0437\u0438\u0442\u044b', used)), ('showTitle', True)]))
     else:
         pages_children = []
-        if header_pos == 'abovePages':
+        if header_pos == 'abovepages':
             root_elements.append(header_group)
             root_elements.extend(bottom_els)
         else:
@@ -1677,6 +1682,42 @@ def generate_accumulation_register_list_dsl(meta, p):
     ])
 
 
+# Вставка полей после Наименования/группы «Наименование, код» — на корневом уровне или внутри группы шапки
+def _is_code_description_marker(el):
+    if not isinstance(el, dict):
+        return False
+    if el.get('input') == '\u041d\u0430\u0438\u043c\u0435\u043d\u043e\u0432\u0430\u043d\u0438\u0435':
+        return True
+    return bool(re.match(r'^\u0413\u0440\u0443\u043f\u043f\u0430(\u041a\u043e\u0434\u041d\u0430\u0438\u043c\u0435\u043d\u043e\u0432\u0430\u043d\u0438\u0435|\u041d\u0430\u0438\u043c\u0435\u043d\u043e\u0432\u0430\u043d\u0438\u0435\u041a\u043e\u0434)\d*$', str(el.get('name') or '')))
+
+
+def add_after_code_description(dsl, new_els):
+    # корневой уровень
+    out, done = [], False
+    for el in dsl['elements']:
+        out.append(el)
+        if not done and _is_code_description_marker(el):
+            out.extend(new_els)
+            done = True
+    if done:
+        dsl['elements'] = out
+        return
+    # внутри групп первого уровня (ГруппаШапка)
+    for g in dsl['elements']:
+        if not isinstance(g, dict) or not g.get('group') or not g.get('children'):
+            continue
+        kids, hit = [], False
+        for el in g['children']:
+            kids.append(el)
+            if not hit and _is_code_description_marker(el):
+                kids.extend(new_els)
+                hit = True
+        if hit:
+            g['children'] = kids
+            return
+    dsl['elements'] = list(dsl['elements']) + list(new_els)
+
+
 # --- ChartOfCharacteristicTypes (delegates to Catalog) ---
 
 def generate_chart_of_characteristic_types_dsl(meta, preset_data, purpose):
@@ -1698,20 +1739,7 @@ def generate_chart_of_characteristic_types_dsl(meta, preset_data, purpose):
     # For Item forms: inject ValueType field after Description/ГруппаКодНаименование
     if purpose == 'Item' and dsl.get('elements'):
         vt_el = OrderedDict([('input', '\u0422\u0438\u043f\u0417\u043d\u0430\u0447\u0435\u043d\u0438\u044f'), ('path', '\u041e\u0431\u044a\u0435\u043a\u0442.ValueType')])
-        els = dsl['elements']
-        if isinstance(els, list):
-            inserted = False
-            new_els = []
-            for el in els:
-                new_els.append(el)
-                if not inserted and isinstance(el, dict):
-                    name = el.get('input') or el.get('group') or ''
-                    if name in ('\u041d\u0430\u0438\u043c\u0435\u043d\u043e\u0432\u0430\u043d\u0438\u0435', '\u0413\u0440\u0443\u043f\u043f\u0430\u041a\u043e\u0434\u041d\u0430\u0438\u043c\u0435\u043d\u043e\u0432\u0430\u043d\u0438\u0435', '\u0413\u0440\u0443\u043f\u043f\u0430\u041d\u0430\u0438\u043c\u0435\u043d\u043e\u0432\u0430\u043d\u0438\u0435\u041a\u043e\u0434'):
-                        new_els.append(vt_el)
-                        inserted = True
-            if not inserted:
-                new_els.append(vt_el)
-            dsl['elements'] = new_els
+        add_after_code_description(dsl, [vt_el])
 
     return dsl
 
@@ -1738,22 +1766,7 @@ def generate_exchange_plan_dsl(meta, preset_data, purpose):
     if purpose == 'Item' and dsl.get('elements'):
         sent_el = OrderedDict([('input', '\u041d\u043e\u043c\u0435\u0440\u041e\u0442\u043f\u0440\u0430\u0432\u043b\u0435\u043d\u043d\u043e\u0433\u043e'), ('path', '\u041e\u0431\u044a\u0435\u043a\u0442.SentNo'), ('readOnly', True)])
         recv_el = OrderedDict([('input', '\u041d\u043e\u043c\u0435\u0440\u041f\u0440\u0438\u043d\u044f\u0442\u043e\u0433\u043e'), ('path', '\u041e\u0431\u044a\u0435\u043a\u0442.ReceivedNo'), ('readOnly', True)])
-        els = dsl['elements']
-        if isinstance(els, list):
-            inserted = False
-            new_els = []
-            for el in els:
-                new_els.append(el)
-                if not inserted and isinstance(el, dict):
-                    name = el.get('input') or el.get('group') or ''
-                    if name in ('\u041d\u0430\u0438\u043c\u0435\u043d\u043e\u0432\u0430\u043d\u0438\u0435', '\u0413\u0440\u0443\u043f\u043f\u0430\u041a\u043e\u0434\u041d\u0430\u0438\u043c\u0435\u043d\u043e\u0432\u0430\u043d\u0438\u0435', '\u0413\u0440\u0443\u043f\u043f\u0430\u041d\u0430\u0438\u043c\u0435\u043d\u043e\u0432\u0430\u043d\u0438\u0435\u041a\u043e\u0434'):
-                        new_els.append(sent_el)
-                        new_els.append(recv_el)
-                        inserted = True
-            if not inserted:
-                new_els.append(sent_el)
-                new_els.append(recv_el)
-            dsl['elements'] = new_els
+        add_after_code_description(dsl, [sent_el, recv_el])
 
     return dsl
 
