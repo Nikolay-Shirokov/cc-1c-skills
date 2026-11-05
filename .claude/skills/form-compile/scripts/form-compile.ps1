@@ -634,6 +634,28 @@ function Write-FromObjectReport($skipped, [hashtable]$placed) {
 	}
 }
 
+# Подсказка о перегруженной форме: порог из fields.limits; решение — за моделью через form-edit
+function Write-FormSizeHint([int]$mainCount, [string]$area, $tables, $cfg) {
+	$limits = Get-CfgSection $cfg "limits"
+	$parts = @(); $norms = @()
+	if ($null -ne $limits.mainFields -and $mainCount -gt [int]$limits.mainFields) {
+		$parts += "$area has $mainCount fields"
+		$norms += "$([int]$limits.mainFields) fields on $area"
+	}
+	$tableOver = $false
+	foreach ($t in $tables) {
+		if ($null -ne $limits.tableColumns -and [int]$t.Count -gt [int]$limits.tableColumns) {
+			$parts += "table `"$($t.Name)`" has $($t.Count) columns"
+			$tableOver = $true
+		}
+	}
+	if ($tableOver) { $norms += "$([int]$limits.tableColumns) columns in a table" }
+	if ($parts.Count -eq 0) { return }
+	Write-Host "[from-object] Form is large: $($parts -join ', '); typical ERP forms keep up to $($norms -join ' and ')."
+	Write-Host "  Keep the essentials visible; spread the rest across tabs by meaning (or onto `"Дополнительно`"), or remove them from the form."
+	Write-Host "  To edit the form, use the form-edit skill."
+}
+
 # --- Catalog DSL generators ---
 function Generate-CatalogDSL {
 	param($meta, [hashtable]$presetData, [string]$purpose)
@@ -856,9 +878,11 @@ function Generate-CatalogItemDSL($meta, [hashtable]$p, [hashtable]$fd, $cfg) {
 
 	# Tabular sections
 	$tsLineNumber = if ($p.tabularSections -and $null -ne $p.tabularSections.lineNumber) { $p.tabularSections.lineNumber } else { $true }
+	$tableSizes = @()
 	foreach ($ts in (Get-VisibleTabularSections $meta $cfg $p $skipped)) {
 		$tsCols = Build-TabularColumns $ts $cfg $fd $tsLineNumber $skipped
 		$rootElements += [ordered]@{ table = $ts.Name; path = "Объект.$($ts.Name)"; columns = $tsCols }
+		$tableSizes += @{ Name = $ts.Name; Count = $(if ($tsLineNumber) { $tsCols.Count - 1 } else { $tsCols.Count }) }
 	}
 
 	# Нижние поля (Комментарий)
@@ -871,6 +895,7 @@ function Generate-CatalogItemDSL($meta, [hashtable]$p, [hashtable]$fd, $cfg) {
 	}
 
 	Write-FromObjectReport $skipped $placed
+	Write-FormSizeHint ($placed["header.left"].Count + $placed["main.bottom"].Count) "the form" $tableSizes $cfg
 
 	# Properties
 	$formProps = [ordered]@{}
@@ -1177,8 +1202,10 @@ function Generate-DocumentItemDSL($meta, [hashtable]$p, [hashtable]$fd, $cfg) {
 
 	# Страницы ТЧ
 	$tsPages = @()
+	$tableSizes = @()
 	foreach ($ts in $visibleTS) {
 		$tsCols = Build-TabularColumns $ts $cfg $fd $tsLineNumber $skipped
+		$tableSizes += @{ Name = $ts.Name; Count = $(if ($tsLineNumber) { $tsCols.Count - 1 } else { $tsCols.Count }) }
 		$tsPages += [ordered]@{
 			page = (Get-UniqueElementName "Страница$($ts.Name)" $used); title = $ts.Synonym
 			children = @(
@@ -1213,6 +1240,10 @@ function Generate-DocumentItemDSL($meta, [hashtable]$p, [hashtable]$fd, $cfg) {
 	}
 
 	Write-FromObjectReport $skipped $placed
+	$mainCount = 0
+	foreach ($z in @("top", "header.left", "header.right", "main.bottom")) { if ($placed.ContainsKey($z)) { $mainCount += @($placed[$z]).Count } }
+	$area = if ($usePages) { "the main page" } else { "the form" }
+	Write-FormSizeHint $mainCount $area $tableSizes $cfg
 
 	# Properties
 	$formProps = [ordered]@{}

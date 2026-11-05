@@ -61,6 +61,11 @@
       "correction":   { "names": "^(Исправление|СторнируемыйДокумент|ИсправляемыйДокумент|ИсправленныйДокумент)$", "zone": "hidden" }
     },
 
+    "limits": {
+      "mainFields": 12,
+      "tableColumns": 10
+    },
+
     "unplaced": {
       "required": "header",
       "optional": "header",

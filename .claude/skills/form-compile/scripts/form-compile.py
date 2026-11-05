@@ -948,6 +948,29 @@ def new_list_elements(table_el, p):
     return els
 
 
+# Подсказка о перегруженной форме: порог из fields.limits; решение — за моделью через form-edit
+def write_form_size_hint(main_count, area, tables, cfg):
+    limits = get_cfg_section(cfg, 'limits')
+    parts, norms = [], []
+    mf = _ci_get(limits, 'mainFields')
+    if mf is not None and main_count > int(mf):
+        parts.append(f'{area} has {main_count} fields')
+        norms.append(f'{int(mf)} fields on {area}')
+    tc = _ci_get(limits, 'tableColumns')
+    table_over = False
+    for t in tables:
+        if tc is not None and int(t['Count']) > int(tc):
+            parts.append(f'table "{t["Name"]}" has {t["Count"]} columns')
+            table_over = True
+    if table_over:
+        norms.append(f'{int(tc)} columns in a table')
+    if not parts:
+        return
+    print(f"[from-object] Form is large: {', '.join(parts)}; typical ERP forms keep up to {' and '.join(norms)}.")
+    print('  Keep the essentials visible; spread the rest across tabs by meaning (or onto "\u0414\u043e\u043f\u043e\u043b\u043d\u0438\u0442\u0435\u043b\u044c\u043d\u043e"), or remove them from the form.')
+    print('  To edit the form, use the form-edit skill.')
+
+
 # --- Catalog DSL generators ---
 
 def generate_catalog_dsl(meta, preset_data, purpose):
@@ -1165,8 +1188,10 @@ def generate_catalog_item_dsl(meta, p, fd, cfg):
     # Tabular sections
     ts_cfg = p.get('tabularSections') or {}
     ts_line_number = ts_cfg.get('lineNumber') if ts_cfg.get('lineNumber') is not None else True
+    table_sizes = []
     for ts in get_visible_tabular_sections(meta, cfg, p, skipped):
         ts_cols = build_tabular_columns(ts, cfg, fd, ts_line_number, skipped)
+        table_sizes.append({'Name': ts['Name'], 'Count': len(ts_cols) - 1 if ts_line_number else len(ts_cols)})
         root_elements.append(OrderedDict([('table', ts['Name']), ('path', f"\u041e\u0431\u044a\u0435\u043a\u0442.{ts['Name']}"), ('columns', ts_cols)]))
 
     # Нижние поля (Комментарий)
@@ -1179,6 +1204,7 @@ def generate_catalog_item_dsl(meta, p, fd, cfg):
         root_elements.append(OrderedDict([('group', 'vertical'), ('name', get_unique_element_name('\u0413\u0440\u0443\u043f\u043f\u0430\u0414\u043e\u043f\u043e\u043b\u043d\u0438\u0442\u0435\u043b\u044c\u043d\u044b\u0435\u0420\u0435\u043a\u0432\u0438\u0437\u0438\u0442\u044b', used)), ('showTitle', True)]))
 
     write_from_object_report(skipped, placed)
+    write_form_size_hint(len(placed['header.left']) + len(placed['main.bottom']), 'the form', table_sizes, cfg)
 
     # Properties
     form_props = OrderedDict()
@@ -1436,8 +1462,10 @@ def generate_document_item_dsl(meta, p, fd, cfg):
 
     # Страницы ТЧ
     ts_pages = []
+    table_sizes = []
     for ts in visible_ts:
         ts_cols = build_tabular_columns(ts, cfg, fd, ts_line_number, skipped)
+        table_sizes.append({'Name': ts['Name'], 'Count': len(ts_cols) - 1 if ts_line_number else len(ts_cols)})
         ts_pages.append(OrderedDict([
             ('page', get_unique_element_name(f"\u0421\u0442\u0440\u0430\u043d\u0438\u0446\u0430{ts['Name']}", used)), ('title', ts['Synonym']),
             ('children', [OrderedDict([('table', ts['Name']), ('path', f"\u041e\u0431\u044a\u0435\u043a\u0442.{ts['Name']}"), ('columns', ts_cols)])]),
@@ -1467,6 +1495,8 @@ def generate_document_item_dsl(meta, p, fd, cfg):
         root_elements.extend(footer_els)
 
     write_from_object_report(skipped, placed)
+    main_count = sum(len(placed.get(z, [])) for z in ('top', 'header.left', 'header.right', 'main.bottom'))
+    write_form_size_hint(main_count, 'the main page' if use_pages else 'the form', table_sizes, cfg)
 
     # Properties
     form_props = OrderedDict()
