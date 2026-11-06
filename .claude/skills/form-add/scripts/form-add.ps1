@@ -1,4 +1,4 @@
-﻿# form-add v1.34 — Add managed form to 1C config object
+﻿# form-add v1.35 — Add managed form to 1C config object
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -700,8 +700,10 @@ $formXml = @"
 
 if (Test-Path $formXmlPath) {
 	Write-Host "[SKIP] Form.xml already exists: $formXmlPath — not overwriting"
+	$formXmlCreated = $false
 } else {
 	Write-XmlFile $formXmlPath $formXml $encBom
+	$formXmlCreated = $true
 }
 
 # --- 3c. Module.bsl ---
@@ -913,5 +915,9 @@ if ($defaultUpdated) {
 	# Молчать здесь нельзя: пользователь ждёт, что форма станет основной, а свойства под неё
 	# у платформы нет (форма набора записей, произвольная форма).
 	Write-Host "Основной не назначена: у $objectType нет свойства для формы с назначением $Purpose"
+}
+if ($formXmlCreated) {
+	Write-Host ""
+	Write-Host "Form is empty: fill it with form-compile (-FromObject for a typical layout, or a JSON definition)."
 }
 Write-Host ""

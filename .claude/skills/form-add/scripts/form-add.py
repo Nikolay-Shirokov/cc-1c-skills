@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# form-add v1.34 — Add managed form to 1C config object (Python port)
+# form-add v1.35 — Add managed form to 1C config object (Python port)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -930,8 +930,10 @@ def main():
 
     if os.path.exists(form_xml_path):
         print(f"[SKIP] Form.xml already exists: {form_xml_path} — not overwriting")
+        form_xml_created = False
     else:
         write_xml_file(form_xml_path, form_xml)
+        form_xml_created = True
 
     # --- 3c. Module.bsl ---
 
@@ -1036,6 +1038,9 @@ def main():
         # Молчать здесь нельзя: пользователь ждёт, что форма станет основной, а свойства под неё
         # у платформы нет (форма набора записей, произвольная форма).
         print(f"Основной не назначена: у {object_type} нет свойства для формы с назначением {purpose}")
+    if form_xml_created:
+        print()
+        print("Form is empty: fill it with form-compile (-FromObject for a typical layout, or a JSON definition).")
     print()
 
 
