@@ -1,4 +1,4 @@
-﻿# form-decompile v0.159 — Decompile 1C managed Form.xml to JSON DSL (draft)
+﻿# form-decompile v0.160 — Decompile 1C managed Form.xml to JSON DSL (draft)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 # ВНИМАНИЕ: раундтрип не гарантируется. Навык исключён из авто-использования моделью.
 [CmdletBinding(PositionalBinding=$false)]
@@ -1061,16 +1061,18 @@ function Add-TitleLocation {
 	elseif ($tl -ne $smartDefault) { $obj['titleLocation'] = $tl.ToLower() }
 }
 
-# Разобрать <Events> элемента → упорядоченная мапа { ИмяСобытия: ИмяОбработчика }
-# в порядке документа. Имена обработчиков всегда явные (как у событий формы) —
-# единый, консистентный с form-level формат. Legacy on/handlers больше не эмитим.
+# Разобрать <Events> формы или элемента → упорядоченная мапа { ИмяСобытия: ИмяОбработчика }
+# в порядке документа. Имена обработчиков всегда явные. Привязка с видом вызова (расширение) —
+# { handler, callType }; несколько привязок одного события (Before и After) — массив таких объектов.
 function Get-Events {
 	param($node, [string]$elName)
 	$ev = $node.SelectSingleNode("lf:Events", $ns)
 	if (-not $ev) { return $null }
 	$events = [ordered]@{}
 	foreach ($e in @($ev.SelectNodes("lf:Event", $ns))) {
-		$events[$e.GetAttribute("name")] = $e.InnerText
+		$n = $e.GetAttribute("name"); $ct = $e.GetAttribute("callType")
+		$v = if ($ct) { [ordered]@{ handler = $e.InnerText; callType = $ct } } else { $e.InnerText }
+		if ($events.Contains($n)) { $events[$n] = @(@($events[$n]) + , $v) } else { $events[$n] = $v }
 	}
 	if ($events.Count -eq 0) { return $null }
 	return $events
@@ -2621,13 +2623,7 @@ if ($csForm) {
 
 # events (form-level)
 $evForm = Get-Events $root $null
-if ($evForm) {
-	# form-level: компилятор хранит как {Event: handler} напрямую
-	$evMap = [ordered]@{}
-	$evNode = $root.SelectSingleNode("lf:Events", $ns)
-	foreach ($e in @($evNode.SelectNodes("lf:Event", $ns))) { $evMap[$e.GetAttribute("name")] = $e.InnerText }
-	if ($evMap.Count -gt 0) { $dsl['events'] = $evMap }
-}
+if ($evForm) { $dsl['events'] = $evForm }
 
 # Зеркало компилятор-эвристики B3 (Compute-MainAcbAutofill): наличие cmdBar-элемента где-либо
 # в дереве → форменный AutoCommandBar autofill=false. Нужно, чтобы предсказать вывод и выразить

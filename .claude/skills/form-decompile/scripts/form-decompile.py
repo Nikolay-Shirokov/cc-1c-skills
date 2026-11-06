@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# form-decompile v0.159 — Decompile 1C managed Form.xml to JSON DSL (draft)
+# form-decompile v0.160 — Decompile 1C managed Form.xml to JSON DSL (draft)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 # ВНИМАНИЕ: раундтрип не гарантируется. Навык исключён из авто-использования моделью.
 #
@@ -1189,14 +1189,22 @@ def add_title_location(obj, node, smart_default):
         obj['titleLocation'] = tl.lower()
 
 
-# Разобрать <Events> элемента → упорядоченная мапа { ИмяСобытия: ИмяОбработчика }.
+# Разобрать <Events> формы или элемента → упорядоченная мапа { ИмяСобытия: ИмяОбработчика }.
+# Привязка с видом вызова (расширение) — { handler, callType }; несколько привязок одного события — массив.
 def get_events(node, el_name):
     ev = node.find('lf:Events', NS)
     if ev is None:
         return None
     events = OrderedDict()
     for e in ev.findall('lf:Event', NS):
-        events[_attr(e, 'name')] = _text(e)
+        n = _attr(e, 'name')
+        ct = _attr(e, 'callType')
+        v = OrderedDict([('handler', _text(e)), ('callType', ct)]) if ct else _text(e)
+        if n in events:
+            prev = events[n]
+            events[n] = (prev if isinstance(prev, list) else [prev]) + [v]
+        else:
+            events[n] = v
     if len(events) == 0:
         return None
     return events
@@ -3270,15 +3278,10 @@ def main():
         if len(exc_form) > 0:
             dsl['excludedCommands'] = exc_form
 
-    # events (form-level) → {Event: handler} напрямую
+    # events (form-level)
     ev_form = get_events(root, None)
     if ev_form:
-        ev_map = OrderedDict()
-        ev_node = root.find('lf:Events', NS)
-        for e in ev_node.findall('lf:Event', NS):
-            ev_map[_attr(e, 'name')] = _text(e)
-        if len(ev_map) > 0:
-            dsl['events'] = ev_map
+        dsl['events'] = ev_form
 
     # elements (+ форменный AutoCommandBar как autoCmdBar-элемент)
     elem_list = []

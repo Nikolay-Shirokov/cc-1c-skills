@@ -1,0 +1,17 @@
+{
+  "events": {
+    "OnOpen": "ПриОткрытии",
+    "OnCreateAtServer": [
+      { "handler": "Расш_ПриСозданииНаСервереПеред", "callType": "Before" },
+      { "handler": "Расш_ПриСозданииНаСервереПосле", "callType": "After" }
+    ]
+  },
+  "elements": [
+    {
+      "input": "Поле",
+      "path": "Поле",
+      "events": { "OnChange": { "handler": "Расш_ПолеПриИзмененииПосле", "callType": "After" } }
+    }
+  ],
+  "attributes": [{ "name": "Поле", "type": "string" }]
+}

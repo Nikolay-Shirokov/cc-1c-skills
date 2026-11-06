@@ -1,0 +1,41 @@
+{
+  "name": "События с видом вызова: { handler, callType }, Before и After одного события — массив, без callType — строка",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "DataProcessor", "name": "События" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    {
+      "script": "form-add/scripts/form-add",
+      "args": { "-ObjectPath": "{workDir}/DataProcessors/События.xml", "-FormName": "Форма" }
+    },
+    {
+      "script": "form-compile/scripts/form-compile",
+      "input": {
+        "events": {
+          "OnOpen": "ПриОткрытии",
+          "OnCreateAtServer": [
+            { "handler": "Расш_ПриСозданииНаСервереПеред", "callType": "Before" },
+            { "handler": "Расш_ПриСозданииНаСервереПосле", "callType": "After" }
+          ]
+        },
+        "attributes": [ { "name": "Поле", "type": "string" } ],
+        "elements": [
+          { "input": "Поле", "path": "Поле", "events": { "OnChange": { "handler": "Расш_ПолеПриИзмененииПосле", "callType": "After" } } }
+        ]
+      },
+      "args": {
+        "-JsonPath": "{inputFile}",
+        "-OutputPath": "{workDir}/DataProcessors/События/Forms/Форма/Ext/Form.xml"
+      }
+    }
+  ],
+  "params": {
+    "formPath": "DataProcessors/События/Forms/Форма/Ext/Form.xml",
+    "outputPath": "draft.json"
+  },
+  "expect": {
+    "files": ["draft.json"]
+  }
+}
