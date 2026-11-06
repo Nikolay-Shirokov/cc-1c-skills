@@ -280,15 +280,9 @@
 				</Page>
 			</ChildItems>
 		</Pages>
-		<InputField name="СуммаДокумента" id="103">
-			<DataPath>Объект.СуммаДокумента</DataPath>
-			<ReadOnly>true</ReadOnly>
-			<ContextMenu name="СуммаДокументаКонтекстноеМеню" id="104"/>
-			<ExtendedTooltip name="СуммаДокументаРасширеннаяПодсказка" id="105"/>
-		</InputField>
 	</ChildItems>
 	<Attributes>
-		<Attribute name="Объект" id="106">
+		<Attribute name="Объект" id="103">
 			<Type>
 				<v8:Type>cfg:DocumentObject.АктВыполненныхВнутреннихРабот</v8:Type>
 			</Type>
