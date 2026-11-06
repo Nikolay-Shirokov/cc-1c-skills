@@ -24,7 +24,7 @@ allowed-tools:
 
 Образец изучайте через `/form-info`; обработчики образца переносите только вместе с кодом.
 
-> Раскладку придумываете сами (JSON без заготовки) — архетипы и конвенции в `/form-patterns`. В заготовке `-FromObject` / `-EmitDsl` раскладка уже как в типовых.
+> Если раскладка формы не задана в задаче и заготовки нет — возьмите архетип и конвенции из `/form-patterns`. В заготовке `-FromObject` / `-EmitDsl` раскладка уже как в типовых.
 
 ## Параметры
 
@@ -57,7 +57,7 @@ powershell.exe -NoProfile -File "${CLAUDE_SKILL_DIR}/scripts/form-compile.ps1" -
 {
   "title": "Заголовок формы",
   "properties": { "windowOpeningMode": "LockOwnerWindow" },
-  "events": { "OnCreateAtServer": "ПриСозданииНаСервере" },
+  "events": { ... },
   "elements": [ ... ],
   "attributes": [ ... ],
   "commands": [ ... ],
@@ -185,6 +185,7 @@ powershell.exe -NoProfile -File "${CLAUDE_SKILL_DIR}/scripts/form-compile.ps1" -
 | `changeRowSet: true` / `changeRowOrder: true` | Разрешить добавлять/удалять / перемещать строки |
 | `header: false` | Без шапки |
 | `heightInTableRows` | Высота в строках |
+| `commandBar` | Кнопки командной панели таблицы — сюда команды строк («Отметить все», «Снять отметки», «Заполнить», «Подбор»), а не в панель формы или группу на форме: `[ { "button": "ЦеныОтметитьВсе", "command": "ОтметитьВсе" } ]` (`references/buttons-commands.md`) |
 | `commandBarLocation` | `None` / `Top` / `Bottom` / `Auto` |
 | `searchStringLocation` | `None` / `Top` / `Bottom` / `CommandBar` / `Auto` |
 | `choiceMode: true` | Таблица выбора (форма выбора) |
@@ -225,9 +226,9 @@ powershell.exe -NoProfile -File "${CLAUDE_SKILL_DIR}/scripts/form-compile.ps1" -
     { "button": "Загрузить", "command": "Загрузить", "defaultButton": true },
     { "popup": "Печать", "title": "Печать", "children": [
         { "button": "ПечатьСчета", "command": "ПечатьСчета" } ] },
-    { "buttonGroup": "ГруппаПеремещение", "children": [
-        { "button": "Вверх", "command": "Вверх" },
-        { "button": "Вниз", "command": "Вниз" } ] }
+    { "buttonGroup": "ГруппаНавигация", "children": [
+        { "button": "Назад", "command": "Назад" },
+        { "button": "Далее", "command": "Далее" } ] }
 ] }
 ```
 
