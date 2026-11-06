@@ -75,7 +75,9 @@
 		</UsualGroup>
 		<InputField name="Комментарий" id="32">
 			<DataPath>Объект.Комментарий</DataPath>
+			<TitleLocation>Left</TitleLocation>
 			<AutoMaxWidth>false</AutoMaxWidth>
+			<VerticalStretch>false</VerticalStretch>
 			<MultiLine>true</MultiLine>
 			<ContextMenu name="КомментарийКонтекстноеМеню" id="33"/>
 			<ExtendedTooltip name="КомментарийРасширеннаяПодсказка" id="34"/>

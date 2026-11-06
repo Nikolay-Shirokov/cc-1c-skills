@@ -325,7 +325,6 @@ powershell.exe -NoProfile -File "${CLAUDE_SKILL_DIR}/scripts/form-compile.ps1" -
 ```json
 {
   "title": "Загрузка из файла",
-  "events": { "OnCreateAtServer": "ПриСозданииНаСервере" },
   "elements": [
     { "autoCmdBar": "ФормаКоманднаяПанель", "children": [
       { "button": "Загрузить", "command": "Загрузить", "defaultButton": true },

@@ -87,7 +87,7 @@
       "byName": {
         "Номер":       { "width": 10, "horizontalStretch": false },
         "Дата":        { "width": 14, "horizontalStretch": false },
-        "Комментарий": { "autoMaxWidth": false, "multiLine": true }
+        "Комментарий": { "autoMaxWidth": false, "multiLine": true, "titleLocation": "left", "verticalStretch": false }
       }
     },
 

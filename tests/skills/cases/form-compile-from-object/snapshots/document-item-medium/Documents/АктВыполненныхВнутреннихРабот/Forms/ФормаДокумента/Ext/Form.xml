@@ -120,8 +120,10 @@
 							<ChildItems>
 								<InputField name="Комментарий" id="42">
 									<DataPath>Объект.Комментарий</DataPath>
+									<TitleLocation>Left</TitleLocation>
 									<AutoMaxWidth>false</AutoMaxWidth>
 									<Height>1</Height>
+									<VerticalStretch>false</VerticalStretch>
 									<MultiLine>true</MultiLine>
 									<ContextMenu name="КомментарийКонтекстноеМеню" id="43"/>
 									<ExtendedTooltip name="КомментарийРасширеннаяПодсказка" id="44"/>

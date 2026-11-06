@@ -163,7 +163,7 @@ allowed-tools: []
 | Ссылка, перечисление, составной тип | `autoMaxWidth: false, maxWidth: 28` |
 | `Номер` | `width: 10, horizontalStretch: false` |
 | `Дата` | `width: 14, horizontalStretch: false` |
-| `Комментарий` | `autoMaxWidth: false, multiLine: true`; в строке с другими полями — ещё `height: 1` |
+| `Комментарий` | `autoMaxWidth: false, multiLine: true, titleLocation: left, verticalStretch: false`; в строке с другими полями — ещё `height: 1` |
 | Строка длиннее 25 | `autoMaxWidth: false` |
 
 Колонки табличной части:
