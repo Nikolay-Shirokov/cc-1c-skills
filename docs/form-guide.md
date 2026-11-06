@@ -322,4 +322,4 @@ Claude вызовет `/form-compile` с флагом `-FromObject`. Назна�
 
 - [Управляемая форма](1c-form-spec.md) — Form.xml, элементы, команды, реквизиты, система типов
 - [Form DSL](form-dsl-spec.md) — JSON-формат описания формы для `/form-compile` и `/form-edit`
-- [Паттерны компоновки](form-patterns.md) — типовые архетипы форм, конвенции именования, примеры DSL
+- [Раскладка форм в стиле типовых](../.claude/skills/form-compile/references/layout-patterns.md) — архетипы форм, имена групп и элементов, ширины полей
