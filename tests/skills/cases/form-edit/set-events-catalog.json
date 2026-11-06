@@ -1,13 +1,13 @@
 {
-  "name": "События по каталогу: автоимена по конвенции, событие формы null, предупреждения о платформе и источнике",
+  "name": "События по каталогу: автоимена по конвенции списком (у формы и элементов), предупреждения о платформе и источнике",
   "setup": "fixture:move-form",
   "params": {
     "formPath": "Documents/ЗаказТест/Forms/ФормаДокумента/Ext/Form.xml"
   },
   "input": {
-    "events": {
-      "OnCreateAtServer": null
-    },
+    "events": [
+      "OnCreateAtServer"
+    ],
     "elements": [
       {
         "set": "Контрагент",
@@ -17,16 +17,19 @@
       },
       {
         "set": "Товары",
-        "events": {
-          "DragEnd": null,
-          "OnGetDataAtServer": "ТоварыПриПолученииДанныхНаСервере"
-        }
+        "events": [
+          "DragEnd",
+          {
+            "event": "OnGetDataAtServer",
+            "handler": "ТоварыПриПолученииДанныхНаСервере"
+          }
+        ]
       },
       {
         "set": "ГруппаШапка",
-        "events": {
-          "Click": null
-        }
+        "events": [
+          "Click"
+        ]
       }
     ]
   },

@@ -10,10 +10,13 @@
         "input": "НовоеПоле",
         "path": "Объект.Номер",
         "after": "Приоритет",
-        "events": {
-          "OnChange": "Расш_НовоеПолеПриИзменении",
-          "StartChoice": null
-        }
+        "events": [
+          {
+            "event": "OnChange",
+            "handler": "Расш_НовоеПолеПриИзменении"
+          },
+          "StartChoice"
+        ]
       }
     ]
   },

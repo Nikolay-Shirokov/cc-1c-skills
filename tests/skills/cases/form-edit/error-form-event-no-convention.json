@@ -5,9 +5,9 @@
     "formPath": "Documents/ЗаказТест/Forms/ФормаДокумента/Ext/Form.xml"
   },
   "input": {
-    "events": {
-      "Opening": null
-    }
+    "events": [
+      "Opening"
+    ]
   },
   "expect": {
     "stdoutContains": "у события формы Opening укажите имя обработчика"

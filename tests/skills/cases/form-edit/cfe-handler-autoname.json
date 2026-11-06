@@ -1,23 +1,23 @@
 {
-  "name": "Расширение: имя обработчика по null — префикс расширения + имя по конвенции + вид вызова",
+  "name": "Расширение: имя обработчика по списку событий — префикс расширения + имя по конвенции + вид вызова",
   "setup": "fixture:move-cfe",
   "params": {
     "formPath": "Documents/ЗаказТест/Forms/ФормаДокумента/Ext/Form.xml"
   },
   "input": {
-    "events": {
-      "OnCreateAtServer": null
-    },
+    "events": [
+      "OnCreateAtServer"
+    ],
     "elements": [
       {
         "set": "Контрагент",
-        "events": {
-          "OnChange": null,
-          "StartChoice": {
-            "handler": null,
+        "events": [
+          "OnChange",
+          {
+            "event": "StartChoice",
             "callType": "After"
           }
-        }
+        ]
       }
     ]
   },

@@ -24,9 +24,9 @@
     }
   ],
   "input": {
-    "events": {
-      "Opening": null
-    }
+    "events": [
+      "Opening"
+    ]
   },
   "expect": {
     "stderrContains": "Form event 'Opening'"

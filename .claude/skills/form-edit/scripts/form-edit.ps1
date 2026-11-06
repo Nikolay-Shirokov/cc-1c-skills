@@ -1,4 +1,4 @@
-﻿# form-edit v1.50 — Edit 1C managed form elements
+﻿# form-edit v1.51 — Edit 1C managed form elements
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -706,8 +706,11 @@ function Test-EventPairs {
 
 function Warn-EventsIgnored($el, [string]$xmlTag, [string]$elementName) {
 	$names = @()
-	if ($el.events) { $names += @($el.events.PSObject.Properties | ForEach-Object { $_.Name }) }
-	foreach ($evt in @($el.on)) { if ($null -ne $evt) { $names += if ($evt -is [System.Management.Automation.PSCustomObject]) { "$($evt.event)" } else { "$evt" } } }
+	$list = @($el.on)
+	if ($el.events -is [array]) { $list = @($el.events) + $list }
+	elseif ($el.events -is [System.Management.Automation.PSCustomObject]) { $names += @($el.events.PSObject.Properties | ForEach-Object { $_.Name }) }
+	elseif ($el.events) { $names += "$($el.events)" }
+	foreach ($evt in $list) { if ($null -ne $evt) { $names += if ($evt -is [System.Management.Automation.PSCustomObject]) { "$($evt.event)" } else { "$evt" } } }
 	if ($names.Count -gt 0) {
 		Write-Host "[WARN] $xmlTag '$elementName' has no events — ignored: $($names -join ', ')"
 	}
@@ -2906,27 +2909,54 @@ function Get-ElementName {
 	return "$($el.$typeKey)"
 }
 
+function Resolve-EventName([string]$xmlTag, [string]$name, [string]$ctx) {
+	if (-not $name) {
+		Write-Error "${ctx}: event name is empty — a list item object needs `"event`": { `"event`": `"OnChange`", `"handler`": `"Name`" }"
+		exit 1
+	}
+	if ($xmlTag -and $script:eventCatalog.ContainsKey($xmlTag)) {
+		foreach ($k in $script:eventCatalog[$xmlTag].Keys) { if ($k -eq $name) { return $k } }
+	}
+	if ($name -cmatch '^[A-Z]') { return $name }
+	$hint = if (@('remove', 'delete') -contains $name) { 'to unbind a handler in form-edit, set the event to null: { "OnOpen": null }' } else { 'keys of events are event names (OnOpen), values are handler names' }
+	Write-Error "${ctx}: '$name' is not an event name — $hint"
+	exit 1
+}
+
 function Get-EventPairs {
 	param($el, [string]$elementName, [string]$xmlTag)
 	$pairs = New-Object System.Collections.ArrayList
-	if ($el.events) {
+	$ctx = if ($xmlTag -eq 'Form') { 'Form events' } else { "Element '$elementName' events" }
+	$list = $null
+	if ($el.events -is [array]) { $list = @($el.events) }
+	elseif ($el.events) {
+		if (-not ($el.events -is [System.Management.Automation.PSCustomObject])) {
+			Write-Error "${ctx}: events — an object { `"OnChange`": `"Handler`" } or a list of events [`"OnChange`"]"
+			exit 1
+		}
 		foreach ($p in $el.events.PSObject.Properties) {
-			# Значение — имя обработчика; null — имя по шаблону; объект { handler, callType } или массив
-			# таких объектов (в расширении на одно событие вешают и Before, и After)
+			$evName = Resolve-EventName $xmlTag $p.Name $ctx
+			# Значение — имя обработчика; объект { handler, callType } или массив таких объектов
+			# (в расширении на одно событие вешают и Before, и After)
 			$vals = @($p.Value)   # массив — как есть, одно значение (в т.ч. null) — один элемент
+			if ($vals.Count -eq 0) { Write-Error "${ctx}: '$evName' — empty list, specify the handler name"; exit 1 }
 			foreach ($v in $vals) {
 				$h = ""; $ct = ""
-				if ($v -is [System.Management.Automation.PSCustomObject]) { $h = "$($v.handler)"; $ct = Normalize-CallType "$($v.callType)" $elementName $p.Name } else { $h = "$v" }
-				if ([string]::IsNullOrEmpty($h)) { $h = Get-HandlerName -elementName $elementName -eventName $p.Name -xmlTag $xmlTag -callType $ct }
-				[void]$pairs.Add([pscustomobject]@{ name = $p.Name; handler = $h; callType = $ct })
+				if ($v -is [System.Management.Automation.PSCustomObject]) { $h = "$($v.handler)"; $ct = Normalize-CallType "$($v.callType)" $elementName $evName } else { $h = "$v" }
+				if ([string]::IsNullOrEmpty($h)) {
+					Write-Error "${ctx}: '$evName' has no handler name — null unbinds a handler only when editing a form (form-edit); for a handler named by convention list the event: `"events`": [`"$evName`"]"
+					exit 1
+				}
+				[void]$pairs.Add([pscustomobject]@{ name = $evName; handler = $h; callType = $ct })
 			}
 		}
-	} elseif ($el.on) {
-		foreach ($evt in $el.on) {
+	} elseif ($el.on) { $list = @($el.on) }
+	if ($null -ne $list) {
+		foreach ($evt in $list) {
 			if ($evt -is [System.Management.Automation.PSCustomObject]) {
-				$evtName = "$($evt.event)"; $h = "$($evt.handler)"; $ct = Normalize-CallType "$($evt.callType)" $elementName $evtName
+				$evtName = Resolve-EventName $xmlTag "$($evt.event)" $ctx; $h = "$($evt.handler)"; $ct = Normalize-CallType "$($evt.callType)" $elementName $evtName
 			} else {
-				$evtName = "$evt"; $h = ""; $ct = ""
+				$evtName = Resolve-EventName $xmlTag "$evt" $ctx; $h = ""; $ct = ""
 			}
 			if (-not $h) { $h = if ($el.handlers -and $el.handlers.$evtName) { "$($el.handlers.$evtName)" } else { Get-HandlerName -elementName $elementName -eventName $evtName -xmlTag $xmlTag -callType $ct } }
 			[void]$pairs.Add([pscustomobject]@{ name = $evtName; handler = $h; callType = $ct })
@@ -7137,12 +7167,13 @@ function Add-ElementEvents($node, $on, $handlers, [string]$ctx) {
 	}
 	$events = $node.SelectSingleNode("f:Events", $nsMgr)
 	foreach ($evt in @($on)) {
-		if ($evt -is [string] -or -not $evt.event) {
+		if (-not ($evt -is [System.Management.Automation.PSCustomObject])) {
 			$evtName = "$evt"; $callType = ""; $handler = ""
 		} else {
 			$evtName = "$($evt.event)"; $callType = Normalize-CallType "$($evt.callType)" $name $evtName
 			$handler = if ($evt.handler) { "$($evt.handler)" } else { "" }
 		}
+		$evtName = Resolve-EventName $nt $evtName "$ctx events"
 		# В форме расширения обработчик без callType платформа читает как Before и так и пишет
 		if (-not $callType -and $script:isExtension) { $callType = 'Before' }
 		if (-not $handler) { $handler = if ($handlers -and $handlers.$evtName) { "$($handlers.$evtName)" } else { Get-HandlerName -elementName $name -eventName $evtName -xmlTag $nt -callType $callType } }
@@ -7156,8 +7187,14 @@ function Add-ElementEvents($node, $on, $handlers, [string]$ctx) {
 				if ($e.GetAttribute('name') -eq $evtName -and $e.GetAttribute('callType') -eq $callType) { $dup = $e; break }
 			}
 			if ($null -ne $dup) {
-				if ($dup.InnerText -eq $handler) { $script:opLog += "  = ${name}: event $evtName$ctStr -> $handler already bound"; continue }
-				Fail "${ctx}: у '$name' событие $evtName$ctStr уже обрабатывает '$($dup.InnerText)' — второй обработчик не повесить"
+				$old = $dup.InnerText
+				if ($old -eq $handler) { $script:opLog += "  = ${name}: event $evtName$ctStr -> $handler already bound"; continue }
+				# Другое имя — замена: у события один обработчик (на вид вызова)
+				$dup.InnerText = $handler
+				Add-UnboundHandlers @($old)
+				$script:opLog += "  ~ ${name}: event $evtName${ctStr}: $old -> $handler"
+				$script:changedCount++
+				continue
 			}
 		}
 		if ($null -eq $events) {
@@ -7192,23 +7229,31 @@ function Invoke-Set($op, [int]$idx) {
 			if ($key -eq 'handlers') { if (-not $op.on) { Fail "${c}: handlers задаются вместе с on" }; continue }
 			if ($key -eq 'on') { Add-ElementEvents $node $p.Value $op.handlers $c; continue }
 			if ($key -eq 'events') {
-				if (-not ($p.Value -is [System.Management.Automation.PSCustomObject])) { Fail "${c}: events — объект { Событие: обработчик }" }
-				# В форме расширения событие без callType — Before (так его читает платформа); вид вызова
-				# нужен уже имени по null: <Префикс><Имя>Перед
-				$src = $op
-				if ($script:isExtension) {
-					$ev = [pscustomobject]@{}
-					foreach ($e in $p.Value.PSObject.Properties) {
-						$vals = @(foreach ($v in @($e.Value)) {
-							if ($v -is [System.Management.Automation.PSCustomObject]) { if ($v.callType) { $v } else { [pscustomobject]@{ handler = $v.handler; callType = 'Before' } } }
-							else { [pscustomobject]@{ handler = $v; callType = 'Before' } }
-						})
-						$ev | Add-Member -NotePropertyName $e.Name -NotePropertyValue $(if ($vals.Count -eq 1) { $vals[0] } else { $vals })
+				# Список — имена по конвенции (в расширении вид вызова по умолчанию Before — его ставит Add-ElementEvents)
+				if ($p.Value -is [array]) { Add-ElementEvents $node $p.Value $null $c; continue }
+				if (-not ($p.Value -is [System.Management.Automation.PSCustomObject])) { Fail "${c}: events — объект { Событие: обработчик } или список событий" }
+				# Объект: имя — повесить или заменить, null — снять (без callType — все привязки события)
+				$on = @()
+				foreach ($e in $p.Value.PSObject.Properties) {
+					$evName = Resolve-EventName $nt $e.Name "$c events"
+					if (@($e.Value).Count -eq 0) { Fail "${c}: событие $evName — пустой список; чтобы снять обработчик, укажите null" }
+					foreach ($v in @($e.Value)) {
+						$isObj = $v -is [System.Management.Automation.PSCustomObject]
+						$h = if ($isObj) { "$($v.handler)" } else { "$v" }
+						$ct = if ($isObj) { Normalize-CallType "$($v.callType)" $n $evName } else { '' }
+						if ($h) { $on += [pscustomobject]@{ event = $evName; handler = $h; callType = $ct }; continue }
+						$ctStr = if ($ct) { "[$ct]" } else { "" }
+						$hits = Remove-EventBindings $node $evName $ct
+						if ($hits.Count -eq 0) { Fail "${c}: событие $evName$ctStr у '$n' не обрабатывается — снимать нечего" }
+						foreach ($x in $hits) {
+							$xc = $x.GetAttribute('callType'); $xcStr = if ($xc) { "[$xc]" } else { "" }
+							$script:opLog += "  - ${n}: event $evName$xcStr -> $($x.InnerText)"
+							$script:changedCount++
+						}
+						Add-UnboundHandlers @($hits | ForEach-Object { $_.InnerText })
 					}
-					$src = [pscustomobject]@{ events = $ev }
 				}
-				$on = @(Get-EventPairs -el $src -elementName $n -xmlTag $nt | ForEach-Object { [pscustomobject]@{ event = $_.name; handler = $_.handler; callType = $_.callType } })
-				Add-ElementEvents $node $on $null $c
+				if ($on.Count -gt 0) { Add-ElementEvents $node $on $null $c }
 				continue
 			}
 			if ($forbidden -contains $key -or ($key -eq $script:xmlTagToDsl[$nt] -and $key -ne 'group')) {
@@ -8049,43 +8094,114 @@ function Set-FormProperty([string]$key, $value) {
 	$script:formChanged++
 }
 
-# События формы: { Событие: обработчик | { handler, callType } | [ … ] } — как events элемента.
-function Add-FormEventsDsl($events) {
-	if (-not ($events -is [System.Management.Automation.PSCustomObject])) { Fail "events — объект { Событие: обработчик }" }
-	$sec = $null
-	foreach ($p in $events.PSObject.Properties) {
-		Test-EventPairs -pairs @([pscustomobject]@{ name = $p.Name }) -xmlTag 'Form' -elementName ''
-		foreach ($v in @($p.Value)) {
-			$h = ""; $ct = ""
-			if ($v -is [System.Management.Automation.PSCustomObject]) { $h = "$($v.handler)"; $ct = Normalize-CallType "$($v.callType)" 'Form' $p.Name } else { $h = "$v" }
-			if (-not $ct -and $script:isExtension) { $ct = 'Before' }
-			# null — имя по конвенции типовых (ПриСозданииНаСервере); у события вне каталога его нет
-			if (-not $h) {
-				if (-not (Get-EventEntry 'Form' $p.Name)) { Fail "events: у события формы $($p.Name) укажите имя обработчика — имени по конвенции для него нет" }
-				$h = Get-HandlerName -elementName '' -eventName $p.Name -xmlTag 'Form' -callType $ct
-			}
-			$ctStr = if ($ct) { "[$ct]" } else { "" }
-			Register-Handler $h 'form' 'Form' $p.Name
-			if ($null -eq $sec) { $sec = $root.SelectSingleNode("f:Events", $nsMgr) }
-			if ($null -ne $sec) {
-				$dup = $null
-				foreach ($e in $sec.SelectNodes("f:Event", $nsMgr)) {
-					if ($e.GetAttribute('name') -eq $p.Name -and $e.GetAttribute('callType') -eq $ct) { $dup = $e; break }
-				}
-				if ($null -ne $dup) {
-					if ($dup.InnerText -eq $h) { $script:formLog += "  = event $($p.Name)$ctStr -> $h already bound"; continue }
-					Fail "events: событие формы $($p.Name)$ctStr уже обрабатывает '$($dup.InnerText)' — второй обработчик не повесить"
-				}
-			}
-			if ($null -eq $sec) { $sec = Get-OrCreateRootSection 'Events' }
-			$ev = $xmlDoc.CreateElement("Event", $formNs)
-			$ev.SetAttribute('name', $p.Name)
-			if ($ct) { $ev.SetAttribute('callType', $ct) }
-			$ev.InnerText = $h
-			Insert-NodeAt $sec $ev $null (Get-ChildIndent $sec)
-			$script:formLog += "  + event $($p.Name)$ctStr -> $h"
-			$script:formChanged++
+# Снять привязки события у формы или элемента: callType пуст — все (в расширении у события их бывает
+# несколько), иначе — только эту. Пустой <Events> убирается. Возвращает снятые узлы.
+function Remove-EventBindings($owner, [string]$evName, [string]$callType) {
+	$sec = $owner.SelectSingleNode("f:Events", $nsMgr)
+	$hits = @()
+	if ($null -ne $sec) {
+		foreach ($e in @($sec.SelectNodes("f:Event", $nsMgr))) {
+			if ($e.GetAttribute('name') -eq $evName -and (-not $callType -or $e.GetAttribute('callType') -eq $callType)) { $hits += $e }
 		}
+	}
+	foreach ($e in $hits) { Remove-NodeWithWs $e }
+	if ($hits.Count -gt 0 -and $null -eq (Get-FirstElementChild $sec)) { Remove-NodeWithWs $sec }
+	return ,$hits
+}
+
+# Обработчики, отвязанные снятием или заменой. Проверяются в конце запуска (Resolve-UnboundHandlers):
+# правка могла привязать то же имя к другому событию.
+$script:unboundHandlers = @()
+function Add-UnboundHandlers([string[]]$handlers) {
+	foreach ($h in $handlers) { if ($h) { $script:unboundHandlers += $h } }
+}
+
+# Отвязанные, которые форма больше не вызывает, — в «Handlers left in module». Копия исходной формы
+# в <BaseForm> расширения не в счёт: её привязки — не привязки расширения.
+function Resolve-UnboundHandlers {
+	if ($script:unboundHandlers.Count -eq 0) { return }
+	$bound = @{}
+	foreach ($e in $xmlDoc.SelectNodes("//f:Event[not(ancestor::f:BaseForm)]|//f:Action[not(ancestor::f:BaseForm)]", $nsMgr)) { $bound[$e.InnerText.Trim().ToLower()] = $true }
+	$left = @($script:unboundHandlers | Where-Object { -not $bound.ContainsKey($_.ToLower()) })
+	if ($left.Count -gt 0) { Add-LeftHandlers $left }
+}
+
+# События формы — как events элемента: объект { Событие: обработчик | { handler, callType } | [ … ] } вешает
+# или заменяет, null — снимает; список [ Событие | { event, callType } ] — имена по конвенции.
+function Add-FormEventsDsl($events) {
+	$adds = @()
+	if ($events -is [array]) {
+		foreach ($v in $events) {
+			$isObj = $v -is [System.Management.Automation.PSCustomObject]
+			$n = Resolve-EventName 'Form' $(if ($isObj) { "$($v.event)" } else { "$v" }) 'Form events'
+			$h = if ($isObj) { "$($v.handler)" } else { '' }
+			$ct = if ($isObj) { Normalize-CallType "$($v.callType)" 'Form' $n } else { '' }
+			if (-not $ct -and $script:isExtension) { $ct = 'Before' }
+			if (-not $h) {
+				# Имя по конвенции типовых (ПриСозданииНаСервере); у события вне каталога его нет
+				if (-not (Get-EventEntry 'Form' $n)) { Fail "events: у события формы $n укажите имя обработчика — имени по конвенции для него нет" }
+				$h = Get-HandlerName -elementName '' -eventName $n -xmlTag 'Form' -callType $ct
+			}
+			$adds += [pscustomobject]@{ name = $n; handler = $h; callType = $ct }
+		}
+	} elseif ($events -is [System.Management.Automation.PSCustomObject]) {
+		foreach ($p in $events.PSObject.Properties) {
+			$n = Resolve-EventName 'Form' $p.Name 'Form events'
+			if (@($p.Value).Count -eq 0) { Fail "events: событие формы $n — пустой список; чтобы снять обработчик, укажите null" }
+			foreach ($v in @($p.Value)) {
+				$isObj = $v -is [System.Management.Automation.PSCustomObject]
+				$h = if ($isObj) { "$($v.handler)" } else { "$v" }
+				$ct = if ($isObj) { Normalize-CallType "$($v.callType)" 'Form' $n } else { '' }
+				if (-not $h) {
+					# null — снять: без callType — все привязки события, с callType — только эту
+					$ctStr = if ($ct) { "[$ct]" } else { "" }
+					$hits = Remove-EventBindings $root $n $ct
+					if ($hits.Count -eq 0) { Fail "events: событие формы $n$ctStr не обрабатывается — снимать нечего" }
+					foreach ($e in $hits) {
+						$ec = $e.GetAttribute('callType'); $ecStr = if ($ec) { "[$ec]" } else { "" }
+						$script:formLog += "  - event $n$ecStr -> $($e.InnerText)"
+						$script:formChanged++
+					}
+					Add-UnboundHandlers @($hits | ForEach-Object { $_.InnerText })
+					continue
+				}
+				if (-not $ct -and $script:isExtension) { $ct = 'Before' }
+				$adds += [pscustomobject]@{ name = $n; handler = $h; callType = $ct }
+			}
+		}
+	} else { Fail "events — объект { Событие: обработчик } или список событий" }
+
+	$sec = $null
+	foreach ($a in $adds) {
+		Test-EventPairs -pairs @([pscustomobject]@{ name = $a.name }) -xmlTag 'Form' -elementName ''
+		$n = $a.name; $h = $a.handler; $ct = $a.callType
+		$ctStr = if ($ct) { "[$ct]" } else { "" }
+		Register-Handler $h 'form' 'Form' $n
+		if ($null -eq $sec) { $sec = $root.SelectSingleNode("f:Events", $nsMgr) }
+		if ($null -ne $sec) {
+			$dup = $null
+			foreach ($e in $sec.SelectNodes("f:Event", $nsMgr)) {
+				if ($e.GetAttribute('name') -eq $n -and $e.GetAttribute('callType') -eq $ct) { $dup = $e; break }
+			}
+			if ($null -ne $dup) {
+				$old = $dup.InnerText
+				if ($old -eq $h) { $script:formLog += "  = event $n$ctStr -> $h already bound"; continue }
+				# Другое имя — замена: у события один обработчик (на вид вызова)
+				$dup.InnerText = $h
+				Add-UnboundHandlers @($old)
+				$script:formLog += "  ~ event $n${ctStr}: $old -> $h"
+				$script:formChanged++
+				continue
+			}
+		}
+		if ($null -eq $sec) { $sec = Get-OrCreateRootSection 'Events' }
+		$ev = $xmlDoc.CreateElement("Event", $formNs)
+		$ev.SetAttribute('name', $n)
+		if ($ct) { $ev.SetAttribute('callType', $ct) }
+		$ev.InnerText = $h
+		Insert-NodeAt $sec $ev $null (Get-ChildIndent $sec)
+		$script:formLog += "  + event $n$ctStr -> $h"
+		$script:formChanged++
 	}
 }
 
@@ -9572,6 +9688,7 @@ if ($script:removeLog.Count -gt 0) {
 	Write-Host ""
 }
 
+Resolve-UnboundHandlers
 if ($script:leftHandlers.Count -gt 0) {
 	Write-Host "Handlers left in module (delete if unused):"
 	foreach ($h in $script:leftHandlers) { Write-Host "  $h" }

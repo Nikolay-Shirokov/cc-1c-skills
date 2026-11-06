@@ -783,6 +783,7 @@ const FAMILIES = [
   { name: 'get_handler_name', py: 'get_handler_name', ps1: 'Get-HandlerName', variants: [{ id: 'base', authority: 'form-compile', consumers: ['form-edit'] }] },
   { name: 'get_element_name', py: 'get_element_name', ps1: 'Get-ElementName', variants: [{ id: 'base', authority: 'form-compile', consumers: ['form-edit'] }] },
   { name: 'normalize_call_type', py: 'normalize_call_type', ps1: 'Normalize-CallType', variants: [{ id: 'base', authority: 'form-compile', consumers: ['form-edit'] }] },
+  { name: 'resolve_event_name', py: 'resolve_event_name', ps1: 'Resolve-EventName', variants: [{ id: 'base', authority: 'form-compile', consumers: ['form-edit'] }] },
   { name: 'get_event_pairs', py: 'get_event_pairs', ps1: 'Get-EventPairs', variants: [{ id: 'base', authority: 'form-compile', consumers: ['form-edit'] }] },
   { name: 'emit_events', py: 'emit_events', ps1: 'Emit-Events', variants: [{ id: 'base', authority: 'form-compile', consumers: ['form-edit'] }] },
   { name: 'Test-CompanionStructured', py: null, ps1: 'Test-CompanionStructured', variants: [{ id: 'base', authority: 'form-compile', consumers: ['form-edit'] }] },

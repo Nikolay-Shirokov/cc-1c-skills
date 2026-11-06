@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# form-compile v1.235 — Compile 1C managed form from JSON or object metadata
+# form-compile v1.236 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import copy
@@ -3451,16 +3451,50 @@ def get_element_name(el, type_key):
     return str(el.get(type_key, ''))
 
 
+# Имя события из DSL. Совпало с событием тега без учёта регистра — имя из каталога (платформа примет только его).
+# Иначе: с заглавной — как есть (событие вне каталога, test_event_pairs предупредит); со строчной — не имя
+# события, а ключ не на своём месте (remove, handler…) — ошибка.
+def resolve_event_name(xml_tag, name, ctx):
+    name = '' if name is None else str(name)
+    if not name:
+        print(f"[ERROR] {ctx}: event name is empty — a list item object needs \"event\": "
+              f"{{ \"event\": \"OnChange\", \"handler\": \"Name\" }}", file=sys.stderr)
+        sys.exit(1)
+    if xml_tag and xml_tag in EVENT_CATALOG:
+        for k in EVENT_CATALOG[xml_tag]:
+            if k.lower() == name.lower():
+                return k
+    if name[:1].isascii() and name[:1].isupper():
+        return name
+    hint = ('to unbind a handler in form-edit, set the event to null: { "OnOpen": null }' if name in ('remove', 'delete')
+            else 'keys of events are event names (OnOpen), values are handler names')
+    print(f"[ERROR] {ctx}: '{name}' is not an event name — {hint}", file=sys.stderr)
+    sys.exit(1)
+
+
 # Собрать упорядоченный список событий элемента (имя, обработчик) из DSL.
-# Основной формат: el['events'] = { Событие: ИмяОбработчика } (None/"" → авто-имя по конвенции).
-# Legacy (принимается ради совместимости): el['on'] (массив) + el['handlers'] (переопределение имён).
+# Объект { Событие: ИмяОбработчика | { handler, callType } | [ … ] } — имена явно;
+# список [ "Событие" | { event, handler?, callType? } ] — имена по конвенции (get_handler_name).
+# null в объекте здесь — ошибка: снимать у нового элемента нечего (снятие — в form-edit, до этой функции).
+# Legacy (принимается ради совместимости): el['on'] (как список) + el['handlers'] (переопределение имён).
 def get_event_pairs(el, element_name, xml_tag=''):
     pairs = []
+    ctx = 'Form events' if xml_tag == 'Form' else f"Element '{element_name}' events"
     events = el.get('events')
-    if events:
-        for ev_name, val in events.items():
-            # Значение — имя обработчика; null — имя по шаблону; объект { handler, callType } или массив
-            # таких объектов (в расширении на одно событие вешают и Before, и After)
+    lst = None
+    if isinstance(events, list):
+        lst = events
+    elif events:
+        if not isinstance(events, dict):
+            print(f"[ERROR] {ctx}: events — an object {{ \"OnChange\": \"Handler\" }} or a list of events [\"OnChange\"]", file=sys.stderr)
+            sys.exit(1)
+        for ev_key, val in events.items():
+            ev_name = resolve_event_name(xml_tag, ev_key, ctx)
+            # Значение — имя обработчика; объект { handler, callType } или массив таких объектов
+            # (в расширении на одно событие вешают и Before, и After)
+            if val == []:
+                print(f"[ERROR] {ctx}: '{ev_name}' — empty list, specify the handler name", file=sys.stderr)
+                sys.exit(1)
             for v in (val if isinstance(val, list) else [val]):
                 if isinstance(v, dict):
                     handler = '' if v.get('handler') is None else str(v.get('handler'))
@@ -3469,19 +3503,24 @@ def get_event_pairs(el, element_name, xml_tag=''):
                     handler = '' if v is None else str(v)
                     call_type = ''
                 if not handler:
-                    handler = get_handler_name(element_name, ev_name, xml_tag, call_type)
+                    print(f"[ERROR] {ctx}: '{ev_name}' has no handler name — null unbinds a handler only when editing a form (form-edit); "
+                          f"for a handler named by convention list the event: \"events\": [\"{ev_name}\"]", file=sys.stderr)
+                    sys.exit(1)
                 pairs.append((ev_name, handler, call_type))
     elif el.get('on'):
+        lst = el['on'] if isinstance(el['on'], list) else [el['on']]
+    if lst is not None:
         handlers = el.get('handlers') or {}
-        for evt in (el['on'] if isinstance(el['on'], list) else [el['on']]):
+        for evt in lst:
             if isinstance(evt, dict):
-                evt_name = str(evt.get('event', ''))
+                evt_name = resolve_event_name(xml_tag, evt.get('event', ''), ctx)
                 handler = '' if evt.get('handler') is None else str(evt.get('handler'))
                 call_type = normalize_call_type(evt.get('callType'), element_name, evt_name)
             else:
-                evt_name, handler, call_type = str(evt), '', ''
+                evt_name, handler, call_type = resolve_event_name(xml_tag, evt, ctx), '', ''
             if not handler:
-                handler = str(handlers[evt_name]) if handlers.get(evt_name) else get_handler_name(element_name, evt_name, xml_tag, call_type)
+                hk = next((k for k in handlers if str(k).lower() == evt_name.lower() and handlers[k]), None)
+                handler = str(handlers[hk]) if hk is not None else get_handler_name(element_name, evt_name, xml_tag, call_type)
             pairs.append((evt_name, handler, call_type))
     return pairs
 
@@ -3535,9 +3574,16 @@ def get_table_source(el):
 
 # The element kind has no events: given events/on are not written — warn instead of losing them silently.
 def warn_events_ignored(el, xml_tag, element_name):
-    names = list((el.get('events') or {}).keys())
+    events = el.get('events')
     on = el.get('on')
-    for evt in (on if isinstance(on, list) else ([] if on is None else [on])):
+    lst = list(on if isinstance(on, list) else ([] if on is None else [on]))
+    if isinstance(events, list):
+        names, lst = [], list(events) + lst
+    elif isinstance(events, dict):
+        names = list(events.keys())
+    else:
+        names = [str(events)] if events else []
+    for evt in lst:
         if evt is not None:
             names.append(str(evt.get('event', '')) if isinstance(evt, dict) else str(evt))
     if names:
@@ -8947,15 +8993,15 @@ def main():
         lines.append(f'\t<AutoCommandBar name="{acb_name}" id="-1"{acb_di_attr}/>')
 
     # Events
-    # Values as for elements; None — the conventional name (ПриСозданииНаСервере)
+    # As for elements; a list — the conventional name (ПриСозданииНаСервере)
     if defn.get('events'):
-        for evt_name, val in defn['events'].items():
-            if get_event_entry('Form', evt_name):
-                continue
-            for v in (val if isinstance(val, list) else [val]):
-                h = ('' if v.get('handler') is None else str(v.get('handler'))) if isinstance(v, dict) else ('' if v is None else str(v))
-                if not h:
-                    print(f"[ERROR] Form event '{evt_name}': specify the handler name — there is no naming convention for this event", file=sys.stderr)
+        # An event outside the catalog has no conventional name — it is given explicitly
+        if isinstance(defn['events'], list):
+            for v in defn['events']:
+                n = resolve_event_name('Form', v.get('event') if isinstance(v, dict) else v, 'Form events')
+                h = ('' if v.get('handler') is None else str(v.get('handler'))) if isinstance(v, dict) else ''
+                if not h and not get_event_entry('Form', n):
+                    print(f"[ERROR] Form event '{n}': specify the handler name — there is no naming convention for this event", file=sys.stderr)
                     sys.exit(1)
         pairs = get_event_pairs(defn, '', 'Form')
         test_event_pairs(pairs, 'Form', '')

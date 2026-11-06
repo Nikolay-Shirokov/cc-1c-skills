@@ -1,0 +1,65 @@
+{
+  "name": "Расширение: снять одну привязку по callType, null — все привязки события, замена Before не трогает After",
+  "setup": "fixture:move-cfe",
+  "preRun": [
+    {
+      "script": "form-edit/scripts/form-edit",
+      "input": {
+        "events": {
+          "OnCreateAtServer": [
+            { "handler": "Перенос_ПриСозданииНаСервереПеред", "callType": "Before" },
+            { "handler": "Перенос_ПриСозданииНаСервереПосле", "callType": "After" }
+          ],
+          "OnOpen": [
+            { "handler": "Перенос_ПриОткрытииПеред", "callType": "Before" },
+            { "handler": "Перенос_ПриОткрытииПосле", "callType": "After" }
+          ]
+        },
+        "elements": [ { "set": "Контрагент", "events": { "StartChoice": "Перенос_КонтрагентНачалоВыбораСтарый" } } ]
+      },
+      "args": { "-FormPath": "{workDir}/Documents/ЗаказТест/Forms/ФормаДокумента/Ext/Form.xml", "-JsonPath": "{inputFile}" }
+    }
+  ],
+  "params": {
+    "formPath": "Documents/ЗаказТест/Forms/ФормаДокумента/Ext/Form.xml"
+  },
+  "input": {
+    "events": {
+      "OnCreateAtServer": { "handler": null, "callType": "After" },
+      "OnOpen": null
+    },
+    "elements": [
+      {
+        "set": "Контрагент",
+        "events": {
+          "StartChoice": "Перенос_КонтрагентНачалоВыбораПеред",
+          "OnChange": { "handler": "Перенос_КонтрагентПриИзмененииПосле", "callType": "After" }
+        }
+      }
+    ]
+  },
+  "expect": {
+    "stdoutContains": [
+      "  - event OnCreateAtServer[After] -> Перенос_ПриСозданииНаСервереПосле",
+      "  - event OnOpen[Before] -> Перенос_ПриОткрытииПеред",
+      "  - event OnOpen[After] -> Перенос_ПриОткрытииПосле",
+      "  ~ Контрагент: event StartChoice[Before]: Перенос_КонтрагентНачалоВыбораСтарый -> Перенос_КонтрагентНачалоВыбораПеред",
+      "  * Контрагент: event OnChange[After] -> Перенос_КонтрагентПриИзмененииПосле"
+    ],
+    "fileContains": {
+      "file": "Documents/ЗаказТест/Forms/ФормаДокумента/Ext/Form.xml",
+      "text": [
+        "<Event name=\"OnCreateAtServer\" callType=\"Before\">Перенос_ПриСозданииНаСервереПеред</Event>"
+      ]
+    },
+    "fileNotContains": {
+      "file": "Documents/ЗаказТест/Forms/ФормаДокумента/Ext/Form.xml",
+      "text": [
+        "Перенос_ПриСозданииНаСервереПосле</Event>",
+        "<Event name=\"OnOpen\"",
+        "Перенос_КонтрагентНачалоВыбораСтарый</Event>"
+      ]
+    }
+  },
+  "skipPlatformVerify": "фикстура — расширение без базовой конфигурации"
+}

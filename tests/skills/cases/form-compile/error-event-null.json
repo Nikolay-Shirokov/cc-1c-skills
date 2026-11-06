@@ -1,0 +1,25 @@
+{
+  "name": "null вместо имени обработчика — ошибка с подсказкой: имя по конвенции задаётся списком",
+  "params": {
+    "outputPath": "DataProcessors/Тест/Forms/Форма/Ext/Form.xml"
+  },
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "DataProcessor", "name": "Тест" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    {
+      "script": "form-add/scripts/form-add",
+      "args": { "-ObjectPath": "{workDir}/DataProcessors/Тест.xml", "-FormName": "Форма" }
+    }
+  ],
+  "input": {
+    "attributes": [ { "name": "Поле", "type": "string" } ],
+    "elements": [ { "input": "Поле", "path": "Поле", "events": { "OnChange": null } } ]
+  },
+  "expect": {
+    "stderrContains": "for a handler named by convention list the event: \"events\": [\"OnChange\"]"
+  },
+  "expectError": true
+}

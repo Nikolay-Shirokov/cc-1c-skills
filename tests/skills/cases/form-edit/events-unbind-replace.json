@@ -1,0 +1,54 @@
+{
+  "name": "События: null снимает, другое имя заменяет — у формы и в set; отвязанные процедуры — в Handlers left in module; повторно привязанный обработчик не считается отвязанным; имя события в другом регистре приводится",
+  "setup": "fixture:move-form",
+  "preRun": [
+    {
+      "script": "form-edit/scripts/form-edit",
+      "input": {
+        "events": { "OnCreateAtServer": "ПриСозданииНаСервере", "OnOpen": "ПриОткрытии" },
+        "elements": [ { "set": "Товары", "events": { "Selection": "ТоварыВыбор" } } ]
+      },
+      "args": { "-FormPath": "{workDir}/Documents/ЗаказТест/Forms/ФормаДокумента/Ext/Form.xml", "-JsonPath": "{inputFile}" }
+    }
+  ],
+  "params": {
+    "formPath": "Documents/ЗаказТест/Forms/ФормаДокумента/Ext/Form.xml"
+  },
+  "input": {
+    "events": { "OnCreateAtServer": null, "OnOpen": "ПриОткрытииНовый", "OnReopen": "ПриОткрытии" },
+    "elements": [
+      { "set": "Склад", "events": { "OnChange": null } },
+      { "set": "Товары", "events": { "Selection": "ТоварыВыборСтроки" } },
+      { "set": "Приоритет", "events": { "Onchange": "ПриоритетПриИзменении" } }
+    ]
+  },
+  "expect": {
+    "stdoutContains": [
+      "  - event OnCreateAtServer -> ПриСозданииНаСервере",
+      "  ~ event OnOpen: ПриОткрытии -> ПриОткрытииНовый",
+      "  - Склад: event OnChange -> СкладПриИзменении",
+      "  ~ Товары: event Selection: ТоварыВыбор -> ТоварыВыборСтроки",
+      "  * Приоритет: event OnChange -> ПриоритетПриИзменении",
+      "Handlers left in module (delete if unused):",
+      "  СкладПриИзменении",
+      "  ТоварыВыбор"
+    ],
+    "stdoutNotContains": "  ПриОткрытии",
+    "fileContains": {
+      "file": "Documents/ЗаказТест/Forms/ФормаДокумента/Ext/Form.xml",
+      "text": [
+        "<Event name=\"OnOpen\">ПриОткрытииНовый</Event>",
+        "<Event name=\"Selection\">ТоварыВыборСтроки</Event>",
+        "<Event name=\"OnChange\">ПриоритетПриИзменении</Event>"
+      ]
+    },
+    "fileNotContains": {
+      "file": "Documents/ЗаказТест/Forms/ФормаДокумента/Ext/Form.xml",
+      "text": [
+        "ПриСозданииНаСервере</Event>",
+        "СкладПриИзменении</Event>",
+        "ТоварыВыбор</Event>"
+      ]
+    }
+  }
+}

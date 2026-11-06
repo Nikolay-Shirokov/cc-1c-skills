@@ -1,0 +1,14 @@
+{
+  "name": "null у события без привязки — ошибка: снимать нечего",
+  "setup": "fixture:move-form",
+  "params": {
+    "formPath": "Documents/ЗаказТест/Forms/ФормаДокумента/Ext/Form.xml"
+  },
+  "input": {
+    "elements": [ { "set": "Приоритет", "events": { "OnChange": null } } ]
+  },
+  "expect": {
+    "stdoutContains": "событие OnChange у 'Приоритет' не обрабатывается — снимать нечего"
+  },
+  "expectError": true
+}

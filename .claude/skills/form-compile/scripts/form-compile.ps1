@@ -1,4 +1,4 @@
-﻿# form-compile v1.235 — Compile 1C managed form from JSON or object metadata
+﻿# form-compile v1.236 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -3353,30 +3353,62 @@ function Get-ElementName {
 	return "$($el.$typeKey)"
 }
 
+# Имя события из DSL. Совпало с событием тега без учёта регистра — имя из каталога (платформа примет только его).
+# Иначе: с заглавной — как есть (событие вне каталога, Test-EventPairs предупредит); со строчной — не имя
+# события, а ключ не на своём месте (remove, handler…) — ошибка.
+function Resolve-EventName([string]$xmlTag, [string]$name, [string]$ctx) {
+	if (-not $name) {
+		Write-Error "${ctx}: event name is empty — a list item object needs `"event`": { `"event`": `"OnChange`", `"handler`": `"Name`" }"
+		exit 1
+	}
+	if ($xmlTag -and $script:eventCatalog.ContainsKey($xmlTag)) {
+		foreach ($k in $script:eventCatalog[$xmlTag].Keys) { if ($k -eq $name) { return $k } }
+	}
+	if ($name -cmatch '^[A-Z]') { return $name }
+	$hint = if (@('remove', 'delete') -contains $name) { 'to unbind a handler in form-edit, set the event to null: { "OnOpen": null }' } else { 'keys of events are event names (OnOpen), values are handler names' }
+	Write-Error "${ctx}: '$name' is not an event name — $hint"
+	exit 1
+}
+
 # Собрать упорядоченный список событий элемента (имя, обработчик) из DSL.
-# Основной формат: $el.events = { Событие: ИмяОбработчика } (null/"" → авто-имя по конвенции).
-# Legacy (принимается ради совместимости): $el.on (массив) + $el.handlers (переопределение имён).
+# Объект { Событие: ИмяОбработчика | { handler, callType } | [ … ] } — имена явно;
+# список [ "Событие" | { event, handler?, callType? } ] — имена по конвенции (Get-HandlerName).
+# null в объекте здесь — ошибка: снимать у нового элемента нечего (снятие — в form-edit, до этой функции).
+# Legacy (принимается ради совместимости): $el.on (как список) + $el.handlers (переопределение имён).
 function Get-EventPairs {
 	param($el, [string]$elementName, [string]$xmlTag)
 	$pairs = New-Object System.Collections.ArrayList
-	if ($el.events) {
+	$ctx = if ($xmlTag -eq 'Form') { 'Form events' } else { "Element '$elementName' events" }
+	$list = $null
+	if ($el.events -is [array]) { $list = @($el.events) }
+	elseif ($el.events) {
+		if (-not ($el.events -is [System.Management.Automation.PSCustomObject])) {
+			Write-Error "${ctx}: events — an object { `"OnChange`": `"Handler`" } or a list of events [`"OnChange`"]"
+			exit 1
+		}
 		foreach ($p in $el.events.PSObject.Properties) {
-			# Значение — имя обработчика; null — имя по шаблону; объект { handler, callType } или массив
-			# таких объектов (в расширении на одно событие вешают и Before, и After)
+			$evName = Resolve-EventName $xmlTag $p.Name $ctx
+			# Значение — имя обработчика; объект { handler, callType } или массив таких объектов
+			# (в расширении на одно событие вешают и Before, и After)
 			$vals = @($p.Value)   # массив — как есть, одно значение (в т.ч. null) — один элемент
+			if ($vals.Count -eq 0) { Write-Error "${ctx}: '$evName' — empty list, specify the handler name"; exit 1 }
 			foreach ($v in $vals) {
 				$h = ""; $ct = ""
-				if ($v -is [System.Management.Automation.PSCustomObject]) { $h = "$($v.handler)"; $ct = Normalize-CallType "$($v.callType)" $elementName $p.Name } else { $h = "$v" }
-				if ([string]::IsNullOrEmpty($h)) { $h = Get-HandlerName -elementName $elementName -eventName $p.Name -xmlTag $xmlTag -callType $ct }
-				[void]$pairs.Add([pscustomobject]@{ name = $p.Name; handler = $h; callType = $ct })
+				if ($v -is [System.Management.Automation.PSCustomObject]) { $h = "$($v.handler)"; $ct = Normalize-CallType "$($v.callType)" $elementName $evName } else { $h = "$v" }
+				if ([string]::IsNullOrEmpty($h)) {
+					Write-Error "${ctx}: '$evName' has no handler name — null unbinds a handler only when editing a form (form-edit); for a handler named by convention list the event: `"events`": [`"$evName`"]"
+					exit 1
+				}
+				[void]$pairs.Add([pscustomobject]@{ name = $evName; handler = $h; callType = $ct })
 			}
 		}
-	} elseif ($el.on) {
-		foreach ($evt in $el.on) {
+	} elseif ($el.on) { $list = @($el.on) }
+	if ($null -ne $list) {
+		foreach ($evt in $list) {
 			if ($evt -is [System.Management.Automation.PSCustomObject]) {
-				$evtName = "$($evt.event)"; $h = "$($evt.handler)"; $ct = Normalize-CallType "$($evt.callType)" $elementName $evtName
+				$evtName = Resolve-EventName $xmlTag "$($evt.event)" $ctx; $h = "$($evt.handler)"; $ct = Normalize-CallType "$($evt.callType)" $elementName $evtName
 			} else {
-				$evtName = "$evt"; $h = ""; $ct = ""
+				$evtName = Resolve-EventName $xmlTag "$evt" $ctx; $h = ""; $ct = ""
 			}
 			if (-not $h) { $h = if ($el.handlers -and $el.handlers.$evtName) { "$($el.handlers.$evtName)" } else { Get-HandlerName -elementName $elementName -eventName $evtName -xmlTag $xmlTag -callType $ct } }
 			[void]$pairs.Add([pscustomobject]@{ name = $evtName; handler = $h; callType = $ct })
@@ -3435,8 +3467,11 @@ function Get-TableSource($el) {
 # У элемента этого вида событий нет: заданные events/on не пишутся — предупредить, а не потерять молча.
 function Warn-EventsIgnored($el, [string]$xmlTag, [string]$elementName) {
 	$names = @()
-	if ($el.events) { $names += @($el.events.PSObject.Properties | ForEach-Object { $_.Name }) }
-	foreach ($evt in @($el.on)) { if ($null -ne $evt) { $names += if ($evt -is [System.Management.Automation.PSCustomObject]) { "$($evt.event)" } else { "$evt" } } }
+	$list = @($el.on)
+	if ($el.events -is [array]) { $list = @($el.events) + $list }
+	elseif ($el.events -is [System.Management.Automation.PSCustomObject]) { $names += @($el.events.PSObject.Properties | ForEach-Object { $_.Name }) }
+	elseif ($el.events) { $names += "$($el.events)" }
+	foreach ($evt in $list) { if ($null -ne $evt) { $names += if ($evt -is [System.Management.Automation.PSCustomObject]) { "$($evt.event)" } else { "$evt" } } }
 	if ($names.Count -gt 0) {
 		Write-Host "[WARN] $xmlTag '$elementName' has no events — ignored: $($names -join ', ')"
 	}
@@ -8612,13 +8647,15 @@ if ($acbHasInner) {
 	X "`t<AutoCommandBar name=`"$acbName`" id=`"-1`"$acbDIAttr/>"
 }
 
-# 12e. Events — значения как у элементов; null — имя по конвенции (ПриСозданииНаСервере)
+# 12e. Events — как у элементов; список — имя по конвенции (ПриСозданииНаСервере)
 if ($def.events) {
-	foreach ($p in $def.events.PSObject.Properties) {
-		if (Get-EventEntry 'Form' $p.Name) { continue }
-		foreach ($v in @($p.Value)) {
-			$h = if ($v -is [System.Management.Automation.PSCustomObject]) { "$($v.handler)" } else { "$v" }
-			if (-not $h) { Write-Error "Form event '$($p.Name)': specify the handler name — there is no naming convention for this event"; exit 1 }
+	# Имени по конвенции у события вне каталога нет — его задают явно
+	if ($def.events -is [array]) {
+		foreach ($v in $def.events) {
+			$isObj = $v -is [System.Management.Automation.PSCustomObject]
+			$n = Resolve-EventName 'Form' $(if ($isObj) { "$($v.event)" } else { "$v" }) 'Form events'
+			$h = if ($isObj) { "$($v.handler)" } else { '' }
+			if (-not $h -and -not (Get-EventEntry 'Form' $n)) { Write-Error "Form event '$n': specify the handler name — there is no naming convention for this event"; exit 1 }
 		}
 	}
 	$pairs = Get-EventPairs -el $def -elementName '' -xmlTag 'Form'

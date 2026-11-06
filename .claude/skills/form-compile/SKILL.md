@@ -66,7 +66,7 @@ powershell.exe -NoProfile -File "${CLAUDE_SKILL_DIR}/scripts/form-compile.ps1" -
 
 - `title` — заголовок формы (строка или `{ru, en}`)
 - `properties` — свойства формы: `windowOpeningMode`, `commandBarLocation`, `width`, `height` и др. (полный список — `references/form-properties.md`)
-- `events` — обработчики событий формы: `{ "ИмяСобытия": "ИмяПроцедуры" }`
+- `events` — обработчики событий формы: `{ "ИмяСобытия": "ИмяПроцедуры" }`; имена по конвенции — списком: `["OnCreateAtServer", "OnOpen"]` → `ПриСозданииНаСервере`, `ПриОткрытии`
 - `excludedCommands` — убрать стандартные команды формы: `["Reread", "Copy"]`
 
 ### Элементы (ключ определяет тип)
@@ -104,7 +104,7 @@ powershell.exe -NoProfile -File "${CLAUDE_SKILL_DIR}/scripts/form-compile.ps1" -
 | `width` / `height` | Размер |
 | `horizontalStretch` / `verticalStretch` | Растягивать |
 | `autoMaxWidth: false` | Снять предел ширины (поле тянется на всю доступную ширину) |
-| `events` | Обработчики: `{ "OnChange": "ИмяОбработчика" }` |
+| `events` | Обработчики: `{ "OnChange": "ИмяОбработчика" }`; имена по конвенции — списком: `["OnChange", "StartChoice"]` (элемент списка может задать имя сам: `{ "event": "Clearing", "handler": "Имя" }`) |
 
 ### События
 

@@ -28,10 +28,13 @@
       {
         "table": "Товары",
         "path": "Товары",
-        "events": {
-          "OnHover": null,
-          "OnGetDataAtServer": "ТоварыПриПолученииДанныхНаСервере"
-        },
+        "events": [
+          "OnHover",
+          {
+            "event": "OnGetDataAtServer",
+            "handler": "ТоварыПриПолученииДанныхНаСервере"
+          }
+        ],
         "columns": [
           {
             "input": "ТоварыКоличество",

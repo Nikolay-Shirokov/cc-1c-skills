@@ -1,4 +1,4 @@
-# form-edit v1.50 — Edit 1C managed form elements (Python port)
+# form-edit v1.51 — Edit 1C managed form elements (Python port)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import bisect
@@ -784,9 +784,16 @@ def test_event_pairs(pairs, xml_tag, element_name, source=''):
             print(f"[WARN] Event '{ev}' of {what} exists only for a table bound to {only} (bound to {source}) — the platform drops it on load")
 
 def warn_events_ignored(el, xml_tag, element_name):
-    names = list((el.get('events') or {}).keys())
+    events = el.get('events')
     on = el.get('on')
-    for evt in (on if isinstance(on, list) else ([] if on is None else [on])):
+    lst = list(on if isinstance(on, list) else ([] if on is None else [on]))
+    if isinstance(events, list):
+        names, lst = [], list(events) + lst
+    elif isinstance(events, dict):
+        names = list(events.keys())
+    else:
+        names = [str(events)] if events else []
+    for evt in lst:
         if evt is not None:
             names.append(str(evt.get('event', '')) if isinstance(evt, dict) else str(evt))
     if names:
@@ -3329,18 +3336,49 @@ def get_element_name(el, type_key):
     return str(el.get(type_key, ''))
 
 
+# Имя события из DSL. События платформы пишутся с заглавной (OnOpen); строчная первая буква — либо
+# событие в другом регистре (приводится к каталогу), либо ключ не на своём месте (remove, handler…) — ошибка.
+def resolve_event_name(xml_tag, name, ctx):
+    name = '' if name is None else str(name)
+    if not name:
+        print(f"[ERROR] {ctx}: event name is empty — a list item object needs \"event\": "
+              f"{{ \"event\": \"OnChange\", \"handler\": \"Name\" }}", file=sys.stderr)
+        sys.exit(1)
+    if xml_tag and xml_tag in EVENT_CATALOG:
+        for k in EVENT_CATALOG[xml_tag]:
+            if k.lower() == name.lower():
+                return k
+    if name[:1].isascii() and name[:1].isupper():
+        return name
+    hint = ('to unbind a handler in form-edit, set the event to null: { "OnOpen": null }' if name in ('remove', 'delete')
+            else 'keys of events are event names (OnOpen), values are handler names')
+    print(f"[ERROR] {ctx}: '{name}' is not an event name — {hint}", file=sys.stderr)
+    sys.exit(1)
+
+
 # Собрать упорядоченный список событий элемента (имя, обработчик) из DSL.
-# Основной формат: el['events'] = { Событие: ИмяОбработчика } (None/"" → авто-имя по конвенции).
-# Legacy (принимается ради совместимости): el['on'] (массив) + el['handlers'] (переопределение имён).
-
-
+# Объект { Событие: ИмяОбработчика | { handler, callType } | [ … ] } — имена явно;
+# список [ "Событие" | { event, handler?, callType? } ] — имена по конвенции (get_handler_name).
+# null в объекте здесь — ошибка: снимать у нового элемента нечего (снятие — в form-edit, до этой функции).
+# Legacy (принимается ради совместимости): el['on'] (как список) + el['handlers'] (переопределение имён).
 def get_event_pairs(el, element_name, xml_tag=''):
     pairs = []
+    ctx = 'Form events' if xml_tag == 'Form' else f"Element '{element_name}' events"
     events = el.get('events')
-    if events:
-        for ev_name, val in events.items():
-            # Значение — имя обработчика; null — имя по шаблону; объект { handler, callType } или массив
-            # таких объектов (в расширении на одно событие вешают и Before, и After)
+    lst = None
+    if isinstance(events, list):
+        lst = events
+    elif events:
+        if not isinstance(events, dict):
+            print(f"[ERROR] {ctx}: events — an object {{ \"OnChange\": \"Handler\" }} or a list of events [\"OnChange\"]", file=sys.stderr)
+            sys.exit(1)
+        for ev_key, val in events.items():
+            ev_name = resolve_event_name(xml_tag, ev_key, ctx)
+            # Значение — имя обработчика; объект { handler, callType } или массив таких объектов
+            # (в расширении на одно событие вешают и Before, и After)
+            if val == []:
+                print(f"[ERROR] {ctx}: '{ev_name}' — empty list, specify the handler name", file=sys.stderr)
+                sys.exit(1)
             for v in (val if isinstance(val, list) else [val]):
                 if isinstance(v, dict):
                     handler = '' if v.get('handler') is None else str(v.get('handler'))
@@ -3349,19 +3387,24 @@ def get_event_pairs(el, element_name, xml_tag=''):
                     handler = '' if v is None else str(v)
                     call_type = ''
                 if not handler:
-                    handler = get_handler_name(element_name, ev_name, xml_tag, call_type)
+                    print(f"[ERROR] {ctx}: '{ev_name}' has no handler name — null unbinds a handler only when editing a form (form-edit); "
+                          f"for a handler named by convention list the event: \"events\": [\"{ev_name}\"]", file=sys.stderr)
+                    sys.exit(1)
                 pairs.append((ev_name, handler, call_type))
     elif el.get('on'):
+        lst = el['on'] if isinstance(el['on'], list) else [el['on']]
+    if lst is not None:
         handlers = el.get('handlers') or {}
-        for evt in (el['on'] if isinstance(el['on'], list) else [el['on']]):
+        for evt in lst:
             if isinstance(evt, dict):
-                evt_name = str(evt.get('event', ''))
+                evt_name = resolve_event_name(xml_tag, evt.get('event', ''), ctx)
                 handler = '' if evt.get('handler') is None else str(evt.get('handler'))
                 call_type = normalize_call_type(evt.get('callType'), element_name, evt_name)
             else:
-                evt_name, handler, call_type = str(evt), '', ''
+                evt_name, handler, call_type = resolve_event_name(xml_tag, evt, ctx), '', ''
             if not handler:
-                handler = str(handlers[evt_name]) if handlers.get(evt_name) else get_handler_name(element_name, evt_name, xml_tag, call_type)
+                hk = next((k for k in handlers if str(k).lower() == evt_name.lower() and handlers[k]), None)
+                handler = str(handlers[hk]) if hk is not None else get_handler_name(element_name, evt_name, xml_tag, call_type)
             pairs.append((evt_name, handler, call_type))
     return pairs
 
@@ -7644,7 +7687,7 @@ def add_element_events(node, on, handlers, ctx):
             source = get_data_path_source(dp.text or '')
     events = node.find("f:Events", NS)
     for evt in (on if isinstance(on, list) else [on]):
-        if isinstance(evt, str) or not (isinstance(evt, dict) and evt.get("event")):
+        if not isinstance(evt, dict):
             evt_name = str(evt)
             call_type = ""
             handler = ""
@@ -7652,11 +7695,13 @@ def add_element_events(node, on, handlers, ctx):
             evt_name = str(evt.get("event"))
             call_type = normalize_call_type(evt.get("callType"), name, evt_name)
             handler = str(evt.get("handler")) if evt.get("handler") else ""
+        evt_name = resolve_event_name(nt, evt_name, f"{ctx} events")
         # В форме расширения обработчик без callType платформа читает как Before и так и пишет
         if not call_type and is_extension:
             call_type = 'Before'
         if not handler:
-            handler = str(handlers.get(evt_name)) if handlers and handlers.get(evt_name) else get_handler_name(name, evt_name, nt, call_type)
+            hk = next((k for k in (handlers or {}) if str(k).lower() == evt_name.lower() and handlers[k]), None)
+            handler = str(handlers[hk]) if hk is not None else get_handler_name(name, evt_name, nt, call_type)
         test_event_pairs([(evt_name, handler, call_type)], nt, name, source)
         tbl = get_nearest_table(node, True)
         register_handler(handler, 'element', nt, evt_name, tbl.get('name') if tbl is not None else '')
@@ -7668,10 +7713,16 @@ def add_element_events(node, on, handlers, ctx):
                     dup = e
                     break
             if dup is not None:
-                if (dup.text or "").lower() == handler.lower():
+                old = dup.text or ""
+                if old.lower() == handler.lower():
                     op_log.append(f"  = {name}: event {evt_name}{ct_str} -> {handler} already bound")
                     continue
-                fail(f"{ctx}: у '{name}' событие {evt_name}{ct_str} уже обрабатывает '{dup.text}' — второй обработчик не повесить")
+                # Другое имя — замена: у события один обработчик (на вид вызова)
+                dup.text = handler
+                add_unbound_handlers([old])
+                op_log.append(f"  ~ {name}: event {evt_name}{ct_str}: {old} -> {handler}")
+                changed_count += 1
+                continue
         if events is None:
             events = etree.Element(f"{{{FORM_NS}}}Events")
             insert_child_canonical(node, events)
@@ -7716,24 +7767,37 @@ def invoke_set(op, idx):
                 add_element_events(node, v, op.get("handlers"), c)
                 continue
             if kl == 'events':
+                # Список — имена по конвенции (в расширении вид вызова по умолчанию Before — его ставит add_element_events)
+                if isinstance(v, list):
+                    add_element_events(node, v, None, c)
+                    continue
                 if not isinstance(v, dict):
-                    fail(f"{c}: events — объект {{ Событие: обработчик }}")
-                # В форме расширения событие без callType — Before (так его читает платформа); вид вызова
-                # нужен уже имени по null: <Префикс><Имя>Перед
-                src = op
-                if is_extension:
-                    ev = {}
-                    for e_name, e_val in v.items():
-                        vals = []
-                        for x in (e_val if isinstance(e_val, list) else [e_val]):
-                            if isinstance(x, dict):
-                                vals.append(x if x.get('callType') else {'handler': x.get('handler'), 'callType': 'Before'})
-                            else:
-                                vals.append({'handler': x, 'callType': 'Before'})
-                        ev[e_name] = vals[0] if len(vals) == 1 else vals
-                    src = {'events': ev}
-                on = [{'event': e, 'handler': h, 'callType': ct} for e, h, ct in get_event_pairs(src, n, local_name(node))]
-                add_element_events(node, on, None, c)
+                    fail(f"{c}: events — объект {{ Событие: обработчик }} или список событий")
+                # Объект: имя — повесить или заменить, null — снять (без callType — все привязки события)
+                on = []
+                for e_key, e_val in v.items():
+                    ev_name = resolve_event_name(nt, e_key, f"{c} events")
+                    if e_val == []:
+                        fail(f"{c}: событие {ev_name} — пустой список; чтобы снять обработчик, укажите null")
+                    for x in (e_val if isinstance(e_val, list) else [e_val]):
+                        is_obj = isinstance(x, dict)
+                        h = ('' if x.get('handler') is None else str(x.get('handler'))) if is_obj else ('' if x is None else str(x))
+                        ct = normalize_call_type(x.get('callType'), n, ev_name) if is_obj else ''
+                        if h:
+                            on.append({'event': ev_name, 'handler': h, 'callType': ct})
+                            continue
+                        ct_str = f"[{ct}]" if ct else ""
+                        hits = remove_event_bindings(node, ev_name, ct)
+                        if not hits:
+                            fail(f"{c}: событие {ev_name}{ct_str} у '{n}' не обрабатывается — снимать нечего")
+                        for hit in hits:
+                            hc = hit.get('callType') or ''
+                            hc_str = f"[{hc}]" if hc else ""
+                            op_log.append(f"  - {n}: event {ev_name}{hc_str} -> {hit.text or ''}")
+                            changed_count += 1
+                        add_unbound_handlers([hit.text or '' for hit in hits])
+                if on:
+                    add_element_events(node, on, None, c)
                 continue
             if kl in forbidden or (kl == (XML_TAG_TO_DSL.get(nt) or '').lower() and kl != 'group'):
                 fail(f"{c}: '{key}' через set не меняется (имя и привязку не трогаем — на них ссылаются модуль и расширения; состав — через move)")
@@ -8679,53 +8743,125 @@ def set_form_property(key, value):
     form_changed += 1
 
 
-# События формы: { Событие: обработчик | { handler, callType } | [ … ] } — как events элемента.
+# Снять привязки события у формы или элемента: callType пуст — все (в расширении у события их бывает
+# несколько), иначе — только эту. Пустой <Events> убирается. Возвращает снятые узлы.
+def remove_event_bindings(owner, ev_name, call_type):
+    sec = owner.find("f:Events", NS)
+    hits = []
+    if sec is not None:
+        for e in sec.findall("f:Event", NS):
+            if (e.get('name') or '').lower() == ev_name.lower() and (not call_type or (e.get('callType') or '').lower() == call_type.lower()):
+                hits.append(e)
+    for e in hits:
+        remove_node_with_ws(e)
+    if hits and get_first_element_child(sec) is None:
+        remove_node_with_ws(sec)
+    return hits
+
+
+# Обработчики, отвязанные снятием или заменой. Проверяются в конце запуска (resolve_unbound_handlers):
+# правка могла привязать то же имя к другому событию.
+unbound_handlers = []
+
+
+def add_unbound_handlers(handlers):
+    unbound_handlers.extend(h for h in handlers if h)
+
+
+# Отвязанные, которые форма больше не вызывает, — в «Handlers left in module». Копия исходной формы
+# в <BaseForm> расширения не в счёт: её привязки — не привязки расширения.
+def resolve_unbound_handlers():
+    if not unbound_handlers:
+        return
+    base = root.find("f:BaseForm", NS)
+    in_base = set(base.iter()) if base is not None else set()
+    bound = {(e.text or '').strip().lower() for e in root.iter(f"{{{FORM_NS}}}Event", f"{{{FORM_NS}}}Action") if e not in in_base}
+    left = [h for h in unbound_handlers if h.lower() not in bound]
+    if left:
+        add_left_handlers(left)
+
+
+# События формы — как events элемента: объект { Событие: обработчик | { handler, callType } | [ … ] } вешает
+# или заменяет, null — снимает; список [ Событие | { event, callType } ] — имена по конвенции.
 def add_form_events_dsl(events):
     global form_changed
-    if not isinstance(events, dict):
-        fail("events — объект { Событие: обработчик }")
-    sec = None
-    for ev_name, val in events.items():
-        test_event_pairs([(ev_name, '', '')], 'Form', '')
-        for v in (val if isinstance(val, list) else [val]):
-            if isinstance(v, dict):
-                h = '' if v.get('handler') is None else str(v.get('handler'))
-                ct = normalize_call_type(v.get('callType'), 'Form', ev_name)
-            else:
-                h = '' if v is None else str(v)
-                ct = ''
+    adds = []
+    if isinstance(events, list):
+        for v in events:
+            is_obj = isinstance(v, dict)
+            n = resolve_event_name('Form', v.get('event') if is_obj else v, 'Form events')
+            h = ('' if v.get('handler') is None else str(v.get('handler'))) if is_obj else ''
+            ct = normalize_call_type(v.get('callType'), 'Form', n) if is_obj else ''
             if not ct and is_extension:
                 ct = 'Before'
-            # None — the standard configurations' name (ПриСозданииНаСервере); an event outside the catalog has none
             if not h:
-                if not get_event_entry('Form', ev_name):
-                    fail(f"events: у события формы {ev_name} укажите имя обработчика — имени по конвенции для него нет")
-                h = get_handler_name('', ev_name, 'Form', ct)
-            ct_str = f"[{ct}]" if ct else ""
-            register_handler(h, 'form', 'Form', ev_name)
-            if sec is None:
-                sec = root.find("f:Events", NS)
-            if sec is not None:
-                dup = None
-                for e in sec.findall("f:Event", NS):
-                    if (e.get('name') or '').lower() == ev_name.lower() and (e.get('callType') or '').lower() == ct.lower():
-                        dup = e
-                        break
-                if dup is not None:
-                    if (dup.text or '').lower() == h.lower():
-                        form_log.append(f"  = event {ev_name}{ct_str} -> {h} already bound")
-                        continue
-                    fail(f"events: событие формы {ev_name}{ct_str} уже обрабатывает '{dup.text}' — второй обработчик не повесить")
-            if sec is None:
-                sec = get_or_create_root_section('Events')
-            ev = etree.Element(f"{{{FORM_NS}}}Event")
-            ev.set('name', ev_name)
-            if ct:
-                ev.set('callType', ct)
-            ev.text = h
-            insert_node_at(sec, ev, None, get_child_indent(sec))
-            form_log.append(f"  + event {ev_name}{ct_str} -> {h}")
-            form_changed += 1
+                # Имя по конвенции типовых (ПриСозданииНаСервере); у события вне каталога его нет
+                if not get_event_entry('Form', n):
+                    fail(f"events: у события формы {n} укажите имя обработчика — имени по конвенции для него нет")
+                h = get_handler_name('', n, 'Form', ct)
+            adds.append((n, h, ct))
+    elif isinstance(events, dict):
+        for e_key, val in events.items():
+            n = resolve_event_name('Form', e_key, 'Form events')
+            if val == []:
+                fail(f"events: событие формы {n} — пустой список; чтобы снять обработчик, укажите null")
+            for v in (val if isinstance(val, list) else [val]):
+                is_obj = isinstance(v, dict)
+                h = ('' if v.get('handler') is None else str(v.get('handler'))) if is_obj else ('' if v is None else str(v))
+                ct = normalize_call_type(v.get('callType'), 'Form', n) if is_obj else ''
+                if not h:
+                    # null — снять: без callType — все привязки события, с callType — только эту
+                    ct_str = f"[{ct}]" if ct else ""
+                    hits = remove_event_bindings(root, n, ct)
+                    if not hits:
+                        fail(f"events: событие формы {n}{ct_str} не обрабатывается — снимать нечего")
+                    for hit in hits:
+                        hc = hit.get('callType') or ''
+                        hc_str = f"[{hc}]" if hc else ""
+                        form_log.append(f"  - event {n}{hc_str} -> {hit.text or ''}")
+                        form_changed += 1
+                    add_unbound_handlers([hit.text or '' for hit in hits])
+                    continue
+                if not ct and is_extension:
+                    ct = 'Before'
+                adds.append((n, h, ct))
+    else:
+        fail("events — объект { Событие: обработчик } или список событий")
+
+    sec = None
+    for n, h, ct in adds:
+        test_event_pairs([(n, '', '')], 'Form', '')
+        ct_str = f"[{ct}]" if ct else ""
+        register_handler(h, 'form', 'Form', n)
+        if sec is None:
+            sec = root.find("f:Events", NS)
+        if sec is not None:
+            dup = None
+            for e in sec.findall("f:Event", NS):
+                if (e.get('name') or '').lower() == n.lower() and (e.get('callType') or '').lower() == ct.lower():
+                    dup = e
+                    break
+            if dup is not None:
+                old = dup.text or ''
+                if old.lower() == h.lower():
+                    form_log.append(f"  = event {n}{ct_str} -> {h} already bound")
+                    continue
+                # Другое имя — замена: у события один обработчик (на вид вызова)
+                dup.text = h
+                add_unbound_handlers([old])
+                form_log.append(f"  ~ event {n}{ct_str}: {old} -> {h}")
+                form_changed += 1
+                continue
+        if sec is None:
+            sec = get_or_create_root_section('Events')
+        ev = etree.Element(f"{{{FORM_NS}}}Event")
+        ev.set('name', n)
+        if ct:
+            ev.set('callType', ct)
+        ev.text = h
+        insert_node_at(sec, ev, None, get_child_indent(sec))
+        form_log.append(f"  + event {n}{ct_str} -> {h}")
+        form_changed += 1
 
 
 # Исключённые команды: список имён — исключить; { remove: [...] } — вернуть.
@@ -10403,6 +10539,7 @@ if remove_log:
         print(line)
     print()
 
+resolve_unbound_handlers()
 if left_handlers:
     print("Handlers left in module (delete if unused):")
     for h in left_handlers:

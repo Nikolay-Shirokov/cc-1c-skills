@@ -29,10 +29,10 @@
       {
         "table": "Товары",
         "path": "Товары",
-        "events": {
-          "OnEditEnd": null,
-          "OnStartEdit": null
-        },
+        "events": [
+          "OnEditEnd",
+          "OnStartEdit"
+        ],
         "columns": [
           {
             "input": "ТоварыКоличество",

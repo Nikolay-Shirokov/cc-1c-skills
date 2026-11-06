@@ -1,0 +1,18 @@
+{
+  "name": "Ключ remove в events — ошибка без записи с подсказкой про null (а не событие с именем remove)",
+  "setup": "fixture:move-form",
+  "params": {
+    "formPath": "Documents/ЗаказТест/Forms/ФормаДокумента/Ext/Form.xml"
+  },
+  "input": {
+    "events": { "remove": [ "OnCreateAtServer" ] }
+  },
+  "expect": {
+    "stderrContains": "'remove' is not an event name — to unbind a handler in form-edit, set the event to null",
+    "fileNotContains": {
+      "file": "Documents/ЗаказТест/Forms/ФормаДокумента/Ext/Form.xml",
+      "text": [ "name=\"remove\"" ]
+    }
+  },
+  "expectError": true
+}

@@ -31,9 +31,9 @@
         "group": "vertical",
         "name": "Группа",
         "behavior": "collapsible",
-        "events": {
-          "Click": null
-        },
+        "events": [
+          "Click"
+        ],
         "children": [
           {
             "input": "Поле",

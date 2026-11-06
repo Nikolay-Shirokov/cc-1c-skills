@@ -25,29 +25,32 @@
     }
   ],
   "input": {
-    "events": {
-      "OnCreateAtServer": null,
-      "OnOpen": null,
-      "NotificationProcessing": "ОбработкаОповещения"
-    },
+    "events": [
+      "OnCreateAtServer",
+      "OnOpen",
+      {
+        "event": "NotificationProcessing",
+        "handler": "ОбработкаОповещения"
+      }
+    ],
     "elements": [
       {
         "input": "Поле",
         "path": "Поле",
-        "events": {
-          "Tuning": null,
-          "Opening": null
-        }
+        "events": [
+          "Tuning",
+          "Opening"
+        ]
       },
       {
         "table": "Товары",
         "path": "Товары",
-        "events": {
-          "Selection": null,
-          "DragEnd": null,
-          "OnActivateCell": null,
-          "BeforeExpand": null
-        },
+        "events": [
+          "Selection",
+          "DragEnd",
+          "OnActivateCell",
+          "BeforeExpand"
+        ],
         "columns": [
           {
             "input": "ТоварыКоличество",

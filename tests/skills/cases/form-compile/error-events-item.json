@@ -1,0 +1,25 @@
+{
+  "name": "Элемент списка events без event — понятная ошибка",
+  "params": {
+    "outputPath": "DataProcessors/Тест/Forms/Форма/Ext/Form.xml"
+  },
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "DataProcessor", "name": "Тест" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    {
+      "script": "form-add/scripts/form-add",
+      "args": { "-ObjectPath": "{workDir}/DataProcessors/Тест.xml", "-FormName": "Форма" }
+    }
+  ],
+  "input": {
+    "attributes": [ { "name": "Поле", "type": "string" } ],
+    "elements": [ { "input": "Поле", "path": "Поле", "events": [ { "handler": "Своё" } ] } ]
+  },
+  "expect": {
+    "stderrContains": "event name is empty — a list item object needs"
+  },
+  "expectError": true
+}

@@ -20,9 +20,9 @@
         "html": "Хтмл",
         "path": "Объект.Номер",
         "into": "СтраницаДополнительно",
-        "events": {
-          "DocumentComplete": null
-        }
+        "events": [
+          "DocumentComplete"
+        ]
       }
     ]
   }

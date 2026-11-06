@@ -1,0 +1,14 @@
+{
+  "name": "Пустой список у события — ошибка с подсказкой про null, а не молчаливое «ничего»",
+  "setup": "fixture:move-form",
+  "params": {
+    "formPath": "Documents/ЗаказТест/Forms/ФормаДокумента/Ext/Form.xml"
+  },
+  "input": {
+    "elements": [ { "set": "Склад", "events": { "OnChange": [] } } ]
+  },
+  "expect": {
+    "stdoutContains": "событие OnChange — пустой список; чтобы снять обработчик, укажите null"
+  },
+  "expectError": true
+}

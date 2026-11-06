@@ -19,7 +19,7 @@
     "elements": [
       { "input": "Организация", "path": "Организация", "events": { "OnChange": "ОрганизацияПриИзменении", "StartChoice": "ОрганизацияНачалоВыбора" } },
       { "input": "Период", "path": "Период", "events": { "OnChange": "ПериодПриИзменении" } },
-      { "label": "Подсказка", "title": "Нажмите для перехода", "hyperlink": true, "tooltipRepresentation": "Button", "events": { "Click": null } }
+      { "label": "Подсказка", "title": "Нажмите для перехода", "hyperlink": true, "tooltipRepresentation": "Button", "events": ["Click"] }
     ],
     "attributes": [
       { "name": "Объект", "type": "DataProcessorObject.События", "main": true },

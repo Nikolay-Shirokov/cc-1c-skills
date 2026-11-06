@@ -85,7 +85,7 @@ Claude вызовет `/form-info` для анализа структуры, с�
   "into": "ГруппаШапка",
   "after": "Контрагент",
   "elements": [
-    { "input": "Склад", "path": "Объект.Склад", "events": { "OnChange": null } }
+    { "input": "Склад", "path": "Объект.Склад", "events": ["OnChange"] }
   ],
   "attributes": [
     { "name": "Склад", "type": "CatalogRef.Склады" }

@@ -34,7 +34,7 @@ powershell.exe -NoProfile -File "${CLAUDE_SKILL_DIR}/scripts/form-edit.ps1" -For
 | `parameters` | Параметры формы: добавить, `set`, `rename`, `remove` |
 | `title` | Заголовок формы (строка или `{ru, en}`); `null` — убрать |
 | `properties` | Свойства формы: `{ "windowOpeningMode": "LockOwnerWindow" }`; `null` у свойства — убрать (`references/form-properties.md`) |
-| `events` | Обработчики событий формы: `{ "OnOpen": "ПриОткрытии" }` |
+| `events` | Обработчики событий формы: `{ "OnOpen": "ПриОткрытии" }` — повесить или заменить; `{ "OnOpen": null }` — снять; `["OnOpen"]` — имя по конвенции (`ПриОткрытии`) |
 | `excludedCommands` | Исключить стандартные команды: `["Copy"]`; вернуть: `{ "remove": ["Copy"] }` |
 | `conditionalAppearance` | Добавить правила условного оформления (`references/appearance.md`) |
 | `commandInterface` | Добавить команды в панели формы (`references/command-interface.md`) |
@@ -83,7 +83,7 @@ powershell.exe -NoProfile -File "${CLAUDE_SKILL_DIR}/scripts/form-edit.ps1" -For
 - `null` возвращает свойству значение по умолчанию.
 - Строка в `title` меняет русский текст, переводы на другие языки остаются.
 - У группы ориентацию меняет `group`: `{ "set": "ГруппаШапка", "group": "vertical" }`.
-- `events` добавляет обработчики — как у нового элемента.
+- `events` — как у формы: имя вешает или заменяет обработчик, `null` снимает, список событий даёт имена по конвенции. Процедуры отвязанных обработчиков остаются в модуле — навык их перечисляет.
 - Имя, тип элемента, путь к данным и команду кнопки `set` не меняет: такой элемент удаляют и добавляют заново.
 
 ### Удаление вместе с реквизитом
@@ -121,7 +121,7 @@ powershell.exe -NoProfile -File "${CLAUDE_SKILL_DIR}/scripts/form-edit.ps1" -For
 | `path` | Путь к данным: `"Объект.Склад"`, `"ИмяРеквизита"`; колонка таблицы — `"Объект.Товары.Сумма"` |
 | `title` / `tooltip` | Заголовок / подсказка (строка или `{ru, en}`) |
 | `visible: false` / `enabled: false` / `readOnly: true` | Скрыть / сделать недоступным / только чтение |
-| `events` | Обработчики: `{ "OnChange": "ИмяПроцедуры" }` |
+| `events` | Обработчики: `{ "OnChange": "ИмяПроцедуры" }`; имена по конвенции — списком: `["OnChange", "StartChoice"]` (элемент списка может задать имя сам: `{ "event": "Clearing", "handler": "Имя" }`) |
 | `children` / `columns` | Вложенные элементы группы или страницы / колонки таблицы |
 
 Поле на новом реквизите формы — реквизит и элемент в одной правке:
@@ -218,7 +218,8 @@ powershell.exe -NoProfile -File "${CLAUDE_SKILL_DIR}/scripts/form-edit.ps1" -For
 {
   "events": { "OnCreateAtServer": { "handler": "Расш1_ПриСозданииПосле", "callType": "After" } },
   "elements": [
-    { "set": "Банк", "events": { "OnChange": { "handler": "Расш1_БанкПриИзменении", "callType": "Before" } } }
+    { "set": "Банк", "events": { "OnChange": { "handler": "Расш1_БанкПриИзменении", "callType": "Before" } } },
+    { "set": "Склад", "events": [ { "event": "OnChange", "callType": "After" } ] }
   ],
   "commands": [
     { "name": "Подбор", "action": "Расш1_ПодборПосле", "callType": "After" },
@@ -228,6 +229,8 @@ powershell.exe -NoProfile -File "${CLAUDE_SKILL_DIR}/scripts/form-edit.ps1" -For
   ]
 }
 ```
+
+Имя по конвенции в расширении — с префиксом и видом вызова: `Расш1_СкладПриИзмененииПосле`. Привязку определяют событие и вид вызова: `{ "OnChange": null }` снимает все привязки события, `{ "OnChange": { "handler": null, "callType": "After" } }` — только `After`.
 
 ## Задача → справочник
 
