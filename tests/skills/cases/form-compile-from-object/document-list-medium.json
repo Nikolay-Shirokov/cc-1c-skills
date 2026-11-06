@@ -1,5 +1,5 @@
 {
-  "name": "Document List — средний (АктВВР-like)",
+  "name": "Document List — средний (АктВВР-like): сумма документа — колонкой, хотя в форме объекта скрыта",
   "preRun": [
     {
       "script": "meta-compile/scripts/meta-compile",
@@ -16,6 +16,7 @@
           { "name": "ПеремещениеПодДеятельность", "type": "EnumRef.ТипыНалогообложенияНДС" },
           { "name": "НаправлениеДеятельности", "type": "CatalogRef.НаправленияДеятельности" },
           { "name": "Ответственный", "type": "CatalogRef.Пользователи" },
+          { "name": "СуммаДокумента", "type": "Number", "length": 15, "precision": 2 },
           { "name": "СторнируемыйДокумент", "type": "DocumentRef.АктВыполненныхВнутреннихРабот" },
           { "name": "ИсправляемыйДокумент", "type": "DocumentRef.АктВыполненныхВнутреннихРабот" },
           { "name": "Комментарий", "type": "String" },

@@ -327,16 +327,16 @@ powershell.exe -NoProfile -File "${CLAUDE_SKILL_DIR}/scripts/form-compile.ps1" -
   "title": "Загрузка из файла",
   "events": { "OnCreateAtServer": "ПриСозданииНаСервере" },
   "elements": [
+    { "autoCmdBar": "ФормаКоманднаяПанель", "children": [
+      { "button": "Загрузить", "command": "Загрузить", "defaultButton": true },
+      { "button": "Закрыть", "stdCommand": "Close" }
+    ]},
     { "group": "horizontal", "name": "ГруппаФайл", "children": [
       { "input": "ИмяФайла", "path": "ИмяФайла", "title": "Файл", "inputHint": "Выберите файл...",
         "choiceButton": true, "events": { "StartChoice": "ИмяФайлаНачалоВыбора" } },
       { "check": "ПерваяСтрокаЗаголовок", "path": "ПерваяСтрокаЗаголовок" }
     ]},
-    { "input": "Результат", "path": "Результат", "multiLine": true, "height": 8, "readOnly": true, "title": "Лог" },
-    { "autoCmdBar": "ФормаКоманднаяПанель", "children": [
-      { "button": "Загрузить", "command": "Загрузить", "defaultButton": true },
-      { "button": "Закрыть", "stdCommand": "Close" }
-    ]}
+    { "input": "Результат", "path": "Результат", "multiLine": true, "height": 8, "readOnly": true, "title": "Лог" }
   ],
   "attributes": [
     { "name": "Объект", "type": "ExternalDataProcessorObject.ЗагрузкаИзФайла", "main": true },

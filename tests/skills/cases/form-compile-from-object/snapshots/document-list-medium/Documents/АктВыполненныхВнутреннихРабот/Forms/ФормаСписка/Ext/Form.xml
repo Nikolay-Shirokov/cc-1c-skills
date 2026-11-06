@@ -84,29 +84,34 @@
 					<ContextMenu name="ОрганизацияПолучательКонтекстноеМеню" id="26"/>
 					<ExtendedTooltip name="ОрганизацияПолучательРасширеннаяПодсказка" id="27"/>
 				</LabelField>
-				<LabelField name="Ответственный" id="28">
+				<LabelField name="СуммаДокумента" id="28">
+					<DataPath>Список.СуммаДокумента</DataPath>
+					<ContextMenu name="СуммаДокументаКонтекстноеМеню" id="29"/>
+					<ExtendedTooltip name="СуммаДокументаРасширеннаяПодсказка" id="30"/>
+				</LabelField>
+				<LabelField name="Ответственный" id="31">
 					<DataPath>Список.Ответственный</DataPath>
-					<ContextMenu name="ОтветственныйКонтекстноеМеню" id="29"/>
-					<ExtendedTooltip name="ОтветственныйРасширеннаяПодсказка" id="30"/>
+					<ContextMenu name="ОтветственныйКонтекстноеМеню" id="32"/>
+					<ExtendedTooltip name="ОтветственныйРасширеннаяПодсказка" id="33"/>
 				</LabelField>
-				<LabelField name="Комментарий" id="31">
+				<LabelField name="Комментарий" id="34">
 					<DataPath>Список.Комментарий</DataPath>
-					<ContextMenu name="КомментарийКонтекстноеМеню" id="32"/>
-					<ExtendedTooltip name="КомментарийРасширеннаяПодсказка" id="33"/>
+					<ContextMenu name="КомментарийКонтекстноеМеню" id="35"/>
+					<ExtendedTooltip name="КомментарийРасширеннаяПодсказка" id="36"/>
 				</LabelField>
-				<LabelField name="Ссылка" id="34">
+				<LabelField name="Ссылка" id="37">
 					<DataPath>Список.Ref</DataPath>
 					<UserVisible>
 						<xr:Common>false</xr:Common>
 					</UserVisible>
-					<ContextMenu name="СсылкаКонтекстноеМеню" id="35"/>
-					<ExtendedTooltip name="СсылкаРасширеннаяПодсказка" id="36"/>
+					<ContextMenu name="СсылкаКонтекстноеМеню" id="38"/>
+					<ExtendedTooltip name="СсылкаРасширеннаяПодсказка" id="39"/>
 				</LabelField>
 			</ChildItems>
 		</Table>
 	</ChildItems>
 	<Attributes>
-		<Attribute name="Список" id="37">
+		<Attribute name="Список" id="40">
 			<Type>
 				<v8:Type>cfg:DynamicList</v8:Type>
 			</Type>
