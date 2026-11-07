@@ -1,0 +1,14 @@
+{
+  "name": "Событие формы не того владельца — предупреждение по основному реквизиту (BeforeStart у формы документа); ValueChoice документа — без него",
+  "setup": "fixture:move-form",
+  "params": {
+    "formPath": "Documents/ЗаказТест/Forms/ФормаДокумента/Ext/Form.xml"
+  },
+  "input": {
+    "events": ["BeforeStart", "ValueChoice"]
+  },
+  "expect": {
+    "stdoutContains": "[WARN] Event 'BeforeStart' of the form exists only for forms of BusinessProcess (this form: Document)",
+    "stdoutNotContains": "ValueChoice' of the form"
+  }
+}

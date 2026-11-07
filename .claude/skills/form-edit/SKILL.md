@@ -258,6 +258,7 @@ powershell.exe -NoProfile -File "${CLAUDE_SKILL_DIR}/scripts/form-edit.ps1" -For
 | Видимость и доступ по ролям | `roles-access.md` |
 | Командный интерфейс формы (переходы, важные команды) | `command-interface.md` |
 | Размеры, выравнивание, фокус по умолчанию, узкие экраны | `layout-advanced.md` |
+| Какие события есть у элемента или формы, имена обработчиков, с какой платформы | `events.md` |
 
 ## Workflow
 

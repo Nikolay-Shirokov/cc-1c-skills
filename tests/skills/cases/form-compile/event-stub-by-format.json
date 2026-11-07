@@ -1,0 +1,64 @@
+{
+  "name": "Заготовка по версии формата: StartChoice в форме 2.13 (8.3.20) — без ВыборДобавлением; событие новее формата — предупреждение",
+  "params": {
+    "outputPath": "DataProcessors/Тест/Forms/Форма/Ext/Form.xml"
+  },
+  "preRun": [
+    {
+      "editFile": "Configuration.xml",
+      "replace": "version=\"2.17\"",
+      "with": "version=\"2.13\""
+    },
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "DataProcessor",
+        "name": "Тест"
+      },
+      "args": {
+        "-JsonPath": "{inputFile}",
+        "-OutputDir": "{workDir}"
+      }
+    },
+    {
+      "script": "form-add/scripts/form-add",
+      "args": {
+        "-ObjectPath": "{workDir}/DataProcessors/Тест.xml",
+        "-FormName": "Форма"
+      }
+    }
+  ],
+  "input": {
+    "events": [
+      "OnPasteFromClipboard"
+    ],
+    "attributes": [
+      {
+        "name": "Объект",
+        "type": "DataProcessorObject.Тест",
+        "main": true
+      },
+      {
+        "name": "Поле",
+        "type": "string"
+      }
+    ],
+    "elements": [
+      {
+        "input": "Поле",
+        "path": "Поле",
+        "events": [
+          "StartChoice"
+        ]
+      }
+    ]
+  },
+  "expect": {
+    "fileContains": {
+      "file": "DataProcessors/Тест/Forms/Форма/Ext/Form/Module.bsl",
+      "text": "Процедура ПолеНачалоВыбора(Элемент, ДанныеВыбора, СтандартнаяОбработка)"
+    },
+    "stdoutContains": "[WARN] Event 'OnPasteFromClipboard' of the form exists since platform 8.3.24"
+  },
+  "skipPlatformVerify": "форма формата 2.13 — для 8.3.20; конфигурация стенда собрана в 2.17, подменой версии на 8.3.20 не грузится"
+}

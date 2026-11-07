@@ -120,7 +120,7 @@ const FAMILIES = [
       // если <каталог>.xml — корень ExternalDataProcessor/ExternalReport, чего в дереве
       // конфигурации не бывает. Поэтому вариант один на всех, переключателя не нужно.
       { id: 'base', authority: 'form-compile',
-        consumers: ['cfe-borrow', 'cfe-patch-method', 'form-add', 'help-add', 'interface-edit',
+        consumers: ['cfe-borrow', 'cfe-patch-method', 'form-add', 'form-edit', 'help-add', 'interface-edit',
           'meta-compile', 'mxl-compile', 'role-compile', 'role-edit', 'subsystem-compile', 'template-add', 'xdto-compile'] },
     ],
   },
@@ -939,6 +939,7 @@ const FAMILIES = [
   { name: 'get_event_entry', py: 'get_event_entry', ps1: 'Get-EventEntry', variants: [{ id: 'base', authority: 'form-compile', consumers: ['form-edit'] }] },
   { name: 'test_event_pairs', py: 'test_event_pairs', ps1: 'Test-EventPairs', variants: [{ id: 'base', authority: 'form-compile', consumers: ['form-edit'] }] },
   { name: 'warn_events_ignored', py: 'warn_events_ignored', ps1: 'Warn-EventsIgnored', variants: [{ id: 'base', authority: 'form-compile', consumers: ['form-edit'] }] },
+  { name: 'get_form_owner_kind', py: 'get_form_owner_kind', ps1: 'Get-FormOwnerKind', variants: [{ id: 'base', authority: 'form-compile', consumers: ['form-edit'] }] },
   // ── Заготовки обработчиков в модуле формы ──
   { name: 'get_form_module_template', py: 'get_form_module_template', ps1: 'Get-FormModuleTemplate', variants: [{ id: 'base', authority: 'form-compile', consumers: ['form-edit', 'form-add'] }] },
   { name: 'get_extension_name_prefix', py: 'get_extension_name_prefix', ps1: 'Get-ExtensionNamePrefix', variants: [{ id: 'base', authority: 'form-compile', consumers: ['form-edit'] }] },
@@ -947,6 +948,7 @@ const FAMILIES = [
   { name: 'get_module_outline', py: 'get_module_outline', ps1: 'Get-ModuleOutline', variants: [{ id: 'base', authority: 'form-compile', consumers: ['form-edit', 'form-validate', 'form-info'] }] },
   { name: 'read_module_text', py: 'read_module_text', ps1: 'Read-ModuleText', variants: [{ id: 'base', authority: 'form-validate', consumers: ['form-info'] }] },
   { name: 'get_bsl_scan', py: 'get_bsl_scan', ps1: 'Get-BslScan', variants: [{ id: 'base', authority: 'form-edit', consumers: ['form-validate', 'form-info', 'form-compile'] }] },
+  { name: 'get_event_params', py: 'get_event_params', ps1: 'Get-EventParams', variants: [{ id: 'base', authority: 'form-compile', consumers: ['form-edit'] }] },
   { name: 'get_handler_stub', py: 'get_handler_stub', ps1: 'Get-HandlerStub', variants: [{ id: 'base', authority: 'form-compile', consumers: ['form-edit'] }] },
   { name: 'get_region_rank', py: 'get_region_rank', ps1: 'Get-RegionRank', variants: [{ id: 'base', authority: 'form-compile', consumers: ['form-edit'] }] },
   { name: 'get_handler_region_name', py: 'get_handler_region_name', ps1: 'Get-HandlerRegionName', variants: [{ id: 'base', authority: 'form-compile', consumers: ['form-edit'] }] },

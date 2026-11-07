@@ -1,0 +1,27 @@
+{
+  "name": "Владелец формы — по основному реквизиту, добавленному в том же вызове: BeforeStart у формы обработки — предупреждение",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "DataProcessor", "name": "Владелец" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    {
+      "script": "form-add/scripts/form-add",
+      "args": { "-ObjectPath": "{workDir}/DataProcessors/Владелец.xml", "-FormName": "Форма" }
+    },
+    {
+      "script": "form-compile/scripts/form-compile",
+      "input": { "title": "Владелец" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputPath": "{workDir}/DataProcessors/Владелец/Forms/Форма/Ext/Form.xml" }
+    }
+  ],
+  "params": { "formPath": "DataProcessors/Владелец/Forms/Форма/Ext/Form.xml" },
+  "input": {
+    "attributes": [{ "name": "Объект", "type": "DataProcessorObject.Владелец", "main": true }],
+    "events": ["BeforeStart"]
+  },
+  "expect": {
+    "stdoutContains": "[WARN] Event 'BeforeStart' of the form exists only for forms of BusinessProcess (this form: DataProcessor)"
+  }
+}

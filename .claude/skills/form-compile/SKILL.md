@@ -110,21 +110,19 @@ powershell.exe -NoProfile -File "${CLAUDE_SKILL_DIR}/scripts/form-compile.ps1" -
 
 Имена регистрозависимы.
 
-**Форма:** `OnCreateAtServer`, `OnOpen`, `BeforeClose`, `OnClose`, `NotificationProcessing`, `ChoiceProcessing`, `OnReadAtServer`, `BeforeWriteAtServer`, `OnWriteAtServer`, `AfterWriteAtServer`, `BeforeWrite`, `AfterWrite`, `FillCheckProcessingAtServer`, `BeforeLoadDataFromSettingsAtServer`, `OnLoadDataFromSettingsAtServer`, `OnSaveDataInSettingsAtServer`, `URLProcessing`, `ExternalEvent`, `OnReopen`
+Частые:
 
-**input:** `OnChange`, `StartChoice`, `ChoiceProcessing`, `AutoComplete`, `TextEditEnd`, `Clearing`, `Opening`, `Creating`, `EditTextChange`, `Tuning`, `StartListChoice`
+**Форма:** `OnCreateAtServer`, `OnOpen`, `NotificationProcessing`, `BeforeClose`, `OnClose`, `ChoiceProcessing`, `FillCheckProcessingAtServer`, `OnLoadDataFromSettingsAtServer`; у формы объекта или записи — `OnReadAtServer`, `BeforeWrite`, `BeforeWriteAtServer`, `AfterWrite`, `AfterWriteAtServer`
+**input:** `OnChange`, `StartChoice`, `ChoiceProcessing`, `Clearing`, `AutoComplete`, `TextEditEnd`
 **check / radio:** `OnChange`
-**table:** `Selection`, `OnActivateRow`, `OnActivateCell`, `OnActivateField`, `BeforeAddRow`, `BeforeDeleteRow`, `AfterDeleteRow`, `BeforeRowChange`, `OnStartEdit`, `OnEditEnd`, `BeforeEditEnd`, `OnChange`, `ChoiceProcessing`, `ValueChoice`, `BeforeExpand`, `BeforeCollapse`, `Drag`, `DragStart`, `DragCheck`, `DragEnd`; только у таблицы динамического списка — `OnGetDataAtServer`, `URLGetProcessing`, `BeforeLoadUserSettingsAtServer`, `OnLoadUserSettingsAtServer`, `OnSaveUserSettingsAtServer`, `OnUpdateUserSettingSetAtServer`
-**label:** `Click`, `URLProcessing`
-**labelField:** `Click`, `URLProcessing`, `OnChange`
-**picture:** `Click`, `Drag`, `DragCheck`
-**picField:** `Click`, `OnChange`, `Drag`, `DragCheck`
-**calendar:** `OnChange`, `Selection`, `OnActivateDate`, `OnPeriodOutput`
+**table:** `Selection`, `OnActivateRow`, `BeforeAddRow`, `BeforeDeleteRow`, `AfterDeleteRow`, `BeforeRowChange`, `OnStartEdit`, `OnEditEnd`, `BeforeEditEnd`, `OnChange`, `OnActivateCell`, `ChoiceProcessing`, `Drag`; только у таблицы динамического списка — `OnGetDataAtServer`, `BeforeLoadUserSettingsAtServer`, `OnUpdateUserSettingSetAtServer`
+**label / labelField:** `Click`, `URLProcessing`
+**picture / picField:** `Click`
 **pages:** `OnCurrentPageChange`
-**spreadsheet:** `Selection`, `OnActivate`, `OnChangeAreaContent`, `DetailProcessing`, `AdditionalDetailProcessing`
+**spreadsheet:** `Selection`, `OnChangeAreaContent`, `OnActivate`, `DetailProcessing`
 **html:** `OnClick`, `DocumentComplete`
 
-У кнопки, страницы, группы колонок, командной панели и подменю событий нет. `Click` обычной группы и `OnHover`, `OnSelectedRowsSetChange` таблицы — только с платформы 8.5.
+Остальные события этих и других полей (календарь, планировщик, диаграммы, документы) — `references/events.md`. У кнопки, страницы, группы колонок, командной панели и подменю событий нет.
 
 ### Поле ввода (input)
 
@@ -376,6 +374,7 @@ powershell.exe -NoProfile -File "${CLAUDE_SKILL_DIR}/scripts/form-compile.ps1" -
 | Видимость и доступ по ролям | `roles-access.md` |
 | Командный интерфейс формы (переходы, важные команды) | `command-interface.md` |
 | Выравнивание, предел размера, фокус по умолчанию, узкие экраны | `layout-advanced.md` |
+| Какие события есть у элемента или формы, имена обработчиков, с какой платформы | `events.md` |
 | Наборы и составные типы | `type-system-advanced.md` |
 | Изменить, как `-FromObject` раскладывает формы во всём проекте (стиль проекта) | `../presets/README.md` |
 

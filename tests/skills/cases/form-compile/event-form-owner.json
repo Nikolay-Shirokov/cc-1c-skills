@@ -1,0 +1,25 @@
+{
+  "name": "Событие формы не того владельца — предупреждение (BeforeWrite у формы обработки); общее событие — без него",
+  "params": {
+    "outputPath": "DataProcessors/Тест/Forms/Форма/Ext/Form.xml"
+  },
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "DataProcessor", "name": "Тест" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    {
+      "script": "form-add/scripts/form-add",
+      "args": { "-ObjectPath": "{workDir}/DataProcessors/Тест.xml", "-FormName": "Форма" }
+    }
+  ],
+  "input": {
+    "events": ["BeforeWrite", "OnPasteFromClipboard"],
+    "attributes": [ { "name": "Объект", "type": "DataProcessorObject.Тест", "main": true } ]
+  },
+  "expect": {
+    "stdoutContains": "[WARN] Event 'BeforeWrite' of the form exists only for forms of Document, Catalog, ChartOfCharacteristicTypes, BusinessProcess, Task, InformationRegisterRecord, InformationRegisterRecordSet, Constants (this form: DataProcessor)",
+    "stdoutNotContains": "OnPasteFromClipboard' of the form"
+  }
+}
