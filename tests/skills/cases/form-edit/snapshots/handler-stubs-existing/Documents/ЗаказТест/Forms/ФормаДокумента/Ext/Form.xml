@@ -31,9 +31,6 @@
 							<DataPath>Объект.Контрагент</DataPath>
 							<ContextMenu name="КонтрагентКонтекстноеМеню" id="12"/>
 							<ExtendedTooltip name="КонтрагентРасширеннаяПодсказка" id="13"/>
-							<Events>
-								<Event name="Foo">КонтрагентФу</Event>
-							</Events>
 						</InputField>
 					</ChildItems>
 				</UsualGroup>

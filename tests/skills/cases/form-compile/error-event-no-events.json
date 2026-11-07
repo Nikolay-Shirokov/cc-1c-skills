@@ -1,0 +1,47 @@
+{
+  "name": "Событие у кнопки (у неё событий нет) в форме 8.3 — ошибка без записи",
+  "params": {
+    "outputPath": "DataProcessors/Тест/Forms/Форма/Ext/Form.xml"
+  },
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "DataProcessor",
+        "name": "Тест"
+      },
+      "args": {
+        "-JsonPath": "{inputFile}",
+        "-OutputDir": "{workDir}"
+      }
+    },
+    {
+      "script": "form-add/scripts/form-add",
+      "args": {
+        "-ObjectPath": "{workDir}/DataProcessors/Тест.xml",
+        "-FormName": "Форма"
+      }
+    }
+  ],
+  "input": {
+    "commands": [
+      {
+        "name": "Команда",
+        "action": "КомандаДействие"
+      }
+    ],
+    "elements": [
+      {
+        "button": "Кнопка",
+        "command": "Команда",
+        "events": {
+          "Click": "КнопкаНажатие"
+        }
+      }
+    ]
+  },
+  "expect": {
+    "stderrContains": "Button 'Кнопка' has no events — the platform drops 'Click' on load."
+  },
+  "expectError": true
+}

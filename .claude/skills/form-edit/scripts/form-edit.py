@@ -1,4 +1,4 @@
-# form-edit v1.55 — Edit 1C managed form elements (Python port)
+# form-edit v1.56 — Edit 1C managed form elements (Python port)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import bisect
@@ -903,6 +903,34 @@ def get_event_entry(xml_tag, event_name):
     return EVENT_CATALOG[xml_tag].get(event_name)
 
 
+# Расстояние Левенштейна — для подсказки к неизвестному событию.
+def get_edit_distance(a, b):
+    prev = list(range(len(b) + 1))
+    for i in range(1, len(a) + 1):
+        cur = [i] + [0] * len(b)
+        for j in range(1, len(b) + 1):
+            cost = 0 if a[i - 1] == b[j - 1] else 1
+            cur[j] = min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost)
+        prev = cur
+    return prev[len(b)]
+
+
+# Подсказка к неизвестному событию: ближайшие по написанию события вида элемента и виды, у которых такое событие есть.
+def get_event_hint(xml_tag, name):
+    parts = []
+    evs = EVENT_CATALOG.get(xml_tag)
+    if evs:
+        lim = max(2, len(name) // 3)
+        near = sorted('{:03d}|{}'.format(d, k) for k in evs
+                      for d in [get_edit_distance(name.lower(), k.lower())] if d <= lim)
+        if near:
+            parts.append('Did you mean: ' + ', '.join(x.split('|')[1] for x in near[:3]) + '?')
+    tags = sorted(t for t in EVENT_CATALOG if t != xml_tag and get_event_entry(t, name) is not None)
+    if tags:
+        parts.append(f"'{name}' is an event of: {', '.join(tags)}.")
+    return ' '.join(parts)
+
+
 # Позиция события в <Events>: платформа пишет события в порядке каталога (у формы — в порядке владельца,
 # если он у владельца свой), внутри события — Before, затем After. Событие вне каталога — после известных.
 def get_event_rank(xml_tag, name, call_type=''):
@@ -923,12 +951,18 @@ def test_event_pairs(pairs, xml_tag, element_name, source=''):
     evs = EVENT_CATALOG.get(xml_tag)
     for ev, _, _ in pairs:
         ev = str(ev)
-        if not evs:
-            print(f"[WARN] {what} has no events in standard configurations — the platform may drop '{ev}' on load")
-            continue
-        entry = get_event_entry(xml_tag, ev)
+        closed = format_rank(_format_version) <= EVENT_CATALOG_CLOSED_RANK
+        entry = get_event_entry(xml_tag, ev) if evs else None
         if not entry:
-            print(f"[WARN] Unknown event '{ev}' for {what} — the platform may drop it on load. Known: {', '.join(sorted(evs))}")
+            hint = get_event_hint(xml_tag, ev)
+            if evs:
+                msg = f"Unknown event '{ev}' for {what} — the platform drops it on load. {hint + ' ' if hint else ''}Known: {', '.join(sorted(evs))}"
+            else:
+                msg = f"{what} has no events — the platform drops '{ev}' on load.{' ' + hint if hint else ''}"
+            if closed:
+                print(f"[ERROR] {msg}", file=sys.stderr)
+                sys.exit(1)
+            print(f"[WARN] {msg} (8.5 builds may add events)")
             continue
         since = entry[3]
         if since and format_rank(_format_version) < PLATFORM_FORMAT_RANK.get(since, 0):
@@ -999,6 +1033,8 @@ def warn_events_ignored(el, xml_tag, element_name):
 
 # First XML format version of the platform where a catalog event appeared.
 PLATFORM_FORMAT_RANK = {"8.3.20": 213, "8.3.23": 216, "8.3.24": 217, "8.3.25": 218, "8.3.26": 219, "8.3.27": 220, "8.5": 221}
+# Каталог событий полон по формат 2.20 включительно (ветка 8.3 закрыта): неизвестное событие — ошибка; выше — предупреждение
+EVENT_CATALOG_CLOSED_RANK = 220
 
 # --- Заготовки обработчиков в модуле формы ---
 # Привязки, которые затронул запуск, собираются в _handler_bindings; после записи Form.xml

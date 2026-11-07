@@ -1,0 +1,50 @@
+{
+  "name": "Событие не того вида элемента в форме 8.3 — ошибка без записи, подсказка: у каких видов такое событие есть",
+  "params": {
+    "outputPath": "DataProcessors/Тест/Forms/Форма/Ext/Form.xml"
+  },
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "DataProcessor",
+        "name": "Тест"
+      },
+      "args": {
+        "-JsonPath": "{inputFile}",
+        "-OutputDir": "{workDir}"
+      }
+    },
+    {
+      "script": "form-add/scripts/form-add",
+      "args": {
+        "-ObjectPath": "{workDir}/DataProcessors/Тест.xml",
+        "-FormName": "Форма"
+      }
+    }
+  ],
+  "input": {
+    "attributes": [
+      {
+        "name": "Дата",
+        "type": "date"
+      }
+    ],
+    "elements": [
+      {
+        "calendar": "Календарь",
+        "path": "Дата",
+        "events": {
+          "OnActivate": "КалендарьПриАктивизации"
+        }
+      }
+    ]
+  },
+  "expect": {
+    "stderrContains": [
+      "Unknown event 'OnActivate' for CalendarField 'Календарь' — the platform drops it on load.",
+      "'OnActivate' is an event of:"
+    ]
+  },
+  "expectError": true
+}

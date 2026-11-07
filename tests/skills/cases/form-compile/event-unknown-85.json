@@ -1,0 +1,63 @@
+{
+  "name": "Событие вне каталога в форме 8.5 — предупреждение с подсказкой, событие записано, заготовки нет (сигнатура неизвестна)",
+  "params": {
+    "outputPath": "DataProcessors/Тест/Forms/Форма/Ext/Form.xml"
+  },
+  "preRun": [
+    {
+      "editFile": "Configuration.xml",
+      "replace": "version=\"2.17\"",
+      "with": "version=\"2.21\""
+    },
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "DataProcessor",
+        "name": "Тест"
+      },
+      "args": {
+        "-JsonPath": "{inputFile}",
+        "-OutputDir": "{workDir}"
+      }
+    },
+    {
+      "script": "form-add/scripts/form-add",
+      "args": {
+        "-ObjectPath": "{workDir}/DataProcessors/Тест.xml",
+        "-FormName": "Форма"
+      }
+    }
+  ],
+  "input": {
+    "attributes": [
+      {
+        "name": "Поле",
+        "type": "string"
+      }
+    ],
+    "elements": [
+      {
+        "input": "Поле",
+        "path": "Поле",
+        "events": {
+          "OnChang": "ПолеФу"
+        }
+      }
+    ]
+  },
+  "expect": {
+    "stdoutContains": [
+      "[WARN] Unknown event 'OnChang' for InputField 'Поле' — the platform drops it on load. Did you mean: OnChange?",
+      "(8.5 builds may add events)",
+      "ПолеФу — not added: no signature known for event 'OnChang' of InputField"
+    ],
+    "fileContains": {
+      "file": "DataProcessors/Тест/Forms/Форма/Ext/Form.xml",
+      "text": [
+        "<Event name=\"OnChang\">ПолеФу</Event>"
+      ]
+    }
+  },
+  "noSnapshot": "событие вне каталога в форме 8.5 — проверяется выводом и fileContains; платформа такое событие выбросит",
+  "skipPlatformVerify": "событие вне каталога платформа выбрасывает при загрузке"
+}

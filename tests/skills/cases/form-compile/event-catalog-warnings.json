@@ -1,5 +1,5 @@
 {
-  "name": "События вне каталога: событие новой платформы, чужой источник таблицы, элемент без событий — предупреждения",
+  "name": "Предупреждения о событиях: событие новее формата формы, чужой источник таблицы, элемент без событий — проигнорировано",
   "params": {
     "outputPath": "DataProcessors/Тест/Forms/Форма/Ext/Form.xml"
   },
@@ -43,20 +43,6 @@
         ]
       },
       {
-        "calendar": "Календарь",
-        "path": "Дата",
-        "events": {
-          "OnActivate": "КалендарьПриАктивизации"
-        }
-      },
-      {
-        "button": "Кнопка",
-        "command": "Команда",
-        "events": {
-          "Click": "КнопкаНажатие"
-        }
-      },
-      {
         "pages": "Страницы",
         "children": [
           {
@@ -75,10 +61,6 @@
         "main": true
       },
       {
-        "name": "Дата",
-        "type": "date"
-      },
-      {
         "name": "Товары",
         "type": "ValueTable",
         "columns": [
@@ -88,20 +70,12 @@
           }
         ]
       }
-    ],
-    "commands": [
-      {
-        "name": "Команда",
-        "action": "КомандаДействие"
-      }
     ]
   },
   "expect": {
     "stdoutContains": [
       "[WARN] Event 'OnHover' of Table 'Товары' exists since platform 8.5",
       "[WARN] Event 'OnGetDataAtServer' of Table 'Товары' exists only for a table bound to DynamicList (bound to ValueTable)",
-      "[WARN] Unknown event 'OnActivate' for CalendarField 'Календарь'",
-      "[WARN] Button 'Кнопка' has no events in standard configurations",
       "[WARN] Page 'Страница' has no events — ignored: OnCurrentPageChange"
     ],
     "fileContains": {

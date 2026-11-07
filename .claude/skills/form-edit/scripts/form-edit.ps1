@@ -1,4 +1,4 @@
-﻿# form-edit v1.55 — Edit 1C managed form elements
+﻿# form-edit v1.56 — Edit 1C managed form elements
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -833,20 +833,59 @@ function Get-EventRank([string]$xmlTag, [string]$name, [string]$callType = '') {
 	return [long]$pos * 4 + $ct
 }
 
+# Расстояние Левенштейна — для подсказки к неизвестному событию.
+function Get-EditDistance([string]$a, [string]$b) {
+	$prev = New-Object int[] ($b.Length + 1)
+	for ($j = 0; $j -le $b.Length; $j++) { $prev[$j] = $j }
+	for ($i = 1; $i -le $a.Length; $i++) {
+		$cur = New-Object int[] ($b.Length + 1)
+		$cur[0] = $i
+		for ($j = 1; $j -le $b.Length; $j++) {
+			$cost = if ($a[$i - 1] -ceq $b[$j - 1]) { 0 } else { 1 }
+			$cur[$j] = [Math]::Min([Math]::Min($prev[$j] + 1, $cur[$j - 1] + 1), $prev[$j - 1] + $cost)
+		}
+		$prev = $cur
+	}
+	return $prev[$b.Length]
+}
+
+# Подсказка к неизвестному событию: ближайшие по написанию события вида элемента и виды, у которых такое событие есть.
+function Get-EventHint([string]$xmlTag, [string]$name) {
+	$parts = @()
+	$evs = $script:eventCatalog[$xmlTag]
+	if ($evs) {
+		$lim = [Math]::Max(2, [int][Math]::Floor($name.Length / 3))
+		$near = [string[]]@(foreach ($k in $evs.Keys) {
+			$d = Get-EditDistance $name.ToLowerInvariant() "$k".ToLowerInvariant()
+			if ($d -le $lim) { '{0:D3}|{1}' -f $d, $k }
+		})
+		[Array]::Sort($near, [StringComparer]::Ordinal)
+		if ($near.Count) { $parts += 'Did you mean: ' + ((@($near | Select-Object -First 3) | ForEach-Object { $_.Split('|')[1] }) -join ', ') + '?' }
+	}
+	$tags = [string[]]@(foreach ($t in $script:eventCatalog.Keys) { if ("$t" -ne $xmlTag -and $null -ne (Get-EventEntry "$t" $name)) { "$t" } })
+	[Array]::Sort($tags, [StringComparer]::Ordinal)
+	if ($tags.Count) { $parts += "'$name' is an event of: $($tags -join ', ')." }
+	return ($parts -join ' ')
+}
+
 function Test-EventPairs {
 	param($pairs, [string]$xmlTag, [string]$elementName, [string]$source = '')
 	$what = if ($xmlTag -eq 'Form') { 'the form' } else { "$xmlTag '$elementName'" }
 	$evs = $script:eventCatalog[$xmlTag]
 	foreach ($pr in $pairs) {
 		$ev = "$($pr.name)"
-		if (-not $evs) {
-			Write-Host "[WARN] $what has no events in standard configurations — the platform may drop '$ev' on load"
-			continue
-		}
-		$entry = Get-EventEntry $xmlTag $ev
+		$closed = (Get-FormatRank $script:formatVersion) -le $script:eventCatalogClosedRank
+		$entry = if ($evs) { Get-EventEntry $xmlTag $ev } else { $null }
 		if (-not $entry) {
-			$known = [string[]]@($evs.Keys); [Array]::Sort($known, [StringComparer]::Ordinal)
-			Write-Host "[WARN] Unknown event '$ev' for $what — the platform may drop it on load. Known: $($known -join ', ')"
+			$hint = Get-EventHint $xmlTag $ev
+			if ($evs) {
+				$known = [string[]]@($evs.Keys); [Array]::Sort($known, [StringComparer]::Ordinal)
+				$msg = "Unknown event '$ev' for $what — the platform drops it on load. $(if ($hint) { "$hint " })Known: $($known -join ', ')"
+			} else {
+				$msg = "$what has no events — the platform drops '$ev' on load.$(if ($hint) { " $hint" })"
+			}
+			if ($closed) { Write-Error $msg; exit 1 }
+			Write-Host "[WARN] $msg (8.5 builds may add events)"
 			continue
 		}
 		$since = "$($entry[3])"
@@ -924,6 +963,8 @@ function Get-FormatRank([string]$ver) {
 
 # Первая версия формата выгрузки платформы, на которой появилось событие каталога.
 $script:platformFormatRank = @{ "8.3.20" = 213; "8.3.23" = 216; "8.3.24" = 217; "8.3.25" = 218; "8.3.26" = 219; "8.3.27" = 220; "8.5" = 221 }
+# Каталог событий полон по формат 2.20 включительно (ветка 8.3 закрыта): неизвестное событие — ошибка; выше — предупреждение
+$script:eventCatalogClosedRank = 220
 
 # --- Заготовки обработчиков в модуле формы ---
 # Привязки, которые затронул запуск, собираются в $script:handlerBindings; после записи Form.xml

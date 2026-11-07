@@ -1,0 +1,30 @@
+{
+  "name": "Опечатка в имени события в форме 8.3 — ошибка без записи с подсказкой ближайшего имени",
+  "setup": "fixture:move-form",
+  "params": {
+    "formPath": "Documents/ЗаказТест/Forms/ФормаДокумента/Ext/Form.xml"
+  },
+  "input": {
+    "elements": [
+      {
+        "set": "Склад",
+        "events": [
+          "OnChanged"
+        ]
+      }
+    ]
+  },
+  "expect": {
+    "stderrContains": [
+      "Unknown event 'OnChanged' for InputField 'Склад'",
+      "Did you mean: OnChange"
+    ],
+    "fileNotContains": {
+      "file": "Documents/ЗаказТест/Forms/ФормаДокумента/Ext/Form.xml",
+      "text": [
+        "OnChanged"
+      ]
+    }
+  },
+  "expectError": true
+}
