@@ -8,7 +8,7 @@
 //
 // В .ps1 у этого класса свой гард (check-ps-define-before-call): там другая природа ошибки.
 //
-// Что проверяем: в каждом .claude/skills/*/scripts/*.py каждая ссылка на глобальное имя (из
+// Что проверяем: в каждом .claude/skills/*/scripts/*.py и scripts/*.py каждая ссылка на глобальное имя (из
 // модуля, функции, класса, лямбды, comprehension) должна разрешаться в имя, связанное на уровне
 // модуля (присваивание, import, def, class, `global` + присваивание в функции), или в builtins.
 // Разбор — stdlib symtable, без сторонних пакетов: гард работает на любом Python 3.9+.
@@ -27,7 +27,15 @@ const PY = process.env.PYTHON || (IS_WIN ? 'python' : 'python3');
 const PY_CHECK = String.raw`
 import ast, builtins, json, symtable, sys
 
-KNOWN = set(dir(builtins)) | {
+# Builtins of the running interpreter minus those added after 3.9 - the oldest
+# supported runtime (macOS system Python). Otherwise a guard run on 3.13 would
+# accept anext()/ExceptionGroup, and the skill would fail with NameError on 3.9.
+POST_39 = {
+    'aiter', 'anext', 'EncodingWarning',                      # 3.10
+    'BaseExceptionGroup', 'ExceptionGroup',                   # 3.11
+    'PythonFinalizationError', '_IncompleteInputError',       # 3.13
+}
+KNOWN = (set(dir(builtins)) - POST_39) | {
     '__file__', '__name__', '__doc__', '__spec__', '__loader__', '__package__',
     '__builtins__', '__path__', '__cached__', '__annotations__',
 }
@@ -73,19 +81,38 @@ for path in sys.argv[1:]:
         continue
     # Lines only from the scopes where the name is unresolved (symtable names scopes like
     # the def/class itself, 'top' for the module, 'lambda'/'listcomp'... for anonymous ones).
+    # Decorators, defaults, annotations and class bases are evaluated in the
+    # enclosing scope, only the body belongs to the def/class/lambda itself.
     lines = {}
-    def collect(node, scope):
+    def visit(node, scope):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+            a = node.args
+            outer = list(a.defaults) + [d for d in a.kw_defaults if d is not None]
+            if not isinstance(node, ast.Lambda):
+                outer += list(node.decorator_list)
+                params = a.posonlyargs + a.args + a.kwonlyargs + [x for x in (a.vararg, a.kwarg) if x]
+                outer += [x.annotation for x in params if x.annotation is not None]
+                if node.returns is not None:
+                    outer.append(node.returns)
+            for n in outer:
+                visit(n, scope)
+            inner = 'lambda' if isinstance(node, ast.Lambda) else node.name
+            for n in (node.body if isinstance(node.body, list) else [node.body]):
+                visit(n, inner)
+            return
+        if isinstance(node, ast.ClassDef):
+            for n in node.decorator_list + node.bases + [k.value for k in node.keywords]:
+                visit(n, scope)
+            for n in node.body:
+                visit(n, node.name)
+            return
+        if (isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load)
+                and node.id in missing and scope in missing[node.id]):
+            lines.setdefault(node.id, set()).add(node.lineno)
         for child in ast.iter_child_nodes(node):
-            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-                collect(child, child.name)
-            elif isinstance(child, ast.Lambda):
-                collect(child, 'lambda')
-            else:
-                if (isinstance(child, ast.Name) and isinstance(child.ctx, ast.Load)
-                        and child.id in missing and scope in missing[child.id]):
-                    lines.setdefault(child.id, set()).add(child.lineno)
-                collect(child, scope)
-    collect(tree, top.get_name())
+            visit(child, scope)
+    for n in tree.body:
+        visit(n, top.get_name())
     unplaced = {name for name in missing if name not in lines}
     if unplaced:
         # Fallback (e.g. comprehension scopes): any Load of the name.
@@ -100,7 +127,14 @@ for path in sys.argv[1:]:
 print(json.dumps(out))
 `;
 
+// Навыки и корневые scripts/*.py (switch*.py — установка и переключение рантайма).
 const files = [];
+const ROOT_SCRIPTS = join(ROOT, 'scripts');
+if (existsSync(ROOT_SCRIPTS)) {
+  for (const file of readdirSync(ROOT_SCRIPTS)) {
+    if (file.endsWith('.py')) files.push(join(ROOT_SCRIPTS, file));
+  }
+}
 for (const skill of readdirSync(SKILLS)) {
   const scriptsDir = join(SKILLS, skill, 'scripts');
   if (!existsSync(scriptsDir)) continue;
@@ -117,7 +151,7 @@ if (r.error || r.status !== 0) {
 }
 
 const results = JSON.parse(r.stdout);
-const rel = p => relative(SKILLS, p).replace(/\\/g, '/');
+const rel = p => relative(ROOT, p).replace(/\\/g, '/');
 const errors = [];
 for (const x of results) {
   if (x.skip) { console.log(`  [SKIP] ${rel(x.file)}: ${x.skip}`); continue; }
