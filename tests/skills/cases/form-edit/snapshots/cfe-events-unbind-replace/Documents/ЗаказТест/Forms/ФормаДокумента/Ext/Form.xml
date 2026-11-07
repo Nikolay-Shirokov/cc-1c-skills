@@ -35,8 +35,8 @@
 							<ContextMenu name="КонтрагентКонтекстноеМеню" id="12"/>
 							<ExtendedTooltip name="КонтрагентРасширеннаяПодсказка" id="13"/>
 							<Events>
-								<Event name="StartChoice" callType="Before">Перенос_КонтрагентНачалоВыбораПеред</Event>
 								<Event name="OnChange" callType="After">Перенос_КонтрагентПриИзмененииПосле</Event>
+								<Event name="StartChoice" callType="Before">Перенос_КонтрагентНачалоВыбораПеред</Event>
 							</Events>
 						</InputField>
 					</ChildItems>

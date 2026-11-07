@@ -9,8 +9,8 @@
 	<AutoTitle>false</AutoTitle>
 	<AutoCommandBar name="ФормаКоманднаяПанель" id="-1"/>
 	<Events>
-		<Event name="BeforeStart">ПередСтартом</Event>
 		<Event name="ValueChoice">ВыборЗначения</Event>
+		<Event name="BeforeStart">ПередСтартом</Event>
 	</Events>
 	<ChildItems>
 		<UsualGroup name="ГруппаШапка" id="1">

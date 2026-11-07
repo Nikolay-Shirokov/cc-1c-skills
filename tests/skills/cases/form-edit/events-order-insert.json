@@ -1,0 +1,13 @@
+{
+  "name": "Новые события встают на место платформы среди существующих: поле (OnChange был; Clearing, затем StartChoice — между ними), форма документа (BeforeWrite перед NavigationProcessing)",
+  "setup": "fixture:move-form",
+  "params": {
+    "formPath": "Documents/ЗаказТест/Forms/ФормаДокумента/Ext/Form.xml"
+  },
+  "input": {
+    "events": ["NavigationProcessing", "BeforeWrite", "OnOpen"],
+    "elements": [
+      { "set": "Склад", "events": ["Clearing", "StartChoice"] }
+    ]
+  }
+}

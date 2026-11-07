@@ -1,0 +1,24 @@
+{
+  "name": "События пишутся в порядке платформы, заготовки в модуле — в порядке ввода: форма справочника (NavigationProcessing перед BeforeWrite, у документа наоборот), поле (OnChange перед StartChoice)",
+  "params": {
+    "outputPath": "Catalogs/Товары/Forms/ФормаЭлемента/Ext/Form.xml"
+  },
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "Catalog", "name": "Товары" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    {
+      "script": "form-add/scripts/form-add",
+      "args": { "-ObjectPath": "{workDir}/Catalogs/Товары.xml", "-FormName": "ФормаЭлемента" }
+    }
+  ],
+  "input": {
+    "events": ["OnCreateAtServer", "BeforeWrite", "NavigationProcessing", "OnOpen"],
+    "attributes": [ { "name": "Объект", "type": "CatalogObject.Товары", "main": true } ],
+    "elements": [
+      { "input": "Наименование", "path": "Объект.Description", "events": ["StartChoice", "OnChange"] }
+    ]
+  }
+}

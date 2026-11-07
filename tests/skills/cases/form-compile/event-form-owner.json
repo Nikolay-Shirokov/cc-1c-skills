@@ -22,7 +22,7 @@
     ]
   },
   "expect": {
-    "stdoutContains": "[WARN] Event 'BeforeWrite' of the form exists only for forms of Document, Catalog, ChartOfCharacteristicTypes, BusinessProcess, Task, InformationRegisterRecord, InformationRegisterRecordSet, Constants (this form: DataProcessor)",
+    "stdoutContains": "[WARN] Event 'BeforeWrite' of the form exists only for forms of Document, Catalog, ChartOfCharacteristicTypes, BusinessProcess, Task, InformationRegisterRecord, InformationRegisterRecordSet, Constants, ExchangePlan, ChartOfAccounts, ChartOfCalculationTypes (this form: DataProcessor)",
     "stdoutNotContains": "OnPasteFromClipboard' of the form"
   }
 }

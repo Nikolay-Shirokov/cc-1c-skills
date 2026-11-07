@@ -111,8 +111,8 @@
 								<ExtendedTooltip name="ТоварыУправлениеПоискомРасширеннаяПодсказка" id="41"/>
 							</SearchControlAddition>
 							<Events>
-								<Event name="DragEnd">ТоварыОкончаниеПеретаскивания</Event>
 								<Event name="OnGetDataAtServer">ТоварыПриПолученииДанныхНаСервере</Event>
+								<Event name="DragEnd">ТоварыОкончаниеПеретаскивания</Event>
 							</Events>
 							<ChildItems>
 								<InputField name="ТоварыНоменклатура" id="42">

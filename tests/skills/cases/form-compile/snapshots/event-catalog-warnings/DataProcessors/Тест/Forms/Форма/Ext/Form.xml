@@ -32,8 +32,8 @@
 				<ExtendedTooltip name="ТоварыУправлениеПоискомРасширеннаяПодсказка" id="13"/>
 			</SearchControlAddition>
 			<Events>
-				<Event name="OnHover">ТоварыПриНаведении</Event>
 				<Event name="OnGetDataAtServer">ТоварыПриПолученииДанныхНаСервере</Event>
+				<Event name="OnHover">ТоварыПриНаведении</Event>
 			</Events>
 			<ChildItems>
 				<InputField name="ТоварыКоличество" id="14">
