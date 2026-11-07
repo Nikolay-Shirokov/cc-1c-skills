@@ -1,0 +1,5 @@
+# Python-зависимости рантайма навыков (для сборок с --runtime python).
+# Установка: pip install -r requirements.txt
+lxml>=4.9.0      # DOM-навыки (edit/validate/info/compile)
+Pillow>=10.0.0   # /img-grid (чтение изображений, наложение сетки)
+psutil>=5.9.0    # web-навыки (управление Apache)
