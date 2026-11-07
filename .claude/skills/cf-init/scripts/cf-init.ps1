@@ -1,4 +1,4 @@
-﻿# cf-init v1.17 — Create empty 1C configuration scaffold (+write_xml_file/write_utf8_bom: общий эталон записи)
+﻿# cf-init v1.18 — Create empty 1C configuration scaffold (+write_xml_file/write_utf8_bom: общий эталон записи)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -107,6 +107,8 @@ $co7 = [guid]::NewGuid().ToString()
 $is221 = ($formatRank -ge 221)
 # TextToSpeech приехал раньше остальных вставок 8.5 — своей ступенью, поэтому гейт отдельный.
 $is218 = ($formatRank -ge 218)
+$is217 = ($formatRank -ge 217)
+$is216 = ($formatRank -ge 216)
 
 $mobileFuncs = @(
 	@("Biometrics","true"), @("Location","false"), @("BackgroundLocation","false"),
@@ -120,15 +122,15 @@ $mobileFuncs = @(
 	@("BackgroundAudioPlaybackAndVibration","false"), @("InstallPackages","false"),
 	@("OSBackup","true"), @("ApplicationUsageStatistics","false"),
 	@("BarcodeScanning","false"), @("BackgroundAudioRecording","false"),
-	@("AllFilesAccess","false"), @("Videoconferences","false"), @("NFC","false"),
-	@("DocumentScanning","false"), @("SpeechToText","false"), @("Geofences","false"),
-	@("IncomingShareRequests","false"), @("AllIncomingShareRequestsTypesProcessing","false")
+	@("AllFilesAccess","false")
 )
-# TextToSpeech — возможность мобильного приложения, добавленная форматом 2.18 (8.3.25),
-# последней в списке; в 2.21 список не менялся. Замерено выгрузками пустой ИБ шести платформ:
-# 2.13/2.17 — 37 записей без неё, 2.18-2.21 — 38 с ней. Гейт обязателен и в обе стороны:
-# на 2.17 тег ломает загрузку XDTO-ошибкой (проверено на 8.3.24), без тега на 2.18+ платформа
-# подставит дефолт false и допишет его при выгрузке — то есть разойдётся роундтрип.
+# Возможности мобильного приложения прибавляются ступенями формата, в конец списка, — по выгрузкам
+# пустой ИБ самих платформ: 2.13 (8.3.20) — 30, 2.16 (8.3.23) — 33, 2.17 (8.3.24) — 37, 2.18–2.21 — 38.
+# Гейт обязателен в обе стороны: незнакомый платформе тег ломает загрузку XDTO-ошибкой (8.3.20, 8.3.23,
+# TextToSpeech на 8.3.24), а без знакомого платформа подставит false и допишет его при выгрузке —
+# разойдётся роундтрип. 2.14/2.15 (8.3.21/8.3.22) не замерены — список 2.13: короткий загрузится.
+if ($is216) { $mobileFuncs += @(@("Videoconferences","false"), @("NFC","false"), @("DocumentScanning","false")) }
+if ($is217) { $mobileFuncs += @(@("SpeechToText","false"), @("Geofences","false"), @("IncomingShareRequests","false"), @("AllIncomingShareRequestsTypesProcessing","false")) }
 if ($is218) { $mobileFuncs += ,@("TextToSpeech","false") }
 
 $mobileXml = ""
@@ -153,6 +155,14 @@ $versionEl = if ($Version) { "<Version>$(Esc-XmlText ($Version))</Version>" } el
 # выгруженные с 8.3.27 и с 8.5.1, различаются ровно этим. Порядок важен — вставки идут
 # на своё место, а не в конец.
 $nl = "`r`n"
+# Свойства конфигурации, которых нет в старых форматах (выгрузки пустой ИБ 8.3.20 и 8.3.23: незнакомое
+# свойство платформа отбрасывает с записью «Неверное свойство объекта метаданных» в лог загрузки).
+# DefaultReportAppearanceTemplate и DatabaseTablespacesUseMode — есть в 2.16, нет в 2.13 (2.14/2.15 не
+# замерены — без них: незаписанное знакомое свойство платформа заполнит умолчанием); AllowedIncomingShareRequestTypes — с 2.17.
+$gateReportAppearance = if ($is216) { $nl + "`t`t`t<DefaultReportAppearanceTemplate/>" } else { "" }
+$gateTablespaces = if ($is216) { $nl + "`t`t`t<DatabaseTablespacesUseMode>DontUse</DatabaseTablespacesUseMode>" } else { "" }
+$gateShareTypes = if ($is217) { $nl + "`t`t`t<AllowedIncomingShareRequestTypes/>" } else { "" }
+
 $f221AuxForms = ""; $f221WindowVariant = ""; $f221OpenVariant = ""; $f221Captions = ""; $f221Migration = ""
 $palNs = ""
 if ($is221) {
@@ -235,8 +245,7 @@ $cfgXml = @"
 			<Content/>
 			<DefaultReportForm/>
 			<DefaultReportVariantForm/>
-			<DefaultReportSettingsForm/>
-			<DefaultReportAppearanceTemplate/>
+			<DefaultReportSettingsForm/>$gateReportAppearance
 			<DefaultDynamicListSettingsForm/>
 			<DefaultSearchForm/>
 			<DefaultDataHistoryChangeHistoryForm/>
@@ -247,8 +256,7 @@ $cfgXml = @"
 			<UsedMobileApplicationFunctionalities>$mobileXml
 			</UsedMobileApplicationFunctionalities>
 			<StandaloneConfigurationRestrictionRoles/>
-			<MobileApplicationURLs/>
-			<AllowedIncomingShareRequestTypes/>$f221WindowVariant
+			<MobileApplicationURLs/>$gateShareTypes$f221WindowVariant
 			<MainClientApplicationWindowMode>Normal</MainClientApplicationWindowMode>$f221OpenVariant
 			<DefaultInterface/>$f221Captions
 			<DefaultStyle/>
@@ -262,8 +270,7 @@ $cfgXml = @"
 			<ObjectAutonumerationMode>NotAutoFree</ObjectAutonumerationMode>
 			<ModalityUseMode>DontUse</ModalityUseMode>
 			<SynchronousPlatformExtensionAndAddInCallUseMode>DontUse</SynchronousPlatformExtensionAndAddInCallUseMode>
-			<InterfaceCompatibilityMode>TaxiEnableVersion8_2</InterfaceCompatibilityMode>$f221Migration
-			<DatabaseTablespacesUseMode>DontUse</DatabaseTablespacesUseMode>
+			<InterfaceCompatibilityMode>TaxiEnableVersion8_2</InterfaceCompatibilityMode>$f221Migration$gateTablespaces
 			<CompatibilityMode>$CompatibilityMode</CompatibilityMode>
 			<DefaultConstantsForm/>
 		</Properties>

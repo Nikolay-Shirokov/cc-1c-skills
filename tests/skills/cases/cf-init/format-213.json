@@ -1,0 +1,36 @@
+{
+  "name": "Формат 2.13 (8.3.20): 30 возможностей мобильного приложения, без свойств конфигурации 2.16+ — как в выгрузке самой 8.3.20; незнакомое платформе ломает загрузку",
+  "params": {
+    "name": "Конфа213"
+  },
+  "args_extra": [
+    "-FormatVersion",
+    "2.13",
+    "-CompatibilityMode",
+    "Version8_3_20"
+  ],
+  "expect": {
+    "fileContains": {
+      "file": "Configuration.xml",
+      "text": [
+        "version=\"2.13\"",
+        "<app:functionality>AllFilesAccess</app:functionality>"
+      ]
+    },
+    "fileNotContains": {
+      "file": "Configuration.xml",
+      "text": [
+        "Videoconferences",
+        "NFC",
+        "DocumentScanning",
+        "SpeechToText",
+        "Geofences",
+        "IncomingShareRequests",
+        "TextToSpeech",
+        "DefaultReportAppearanceTemplate",
+        "DatabaseTablespacesUseMode",
+        "AllowedIncomingShareRequestTypes"
+      ]
+    }
+  }
+}

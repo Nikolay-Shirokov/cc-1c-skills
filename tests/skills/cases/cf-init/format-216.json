@@ -1,0 +1,31 @@
+{
+  "name": "Формат 2.16 (8.3.23): 33 возможности мобильного приложения (с Videoconferences, NFC, DocumentScanning), без появившегося в 2.17",
+  "params": {
+    "name": "Конфа216"
+  },
+  "args_extra": [
+    "-FormatVersion",
+    "2.16",
+    "-CompatibilityMode",
+    "Version8_3_23"
+  ],
+  "expect": {
+    "fileContains": {
+      "file": "Configuration.xml",
+      "text": [
+        "version=\"2.16\"",
+        "<app:functionality>DocumentScanning</app:functionality>"
+      ]
+    },
+    "fileNotContains": {
+      "file": "Configuration.xml",
+      "text": [
+        "SpeechToText",
+        "Geofences",
+        "IncomingShareRequests",
+        "TextToSpeech",
+        "AllowedIncomingShareRequestTypes"
+      ]
+    }
+  }
+}
