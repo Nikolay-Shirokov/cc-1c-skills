@@ -76,19 +76,25 @@
 							<dcsset:comparisonType>Greater</dcsset:comparisonType>
 							<dcsset:right xsi:type="xs:decimal">100</dcsset:right>
 						</dcsset:item>
+						<dcsset:item xsi:type="dcsset:FilterItemComparison">
+							<dcsset:left xsi:type="dcscor:Field">Наименование</dcsset:left>
+							<dcsset:comparisonType>NotEqual</dcsset:comparisonType>
+							<dcsset:right xsi:type="xs:string"/>
+							<dcsset:userSettingID>UUID-001</dcsset:userSettingID>
+						</dcsset:item>
 						<dcsset:viewMode>Normal</dcsset:viewMode>
-						<dcsset:userSettingID>UUID-001</dcsset:userSettingID>
+						<dcsset:userSettingID>UUID-002</dcsset:userSettingID>
 					</dcsset:filter>
 					<dcsset:order>
 						<dcsset:viewMode>Normal</dcsset:viewMode>
-						<dcsset:userSettingID>UUID-002</dcsset:userSettingID>
+						<dcsset:userSettingID>UUID-003</dcsset:userSettingID>
 					</dcsset:order>
 					<dcsset:conditionalAppearance>
 						<dcsset:viewMode>Normal</dcsset:viewMode>
-						<dcsset:userSettingID>UUID-003</dcsset:userSettingID>
+						<dcsset:userSettingID>UUID-004</dcsset:userSettingID>
 					</dcsset:conditionalAppearance>
 					<dcsset:itemsViewMode>Normal</dcsset:itemsViewMode>
-					<dcsset:itemsUserSettingID>UUID-004</dcsset:itemsUserSettingID>
+					<dcsset:itemsUserSettingID>UUID-005</dcsset:itemsUserSettingID>
 				</ListSettings>
 			</Settings>
 		</Attribute>

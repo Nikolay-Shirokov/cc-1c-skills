@@ -1,4 +1,4 @@
-﻿# form-edit v1.57 — Edit 1C managed form elements
+﻿# form-edit v1.58 — Edit 1C managed form elements
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(

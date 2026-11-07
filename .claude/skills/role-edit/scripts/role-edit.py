@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# role-edit v1.11 — Edit existing 1C role rights in place
+# role-edit v1.12 — Edit existing 1C role rights in place
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import json
@@ -1421,19 +1421,6 @@ def expand_self_closing(container, parent_indent):
     """If container is self-closing (no children, no text), add closing whitespace."""
     if len(container) == 0 and not (container.text and container.text.strip()):
         container.text = "\r\n" + parent_indent
-
-
-def import_fragment(xml_string, doc_root):
-    """Parse an XML fragment in the MD namespace context and return elements."""
-    wrapper = (
-        f'<_W xmlns="{MD_NS}" xmlns:xsi="{XSI_NS}" xmlns:v8="{V8_NS}" '
-        f'xmlns:xr="{XR_NS}" xmlns:xs="{XS_NS}">{xml_string}</_W>'
-    )
-    frag = etree.fromstring(wrapper.encode("utf-8"))
-    nodes = []
-    for child in frag:
-        nodes.append(child)
-    return nodes
 
 
 def parse_value_list(val, op_name):

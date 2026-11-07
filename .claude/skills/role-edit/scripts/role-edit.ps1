@@ -1,4 +1,4 @@
-﻿# role-edit v1.11 — Edit existing 1C role rights in place
+﻿# role-edit v1.12 — Edit existing 1C role rights in place
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
