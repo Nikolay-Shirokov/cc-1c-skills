@@ -1,5 +1,5 @@
 {
-  "name": "Событие формы не того владельца — предупреждение (BeforeWrite у формы обработки); общее событие — без него",
+  "name": "Событие формы не того владельца — предупреждение (BeforeWrite у формы обработки); общее событие — без него; main строкой — как булево (вывод основного не выручает: объектных реквизитов два)",
   "params": {
     "outputPath": "DataProcessors/Тест/Forms/Форма/Ext/Form.xml"
   },
@@ -16,7 +16,10 @@
   ],
   "input": {
     "events": ["BeforeWrite", "OnPasteFromClipboard"],
-    "attributes": [ { "name": "Объект", "type": "DataProcessorObject.Тест", "main": true } ]
+    "attributes": [
+      { "name": "Объект", "type": "DataProcessorObject.Тест", "main": "true" },
+      { "name": "Отбор", "type": "DataProcessorObject.Тест" }
+    ]
   },
   "expect": {
     "stdoutContains": "[WARN] Event 'BeforeWrite' of the form exists only for forms of Document, Catalog, ChartOfCharacteristicTypes, BusinessProcess, Task, InformationRegisterRecord, InformationRegisterRecordSet, Constants (this form: DataProcessor)",

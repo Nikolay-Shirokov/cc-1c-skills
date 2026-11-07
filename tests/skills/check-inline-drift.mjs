@@ -940,6 +940,7 @@ const FAMILIES = [
   { name: 'test_event_pairs', py: 'test_event_pairs', ps1: 'Test-EventPairs', variants: [{ id: 'base', authority: 'form-compile', consumers: ['form-edit'] }] },
   { name: 'warn_events_ignored', py: 'warn_events_ignored', ps1: 'Warn-EventsIgnored', variants: [{ id: 'base', authority: 'form-compile', consumers: ['form-edit'] }] },
   { name: 'get_form_owner_kind', py: 'get_form_owner_kind', ps1: 'Get-FormOwnerKind', variants: [{ id: 'base', authority: 'form-compile', consumers: ['form-edit'] }] },
+  { name: 'normalize_main_flag', py: 'normalize_main_flag', ps1: 'Normalize-MainFlag', variants: [{ id: 'base', authority: 'form-compile', consumers: ['form-edit'] }] },
   // ── Заготовки обработчиков в модуле формы ──
   { name: 'get_form_module_template', py: 'get_form_module_template', ps1: 'Get-FormModuleTemplate', variants: [{ id: 'base', authority: 'form-compile', consumers: ['form-edit', 'form-add'] }] },
   { name: 'get_extension_name_prefix', py: 'get_extension_name_prefix', ps1: 'Get-ExtensionNamePrefix', variants: [{ id: 'base', authority: 'form-compile', consumers: ['form-edit'] }] },

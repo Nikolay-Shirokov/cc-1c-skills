@@ -1,4 +1,4 @@
-﻿# form-compile v1.237 — Compile 1C managed form from JSON or object metadata
+﻿# form-compile v1.238 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -2101,6 +2101,24 @@ if ($FromObject) {
 	$json = Read-JsonInputFile $JsonPath
 	$def = ConvertFrom-JsonInput $json $JsonPath
 }
+
+# Флаг main строкой или числом ("true", 1) — как булево: иначе порты расходятся (PS `-eq $true` принимает
+# строку и 1, Python `is True` — нет)
+function Normalize-MainFlag($attrs) {
+	foreach ($a in @($attrs)) {
+		if ($a -isnot [System.Management.Automation.PSCustomObject]) { continue }
+		$p = $a.PSObject.Properties['main']
+		if ($null -eq $p) { continue }
+		$v = $p.Value
+		if ($v -is [string]) {
+			$s = $v.Trim().ToLower()
+			if ($s -eq 'true') { $p.Value = $true } elseif ($s -eq 'false') { $p.Value = $false }
+		} elseif (($v -is [int] -or $v -is [long]) -and ($v -eq 0 -or $v -eq 1)) {
+			$p.Value = ($v -eq 1)
+		}
+	}
+}
+Normalize-MainFlag $def.attributes
 
 # Базовая директория для @file-ссылок в query динсписка (зеркало skd-compile)
 $script:queryBaseDir = if ($JsonPath) { [System.IO.Path]::GetDirectoryName((Resolve-Path $JsonPath).ProviderPath) } else { (Get-Location).ProviderPath }

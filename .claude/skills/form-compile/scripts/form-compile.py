@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# form-compile v1.237 — Compile 1C managed form from JSON or object metadata
+# form-compile v1.238 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import copy
@@ -3658,6 +3658,21 @@ _FORM_OWNER_KINDS = {
     'InformationRegisterRecordSet': 'InformationRegisterRecordSet', 'ConstantsSet': 'Constants',
     'DynamicList': 'List',
 }
+
+
+# Флаг main строкой или числом ("true", 1) — как булево: иначе порты расходятся (PS `-eq $true` принимает
+# строку и 1, Python `is True` — нет)
+def normalize_main_flag(attrs):
+    for a in (attrs if isinstance(attrs, list) else []):
+        if not isinstance(a, dict) or 'main' not in a:
+            continue
+        v = a['main']
+        if isinstance(v, str):
+            s = v.strip().lower()
+            if s in ('true', 'false'):
+                a['main'] = s == 'true'
+        elif isinstance(v, int) and not isinstance(v, bool) and v in (0, 1):
+            a['main'] = v == 1
 
 
 def get_form_owner_kind(type_str):
@@ -8871,6 +8886,7 @@ def main():
         QUERY_BASE_DIR = os.path.dirname(os.path.abspath(json_path))
 
     global _defn
+    normalize_main_flag(defn.get('attributes'))
     _defn = defn
 
     # --- 1b. Pre-pass: synonyms, main attribute inference, heuristics, autoCmdBar extraction ---
