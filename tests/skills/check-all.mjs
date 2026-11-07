@@ -27,6 +27,7 @@ const GUARDS = [
   ['check-nonascii-fs.mjs', 'fsutil: удаление и копирование держат не-ASCII пути, копии не разошлись'],
   ['check-switch-install.mjs', 'switch.py: обновление и --undo не трогают сторонние навыки'],
   ['check-ps-portability.mjs', '.ps1: без $env:TEMP и Write-Output -NoEnumerate, необработанная ошибка у db-*/epf-* даёт код 1'],
+  ['check-py-undefined-names.mjs', '.py: все имена разрешаются — без NameError в непокрытых ветках'],
 ];
 
 let failed = 0;
