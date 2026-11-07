@@ -1,0 +1,195 @@
+{
+  "name": "erp-standard",
+  "description": "ERP / UT layout: header on the Main page, secondary fields on the Additional page",
+
+  "fields": {
+    "skip": {
+      "attributes": {
+        "deleted": "^Удалить",
+        "addressParts": "ЗначенияПолей$|^АдресДоставки(Перевозчика)?Значение$",
+        "manualFlags": "Вручную$|ЗаполненоАвтоматически",
+        "service": "^(КраткийСоставДокумента|РеквизитДопУпорядочивания)$",
+        "rates": "^(Курс|Кратность)(Документа|Взаиморасчетов)$|^Курс(Числитель|Знаменатель)$",
+        "manualCorrection": "^РучнаяКорректировка$",
+        "vatIncluded": "^СуммаВключаетНДС$",
+        "printSigns": "^(ОснованиеПодписи|Должность)",
+        "hash": "Хеш|Хэш",
+        "accountSettings": "^НастройкаСчетовУчета$"
+      },
+      "types": {
+        "uuid": "UUID"
+      },
+      "tabularSections": {
+        "additionalAttributes": "^ДополнительныеРеквизиты$",
+        "contactInformation": "^КонтактнаяИнформация$",
+        "accessValues": "^НаборыЗначенийДоступа$",
+        "presentations": "^Представления$",
+        "stockTypes": "^ВидыЗапасов$",
+        "series": "^Серии$",
+        "changesFix": "^ФиксацияИзменений$"
+      },
+      "columns": {
+        "deleted": "^Удалить",
+        "linkKey": "^КлючСвязи",
+        "links": "Связи$",
+        "rowId": "^Идентификатор",
+        "itemAnalytics": "^АналитикаУчета(Номенклатуры|Наборов)$",
+        "calcFix": "^Фикс(Строка|Расчет|Заполнение|Сторно|РасчетВремени)$",
+        "accountSettings": "^НастройкаСчетовУчета$",
+        "sourceRow": "^ИсходнаяСтрока$"
+      },
+      "columnsIfPresent": {
+        "quantityInPackages": { "column": "Количество", "when": "КоличествоУпаковок" }
+      }
+    },
+
+    "roles": {
+      "status":       { "names": "^Статус$", "zone": "top", "list": true, "listOrder": 10 },
+      "counterparty": { "names": "^(Контрагент|Партнер|Клиент|Поставщик)$", "types": "CatalogRef\\.(Контрагенты|Партнеры)$", "zone": "header.left", "list": true },
+      "employee":     { "names": "^Сотрудник$", "types": "CatalogRef\\.Сотрудники$", "zone": "header.left" },
+      "organization": { "names": "^Организация$", "types": "CatalogRef\\.Организации$", "zone": "header.right", "list": true, "listOrder": 60 },
+      "warehouse":    { "names": "^Склад", "types": "CatalogRef\\.Склады$", "zone": "header.right", "list": true },
+      "contract":     { "names": "^(Договор|ДоговорКонтрагента)$", "types": "CatalogRef\\.Договор", "zone": "header.right" },
+      "operation":    { "names": "^(ХозяйственнаяОперация|ВидОперации)$", "zone": "header.right" },
+      "comment":      { "names": "^Комментарий$", "zone": "main.bottom", "order": -1, "list": true, "listOrder": 90 },
+      "amount":       { "names": "^СуммаДокумента$", "zone": "hidden", "list": true, "listOrder": 70 },
+      "responsible":  { "names": "^Ответственный$", "zone": "main.bottom", "list": true, "listOrder": 80 },
+      "user":         { "types": "CatalogRef\\.Пользователи$", "zone": "additional.left" },
+      "author":       { "names": "^Автор$", "zone": "additional.left", "list": true, "listOrder": 85, "props": { "readOnly": true } },
+      "description":  { "names": "^Описание$", "list": true },
+      "department":   { "names": "^Подразделение", "types": "CatalogRef\\.(СтруктураПредприятия|ПодразделенияОрганизаций|Подразделения)$", "zone": "header" },
+      "signers":      { "names": "^(Руководитель|ГлавныйБухгалтер|Бухгалтер|Кассир)$", "zone": "additional.left" },
+      "currency":     { "names": "^Валюта", "types": "CatalogRef\\.Валюты$", "zone": "additional.right", "list": true, "listOrder": 71 },
+      "priceType":    { "names": "^ВидЦен", "zone": "additional.right" },
+      "activity":     { "names": "^НаправлениеДеятельности$", "zone": "additional.right" },
+      "correction":   { "names": "^(Исправление|СторнируемыйДокумент|ИсправляемыйДокумент|ИсправленныйДокумент)$", "zone": "hidden" }
+    },
+
+    "limits": {
+      "mainFields": 12,
+      "tableColumns": 10
+    },
+
+    "unplaced": {
+      "required": "header",
+      "optional": "header",
+      "notSearchable": "additional"
+    },
+
+    "props": {
+      "byType": {
+        "ref":             { "autoMaxWidth": false, "maxWidth": 28 },
+        "enum":            { "autoMaxWidth": false, "maxWidth": 28 },
+        "composite":       { "autoMaxWidth": false, "maxWidth": 28 },
+        "string":          { "autoMaxWidth": false },
+        "stringUnlimited": { "autoMaxWidth": false }
+      },
+      "byName": {
+        "Номер":       { "width": 10, "horizontalStretch": false },
+        "Дата":        { "width": 14, "horizontalStretch": false },
+        "Комментарий": { "autoMaxWidth": false, "multiLine": true, "titleLocation": "left", "verticalStretch": false }
+      }
+    },
+
+    "columnsAfter": {
+      "packaging": { "column": "^Упаковка$", "after": "^КоличествоУпаковок$" }
+    },
+
+    "listProps": {
+      "byName": {
+        "Дата": { "width": 9 }
+      }
+    },
+
+    "columnProps": {
+      "byName": {
+        "НомерСтроки":        { "width": 3, "horizontalStretch": false },
+        "Номенклатура":       { "width": 16 },
+        "Характеристика":     { "width": 16 },
+        "Упаковка":           { "width": 10 },
+        "КоличествоУпаковок": { "width": 8, "horizontalStretch": false },
+        "Количество":         { "width": 8, "horizontalStretch": false },
+        "Цена":               { "width": 9 },
+        "Сумма":              { "width": 9 },
+        "СтавкаНДС":          { "width": 9, "horizontalStretch": false },
+        "СуммаНДС":           { "width": 9 }
+      }
+    }
+  },
+
+  "document.item": {
+    "header": {
+      "position": "insidePage",
+      "layout": "2col",
+      "dateTitle": "от"
+    },
+    "footer": {
+      "fields": [],
+      "position": "insidePage"
+    },
+    "tabularSections": {
+      "container": "pages",
+      "lineNumber": true
+    },
+    "additional": {
+      "position": "page",
+      "layout": "2col",
+      "bspGroup": true
+    },
+    "properties": {
+      "autoTime": "CurrentOrLast",
+      "usePostingMode": "Auto",
+      "repostOnWrite": true
+    }
+  },
+
+  "document.list": {
+    "columns": "auto",
+    "maxColumns": 8,
+    "userSettingsGroup": true
+  },
+
+  "catalog.item": {
+    "properties": {
+      "windowOpeningMode": "LockOwnerWindow"
+    },
+    "codeDescription": {
+      "layout": "horizontal",
+      "order": "descriptionFirst"
+    },
+    "parent": {
+      "title": "Входит в группу",
+      "position": "afterCodeDescription"
+    }
+  },
+
+  "catalog.list": {
+    "columns": "auto",
+    "maxColumns": 5,
+    "userSettingsGroup": true
+  },
+
+  "informationRegister.record": {
+    "properties": {
+      "windowOpeningMode": "LockOwnerWindow"
+    }
+  },
+
+  "informationRegister.list": {},
+
+  "accumulationRegister.list": {},
+
+  "chartOfCharacteristicTypes.item": {
+    "basedOn": "catalog.item"
+  },
+
+  "exchangePlan.item": {
+    "basedOn": "catalog.item"
+  },
+
+  "chartOfAccounts.item": {
+    "parent": {
+      "title": "Подчинен счету"
+    }
+  }
+}
