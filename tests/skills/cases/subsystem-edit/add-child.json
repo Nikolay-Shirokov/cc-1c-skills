@@ -1,5 +1,5 @@
 {
-  "name": "Добавление дочерней подсистемы",
+  "name": "Дочерние подсистемы: добавление, повтор и удаление — имя в другом регистре",
   "preRun": [
     {
       "script": "subsystem-compile/scripts/subsystem-compile",
@@ -9,6 +9,9 @@
   ],
   "params": { "subsystemPath": "Subsystems/Продажи.xml" },
   "input": [
-    { "operation": "add-child", "value": "Настройки" }
+    { "operation": "add-child", "value": "Настройки" },
+    { "operation": "add-child", "value": "настройки" },
+    { "operation": "add-child", "value": "Отчеты" },
+    { "operation": "remove-child", "value": "ОТЧЕТЫ" }
   ]
 }

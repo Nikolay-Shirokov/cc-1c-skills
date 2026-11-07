@@ -483,14 +483,19 @@ CONTENT_TYPE_MAP = {
 }
 
 
+CONTENT_TYPE_MAP_CI = {k.lower(): v for k, v in CONTENT_TYPE_MAP.items()}
+
+
 def normalize_content_ref(ref):
     if not ref or '.' not in ref:
         return ref
     dot_idx = ref.index('.')
     type_part = ref[:dot_idx]
     name_part = ref[dot_idx + 1:]
-    if type_part in CONTENT_TYPE_MAP:
-        type_part = CONTENT_TYPE_MAP[type_part]
+    # Хеш-таблица PS ищет ключ без учёта регистра.
+    mapped = CONTENT_TYPE_MAP_CI.get(type_part.lower())
+    if mapped:
+        type_part = mapped
     return f'{type_part}.{name_part}'
 
 
@@ -740,10 +745,11 @@ def main():
             print("No <Content> element found", file=sys.stderr)
             sys.exit(1)
 
+        # Сравнения состава и дочерних — без учёта регистра, как -in/-eq в PS.
         existing = set()
         for child in content_el:
             if isinstance(child.tag, str) and localname(child) == "Item":
-                existing.add((child.text or "").strip())
+                existing.add((child.text or "").strip().lower())
 
         props_indent = get_child_indent(props_el)
         if len(content_el) == 0 and not (content_el.text and content_el.text.strip()):
@@ -754,7 +760,7 @@ def main():
             item = normalize_content_ref(raw_item)
             if item != raw_item:
                 print(f'[NORM] Content: {raw_item} -> {item}')
-            if item in existing:
+            if item.lower() in existing:
                 warn(f"Content already contains: {item}")
                 continue
             frag_xml = f'<xr:Item xsi:type="xr:MDObjectRef">{item}</xr:Item>'
@@ -778,7 +784,7 @@ def main():
         for item in items:
             found = False
             for child in list(content_el):
-                if isinstance(child.tag, str) and localname(child) == "Item" and (child.text or "").strip() == item:
+                if isinstance(child.tag, str) and localname(child) == "Item" and (child.text or "").strip().lower() == item.lower():
                     remove_with_indent(child)
                     remove_count += 1
                     info(f"Removed content: {item}")
@@ -794,7 +800,7 @@ def main():
             sys.exit(1)
 
         for child in child_objs_el:
-            if isinstance(child.tag, str) and localname(child) == "Subsystem" and (child.text or "").strip() == child_name:
+            if isinstance(child.tag, str) and localname(child) == "Subsystem" and (child.text or "").strip().lower() == child_name.lower():
                 warn(f"ChildObjects already contains: {child_name}")
                 return
 
@@ -832,7 +838,7 @@ def main():
 
         found = False
         for child in list(child_objs_el):
-            if isinstance(child.tag, str) and localname(child) == "Subsystem" and (child.text or "").strip() == child_name:
+            if isinstance(child.tag, str) and localname(child) == "Subsystem" and (child.text or "").strip().lower() == child_name.lower():
                 remove_with_indent(child)
                 remove_count += 1
                 info(f"Removed child subsystem: {child_name}")
@@ -846,7 +852,9 @@ def main():
         prop_def = ci_json(parse_json_input(
             json_val, "-Value for operation 'set-property'", "a JSON object {name, value}", inline=True))
         prop_name = str(prop_def["name"])
-        prop_value = str(prop_def.get("value", ""))
+        # null — пустое значение, как "$($propDef.value)" в PS.
+        raw_value = prop_def.get("value")
+        prop_value = "" if raw_value is None else str(raw_value)
         # PS сравнивает имя свойства через -eq/-in, а они регистронезависимы.
         prop_key = prop_name.lower()
 

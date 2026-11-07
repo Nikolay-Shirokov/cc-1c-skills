@@ -3,12 +3,7 @@
 	<Subsystem uuid="UUID-001">
 		<Properties>
 			<Name>Продажи</Name>
-			<Synonym>
-				<v8:item>
-					<v8:lang>ru</v8:lang>
-					<v8:content>Продажи</v8:content>
-				</v8:item>
-			</Synonym>
+			<Synonym/>
 			<Comment>Раздел продаж</Comment>
 			<IncludeHelpInContents>true</IncludeHelpInContents>
 			<IncludeInCommandInterface>false</IncludeInCommandInterface>

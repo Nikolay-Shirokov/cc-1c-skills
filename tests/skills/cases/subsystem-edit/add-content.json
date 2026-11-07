@@ -1,5 +1,5 @@
 {
-  "name": "Добавление объекта в состав подсистемы",
+  "name": "Добавление объекта в состав подсистемы; уже входящий — в другом регистре — не дублируется",
   "preRun": [
     {
       "script": "meta-compile/scripts/meta-compile",
@@ -19,6 +19,7 @@
   ],
   "params": { "subsystemPath": "Subsystems/Склад.xml" },
   "input": [
-    { "operation": "add-content", "value": "Document.Заказ" }
+    { "operation": "add-content", "value": "Document.Заказ" },
+    { "operation": "add-content", "value": "catalogs.товары" }
   ]
 }

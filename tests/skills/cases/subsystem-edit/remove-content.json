@@ -1,5 +1,5 @@
 {
-  "name": "Удаление объекта из состава подсистемы",
+  "name": "Удаление объекта из состава подсистемы — ссылка в другом регистре",
   "preRun": [
     {
       "script": "meta-compile/scripts/meta-compile",
@@ -19,6 +19,6 @@
   ],
   "params": { "subsystemPath": "Subsystems/Склад.xml" },
   "input": [
-    { "operation": "remove-content", "value": "Document.Заказ" }
+    { "operation": "remove-content", "value": "document.ЗАКАЗ" }
   ]
 }
