@@ -9,6 +9,9 @@
   ],
   "params": { "subsystemPath": "Subsystems/Продажи.xml" },
   "input": [
-    { "operation": "set-property", "value": "{\"name\":\"IncludeInCommandInterface\",\"value\":\"false\"}" }
+    { "operation": "set-property", "value": "{\"name\":\"IncludeInCommandInterface\",\"value\":\"false\"}" },
+    { "operation": "set-property", "value": "{\"name\":\"Comment\",\"value\":\"Раздел продаж\"}" },
+    { "operation": "set-property", "value": "{\"name\":\"picture\",\"value\":\"StdPicture.Information\"}" },
+    { "operation": "set-property", "value": "{\"name\":\"explanation\",\"value\":\"Документы и отчёты по продажам\"}" }
   ]
 }

@@ -9,12 +9,20 @@
 					<v8:content>Продажи</v8:content>
 				</v8:item>
 			</Synonym>
-			<Comment/>
+			<Comment>Раздел продаж</Comment>
 			<IncludeHelpInContents>true</IncludeHelpInContents>
 			<IncludeInCommandInterface>false</IncludeInCommandInterface>
 			<UseOneCommand>false</UseOneCommand>
-			<Explanation/>
-			<Picture/>
+			<Explanation>
+				<v8:item>
+					<v8:lang>ru</v8:lang>
+					<v8:content>Документы и отчёты по продажам</v8:content>
+				</v8:item>
+			</Explanation>
+			<Picture>
+				<xr:Ref>StdPicture.Information</xr:Ref>
+				<xr:LoadTransparent>false</xr:LoadTransparent>
+			</Picture>
 			<Content/>
 		</Properties>
 		<ChildObjects/>

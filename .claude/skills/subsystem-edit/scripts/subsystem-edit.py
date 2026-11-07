@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# subsystem-edit v1.29 — Edit existing 1C subsystem XML (+тип Bot; cfe-diff/cfe-borrow: недостающие типы)
+# subsystem-edit v1.30 — Edit existing 1C subsystem XML (+тип Bot; cfe-diff/cfe-borrow: недостающие типы)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -847,18 +847,20 @@ def main():
             json_val, "-Value for operation 'set-property'", "a JSON object {name, value}", inline=True))
         prop_name = str(prop_def["name"])
         prop_value = str(prop_def.get("value", ""))
+        # PS сравнивает имя свойства через -eq/-in, а они регистронезависимы.
+        prop_key = prop_name.lower()
 
         prop_el = None
         for child in props_el:
-            if isinstance(child.tag, str) and localname(child) == prop_name:
+            if isinstance(child.tag, str) and localname(child).lower() == prop_key:
                 prop_el = child
                 break
         if prop_el is None:
             print(f"Property '{prop_name}' not found in Properties", file=sys.stderr)
             sys.exit(1)
 
-        bool_props = ["IncludeInCommandInterface", "UseOneCommand", "IncludeHelpInContents"]
-        if prop_name in bool_props:
+        bool_props = ["includeincommandinterface", "useonecommand", "includehelpincontents"]
+        if prop_key in bool_props:
             prop_el.text = prop_value.lower()
             # Clear children
             for ch in list(prop_el):
@@ -867,8 +869,8 @@ def main():
             info(f"Set {prop_name} = {prop_value}")
             return
 
-        ml_props = ["Synonym", "Explanation"]
-        if prop_name in ml_props:
+        ml_props = ["synonym", "explanation"]
+        if prop_key in ml_props:
             if not prop_value:
                 # Clear - make self-closing
                 for ch in list(prop_el):
