@@ -47,8 +47,8 @@
   },
   "expect": {
     "stdoutContains": [
-      "[WARN] Unknown event 'OnChang' for InputField 'Поле' — the platform drops it on load. Did you mean: OnChange?",
-      "(8.5 builds may add events)",
+      "[WARN] Unknown events — the platform drops them on load (8.5 builds may add events):",
+      "  'OnChang' for InputField 'Поле' — Did you mean: OnChange?",
       "ПолеФу — not added: no signature known for event 'OnChang' of InputField"
     ],
     "fileContains": {

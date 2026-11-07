@@ -1,4 +1,4 @@
-﻿# form-compile v1.241 — Compile 1C managed form from JSON or object metadata
+﻿# form-compile v1.242 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -3606,18 +3606,10 @@ function Test-EventPairs {
 	$evs = $script:eventCatalog[$xmlTag]
 	foreach ($pr in $pairs) {
 		$ev = "$($pr.name)"
-		$closed = (Get-FormatRank $script:formatVersion) -le $script:eventCatalogClosedRank
 		$entry = if ($evs) { Get-EventEntry $xmlTag $ev } else { $null }
 		if (-not $entry) {
-			$hint = Get-EventHint $xmlTag $ev
-			if ($evs) {
-				$known = [string[]]@($evs.Keys); [Array]::Sort($known, [StringComparer]::Ordinal)
-				$msg = "Unknown event '$ev' for $what — the platform drops it on load. $(if ($hint) { "$hint " })Known: $($known -join ', ')"
-			} else {
-				$msg = "$what has no events — the platform drops '$ev' on load.$(if ($hint) { " $hint" })"
-			}
-			if ($closed) { Write-Error $msg; exit 1 }
-			Write-Host "[WARN] $msg (8.5 builds may add events)"
+			# сводкой перед записью формы (Report-UnknownEvents): модель исправит все сразу
+			[void]$script:unknownEvents.Add([pscustomobject]@{ tag = $xmlTag; name = $elementName; ev = $ev; noEvents = (-not $evs) })
 			continue
 		}
 		$since = "$($entry[3])"
@@ -3633,6 +3625,40 @@ function Test-EventPairs {
 			Write-Host "[WARN] Event '$ev' of $what exists only for a table bound to $only (bound to $source) — the platform drops it on load"
 		}
 	}
+}
+
+# Сводка неизвестных событий за запуск — одним блоком перед записью формы. Формы ветки 8.3 — ошибка (форма не
+# пишется), 8.5 — предупреждение. Перечень событий вида — только если подсказать нечего, один раз на вид.
+function Report-UnknownEvents {
+	if ($script:unknownEvents.Count -eq 0) { return }
+	# одно событие у нескольких элементов вида — одной строкой (одна и та же опечатка — одно исправление)
+	$groups = [ordered]@{}
+	foreach ($u in $script:unknownEvents) {
+		$key = "$($u.tag)|$($u.ev)"
+		if (-not $groups.Contains($key)) { $groups[$key] = [pscustomobject]@{ u = $u; names = New-Object System.Collections.ArrayList } }
+		if ($u.name -and -not $groups[$key].names.Contains($u.name)) { [void]$groups[$key].names.Add($u.name) }
+	}
+	$lines = New-Object System.Collections.ArrayList
+	$knownTags = New-Object System.Collections.ArrayList
+	foreach ($g in $groups.Values) {
+		$u = $g.u
+		$where = if ($u.tag -eq 'Form') { 'the form' } else { "$($u.tag) " + ((@($g.names) | ForEach-Object { "'$_'" }) -join ', ') }
+		$hint = Get-EventHint $u.tag $u.ev
+		$line = "  '$($u.ev)' for $where"
+		if ($u.noEvents) { $line += " — $($u.tag) has no events." + $(if ($hint) { " $hint" } else { '' }) }
+		elseif ($hint) { $line += " — $hint" }
+		elseif (-not $knownTags.Contains($u.tag)) { [void]$knownTags.Add($u.tag) }
+		[void]$lines.Add($line)
+	}
+	foreach ($t in $knownTags) {
+		$known = [string[]]@($script:eventCatalog[$t].Keys); [Array]::Sort($known, [StringComparer]::Ordinal)
+		[void]$lines.Add("  Events of ${t}: $($known -join ', ')")
+	}
+	if ((Get-FormatRank $script:formatVersion) -le $script:eventCatalogClosedRank) {
+		[Console]::Error.WriteLine("[ERROR] Unknown events — the platform drops them on load; the form is not written:`n" + ($lines -join "`n"))
+		exit 1
+	}
+	Write-Host ("[WARN] Unknown events — the platform drops them on load (8.5 builds may add events):`n" + ($lines -join "`n"))
 }
 
 # Владелец формы по типу основного реквизита — как в ограничениях каталога событий ("" — не определить
@@ -3687,6 +3713,7 @@ function Warn-EventsIgnored($el, [string]$xmlTag, [string]$elementName) {
 $script:platformFormatRank = @{ "8.3.20" = 213; "8.3.23" = 216; "8.3.24" = 217; "8.3.25" = 218; "8.3.26" = 219; "8.3.27" = 220; "8.5" = 221 }
 # Каталог событий полон по формат 2.20 включительно (ветка 8.3 закрыта): неизвестное событие — ошибка; выше — предупреждение
 $script:eventCatalogClosedRank = 220
+$script:unknownEvents = New-Object System.Collections.ArrayList
 
 # --- Заготовки обработчиков в модуле формы ---
 # Привязки, которые затронул запуск, собираются в $script:handlerBindings; после записи Form.xml
@@ -8937,6 +8964,7 @@ if ($script:isCompatPre8319) {
 		$formText = $formText.Substring(0, $rootEnd).Replace(' xmlns:dcssch="http://v8.1c.ru/8.1/data-composition-system/schema"', '') + $formText.Substring($rootEnd)
 	}
 }
+Report-UnknownEvents
 $enc = New-Object System.Text.UTF8Encoding($true)
 [System.IO.File]::WriteAllText($outPath, $formText, $enc)
 

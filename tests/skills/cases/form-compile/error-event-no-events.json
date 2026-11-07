@@ -41,7 +41,7 @@
     ]
   },
   "expect": {
-    "stderrContains": "Button 'Кнопка' has no events — the platform drops 'Click' on load."
+    "stderrContains": "  'Click' for Button 'Кнопка' — Button has no events. 'Click' is an event of:"
   },
   "expectError": true
 }

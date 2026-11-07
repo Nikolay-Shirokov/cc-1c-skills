@@ -943,6 +943,7 @@ const FAMILIES = [
   { name: 'get_event_rank', py: 'get_event_rank', ps1: 'Get-EventRank', variants: [{ id: 'base', authority: 'form-compile', consumers: ['form-edit'] }] },
   { name: 'get_edit_distance', py: 'get_edit_distance', ps1: 'Get-EditDistance', variants: [{ id: 'base', authority: 'form-compile', consumers: ['form-edit'] }] },
   { name: 'get_event_hint', py: 'get_event_hint', ps1: 'Get-EventHint', variants: [{ id: 'base', authority: 'form-compile', consumers: ['form-edit'] }] },
+  { name: 'report_unknown_events', py: 'report_unknown_events', ps1: 'Report-UnknownEvents', variants: [{ id: 'base', authority: 'form-compile', consumers: ['form-edit'] }] },
   { name: 'sort_event_pairs', py: 'sort_event_pairs', ps1: 'Sort-EventPairs', variants: [{ id: 'base', authority: 'form-compile', consumers: ['form-edit'] }] },
   { name: 'normalize_main_flag', py: 'normalize_main_flag', ps1: 'Normalize-MainFlag', variants: [{ id: 'base', authority: 'form-compile', consumers: ['form-edit'] }] },
   // ── Заготовки обработчиков в модуле формы ──

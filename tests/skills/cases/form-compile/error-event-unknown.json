@@ -1,5 +1,5 @@
 {
-  "name": "Событие не того вида элемента в форме 8.3 — ошибка без записи, подсказка: у каких видов такое событие есть",
+  "name": "Несколько неизвестных событий в форме 8.3 — одна ошибка без записи; строка на событие (одно событие у нескольких элементов — одной строкой) с подсказкой имени или вида элемента; перечень событий вида — один раз и только где подсказать нечего",
   "params": {
     "outputPath": "DataProcessors/Тест/Forms/Форма/Ext/Form.xml"
   },
@@ -28,6 +28,22 @@
       {
         "name": "Дата",
         "type": "date"
+      },
+      {
+        "name": "А",
+        "type": "string"
+      },
+      {
+        "name": "Б",
+        "type": "string"
+      },
+      {
+        "name": "В",
+        "type": "string"
+      },
+      {
+        "name": "Г",
+        "type": "string"
       }
     ],
     "elements": [
@@ -37,13 +53,45 @@
         "events": {
           "OnActivate": "КалендарьПриАктивизации"
         }
+      },
+      {
+        "input": "А",
+        "path": "А",
+        "events": {
+          "OnChanged": "АПриИзменении"
+        }
+      },
+      {
+        "input": "Б",
+        "path": "Б",
+        "events": {
+          "Zzzzzz": "БФу"
+        }
+      },
+      {
+        "input": "В",
+        "path": "В",
+        "events": {
+          "Zzzzzz": "ВФу"
+        }
+      },
+      {
+        "input": "Г",
+        "path": "Г",
+        "events": {
+          "Qqqqqq": "ГФу"
+        }
       }
     ]
   },
   "expect": {
     "stderrContains": [
-      "Unknown event 'OnActivate' for CalendarField 'Календарь' — the platform drops it on load.",
-      "'OnActivate' is an event of:"
+      "[ERROR] Unknown events — the platform drops them on load; the form is not written:",
+      "  'OnActivate' for CalendarField 'Календарь' — 'OnActivate' is an event of:",
+      "  'OnChanged' for InputField 'А' — Did you mean: OnChange?",
+      "  'Zzzzzz' for InputField 'Б', 'В'\n",
+      "  'Qqqqqq' for InputField 'Г'\n",
+      "  Events of InputField: AutoComplete, "
     ]
   },
   "expectError": true

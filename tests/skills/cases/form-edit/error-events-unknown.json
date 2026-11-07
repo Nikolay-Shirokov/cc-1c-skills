@@ -16,8 +16,8 @@
   },
   "expect": {
     "stderrContains": [
-      "Unknown event 'OnChanged' for InputField 'Склад'",
-      "Did you mean: OnChange"
+      "[ERROR] Unknown events",
+      "  'OnChanged' for InputField 'Склад' — Did you mean: OnChange?"
     ],
     "fileNotContains": {
       "file": "Documents/ЗаказТест/Forms/ФормаДокумента/Ext/Form.xml",

@@ -1,4 +1,4 @@
-# form-edit v1.56 — Edit 1C managed form elements (Python port)
+# form-edit v1.57 — Edit 1C managed form elements (Python port)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import bisect
@@ -951,18 +951,10 @@ def test_event_pairs(pairs, xml_tag, element_name, source=''):
     evs = EVENT_CATALOG.get(xml_tag)
     for ev, _, _ in pairs:
         ev = str(ev)
-        closed = format_rank(_format_version) <= EVENT_CATALOG_CLOSED_RANK
         entry = get_event_entry(xml_tag, ev) if evs else None
         if not entry:
-            hint = get_event_hint(xml_tag, ev)
-            if evs:
-                msg = f"Unknown event '{ev}' for {what} — the platform drops it on load. {hint + ' ' if hint else ''}Known: {', '.join(sorted(evs))}"
-            else:
-                msg = f"{what} has no events — the platform drops '{ev}' on load.{' ' + hint if hint else ''}"
-            if closed:
-                print(f"[ERROR] {msg}", file=sys.stderr)
-                sys.exit(1)
-            print(f"[WARN] {msg} (8.5 builds may add events)")
+            # сводкой перед записью формы (report_unknown_events): модель исправит все сразу
+            _unknown_events.append({'tag': xml_tag, 'name': element_name, 'ev': ev, 'noEvents': not evs})
             continue
         since = entry[3]
         if since and format_rank(_format_version) < PLATFORM_FORMAT_RANK.get(since, 0):
@@ -987,6 +979,37 @@ _FORM_OWNER_KINDS = {
     'InformationRegisterRecordSet': 'InformationRegisterRecordSet', 'ConstantsSet': 'Constants',
     'DynamicList': 'List',
 }
+
+# Сводка неизвестных событий за запуск — одним блоком перед записью формы. Формы ветки 8.3 — ошибка (форма не
+# пишется), 8.5 — предупреждение. Перечень событий вида — только если подсказать нечего, один раз на вид.
+def report_unknown_events():
+    if not _unknown_events:
+        return
+    # одно событие у нескольких элементов вида — одной строкой (одна и та же опечатка — одно исправление)
+    groups = {}
+    for u in _unknown_events:
+        g = groups.setdefault((u['tag'], u['ev']), {'u': u, 'names': []})
+        if u['name'] and u['name'] not in g['names']:
+            g['names'].append(u['name'])
+    lines, known_tags = [], []
+    for g in groups.values():
+        u = g['u']
+        where = 'the form' if u['tag'] == 'Form' else f"{u['tag']} " + ', '.join(f"'{n}'" for n in g['names'])
+        hint = get_event_hint(u['tag'], u['ev'])
+        line = f"  '{u['ev']}' for {where}"
+        if u['noEvents']:
+            line += f" — {u['tag']} has no events." + (f" {hint}" if hint else '')
+        elif hint:
+            line += f" — {hint}"
+        elif u['tag'] not in known_tags:
+            known_tags.append(u['tag'])
+        lines.append(line)
+    for t in known_tags:
+        lines.append(f"  Events of {t}: {', '.join(sorted(EVENT_CATALOG[t]))}")
+    if format_rank(_format_version) <= EVENT_CATALOG_CLOSED_RANK:
+        print('[ERROR] Unknown events — the platform drops them on load; the form is not written:\n' + '\n'.join(lines), file=sys.stderr)
+        sys.exit(1)
+    print('[WARN] Unknown events — the platform drops them on load (8.5 builds may add events):\n' + '\n'.join(lines))
 
 
 def get_form_owner_kind(type_str):
@@ -1035,6 +1058,7 @@ def warn_events_ignored(el, xml_tag, element_name):
 PLATFORM_FORMAT_RANK = {"8.3.20": 213, "8.3.23": 216, "8.3.24": 217, "8.3.25": 218, "8.3.26": 219, "8.3.27": 220, "8.5": 221}
 # Каталог событий полон по формат 2.20 включительно (ветка 8.3 закрыта): неизвестное событие — ошибка; выше — предупреждение
 EVENT_CATALOG_CLOSED_RANK = 220
+_unknown_events = []
 
 # --- Заготовки обработчиков в модуле формы ---
 # Привязки, которые затронул запуск, собираются в _handler_bindings; после записи Form.xml
@@ -10726,6 +10750,8 @@ if not is_extension:
         fail(f"callType '{_ct_node.get('callType')}' у '{_ct_node.text or ''}' — вид вызова обработчика задаётся только в форме расширения")
 
 # ── 13. Save ────────────────────────────────────────────────
+
+report_unknown_events()
 
 # Round-trip: определить стиль исходного файла (на диске он ещё не перезаписан).
 try:
