@@ -1,4 +1,4 @@
-﻿# epf-build v1.27 — Build external data processor or report (EPF/ERF) from XML sources
+﻿# epf-build v1.28 — Build external data processor or report (EPF/ERF) from XML sources
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 # NB: *nix-раскладку платформы (/opt/1cv8/<ver>/1cv8, без .exe) знает только .py-порт — PS на *nix не исполняется.
 <#
@@ -834,19 +834,13 @@ elseif ($checkList.Count -gt 0 -and $checkList -notcontains 'modules') {
     exit 1
 }
 $sourceDir = Split-Path $SourceFile -Parent
-
-# Запрос динамического списка платформа сверяет по типам настоящих таблиц: на заглушке исправная
-# форма получила бы отказ. Проверять такую форму не на чем, её сверит сборка на настоящей базе.
+# Запросный список проверочная копия проверяет запросом-константой, а без базы запрос сверить не с чем
 $objectSrcDir = Join-Path $sourceDir ([IO.Path]::GetFileNameWithoutExtension($SourceFile))
 $hasManualQueryList = $false
 if (Test-Path -LiteralPath $objectSrcDir -PathType Container) {
     foreach ($ff in (Get-ChildItem -LiteralPath $objectSrcDir -Filter "Form.xml" -Recurse -File)) {
         if ([System.IO.File]::ReadAllText($ff.FullName, [System.Text.Encoding]::UTF8).Contains('<ManualQuery>true</ManualQuery>')) { $hasManualQueryList = $true; break }
     }
-}
-if ($hasManualQueryList -and $checkList.Count -gt 0) {
-    Write-Host "[note] source check skipped: a form has a dynamic list with a manual query, it can only be verified against the real configuration" -ForegroundColor Yellow
-    $checkList = @()
 }
 
 # Выгрузка целевой конфигурации для проверки: явный -ConfigSrc, иначе configSrc базы из реестра.

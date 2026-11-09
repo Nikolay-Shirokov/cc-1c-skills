@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# stub-db-create v1.19 — Create temp 1C infobase with metadata stubs for EPF/ERF build
+# stub-db-create v1.20 — Create temp 1C infobase with metadata stubs for EPF/ERF build
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -587,15 +587,65 @@ class PathNode:
         return self.children[key]
 
 
-def scan_object_paths(source_dir):
+STD_REG_COLS = ('LineNumber', 'Period', 'Recorder', 'Active', 'RecordType')
+
+
+def config_type_keys(type_texts):
+    keys = []
+    for tx in type_texts:
+        m = re.fullmatch(r'(?:cfg:|d\dp1:)(%s)(?:Object|Ref)\.(\w+)' % FORM_PATH_KINDS, tx or '')
+        if m:
+            keys.append(f'{m.group(1)}.{m.group(2)}')
+    return keys
+
+
+def scan_own_members(source_dir):
+    """Реквизиты самой обработки/отчёта ссылочного типа: {имя объекта: {"Реквизит"|"ТЧ.Колонка": ключи}}."""
+    import xml.etree.ElementTree as ET
+    m_ns = '{http://v8.1c.ru/8.3/MDClasses}'
+    v8_ns = '{http://v8.1c.ru/8.1/data/core}'
+    result = {}
+
+    def member_keys(el):
+        return config_type_keys([t.text for t in el.findall(f'{m_ns}Properties/{m_ns}Type/{v8_ns}Type')])
+
+    for dirpath, _, filenames in os.walk(source_dir):
+        for fn in filenames:
+            if not fn.lower().endswith('.xml') or fn == 'Form.xml':
+                continue
+            try:
+                with open(os.path.join(dirpath, fn), 'r', encoding='utf-8-sig') as fh:
+                    content = fh.read()
+                if not re.search(r'<(ExternalDataProcessor|ExternalReport)[ >]', content):
+                    continue
+                own = list(ET.fromstring(content))[0]
+            except Exception:
+                continue
+            members = {}
+            for a in own.findall(f'{m_ns}ChildObjects/{m_ns}Attribute'):
+                keys = member_keys(a)
+                if keys:
+                    members[a.findtext(f'{m_ns}Properties/{m_ns}Name')] = keys
+            for ts_el in own.findall(f'{m_ns}ChildObjects/{m_ns}TabularSection'):
+                ts_name = ts_el.findtext(f'{m_ns}Properties/{m_ns}Name')
+                for a in ts_el.findall(f'{m_ns}ChildObjects/{m_ns}Attribute'):
+                    keys = member_keys(a)
+                    if keys:
+                        members[f"{ts_name}.{a.findtext(f'{m_ns}Properties/{m_ns}Name')}"] = keys
+            result[own.findtext(f'{m_ns}Properties/{m_ns}Name')] = members
+    return result
+
+
+def scan_object_paths(source_dir, type_map, register_columns):
     """Реквизиты объектов, на которые ссылаются пути формы: платформа сверяет DataPath с метаданными.
     Возвращает {"Вид.Имя": PathNode}."""
     import xml.etree.ElementTree as ET
     f_ns = '{http://v8.1c.ru/8.3/xcf/logform}'
     v8_ns = '{http://v8.1c.ru/8.1/data/core}'
-    type_re = re.compile(r'(?:cfg:|d\dp1:)(%s)(?:Object|Ref)\.(\w+)' % FORM_PATH_KINDS)
-    table_re = re.compile(r'(%s)\.(\w+)' % FORM_PATH_KINDS)
     path_re = re.compile(r'<(?:\w+:)?\w*DataPath>([^<]+)<')
+    table_re = re.compile(r'(%s)\.(\w+)' % FORM_PATH_KINDS)
+    register_re = re.compile(r'(InformationRegister|AccumulationRegister|AccountingRegister|CalculationRegister)\.(\w+)')
+    own_members = scan_own_members(source_dir)
     object_paths = {}
 
     for dirpath, _, filenames in os.walk(source_dir):
@@ -611,50 +661,109 @@ def scan_object_paths(source_dir):
             except Exception:
                 continue
 
+            # Начало пути (без учёта регистра) -> куда ведёт: объект или регистр
             roots = {}
+
+            def add_root(prefix, key, register=False):
+                roots.setdefault(prefix.casefold(), []).append({'key': key, 'register': register})
+
             attrs_node = root.find(f'{f_ns}Attributes')
             for attr_node in (attrs_node if attrs_node is not None else []):
                 if attr_node.tag != f'{f_ns}Attribute':
                     continue
-                keys = []
-                for tn in attr_node.findall(f'{f_ns}Type/{v8_ns}Type'):
-                    m = type_re.fullmatch(tn.text or '')
-                    if m:
-                        keys.append(f'{m.group(1)}.{m.group(2)}')
+                attr_name = attr_node.get('name', '')
+                type_texts = [t.text for t in attr_node.findall(f'{f_ns}Type/{v8_ns}Type')]
+                for k in config_type_keys(type_texts):
+                    add_root(attr_name, k)
+                for tx in type_texts:
+                    m = re.search(r'(?:External)?(?:DataProcessor|Report)Object\.(\w+)$', tx or '')
+                    if m and m.group(1) in own_members:
+                        for mn, keys in own_members[m.group(1)].items():
+                            for k in keys:
+                                add_root(f'{attr_name}.{mn}', k)
+                for col in attr_node.findall(f'{f_ns}Columns/{f_ns}Column'):
+                    for k in config_type_keys([t.text for t in col.findall(f'{f_ns}Type/{v8_ns}Type')]):
+                        add_root(f"{attr_name}.{col.get('name', '')}", k)
                 # Основная таблица динамического списка должна существовать, поля списка — её реквизиты
                 mt = attr_node.find(f'{f_ns}Settings/{f_ns}MainTable')
                 if mt is not None:
                     m = table_re.fullmatch(mt.text or '')
+                    rm = register_re.fullmatch(mt.text or '')
                     if m:
-                        keys.append(f'{m.group(1)}.{m.group(2)}')
-                if keys:
-                    roots[attr_node.get('name', '')] = keys
-                    for k in keys:
-                        object_paths.setdefault(k, PathNode())
+                        k = f'{m.group(1)}.{m.group(2)}'
+                        add_root(attr_name, k)
+                    elif rm:
+                        k = f'{rm.group(1)}.{rm.group(2)}'
+                        type_map.setdefault(rm.group(1), {})[rm.group(2)] = True
+                        register_columns.setdefault(k, {})
+                        add_root(attr_name, k, True)
             if not roots:
                 continue
+            for entries in roots.values():
+                for e in entries:
+                    if not e['register']:
+                        object_paths.setdefault(e['key'], PathNode())
 
             for m in path_re.finditer(content):
                 segs = m.group(1).replace('~', '').split('.')
-                if len(segs) < 2 or segs[0] not in roots:
-                    continue
                 if any(not re.fullmatch(r'\w+', s) for s in segs):
                     continue
-                for k in roots[segs[0]]:
-                    n = object_paths[k]
-                    for s in segs[1:]:
-                        n = n.child(s)
+                # Самое длинное начало пути: остаток — реквизиты того объекта, куда оно ведёт
+                for n in range(min(len(segs) - 1, 3), 0, -1):
+                    prefix = '.'.join(segs[:n]).casefold()
+                    if prefix not in roots:
+                        continue
+                    for e in roots[prefix]:
+                        if e['register']:
+                            if segs[n] not in STD_REG_COLS:
+                                register_columns[e['key']][segs[n]] = True
+                            continue
+                        node = object_paths[e['key']]
+                        for s in segs[n:]:
+                            node = node.child(s)
+                    break
             # Таблица на <корень>.<имя> — табличная часть; иная вложенность — реквизит-ссылка
             for table in root.iter(f'{f_ns}Table'):
                 dp = table.find(f'{f_ns}DataPath')
                 if dp is None:
                     continue
                 segs = (dp.text or '').replace('~', '').split('.')
-                if len(segs) != 2 or segs[0] not in roots:
+                if len(segs) < 2:
                     continue
-                for k in roots[segs[0]]:
-                    object_paths[k].child(segs[1]).is_tabular = True
+                for e in roots.get('.'.join(segs[:-1]).casefold(), []):
+                    if not e['register']:
+                        object_paths[e['key']].child(segs[-1]).is_tabular = True
     return object_paths
+
+
+def merge_path_tree(target, source):
+    if source.is_tabular:
+        target.is_tabular = True
+    for low, node in source.children.items():
+        merge_path_tree(target.child(source.names[low]), node)
+
+
+def convert_manual_query_lists(text):
+    """Запрос динамического списка платформа сверяет по типам настоящих таблиц, и на заглушке исправная
+    форма получила бы отказ. В проверочной копии запрос заменяется запросом-константой с теми же
+    колонками: модули проверяются как обычно, а сам запрос сверит сборка на настоящей базе."""
+    head_re = r'<Attribute name="([^"]+)"(?:(?!</Attribute>).)*?<ManualQuery>true</ManualQuery>'
+    # Ключ строки у запроса-константы — номер, и стандартной картинки у списка нет
+    for m in list(re.finditer(head_re, text, re.S)):
+        text = re.sub(r'\s*<RowPictureDataPath>~?' + re.escape(m.group(1)) + r'\.DefaultPicture</RowPictureDataPath>', '', text)
+    source = text
+
+    def convert(m):
+        columns = {}
+        for p in re.finditer(r'<(?:\w+:)?\w*DataPath>~?' + re.escape(m.group(1)) + r'\.(\w+)', source):
+            if p.group(1) != 'DefaultPicture':
+                columns[p.group(1)] = True
+        fields = ', '.join('&quot;&quot; \u041a\u0410\u041a ' + c for c in columns) or '&quot;&quot; \u041a\u0410\u041a \u041f\u043e\u043b\u0435'
+        block = re.sub(r'<QueryText>.*?</QueryText>|<QueryText/>', lambda _: '<QueryText>\u0412\u042b\u0411\u0420\u0410\u0422\u042c ' + fields + '</QueryText>', m.group(0), flags=re.S)
+        block = re.sub(r'\s*<MainTable>.*?</MainTable>|\s*<KeyFields>.*?</KeyFields>|\s*<KeyType>.*?</KeyType>', '', block, flags=re.S)
+        return block.replace('</QueryText>', '</QueryText><KeyType>RowNumber</KeyType>')
+
+    return re.sub(head_re + r'(?:(?!</Attribute>).)*?</Attribute>', convert, text, flags=re.S)
 
 
 def stub_catalog_name(seed):
@@ -685,27 +794,36 @@ def resolve_object_children(object_paths, type_map):
             if a in STD_ATTR_RU:
                 std.add(STD_ATTR_RU[a].casefold())
         std.update(a.casefold() for a in STD_TABULAR_BY_TYPE.get(kind, []))
+        if kind == 'ChartOfCharacteristicTypes':
+            std.update(('isfolder', '\u044d\u0442\u043e\u0433\u0440\u0443\u043f\u043f\u0430'))
+
+        # Родитель и ссылка — тот же объект: их реквизиты принадлежат ему
+        merged = True
+        while merged:
+            merged = False
+            for self_name in ('parent', '\u0440\u043e\u0434\u0438\u0442\u0435\u043b\u044c', 'ref', '\u0441\u0441\u044b\u043b\u043a\u0430'):
+                if self_name in std and self_name in tree.children and tree.children[self_name].children:
+                    sub = tree.children[self_name]
+                    tree.children[self_name] = PathNode()
+                    merge_path_tree(tree, sub)
+                    merged = True
 
         info = result.setdefault(key, {'attrs': {}, 'tabular': {}, 'hierarchical': False, 'owner': None})
         for low, node in tree.children.items():
             name = tree.names[low]
             if low in std:
-                is_parent = low in ('parent', '\u0440\u043e\u0434\u0438\u0442\u0435\u043b\u044c')
-                if is_parent:
+                if low in ('parent', '\u0440\u043e\u0434\u0438\u0442\u0435\u043b\u044c', 'isfolder', '\u044d\u0442\u043e\u0433\u0440\u0443\u043f\u043f\u0430'):
                     info['hierarchical'] = True
                 if low in ('owner', '\u0432\u043b\u0430\u0434\u0435\u043b\u0435\u0446') and kind == 'Catalog':
                     if not info['owner']:
                         info['owner'] = stub_catalog_name(f'{key}.Owner')
                         add_catalog(info['owner'])
                     add_children(f"Catalog.{info['owner']}", node)
-                # Родитель и ссылка — тот же объект: их реквизиты принадлежат ему
-                if is_parent or low in ('ref', '\u0441\u0441\u044b\u043b\u043a\u0430'):
-                    add_children(key, node)
                 continue
             if node.is_tabular:
                 columns = info['tabular'].setdefault(low, (name, {}))[1]
                 for col_low, col in node.children.items():
-                    if col_low in ('linenumber', '\u043d\u043e\u043c\u0435\u0440\u0441\u0442\u0440\u043e\u043a\u0438'):
+                    if col_low in ('linenumber', '\u043d\u043e\u043c\u0435\u0440\u0441\u0442\u0440\u043e\u043a\u0438', 'ref', '\u0441\u0441\u044b\u043b\u043a\u0430'):
                         continue
                     col_name = node.names[col_low]
                     columns[col_low] = (col_name, member_type(f'{key}.{name}', col_name, col))
@@ -1448,6 +1566,8 @@ def add_source_object_to_config(source_xml, cfg_dir):
                         t = fh.read()
                     t = reissue(t)
                     t = retag_refs(t, ext_tag, cfg_tag)
+                    if os.path.basename(dst) == 'Form.xml':
+                        t = convert_manual_query_lists(t)
                     write_bom(dst, t)
                 else:
                     shutil.copyfile(full, dst)
@@ -1579,7 +1699,7 @@ def main():
 
     type_map = scan_ref_types(args.SourceDir)
     register_columns = scan_register_columns(args.SourceDir)
-    object_children = resolve_object_children(scan_object_paths(args.SourceDir), type_map)
+    object_children = resolve_object_children(scan_object_paths(args.SourceDir, type_map, register_columns), type_map)
     # Бизнес-процесс без задачи платформа не загружает
     if type_map.get('BusinessProcess'):
         type_map.setdefault('Task', {})[STUB_TASK_NAME] = True

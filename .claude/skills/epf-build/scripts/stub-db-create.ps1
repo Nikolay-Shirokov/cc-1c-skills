@@ -1,4 +1,4 @@
-﻿# stub-db-create v1.19 — Create temp 1C infobase with metadata stubs for EPF/ERF build
+﻿# stub-db-create v1.20 — Create temp 1C infobase with metadata stubs for EPF/ERF build
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -411,6 +411,42 @@ function Get-PathNode($node, [string]$name) {
 	return $node[$name]
 }
 
+function Get-ConfigTypeKeys($TypeTexts) {
+	$keys = @()
+	foreach ($tx in $TypeTexts) {
+		$tm = [regex]::Match([string]$tx, "^(?:cfg:|d\dp1:)($formPathKinds)(?:Object|Ref)\.(\w+)$")
+		if ($tm.Success) { $keys += "$($tm.Groups[1].Value).$($tm.Groups[2].Value)" }
+	}
+	return ,$keys
+}
+
+# Реквизиты самой обработки/отчёта: путь Объект.Контрагент.ИНН идёт через её реквизит ссылочного типа
+$ownMembers = @{}   # имя объекта -> @{ "Реквизит" | "ТЧ.Колонка" -> ключи объектов }
+foreach ($f in $xmlFiles) {
+	if ($f.Name -eq "Form.xml") { continue }
+	$content = [System.IO.File]::ReadAllText($f.FullName, [System.Text.Encoding]::UTF8)
+	if ($content -notmatch '<(ExternalDataProcessor|ExternalReport)[ >]') { continue }
+	try { $xml = New-Object System.Xml.XmlDocument; $xml.LoadXml($content) } catch { continue }
+	$nsMgr = New-Object System.Xml.XmlNamespaceManager($xml.NameTable)
+	$nsMgr.AddNamespace("m", "http://v8.1c.ru/8.3/MDClasses")
+	$nsMgr.AddNamespace("v8", "http://v8.1c.ru/8.1/data/core")
+	$own = $xml.SelectSingleNode("/m:MetaDataObject/*", $nsMgr)
+	if (-not $own) { continue }
+	$members = @{}
+	foreach ($a in $own.SelectNodes("m:ChildObjects/m:Attribute", $nsMgr)) {
+		$keys = Get-ConfigTypeKeys @($a.SelectNodes("m:Properties/m:Type/v8:Type", $nsMgr) | ForEach-Object { $_.InnerText })
+		if ($keys.Count -gt 0) { $members[$a.SelectSingleNode("m:Properties/m:Name", $nsMgr).InnerText] = $keys }
+	}
+	foreach ($ts in $own.SelectNodes("m:ChildObjects/m:TabularSection", $nsMgr)) {
+		$tsName = $ts.SelectSingleNode("m:Properties/m:Name", $nsMgr).InnerText
+		foreach ($a in $ts.SelectNodes("m:ChildObjects/m:Attribute", $nsMgr)) {
+			$keys = Get-ConfigTypeKeys @($a.SelectNodes("m:Properties/m:Type/v8:Type", $nsMgr) | ForEach-Object { $_.InnerText })
+			if ($keys.Count -gt 0) { $members["$tsName.$($a.SelectSingleNode('m:Properties/m:Name', $nsMgr).InnerText)"] = $keys }
+		}
+	}
+	$ownMembers[$own.SelectSingleNode("m:Properties/m:Name", $nsMgr).InnerText] = $members
+}
+
 foreach ($f in $xmlFiles) {
 	if ($f.Name -ne "Form.xml") { continue }
 	$content = [System.IO.File]::ReadAllText($f.FullName, [System.Text.Encoding]::UTF8)
@@ -423,41 +459,76 @@ foreach ($f in $xmlFiles) {
 	$nsMgr.AddNamespace("v8", "http://v8.1c.ru/8.1/data/core")
 	$nsMgr.AddNamespace("f", "http://v8.1c.ru/8.3/xcf/logform")
 
-	$roots = @{}   # реквизит формы -> ключи объектов (составной тип даёт несколько)
+	# Начало пути ("Реквизит", "Объект.Контрагент", "Таблица.Колонка") -> куда ведёт: объект,
+	# или регистр
+	$roots = @{}
+	$addRoot = {
+		param([string]$Prefix, [string]$Key, [bool]$IsRegister)
+		if (-not $roots.ContainsKey($Prefix)) { $roots[$Prefix] = @() }
+		$roots[$Prefix] += @{ key = $Key; register = $IsRegister }
+	}
 	foreach ($attrNode in $xml.SelectNodes("//f:Attributes/f:Attribute", $nsMgr)) {
 		$attrName = $attrNode.GetAttribute("name")
-		$keys = @()
-		foreach ($tn in $attrNode.SelectNodes("f:Type/v8:Type", $nsMgr)) {
-			$tm = [regex]::Match($tn.InnerText, "^(?:cfg:|d\dp1:)($formPathKinds)(?:Object|Ref)\.(\w+)$")
-			if ($tm.Success) { $keys += "$($tm.Groups[1].Value).$($tm.Groups[2].Value)" }
+		$typeTexts = @($attrNode.SelectNodes("f:Type/v8:Type", $nsMgr) | ForEach-Object { $_.InnerText })
+		foreach ($k in (Get-ConfigTypeKeys $typeTexts)) { & $addRoot $attrName $k $false }
+		foreach ($tx in $typeTexts) {
+			$tm = [regex]::Match($tx, '(?:External)?(?:DataProcessor|Report)Object\.(\w+)$')
+			if ($tm.Success -and $ownMembers.ContainsKey($tm.Groups[1].Value)) {
+				$members = $ownMembers[$tm.Groups[1].Value]
+				foreach ($mn in $members.Keys) { foreach ($k in $members[$mn]) { & $addRoot "$attrName.$mn" $k $false } }
+			}
+		}
+		foreach ($col in $attrNode.SelectNodes("f:Columns/f:Column", $nsMgr)) {
+			$colTypes = @($col.SelectNodes("f:Type/v8:Type", $nsMgr) | ForEach-Object { $_.InnerText })
+			foreach ($k in (Get-ConfigTypeKeys $colTypes)) { & $addRoot "$attrName.$($col.GetAttribute('name'))" $k $false }
 		}
 		# Основная таблица динамического списка должна существовать, поля списка — её реквизиты
 		$mt = $attrNode.SelectSingleNode("f:Settings/f:MainTable", $nsMgr)
 		if ($mt) {
 			$tm = [regex]::Match($mt.InnerText, "^($formPathKinds)\.(\w+)$")
-			if ($tm.Success) { $keys += "$($tm.Groups[1].Value).$($tm.Groups[2].Value)" }
-		}
-		if ($keys.Count -gt 0) {
-			$roots[$attrName] = $keys
-			foreach ($k in $keys) { if (-not $objectPaths.Contains($k)) { $objectPaths[$k] = [ordered]@{} } }
+			$rm = [regex]::Match($mt.InnerText, '^(InformationRegister|AccumulationRegister|AccountingRegister|CalculationRegister)\.(\w+)$')
+			if ($tm.Success) {
+				$k = "$($tm.Groups[1].Value).$($tm.Groups[2].Value)"
+				& $addRoot $attrName $k $false
+			} elseif ($rm.Success) {
+				$k = "$($rm.Groups[1].Value).$($rm.Groups[2].Value)"
+				if (-not $typeMap.ContainsKey($rm.Groups[1].Value)) { $typeMap[$rm.Groups[1].Value] = @{} }
+				$typeMap[$rm.Groups[1].Value][$rm.Groups[2].Value] = $true
+				if (-not $registerColumns.ContainsKey($k)) { $registerColumns[$k] = @{} }
+				& $addRoot $attrName $k $true
+			}
 		}
 	}
 	if ($roots.Count -eq 0) { continue }
+	foreach ($p in $roots.Keys) { foreach ($e in $roots[$p]) { if (-not $e.register -and -not $objectPaths.Contains($e.key)) { $objectPaths[$e.key] = [ordered]@{} } } }
 
 	foreach ($m in [regex]::Matches($content, '<(?:\w+:)?\w*DataPath>([^<]+)<')) {
 		$segs = @($m.Groups[1].Value.Replace('~', '').Split('.'))
-		if ($segs.Count -lt 2 -or -not $roots.ContainsKey($segs[0])) { continue }
 		if (@($segs | Where-Object { $_ -notmatch '^\w+$' }).Count -gt 0) { continue }
-		foreach ($k in $roots[$segs[0]]) {
-			$n = $objectPaths[$k]
-			foreach ($s in $segs[1..($segs.Count - 1)]) { $n = Get-PathNode $n $s }
+		# Самое длинное начало пути: остаток — реквизиты того объекта, куда оно ведёт
+		for ($n = [Math]::Min($segs.Count - 1, 3); $n -ge 1; $n--) {
+			$prefix = $segs[0..($n - 1)] -join '.'
+			if (-not $roots.ContainsKey($prefix)) { continue }
+			foreach ($e in $roots[$prefix]) {
+				if ($e.register) {
+					if ($segs[$n] -notin $stdRegCols) { $registerColumns[$e.key][$segs[$n]] = $true }
+					continue
+				}
+				$node = $objectPaths[$e.key]
+				foreach ($s in $segs[$n..($segs.Count - 1)]) { $node = Get-PathNode $node $s }
+			}
+			break
 		}
 	}
 	# Таблица на <корень>.<имя> — табличная часть; иная вложенность — реквизит-ссылка
 	foreach ($tb in $xml.SelectNodes("//f:Table/f:DataPath", $nsMgr)) {
 		$segs = @($tb.InnerText.Replace('~', '').Split('.'))
-		if ($segs.Count -ne 2 -or -not $roots.ContainsKey($segs[0])) { continue }
-		foreach ($k in $roots[$segs[0]]) { (Get-PathNode $objectPaths[$k] $segs[1])[$tsMark] = $true }
+		if ($segs.Count -lt 2) { continue }
+		$prefix = $segs[0..($segs.Count - 2)] -join '.'
+		if (-not $roots.ContainsKey($prefix)) { continue }
+		foreach ($e in $roots[$prefix]) {
+			if (-not $e.register) { (Get-PathNode $objectPaths[$e.key] $segs[-1])[$tsMark] = $true }
+		}
 	}
 }
 
@@ -500,6 +571,20 @@ function Add-ObjectChildren([string]$Key, $Tree) {
 	}
 	foreach ($a in @($stdTabularByType[$kind])) { if ($a) { [void]$std.Add($a) } }
 	[void]$std.Add('DefaultPicture')
+	if ($kind -eq 'ChartOfCharacteristicTypes') { [void]$std.Add('IsFolder'); [void]$std.Add('ЭтоГруппа') }
+
+	# Родитель и ссылка — тот же объект: их реквизиты принадлежат ему
+	do {
+		$merged = $false
+		foreach ($selfName in @('Parent', 'Родитель', 'Ref', 'Ссылка')) {
+			if ($std.Contains($selfName) -and $Tree.Contains($selfName) -and @($Tree[$selfName].Keys).Count -gt 0) {
+				$sub = $Tree[$selfName]
+				$Tree[$selfName] = [ordered]@{}
+				Merge-PathTree $Tree $sub
+				$merged = $true
+			}
+		}
+	} while ($merged)
 
 	if (-not $objectChildren.ContainsKey($Key)) {
 		$objectChildren[$Key] = @{ attrs = [ordered]@{}; tabular = [ordered]@{}; hierarchical = $false; owner = $null }
@@ -509,8 +594,7 @@ function Add-ObjectChildren([string]$Key, $Tree) {
 		if ($name -eq $tsMark) { continue }
 		$node = $Tree[$name]
 		if ($std.Contains($name)) {
-			$isParent = $name -in @('Parent', 'Родитель')
-			if ($isParent) { $info.hierarchical = $true }
+			if ($name -in @('Parent', 'Родитель', 'IsFolder', 'ЭтоГруппа')) { $info.hierarchical = $true }
 			if ($name -in @('Owner', 'Владелец') -and $kind -eq 'Catalog') {
 				if (-not $info.owner) {
 					$info.owner = Get-StubCatalogName "$Key.Owner"
@@ -518,14 +602,12 @@ function Add-ObjectChildren([string]$Key, $Tree) {
 				}
 				Add-ObjectChildren "Catalog.$($info.owner)" $node
 			}
-			# Родитель и ссылка — тот же объект: их реквизиты принадлежат ему
-			if ($isParent -or $name -in @('Ref', 'Ссылка')) { Add-ObjectChildren $Key $node }
 			continue
 		}
 		if ($node.Contains($tsMark)) {
 			if (-not $info.tabular.Contains($name)) { $info.tabular[$name] = [ordered]@{} }
 			foreach ($col in @($node.Keys)) {
-				if ($col -eq $tsMark -or $col -in @('LineNumber', 'НомерСтроки')) { continue }
+				if ($col -eq $tsMark -or $col -in @('LineNumber', 'НомерСтроки', 'Ref', 'Ссылка')) { continue }
 				$info.tabular[$name][$col] = Resolve-MemberType "$Key.$name" $col $node[$col]
 			}
 		} else {
@@ -650,6 +732,28 @@ function Convert-RefTags {
 	return [regex]::Replace($Text, "(?<![\w.])$ExtTag(Object)?\.", ($CfgTag + '$1.'))
 }
 
+# Запрос динамического списка платформа сверяет по типам настоящих таблиц, и на заглушке исправная
+# форма получила бы отказ. В проверочной копии запрос заменяется запросом-константой с теми же
+# колонками: модули проверяются как обычно, а сам запрос сверит сборка на настоящей базе.
+function Convert-ManualQueryLists([string]$Text) {
+	# Ключ строки у запроса-константы — номер, и стандартной картинки у списка нет
+	foreach ($m in [regex]::Matches($Text, '(?s)<Attribute name="([^"]+)"(?:(?!</Attribute>).)*?<ManualQuery>true</ManualQuery>')) {
+		$Text = [regex]::Replace($Text, "\s*<RowPictureDataPath>~?$([regex]::Escape($m.Groups[1].Value))\.DefaultPicture</RowPictureDataPath>", '')
+	}
+	return [regex]::Replace($Text, '(?s)<Attribute name="([^"]+)"(?:(?!</Attribute>).)*?<ManualQuery>true</ManualQuery>(?:(?!</Attribute>).)*?</Attribute>', {
+		param($m)
+		$attr = [regex]::Escape($m.Groups[1].Value)
+		$columns = [ordered]@{}
+		foreach ($p in [regex]::Matches($Text, "<(?:\w+:)?\w*DataPath>~?$attr\.(\w+)")) {
+			if ($p.Groups[1].Value -ne 'DefaultPicture') { $columns[$p.Groups[1].Value] = $true }
+		}
+		$fields = if ($columns.Count -gt 0) { @($columns.Keys | ForEach-Object { "&quot;&quot; КАК $_" }) -join ', ' } else { '&quot;&quot; КАК Поле' }
+		$block = [regex]::Replace($m.Value, '(?s)<QueryText>.*?</QueryText>|<QueryText/>', "<QueryText>ВЫБРАТЬ $fields</QueryText>")
+		$block = [regex]::Replace($block, '(?s)\s*<MainTable>.*?</MainTable>|\s*<KeyFields>.*?</KeyFields>|\s*<KeyType>.*?</KeyType>', '')
+		return $block.Replace('</QueryText>', '</QueryText><KeyType>RowNumber</KeyType>')
+	})
+}
+
 function Add-SourceObjectToConfig {
 	param([string]$SourceXml, [string]$CfgDir)
 
@@ -718,6 +822,7 @@ function Add-SourceObjectToConfig {
 				$t = [IO.File]::ReadAllText($f.FullName, [Text.Encoding]::UTF8)
 				$t = $reGuid.Replace($t, $reissue)
 				$t = Convert-RefTags $t $extTag $cfgTag
+				if ($f.Name -eq 'Form.xml') { $t = Convert-ManualQueryLists $t }
 				[IO.File]::WriteAllText($dst, $t, $encBom)
 			} else {
 				Copy-Item -Path $f.FullName -Destination $dst -Force

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# epf-build v1.27 — Build external data processor or report (EPF/ERF) from XML sources
+# epf-build v1.28 — Build external data processor or report (EPF/ERF) from XML sources
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -808,9 +808,7 @@ def main():
         print('Error: -Context задан, но в -Checks нет modules — контексты относятся только к ней')
         sys.exit(1)
     source_dir = os.path.dirname(os.path.abspath(args.SourceFile))
-
-    # Запрос динамического списка платформа сверяет по типам настоящих таблиц: на заглушке исправная
-    # форма получила бы отказ. Проверять такую форму не на чем, её сверит сборка на настоящей базе.
+    # Запросный список проверочная копия проверяет запросом-константой, а без базы запрос сверить не с чем
     object_src_dir = os.path.join(source_dir, os.path.splitext(os.path.basename(args.SourceFile))[0])
     has_manual_query_list = False
     for dirpath, _, filenames in os.walk(object_src_dir):
@@ -819,9 +817,6 @@ def main():
                 if '<ManualQuery>true</ManualQuery>' in fh.read():
                     has_manual_query_list = True
                     break
-    if has_manual_query_list and check_list:
-        print('[note] source check skipped: a form has a dynamic list with a manual query, it can only be verified against the real configuration')
-        check_list = []
     check_config_src = resolve_config_src(args) if check_list else None
 
     def new_stub_base(base_path, embed):

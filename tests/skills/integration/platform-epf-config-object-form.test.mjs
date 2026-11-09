@@ -61,4 +61,41 @@ export const steps = [
   } }], [
     { table: 'Список', path: 'Список', columns: [field('Список.Ссылка'), field('Список.Артикул')] },
   ]),
+  // Основная таблица списка — регистр
+  ...buildForm('СписокРегистр', [{ name: 'Список', type: 'DynamicList', main: true, settings: { mainTable: 'InformationRegister.Цены' } }], [
+    { table: 'Список', path: 'Список', columns: [field('Список.Цена')] },
+  ]),
+  // Глубокий путь через реквизит самой обработки и колонку таблицы значений; реквизиты родителя и ссылки
+  { name: 'epf-init: СвойРеквизит', script: 'epf-init/scripts/init', args: { '-Name': 'СвойРеквизит', '-SrcDir': '{workDir}/СвойРеквизит' } },
+  {
+    name: 'meta-edit: реквизит-ссылка',
+    script: 'meta-edit/scripts/meta-edit',
+    args: { '-ObjectPath': '{workDir}/СвойРеквизит/СвойРеквизит.xml', '-Operation': 'add-attribute', '-Value': 'Контрагент: CatalogRef.Контрагенты' },
+  },
+  { name: 'form-add: СвойРеквизит', script: 'form-add/scripts/form-add', args: { '-ObjectPath': '{workDir}/СвойРеквизит/СвойРеквизит.xml', '-FormName': 'Форма' } },
+  {
+    name: 'form-compile: СвойРеквизит',
+    script: 'form-compile/scripts/form-compile',
+    input: {
+      title: 'СвойРеквизит',
+      attributes: [
+        main('ExternalDataProcessorObject.СвойРеквизит'),
+        { name: 'Таблица', type: 'ValueTable', columns: [{ name: 'Банк', type: 'CatalogRef.Банки' }] },
+        { name: 'Спр', type: 'CatalogRef.Банки' },
+      ],
+      elements: [
+        field('Объект.Контрагент.ИНН'),
+        field('Объект.Контрагент.Parent.Адрес'),
+        field('Объект.Контрагент.IsFolder'),
+        field('Спр.Ref.БИК'),
+        { table: 'Таблица', path: 'Таблица', columns: [field('Таблица.Банк.БИК')] },
+      ],
+    },
+    args: { '-JsonPath': '{inputFile}', '-OutputPath': '{workDir}/СвойРеквизит/СвойРеквизит/Forms/Форма/Ext/Form.xml' },
+  },
+  {
+    name: 'epf-build: СвойРеквизит',
+    script: 'epf-build/scripts/epf-build',
+    args: { '-V8Path': '{v8path}', '-SourceFile': '{workDir}/СвойРеквизит/СвойРеквизит.xml', '-OutputFile': '{workDir}/СвойРеквизит.epf' },
+  },
 ];

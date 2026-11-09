@@ -1,13 +1,9 @@
 {
-  "name": "Форма с запросным динамическим списком: проверка пропускается (fake platform)",
+  "name": "Форма с запросным динамическим списком проверяется (fake platform)",
   "osOnly": "win32",
   "fakePlatform": {
     "exit": 0,
-    "log": "",
-    "check": {
-      "exit": 101,
-      "log": "Не должно быть вызвано\n"
-    }
+    "log": ""
   },
   "preRun": [
     {
@@ -70,11 +66,10 @@
   ],
   "expect": {
     "stdoutContains": [
-      "source check skipped: a form has a dynamic list with a manual query",
-      "/LoadExternalDataProcessorOrReportFromFiles"
+      "/CheckConfig"
     ],
     "stdoutNotContains": [
-      "/CheckConfig"
+      "source check skipped"
     ]
   },
   "expectError": true,
