@@ -1,4 +1,4 @@
-﻿# stub-db-create v1.18 — Create temp 1C infobase with metadata stubs for EPF/ERF build
+﻿# stub-db-create v1.19 — Create temp 1C infobase with metadata stubs for EPF/ERF build
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -370,6 +370,185 @@ foreach ($f in $xmlFiles) {
 	}
 }
 
+$stdAttrsByType = @{
+	"Catalog" = @("PredefinedDataName","Predefined","Ref","DeletionMark","IsFolder","Owner","Parent","Description","Code")
+	"Document" = @("Posted","Ref","DeletionMark","Date","Number")
+	"Enum" = @("Order","Ref")
+	"ChartOfAccounts" = @("PredefinedDataName","Predefined","Ref","DeletionMark","Description","Code","Parent","Order","Type","OffBalance")
+	"ChartOfCharacteristicTypes" = @("PredefinedDataName","Predefined","Ref","DeletionMark","Description","Code","Parent","ValueType")
+	"ChartOfCalculationTypes" = @("PredefinedDataName","Predefined","Ref","DeletionMark","Description","Code","ActionPeriodIsBasic")
+	"ExchangePlan" = @("Ref","DeletionMark","Code","Description","ThisNode","SentNo","ReceivedNo")
+	"BusinessProcess" = @("Ref","DeletionMark","Date","Number","Started","Completed","HeadTask")
+	"Task" = @("Ref","DeletionMark","Date","Number","Executed","Description","RoutePoint","BusinessProcess")
+	"InformationRegister" = @("Active","LineNumber","Recorder","Period")
+	"AccumulationRegister" = @("Active","LineNumber","Recorder","Period")
+	"AccountingRegister" = @("Active","Period","Recorder","LineNumber","Account")
+	"CalculationRegister" = @("Active","Recorder","LineNumber","RegistrationPeriod","CalculationType","ReversingEntry")
+}
+$stdAttrRu = @{
+	Ref='Ссылка'; DeletionMark='ПометкаУдаления'; Code='Код'; Description='Наименование'; IsFolder='ЭтоГруппа'
+	Predefined='Предопределенный'; PredefinedDataName='ИмяПредопределенныхДанных'; Parent='Родитель'; Owner='Владелец'
+	Number='Номер'; Date='Дата'; Posted='Проведен'; Order='Порядок'; Type='Вид'; OffBalance='Забалансовый'
+	ValueType='ТипЗначения'; ThisNode='ЭтотУзел'; SentNo='НомерОтправленного'; ReceivedNo='НомерПринятого'
+	Started='Стартован'; Completed='Завершен'; HeadTask='ВедущаяЗадача'; Executed='Выполнена'; RoutePoint='ТочкаМаршрута'
+	BusinessProcess='БизнесПроцесс'; ActionPeriodIsBasic='ПериодДействияБазовый'
+}
+$stdTabularByType = @{
+	ChartOfAccounts = @('ExtDimensionTypes','ВидыСубконто')
+	ChartOfCalculationTypes = @('BaseCalculationTypes','LeadingCalculationTypes','DisplacingCalculationTypes','БазовыеВидыРасчета','ВедущиеВидыРасчета','ВытесняющиеВидыРасчета')
+}
+
+# --- 1b2. Реквизиты объектов, на которые ссылаются пути формы ---
+# Платформа сверяет DataPath формы с метаданными, поэтому заглушке нужны реквизиты, к которым
+# форма обращается. Настоящие типы не нужны (замер 8.3.24): листу подходит строка при любом виде
+# поля. Промежуточному звену пути строка не подходит, ему нужен ссылочный тип — на справочник-пустышку.
+$formPathKinds = 'Catalog|Document|ChartOfAccounts|ChartOfCharacteristicTypes|ChartOfCalculationTypes|ExchangePlan|BusinessProcess|Task'
+$tsMark = '*ts'   # метка узла-табличной части: в имени реквизита такого символа быть не может
+$objectPaths = [ordered]@{}   # "Вид.Имя" -> дерево путей
+
+function Get-PathNode($node, [string]$name) {
+	if (-not $node.Contains($name)) { $node[$name] = [ordered]@{} }
+	return $node[$name]
+}
+
+foreach ($f in $xmlFiles) {
+	if ($f.Name -ne "Form.xml") { continue }
+	$content = [System.IO.File]::ReadAllText($f.FullName, [System.Text.Encoding]::UTF8)
+	if ($content -notmatch '<Attributes>') { continue }
+	try {
+		$xml = New-Object System.Xml.XmlDocument
+		$xml.LoadXml($content)
+	} catch { continue }
+	$nsMgr = New-Object System.Xml.XmlNamespaceManager($xml.NameTable)
+	$nsMgr.AddNamespace("v8", "http://v8.1c.ru/8.1/data/core")
+	$nsMgr.AddNamespace("f", "http://v8.1c.ru/8.3/xcf/logform")
+
+	$roots = @{}   # реквизит формы -> ключи объектов (составной тип даёт несколько)
+	foreach ($attrNode in $xml.SelectNodes("//f:Attributes/f:Attribute", $nsMgr)) {
+		$attrName = $attrNode.GetAttribute("name")
+		$keys = @()
+		foreach ($tn in $attrNode.SelectNodes("f:Type/v8:Type", $nsMgr)) {
+			$tm = [regex]::Match($tn.InnerText, "^(?:cfg:|d\dp1:)($formPathKinds)(?:Object|Ref)\.(\w+)$")
+			if ($tm.Success) { $keys += "$($tm.Groups[1].Value).$($tm.Groups[2].Value)" }
+		}
+		# Основная таблица динамического списка должна существовать, поля списка — её реквизиты
+		$mt = $attrNode.SelectSingleNode("f:Settings/f:MainTable", $nsMgr)
+		if ($mt) {
+			$tm = [regex]::Match($mt.InnerText, "^($formPathKinds)\.(\w+)$")
+			if ($tm.Success) { $keys += "$($tm.Groups[1].Value).$($tm.Groups[2].Value)" }
+		}
+		if ($keys.Count -gt 0) {
+			$roots[$attrName] = $keys
+			foreach ($k in $keys) { if (-not $objectPaths.Contains($k)) { $objectPaths[$k] = [ordered]@{} } }
+		}
+	}
+	if ($roots.Count -eq 0) { continue }
+
+	foreach ($m in [regex]::Matches($content, '<(?:\w+:)?\w*DataPath>([^<]+)<')) {
+		$segs = @($m.Groups[1].Value.Replace('~', '').Split('.'))
+		if ($segs.Count -lt 2 -or -not $roots.ContainsKey($segs[0])) { continue }
+		if (@($segs | Where-Object { $_ -notmatch '^\w+$' }).Count -gt 0) { continue }
+		foreach ($k in $roots[$segs[0]]) {
+			$n = $objectPaths[$k]
+			foreach ($s in $segs[1..($segs.Count - 1)]) { $n = Get-PathNode $n $s }
+		}
+	}
+	# Таблица на <корень>.<имя> — табличная часть; иная вложенность — реквизит-ссылка
+	foreach ($tb in $xml.SelectNodes("//f:Table/f:DataPath", $nsMgr)) {
+		$segs = @($tb.InnerText.Replace('~', '').Split('.'))
+		if ($segs.Count -ne 2 -or -not $roots.ContainsKey($segs[0])) { continue }
+		foreach ($k in $roots[$segs[0]]) { (Get-PathNode $objectPaths[$k] $segs[1])[$tsMark] = $true }
+	}
+}
+
+function Get-StubCatalogName([string]$Seed) {
+	$md5 = [System.Security.Cryptography.MD5]::Create()
+	$hash = $md5.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($Seed))
+	return "Заглушка_" + (-join ($hash[0..3] | ForEach-Object { $_.ToString("x2") }))
+}
+
+function Get-OrAddCatalog([string]$Name) {
+	if (-not $typeMap.ContainsKey("Catalog")) { $typeMap["Catalog"] = @{} }
+	$typeMap["Catalog"][$Name] = $true
+}
+
+function Merge-PathTree($target, $source) {
+	foreach ($k in @($source.Keys)) {
+		if ($k -eq $tsMark) { $target[$tsMark] = $true; continue }
+		Merge-PathTree (Get-PathNode $target $k) $source[$k]
+	}
+}
+
+# Тип звена: лист — строка, иначе ссылка на пустышку со своим деревом
+function Resolve-MemberType([string]$OwnerKey, [string]$Member, $Node) {
+	$real = @($Node.Keys | Where-Object { $_ -ne $tsMark })
+	if ($real.Count -eq 0) { return "xs:string" }
+	$dummy = Get-StubCatalogName "$OwnerKey.$Member"
+	Get-OrAddCatalog $dummy
+	Add-ObjectChildren "Catalog.$dummy" $Node
+	return "cfg:CatalogRef.$dummy"
+}
+
+$objectChildren = @{}   # "Вид.Имя" -> @{ attrs; tabular; hierarchical; owner }
+
+function Add-ObjectChildren([string]$Key, $Tree) {
+	$kind = $Key.Substring(0, $Key.IndexOf('.'))
+	$std = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+	foreach ($a in $stdAttrsByType[$kind]) {
+		[void]$std.Add($a)
+		if ($stdAttrRu.ContainsKey($a)) { [void]$std.Add($stdAttrRu[$a]) }
+	}
+	foreach ($a in @($stdTabularByType[$kind])) { if ($a) { [void]$std.Add($a) } }
+	[void]$std.Add('DefaultPicture')
+
+	if (-not $objectChildren.ContainsKey($Key)) {
+		$objectChildren[$Key] = @{ attrs = [ordered]@{}; tabular = [ordered]@{}; hierarchical = $false; owner = $null }
+	}
+	$info = $objectChildren[$Key]
+	foreach ($name in @($Tree.Keys)) {
+		if ($name -eq $tsMark) { continue }
+		$node = $Tree[$name]
+		if ($std.Contains($name)) {
+			$isParent = $name -in @('Parent', 'Родитель')
+			if ($isParent) { $info.hierarchical = $true }
+			if ($name -in @('Owner', 'Владелец') -and $kind -eq 'Catalog') {
+				if (-not $info.owner) {
+					$info.owner = Get-StubCatalogName "$Key.Owner"
+					Get-OrAddCatalog $info.owner
+				}
+				Add-ObjectChildren "Catalog.$($info.owner)" $node
+			}
+			# Родитель и ссылка — тот же объект: их реквизиты принадлежат ему
+			if ($isParent -or $name -in @('Ref', 'Ссылка')) { Add-ObjectChildren $Key $node }
+			continue
+		}
+		if ($node.Contains($tsMark)) {
+			if (-not $info.tabular.Contains($name)) { $info.tabular[$name] = [ordered]@{} }
+			foreach ($col in @($node.Keys)) {
+				if ($col -eq $tsMark -or $col -in @('LineNumber', 'НомерСтроки')) { continue }
+				$info.tabular[$name][$col] = Resolve-MemberType "$Key.$name" $col $node[$col]
+			}
+		} else {
+			$info.attrs[$name] = Resolve-MemberType $Key $name $node
+		}
+	}
+}
+
+foreach ($k in @($objectPaths.Keys)) {
+	$dot = $k.IndexOf('.')
+	$kind = $k.Substring(0, $dot)
+	if (-not $typeMap.ContainsKey($kind)) { $typeMap[$kind] = @{} }
+	$typeMap[$kind][$k.Substring($dot + 1)] = $true
+	Add-ObjectChildren $k $objectPaths[$k]
+}
+
+# Бизнес-процесс без задачи платформа не загружает
+$stubTaskName = "ЗаглушкаЗадачи"
+if ($typeMap.ContainsKey("BusinessProcess") -and $typeMap["BusinessProcess"].Count -gt 0) {
+	if (-not $typeMap.ContainsKey("Task")) { $typeMap["Task"] = @{} }
+	$typeMap["Task"][$stubTaskName] = $true
+}
+
 # --- 1c. Общие модули целевой конфигурации, к которым обращается код ---
 # Проверка модулей (замер 8.3.24, 8.3.27) требует от общего модуля только двух вещей: чтобы он
 # существовал и был доступен в контексте вызова. Методы, их экспорт и число параметров она не
@@ -599,7 +778,7 @@ if ($needCfg) {
 		)
 		"ChartOfAccounts" = @(
 			@{p="ChartOfAccountsObject";c="Object"},@{p="ChartOfAccountsRef";c="Ref"},@{p="ChartOfAccountsSelection";c="Selection"},
-			@{p="ChartOfAccountsList";c="List"},@{p="ChartOfAccountsManager";c="Manager"}
+			@{p="ChartOfAccountsList";c="List"},@{p="ChartOfAccountsManager";c="Manager"},@{p="ChartOfAccountsExtDimensionTypes";c="ExtDimensionTypes"},@{p="ChartOfAccountsExtDimensionTypesRow";c="ExtDimensionTypesRow"}
 		)
 		"ChartOfCharacteristicTypes" = @(
 			@{p="ChartOfCharacteristicTypesObject";c="Object"},@{p="ChartOfCharacteristicTypesRef";c="Ref"},@{p="ChartOfCharacteristicTypesSelection";c="Selection"},
@@ -607,7 +786,7 @@ if ($needCfg) {
 		)
 		"ChartOfCalculationTypes" = @(
 			@{p="ChartOfCalculationTypesObject";c="Object"},@{p="ChartOfCalculationTypesRef";c="Ref"},@{p="ChartOfCalculationTypesSelection";c="Selection"},
-			@{p="ChartOfCalculationTypesList";c="List"},@{p="ChartOfCalculationTypesManager";c="Manager"}
+			@{p="ChartOfCalculationTypesList";c="List"},@{p="ChartOfCalculationTypesManager";c="Manager"},@{p="DisplacingCalculationTypes";c="DisplacingCalculationTypes"},@{p="DisplacingCalculationTypesRow";c="DisplacingCalculationTypesRow"},@{p="BaseCalculationTypes";c="BaseCalculationTypes"},@{p="BaseCalculationTypesRow";c="BaseCalculationTypesRow"},@{p="LeadingCalculationTypes";c="LeadingCalculationTypes"},@{p="LeadingCalculationTypesRow";c="LeadingCalculationTypesRow"}
 		)
 		"ExchangePlan" = @(
 			@{p="ExchangePlanObject";c="Object"},@{p="ExchangePlanRef";c="Ref"},@{p="ExchangePlanSelection";c="Selection"},
@@ -615,7 +794,7 @@ if ($needCfg) {
 		)
 		"BusinessProcess" = @(
 			@{p="BusinessProcessObject";c="Object"},@{p="BusinessProcessRef";c="Ref"},@{p="BusinessProcessSelection";c="Selection"},
-			@{p="BusinessProcessList";c="List"},@{p="BusinessProcessManager";c="Manager"}
+			@{p="BusinessProcessList";c="List"},@{p="BusinessProcessManager";c="Manager"},@{p="BusinessProcessRoutePointRef";c="RoutePointRef"}
 		)
 		"Task" = @(
 			@{p="TaskObject";c="Object"},@{p="TaskRef";c="Ref"},@{p="TaskSelection";c="Selection"},
@@ -694,21 +873,6 @@ if ($needCfg) {
 				<xr:ChoiceParameters/>
 '@
 
-	$stdAttrsByType = @{
-		"Catalog" = @("PredefinedDataName","Predefined","Ref","DeletionMark","IsFolder","Owner","Parent","Description","Code")
-		"Document" = @("Posted","Ref","DeletionMark","Date","Number")
-		"Enum" = @("Order","Ref")
-		"ChartOfAccounts" = @("PredefinedDataName","Predefined","Ref","DeletionMark","Description","Code","Parent","Order","Type","OffBalance")
-		"ChartOfCharacteristicTypes" = @("PredefinedDataName","Predefined","Ref","DeletionMark","Description","Code","Parent","ValueType")
-		"ChartOfCalculationTypes" = @("PredefinedDataName","Predefined","Ref","DeletionMark","Description","Code","ActionPeriodIsBasic")
-		"ExchangePlan" = @("Ref","DeletionMark","Code","Description","ThisNode","SentNo","ReceivedNo")
-		"BusinessProcess" = @("Ref","DeletionMark","Date","Number","Started","Completed","HeadTask")
-		"Task" = @("Ref","DeletionMark","Date","Number","Executed","Description","RoutePoint","BusinessProcess")
-		"InformationRegister" = @("Active","LineNumber","Recorder","Period")
-		"AccumulationRegister" = @("Active","LineNumber","Recorder","Period")
-		"AccountingRegister" = @("Active","Period","Recorder","LineNumber","Account")
-		"CalculationRegister" = @("Active","Recorder","LineNumber","RegistrationPeriod","CalculationType","ReversingEntry")
-	}
 
 	function Build-StdAttrs([string]$metaType) {
 		$attrs = $stdAttrsByType[$metaType]
@@ -880,6 +1044,25 @@ if ($needCfg) {
 			New-Item -ItemType Directory -Path $cmExt -Force | Out-Null
 			[System.IO.File]::WriteAllText((Join-Path $cmExt "Module.bsl"), "", $enc)
 		}
+	}
+
+	function Build-StubAttribute([string]$Name, [string]$Type, [bool]$IsColumn) {
+		$typeXml = if ($Type -eq 'xs:string') {
+			'<v8:Type>xs:string</v8:Type><v8:StringQualifiers><v8:Length>10</v8:Length><v8:AllowedLength>Variable</v8:AllowedLength></v8:StringQualifiers>'
+		} else { "<v8:Type>$Type</v8:Type>" }
+		# У колонок табличной части значения заполнения нет: бизнес-процесс такое отвергает
+		$fill = if ($IsColumn) { '' } else { '<FillFromFillingValue>false</FillFromFillingValue><FillValue xsi:nil="true"/>' }
+		return "<Attribute uuid=`"$([guid]::NewGuid().ToString())`"><Properties><Name>$Name</Name><Synonym/><Comment/><Type>$typeXml</Type><PasswordMode>false</PasswordMode><Format/><EditFormat/><ToolTip/><MarkNegatives>false</MarkNegatives><Mask/><MultiLine>false</MultiLine><ExtendedEdit>false</ExtendedEdit><MinValue xsi:nil=`"true`"/><MaxValue xsi:nil=`"true`"/>$fill<FillChecking>DontCheck</FillChecking><ChoiceFoldersAndItems>Items</ChoiceFoldersAndItems><ChoiceParameterLinks/><ChoiceParameters/><QuickChoice>Auto</QuickChoice><CreateOnInput>Auto</CreateOnInput><ChoiceForm/><LinkByType/><ChoiceHistoryOnInput>Auto</ChoiceHistoryOnInput><Indexing>DontIndex</Indexing><FullTextSearch>Use</FullTextSearch><DataHistory>Use</DataHistory></Properties></Attribute>"
+	}
+
+	function Build-StubTabularSection([string]$Kind, [string]$Obj, [string]$Name, $Columns) {
+		$gt = ''
+		foreach ($c in @('TabularSection', 'TabularSectionRow')) {
+			$gt += "<xr:GeneratedType name=`"$Kind$c.$Obj.$Name`" category=`"$c`"><xr:TypeId>$([guid]::NewGuid().ToString())</xr:TypeId><xr:ValueId>$([guid]::NewGuid().ToString())</xr:ValueId></xr:GeneratedType>"
+		}
+		$cols = ''
+		foreach ($c in $Columns.Keys) { $cols += Build-StubAttribute $c $Columns[$c] $true }
+		return "<TabularSection uuid=`"$([guid]::NewGuid().ToString())`"><InternalInfo>$gt</InternalInfo><Properties><Name>$Name</Name><Synonym/><Comment/><ToolTip/><FillChecking>DontCheck</FillChecking></Properties><ChildObjects>$cols</ChildObjects></TabularSection>"
 	}
 
 	# --- 4c. Metadata object stubs ---
@@ -1157,9 +1340,8 @@ $stdAttrs			<DataLockControlMode>Automatic</DataLockControlMode>
 			<CodeMask/>
 			<CodeLength>20</CodeLength>
 			<DescriptionLength>100</DescriptionLength>
-			<CodeSeries>WholeCatalog</CodeSeries>
+			<CodeSeries>WholeChartOfAccounts</CodeSeries>
 			<CheckUnique>false</CheckUnique>
-			<Autonumbering>true</Autonumbering>
 			<DefaultPresentation>AsDescription</DefaultPresentation>
 $stdAttrs			<Characteristics/>
 			<PredefinedDataUpdate>Auto</PredefinedDataUpdate>
@@ -1173,18 +1355,15 @@ $stdAttrs			<Characteristics/>
 			<DefaultObjectForm/>
 			<DefaultListForm/>
 			<DefaultChoiceForm/>
-			<DefaultFolderForm/>
-			<DefaultFolderChoiceForm/>
 			<AuxiliaryObjectForm/>
 			<AuxiliaryListForm/>
 			<AuxiliaryChoiceForm/>
-			<AuxiliaryFolderForm/>
-			<AuxiliaryFolderChoiceForm/>
 			<AutoOrderByCode>true</AutoOrderByCode>
 			<OrderLength>5</OrderLength>
 			<MaxExtDimensionCount>0</MaxExtDimensionCount>
 			<IncludeHelpInContents>false</IncludeHelpInContents>
 			<BasedOn/>
+			<ExtDimensionTypes/>
 			<DataLockFields/>
 			<DataLockControlMode>Automatic</DataLockControlMode>
 			<FullTextSearch>Use</FullTextSearch>
@@ -1281,9 +1460,6 @@ $stdAttrs			<Characteristics/>
 			<DescriptionLength>25</DescriptionLength>
 			<CodeType>String</CodeType>
 			<CodeAllowedLength>Variable</CodeAllowedLength>
-			<CodeSeries>WholeCatalog</CodeSeries>
-			<CheckUnique>false</CheckUnique>
-			<Autonumbering>true</Autonumbering>
 			<DefaultPresentation>AsDescription</DefaultPresentation>
 $stdAttrs			<Characteristics/>
 			<PredefinedDataUpdate>Auto</PredefinedDataUpdate>
@@ -1294,7 +1470,7 @@ $stdAttrs			<Characteristics/>
 			<SearchStringModeOnInputByString>Begin</SearchStringModeOnInputByString>
 			<FullTextSearchOnInputByString>DontUse</FullTextSearchOnInputByString>
 			<ChoiceDataGetModeOnInputByString>Directly</ChoiceDataGetModeOnInputByString>
-			<DependenceOnCalculationTypes>NotDepend</DependenceOnCalculationTypes>
+			<DependenceOnCalculationTypes>DontUse</DependenceOnCalculationTypes>
 			<BaseCalculationTypes/>
 			<ActionPeriodUse>false</ActionPeriodUse>
 			<DefaultObjectForm/>
@@ -1371,7 +1547,6 @@ $stdAttrs			<DefaultPresentation>AsDescription</DefaultPresentation>
 			<Synonym/>
 			<Comment/>
 			<UseStandardCommands>false</UseStandardCommands>
-			<Numerator/>
 			<NumberType>String</NumberType>
 			<NumberLength>11</NumberLength>
 			<NumberAllowedLength>Variable</NumberAllowedLength>
@@ -1379,7 +1554,7 @@ $stdAttrs			<DefaultPresentation>AsDescription</DefaultPresentation>
 			<CheckUnique>false</CheckUnique>
 			<Autonumbering>true</Autonumbering>
 $stdAttrs			<Characteristics/>
-			<Task/>
+			<Task>Task.$stubTaskName</Task>
 			<CreateTaskInPrivilegedMode>false</CreateTaskInPrivilegedMode>
 			<DefaultObjectForm/>
 			<DefaultListForm/>
@@ -1657,6 +1832,18 @@ $stdAttrs			<Characteristics/>
 "@
 			}
 			$childObjLine = "`r`n`t`t<ChildObjects>`r`n$($childParts -join "`r`n")`r`n`t`t</ChildObjects>"
+		}
+		$childKey = "$metaType.$objName"
+		if ($objectChildren.ContainsKey($childKey)) {
+			$ci = $objectChildren[$childKey]
+			if ($ci.hierarchical) { $propsXml = $propsXml.Replace('<Hierarchical>false<', '<Hierarchical>true<') }
+			if ($ci.owner) { $propsXml = $propsXml.Replace('<Owners/>', "<Owners><xr:Item xsi:type=`"xr:MDObjectRef`">Catalog.$($ci.owner)</xr:Item></Owners>") }
+			$childParts = @()
+			foreach ($a in $ci.attrs.Keys) { $childParts += Build-StubAttribute $a $ci.attrs[$a] $false }
+			foreach ($t in $ci.tabular.Keys) { $childParts += Build-StubTabularSection $metaType $objName $t $ci.tabular[$t] }
+			if ($childParts.Count -gt 0) {
+				$childObjLine = "`r`n`t`t<ChildObjects>`r`n$($childParts -join "`r`n")`r`n`t`t</ChildObjects>"
+			}
 		}
 		$objXml = @"
 <?xml version="1.0" encoding="UTF-8"?>

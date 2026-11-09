@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-# stub-db-create v1.18 — Create temp 1C infobase with metadata stubs for EPF/ERF build
+# stub-db-create v1.19 — Create temp 1C infobase with metadata stubs for EPF/ERF build
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
+import hashlib
 import io
 import json
 import os
@@ -553,6 +554,197 @@ def scan_register_columns(source_dir):
     return register_columns
 
 
+STD_ATTR_RU = {
+    'Ref': '\u0421\u0441\u044b\u043b\u043a\u0430', 'DeletionMark': '\u041f\u043e\u043c\u0435\u0442\u043a\u0430\u0423\u0434\u0430\u043b\u0435\u043d\u0438\u044f', 'Code': '\u041a\u043e\u0434', 'Description': '\u041d\u0430\u0438\u043c\u0435\u043d\u043e\u0432\u0430\u043d\u0438\u0435',
+    'IsFolder': '\u042d\u0442\u043e\u0413\u0440\u0443\u043f\u043f\u0430', 'Predefined': '\u041f\u0440\u0435\u0434\u043e\u043f\u0440\u0435\u0434\u0435\u043b\u0435\u043d\u043d\u044b\u0439', 'PredefinedDataName': '\u0418\u043c\u044f\u041f\u0440\u0435\u0434\u043e\u043f\u0440\u0435\u0434\u0435\u043b\u0435\u043d\u043d\u044b\u0445\u0414\u0430\u043d\u043d\u044b\u0445',
+    'Parent': '\u0420\u043e\u0434\u0438\u0442\u0435\u043b\u044c', 'Owner': '\u0412\u043b\u0430\u0434\u0435\u043b\u0435\u0446', 'Number': '\u041d\u043e\u043c\u0435\u0440', 'Date': '\u0414\u0430\u0442\u0430', 'Posted': '\u041f\u0440\u043e\u0432\u0435\u0434\u0435\u043d',
+    'Order': '\u041f\u043e\u0440\u044f\u0434\u043e\u043a', 'Type': '\u0412\u0438\u0434', 'OffBalance': '\u0417\u0430\u0431\u0430\u043b\u0430\u043d\u0441\u043e\u0432\u044b\u0439', 'ValueType': '\u0422\u0438\u043f\u0417\u043d\u0430\u0447\u0435\u043d\u0438\u044f',
+    'ThisNode': '\u042d\u0442\u043e\u0442\u0423\u0437\u0435\u043b', 'SentNo': '\u041d\u043e\u043c\u0435\u0440\u041e\u0442\u043f\u0440\u0430\u0432\u043b\u0435\u043d\u043d\u043e\u0433\u043e', 'ReceivedNo': '\u041d\u043e\u043c\u0435\u0440\u041f\u0440\u0438\u043d\u044f\u0442\u043e\u0433\u043e',
+    'Started': '\u0421\u0442\u0430\u0440\u0442\u043e\u0432\u0430\u043d', 'Completed': '\u0417\u0430\u0432\u0435\u0440\u0448\u0435\u043d', 'HeadTask': '\u0412\u0435\u0434\u0443\u0449\u0430\u044f\u0417\u0430\u0434\u0430\u0447\u0430', 'Executed': '\u0412\u044b\u043f\u043e\u043b\u043d\u0435\u043d\u0430',
+    'RoutePoint': '\u0422\u043e\u0447\u043a\u0430\u041c\u0430\u0440\u0448\u0440\u0443\u0442\u0430', 'BusinessProcess': '\u0411\u0438\u0437\u043d\u0435\u0441\u041f\u0440\u043e\u0446\u0435\u0441\u0441', 'ActionPeriodIsBasic': '\u041f\u0435\u0440\u0438\u043e\u0434\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u044f\u0411\u0430\u0437\u043e\u0432\u044b\u0439',
+}
+STD_TABULAR_BY_TYPE = {
+    'ChartOfAccounts': ['ExtDimensionTypes', '\u0412\u0438\u0434\u044b\u0421\u0443\u0431\u043a\u043e\u043d\u0442\u043e'],
+    'ChartOfCalculationTypes': ['BaseCalculationTypes', 'LeadingCalculationTypes', 'DisplacingCalculationTypes',
+                                '\u0411\u0430\u0437\u043e\u0432\u044b\u0435\u0412\u0438\u0434\u044b\u0420\u0430\u0441\u0447\u0435\u0442\u0430', '\u0412\u0435\u0434\u0443\u0449\u0438\u0435\u0412\u0438\u0434\u044b\u0420\u0430\u0441\u0447\u0435\u0442\u0430', '\u0412\u044b\u0442\u0435\u0441\u043d\u044f\u044e\u0449\u0438\u0435\u0412\u0438\u0434\u044b\u0420\u0430\u0441\u0447\u0435\u0442\u0430'],
+}
+FORM_PATH_KINDS = 'Catalog|Document|ChartOfAccounts|ChartOfCharacteristicTypes|ChartOfCalculationTypes|ExchangePlan|BusinessProcess|Task'
+STUB_TASK_NAME = '\u0417\u0430\u0433\u043b\u0443\u0448\u043a\u0430\u0417\u0430\u0434\u0430\u0447\u0438'
+
+
+class PathNode:
+    """Узел дерева путей формы; имена 1С регистронезависимы, сохраняется первое написание."""
+    def __init__(self):
+        self.children = {}
+        self.names = {}
+        self.is_tabular = False
+
+    def child(self, name):
+        key = name.casefold()
+        if key not in self.children:
+            self.children[key] = PathNode()
+            self.names[key] = name
+        return self.children[key]
+
+
+def scan_object_paths(source_dir):
+    """Реквизиты объектов, на которые ссылаются пути формы: платформа сверяет DataPath с метаданными.
+    Возвращает {"Вид.Имя": PathNode}."""
+    import xml.etree.ElementTree as ET
+    f_ns = '{http://v8.1c.ru/8.3/xcf/logform}'
+    v8_ns = '{http://v8.1c.ru/8.1/data/core}'
+    type_re = re.compile(r'(?:cfg:|d\dp1:)(%s)(?:Object|Ref)\.(\w+)' % FORM_PATH_KINDS)
+    table_re = re.compile(r'(%s)\.(\w+)' % FORM_PATH_KINDS)
+    path_re = re.compile(r'<(?:\w+:)?\w*DataPath>([^<]+)<')
+    object_paths = {}
+
+    for dirpath, _, filenames in os.walk(source_dir):
+        for fn in filenames:
+            if fn != 'Form.xml':
+                continue
+            try:
+                with open(os.path.join(dirpath, fn), 'r', encoding='utf-8-sig') as fh:
+                    content = fh.read()
+                if '<Attributes>' not in content:
+                    continue
+                root = ET.fromstring(content)
+            except Exception:
+                continue
+
+            roots = {}
+            attrs_node = root.find(f'{f_ns}Attributes')
+            for attr_node in (attrs_node if attrs_node is not None else []):
+                if attr_node.tag != f'{f_ns}Attribute':
+                    continue
+                keys = []
+                for tn in attr_node.findall(f'{f_ns}Type/{v8_ns}Type'):
+                    m = type_re.fullmatch(tn.text or '')
+                    if m:
+                        keys.append(f'{m.group(1)}.{m.group(2)}')
+                # Основная таблица динамического списка должна существовать, поля списка — её реквизиты
+                mt = attr_node.find(f'{f_ns}Settings/{f_ns}MainTable')
+                if mt is not None:
+                    m = table_re.fullmatch(mt.text or '')
+                    if m:
+                        keys.append(f'{m.group(1)}.{m.group(2)}')
+                if keys:
+                    roots[attr_node.get('name', '')] = keys
+                    for k in keys:
+                        object_paths.setdefault(k, PathNode())
+            if not roots:
+                continue
+
+            for m in path_re.finditer(content):
+                segs = m.group(1).replace('~', '').split('.')
+                if len(segs) < 2 or segs[0] not in roots:
+                    continue
+                if any(not re.fullmatch(r'\w+', s) for s in segs):
+                    continue
+                for k in roots[segs[0]]:
+                    n = object_paths[k]
+                    for s in segs[1:]:
+                        n = n.child(s)
+            # Таблица на <корень>.<имя> — табличная часть; иная вложенность — реквизит-ссылка
+            for table in root.iter(f'{f_ns}Table'):
+                dp = table.find(f'{f_ns}DataPath')
+                if dp is None:
+                    continue
+                segs = (dp.text or '').replace('~', '').split('.')
+                if len(segs) != 2 or segs[0] not in roots:
+                    continue
+                for k in roots[segs[0]]:
+                    object_paths[k].child(segs[1]).is_tabular = True
+    return object_paths
+
+
+def stub_catalog_name(seed):
+    return '\u0417\u0430\u0433\u043b\u0443\u0448\u043a\u0430_' + hashlib.md5(seed.encode('utf-8')).hexdigest()[:8]
+
+
+def resolve_object_children(object_paths, type_map):
+    """Раскладывает деревья путей по объектам; пустышки попадают в type_map.
+    Возвращает {"Вид.Имя": {attrs, tabular, hierarchical, owner}}."""
+    result = {}
+
+    def add_catalog(name):
+        type_map.setdefault('Catalog', {})[name] = True
+
+    def member_type(owner_key, member, node):
+        if not node.children:
+            return 'xs:string'
+        dummy = stub_catalog_name(f'{owner_key}.{member}')
+        add_catalog(dummy)
+        add_children(f'Catalog.{dummy}', node)
+        return f'cfg:CatalogRef.{dummy}'
+
+    def add_children(key, tree):
+        kind = key[:key.index('.')]
+        std = {'defaultpicture'}
+        for a in STD_ATTRS_BY_TYPE.get(kind, []):
+            std.add(a.casefold())
+            if a in STD_ATTR_RU:
+                std.add(STD_ATTR_RU[a].casefold())
+        std.update(a.casefold() for a in STD_TABULAR_BY_TYPE.get(kind, []))
+
+        info = result.setdefault(key, {'attrs': {}, 'tabular': {}, 'hierarchical': False, 'owner': None})
+        for low, node in tree.children.items():
+            name = tree.names[low]
+            if low in std:
+                is_parent = low in ('parent', '\u0440\u043e\u0434\u0438\u0442\u0435\u043b\u044c')
+                if is_parent:
+                    info['hierarchical'] = True
+                if low in ('owner', '\u0432\u043b\u0430\u0434\u0435\u043b\u0435\u0446') and kind == 'Catalog':
+                    if not info['owner']:
+                        info['owner'] = stub_catalog_name(f'{key}.Owner')
+                        add_catalog(info['owner'])
+                    add_children(f"Catalog.{info['owner']}", node)
+                # Родитель и ссылка — тот же объект: их реквизиты принадлежат ему
+                if is_parent or low in ('ref', '\u0441\u0441\u044b\u043b\u043a\u0430'):
+                    add_children(key, node)
+                continue
+            if node.is_tabular:
+                columns = info['tabular'].setdefault(low, (name, {}))[1]
+                for col_low, col in node.children.items():
+                    if col_low in ('linenumber', '\u043d\u043e\u043c\u0435\u0440\u0441\u0442\u0440\u043e\u043a\u0438'):
+                        continue
+                    col_name = node.names[col_low]
+                    columns[col_low] = (col_name, member_type(f'{key}.{name}', col_name, col))
+            else:
+                info['attrs'][low] = (name, member_type(key, name, node))
+
+    for k, tree in object_paths.items():
+        kind, name = k.split('.', 1)
+        type_map.setdefault(kind, {})[name] = True
+        add_children(k, tree)
+    return result
+
+
+def build_stub_attribute(name, type_name, is_column):
+    if type_name == 'xs:string':
+        type_xml = ('<v8:Type>xs:string</v8:Type><v8:StringQualifiers><v8:Length>10</v8:Length>'
+                    '<v8:AllowedLength>Variable</v8:AllowedLength></v8:StringQualifiers>')
+    else:
+        type_xml = f'<v8:Type>{type_name}</v8:Type>'
+    # У колонок табличной части значения заполнения нет: бизнес-процесс такое отвергает
+    fill = '' if is_column else '<FillFromFillingValue>false</FillFromFillingValue><FillValue xsi:nil="true"/>'
+    return (f'<Attribute uuid="{new_uuid()}"><Properties><Name>{name}</Name><Synonym/><Comment/><Type>{type_xml}</Type>'
+            '<PasswordMode>false</PasswordMode><Format/><EditFormat/><ToolTip/><MarkNegatives>false</MarkNegatives><Mask/>'
+            '<MultiLine>false</MultiLine><ExtendedEdit>false</ExtendedEdit><MinValue xsi:nil="true"/><MaxValue xsi:nil="true"/>'
+            f'{fill}<FillChecking>DontCheck</FillChecking><ChoiceFoldersAndItems>Items</ChoiceFoldersAndItems>'
+            '<ChoiceParameterLinks/><ChoiceParameters/><QuickChoice>Auto</QuickChoice><CreateOnInput>Auto</CreateOnInput>'
+            '<ChoiceForm/><LinkByType/><ChoiceHistoryOnInput>Auto</ChoiceHistoryOnInput><Indexing>DontIndex</Indexing>'
+            '<FullTextSearch>Use</FullTextSearch><DataHistory>Use</DataHistory></Properties></Attribute>')
+
+
+def build_stub_tabular_section(kind, obj, name, columns):
+    gt = ''.join(
+        f'<xr:GeneratedType name="{kind}{c}.{obj}.{name}" category="{c}"><xr:TypeId>{new_uuid()}</xr:TypeId>'
+        f'<xr:ValueId>{new_uuid()}</xr:ValueId></xr:GeneratedType>' for c in ('TabularSection', 'TabularSectionRow'))
+    cols = ''.join(build_stub_attribute(n, t, True) for n, t in columns.values())
+    return (f'<TabularSection uuid="{new_uuid()}"><InternalInfo>{gt}</InternalInfo><Properties><Name>{name}</Name><Synonym/>'
+            f'<Comment/><ToolTip/><FillChecking>DontCheck</FillChecking></Properties><ChildObjects>{cols}</ChildObjects></TabularSection>')
+
+
 NS = (
     'xmlns="http://v8.1c.ru/8.3/MDClasses" xmlns:app="http://v8.1c.ru/8.2/managed-application/core" '
     'xmlns:cfg="http://v8.1c.ru/8.1/data/enterprise/current-config" '
@@ -586,11 +778,11 @@ GT_DEFS = {
     'Catalog': [('CatalogObject','Object'),('CatalogRef','Ref'),('CatalogSelection','Selection'),('CatalogList','List'),('CatalogManager','Manager')],
     'Document': [('DocumentObject','Object'),('DocumentRef','Ref'),('DocumentSelection','Selection'),('DocumentList','List'),('DocumentManager','Manager')],
     'Enum': [('EnumRef','Ref'),('EnumManager','Manager'),('EnumList','List')],
-    'ChartOfAccounts': [('ChartOfAccountsObject','Object'),('ChartOfAccountsRef','Ref'),('ChartOfAccountsSelection','Selection'),('ChartOfAccountsList','List'),('ChartOfAccountsManager','Manager')],
+    'ChartOfAccounts': [('ChartOfAccountsObject','Object'),('ChartOfAccountsRef','Ref'),('ChartOfAccountsSelection','Selection'),('ChartOfAccountsList','List'),('ChartOfAccountsManager','Manager'),('ChartOfAccountsExtDimensionTypes','ExtDimensionTypes'),('ChartOfAccountsExtDimensionTypesRow','ExtDimensionTypesRow')],
     'ChartOfCharacteristicTypes': [('ChartOfCharacteristicTypesObject','Object'),('ChartOfCharacteristicTypesRef','Ref'),('ChartOfCharacteristicTypesSelection','Selection'),('ChartOfCharacteristicTypesList','List'),('Characteristic','Characteristic'),('ChartOfCharacteristicTypesManager','Manager')],
-    'ChartOfCalculationTypes': [('ChartOfCalculationTypesObject','Object'),('ChartOfCalculationTypesRef','Ref'),('ChartOfCalculationTypesSelection','Selection'),('ChartOfCalculationTypesList','List'),('ChartOfCalculationTypesManager','Manager')],
+    'ChartOfCalculationTypes': [('ChartOfCalculationTypesObject','Object'),('ChartOfCalculationTypesRef','Ref'),('ChartOfCalculationTypesSelection','Selection'),('ChartOfCalculationTypesList','List'),('ChartOfCalculationTypesManager','Manager'),('DisplacingCalculationTypes','DisplacingCalculationTypes'),('DisplacingCalculationTypesRow','DisplacingCalculationTypesRow'),('BaseCalculationTypes','BaseCalculationTypes'),('BaseCalculationTypesRow','BaseCalculationTypesRow'),('LeadingCalculationTypes','LeadingCalculationTypes'),('LeadingCalculationTypesRow','LeadingCalculationTypesRow')],
     'ExchangePlan': [('ExchangePlanObject','Object'),('ExchangePlanRef','Ref'),('ExchangePlanSelection','Selection'),('ExchangePlanList','List'),('ExchangePlanManager','Manager')],
-    'BusinessProcess': [('BusinessProcessObject','Object'),('BusinessProcessRef','Ref'),('BusinessProcessSelection','Selection'),('BusinessProcessList','List'),('BusinessProcessManager','Manager')],
+    'BusinessProcess': [('BusinessProcessObject','Object'),('BusinessProcessRef','Ref'),('BusinessProcessSelection','Selection'),('BusinessProcessList','List'),('BusinessProcessManager','Manager'),('BusinessProcessRoutePointRef','RoutePointRef')],
     'Task': [('TaskObject','Object'),('TaskRef','Ref'),('TaskSelection','Selection'),('TaskList','List'),('TaskManager','Manager')],
     'InformationRegister': [('InformationRegisterRecord','Record'),('InformationRegisterManager','Manager'),('InformationRegisterSelection','Selection'),('InformationRegisterList','List'),('InformationRegisterRecordSet','RecordSet'),('InformationRegisterRecordKey','RecordKey'),('InformationRegisterRecordManager','RecordManager')],
     'AccumulationRegister': [('AccumulationRegisterRecord','Record'),('AccumulationRegisterManager','Manager'),('AccumulationRegisterSelection','Selection'),('AccumulationRegisterList','List'),('AccumulationRegisterRecordSet','RecordSet'),('AccumulationRegisterRecordKey','RecordKey')],
@@ -839,9 +1031,8 @@ PROPS['ChartOfAccounts'] = lambda n, sa: f"""\t\t\t<Name>{n}</Name>
 \t\t\t<CodeMask/>
 \t\t\t<CodeLength>20</CodeLength>
 \t\t\t<DescriptionLength>100</DescriptionLength>
-\t\t\t<CodeSeries>WholeCatalog</CodeSeries>
+\t\t\t<CodeSeries>WholeChartOfAccounts</CodeSeries>
 \t\t\t<CheckUnique>false</CheckUnique>
-\t\t\t<Autonumbering>true</Autonumbering>
 \t\t\t<DefaultPresentation>AsDescription</DefaultPresentation>
 {sa}\t\t\t<Characteristics/>
 \t\t\t<PredefinedDataUpdate>Auto</PredefinedDataUpdate>
@@ -855,18 +1046,15 @@ PROPS['ChartOfAccounts'] = lambda n, sa: f"""\t\t\t<Name>{n}</Name>
 \t\t\t<DefaultObjectForm/>
 \t\t\t<DefaultListForm/>
 \t\t\t<DefaultChoiceForm/>
-\t\t\t<DefaultFolderForm/>
-\t\t\t<DefaultFolderChoiceForm/>
 \t\t\t<AuxiliaryObjectForm/>
 \t\t\t<AuxiliaryListForm/>
 \t\t\t<AuxiliaryChoiceForm/>
-\t\t\t<AuxiliaryFolderForm/>
-\t\t\t<AuxiliaryFolderChoiceForm/>
 \t\t\t<AutoOrderByCode>true</AutoOrderByCode>
 \t\t\t<OrderLength>5</OrderLength>
 \t\t\t<MaxExtDimensionCount>0</MaxExtDimensionCount>
 \t\t\t<IncludeHelpInContents>false</IncludeHelpInContents>
 \t\t\t<BasedOn/>
+\t\t\t<ExtDimensionTypes/>
 \t\t\t<DataLockFields/>
 \t\t\t<DataLockControlMode>Automatic</DataLockControlMode>
 \t\t\t<FullTextSearch>Use</FullTextSearch>
@@ -955,9 +1143,6 @@ PROPS['ChartOfCalculationTypes'] = lambda n, sa: f"""\t\t\t<Name>{n}</Name>
 \t\t\t<DescriptionLength>25</DescriptionLength>
 \t\t\t<CodeType>String</CodeType>
 \t\t\t<CodeAllowedLength>Variable</CodeAllowedLength>
-\t\t\t<CodeSeries>WholeCatalog</CodeSeries>
-\t\t\t<CheckUnique>false</CheckUnique>
-\t\t\t<Autonumbering>true</Autonumbering>
 \t\t\t<DefaultPresentation>AsDescription</DefaultPresentation>
 {sa}\t\t\t<Characteristics/>
 \t\t\t<PredefinedDataUpdate>Auto</PredefinedDataUpdate>
@@ -968,7 +1153,7 @@ PROPS['ChartOfCalculationTypes'] = lambda n, sa: f"""\t\t\t<Name>{n}</Name>
 \t\t\t<SearchStringModeOnInputByString>Begin</SearchStringModeOnInputByString>
 \t\t\t<FullTextSearchOnInputByString>DontUse</FullTextSearchOnInputByString>
 \t\t\t<ChoiceDataGetModeOnInputByString>Directly</ChoiceDataGetModeOnInputByString>
-\t\t\t<DependenceOnCalculationTypes>NotDepend</DependenceOnCalculationTypes>
+\t\t\t<DependenceOnCalculationTypes>DontUse</DependenceOnCalculationTypes>
 \t\t\t<BaseCalculationTypes/>
 \t\t\t<ActionPeriodUse>false</ActionPeriodUse>
 \t\t\t<DefaultObjectForm/>
@@ -1037,7 +1222,6 @@ PROPS['BusinessProcess'] = lambda n, sa: f"""\t\t\t<Name>{n}</Name>
 \t\t\t<Synonym/>
 \t\t\t<Comment/>
 \t\t\t<UseStandardCommands>false</UseStandardCommands>
-\t\t\t<Numerator/>
 \t\t\t<NumberType>String</NumberType>
 \t\t\t<NumberLength>11</NumberLength>
 \t\t\t<NumberAllowedLength>Variable</NumberAllowedLength>
@@ -1045,7 +1229,7 @@ PROPS['BusinessProcess'] = lambda n, sa: f"""\t\t\t<Name>{n}</Name>
 \t\t\t<CheckUnique>false</CheckUnique>
 \t\t\t<Autonumbering>true</Autonumbering>
 {sa}\t\t\t<Characteristics/>
-\t\t\t<Task/>
+\t\t\t<Task>Task.{STUB_TASK_NAME}</Task>
 \t\t\t<CreateTaskInPrivilegedMode>false</CreateTaskInPrivilegedMode>
 \t\t\t<DefaultObjectForm/>
 \t\t\t<DefaultListForm/>
@@ -1395,6 +1579,10 @@ def main():
 
     type_map = scan_ref_types(args.SourceDir)
     register_columns = scan_register_columns(args.SourceDir)
+    object_children = resolve_object_children(scan_object_paths(args.SourceDir), type_map)
+    # Бизнес-процесс без задачи платформа не загружает
+    if type_map.get('BusinessProcess'):
+        type_map.setdefault('Task', {})[STUB_TASK_NAME] = True
     common_modules = scan_common_modules(args.SourceDir, args.ConfigSrc)
     has_ref_types = len(type_map) > 0
     embed_requested = bool(args.EmbedSourceFile and args.EmbedSourceFile.strip())
@@ -1648,6 +1836,17 @@ def main():
                     child_obj_xml = '\n\t\t<ChildObjects>\n' + '\n'.join(parts) + '\n\t\t</ChildObjects>'
                 else:
                     child_obj_xml = '\n\t\t<ChildObjects/>'
+
+                ci = object_children.get(f'{meta_type}.{obj_name}')
+                if ci:
+                    if ci['hierarchical']:
+                        props_xml = props_xml.replace('<Hierarchical>false<', '<Hierarchical>true<')
+                    if ci['owner']:
+                        props_xml = props_xml.replace('<Owners/>', f'<Owners><xr:Item xsi:type="xr:MDObjectRef">Catalog.{ci["owner"]}</xr:Item></Owners>')
+                    child_parts = [build_stub_attribute(n, ty, False) for n, ty in ci['attrs'].values()]
+                    child_parts += [build_stub_tabular_section(meta_type, obj_name, n, cols) for n, cols in ci['tabular'].values()]
+                    if child_parts:
+                        child_obj_xml = '\n\t\t<ChildObjects>\n' + '\n'.join(child_parts) + '\n\t\t</ChildObjects>'
 
                 obj_xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <MetaDataObject {ns_decl}>
