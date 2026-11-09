@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# epf-build v1.28 — Build external data processor or report (EPF/ERF) from XML sources
+# epf-build v1.29 — Build external data processor or report (EPF/ERF) from XML sources
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -810,13 +810,18 @@ def main():
     source_dir = os.path.dirname(os.path.abspath(args.SourceFile))
     # Запросный список проверочная копия проверяет запросом-константой, а без базы запрос сверить не с чем
     object_src_dir = os.path.join(source_dir, os.path.splitext(os.path.basename(args.SourceFile))[0])
-    has_manual_query_list = False
+    manual_query_lists = []
     for dirpath, _, filenames in os.walk(object_src_dir):
         if 'Form.xml' in filenames:
             with open(os.path.join(dirpath, 'Form.xml'), encoding='utf-8-sig', errors='replace') as fh:
-                if '<ManualQuery>true</ManualQuery>' in fh.read():
-                    has_manual_query_list = True
-                    break
+                manual_query_lists += re.findall(r'<Attribute name="([^"]+)"(?:(?!</Attribute>).)*?<ManualQuery>true</ManualQuery>', fh.read(), re.S)
+
+    def print_manual_query_hint(platform_text):
+        if not auto_created_base or not manual_query_lists or not platform_text:
+            return
+        if '\u041d\u0435\u0432\u0435\u0440\u043d\u043e \u0443\u043a\u0430\u0437\u0430\u043d\u0430 \u0433\u043b\u0430\u0432\u043d\u0430\u044f \u0442\u0430\u0431\u043b\u0438\u0446\u0430' in platform_text or any(
+                f'\u041d\u0435\u0432\u0435\u0440\u043d\u044b\u0439 \u043f\u0443\u0442\u044c \u043a \u0434\u0430\u043d\u043d\u044b\u043c: "{n}.' in platform_text for n in manual_query_lists):
+            print('[note] A form with a manual-query dynamic list cannot be built without an infobase: specify the database')
     check_config_src = resolve_config_src(args) if check_list else None
 
     def new_stub_base(base_path, embed):
@@ -920,8 +925,9 @@ def main():
                 print(f"Error: exit code 0 but no non-empty file at {args.OutputFile} — build produced no output")
             else:
                 print(f"Error building external data processor/report (code: {exit_code})")
-                if has_manual_query_list and auto_created_base:
-                    print('[note] a dynamic list with a manual query needs a real infobase: specify the database to build')
+            print_platform_output(result)
+            if exit_code != 0:
+                print_manual_query_hint((result.stdout or '') + (result.stderr or ''))
             sys.exit(exit_code)
 
         # --- Build arguments ---
@@ -961,9 +967,8 @@ def main():
             print(f"Error: exit code 0 but no non-empty file at {args.OutputFile} — build produced no output")
         else:
             print(f"Error building (code: {exit_code})")
-            if has_manual_query_list and auto_created_base:
-                print('[note] a dynamic list with a manual query needs a real infobase: specify the database to build')
 
+        log_content = ""
         if os.path.isfile(out_file):
             try:
                 with open(out_file, "r", encoding="utf-8-sig") as f:
@@ -976,6 +981,8 @@ def main():
                 pass
 
         print_platform_output(result)
+        if exit_code != 0:
+            print_manual_query_hint((log_content or '') + (result.stdout or ''))
         sys.exit(exit_code)
 
     finally:
