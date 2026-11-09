@@ -1,4 +1,4 @@
-﻿# epf-build v1.26 — Build external data processor or report (EPF/ERF) from XML sources
+﻿# epf-build v1.27 — Build external data processor or report (EPF/ERF) from XML sources
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 # NB: *nix-раскладку платформы (/opt/1cv8/<ver>/1cv8, без .exe) знает только .py-порт — PS на *nix не исполняется.
 <#
@@ -835,6 +835,20 @@ elseif ($checkList.Count -gt 0 -and $checkList -notcontains 'modules') {
 }
 $sourceDir = Split-Path $SourceFile -Parent
 
+# Запрос динамического списка платформа сверяет по типам настоящих таблиц: на заглушке исправная
+# форма получила бы отказ. Проверять такую форму не на чем, её сверит сборка на настоящей базе.
+$objectSrcDir = Join-Path $sourceDir ([IO.Path]::GetFileNameWithoutExtension($SourceFile))
+$hasManualQueryList = $false
+if (Test-Path -LiteralPath $objectSrcDir -PathType Container) {
+    foreach ($ff in (Get-ChildItem -LiteralPath $objectSrcDir -Filter "Form.xml" -Recurse -File)) {
+        if ([System.IO.File]::ReadAllText($ff.FullName, [System.Text.Encoding]::UTF8).Contains('<ManualQuery>true</ManualQuery>')) { $hasManualQueryList = $true; break }
+    }
+}
+if ($hasManualQueryList -and $checkList.Count -gt 0) {
+    Write-Host "[note] source check skipped: a form has a dynamic list with a manual query, it can only be verified against the real configuration" -ForegroundColor Yellow
+    $checkList = @()
+}
+
 # Выгрузка целевой конфигурации для проверки: явный -ConfigSrc, иначе configSrc базы из реестра.
 # Без неё обращения к общим модулям конфигурации проверка считает неопределёнными переменными.
 function Resolve-ConfigSrc {
@@ -969,6 +983,7 @@ try {
             Write-Host "Error: exit code 0 but no non-empty file at $OutputFile — build produced no output" -ForegroundColor Red
         } else {
             Write-Host "Error building external data processor/report (code: $exitCode)" -ForegroundColor Red
+            if ($hasManualQueryList -and $autoCreatedBase) { Write-Host "[note] a dynamic list with a manual query needs a real infobase: specify the database to build" -ForegroundColor Yellow }
         }
         Write-PlatformOutput $output
         exit $exitCode
@@ -1010,6 +1025,7 @@ try {
         Write-Host "Error: exit code 0 but no non-empty file at $OutputFile — build produced no output" -ForegroundColor Red
     } else {
         Write-Host "Error building (code: $exitCode)" -ForegroundColor Red
+        if ($hasManualQueryList -and $autoCreatedBase) { Write-Host "[note] a dynamic list with a manual query needs a real infobase: specify the database to build" -ForegroundColor Yellow }
     }
 
     if (Test-Path $outFile) {
