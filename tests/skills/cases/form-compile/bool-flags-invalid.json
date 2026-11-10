@@ -1,0 +1,51 @@
+{
+  "name": "Небулево значение флага элемента (readOnly: \"yes\") — отказ с именем ключа",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "DataProcessor",
+        "name": "Проба",
+        "attributes": [
+          "Результат: String"
+        ]
+      },
+      "args": {
+        "-JsonPath": "{inputFile}",
+        "-OutputDir": "{workDir}"
+      }
+    },
+    {
+      "script": "form-add/scripts/form-add",
+      "args": {
+        "-ObjectPath": "{workDir}/DataProcessors/Проба.xml",
+        "-FormName": "Форма",
+        "-Purpose": "Object"
+      }
+    }
+  ],
+  "params": {
+    "outputPath": "DataProcessors/Проба/Forms/Форма/Ext/Form.xml"
+  },
+  "input": {
+    "attributes": [
+      {
+        "name": "Объект",
+        "type": "DataProcessorObject.Проба",
+        "main": true
+      }
+    ],
+    "elements": [
+      {
+        "input": "Результат",
+        "path": "Объект.Результат",
+        "readOnly": "yes"
+      }
+    ]
+  },
+  "expectError": true,
+  "expect": {
+    "stderrContains": "readOnly = \"yes\": expected true or false"
+  },
+  "noSnapshot": "отказ — проверяется сообщение"
+}

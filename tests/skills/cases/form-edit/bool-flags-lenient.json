@@ -1,0 +1,23 @@
+{
+  "name": "Булевы флаги строкой, числом и по-русски в set (\"да\") — как true, одинаково в портах",
+  "setup": "fixture:move-form",
+  "params": {
+    "formPath": "Documents/ЗаказТест/Forms/ФормаДокумента/Ext/Form.xml"
+  },
+  "input": {
+    "elements": [
+      {
+        "set": "Комментарий",
+        "multiLine": "да"
+      }
+    ]
+  },
+  "expect": {
+    "fileContains": {
+      "file": "Documents/ЗаказТест/Forms/ФормаДокумента/Ext/Form.xml",
+      "text": [
+        "<MultiLine>true</MultiLine>"
+      ]
+    }
+  }
+}

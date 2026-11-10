@@ -1,4 +1,4 @@
-# form-edit v1.58 — Edit 1C managed form elements (Python port)
+# form-edit v1.59 — Edit 1C managed form elements (Python port)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import bisect
@@ -18,6 +18,42 @@ sys.stderr.reconfigure(encoding="utf-8")
 
 # Регистронезависимый ввод — паритет с PS1: в PowerShell имена параметров и [ValidateSet]
 # регистр не различают, в argparse совпадение точное.
+
+# --- Булевы флаги DSL: прощающий ввод ---
+# Флаг строкой или числом — однозначная ошибка автора JSON: true|да|истина / false|нет|ложь (без
+# регистра) и 1/0 приводим к bool молча. Иное — ошибка без записи: молчаливое «false» из «yes»
+# хуже отказа. Без общего читателя порты расходились: PS (-eq) принимал "false", py (is) — нет.
+def to_dsl_bool(value, key, default):
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        t = value.strip().lower()
+        if t in ('true', 'да', 'истина'):
+            return True
+        if t in ('false', 'нет', 'ложь'):
+            return False
+    elif isinstance(value, (int, float)):
+        if value == 1:
+            return True
+        if value == 0:
+            return False
+    shown = f'"{value}"' if isinstance(value, str) else f"{value}"
+    print(f"[ERROR] {key} = {shown}: expected true or false", file=sys.stderr)
+    sys.exit(1)
+
+
+def get_dsl_bool(obj, keys, default):
+    """Первый найденный ключ из keys (синонимы, без регистра) → to_dsl_bool; не dict / нет ключа → default."""
+    if not isinstance(obj, dict):
+        return default
+    for k in keys:
+        for actual in obj:
+            if isinstance(actual, str) and actual.lower() == k.lower():
+                return to_dsl_bool(obj[actual], k, default)
+    return default
+
 
 def parse_json_input(text, source, expected=None, inline=False):
     """Разбор пользовательского JSON: одна строка в stderr вместо traceback (issue #80).
@@ -2764,7 +2800,7 @@ def emit_filter_item(lines, item, indent):
         g = str(item['group'])
         group_type = {'And': 'AndGroup', 'Or': 'OrGroup', 'Not': 'NotGroup'}.get(g, g + 'Group')
         lines.append(f'{indent}<dcsset:item xsi:type="dcsset:FilterItemGroup">')
-        if item.get('use') is False:
+        if (not get_dsl_bool(item, ['use'], True)):
             lines.append(f'{indent}\t<dcsset:use>false</dcsset:use>')   # группа отключена (перед groupType)
         lines.append(f'{indent}\t<dcsset:groupType>{group_type}</dcsset:groupType>')
         if item.get('items'):
@@ -2772,7 +2808,7 @@ def emit_filter_item(lines, item, indent):
                 if isinstance(sub, str):
                     parsed = parse_filter_shorthand(sub)
                     obj = {'field': parsed['field'], 'op': parsed['op']}
-                    if parsed['use'] is False:
+                    if not get_dsl_bool(parsed, ['use'], True):
                         obj['use'] = False
                     if parsed['value'] is not None:
                         obj['value'] = parsed['value']
@@ -2797,7 +2833,7 @@ def emit_filter_item(lines, item, indent):
         return
 
     lines.append(f'{indent}<dcsset:item xsi:type="dcsset:FilterItemComparison">')
-    if item.get('use') is False:
+    if (not get_dsl_bool(item, ['use'], True)):
         lines.append(f'{indent}\t<dcsset:use>false</dcsset:use>')
     lines.append(f'{indent}\t<dcsset:left xsi:type="dcscor:Field">{esc_xml_text(str(item.get("field", "")))}</dcsset:left>')
     # Регистронезависимый лукап (зеркало PS): Like/LIKE/ПОДОБНО → канон; иначе — как есть
@@ -2868,7 +2904,7 @@ def emit_filter(lines, items, indent, block_view_mode=None, block_user_setting_i
         if isinstance(item, str):
             parsed = parse_filter_shorthand(item)
             obj = {'field': parsed['field'], 'op': parsed['op']}
-            if parsed['use'] is False:
+            if not get_dsl_bool(parsed, ['use'], True):
                 obj['use'] = False
             if parsed['value'] is not None:
                 obj['value'] = parsed['value']
@@ -2925,7 +2961,7 @@ def emit_order(lines, items, indent, skip_auto=False, block_view_mode=None, bloc
             elif re.match(r'(?i)^(asc|возр)', direction):
                 direction = 'Asc'
             lines.append(f'{indent}\t<dcsset:item xsi:type="dcsset:OrderItemField">')
-            if item.get('use') is False:
+            if (not get_dsl_bool(item, ['use'], True)):
                 lines.append(f'{indent}\t\t<dcsset:use>false</dcsset:use>')
             lines.append(f'{indent}\t\t<dcsset:field>{esc_xml_text(str(item.get("field", "")))}</dcsset:field>')
             lines.append(f'{indent}\t\t<dcsset:orderType>{direction}</dcsset:orderType>')
@@ -2956,13 +2992,13 @@ def emit_appearance_value(lines, key, val, indent):
     inner_val = val
     nested_items = None
     if is_top_level_line:
-        if _has_key(val, 'use') and (_get(val, 'use') is False):
+        if _has_key(val, 'use') and (not to_dsl_bool(_get(val, 'use'), 'use', True)):
             use_wrapper = True
         if _has_key(val, 'items'):
             nested_items = _get(val, 'items')
     elif _has_key(val, 'value') and isinstance(val, dict):
         inner_val = _get(val, 'value')
-        if _has_key(val, 'use') and (_get(val, 'use') is False):
+        if _has_key(val, 'use') and (not to_dsl_bool(_get(val, 'use'), 'use', True)):
             use_wrapper = True
         if _has_key(val, 'items'):
             nested_items = _get(val, 'items')
@@ -3132,7 +3168,7 @@ def emit_calc_fields(lines, calc_fields, indent):
             type_str = str(type_str) if type_str else None
             ur = cf.get('useRestriction') or cf.get('restrict')
             if isinstance(ur, dict):
-                restrict = [k for k in ('field', 'condition', 'group', 'order') if ur.get(k)]
+                restrict = [k for k in ('field', 'condition', 'group', 'order') if to_dsl_bool(ur.get(k), k, False)]
             elif isinstance(ur, str):
                 restrict = [_CALC_RESTRICT_MAP.get(t.strip().lstrip('#'), t.strip().lstrip('#')) for t in ur.split() if t.strip()]
             elif isinstance(ur, list):
@@ -3181,7 +3217,7 @@ def parse_restrict(ur):
     if not ur:
         return []
     if isinstance(ur, dict):
-        return [k for k in ('field', 'condition', 'group', 'order') if ur.get(k)]
+        return [k for k in ('field', 'condition', 'group', 'order') if to_dsl_bool(ur.get(k), k, False)]
     if isinstance(ur, str):
         return [_CALC_RESTRICT_MAP.get(t.strip().lstrip('#'), t.strip().lstrip('#')) for t in ur.split() if t.strip()]
     if isinstance(ur, list):
@@ -3208,7 +3244,7 @@ def emit_conditional_appearance(lines, items, indent, block_view_mode=None, bloc
     lines.append(f'{indent}<{wrap_tag}>')
     for ca in (items or []):
         lines.append(f'{indent}\t<dcsset:item>')
-        if ca.get('use') is False:
+        if (not get_dsl_bool(ca, ['use'], True)):
             lines.append(f'{indent}\t\t<dcsset:use>false</dcsset:use>')
         if ca.get('selection') and len(ca['selection']) > 0:
             lines.append(f'{indent}\t\t<dcsset:selection>')
@@ -3737,7 +3773,7 @@ def _has_real_markup(text):
 def resolve_ml_formatted(val):
     # {text, formatted} = явный override; строка/мапа → авто-детект formatted
     if isinstance(val, dict) and 'text' in val:
-        return val['text'], bool(val.get('formatted'))
+        return val['text'], to_dsl_bool(val.get('formatted'), 'formatted', False)
     return val, _has_real_markup(val)
 
 
@@ -3764,7 +3800,7 @@ def emit_companion(lines, tag, name, indent, content=None):
     if isinstance(content, dict) and any(k in content for k in COMPANION_STRUCT_KEYS):
         # own-content ПЕРЕД Title (в корпусе layout-first 582 vs 10).
         emit_common_flags(lines, content, inner)
-        if content.get('hyperlink') is True:
+        if get_dsl_bool(content, ['hyperlink'], False):
             lines.append(f'{inner}<Hyperlink>true</Hyperlink>')
         emit_layout(lines, content, inner)
         emit_appearance(lines, content, inner, 'decoration')
@@ -3791,7 +3827,7 @@ def emit_companion_panel(lines, tag, name, indent, panel):
         children = panel
     elif panel is not None:
         if panel.get('autofill') is not None:
-            autofill = bool(panel.get('autofill'))
+            autofill = to_dsl_bool(panel.get('autofill'), 'autofill', False)
         if panel.get('horizontalAlign'):
             halign = str(panel.get('horizontalAlign'))
         children = panel.get('children')
@@ -3904,7 +3940,7 @@ def emit_xr_flag(lines, tag, val, indent):
         lines.append(f"{indent}</{tag}>")
         return
     # объектная форма { common, roles }
-    common = bool(val.get('common')) if val.get('common') is not None else False
+    common = to_dsl_bool(val.get('common'), 'common', False)
     lines.append(f"{indent}<{tag}>")
     lines.append(f"{indent}\t<xr:Common>{'true' if common else 'false'}</xr:Common>")
     roles = val.get('roles')
@@ -3915,18 +3951,18 @@ def emit_xr_flag(lines, tag, val, indent):
             rn = re.sub(r'^(Role|Роль)\.', '', rname)
             if not re.match(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$', rn):
                 rn = "Role." + rn
-            lines.append(f"{indent}\t<xr:Value name=\"{rn}\">{'true' if rval else 'false'}</xr:Value>")
+            lines.append(f"{indent}\t<xr:Value name=\"{rn}\">{'true' if to_dsl_bool(rval, str(rname), False) else 'false'}</xr:Value>")
     lines.append(f"{indent}</{tag}>")
 
 
 def emit_common_flags(lines, el, indent):
-    if el.get('visible') is False or el.get('hidden') is True:
+    if (not get_dsl_bool(el, ['visible'], True)) or get_dsl_bool(el, ['hidden'], False):
         lines.append(f"{indent}<Visible>false</Visible>")
     if el.get('userVisible') is not None:
         emit_xr_flag(lines, 'UserVisible', el.get('userVisible'), indent)
-    if el.get('enabled') is False or el.get('disabled') is True:
+    if (not get_dsl_bool(el, ['enabled'], True)) or get_dsl_bool(el, ['disabled'], False):
         lines.append(f"{indent}<Enabled>false</Enabled>")
-    if el.get('readOnly') is True:
+    if get_dsl_bool(el, ['readOnly'], False):
         lines.append(f"{indent}<ReadOnly>true</ReadOnly>")
 
 
@@ -3934,10 +3970,10 @@ def emit_common_flags(lines, el, indent):
 
 
 def emit_common_element_props(lines, el, indent):
-    if el.get('defaultItem') is True:
+    if get_dsl_bool(el, ['defaultItem'], False):
         lines.append(f"{indent}<DefaultItem>true</DefaultItem>")
     if 'skipOnInput' in el and el['skipOnInput'] is not None:
-        siv = 'true' if el['skipOnInput'] is True else 'false'
+        siv = 'true' if get_dsl_bool(el, ['skipOnInput'], False) else 'false'
         lines.append(f"{indent}<SkipOnInput>{siv}</SkipOnInput>")
     # EnableStartDrag — фактическое значение (платформа эмитит и явный false, напр. SpreadSheet)
     if el.get('enableStartDrag') is not None:
@@ -3972,7 +4008,7 @@ def emit_picture_ref(lines, val, pic_tag, indent):
         src, lt = val, False
     else:
         src = val.get('src')
-        lt = val.get('loadTransparent') is True
+        lt = get_dsl_bool(val, ['loadTransparent'], False)
         tpx = val.get('transparentPixel')
     if not src:
         return
@@ -4010,12 +4046,12 @@ def emit_command_picture(lines, pic, elem_lt, indent):
     else:
         src = pic.get('src')
         if pic.get('loadTransparent') is not None:
-            lt = bool(pic.get('loadTransparent'))
+            lt = to_dsl_bool(pic.get('loadTransparent'), 'loadTransparent', False)
         tpx = pic.get('transparentPixel')
     if not src:
         return
     if lt is None and elem_lt is not None:
-        lt = bool(elem_lt)
+        lt = to_dsl_bool(elem_lt, 'loadTransparent', False)
     src_str = str(src)
     lines.append(f'{indent}<Picture>')
     if src_str.startswith('abs:'):
@@ -4403,13 +4439,13 @@ def emit_layout(lines, el, indent, skip_height=False, multi_line_default=False):
         lines.append(f'{indent}</CommandSet>')
     emit_common_element_props(lines, el, indent)
     if 'autoMaxWidth' in el:
-        if el.get('autoMaxWidth') is False:
+        if (not get_dsl_bool(el, ['autoMaxWidth'], True)):
             lines.append(f"{indent}<AutoMaxWidth>false</AutoMaxWidth>")
     elif multi_line_default:
         lines.append(f"{indent}<AutoMaxWidth>false</AutoMaxWidth>")
     if el.get('maxWidth') is not None:
         lines.append(f"{indent}<MaxWidth>{el['maxWidth']}</MaxWidth>")
-    if el.get('autoMaxHeight') is False:
+    if (not get_dsl_bool(el, ['autoMaxHeight'], True)):
         lines.append(f"{indent}<AutoMaxHeight>false</AutoMaxHeight>")
     if el.get('maxHeight') is not None:
         lines.append(f"{indent}<MaxHeight>{el['maxHeight']}</MaxHeight>")
@@ -5018,7 +5054,7 @@ def emit_group(lines, el, name, eid, indent):
     elif el.get('behavior') and behavior_val not in bmap:
         _warn_unrecognized('behavior', el.get('behavior'), ('collapsible', 'popup'), name)
     # Collapsed — у Collapsible и PopUp (не привязано к одному behavior)
-    if el.get('collapsed') is True:
+    if get_dsl_bool(el, ['collapsed'], False):
         lines.append(f'{inner}<Collapsed>true</Collapsed>')
 
     # Representation
@@ -5053,7 +5089,7 @@ def emit_group(lines, el, name, eid, indent):
         emit_mltext(lines, inner, 'CollapsedRepresentationTitle', el['collapsedTitle'])
 
     # United
-    if el.get('united') is False:
+    if (not get_dsl_bool(el, ['united'], True)):
         lines.append(f'{inner}<United>false</United>')
 
     # Формат значения пути к данным заголовка (<Format>; парный к titleDataPath группы)
@@ -5162,7 +5198,7 @@ def emit_input(lines, el, name, eid, indent):
     if el.get('editMode'):
         lines.append(f'{inner}<EditMode>{el["editMode"]}</EditMode>')
     emit_column_pics(lines, el, inner)
-    if el.get('textEdit') is False:
+    if (not get_dsl_bool(el, ['textEdit'], True)):
         lines.append(f'{inner}<TextEdit>false</TextEdit>')
     # InputField-специфичные скаляры (захват «как есть»: платформа эмитит явное не-дефолтное значение)
     for key, tag in (('wrap', 'Wrap'), ('openButton', 'OpenButton'), ('listChoiceMode', 'ListChoiceMode'),
@@ -5189,7 +5225,7 @@ def emit_input(lines, el, name, eid, indent):
     if el.get('choiceButtonRepresentation'):
         lines.append(f'{inner}<ChoiceButtonRepresentation>{el["choiceButtonRepresentation"]}</ChoiceButtonRepresentation>')
     emit_picture_ref(lines, el.get('choiceButtonPicture'), 'ChoiceButtonPicture', inner)
-    emit_layout(lines, el, inner, multi_line_default=(el.get('multiLine') is True))
+    emit_layout(lines, el, inner, multi_line_default=(get_dsl_bool(el, ['multiLine'], False)))
 
     if el.get('inputHint'):
         emit_mltext(lines, inner, 'InputHint', el['inputHint'])
@@ -5322,7 +5358,7 @@ def emit_decoration_title(lines, el, name, indent, auto=False):
     if title_val:
         text, fmt = resolve_ml_formatted(title_val)
         if 'formatted' in el:
-            fmt = bool(el['formatted'])
+            fmt = to_dsl_bool(el['formatted'], 'formatted', False)
         lines.append(f'{indent}<Title formatted="{"true" if fmt else "false"}">')
         emit_ml_items(lines, f'{indent}\t', text)
         lines.append(f'{indent}</Title>')
@@ -5339,7 +5375,7 @@ def emit_label(lines, el, name, eid, indent):
     # Порядок как у платформы: own-content (флаги/hyperlink/layout/оформление) ПЕРЕД Title
     # (корпус layout-first 16970 vs 44 — заодно убирает шум атрибуции харнесса на многострочном Title).
     emit_common_flags(lines, el, inner)
-    if el.get('hyperlink') is True:
+    if get_dsl_bool(el, ['hyperlink'], False):
         lines.append(f'{inner}<Hyperlink>true</Hyperlink>')
     emit_layout(lines, el, inner)
     emit_appearance(lines, el, inner, 'decoration')
@@ -5377,7 +5413,7 @@ def emit_label_field(lines, el, name, eid, indent):
         lines.append(f'{inner}<PasswordMode>{"true" if el["passwordMode"] else "false"}</PasswordMode>')
     emit_column_pics(lines, el, inner)
     # ВНИМАНИЕ: у LabelField платформенный тег <Hiperlink> (опечатка 1С), не <Hyperlink>.
-    if el.get('hyperlink') is True:
+    if get_dsl_bool(el, ['hyperlink'], False):
         lines.append(f'{inner}<Hiperlink>true</Hiperlink>')
     emit_layout(lines, el, inner)
 
@@ -5410,7 +5446,7 @@ def emit_label_field(lines, el, name, eid, indent):
 def emit_dynlist_table_block(lines, el, indent):
     # (useAlternationRowColor — общее свойство таблицы, эмитится в emit_table)
     # Group A (гарант. блок): дефолт + override
-    ar = 'true' if el.get('autoRefresh') is True else 'false'
+    ar = 'true' if get_dsl_bool(el, ['autoRefresh'], False) else 'false'
     lines.append(f'{indent}<AutoRefresh>{ar}</AutoRefresh>')
     arp = el['autoRefreshPeriod'] if el.get('autoRefreshPeriod') is not None else 60
     lines.append(f'{indent}<AutoRefreshPeriod>{arp}</AutoRefreshPeriod>')
@@ -5421,18 +5457,18 @@ def emit_dynlist_table_block(lines, el, indent):
     lines.append(f'{indent}</Period>')
     cfi = el.get('choiceFoldersAndItems') or 'Items'
     lines.append(f'{indent}<ChoiceFoldersAndItems>{cfi}</ChoiceFoldersAndItems>')
-    rcr = 'true' if el.get('restoreCurrentRow') is True else 'false'
+    rcr = 'true' if get_dsl_bool(el, ['restoreCurrentRow'], False) else 'false'
     lines.append(f'{indent}<RestoreCurrentRow>{rcr}</RestoreCurrentRow>')
     lines.append(f'{indent}<TopLevelParent xsi:nil="true"/>')
-    sr = 'false' if el.get('showRoot') is False else 'true'
+    sr = 'false' if (not get_dsl_bool(el, ['showRoot'], True)) else 'true'
     lines.append(f'{indent}<ShowRoot>{sr}</ShowRoot>')
-    arc = 'true' if el.get('allowRootChoice') is True else 'false'
+    arc = 'true' if get_dsl_bool(el, ['allowRootChoice'], False) else 'false'
     lines.append(f'{indent}<AllowRootChoice>{arc}</AllowRootChoice>')
     uodc = el.get('updateOnDataChange') or 'Auto'
     lines.append(f'{indent}<UpdateOnDataChange>{uodc}</UpdateOnDataChange>')
     if el.get('userSettingsGroup'):
         lines.append(f'{indent}<UserSettingsGroup>{el["userSettingsGroup"]}</UserSettingsGroup>')
-    agcru = 'false' if el.get('allowGettingCurrentRowURL') is False else 'true'
+    agcru = 'false' if (not get_dsl_bool(el, ['allowGettingCurrentRowURL'], True)) else 'true'
     lines.append(f'{indent}<AllowGettingCurrentRowURL>{agcru}</AllowGettingCurrentRowURL>')
 
 
@@ -5453,10 +5489,10 @@ def emit_table(lines, el, name, eid, indent):
         lines.append(f'{inner}<TitleLocation>{map_title_loc(el["titleLocation"])}</TitleLocation>')
     # ChangeRowSet/Order — явное значение (в т.ч. false: платформа пишет его на ValueTable)
     if 'changeRowSet' in el and el['changeRowSet'] is not None:
-        lines.append(f'{inner}<ChangeRowSet>{"true" if el["changeRowSet"] is True else "false"}</ChangeRowSet>')
+        lines.append(f'{inner}<ChangeRowSet>{"true" if get_dsl_bool(el, ['changeRowSet'], False) else "false"}</ChangeRowSet>')
     if 'changeRowOrder' in el and el['changeRowOrder'] is not None:
-        lines.append(f'{inner}<ChangeRowOrder>{"true" if el["changeRowOrder"] is True else "false"}</ChangeRowOrder>')
-    if el.get('autoInsertNewRow') is True:
+        lines.append(f'{inner}<ChangeRowOrder>{"true" if get_dsl_bool(el, ['changeRowOrder'], False) else "false"}</ChangeRowOrder>')
+    if get_dsl_bool(el, ['autoInsertNewRow'], False):
         lines.append(f'{inner}<AutoInsertNewRow>true</AutoInsertNewRow>')
     # RowFilter — nil-плейсхолдер (ключ присутствует → эмитим)
     if 'rowFilter' in el:
@@ -5465,9 +5501,9 @@ def emit_table(lines, el, name, eid, indent):
     # эмитится generic-ом emit_layout ниже). Таблица может нести оба (237 в корпусе).
     if el.get('heightInTableRows'):
         lines.append(f'{inner}<HeightInTableRows>{el["heightInTableRows"]}</HeightInTableRows>')
-    if el.get('header') is False:
+    if (not get_dsl_bool(el, ['header'], True)):
         lines.append(f'{inner}<Header>false</Header>')
-    if el.get('footer') is True:
+    if get_dsl_bool(el, ['footer'], False):
         lines.append(f'{inner}<Footer>true</Footer>')
 
     if el.get('commandBarLocation'):
@@ -5475,12 +5511,12 @@ def emit_table(lines, el, name, eid, indent):
     if el.get('searchStringLocation'):
         lines.append(f'{inner}<SearchStringLocation>{el["searchStringLocation"]}</SearchStringLocation>')
 
-    if el.get('choiceMode') is True:
+    if get_dsl_bool(el, ['choiceMode'], False):
         lines.append(f'{inner}<ChoiceMode>true</ChoiceMode>')
     # Скаляры таблицы (захват «как есть»). Autofill — СВОЁ свойство таблицы (≠ AutoCommandBar autofill = tableAutofill).
     if el.get('autofill') is not None:
         lines.append(f'{inner}<Autofill>{"true" if el["autofill"] else "false"}</Autofill>')
-    if el.get('multipleChoice') is True:
+    if get_dsl_bool(el, ['multipleChoice'], False):
         lines.append(f'{inner}<MultipleChoice>true</MultipleChoice>')
     if el.get('searchOnInput'):
         lines.append(f'{inner}<SearchOnInput>{el["searchOnInput"]}</SearchOnInput>')
@@ -5491,15 +5527,15 @@ def emit_table(lines, el, name, eid, indent):
         lines.append(f'{inner}<HeaderHeight>{el["headerHeight"]}</HeaderHeight>')
     if el.get('footerHeight') is not None:
         lines.append(f'{inner}<FooterHeight>{el["footerHeight"]}</FooterHeight>')
-    if el.get('useAlternationRowColor') is True:
+    if get_dsl_bool(el, ['useAlternationRowColor'], False):
         lines.append(f'{inner}<UseAlternationRowColor>true</UseAlternationRowColor>')
     if el.get('selectionMode'):
         lines.append(f'{inner}<SelectionMode>{el["selectionMode"]}</SelectionMode>')
     if el.get('rowSelectionMode'):
         lines.append(f'{inner}<RowSelectionMode>{el["rowSelectionMode"]}</RowSelectionMode>')
-    if el.get('verticalLines') is False:
+    if (not get_dsl_bool(el, ['verticalLines'], True)):
         lines.append(f'{inner}<VerticalLines>false</VerticalLines>')
-    if el.get('horizontalLines') is False:
+    if (not get_dsl_bool(el, ['horizontalLines'], True)):
         lines.append(f'{inner}<HorizontalLines>false</HorizontalLines>')
     if el.get('initialTreeView'):
         lines.append(f'{inner}<InitialTreeView>{el["initialTreeView"]}</InitialTreeView>')
@@ -5717,11 +5753,11 @@ def emit_button(lines, el, name, eid, indent, in_cmd_bar=False):
     emit_title(lines, el, name, inner, auto=not (el.get('command') or el.get('commandName') or el.get('stdCommand')))
     emit_common_flags(lines, el, inner)
 
-    if el.get('defaultButton') is True:
+    if get_dsl_bool(el, ['defaultButton'], False):
         lines.append(f'{inner}<DefaultButton>true</DefaultButton>')
     # Check (пометка toggle-кнопки командной панели) — платформа эмитит только true.
     # Ключ 'checked' (не 'check': 'check' — тип-ключ CheckBoxField, был бы конфликт диспетчера типов)
-    if el.get('checked') is True:
+    if get_dsl_bool(el, ['checked'], False):
         lines.append(f'{inner}<Check>true</Check>')
 
     # Picture
@@ -5759,7 +5795,7 @@ def emit_picture_decoration(lines, el, name, eid, indent):
     # Префикс "abs:" → встроенная картинка <xr:Abs>; иначе именованная/стилевая <xr:Ref>.
     if el.get('src'):
         src_str = str(el['src'])
-        lt = 'true' if el.get('loadTransparent') is True else 'false'
+        lt = 'true' if get_dsl_bool(el, ['loadTransparent'], False) else 'false'
         lines.append(f'{inner}<Picture>')
         if src_str.startswith('abs:'):
             lines.append(f'{inner}\t<xr:Abs>{esc_xml_text(src_str[4:])}</xr:Abs>')
@@ -5771,7 +5807,7 @@ def emit_picture_decoration(lines, el, name, eid, indent):
             lines.append(f'{inner}\t<xr:TransparentPixel x="{tpx.get("x")}" y="{tpx.get("y")}"/>')
         lines.append(f'{inner}</Picture>')
 
-    if el.get('hyperlink') is True:
+    if get_dsl_bool(el, ['hyperlink'], False):
         lines.append(f'{inner}<Hyperlink>true</Hyperlink>')
     emit_layout(lines, el, inner)
     # EnableDrag — фактическое значение (декорация-картинка перетаскиваема; декомпилятор ловит generic-ом)
@@ -5805,7 +5841,7 @@ def emit_picture_field(lines, el, name, eid, indent):
     emit_column_pics(lines, el, inner)
     if el.get('titleLocation'):
         lines.append(f'{inner}<TitleLocation>{map_title_loc(el["titleLocation"])}</TitleLocation>')
-    if el.get('hyperlink') is True:
+    if get_dsl_bool(el, ['hyperlink'], False):
         lines.append(f'{inner}<Hyperlink>true</Hyperlink>')
 
     emit_layout(lines, el, inner)
@@ -5948,7 +5984,7 @@ def emit_command_bar(lines, el, name, eid, indent):
     if el.get('commandSource'):
         lines.append(f'{inner}<CommandSource>{el["commandSource"]}</CommandSource>')
 
-    if el.get('autofill') is True:
+    if get_dsl_bool(el, ['autofill'], False):
         lines.append(f'{inner}<Autofill>true</Autofill>')
 
     # CommandBar хранит HorizontalLocation фактически (включая Auto); ≠ дополнениям (Auto=скип)
@@ -6385,14 +6421,14 @@ def emit_data_parameters(lines, items, indent, block_view_mode=None):
             dp = {'parameter': parsed['parameter']}
             if parsed['value'] is not None:
                 dp['value'] = parsed['value']
-            if parsed['use'] is False:
+            if not get_dsl_bool(parsed, ['use'], True):
                 dp['use'] = False
             if parsed['userSettingID']:
                 dp['userSettingID'] = parsed['userSettingID']
             if parsed['viewMode']:
                 dp['viewMode'] = parsed['viewMode']
         lines.append(f'{indent}\t<dcscor:item xsi:type="dcsset:SettingsParameterValue">')
-        if dp.get('use') is False:
+        if (not get_dsl_bool(dp, ['use'], True)):
             lines.append(f'{indent}\t\t<dcscor:use>false</dcscor:use>')
         lines.append(f'{indent}\t\t<dcscor:parameter>{esc_xml_text(str(dp.get("parameter", "")))}</dcscor:parameter>')
         vtype = get_value_kind_type(str(dp.get('valueType') or ''))
@@ -6409,7 +6445,7 @@ def emit_data_parameters(lines, items, indent, block_view_mode=None):
                     lines.append(f'{indent}\t\t<dcscor:value xsi:type="dcscor:DesignTimeValue">{esc_xml_text(normalize_design_time_value(v_str))}</dcscor:value>')
                 else:
                     lines.append(f'{indent}\t\t<dcscor:value xsi:type="xs:string">{esc_xml_text(v_str)}</dcscor:value>')
-        elif dp.get('nilValue') is True:
+        elif get_dsl_bool(dp, ['nilValue'], False):
             lines.append(f'{indent}\t\t<dcscor:value xsi:nil="true"/>')
         elif _test_empty_value(val) and vtype:
             emit_empty_value(lines, vtype, f'{indent}\t\t', tag_prefix='dcscor:', value_list_allowed=False)
@@ -6485,7 +6521,7 @@ def emit_dl_parameter(lines, p, parsed, indent):
     if parsed.get('type'):
         emit_dl_value_type(lines, parsed['type'], ci)
     # value (дефолт nil; при valueListAllowed пустое — опускаем)
-    vla = bool(parsed.get('valueListAllowed'))
+    vla = to_dsl_bool(parsed.get('valueListAllowed'), 'valueListAllowed', False)
     pv = parsed.get('value')
     if isinstance(pv, list):
         for v in pv:
@@ -6504,7 +6540,7 @@ def emit_dl_parameter(lines, p, parsed, indent):
     # useRestriction — ВСЕГДА; дефолт true; false только при явном useRestriction:false.
     ur = True
     if is_obj and 'useRestriction' in p:
-        ur = bool(p['useRestriction'])
+        ur = to_dsl_bool(p['useRestriction'], 'useRestriction', False)
     lines.append(f'{ci}<dcssch:useRestriction>{"true" if ur else "false"}</dcssch:useRestriction>')
     # expression
     expr = str(p['expression']) if (is_obj and p.get('expression')) else None
@@ -6519,17 +6555,17 @@ def emit_dl_parameter(lines, p, parsed, indent):
         lines.append(f'{ci}<dcssch:valueListAllowed>true</dcssch:valueListAllowed>')
     # availableAsField=false (hidden или явный)
     aaf = None
-    if parsed.get('hidden') is True:
+    if get_dsl_bool(parsed, ['hidden'], False):
         aaf = False
     if is_obj and 'availableAsField' in p:
-        aaf = bool(p['availableAsField'])
+        aaf = to_dsl_bool(p['availableAsField'], 'availableAsField', False)
     if aaf is False:
         lines.append(f'{ci}<dcssch:availableAsField>false</dcssch:availableAsField>')
     # inputParameters
     if is_obj and p.get('inputParameters'):
         emit_dl_input_parameters(lines, p['inputParameters'], ci)
     # denyIncompleteValues
-    if is_obj and p.get('denyIncompleteValues') is True:
+    if is_obj and get_dsl_bool(p, ['denyIncompleteValues'], False):
         lines.append(f'{ci}<dcssch:denyIncompleteValues>true</dcssch:denyIncompleteValues>')
     # use
     if is_obj and p.get('use'):
@@ -6555,9 +6591,9 @@ def emit_dl_parameters(lines, params, indent):
             parsed = {'name': str(p.get('name', '')), 'type': resolved_type,
                       'value': p.get('value') if 'value' in p else None,
                       'value_explicit': ('value' in p), 'title': None}
-            if p.get('valueListAllowed') is True:
+            if get_dsl_bool(p, ['valueListAllowed'], False):
                 parsed['valueListAllowed'] = True
-            if p.get('hidden') is True:
+            if get_dsl_bool(p, ['hidden'], False):
                 parsed['hidden'] = True
         emit_dl_parameter(lines, p, parsed, indent)
 
@@ -6618,7 +6654,7 @@ def emit_attributes(lines, attrs, indent, conditional_appearance=None):
             ctype = 'd4p1:GanttChart' if 'GanttChart' in str(attr.get('type', '')) else 'd4p1:Chart'
             emit_chart_settings(lines, attr['chart'], inner, ctype)
 
-        if attr.get('main') is True:
+        if get_dsl_bool(attr, ['main'], False):
             lines.append(f'{inner}<MainAttribute>true</MainAttribute>')
         # Доступ по ролям: просмотр/редактирование (порядок схемы: View → Edit, после MainAttribute)
         if attr.get('view') is not None:
@@ -6626,11 +6662,11 @@ def emit_attributes(lines, attrs, indent, conditional_appearance=None):
         if attr.get('edit') is not None:
             emit_xr_flag(lines, 'Edit', attr.get('edit'), inner)
         main_saved = False
-        if attr.get('main') is True and attr.get('type'):
+        if get_dsl_bool(attr, ['main'], False) and attr.get('type'):
             t = str(attr['type'])
             main_saved = bool(re.match(r'^(CatalogObject|DocumentObject|ChartOfAccountsObject|ChartOfCalculationTypesObject|ChartOfCharacteristicTypesObject|ExchangePlanObject|BusinessProcessObject|TaskObject)\.', t)) or ('RecordManager.' in t)
         # Явный ключ savedData побеждает (в т.ч. False → суппресс авто-вывода main_saved); нет ключа → авто.
-        emit_saved = (attr['savedData'] is True) if 'savedData' in attr else main_saved
+        emit_saved = get_dsl_bool(attr, ['savedData'], False) if 'savedData' in attr else main_saved
         if emit_saved:
             lines.append(f'{inner}<SavedData>true</SavedData>')
         # Save: сохранение значения реквизита в пользовательских настройках. true → <Field>имя</Field>;
@@ -6682,7 +6718,7 @@ def emit_attributes(lines, attrs, indent, conditional_appearance=None):
             if fld not in ua_fields:
                 ua_fields.append(fld)
         for col in (attr.get('columns') or []):
-            if col.get('useAlways') is True:
+            if get_dsl_bool(col, ['useAlways'], False):
                 fld = f'{attr_name}.{col["name"]}'
                 if fld not in ua_fields:
                     ua_fields.append(fld)
@@ -6748,7 +6784,7 @@ def emit_attributes(lines, attrs, indent, conditional_appearance=None):
                 mq = 'true' if has_query else 'false'
             lines.append(f'{si}<ManualQuery>{mq}</ManualQuery>')
             # DynamicDataRead: дефолт true; false только при явном отключении
-            ddr = 'false' if s.get('dynamicDataRead') is False else 'true'
+            ddr = 'false' if (not get_dsl_bool(s, ['dynamicDataRead'], True)) else 'true'
             lines.append(f'{si}<DynamicDataRead>{ddr}</DynamicDataRead>')
             if has_query:
                 qtext = resolve_text_from_file(str(s['query']), QUERY_BASE_DIR)
@@ -6759,7 +6795,7 @@ def emit_attributes(lines, attrs, indent, conditional_appearance=None):
                     # Тип поля набора: DataSetFieldField (дефолт) vs DataSetFieldNestedDataSet
                     # (поле-вложенный набор = реквизит табличной части; маркер nested).
                     # folder = папка-группировка полей (DataSetFieldFolder, без <field>); nested = вложенный набор.
-                    is_folder = bool(fld.get('folder'))
+                    is_folder = to_dsl_bool(fld.get('folder'), 'folder', False)
                     ftype = 'DataSetFieldNestedDataSet' if fld.get('nested') else ('DataSetFieldFolder' if is_folder else 'DataSetFieldField')
                     lines.append(f'{si}<Field xsi:type="dcssch:{ftype}">')
                     # dataPath: явный (включая "" → self-closing) побеждает; иначе fallback на field.
@@ -6893,7 +6929,7 @@ def emit_parameters(lines, params, indent):
 
         emit_type(lines, str(param.get('type', '')), inner)
 
-        if param.get('key') is True:
+        if get_dsl_bool(param, ['key'], False):
             lines.append(f'{inner}<KeyParameter>true</KeyParameter>')
 
         lines.append(f'{indent}\t</Parameter>')
@@ -6959,7 +6995,7 @@ def emit_commands(lines, cmds, indent):
         if cmd.get('representation'):
             lines.append(f'{inner}<Representation>{cmd["representation"]}</Representation>')
 
-        if cmd.get('modifiesSavedData') is True:
+        if get_dsl_bool(cmd, ['modifiesSavedData'], False):
             lines.append(f'{inner}<ModifiesSavedData>true</ModifiesSavedData>')
 
         if cmd.get('currentRowUse'):
@@ -7480,9 +7516,7 @@ def resolve_position(op, ctx, required):
     after = op.get("after")
     before = op.get("before")
     into = op.get("into")
-    if "first" in op and not isinstance(op.get("first"), bool):
-        fail(f"{ctx}: first — true или false")
-    first = op.get("first") is True
+    first = get_dsl_bool(op, ['first'], False)
     if after and before:
         fail(f"{ctx}: укажи что-то одно — after или before")
     anchor_name = str(after) if after else (str(before) if before else None)
@@ -7698,10 +7732,9 @@ def invoke_auto_cmd_bar(op, idx):
         fail(f"{ctx}: у формы нет командной панели")
     assert_op_keys(op, ['autoCmdBar', 'children', 'autofill', 'horizontalAlign'], ctx)
     if 'autofill' in op:
-        if not isinstance(op.get('autofill'), bool):
-            fail(f"{ctx}: autofill — true или false")
-        set_value_tag(acb_node, 'Autofill', 'true' if op['autofill'] else 'false')
-        op_log.append(f"  * {acb_node.get('name')}: autofill={'true' if op['autofill'] else 'false'} → Autofill")
+        af = get_dsl_bool(op, ['autofill'], False)
+        set_value_tag(acb_node, 'Autofill', 'true' if af else 'false')
+        op_log.append(f"  * {acb_node.get('name')}: autofill={'true' if af else 'false'} → Autofill")
         changed_count += 1
     if op.get('horizontalAlign'):
         set_simple_tag(acb_node, 'HorizontalAlign', str(op['horizontalAlign']))
@@ -8119,8 +8152,7 @@ def invoke_set(op, idx):
                 shown = v if isinstance(v, str) else " ".join(f"{k2}:{v2}" for k2, v2 in v.items())
                 op_log.append(f"  * {n}: {key}=\"{shown}\" → {tag}")
             elif kind == 'bool':
-                if not isinstance(v, bool):
-                    fail(f"{c}: {key} — true или false")
+                v = to_dsl_bool(v, key, False)
                 orig = 'true' if v else 'false'
                 if spec.get('Invert'):
                     v = not v
@@ -9745,7 +9777,7 @@ def add_form_attribute(attr, idx):
         if (a.get('name') or '').lower() == str(attr['name']).lower():
             print(f"[ERROR] Attribute '{attr['name']}' already exists in form — attribute names must be unique; to change it: {{ \"set\": \"{attr['name']}\", … }}")
             sys.exit(1)
-    if attr.get("main") is True:
+    if get_dsl_bool(attr, ['main'], False):
         for m in attrs_section.findall("f:Attribute/f:MainAttribute", NS):
             if (m.text or '').strip() == 'true':
                 fail(f"attributes: '{attr['name']}' — у формы уже есть основной реквизит '{m.getparent().get('name')}'")
@@ -10348,9 +10380,7 @@ def get_rename_args(op, section, idx):
         fail(f"{c}: '{new}' — не имя: буквы, цифры и _, первая не цифра")
     in_module = False
     if 'renameInModule' in op:
-        if not isinstance(op.get('renameInModule'), bool):
-            fail(f"{c}: renameInModule — true или false")
-        in_module = op.get('renameInModule')
+        in_module = get_dsl_bool(op, ['renameInModule'], False)
     return {'C': c, 'Old': str(op.get('rename')), 'New': new, 'InModule': in_module}
 
 

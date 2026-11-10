@@ -1,0 +1,59 @@
+{
+  "name": "Булевы флаги элемента строкой, числом и по-русски (\"да\", 1, \"TRUE\") — как true, одинаково в портах",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "DataProcessor",
+        "name": "Проба",
+        "attributes": [
+          "Результат: String"
+        ]
+      },
+      "args": {
+        "-JsonPath": "{inputFile}",
+        "-OutputDir": "{workDir}"
+      }
+    },
+    {
+      "script": "form-add/scripts/form-add",
+      "args": {
+        "-ObjectPath": "{workDir}/DataProcessors/Проба.xml",
+        "-FormName": "Форма",
+        "-Purpose": "Object"
+      }
+    }
+  ],
+  "params": {
+    "outputPath": "DataProcessors/Проба/Forms/Форма/Ext/Form.xml"
+  },
+  "validatePath": "DataProcessors/Проба/Forms/Форма/Ext/Form.xml",
+  "input": {
+    "attributes": [
+      {
+        "name": "Объект",
+        "type": "DataProcessorObject.Проба",
+        "main": true
+      }
+    ],
+    "elements": [
+      {
+        "input": "Результат",
+        "path": "Объект.Результат",
+        "multiLine": "да",
+        "readOnly": 1,
+        "skipOnInput": "TRUE"
+      }
+    ]
+  },
+  "expect": {
+    "fileContains": {
+      "file": "DataProcessors/Проба/Forms/Форма/Ext/Form.xml",
+      "text": [
+        "<MultiLine>true</MultiLine>",
+        "<ReadOnly>true</ReadOnly>",
+        "<SkipOnInput>true</SkipOnInput>"
+      ]
+    }
+  }
+}

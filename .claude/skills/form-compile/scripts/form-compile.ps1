@@ -1,4 +1,4 @@
-﻿# form-compile v1.242 — Compile 1C managed form from JSON or object metadata
+﻿# form-compile v1.243 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -24,6 +24,41 @@ $ErrorActionPreference = "Stop"
 # Возврат через запятую: без неё одноэлементный JSON-массив разворачивался бы в скаляр
 # вторым анруллингом. Не Write-Output -NoEnumerate: pwsh 7.6 заворачивает им в List
 # и одиночный объект (issue #136).
+# --- Булевы флаги DSL: прощающий ввод ---
+# Флаг строкой или числом — однозначная ошибка автора JSON: true|да|истина / false|нет|ложь (без
+# регистра) и 1/0 приводим к bool молча. Иное — ошибка без записи: молчаливое «false» из «yes»
+# хуже отказа. Без общего читателя порты расходились: PS (-eq) принимал "false", py (is) — нет.
+function ConvertTo-DslBool {
+	param($Value, [string]$Key, [bool]$Default)
+	if ($null -eq $Value) { return $Default }
+	if ($Value -is [bool]) { return $Value }
+	if ($Value -is [string]) {
+		$t = $Value.Trim().ToLowerInvariant()
+		if (@('true', 'да', 'истина') -ccontains $t) { return $true }
+		if (@('false', 'нет', 'ложь') -ccontains $t) { return $false }
+	} elseif ($Value -is [int] -or $Value -is [long] -or $Value -is [double] -or $Value -is [decimal]) {
+		if ($Value -eq 1) { return $true }
+		if ($Value -eq 0) { return $false }
+	}
+	$shown = if ($Value -is [string]) { '"' + $Value + '"' } else { "$Value" }
+	[Console]::Error.WriteLine("[ERROR] $Key = ${shown}: expected true or false")
+	exit 1
+}
+
+# Первый найденный ключ из $Keys (синонимы, без регистра) → ConvertTo-DslBool; не объект / нет ключа → $Default.
+function Get-DslBool {
+	param($Obj, [string[]]$Keys, [bool]$Default)
+	if ($null -eq $Obj -or $Obj -is [string] -or $Obj -is [ValueType]) { return $Default }
+	foreach ($k in $Keys) {
+		if ($Obj -is [System.Collections.IDictionary]) {
+			if ($Obj.Contains($k)) { return (ConvertTo-DslBool $Obj[$k] $k $Default) }
+		} elseif ($Obj.PSObject.Properties[$k]) {
+			return (ConvertTo-DslBool $Obj.PSObject.Properties[$k].Value $k $Default)
+		}
+	}
+	return $Default
+}
+
 function ConvertFrom-JsonInput([string]$text, [string]$source, [string]$expected, [switch]$Inline) {
 	try {
 		# PS 5.1 на пустой строке отдаёт $null, а не ошибку — навык уходил дальше с $null,
@@ -761,7 +796,7 @@ function Generate-CatalogListDSL($meta, [hashtable]$p, $cfg) {
 	}
 	Set-ListColumnProps $columns $cfg
 	# Hidden ref
-	if (-not $p.ContainsKey("hiddenRef") -or $p.hiddenRef -eq $true) {
+	if (-not $p.ContainsKey("hiddenRef") -or (Get-DslBool $p @('hiddenRef') $false)) {
 		$columns += [ordered]@{ labelField = "Ссылка"; path = "Список.Ref"; userVisible = $false }
 	}
 
@@ -783,7 +818,7 @@ function Generate-CatalogListDSL($meta, [hashtable]$p, $cfg) {
 	if ($p.properties) { foreach ($k in $p.properties.Keys) { $formProps[$k] = $p.properties[$k] } }
 
 	$dsl = [ordered]@{}
-	if ($p.title -eq $true) { $dsl["title"] = $meta.Synonym }
+	if ((Get-DslBool $p @('title') $false)) { $dsl["title"] = $meta.Synonym }
 	$dsl["properties"] = $formProps
 	$dsl["elements"] = (New-ListElements $tableEl $p)
 	$dsl["attributes"] = @(
@@ -939,7 +974,7 @@ function Generate-CatalogItemDSL($meta, [hashtable]$p, [hashtable]$fd, $cfg) {
 	}
 
 	$dsl = [ordered]@{}
-	if ($p.title -eq $true) { $dsl["title"] = $meta.Synonym }
+	if ((Get-DslBool $p @('title') $false)) { $dsl["title"] = $meta.Synonym }
 	$dsl["properties"] = $formProps
 	$dsl["elements"] = $rootElements
 	$dsl["attributes"] = @(
@@ -1016,7 +1051,7 @@ function Set-ListColumnProps($columns, $cfg) {
 # Таблица списка + группа пользовательских настроек над ней
 function New-ListElements($tableEl, [hashtable]$p) {
 	$els = @()
-	if ($p.userSettingsGroup -eq $true) {
+	if ((Get-DslBool $p @('userSettingsGroup') $false)) {
 		$els += [ordered]@{ group = "vertical"; name = "ГруппаПользовательскихНастроек"; title = "Группа пользовательских настроек"; showTitle = $false; representation = "none" }
 		$tableEl["userSettingsGroup"] = "ГруппаПользовательскихНастроек"
 	}
@@ -1034,7 +1069,7 @@ function Generate-DocumentListDSL($meta, [hashtable]$p, $cfg) {
 	}
 	Set-ListColumnProps $columns $cfg
 	# Hidden ref
-	if (-not $p.ContainsKey("hiddenRef") -or $p.hiddenRef -eq $true) {
+	if (-not $p.ContainsKey("hiddenRef") -or (Get-DslBool $p @('hiddenRef') $false)) {
 		$columns += [ordered]@{ labelField = "Ссылка"; path = "Список.Ref"; userVisible = $false }
 	}
 
@@ -1050,7 +1085,7 @@ function Generate-DocumentListDSL($meta, [hashtable]$p, $cfg) {
 	if ($p.properties) { foreach ($k in $p.properties.Keys) { $formProps[$k] = $p.properties[$k] } }
 
 	$dsl = [ordered]@{}
-	if ($p.title -eq $true) { $dsl["title"] = $meta.Synonym }
+	if ((Get-DslBool $p @('title') $false)) { $dsl["title"] = $meta.Synonym }
 	$dsl["properties"] = $formProps
 	$dsl["elements"] = (New-ListElements $tableEl $p)
 	$dsl["attributes"] = @(
@@ -1204,7 +1239,7 @@ function Generate-DocumentItemDSL($meta, [hashtable]$p, [hashtable]$fd, $cfg) {
 	# Несколько нижних полей (Комментарий + Ответственный) — в одну строку
 	# (многострочное поле в такой строке — высотой в одну строку, как в ЕРП: 106 из 116; отдельно — блок)
 	if ($bottomEls.Count -gt 1) {
-		foreach ($be in $bottomEls) { if ($be.multiLine -eq $true -and -not $be.Contains("height")) { $be["height"] = 1 } }
+		foreach ($be in $bottomEls) { if ((Get-DslBool $be @('multiLine') $false) -and -not $be.Contains("height")) { $be["height"] = 1 } }
 		$bottomEls = @([ordered]@{ group = "horizontal"; name = (Get-UniqueElementName ("Группа" + (@($placed["main.bottom"]) -join "")) $used); showTitle = $false; children = $bottomEls })
 	}
 	$footerEls = & $buildZone "footer"
@@ -1285,7 +1320,7 @@ function Generate-DocumentItemDSL($meta, [hashtable]$p, [hashtable]$fd, $cfg) {
 	if ($p.properties) { foreach ($k in (Get-SortedKeys $p.properties)) { $formProps[$k] = $p.properties[$k] } }
 
 	$dsl = [ordered]@{}
-	if ($p.title -eq $true) { $dsl["title"] = $meta.Synonym }
+	if ((Get-DslBool $p @('title') $false)) { $dsl["title"] = $meta.Synonym }
 	$dsl["properties"] = $formProps
 	$dsl["elements"] = $rootElements
 	$dsl["attributes"] = @(
@@ -2248,7 +2283,7 @@ function Resolve-MLFormatted {
 	if ($hasText) {
 		$t = if ($val -is [System.Collections.IDictionary]) { $val['text'] } else { $val.text }
 		$f = if ($val -is [System.Collections.IDictionary]) { $val['formatted'] } else { $val.formatted }
-		return @{ text = $t; formatted = [bool]$f }
+		return @{ text = $t; formatted = (ConvertTo-DslBool $f 'formatted' $false) }
 	}
 	return @{ text = $val; formatted = (Test-HasRealMarkup $val) }
 }
@@ -2330,14 +2365,14 @@ function Emit-FilterItem {
 	if ($item.group) {
 		$groupType = switch ("$($item.group)") { "And" { "AndGroup" } "Or" { "OrGroup" } "Not" { "NotGroup" } default { "$($item.group)Group" } }
 		X "$indent<dcsset:item xsi:type=`"dcsset:FilterItemGroup`">"
-		if ($item.use -eq $false) { X "$indent`t<dcsset:use>false</dcsset:use>" }   # группа отключена (перед groupType, порядок исходника)
+		if ((-not (Get-DslBool $item @('use') $true))) { X "$indent`t<dcsset:use>false</dcsset:use>" }   # группа отключена (перед groupType, порядок исходника)
 		X "$indent`t<dcsset:groupType>$groupType</dcsset:groupType>"
 		if ($item.items) {
 			foreach ($sub in $item.items) {
 				if ($sub -is [string]) {
 					$parsed = Parse-FilterShorthand $sub
 					$obj = @{ field = $parsed.field; op = $parsed.op }
-					if ($parsed.use -eq $false) { $obj.use = $false }
+					if ((-not (Get-DslBool $parsed @('use') $true))) { $obj.use = $false }
 					if ($null -ne $parsed.value) { $obj.value = $parsed.value }
 					if ($parsed["valueType"]) { $obj.valueType = $parsed["valueType"] }
 					if ($parsed.userSettingID) { $obj.userSettingID = $parsed.userSettingID }
@@ -2358,7 +2393,7 @@ function Emit-FilterItem {
 		return
 	}
 	X "$indent<dcsset:item xsi:type=`"dcsset:FilterItemComparison`">"
-	if ($item.use -eq $false) { X "$indent`t<dcsset:use>false</dcsset:use>" }
+	if ((-not (Get-DslBool $item @('use') $true))) { X "$indent`t<dcsset:use>false</dcsset:use>" }
 	X "$indent`t<dcsset:left xsi:type=`"dcscor:Field`">$(Esc-XmlText "$($item.field)")</dcsset:left>"
 	$compType = $script:comparisonTypes["$($item.op)"]
 	if (-not $compType) { $compType = "$($item.op)" }
@@ -2450,7 +2485,7 @@ function Emit-Filter {
 		if ($item -is [string]) {
 			$parsed = Parse-FilterShorthand $item
 			$obj = @{ field = $parsed.field; op = $parsed.op }
-			if ($parsed.use -eq $false) { $obj.use = $false }
+			if ((-not (Get-DslBool $parsed @('use') $true))) { $obj.use = $false }
 			if ($null -ne $parsed.value) { $obj.value = $parsed.value }
 			if ($parsed["valueType"]) { $obj.valueType = $parsed["valueType"] }
 			if ($parsed.userSettingID) { $obj.userSettingID = $parsed.userSettingID }
@@ -2492,7 +2527,7 @@ function Emit-Order {
 			$dir = if ($item.direction) { "$($item.direction)" } else { "Asc" }
 			if ($dir -match '^(?i)(desc|убыв)') { $dir = "Desc" } elseif ($dir -match '^(?i)(asc|возр)') { $dir = "Asc" }
 			X "$indent`t<dcsset:item xsi:type=`"dcsset:OrderItemField`">"
-			if ($item.use -eq $false) { X "$indent`t`t<dcsset:use>false</dcsset:use>" }
+			if ((-not (Get-DslBool $item @('use') $true))) { X "$indent`t`t<dcsset:use>false</dcsset:use>" }
 			X "$indent`t`t<dcsset:field>$(Esc-XmlText "$($item.field)")</dcsset:field>"
 			X "$indent`t`t<dcsset:orderType>$dir</dcsset:orderType>"
 			if ($item.viewMode) { X "$indent`t`t<dcsset:viewMode>$(Esc-XmlText "$($item.viewMode)")</dcsset:viewMode>" }
@@ -2526,11 +2561,11 @@ function Emit-AppearanceValue {
 	$innerVal = $val
 	$nestedItems = $null
 	if ($isTopLevelLine) {
-		if ((_HasKey $val 'use') -and ((_Get $val 'use') -eq $false)) { $useWrapper = $true }
+		if ((_HasKey $val 'use') -and -not (ConvertTo-DslBool (_Get $val 'use') 'use' $true)) { $useWrapper = $true }
 		if (_HasKey $val 'items') { $nestedItems = (_Get $val 'items') }
 	} elseif ((_HasKey $val 'value') -and (($val -is [PSCustomObject]) -or ($val -is [System.Collections.IDictionary]))) {
 		$innerVal = (_Get $val 'value')
-		if ((_HasKey $val 'use') -and ((_Get $val 'use') -eq $false)) { $useWrapper = $true }
+		if ((_HasKey $val 'use') -and -not (ConvertTo-DslBool (_Get $val 'use') 'use' $true)) { $useWrapper = $true }
 		if (_HasKey $val 'items') { $nestedItems = (_Get $val 'items') }
 	}
 	if ($useWrapper) { X "$indent`t<dcscor:use>false</dcscor:use>" }
@@ -2608,7 +2643,7 @@ function Emit-ConditionalAppearance {
 	X "$indent<$wrapTag>"
 	foreach ($ca in $items) {
 		X "$indent`t<dcsset:item>"
-		if ($ca.use -eq $false) { X "$indent`t`t<dcsset:use>false</dcsset:use>" }
+		if ((-not (Get-DslBool $ca @('use') $true))) { X "$indent`t`t<dcsset:use>false</dcsset:use>" }
 		if ($ca.selection -and $ca.selection.Count -gt 0) {
 			X "$indent`t`t<dcsset:selection>"
 			foreach ($sel in $ca.selection) {
@@ -2760,7 +2795,7 @@ function Emit-CalcFields {
 			$typeStr = if ($cf.valueType) { "$($cf.valueType)" } elseif ($cf.type) { "$($cf.type)" } else { '' }
 			$ur = if ($cf.useRestriction) { $cf.useRestriction } elseif ($cf.restrict) { $cf.restrict } else { $null }
 			if ($ur -is [System.Management.Automation.PSCustomObject] -or $ur -is [hashtable]) {
-				foreach ($k in 'field','condition','group','order') { if ($ur.$k -eq $true) { $restrict += $k } }
+				foreach ($k in 'field','condition','group','order') { if (ConvertTo-DslBool $ur.$k $k $false) { $restrict += $k } }
 			} elseif ($ur -is [string]) {
 				foreach ($tok in ($ur -split '\s+')) { $t = $tok.Trim().TrimStart('#'); if ($t) { $restrict += $(if ($script:calcRestrictMap[$t]) { $script:calcRestrictMap[$t] } else { $t }) } }
 			} elseif ($ur) {
@@ -2804,7 +2839,7 @@ function Get-RestrictList {
 	$out = @()
 	if (-not $ur) { return ,$out }
 	if ($ur -is [System.Management.Automation.PSCustomObject] -or $ur -is [hashtable]) {
-		foreach ($k in 'field','condition','group','order') { if ($ur.$k -eq $true) { $out += $k } }
+		foreach ($k in 'field','condition','group','order') { if (ConvertTo-DslBool $ur.$k $k $false) { $out += $k } }
 	} elseif ($ur -is [string]) {
 		foreach ($tok in ($ur -split '\s+')) { $t = $tok.Trim().TrimStart('#'); if ($t) { $out += $(if ($script:calcRestrictMap[$t]) { $script:calcRestrictMap[$t] } else { $t }) } }
 	} else {
@@ -4056,7 +4091,7 @@ function Emit-Companion {
 		# layout/оформление) ПЕРЕД Title (в корпусе layout-first 582 vs 10).
 		$txtPresent = if ($content -is [System.Collections.IDictionary]) { $content.Contains('text') } else { [bool]$content.PSObject.Properties['text'] }
 		Emit-CommonFlags -el $content -indent $inner
-		if ($content.hyperlink -eq $true) { X "$inner<Hyperlink>true</Hyperlink>" }
+		if ((Get-DslBool $content @('hyperlink') $false)) { X "$inner<Hyperlink>true</Hyperlink>" }
 		Emit-Layout -el $content -indent $inner
 		Emit-Appearance -el $content -indent $inner -profile 'decoration'
 		if ($txtPresent) { Emit-CompanionTitle -content $content -indent $inner }
@@ -4082,7 +4117,7 @@ function Emit-CompanionPanel {
 	if ($panel -is [array]) {
 		$children = $panel
 	} elseif ($null -ne $panel) {
-		if ($null -ne $panel.PSObject.Properties['autofill'] -and $null -ne $panel.autofill) { $autofill = [bool]$panel.autofill }
+		if ($null -ne $panel.PSObject.Properties['autofill'] -and $null -ne $panel.autofill) { $autofill = (ConvertTo-DslBool $panel.autofill 'autofill' $false) }
 		if ($null -ne $panel.PSObject.Properties['horizontalAlign'] -and "$($panel.horizontalAlign)" -ne '') { $halign = "$($panel.horizontalAlign)" }
 		$children = $panel.children
 	}
@@ -5408,7 +5443,7 @@ function Emit-XrFlag {
 		return
 	}
 	# объектная форма { common, roles }
-	$common = if ($null -ne $val.common) { [bool]$val.common } else { $false }
+	$common = if ($null -ne $val.common) { (ConvertTo-DslBool $val.common 'common' $false) } else { $false }
 	X "$indent<$tag>"
 	X "$indent`t<xr:Common>$(if ($common){'true'}else{'false'})</xr:Common>"
 	if ($val.roles) {
@@ -5417,7 +5452,7 @@ function Emit-XrFlag {
 			# Роль по GUID (заимствованная/расширение — name="<guid>" без префикса) эмитим как есть.
 			$rname = "$($r.Name)" -replace '^(Role|Роль)\.', ''
 			if ($rname -notmatch '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$') { $rname = "Role.$rname" }
-			$rval = if ([bool]$r.Value) { 'true' } else { 'false' }
+			$rval = if (ConvertTo-DslBool $r.Value "$($r.Name)" $false) { 'true' } else { 'false' }
 			X "$indent`t<xr:Value name=`"$rname`">$rval</xr:Value>"
 		}
 	}
@@ -5426,10 +5461,10 @@ function Emit-XrFlag {
 
 function Emit-CommonFlags {
 	param($el, [string]$indent)
-	if ($el.visible -eq $false -or $el.hidden -eq $true) { X "$indent<Visible>false</Visible>" }
+	if ((-not (Get-DslBool $el @('visible') $true)) -or (Get-DslBool $el @('hidden') $false)) { X "$indent<Visible>false</Visible>" }
 	if ($null -ne $el.userVisible) { Emit-XrFlag -tag 'UserVisible' -val $el.userVisible -indent $indent }
-	if ($el.enabled -eq $false -or $el.disabled -eq $true) { X "$indent<Enabled>false</Enabled>" }
-	if ($el.readOnly -eq $true) { X "$indent<ReadOnly>true</ReadOnly>" }
+	if ((-not (Get-DslBool $el @('enabled') $true)) -or (Get-DslBool $el @('disabled') $false)) { X "$indent<Enabled>false</Enabled>" }
+	if ((Get-DslBool $el @('readOnly') $false)) { X "$indent<ReadOnly>true</ReadOnly>" }
 }
 
 # Общие layout-свойства — применимы ко всем элементам. Порядок согласован с
@@ -5439,9 +5474,9 @@ function Emit-CommonFlags {
 # Общие свойства элемента (любой тип, включая Button/cmdBar): default/skip/drag.
 function Emit-CommonElementProps {
 	param($el, [string]$indent)
-	if ($el.defaultItem -eq $true) { X "$indent<DefaultItem>true</DefaultItem>" }
+	if ((Get-DslBool $el @('defaultItem') $false)) { X "$indent<DefaultItem>true</DefaultItem>" }
 	if ($el.PSObject.Properties['skipOnInput'] -and $null -ne $el.skipOnInput) {
-		$siv = if ($el.skipOnInput -eq $true) { 'true' } else { 'false' }
+		$siv = if ((Get-DslBool $el @('skipOnInput') $false)) { 'true' } else { 'false' }
 		X "$indent<SkipOnInput>$siv</SkipOnInput>"
 	}
 	# EnableStartDrag — фактическое значение (платформа эмитит и явный false, напр. SpreadSheet)
@@ -5468,7 +5503,7 @@ function Emit-PictureRef {
 	if (-not $val) { return }
 	$src = $null; $lt = $false; $tpx = $null
 	if ($val -is [string]) { $src = $val }
-	else { $src = $val.src; if ($val.loadTransparent -eq $true) { $lt = $true }; $tpx = $val.transparentPixel }
+	else { $src = $val.src; if ((Get-DslBool $val @('loadTransparent') $false)) { $lt = $true }; $tpx = $val.transparentPixel }
 	if (-not $src) { return }
 	$srcStr = "$src"
 	X "$indent<$picTag>"
@@ -5497,9 +5532,9 @@ function Emit-CommandPicture {
 	if (-not $pic) { return }
 	$src = $null; $lt = $null; $tpx = $null
 	if ($pic -is [string]) { $src = $pic }
-	else { $src = $pic.src; if ($null -ne $pic.loadTransparent) { $lt = [bool]$pic.loadTransparent }; $tpx = $pic.transparentPixel }
+	else { $src = $pic.src; if ($null -ne $pic.loadTransparent) { $lt = (ConvertTo-DslBool $pic.loadTransparent 'loadTransparent' $false) }; $tpx = $pic.transparentPixel }
 	if (-not $src) { return }
-	if ($null -eq $lt -and $null -ne $elemLt) { $lt = [bool]$elemLt }
+	if ($null -eq $lt -and $null -ne $elemLt) { $lt = (ConvertTo-DslBool $elemLt 'loadTransparent' $false) }
 	$srcStr = "$src"
 	X "$indent<Picture>"
 	if ($srcStr -match '^abs:(.*)$') { X "$indent`t<xr:Abs>$(Esc-XmlText $matches[1])</xr:Abs>" }
@@ -6018,12 +6053,12 @@ function Emit-Layout {
 	Emit-CommonElementProps -el $el -indent $indent
 	$amwExplicit = ($el.PSObject.Properties.Name -contains 'autoMaxWidth')
 	if ($amwExplicit) {
-		if ($el.autoMaxWidth -eq $false) { X "$indent<AutoMaxWidth>false</AutoMaxWidth>" }
+		if ((-not (Get-DslBool $el @('autoMaxWidth') $true))) { X "$indent<AutoMaxWidth>false</AutoMaxWidth>" }
 	} elseif ($multiLineDefault) {
 		X "$indent<AutoMaxWidth>false</AutoMaxWidth>"
 	}
 	if ($null -ne $el.maxWidth) { X "$indent<MaxWidth>$($el.maxWidth)</MaxWidth>" }
-	if ($el.autoMaxHeight -eq $false) { X "$indent<AutoMaxHeight>false</AutoMaxHeight>" }
+	if ((-not (Get-DslBool $el @('autoMaxHeight') $true))) { X "$indent<AutoMaxHeight>false</AutoMaxHeight>" }
 	if ($null -ne $el.maxHeight) { X "$indent<MaxHeight>$($el.maxHeight)</MaxHeight>" }
 	if ($el.width) { X "$indent<Width>$($el.width)</Width>" }
 	if (-not $skipHeight -and $el.height) { X "$indent<Height>$($el.height)</Height>" }
@@ -6134,7 +6169,7 @@ function Emit-Group {
 		Warn-Unrecognized 'behavior' $el.behavior @('collapsible','popup') $name
 	}
 	# Collapsed — у Collapsible и PopUp (не привязано к одному behavior)
-	if ($el.collapsed -eq $true) { X "$inner<Collapsed>true</Collapsed>" }
+	if ((Get-DslBool $el @('collapsed') $false)) { X "$inner<Collapsed>true</Collapsed>" }
 
 	# Representation
 	if ($el.representation) {
@@ -6158,13 +6193,13 @@ function Emit-Group {
 	if (@('collapsible','popup') -contains $behaviorVal) {
 		if ($null -ne $el.showTitle -and -not $el.showTitle) { X "$inner<ShowTitle>false</ShowTitle>" }
 	} elseif ($null -ne $el.showTitle) {
-		if (-not ($el.showTitle -eq $true)) { X "$inner<ShowTitle>false</ShowTitle>" }
+		if (-not ((Get-DslBool $el @('showTitle') $false))) { X "$inner<ShowTitle>false</ShowTitle>" }
 	} elseif (-not $el.title -and -not $el.titleDataPath) { X "$inner<ShowTitle>false</ShowTitle>" }
 	# Заголовок свёрнутого представления (collapsible/popup) — мультиязычный текст
 	if ($el.collapsedTitle) { Emit-MLText -tag "CollapsedRepresentationTitle" -text $el.collapsedTitle -indent $inner }
 
 	# United
-	if ($el.united -eq $false) { X "$inner<United>false</United>" }
+	if ((-not (Get-DslBool $el @('united') $true))) { X "$inner<United>false</United>" }
 
 	# Формат значения пути к данным заголовка (<Format>; парный к titleDataPath группы)
 	if ($el.format)     { Emit-MLText -tag "Format" -text $el.format -indent $inner }
@@ -6266,7 +6301,7 @@ function Emit-Input {
 	if ($null -ne $el.markIncomplete) { X "$inner<AutoMarkIncomplete>$(if ($el.markIncomplete){'true'}else{'false'})</AutoMarkIncomplete>" }
 	if ($el.editMode) { X "$inner<EditMode>$($el.editMode)</EditMode>" }
 	Emit-ColumnPics -el $el -indent $inner
-	if ($el.textEdit -eq $false) { X "$inner<TextEdit>false</TextEdit>" }
+	if ((-not (Get-DslBool $el @('textEdit') $true))) { X "$inner<TextEdit>false</TextEdit>" }
 	# InputField-специфичные скаляры (захват «как есть»: платформа эмитит явное не-дефолтное значение)
 	foreach ($p in @(
 		@('wrap','Wrap'), @('openButton','OpenButton'), @('listChoiceMode','ListChoiceMode'),
@@ -6295,7 +6330,7 @@ function Emit-Input {
 	}
 	if ($el.choiceButtonRepresentation) { X "$inner<ChoiceButtonRepresentation>$($el.choiceButtonRepresentation)</ChoiceButtonRepresentation>" }
 	Emit-PictureRef -val $el.choiceButtonPicture -picTag 'ChoiceButtonPicture' -indent $inner
-	Emit-Layout -el $el -indent $inner -multiLineDefault ([bool]($el.multiLine -eq $true))
+	Emit-Layout -el $el -indent $inner -multiLineDefault ([bool]((Get-DslBool $el @('multiLine') $false)))
 
 	if ($el.inputHint) {
 		Emit-MLText -tag "InputHint" -text $el.inputHint -indent $inner
@@ -6830,7 +6865,7 @@ function Emit-DecorationTitle {
 	$titleVal = if ($hasKey) { $el.title } elseif ($auto -and $name) { Title-FromName -name $name } else { $null }
 	if ($titleVal) {
 		$r = Resolve-MLFormatted $titleVal
-		$fmt = if ($null -ne $el.PSObject.Properties['formatted']) { [bool]$el.formatted } else { $r.formatted }
+		$fmt = if ($null -ne $el.PSObject.Properties['formatted']) { (ConvertTo-DslBool $el.formatted 'formatted' $false) } else { $r.formatted }
 		X "$indent<Title formatted=`"$(if ($fmt) { 'true' } else { 'false' })`">"
 		Emit-MLItems -val $r.text -indent "$indent`t"
 		X "$indent</Title>"
@@ -6848,7 +6883,7 @@ function Emit-Label {
 	# Порядок как у платформы: own-content (флаги/hyperlink/layout/оформление) ПЕРЕД Title
 	# (корпус layout-first 16970 vs 44 — заодно убирает шум атрибуции харнесса на многострочном Title).
 	Emit-CommonFlags -el $el -indent $inner
-	if ($el.hyperlink -eq $true) { X "$inner<Hyperlink>true</Hyperlink>" }
+	if ((Get-DslBool $el @('hyperlink') $false)) { X "$inner<Hyperlink>true</Hyperlink>" }
 	Emit-Layout -el $el -indent $inner
 	Emit-Appearance -el $el -indent $inner -profile 'decoration'
 
@@ -6882,7 +6917,7 @@ function Emit-LabelField {
 	if ($null -ne $el.passwordMode) { X "$inner<PasswordMode>$(if ($el.passwordMode){'true'}else{'false'})</PasswordMode>" }
 	Emit-ColumnPics -el $el -indent $inner
 	# ВНИМАНИЕ: у LabelField платформенный тег именно <Hiperlink> (опечатка 1С), не <Hyperlink>.
-	if ($el.hyperlink -eq $true) { X "$inner<Hiperlink>true</Hiperlink>" }
+	if ((Get-DslBool $el @('hyperlink') $false)) { X "$inner<Hiperlink>true</Hiperlink>" }
 	Emit-Layout -el $el -indent $inner
 
 	if ($null -ne $el.warningOnEdit) { Emit-MLText -tag "WarningOnEdit" -text $el.warningOnEdit -indent $inner }
@@ -6911,7 +6946,7 @@ function Emit-DynListTableBlock {
 	param($el, [string]$indent)
 	# (useAlternationRowColor — общее свойство таблицы, эмитится в Emit-Table)
 	# Group A (гарант. блок, n=5079): дефолт + override
-	$ar = if ($el.autoRefresh -eq $true) { "true" } else { "false" }
+	$ar = if ((Get-DslBool $el @('autoRefresh') $false)) { "true" } else { "false" }
 	X "$indent<AutoRefresh>$ar</AutoRefresh>"
 	$arp = if ($el.PSObject.Properties["autoRefreshPeriod"] -and $null -ne $el.autoRefreshPeriod) { $el.autoRefreshPeriod } else { 60 }
 	X "$indent<AutoRefreshPeriod>$arp</AutoRefreshPeriod>"
@@ -6922,17 +6957,17 @@ function Emit-DynListTableBlock {
 	X "$indent</Period>"
 	$cfi = if ($el.choiceFoldersAndItems) { $el.choiceFoldersAndItems } else { "Items" }
 	X "$indent<ChoiceFoldersAndItems>$cfi</ChoiceFoldersAndItems>"
-	$rcr = if ($el.restoreCurrentRow -eq $true) { "true" } else { "false" }
+	$rcr = if ((Get-DslBool $el @('restoreCurrentRow') $false)) { "true" } else { "false" }
 	X "$indent<RestoreCurrentRow>$rcr</RestoreCurrentRow>"
 	X "$indent<TopLevelParent xsi:nil=`"true`"/>"
-	$sr = if ($el.showRoot -eq $false) { "false" } else { "true" }
+	$sr = if ((-not (Get-DslBool $el @('showRoot') $true))) { "false" } else { "true" }
 	X "$indent<ShowRoot>$sr</ShowRoot>"
-	$arc = if ($el.allowRootChoice -eq $true) { "true" } else { "false" }
+	$arc = if ((Get-DslBool $el @('allowRootChoice') $false)) { "true" } else { "false" }
 	X "$indent<AllowRootChoice>$arc</AllowRootChoice>"
 	$uodc = if ($el.updateOnDataChange) { $el.updateOnDataChange } else { "Auto" }
 	X "$indent<UpdateOnDataChange>$uodc</UpdateOnDataChange>"
 	if ($el.userSettingsGroup) { X "$indent<UserSettingsGroup>$($el.userSettingsGroup)</UserSettingsGroup>" }
-	$agcru = if ($el.allowGettingCurrentRowURL -eq $false) { "false" } else { "true" }
+	$agcru = if ((-not (Get-DslBool $el @('allowGettingCurrentRowURL') $true))) { "false" } else { "true" }
 	X "$indent<AllowGettingCurrentRowURL>$agcru</AllowGettingCurrentRowURL>"
 }
 
@@ -6954,19 +6989,19 @@ function Emit-Table {
 	if ($el.titleLocation) { X "$inner<TitleLocation>$(Map-TitleLoc "$($el.titleLocation)")</TitleLocation>" }
 	# ChangeRowSet/Order — эмитим явное значение (в т.ч. false: платформа пишет его на ValueTable)
 	if ($el.PSObject.Properties['changeRowSet'] -and $null -ne $el.changeRowSet) {
-		X "$inner<ChangeRowSet>$(if ($el.changeRowSet -eq $true){'true'}else{'false'})</ChangeRowSet>"
+		X "$inner<ChangeRowSet>$(if ((Get-DslBool $el @('changeRowSet') $false)){'true'}else{'false'})</ChangeRowSet>"
 	}
 	if ($el.PSObject.Properties['changeRowOrder'] -and $null -ne $el.changeRowOrder) {
-		X "$inner<ChangeRowOrder>$(if ($el.changeRowOrder -eq $true){'true'}else{'false'})</ChangeRowOrder>"
+		X "$inner<ChangeRowOrder>$(if ((Get-DslBool $el @('changeRowOrder') $false)){'true'}else{'false'})</ChangeRowOrder>"
 	}
-	if ($el.autoInsertNewRow -eq $true) { X "$inner<AutoInsertNewRow>true</AutoInsertNewRow>" }
+	if ((Get-DslBool $el @('autoInsertNewRow') $false)) { X "$inner<AutoInsertNewRow>true</AutoInsertNewRow>" }
 	# RowFilter — nil-плейсхолдер (всегда пустой); ключ присутствует → эмитим
 	if ($el.PSObject.Properties['rowFilter']) { X "$inner<RowFilter xsi:nil=`"true`"/>" }
 	# Высота в строках таблицы (<HeightInTableRows>) — отдельное свойство от <Height> (высота элемента,
 	# эмитится generic-ом Emit-Layout ниже). Таблица может нести оба (237 в корпусе).
 	if ($el.heightInTableRows) { X "$inner<HeightInTableRows>$($el.heightInTableRows)</HeightInTableRows>" }
-	if ($el.header -eq $false) { X "$inner<Header>false</Header>" }
-	if ($el.footer -eq $true) { X "$inner<Footer>true</Footer>" }
+	if ((-not (Get-DslBool $el @('header') $true))) { X "$inner<Header>false</Header>" }
+	if ((Get-DslBool $el @('footer') $false)) { X "$inner<Footer>true</Footer>" }
 
 	if ($el.commandBarLocation) {
 		X "$inner<CommandBarLocation>$($el.commandBarLocation)</CommandBarLocation>"
@@ -6974,20 +7009,20 @@ function Emit-Table {
 	if ($el.searchStringLocation) {
 		X "$inner<SearchStringLocation>$($el.searchStringLocation)</SearchStringLocation>"
 	}
-	if ($el.choiceMode -eq $true) { X "$inner<ChoiceMode>true</ChoiceMode>" }
+	if ((Get-DslBool $el @('choiceMode') $false)) { X "$inner<ChoiceMode>true</ChoiceMode>" }
 	# Скаляры таблицы (захват «как есть»). Autofill — СВОЁ свойство таблицы (≠ AutoCommandBar autofill = tableAutofill).
 	if ($null -ne $el.autofill) { X "$inner<Autofill>$(if ($el.autofill){'true'}else{'false'})</Autofill>" }
-	if ($el.multipleChoice -eq $true) { X "$inner<MultipleChoice>true</MultipleChoice>" }
+	if ((Get-DslBool $el @('multipleChoice') $false)) { X "$inner<MultipleChoice>true</MultipleChoice>" }
 	if ($el.searchOnInput) { X "$inner<SearchOnInput>$($el.searchOnInput)</SearchOnInput>" }
 	if ($null -ne $el.markIncomplete) { X "$inner<AutoMarkIncomplete>$(if ($el.markIncomplete){'true'}else{'false'})</AutoMarkIncomplete>" }
 	# Высота шапки/подвала в строках (pass-through; 1С толерантна к порядку детей Table)
 	if ($null -ne $el.headerHeight) { X "$inner<HeaderHeight>$($el.headerHeight)</HeaderHeight>" }
 	if ($null -ne $el.footerHeight) { X "$inner<FooterHeight>$($el.footerHeight)</FooterHeight>" }
-	if ($el.useAlternationRowColor -eq $true) { X "$inner<UseAlternationRowColor>true</UseAlternationRowColor>" }
+	if ((Get-DslBool $el @('useAlternationRowColor') $false)) { X "$inner<UseAlternationRowColor>true</UseAlternationRowColor>" }
 	if ($el.selectionMode) { X "$inner<SelectionMode>$($el.selectionMode)</SelectionMode>" }
 	if ($el.rowSelectionMode) { X "$inner<RowSelectionMode>$($el.rowSelectionMode)</RowSelectionMode>" }
-	if ($el.verticalLines -eq $false) { X "$inner<VerticalLines>false</VerticalLines>" }
-	if ($el.horizontalLines -eq $false) { X "$inner<HorizontalLines>false</HorizontalLines>" }
+	if ((-not (Get-DslBool $el @('verticalLines') $true))) { X "$inner<VerticalLines>false</VerticalLines>" }
+	if ((-not (Get-DslBool $el @('horizontalLines') $true))) { X "$inner<HorizontalLines>false</HorizontalLines>" }
 	if ($el.initialTreeView) { X "$inner<InitialTreeView>$($el.initialTreeView)</InitialTreeView>" }
 	if ($null -ne $el.enableDrag) { X "$inner<EnableDrag>$(if ($el.enableDrag){'true'}else{'false'})</EnableDrag>" }
 	if ($el.rowPictureDataPath) { X "$inner<RowPictureDataPath>$($el.rowPictureDataPath)</RowPictureDataPath>" }
@@ -7214,10 +7249,10 @@ function Emit-Button {
 	Emit-Title -el $el -name $name -indent $inner -auto:$btnAuto
 	Emit-CommonFlags -el $el -indent $inner
 
-	if ($el.defaultButton -eq $true) { X "$inner<DefaultButton>true</DefaultButton>" }
+	if ((Get-DslBool $el @('defaultButton') $false)) { X "$inner<DefaultButton>true</DefaultButton>" }
 	# Check (пометка toggle-кнопки командной панели) — платформа эмитит только true.
 	# Ключ 'checked' (не 'check': 'check' — тип-ключ CheckBoxField, был бы конфликт диспетчера типов)
-	if ($el.checked -eq $true) { X "$inner<Check>true</Check>" }
+	if ((Get-DslBool $el @('checked') $false)) { X "$inner<Check>true</Check>" }
 
 	# Picture
 	Emit-CommandPicture -pic $el.picture -elemLt $el.loadTransparent -indent $inner
@@ -7257,7 +7292,7 @@ function Emit-PictureDecoration {
 	# Префикс "abs:" → встроенная картинка <xr:Abs>; иначе именованная/стилевая <xr:Ref>.
 	if ($el.src) {
 		$srcStr = "$($el.src)"
-		$lt = if ($el.loadTransparent -eq $true) { "true" } else { "false" }
+		$lt = if ((Get-DslBool $el @('loadTransparent') $false)) { "true" } else { "false" }
 		X "$inner<Picture>"
 		if ($srcStr -match '^abs:(.*)$') { X "$inner`t<xr:Abs>$(Esc-XmlText $matches[1])</xr:Abs>" }
 		else { X "$inner`t<xr:Ref>$(Esc-XmlText $srcStr)</xr:Ref>" }
@@ -7266,7 +7301,7 @@ function Emit-PictureDecoration {
 		X "$inner</Picture>"
 	}
 
-	if ($el.hyperlink -eq $true) { X "$inner<Hyperlink>true</Hyperlink>" }
+	if ((Get-DslBool $el @('hyperlink') $false)) { X "$inner<Hyperlink>true</Hyperlink>" }
 	Emit-Layout -el $el -indent $inner
 	# EnableDrag — фактическое значение (декорация-картинка перетаскиваема; декомпилятор ловит generic-ом)
 	if ($null -ne $el.enableDrag) { X "$inner<EnableDrag>$(if ($el.enableDrag){'true'}else{'false'})</EnableDrag>" }
@@ -7297,7 +7332,7 @@ function Emit-PictureField {
 	if ($el.editMode) { X "$inner<EditMode>$($el.editMode)</EditMode>" }
 	Emit-ColumnPics -el $el -indent $inner
 	if ($el.titleLocation) { X "$inner<TitleLocation>$(Map-TitleLoc "$($el.titleLocation)")</TitleLocation>" }
-	if ($el.hyperlink -eq $true) { X "$inner<Hyperlink>true</Hyperlink>" }
+	if ((Get-DslBool $el @('hyperlink') $false)) { X "$inner<Hyperlink>true</Hyperlink>" }
 
 	Emit-Layout -el $el -indent $inner
 	# EnableDrag — фактическое значение (поле картинки перетаскиваемо; декомпилятор ловит generic-ом)
@@ -7432,7 +7467,7 @@ function Emit-CommandBar {
 
 	if ($el.commandSource) { X "$inner<CommandSource>$($el.commandSource)</CommandSource>" }
 
-	if ($el.autofill -eq $true) { X "$inner<Autofill>true</Autofill>" }
+	if ((Get-DslBool $el @('autofill') $false)) { X "$inner<Autofill>true</Autofill>" }
 
 	# CommandBar хранит HorizontalLocation фактически (включая Auto — декомпилятор ловит только при наличии);
 	# ≠ дополнениям, где Auto = умолчание-скип (Get-HLocation).
@@ -7832,13 +7867,13 @@ function Emit-DataParameters {
 			$dpObj = New-Object PSObject
 			$dpObj | Add-Member -NotePropertyName "parameter" -NotePropertyValue $parsed.parameter
 			if ($null -ne $parsed.value) { $dpObj | Add-Member -NotePropertyName "value" -NotePropertyValue $parsed.value }
-			if ($parsed.use -eq $false) { $dpObj | Add-Member -NotePropertyName "use" -NotePropertyValue $false }
+			if ((-not (Get-DslBool $parsed @('use') $true))) { $dpObj | Add-Member -NotePropertyName "use" -NotePropertyValue $false }
 			if ($parsed.userSettingID) { $dpObj | Add-Member -NotePropertyName "userSettingID" -NotePropertyValue $parsed.userSettingID }
 			if ($parsed.viewMode) { $dpObj | Add-Member -NotePropertyName "viewMode" -NotePropertyValue $parsed.viewMode }
 			$dp = $dpObj
 		}
 		X "$indent`t<dcscor:item xsi:type=`"dcsset:SettingsParameterValue`">"
-		if ($dp.use -eq $false) { X "$indent`t`t<dcscor:use>false</dcscor:use>" }
+		if ((-not (Get-DslBool $dp @('use') $true))) { X "$indent`t`t<dcscor:use>false</dcscor:use>" }
 		X "$indent`t`t<dcscor:parameter>$(Esc-XmlText "$($dp.parameter)")</dcscor:parameter>"
 		$dpValIsArr = ($dp.value -is [array]) -or ($dp.value -is [System.Collections.IList] -and $dp.value -isnot [string])
 		if ($dpValIsArr) {
@@ -7850,7 +7885,7 @@ function Emit-DataParameters {
 				elseif ("$vStr" -match '^(ПланСчетов|Справочник|Перечисление|Документ|ПланВидовХарактеристик|ПланВидовРасчета|БизнесПроцесс|Задача|РегистрСведений|ПланОбмена)\.' -or "$vStr" -match '^(ChartOfAccounts|Catalog|Enum|Document|ChartOfCharacteristicTypes|ChartOfCalculationTypes|BusinessProcess|Task|InformationRegister|ExchangePlan)\.') { X "$indent`t`t<dcscor:value xsi:type=`"dcscor:DesignTimeValue`">$(Esc-XmlText (Normalize-DesignTimeValue $vStr))</dcscor:value>" }
 				else { X "$indent`t`t<dcscor:value xsi:type=`"xs:string`">$(Esc-XmlText $vStr)</dcscor:value>" }
 			}
-		} elseif ($dp.nilValue -eq $true) {
+		} elseif ((Get-DslBool $dp @('nilValue') $false)) {
 			X "$indent`t`t<dcscor:value xsi:nil=`"true`"/>"
 		} elseif ((Test-EmptyValue $dp.value) -and $dp.valueType) {
 			# Явный типизированный пустой (xs:string-плейсхолдер и т.п.)
@@ -7924,7 +7959,7 @@ function Emit-DLParameter {
 	# valueType
 	if ($parsed.type) { Emit-DLValueType -typeStr $parsed.type -indent $ci }
 	# value (дефолт nil; при valueListAllowed пустое — опускаем)
-	$vla = [bool]$parsed.valueListAllowed
+	$vla = (ConvertTo-DslBool $parsed.valueListAllowed 'valueListAllowed' $false)
 	$valIsArray = ($parsed.value -is [array]) -or ($parsed.value -is [System.Collections.IList] -and $parsed.value -isnot [string])
 	if ($valIsArray) {
 		foreach ($v in @($parsed.value)) { Emit-DLValue -type $parsed.type -val $v -indent $ci -valueListAllowed $false }
@@ -7942,7 +7977,7 @@ function Emit-DLParameter {
 	}
 	# useRestriction — ВСЕГДА; дефолт true; false только при явном useRestriction:false.
 	$ur = $true
-	if ($p -isnot [string] -and (Has-DLProp $p 'useRestriction')) { $ur = [bool]$p.useRestriction }
+	if ($p -isnot [string] -and (Has-DLProp $p 'useRestriction')) { $ur = (ConvertTo-DslBool $p.useRestriction 'useRestriction' $false) }
 	X "$ci<dcssch:useRestriction>$(if ($ur) { 'true' } else { 'false' })</dcssch:useRestriction>"
 	# expression
 	$expr = $null
@@ -7956,13 +7991,13 @@ function Emit-DLParameter {
 	if ($vla) { X "$ci<dcssch:valueListAllowed>true</dcssch:valueListAllowed>" }
 	# availableAsField=false (hidden или явный)
 	$aaf = $null
-	if ($parsed.hidden -eq $true) { $aaf = $false }
-	if ($p -isnot [string] -and (Has-DLProp $p 'availableAsField')) { $aaf = [bool]$p.availableAsField }
+	if ((Get-DslBool $parsed @('hidden') $false)) { $aaf = $false }
+	if ($p -isnot [string] -and (Has-DLProp $p 'availableAsField')) { $aaf = (ConvertTo-DslBool $p.availableAsField 'availableAsField' $false) }
 	if ($aaf -eq $false) { X "$ci<dcssch:availableAsField>false</dcssch:availableAsField>" }
 	# inputParameters
 	if ($p -isnot [string] -and (Has-DLProp $p 'inputParameters') -and $p.inputParameters) { Emit-DLInputParameters -ip $p.inputParameters -indent $ci }
 	# denyIncompleteValues
-	if ($p -isnot [string] -and (Has-DLProp $p 'denyIncompleteValues') -and $p.denyIncompleteValues -eq $true) { X "$ci<dcssch:denyIncompleteValues>true</dcssch:denyIncompleteValues>" }
+	if ($p -isnot [string] -and (Has-DLProp $p 'denyIncompleteValues') -and (Get-DslBool $p @('denyIncompleteValues') $false)) { X "$ci<dcssch:denyIncompleteValues>true</dcssch:denyIncompleteValues>" }
 	# use
 	$useVal = $null
 	if ($p -isnot [string] -and (Has-DLProp $p 'use') -and $p.use) { $useVal = "$($p.use)" }
@@ -7986,8 +8021,8 @@ function Emit-DLParameters {
 				$resolvedType = Resolve-TypeStr "$($p.valueType)"
 			}
 			$parsed = @{ name = "$($p.name)"; type = $resolvedType; value = $(if (Has-DLProp $p 'value') { $p.value } else { $null }); valueExplicit = (Has-DLProp $p 'value'); title = $null }
-			if ((Has-DLProp $p 'valueListAllowed') -and $p.valueListAllowed -eq $true) { $parsed.valueListAllowed = $true }
-			if ((Has-DLProp $p 'hidden') -and $p.hidden -eq $true) { $parsed.hidden = $true }
+			if ((Has-DLProp $p 'valueListAllowed') -and (Get-DslBool $p @('valueListAllowed') $false)) { $parsed.valueListAllowed = $true }
+			if ((Has-DLProp $p 'hidden') -and (Get-DslBool $p @('hidden') $false)) { $parsed.hidden = $true }
 		}
 		Emit-DLParameter -p $p -parsed $parsed -indent $indent
 	}
@@ -8054,18 +8089,18 @@ function Emit-Attributes {
 			Emit-ChartSettings -chart $attr.chart -ind $inner -ctype $ctype
 		}
 
-		if ($attr.main -eq $true) {
+		if ((Get-DslBool $attr @('main') $false)) {
 			X "$inner<MainAttribute>true</MainAttribute>"
 		}
 		# Доступ по ролям: просмотр/редактирование (порядок схемы: View → Edit, после MainAttribute)
 		if ($null -ne $attr.view) { Emit-XrFlag -tag 'View' -val $attr.view -indent $inner }
 		if ($null -ne $attr.edit) { Emit-XrFlag -tag 'Edit' -val $attr.edit -indent $inner }
 		$mainSaved = $false
-		if ($attr.main -eq $true -and $attr.type) {
+		if ((Get-DslBool $attr @('main') $false) -and $attr.type) {
 			$mainSaved = ("$($attr.type)") -match '^(CatalogObject|DocumentObject|ChartOfAccountsObject|ChartOfCalculationTypesObject|ChartOfCharacteristicTypesObject|ExchangePlanObject|BusinessProcessObject|TaskObject)\.' -or ("$($attr.type)") -match 'RecordManager\.'
 		}
 		# Явный ключ savedData побеждает (в т.ч. false → суппресс авто-вывода $mainSaved); нет ключа → авто.
-		$emitSaved = if ($null -ne $attr.PSObject.Properties['savedData']) { $attr.savedData -eq $true } else { $mainSaved }
+		$emitSaved = if ($null -ne $attr.PSObject.Properties['savedData']) { (Get-DslBool $attr @('savedData') $false) } else { $mainSaved }
 		if ($emitSaved) {
 			X "$inner<SavedData>true</SavedData>"
 		}
@@ -8120,7 +8155,7 @@ function Emit-Attributes {
 		}
 		if ($attr.columns) {
 			foreach ($col in $attr.columns) {
-				if ($col.useAlways -eq $true) {
+				if ((Get-DslBool $col @('useAlways') $false)) {
 					$fld = "$attrName.$($col.name)"
 					if (-not $uaFields.Contains($fld)) { [void]$uaFields.Add($fld) }
 				}
@@ -8191,7 +8226,7 @@ function Emit-Attributes {
 			$mq = if ($hasMQKey) { if ($st.manualQuery) { "true" } else { "false" } } elseif ($hasQuery) { "true" } else { "false" }
 			X "$si<ManualQuery>$mq</ManualQuery>"
 			# DynamicDataRead: дефолт true; false только при явном отключении
-			$ddr = if ($st.dynamicDataRead -eq $false) { "false" } else { "true" }
+			$ddr = if ((-not (Get-DslBool $st @('dynamicDataRead') $true))) { "false" } else { "true" }
 			X "$si<DynamicDataRead>$ddr</DynamicDataRead>"
 			if ($hasQuery) {
 				$qtext = Resolve-TextFromFile "$($st.query)" $script:queryBaseDir
@@ -8203,7 +8238,7 @@ function Emit-Attributes {
 					# Тип поля набора: DataSetFieldField (дефолт) vs DataSetFieldNestedDataSet
 					# (поле-вложенный набор = реквизит табличной части; маркер nested).
 					# folder = папка-группировка полей (DataSetFieldFolder, без <field>); nested = вложенный набор.
-					$isFolder = [bool](Get-Prop $fld 'folder')
+					$isFolder = (ConvertTo-DslBool (Get-Prop $fld 'folder') 'folder' $false)
 					$ftype = if ($fld.nested) { "DataSetFieldNestedDataSet" } elseif ($isFolder) { "DataSetFieldFolder" } else { "DataSetFieldField" }
 					X "$si<Field xsi:type=`"dcssch:$ftype`">"
 					# dataPath: явный (включая пустой "" → self-closing <dcssch:dataPath/>) побеждает; иначе fallback на field.
@@ -8321,7 +8356,7 @@ function Emit-Parameters {
 
 		Emit-Type -typeStr "$($param.type)" -indent $inner
 
-		if ($param.key -eq $true) {
+		if ((Get-DslBool $param @('key') $false)) {
 			X "$inner<KeyParameter>true</KeyParameter>"
 		}
 
@@ -8391,7 +8426,7 @@ function Emit-Commands {
 			X "$inner<Representation>$($cmd.representation)</Representation>"
 		}
 
-		if ($cmd.modifiesSavedData -eq $true) { X "$inner<ModifiesSavedData>true</ModifiesSavedData>" }
+		if ((Get-DslBool $cmd @('modifiesSavedData') $false)) { X "$inner<ModifiesSavedData>true</ModifiesSavedData>" }
 
 		if ($cmd.currentRowUse) {
 			X "$inner<CurrentRowUse>$($cmd.currentRowUse)</CurrentRowUse>"
@@ -8720,13 +8755,13 @@ if ($def.elements) {
 if ($def.attributes) {
 	$hasExplicitMain = $false
 	foreach ($attr in $def.attributes) {
-		if ($attr.main -eq $true) { $hasExplicitMain = $true; break }
+		if ((Get-DslBool $attr @('main') $false)) { $hasExplicitMain = $true; break }
 	}
 	if (-not $hasExplicitMain) {
 		$candidates = @()
 		foreach ($attr in $def.attributes) {
 			# Skip if user explicitly opted out via main:false
-			if ($null -ne $attr.PSObject.Properties["main"] -and $attr.main -eq $false) { continue }
+			if ($null -ne $attr.PSObject.Properties["main"] -and (-not (Get-DslBool $attr @('main') $true))) { continue }
 			if (Test-IsObjectLikeType "$($attr.type)") {
 				$candidates += $attr
 			}
@@ -8769,7 +8804,7 @@ if ($def.attributes -and $def.elements) {
 function Compute-MainAcbAutofill {
 	if ($script:mainAcbDef) {
 		if ($null -ne $script:mainAcbDef.PSObject.Properties["autofill"]) {
-			return [bool]$script:mainAcbDef.autofill
+			return (ConvertTo-DslBool $script:mainAcbDef.autofill 'autofill' $false)
 		}
 		return $true
 	}
@@ -8899,7 +8934,7 @@ if ($acbHasInner) {
 }
 
 # 12e. Events — как у элементов; список — имя по конвенции (ПриСозданииНаСервере)
-$script:formOwner = Get-FormOwnerKind "$((@($def.attributes) | Where-Object { $_.main -eq $true } | Select-Object -First 1).type)"
+$script:formOwner = Get-FormOwnerKind "$((@($def.attributes) | Where-Object { (Get-DslBool $_ @('main') $false) } | Select-Object -First 1).type)"
 if ($def.events) {
 	# Имени по конвенции у события вне каталога нет — его задают явно
 	if ($def.events -is [array]) {

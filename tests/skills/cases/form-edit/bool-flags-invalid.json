@@ -1,0 +1,20 @@
+{
+  "name": "Небулево значение флага в set (multiLine: \"yes\") — отказ с именем ключа",
+  "setup": "fixture:move-form",
+  "params": {
+    "formPath": "Documents/ЗаказТест/Forms/ФормаДокумента/Ext/Form.xml"
+  },
+  "input": {
+    "elements": [
+      {
+        "set": "Комментарий",
+        "multiLine": "yes"
+      }
+    ]
+  },
+  "expectError": true,
+  "expect": {
+    "stderrContains": "multiLine = \"yes\": expected true or false"
+  },
+  "noSnapshot": "отказ — проверяется сообщение"
+}
