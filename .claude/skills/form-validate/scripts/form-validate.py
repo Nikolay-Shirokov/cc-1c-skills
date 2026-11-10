@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# form-validate v1.40 — Validate 1C managed form
+# form-validate v1.41 — Validate 1C managed form
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -1913,7 +1913,7 @@ def main():
         type_nodes = root.xpath('//v8:Type', namespaces={'v8': V8_NS})
         type_error_count = 0
         type_warn_count = 0
-        type_count = len(type_nodes)
+        type_count = 0
 
         for tn in type_nodes:
             if stopped:
@@ -1921,9 +1921,10 @@ def main():
             tv = (tn.text or "").strip()
             if not tv:
                 continue
+            type_count += 1
 
             if tv in KNOWN_INVALID_TYPES:
-                report_error(f'12. Type "{tv}": invalid runtime/UI type (not valid in XDTO schema)')
+                report_error(f"12. Type '{tv}': invalid runtime/UI type (not valid in XDTO schema)")
                 type_error_count += 1
             elif tv in VALID_CLOSED_TYPES:
                 pass  # OK
@@ -1935,15 +1936,15 @@ def main():
                 if ("." in suffix and prefix in VALID_CFG_PREFIXES) or suffix in ("DynamicList", "ConstantsSet", "ReportObject"):
                     # ExternalDataProcessorObject/ExternalReportObject valid only in EPF/ERF context
                     if is_config_context and prefix in ('ExternalDataProcessorObject', 'ExternalReportObject'):
-                        report_error(f'12. Type "{tv}": External* type in configuration context (use DataProcessorObject/ReportObject instead)')
+                        report_error(f"12. Type '{tv}': External* type in configuration context (use DataProcessorObject/ReportObject instead)")
                         type_error_count += 1
                 else:
-                    report_warn(f'12. Type "{tv}": unrecognized cfg prefix')
+                    report_warn(f"12. Type '{tv}': unrecognized cfg prefix")
                     type_warn_count += 1
             elif ":" in tv:
                 pass  # unknown namespace, pass through
             else:
-                report_warn(f'12. Type "{tv}": bare type without namespace prefix')
+                report_warn(f"12. Type '{tv}': bare type without namespace prefix")
                 type_warn_count += 1
 
         if type_error_count == 0 and type_warn_count == 0:

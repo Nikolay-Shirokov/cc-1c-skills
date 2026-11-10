@@ -35,5 +35,10 @@
 				<v8:Type>cfg:ReportObject</v8:Type>
 			</Type>
 		</Attribute>
+		<Attribute name="Ссылка" id="6">
+			<Type>
+				<v8:Type>cfg:catalogRef.Х</v8:Type>
+			</Type>
+		</Attribute>
 	</Attributes>
 </Form>

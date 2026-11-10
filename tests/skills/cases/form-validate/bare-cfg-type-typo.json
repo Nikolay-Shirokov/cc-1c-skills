@@ -1,5 +1,5 @@
 {
-  "name": "Опечатка в голом cfg-типе (cfg:ConstantSet) по-прежнему предупреждается",
+  "name": "Тип с опечаткой: голый cfg:ConstantSet и префикс в другом регистре (cfg:catalogRef) — предупреждение, одинаково в портах",
   "preRun": [
     {
       "script": "meta-compile/scripts/meta-compile",
@@ -27,7 +27,7 @@
     {
       "writeFile": {
         "path": "CommonForms/Настройки/Ext/Form.xml",
-        "content": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<Form xmlns=\"http://v8.1c.ru/8.3/xcf/logform\" xmlns:app=\"http://v8.1c.ru/8.2/managed-application/core\" xmlns:cfg=\"http://v8.1c.ru/8.1/data/enterprise/current-config\" xmlns:dcscor=\"http://v8.1c.ru/8.1/data-composition-system/core\" xmlns:dcssch=\"http://v8.1c.ru/8.1/data-composition-system/schema\" xmlns:dcsset=\"http://v8.1c.ru/8.1/data-composition-system/settings\" xmlns:ent=\"http://v8.1c.ru/8.1/data/enterprise\" xmlns:lf=\"http://v8.1c.ru/8.2/managed-application/logform\" xmlns:style=\"http://v8.1c.ru/8.1/data/ui/style\" xmlns:sys=\"http://v8.1c.ru/8.1/data/ui/fonts/system\" xmlns:v8=\"http://v8.1c.ru/8.1/data/core\" xmlns:v8ui=\"http://v8.1c.ru/8.1/data/ui\" xmlns:web=\"http://v8.1c.ru/8.1/data/ui/colors/web\" xmlns:win=\"http://v8.1c.ru/8.1/data/ui/colors/windows\" xmlns:xr=\"http://v8.1c.ru/8.3/xcf/readable\" xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" version=\"2.17\">\n\t<Title>\n\t\t<v8:item>\n\t\t\t<v8:lang>ru</v8:lang>\n\t\t\t<v8:content>Настройки</v8:content>\n\t\t</v8:item>\n\t</Title>\n\t<AutoTitle>false</AutoTitle>\n\t<AutoCommandBar name=\"ФормаКоманднаяПанель\" id=\"-1\"/>\n\t<ChildItems>\n\t\t<CheckBoxField name=\"Флаг\" id=\"1\">\n\t\t\t<DataPath>НаборКонстант.Флаг</DataPath>\n\t\t\t<CheckBoxType>Auto</CheckBoxType>\n\t\t\t<TitleLocation>Right</TitleLocation>\n\t\t\t<ContextMenu name=\"ФлагКонтекстноеМеню\" id=\"2\"/>\n\t\t\t<ExtendedTooltip name=\"ФлагРасширеннаяПодсказка\" id=\"3\"/>\n\t\t</CheckBoxField>\n\t</ChildItems>\n\t<Attributes>\n\t\t<Attribute name=\"НаборКонстант\" id=\"4\">\n\t\t\t<Type>\n\t\t\t\t<v8:Type>cfg:ConstantSet</v8:Type>\n\t\t\t</Type>\n\t\t\t<MainAttribute>true</MainAttribute>\n\t\t</Attribute>\n\t\t<Attribute name=\"Отчет\" id=\"5\">\n\t\t\t<Title>\n\t\t\t\t<v8:item>\n\t\t\t\t\t<v8:lang>ru</v8:lang>\n\t\t\t\t\t<v8:content>Отчет</v8:content>\n\t\t\t\t</v8:item>\n\t\t\t</Title>\n\t\t\t<Type>\n\t\t\t\t<v8:Type>cfg:ReportObject</v8:Type>\n\t\t\t</Type>\n\t\t</Attribute>\n\t</Attributes>\n</Form>"
+        "content": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<Form xmlns=\"http://v8.1c.ru/8.3/xcf/logform\" xmlns:app=\"http://v8.1c.ru/8.2/managed-application/core\" xmlns:cfg=\"http://v8.1c.ru/8.1/data/enterprise/current-config\" xmlns:dcscor=\"http://v8.1c.ru/8.1/data-composition-system/core\" xmlns:dcssch=\"http://v8.1c.ru/8.1/data-composition-system/schema\" xmlns:dcsset=\"http://v8.1c.ru/8.1/data-composition-system/settings\" xmlns:ent=\"http://v8.1c.ru/8.1/data/enterprise\" xmlns:lf=\"http://v8.1c.ru/8.2/managed-application/logform\" xmlns:style=\"http://v8.1c.ru/8.1/data/ui/style\" xmlns:sys=\"http://v8.1c.ru/8.1/data/ui/fonts/system\" xmlns:v8=\"http://v8.1c.ru/8.1/data/core\" xmlns:v8ui=\"http://v8.1c.ru/8.1/data/ui\" xmlns:web=\"http://v8.1c.ru/8.1/data/ui/colors/web\" xmlns:win=\"http://v8.1c.ru/8.1/data/ui/colors/windows\" xmlns:xr=\"http://v8.1c.ru/8.3/xcf/readable\" xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" version=\"2.17\">\n\t<Title>\n\t\t<v8:item>\n\t\t\t<v8:lang>ru</v8:lang>\n\t\t\t<v8:content>Настройки</v8:content>\n\t\t</v8:item>\n\t</Title>\n\t<AutoTitle>false</AutoTitle>\n\t<AutoCommandBar name=\"ФормаКоманднаяПанель\" id=\"-1\"/>\n\t<ChildItems>\n\t\t<CheckBoxField name=\"Флаг\" id=\"1\">\n\t\t\t<DataPath>НаборКонстант.Флаг</DataPath>\n\t\t\t<CheckBoxType>Auto</CheckBoxType>\n\t\t\t<TitleLocation>Right</TitleLocation>\n\t\t\t<ContextMenu name=\"ФлагКонтекстноеМеню\" id=\"2\"/>\n\t\t\t<ExtendedTooltip name=\"ФлагРасширеннаяПодсказка\" id=\"3\"/>\n\t\t</CheckBoxField>\n\t</ChildItems>\n\t<Attributes>\n\t\t<Attribute name=\"НаборКонстант\" id=\"4\">\n\t\t\t<Type>\n\t\t\t\t<v8:Type>cfg:ConstantSet</v8:Type>\n\t\t\t</Type>\n\t\t\t<MainAttribute>true</MainAttribute>\n\t\t</Attribute>\n\t\t<Attribute name=\"Отчет\" id=\"5\">\n\t\t\t<Title>\n\t\t\t\t<v8:item>\n\t\t\t\t\t<v8:lang>ru</v8:lang>\n\t\t\t\t\t<v8:content>Отчет</v8:content>\n\t\t\t\t</v8:item>\n\t\t\t</Title>\n\t\t\t<Type>\n\t\t\t\t<v8:Type>cfg:ReportObject</v8:Type>\n\t\t\t</Type>\n\t\t</Attribute>\n\t\t<Attribute name=\"Ссылка\" id=\"6\">\n\t\t\t<Type>\n\t\t\t\t<v8:Type>cfg:catalogRef.Х</v8:Type>\n\t\t\t</Type>\n\t\t</Attribute>\n\t</Attributes>\n</Form>"
       }
     }
   ],
@@ -36,8 +36,8 @@
   },
   "expect": {
     "stdoutContains": [
-      "cfg:ConstantSet",
-      "unrecognized cfg prefix"
+      "Type 'cfg:ConstantSet': unrecognized cfg prefix",
+      "Type 'cfg:catalogRef.Х': unrecognized cfg prefix"
     ]
   },
   "skipPlatformVerify": "намеренная опечатка в типе — платформа такую форму не загрузит"
