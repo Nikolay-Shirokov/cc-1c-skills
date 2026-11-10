@@ -1,6 +1,7 @@
 {
-  "name": "Ошибка: height меньше максимального индекса строки",
+  "name": "Ошибка: height меньше максимального индекса строки; шапка и без -Detailed",
   "setup": "fixture:bad-height",
   "params": { "templatePath": "Template.xml" },
-  "expectError": true
+  "expectError": true,
+  "expect": { "stdoutContains": ["=== Validation: Template."] }
 }

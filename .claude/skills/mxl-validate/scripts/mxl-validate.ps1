@@ -1,4 +1,4 @@
-﻿# mxl-validate v1.11 — Validate 1C spreadsheet
+﻿# mxl-validate v1.12 — Validate 1C spreadsheet
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -135,6 +135,15 @@ $warnings = 0
 $stopped = $false
 $script:okCount = 0
 
+# Шапка — перед первой строкой вывода: сразу с -Detailed, иначе при первом ERROR/WARN
+$script:headerShown = $false
+function Write-Header {
+	if ($script:headerShown) { return }
+	$script:headerShown = $true
+	Write-Host "=== Validation: Template.$templateName ==="
+	Write-Host ""
+}
+
 function Report-OK {
 	param([string]$msg)
 	$script:okCount++
@@ -144,6 +153,7 @@ function Report-OK {
 function Report-Error {
 	param([string]$msg)
 	$script:errors++
+	Write-Header
 	Write-Host "[ERROR] $msg"
 	if ($script:errors -ge $MaxErrors) {
 		$script:stopped = $true
@@ -153,15 +163,11 @@ function Report-Error {
 function Report-Warn {
 	param([string]$msg)
 	$script:warnings++
+	Write-Header
 	Write-Host "[WARN]  $msg"
 }
 
-if ($Detailed) {
-	# Форма имени та же, что в итоговой строке и у py-порта: раньше шапка -Detailed
-	# печаталась без префикса «Template.», и вывод портов расходился одной строкой.
-	Write-Host "=== Validation: Template.$templateName ==="
-	Write-Host ""
-}
+if ($Detailed) { Write-Header }
 
 # --- Collect palettes ---
 

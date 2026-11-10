@@ -1,4 +1,4 @@
-﻿# form-validate v1.39 — Validate 1C managed form
+﻿# form-validate v1.40 — Validate 1C managed form
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -131,6 +131,15 @@ $warnings = 0
 $stopped = $false
 $script:okCount = 0
 
+# Шапка — перед первой строкой вывода: сразу с -Detailed, иначе при первом ERROR/WARN
+$script:headerShown = $false
+function Write-Header {
+	if ($script:headerShown) { return }
+	$script:headerShown = $true
+	Write-Host "=== Validation: Form.$formName ==="
+	Write-Host ""
+}
+
 function Report-OK {
 	param([string]$msg)
 	$script:okCount++
@@ -140,6 +149,7 @@ function Report-OK {
 function Report-Error {
 	param([string]$msg)
 	$script:errors++
+	Write-Header
 	Write-Host "[ERROR] $msg"
 	if ($script:errors -ge $MaxErrors) {
 		$script:stopped = $true
@@ -149,6 +159,7 @@ function Report-Error {
 function Report-Warn {
 	param([string]$msg)
 	$script:warnings++
+	Write-Header
 	Write-Host "[WARN]  $msg"
 }
 
@@ -177,10 +188,7 @@ if ($parentDir) {
 	}
 }
 
-if ($Detailed) {
-	Write-Host "=== Validation: $formName ==="
-	Write-Host ""
-}
+if ($Detailed) { Write-Header }
 
 # Early BaseForm detection (used in Check 5 to skip base element DataPath validation)
 $hasBaseForm = ($root.SelectSingleNode("f:BaseForm", $nsMgr) -ne $null)

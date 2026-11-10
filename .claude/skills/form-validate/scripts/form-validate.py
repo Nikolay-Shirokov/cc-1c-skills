@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# form-validate v1.39 — Validate 1C managed form
+# form-validate v1.40 — Validate 1C managed form
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -2594,6 +2594,9 @@ def main():
         result = f"=== Validation OK: Form.{form_name} ({checks} checks) ==="
     else:
         output_lines.append("")
+        if detailed:
+            output_lines.append("---")
+            output_lines.append(f"Total: {len(all_elements)} elements, {len(attr_nodes)} attributes, {len(cmd_nodes)} commands")
         if stopped:
             output_lines.append(f"Stopped after {max_errors} errors. Fix and re-run.")
         output_lines.append(f"=== Result: {errors} errors, {warnings} warnings ({checks} checks) ===")

@@ -1,7 +1,7 @@
 {
-  "name": "Ошибка: путь Список.* в заимствованной форме списка без объявленного основного реквизита",
+  "name": "Ошибка: путь Список.* в заимствованной форме списка без объявленного основного реквизита; шапка с именем формы и без -Detailed",
   "setup": "fixture:borrowed-list-path-no-main",
   "params": { "formPath": "Documents/Заказ/Forms/ФормаСписка" },
   "expectError": true,
-  "expect": { "stdoutContains": ["Список.Партнер", "attribute 'Список' not found"] }
+  "expect": { "stdoutContains": ["=== Validation: Form.ФормаСписка ===", "Список.Партнер", "attribute 'Список' not found"] }
 }
