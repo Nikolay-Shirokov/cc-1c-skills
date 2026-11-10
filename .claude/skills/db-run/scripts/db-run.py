@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# db-run v1.16 — Launch 1C:Enterprise
+# db-run v1.17 — Launch 1C:Enterprise
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -193,6 +193,9 @@ def project_extra_args(name):
                     data = json.load(f)
                 v = data.get(name)
                 if v:
+                    # Строка вместо массива — один аргумент, как у PS (@($x)), а не список символов
+                    if not isinstance(v, list):
+                        v = [v]
                     return [str(x) for x in v]
             except Exception:
                 pass

@@ -1,4 +1,4 @@
-﻿# db-load-git v1.36 — Load Git changes into 1C database
+﻿# db-load-git v1.37 — Load Git changes into 1C database
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 # NB: *nix-раскладку платформы (/opt/1cv8/<ver>/1cv8, без .exe) знает только .py-порт — PS на *nix не исполняется.
 <#

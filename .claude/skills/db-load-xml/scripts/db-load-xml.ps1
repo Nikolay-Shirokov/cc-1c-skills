@@ -1,4 +1,4 @@
-﻿# db-load-xml v1.38 — Load 1C configuration from XML files
+﻿# db-load-xml v1.39 — Load 1C configuration from XML files
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 # NB: *nix-раскладку платформы (/opt/1cv8/<ver>/1cv8, без .exe) знает только .py-порт — PS на *nix не исполняется.
 <#

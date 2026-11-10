@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# db-cfe-admin v1.8 — Configuration extensions in a 1C infobase: list, check, properties, delete
+# db-cfe-admin v1.9 — Configuration extensions in a 1C infobase: list, check, properties, delete
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -238,6 +238,9 @@ def project_extra_args(name):
                     data = json.load(f)
                 v = data.get(name)
                 if v:
+                    # Строка вместо массива — один аргумент, как у PS (@($x)), а не список символов
+                    if not isinstance(v, list):
+                        v = [v]
                     return [str(x) for x in v]
             except Exception:
                 pass

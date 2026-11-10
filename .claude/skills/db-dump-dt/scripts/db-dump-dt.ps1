@@ -1,4 +1,4 @@
-﻿# db-dump-dt v1.22 — Dump 1C information base to DT file
+﻿# db-dump-dt v1.23 — Dump 1C information base to DT file
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 # NB: *nix-раскладку платформы (/opt/1cv8/<ver>/1cv8, без .exe) знает только .py-порт — PS на *nix не исполняется.
 <#

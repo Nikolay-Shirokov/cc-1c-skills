@@ -1,4 +1,4 @@
-﻿# epf-build v1.29 — Build external data processor or report (EPF/ERF) from XML sources
+﻿# epf-build v1.30 — Build external data processor or report (EPF/ERF) from XML sources
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 # NB: *nix-раскладку платформы (/opt/1cv8/<ver>/1cv8, без .exe) знает только .py-порт — PS на *nix не исполняется.
 <#

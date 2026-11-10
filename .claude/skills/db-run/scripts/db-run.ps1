@@ -1,4 +1,4 @@
-﻿# db-run v1.16 — Launch 1C:Enterprise
+﻿# db-run v1.17 — Launch 1C:Enterprise
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 # NB: *nix-раскладку платформы (/opt/1cv8/<ver>/1cv8, без .exe) знает только .py-порт — PS на *nix не исполняется.
 <#

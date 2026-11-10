@@ -1,4 +1,4 @@
-﻿# db-repo v1.23 — 1C configuration repository operations
+﻿# db-repo v1.24 — 1C configuration repository operations
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 # NB: движок только 1cv8 — ibcmd работу с хранилищем не поддерживает (нет такого режима).
 <#

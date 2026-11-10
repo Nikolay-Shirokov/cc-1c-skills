@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# db-load-cf v1.25 — Load 1C configuration from CF file
+# db-load-cf v1.26 — Load 1C configuration from CF file
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -199,6 +199,9 @@ def project_extra_args(name):
                     data = json.load(f)
                 v = data.get(name)
                 if v:
+                    # Строка вместо массива — один аргумент, как у PS (@($x)), а не список символов
+                    if not isinstance(v, list):
+                        v = [v]
                     return [str(x) for x in v]
             except Exception:
                 pass

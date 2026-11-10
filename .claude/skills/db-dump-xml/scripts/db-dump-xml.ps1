@@ -1,4 +1,4 @@
-﻿# db-dump-xml v1.29 — Dump 1C configuration to XML files
+﻿# db-dump-xml v1.30 — Dump 1C configuration to XML files
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 # NB: *nix-раскладку платформы (/opt/1cv8/<ver>/1cv8, без .exe) знает только .py-порт — PS на *nix не исполняется.
 <#

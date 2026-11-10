@@ -422,6 +422,16 @@ const FAMILIES = [
       // В epf-build два скрипта, и копия семьи есть в каждом — гард сверяет обе.
     ],
   },
+  // Проектные v8args/ibcmdargs: 15 копий чтения .v8-project.json — разъехавшись, порт режет строку
+  // на символы, а соседний берёт её одним аргументом.
+  {
+    name: 'platform: project_extra_args', py: 'project_extra_args', ps1: 'Get-ProjectExtraArgs',
+    variants: [
+      { id: 'base', authority: 'db-create',
+        consumers: ['db-cfe-admin', 'db-dump-cf', 'db-dump-dt', 'db-dump-xml', 'db-load-cf', 'db-load-dt',
+          'db-load-git', 'db-load-xml', 'db-repo', 'db-run', 'db-update', 'epf-build', 'epf-dump'] },
+    ],
+  },
   {
     name: 'platform: arg_key_match', py: 'arg_key_match', ps1: 'Test-ArgKeyMatch',
     variants: [

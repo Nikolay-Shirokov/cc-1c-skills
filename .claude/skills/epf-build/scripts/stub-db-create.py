@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# stub-db-create v1.21 — Create temp 1C infobase with metadata stubs for EPF/ERF build
+# stub-db-create v1.22 — Create temp 1C infobase with metadata stubs for EPF/ERF build
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -236,6 +236,9 @@ def project_extra_args(name):
                     data = json.load(f)
                 v = data.get(name)
                 if v:
+                    # Строка вместо массива — один аргумент, как у PS (@($x)), а не список символов
+                    if not isinstance(v, list):
+                        v = [v]
                     return [str(x) for x in v]
             except Exception:
                 pass
