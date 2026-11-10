@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# cf-info v1.10 — Compact summary of 1C configuration root
+# cf-info v1.11 — Compact summary of 1C configuration root
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -215,7 +215,8 @@ def get_home_page_layout():
     tn = hp_root.find(f"{{{HP_NS}}}WorkingAreaTemplate")
     if tn is not None and tn.text:
         result["template"] = tn.text.strip()
-    for col_name, key in (("LeftColumn", "left"), ("RightColumn", "right")):
+    # Шаблон OneColumn хранит единственную колонку в <Column>
+    for col_name, key in (("Column", "left"), ("LeftColumn", "left"), ("RightColumn", "right")):
         col = hp_root.find(f"{{{HP_NS}}}{col_name}")
         if col is None:
             continue

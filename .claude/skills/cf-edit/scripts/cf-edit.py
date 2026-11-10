@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# cf-edit v1.33 — Edit 1C configuration root (Configuration.xml)
+# cf-edit v1.34 — Edit 1C configuration root (Configuration.xml)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -1250,10 +1250,10 @@ def main():
             print(f"Unknown template '{tmpl}'. Allowed: {', '.join(allowed_templates)}", file=sys.stderr)
             sys.exit(1)
 
-        left_items = get_field(layout, ["left", "LeftColumn"])
+        left_items = get_field(layout, ["left", "LeftColumn", "Column"])
         right_items = get_field(layout, ["right", "RightColumn"])
 
-        known = {"template", "WorkingAreaTemplate", "left", "LeftColumn", "right", "RightColumn"}
+        known = {"template", "WorkingAreaTemplate", "left", "LeftColumn", "Column", "right", "RightColumn"}
         for k in layout.keys():
             if k not in known:
                 print(f"Unknown key '{k}'. Allowed: template, left, right", file=sys.stderr)
@@ -1274,8 +1274,12 @@ def main():
             body = "\r\n".join(blocks)
             return f"\t<{tag}>\r\n{body}\r\n\t</{tag}>"
 
-        left_xml = build_column("LeftColumn", left_items)
-        right_xml = build_column("RightColumn", right_items)
+        # Одна колонка у платформы — <Column> без RightColumn; LeftColumn/RightColumn она отвергает
+        # («Текущее LeftColumn, ожидаемое Column», замер 8.3.24).
+        if tmpl == "OneColumn":
+            columns_xml = build_column("Column", left_items)
+        else:
+            columns_xml = build_column("LeftColumn", left_items) + "\r\n" + build_column("RightColumn", right_items)
 
         hp_xml = (
             '<?xml version="1.0" encoding="UTF-8"?>\r\n'
@@ -1284,8 +1288,7 @@ def main():
             'xmlns:xs="http://www.w3.org/2001/XMLSchema" '
             f'xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" version="{format_version}">\r\n'
             f'\t<WorkingAreaTemplate>{tmpl}</WorkingAreaTemplate>\r\n'
-            f'{left_xml}\r\n'
-            f'{right_xml}\r\n'
+            f'{columns_xml}\r\n'
             '</HomePageWorkArea>'
         )
 

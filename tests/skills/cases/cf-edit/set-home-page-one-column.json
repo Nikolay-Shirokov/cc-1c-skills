@@ -1,0 +1,20 @@
+{
+  "name": "Начальная страница в одну колонку — единственная колонка <Column>, без RightColumn (как выгружает платформа)",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "CommonForm", "name": "Главная" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    }
+  ],
+  "input": [
+    {
+      "operation": "set-home-page",
+      "value": { "template": "OneColumn", "left": [ { "form": "CommonForm.Главная", "height": 20 } ] }
+    }
+  ],
+  "expect": {
+    "fileContains": { "file": "Ext/HomePageWorkArea.xml", "text": ["<Column>", "CommonForm.Главная"] },
+    "fileNotContains": { "file": "Ext/HomePageWorkArea.xml", "text": ["LeftColumn", "RightColumn"] }
+  }
+}

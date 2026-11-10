@@ -1,4 +1,4 @@
-﻿# cf-info v1.10 — Compact summary of 1C configuration root
+﻿# cf-info v1.11 — Compact summary of 1C configuration root
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -189,7 +189,7 @@ function Get-HomePageLayout {
 	$result = [ordered]@{ template = ""; left = @(); right = @() }
 	$tmplNode = $hpDoc.DocumentElement.SelectSingleNode("hp:WorkingAreaTemplate", $hpNs)
 	if ($tmplNode) { $result.template = $tmplNode.InnerText.Trim() }
-	foreach ($colName in @("LeftColumn","RightColumn")) {
+	foreach ($colName in @("Column","LeftColumn","RightColumn")) {
 		$colNode = $hpDoc.DocumentElement.SelectSingleNode("hp:$colName", $hpNs)
 		if (-not $colNode) { continue }
 		$items = @()
@@ -213,7 +213,8 @@ function Get-HomePageLayout {
 				roles = $roles
 			}
 		}
-		if ($colName -eq "LeftColumn") { $result.left = $items } else { $result.right = $items }
+		# Шаблон OneColumn хранит единственную колонку в <Column>
+		if ($colName -eq "RightColumn") { $result.right = $items } else { $result.left = $items }
 	}
 	return $result
 }

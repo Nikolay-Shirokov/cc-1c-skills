@@ -1,4 +1,4 @@
-﻿# cf-edit v1.33 — Edit 1C configuration root (Configuration.xml)
+﻿# cf-edit v1.34 — Edit 1C configuration root (Configuration.xml)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -1181,11 +1181,11 @@ function Do-SetHomePage($valArg) {
 		Write-Error "Unknown template '$tmpl'. Allowed: $($allowedTemplates -join ', ')"; exit 1
 	}
 
-	$leftItems = Get-FieldValue $layout @("left","LeftColumn")
+	$leftItems = Get-FieldValue $layout @("left","LeftColumn","Column")
 	$rightItems = Get-FieldValue $layout @("right","RightColumn")
 
 	# Reject unknown keys
-	$known = @("template","WorkingAreaTemplate","left","LeftColumn","right","RightColumn")
+	$known = @("template","WorkingAreaTemplate","left","LeftColumn","Column","right","RightColumn")
 	foreach ($prop in $layout.PSObject.Properties) {
 		if ($known -notcontains $prop.Name) {
 			Write-Error "Unknown key '$($prop.Name)'. Allowed: template, left, right"; exit 1
@@ -1210,15 +1210,19 @@ function Do-SetHomePage($valArg) {
 		return "`t<$tag>`r`n$body`r`n`t</$tag>"
 	}
 
-	$leftXml = Build-Column "LeftColumn" $leftItems
-	$rightXml = Build-Column "RightColumn" $rightItems
+	# Одна колонка у платформы — <Column> без RightColumn; LeftColumn/RightColumn она отвергает
+	# («Текущее LeftColumn, ожидаемое Column», замер 8.3.24).
+	$columnsXml = if ($tmpl -eq "OneColumn") {
+		Build-Column "Column" $leftItems
+	} else {
+		(Build-Column "LeftColumn" $leftItems) + "`r`n" + (Build-Column "RightColumn" $rightItems)
+	}
 
 	$hpXml = @"
 <?xml version="1.0" encoding="UTF-8"?>
 <HomePageWorkArea xmlns="http://v8.1c.ru/8.3/xcf/extrnprops" xmlns:xr="http://v8.1c.ru/8.3/xcf/readable" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" version="$($script:formatVersion)">
 	<WorkingAreaTemplate>$tmpl</WorkingAreaTemplate>
-$leftXml
-$rightXml
+$columnsXml
 </HomePageWorkArea>
 "@
 

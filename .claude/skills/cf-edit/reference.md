@@ -109,7 +109,7 @@ Batch: `"Catalog.Товары ;; Document.Заказ ;; Enum.ВидыОплат"
 | Ключ | Канонич. (XML) | Описание |
 |------|----------------|----------|
 | `template` | `WorkingAreaTemplate` | `OneColumn` / `TwoColumnsEqualWidth` (дефолт) / `TwoColumnsVariableWidth` |
-| `left` | `LeftColumn` | массив записей форм |
+| `left` | `LeftColumn` (при `OneColumn` — `Column`) | массив записей форм |
 | `right` | `RightColumn` | массив записей форм (запрещён при `OneColumn`) |
 
 Принимаются и короткие и канонич. ключи (XML-имена) — оба работают.
