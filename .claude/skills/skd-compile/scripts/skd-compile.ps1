@@ -1,4 +1,4 @@
-﻿# skd-compile v1.143 — Compile 1C DCS from JSON
+﻿# skd-compile v1.144 — Compile 1C DCS from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -45,6 +45,44 @@ function ConvertFrom-JsonInput([string]$text, [string]$source, [string]$expected
 		exit 1
 	}
 	return ,$parsed
+}
+
+# --- Булевы флаги DSL: прощающий ввод ---
+# Флаг, записанный строкой "true"/"false" (без регистра) или числом 1/0, — однозначная ошибка автора
+# JSON: приводим к bool молча. Иное значение у строго булева ключа — ошибка без записи: угадывать
+# смысл «yes»/«да»/2 не беремся. $Loose — ключи, у которых бывает и небулево значение (use у
+# параметра — "Always", folder у папки — заголовок): у них приводится только похожее на bool.
+# Без нормализации порты расходились молча: PS (-eq) принимал "false", py (is False) — нет.
+function ConvertTo-DslBoolFlags {
+	param($Node, [string[]]$Strict, [string[]]$Loose, [string]$Path = '')
+	if ($null -eq $Node) { return }
+	if ($Node -is [System.Collections.IList]) {
+		for ($i = 0; $i -lt $Node.Count; $i++) { ConvertTo-DslBoolFlags $Node[$i] $Strict $Loose "$Path[$i]" }
+		return
+	}
+	if ($Node -isnot [System.Management.Automation.PSCustomObject]) { return }
+	foreach ($prop in @($Node.PSObject.Properties)) {
+		$v = $prop.Value
+		$here = if ($Path) { "$Path.$($prop.Name)" } else { $prop.Name }
+		$isStrict = $Strict -contains $prop.Name
+		$isLoose = $Loose -contains $prop.Name
+		if (($isStrict -or $isLoose) -and $null -ne $v -and $v -isnot [bool]) {
+			$b = $null
+			if ($v -is [string]) {
+				$t = $v.Trim().ToLowerInvariant()
+				if ($t -eq 'true') { $b = $true } elseif ($t -eq 'false') { $b = $false }
+			} elseif ($v -is [int] -or $v -is [long] -or $v -is [double] -or $v -is [decimal]) {
+				if ($v -eq 1) { $b = $true } elseif ($v -eq 0) { $b = $false }
+			}
+			if ($null -ne $b) { $prop.Value = $b; continue }
+			if ($isStrict) {
+				$shown = if ($v -is [string]) { '"' + $v + '"' } else { "$v" }
+				[Console]::Error.WriteLine("[ERROR] $here = ${shown}: expected true or false")
+				exit 1
+			}
+		}
+		ConvertTo-DslBoolFlags $v $Strict $Loose $here
+	}
 }
 
 # --- Чтение входного JSON-файла ---
@@ -248,6 +286,7 @@ if ($DefinitionFile) {
 }
 
 $def = ConvertFrom-JsonInput $json $jsonSource -Inline:$jsonInline
+ConvertTo-DslBoolFlags $def @('auto','hidden','availableAsField','valueListAllowed','denyIncompleteValues','nilValue','autoDates','autoFillFields','useQueryGroupIfPossible','autoOrder') @('use','folder','useRestriction')
 
 # --- Sentinel check: refuse to compile if JSON contains skd-decompile sentinels ---
 # These mark places the decompiler couldn't reverse cleanly; user must resolve

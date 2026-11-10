@@ -1,0 +1,29 @@
+{
+  "name": "Небулево значение строго булева флага (hidden: \"yes\") — отказ с путём к ключу, без записи",
+  "params": {
+    "outputPath": "Template.xml"
+  },
+  "input": {
+    "dataSets": [
+      {
+        "name": "Набор",
+        "query": "ВЫБРАТЬ 1 КАК А",
+        "fields": [
+          "А"
+        ]
+      }
+    ],
+    "parameters": [
+      {
+        "name": "П",
+        "type": "Строка",
+        "hidden": "yes"
+      }
+    ]
+  },
+  "expectError": true,
+  "expect": {
+    "stderrContains": "parameters[0].hidden = \"yes\": expected true or false"
+  },
+  "noSnapshot": "отказ до записи — проверяется сообщение"
+}

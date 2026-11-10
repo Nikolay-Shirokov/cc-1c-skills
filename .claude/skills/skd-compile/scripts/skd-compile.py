@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# skd-compile v1.143 — Compile 1C DCS from JSON
+# skd-compile v1.144 — Compile 1C DCS from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import json
@@ -12,6 +12,49 @@ from lxml import etree
 
 # Регистронезависимый ввод — паритет с PS1: в PowerShell имена параметров и [ValidateSet]
 # регистр не различают, в argparse совпадение точное.
+
+# --- Булевы флаги DSL: прощающий ввод ---
+# Флаг, записанный строкой "true"/"false" (без регистра) или числом 1/0, — однозначная ошибка автора
+# JSON: приводим к bool молча. Иное значение у строго булева ключа — ошибка без записи: угадывать
+# смысл «yes»/«да»/2 не беремся. loose — ключи, у которых бывает и небулево значение (use у
+# параметра — "Always", folder у папки — заголовок): у них приводится только похожее на bool.
+# Без нормализации порты расходились молча: PS (-eq) принимал "false", py (is False) — нет.
+def normalize_dsl_bool_flags(node, strict, loose, path=""):
+    if node is None:
+        return
+    if isinstance(node, list):
+        for i, x in enumerate(node):
+            normalize_dsl_bool_flags(x, strict, loose, f"{path}[{i}]")
+        return
+    if not isinstance(node, dict):
+        return
+    for name in list(node.keys()):
+        v = node[name]
+        here = f"{path}.{name}" if path else name
+        is_strict = name.lower() in strict
+        is_loose = name.lower() in loose
+        if (is_strict or is_loose) and v is not None and not isinstance(v, bool):
+            b = None
+            if isinstance(v, str):
+                t = v.strip().lower()
+                if t == "true":
+                    b = True
+                elif t == "false":
+                    b = False
+            elif isinstance(v, (int, float)):
+                if v == 1:
+                    b = True
+                elif v == 0:
+                    b = False
+            if b is not None:
+                node[name] = b
+                continue
+            if is_strict:
+                shown = f'"{v}"' if isinstance(v, str) else f"{v}"
+                print(f"[ERROR] {here} = {shown}: expected true or false", file=sys.stderr)
+                sys.exit(1)
+        normalize_dsl_bool_flags(v, strict, loose, here)
+
 
 def parse_json_input(text, source, expected=None, inline=False):
     """Разбор пользовательского JSON: одна строка в stderr вместо traceback (issue #80).
@@ -3650,6 +3693,8 @@ def main():
         json_inline = True
 
     defn = ci_json(parse_json_input(json_text, json_source, inline=json_inline))
+    normalize_dsl_bool_flags(defn, {"auto", "hidden", "availableasfield", "valuelistallowed", "denyincompletevalues", "nilvalue", "autodates", "autofillfields", "usequerygroupifpossible", "autoorder"},
+                             {"use", "folder", "userestriction"})
 
     if not defn.get('dataSets') or len(defn['dataSets']) == 0:
         print("JSON must have at least one entry in 'dataSets'", file=sys.stderr)

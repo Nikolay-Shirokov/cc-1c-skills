@@ -1,0 +1,65 @@
+{
+  "name": "Булевы флаги строкой и числом (\"FALSE\", 1, \"false\") — как true/false, одинаково в портах (вкл. use у параметра ввода, где PS читал истинность)",
+  "params": {
+    "outputPath": "Template.xml"
+  },
+  "input": {
+    "dataSets": [
+      {
+        "name": "Набор",
+        "query": "ВЫБРАТЬ 1 КАК А, 2 КАК Б",
+        "fields": [
+          "А",
+          {
+            "field": "Б",
+            "inputParameters": [
+              {
+                "parameter": "БыстрыйВыбор",
+                "use": "false",
+                "value": true
+              }
+            ]
+          }
+        ],
+        "autoFillFields": "FALSE"
+      }
+    ],
+    "parameters": [
+      {
+        "name": "П",
+        "type": "Строка",
+        "hidden": 1
+      }
+    ],
+    "settingsVariants": [
+      {
+        "name": "В",
+        "settings": {
+          "selection": [
+            "А",
+            {
+              "field": "Б",
+              "use": "false"
+            }
+          ],
+          "structure": "details"
+        }
+      }
+    ]
+  },
+  "validatePath": "Template.xml",
+  "expect": {
+    "files": [
+      "Template.xml"
+    ],
+    "fileContains": {
+      "file": "Template.xml",
+      "text": [
+        "<autoFillFields>false</autoFillFields>",
+        "<availableAsField>false</availableAsField>",
+        "<dcsset:use>false</dcsset:use>",
+        "<dcscor:use>false</dcscor:use>"
+      ]
+    }
+  }
+}

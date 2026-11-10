@@ -442,6 +442,14 @@ const FAMILIES = [
           'db-load-git', 'db-load-xml', 'db-repo', 'db-update', 'epf-build', 'epf-dump'] },
     ],
   },
+  // Булевы флаги DSL — прощающий ввод ("true"/"false"/1/0 → bool, иное у строгого ключа — отказ).
+  // Списки ключей у навыка свои, тело общее: следующие навыки-компиляторы берут эту копию.
+  {
+    name: 'dsl: bool flags', py: 'normalize_dsl_bool_flags', ps1: 'ConvertTo-DslBoolFlags',
+    variants: [
+      { id: 'base', authority: 'skd-compile', consumers: [] },
+    ],
+  },
   {
     name: 'platform: arg_key_match', py: 'arg_key_match', ps1: 'Test-ArgKeyMatch',
     variants: [
