@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# form-compile v1.243 — Compile 1C managed form from JSON or object metadata
+# form-compile v1.244 — Compile 1C managed form from JSON or object metadata
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import copy
@@ -13,12 +13,9 @@ from collections import OrderedDict
 
 from lxml import etree
 
-# Регистронезависимый ввод — паритет с PS1: в PowerShell имена параметров и [ValidateSet]
-# регистр не различают, в argparse совпадение точное.
-
 # --- Булевы флаги DSL: прощающий ввод ---
-# Флаг строкой или числом — однозначная ошибка автора JSON: true|да|истина / false|нет|ложь (без
-# регистра) и 1/0 приводим к bool молча. Иное — ошибка без записи: молчаливое «false» из «yes»
+# Флаг строкой или числом — однозначная ошибка автора JSON: true|да|истина|1 / false|нет|ложь|0 (без
+# регистра; 1/0 — и числом) приводим к bool молча. Иное — ошибка без записи: молчаливое «false» из «yes»
 # хуже отказа. Без общего читателя порты расходились: PS (-eq) принимал "false", py (is) — нет.
 def to_dsl_bool(value, key, default):
     if value is None:
@@ -27,9 +24,9 @@ def to_dsl_bool(value, key, default):
         return value
     if isinstance(value, str):
         t = value.strip().lower()
-        if t in ('true', 'да', 'истина'):
+        if t in ('true', 'да', 'истина', '1'):
             return True
-        if t in ('false', 'нет', 'ложь'):
+        if t in ('false', 'нет', 'ложь', '0'):
             return False
     elif isinstance(value, (int, float)):
         if value == 1:
@@ -51,6 +48,9 @@ def get_dsl_bool(obj, keys, default):
                 return to_dsl_bool(obj[actual], k, default)
     return default
 
+
+# Регистронезависимый ввод — паритет с PS1: в PowerShell имена параметров и [ValidateSet]
+# регистр не различают, в argparse совпадение точное.
 
 def parse_json_input(text, source, expected=None, inline=False):
     """Разбор пользовательского JSON: одна строка в stderr вместо traceback (issue #80).
@@ -4390,9 +4390,10 @@ def get_addition_override(additions, type_key):
 def emit_xr_flag(lines, tag, val, indent):
     if val is None:
         return
-    if isinstance(val, bool):
+    if not isinstance(val, dict):
+        flag = to_dsl_bool(val, tag, False)
         lines.append(f"{indent}<{tag}>")
-        lines.append(f"{indent}\t<xr:Common>{'true' if val else 'false'}</xr:Common>")
+        lines.append(f"{indent}\t<xr:Common>{'true' if flag else 'false'}</xr:Common>")
         lines.append(f"{indent}</{tag}>")
         return
     # объектная форма { common, roles }
@@ -6917,9 +6918,9 @@ def emit_table(lines, el, name, eid, indent):
         lines.append(f'{inner}<TitleLocation>{map_title_loc(el["titleLocation"])}</TitleLocation>')
     # ChangeRowSet/Order — явное значение (в т.ч. false: платформа пишет его на ValueTable)
     if 'changeRowSet' in el and el['changeRowSet'] is not None:
-        lines.append(f'{inner}<ChangeRowSet>{"true" if get_dsl_bool(el, ['changeRowSet'], False) else "false"}</ChangeRowSet>')
+        lines.append(f'{inner}<ChangeRowSet>{"true" if get_dsl_bool(el, ["changeRowSet"], False) else "false"}</ChangeRowSet>')
     if 'changeRowOrder' in el and el['changeRowOrder'] is not None:
-        lines.append(f'{inner}<ChangeRowOrder>{"true" if get_dsl_bool(el, ['changeRowOrder'], False) else "false"}</ChangeRowOrder>')
+        lines.append(f'{inner}<ChangeRowOrder>{"true" if get_dsl_bool(el, ["changeRowOrder"], False) else "false"}</ChangeRowOrder>')
     if get_dsl_bool(el, ['autoInsertNewRow'], False):
         lines.append(f'{inner}<AutoInsertNewRow>true</AutoInsertNewRow>')
     # RowFilter — nil-плейсхолдер (ключ присутствует → эмитим)

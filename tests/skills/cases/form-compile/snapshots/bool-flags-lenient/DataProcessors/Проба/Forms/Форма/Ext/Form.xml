@@ -4,6 +4,9 @@
 	<ChildItems>
 		<InputField name="Результат" id="1">
 			<DataPath>Объект.Результат</DataPath>
+			<UserVisible>
+				<xr:Common>false</xr:Common>
+			</UserVisible>
 			<ReadOnly>true</ReadOnly>
 			<SkipOnInput>true</SkipOnInput>
 			<AutoMaxWidth>false</AutoMaxWidth>

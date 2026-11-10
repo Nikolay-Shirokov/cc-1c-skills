@@ -1,4 +1,4 @@
-﻿# cf-edit v1.36 — Edit 1C configuration root (Configuration.xml)
+﻿# cf-edit v1.37 — Edit 1C configuration root (Configuration.xml)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -12,17 +12,9 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-# --- Разбор пользовательского JSON ---
-# Одна строка в stderr вместо дампа исключения ConvertFrom-Json (issue #80): агент по стектрейсу
-# идёт чинить скрипт, а не свой вызов. $source — файл или параметр. $expected заполняем только
-# для полиморфного входа: у файла подсказка была бы наполнителем. -Inline печатает ещё и то,
-# что доехало: у файла такого вопроса нет — путь назван, позицию дал парсер, файл на диске.
-# Возврат через запятую: без неё одноэлементный JSON-массив разворачивался бы в скаляр
-# вторым анруллингом. Не Write-Output -NoEnumerate: pwsh 7.6 заворачивает им в List
-# и одиночный объект (issue #136).
 # --- Булевы флаги DSL: прощающий ввод ---
-# Флаг строкой или числом — однозначная ошибка автора JSON: true|да|истина / false|нет|ложь (без
-# регистра) и 1/0 приводим к bool молча. Иное — ошибка без записи: молчаливое «false» из «yes»
+# Флаг строкой или числом — однозначная ошибка автора JSON: true|да|истина|1 / false|нет|ложь|0 (без
+# регистра; 1/0 — и числом) приводим к bool молча. Иное — ошибка без записи: молчаливое «false» из «yes»
 # хуже отказа. Без общего читателя порты расходились: PS (-eq) принимал "false", py (is) — нет.
 function ConvertTo-DslBool {
 	param($Value, [string]$Key, [bool]$Default)
@@ -30,8 +22,8 @@ function ConvertTo-DslBool {
 	if ($Value -is [bool]) { return $Value }
 	if ($Value -is [string]) {
 		$t = $Value.Trim().ToLowerInvariant()
-		if (@('true', 'да', 'истина') -ccontains $t) { return $true }
-		if (@('false', 'нет', 'ложь') -ccontains $t) { return $false }
+		if (@('true', 'да', 'истина', '1') -ccontains $t) { return $true }
+		if (@('false', 'нет', 'ложь', '0') -ccontains $t) { return $false }
 	} elseif ($Value -is [int] -or $Value -is [long] -or $Value -is [double] -or $Value -is [decimal]) {
 		if ($Value -eq 1) { return $true }
 		if ($Value -eq 0) { return $false }
@@ -54,6 +46,15 @@ function Get-DslBool {
 	}
 	return $Default
 }
+
+# --- Разбор пользовательского JSON ---
+# Одна строка в stderr вместо дампа исключения ConvertFrom-Json (issue #80): агент по стектрейсу
+# идёт чинить скрипт, а не свой вызов. $source — файл или параметр. $expected заполняем только
+# для полиморфного входа: у файла подсказка была бы наполнителем. -Inline печатает ещё и то,
+# что доехало: у файла такого вопроса нет — путь назван, позицию дал парсер, файл на диске.
+# Возврат через запятую: без неё одноэлементный JSON-массив разворачивался бы в скаляр
+# вторым анруллингом. Не Write-Output -NoEnumerate: pwsh 7.6 заворачивает им в List
+# и одиночный объект (issue #136).
 
 function ConvertFrom-JsonInput([string]$text, [string]$source, [string]$expected, [switch]$Inline) {
 	try {
@@ -1227,11 +1228,11 @@ function Do-SetHomePage($valArg) {
 		}
 	}
 
-	$leftKeys = @($layout.PSObject.Properties.Name | Where-Object { @("left","LeftColumn","Column") -ccontains $_ })
+	$leftKeys = @($layout.PSObject.Properties.Name | Where-Object { @("left","LeftColumn","Column") -contains $_ })
 	if ($leftKeys.Count -gt 1) {
 		Write-Error "Keys $($leftKeys -join ', ') all mean the first column - give one of them"; exit 1
 	}
-	if ($leftKeys -ccontains "Column" -and $tmpl -ne "OneColumn") {
+	if ($leftKeys -contains "Column" -and $tmpl -ne "OneColumn") {
 		Write-Error "Key 'Column' is the single column of template 'OneColumn'; template '$tmpl' takes 'left' and 'right'"; exit 1
 	}
 	if ($tmpl -eq "OneColumn" -and $rightItems) {

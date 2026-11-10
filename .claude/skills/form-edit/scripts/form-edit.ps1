@@ -1,4 +1,4 @@
-﻿# form-edit v1.59 — Edit 1C managed form elements
+﻿# form-edit v1.60 — Edit 1C managed form elements
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -12,17 +12,9 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-# --- Разбор пользовательского JSON ---
-# Одна строка в stderr вместо дампа исключения ConvertFrom-Json (issue #80): агент по стектрейсу
-# идёт чинить скрипт, а не свой вызов. $source — файл или параметр. $expected заполняем только
-# для полиморфного входа: у файла подсказка была бы наполнителем. -Inline печатает ещё и то,
-# что доехало: у файла такого вопроса нет — путь назван, позицию дал парсер, файл на диске.
-# Возврат через запятую: без неё одноэлементный JSON-массив разворачивался бы в скаляр
-# вторым анруллингом. Не Write-Output -NoEnumerate: pwsh 7.6 заворачивает им в List
-# и одиночный объект (issue #136).
 # --- Булевы флаги DSL: прощающий ввод ---
-# Флаг строкой или числом — однозначная ошибка автора JSON: true|да|истина / false|нет|ложь (без
-# регистра) и 1/0 приводим к bool молча. Иное — ошибка без записи: молчаливое «false» из «yes»
+# Флаг строкой или числом — однозначная ошибка автора JSON: true|да|истина|1 / false|нет|ложь|0 (без
+# регистра; 1/0 — и числом) приводим к bool молча. Иное — ошибка без записи: молчаливое «false» из «yes»
 # хуже отказа. Без общего читателя порты расходились: PS (-eq) принимал "false", py (is) — нет.
 function ConvertTo-DslBool {
 	param($Value, [string]$Key, [bool]$Default)
@@ -30,8 +22,8 @@ function ConvertTo-DslBool {
 	if ($Value -is [bool]) { return $Value }
 	if ($Value -is [string]) {
 		$t = $Value.Trim().ToLowerInvariant()
-		if (@('true', 'да', 'истина') -ccontains $t) { return $true }
-		if (@('false', 'нет', 'ложь') -ccontains $t) { return $false }
+		if (@('true', 'да', 'истина', '1') -ccontains $t) { return $true }
+		if (@('false', 'нет', 'ложь', '0') -ccontains $t) { return $false }
 	} elseif ($Value -is [int] -or $Value -is [long] -or $Value -is [double] -or $Value -is [decimal]) {
 		if ($Value -eq 1) { return $true }
 		if ($Value -eq 0) { return $false }
@@ -54,6 +46,15 @@ function Get-DslBool {
 	}
 	return $Default
 }
+
+# --- Разбор пользовательского JSON ---
+# Одна строка в stderr вместо дампа исключения ConvertFrom-Json (issue #80): агент по стектрейсу
+# идёт чинить скрипт, а не свой вызов. $source — файл или параметр. $expected заполняем только
+# для полиморфного входа: у файла подсказка была бы наполнителем. -Inline печатает ещё и то,
+# что доехало: у файла такого вопроса нет — путь назван, позицию дал парсер, файл на диске.
+# Возврат через запятую: без неё одноэлементный JSON-массив разворачивался бы в скаляр
+# вторым анруллингом. Не Write-Output -NoEnumerate: pwsh 7.6 заворачивает им в List
+# и одиночный объект (issue #136).
 
 function ConvertFrom-JsonInput([string]$text, [string]$source, [string]$expected, [switch]$Inline) {
 	try {
@@ -3821,9 +3822,10 @@ function Emit-Element {
 function Emit-XrFlag {
 	param([string]$tag, $val, [string]$indent)
 	if ($null -eq $val) { return }
-	if ($val -is [bool]) {
+	if ($val -isnot [System.Management.Automation.PSCustomObject] -and $val -isnot [System.Collections.IDictionary]) {
+		$flag = ConvertTo-DslBool $val $tag $false
 		X "$indent<$tag>"
-		X "$indent`t<xr:Common>$(if ($val){'true'}else{'false'})</xr:Common>"
+		X "$indent`t<xr:Common>$(if ($flag){'true'}else{'false'})</xr:Common>"
 		X "$indent</$tag>"
 		return
 	}
@@ -7052,7 +7054,7 @@ function Test-IsInside($node, $anc) {
 # after/before — контейнер якоря; into — в конец (first — в начало); first без into — начало формы.
 function Resolve-Position($op, [string]$ctx, [bool]$required) {
 	$after = $op.after; $before = $op.before; $into = $op.into
-	$first = (Get-DslBool $op @('first') $false)
+	$first = (ConvertTo-DslBool $op.first "${ctx}: first" $false)
 	if ($after -and $before) { Fail "${ctx}: укажи что-то одно — after или before" }
 	$anchorName = if ($after) { "$after" } elseif ($before) { "$before" } else { $null }
 	if ($first -and $anchorName) { Fail "${ctx}: first — это начало контейнера, вместе с after/before не задаётся" }
@@ -7245,7 +7247,8 @@ function Invoke-AutoCmdBar($op, [int]$idx) {
 	if ($null -eq $acbNode) { Fail "${ctx}: у формы нет командной панели" }
 	Assert-OpKeys $op @('autoCmdBar','children','autofill','horizontalAlign') $ctx
 	if ($null -ne $op.PSObject.Properties['autofill']) {
-		$af = (Get-DslBool $op @('autofill') $false)
+		if ($null -eq $op.autofill) { Fail "${ctx}: autofill — true или false" }
+		$af = (ConvertTo-DslBool $op.autofill "${ctx}: autofill" $false)
 		Set-ValueTag $acbNode 'Autofill' $(if ($af) { 'true' } else { 'false' })
 		$script:opLog += "  * $($acbNode.GetAttribute('name')): autofill=$(if ($af) { 'true' } else { 'false' }) → Autofill"
 		$script:changedCount++
@@ -7622,7 +7625,7 @@ function Invoke-Set($op, [int]$idx) {
 					$script:opLog += "  * ${n}: $key=`"$shown`" → $tag"
 				}
 				'bool' {
-					$v = ConvertTo-DslBool $v $key $false
+					$v = ConvertTo-DslBool $v "${c}: $key" $false
 					if ($spec.Invert) { $v = -not $v }
 					$text = if ($v) { 'true' } else { 'false' }
 					Set-ValueTag $node $tag $text
@@ -9559,7 +9562,7 @@ function Get-RenameArgs($op, [string]$section, [int]$idx) {
 	if ($new -notmatch '^[^\W\d]\w*$') { Fail "${c}: '$new' — не имя: буквы, цифры и _, первая не цифра" }
 	$inModule = $false
 	if ($null -ne $op.PSObject.Properties['renameInModule']) {
-		$inModule = (Get-DslBool $op @('renameInModule') $false)
+		$inModule = (ConvertTo-DslBool $op.renameInModule "${c}: renameInModule" $false)
 	}
 	return @{ C = $c; Old = "$($op.rename)"; New = $new; InModule = $inModule }
 }

@@ -28,6 +28,7 @@ const GUARDS = [
   ['check-switch-install.mjs', 'switch.py: обновление и --undo не трогают сторонние навыки'],
   ['check-ps-portability.mjs', '.ps1: без $env:TEMP и Write-Output -NoEnumerate, необработанная ошибка у db-*/epf-* даёт код 1'],
   ['check-py-undefined-names.mjs', '.py: все имена разрешаются — без NameError в непокрытых ветках'],
+  ['check-py-fstring-compat.mjs', '.py: f-строки разбираются на Python 3.9+ — без кавычек PEP 701 внутри {…}'],
 ];
 
 let failed = 0;

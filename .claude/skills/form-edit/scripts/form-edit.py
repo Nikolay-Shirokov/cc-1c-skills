@@ -1,4 +1,4 @@
-# form-edit v1.59 — Edit 1C managed form elements (Python port)
+# form-edit v1.60 — Edit 1C managed form elements (Python port)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import bisect
@@ -16,12 +16,9 @@ from lxml import etree
 sys.stdout.reconfigure(encoding="utf-8")
 sys.stderr.reconfigure(encoding="utf-8")
 
-# Регистронезависимый ввод — паритет с PS1: в PowerShell имена параметров и [ValidateSet]
-# регистр не различают, в argparse совпадение точное.
-
 # --- Булевы флаги DSL: прощающий ввод ---
-# Флаг строкой или числом — однозначная ошибка автора JSON: true|да|истина / false|нет|ложь (без
-# регистра) и 1/0 приводим к bool молча. Иное — ошибка без записи: молчаливое «false» из «yes»
+# Флаг строкой или числом — однозначная ошибка автора JSON: true|да|истина|1 / false|нет|ложь|0 (без
+# регистра; 1/0 — и числом) приводим к bool молча. Иное — ошибка без записи: молчаливое «false» из «yes»
 # хуже отказа. Без общего читателя порты расходились: PS (-eq) принимал "false", py (is) — нет.
 def to_dsl_bool(value, key, default):
     if value is None:
@@ -30,9 +27,9 @@ def to_dsl_bool(value, key, default):
         return value
     if isinstance(value, str):
         t = value.strip().lower()
-        if t in ('true', 'да', 'истина'):
+        if t in ('true', 'да', 'истина', '1'):
             return True
-        if t in ('false', 'нет', 'ложь'):
+        if t in ('false', 'нет', 'ложь', '0'):
             return False
     elif isinstance(value, (int, float)):
         if value == 1:
@@ -54,6 +51,9 @@ def get_dsl_bool(obj, keys, default):
                 return to_dsl_bool(obj[actual], k, default)
     return default
 
+
+# Регистронезависимый ввод — паритет с PS1: в PowerShell имена параметров и [ValidateSet]
+# регистр не различают, в argparse совпадение точное.
 
 def parse_json_input(text, source, expected=None, inline=False):
     """Разбор пользовательского JSON: одна строка в stderr вместо traceback (issue #80).
@@ -3934,9 +3934,10 @@ def get_addition_override(additions, type_key):
 def emit_xr_flag(lines, tag, val, indent):
     if val is None:
         return
-    if isinstance(val, bool):
+    if not isinstance(val, dict):
+        flag = to_dsl_bool(val, tag, False)
         lines.append(f"{indent}<{tag}>")
-        lines.append(f"{indent}\t<xr:Common>{'true' if val else 'false'}</xr:Common>")
+        lines.append(f"{indent}\t<xr:Common>{'true' if flag else 'false'}</xr:Common>")
         lines.append(f"{indent}</{tag}>")
         return
     # объектная форма { common, roles }
@@ -5489,9 +5490,9 @@ def emit_table(lines, el, name, eid, indent):
         lines.append(f'{inner}<TitleLocation>{map_title_loc(el["titleLocation"])}</TitleLocation>')
     # ChangeRowSet/Order — явное значение (в т.ч. false: платформа пишет его на ValueTable)
     if 'changeRowSet' in el and el['changeRowSet'] is not None:
-        lines.append(f'{inner}<ChangeRowSet>{"true" if get_dsl_bool(el, ['changeRowSet'], False) else "false"}</ChangeRowSet>')
+        lines.append(f'{inner}<ChangeRowSet>{"true" if get_dsl_bool(el, ["changeRowSet"], False) else "false"}</ChangeRowSet>')
     if 'changeRowOrder' in el and el['changeRowOrder'] is not None:
-        lines.append(f'{inner}<ChangeRowOrder>{"true" if get_dsl_bool(el, ['changeRowOrder'], False) else "false"}</ChangeRowOrder>')
+        lines.append(f'{inner}<ChangeRowOrder>{"true" if get_dsl_bool(el, ["changeRowOrder"], False) else "false"}</ChangeRowOrder>')
     if get_dsl_bool(el, ['autoInsertNewRow'], False):
         lines.append(f'{inner}<AutoInsertNewRow>true</AutoInsertNewRow>')
     # RowFilter — nil-плейсхолдер (ключ присутствует → эмитим)
@@ -7516,7 +7517,7 @@ def resolve_position(op, ctx, required):
     after = op.get("after")
     before = op.get("before")
     into = op.get("into")
-    first = get_dsl_bool(op, ['first'], False)
+    first = to_dsl_bool(op.get('first'), f"{ctx}: first", False)
     if after and before:
         fail(f"{ctx}: укажи что-то одно — after или before")
     anchor_name = str(after) if after else (str(before) if before else None)
@@ -7732,7 +7733,9 @@ def invoke_auto_cmd_bar(op, idx):
         fail(f"{ctx}: у формы нет командной панели")
     assert_op_keys(op, ['autoCmdBar', 'children', 'autofill', 'horizontalAlign'], ctx)
     if 'autofill' in op:
-        af = get_dsl_bool(op, ['autofill'], False)
+        if op.get('autofill') is None:
+            fail(f"{ctx}: autofill — true или false")
+        af = to_dsl_bool(op.get('autofill'), f"{ctx}: autofill", False)
         set_value_tag(acb_node, 'Autofill', 'true' if af else 'false')
         op_log.append(f"  * {acb_node.get('name')}: autofill={'true' if af else 'false'} → Autofill")
         changed_count += 1
@@ -8152,7 +8155,7 @@ def invoke_set(op, idx):
                 shown = v if isinstance(v, str) else " ".join(f"{k2}:{v2}" for k2, v2 in v.items())
                 op_log.append(f"  * {n}: {key}=\"{shown}\" → {tag}")
             elif kind == 'bool':
-                v = to_dsl_bool(v, key, False)
+                v = to_dsl_bool(v, f"{c}: {key}", False)
                 orig = 'true' if v else 'false'
                 if spec.get('Invert'):
                     v = not v
@@ -10380,7 +10383,7 @@ def get_rename_args(op, section, idx):
         fail(f"{c}: '{new}' — не имя: буквы, цифры и _, первая не цифра")
     in_module = False
     if 'renameInModule' in op:
-        in_module = get_dsl_bool(op, ['renameInModule'], False)
+        in_module = to_dsl_bool(op.get('renameInModule'), f"{c}: renameInModule", False)
     return {'C': c, 'Old': str(op.get('rename')), 'New': new, 'InModule': in_module}
 
 

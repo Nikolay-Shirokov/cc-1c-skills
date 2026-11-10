@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# cf-edit v1.36 — Edit 1C configuration root (Configuration.xml)
+# cf-edit v1.37 — Edit 1C configuration root (Configuration.xml)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -13,12 +13,9 @@ import uuid as _uuid
 from html import escape as html_escape
 from lxml import etree
 
-# Регистронезависимый ввод — паритет с PS1: в PowerShell имена параметров и [ValidateSet]
-# регистр не различают, в argparse совпадение точное.
-
 # --- Булевы флаги DSL: прощающий ввод ---
-# Флаг строкой или числом — однозначная ошибка автора JSON: true|да|истина / false|нет|ложь (без
-# регистра) и 1/0 приводим к bool молча. Иное — ошибка без записи: молчаливое «false» из «yes»
+# Флаг строкой или числом — однозначная ошибка автора JSON: true|да|истина|1 / false|нет|ложь|0 (без
+# регистра; 1/0 — и числом) приводим к bool молча. Иное — ошибка без записи: молчаливое «false» из «yes»
 # хуже отказа. Без общего читателя порты расходились: PS (-eq) принимал "false", py (is) — нет.
 def to_dsl_bool(value, key, default):
     if value is None:
@@ -27,9 +24,9 @@ def to_dsl_bool(value, key, default):
         return value
     if isinstance(value, str):
         t = value.strip().lower()
-        if t in ('true', 'да', 'истина'):
+        if t in ('true', 'да', 'истина', '1'):
             return True
-        if t in ('false', 'нет', 'ложь'):
+        if t in ('false', 'нет', 'ложь', '0'):
             return False
     elif isinstance(value, (int, float)):
         if value == 1:
@@ -51,6 +48,9 @@ def get_dsl_bool(obj, keys, default):
                 return to_dsl_bool(obj[actual], k, default)
     return default
 
+
+# Регистронезависимый ввод — паритет с PS1: в PowerShell имена параметров и [ValidateSet]
+# регистр не различают, в argparse совпадение точное.
 
 def parse_json_input(text, source, expected=None, inline=False):
     """Разбор пользовательского JSON: одна строка в stderr вместо traceback (issue #80).

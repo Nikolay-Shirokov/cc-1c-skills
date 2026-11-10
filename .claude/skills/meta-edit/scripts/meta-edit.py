@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-edit v1.76 — Edit existing 1C metadata object XML
+# meta-edit v1.77 — Edit existing 1C metadata object XML
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -11,12 +11,9 @@ import sys
 import uuid
 from lxml import etree
 
-# Регистронезависимый ввод — паритет с PS1: в PowerShell имена параметров и [ValidateSet]
-# регистр не различают, в argparse совпадение точное.
-
 # --- Булевы флаги DSL: прощающий ввод ---
-# Флаг строкой или числом — однозначная ошибка автора JSON: true|да|истина / false|нет|ложь (без
-# регистра) и 1/0 приводим к bool молча. Иное — ошибка без записи: молчаливое «false» из «yes»
+# Флаг строкой или числом — однозначная ошибка автора JSON: true|да|истина|1 / false|нет|ложь|0 (без
+# регистра; 1/0 — и числом) приводим к bool молча. Иное — ошибка без записи: молчаливое «false» из «yes»
 # хуже отказа. Без общего читателя порты расходились: PS (-eq) принимал "false", py (is) — нет.
 def to_dsl_bool(value, key, default):
     if value is None:
@@ -25,9 +22,9 @@ def to_dsl_bool(value, key, default):
         return value
     if isinstance(value, str):
         t = value.strip().lower()
-        if t in ('true', 'да', 'истина'):
+        if t in ('true', 'да', 'истина', '1'):
             return True
-        if t in ('false', 'нет', 'ложь'):
+        if t in ('false', 'нет', 'ложь', '0'):
             return False
     elif isinstance(value, (int, float)):
         if value == 1:
@@ -49,6 +46,9 @@ def get_dsl_bool(obj, keys, default):
                 return to_dsl_bool(obj[actual], k, default)
     return default
 
+
+# Регистронезависимый ввод — паритет с PS1: в PowerShell имена параметров и [ValidateSet]
+# регистр не различают, в argparse совпадение точное.
 
 def parse_json_input(text, source, expected=None, inline=False):
     """Разбор пользовательского JSON: одна строка в stderr вместо traceback (issue #80).
@@ -2163,8 +2163,8 @@ def emit_eds_table_properties(indent, src_name, table_name, t, char_xml, default
     else:
         X(f'{i}<Characteristics/>')
 
-    X(f'{i}<UseStandardCommands>{"false" if (not get_dsl_bool(t, ['useStandardCommands'], True)) else "true"}</UseStandardCommands>')
-    X(f'{i}<QuickChoice>{"true" if get_dsl_bool(t, ['quickChoice'], False) else "false"}</QuickChoice>')
+    X(f'{i}<UseStandardCommands>{"false" if (not get_dsl_bool(t, ["useStandardCommands"], True)) else "true"}</UseStandardCommands>')
+    X(f'{i}<QuickChoice>{"true" if get_dsl_bool(t, ["quickChoice"], False) else "false"}</QuickChoice>')
     # Ввод по строке: ключа нет → выводим из поля представления (так делает платформа при загрузке).
     # Явный список, в том числе пустой, уважаем как есть — отсюда presence-aware проверка.
     if 'inputByString' in t:
@@ -2189,8 +2189,8 @@ def emit_eds_table_properties(indent, src_name, table_name, t, char_xml, default
                      'ExtendedRecordPresentation', 'ListPresentation', 'ExtendedListPresentation', 'Explanation'):
         key = pres_tag[0].lower() + pres_tag[1:]
         emit_mltext(i, pres_tag, t.get(key))
-    X(f'{i}<IncludeHelpInContents>{"true" if get_dsl_bool(t, ['includeHelpInContents'], False) else "false"}</IncludeHelpInContents>')
-    X(f'{i}<ReadOnly>{"true" if get_dsl_bool(t, ['readOnly'], False) else "false"}</ReadOnly>')
+    X(f'{i}<IncludeHelpInContents>{"true" if get_dsl_bool(t, ["includeHelpInContents"], False) else "false"}</IncludeHelpInContents>')
+    X(f'{i}<ReadOnly>{"true" if get_dsl_bool(t, ["readOnly"], False) else "false"}</ReadOnly>')
     X(f'{i}<TransactionsIsolationLevel>{normalize_enum_value("TransactionsIsolationLevel", str(t["transactionsIsolationLevel"])) if t.get("transactionsIsolationLevel") else "Auto"}</TransactionsIsolationLevel>')
     emit_eds_field_ref_scalar(i, 'DataVersionField', t.get('dataVersionField'), src_name, table_name)
     X(f'{i}<EditType>{get_enum_field(t, "editType", "EditType") or "InDialog"}</EditType>')

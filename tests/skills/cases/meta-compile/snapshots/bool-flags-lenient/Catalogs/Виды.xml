@@ -51,7 +51,7 @@
 			<Characteristics/>
 			<PredefinedDataUpdate>Auto</PredefinedDataUpdate>
 			<EditType>InDialog</EditType>
-			<QuickChoice>false</QuickChoice>
+			<QuickChoice>true</QuickChoice>
 			<ChoiceMode>BothWays</ChoiceMode>
 			<InputByString>
 				<xr:Field>Catalog.Виды.StandardAttribute.Description</xr:Field>

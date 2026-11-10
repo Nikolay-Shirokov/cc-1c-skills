@@ -1,4 +1,4 @@
-﻿# meta-compile v1.129 — Compile 1C metadata object from JSON
+﻿# meta-compile v1.130 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -499,10 +499,9 @@ function Get-EnumProp {
 	return (Normalize-EnumValue $propName "$val")
 }
 
-# Bool object-свойство: presence-aware (иначе false-значение спутать с отсутствием). Прощаем строки.
 # --- Булевы флаги DSL: прощающий ввод ---
-# Флаг строкой или числом — однозначная ошибка автора JSON: true|да|истина / false|нет|ложь (без
-# регистра) и 1/0 приводим к bool молча. Иное — ошибка без записи: молчаливое «false» из «yes»
+# Флаг строкой или числом — однозначная ошибка автора JSON: true|да|истина|1 / false|нет|ложь|0 (без
+# регистра; 1/0 — и числом) приводим к bool молча. Иное — ошибка без записи: молчаливое «false» из «yes»
 # хуже отказа. Без общего читателя порты расходились: PS (-eq) принимал "false", py (is) — нет.
 function ConvertTo-DslBool {
 	param($Value, [string]$Key, [bool]$Default)
@@ -510,8 +509,8 @@ function ConvertTo-DslBool {
 	if ($Value -is [bool]) { return $Value }
 	if ($Value -is [string]) {
 		$t = $Value.Trim().ToLowerInvariant()
-		if (@('true', 'да', 'истина') -ccontains $t) { return $true }
-		if (@('false', 'нет', 'ложь') -ccontains $t) { return $false }
+		if (@('true', 'да', 'истина', '1') -ccontains $t) { return $true }
+		if (@('false', 'нет', 'ложь', '0') -ccontains $t) { return $false }
 	} elseif ($Value -is [int] -or $Value -is [long] -or $Value -is [double] -or $Value -is [decimal]) {
 		if ($Value -eq 1) { return $true }
 		if ($Value -eq 0) { return $false }
@@ -535,6 +534,7 @@ function Get-DslBool {
 	return $Default
 }
 
+# Bool object-свойство: presence-aware (иначе false-значение спутать с отсутствием). Прощаем строки.
 function Get-BoolProp {
 	param([string]$fieldName, [bool]$default)
 	return (Get-DslBool $def @($fieldName) $default)

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-compile v1.129 — Compile 1C metadata object from JSON
+# meta-compile v1.130 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -713,8 +713,8 @@ def get_enum_prop(prop_name, field_name, default):
     return normalize_enum_value(prop_name, str(val))
 
 # --- Булевы флаги DSL: прощающий ввод ---
-# Флаг строкой или числом — однозначная ошибка автора JSON: true|да|истина / false|нет|ложь (без
-# регистра) и 1/0 приводим к bool молча. Иное — ошибка без записи: молчаливое «false» из «yes»
+# Флаг строкой или числом — однозначная ошибка автора JSON: true|да|истина|1 / false|нет|ложь|0 (без
+# регистра; 1/0 — и числом) приводим к bool молча. Иное — ошибка без записи: молчаливое «false» из «yes»
 # хуже отказа. Без общего читателя порты расходились: PS (-eq) принимал "false", py (is) — нет.
 def to_dsl_bool(value, key, default):
     if value is None:
@@ -723,9 +723,9 @@ def to_dsl_bool(value, key, default):
         return value
     if isinstance(value, str):
         t = value.strip().lower()
-        if t in ('true', 'да', 'истина'):
+        if t in ('true', 'да', 'истина', '1'):
             return True
-        if t in ('false', 'нет', 'ложь'):
+        if t in ('false', 'нет', 'ложь', '0'):
             return False
     elif isinstance(value, (int, float)):
         if value == 1:
@@ -2610,7 +2610,7 @@ def emit_attribute(indent, parsed, context, elem_tag='Attribute'):
     emit_mltext(f'{indent}\t\t', 'Format', parsed.get('format'))
     emit_mltext(f'{indent}\t\t', 'EditFormat', parsed.get('editFormat'))
     emit_mltext(f'{indent}\t\t', 'ToolTip', parsed.get('tooltip'))
-    X(f'{indent}\t\t<MarkNegatives>{"true" if get_dsl_bool(parsed, ['markNegatives'], False) else "false"}</MarkNegatives>')
+    X(f'{indent}\t\t<MarkNegatives>{"true" if get_dsl_bool(parsed, ["markNegatives"], False) else "false"}</MarkNegatives>')
     if parsed.get('mask'):
         X(f'{indent}\t\t<Mask>{esc_xml_text(parsed["mask"])}</Mask>')
     else:
@@ -2804,7 +2804,7 @@ def emit_command(indent, cmd_name, cmd):
     else:
         X(f'{indent}\t\t<CommandParameterType/>')
     X(f'{indent}\t\t<ParameterUseMode>{normalize_enum_value("ParameterUseMode", str(cmd["parameterUseMode"])) if cmd.get("parameterUseMode") else "Single"}</ParameterUseMode>')
-    X(f'{indent}\t\t<ModifiesData>{"true" if get_dsl_bool(cmd, ['modifiesData'], False) else "false"}</ModifiesData>')
+    X(f'{indent}\t\t<ModifiesData>{"true" if get_dsl_bool(cmd, ["modifiesData"], False) else "false"}</ModifiesData>')
     X(f'{indent}\t\t<Representation>{normalize_enum_value("Representation", str(cmd["representation"])) if cmd.get("representation") else "Auto"}</Representation>')
     emit_mltext(f'{indent}\t\t', 'ToolTip', cmd.get('tooltip'))
     emit_command_picture(f'{indent}\t\t', cmd)
@@ -2908,7 +2908,7 @@ def emit_dimension(indent, parsed, register_type):
     X(f'{indent}\t\t<Format/>')
     X(f'{indent}\t\t<EditFormat/>')
     X(f'{indent}\t\t<ToolTip/>')
-    X(f'{indent}\t\t<MarkNegatives>{"true" if get_dsl_bool(parsed, ['markNegatives'], False) else "false"}</MarkNegatives>')
+    X(f'{indent}\t\t<MarkNegatives>{"true" if get_dsl_bool(parsed, ["markNegatives"], False) else "false"}</MarkNegatives>')
     X(f'{indent}\t\t<Mask/>')
     multi_line = 'true' if (get_dsl_bool(parsed, ['multiLine'], False) or 'multiline' in parsed.get('flags', [])) else 'false'
     X(f'{indent}\t\t<MultiLine>{multi_line}</MultiLine>')
@@ -2983,7 +2983,7 @@ def emit_resource(indent, parsed, register_type):
     X(f'{indent}\t\t<Format/>')
     X(f'{indent}\t\t<EditFormat/>')
     X(f'{indent}\t\t<ToolTip/>')
-    X(f'{indent}\t\t<MarkNegatives>{"true" if get_dsl_bool(parsed, ['markNegatives'], False) else "false"}</MarkNegatives>')
+    X(f'{indent}\t\t<MarkNegatives>{"true" if get_dsl_bool(parsed, ["markNegatives"], False) else "false"}</MarkNegatives>')
     X(f'{indent}\t\t<Mask/>')
     multi_line = 'true' if (get_dsl_bool(parsed, ['multiLine'], False) or 'multiline' in parsed.get('flags', [])) else 'false'
     X(f'{indent}\t\t<MultiLine>{multi_line}</MultiLine>')
@@ -3889,7 +3889,7 @@ def emit_exchange_plan_properties(indent):
     X(f'{i}<DescriptionLength>{description_length}</DescriptionLength>')
     X(f'{i}<DefaultPresentation>{get_enum_prop("DefaultPresentation", "defaultPresentation", "AsDescription")}</DefaultPresentation>')
     X(f'{i}<EditType>{get_enum_prop("EditType", "editType", "InDialog")}</EditType>')
-    X(f'{i}<QuickChoice>{"true" if get_dsl_bool(defn, ['quickChoice'], False) else "false"}</QuickChoice>')
+    X(f'{i}<QuickChoice>{"true" if get_dsl_bool(defn, ["quickChoice"], False) else "false"}</QuickChoice>')
     X(f'{i}<ChoiceMode>{get_enum_prop("ChoiceMode", "choiceMode", "BothWays")}</ChoiceMode>')
     # InputByString: override `inputByString` ЛИБО дефолт [Descr при D>0]+[Code при C>0] (prefix ExchangePlan).
     if 'inputByString' in defn:
@@ -3985,22 +3985,22 @@ def emit_chart_of_characteristic_types_properties(indent):
         X(f'{i}\t\t<v8:DateFractions>DateTime</v8:DateFractions>')
         X(f'{i}\t</v8:DateQualifiers>')
         X(f'{i}</Type>')
-    X(f'{i}<Hierarchical>{"true" if get_dsl_bool(defn, ['hierarchical'], False) else "false"}</Hierarchical>')
-    X(f'{i}<FoldersOnTop>{"false" if (not get_dsl_bool(defn, ['foldersOnTop'], True)) else "true"}</FoldersOnTop>')
+    X(f'{i}<Hierarchical>{"true" if get_dsl_bool(defn, ["hierarchical"], False) else "false"}</Hierarchical>')
+    X(f'{i}<FoldersOnTop>{"false" if (not get_dsl_bool(defn, ["foldersOnTop"], True)) else "true"}</FoldersOnTop>')
     code_length = str(defn['codeLength']) if defn.get('codeLength') is not None else '9'
     description_length = str(defn['descriptionLength']) if defn.get('descriptionLength') is not None else '100'
     X(f'{i}<CodeLength>{code_length}</CodeLength>')
     X(f'{i}<CodeAllowedLength>{get_enum_prop("CodeAllowedLength", "codeAllowedLength", "Variable")}</CodeAllowedLength>')
     X(f'{i}<DescriptionLength>{description_length}</DescriptionLength>')
     X(f'{i}<CodeSeries>{get_enum_prop("CodeSeries", "codeSeries", "WholeCharacteristicKind")}</CodeSeries>')
-    X(f'{i}<CheckUnique>{"false" if (not get_dsl_bool(defn, ['checkUnique'], True)) else "true"}</CheckUnique>')
-    X(f'{i}<Autonumbering>{"false" if (not get_dsl_bool(defn, ['autonumbering'], True)) else "true"}</Autonumbering>')
+    X(f'{i}<CheckUnique>{"false" if (not get_dsl_bool(defn, ["checkUnique"], True)) else "true"}</CheckUnique>')
+    X(f'{i}<Autonumbering>{"false" if (not get_dsl_bool(defn, ["autonumbering"], True)) else "true"}</Autonumbering>')
     X(f'{i}<DefaultPresentation>{get_enum_prop("DefaultPresentation", "defaultPresentation", "AsDescription")}</DefaultPresentation>')
     emit_standard_attributes(i, 'ChartOfCharacteristicTypes')
     emit_characteristics(i, defn.get('characteristics'))
     X(f'{i}<PredefinedDataUpdate>{get_enum_prop("PredefinedDataUpdate", "predefinedDataUpdate", "Auto")}</PredefinedDataUpdate>')
     X(f'{i}<EditType>{get_enum_prop("EditType", "editType", "InDialog")}</EditType>')
-    X(f'{i}<QuickChoice>{"true" if get_dsl_bool(defn, ['quickChoice'], False) else "false"}</QuickChoice>')
+    X(f'{i}<QuickChoice>{"true" if get_dsl_bool(defn, ["quickChoice"], False) else "false"}</QuickChoice>')
     X(f'{i}<ChoiceMode>{get_enum_prop("ChoiceMode", "choiceMode", "BothWays")}</ChoiceMode>')
     if 'inputByString' in defn:
         ib_fields = [expand_data_path(str(x)) for x in (defn.get('inputByString') or [])]
@@ -4105,7 +4105,7 @@ def emit_chart_of_accounts_properties(indent):
     X(f'{i}<CodeLength>{code_length}</CodeLength>')
     X(f'{i}<DescriptionLength>{description_length}</DescriptionLength>')
     X(f'{i}<CodeSeries>{get_enum_prop("CodeSeries", "codeSeries", "WholeChartOfAccounts")}</CodeSeries>')
-    X(f'{i}<CheckUnique>{"false" if (not get_dsl_bool(defn, ['checkUnique'], True)) else "true"}</CheckUnique>')
+    X(f'{i}<CheckUnique>{"false" if (not get_dsl_bool(defn, ["checkUnique"], True)) else "true"}</CheckUnique>')
     X(f'{i}<DefaultPresentation>{get_enum_prop("DefaultPresentation", "defaultPresentation", "AsCode")}</DefaultPresentation>')
     emit_standard_attributes(i, 'ChartOfAccounts')
     emit_characteristics(i, defn.get('characteristics'))
@@ -4131,7 +4131,7 @@ def emit_chart_of_accounts_properties(indent):
     X(f'{i}</StandardTabularSections>')
     X(f'{i}<PredefinedDataUpdate>{get_enum_prop("PredefinedDataUpdate", "predefinedDataUpdate", "Auto")}</PredefinedDataUpdate>')
     X(f'{i}<EditType>{get_enum_prop("EditType", "editType", "InDialog")}</EditType>')
-    X(f'{i}<QuickChoice>{"true" if get_dsl_bool(defn, ['quickChoice'], False) else "false"}</QuickChoice>')
+    X(f'{i}<QuickChoice>{"true" if get_dsl_bool(defn, ["quickChoice"], False) else "false"}</QuickChoice>')
     X(f'{i}<ChoiceMode>{get_enum_prop("ChoiceMode", "choiceMode", "BothWays")}</ChoiceMode>')
     # InputByString: override ЛИБО дефолт [Descr при D>0]+[Code при C>0] (prefix ChartOfAccounts).
     if 'inputByString' in defn:
@@ -4197,7 +4197,7 @@ def emit_accounting_register_properties(indent):
     emit_standard_attributes(i, 'AccountingRegister')
     data_lock_control_mode = get_enum_prop('DataLockControlMode', 'dataLockControlMode', 'Managed')
     X(f'{i}<DataLockControlMode>{data_lock_control_mode}</DataLockControlMode>')
-    X(f'{i}<EnableTotalsSplitting>{"false" if (not get_dsl_bool(defn, ['enableTotalsSplitting'], True)) else "true"}</EnableTotalsSplitting>')
+    X(f'{i}<EnableTotalsSplitting>{"false" if (not get_dsl_bool(defn, ["enableTotalsSplitting"], True)) else "true"}</EnableTotalsSplitting>')
     full_text_search = get_enum_prop('FullTextSearch', 'fullTextSearch', 'Use')
     X(f'{i}<FullTextSearch>{full_text_search}</FullTextSearch>')
     emit_mltext(i, 'ListPresentation', defn.get('listPresentation'))
@@ -4249,7 +4249,7 @@ def emit_chart_of_calculation_types_properties(indent):
     X(f'{i}<CodeAllowedLength>{get_enum_prop("CodeAllowedLength", "codeAllowedLength", "Variable")}</CodeAllowedLength>')
     X(f'{i}<DefaultPresentation>{get_enum_prop("DefaultPresentation", "defaultPresentation", "AsDescription")}</DefaultPresentation>')
     X(f'{i}<EditType>{get_enum_prop("EditType", "editType", "InDialog")}</EditType>')
-    X(f'{i}<QuickChoice>{"true" if get_dsl_bool(defn, ['quickChoice'], False) else "false"}</QuickChoice>')
+    X(f'{i}<QuickChoice>{"true" if get_dsl_bool(defn, ["quickChoice"], False) else "false"}</QuickChoice>')
     X(f'{i}<ChoiceMode>{get_enum_prop("ChoiceMode", "choiceMode", "BothWays")}</ChoiceMode>')
     if 'inputByString' in defn:
         ib_fields = [expand_data_path(str(x)) for x in (defn.get('inputByString') or [])]
@@ -4281,7 +4281,7 @@ def emit_chart_of_calculation_types_properties(indent):
         X(f'{i}</BaseCalculationTypes>')
     else:
         X(f'{i}<BaseCalculationTypes/>')
-    X(f'{i}<ActionPeriodUse>{"true" if get_dsl_bool(defn, ['actionPeriodUse'], False) else "false"}</ActionPeriodUse>')
+    X(f'{i}<ActionPeriodUse>{"true" if get_dsl_bool(defn, ["actionPeriodUse"], False) else "false"}</ActionPeriodUse>')
     emit_standard_attributes(i, 'ChartOfCalculationTypes')
     emit_characteristics(i, defn.get('characteristics'))
     emit_calc_types_std_tabular(i)
@@ -4383,7 +4383,7 @@ def emit_business_process_properties(indent):
     X(f'{i}<CheckUnique>{check_unique}</CheckUnique>')
     emit_standard_attributes(i, 'BusinessProcess')
     emit_characteristics(i, defn.get('characteristics'))
-    X(f'{i}<Autonumbering>{"false" if (not get_dsl_bool(defn, ['autonumbering'], True)) else "true"}</Autonumbering>')
+    X(f'{i}<Autonumbering>{"false" if (not get_dsl_bool(defn, ["autonumbering"], True)) else "true"}</Autonumbering>')
     emit_based_on(i, defn.get('basedOn'))
     X(f'{i}<NumberPeriodicity>{get_enum_prop("NumberPeriodicity", "numberPeriodicity", "Nonperiodical")}</NumberPeriodicity>')
     task_ref = str(defn['task']) if defn.get('task') else ''
@@ -4860,8 +4860,8 @@ def emit_eds_table_properties(indent, src_name, table_name, t, char_xml, default
     else:
         X(f'{i}<Characteristics/>')
 
-    X(f'{i}<UseStandardCommands>{"false" if (not get_dsl_bool(t, ['useStandardCommands'], True)) else "true"}</UseStandardCommands>')
-    X(f'{i}<QuickChoice>{"true" if get_dsl_bool(t, ['quickChoice'], False) else "false"}</QuickChoice>')
+    X(f'{i}<UseStandardCommands>{"false" if (not get_dsl_bool(t, ["useStandardCommands"], True)) else "true"}</UseStandardCommands>')
+    X(f'{i}<QuickChoice>{"true" if get_dsl_bool(t, ["quickChoice"], False) else "false"}</QuickChoice>')
     # Ввод по строке: ключа нет → выводим из поля представления (так делает платформа при загрузке).
     # Явный список, в том числе пустой, уважаем как есть — отсюда presence-aware проверка.
     if 'inputByString' in t:
@@ -4886,8 +4886,8 @@ def emit_eds_table_properties(indent, src_name, table_name, t, char_xml, default
                      'ExtendedRecordPresentation', 'ListPresentation', 'ExtendedListPresentation', 'Explanation'):
         key = pres_tag[0].lower() + pres_tag[1:]
         emit_mltext(i, pres_tag, t.get(key))
-    X(f'{i}<IncludeHelpInContents>{"true" if get_dsl_bool(t, ['includeHelpInContents'], False) else "false"}</IncludeHelpInContents>')
-    X(f'{i}<ReadOnly>{"true" if get_dsl_bool(t, ['readOnly'], False) else "false"}</ReadOnly>')
+    X(f'{i}<IncludeHelpInContents>{"true" if get_dsl_bool(t, ["includeHelpInContents"], False) else "false"}</IncludeHelpInContents>')
+    X(f'{i}<ReadOnly>{"true" if get_dsl_bool(t, ["readOnly"], False) else "false"}</ReadOnly>')
     X(f'{i}<TransactionsIsolationLevel>{normalize_enum_value("TransactionsIsolationLevel", str(t["transactionsIsolationLevel"])) if t.get("transactionsIsolationLevel") else "Auto"}</TransactionsIsolationLevel>')
     emit_eds_field_ref_scalar(i, 'DataVersionField', t.get('dataVersionField'), src_name, table_name)
     X(f'{i}<EditType>{get_enum_field(t, "editType", "EditType") or "InDialog"}</EditType>')

@@ -22,7 +22,8 @@
           "Элемент"
         ]
       }
-    ]
+    ],
+    "quickChoice": "1"
   },
   "validatePath": "Catalogs/Виды",
   "expect": {
@@ -37,7 +38,8 @@
           "<Hierarchical>true</Hierarchical>",
           "<CheckUnique>true</CheckUnique>",
           "<Autonumbering>false</Autonumbering>",
-          "<MultiLine>true</MultiLine>"
+          "<MultiLine>true</MultiLine>",
+          "<QuickChoice>true</QuickChoice>"
         ]
       },
       {

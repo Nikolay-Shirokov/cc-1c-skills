@@ -42,7 +42,8 @@
         "path": "Объект.Результат",
         "multiLine": "да",
         "readOnly": 1,
-        "skipOnInput": "TRUE"
+        "skipOnInput": "TRUE",
+        "userVisible": "false"
       }
     ]
   },
@@ -52,7 +53,8 @@
       "text": [
         "<MultiLine>true</MultiLine>",
         "<ReadOnly>true</ReadOnly>",
-        "<SkipOnInput>true</SkipOnInput>"
+        "<SkipOnInput>true</SkipOnInput>",
+        "<xr:Common>false</xr:Common>"
       ]
     }
   }
