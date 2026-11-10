@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-edit v1.75 — Edit existing 1C metadata object XML
+# meta-edit v1.76 — Edit existing 1C metadata object XML
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -13,6 +13,42 @@ from lxml import etree
 
 # Регистронезависимый ввод — паритет с PS1: в PowerShell имена параметров и [ValidateSet]
 # регистр не различают, в argparse совпадение точное.
+
+# --- Булевы флаги DSL: прощающий ввод ---
+# Флаг строкой или числом — однозначная ошибка автора JSON: true|да|истина / false|нет|ложь (без
+# регистра) и 1/0 приводим к bool молча. Иное — ошибка без записи: молчаливое «false» из «yes»
+# хуже отказа. Без общего читателя порты расходились: PS (-eq) принимал "false", py (is) — нет.
+def to_dsl_bool(value, key, default):
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        t = value.strip().lower()
+        if t in ('true', 'да', 'истина'):
+            return True
+        if t in ('false', 'нет', 'ложь'):
+            return False
+    elif isinstance(value, (int, float)):
+        if value == 1:
+            return True
+        if value == 0:
+            return False
+    shown = f'"{value}"' if isinstance(value, str) else f"{value}"
+    print(f"[ERROR] {key} = {shown}: expected true or false", file=sys.stderr)
+    sys.exit(1)
+
+
+def get_dsl_bool(obj, keys, default):
+    """Первый найденный ключ из keys (синонимы, без регистра) → to_dsl_bool; не dict / нет ключа → default."""
+    if not isinstance(obj, dict):
+        return default
+    for k in keys:
+        for actual in obj:
+            if isinstance(actual, str) and actual.lower() == k.lower():
+                return to_dsl_bool(obj[actual], k, default)
+    return default
+
 
 def parse_json_input(text, source, expected=None, inline=False):
     """Разбор пользовательского JSON: одна строка в stderr вместо traceback (issue #80).
@@ -1256,8 +1292,8 @@ def parse_attribute_shorthand(val):
         "before": str(val.get("before", "")),
         # Поле таблицы внешнего источника (контекст eds-field).
         "nameInDataSource": str(val.get("nameInDataSource", "")),
-        "readOnly": val.get("readOnly") is True,
-        "allowNull": val.get("allowNull") is True,
+        "readOnly": get_dsl_bool(val, ['readOnly'], False),
+        "allowNull": get_dsl_bool(val, ['allowNull'], False),
     }
     # Map flags to properties
     result["type"] = add_nonneg_flag(result["type"], result["flags"])
@@ -1452,9 +1488,9 @@ def build_attribute_fragment(parsed, context, indent, elem_tag="Attribute"):
         lines.append(f"{indent}\t\t<ChoiceForm/>")
         nids = parsed.get("nameInDataSource") or parsed["name"]
         lines.append(f"{indent}\t\t<NameInDataSource>{esc_xml_text(str(nids))}</NameInDataSource>")
-        ro = "true" if (parsed.get("readOnly") is True or "readonly" in parsed["flags"]) else "false"
+        ro = "true" if (get_dsl_bool(parsed, ['readOnly'], False) or "readonly" in parsed["flags"]) else "false"
         lines.append(f"{indent}\t\t<ReadOnly>{ro}</ReadOnly>")
-        an = "true" if (parsed.get("allowNull") is True or "nullable" in parsed["flags"]) else "false"
+        an = "true" if (get_dsl_bool(parsed, ['allowNull'], False) or "nullable" in parsed["flags"]) else "false"
         lines.append(f"{indent}\t\t<AllowNull>{an}</AllowNull>")
 
     # Use -- catalog only
@@ -2055,7 +2091,7 @@ def emit_eds_function(indent, fn_name, val, type_xml):
         expr = str(val.get('expression') or val.get('expressionInDataSource') or '')
         returns = str(val.get('returns') or val.get('returnType') or '')
         if val.get('returnValue') is not None:
-            return_value = val.get('returnValue') is True
+            return_value = get_dsl_bool(val, ['returnValue'], False)
         fn_synonym = val.get('synonym')
         fn_comment = str(val['comment']) if val.get('comment') else ''
     if not expr:
@@ -2078,6 +2114,7 @@ def emit_eds_function(indent, fn_name, val, type_xml):
     X(f'{indent}\t\t<ExpressionInDataSource>{esc_xml_text(expr)}</ExpressionInDataSource>')
     X(f'{indent}\t</Properties>')
     X(f'{indent}</Function>')
+
 
 def emit_eds_table_properties(indent, src_name, table_name, t, char_xml, default_forms_xml):
     """Свойства таблицы: 38 узлов в порядке выгрузки платформы.
@@ -2126,8 +2163,8 @@ def emit_eds_table_properties(indent, src_name, table_name, t, char_xml, default
     else:
         X(f'{i}<Characteristics/>')
 
-    X(f'{i}<UseStandardCommands>{"false" if t.get("useStandardCommands") is False else "true"}</UseStandardCommands>')
-    X(f'{i}<QuickChoice>{"true" if t.get("quickChoice") is True else "false"}</QuickChoice>')
+    X(f'{i}<UseStandardCommands>{"false" if (not get_dsl_bool(t, ['useStandardCommands'], True)) else "true"}</UseStandardCommands>')
+    X(f'{i}<QuickChoice>{"true" if get_dsl_bool(t, ['quickChoice'], False) else "false"}</QuickChoice>')
     # Ввод по строке: ключа нет → выводим из поля представления (так делает платформа при загрузке).
     # Явный список, в том числе пустой, уважаем как есть — отсюда presence-aware проверка.
     if 'inputByString' in t:
@@ -2152,14 +2189,15 @@ def emit_eds_table_properties(indent, src_name, table_name, t, char_xml, default
                      'ExtendedRecordPresentation', 'ListPresentation', 'ExtendedListPresentation', 'Explanation'):
         key = pres_tag[0].lower() + pres_tag[1:]
         emit_mltext(i, pres_tag, t.get(key))
-    X(f'{i}<IncludeHelpInContents>{"true" if t.get("includeHelpInContents") is True else "false"}</IncludeHelpInContents>')
-    X(f'{i}<ReadOnly>{"true" if t.get("readOnly") is True else "false"}</ReadOnly>')
+    X(f'{i}<IncludeHelpInContents>{"true" if get_dsl_bool(t, ['includeHelpInContents'], False) else "false"}</IncludeHelpInContents>')
+    X(f'{i}<ReadOnly>{"true" if get_dsl_bool(t, ['readOnly'], False) else "false"}</ReadOnly>')
     X(f'{i}<TransactionsIsolationLevel>{normalize_enum_value("TransactionsIsolationLevel", str(t["transactionsIsolationLevel"])) if t.get("transactionsIsolationLevel") else "Auto"}</TransactionsIsolationLevel>')
     emit_eds_field_ref_scalar(i, 'DataVersionField', t.get('dataVersionField'), src_name, table_name)
     X(f'{i}<EditType>{get_enum_field(t, "editType", "EditType") or "InDialog"}</EditType>')
     emit_md_ref_list(i, 'BasedOn', t.get('basedOn'))
     emit_eds_field_ref_list(i, 'DataLockFields', t.get('dataLockFields'), src_name, table_name)
     X(f'{i}<DataLockControlMode>{t.get("dataLockControlMode") or "Automatic"}</DataLockControlMode>')
+
 
 EDS_TABLE_GENERATED_TYPES = (
     ('ExternalDataSourceTableManager', 'Manager'),
@@ -3722,9 +3760,9 @@ def build_fill_value_explicit_xml(type_str, spec):
         return f'<FillValue xsi:type="xs:boolean">{"true" if spec else "false"}</FillValue>'
     if isinstance(spec, (int, float)):
         return f'<FillValue xsi:type="xs:decimal">{format_fill_num(spec)}</FillValue>'
-    if get_ch_el_prop(spec, ['nil']) is True:
+    if to_dsl_bool(get_ch_el_prop(spec, ['nil']), 'nil', False):
         return '<FillValue xsi:nil="true"/>'
-    if get_ch_el_prop(spec, ['emptyRef', 'пустаяссылка']) is True:
+    if to_dsl_bool(get_ch_el_prop(spec, ['emptyRef', 'пустаяссылка']), 'emptyRef', False):
         return '<FillValue xsi:type="xr:DesignTimeRef"/>'
     r = resolve_fill_value_spec(str(spec), type_str)
     if r['Text'] == '' and r['XsiType'] == 'xs:string':
@@ -4014,7 +4052,7 @@ def resolve_predef_item(val):
     has_desc = isinstance(val, dict) and ('description' in val or 'наименование' in val)
     desc_v = gv(val, ['description', 'наименование'])
     desc = str(desc_v) if has_desc else split_camel_case(name)
-    is_folder = gv(val, ['isFolder', 'группа']) is True
+    is_folder = to_dsl_bool(gv(val, ['isFolder', 'группа']), 'isFolder', False)
     subs = gv(val, ['childItems', 'подчиненные'])
     return {'name': name, 'code': code, 'desc': desc if desc is not None else '',
             'isFolder': is_folder, 'children': list(subs) if subs else []}

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-compile v1.128 — Compile 1C metadata object from JSON
+# meta-compile v1.129 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -712,14 +712,45 @@ def get_enum_prop(prop_name, field_name, default):
             return qcb
     return normalize_enum_value(prop_name, str(val))
 
-def get_bool_prop(field_name, default):
-    """Bool object-свойство: presence-aware (иначе false спутать с отсутствием). Прощаем строки."""
-    val = defn.get(field_name)
-    if val is None:
+# --- Булевы флаги DSL: прощающий ввод ---
+# Флаг строкой или числом — однозначная ошибка автора JSON: true|да|истина / false|нет|ложь (без
+# регистра) и 1/0 приводим к bool молча. Иное — ошибка без записи: молчаливое «false» из «yes»
+# хуже отказа. Без общего читателя порты расходились: PS (-eq) принимал "false", py (is) — нет.
+def to_dsl_bool(value, key, default):
+    if value is None:
         return default
-    if isinstance(val, bool):
-        return val
-    return str(val).lower() in ('true', '1', 'да', 'истина')
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        t = value.strip().lower()
+        if t in ('true', 'да', 'истина'):
+            return True
+        if t in ('false', 'нет', 'ложь'):
+            return False
+    elif isinstance(value, (int, float)):
+        if value == 1:
+            return True
+        if value == 0:
+            return False
+    shown = f'"{value}"' if isinstance(value, str) else f"{value}"
+    print(f"[ERROR] {key} = {shown}: expected true or false", file=sys.stderr)
+    sys.exit(1)
+
+
+def get_dsl_bool(obj, keys, default):
+    """Первый найденный ключ из keys (синонимы, без регистра) → to_dsl_bool; не dict / нет ключа → default."""
+    if not isinstance(obj, dict):
+        return default
+    for k in keys:
+        for actual in obj:
+            if isinstance(actual, str) and actual.lower() == k.lower():
+                return to_dsl_bool(obj[actual], k, default)
+    return default
+
+
+def get_bool_prop(field_name, default):
+    """Bool object-свойство: presence-aware (иначе false спутать с отсутствием)."""
+    return get_dsl_bool(defn, [field_name], default)
 
 def normalize_form_ref(s):
     """Прощающая нормализация ссылки на форму: рус корень, Форма→Form, короткая запись → вставка Form."""
@@ -1438,10 +1469,10 @@ def emit_fill_value(indent, type_str, spec, has_spec, type_empty=False):
     if spec is None:
         X(f'{indent}<FillValue xsi:nil="true"/>')       # явный nil-override
         return
-    if isinstance(spec, dict) and spec.get('nil') is True:
+    if isinstance(spec, dict) and get_dsl_bool(spec, ['nil'], False):
         X(f'{indent}<FillValue xsi:nil="true"/>')       # явный nil на типизированном (маркер декомпилятора)
         return
-    if isinstance(spec, dict) and spec.get('emptyRef') is True:
+    if isinstance(spec, dict) and get_dsl_bool(spec, ['emptyRef'], False):
         X(f'{indent}<FillValue xsi:type="xr:DesignTimeRef"/>')  # пустая ссылка (маркер декомпилятора)
         return
     if isinstance(spec, bool):
@@ -1540,20 +1571,20 @@ def parse_attribute_shorthand(val):
         # (ShowWarning, «Ошибка») уходило в XML как есть, и конфигурация не загружалась.
         'fillChecking': normalize_enum_value('FillChecking', fc) if fc else '',
         'indexing': normalize_enum_value('Indexing', str(val['indexing'])) if val.get('indexing') else '',
-        'multiLine': True if val.get('multiLine') is True else False,
+        'multiLine': True if get_dsl_bool(val, ['multiLine'], False) else False,
         'choiceHistoryOnInput': get_enum_field(val, 'choiceHistoryOnInput', 'ChoiceHistoryOnInput'),
         'fullTextSearch': get_enum_field(val, 'fullTextSearch', 'FullTextSearch'),
-        'fillFromFillingValue': True if val.get('fillFromFillingValue') is True else False,
+        'fillFromFillingValue': True if get_dsl_bool(val, ['fillFromFillingValue'], False) else False,
         'createOnInput': get_enum_field(val, 'createOnInput', 'CreateOnInput'),
         'quickChoice': qc,
         'dataHistory': get_enum_field(val, 'dataHistory', 'DataHistory'),
         'use': normalize_enum_value('Attribute.Use', str(val['use'])) if val.get('use') else '',
-        'passwordMode': True if val.get('passwordMode') is True else False,
+        'passwordMode': True if get_dsl_bool(val, ['passwordMode'], False) else False,
         'format': val.get('format'),
         'editFormat': val.get('editFormat'),
         'mask': str(val['mask']) if val.get('mask') else '',
-        'extendedEdit': True if val.get('extendedEdit') is True else False,
-        'markNegatives': True if val.get('markNegatives') is True else False,
+        'extendedEdit': True if get_dsl_bool(val, ['extendedEdit'], False) else False,
+        'markNegatives': True if get_dsl_bool(val, ['markNegatives'], False) else False,
         'choiceForm': str(val['choiceForm']) if val.get('choiceForm') else '',
         'choiceFoldersAndItems': normalize_enum_value('ChoiceFoldersAndItems', str(val['choiceFoldersAndItems'])) if val.get('choiceFoldersAndItems') else '',
         'minValue': val.get('minValue'),
@@ -1563,13 +1594,13 @@ def parse_attribute_shorthand(val):
         'linkByType': val.get('linkByType'),
         'choiceParameterLinks': val.get('choiceParameterLinks'),
         'choiceParameters': val.get('choiceParameters'),
-        'master': val.get('master') is True,
-        'mainFilter': val.get('mainFilter') is True,
-        'denyIncompleteValues': val.get('denyIncompleteValues') is True,
-        'useInTotals': (val.get('useInTotals') is True) if val.get('useInTotals') is not None else True,
-        'baseDimension': val.get('baseDimension') is True,
+        'master': get_dsl_bool(val, ['master'], False),
+        'mainFilter': get_dsl_bool(val, ['mainFilter'], False),
+        'denyIncompleteValues': get_dsl_bool(val, ['denyIncompleteValues'], False),
+        'useInTotals': (get_dsl_bool(val, ['useInTotals'], False)) if val.get('useInTotals') is not None else True,
+        'baseDimension': get_dsl_bool(val, ['baseDimension'], False),
         'scheduleLink': val.get('scheduleLink'),
-        'balance': val.get('balance') is True,
+        'balance': get_dsl_bool(val, ['balance'], False),
         'accountingFlag': val.get('accountingFlag'),
         'extDimensionAccountingFlag': val.get('extDimensionAccountingFlag'),
         'addressingDimension': val.get('addressingDimension'),
@@ -1578,8 +1609,8 @@ def parse_attribute_shorthand(val):
         'typeReductionMode': normalize_enum_value('TypeReductionMode', str(val['typeReductionMode'])) if val.get('typeReductionMode') else None,
         # Поле внешнего источника данных (контекст eds-field).
         'nameInDataSource': str(val['nameInDataSource']) if val.get('nameInDataSource') else '',
-        'readOnly': val.get('readOnly') is True,
-        'allowNull': val.get('allowNull') is True,
+        'readOnly': get_dsl_bool(val, ['readOnly'], False),
+        'allowNull': get_dsl_bool(val, ['allowNull'], False),
     }
 
 def parse_enum_value_shorthand(val):
@@ -1891,9 +1922,9 @@ def emit_standard_attribute(indent, attr_name, ov=None):
     fv_raw = ov.get('FillValue', None)
     if fv_raw is None:
         X(f'{indent}\t<xr:FillValue xsi:nil="true"/>')
-    elif isinstance(fv_raw, dict) and fv_raw.get('emptyRef') is True:
+    elif isinstance(fv_raw, dict) and get_dsl_bool(fv_raw, ['emptyRef'], False):
         X(f'{indent}\t<xr:FillValue xsi:type="xr:DesignTimeRef"/>')
-    elif isinstance(fv_raw, dict) and fv_raw.get('typeDescription') is True:
+    elif isinstance(fv_raw, dict) and get_dsl_bool(fv_raw, ['typeDescription'], False):
         X(f'{indent}\t<xr:FillValue xsi:type="v8:TypeDescription"/>')   # пустое типизированное (ValueType ПВХ)
     else:
         fv_xt, fv_tx = normalize_choice_value(fv_raw)
@@ -2351,7 +2382,7 @@ def convert_from_ch_link_shorthand(s):
 
 def is_empty_ref(v):
     """Маркер пустой ссылки от декомпилятора: {emptyRef: true}."""
-    return isinstance(v, dict) and v.get('emptyRef') is True
+    return isinstance(v, dict) and get_dsl_bool(v, ['emptyRef'], False)
 
 
 def emit_choice_parameters(indent, cp, tag='ChoiceParameters'):
@@ -2574,26 +2605,26 @@ def emit_attribute(indent, parsed, context, elem_tag='Attribute'):
         X(f'{indent}\t\t<Type>')
         X(f'{indent}\t\t\t<v8:Type>xs:string</v8:Type>')
         X(f'{indent}\t\t</Type>')
-    pw_mode = 'true' if parsed.get('passwordMode') is True else 'false'
+    pw_mode = 'true' if get_dsl_bool(parsed, ['passwordMode'], False) else 'false'
     X(f'{indent}\t\t<PasswordMode>{pw_mode}</PasswordMode>')
     emit_mltext(f'{indent}\t\t', 'Format', parsed.get('format'))
     emit_mltext(f'{indent}\t\t', 'EditFormat', parsed.get('editFormat'))
     emit_mltext(f'{indent}\t\t', 'ToolTip', parsed.get('tooltip'))
-    X(f'{indent}\t\t<MarkNegatives>{"true" if parsed.get("markNegatives") is True else "false"}</MarkNegatives>')
+    X(f'{indent}\t\t<MarkNegatives>{"true" if get_dsl_bool(parsed, ['markNegatives'], False) else "false"}</MarkNegatives>')
     if parsed.get('mask'):
         X(f'{indent}\t\t<Mask>{esc_xml_text(parsed["mask"])}</Mask>')
     else:
         X(f'{indent}\t\t<Mask/>')
-    multi_line = 'true' if (parsed.get('multiLine') is True or 'multiline' in parsed.get('flags', [])) else 'false'
+    multi_line = 'true' if (get_dsl_bool(parsed, ['multiLine'], False) or 'multiline' in parsed.get('flags', [])) else 'false'
     X(f'{indent}\t\t<MultiLine>{multi_line}</MultiLine>')
-    ext_edit = 'true' if parsed.get('extendedEdit') is True else 'false'
+    ext_edit = 'true' if get_dsl_bool(parsed, ['extendedEdit'], False) else 'false'
     X(f'{indent}\t\t<ExtendedEdit>{ext_edit}</ExtendedEdit>')
     emit_min_max_value(f'{indent}\t\t', 'MinValue', parsed.get('minValue'))
     emit_min_max_value(f'{indent}\t\t', 'MaxValue', parsed.get('maxValue'))
     # FillFromFillingValue / FillValue — not for tabular/processor/chart/register-other
     # (Chart*, AccumulationRegister/AccountingRegister/CalculationRegister don't support these)
     if context not in ('tabular', 'processor', 'chart', 'register-other', 'register-accum', 'register-calc', 'register-account'):
-        ffv = 'true' if (parsed.get('fillFromFillingValue') is True or (elem_tag == 'Dimension' and 'master' in parsed.get('flags', []))) else 'false'
+        ffv = 'true' if (get_dsl_bool(parsed, ['fillFromFillingValue'], False) or (elem_tag == 'Dimension' and 'master' in parsed.get('flags', []))) else 'false'
         X(f'{indent}\t\t<FillFromFillingValue>{ffv}</FillFromFillingValue>')
     if context not in ('tabular', 'processor', 'chart', 'register-other', 'register-accum', 'register-calc', 'register-account'):
         emit_fill_value(f'{indent}\t\t', type_str, parsed.get('fillValue'), parsed.get('hasFillValue'), bool(parsed.get('typeEmpty')))
@@ -2621,26 +2652,26 @@ def emit_attribute(indent, parsed, context, elem_tag='Attribute'):
         X(f'{indent}\t\t<ChoiceForm>{esc_xml_text(str(parsed["choiceForm"]))}</ChoiceForm>' if parsed.get('choiceForm') else f'{indent}\t\t<ChoiceForm/>')
         nids = parsed.get('nameInDataSource') or parsed['name']
         X(f'{indent}\t\t<NameInDataSource>{esc_xml_text(str(nids))}</NameInDataSource>')
-        ro = 'true' if (parsed.get('readOnly') is True or 'readonly' in parsed.get('flags', [])) else 'false'
+        ro = 'true' if (get_dsl_bool(parsed, ['readOnly'], False) or 'readonly' in parsed.get('flags', [])) else 'false'
         X(f'{indent}\t\t<ReadOnly>{ro}</ReadOnly>')
-        an = 'true' if (parsed.get('allowNull') is True or 'nullable' in parsed.get('flags', [])) else 'false'
+        an = 'true' if (get_dsl_bool(parsed, ['allowNull'], False) or 'nullable' in parsed.get('flags', [])) else 'false'
         X(f'{indent}\t\t<AllowNull>{an}</AllowNull>')
     # Измерение регистра сведений: Master/MainFilter/DenyIncompleteValues (между ChoiceHistoryOnInput и Indexing).
     if elem_tag == 'Dimension' and context == 'register-info':
-        master = 'true' if (parsed.get('master') is True or 'master' in parsed.get('flags', [])) else 'false'
-        main_filter = 'true' if (parsed.get('mainFilter') is True or 'mainfilter' in parsed.get('flags', [])) else 'false'
-        deny_incomplete = 'true' if (parsed.get('denyIncompleteValues') is True or 'denyincomplete' in parsed.get('flags', [])) else 'false'
+        master = 'true' if (get_dsl_bool(parsed, ['master'], False) or 'master' in parsed.get('flags', [])) else 'false'
+        main_filter = 'true' if (get_dsl_bool(parsed, ['mainFilter'], False) or 'mainfilter' in parsed.get('flags', [])) else 'false'
+        deny_incomplete = 'true' if (get_dsl_bool(parsed, ['denyIncompleteValues'], False) or 'denyincomplete' in parsed.get('flags', [])) else 'false'
         X(f'{indent}\t\t<Master>{master}</Master>')
         X(f'{indent}\t\t<MainFilter>{main_filter}</MainFilter>')
         X(f'{indent}\t\t<DenyIncompleteValues>{deny_incomplete}</DenyIncompleteValues>')
     # Измерение регистра накопления: DenyIncompleteValues (между ChoiceHistoryOnInput и Indexing).
     if elem_tag == 'Dimension' and context == 'register-accum':
-        deny_incomplete = 'true' if (parsed.get('denyIncompleteValues') is True or 'denyincomplete' in parsed.get('flags', [])) else 'false'
+        deny_incomplete = 'true' if (get_dsl_bool(parsed, ['denyIncompleteValues'], False) or 'denyincomplete' in parsed.get('flags', [])) else 'false'
         X(f'{indent}\t\t<DenyIncompleteValues>{deny_incomplete}</DenyIncompleteValues>')
     # Измерение регистра расчёта: DenyIncompleteValues + BaseDimension.
     if elem_tag == 'Dimension' and context == 'register-calc':
-        deny_incomplete = 'true' if (parsed.get('denyIncompleteValues') is True or 'denyincomplete' in parsed.get('flags', [])) else 'false'
-        base_dimension = 'true' if (parsed.get('baseDimension') is True or 'base' in parsed.get('flags', [])) else 'false'
+        deny_incomplete = 'true' if (get_dsl_bool(parsed, ['denyIncompleteValues'], False) or 'denyincomplete' in parsed.get('flags', [])) else 'false'
+        base_dimension = 'true' if (get_dsl_bool(parsed, ['baseDimension'], False) or 'base' in parsed.get('flags', [])) else 'false'
         X(f'{indent}\t\t<DenyIncompleteValues>{deny_incomplete}</DenyIncompleteValues>')
         X(f'{indent}\t\t<BaseDimension>{base_dimension}</BaseDimension>')
     # Регистр расчёта: ScheduleLink у измерений и реквизитов (НЕ ресурсов), перед Indexing. Дефолт пустой.
@@ -2651,14 +2682,14 @@ def emit_attribute(indent, parsed, context, elem_tag='Attribute'):
             X(f'{indent}\t\t<ScheduleLink/>')
     # Измерение/ресурс регистра бухгалтерии: Balance + AccountingFlag, затем DenyIncompleteValues (изм.) / ExtDimensionAccountingFlag (рес.).
     if context == 'register-account' and elem_tag in ('Dimension', 'Resource'):
-        balance = 'true' if (parsed.get('balance') is True or 'balance' in parsed.get('flags', [])) else 'false'
+        balance = 'true' if (get_dsl_bool(parsed, ['balance'], False) or 'balance' in parsed.get('flags', [])) else 'false'
         X(f'{indent}\t\t<Balance>{balance}</Balance>')
         if parsed.get('accountingFlag'):
             X(f'{indent}\t\t<AccountingFlag>{esc_xml_text(str(parsed["accountingFlag"]))}</AccountingFlag>')
         else:
             X(f'{indent}\t\t<AccountingFlag/>')
         if elem_tag == 'Dimension':
-            deny_incomplete = 'true' if (parsed.get('denyIncompleteValues') is True or 'denyincomplete' in parsed.get('flags', [])) else 'false'
+            deny_incomplete = 'true' if (get_dsl_bool(parsed, ['denyIncompleteValues'], False) or 'denyincomplete' in parsed.get('flags', [])) else 'false'
             X(f'{indent}\t\t<DenyIncompleteValues>{deny_incomplete}</DenyIncompleteValues>')
         else:
             if parsed.get('extDimensionAccountingFlag'):
@@ -2697,7 +2728,7 @@ def emit_attribute(indent, parsed, context, elem_tag='Attribute'):
             X(f'{indent}\t\t<FullTextSearch>{parsed.get("fullTextSearch") or "Use"}</FullTextSearch>')
         # Измерение регистра накопления: UseInTotals (после FullTextSearch, дефолт true).
         if elem_tag == 'Dimension' and context == 'register-accum':
-            use_in_totals = 'false' if (parsed.get('useInTotals') is False or 'nouseintotals' in parsed.get('flags', [])) else 'true'
+            use_in_totals = 'false' if ((not get_dsl_bool(parsed, ['useInTotals'], True)) or 'nouseintotals' in parsed.get('flags', [])) else 'true'
             X(f'{indent}\t\t<UseInTotals>{use_in_totals}</UseInTotals>')
         # DataHistory — not for Chart* types and non-InformationRegister register family
         if context not in ('chart', 'register-other', 'register-accum', 'register-calc', 'register-account'):
@@ -2725,11 +2756,11 @@ def emit_command_picture(indent, cmd):
     tpx = None
     if isinstance(pic, str):
         src = pic
-        if cmd.get('loadTransparent') is False:
+        if (not get_dsl_bool(cmd, ['loadTransparent'], True)):
             lt = False
     else:
         src = str(pic.get('src') or pic.get('ref') or '')
-        if pic.get('loadTransparent') is False:
+        if (not get_dsl_bool(pic, ['loadTransparent'], True)):
             lt = False
         tpx = pic.get('transparentPixel')
     if not src:
@@ -2773,7 +2804,7 @@ def emit_command(indent, cmd_name, cmd):
     else:
         X(f'{indent}\t\t<CommandParameterType/>')
     X(f'{indent}\t\t<ParameterUseMode>{normalize_enum_value("ParameterUseMode", str(cmd["parameterUseMode"])) if cmd.get("parameterUseMode") else "Single"}</ParameterUseMode>')
-    X(f'{indent}\t\t<ModifiesData>{"true" if cmd.get("modifiesData") is True else "false"}</ModifiesData>')
+    X(f'{indent}\t\t<ModifiesData>{"true" if get_dsl_bool(cmd, ['modifiesData'], False) else "false"}</ModifiesData>')
     X(f'{indent}\t\t<Representation>{normalize_enum_value("Representation", str(cmd["representation"])) if cmd.get("representation") else "Auto"}</Representation>')
     emit_mltext(f'{indent}\t\t', 'ToolTip', cmd.get('tooltip'))
     emit_command_picture(f'{indent}\t\t', cmd)
@@ -2877,11 +2908,11 @@ def emit_dimension(indent, parsed, register_type):
     X(f'{indent}\t\t<Format/>')
     X(f'{indent}\t\t<EditFormat/>')
     X(f'{indent}\t\t<ToolTip/>')
-    X(f'{indent}\t\t<MarkNegatives>{"true" if parsed.get("markNegatives") is True else "false"}</MarkNegatives>')
+    X(f'{indent}\t\t<MarkNegatives>{"true" if get_dsl_bool(parsed, ['markNegatives'], False) else "false"}</MarkNegatives>')
     X(f'{indent}\t\t<Mask/>')
-    multi_line = 'true' if (parsed.get('multiLine') is True or 'multiline' in parsed.get('flags', [])) else 'false'
+    multi_line = 'true' if (get_dsl_bool(parsed, ['multiLine'], False) or 'multiline' in parsed.get('flags', [])) else 'false'
     X(f'{indent}\t\t<MultiLine>{multi_line}</MultiLine>')
-    ext_edit = 'true' if parsed.get('extendedEdit') is True else 'false'
+    ext_edit = 'true' if get_dsl_bool(parsed, ['extendedEdit'], False) else 'false'
     X(f'{indent}\t\t<ExtendedEdit>{ext_edit}</ExtendedEdit>')
     emit_min_max_value(f'{indent}\t\t', 'MinValue', parsed.get('minValue'))
     emit_min_max_value(f'{indent}\t\t', 'MaxValue', parsed.get('maxValue'))
@@ -2952,11 +2983,11 @@ def emit_resource(indent, parsed, register_type):
     X(f'{indent}\t\t<Format/>')
     X(f'{indent}\t\t<EditFormat/>')
     X(f'{indent}\t\t<ToolTip/>')
-    X(f'{indent}\t\t<MarkNegatives>{"true" if parsed.get("markNegatives") is True else "false"}</MarkNegatives>')
+    X(f'{indent}\t\t<MarkNegatives>{"true" if get_dsl_bool(parsed, ['markNegatives'], False) else "false"}</MarkNegatives>')
     X(f'{indent}\t\t<Mask/>')
-    multi_line = 'true' if (parsed.get('multiLine') is True or 'multiline' in parsed.get('flags', [])) else 'false'
+    multi_line = 'true' if (get_dsl_bool(parsed, ['multiLine'], False) or 'multiline' in parsed.get('flags', [])) else 'false'
     X(f'{indent}\t\t<MultiLine>{multi_line}</MultiLine>')
-    ext_edit = 'true' if parsed.get('extendedEdit') is True else 'false'
+    ext_edit = 'true' if get_dsl_bool(parsed, ['extendedEdit'], False) else 'false'
     X(f'{indent}\t\t<ExtendedEdit>{ext_edit}</ExtendedEdit>')
     emit_min_max_value(f'{indent}\t\t', 'MinValue', parsed.get('minValue'))
     emit_min_max_value(f'{indent}\t\t', 'MaxValue', parsed.get('maxValue'))
@@ -2997,13 +3028,13 @@ def emit_catalog_properties(indent):
         X(f'{i}<Comment>{esc_xml_text(str(defn["comment"]))}</Comment>')
     else:
         X(f'{i}<Comment/>')
-    hierarchical = 'true' if defn.get('hierarchical') is True else 'false'
+    hierarchical = 'true' if get_dsl_bool(defn, ['hierarchical'], False) else 'false'
     hierarchy_type = get_enum_prop('HierarchyType', 'hierarchyType', 'HierarchyFoldersAndItems')
     X(f'{i}<Hierarchical>{hierarchical}</Hierarchical>')
     X(f'{i}<HierarchyType>{hierarchy_type}</HierarchyType>')
-    limit_level_count = 'true' if defn.get('limitLevelCount') is True else 'false'
+    limit_level_count = 'true' if get_dsl_bool(defn, ['limitLevelCount'], False) else 'false'
     level_count = str(defn['levelCount']) if defn.get('levelCount') is not None else '2'
-    folders_on_top = 'false' if defn.get('foldersOnTop') is False else 'true'
+    folders_on_top = 'false' if (not get_dsl_bool(defn, ['foldersOnTop'], True)) else 'true'
     X(f'{i}<LimitLevelCount>{limit_level_count}</LimitLevelCount>')
     X(f'{i}<LevelCount>{level_count}</LevelCount>')
     X(f'{i}<FoldersOnTop>{folders_on_top}</FoldersOnTop>')
@@ -3023,8 +3054,8 @@ def emit_catalog_properties(indent):
     description_length = str(defn['descriptionLength']) if defn.get('descriptionLength') is not None else '25'
     code_type = get_enum_prop('CodeType', 'codeType', 'String')
     code_allowed_length = get_enum_prop('CodeAllowedLength', 'codeAllowedLength', 'Variable')
-    autonumbering = 'false' if defn.get('autonumbering') is False else 'true'
-    check_unique = 'true' if defn.get('checkUnique') is True else 'false'
+    autonumbering = 'false' if (not get_dsl_bool(defn, ['autonumbering'], True)) else 'true'
+    check_unique = 'true' if get_dsl_bool(defn, ['checkUnique'], False) else 'false'
     X(f'{i}<CodeLength>{code_length}</CodeLength>')
     X(f'{i}<DescriptionLength>{description_length}</DescriptionLength>')
     X(f'{i}<CodeType>{code_type}</CodeType>')
@@ -3039,7 +3070,7 @@ def emit_catalog_properties(indent):
     emit_characteristics(i, defn.get('characteristics'))
     X(f'{i}<PredefinedDataUpdate>{get_enum_prop("PredefinedDataUpdate", "predefinedDataUpdate", "Auto")}</PredefinedDataUpdate>')
     X(f'{i}<EditType>{get_enum_prop("EditType", "editType", "InDialog")}</EditType>')
-    quick_choice = 'true' if defn.get('quickChoice') is True else 'false'
+    quick_choice = 'true' if get_dsl_bool(defn, ['quickChoice'], False) else 'false'
     choice_mode = get_enum_prop('ChoiceMode', 'choiceMode', 'BothWays')
     X(f'{i}<QuickChoice>{quick_choice}</QuickChoice>')
     X(f'{i}<ChoiceMode>{choice_mode}</ChoiceMode>')
@@ -3104,8 +3135,8 @@ def emit_document_properties(indent):
     number_length = str(defn['numberLength']) if defn.get('numberLength') is not None else '11'
     number_allowed_length = get_enum_prop('NumberAllowedLength', 'numberAllowedLength', 'Variable')
     number_periodicity = get_enum_prop('NumberPeriodicity', 'numberPeriodicity', 'Year')
-    check_unique = 'false' if defn.get('checkUnique') is False else 'true'
-    autonumbering = 'false' if defn.get('autonumbering') is False else 'true'
+    check_unique = 'false' if (not get_dsl_bool(defn, ['checkUnique'], True)) else 'true'
+    autonumbering = 'false' if (not get_dsl_bool(defn, ['autonumbering'], True)) else 'true'
     X(f'{i}<NumberType>{number_type}</NumberType>')
     X(f'{i}<NumberLength>{number_length}</NumberLength>')
     X(f'{i}<NumberAllowedLength>{number_allowed_length}</NumberAllowedLength>')
@@ -3159,8 +3190,8 @@ def emit_document_properties(indent):
         X(f'{i}</RegisterRecords>')
     else:
         X(f'{i}<RegisterRecords/>')
-    post_in_priv = 'false' if defn.get('postInPrivilegedMode') is False else 'true'
-    unpost_in_priv = 'false' if defn.get('unpostInPrivilegedMode') is False else 'true'
+    post_in_priv = 'false' if (not get_dsl_bool(defn, ['postInPrivilegedMode'], True)) else 'true'
+    unpost_in_priv = 'false' if (not get_dsl_bool(defn, ['unpostInPrivilegedMode'], True)) else 'true'
     X(f'{i}<PostInPrivilegedMode>{post_in_priv}</PostInPrivilegedMode>')
     X(f'{i}<UnpostInPrivilegedMode>{unpost_in_priv}</UnpostInPrivilegedMode>')
     incl_help = 'true' if get_bool_prop('includeHelpInContents', False) else 'false'
@@ -3193,7 +3224,7 @@ def emit_enum_properties(indent):
     X(f'{i}<UseStandardCommands>{use_std_cmds}</UseStandardCommands>')
     emit_standard_attributes(i, 'Enum')
     emit_characteristics(i, defn.get('characteristics'))
-    quick_choice = 'false' if defn.get('quickChoice') is False else 'true'
+    quick_choice = 'false' if (not get_dsl_bool(defn, ['quickChoice'], True)) else 'true'
     X(f'{i}<QuickChoice>{quick_choice}</QuickChoice>')
     X(f'{i}<ChoiceMode>{get_enum_prop("ChoiceMode", "choiceMode", "BothWays")}</ChoiceMode>')
     emit_form_ref(i, 'DefaultListForm', defn.get('defaultListForm'))
@@ -3318,7 +3349,7 @@ def emit_accumulation_register_properties(indent):
     X(f'{i}<DataLockControlMode>{data_lock_control_mode}</DataLockControlMode>')
     full_text_search = get_enum_prop('FullTextSearch', 'fullTextSearch', 'Use')
     X(f'{i}<FullTextSearch>{full_text_search}</FullTextSearch>')
-    enable_totals_splitting = 'false' if defn.get('enableTotalsSplitting') is False else 'true'
+    enable_totals_splitting = 'false' if (not get_dsl_bool(defn, ['enableTotalsSplitting'], True)) else 'true'
     X(f'{i}<EnableTotalsSplitting>{enable_totals_splitting}</EnableTotalsSplitting>')
     emit_mltext(i, 'ListPresentation', defn.get('listPresentation'))
     emit_mltext(i, 'ExtendedListPresentation', defn.get('extendedListPresentation'))
@@ -3695,7 +3726,7 @@ def emit_common_module_properties(indent):
     else:
         X(f'{i}<Comment/>')
     context = str(defn['context']) if defn.get('context') else ''
-    global_val = 'true' if defn.get('global') is True else 'false'
+    global_val = 'true' if get_dsl_bool(defn, ['global'], False) else 'false'
     server = 'false'
     server_call = 'false'
     client_managed = 'false'
@@ -3711,17 +3742,17 @@ def emit_common_module_properties(indent):
         server = 'true'
         client_managed = 'true'
     else:
-        if defn.get('server') is True:
+        if get_dsl_bool(defn, ['server'], False):
             server = 'true'
-        if defn.get('serverCall') is True:
+        if get_dsl_bool(defn, ['serverCall'], False):
             server_call = 'true'
-        if defn.get('clientManagedApplication') is True:
+        if get_dsl_bool(defn, ['clientManagedApplication'], False):
             client_managed = 'true'
-        if defn.get('clientOrdinaryApplication') is True:
+        if get_dsl_bool(defn, ['clientOrdinaryApplication'], False):
             client_ordinary = 'true'
-        if defn.get('externalConnection') is True:
+        if get_dsl_bool(defn, ['externalConnection'], False):
             external_connection = 'true'
-        if defn.get('privileged') is True:
+        if get_dsl_bool(defn, ['privileged'], False):
             privileged = 'true'
     X(f'{i}<Global>{global_val}</Global>')
     X(f'{i}<ClientManagedApplication>{client_managed}</ClientManagedApplication>')
@@ -3759,9 +3790,9 @@ def emit_scheduled_job_properties(indent):
         X(f'{i}<Key>{esc_xml_text(key)}</Key>')
     else:
         X(f'{i}<Key/>')
-    use = 'true' if defn.get('use') is True else 'false'
+    use = 'true' if get_dsl_bool(defn, ['use'], False) else 'false'
     X(f'{i}<Use>{use}</Use>')
-    predefined = 'true' if defn.get('predefined') is True else 'false'
+    predefined = 'true' if get_dsl_bool(defn, ['predefined'], False) else 'false'
     X(f'{i}<Predefined>{predefined}</Predefined>')
     restart_count = str(defn['restartCountOnFailure']) if defn.get('restartCountOnFailure') is not None else '3'
     restart_interval = str(defn['restartIntervalOnFailure']) if defn.get('restartIntervalOnFailure') is not None else '10'
@@ -3858,7 +3889,7 @@ def emit_exchange_plan_properties(indent):
     X(f'{i}<DescriptionLength>{description_length}</DescriptionLength>')
     X(f'{i}<DefaultPresentation>{get_enum_prop("DefaultPresentation", "defaultPresentation", "AsDescription")}</DefaultPresentation>')
     X(f'{i}<EditType>{get_enum_prop("EditType", "editType", "InDialog")}</EditType>')
-    X(f'{i}<QuickChoice>{"true" if defn.get("quickChoice") is True else "false"}</QuickChoice>')
+    X(f'{i}<QuickChoice>{"true" if get_dsl_bool(defn, ['quickChoice'], False) else "false"}</QuickChoice>')
     X(f'{i}<ChoiceMode>{get_enum_prop("ChoiceMode", "choiceMode", "BothWays")}</ChoiceMode>')
     # InputByString: override `inputByString` ЛИБО дефолт [Descr при D>0]+[Code при C>0] (prefix ExchangePlan).
     if 'inputByString' in defn:
@@ -3882,8 +3913,8 @@ def emit_exchange_plan_properties(indent):
     emit_standard_attributes(i, 'ExchangePlan')
     emit_characteristics(i, defn.get('characteristics'))
     emit_based_on(i, defn.get('basedOn'))
-    distributed = 'true' if defn.get('distributedInfoBase') is True else 'false'
-    include_ext = 'true' if defn.get('includeConfigurationExtensions') is True else 'false'
+    distributed = 'true' if get_dsl_bool(defn, ['distributedInfoBase'], False) else 'false'
+    include_ext = 'true' if get_dsl_bool(defn, ['includeConfigurationExtensions'], False) else 'false'
     X(f'{i}<DistributedInfoBase>{distributed}</DistributedInfoBase>')
     X(f'{i}<IncludeConfigurationExtensions>{include_ext}</IncludeConfigurationExtensions>')
     X(f'{i}<CreateOnInput>{get_enum_prop("CreateOnInput", "createOnInput", "DontUse")}</CreateOnInput>')
@@ -3954,22 +3985,22 @@ def emit_chart_of_characteristic_types_properties(indent):
         X(f'{i}\t\t<v8:DateFractions>DateTime</v8:DateFractions>')
         X(f'{i}\t</v8:DateQualifiers>')
         X(f'{i}</Type>')
-    X(f'{i}<Hierarchical>{"true" if defn.get("hierarchical") is True else "false"}</Hierarchical>')
-    X(f'{i}<FoldersOnTop>{"false" if defn.get("foldersOnTop") is False else "true"}</FoldersOnTop>')
+    X(f'{i}<Hierarchical>{"true" if get_dsl_bool(defn, ['hierarchical'], False) else "false"}</Hierarchical>')
+    X(f'{i}<FoldersOnTop>{"false" if (not get_dsl_bool(defn, ['foldersOnTop'], True)) else "true"}</FoldersOnTop>')
     code_length = str(defn['codeLength']) if defn.get('codeLength') is not None else '9'
     description_length = str(defn['descriptionLength']) if defn.get('descriptionLength') is not None else '100'
     X(f'{i}<CodeLength>{code_length}</CodeLength>')
     X(f'{i}<CodeAllowedLength>{get_enum_prop("CodeAllowedLength", "codeAllowedLength", "Variable")}</CodeAllowedLength>')
     X(f'{i}<DescriptionLength>{description_length}</DescriptionLength>')
     X(f'{i}<CodeSeries>{get_enum_prop("CodeSeries", "codeSeries", "WholeCharacteristicKind")}</CodeSeries>')
-    X(f'{i}<CheckUnique>{"false" if defn.get("checkUnique") is False else "true"}</CheckUnique>')
-    X(f'{i}<Autonumbering>{"false" if defn.get("autonumbering") is False else "true"}</Autonumbering>')
+    X(f'{i}<CheckUnique>{"false" if (not get_dsl_bool(defn, ['checkUnique'], True)) else "true"}</CheckUnique>')
+    X(f'{i}<Autonumbering>{"false" if (not get_dsl_bool(defn, ['autonumbering'], True)) else "true"}</Autonumbering>')
     X(f'{i}<DefaultPresentation>{get_enum_prop("DefaultPresentation", "defaultPresentation", "AsDescription")}</DefaultPresentation>')
     emit_standard_attributes(i, 'ChartOfCharacteristicTypes')
     emit_characteristics(i, defn.get('characteristics'))
     X(f'{i}<PredefinedDataUpdate>{get_enum_prop("PredefinedDataUpdate", "predefinedDataUpdate", "Auto")}</PredefinedDataUpdate>')
     X(f'{i}<EditType>{get_enum_prop("EditType", "editType", "InDialog")}</EditType>')
-    X(f'{i}<QuickChoice>{"true" if defn.get("quickChoice") is True else "false"}</QuickChoice>')
+    X(f'{i}<QuickChoice>{"true" if get_dsl_bool(defn, ['quickChoice'], False) else "false"}</QuickChoice>')
     X(f'{i}<ChoiceMode>{get_enum_prop("ChoiceMode", "choiceMode", "BothWays")}</ChoiceMode>')
     if 'inputByString' in defn:
         ib_fields = [expand_data_path(str(x)) for x in (defn.get('inputByString') or [])]
@@ -4074,7 +4105,7 @@ def emit_chart_of_accounts_properties(indent):
     X(f'{i}<CodeLength>{code_length}</CodeLength>')
     X(f'{i}<DescriptionLength>{description_length}</DescriptionLength>')
     X(f'{i}<CodeSeries>{get_enum_prop("CodeSeries", "codeSeries", "WholeChartOfAccounts")}</CodeSeries>')
-    X(f'{i}<CheckUnique>{"false" if defn.get("checkUnique") is False else "true"}</CheckUnique>')
+    X(f'{i}<CheckUnique>{"false" if (not get_dsl_bool(defn, ['checkUnique'], True)) else "true"}</CheckUnique>')
     X(f'{i}<DefaultPresentation>{get_enum_prop("DefaultPresentation", "defaultPresentation", "AsCode")}</DefaultPresentation>')
     emit_standard_attributes(i, 'ChartOfAccounts')
     emit_characteristics(i, defn.get('characteristics'))
@@ -4100,7 +4131,7 @@ def emit_chart_of_accounts_properties(indent):
     X(f'{i}</StandardTabularSections>')
     X(f'{i}<PredefinedDataUpdate>{get_enum_prop("PredefinedDataUpdate", "predefinedDataUpdate", "Auto")}</PredefinedDataUpdate>')
     X(f'{i}<EditType>{get_enum_prop("EditType", "editType", "InDialog")}</EditType>')
-    X(f'{i}<QuickChoice>{"true" if defn.get("quickChoice") is True else "false"}</QuickChoice>')
+    X(f'{i}<QuickChoice>{"true" if get_dsl_bool(defn, ['quickChoice'], False) else "false"}</QuickChoice>')
     X(f'{i}<ChoiceMode>{get_enum_prop("ChoiceMode", "choiceMode", "BothWays")}</ChoiceMode>')
     # InputByString: override ЛИБО дефолт [Descr при D>0]+[Code при C>0] (prefix ChartOfAccounts).
     if 'inputByString' in defn:
@@ -4123,7 +4154,7 @@ def emit_chart_of_accounts_properties(indent):
     emit_form_ref(i, 'AuxiliaryObjectForm', defn.get('auxiliaryObjectForm'))
     emit_form_ref(i, 'AuxiliaryListForm', defn.get('auxiliaryListForm'))
     emit_form_ref(i, 'AuxiliaryChoiceForm', defn.get('auxiliaryChoiceForm'))
-    auto_order = 'false' if defn.get('autoOrderByCode') is False else 'true'
+    auto_order = 'false' if (not get_dsl_bool(defn, ['autoOrderByCode'], True)) else 'true'
     X(f'{i}<AutoOrderByCode>{auto_order}</AutoOrderByCode>')
     order_length = str(defn['orderLength']) if defn.get('orderLength') is not None else '9'
     X(f'{i}<OrderLength>{order_length}</OrderLength>')
@@ -4157,7 +4188,7 @@ def emit_accounting_register_properties(indent):
         X(f'{i}<ChartOfAccounts>{esc_xml_text(chart_of_accounts)}</ChartOfAccounts>')
     else:
         X(f'{i}<ChartOfAccounts/>')
-    correspondence = 'true' if defn.get('correspondence') is True else 'false'
+    correspondence = 'true' if get_dsl_bool(defn, ['correspondence'], False) else 'false'
     X(f'{i}<Correspondence>{correspondence}</Correspondence>')
     period_adj_len = str(defn['periodAdjustmentLength']) if defn.get('periodAdjustmentLength') is not None else '0'
     X(f'{i}<PeriodAdjustmentLength>{period_adj_len}</PeriodAdjustmentLength>')
@@ -4166,7 +4197,7 @@ def emit_accounting_register_properties(indent):
     emit_standard_attributes(i, 'AccountingRegister')
     data_lock_control_mode = get_enum_prop('DataLockControlMode', 'dataLockControlMode', 'Managed')
     X(f'{i}<DataLockControlMode>{data_lock_control_mode}</DataLockControlMode>')
-    X(f'{i}<EnableTotalsSplitting>{"false" if defn.get("enableTotalsSplitting") is False else "true"}</EnableTotalsSplitting>')
+    X(f'{i}<EnableTotalsSplitting>{"false" if (not get_dsl_bool(defn, ['enableTotalsSplitting'], True)) else "true"}</EnableTotalsSplitting>')
     full_text_search = get_enum_prop('FullTextSearch', 'fullTextSearch', 'Use')
     X(f'{i}<FullTextSearch>{full_text_search}</FullTextSearch>')
     emit_mltext(i, 'ListPresentation', defn.get('listPresentation'))
@@ -4218,7 +4249,7 @@ def emit_chart_of_calculation_types_properties(indent):
     X(f'{i}<CodeAllowedLength>{get_enum_prop("CodeAllowedLength", "codeAllowedLength", "Variable")}</CodeAllowedLength>')
     X(f'{i}<DefaultPresentation>{get_enum_prop("DefaultPresentation", "defaultPresentation", "AsDescription")}</DefaultPresentation>')
     X(f'{i}<EditType>{get_enum_prop("EditType", "editType", "InDialog")}</EditType>')
-    X(f'{i}<QuickChoice>{"true" if defn.get("quickChoice") is True else "false"}</QuickChoice>')
+    X(f'{i}<QuickChoice>{"true" if get_dsl_bool(defn, ['quickChoice'], False) else "false"}</QuickChoice>')
     X(f'{i}<ChoiceMode>{get_enum_prop("ChoiceMode", "choiceMode", "BothWays")}</ChoiceMode>')
     if 'inputByString' in defn:
         ib_fields = [expand_data_path(str(x)) for x in (defn.get('inputByString') or [])]
@@ -4250,7 +4281,7 @@ def emit_chart_of_calculation_types_properties(indent):
         X(f'{i}</BaseCalculationTypes>')
     else:
         X(f'{i}<BaseCalculationTypes/>')
-    X(f'{i}<ActionPeriodUse>{"true" if defn.get("actionPeriodUse") is True else "false"}</ActionPeriodUse>')
+    X(f'{i}<ActionPeriodUse>{"true" if get_dsl_bool(defn, ['actionPeriodUse'], False) else "false"}</ActionPeriodUse>')
     emit_standard_attributes(i, 'ChartOfCalculationTypes')
     emit_characteristics(i, defn.get('characteristics'))
     emit_calc_types_std_tabular(i)
@@ -4282,9 +4313,9 @@ def emit_calculation_register_properties(indent):
     emit_form_ref(i, 'AuxiliaryListForm', defn.get('auxiliaryListForm'))
     periodicity = get_enum_prop('InformationRegisterPeriodicity', 'periodicity', 'Month')
     X(f'{i}<Periodicity>{periodicity}</Periodicity>')
-    action_period = 'true' if defn.get('actionPeriod') is True else 'false'
+    action_period = 'true' if get_dsl_bool(defn, ['actionPeriod'], False) else 'false'
     X(f'{i}<ActionPeriod>{action_period}</ActionPeriod>')
-    base_period = 'true' if defn.get('basePeriod') is True else 'false'
+    base_period = 'true' if get_dsl_bool(defn, ['basePeriod'], False) else 'false'
     X(f'{i}<BasePeriod>{base_period}</BasePeriod>')
     schedule = str(defn['schedule']) if defn.get('schedule') else ''
     if schedule:
@@ -4345,14 +4376,14 @@ def emit_business_process_properties(indent):
     number_type = get_enum_prop('NumberType', 'numberType', 'String')
     number_length = str(defn['numberLength']) if defn.get('numberLength') is not None else '11'
     number_allowed_length = get_enum_prop('NumberAllowedLength', 'numberAllowedLength', 'Variable')
-    check_unique = 'false' if defn.get('checkUnique') is False else 'true'
+    check_unique = 'false' if (not get_dsl_bool(defn, ['checkUnique'], True)) else 'true'
     X(f'{i}<NumberType>{number_type}</NumberType>')
     X(f'{i}<NumberLength>{number_length}</NumberLength>')
     X(f'{i}<NumberAllowedLength>{number_allowed_length}</NumberAllowedLength>')
     X(f'{i}<CheckUnique>{check_unique}</CheckUnique>')
     emit_standard_attributes(i, 'BusinessProcess')
     emit_characteristics(i, defn.get('characteristics'))
-    X(f'{i}<Autonumbering>{"false" if defn.get("autonumbering") is False else "true"}</Autonumbering>')
+    X(f'{i}<Autonumbering>{"false" if (not get_dsl_bool(defn, ['autonumbering'], True)) else "true"}</Autonumbering>')
     emit_based_on(i, defn.get('basedOn'))
     X(f'{i}<NumberPeriodicity>{get_enum_prop("NumberPeriodicity", "numberPeriodicity", "Nonperiodical")}</NumberPeriodicity>')
     task_ref = str(defn['task']) if defn.get('task') else ''
@@ -4387,8 +4418,8 @@ def emit_task_properties(indent):
     number_type = get_enum_prop('NumberType', 'numberType', 'String')
     number_length = str(defn['numberLength']) if defn.get('numberLength') is not None else '14'
     number_allowed_length = get_enum_prop('NumberAllowedLength', 'numberAllowedLength', 'Variable')
-    check_unique = 'false' if defn.get('checkUnique') is False else 'true'
-    autonumbering = 'false' if defn.get('autonumbering') is False else 'true'
+    check_unique = 'false' if (not get_dsl_bool(defn, ['checkUnique'], True)) else 'true'
+    autonumbering = 'false' if (not get_dsl_bool(defn, ['autonumbering'], True)) else 'true'
     task_number_auto_prefix = normalize_enum_value('TaskNumberAutoPrefix', str(defn['taskNumberAutoPrefix'])) if defn.get('taskNumberAutoPrefix') else 'BusinessProcessNumber'
     description_length = str(defn['descriptionLength']) if defn.get('descriptionLength') is not None else '150'
     X(f'{i}<NumberType>{number_type}</NumberType>')
@@ -4604,9 +4635,9 @@ def emit_operation(indent, op_name, op_def):
     else:
         if op_def.get('returnType'):
             return_type = str(op_def['returnType'])
-        if op_def.get('nillable') is True:
+        if get_dsl_bool(op_def, ['nillable'], False):
             nillable = 'true'
-        if op_def.get('transactioned') is True:
+        if get_dsl_bool(op_def, ['transactioned'], False):
             transactioned = 'true'
         if op_def.get('handler'):
             handler = str(op_def['handler'])
@@ -4647,7 +4678,7 @@ def emit_operation(indent, op_name, op_def):
             else:
                 if param_def.get('type'):
                     param_type = str(param_def['type'])
-                if param_def.get('nillable') is False:
+                if (not get_dsl_bool(param_def, ['nillable'], True)):
                     param_nillable = 'false'
                 if param_def.get('direction'):
                     param_dir = normalize_enum_value('TransferDirection', str(param_def['direction']))
@@ -4757,7 +4788,7 @@ def emit_eds_function(indent, fn_name, val, type_xml):
         expr = str(val.get('expression') or val.get('expressionInDataSource') or '')
         returns = str(val.get('returns') or val.get('returnType') or '')
         if val.get('returnValue') is not None:
-            return_value = val.get('returnValue') is True
+            return_value = get_dsl_bool(val, ['returnValue'], False)
         fn_synonym = val.get('synonym')
         fn_comment = str(val['comment']) if val.get('comment') else ''
     if not expr:
@@ -4829,8 +4860,8 @@ def emit_eds_table_properties(indent, src_name, table_name, t, char_xml, default
     else:
         X(f'{i}<Characteristics/>')
 
-    X(f'{i}<UseStandardCommands>{"false" if t.get("useStandardCommands") is False else "true"}</UseStandardCommands>')
-    X(f'{i}<QuickChoice>{"true" if t.get("quickChoice") is True else "false"}</QuickChoice>')
+    X(f'{i}<UseStandardCommands>{"false" if (not get_dsl_bool(t, ['useStandardCommands'], True)) else "true"}</UseStandardCommands>')
+    X(f'{i}<QuickChoice>{"true" if get_dsl_bool(t, ['quickChoice'], False) else "false"}</QuickChoice>')
     # Ввод по строке: ключа нет → выводим из поля представления (так делает платформа при загрузке).
     # Явный список, в том числе пустой, уважаем как есть — отсюда presence-aware проверка.
     if 'inputByString' in t:
@@ -4855,8 +4886,8 @@ def emit_eds_table_properties(indent, src_name, table_name, t, char_xml, default
                      'ExtendedRecordPresentation', 'ListPresentation', 'ExtendedListPresentation', 'Explanation'):
         key = pres_tag[0].lower() + pres_tag[1:]
         emit_mltext(i, pres_tag, t.get(key))
-    X(f'{i}<IncludeHelpInContents>{"true" if t.get("includeHelpInContents") is True else "false"}</IncludeHelpInContents>')
-    X(f'{i}<ReadOnly>{"true" if t.get("readOnly") is True else "false"}</ReadOnly>')
+    X(f'{i}<IncludeHelpInContents>{"true" if get_dsl_bool(t, ['includeHelpInContents'], False) else "false"}</IncludeHelpInContents>')
+    X(f'{i}<ReadOnly>{"true" if get_dsl_bool(t, ['readOnly'], False) else "false"}</ReadOnly>')
     X(f'{i}<TransactionsIsolationLevel>{normalize_enum_value("TransactionsIsolationLevel", str(t["transactionsIsolationLevel"])) if t.get("transactionsIsolationLevel") else "Auto"}</TransactionsIsolationLevel>')
     emit_eds_field_ref_scalar(i, 'DataVersionField', t.get('dataVersionField'), src_name, table_name)
     X(f'{i}<EditType>{get_enum_field(t, "editType", "EditType") or "InDialog"}</EditType>')
@@ -5603,7 +5634,7 @@ def resolve_predef_item(val):
     has_desc = ('description' in val) or ('наименование' in val)
     desc_v = gv(['description', 'наименование'])
     desc = ('' if desc_v is None else str(desc_v)) if has_desc else split_camel_case(name)
-    is_folder = gv(['isFolder', 'группа']) is True
+    is_folder = to_dsl_bool(gv(['isFolder', 'группа']), 'isFolder', False)
     subs = gv(['childItems', 'подчиненные']) or []
     type_v = gv(['type', 'тип'])   # тип значения характеристики (ПВХ): строка "A + B" ИЛИ массив
     if isinstance(type_v, list):
@@ -5689,7 +5720,7 @@ def emit_predef_account(out, val, indent, obj_nm, acct_flag_names, ext_dim_flag_
     desc_v = _predef_acc_get(val, ('description', 'наименование'))
     desc = str(desc_v) if has_desc else split_camel_case(name)
     acct_type = str(_predef_acc_get(val, ('accountType', 'видСчета', 'вид')) or '') or 'ActivePassive'
-    off = 'true' if _predef_acc_get(val, ('offBalance', 'забалансовый')) is True else 'false'
+    off = 'true' if to_dsl_bool(_predef_acc_get(val, ('offBalance', 'забалансовый')), 'offBalance', False) else 'false'
     order = str(_predef_acc_get(val, ('order', 'порядок')) or '')
     flags = _predef_acc_get(val, ('flags', 'признаки'))
     subconto = _predef_acc_get(val, ('subconto', 'extDimensionTypes', 'видыСубконто'))
@@ -5730,7 +5761,7 @@ def emit_predef_account(out, val, indent, obj_nm, acct_flag_names, ext_dim_flag_
             else:
                 sc_type = resolve_type_prefix_syn(sc_type)
             # «Только обороты» — токен в списке flags (или отдельный ключ turnover); вынимаем из настоящих признаков.
-            sc_turn = 'true' if sc_turn_v is True else 'false'
+            sc_turn = 'true' if to_dsl_bool(sc_turn_v, 'turnover', False) else 'false'
             real_flags = []
             for f in (sc_flags or []):
                 if str(f).strip().lower() in SUBCONTO_TURNOVER_TOKENS:
@@ -5771,7 +5802,7 @@ def emit_predef_calc_type(out, val, indent):
     r = resolve_predef_item(val)
     apib = 'false'
     if not isinstance(val, str):
-        if _predef_acc_get(val, ('actionPeriodIsBase', 'периодДействияБазовый')) is True:
+        if to_dsl_bool(_predef_acc_get(val, ('actionPeriodIsBase', 'периодДействияБазовый')), 'actionPeriodIsBase', False):
             apib = 'true'
     out.append(f'{indent}<Item id="{new_uuid()}">')
     out.append(f'{indent}\t<Name>{esc_xml_text(r["name"])}</Name>')

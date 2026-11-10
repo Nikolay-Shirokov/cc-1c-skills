@@ -1,0 +1,16 @@
+{
+  "name": "Небулево значение флага (hierarchical: \"yes\") — отказ с именем ключа, без записи",
+  "input": {
+    "type": "Catalog",
+    "name": "Виды",
+    "hierarchical": "yes"
+  },
+  "expectError": true,
+  "expect": {
+    "stderrContains": "hierarchical = \"yes\": expected true or false",
+    "filesAbsent": [
+      "Catalogs/Виды.xml"
+    ]
+  },
+  "noSnapshot": "отказ до записи — проверяется сообщение"
+}

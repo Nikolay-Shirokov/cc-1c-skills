@@ -1,0 +1,51 @@
+{
+  "name": "Булевы флаги строкой, числом и по-русски (\"TRUE\", 1, \"да\", \"ложь\", ключ-синоним «группа») — как true/false, одинаково в портах",
+  "input": {
+    "type": "Catalog",
+    "name": "Виды",
+    "hierarchical": "TRUE",
+    "checkUnique": 1,
+    "autonumbering": "ложь",
+    "attributes": [
+      {
+        "name": "Примечание",
+        "type": "String(100)",
+        "multiLine": "да",
+        "readOnly": 0
+      }
+    ],
+    "predefined": [
+      {
+        "name": "Группа1",
+        "группа": "истина",
+        "childItems": [
+          "Элемент"
+        ]
+      }
+    ]
+  },
+  "validatePath": "Catalogs/Виды",
+  "expect": {
+    "files": [
+      "Catalogs/Виды.xml",
+      "Catalogs/Виды/Ext/Predefined.xml"
+    ],
+    "fileContains": [
+      {
+        "file": "Catalogs/Виды.xml",
+        "text": [
+          "<Hierarchical>true</Hierarchical>",
+          "<CheckUnique>true</CheckUnique>",
+          "<Autonumbering>false</Autonumbering>",
+          "<MultiLine>true</MultiLine>"
+        ]
+      },
+      {
+        "file": "Catalogs/Виды/Ext/Predefined.xml",
+        "text": [
+          "<IsFolder>true</IsFolder>"
+        ]
+      }
+    ]
+  }
+}

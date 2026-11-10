@@ -1,4 +1,4 @@
-﻿# meta-edit v1.75 — Edit existing 1C metadata object XML
+﻿# meta-edit v1.76 — Edit existing 1C metadata object XML
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -41,6 +41,41 @@ $ErrorActionPreference = "Stop"
 # Возврат через запятую: без неё одноэлементный JSON-массив разворачивался бы в скаляр
 # вторым анруллингом. Не Write-Output -NoEnumerate: pwsh 7.6 заворачивает им в List
 # и одиночный объект (issue #136).
+# --- Булевы флаги DSL: прощающий ввод ---
+# Флаг строкой или числом — однозначная ошибка автора JSON: true|да|истина / false|нет|ложь (без
+# регистра) и 1/0 приводим к bool молча. Иное — ошибка без записи: молчаливое «false» из «yes»
+# хуже отказа. Без общего читателя порты расходились: PS (-eq) принимал "false", py (is) — нет.
+function ConvertTo-DslBool {
+	param($Value, [string]$Key, [bool]$Default)
+	if ($null -eq $Value) { return $Default }
+	if ($Value -is [bool]) { return $Value }
+	if ($Value -is [string]) {
+		$t = $Value.Trim().ToLowerInvariant()
+		if (@('true', 'да', 'истина') -ccontains $t) { return $true }
+		if (@('false', 'нет', 'ложь') -ccontains $t) { return $false }
+	} elseif ($Value -is [int] -or $Value -is [long] -or $Value -is [double] -or $Value -is [decimal]) {
+		if ($Value -eq 1) { return $true }
+		if ($Value -eq 0) { return $false }
+	}
+	$shown = if ($Value -is [string]) { '"' + $Value + '"' } else { "$Value" }
+	[Console]::Error.WriteLine("[ERROR] $Key = ${shown}: expected true or false")
+	exit 1
+}
+
+# Первый найденный ключ из $Keys (синонимы, без регистра) → ConvertTo-DslBool; не объект / нет ключа → $Default.
+function Get-DslBool {
+	param($Obj, [string[]]$Keys, [bool]$Default)
+	if ($null -eq $Obj -or $Obj -is [string] -or $Obj -is [ValueType]) { return $Default }
+	foreach ($k in $Keys) {
+		if ($Obj -is [System.Collections.IDictionary]) {
+			if ($Obj.Contains($k)) { return (ConvertTo-DslBool $Obj[$k] $k $Default) }
+		} elseif ($Obj.PSObject.Properties[$k]) {
+			return (ConvertTo-DslBool $Obj.PSObject.Properties[$k].Value $k $Default)
+		}
+	}
+	return $Default
+}
+
 function ConvertFrom-JsonInput([string]$text, [string]$source, [string]$expected, [switch]$Inline) {
 	try {
 		# PS 5.1 на пустой строке отдаёт $null, а не ошибку — навык уходил дальше с $null,
@@ -1211,8 +1246,8 @@ function Parse-AttributeShorthand {
 		before      = if ($val.before) { "$($val.before)" } else { "" }
 		# Поле таблицы внешнего источника (контекст eds-field).
 		nameInDataSource = if ($val.nameInDataSource) { "$($val.nameInDataSource)" } else { "" }
-		readOnly    = if ($val.readOnly -eq $true) { $true } else { $false }
-		allowNull   = if ($val.allowNull -eq $true) { $true } else { $false }
+		readOnly    = if ((Get-DslBool $val @('readOnly') $false)) { $true } else { $false }
+		allowNull   = if ((Get-DslBool $val @('allowNull') $false)) { $true } else { $false }
 	}
 	# Map flags to properties
 	$result.type = Add-NonnegFlag $result.type $result.flags
@@ -1391,9 +1426,9 @@ function Build-AttributeFragment {
 		$sb.AppendLine("$indent`t`t<ChoiceForm/>") | Out-Null
 		$nids = if ($parsed.nameInDataSource) { "$($parsed.nameInDataSource)" } else { $parsed.name }
 		$sb.AppendLine("$indent`t`t<NameInDataSource>$(Esc-XmlText $nids)</NameInDataSource>") | Out-Null
-		$ro = if ($parsed.readOnly -eq $true -or $parsed.flags -contains "readonly") { "true" } else { "false" }
+		$ro = if ((Get-DslBool $parsed @('readOnly') $false) -or $parsed.flags -contains "readonly") { "true" } else { "false" }
 		$sb.AppendLine("$indent`t`t<ReadOnly>$ro</ReadOnly>") | Out-Null
-		$an = if ($parsed.allowNull -eq $true -or $parsed.flags -contains "nullable") { "true" } else { "false" }
+		$an = if ((Get-DslBool $parsed @('allowNull') $false) -or $parsed.flags -contains "nullable") { "true" } else { "false" }
 		$sb.AppendLine("$indent`t`t<AllowNull>$an</AllowNull>") | Out-Null
 	}
 
@@ -2040,7 +2075,7 @@ function Emit-EdsFunction {
 	} else {
 		$expr = if ($val.expression) { "$($val.expression)" } elseif ($val.expressionInDataSource) { "$($val.expressionInDataSource)" } else { "" }
 		$returns = if ($val.returns) { "$($val.returns)" } elseif ($val.returnType) { "$($val.returnType)" } else { "" }
-		if ($null -ne $val.returnValue) { $returnValue = ($val.returnValue -eq $true) }
+		if ($null -ne $val.returnValue) { $returnValue = ((Get-DslBool $val @('returnValue') $false)) }
 		$fnSynonym = $val.synonym
 		$fnComment = if ($val.comment) { "$($val.comment)" } else { "" }
 	}
@@ -2098,8 +2133,8 @@ function Emit-EdsTableProperties {
 	else { X "$i<UnfilledParentValue xsi:nil=`"true`"/>" }
 	if ($charXml) { X $charXml.TrimEnd("`r", "`n") } else { X "$i<Characteristics/>" }
 
-	X "$i<UseStandardCommands>$(if ($t -and $t.useStandardCommands -eq $false) { 'false' } else { 'true' })</UseStandardCommands>"
-	X "$i<QuickChoice>$(if ($t -and $t.quickChoice -eq $true) { 'true' } else { 'false' })</QuickChoice>"
+	X "$i<UseStandardCommands>$(if ($t -and (-not (Get-DslBool $t @('useStandardCommands') $true))) { 'false' } else { 'true' })</UseStandardCommands>"
+	X "$i<QuickChoice>$(if ($t -and (Get-DslBool $t @('quickChoice') $false)) { 'true' } else { 'false' })</QuickChoice>"
 	# Ввод по строке: ключа нет → выводим из поля представления (так делает платформа при загрузке).
 	# Явный список, в том числе пустой, уважаем как есть — отсюда presence-aware проверка.
 	$ibsGiven = ($t -and $t.PSObject -and $t.PSObject.Properties -and ($t.PSObject.Properties.Name -contains 'inputByString'))
@@ -2118,8 +2153,8 @@ function Emit-EdsTableProperties {
 		$key = $presTag.Substring(0,1).ToLower() + $presTag.Substring(1)
 		Emit-MLText $i $presTag $(if ($t) { $t.$key } else { $null })
 	}
-	X "$i<IncludeHelpInContents>$(if ($t -and $t.includeHelpInContents -eq $true) { 'true' } else { 'false' })</IncludeHelpInContents>"
-	X "$i<ReadOnly>$(if ($t -and $t.readOnly -eq $true) { 'true' } else { 'false' })</ReadOnly>"
+	X "$i<IncludeHelpInContents>$(if ($t -and (Get-DslBool $t @('includeHelpInContents') $false)) { 'true' } else { 'false' })</IncludeHelpInContents>"
+	X "$i<ReadOnly>$(if ($t -and (Get-DslBool $t @('readOnly') $false)) { 'true' } else { 'false' })</ReadOnly>"
 	X "$i<TransactionsIsolationLevel>$(if ($t -and $t.transactionsIsolationLevel) { Normalize-EnumValue "TransactionsIsolationLevel" "$($t.transactionsIsolationLevel)" } else { 'Auto' })</TransactionsIsolationLevel>"
 	Emit-EdsFieldRefScalar $i "DataVersionField" $(if ($t) { $t.dataVersionField } else { $null }) $srcName $tableName
 	X "$i<EditType>$(if ($x = Get-EnumField $t 'editType' 'EditType') { $x } else { 'InDialog' })</EditType>"
@@ -3804,8 +3839,8 @@ function Build-FillValueExplicitXml([string]$typeStr, $spec) {
 	if ($null -eq $spec) { return "<FillValue xsi:nil=`"true`"/>" }
 	if ($spec -is [bool]) { return "<FillValue xsi:type=`"xs:boolean`">$(if ($spec) { 'true' } else { 'false' })</FillValue>" }
 	if ($spec -is [int] -or $spec -is [long] -or $spec -is [double] -or $spec -is [decimal]) { return "<FillValue xsi:type=`"xs:decimal`">$(Format-FillNum $spec)</FillValue>" }
-	if ((Get-ChElProp $spec @('nil')) -eq $true) { return "<FillValue xsi:nil=`"true`"/>" }
-	if ((Get-ChElProp $spec @('emptyRef','пустаяссылка')) -eq $true) { return "<FillValue xsi:type=`"xr:DesignTimeRef`"/>" }
+	if (ConvertTo-DslBool (Get-ChElProp $spec @('nil')) 'nil' $false) { return "<FillValue xsi:nil=`"true`"/>" }
+	if (ConvertTo-DslBool (Get-ChElProp $spec @('emptyRef','пустаяссылка')) 'emptyRef' $false) { return "<FillValue xsi:type=`"xr:DesignTimeRef`"/>" }
 	$r = Resolve-FillValueSpec "$spec" $typeStr
 	if ($r.Text -eq '' -and $r.XsiType -eq 'xs:string') { return "<FillValue xsi:type=`"xs:string`"/>" }
 	return "<FillValue xsi:type=`"$($r.XsiType)`">$(Esc-XmlText $r.Text)</FillValue>"
@@ -4042,7 +4077,7 @@ function Resolve-PredefItem($val) {
 	$hasDesc = $val.PSObject.Properties['description'] -or $val.PSObject.Properties['наименование']
 	$descV = & $gv $val @('description','наименование')
 	$desc = if ($hasDesc) { "$descV" } else { Split-CamelCase $name }
-	$isFolder = ((& $gv $val @('isFolder','группа')) -eq $true)
+	$isFolder = (ConvertTo-DslBool (& $gv $val @('isFolder','группа')) 'isFolder' $false)
 	$subs = & $gv $val @('childItems','подчиненные')
 	return @{ name = $name; code = $code; desc = $desc; isFolder = $isFolder; children = @(if ($subs) { @($subs) } else { @() }) }
 }

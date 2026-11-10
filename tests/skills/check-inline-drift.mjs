@@ -442,6 +442,17 @@ const FAMILIES = [
           'db-load-git', 'db-load-xml', 'db-repo', 'db-update', 'epf-build', 'epf-dump'] },
     ],
   },
+  // Булевы флаги DSL — общий читатель: true|да|истина / false|нет|ложь и 1/0 → bool, иное — отказ без
+  // записи. Нормализация в точке, где код ждёт bool. Без него порты расходились: PS (-eq) принимал
+  // "false", py (is) — нет. Перевод навыков — по одному (память project_dsl_bool_lenient).
+  {
+    name: 'dsl: to_dsl_bool', py: 'to_dsl_bool', ps1: 'ConvertTo-DslBool',
+    variants: [ { id: 'base', authority: 'meta-compile', consumers: ['meta-edit'] } ],
+  },
+  {
+    name: 'dsl: get_dsl_bool', py: 'get_dsl_bool', ps1: 'Get-DslBool',
+    variants: [ { id: 'base', authority: 'meta-compile', consumers: ['meta-edit'] } ],
+  },
   // Булевы флаги DSL — прощающий ввод ("true"/"false"/1/0 → bool, иное у строгого ключа — отказ).
   // Списки ключей у навыка свои, тело общее: следующие навыки-компиляторы берут эту копию.
   {

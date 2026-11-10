@@ -1,0 +1,51 @@
+{
+  "name": "Булевы флаги строкой, числом и по-русски в добавляемом поле внешнего источника (\"да\", 1) — как true, одинаково в портах",
+  "setup": "empty-config",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "ExternalDataSource",
+        "name": "PG",
+        "tables": {
+          "products": {
+            "keyFields": [
+              "id"
+            ],
+            "fields": [
+              "id: Number(10,0)"
+            ]
+          }
+        }
+      },
+      "args": {
+        "-JsonPath": "{inputFile}",
+        "-OutputDir": "{workDir}"
+      }
+    }
+  ],
+  "params": {
+    "objectPath": "ExternalDataSources/PG/Tables/products.xml"
+  },
+  "input": {
+    "add": {
+      "fields": [
+        {
+          "name": "cost",
+          "type": "Number(15,2)",
+          "readOnly": "да",
+          "allowNull": 1
+        }
+      ]
+    }
+  },
+  "expect": {
+    "fileContains": {
+      "file": "ExternalDataSources/PG/Tables/products.xml",
+      "text": [
+        "<ReadOnly>true</ReadOnly>",
+        "<AllowNull>true</AllowNull>"
+      ]
+    }
+  }
+}
