@@ -1,0 +1,14 @@
+{
+  "name": "-EmbedSourceFile чистится как остальные пути: кавычки по краям снимаются, «C:x» — отказ с подсказкой до запуска платформы",
+  "osOnly": "win32",
+  "preRun": [
+    { "writeFile": { "path": "fake.cmd", "content": "@echo off\r\necho ARGS: %*\r\nexit /b 1\r\n" } }
+  ],
+  "args_extra": ["-SourceDir", "{workDir}", "-V8Path", "{workDir}\fake.cmd", "-EmbedSourceFile", "\"C:Проба.xml\""],
+  "expect": {
+    "stdoutContains": "-EmbedSourceFile is relative to the current directory of drive C:",
+    "stdoutNotContains": "ARGS:"
+  },
+  "expectError": true,
+  "noSnapshot": "отказ до запуска платформы — файлов на выходе нет"
+}

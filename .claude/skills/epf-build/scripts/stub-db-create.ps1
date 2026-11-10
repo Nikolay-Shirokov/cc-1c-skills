@@ -1,4 +1,4 @@
-﻿# stub-db-create v1.20 — Create temp 1C infobase with metadata stubs for EPF/ERF build
+﻿# stub-db-create v1.21 — Create temp 1C infobase with metadata stubs for EPF/ERF build
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -59,6 +59,7 @@ function ConvertTo-CleanPath {
 $SourceDir = ConvertTo-CleanPath $SourceDir '-SourceDir'
 $V8Path = ConvertTo-CleanPath $V8Path '-V8Path'
 $TempBasePath = ConvertTo-CleanPath $TempBasePath '-TempBasePath'
+$EmbedSourceFile = ConvertTo-CleanPath $EmbedSourceFile '-EmbedSourceFile'
 $ConfigSrc = ConvertTo-CleanPath $ConfigSrc '-ConfigSrc'
 
 # --- Additional platform arguments ---
