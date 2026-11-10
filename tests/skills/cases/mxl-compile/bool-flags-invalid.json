@@ -1,0 +1,38 @@
+{
+  "name": "Небулево значение флага шрифта (bold: \"yes\") — отказ с именем ключа",
+  "outputPath": "Template.xml",
+  "input": {
+    "columns": 1,
+    "fonts": {
+      "default": {
+        "face": "Arial",
+        "size": 10
+      },
+      "b": {
+        "face": "Arial",
+        "size": 10,
+        "bold": "yes"
+      }
+    },
+    "areas": [
+      {
+        "name": "А",
+        "rows": [
+          {
+            "cells": [
+              {
+                "col": 1,
+                "text": "x"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "expectError": true,
+  "expect": {
+    "stderrContains": "bold = \"yes\": expected true or false"
+  },
+  "noSnapshot": "отказ — проверяется сообщение"
+}

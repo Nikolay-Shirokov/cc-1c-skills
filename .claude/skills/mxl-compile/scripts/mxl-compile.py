@@ -1,5 +1,5 @@
 ﻿#!/usr/bin/env python3
-# mxl-compile v1.62 — Compile 1C spreadsheet from JSON
+# mxl-compile v1.63 — Compile 1C spreadsheet from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import hashlib
@@ -13,6 +13,42 @@ from lxml import etree
 
 # Регистронезависимый ввод — паритет с PS1: в PowerShell имена параметров и [ValidateSet]
 # регистр не различают, в argparse совпадение точное.
+
+# --- Булевы флаги DSL: прощающий ввод ---
+# Флаг строкой или числом — однозначная ошибка автора JSON: true|да|истина / false|нет|ложь (без
+# регистра) и 1/0 приводим к bool молча. Иное — ошибка без записи: молчаливое «false» из «yes»
+# хуже отказа. Без общего читателя порты расходились: PS (-eq) принимал "false", py (is) — нет.
+def to_dsl_bool(value, key, default):
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        t = value.strip().lower()
+        if t in ('true', 'да', 'истина'):
+            return True
+        if t in ('false', 'нет', 'ложь'):
+            return False
+    elif isinstance(value, (int, float)):
+        if value == 1:
+            return True
+        if value == 0:
+            return False
+    shown = f'"{value}"' if isinstance(value, str) else f"{value}"
+    print(f"[ERROR] {key} = {shown}: expected true or false", file=sys.stderr)
+    sys.exit(1)
+
+
+def get_dsl_bool(obj, keys, default):
+    """Первый найденный ключ из keys (синонимы, без регистра) → to_dsl_bool; не dict / нет ключа → default."""
+    if not isinstance(obj, dict):
+        return default
+    for k in keys:
+        for actual in obj:
+            if isinstance(actual, str) and actual.lower() == k.lower():
+                return to_dsl_bool(obj[actual], k, default)
+    return default
+
 
 def parse_json_input(text, source, expected=None, inline=False):
     """Разбор пользовательского JSON: одна строка в stderr вместо traceback (issue #80).
@@ -823,7 +859,7 @@ def cell_note(cell, where):
         if raw.get('style'):
             style = str(raw.get('style'))
         if raw.get('autoSize') is not None:
-            auto_size = raw.get('autoSize') is True or str(raw.get('autoSize')).lower() == 'true'
+            auto_size = get_dsl_bool(raw, ['autoSize'], False)
         raw_box = raw.get('box') or {}
         for side in ('top', 'left', 'bottom', 'right'):
             if raw_box.get(side) is not None:
@@ -974,10 +1010,10 @@ def main():
             return
         face = font_def.get('face', 'Arial') if font_def else 'Arial'
         size = to_font_size(font_def.get('size', 10)) if font_def else 10
-        bold = 'true' if font_def and font_def.get('bold') is True else 'false'
-        italic = 'true' if font_def and font_def.get('italic') is True else 'false'
-        underline = 'true' if font_def and font_def.get('underline') is True else 'false'
-        strikeout = 'true' if font_def and font_def.get('strikeout') is True else 'false'
+        bold = 'true' if font_def and get_dsl_bool(font_def, ['bold'], False) else 'false'
+        italic = 'true' if font_def and get_dsl_bool(font_def, ['italic'], False) else 'false'
+        underline = 'true' if font_def and get_dsl_bool(font_def, ['underline'], False) else 'false'
+        strikeout = 'true' if font_def and get_dsl_bool(font_def, ['strikeout'], False) else 'false'
 
         idx = len(font_entries)
         font_map[name] = idx
@@ -1149,7 +1185,7 @@ def main():
             if val.get('width') is not None:
                 width = val['width']
             if val.get('gap') is not None:
-                gap = 'true' if val['gap'] is True else 'false'
+                gap = 'true' if to_dsl_bool(val['gap'], 'gap', False) else 'false'
         else:
             style = str(val)
         if style == 'thin':
@@ -1192,7 +1228,7 @@ def main():
             props = resolve_style(name, '')
         if row.get('height'):
             props['height'] = int(row['height'])
-        if row.get('hidden') is True:
+        if get_dsl_bool(row, ['hidden'], False):
             props['hidden'] = 'true'
         return props
 
@@ -1253,7 +1289,7 @@ def main():
                         continue
                     # wrap — не имя, а сокращение: булево вместо перечисления textPlacement.
                     if tag == 'wrap':
-                        if val is True or str(val) == 'true':
+                        if to_dsl_bool(val, 'wrap', False):
                             props['textPlacement'] = 'Wrap'
                         continue
                     if tag not in kinds:
@@ -1265,7 +1301,7 @@ def main():
                         ln_val['Kind'] = 'Drawing' if tag == 'drawingBorder' else 'Cell'
                         props[tag] = register_line(ln_val)
                     elif kind == 'bool':
-                        props[tag] = 'true' if (val is True or str(val) == 'true') else 'false'
+                        props[tag] = 'true' if to_dsl_bool(val, raw, False) else 'false'
                     elif kind == 'int':
                         props[tag] = int(val)
                     elif kind == 'enum':
@@ -1617,7 +1653,7 @@ def main():
         if hf.get('font') and str(hf['font']) in font_map:
             props['font'] = font_map[str(hf['font'])]
         # Признак вывода и стартовая страница осмысленны только вместе: платформа пишет их парой.
-        props['height'] = -1 if (hf.get('show') is False or str(hf.get('show')).lower() == 'false') else 1
+        props['height'] = -1 if not get_dsl_bool(hf, ['show'], True) else 1
         props['width'] = int(hf['startPage']) if hf.get('startPage') else 1
         if hf.get('verticalAlignment'):
             props['verticalAlignment'] = str(hf['verticalAlignment'])
@@ -1701,8 +1737,8 @@ def main():
         # Поэтому и ключ один, а форма значения выбирает способ.
         tr = pic_def.get('transparent')
         if tr is not None:
-            if isinstance(tr, bool) or str(tr).lower() in ('true', 'false'):
-                entry['Transparent'] = 'true' if (tr is True or str(tr).lower() == 'true') else 'false'
+            if not isinstance(tr, dict):
+                entry['Transparent'] = 'true' if to_dsl_bool(tr, 'transparent', False) else 'false'
             elif isinstance(tr, dict) and 'x' in tr and 'y' in tr:
                 entry['PixelX'] = str(int(tr['x']))
                 entry['PixelY'] = str(int(tr['y']))
@@ -1755,7 +1791,7 @@ def main():
             v = (dr.get('sides') or {}).get(side)
             if v is not None:
                 tag = 'drawingHave' + side.capitalize() + 'Border'
-                props[tag] = 'true' if (v is True or str(v).lower() == 'true') else 'false'
+                props[tag] = 'true' if to_dsl_bool(v, side, False) else 'false'
         fmt_idx = register_format(props) if props else 0
         drawings.append({
             'Type': canon_type,
@@ -2392,7 +2428,7 @@ def main():
             out.append({
                 'B': frm - 1, 'E': to - 1,
                 'Name': g.get('name'),
-                'Collapsed': g.get('collapsed') is True or str(g.get('collapsed')).lower() == 'true',
+                'Collapsed': get_dsl_bool(g, ['collapsed'], False),
                 'Header': header,
             })
         for i in range(len(out)):

@@ -1,0 +1,74 @@
+{
+  "name": "Булевы флаги строкой, числом и по-русски (\"да\", 1, \"TRUE\", \"истина\") — как true, одинаково в портах",
+  "outputPath": "Template.xml",
+  "input": {
+    "columns": 2,
+    "defaultWidth": 20,
+    "fonts": {
+      "default": {
+        "face": "Arial",
+        "size": 10
+      },
+      "bold": {
+        "face": "Arial",
+        "size": 10,
+        "bold": "да"
+      },
+      "it": {
+        "face": "Arial",
+        "size": 10,
+        "italic": 1
+      }
+    },
+    "styles": {
+      "wrapped": {
+        "font": "bold",
+        "wrap": "TRUE"
+      },
+      "italic": {
+        "font": "it"
+      }
+    },
+    "areas": [
+      {
+        "name": "Шапка",
+        "rows": [
+          {
+            "cells": [
+              {
+                "col": 1,
+                "text": "Заголовок",
+                "style": "wrapped"
+              },
+              {
+                "col": 2,
+                "text": "Курсив",
+                "style": "italic"
+              }
+            ]
+          },
+          {
+            "hidden": "истина",
+            "cells": [
+              {
+                "col": 1,
+                "text": "Скрытая"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "expect": {
+    "fileContains": {
+      "file": "Template.xml",
+      "text": [
+        "bold=\"true\"",
+        "italic=\"true\"",
+        "<textPlacement>Wrap</textPlacement>",
+        "<hidden>true"
+      ]
+    }
+  }
+}

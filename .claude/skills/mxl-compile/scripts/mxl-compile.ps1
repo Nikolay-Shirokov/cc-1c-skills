@@ -1,4 +1,4 @@
-﻿# mxl-compile v1.62 — Compile 1C spreadsheet from JSON
+﻿# mxl-compile v1.63 — Compile 1C spreadsheet from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -19,6 +19,41 @@ $ErrorActionPreference = "Stop"
 # Возврат через запятую: без неё одноэлементный JSON-массив разворачивался бы в скаляр
 # вторым анруллингом. Не Write-Output -NoEnumerate: pwsh 7.6 заворачивает им в List
 # и одиночный объект (issue #136).
+# --- Булевы флаги DSL: прощающий ввод ---
+# Флаг строкой или числом — однозначная ошибка автора JSON: true|да|истина / false|нет|ложь (без
+# регистра) и 1/0 приводим к bool молча. Иное — ошибка без записи: молчаливое «false» из «yes»
+# хуже отказа. Без общего читателя порты расходились: PS (-eq) принимал "false", py (is) — нет.
+function ConvertTo-DslBool {
+	param($Value, [string]$Key, [bool]$Default)
+	if ($null -eq $Value) { return $Default }
+	if ($Value -is [bool]) { return $Value }
+	if ($Value -is [string]) {
+		$t = $Value.Trim().ToLowerInvariant()
+		if (@('true', 'да', 'истина') -ccontains $t) { return $true }
+		if (@('false', 'нет', 'ложь') -ccontains $t) { return $false }
+	} elseif ($Value -is [int] -or $Value -is [long] -or $Value -is [double] -or $Value -is [decimal]) {
+		if ($Value -eq 1) { return $true }
+		if ($Value -eq 0) { return $false }
+	}
+	$shown = if ($Value -is [string]) { '"' + $Value + '"' } else { "$Value" }
+	[Console]::Error.WriteLine("[ERROR] $Key = ${shown}: expected true or false")
+	exit 1
+}
+
+# Первый найденный ключ из $Keys (синонимы, без регистра) → ConvertTo-DslBool; не объект / нет ключа → $Default.
+function Get-DslBool {
+	param($Obj, [string[]]$Keys, [bool]$Default)
+	if ($null -eq $Obj -or $Obj -is [string] -or $Obj -is [ValueType]) { return $Default }
+	foreach ($k in $Keys) {
+		if ($Obj -is [System.Collections.IDictionary]) {
+			if ($Obj.Contains($k)) { return (ConvertTo-DslBool $Obj[$k] $k $Default) }
+		} elseif ($Obj.PSObject.Properties[$k]) {
+			return (ConvertTo-DslBool $Obj.PSObject.Properties[$k].Value $k $Default)
+		}
+	}
+	return $Default
+}
+
 function ConvertFrom-JsonInput([string]$text, [string]$source, [string]$expected, [switch]$Inline) {
 	try {
 		# PS 5.1 на пустой строке отдаёт $null, а не ошибку — навык уходил дальше с $null,
@@ -327,10 +362,10 @@ function Add-Font {
 	}
 	$face = if ($fontDef.face) { $fontDef.face } else { "Arial" }
 	$size = if ($fontDef.size) { ConvertTo-FontSize $fontDef.size } else { 10 }
-	$bold = if ($fontDef.bold -eq $true) { "true" } else { "false" }
-	$italic = if ($fontDef.italic -eq $true) { "true" } else { "false" }
-	$underline = if ($fontDef.underline -eq $true) { "true" } else { "false" }
-	$strikeout = if ($fontDef.strikeout -eq $true) { "true" } else { "false" }
+	$bold = if ((Get-DslBool $fontDef @('bold') $false)) { "true" } else { "false" }
+	$italic = if ((Get-DslBool $fontDef @('italic') $false)) { "true" } else { "false" }
+	$underline = if ((Get-DslBool $fontDef @('underline') $false)) { "true" } else { "false" }
+	$strikeout = if ((Get-DslBool $fontDef @('strikeout') $false)) { "true" } else { "false" }
 
 	$idx = $script:fontEntries.Count
 	$script:fontMap[$name] = $idx
@@ -551,7 +586,7 @@ function ConvertTo-LineValue {
 	} else {
 		if ($null -ne $val.style) { $style = "$($val.style)" }
 		if ($null -ne $val.width) { $width = "$($val.width)" }
-		if ($null -ne $val.gap) { $gap = if ($val.gap -eq $true) { 'true' } else { 'false' } }
+		if ($null -ne $val.gap) { $gap = if ((Get-DslBool $val @('gap') $false)) { 'true' } else { 'false' } }
 	}
 	if ($style -ceq 'thin') { $style = 'Solid'; $width = 1 }
 	elseif ($style -ceq 'thick') { $style = 'Solid'; $width = 2 }
@@ -603,7 +638,7 @@ function Get-RowFormatProps {
 		$props = Resolve-Style -styleName $spec.Name -fillType ""
 	}
 	if ($row.height) { $props['height'] = [int]$row.height }
-	if ($row.hidden -eq $true) { $props['hidden'] = 'true' }
+	if ((Get-DslBool $row @('hidden') $false)) { $props['hidden'] = 'true' }
 	return $props
 }
 
@@ -663,7 +698,7 @@ function Resolve-Style {
 				}
 				# wrap — не имя, а сокращение: булево вместо перечисления textPlacement.
 				if ($tag -ceq 'wrap') {
-					if ($val -eq $true -or "$val" -eq 'true') { $props['textPlacement'] = 'Wrap' }
+					if (ConvertTo-DslBool $val 'wrap' $false) { $props['textPlacement'] = 'Wrap' }
 					continue
 				}
 				if (-not $kinds.ContainsKey($tag)) {
@@ -676,7 +711,7 @@ function Resolve-Style {
 						$lnVal['Kind'] = if ($tag -ceq 'drawingBorder') { 'Drawing' } else { 'Cell' }
 						$props[$tag] = Register-Line $lnVal
 					}
-					'bool' { $props[$tag] = if ($val -eq $true -or "$val" -eq 'true') { 'true' } else { 'false' } }
+					'bool' { $props[$tag] = if (ConvertTo-DslBool $val $raw $false) { 'true' } else { 'false' } }
 					'int'  { $props[$tag] = [int]$val }
 					'enum' {
 						$allowed = $enums[$tag]
@@ -1130,7 +1165,7 @@ function Get-CellNote {
 		$text = $raw.text
 		if ($null -eq $text) { $text = '' }
 		if ($raw.style) { $style = "$($raw.style)" }
-		if ($null -ne $raw.autoSize) { $autoSize = ($raw.autoSize -eq $true -or "$($raw.autoSize)" -eq 'true') }
+		if ($null -ne $raw.autoSize) { $autoSize = (Get-DslBool $raw @('autoSize') $false) }
 		foreach ($side in @('Top', 'Left', 'Bottom', 'Right')) {
 			$v = $raw.box.$side
 			if ($null -ne $v) { $box[$side] = [int]$v }
@@ -1657,7 +1692,7 @@ function Get-HeaderFormatIndex {
 	$props = @{}
 	if ($hf.font -and $fontMap.Contains("$($hf.font)")) { $props['font'] = $fontMap["$($hf.font)"] }
 	# Признак вывода и стартовая страница осмысленны только вместе: платформа пишет их парой.
-	$props['height'] = if ($hf.show -eq $false -or "$($hf.show)" -eq 'false') { -1 } else { 1 }
+	$props['height'] = if (-not (Get-DslBool $hf @('show') $true)) { -1 } else { 1 }
 	$props['width'] = if ($hf.startPage) { [int]$hf.startPage } else { 1 }
 	if ($hf.verticalAlignment) { $props['verticalAlignment'] = "$($hf.verticalAlignment)" }
 	return Register-Format $props
@@ -1756,8 +1791,8 @@ if ($def.pictures) {
 		# Поэтому и ключ один, а форма значения выбирает способ.
 		$tr = $pr.Value.transparent
 		if ($null -ne $tr) {
-			if ($tr -is [bool] -or "$tr" -ceq 'true' -or "$tr" -ceq 'false') {
-				$entry.Transparent = if ($tr -eq $true -or "$tr" -ceq 'true') { 'true' } else { 'false' }
+			if ($tr -isnot [System.Management.Automation.PSCustomObject]) {
+				$entry.Transparent = if (ConvertTo-DslBool $tr 'transparent' $false) { 'true' } else { 'false' }
 			} elseif ($null -ne $tr.x -and $null -ne $tr.y) {
 				$entry.PixelX = "$([int]$tr.x)"
 				$entry.PixelY = "$([int]$tr.y)"
@@ -1810,7 +1845,7 @@ foreach ($dr in $def.drawings) {
 		$v = $dr.sides.$side
 		if ($null -ne $v) {
 			$tag = 'drawingHave' + $side.Substring(0,1).ToUpperInvariant() + $side.Substring(1) + 'Border'
-			$props[$tag] = if ($v -eq $true -or "$v" -eq 'true') { 'true' } else { 'false' }
+			$props[$tag] = if (ConvertTo-DslBool $v $side $false) { 'true' } else { 'false' }
 		}
 	}
 	$fmtIdx = 0
@@ -2530,7 +2565,7 @@ function Get-Groups {
 		$out += @{
 			B = $frm - 1; E = $to - 1
 			Name = $g.name
-			Collapsed = ($g.collapsed -eq $true -or "$($g.collapsed)" -eq 'true')
+			Collapsed = (Get-DslBool $g @('collapsed') $false)
 			Header = $header
 		}
 	}
