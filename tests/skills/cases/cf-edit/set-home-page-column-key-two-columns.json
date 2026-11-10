@@ -1,0 +1,19 @@
+{
+  "name": "Ключ Column (единственная колонка OneColumn) при двухколоночном шаблоне — отказ без записи",
+  "input": [
+    {
+      "operation": "set-home-page",
+      "value": {
+        "template": "TwoColumnsEqualWidth",
+        "Column": [
+          "CommonForm.Главная"
+        ]
+      }
+    }
+  ],
+  "expectError": true,
+  "expect": {
+    "stderrContains": "Key 'Column' is the single column of template 'OneColumn'"
+  },
+  "noSnapshot": "отказ до записи — проверяется сообщение"
+}

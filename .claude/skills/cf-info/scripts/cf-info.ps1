@@ -1,4 +1,4 @@
-﻿# cf-info v1.11 — Compact summary of 1C configuration root
+﻿# cf-info v1.12 — Compact summary of 1C configuration root
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -393,7 +393,8 @@ if ($Mode -eq "overview" -and -not $Section) {
 		$rn = $script:homePage.right.Count
 		Out "--- Начальная страница ---"
 		Out "  Шаблон: $($script:homePage.template)"
-		Out "  LeftColumn: $ln, RightColumn: $rn  (детали: -Section home-page)"
+		if ($script:homePage.template -eq "OneColumn") { Out "  Column: $ln  (детали: -Section home-page)" }
+		else { Out "  LeftColumn: $ln, RightColumn: $rn  (детали: -Section home-page)" }
 		Out ""
 	}
 
@@ -428,7 +429,11 @@ if ($Section -eq "home-page") {
 		Out ""
 		Out "Шаблон: $($script:homePage.template)"
 		Out ""
-		foreach ($side in @(@("LeftColumn","left"), @("RightColumn","right"))) {
+		# У OneColumn единственная колонка — <Column>; подписи — XML-имена, как их ждёт платформа
+		# Присваивание, не вывод if: конвейер развернул бы внешний массив из одного элемента
+		$sides = @(@("LeftColumn","left"), @("RightColumn","right"))
+		if ($script:homePage.template -eq "OneColumn") { $sides = @(,@("Column","left")) }
+		foreach ($side in $sides) {
 			$items = $script:homePage[$side[1]]
 			$lbl = $side[0]
 			if ($items.Count -eq 0) { Out "${lbl}: —"; Out ""; continue }
@@ -541,7 +546,8 @@ if ($Mode -eq "full" -and -not $Section) {
 		$rn = $script:homePage.right.Count
 		Out "--- Начальная страница ---"
 		Out "  Шаблон: $($script:homePage.template)"
-		Out "  LeftColumn: $ln, RightColumn: $rn  (детали: -Section home-page)"
+		if ($script:homePage.template -eq "OneColumn") { Out "  Column: $ln  (детали: -Section home-page)" }
+		else { Out "  LeftColumn: $ln, RightColumn: $rn  (детали: -Section home-page)" }
 		Out ""
 	}
 

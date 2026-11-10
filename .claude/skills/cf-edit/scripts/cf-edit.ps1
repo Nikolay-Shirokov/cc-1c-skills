@@ -1,4 +1,4 @@
-﻿# cf-edit v1.34 — Edit 1C configuration root (Configuration.xml)
+﻿# cf-edit v1.35 — Edit 1C configuration root (Configuration.xml)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -1192,6 +1192,13 @@ function Do-SetHomePage($valArg) {
 		}
 	}
 
+	$leftKeys = @($layout.PSObject.Properties.Name | Where-Object { @("left","LeftColumn","Column") -ccontains $_ })
+	if ($leftKeys.Count -gt 1) {
+		Write-Error "Keys $($leftKeys -join ', ') all mean the first column - give one of them"; exit 1
+	}
+	if ($leftKeys -ccontains "Column" -and $tmpl -ne "OneColumn") {
+		Write-Error "Key 'Column' is the single column of template 'OneColumn'; template '$tmpl' takes 'left' and 'right'"; exit 1
+	}
 	if ($tmpl -eq "OneColumn" -and $rightItems) {
 		Write-Error "Template 'OneColumn' cannot have items in 'right' column"; exit 1
 	}

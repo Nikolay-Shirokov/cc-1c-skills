@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# cf-edit v1.34 — Edit 1C configuration root (Configuration.xml)
+# cf-edit v1.35 — Edit 1C configuration root (Configuration.xml)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -1259,6 +1259,13 @@ def main():
                 print(f"Unknown key '{k}'. Allowed: template, left, right", file=sys.stderr)
                 sys.exit(1)
 
+        left_keys = [k for k in layout.keys() if k in ("left", "LeftColumn", "Column")]
+        if len(left_keys) > 1:
+            print(f"Keys {', '.join(left_keys)} all mean the first column - give one of them", file=sys.stderr)
+            sys.exit(1)
+        if "Column" in left_keys and tmpl != "OneColumn":
+            print(f"Key 'Column' is the single column of template 'OneColumn'; template '{tmpl}' takes 'left' and 'right'", file=sys.stderr)
+            sys.exit(1)
         if tmpl == "OneColumn" and right_items:
             print("Template 'OneColumn' cannot have items in 'right' column", file=sys.stderr)
             sys.exit(1)

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# db-create v1.23 — Create 1C information base
+# db-create v1.24 — Create 1C information base
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -617,7 +617,7 @@ def main():
         ib_data = tempfile.mkdtemp(prefix="ibcmd_data_")
         atexit.register(shutil.rmtree, ib_data, ignore_errors=True)
         arguments.append(f"--data={ib_data}")
-        arguments.extend(quote_if_needed(a) for a in extra_args)
+        arguments.extend(extra_args)
         print(f"Running: ibcmd {' '.join(format_args_for_display(arguments, engine))}")
         result = run_ibcmd([v8path] + arguments, warn_no_user=False)
         exit_code = result.returncode

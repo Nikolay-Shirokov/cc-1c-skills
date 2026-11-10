@@ -1,5 +1,5 @@
 {
-  "name": "Доп. аргументы ibcmd доходят до платформы, секрет замаскирован (fake platform)",
+  "name": "Доп. аргументы ibcmd доходят до платформы, секрет замаскирован, значение с пробелом — одним токеном без лишних кавычек (fake platform)",
   "preRun": [
     {
       "writeFile": {
@@ -14,14 +14,15 @@
     "-InfoBasePath",
     "{workDir}\\ib",
     "-AdditionalIbcmdArguments",
-    "--verbose,--token=topsecret"
+    "--verbose,--token=topsecret,--note=a b"
   ],
   "expect": {
     "stdoutContains": [
       "ARGS: infobase create",
-      "--verbose --token=topsecret",
+      "--verbose --token=topsecret \"--note=a b\"",
       "--token=***"
-    ]
+    ],
+    "stdoutNotContains": "\\\"--note"
   },
   "expectError": true,
   "noSnapshot": "проверяется командная строка в stdout, файлов на выходе нет",

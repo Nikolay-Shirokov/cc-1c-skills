@@ -1,10 +1,16 @@
 {
-  "name": "Начальная страница в одну колонку: формы из <Column> видны в -Section home-page",
+  "name": "Начальная страница в одну колонку: формы из <Column> видны в -Section home-page под XML-именем Column",
   "preRun": [
     {
       "script": "meta-compile/scripts/meta-compile",
-      "input": { "type": "CommonForm", "name": "Главная" },
-      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+      "input": {
+        "type": "CommonForm",
+        "name": "Главная"
+      },
+      "args": {
+        "-JsonPath": "{inputFile}",
+        "-OutputDir": "{workDir}"
+      }
     },
     {
       "writeFile": {
@@ -13,7 +19,16 @@
       }
     }
   ],
-  "args_extra": ["-Section", "home-page"],
-  "expect": { "stdoutContains": "CommonForm.Главная" },
+  "args_extra": [
+    "-Section",
+    "home-page"
+  ],
+  "expect": {
+    "stdoutContains": [
+      "Column (1):",
+      "CommonForm.Главная"
+    ],
+    "stdoutNotContains": "LeftColumn"
+  },
   "noSnapshot": "навык только читает — проверяется вывод"
 }
