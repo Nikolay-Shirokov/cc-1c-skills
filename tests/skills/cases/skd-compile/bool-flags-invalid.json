@@ -1,5 +1,5 @@
 {
-  "name": "Небулево значение строго булева флага (hidden: \"yes\") — отказ с путём к ключу, без записи",
+  "name": "Небулево значение строго булева флага (hidden: \"yes\") — отказ с именем ключа, без записи",
   "params": {
     "outputPath": "Template.xml"
   },
@@ -23,7 +23,7 @@
   },
   "expectError": true,
   "expect": {
-    "stderrContains": "parameters[0].hidden = \"yes\": expected true or false"
+    "stderrContains": "hidden = \"yes\": expected true or false"
   },
   "noSnapshot": "отказ до записи — проверяется сообщение"
 }

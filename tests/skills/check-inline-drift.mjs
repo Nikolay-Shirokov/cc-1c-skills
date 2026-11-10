@@ -447,19 +447,11 @@ const FAMILIES = [
   // "false", py (is) — нет. Перевод навыков — по одному (память project_dsl_bool_lenient).
   {
     name: 'dsl: to_dsl_bool', py: 'to_dsl_bool', ps1: 'ConvertTo-DslBool',
-    variants: [ { id: 'base', authority: 'meta-compile', consumers: ['meta-edit'] } ],
+    variants: [ { id: 'base', authority: 'meta-compile', consumers: ['meta-edit', 'skd-compile'] } ],
   },
   {
     name: 'dsl: get_dsl_bool', py: 'get_dsl_bool', ps1: 'Get-DslBool',
-    variants: [ { id: 'base', authority: 'meta-compile', consumers: ['meta-edit'] } ],
-  },
-  // Булевы флаги DSL — прощающий ввод ("true"/"false"/1/0 → bool, иное у строгого ключа — отказ).
-  // Списки ключей у навыка свои, тело общее: следующие навыки-компиляторы берут эту копию.
-  {
-    name: 'dsl: bool flags', py: 'normalize_dsl_bool_flags', ps1: 'ConvertTo-DslBoolFlags',
-    variants: [
-      { id: 'base', authority: 'skd-compile', consumers: [] },
-    ],
+    variants: [ { id: 'base', authority: 'meta-compile', consumers: ['meta-edit', 'skd-compile'] } ],
   },
   {
     name: 'platform: arg_key_match', py: 'arg_key_match', ps1: 'Test-ArgKeyMatch',
