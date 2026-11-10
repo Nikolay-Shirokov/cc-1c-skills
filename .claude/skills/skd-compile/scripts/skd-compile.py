@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# skd-compile v1.142 — Compile 1C DCS from JSON
+# skd-compile v1.143 — Compile 1C DCS from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import json
@@ -2347,7 +2347,7 @@ def emit_group_templates(lines, defn):
 
 def emit_selection_item(lines, item, indent):
     if isinstance(item, str):
-        if item == 'Auto':
+        if item.lower() == 'auto':
             lines.append(f'{indent}<dcsset:item xsi:type="dcsset:SelectedItemAuto"/>')
         else:
             lines.append(f'{indent}<dcsset:item xsi:type="dcsset:SelectedItemField">')
@@ -2355,9 +2355,9 @@ def emit_selection_item(lines, item, indent):
             lines.append(f'{indent}</dcsset:item>')
         return
     # Object form: { auto: true, use: false } — отключённый Auto в selection
-    if item.get('auto') is True:
+    if _ps_eq_bool(item.get('auto'), True):
         lines.append(f'{indent}<dcsset:item xsi:type="dcsset:SelectedItemAuto">')
-        if item.get('use') is False:
+        if _ps_eq_bool(item.get('use'), False):
             lines.append(f'{indent}\t<dcsset:use>false</dcsset:use>')
         lines.append(f'{indent}</dcsset:item>')
         return
@@ -2374,7 +2374,7 @@ def emit_selection_item(lines, item, indent):
         return
     # field with optional title / use=false / viewMode
     lines.append(f'{indent}<dcsset:item xsi:type="dcsset:SelectedItemField">')
-    if item.get('use') is False:
+    if _ps_eq_bool(item.get('use'), False):
         lines.append(f'{indent}\t<dcsset:use>false</dcsset:use>')
     lines.append(f'{indent}\t<dcsset:field>{esc_xml_text(str(item["field"]))}</dcsset:field>')
     if item.get('title'):

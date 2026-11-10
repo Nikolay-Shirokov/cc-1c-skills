@@ -1,11 +1,11 @@
 {
-  "name": "Выключенное поле и папка из одних Auto — не поля: [WARN] о пустом отчёте; папка с полем — поле",
+  "name": "Выключенное поле и папка из одних Auto — не поля: [WARN] о пустом отчёте; папка с полем — поле; Auto флагами-числами и строкой в нижнем регистре — одинаково в портах",
   "params": { "outputPath": "Template.xml" },
-  "input": { "dataSets": [ { "name": "Набор", "query": "ВЫБРАТЬ 1 КАК А", "fields": ["А"] } ], "settingsVariants": [ { "name": "Выкл", "settings": { "selection": [ { "field": "А", "use": false } ] } }, { "name": "ПапкаАвто", "settings": { "selection": [ { "folder": "П", "items": ["Auto"] } ] } }, { "name": "ПапкаПоле", "settings": { "selection": [ { "folder": "П", "items": ["А"] } ] } } ] },
+  "input": { "dataSets": [ { "name": "Набор", "query": "ВЫБРАТЬ 1 КАК А", "fields": ["А"] } ], "settingsVariants": [ { "name": "Выкл", "settings": { "selection": [ { "field": "А", "use": false } ] } }, { "name": "ПапкаАвто", "settings": { "selection": [ { "folder": "П", "items": ["Auto"] } ] } }, { "name": "ПапкаПоле", "settings": { "selection": [ { "folder": "П", "items": ["А"] } ] } }, { "name": "АвтоЧислом", "settings": { "selection": [ { "auto": 1, "use": 0 }, "auto" ] } } ] },
   "validatePath": "Template.xml",
   "expect": {
     "files": ["Template.xml"],
-    "stdoutContains": ["[WARN] Вариант «Выкл»: в settings нет structure — добавлены детальные записи (details), но в settings.selection нет ни одного поля", "[WARN] Вариант «ПапкаАвто»: в settings нет structure", "[INFO] Вариант «ПапкаПоле»: в settings нет structure"],
+    "stdoutContains": ["[WARN] Вариант «Выкл»: в settings нет structure — добавлены детальные записи (details), но в settings.selection нет ни одного поля", "[WARN] Вариант «ПапкаАвто»: в settings нет structure", "[INFO] Вариант «ПапкаПоле»: в settings нет structure", "[WARN] Вариант «АвтоЧислом»: в settings нет structure"],
     "preserves": { "file": "Template.xml", "bom": true, "eol": "crlf", "encoding": "UTF-8", "finalNewline": false, "noCR13": true, "selfClose": "tight", "noEmptyPairs": true }
   }
 }
