@@ -1,0 +1,31 @@
+{
+  "name": "Права объектной формы строкой и по-русски (\"да\", \"true\") — как true, одинаково в портах",
+  "setup": "fixture:view-preset-fx",
+  "input": {
+    "name": "Флаги",
+    "objects": [
+      {
+        "name": "Catalog.Номенклатура",
+        "rights": {
+          "Read": "да",
+          "View": "true"
+        }
+      }
+    ]
+  },
+  "validatePath": "Roles/Флаги",
+  "expect": {
+    "fileContains": {
+      "file": "Roles/Флаги/Ext/Rights.xml",
+      "text": [
+        "<name>Read</name>",
+        "<name>View</name>",
+        "<value>true</value>"
+      ]
+    },
+    "fileNotContains": {
+      "file": "Roles/Флаги/Ext/Rights.xml",
+      "text": "<value>false</value>"
+    }
+  }
+}

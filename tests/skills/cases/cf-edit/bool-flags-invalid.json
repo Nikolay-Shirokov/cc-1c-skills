@@ -1,0 +1,35 @@
+{
+  "name": "Небулево значение видимости (visibility: \"yes\") — отказ с именем ключа",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "CommonForm",
+        "name": "Главная"
+      },
+      "args": {
+        "-JsonPath": "{inputFile}",
+        "-OutputDir": "{workDir}"
+      }
+    }
+  ],
+  "input": [
+    {
+      "operation": "set-home-page",
+      "value": {
+        "template": "OneColumn",
+        "left": [
+          {
+            "form": "CommonForm.Главная",
+            "visibility": "yes"
+          }
+        ]
+      }
+    }
+  ],
+  "expectError": true,
+  "expect": {
+    "stderrContains": "visibility = \"yes\": expected true or false"
+  },
+  "noSnapshot": "отказ — проверяется сообщение"
+}

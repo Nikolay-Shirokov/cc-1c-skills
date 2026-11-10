@@ -1,0 +1,53 @@
+{
+  "name": "Видимость формы начальной страницы строкой и по-русски (\"нет\", \"да\") — как false/true",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "CommonForm",
+        "name": "Главная"
+      },
+      "args": {
+        "-JsonPath": "{inputFile}",
+        "-OutputDir": "{workDir}"
+      }
+    },
+    {
+      "script": "role-compile/scripts/role-compile",
+      "input": {
+        "name": "Оператор",
+        "objects": []
+      },
+      "args": {
+        "-JsonPath": "{inputFile}",
+        "-OutputDir": "{workDir}"
+      }
+    }
+  ],
+  "input": [
+    {
+      "operation": "set-home-page",
+      "value": {
+        "template": "OneColumn",
+        "left": [
+          {
+            "form": "CommonForm.Главная",
+            "visibility": "нет",
+            "roles": {
+              "Role.Оператор": "да"
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "expect": {
+    "fileContains": {
+      "file": "Ext/HomePageWorkArea.xml",
+      "text": [
+        "<xr:Common>false</xr:Common>",
+        "<xr:Value name=\"Role.Оператор\">true</xr:Value>"
+      ]
+    }
+  }
+}

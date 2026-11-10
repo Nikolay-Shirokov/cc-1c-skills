@@ -1,4 +1,4 @@
-﻿# subsystem-compile v1.37 — Create 1C subsystem from JSON definition
+﻿# subsystem-compile v1.38 — Create 1C subsystem from JSON definition
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -19,6 +19,41 @@ $ErrorActionPreference = "Stop"
 # Возврат через запятую: без неё одноэлементный JSON-массив разворачивался бы в скаляр
 # вторым анруллингом. Не Write-Output -NoEnumerate: pwsh 7.6 заворачивает им в List
 # и одиночный объект (issue #136).
+# --- Булевы флаги DSL: прощающий ввод ---
+# Флаг строкой или числом — однозначная ошибка автора JSON: true|да|истина / false|нет|ложь (без
+# регистра) и 1/0 приводим к bool молча. Иное — ошибка без записи: молчаливое «false» из «yes»
+# хуже отказа. Без общего читателя порты расходились: PS (-eq) принимал "false", py (is) — нет.
+function ConvertTo-DslBool {
+	param($Value, [string]$Key, [bool]$Default)
+	if ($null -eq $Value) { return $Default }
+	if ($Value -is [bool]) { return $Value }
+	if ($Value -is [string]) {
+		$t = $Value.Trim().ToLowerInvariant()
+		if (@('true', 'да', 'истина') -ccontains $t) { return $true }
+		if (@('false', 'нет', 'ложь') -ccontains $t) { return $false }
+	} elseif ($Value -is [int] -or $Value -is [long] -or $Value -is [double] -or $Value -is [decimal]) {
+		if ($Value -eq 1) { return $true }
+		if ($Value -eq 0) { return $false }
+	}
+	$shown = if ($Value -is [string]) { '"' + $Value + '"' } else { "$Value" }
+	[Console]::Error.WriteLine("[ERROR] $Key = ${shown}: expected true or false")
+	exit 1
+}
+
+# Первый найденный ключ из $Keys (синонимы, без регистра) → ConvertTo-DslBool; не объект / нет ключа → $Default.
+function Get-DslBool {
+	param($Obj, [string[]]$Keys, [bool]$Default)
+	if ($null -eq $Obj -or $Obj -is [string] -or $Obj -is [ValueType]) { return $Default }
+	foreach ($k in $Keys) {
+		if ($Obj -is [System.Collections.IDictionary]) {
+			if ($Obj.Contains($k)) { return (ConvertTo-DslBool $Obj[$k] $k $Default) }
+		} elseif ($Obj.PSObject.Properties[$k]) {
+			return (ConvertTo-DslBool $Obj.PSObject.Properties[$k].Value $k $Default)
+		}
+	}
+	return $Default
+}
+
 function ConvertFrom-JsonInput([string]$text, [string]$source, [string]$expected, [switch]$Inline) {
 	try {
 		# PS 5.1 на пустой строке отдаёт $null, а не ошибку — навык уходил дальше с $null,
@@ -485,8 +520,8 @@ function Normalize-ContentRef([string]$ref) {
 $synonym = if ($def.synonym) { "$($def.synonym)" } else { Split-CamelCase $objName }
 $comment = if ($def.comment) { "$($def.comment)" } else { "" }
 $includeHelpInContents = "true"
-$includeInCI = if ($null -ne $def.includeInCommandInterface) { "$($def.includeInCommandInterface)".ToLower() } else { "true" }
-$useOneCommand = if ($null -ne $def.useOneCommand) { "$($def.useOneCommand)".ToLower() } else { "false" }
+$includeInCI = if (Get-DslBool $def @('includeInCommandInterface') $true) { 'true' } else { 'false' }
+$useOneCommand = if (Get-DslBool $def @('useOneCommand') $false) { 'true' } else { 'false' }
 $explanation = if ($def.explanation) { "$($def.explanation)" } else { "" }
 $picture = if ($def.picture) { "$($def.picture)" } else { "" }
 

@@ -447,11 +447,13 @@ const FAMILIES = [
   // "false", py (is) — нет. Перевод навыков — по одному (память project_dsl_bool_lenient).
   {
     name: 'dsl: to_dsl_bool', py: 'to_dsl_bool', ps1: 'ConvertTo-DslBool',
-    variants: [ { id: 'base', authority: 'meta-compile', consumers: ['meta-edit', 'skd-compile', 'form-compile', 'form-edit', 'mxl-compile'] } ],
+    variants: [ { id: 'base', authority: 'meta-compile', consumers: ['meta-edit', 'skd-compile', 'form-compile', 'form-edit', 'mxl-compile',
+      'subsystem-compile', 'role-compile', 'cf-edit'] } ],
   },
   {
     name: 'dsl: get_dsl_bool', py: 'get_dsl_bool', ps1: 'Get-DslBool',
-    variants: [ { id: 'base', authority: 'meta-compile', consumers: ['meta-edit', 'skd-compile', 'form-compile', 'form-edit', 'mxl-compile'] } ],
+    variants: [ { id: 'base', authority: 'meta-compile', consumers: ['meta-edit', 'skd-compile', 'form-compile', 'form-edit', 'mxl-compile',
+      'subsystem-compile', 'role-compile', 'cf-edit'] } ],
   },
   {
     name: 'platform: arg_key_match', py: 'arg_key_match', ps1: 'Test-ArgKeyMatch',

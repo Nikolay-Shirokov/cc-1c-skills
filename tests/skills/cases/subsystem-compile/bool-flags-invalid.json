@@ -1,0 +1,15 @@
+{
+  "name": "Небулево значение флага (useOneCommand: \"yes\") — отказ с именем ключа, без записи",
+  "input": {
+    "name": "Продажи",
+    "useOneCommand": "yes"
+  },
+  "expectError": true,
+  "expect": {
+    "stderrContains": "useOneCommand = \"yes\": expected true or false",
+    "filesAbsent": [
+      "Subsystems/Продажи.xml"
+    ]
+  },
+  "noSnapshot": "отказ — проверяется сообщение"
+}

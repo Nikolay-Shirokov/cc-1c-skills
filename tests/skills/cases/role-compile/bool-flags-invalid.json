@@ -1,0 +1,20 @@
+{
+  "name": "Небулево значение права (Read: \"yes\") — отказ с именем права",
+  "setup": "fixture:view-preset-fx",
+  "input": {
+    "name": "Флаги",
+    "objects": [
+      {
+        "name": "Catalog.Номенклатура",
+        "rights": {
+          "Read": "yes"
+        }
+      }
+    ]
+  },
+  "expectError": true,
+  "expect": {
+    "stderrContains": "Read = \"yes\": expected true or false"
+  },
+  "noSnapshot": "отказ — проверяется сообщение"
+}

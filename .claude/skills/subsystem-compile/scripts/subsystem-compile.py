@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# subsystem-compile v1.37 — Create 1C subsystem from JSON definition
+# subsystem-compile v1.38 — Create 1C subsystem from JSON definition
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import json
@@ -13,6 +13,42 @@ from lxml import etree
 
 # Регистронезависимый ввод — паритет с PS1: в PowerShell имена параметров и [ValidateSet]
 # регистр не различают, в argparse совпадение точное.
+
+# --- Булевы флаги DSL: прощающий ввод ---
+# Флаг строкой или числом — однозначная ошибка автора JSON: true|да|истина / false|нет|ложь (без
+# регистра) и 1/0 приводим к bool молча. Иное — ошибка без записи: молчаливое «false» из «yes»
+# хуже отказа. Без общего читателя порты расходились: PS (-eq) принимал "false", py (is) — нет.
+def to_dsl_bool(value, key, default):
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        t = value.strip().lower()
+        if t in ('true', 'да', 'истина'):
+            return True
+        if t in ('false', 'нет', 'ложь'):
+            return False
+    elif isinstance(value, (int, float)):
+        if value == 1:
+            return True
+        if value == 0:
+            return False
+    shown = f'"{value}"' if isinstance(value, str) else f"{value}"
+    print(f"[ERROR] {key} = {shown}: expected true or false", file=sys.stderr)
+    sys.exit(1)
+
+
+def get_dsl_bool(obj, keys, default):
+    """Первый найденный ключ из keys (синонимы, без регистра) → to_dsl_bool; не dict / нет ключа → default."""
+    if not isinstance(obj, dict):
+        return default
+    for k in keys:
+        for actual in obj:
+            if isinstance(actual, str) and actual.lower() == k.lower():
+                return to_dsl_bool(obj[actual], k, default)
+    return default
+
 
 def parse_json_input(text, source, expected=None, inline=False):
     """Разбор пользовательского JSON: одна строка в stderr вместо traceback (issue #80).
@@ -688,8 +724,8 @@ def main():
     synonym = str(defn['synonym']) if defn.get('synonym') else split_camel_case(obj_name)
     comment = str(defn['comment']) if defn.get('comment') else ''
     include_help_in_contents = 'true'
-    include_in_ci = str(defn['includeInCommandInterface']).lower() if defn.get('includeInCommandInterface') is not None else 'true'
-    use_one_command = str(defn['useOneCommand']).lower() if defn.get('useOneCommand') is not None else 'false'
+    include_in_ci = 'true' if get_dsl_bool(defn, ['includeInCommandInterface'], True) else 'false'
+    use_one_command = 'true' if get_dsl_bool(defn, ['useOneCommand'], False) else 'false'
     explanation = str(defn['explanation']) if defn.get('explanation') else ''
     picture = str(defn['picture']) if defn.get('picture') else ''
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# role-compile v1.49 — Compile 1C role from JSON
+# role-compile v1.50 — Compile 1C role from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import json
@@ -13,6 +13,42 @@ from lxml import etree
 
 # Регистронезависимый ввод — паритет с PS1: в PowerShell имена параметров и [ValidateSet]
 # регистр не различают, в argparse совпадение точное.
+
+# --- Булевы флаги DSL: прощающий ввод ---
+# Флаг строкой или числом — однозначная ошибка автора JSON: true|да|истина / false|нет|ложь (без
+# регистра) и 1/0 приводим к bool молча. Иное — ошибка без записи: молчаливое «false» из «yes»
+# хуже отказа. Без общего читателя порты расходились: PS (-eq) принимал "false", py (is) — нет.
+def to_dsl_bool(value, key, default):
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        t = value.strip().lower()
+        if t in ('true', 'да', 'истина'):
+            return True
+        if t in ('false', 'нет', 'ложь'):
+            return False
+    elif isinstance(value, (int, float)):
+        if value == 1:
+            return True
+        if value == 0:
+            return False
+    shown = f'"{value}"' if isinstance(value, str) else f"{value}"
+    print(f"[ERROR] {key} = {shown}: expected true or false", file=sys.stderr)
+    sys.exit(1)
+
+
+def get_dsl_bool(obj, keys, default):
+    """Первый найденный ключ из keys (синонимы, без регистра) → to_dsl_bool; не dict / нет ключа → default."""
+    if not isinstance(obj, dict):
+        return default
+    for k in keys:
+        for actual in obj:
+            if isinstance(actual, str) and actual.lower() == k.lower():
+                return to_dsl_bool(obj[actual], k, default)
+    return default
+
 
 def parse_json_input(text, source, expected=None, inline=False):
     """Разбор пользовательского JSON: одна строка в stderr вместо traceback (issue #80).
@@ -1458,7 +1494,7 @@ def parse_object_entry(entry):
             for p_name, p_value in entry['rights'].items():
                 r_name = translate_right_name(p_name)
                 validate_right_name(obj_name, r_name)
-                bool_val = 'true' if p_value is True or str(p_value) == 'True' else 'false'
+                bool_val = 'true' if to_dsl_bool(p_value, p_name, False) else 'false'
                 if r_name not in rights_map:
                     rights_order.append(r_name)
                 rights_map[r_name] = {'Value': bool_val, 'Condition': None}

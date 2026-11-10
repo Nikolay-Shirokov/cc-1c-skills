@@ -1,0 +1,17 @@
+{
+  "name": "Булевы флаги строкой и по-русски (\"нет\", \"да\") — как false/true, а не текст в XML",
+  "input": {
+    "name": "Продажи",
+    "includeInCommandInterface": "нет",
+    "useOneCommand": "да"
+  },
+  "expect": {
+    "fileContains": {
+      "file": "Subsystems/Продажи.xml",
+      "text": [
+        "<IncludeInCommandInterface>false</IncludeInCommandInterface>",
+        "<UseOneCommand>true</UseOneCommand>"
+      ]
+    }
+  }
+}

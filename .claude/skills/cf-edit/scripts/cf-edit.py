@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# cf-edit v1.35 — Edit 1C configuration root (Configuration.xml)
+# cf-edit v1.36 — Edit 1C configuration root (Configuration.xml)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -15,6 +15,42 @@ from lxml import etree
 
 # Регистронезависимый ввод — паритет с PS1: в PowerShell имена параметров и [ValidateSet]
 # регистр не различают, в argparse совпадение точное.
+
+# --- Булевы флаги DSL: прощающий ввод ---
+# Флаг строкой или числом — однозначная ошибка автора JSON: true|да|истина / false|нет|ложь (без
+# регистра) и 1/0 приводим к bool молча. Иное — ошибка без записи: молчаливое «false» из «yes»
+# хуже отказа. Без общего читателя порты расходились: PS (-eq) принимал "false", py (is) — нет.
+def to_dsl_bool(value, key, default):
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        t = value.strip().lower()
+        if t in ('true', 'да', 'истина'):
+            return True
+        if t in ('false', 'нет', 'ложь'):
+            return False
+    elif isinstance(value, (int, float)):
+        if value == 1:
+            return True
+        if value == 0:
+            return False
+    shown = f'"{value}"' if isinstance(value, str) else f"{value}"
+    print(f"[ERROR] {key} = {shown}: expected true or false", file=sys.stderr)
+    sys.exit(1)
+
+
+def get_dsl_bool(obj, keys, default):
+    """Первый найденный ключ из keys (синонимы, без регистра) → to_dsl_bool; не dict / нет ключа → default."""
+    if not isinstance(obj, dict):
+        return default
+    for k in keys:
+        for actual in obj:
+            if isinstance(actual, str) and actual.lower() == k.lower():
+                return to_dsl_bool(obj[actual], k, default)
+    return default
+
 
 def parse_json_input(text, source, expected=None, inline=False):
     """Разбор пользовательского JSON: одна строка в stderr вместо traceback (issue #80).
@@ -1209,7 +1245,7 @@ def main():
             h = get_field(entry, ["height", "Height"])
             height = int(h) if h is not None else 10
             vis = get_field(entry, ["visibility", "Visibility"])
-            common = bool(vis) if vis is not None else True
+            common = to_dsl_bool(vis, 'visibility', True)
             roles = get_field(entry, ["roles"])
         else:
             print(f"Home page item must be string or object, got: {entry!r}", file=sys.stderr)
@@ -1220,7 +1256,7 @@ def main():
             for rname, rval in roles.items():
                 if not rname.startswith("Role.") and not UUID_RE.match(rname):
                     rname = f"Role.{rname}"
-                rval_s = str(bool(rval)).lower()
+                rval_s = 'true' if to_dsl_bool(rval, rname, False) else 'false'
                 vis_parts.append(f'{indent}\t\t<xr:Value name="{html_escape(rname, quote=True)}">{rval_s}</xr:Value>')
         vis_block = "\r\n".join(vis_parts)
         esc_form = html_escape(form_ref, quote=True)
