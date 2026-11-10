@@ -1,0 +1,47 @@
+{
+  "name": "Отдельный запуск проверки применимости: элемент v8args с пробелом уходит в кавычках",
+  "osOnly": "win32",
+  "preRun": [
+    {
+      "writeFile": {
+        "path": "fake.cmd",
+        "content": "@echo off\r\nset KIND=main\r\nset ALL=%*\r\n:loop\r\nif \"%~1\"==\"\" goto done\r\nif /i \"%~1\"==\"/Out\" set OUT=%~2\r\nif /i \"%~1\"==\"/CheckCanApplyConfigurationExtensions\" set KIND=check\r\nshift\r\ngoto loop\r\n:done\r\nif \"%KIND%\"==\"check\" (echo ARGS: %ALL%> \"%OUT%\" & exit /b 1)\r\ntype nul > \"%OUT%\"\r\nexit /b 0\r\n"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "ib/1Cv8.1CD",
+        "content": "stub"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "src/Configuration.xml",
+        "content": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<MetaDataObject/>"
+      }
+    },
+    {
+      "writeFile": {
+        "path": ".v8-project.json",
+        "content": "{\n  \"v8args\": [\"/DebuggerURL\", \"tcp://dbg host\"]\n}\n"
+      }
+    }
+  ],
+  "args_extra": [
+    "-V8Path",
+    "{workDir}\\fake.cmd",
+    "-InfoBasePath",
+    "{workDir}\\ib",
+    "-ConfigDir",
+    "{workDir}\\src",
+    "-Extension",
+    "Proba"
+  ],
+  "cwd": "workDir",
+  "expect": {
+    "stdoutContains": [
+      "check_log.txt\" /DisableStartupDialogs /DebuggerURL \"tcp://dbg host\""
+    ]
+  },
+  "noSnapshot": "проверяется командная строка проверки — фейк пишет её в лог, навык печатает лог"
+}

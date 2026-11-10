@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# db-load-xml v1.39 — Load 1C configuration from XML files
+# db-load-xml v1.40 — Load 1C configuration from XML files
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -667,7 +667,7 @@ def run_apply_check(exe, conn_args, extension, extra_args):
             a += ["-Extension", f'"{extension}"']
         out_file = os.path.join(temp_dir, "check_log.txt")
         a += ["/Out", f'"{out_file}"', "/DisableStartupDialogs"]
-        a += list(extra_args)
+        a += [quote_if_needed(x) for x in extra_args]
         r = run_v8(v8, a)
         lines = []
         if os.path.isfile(out_file):

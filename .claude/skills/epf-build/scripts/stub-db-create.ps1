@@ -1,4 +1,4 @@
-﻿# stub-db-create v1.22 — Create temp 1C infobase with metadata stubs for EPF/ERF build
+﻿# stub-db-create v1.23 — Create temp 1C infobase with metadata stubs for EPF/ERF build
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[Parameter(Mandatory)]
@@ -119,6 +119,17 @@ function Get-ProjectExtraArgs {
         $dir = $parent
     }
     return @()
+}
+
+function ConvertTo-QuotedIfNeeded {
+    # Extra arguments come from the caller unquoted; the 1cv8 command line is joined
+    # verbatim, so a token with a space needs quotes of its own. Без кавычек платформа молча
+    # режет значение по пробелу (замер 2026-11-10: «/Out C:\a b\x.txt» пишет лог в «C:\a»).
+    param([string]$Token)
+    if ($Token -and ($Token.Contains(' ') -or $Token.Contains("`t")) -and -not $Token.Contains('"')) {
+        return '"' + $Token + '"'
+    }
+    return $Token
 }
 
 function Assert-ExtraArgs {
@@ -2221,13 +2232,7 @@ $stubEngine = if ((Split-Path $V8Path -Leaf) -match '^ibcmd') { "ibcmd" } else {
 $argHints = @{ '/F' = '-TempBasePath'; '--db-path' = '-TempBasePath' }
 $extraArgs = @(Resolve-ExtraArgs $stubEngine $AdditionalV8Arguments $AdditionalIbcmdArguments $argHints)
 
-function Format-ArgToken {
-	# Start-Process takes these argument lists as one string, so quote each token that needs it.
-	param([string]$Token)
-	if ($Token -match '[\s"]') { return ' "' + ($Token -replace '"', '\"') + '"' }
-	return " $Token"
-}
-$extraArgString = -join ($extraArgs | ForEach-Object { Format-ArgToken $_ })
+$extraArgString = -join ($extraArgs | ForEach-Object { ' ' + (ConvertTo-QuotedIfNeeded $_) })
 if ($stubEngine -eq "ibcmd") {
 	Write-Host "Creating infobase (ibcmd): $TempBasePath"
 	$ibData = Join-Path ([IO.Path]::GetTempPath()) "stub_data_$(Get-Random)"

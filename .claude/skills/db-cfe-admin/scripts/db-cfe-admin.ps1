@@ -1,4 +1,4 @@
-﻿# db-cfe-admin v1.9 — Configuration extensions in a 1C infobase: list, check, properties, delete
+﻿# db-cfe-admin v1.10 — Configuration extensions in a 1C infobase: list, check, properties, delete
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 # NB: *nix-раскладку платформы (/opt/1cv8/<ver>/1cv8, без .exe) знает только .py-порт — PS на *nix не исполняется.
 <#
@@ -284,6 +284,17 @@ function Get-ProjectExtraArgs {
         $dir = $parent
     }
     return @()
+}
+
+function ConvertTo-QuotedIfNeeded {
+    # Extra arguments come from the caller unquoted; the 1cv8 command line is joined
+    # verbatim, so a token with a space needs quotes of its own. Без кавычек платформа молча
+    # режет значение по пробелу (замер 2026-11-10: «/Out C:\a b\x.txt» пишет лог в «C:\a»).
+    param([string]$Token)
+    if ($Token -and ($Token.Contains(' ') -or $Token.Contains("`t")) -and -not $Token.Contains('"')) {
+        return '"' + $Token + '"'
+    }
+    return $Token
 }
 
 function Assert-ExtraArgs {
@@ -896,7 +907,7 @@ function Invoke-Designer {
         $outFile = Join-Path $tempDir "out.txt"
         $arguments += "/Out", "`"$outFile`""
         $arguments += "/DisableStartupDialogs"
-        $arguments += $v8Extra
+        $arguments += @($v8Extra | ForEach-Object { ConvertTo-QuotedIfNeeded $_ })
         Write-Host "Running: 1cv8.exe $(Protect-Secrets ((Format-ArgsForDisplay $arguments '1cv8') -join ' ') @($Password, $UserName, $script:repoSettings.Password))"
         $res = Invoke-PlatformProcess $v8Exe $arguments -PreQuoted
         $log = ''

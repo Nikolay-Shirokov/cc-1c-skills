@@ -1,0 +1,27 @@
+{
+  "name": "Доп. аргумент 1cv8 с пробелом уходит в кавычках (db-repo)",
+  "fakePlatform": {
+    "log": "",
+    "exit": 0
+  },
+  "args_extra": [
+    "-V8Path",
+    "{fakePlatform}",
+    "-InfoBasePath",
+    "{workDir}/ib",
+    "-RepositoryPath",
+    "{workDir}/repo",
+    "-RepositoryUser",
+    "Admin",
+    "-Command",
+    "lock",
+    "-Objects",
+    "Справочник.Номенклатура",
+    "-AdditionalV8Arguments",
+    "/DebuggerURL,tcp://dbg host"
+  ],
+  "expect": {
+    "stdoutContains": "/DisableStartupMessages /DebuggerURL \"tcp://dbg host\""
+  },
+  "noSnapshot": "проверяется командная строка в выводе «Running:»"
+}

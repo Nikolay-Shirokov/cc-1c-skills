@@ -1,5 +1,5 @@
 {
-  "name": "Доп. аргументы берутся из v8args в .v8-project.json (fake platform)",
+  "name": "Доп. аргументы берутся из v8args в .v8-project.json; элемент с пробелом уходит в кавычках (fake platform)",
   "preRun": [
     {
       "writeFile": {
@@ -10,7 +10,7 @@
     {
       "writeFile": {
         "path": ".v8-project.json",
-        "content": "{\n  \"v8path\": \"fake\",\n  \"v8args\": [\"/UseHwLicenses+\"],\n  \"ibcmdargs\": [\"--verbose\"]\n}\n"
+        "content": "{\n  \"v8path\": \"fake\",\n  \"v8args\": [\"/UseHwLicenses+\", \"/DebuggerURL\", \"tcp://dbg host\"],\n  \"ibcmdargs\": [\"--verbose\"]\n}\n"
       }
     }
   ],
@@ -21,7 +21,10 @@
     "{workDir}\\ib"
   ],
   "expect": {
-    "stdoutContains": "/DisableStartupDialogs /UseHwLicenses+"
+    "stdoutContains": [
+      "ARGS: CREATEINFOBASE",
+      "/DisableStartupDialogs /UseHwLicenses+ /DebuggerURL \"tcp://dbg host\""
+    ]
   },
   "expectError": true,
   "noSnapshot": "проверяется командная строка в stdout, файлов на выходе нет",

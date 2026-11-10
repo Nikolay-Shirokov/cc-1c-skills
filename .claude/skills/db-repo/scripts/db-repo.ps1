@@ -1,4 +1,4 @@
-﻿# db-repo v1.24 — 1C configuration repository operations
+﻿# db-repo v1.25 — 1C configuration repository operations
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 # NB: движок только 1cv8 — ibcmd работу с хранилищем не поддерживает (нет такого режима).
 <#
@@ -236,6 +236,17 @@ function Get-ProjectExtraArgs {
         $dir = $parent
     }
     return @()
+}
+
+function ConvertTo-QuotedIfNeeded {
+    # Extra arguments come from the caller unquoted; the 1cv8 command line is joined
+    # verbatim, so a token with a space needs quotes of its own. Без кавычек платформа молча
+    # режет значение по пробелу (замер 2026-11-10: «/Out C:\a b\x.txt» пишет лог в «C:\a»).
+    param([string]$Token)
+    if ($Token -and ($Token.Contains(' ') -or $Token.Contains("`t")) -and -not $Token.Contains('"')) {
+        return '"' + $Token + '"'
+    }
+    return $Token
 }
 
 function Assert-ExtraArgs {
@@ -1430,7 +1441,7 @@ try {
     $arguments += "/Out", "`"$logFile`""
     $arguments += "/DisableStartupDialogs"
     $arguments += "/DisableStartupMessages"
-    $arguments += $extraArgs
+    $arguments += @($extraArgs | ForEach-Object { ConvertTo-QuotedIfNeeded $_ })
 
     $secrets = @($Password, $repo.Password, $NewUserPassword, $SourcePassword)
     Write-Host "Running: 1cv8.exe $(Protect-Secrets ((Format-ArgsForDisplay $arguments '1cv8') -join ' ') $secrets)"

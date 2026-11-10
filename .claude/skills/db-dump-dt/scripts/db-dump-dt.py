@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# db-dump-dt v1.23 — Dump 1C information base to DT file
+# db-dump-dt v1.24 — Dump 1C information base to DT file
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse

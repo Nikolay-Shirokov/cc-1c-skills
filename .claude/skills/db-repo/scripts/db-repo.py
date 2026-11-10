@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# db-repo v1.24 — 1C configuration repository operations
+# db-repo v1.25 — 1C configuration repository operations
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 # NB: движок только 1cv8 — ibcmd работу с хранилищем не поддерживает (нет такого режима).
 """Работа с хранилищем конфигурации 1С.
@@ -462,6 +462,8 @@ def assert_no_truncated_repo_keys(arglist):
 
 def resolve_extra_args(v8_extra, hints):
     """Движок только 1cv8, поэтому ветки ibcmd (в остальных db-* она есть) здесь нет."""
+    # Список через запятую — соглашение -AdditionalV8Arguments (powershell -File не биндит массив)
+    v8_extra = [p for tok in v8_extra for p in str(tok).split(",") if p]
     extra = project_extra_args("v8args") + list(v8_extra)
     if extra:
         assert_extra_args(extra, "1cv8", hints)
@@ -1279,7 +1281,7 @@ def main():
         arguments += ["/Out", '"%s"' % log_file]
         arguments.append("/DisableStartupDialogs")
         arguments.append("/DisableStartupMessages")
-        arguments += extra_args
+        arguments += [quote_if_needed(a) for a in extra_args]
 
         secrets = [args.Password, repo["password"], args.NewUserPassword, args.SourcePassword]
         print("Running: 1cv8.exe %s"

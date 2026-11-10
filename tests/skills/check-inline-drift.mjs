@@ -432,6 +432,16 @@ const FAMILIES = [
           'db-load-git', 'db-load-xml', 'db-repo', 'db-run', 'db-update', 'epf-build', 'epf-dump'] },
     ],
   },
+  // Квотирование доп. аргументов 1cv8: без кавычек платформа молча режет значение по пробелу
+  // (debug/v8args-quoting). db-run собирает строку для Start-Process/Popen сам — вне семьи.
+  {
+    name: 'platform: quote_if_needed', py: 'quote_if_needed', ps1: 'ConvertTo-QuotedIfNeeded',
+    variants: [
+      { id: 'base', authority: 'db-create',
+        consumers: ['db-cfe-admin', 'db-dump-cf', 'db-dump-dt', 'db-dump-xml', 'db-load-cf', 'db-load-dt',
+          'db-load-git', 'db-load-xml', 'db-repo', 'db-update', 'epf-build', 'epf-dump'] },
+    ],
+  },
   {
     name: 'platform: arg_key_match', py: 'arg_key_match', ps1: 'Test-ArgKeyMatch',
     variants: [

@@ -1,4 +1,4 @@
-﻿# db-create v1.22 — Create 1C information base
+﻿# db-create v1.23 — Create 1C information base
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 # NB: *nix-раскладку платформы (/opt/1cv8/<ver>/1cv8, без .exe) знает только .py-порт — PS на *nix не исполняется.
 <#
@@ -141,6 +141,17 @@ function Get-ProjectExtraArgs {
         $dir = $parent
     }
     return @()
+}
+
+function ConvertTo-QuotedIfNeeded {
+    # Extra arguments come from the caller unquoted; the 1cv8 command line is joined
+    # verbatim, so a token with a space needs quotes of its own. Без кавычек платформа молча
+    # режет значение по пробелу (замер 2026-11-10: «/Out C:\a b\x.txt» пишет лог в «C:\a»).
+    param([string]$Token)
+    if ($Token -and ($Token.Contains(' ') -or $Token.Contains("`t")) -and -not $Token.Contains('"')) {
+        return '"' + $Token + '"'
+    }
+    return $Token
 }
 
 function Assert-ExtraArgs {
@@ -728,7 +739,7 @@ try {
     $outFile = Join-Path $tempDir "create_log.txt"
     $arguments += "/Out", "`"$outFile`""
     $arguments += "/DisableStartupDialogs"
-    $arguments += $extraArgs
+    $arguments += @($extraArgs | ForEach-Object { ConvertTo-QuotedIfNeeded $_ })
 
     # --- Execute ---
     Write-Host "Running: 1cv8.exe $((Format-ArgsForDisplay $arguments $engine) -join ' ')"

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# db-cfe-admin v1.9 — Configuration extensions in a 1C infobase: list, check, properties, delete
+# db-cfe-admin v1.10 — Configuration extensions in a 1C infobase: list, check, properties, delete
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -864,7 +864,7 @@ def main():
             arguments += op_args
             out_file = os.path.join(temp_dir, "out.txt")
             arguments += ["/Out", '"%s"' % out_file, "/DisableStartupDialogs"]
-            arguments += v8_extra_args
+            arguments += [quote_if_needed(a) for a in v8_extra_args]
             print("Running: 1cv8.exe " + _redact(" ".join(format_args_for_display(arguments, "1cv8")),
                                                  args.Password, args.UserName, repo.get("password")))
             r = run_v8(v8_exe, arguments)
