@@ -1,4 +1,4 @@
-// web-test recording/slides v1.5 — animated step slides: showSlide / hideSlide / prepareSlides / setSlideTheme / loadSlides.
+// web-test recording/slides v1.6 — animated step slides: showSlide / hideSlide / prepareSlides / setSlideTheme / loadSlides.
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 //
 // A slide is a template spec ({ layout, ... }) or a custom page ({ html, css, steps }). Each step is a phrase
@@ -11,7 +11,7 @@ import { page, recorder, ensureConnected, resolveProjectPath } from '../../core/
 import { synthesizeCached, cachedSpeechSeconds, mergeTtsOptions, readProjectConfig, unspokenWarning } from '../tts.mjs';
 import { BASE_CSS, themeVars, pageMount, pageStep, pageHide, pageLint, pageScript } from './protocol.mjs';
 import { ASSET_BASE, ensureAssetsRoute, releaseAssetsRoute, encodeAssetPath, rewriteAssets } from './assets.mjs';
-import { buildSlide } from './templates.mjs';
+import { buildSlide, imageInfo, esc } from './templates.mjs';
 import { resolveMusic, musicOpen, musicClose } from '../music.mjs';
 
 // the music stretch of the slide on screen (spec.music): opened on mount, closed when the slide goes
@@ -31,6 +31,75 @@ function projectSlidesTheme() {
   return readProjectConfig().slides?.theme || {};
 }
 const themeFor = (spec, opts) => ({ ...projectSlidesTheme(), ...scenarioTheme, ...(opts.theme || {}), ...(spec.theme || {}) });
+
+// ── frame ─────────────────────────────────────────────────────────────────
+// theme.frame: { logo, number, footer } — the brand's running elements on every slide, still under the camera.
+// Places (`at`): the four corners; a footer also 'left' / 'right' (a vertical line along the edge). Several in
+// one corner line up in the order declared, the first in the corner. title / closing / image go without it
+// unless their spec gives a `frame` object; spec.frame false — none; a spec.frame object replaces its parts.
+const CORNERS = ['bottom-left', 'bottom-right', 'top-left', 'top-right'];
+const NO_FRAME = new Set(['title', 'closing', 'image']);
+// fields: the least distance of content from a used edge (templates take max(own offset, field)). As in a
+// corporate deck: content starts at ~128px past a vertical footer; above (below) a corner row 100px leave room
+// for the slide's slow zoom, which carries its edges outward
+const SAFE = { left: '128px', right: '128px', top: '100px', bottom: '100px' };
+let frameRecorder, frameNo = 0;   // slide numbers: counted per recording (play/preview — per run)
+
+function frameSpec(spec, theme) {
+  if (spec.frame === false) return null;
+  const own = spec.frame && typeof spec.frame === 'object' ? spec.frame : null;
+  if (spec.frame !== undefined && spec.frame !== false && !own) throw new Error('slides frame: spec "frame" must be false or an object');
+  if (NO_FRAME.has(spec.layout) && !own) return null;
+  const base = theme.frame && typeof theme.frame === 'object' ? theme.frame : null;
+  if (theme.frame !== undefined && !base) throw new Error('slides theme: "frame" must be an object { logo, number, footer }');
+  if (!base && !own) return null;
+  const merged = { ...(base || {}), ...(own || {}) };   // key order: the theme's, then new ones — the order in a corner
+  const out = [];
+  for (const [key, v] of Object.entries(merged)) {
+    if (v === false || v == null) continue;
+    const bad = (msg) => { throw new Error(`slides frame: ${key} — ${msg}`); };
+    const at = (v && typeof v === 'object' && v.at) || { logo: 'bottom-left', number: 'bottom-right', footer: 'left' }[key];
+    if (key === 'logo') {
+      const src = typeof v === 'string' ? v : v?.src;
+      if (typeof src !== 'string' || !src.trim()) bad('a picture path, or { src, at, height }');
+      if (!CORNERS.includes(at)) bad(`at must be ${CORNERS.join(', ')}`);
+      out.push({ key, at, src, height: Number(v.height) || 30 });
+    } else if (key === 'number') {
+      if (v !== true && typeof v !== 'object') bad('true or { at }');
+      if (!CORNERS.includes(at)) bad(`at must be ${CORNERS.join(', ')}`);
+      out.push({ key, at });
+    } else if (key === 'footer') {
+      const text = typeof v === 'string' ? v : v?.text;
+      if (typeof text !== 'string' || !text.trim()) bad('a text, or { text, at }');
+      if (!CORNERS.includes(at) && at !== 'left' && at !== 'right') bad(`at must be ${CORNERS.join(', ')}, left or right`);
+      out.push({ key, at, text });
+    } else throw new Error(`slides frame: unknown "${key}" — logo, number, footer`);
+  }
+  return out.length ? out : null;
+}
+
+/** The frame's html and the fields it keeps (CSS vars), the slide number counted here. */
+function frameFor(spec, theme) {
+  const items = frameSpec(spec, theme);
+  if (!items) return { html: '', vars: {} };
+  if (frameRecorder !== recorder) { frameRecorder = recorder; frameNo = 0; }
+  frameNo = Number.isInteger(spec.number) ? spec.number : frameNo + 1;
+  const piece = (x) => (x.key === 'logo' ? `<img class="wf-logo" style="height:${x.height}px" src="${imageInfo(x.src, 'frame').url}"/>`
+    : x.key === 'number' ? `<span class="wf-num">${frameNo}</span>` : `<span class="wf-text">${esc(x.text)}</span>`);
+  let html = '';
+  const vars = {};
+  for (const c of CORNERS) {
+    const here = items.filter((x) => x.at === c);
+    if (!here.length) continue;
+    html += `<div class="wf-c wf-${c}">${here.map(piece).join('')}</div>`;
+    vars[c.startsWith('top') ? '--safe-top' : '--safe-bottom'] = c.startsWith('top') ? SAFE.top : SAFE.bottom;
+  }
+  for (const x of items.filter((i) => i.at === 'left' || i.at === 'right')) {
+    html += `<div class="wf-edge wf-${x.at}">${esc(x.text)}</div>`;
+    vars[`--safe-${x.at}`] = SAFE[x.at];
+  }
+  return { html, vars };
+}
 
 // theme.fonts: [{ family, src, weight?, style? }] — font files from the project, registered on the page's document
 // (document.fonts reaches into the slides' shadow roots; an @font-face inside a shadow root does not). Sent once
@@ -179,7 +248,9 @@ export async function showSlide(spec, opts = {}) {
   const first = rec && !onScreen && (rec.holdSince || rec.videoTimeMs < 1000);
   const instant = !motion || first;
   const theme = themeFor(spec, opts);
-  const vars = themeVars(theme);
+  // the brand's frame (legacy overlays never have one) and the fields it keeps clear
+  const frame = opts.legacy ? { html: '', vars: {} } : frameFor(spec, theme);
+  const vars = { ...themeVars(theme), ...frame.vars };
   // theme.background (the brand's ground, a logo in a corner) — on slides without their own (spec or template)
   const bg = built.bg ?? (theme.background !== undefined ? rewriteAssets(theme.background) : undefined);
   // project files (asset: in the page or its ground, slide.import/load/asset in its script) — served on this page,
@@ -203,7 +274,7 @@ export async function showSlide(spec, opts = {}) {
   }
   await ensureFonts(theme.fonts);   // before the content (the first slide's ground above has no text)
   await page.evaluate(pageMount, {
-    html: built.html, css: BASE_CSS + (built.css || ''), bg, vars,
+    html: built.html, css: BASE_CSS + (built.css || ''), bg, vars, frame: frame.html,
     pushSec: motion && built.push ? total : 0, animated: animatedSelectors(built.steps), instant, staticMode: !motion,
     hostId: opts.legacy || null,
   });
@@ -272,6 +343,7 @@ export async function prepareSlides(specs, opts = {}) {
   const built = specs.map((s) => buildSlide(s));
   for (const s of specs) if (s.music !== undefined) resolveMusic(s.music);
   for (const s of specs) fontList(themeFor(s, rest).fonts);   // a missing font file fails before the recording
+  for (const s of specs) for (const x of frameSpec(s, themeFor(s, rest)) || []) if (x.src) imageInfo(x.src, 'frame');   // and a wrong frame
   const jobs = built.flatMap((b) => b.steps.filter((s) => s.speech).map((s) => [s.speech, s.voice ? { ...tts, voice: s.voice } : tts]));
   if (!validateOnly) {
     // several phrases at a time (like addNarration; ElevenLabs allows fewer parallel requests), two retries each

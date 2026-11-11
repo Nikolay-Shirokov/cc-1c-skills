@@ -1,4 +1,4 @@
-// web-test recording/slides/templates v1.5 — slide templates: spec → { html, css, steps, bg?, push?, maxZoom? }.
+// web-test recording/slides/templates v1.6 — slide templates: spec → { html, css, steps, bg?, push?, maxZoom? }.
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 //
 // Every template is a generator for the step protocol (protocol.mjs): it builds a 1920×1080 page and
@@ -73,7 +73,7 @@ export function imageInfo(src, layout = 'image') {
 
 // ── shared pieces ─────────────────────────────────────────────────────────
 const TITLE_CSS = `
-.ws-title{position:absolute;left:96px;right:96px;top:52px;font-weight:800;font-size:48px;line-height:1.1;letter-spacing:-.01em;
+.ws-title{position:absolute;left:96px;right:96px;top:max(52px, var(--safe-top));font-weight:800;font-size:48px;line-height:1.1;letter-spacing:-.01em;
   color:var(--ink);animation:tplIn .8s ${EASE} both}
 .ws-title::after{content:'';display:block;width:120px;height:6px;margin-top:16px;border-radius:3px;background:var(--accent)}
 @keyframes tplIn{from{opacity:0;transform:translateY(26px)}to{opacity:1;transform:none}}
@@ -179,9 +179,9 @@ export const templates = {
       push: true,
       html: `<div class="ag-head">${esc(spec.title || 'Содержание')}</div><div class="ag-box ws-fit"><ol class="ag-list">${items}</ol></div>`,
       css: `
-.ag-head{position:absolute;left:120px;top:0;bottom:0;width:${two ? 420 : 520}px;display:flex;align-items:center;font-size:${two ? 64 : 76}px;
+.ag-head{position:absolute;left:max(120px, var(--safe-left));top:var(--safe-top);bottom:var(--safe-bottom);width:${two ? 420 : 520}px;display:flex;align-items:center;font-size:${two ? 64 : 76}px;
   font-weight:800;line-height:1.05;letter-spacing:-.02em;color:var(--heading);--dx:-30px;--dy:0px}
-.ag-box{position:absolute;left:${two ? 600 : 720}px;right:100px;top:60px;bottom:60px;display:flex;align-items:center}
+.ag-box{position:absolute;left:max(${two ? 600 : 720}px, var(--safe-left));right:max(100px, var(--safe-right));top:max(60px, var(--safe-top));bottom:max(60px, var(--safe-bottom));display:flex;align-items:center}
 .ag-list{width:100%;margin:0;padding:0;list-style:none;display:grid;grid-template-rows:repeat(${rows},auto);grid-auto-flow:column;
   grid-auto-columns:1fr;gap:${two ? 18 : 22}px ${two ? 28 : 0}px}
 .ag-list li{display:flex;align-items:center;gap:26px;padding:${two ? 16 : 20}px 28px;border-radius:16px;background:var(--surface);
@@ -207,7 +207,7 @@ export const templates = {
         + (spec.value ? `<div class="st-val">${esc(spec.value)}</div>` : '')
         + `<div class="st-text">${esc(spec.text)}</div>` + (spec.caption ? `<div class="st-cap">${esc(spec.caption)}</div>` : '') + '</div>',
       css: `
-.st-box{position:absolute;inset:0 160px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}
+.st-box{position:absolute;top:var(--safe-top);bottom:var(--safe-bottom);left:max(160px, var(--safe-left));right:max(160px, var(--safe-right));display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}
 .st-box>*{--stagger:.35s}
 .st-kick{font-size:28px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:var(--accent-text);margin-bottom:24px}
 .st-val{font-size:240px;font-weight:800;line-height:1;letter-spacing:-.04em;color:var(--accent);--from-scale:.85;--dy:0px;
@@ -247,7 +247,7 @@ export const templates = {
       push: true,
       html: titleHtml(spec.title) + `<div class="cd-wrap">${lead}<div class="cd-box ws-fit"><div class="cd-grid">${cards.join('')}</div></div></div>`,
       css: TITLE_CSS + `
-.cd-wrap{position:absolute;left:96px;right:80px;top:${spec.title ? 180 : 60}px;bottom:40px;display:flex;align-items:center;gap:56px}
+.cd-wrap{position:absolute;left:max(96px, var(--safe-left));right:max(80px, var(--safe-right));top:max(${spec.title ? 180 : 60}px, var(--safe-top));bottom:max(40px, var(--safe-bottom));display:flex;align-items:center;gap:56px}
 .cd-lead{flex:0 0 460px;--dx:-28px;--dy:0px}
 .cd-lead b{display:block;font-size:72px;font-weight:800;color:var(--heading);letter-spacing:.02em}
 .cd-lead b::after{content:'';display:block;width:90px;height:6px;margin-top:14px;border-radius:3px;background:var(--accent)}
@@ -287,7 +287,7 @@ export const templates = {
       push: true,
       html: titleHtml(spec.title) + `<div class="co-box ws-fit"><div class="co-row">${cols}</div></div>`,
       css: TITLE_CSS + `
-.co-box{position:absolute;left:96px;right:96px;top:${spec.title ? 180 : 60}px;bottom:44px;display:flex;flex-direction:column}
+.co-box{position:absolute;left:max(96px, var(--safe-left));right:max(96px, var(--safe-right));top:max(${spec.title ? 180 : 60}px, var(--safe-top));bottom:max(44px, var(--safe-bottom));display:flex;flex-direction:column}
 .co-box::before{content:'';flex:1}.co-box::after{content:'';flex:2}
 .co-row{width:100%;display:grid;grid-template-columns:repeat(${n},1fr);gap:32px;align-items:center}
 .co-col{background:var(--surface);border-radius:18px;overflow:hidden;box-shadow:${CARD_SHADOW};--stagger:.15s}
@@ -341,7 +341,7 @@ export const templates = {
       html: titleHtml(spec.title) + `<div class="cp-box ws-fit"><div class="cp-grid"><div class="cp-head cp-hl">${esc(Lf.title)}</div>`
         + `<div class="cp-head cp-hr">${esc(R.title)}</div>${cells}</div></div>`,
       css: TITLE_CSS + `
-.cp-box{position:absolute;left:96px;right:96px;top:${spec.title ? 180 : 60}px;bottom:44px;display:flex;flex-direction:column}
+.cp-box{position:absolute;left:max(96px, var(--safe-left));right:max(96px, var(--safe-right));top:max(${spec.title ? 180 : 60}px, var(--safe-top));bottom:max(44px, var(--safe-bottom));display:flex;flex-direction:column}
 .cp-box::before{content:'';flex:1}.cp-box::after{content:'';flex:2}
 .cp-grid{width:100%;display:grid;grid-template-columns:1fr 90px 1fr;grid-auto-rows:auto;row-gap:18px}
 .cp-head{grid-row:1;padding:18px 30px;border-radius:14px;font-size:38px;font-weight:800;margin-bottom:8px}
@@ -407,7 +407,7 @@ export const templates = {
       push: true,
       html: titleHtml(spec.title) + `<div class="pr-box ws-fit"><div class="pr-flow">${body}</div></div>`,
       css: TITLE_CSS + `
-.pr-box{position:absolute;left:60px;right:60px;top:${spec.title ? 170 : 50}px;bottom:36px;display:flex;flex-direction:column}
+.pr-box{position:absolute;left:max(60px, var(--safe-left));right:max(60px, var(--safe-right));top:max(${spec.title ? 170 : 50}px, var(--safe-top));bottom:max(36px, var(--safe-bottom));display:flex;flex-direction:column}
 .pr-box::before{content:'';flex:1}.pr-box::after{content:'';flex:2}
 .pr-flow{width:100%;display:flex;flex-direction:column;gap:${twoRows ? 10 : 0}px}
 .pr-row{display:flex;align-items:${hasItems ? 'stretch' : 'center'};gap:${GAPX}px}
@@ -479,9 +479,9 @@ export const templates = {
         + `<svg class="ws-links" data-from=".hb-hub" data-round viewBox="0 0 ${W} ${H}">${links}</svg>${hub}`
         + `<div class="hb-col hb-left ws-fit">${leftCol}</div><div class="hb-col hb-right ws-fit">${rightCol}</div>`,
       css: TITLE_CSS + `
-.hb-col{position:absolute;top:${top}px;bottom:36px;width:640px;display:flex;flex-direction:column;justify-content:space-around;gap:18px}
-.hb-left{left:80px}
-.hb-right{right:80px}
+.hb-col{position:absolute;top:max(${top}px, var(--safe-top));bottom:max(36px, var(--safe-bottom));width:640px;display:flex;flex-direction:column;justify-content:space-around;gap:18px}
+.hb-left{left:max(80px, var(--safe-left))}
+.hb-right{right:max(80px, var(--safe-right))}
 .hb-card{background:var(--surface);border-radius:18px;overflow:hidden;box-shadow:${CARD_SHADOW};--stagger:.4s}
 .hb-card.left{--dx:-32px;--dy:0px}
 .hb-card.right{--dx:32px;--dy:0px}
@@ -490,7 +490,7 @@ export const templates = {
 .hb-card ul{margin:0;padding:14px 28px 18px 50px;color:var(--surface-ink2);font-size:23px;line-height:1.32}
 .hb-card li{margin:3px 0}
 .hb-card li::marker{color:var(--line)}
-.hb-hub{position:absolute;left:770px;top:${r1(cy - 190)}px;width:380px;height:380px;border-radius:50%;color:#fff;--dy:0px;--from-scale:.8;
+.hb-hub{position:absolute;left:calc(770px + (max(80px, var(--safe-left)) - max(80px, var(--safe-right))) / 2);top:calc(${r1(cy - 190)}px + ((max(${top}px, var(--safe-top)) - ${top}px) - (max(36px, var(--safe-bottom)) - 36px)) / 2);width:380px;height:380px;border-radius:50%;color:#fff;--dy:0px;--from-scale:.8;
   background:radial-gradient(circle at 35% 30%,var(--primary-hi),var(--primary));box-shadow:0 0 0 2px var(--surface-edge),0 20px 60px color-mix(in srgb, var(--primary) 35%, transparent);
   display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:30px}
 .hb-in{width:${HUB_IN}px;height:${HUB_IN}px;display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:hidden}
@@ -557,9 +557,9 @@ export const templates = {
         + `<div class="fl-mid">${center}</div>`
         + `<div class="fl-col fl-outs ws-fit">${spec.outputs.map((x, i) => card(x, `o${i}`)).join('')}</div>`,
       css: TITLE_CSS + `
-.fl-col{position:absolute;top:${top}px;bottom:40px;width:520px;display:flex;flex-direction:column;justify-content:center;gap:22px}
-.fl-ins{left:96px}
-.fl-outs{right:96px}
+.fl-col{position:absolute;top:max(${top}px, var(--safe-top));bottom:max(40px, var(--safe-bottom));width:520px;display:flex;flex-direction:column;justify-content:center;gap:22px}
+.fl-ins{left:max(96px, var(--safe-left))}
+.fl-outs{right:max(96px, var(--safe-right))}
 .fl-card{background:var(--surface);border-radius:16px;border-left:8px solid var(--line);padding:22px 28px;box-shadow:${CARD_SHADOW};--stagger:.12s}
 .fl-ins .fl-card{--dx:-28px;--dy:0px}
 .fl-outs .fl-card{--dx:28px;--dy:0px}
@@ -571,7 +571,7 @@ export const templates = {
 .fl-card.ws-st-ok,.fl-card.ws-st-warn{border-left-color:var(--st)}
 .fl-card.ws-st-ok>h3,.fl-card.ws-st-warn>h3{margin-right:52px}
 .fl-card.ws-st-optional{border-left-color:transparent}
-.fl-mid{position:absolute;left:736px;width:448px;top:${top}px;bottom:40px;display:flex;align-items:center;justify-content:center}
+.fl-mid{position:absolute;left:calc(736px + (max(96px, var(--safe-left)) - max(96px, var(--safe-right))) / 2);width:448px;top:max(${top}px, var(--safe-top));bottom:max(40px, var(--safe-bottom));display:flex;align-items:center;justify-content:center}
 .fl-center{color:#fff;--dy:0px;--from-scale:.85;text-align:center}
 .fl-center.ws-focus{animation:none}
 .fl-plate{width:448px;padding:40px 36px;border-radius:24px;background:var(--c1);
@@ -671,7 +671,7 @@ ${(spec.shadow ?? framed) ? '.im-main{box-shadow:0 4px 40px rgba(0,0,0,.5)}' : '
       html: titleHtml(spec.title || 'Итоги') + `<div class="sm-box ws-fit"><ul class="sm-list">${items}</ul></div>`
         + (spec.next ? `<div class="sm-next"><small>${esc(spec.nextLabel || 'Дальше')}</small>${esc(spec.next)}</div>` : ''),
       css: TITLE_CSS + `
-.sm-box{position:absolute;left:96px;right:96px;top:180px;bottom:${spec.next ? 230 : 50}px;display:flex;flex-direction:column}
+.sm-box{position:absolute;left:max(96px, var(--safe-left));right:max(96px, var(--safe-right));top:max(180px, var(--safe-top));bottom:max(${spec.next ? 230 : 50}px, var(--safe-bottom));display:flex;flex-direction:column}
 .sm-box::before{content:'';flex:1}.sm-box::after{content:'';flex:2}
 .sm-list{width:100%;margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:24px}
 .sm-list li{display:flex;align-items:center;gap:28px;font-size:40px;font-weight:600;color:var(--ink);--stagger:.15s}
@@ -679,7 +679,7 @@ ${(spec.shadow ?? framed) ? '.im-main{box-shadow:0 4px 40px rgba(0,0,0,.5)}' : '
   display:flex;align-items:center;justify-content:center;transition:background .5s ease,color .5s ease}
 .sm-list li.ws-focus{animation:none}
 .sm-list li.ws-focus i{background:var(--accent);color:var(--on-accent)}
-.sm-next{position:absolute;left:96px;right:96px;bottom:60px;padding:28px 36px;border-radius:18px;background:var(--c1);color:#fff;box-shadow:0 0 0 1.5px var(--surface-edge);
+.sm-next{position:absolute;left:max(96px, var(--safe-left));right:max(96px, var(--safe-right));bottom:max(60px, var(--safe-bottom));padding:28px 36px;border-radius:18px;background:var(--c1);color:#fff;box-shadow:0 0 0 1.5px var(--surface-edge);
   font-size:36px;font-weight:600;line-height:1.3}
 .sm-next small{display:block;font-size:22px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:var(--accent-hi);margin-bottom:8px}`,
       steps,

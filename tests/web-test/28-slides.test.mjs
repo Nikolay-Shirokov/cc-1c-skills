@@ -239,6 +239,63 @@ export default async function({
     assert.deepEqual(si, ['0', '0', '0'], "radial 'all': no cascade on cards already shown");
   });
 
+  await step('frame: logo/number/footer from the theme, places and order, numbering, safe field, exceptions, overlap check', async () => {
+    const logo = path.join(dir, 'frame-logo.png');
+    fs.writeFileSync(logo, await screenshot());
+    const fr = () => shadow(() => {
+      const r = document.getElementById('__ws_slide').shadowRoot, f = r.querySelector('.ws-frame');
+      const x = (sel) => { const e = f?.querySelector(sel); return e ? Math.round(e.getBoundingClientRect().left) : null; };
+      return { on: !!f, corners: f ? [...f.querySelectorAll('.wf-c')].map((c) => c.className.replace('wf-c ', '')) : [],
+        num: f?.querySelector('.wf-num')?.textContent ?? null, edge: f?.querySelector('.wf-edge')?.textContent ?? null,
+        logoX: x('.wf-logo'), numX: x('.wf-num'), safeLeft: getComputedStyle(r.querySelector('.ws-slide')).getPropertyValue('--safe-left').trim() };
+    });
+    const cards = { layout: 'cards', title: 'Рамка', cards: [{ title: 'А' }, { title: 'Б' }], steps: [{ show: 'all' }] };
+    setSlideTheme({ frame: { logo: logo, number: true, footer: { text: 'Колонтитул', at: 'left' } } });
+    await showSlide(cards, fast);
+    let s = await fr();
+    log(`frame: ${JSON.stringify(s)}`);
+    assert.deepEqual(s.corners, ['wf-bottom-left', 'wf-bottom-right'], 'defaults: logo bottom-left, number bottom-right');
+    assert.equal(s.edge, 'Колонтитул', 'footer along the left edge');
+    assert.equal(s.safeLeft, '128px', 'the left edge keeps a field');
+    const wrapLeft = await shadow(() => document.getElementById('__ws_slide').shadowRoot.querySelector('.cd-wrap').getBoundingClientRect().left);
+    const edgeRight = await shadow(() => document.getElementById('__ws_slide').shadowRoot.querySelector('.wf-edge').getBoundingClientRect().right);
+    assert.ok(wrapLeft > edgeRight, 'content starts right of the footer');
+    const titleLeft = await shadow(() => document.getElementById('__ws_slide').shadowRoot.querySelector('.ws-title').getBoundingClientRect().left);
+    assert.ok(titleLeft < wrapLeft, 'the title stays in place (the footer runs along the middle of the edge)');
+    const n1 = Number(s.num);
+    await showSlide({ ...cards, frame: { footer: 'Раздел 2' } }, fast);
+    s = await fr();
+    assert.equal(Number(s.num), n1 + 1, 'numbers go on');
+    assert.equal(s.edge, 'Раздел 2', 'a spec replaces a part of the frame');
+    await showSlide({ layout: 'title', title: 'Титул' }, fast);
+    assert.equal((await fr()).on, false, 'title: no frame');
+    await showSlide({ ...cards, frame: false }, fast);
+    assert.equal((await fr()).on, false, 'frame: false');
+    await showSlide({ ...cards, number: 10 }, fast);
+    assert.equal((await fr()).num, '10', 'spec.number sets the number');
+    await showSlide(cards, fast);
+    assert.equal((await fr()).num, '11', 'and the count goes on from it (slides without a frame are not counted)');
+    // one corner: in the order declared, the first in the corner
+    setSlideTheme({ frame: { number: { at: 'bottom-right' }, logo: { src: logo, at: 'bottom-right' } } });
+    await showSlide(cards, fast);
+    s = await fr();
+    assert.ok(s.numX > s.logoX, 'number declared first sits in the corner, the logo next to it');
+    setSlideTheme({ frame: { logo: { src: logo, at: 'bottom-right' }, number: { at: 'bottom-right' } } });
+    await showSlide(cards, fast);
+    s = await fr();
+    assert.ok(s.logoX > s.numX, 'logo declared first sits in the corner');
+    setSlideTheme(null);
+    await rejectsWith(() => prepareSlides([{ ...cards, theme: { frame: { logo: { src: logo, at: 'left' } } } }], { validateOnly: true }),
+      /logo — at must be bottom-left/, 'an edge place is for the footer only');
+    await rejectsWith(() => prepareSlides([{ ...cards, theme: { frame: { badge: true } } }], { validateOnly: true }),
+      /unknown "badge" — logo, number, footer/, 'an unknown frame element');
+    // an own page drawing under the frame is flagged
+    const own = await showSlide({ html: '<div class="low" style="position:absolute;left:40px;bottom:30px;font-size:30px">Низ кадра</div>',
+      theme: { frame: { number: { at: 'bottom-left' } } }, steps: [{ show: '.low' }] }, fast);
+    assert.ok((own.warnings || []).some((w) => w.includes('.low overlaps the frame')), 'overlap flagged');
+    await hideSlide({ motion: false });
+  });
+
   await step('checks: a long radial centre fits its circle; text spilling out of a card is flagged', async () => {
     const r = await showSlide({
       layout: 'radial', center: { title: 'Учёт заказов клиентов и оплат', items: ['Статусы', 'Сроки'] },

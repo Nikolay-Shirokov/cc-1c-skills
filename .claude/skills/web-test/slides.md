@@ -129,27 +129,28 @@ Four base colours, the rest is derived (header shades and quiet tints from `prim
 link and arrow, the lit section, the current takeaway; title rules, numbers, callouts), `ground` (slide
 ground), `ink` (text on the ground); optional `line` (structure: links, arrows, card rules, list markers;
 default a slate shade of `primary`), `mark` (callouts/spot, default accent), `onAccent` (text on accent), `statusOk` / `statusWarn` (status colours),
-`surface` / `onSurface` (cards, plates, cells and their text), `font` (a CSS font stack), `fonts`, `background`.
+`surface` / `onSurface` (cards, plates, cells and their text), `font` (a CSS font stack), `fonts`, `background`,
+`frame` (logo, slide number, footer — below).
 Default: `#16213e` / `#f0a202` / `#f4f6fa` / `#1a1a2e` — a light ground with white cards.
 
-A dark `ground` (a brand's dark slides: `ground: '#14213d', ink: '#fff'`; dark — a `#hex`/`rgb()` of low
-luminance, like `#222` or navy) is picked up by itself: cards become a shade lighter than the ground with light
+A dark `ground` (a brand's dark slides: `ground: '#14213d', ink: '#fff'`) is picked up by itself — give it as
+`#hex` or `rgb()`, a colour name is not recognised: cards become a shade lighter than the ground with light
 text and a thin outline, headings on the ground take `ink`; card header bands take the accent tinted into the card.
 White cards on a dark ground — `surface: '#fff'` (their text turns dark by itself; `onSurface` to choose it).
 
 `fonts: [{ family, src, weight?, style? }]` — font files from the project, one per weight the slides use:
 templates take 400 (text), 600, 700 and 800 (headings); a weight with no file is faked by the browser (smeared
 bold). Without `font` the stack starts with the first `family`; the fonts reach every slide, `title` and `closing` too. Take static faces
-(`BrandSans-Bold.ttf`), not one variable file (`BrandSans[wght].ttf`): its overlapping contours show in
-big outlined numbers. The fonts load into the page before the slide, without installing anything.
+(`BrandSans-Bold.ttf`), not one variable file (`BrandSans[wght].ttf`): it leaves artefacts in big numbers.
+Nothing to install on the machine.
 
-`background` — the brand's ground for every slide without its own: the ground colour first, then a logo in a
-corner (`url(asset:…)`, a path from the project root). `title`, `closing` and `image` keep their own ground;
-give them `background` in the spec to carry the logo too.
+`background` — the brand's ground for every slide without its own (a colour, a gradient, a picture with
+`url(asset:…)`). `title`, `closing` and `image` keep their own ground; give them `background` in the spec. A logo
+goes to the frame, not into the ground.
 
 ```json
 "slides": { "theme": { "primary": "#14213d", "accent": "#3fb68b", "ground": "#14213d", "ink": "#FFFFFF",
-  "background": "#14213d url(asset:docs/video/logo.png) no-repeat right 72px bottom 40px / 190px auto",
+  "frame": { "logo": "docs/video/logo.png", "number": true },
   "fonts": [{ "family": "Brand Sans", "src": "docs/video/fonts/BrandSans-Regular.ttf", "weight": 400 },
             { "family": "Brand Sans", "src": "docs/video/fonts/BrandSans-Bold.ttf", "weight": 700 },
             { "family": "Brand Sans", "src": "docs/video/fonts/BrandSans-ExtraBold.ttf", "weight": 800 }] } }
@@ -161,7 +162,35 @@ Layers, each overriding the previous: `.v8-project.json` → `"slides": { "theme
 On a page of your own the theme is CSS variables: `var(--primary)`, `--accent`, `--ground`, `--ink`, `--line`,
 `--muted` (secondary text), `--heading` (a big heading on the ground), `--surface` / `--on-surface` (a card and
 its text), `--surface-edge` (a card outline: none on a light ground), `--soft` (quiet tint), `--on-dark` (text
-on `primary`).
+on `primary`), `--safe-top` / `--safe-right` / `--safe-bottom` / `--safe-left` (the fields the frame keeps).
+
+## Frame
+
+The brand's running elements — a logo, the slide number, a footer line — set once in the theme and drawn on every
+slide; they stand still while the slide zooms. Templates lay their content out of their way.
+
+```js
+frame: { logo: 'docs/video/logo.png', number: true }                          // default places
+frame: { logo: 'docs/video/logo.png', number: true, footer: { text: 'Учёт заказов', at: 'left' } }
+frame: { number: { at: 'bottom-right' }, logo: { src: 'docs/video/logo.png', at: 'bottom-right', height: 40 } }
+```
+
+| Element | Short form | Full form | Default place |
+|---|---|---|---|
+| `logo` | `'path'` | `{ src, at, height }` (height 30px; on a dark ground — the light version of the logo) | `bottom-left` |
+| `number` | `true` | `{ at }` | `bottom-right` |
+| `footer` | `'text'` | `{ text, at }` | `left` (a vertical line along the edge) |
+
+- `at`: `top-left`, `top-right`, `bottom-left`, `bottom-right`; a `footer` also `left` / `right` (vertical, centred on
+  the edge). Several in one corner line up in the order declared, the first in the corner.
+- In the spec of a slide: `frame: false` — none on it; `frame: { footer: 'Раздел 2' }` — replaces that part;
+  `number: 5` — this slide's number (the count goes on from it).
+- `title`, `closing`, `image` have no frame unless their spec gives a `frame` object; they are not counted.
+- The number counts the framed slides of a recording (`play` / `preview` — of the run).
+- Template content keeps clear of the frame; the slide title stays in place. On a page of your own lay out within
+  the fields `var(--safe-*)` — the least distance from the edge (`left: max(96px, var(--safe-left))`); content
+  under the frame is flagged (`overlaps the frame`).
+- The brand's running elements live here — do not draw them on pages of your own.
 
 ## Slide videos without 1C, preview
 
@@ -220,7 +249,8 @@ not drawn by hand:
 - **Live screens are recorded** (steps in 1C between `hideSlide` and the next `showSlide`), not pasted in as
   clips; their voice-over — `showCaption('', { speech })` at each action, voiced with the slides by
   `addNarration` after `stopRecording` ([recording.md](recording.md)).
-- **The brand is the theme** (colours, `fonts`, `background` with the logo), set once in `.v8-project.json`.
+- **The brand is the theme** (colours, `fonts`, `frame` with the logo, number and footer), set once in
+  `.v8-project.json` — not repeated on pages of your own.
 - `preview` first, then the recording.
 
 ```js

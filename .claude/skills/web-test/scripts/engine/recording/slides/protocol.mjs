@@ -1,4 +1,4 @@
-// web-test recording/slides/protocol v1.6 — step-slide protocol: base CSS + theme, page-side mount/step/lint.
+// web-test recording/slides/protocol v1.7 — step-slide protocol: base CSS + theme, page-side mount/step/lint.
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 //
 // A slide is a 1920×1080 page inside a shadow root (its CSS cannot touch a neighbour slide or the
@@ -44,6 +44,7 @@ export const BASE_CSS = `
   --shadow:var(--ink);
   --soft:var(--surface-soft);   /* quiet tint for item boxes and number badges */
   --status-ok:#2fb36a; --status-warn:#e8a317;   /* element statuses (templates' status field) */
+  --safe-top:0px; --safe-right:0px; --safe-bottom:0px; --safe-left:0px;   /* fields kept for the frame (theme.frame) */
   --accent-hi:color-mix(in oklab, var(--accent), #fff 25%);
   --accent-text:color-mix(in oklab, var(--accent), #000 30%);
   --on-dark:#f4f4f6; --on-dark-muted:color-mix(in oklab, var(--on-dark) 70%, var(--primary));
@@ -76,6 +77,17 @@ export const BASE_CSS = `
 .ws-links path.ws-focus{animation:none;stroke:var(--accent)}
 .ws-links path.ws-t{transition:stroke-dashoffset .7s cubic-bezier(.4,0,.2,1),opacity .4s ease,stroke .5s ease}
 .ws-static, .ws-static *{transition:none !important;animation:none !important}
+/* the frame: logo, slide number, footer — outside the push and the camera, it stands still */
+.ws-frame{position:absolute;inset:0;pointer-events:none;font-size:22px;color:var(--muted)}
+.wf-c{position:absolute;display:flex;align-items:center;gap:28px}
+.wf-top-left{top:40px;left:54px} .wf-top-right{top:40px;right:54px;flex-direction:row-reverse}
+.wf-bottom-left{bottom:40px;left:54px} .wf-bottom-right{bottom:40px;right:54px;flex-direction:row-reverse}
+.wf-logo{display:block;height:30px;width:auto;max-width:320px;object-fit:contain}
+.wf-num{font-weight:700;letter-spacing:.04em}
+.wf-text{white-space:nowrap;letter-spacing:.04em}
+.wf-edge{position:absolute;top:50%;white-space:nowrap;letter-spacing:.06em;max-width:800px;overflow:hidden;text-overflow:ellipsis}
+.wf-edge.wf-left{left:64px;transform:translate(-50%,-50%) rotate(-90deg)}
+.wf-edge.wf-right{right:64px;transform:translate(50%,-50%) rotate(90deg)}
 `;
 
 /** Relative luminance of a #rgb / #rrggbb / rgb() colour, or null for anything else (a name, a gradient). */
@@ -141,7 +153,7 @@ export function themeVars(theme) {
  * Mount a slide (page side). Order matters: layout first (fit, links) on untransformed elements,
  * then pending states without transitions, then .ws-t — so nothing animates from the measuring state.
  */
-export function pageMount({ html, css, bg, vars, pushSec, animated, instant, staticMode, hostId }) {
+export function pageMount({ html, css, bg, vars, pushSec, animated, instant, staticMode, hostId, frame }) {
   const old = document.getElementById('__ws_slide');
   if (old) old.id = '__ws_slide_old';
   const host = document.createElement('div');
@@ -151,7 +163,8 @@ export function pageMount({ html, css, bg, vars, pushSec, animated, instant, sta
     + (instant ? 'opacity:1' : 'opacity:0;transition:opacity .5s ease');
   const root = host.attachShadow({ mode: 'open' });
   root.innerHTML = `<style>${css}</style><div class="ws-slide${staticMode ? ' ws-static' : ''}"><div class="ws-stage">`
-    + `<div class="ws-push"><div class="ws-cam">${html}<div class="ws-spot"></div></div></div></div></div>`;
+    + `<div class="ws-push"><div class="ws-cam">${html}<div class="ws-spot"></div></div></div>`
+    + (frame ? `<div class="ws-frame">${frame}</div>` : '') + '</div></div>';
   const slide = root.querySelector('.ws-slide');
   for (const [k, v] of Object.entries(vars || {})) slide.style.setProperty(k, v);
   if (bg) slide.style.background = bg;
@@ -366,6 +379,10 @@ export function pageLint({ showSel }) {
   };
   // .ws-nolint — a deliberate element (a speech bubble that repeats the phrase, a figure past the edge): not checked
   const els = [...root.querySelectorAll('.ws-cam *')].filter((e) => !e.matches('.ws-spot, style') && !e.closest('.ws-nolint') && visible(e));
+  // the frame's elements (logo, number, footer): content drawn under them is flagged
+  const frameRects = [...root.querySelectorAll('.ws-frame .wf-logo, .ws-frame .wf-num, .ws-frame .wf-text, .ws-frame .wf-edge')]
+    .map((e) => e.getBoundingClientRect()).filter((r) => r.width && r.height);
+  const hits = (r) => frameRects.some((f) => r.left < f.right - 2 && r.right > f.left + 2 && r.top < f.bottom - 2 && r.bottom > f.top + 2);
   for (const el of els) {
     const r = el.getBoundingClientRect();
     const hasText = !!el.textContent.trim();
@@ -400,6 +417,11 @@ export function pageLint({ showSel }) {
       if (fs < 21.5) out.small.push(`${name(el)} ${Math.round(fs)}px`);
     }
     if (/^(UL|OL)$/.test(el.tagName) && el.children.length > 6) out.longLists.push(`${name(el)}: ${el.children.length} items`);
+    // text, a picture or a painted box under the frame (camera at rest: a zoom brings anything under it)
+    if (frameRects.length && camIdle && r.width) {
+      const textUnder = own.some((n) => { const rg = document.createRange(); rg.selectNodeContents(n); return hits(rg.getBoundingClientRect()); });
+      if (textUnder || ((el.tagName === 'IMG' || paintedBox(el) === el) && hits(r))) out.overflow.push(`${name(el)} overlaps the frame`);
+    }
   }
   if (showSel) out.shown = [...root.querySelectorAll(showSel)].filter((e) => !e.closest('.ws-nolint')).map((e) => (e.innerText ?? e.textContent ?? '').trim()).filter(Boolean);
   out.overflow = [...new Set(out.overflow)];
