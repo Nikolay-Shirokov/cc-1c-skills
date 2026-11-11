@@ -1,4 +1,4 @@
-// web-test browser v1.22 — engine facade: re-exports the public API from engine/*
+// web-test browser v1.23 — engine facade: re-exports the public API from engine/*
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 /**
  * Public API of the web-test engine. Pure re-export facade — no logic here.
@@ -20,7 +20,7 @@ export { clickElement } from './engine/core/click.mjs';
 // ── session ───────────────────────────────────────────────────────────────
 export {
   connect, disconnect, attach, detach, getSession,
-  createContext, setActiveContext, listContexts, getActiveContext,
+  createContext, setActiveContext, listContexts, listWebContexts, getActiveContext,
   hasContext, closeContext,
   // Unresponsive-context handling (test runner). abortContext is the sanctioned way to
   // mutate the registry from outside — the `contexts` Map itself stays private.
@@ -62,3 +62,6 @@ export {
 } from './engine/recording/highlight.mjs';
 export { addNarration } from './engine/recording/narration.mjs';
 export { withMusic } from './engine/recording/music.mjs';
+
+// ── other web pages (an adjacent system, a video without 1C) — web-pages.md ─
+export { web } from './engine/web/pages.mjs';

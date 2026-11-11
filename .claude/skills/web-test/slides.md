@@ -249,7 +249,8 @@ not drawn by hand:
   seconds rushes or stalls the voice.
 - **Live screens are recorded** (steps in 1C between `hideSlide` and the next `showSlide`), not pasted in as
   clips; their voice-over — `showCaption('', { speech })` at each action, voiced with the slides by
-  `addNarration` after `stopRecording` ([recording.md](recording.md)).
+  `addNarration` after `stopRecording` ([recording.md](recording.md)); a screen of an adjacent web system —
+  the same, on its page ([web-pages.md](web-pages.md)).
 - **The brand is the theme** (colours, `fonts`, `frame` with the logo, number and footer), set once in
   `.v8-project.json` — not repeated on pages of your own.
 - `preview` first, then the recording.

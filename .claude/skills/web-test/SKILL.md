@@ -73,6 +73,10 @@ The bound covers the script, not the 1C startup: `--timeout=<ms>`, `--timeout-mi
 
 `node $RUN play <slides.mjs> --out=<file.mp4>` — a narrated video from a module of slide specs, no 1C connection; `node $RUN preview <slides.mjs>` — a PNG per step first. See [slides.md](slides.md).
 
+### Other web pages
+
+An adjacent web system next to 1C in one video, or a video of a web product without 1C (`start <url> --web`) — `web.open`, `setActiveContext`, `web.highlight` / `web.mask`. See [web-pages.md](web-pages.md).
+
 ### Interactive mode (step-by-step development)
 
 ```bash

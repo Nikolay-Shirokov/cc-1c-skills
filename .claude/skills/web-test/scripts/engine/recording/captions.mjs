@@ -1,4 +1,4 @@
-// web-test recording/captions v1.20 — Overlay primitives: captions; legacy title/image overlays over showSlide.
+// web-test recording/captions v1.21 — Overlay primitives: captions; legacy title/image overlays over showSlide.
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import {
@@ -6,6 +6,17 @@ import {
 } from '../core/state.mjs';
 import { cachedSpeechSeconds, mergeTtsOptions, unspokenWarning } from './tts.mjs';
 import { showSlide, hideSlide } from './slides/index.mjs';
+import { otherContextPages } from '../core/session.mjs';
+import { softDeadline } from '../core/deadline.mjs';
+
+// The caption is one for the session: a new one (or hideCaption) also takes the previous one off the other
+// contexts' pages — it stays on the page it was shown on, and coming back there must not bring it back.
+// Bounded: a closed or wedged page of another context must not hold the script.
+async function clearCaptionElsewhere() {
+  const pages = otherContextPages();
+  if (!pages.length) return;
+  await Promise.all(pages.map((pg) => softDeadline(pg.evaluate(() => document.getElementById('__web_test_caption')?.remove()), 1000, 'caption')));
+}
 
 /**
  * Show a text caption overlay on the page (visible in recording).
@@ -21,6 +32,8 @@ import { showSlide, hideSlide } from './slides/index.mjs';
  */
 export async function showCaption(text, opts = {}) {
   ensureConnected();
+  // before the narration's timestamp: a slow page of another context must not put the voice ahead of the plate
+  await clearCaptionElsewhere();
 
   // Collect caption for TTS narration if recording
   let smartWaitMs = 0;
@@ -80,6 +93,7 @@ export async function showCaption(text, opts = {}) {
 /** Remove the caption overlay from the page. */
 export async function hideCaption() {
   ensureConnected();
+  await clearCaptionElsewhere();
   await page.evaluate(() => {
     const el = document.getElementById('__web_test_caption');
     if (el) el.remove();

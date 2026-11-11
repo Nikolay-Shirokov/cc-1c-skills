@@ -99,6 +99,8 @@ When `text` is empty but `speech` is a string, the caption is still recorded for
 
 The overlay uses `pointer-events: none` — does not interfere with clicking.
 
+The caption is one for the session: with several contexts (pages) it stays on the page it was shown on, and a new caption or `hideCaption()` takes it off the others too.
+
 **Smart TTS wait** (during recording): `showCaption` automatically pauses for the speech duration — the phrase's real length when it is already in the TTS cache (synthesized ahead or recorded before; cache key: the `.v8-project.json` `tts` settings + `opts.voice`), otherwise an estimate (default ~70ms per character, min 2s; configurable via `startRecording({ speechRate })`). The next `wait()` call accounts for this — if the explicit pause is shorter than the TTS wait already done, no extra delay is added. If longer, only the remaining difference is waited. This means script authors don't need to calculate TTS timing manually.
 
 ### `hideCaption()`

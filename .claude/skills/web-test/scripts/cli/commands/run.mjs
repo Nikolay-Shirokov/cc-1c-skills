@@ -1,13 +1,14 @@
-// web-test cli/commands/run v1.4 — autonomous connect → exec → disconnect (no server)
+// web-test cli/commands/run v1.5 — autonomous connect → exec → disconnect (no server)
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
 import * as browser from '../../browser.mjs';
 import { die, readStdin } from '../util.mjs';
 import { executeScript } from '../exec-context.mjs';
+import { connectWeb } from '../../engine/web/pages.mjs';
 
 // Exit codes: 0 — ok, 1 — script error, 2 — script hit --timeout (same code as `test --global-timeout`).
-export async function cmdRun(url, fileOrDash, execTimeoutMs, { user, password } = {}) {
+export async function cmdRun(url, fileOrDash, execTimeoutMs, { user, password } = {}, web = null) {
   if (!url || !fileOrDash) die('Usage: node src/run.mjs run <url> <file|-> [--timeout=<ms>|--timeout-min=<min>] [--user=<name> [--password=<pwd>]]');
 
   const code = fileOrDash === '-'
@@ -18,7 +19,8 @@ export async function cmdRun(url, fileOrDash, execTimeoutMs, { user, password } 
   // released the seance and closed the browser; a stack trace pointing into session.mjs would
   // read as an engine bug and send the reader off to debug the wrong thing.
   try {
-    await browser.connect(url, { user, password });
+    if (web) await connectWeb(url, web);
+    else await browser.connect(url, { user, password });
   } catch (e) {
     die(e.message);
   }

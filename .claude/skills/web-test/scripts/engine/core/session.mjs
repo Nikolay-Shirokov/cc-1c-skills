@@ -1,4 +1,4 @@
-// web-test core/session v1.27 — Browser session lifecycle: connect/disconnect/attach/detach, multi-context registry.
+// web-test core/session v1.30 — Browser session lifecycle: connect/disconnect/attach/detach, multi-context registry.
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import { chromium } from 'playwright';
@@ -480,8 +480,12 @@ function saveActiveSlot() {
   const slot = contexts.get(activeContextName);
   if (!slot) return;
   slot.page = page;
-  slot.sessionPrefix = sessionPrefix;
-  slot.seanceId = seanceId;
+  // a web page has no 1C seance: connect()'s listener on the 1C tab may fill the globals while it is
+  // active, and that seance must not be logged out as the web page's
+  if (!slot.web) {
+    slot.sessionPrefix = sessionPrefix;
+    slot.seanceId = seanceId;
+  }
   slot.highlightMode = highlightMode;
   // Note: `recorder`, `lastCaptions`, `lastRecordingDuration` are intentionally NOT
   // mirrored per-slot. A multi-context recording produces one continuous output file —
@@ -651,13 +655,48 @@ export async function setActiveContext(name) {
   // If a recording is active, flush the outgoing page's last frame so the gap is filled
   // up to the moment of the switch (avoids a "jump" in video time).
   if (recorder && recorder._flushFrames) recorder._flushFrames();
+  const fromRegistered = !!contexts.get(activeContextName)?.closeBy;
   saveActiveSlot();
   activateSlot(name);
+  // tabs of one window (registered pages): the switched-to tab comes forward — a background tab is not
+  // painted, its recording would freeze. The runner's own contexts keep their behaviour unless recorded.
+  if (recorder || fromRegistered || contexts.get(name).closeBy) { try { await page.bringToFront(); } catch {} }
   // If the recording is still alive (it lives across slots — we keep the same ffmpeg/output),
   // re-attach its screencast to the newly active page.
   if (recorder && recorder._attachPage) {
     await recorder._attachPage(page);
   }
+}
+
+/**
+ * Register an already open page as a context slot, without opening or settling it (web pages: engine/web).
+ * The first call after connect() registers the connect() page as `main` as well — with its seance, so
+ * setActiveContext('main') returns to 1C and disconnect() logs it out. The new slot is not activated.
+ * `closeBy`: how closeContext closes it ('page' — a tab in a shared context, 'context' — its own).
+ */
+export function registerPageContext(name, pg, { context, closeBy = 'page', web = false } = {}) {
+  if (contexts.has(name)) throw new Error(`Context "${name}" already exists`);
+  const adoptMain = contexts.size === 0 && page && !page.isClosed();
+  if (adoptMain && name === 'main') throw new Error('Context name "main" is the 1C page of the session — choose another name');
+  if (adoptMain) {
+    contexts.set('main', {
+      context: page.context(), page, sessionPrefix, seanceId, highlightMode, creds: connectCreds, closeBy: 'page',
+    });
+    setActiveContextName('main');
+  }
+  const slot = { context: context || pg.context(), page: pg, sessionPrefix: null, seanceId: null, highlightMode: false, creds: null, closeBy, web };
+  contexts.set(name, slot);
+  attachSessionListeners(pg, slot, name);
+}
+
+/** Pages of the other contexts (not the active one) that are still open. */
+export function otherContextPages() {
+  return [...contexts].filter(([n, s]) => n !== activeContextName && s.page && !s.page.isClosed()).map(([, s]) => s.page);
+}
+
+/** Names of the slots registered as web pages (registerPageContext web:true). */
+export function listWebContexts() {
+  return [...contexts].filter(([, s]) => s.web).map(([n]) => n);
 }
 
 export function listContexts() {
@@ -690,7 +729,9 @@ export async function closeContext(name) {
   }
   const slot = contexts.get(name);
   await logoutSlot(slot);
-  if (activeMode === 'tab') {
+  if (slot.closeBy) {   // a slot that says how (registerPageContext)
+    try { await (slot.closeBy === 'page' ? slot.page.close() : slot.context.close()); } catch {}
+  } else if (activeMode === 'tab') {
     try { await slot.page.close(); } catch {}
   } else {
     try { await slot.context.close(); } catch {}
@@ -940,8 +981,9 @@ export async function abortContext(name, { logoutMs = 3000, closeMs = 5000, park
 
   // ── Close. runBeforeUnload:false is what survives a wedged renderer: the browser process
   // tears the target down instead of asking the page's JS to agree.
-  if (activeMode === 'tab') {
-    // tab mode: slot.context IS the shared browser — closing it would kill every context.
+  if (slot.closeBy === 'page' || (!slot.closeBy && activeMode === 'tab')) {
+    // a registered tab (registerPageContext) shares its context with other slots, and in tab mode
+    // slot.context IS the shared browser — closing the context would kill every slot.
     const c = await softDeadline(slot.page.close({ runBeforeUnload: false }), closeMs, 'page.close');
     if (c.ok) out.closed = 'page';
   } else {

@@ -1,4 +1,4 @@
-// web-test cli/commands/test v1.13 — regression test runner
+// web-test cli/commands/test v1.14 — regression test runner
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import { existsSync, writeFileSync, mkdirSync, renameSync, copyFileSync, unlinkSync } from 'fs';
 import { resolve, dirname, basename, relative } from 'path';
@@ -800,6 +800,18 @@ export async function cmdTest(rawArgs) {
           // plus another abort. Stop after the first hang.
           if (dead) break;
         }
+      }
+
+      // Web pages a test opened (web.open) are its own tabs, not 1C licences: closed after it, so they
+      // never count in the pool (maxContexts, eviction) of the next tests.
+      for (const name of browser.listWebContexts()) {
+        if (browser.getActiveContext() === name) {
+          const back = browser.listContexts().find((n) => !browser.listWebContexts().includes(n));
+          if (!back) continue;
+          try { await browser.setActiveContext(back); } catch {}
+        }
+        const r = await bounded(browser.closeContext(name), D.closeContext, `closeContext(${name})`);
+        if (!r.ok) await bounded(browser.abortContext(name), D.closeContext, `abortContext(${name})`);
       }
 
       // strict policy: release this test's non-pinned contexts right after it (all attempts done),
