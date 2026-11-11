@@ -225,4 +225,15 @@ export default async function({
       globalThis.fetch = realFetch;
     }
   });
+
+  await step('showCaption без текста (только озвучка): плашки на странице нет, прежняя подпись убирается', async () => {
+    const plate = async () => (await getPage()).evaluate(() => !!document.getElementById('__web_test_caption'));
+    await showCaption('Видимая подпись');
+    assert.equal(await plate(), true, 'обычная подпись видна');
+    await showCaption('', { speech: 'Фраза только для озвучки' });
+    assert.equal(await plate(), false, 'пустой текст — плашки нет (не пустая полоса)');
+    await showCaption('', { speech: 'Ещё одна фраза' });
+    assert.equal(await plate(), false, 'и не появляется на следующей');
+    await hideCaption();
+  });
 }

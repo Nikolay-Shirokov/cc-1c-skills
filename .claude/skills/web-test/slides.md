@@ -116,7 +116,7 @@ Default: `#16213e` / `#f0a202` / `#f4f6fa` / `#1a1a2e` — a light ground with w
 
 A dark `ground` (a brand's dark slides: `ground: '#14213d', ink: '#fff'`; dark — a `#hex`/`rgb()` of low
 luminance, like `#222` or navy) is picked up by itself: cards become a shade lighter than the ground with light
-text and a thin outline, headings on the ground take `ink`; card header bands stay shades of `primary`.
+text and a thin outline, headings on the ground take `ink`; card header bands take the accent tinted into the card.
 White cards on a dark ground — `surface: '#fff'` (their text turns dark by itself; `onSurface` to choose it).
 
 `fonts: [{ family, src, weight?, style? }]` — font files from the project, one per weight the slides use:

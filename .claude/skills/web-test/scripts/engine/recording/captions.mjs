@@ -1,4 +1,4 @@
-// web-test recording/captions v1.19 — Overlay primitives: captions; legacy title/image overlays over showSlide.
+// web-test recording/captions v1.20 — Overlay primitives: captions; legacy title/image overlays over showSlide.
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import {
@@ -42,6 +42,8 @@ export async function showCaption(text, opts = {}) {
 
   await page.evaluate(({ text, position, fontSize, bg, color }) => {
     let el = document.getElementById('__web_test_caption');
+    // no text — no plate (a voice-only caption): an empty one would still show its padding as a strip
+    if (!text.trim()) { el?.remove(); return; }
     if (!el) {
       el = document.createElement('div');
       el.id = '__web_test_caption';

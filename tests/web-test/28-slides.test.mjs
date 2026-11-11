@@ -161,6 +161,20 @@ export default async function({
     assert.notEqual(dark.card, dark.ground, 'cards stand apart from the ground');
     assert.ok(ratio(dark.text, dark.card) >= 4.5, 'card text readable on the card');
     assert.ok(ratio(dark.head, dark.ground) >= 4.5, 'a heading on the ground readable');
+    // header bands (shades of primary on a light ground) stand apart from a dark ground of the same depth
+    setSlideTheme({ primary: '#14213d', accent: '#3fb68b', ground: '#14213d', ink: '#FFFFFF' });
+    await showSlide({ layout: 'columns', columns: [{ title: 'А', items: ['а'] }, { title: 'Б', items: ['б'] }], steps: [{ show: 'all' }] }, fast);
+    const band = await shadow(() => {
+      const r = document.getElementById('__ws_slide').shadowRoot;
+      const g = Object.assign(document.createElement('canvas'), { width: 1, height: 1 }).getContext('2d');
+      const rgb = (c) => { g.clearRect(0, 0, 1, 1); g.fillStyle = c; g.fillRect(0, 0, 1, 1); return `rgb(${[...g.getImageData(0, 0, 1, 1).data].slice(0, 3).join(', ')})`; };
+      const h = getComputedStyle(r.querySelector('.co-0 h3'));
+      return { band: rgb(h.backgroundColor), text: rgb(h.color), ground: rgb(getComputedStyle(r.querySelector('.ws-slide')).backgroundColor) };
+    });
+    setSlideTheme(null);
+    log(`band: ${JSON.stringify(band)} band/ground ${ratio(band.band, band.ground).toFixed(2)} text/band ${ratio(band.text, band.band).toFixed(1)}`);
+    assert.ok(ratio(band.band, band.ground) >= 1.3, 'a header band stands apart from the dark ground');
+    assert.ok(ratio(band.text, band.band) >= 4.5, 'its title readable');
     // a bright primary on a dark ground: the cards still come from the ground, their text stays readable
     setSlideTheme({ primary: '#f0a202', ground: '#111111', ink: '#FFFFFF' });
     await showSlide(spec, fast);

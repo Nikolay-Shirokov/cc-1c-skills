@@ -310,7 +310,7 @@ export const templates = {
 .cp-grid{width:100%;display:grid;grid-template-columns:1fr 90px 1fr;grid-auto-rows:auto;row-gap:18px}
 .cp-head{grid-row:1;padding:18px 30px;border-radius:14px;font-size:38px;font-weight:800;margin-bottom:8px}
 .cp-hl{grid-column:1;background:var(--c3);color:#fff}
-.cp-hr{grid-column:3;background:var(--primary);color:#fff;box-shadow:inset 0 -6px 0 var(--accent),0 0 0 1.5px var(--surface-edge)}
+.cp-hr{grid-column:3;background:var(--c1);color:#fff;box-shadow:inset 0 -6px 0 var(--accent),0 0 0 1.5px var(--surface-edge)}
 .cp-vs{grid-column:2;align-self:center;justify-self:center;font-size:44px;font-weight:800;color:var(--line);--dx:-14px;--dy:0px}
 .cp-vs.ws-focus{animation:none;color:var(--accent)}
 .cp-cell{padding:18px 26px;border-radius:12px;background:var(--surface);font-size:30px;line-height:1.3;color:var(--surface-ink2);box-shadow:${CARD_SHADOW};--stagger:.1s}
@@ -555,7 +555,7 @@ ${(spec.shadow ?? framed) ? '.im-main{box-shadow:0 4px 40px rgba(0,0,0,.5)}' : '
   display:flex;align-items:center;justify-content:center;transition:background .5s ease,color .5s ease}
 .sm-list li.ws-focus{animation:none}
 .sm-list li.ws-focus i{background:var(--accent);color:var(--on-accent)}
-.sm-next{position:absolute;left:96px;right:96px;bottom:60px;padding:28px 36px;border-radius:18px;background:var(--primary);color:#fff;box-shadow:0 0 0 1.5px var(--surface-edge);
+.sm-next{position:absolute;left:96px;right:96px;bottom:60px;padding:28px 36px;border-radius:18px;background:var(--c1);color:#fff;box-shadow:0 0 0 1.5px var(--surface-edge);
   font-size:36px;font-weight:600;line-height:1.3}
 .sm-next small{display:block;font-size:22px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:var(--accent-hi);margin-bottom:8px}`,
       steps,

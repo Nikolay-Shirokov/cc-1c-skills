@@ -116,6 +116,10 @@ export function themeVars(theme) {
     set('--shadow', '#000');
     set('--surface-edge', 'color-mix(in oklab, var(--line) 45%, transparent)');
     set('--surface', 'color-mix(in oklab, var(--ground), #fff 8%)');   // a shade lighter than the ground, whatever primary is
+    // header bands: shades of primary vanish on a ground of the same depth — the accent tinted into the card
+    // instead, at different strengths (distinct from the ground and the card body, white text stays readable)
+    [['--c1', 26], ['--c2', 38], ['--c3', 18], ['--c4', 32], ['--c5', 44]]
+      .forEach(([k, p]) => set(k, `color-mix(in oklab, var(--accent) ${p}%, var(--surface))`));
   }
   if (surfaceDark && inkDark) set('--on-surface', '#f4f4f6');
   if (!surfaceDark && !inkDark) set('--on-surface', DEFAULT_THEME.ink);
