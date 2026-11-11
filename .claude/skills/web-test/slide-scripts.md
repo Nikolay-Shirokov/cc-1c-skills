@@ -31,7 +31,7 @@ return () => { cancelAnimationFrame(raf); r.dispose(); };   // cleanup when the 
 
 | `slide.` | |
 |---|---|
-| `stage`, `$(sel)`, `$(sel)` | the 1920×1080 stage; lookups in the slide's page |
+| `stage`, `$(sel)`, `$$(sel)` | the 1920×1080 stage; lookups in the slide's page |
 | `theme` | `{ primary, accent, ground, ink }` — the slide's colours (`new THREE.Color(slide.theme.accent)`) |
 | `on('step', (i, step) => …)` | each step, from the first (`i` from 0) |
 | `import(path)` | an ES module from the project (its relative imports load too) |
@@ -58,4 +58,5 @@ start Chromium with `--enable-gpu`. Without a card Chromium draws in software an
 in the video — keep the scene light or render a clip beforehand.
 
 **A video clip** — no script: `<video autoplay muted src="asset:video/clip.mp4"></video>` in `html` (mp4 H.264 or
-WebM); `asset:` works in `html`, `css` (`url(asset:…)`) and `background` of a page of your own.
+WebM); `asset:` works in `html`, `css` (`url(asset:…)`) and `background` of a page of your own, in `background`
+of a template and of the theme.

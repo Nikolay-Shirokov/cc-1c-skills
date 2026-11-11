@@ -1,4 +1,4 @@
-// web-test recording/tts v1.21 — TTS providers (edge/openai/elevenlabs), phrase cache and ffmpeg/ffprobe helpers.
+// web-test recording/tts v1.22 — TTS providers (edge/openai/elevenlabs), phrase cache and ffmpeg/ffprobe helpers.
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import { execFileSync, spawn } from 'child_process';
@@ -103,6 +103,10 @@ export async function resolveEdgeTts() {
   );
 }
 
+// Each provider's voice when none is given. In the cache key an explicit default voice counts as none,
+// so both find one phrase (and the phrases cached before this rule stay found)
+export const DEFAULT_VOICE = { edge: 'ru-RU-DmitryNeural', openai: 'alloy', elevenlabs: 'JBFqnCBsd6RMkjVDRZzb' };   // elevenlabs: George
+
 /**
  * Edge TTS provider (free, no API key). Uses node-edge-tts package.
  * @param {string} text — text to synthesize
@@ -111,7 +115,7 @@ export async function resolveEdgeTts() {
  */
 export async function edgeTtsProvider(text, outputPath, opts = {}) {
   const { EdgeTTS } = await resolveEdgeTts();
-  const voice = opts.voice || 'ru-RU-DmitryNeural';
+  const voice = opts.voice || DEFAULT_VOICE.edge;
   const tts = new EdgeTTS({ voice });
   await Promise.race([
     tts.ttsPromise(text, outputPath),
@@ -146,7 +150,7 @@ export async function openaiTtsProvider(text, outputPath, opts = {}) {
     body: JSON.stringify({
       model: opts.model || 'tts-1',
       input: text,
-      voice: opts.voice || 'alloy',
+      voice: opts.voice || DEFAULT_VOICE.openai,
       response_format: 'mp3',
       // speaking style for gpt-4o-mini-tts (tts-1/tts-1-hd do not support it): sent only when set
       ...(opts.instructions ? { instructions: opts.instructions } : {}),
@@ -164,7 +168,7 @@ export async function openaiTtsProvider(text, outputPath, opts = {}) {
  * @param {object} opts — { apiKey, apiUrl, voice, model }
  */
 export async function elevenlabsTtsProvider(text, outputPath, opts = {}) {
-  const voiceId = opts.voice || 'JBFqnCBsd6RMkjVDRZzb'; // George
+  const voiceId = opts.voice || DEFAULT_VOICE.elevenlabs;
   const apiUrl = opts.apiUrl || `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`;
   if (!opts.apiKey) throw new Error('ElevenLabs TTS requires apiKey');
   const resp = await ttsFetch('ElevenLabs', apiUrl, {
@@ -217,8 +221,10 @@ function pruneCache() {
   } catch { /* no cache yet */ }
 }
 
-function ttsCacheFile(text, opts = {}) {
-  const key = JSON.stringify([opts.provider || 'edge', opts.voice || '', opts.model || '', opts.instructions || '', opts.apiUrl || '', text]);
+export function ttsCacheFile(text, opts = {}) {
+  const provider = opts.provider || 'edge';
+  const voice = opts.voice && opts.voice !== DEFAULT_VOICE[provider] ? opts.voice : '';
+  const key = JSON.stringify([provider, voice, opts.model || '', opts.instructions || '', opts.apiUrl || '', text]);
   return pathJoin(TTS_CACHE_DIR, createHash('sha1').update(key).digest('hex') + '.mp3');
 }
 

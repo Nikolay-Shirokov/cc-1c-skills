@@ -1,4 +1,4 @@
-// web-test recording/slides/protocol v1.4 — step-slide protocol: base CSS + theme, page-side mount/step/lint.
+// web-test recording/slides/protocol v1.5 — step-slide protocol: base CSS + theme, page-side mount/step/lint.
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 //
 // A slide is a 1920×1080 page inside a shadow root (its CSS cannot touch a neighbour slide or the
@@ -17,9 +17,12 @@ const CAM = 'cubic-bezier(.65,0,.35,1)';
 const SOFT = 'cubic-bezier(.33,0,.2,1)';   // gentle start, soft landing (EASE front-loads → reads as a jerk)
 export { EASE };
 
-// Theme: base colours (primary, accent, ground, ink; optional line, mark, onAccent, font); the rest derived.
-// Structure (headers, links, arrows, rules, tints) is shades of primary; the accent marks what is being
-// said now (focus) plus title rules, numbers and callouts.
+// Theme: base colours (primary, accent, ground, ink; optional line, mark, onAccent, surface, onSurface, font,
+// fonts); the rest derived. Structure (headers, links, arrows, rules, tints) is shades of primary; the accent
+// marks what is being said now (focus) plus title rules, numbers and callouts.
+// Two families of text colours: on the slide's ground (ink, ink2, muted, heading) and on cards and plates —
+// the surface (on-surface, surface-ink2, surface-muted, surface-heading). A light ground keeps white cards;
+// a dark one derives dark cards a shade lighter than the ground (themeVars).
 export const DEFAULT_THEME = { primary: '#16213e', accent: '#f0a202', ground: '#f4f6fa', ink: '#1a1a2e' };
 
 export const BASE_CSS = `
@@ -31,7 +34,15 @@ export const BASE_CSS = `
   --primary-dk:color-mix(in oklab, var(--primary), #000 35%);
   --ink2:color-mix(in oklab, var(--ink) 85%, var(--ground));
   --muted:color-mix(in oklab, var(--ink) 55%, var(--ground));
-  --soft:color-mix(in oklab, var(--primary) 7%, #fff);   /* quiet tint for item boxes and number badges */
+  --heading:var(--primary);   /* big headings on the ground */
+  --surface:#fff; --on-surface:var(--ink);   /* cards, plates, cells */
+  --surface-ink2:color-mix(in oklab, var(--on-surface) 85%, var(--ground));
+  --surface-muted:color-mix(in oklab, var(--on-surface) 55%, var(--ground));
+  --surface-heading:var(--primary);
+  --surface-soft:color-mix(in oklab, var(--primary) 7%, var(--surface));   /* quiet tint inside a card */
+  --surface-edge:transparent;   /* card outline (a dark ground draws it) */
+  --shadow:var(--ink);
+  --soft:var(--surface-soft);   /* quiet tint for item boxes and number badges */
   --accent-hi:color-mix(in oklab, var(--accent), #fff 25%);
   --accent-text:color-mix(in oklab, var(--accent), #000 30%);
   --on-dark:#f4f4f6; --on-dark-muted:color-mix(in oklab, var(--on-dark) 70%, var(--primary));
@@ -66,12 +77,55 @@ export const BASE_CSS = `
 .ws-static, .ws-static *{transition:none !important;animation:none !important}
 `;
 
-/** Theme object → CSS custom properties (camelCase keys → --kebab-case). */
+/** Relative luminance of a #rgb / #rrggbb / rgb() colour, or null for anything else (a name, a gradient). */
+export function luminance(c) {
+  const s = String(c ?? '').trim();
+  let m = s.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i), rgb;
+  if (m) {
+    const h = m[1].length === 3 ? [...m[1]].map((x) => x + x).join('') : m[1];
+    rgb = [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16));
+  } else if ((m = s.match(/^rgba?\(\s*(\d+)[\s,]+(\d+)[\s,]+(\d+)/i))) rgb = m.slice(1, 4).map(Number);
+  else return null;
+  const [r, g, b] = rgb.map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+const isDark = (c) => { const l = luminance(c); return l != null && l < 0.18; };   // white text reads better below ~0.18
+
+/**
+ * Theme object → CSS custom properties (camelCase keys → --kebab-case). Only scalar keys become properties
+ * (`fonts` is loaded and `background` laid by index.mjs). A dark ground (or a dark `surface`) derives what the light defaults
+ * cannot: dark cards a shade lighter than the ground, light text on them, headings in ink, an outline
+ * instead of a shadow. Explicit keys always win; a light ground keeps the defaults as they are.
+ */
 export function themeVars(theme) {
+  const t = theme || {};
   const out = {};
-  for (const [k, v] of Object.entries(theme || {})) {
-    if (v == null || v === '') continue;
+  const set = (k, v) => { if (!(k in out)) out[k] = v; };
+  for (const [k, v] of Object.entries(t)) {
+    if (v == null || v === '' || typeof v === 'object' || k === 'background') continue;   // background: the slide's ground, not a colour
     out[`--${k.replace(/[A-Z]/g, (c) => '-' + c.toLowerCase())}`] = String(v);
+  }
+  const family = Array.isArray(t.fonts) && typeof t.fonts[0]?.family === 'string' ? t.fonts[0].family.trim() : '';
+  if (family && !t.font) out['--font'] = `'${family.replace(/['\\]/g, '\\$&')}','Segoe UI',Arial,sans-serif`;
+  const groundDark = isDark(t.ground ?? DEFAULT_THEME.ground);
+  const surfaceDark = t.surface !== undefined ? isDark(t.surface) : groundDark;
+  const inkDark = isDark(t.ink ?? DEFAULT_THEME.ink);
+  if (groundDark) {
+    set('--heading', 'var(--ink)');
+    set('--accent-text', 'var(--accent-hi)');
+    set('--shadow', '#000');
+    set('--surface-edge', 'color-mix(in oklab, var(--line) 45%, transparent)');
+    set('--surface', 'color-mix(in oklab, var(--ground), #fff 8%)');   // a shade lighter than the ground, whatever primary is
+  }
+  if (surfaceDark && inkDark) set('--on-surface', '#f4f4f6');
+  if (!surfaceDark && !inkDark) set('--on-surface', DEFAULT_THEME.ink);
+  if (surfaceDark) {
+    set('--surface-heading', 'var(--on-surface)');
+    set('--surface-soft', 'color-mix(in oklab, var(--on-surface) 9%, var(--surface))');
+  }
+  if (groundDark || surfaceDark) {
+    set('--surface-ink2', 'color-mix(in oklab, var(--on-surface) 85%, var(--surface))');
+    set('--surface-muted', 'color-mix(in oklab, var(--on-surface) 62%, var(--surface))');
   }
   return out;
 }
@@ -287,6 +341,16 @@ export function pageLint({ showSel }) {
   const tx = sr.width * 0.015 + 2, ty = sr.height * 0.015 + 2;
   const camIdle = getComputedStyle(root.querySelector('.ws-cam')).transform === 'none';
   const visible = (el) => !el.closest('.ws-pending:not(.on)') && getComputedStyle(el).visibility !== 'hidden';
+  // the nearest element that draws a box: a background, a border or a shadow (up to the camera layer)
+  const paintedBox = (el) => {
+    for (let a = el; a && !a.classList.contains('ws-cam'); a = a.parentElement) {
+      const cs = getComputedStyle(a);
+      const bg = cs.backgroundImage !== 'none' || !/rgba\(0, 0, 0, 0\)|transparent/.test(cs.backgroundColor);
+      const border = ['Top', 'Right', 'Bottom', 'Left'].some((s) => parseFloat(cs[`border${s}Width`]) > 0 && cs[`border${s}Style`] !== 'none');
+      if (bg || border || cs.boxShadow !== 'none') return a;
+    }
+    return null;
+  };
   const name = (el) => {
     const cls = typeof el.className === 'string' ? el.className.split(' ').find((c) => c && !c.startsWith('ws-')) : null;
     return cls ? '.' + cls : el.tagName.toLowerCase();
@@ -305,6 +369,21 @@ export function pageLint({ showSel }) {
     if (hasText && ov && el.scrollWidth > el.clientWidth + 2) out.overflow.push(`${name(el)} text does not fit (width)`);
     if (hasText && ov && el.scrollHeight > el.clientHeight + 2) out.overflow.push(`${name(el)} text does not fit (height)`);
     const own = [...el.childNodes].filter((n) => n.nodeType === 3 && n.textContent.trim());
+    // text that runs out of its visible box (a card, a plate) without clipping: overflow stays visible, so the
+    // scroll check above is blind to it — measure the text itself against the nearest painted ancestor
+    if (own.length && camIdle && !ov) {
+      const box = paintedBox(el);
+      if (box) {
+        const b = box.getBoundingClientRect(), tol = 3 * k;
+        const spills = own.some((n) => {
+          const rg = document.createRange();
+          rg.selectNodeContents(n);
+          const t = rg.getBoundingClientRect();
+          return t.width && (t.left < b.left - tol || t.right > b.right + tol || t.top < b.top - tol || t.bottom > b.bottom + tol);
+        });
+        if (spills) out.overflow.push(`${name(el)} text spills out of its box`);
+      }
+    }
     if (own.length) {
       out.words += own.map((n) => n.textContent.trim().split(/\s+/).length).reduce((a, b) => a + b, 0);
       // effective size on the 1920-wide stage, zoom of fitted boxes included

@@ -100,6 +100,119 @@ export default async function({
     assert.ok(!w.some((x) => /repeats the narration/.test(x)), 'a ws-nolint bubble may repeat the phrase');
   });
 
+  await step("templates: show 'all' lights everything with no focus and no dim; background reaches every template", async () => {
+    const counts = async (spec) => {
+      const all = spec.steps.findIndex((s) => [].concat(s.show).includes('all'));
+      let at = null;
+      await showSlide(spec, { ...fast, onStep: async (i) => { if (i === all) at = await slideState(); } });
+      return [at.focus, at.dim];
+    };
+    const three = [{ title: 'А', items: ['а'] }, { title: 'Б', items: ['б'] }, { title: 'В', items: ['в'] }];
+    const seq = [{ show: 0 }, { show: 1 }, { show: 'all' }];
+    const specs = {
+      cards: { layout: 'cards', cards: three, steps: seq },
+      columns: { layout: 'columns', columns: three, steps: seq },
+      comparison: { layout: 'comparison', left: { title: 'Л', items: ['а'] }, right: { title: 'П', items: ['б'] },
+        steps: [{ show: 'left' }, { show: 'right', row: 0 }, { show: 'all' }] },
+      process: { layout: 'process', stages: three, steps: seq },
+      radial: { layout: 'radial', center: { title: 'Ц' }, cards: three, steps: [{ show: 'center' }, ...seq] },
+      summary: { layout: 'summary', items: ['а', 'б', 'в'], steps: seq },
+      'summary [all, next]': { layout: 'summary', items: ['а', 'б', 'в'], next: 'Дальше', steps: [{ show: 0 }, { show: 1 }, { show: ['all', 'next'] }] },
+    };
+    for (const [name, spec] of Object.entries(specs)) assert.deepEqual(await counts(spec), [0, 0], `${name}: 'all' — no focus, no dim`);
+    for (const layout of ['cards', 'process', 'radial']) {
+      await showSlide({ ...specs[layout], background: 'rgb(18, 49, 35)' }, fast);
+      const bg = await shadow(() => getComputedStyle(document.getElementById('__ws_slide').shadowRoot.querySelector('.ws-slide')).backgroundColor);
+      assert.equal(bg, 'rgb(18, 49, 35)', `${layout}: background applied`);
+    }
+    const ground = () => shadow(() => getComputedStyle(document.getElementById('__ws_slide').shadowRoot.querySelector('.ws-slide')).backgroundColor);
+    setSlideTheme({ background: 'rgb(1, 2, 3)' });
+    await showSlide(specs.cards, fast);
+    const themed = await ground();
+    await showSlide({ layout: 'title', title: 'Титул' }, fast);
+    const title = await ground();
+    setSlideTheme(null);
+    assert.equal(themed, 'rgb(1, 2, 3)', 'theme.background on a slide without its own');
+    assert.notEqual(title, 'rgb(1, 2, 3)', 'title keeps its own ground');
+  });
+
+  await step('theme: light ground keeps white cards; dark ground derives dark cards with readable text', async () => {
+    // computed colours (color-mix gives oklab()/color()) → rgb through a canvas pixel
+    const card = () => shadow(() => {
+      const r = document.getElementById('__ws_slide').shadowRoot;
+      const g = Object.assign(document.createElement('canvas'), { width: 1, height: 1 }).getContext('2d');
+      const rgb = (c) => { g.clearRect(0, 0, 1, 1); g.fillStyle = c; g.fillRect(0, 0, 1, 1); return `rgb(${[...g.getImageData(0, 0, 1, 1).data].slice(0, 3).join(', ')})`; };
+      const cs = (sel, p) => rgb(getComputedStyle(r.querySelector(sel))[p]);
+      return { ground: cs('.ws-slide', 'backgroundColor'), card: cs('.cd-0', 'backgroundColor'), text: cs('.cd-0 p', 'color'), head: cs('.cd-lead b', 'color') };
+    });
+    const { luminance } = await import(pathToFileURL(path.resolve('.claude/skills/web-test/scripts/engine/recording/slides/protocol.mjs')).href);
+    const ratio = (a, b) => { const [x, y] = [luminance(a), luminance(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
+    const spec = { layout: 'cards', lead: { title: 'Вводная', text: 'текст' }, cards: [{ title: 'А', text: 'Текст карточки' }], steps: [{ show: 'all' }] };
+    await showSlide(spec, fast);
+    const light = await card();
+    log(`light: ${JSON.stringify(light)}`);
+    assert.equal(light.card, 'rgb(255, 255, 255)', 'light ground: white cards as before');
+    setSlideTheme({ primary: '#14213d', accent: '#3fb68b', ground: '#14213d', ink: '#FFFFFF' });
+    await showSlide(spec, fast);
+    const dark = await card();
+    setSlideTheme(null);
+    log(`dark: ${JSON.stringify(dark)} text/card ${ratio(dark.text, dark.card).toFixed(1)} head/ground ${ratio(dark.head, dark.ground).toFixed(1)}`);
+    assert.notEqual(dark.card, 'rgb(255, 255, 255)', 'dark ground: no white cards');
+    assert.notEqual(dark.card, dark.ground, 'cards stand apart from the ground');
+    assert.ok(ratio(dark.text, dark.card) >= 4.5, 'card text readable on the card');
+    assert.ok(ratio(dark.head, dark.ground) >= 4.5, 'a heading on the ground readable');
+    // a bright primary on a dark ground: the cards still come from the ground, their text stays readable
+    setSlideTheme({ primary: '#f0a202', ground: '#111111', ink: '#FFFFFF' });
+    await showSlide(spec, fast);
+    const bright = await card();
+    // a light grey ground is not dark: white cards as on the default
+    setSlideTheme({ ground: '#a0a0a0' });
+    await showSlide(spec, fast);
+    const grey = await card();
+    setSlideTheme(null);
+    log(`bright primary: ${JSON.stringify(bright)} ${ratio(bright.text, bright.card).toFixed(1)}; grey: ${grey.card}`);
+    assert.ok(ratio(bright.text, bright.card) >= 4.5, 'bright primary: card text readable');
+    assert.equal(grey.card, 'rgb(255, 255, 255)', 'a light grey ground keeps white cards');
+  });
+
+  await step('checks: a long radial centre fits its circle; text spilling out of a card is flagged', async () => {
+    const r = await showSlide({
+      layout: 'radial', center: { title: 'Учёт заказов клиентов и оплат', items: ['Статусы', 'Сроки'] },
+      cards: [{ title: 'А' }, { title: 'Б' }, { title: 'В' }], steps: [{ show: 'all' }],
+    }, fast);
+    assert.ok(!(r.warnings || []).some((x) => x.includes('hb-in')), `radial centre fits (${JSON.stringify(r.warnings || [])})`);
+    const s = await showSlide({
+      html: '<div class="box" style="position:absolute;left:200px;top:300px;width:220px;padding:16px;background:#fff;border-radius:12px;font-size:40px">Специализированная</div>',
+      steps: [{ show: '.box' }],
+    }, fast);
+    log(`spill: ${JSON.stringify(s.warnings || [])}`);
+    assert.ok((s.warnings || []).some((x) => x.includes('.box text spills out of its box')), 'spill flagged');
+  });
+
+  await step('theme fonts: files from the project load into the page once; a missing file fails before the recording', async () => {
+    const sys = ['C:/Windows/Fonts/arial.ttf', '/System/Library/Fonts/Supplemental/Arial.ttf', '/Library/Fonts/Arial.ttf'].find((f) => fs.existsSync(f));
+    if (!sys) { log('no system TTF to copy — skipped'); return; }
+    fs.copyFileSync(sys, `${dir}/test-font.ttf`);
+    const theme = { fonts: [{ family: 'WsTestFont', src: `${dir}/test-font.ttf`, weight: 400 }] };
+    await showSlide({ layout: 'statement', text: 'Шрифт из файла', theme }, fast);
+    const st = await shadow(() => ({
+      loaded: document.fonts.check('40px WsTestFont'),
+      font: getComputedStyle(document.getElementById('__ws_slide').shadowRoot.querySelector('.st-text')).fontFamily,
+      keys: Object.keys(document.__wsFonts || {}).length,
+    }));
+    log(`fonts: ${JSON.stringify(st)}`);
+    assert.ok(st.loaded, 'the face is registered on the document');
+    assert.ok(st.font.includes('WsTestFont'), 'the theme font stack starts with it');
+    await showSlide({ layout: 'statement', text: 'Ещё раз', theme }, fast);
+    assert.equal(await shadow(() => Object.keys(document.__wsFonts || {}).length), st.keys, 'sent once per page');
+    await rejectsWith(() => prepareSlides([{ layout: 'statement', text: 'А', theme: { fonts: [{ family: 'X', src: `${dir}/none.ttf` }] } }], { validateOnly: true }),
+      /font file not found/, 'a missing font file');
+    const { ttsCacheFile, DEFAULT_VOICE } = await import(pathToFileURL(path.resolve('.claude/skills/web-test/scripts/engine/recording/tts.mjs')).href);
+    assert.equal(ttsCacheFile('фраза', {}), ttsCacheFile('фраза', { provider: 'edge', voice: DEFAULT_VOICE.edge }),
+      'TTS cache: no voice and the default voice are one phrase');
+    await hideSlide({ motion: false });
+  });
+
   await step('page script: ready before the first step, hears steps, loads project files, cleans up', async () => {
     fs.writeFileSync(`${dir}/mod-b.mjs`, "export const b = 'B';\n");
     fs.writeFileSync(`${dir}/mod-a.mjs`, "import { b } from './mod-b.mjs';\nexport const a = 'A' + b;\n");

@@ -1,4 +1,4 @@
-// web-test recording/slides/templates v1.3 — slide templates: spec → { html, css, steps, bg?, push?, maxZoom? }.
+// web-test recording/slides/templates v1.4 — slide templates: spec → { html, css, steps, bg?, push?, maxZoom? }.
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 //
 // Every template is a generator for the step protocol (protocol.mjs): it builds a 1920×1080 page and
@@ -79,9 +79,26 @@ const TITLE_CSS = `
 @keyframes tplIn{from{opacity:0;transform:translateY(26px)}to{opacity:1;transform:none}}
 `;
 const titleHtml = (t) => (t ? `<div class="ws-title">${esc(t)}</div>` : '');
-const CARD_SHADOW = '0 6px 24px color-mix(in srgb, var(--ink) 8%, transparent)';
+const CARD_SHADOW = '0 0 0 1.5px var(--surface-edge),0 6px 24px color-mix(in srgb, var(--shadow) 8%, transparent)';
 const LIFT_SHADOW = '0 22px 60px color-mix(in srgb, var(--primary) 26%, transparent)';
 const DARK_TEXT = `.ws-slide{color:var(--on-dark)}`;
+
+// radial hub: the side of the square inscribed in its circle, and the title size that fits it — the longest
+// word on one line (≈0.78 em a letter: wide bold faces), the lines (greedy wrap) and the items under them within the square; 62px at most
+const HUB_IN = 270;
+function hubTitleSize(title, items) {
+  const words = String(title).split(/\s+/).filter(Boolean);
+  const longest = Math.max(...words.map((w) => w.length));
+  const room = HUB_IN - 22 - (items?.length ? items.length * 32 + 10 : 0);
+  for (let fs = 62; fs > 28; fs -= 2) {
+    const perLine = Math.floor(HUB_IN / (0.78 * fs));   // a wide heavy face (weight 800) with letter-spacing
+    if (longest > perLine) continue;
+    let lines = 1, cur = 0;
+    for (const w of words) { const add = (cur ? 1 : 0) + w.length; if (cur + add > perLine) { lines++; cur = w.length; } else cur += add; }
+    if (lines * fs * 1.12 <= room) return fs;
+  }
+  return 28;
+}
 
 // ── templates ─────────────────────────────────────────────────────────────
 export const templates = {
@@ -137,14 +154,14 @@ export const templates = {
       html: `<div class="ag-head">${esc(spec.title || 'Содержание')}</div><div class="ag-box ws-fit"><ol class="ag-list">${items}</ol></div>`,
       css: `
 .ag-head{position:absolute;left:120px;top:0;bottom:0;width:${two ? 420 : 520}px;display:flex;align-items:center;font-size:${two ? 64 : 76}px;
-  font-weight:800;line-height:1.05;letter-spacing:-.02em;color:var(--primary);--dx:-30px;--dy:0px}
+  font-weight:800;line-height:1.05;letter-spacing:-.02em;color:var(--heading);--dx:-30px;--dy:0px}
 .ag-box{position:absolute;left:${two ? 600 : 720}px;right:100px;top:60px;bottom:60px;display:flex;align-items:center}
 .ag-list{width:100%;margin:0;padding:0;list-style:none;display:grid;grid-template-rows:repeat(${rows},auto);grid-auto-flow:column;
   grid-auto-columns:1fr;gap:${two ? 18 : 22}px ${two ? 28 : 0}px}
-.ag-list li{display:flex;align-items:center;gap:26px;padding:${two ? 16 : 20}px 28px;border-radius:16px;background:#fff;
-  box-shadow:${CARD_SHADOW};font-size:${two ? 32 : 38}px;font-weight:600;color:var(--ink);--stagger:.1s;--dx:30px;--dy:0px}
+.ag-list li{display:flex;align-items:center;gap:26px;padding:${two ? 16 : 20}px 28px;border-radius:16px;background:var(--surface);
+  box-shadow:${CARD_SHADOW};font-size:${two ? 32 : 38}px;font-weight:600;color:var(--on-surface);--stagger:.1s;--dx:30px;--dy:0px}
 .ag-list b{flex:none;width:60px;height:60px;border-radius:50%;display:flex;align-items:center;justify-content:center;
-  background:var(--soft);color:var(--accent-text);font-size:30px;font-weight:800}
+  background:var(--surface-soft);color:var(--accent-text);font-size:30px;font-weight:800}
 .ag-list li.ws-focus{animation:none;transform:scale(1.04);background:var(--accent);color:var(--on-accent);
   box-shadow:0 20px 50px color-mix(in srgb, var(--accent) 35%, transparent)}
 .ag-list li.ws-focus b{background:#fff;color:var(--primary)}`,
@@ -205,17 +222,17 @@ export const templates = {
       css: TITLE_CSS + `
 .cd-wrap{position:absolute;left:96px;right:80px;top:${spec.title ? 180 : 60}px;bottom:40px;display:flex;align-items:center;gap:56px}
 .cd-lead{flex:0 0 460px;--dx:-28px;--dy:0px}
-.cd-lead b{display:block;font-size:72px;font-weight:800;color:var(--primary);letter-spacing:.02em}
+.cd-lead b{display:block;font-size:72px;font-weight:800;color:var(--heading);letter-spacing:.02em}
 .cd-lead b::after{content:'';display:block;width:90px;height:6px;margin-top:14px;border-radius:3px;background:var(--accent)}
 .cd-lead p{margin:18px 0 0;font-size:30px;line-height:1.4;color:var(--ink2)}
 .cd-box{flex:1;align-self:stretch;display:flex;flex-direction:column;min-width:0}
 .cd-box::before{content:'';flex:1}.cd-box::after{content:'';flex:2}
 .cd-grid{width:100%;display:grid;grid-template-columns:repeat(${cols},1fr);gap:28px}
-.cd-card{background:#fff;border-radius:16px;border-left:8px solid var(--line);padding:26px 30px;box-shadow:${CARD_SHADOW};--stagger:.12s}
+.cd-card{background:var(--surface);border-radius:16px;border-left:8px solid var(--line);padding:26px 30px;box-shadow:${CARD_SHADOW};--stagger:.12s}
 .cd-card.ws-focus{animation:none;transform:scale(1.03);box-shadow:${LIFT_SHADOW};border-left-color:var(--accent)}
-.cd-card h3{margin:0 0 10px;font-size:34px;font-weight:700;color:var(--primary);line-height:1.15}
-.cd-card p{margin:0;font-size:${spec.textSize || 29}px;line-height:1.35;color:var(--ink2)}
-.cd-card ul{margin:0;padding-left:28px;font-size:27px;line-height:1.35;color:var(--ink2)}
+.cd-card h3{margin:0 0 10px;font-size:34px;font-weight:700;color:var(--surface-heading);line-height:1.15}
+.cd-card p{margin:0;font-size:${spec.textSize || 29}px;line-height:1.35;color:var(--surface-ink2)}
+.cd-card ul{margin:0;padding-left:28px;font-size:27px;line-height:1.35;color:var(--surface-ink2)}
 .cd-card li::marker{color:var(--line)}`,
       steps,
     };
@@ -243,10 +260,10 @@ export const templates = {
 .co-box{position:absolute;left:96px;right:96px;top:${spec.title ? 180 : 60}px;bottom:44px;display:flex;flex-direction:column}
 .co-box::before{content:'';flex:1}.co-box::after{content:'';flex:2}
 .co-row{width:100%;display:grid;grid-template-columns:repeat(${n},1fr);gap:32px;align-items:center}
-.co-col{background:#fff;border-radius:18px;overflow:hidden;box-shadow:${CARD_SHADOW};--stagger:.15s}
+.co-col{background:var(--surface);border-radius:18px;overflow:hidden;box-shadow:${CARD_SHADOW};--stagger:.15s}
 .co-col.ws-focus{animation:none;transform:scale(1.025);box-shadow:${LIFT_SHADOW}}
 .co-col h3{margin:0;padding:20px 26px;background:var(--c);color:#fff;font-size:34px;font-weight:700;line-height:1.15}
-.co-it{margin:14px 18px;padding:14px 20px;border-radius:10px;background:var(--soft);font-size:27px;line-height:1.3;color:var(--ink2)}`,
+.co-it{margin:14px 18px;padding:14px 20px;border-radius:10px;background:var(--surface-soft);font-size:27px;line-height:1.3;color:var(--surface-ink2)}`,
       steps,
     };
   },
@@ -293,12 +310,12 @@ export const templates = {
 .cp-grid{width:100%;display:grid;grid-template-columns:1fr 90px 1fr;grid-auto-rows:auto;row-gap:18px}
 .cp-head{grid-row:1;padding:18px 30px;border-radius:14px;font-size:38px;font-weight:800;margin-bottom:8px}
 .cp-hl{grid-column:1;background:var(--c3);color:#fff}
-.cp-hr{grid-column:3;background:var(--primary);color:#fff;box-shadow:inset 0 -6px 0 var(--accent)}
+.cp-hr{grid-column:3;background:var(--primary);color:#fff;box-shadow:inset 0 -6px 0 var(--accent),0 0 0 1.5px var(--surface-edge)}
 .cp-vs{grid-column:2;align-self:center;justify-self:center;font-size:44px;font-weight:800;color:var(--line);--dx:-14px;--dy:0px}
 .cp-vs.ws-focus{animation:none;color:var(--accent)}
-.cp-cell{padding:18px 26px;border-radius:12px;background:#fff;font-size:30px;line-height:1.3;color:var(--ink2);box-shadow:${CARD_SHADOW};--stagger:.1s}
+.cp-cell{padding:18px 26px;border-radius:12px;background:var(--surface);font-size:30px;line-height:1.3;color:var(--surface-ink2);box-shadow:${CARD_SHADOW};--stagger:.1s}
 .cp-cell:empty{visibility:hidden}
-.cp-l{grid-column:1;color:var(--muted)}
+.cp-l{grid-column:1;color:var(--surface-muted)}
 .cp-r{grid-column:3;border-left:6px solid var(--line)}
 .cp-cell.ws-focus{animation:none;transform:scale(1.03);box-shadow:${LIFT_SHADOW}}
 .cp-r.ws-focus{border-left-color:var(--accent)}`,
@@ -358,16 +375,16 @@ export const templates = {
 .pr-row{display:flex;align-items:${hasItems ? 'stretch' : 'center'};gap:${GAPX}px}
 .pr-row.rev{flex-direction:row-reverse}
 .pr-st{flex:0 0 ${w}px;display:flex;flex-direction:column;gap:${twoRows ? 16 : 30}px;--dy:30px}
-.pr-card{flex:${hasItems ? 1 : 'none'};background:#fff;border-radius:16px;overflow:hidden;box-shadow:${CARD_SHADOW};
+.pr-card{flex:${hasItems ? 1 : 'none'};background:var(--surface);border-radius:16px;overflow:hidden;box-shadow:${CARD_SHADOW};
   min-height:${hasItems ? (twoRows ? 0 : 300) : 0}px}
 .pr-card.ws-focus{animation:none;transform:translateY(-8px);box-shadow:${LIFT_SHADOW}}
 .pr-card h3{margin:0;padding:20px 24px;background:var(--c);color:#fff;font-size:${w < 300 ? 28 : 32}px;font-weight:700;line-height:1.15
   ${hasItems ? '' : ';min-height:130px;display:flex;align-items:center;justify-content:center;text-align:center'}}
-.pr-card ul{margin:0;padding:16px 22px 20px 44px;font-size:${w < 300 ? 24 : 27}px;line-height:1.35;color:var(--ink2)}
+.pr-card ul{margin:0;padding:16px 22px 20px 44px;font-size:${w < 300 ? 24 : 27}px;line-height:1.35;color:var(--surface-ink2)}
 .pr-card li{margin:4px 0}
 .pr-card li::marker{color:var(--line)}
 .pr-role{display:flex;flex-direction:column;align-items:center;text-align:center;min-height:${twoRows ? 0 : 150}px}
-.pr-ico{width:${twoRows ? 56 : 84}px;height:${twoRows ? 56 : 84}px;fill:none;stroke:var(--primary);stroke-width:3.5}
+.pr-ico{width:${twoRows ? 56 : 84}px;height:${twoRows ? 56 : 84}px;fill:none;stroke:var(--heading);stroke-width:3.5}
 .pr-role b{margin-top:10px;font-size:${twoRows ? 26 : 32}px;font-weight:700;color:var(--ink)}
 .pr-role span{margin-top:6px;font-size:22px;font-weight:600;color:var(--accent-text);text-transform:uppercase;letter-spacing:.06em}
 .pr-arr{flex:0 0 ${ARW}px;width:${ARW}px;height:40px;align-self:${hasItems || hasRole ? 'flex-start' : 'center'};margin-top:${hasItems || hasRole ? 34 : 0}px;
@@ -401,7 +418,9 @@ export const templates = {
     const leftCol = range(n).filter((i) => i % 2 === 0).map((i) => card(spec.cards[i], i)).join('');
     const rightCol = range(n).filter((i) => i % 2 === 1).map((i) => card(spec.cards[i], i)).join('');
     const links = range(n).map((i) => `<path class="hb-l${i}" data-to=".hb-c${i}"/>`).join('');
-    const hub = `<div class="hb-hub"><b>${esc(spec.center.title)}</b>${list(spec.center.items)}</div>`;
+    // the hub's text lives in the square inscribed in the circle; the title's size follows its length
+    const hub = `<div class="hb-hub"><div class="hb-in"><b style="font-size:${hubTitleSize(spec.center.title, spec.center.items)}px">`
+      + `${esc(spec.center.title)}</b>${list(spec.center.items)}</div></div>`;
     // step { show: 'center' | i } → show the card and its line, focus it, dim the ones before
     const shown = [];
     const steps = steps0.map(({ show, ...rest }) => {
@@ -425,18 +444,19 @@ export const templates = {
 .hb-col{position:absolute;top:${top}px;bottom:36px;width:640px;display:flex;flex-direction:column;justify-content:space-around;gap:18px}
 .hb-left{left:80px}
 .hb-right{right:80px}
-.hb-card{background:#fff;border-radius:18px;overflow:hidden;box-shadow:${CARD_SHADOW};--stagger:.4s}
+.hb-card{background:var(--surface);border-radius:18px;overflow:hidden;box-shadow:${CARD_SHADOW};--stagger:.4s}
 .hb-card.left{--dx:-32px;--dy:0px}
 .hb-card.right{--dx:32px;--dy:0px}
 .hb-card.ws-focus{animation:none;transform:scale(1.025);box-shadow:${LIFT_SHADOW}}
 .hb-card h3{margin:0;padding:18px 28px;color:#fff;background:var(--c);font-weight:700;font-size:32px;line-height:1.15}
-.hb-card ul{margin:0;padding:14px 28px 18px 50px;color:var(--ink2);font-size:23px;line-height:1.32}
+.hb-card ul{margin:0;padding:14px 28px 18px 50px;color:var(--surface-ink2);font-size:23px;line-height:1.32}
 .hb-card li{margin:3px 0}
 .hb-card li::marker{color:var(--line)}
 .hb-hub{position:absolute;left:770px;top:${r1(cy - 190)}px;width:380px;height:380px;border-radius:50%;color:#fff;--dy:0px;--from-scale:.8;
-  background:radial-gradient(circle at 35% 30%,var(--primary-hi),var(--primary));box-shadow:0 20px 60px color-mix(in srgb, var(--primary) 35%, transparent);
+  background:radial-gradient(circle at 35% 30%,var(--primary-hi),var(--primary));box-shadow:0 0 0 2px var(--surface-edge),0 20px 60px color-mix(in srgb, var(--primary) 35%, transparent);
   display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:30px}
-.hb-hub b{font-size:62px;font-weight:800;letter-spacing:.02em}
+.hb-in{width:${HUB_IN}px;height:${HUB_IN}px;display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:hidden}
+.hb-hub b{font-size:62px;font-weight:800;letter-spacing:.02em;line-height:1.12}
 .hb-hub b::after{content:'';display:block;width:60px;height:5px;margin:10px auto 0;border-radius:3px;background:var(--accent)}
 .hb-hub ul{list-style:none;margin:10px 0 0;padding:0;font-size:22px;font-weight:600;line-height:1.45;opacity:.92}`,
       steps,
@@ -493,7 +513,7 @@ export const templates = {
       css: `
 ${(spec.shadow ?? framed) ? '.im-main{box-shadow:0 4px 40px rgba(0,0,0,.5)}' : ''}
 .im-co{position:absolute;width:0;height:0;--dy:0px;--from-scale:.5}
-.im-co b{position:absolute;left:-26px;top:-26px;width:52px;height:52px;border-radius:50%;background:var(--mark);color:var(--ink);
+.im-co b{position:absolute;left:-26px;top:-26px;width:52px;height:52px;border-radius:50%;background:var(--mark);color:var(--on-accent);
   font-size:28px;font-weight:800;display:flex;align-items:center;justify-content:center;
   box-shadow:0 0 0 5px color-mix(in srgb, var(--mark) 35%, transparent),0 8px 20px rgba(0,0,0,.3)}
 .im-co span{position:absolute;left:40px;top:-26px;white-space:nowrap;padding:8px 18px;border-radius:10px;background:var(--primary);color:#fff;
@@ -535,7 +555,7 @@ ${(spec.shadow ?? framed) ? '.im-main{box-shadow:0 4px 40px rgba(0,0,0,.5)}' : '
   display:flex;align-items:center;justify-content:center;transition:background .5s ease,color .5s ease}
 .sm-list li.ws-focus{animation:none}
 .sm-list li.ws-focus i{background:var(--accent);color:var(--on-accent)}
-.sm-next{position:absolute;left:96px;right:96px;bottom:60px;padding:28px 36px;border-radius:18px;background:var(--primary);color:#fff;
+.sm-next{position:absolute;left:96px;right:96px;bottom:60px;padding:28px 36px;border-radius:18px;background:var(--primary);color:#fff;box-shadow:0 0 0 1.5px var(--surface-edge);
   font-size:36px;font-weight:600;line-height:1.3}
 .sm-next small{display:block;font-size:22px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:var(--accent-hi);margin-bottom:8px}`,
       steps,
@@ -582,7 +602,17 @@ export function buildSlide(spec) {
   if (spec.layout !== undefined) {
     const t = templates[spec.layout];
     if (!t) throw new SpecError(`showSlide: unknown layout "${spec.layout}" — one of: ${LAYOUTS.join(', ')}`);
-    return t(spec);
+    const built = t(spec);
+    // a step whose show has 'all' lights everything: no focus, no dim left from the steps before (a comparison
+    // row given with it keeps its own focus). Template steps follow spec.steps one to one, extras go after.
+    (isArr(spec.steps) ? spec.steps : []).forEach((s, i) => {
+      if (!s || ![].concat(s.show).includes('all') || !built.steps[i]) return;
+      built.steps[i].clear = true;
+      if (s.row === undefined) built.steps[i].focus = null;
+    });
+    // every template takes `background` (a colour, a gradient, url(asset:…)); without it — the template's own
+    if (spec.background !== undefined) built.bg = rewriteAssets(spec.background);
+    return built;
   }
   let html = spec.html;
   if (html === undefined && spec.file) {

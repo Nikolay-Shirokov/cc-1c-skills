@@ -1,16 +1,16 @@
-// web-test recording/slides v1.4 — animated step slides: showSlide / hideSlide / prepareSlides / setSlideTheme / loadSlides.
+// web-test recording/slides v1.5 — animated step slides: showSlide / hideSlide / prepareSlides / setSlideTheme / loadSlides.
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 //
 // A slide is a template spec ({ layout, ... }) or a custom page ({ html, css, steps }). Each step is a phrase
 // plus what changes on screen; a spoken step becomes a caption, so addNarration voices it exactly where its
 // change happens. Step length = the phrase's real TTS length (shared phrase cache, see tts.mjs).
 
-import { readFileSync } from 'fs';
+import { readFileSync, existsSync } from 'fs';
 import { pathToFileURL } from 'url';
 import { page, recorder, ensureConnected, resolveProjectPath } from '../../core/state.mjs';
 import { synthesizeCached, cachedSpeechSeconds, mergeTtsOptions, readProjectConfig, unspokenWarning } from '../tts.mjs';
 import { BASE_CSS, themeVars, pageMount, pageStep, pageHide, pageLint, pageScript } from './protocol.mjs';
-import { ASSET_BASE, ensureAssetsRoute, releaseAssetsRoute, encodeAssetPath } from './assets.mjs';
+import { ASSET_BASE, ensureAssetsRoute, releaseAssetsRoute, encodeAssetPath, rewriteAssets } from './assets.mjs';
 import { buildSlide } from './templates.mjs';
 import { resolveMusic, musicOpen, musicClose } from '../music.mjs';
 
@@ -31,6 +31,42 @@ function projectSlidesTheme() {
   return readProjectConfig().slides?.theme || {};
 }
 const themeFor = (spec, opts) => ({ ...projectSlidesTheme(), ...scenarioTheme, ...(opts.theme || {}), ...(spec.theme || {}) });
+
+// theme.fonts: [{ family, src, weight?, style? }] — font files from the project, registered on the page's document
+// (document.fonts reaches into the slides' shadow roots; an @font-face inside a shadow root does not). Sent once
+// per page: a registry on the document says what is there already (a 1C page keeps it across slides).
+function fontList(fonts) {
+  if (fonts === undefined) return [];
+  if (!Array.isArray(fonts)) throw new Error('slides theme: "fonts" must be an array of { family, src, weight?, style? }');
+  return fonts.map((f, i) => {
+    if (!f || typeof f.family !== 'string' || !f.family.trim() || typeof f.src !== 'string' || !f.src.trim()) {
+      throw new Error(`slides theme: fonts[${i}] needs "family" and "src" (a font file from the project root)`);
+    }
+    const abs = resolveProjectPath(f.src);
+    if (!existsSync(abs)) throw new Error(`slides theme: font file not found: ${abs}`);
+    const weight = String(f.weight ?? 400), style = f.style || 'normal';
+    return { family: f.family.trim(), weight, style, abs, key: `${f.family.trim()}|${weight}|${style}|${abs}` };
+  });
+}
+async function ensureFonts(fonts) {
+  const list = fontList(fonts);
+  if (!list.length) return;
+  const have = await page.evaluate((keys) => keys.filter((k) => document.__wsFonts?.[k]), list.map((f) => f.key));
+  for (const f of list.filter((x) => !have.includes(x.key))) {
+    const b64 = readFileSync(f.abs).toString('base64');
+    try {
+      await page.evaluate(async ({ family, weight, style, b64, key }) => {
+        const bin = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+        const face = new FontFace(family, bin.buffer, { weight, style });
+        await face.load();
+        document.fonts.add(face);
+        (document.__wsFonts ||= {})[key] = true;
+      }, { family: f.family, weight: f.weight, style: f.style, b64, key: f.key });
+    } catch (e) {
+      throw new Error(`slides theme: font ${f.abs} did not load: ${String(e.message).replace(/^page\.evaluate:\s*/, '').split('\n')[0]}`);
+    }
+  }
+}
 
 // ── helpers ───────────────────────────────────────────────────────────────
 const SLIDE_OPTS = new Set(['theme', 'motion', 'fast', 'synth', 'legacy', 'lint', 'onStep', 'label']);
@@ -81,7 +117,7 @@ async function lintStep(step, i, seconds) {
   const w = [...r.overflow, ...r.small.map((x) => `small font: ${x}`), ...r.longLists.map((x) => `long list ${x}`)];
   if (r.words > 70) w.push(`a lot of text on screen: ~${r.words} words`);
   if (step.speech) {
-    if (seconds > 16) w.push(`long step: ~${Math.round(seconds)} s of speech — split it into steps`);
+    if (seconds > 15) w.push(`long step: ~${Math.round(seconds)} s of speech — split it into steps`);
     const unspoken = unspokenWarning(step.speech);
     if (unspoken) w.push(unspoken);
     const sp = new Set(norm(step.speech));
@@ -142,7 +178,15 @@ export async function showSlide(spec, opts = {}) {
   const onScreen = await page.evaluate(() => !!document.getElementById('__ws_slide'));
   const first = rec && !onScreen && (rec.holdSince || rec.videoTimeMs < 1000);
   const instant = !motion || first;
-  const vars = themeVars(themeFor(spec, opts));
+  const theme = themeFor(spec, opts);
+  const vars = themeVars(theme);
+  // theme.background (the brand's ground, a logo in a corner) — on slides without their own (spec or template)
+  const bg = built.bg ?? (theme.background !== undefined ? rewriteAssets(theme.background) : undefined);
+  // project files (asset: in the page or its ground, slide.import/load/asset in its script) — served on this page,
+  // before the first mount: a logo in the ground is requested at once. Routing turns the browser cache off:
+  // on only while such a slide is up (the 1C client keeps its cache otherwise)
+  const needsAssets = !!built.script || `${built.html}${built.css || ''}${bg || ''}`.includes(ASSET_BASE);
+  if (needsAssets) await ensureAssetsRoute(page);
   if (first) {
     // the slide's ground at once (a tiny payload), the content follows: mounting a slide with a big
     // picture takes a while, and the recording is already running
@@ -151,18 +195,15 @@ export async function showSlide(spec, opts = {}) {
     // a painted frame reaches the screencast with a lag — hence the pause (this time is not in the video).
     const held = rec._holdFrames?.();
     try {
-      await page.evaluate(pageMount, { html: '', css: BASE_CSS, bg: built.bg, vars, instant: true, animated: { show: [], all: [] } });
+      await page.evaluate(pageMount, { html: '', css: BASE_CSS, bg, vars, instant: true, animated: { show: [], all: [] } });
       if (held) await page.waitForTimeout(300);
     } finally {
       if (held) rec._releaseFrames();   // a failed mount must not leave the recording holding (writing nothing)
     }
   }
-  // project files (asset: in the page, slide.import/load/asset in its script) — served on this page
-  // routing turns the browser cache off: on only while such a slide is up (the 1C client keeps its cache otherwise)
-  const needsAssets = !!built.script || `${built.html}${built.css || ''}${built.bg || ''}`.includes(ASSET_BASE);
-  if (needsAssets) await ensureAssetsRoute(page);
+  await ensureFonts(theme.fonts);   // before the content (the first slide's ground above has no text)
   await page.evaluate(pageMount, {
-    html: built.html, css: BASE_CSS + (built.css || ''), bg: built.bg, vars,
+    html: built.html, css: BASE_CSS + (built.css || ''), bg, vars,
     pushSec: motion && built.push ? total : 0, animated: animatedSelectors(built.steps), instant, staticMode: !motion,
     hostId: opts.legacy || null,
   });
@@ -230,6 +271,7 @@ export async function prepareSlides(specs, opts = {}) {
   const tts = ttsOptions(rest);
   const built = specs.map((s) => buildSlide(s));
   for (const s of specs) if (s.music !== undefined) resolveMusic(s.music);
+  for (const s of specs) fontList(themeFor(s, rest).fonts);   // a missing font file fails before the recording
   const jobs = built.flatMap((b) => b.steps.filter((s) => s.speech).map((s) => [s.speech, s.voice ? { ...tts, voice: s.voice } : tts]));
   if (!validateOnly) {
     // several phrases at a time (like addNarration; ElevenLabs allows fewer parallel requests), two retries each
