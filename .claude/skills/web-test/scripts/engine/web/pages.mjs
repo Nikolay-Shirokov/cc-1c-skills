@@ -1,4 +1,4 @@
-// web-test web/pages v1.0 — other web pages in a session: an adjacent system next to 1C, a video without 1C.
+// web-test web/pages v1.1 — other web pages in a session: an adjacent system next to 1C, a video without 1C.
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 //
 // One namespace `web` (open, highlight, unhighlight, mask, saveLogin) plus connectWeb for `start --web`.
@@ -14,6 +14,20 @@ import { registerPageContext, setActiveContext, hasContext, listWebContexts } fr
 import { unhighlight } from '../recording/highlight.mjs';
 
 const LOAD_MS = 60000, READY_MS = 30000;
+
+// What web analytics sends (not its loaders — a site may show things through a tag manager). Such a request can
+// stay open for good (a click map), and then a page never goes network-idle; a recording also must not count
+// as a visit. Cut at once: for the site it is as with an ad blocker. 1C pages are not touched.
+const ANALYTICS = [
+  [/^mc\.yandex\.[a-z.]+$/, (p) => !p.startsWith('/metrika/')],          // Yandex Metrica beacons (watch, clmap, webvisor)
+  [/(^|\.)google-analytics\.com$|^analytics\.google\.com$/, (p) => /\/collect\b/.test(p)],
+  [/^top-fwz1\.mail\.ru$/, () => true],                                   // Top.Mail.Ru counter
+  [/^(in|vc|content)\.hotjar\.(com|io)$/, () => true],
+  [/(^|\.)clarity\.ms$/, (p) => /\/collect\b/.test(p)],
+  [/^www\.facebook\.com$/, (p) => p === '/tr' || p.startsWith('/tr/')],
+];
+const isAnalytics = (url) => ANALYTICS.some(([host, path]) => host.test(url.hostname) && path(url.pathname));
+const cutAnalytics = (target) => target.route(isAnalytics, (route) => route.abort('blockedbyclient').catch(() => {}));
 
 function loginState(login) {
   if (login === undefined) return null;
@@ -38,6 +52,7 @@ export async function connectWeb(url, { login, ready } = {}) {
   const b = await chromium.launch({ headless: false, args: ['--start-maximized'] });
   try {
     const ctx = await b.newContext({ viewport: null, ...(saved ? { storageState: saved.abs } : {}) });
+    await cutAnalytics(ctx);
     const pg = await ctx.newPage();
     setBrowser(b);
     setPage(pg);
@@ -67,6 +82,7 @@ async function open(name, url, { login, ready } = {}) {
   const ctx = page.context();
   if (saved?.state.cookies?.length) await ctx.addCookies(saved.state.cookies);
   const pg = await ctx.newPage();
+  await cutAnalytics(pg);   // this tab only: the 1C page shares the context
   // localStorage of the saved login: set before the site's own scripts read it (a tab shares the context),
   // once per tab — later loads keep what the site has stored since (a refreshed token)
   if (saved?.state.origins?.length) {

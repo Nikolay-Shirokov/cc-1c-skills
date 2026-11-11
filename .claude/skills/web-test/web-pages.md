@@ -25,6 +25,8 @@ await setActiveContext('main');
 - Actions on the page are Playwright: `getPage()` while its context is active (`click`, `fill`, `getByText`,
   `waitForTimeout` for a pause). The 1C functions (`clickElement`, `fillFields`, `highlight(text)`, `wait`) are
   for 1C pages.
+- Playwright actions wait for their element themselves — no waits for the network (`networkidle`) between steps:
+  on many sites it never goes quiet.
 - `web.highlight(locator)` — a frame around an element, as `highlight` draws on 1C; `web.unhighlight()` removes it.
 - `web.mask([...])` — hide parts of the active page in the video: CSS selectors and `{ text: '…' }` (the element
   holding the text — its neighbours in a row stay; a whole row or block — by a selector). Holds after the page

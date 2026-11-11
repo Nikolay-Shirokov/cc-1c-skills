@@ -49,6 +49,18 @@ export default async function({
       assert.equal(getActiveContext(), 'site', 'nothing switched');
     });
 
+    await step('what web analytics sends is cut on a web page at once; the site itself is not', async () => {
+      const pg = getPage();
+      const res = await pg.evaluate(async (base) => {
+        const t = async (u) => { const t0 = Date.now(); try { await fetch(u, { mode: 'no-cors' }); return ['ok', Date.now() - t0]; } catch { return ['cut', Date.now() - t0]; } };
+        return { beacon: await t('https://mc.yandex.ru/watch/1?x=1'), site: await t(base + '/') };
+      }, base);
+      log(`analytics ${JSON.stringify(res)}`);
+      assert.equal(res.beacon[0], 'cut', 'the beacon is cut');
+      assert.ok(res.beacon[1] < 2000, 'at once');
+      assert.equal(res.site[0], 'ok', 'the site answers');
+    });
+
     await step('web.highlight(locator) frames an element; web.unhighlight removes it; a text is refused', async () => {
       const pg = getPage();
       await web.highlight(pg.locator('.order'));
