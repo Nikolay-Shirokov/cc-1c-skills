@@ -186,7 +186,8 @@ frame: { number: { at: 'bottom-right' }, logo: { src: 'docs/video/logo.png', at:
 - In the spec of a slide: `frame: false` — none on it; `frame: { footer: 'Раздел 2' }` — replaces that part;
   `number: 5` — this slide's number (the count goes on from it).
 - `title`, `closing`, `image` have no frame unless their spec gives a `frame` object; they are not counted.
-- The number counts the framed slides of a recording (`play` / `preview` — of the run).
+- The number counts the framed slides of a script run (and starts over with a recording).
+- `setSlideTheme({ frame: false })` — a scenario without the project's frame.
 - Template content keeps clear of the frame; the slide title stays in place. On a page of your own lay out within
   the fields `var(--safe-*)` — the least distance from the edge (`left: max(96px, var(--safe-left))`); content
   under the frame is flagged (`overlaps the frame`).

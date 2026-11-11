@@ -1,4 +1,4 @@
-// web-test recording/slides/protocol v1.7 — step-slide protocol: base CSS + theme, page-side mount/step/lint.
+// web-test recording/slides/protocol v1.8 — step-slide protocol: base CSS + theme, page-side mount/step/lint.
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 //
 // A slide is a 1920×1080 page inside a shadow root (its CSS cannot touch a neighbour slide or the
@@ -417,10 +417,12 @@ export function pageLint({ showSel }) {
       if (fs < 21.5) out.small.push(`${name(el)} ${Math.round(fs)}px`);
     }
     if (/^(UL|OL)$/.test(el.tagName) && el.children.length > 6) out.longLists.push(`${name(el)}: ${el.children.length} items`);
-    // text, a picture or a painted box under the frame (camera at rest: a zoom brings anything under it)
+    // text or a picture under the frame (camera at rest: a zoom brings anything under it). A backdrop, a plate or
+    // a picture filling most of the slide is meant to lie under it
     if (frameRects.length && camIdle && r.width) {
       const textUnder = own.some((n) => { const rg = document.createRange(); rg.selectNodeContents(n); return hits(rg.getBoundingClientRect()); });
-      if (textUnder || ((el.tagName === 'IMG' || paintedBox(el) === el) && hits(r))) out.overflow.push(`${name(el)} overlaps the frame`);
+      const smallPic = el.tagName === 'IMG' && r.width * r.height < sr.width * sr.height * 0.5;
+      if (textUnder || (smallPic && hits(r))) out.overflow.push(`${name(el)} overlaps the frame`);
     }
   }
   if (showSel) out.shown = [...root.querySelectorAll(showSel)].filter((e) => !e.closest('.ws-nolint')).map((e) => (e.innerText ?? e.textContent ?? '').trim()).filter(Boolean);

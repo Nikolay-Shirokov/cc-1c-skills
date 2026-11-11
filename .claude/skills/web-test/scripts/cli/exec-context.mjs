@@ -1,9 +1,10 @@
-// web-test cli/exec-context v1.4 — buildContext + executeScript для run/exec/test
+// web-test cli/exec-context v1.5 — buildContext + executeScript для run/exec/test
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import { readFileSync, writeFileSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import * as browser from '../browser.mjs';
+import { resetSlideRun } from '../engine/recording/slides/index.mjs';
 import { elapsed, slugify, withDeadline, softDeadline, DeadlineError } from './util.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -119,6 +120,7 @@ export async function executeScript(code, { noRecord, timeoutMs } = {}) {
 
   const t0 = Date.now();
   try {
+    resetSlideRun();   // slide numbers (theme.frame) start over with every script
     const ctx = buildContext({ noRecord });
 
     // Normalize Windows backslash paths to prevent JS parse errors

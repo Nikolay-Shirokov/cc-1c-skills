@@ -289,6 +289,25 @@ export default async function({
       /logo — at must be bottom-left/, 'an edge place is for the footer only');
     await rejectsWith(() => prepareSlides([{ ...cards, theme: { frame: { badge: true } } }], { validateOnly: true }),
       /unknown "badge" — logo, number, footer/, 'an unknown frame element');
+    // a scenario drops the frame: theme frame false is "off", not an error
+    setSlideTheme({ frame: false });
+    await showSlide(cards, fast);
+    assert.equal((await fr()).on, false, 'theme frame: false — no frame');
+    setSlideTheme(null);
+    // geometry under a frame: title vs content with a top corner; summary list vs its "next" card; a status mark on a card without a title
+    const rect = (sel) => shadow((sel) => { const b = document.getElementById('__ws_slide').shadowRoot.querySelector(sel).getBoundingClientRect(); return { l: b.left, r: b.right, t: b.top, b: b.bottom }; }, sel);
+    await showSlide({ ...cards, title: 'Заголовок в две строки, чтобы проверить, что содержимое уходит ниже вместе с ним',
+      theme: { frame: { logo: { src: logo, at: 'top-left' } } } }, fast);
+    assert.ok((await rect('.ws-title')).b <= (await rect('.cd-wrap')).t + 1, 'content starts below the title moved by a top-corner frame');
+    await showSlide({ layout: 'summary', items: ['а', 'б', 'в', 'г', 'д', 'е'], next: 'Дальше по плану', steps: [{ show: 'all' }],
+      theme: { frame: { logo: logo, number: true } } }, fast);
+    assert.ok((await rect('.sm-box')).b <= (await rect('.sm-next')).t + 1, 'summary: the list ends above the next card');
+    await showSlide({ layout: 'cards', cards: [{ text: 'Карточка без заголовка с длинным текстом, который тянется до правого края', status: 'ok' }], steps: [{ show: 'all' }] }, fast);
+    assert.ok((await rect('.cd-card p')).r <= (await rect('.cd-card .ws-st-ic')).l + 1, 'a status mark does not cover a card text');
+    // a backdrop under the frame is meant: not flagged
+    const back = await showSlide({ html: '<div class="bg" style="position:absolute;inset:0;background:#223"></div><div class="mid" style="position:absolute;left:600px;top:500px;font-size:40px">Середина</div>',
+      theme: { frame: { logo: logo, number: true } }, steps: [{ show: '.mid' }] }, fast);
+    assert.ok(!(back.warnings || []).some((w) => w.includes('overlaps the frame')), `a full-bleed backdrop is not flagged (${JSON.stringify(back.warnings || [])})`);
     // an own page drawing under the frame is flagged
     const own = await showSlide({ html: '<div class="low" style="position:absolute;left:40px;bottom:30px;font-size:30px">Низ кадра</div>',
       theme: { frame: { number: { at: 'bottom-left' } } }, steps: [{ show: '.low' }] }, fast);

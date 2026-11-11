@@ -1,11 +1,11 @@
-// web-test recording/slides v1.6 — animated step slides: showSlide / hideSlide / prepareSlides / setSlideTheme / loadSlides.
+// web-test recording/slides v1.7 — animated step slides: showSlide / hideSlide / prepareSlides / setSlideTheme / loadSlides.
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 //
 // A slide is a template spec ({ layout, ... }) or a custom page ({ html, css, steps }). Each step is a phrase
 // plus what changes on screen; a spoken step becomes a caption, so addNarration voices it exactly where its
 // change happens. Step length = the phrase's real TTS length (shared phrase cache, see tts.mjs).
 
-import { readFileSync, existsSync } from 'fs';
+import { readFileSync, existsSync, statSync } from 'fs';
 import { pathToFileURL } from 'url';
 import { page, recorder, ensureConnected, resolveProjectPath } from '../../core/state.mjs';
 import { synthesizeCached, cachedSpeechSeconds, mergeTtsOptions, readProjectConfig, unspokenWarning } from '../tts.mjs';
@@ -43,15 +43,26 @@ const NO_FRAME = new Set(['title', 'closing', 'image']);
 // corporate deck: content starts at ~128px past a vertical footer; above (below) a corner row 100px leave room
 // for the slide's slow zoom, which carries its edges outward
 const SAFE = { left: '128px', right: '128px', top: '100px', bottom: '100px' };
-let frameRecorder, frameNo = 0;   // slide numbers: counted per recording (play/preview — per run)
+let frameRecorder, frameNo = 0;   // slide numbers: counted per recording and per script run
+/** A new script run (exec / play / preview): slide numbers start over. */
+export function resetSlideRun() { frameRecorder = recorder; frameNo = 0; }
+// a logo is read once (path + mtime → data URL): a deck sends it with every slide
+const logoCache = new Map();
+function logoUrl(src) {
+  const abs = resolveProjectPath(src);
+  const key = existsSync(abs) ? `${abs}|${statSync(abs).mtimeMs}` : abs;
+  if (!logoCache.has(key)) logoCache.set(key, imageInfo(src, 'frame').url);
+  return logoCache.get(key);
+}
 
 function frameSpec(spec, theme) {
   if (spec.frame === false) return null;
   const own = spec.frame && typeof spec.frame === 'object' ? spec.frame : null;
   if (spec.frame !== undefined && spec.frame !== false && !own) throw new Error('slides frame: spec "frame" must be false or an object');
   if (NO_FRAME.has(spec.layout) && !own) return null;
+  // theme frame false / null — off (a scenario can drop the project's frame)
   const base = theme.frame && typeof theme.frame === 'object' ? theme.frame : null;
-  if (theme.frame !== undefined && !base) throw new Error('slides theme: "frame" must be an object { logo, number, footer }');
+  if (theme.frame !== undefined && theme.frame !== null && theme.frame !== false && !base) throw new Error('slides theme: "frame" must be an object { logo, number, footer }, or false');
   if (!base && !own) return null;
   const merged = { ...(base || {}), ...(own || {}) };   // key order: the theme's, then new ones — the order in a corner
   const out = [];
@@ -78,13 +89,12 @@ function frameSpec(spec, theme) {
   return out.length ? out : null;
 }
 
-/** The frame's html and the fields it keeps (CSS vars), the slide number counted here. */
-function frameFor(spec, theme) {
-  const items = frameSpec(spec, theme);
+/** The frame's html and the fields it keeps (CSS vars); the slide number is counted here, at the mount. */
+function frameFor(spec, items) {
   if (!items) return { html: '', vars: {} };
   if (frameRecorder !== recorder) { frameRecorder = recorder; frameNo = 0; }
   frameNo = Number.isInteger(spec.number) ? spec.number : frameNo + 1;
-  const piece = (x) => (x.key === 'logo' ? `<img class="wf-logo" style="height:${x.height}px" src="${imageInfo(x.src, 'frame').url}"/>`
+  const piece = (x) => (x.key === 'logo' ? `<img class="wf-logo" style="height:${x.height}px" src="${logoUrl(x.src)}"/>`
     : x.key === 'number' ? `<span class="wf-num">${frameNo}</span>` : `<span class="wf-text">${esc(x.text)}</span>`);
   let html = '';
   const vars = {};
@@ -214,6 +224,10 @@ async function lintStep(step, i, seconds) {
 export async function showSlide(spec, opts = {}) {
   ensureConnected();
   const built = buildSlide(spec);
+  // the theme and its frame first: a wrong frame (a missing logo) fails before any speech is synthesized
+  const theme = themeFor(spec, opts);
+  const frameItems = opts.legacy ? null : frameSpec(spec, theme);
+  for (const x of frameItems || []) if (x.src) logoUrl(x.src);
   if (spec.music !== undefined) resolveMusic(spec.music);   // a wrong music spec fails before the slide
   const motion = (opts.motion ?? spec.motion) !== false;
   const tts = ttsOptions(opts);
@@ -247,9 +261,8 @@ export async function showSlide(spec, opts = {}) {
   const onScreen = await page.evaluate(() => !!document.getElementById('__ws_slide'));
   const first = rec && !onScreen && (rec.holdSince || rec.videoTimeMs < 1000);
   const instant = !motion || first;
-  const theme = themeFor(spec, opts);
   // the brand's frame (legacy overlays never have one) and the fields it keeps clear
-  const frame = opts.legacy ? { html: '', vars: {} } : frameFor(spec, theme);
+  const frame = frameFor(spec, frameItems);
   const vars = { ...themeVars(theme), ...frame.vars };
   // theme.background (the brand's ground, a logo in a corner) — on slides without their own (spec or template)
   const bg = built.bg ?? (theme.background !== undefined ? rewriteAssets(theme.background) : undefined);
@@ -343,7 +356,7 @@ export async function prepareSlides(specs, opts = {}) {
   const built = specs.map((s) => buildSlide(s));
   for (const s of specs) if (s.music !== undefined) resolveMusic(s.music);
   for (const s of specs) fontList(themeFor(s, rest).fonts);   // a missing font file fails before the recording
-  for (const s of specs) for (const x of frameSpec(s, themeFor(s, rest)) || []) if (x.src) imageInfo(x.src, 'frame');   // and a wrong frame
+  for (const s of specs) for (const x of frameSpec(s, themeFor(s, rest)) || []) if (x.src) logoUrl(x.src);   // and a wrong frame
   const jobs = built.flatMap((b) => b.steps.filter((s) => s.speech).map((s) => [s.speech, s.voice ? { ...tts, voice: s.voice } : tts]));
   if (!validateOnly) {
     // several phrases at a time (like addNarration; ElevenLabs allows fewer parallel requests), two retries each
