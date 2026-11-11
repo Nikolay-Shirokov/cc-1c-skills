@@ -1,4 +1,4 @@
-// web-test recording/slides/templates v1.4 — slide templates: spec → { html, css, steps, bg?, push?, maxZoom? }.
+// web-test recording/slides/templates v1.5 — slide templates: spec → { html, css, steps, bg?, push?, maxZoom? }.
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 //
 // Every template is a generator for the step protocol (protocol.mjs): it builds a 1920×1080 page and
@@ -100,6 +100,32 @@ function hubTitleSize(title, items) {
   return 28;
 }
 
+// ── statuses ──────────────────────────────────────────────────────────────
+// status: 'ok' | 'warn' | 'off' | 'optional' on a card, column, stage, comparison cell or flow item. No words on
+// screen (the voice says it): ok/warn — a stripe in the status colour and a round mark, off — faded and struck
+// through, optional — no plate, a dashed outline. Without a status the element is drawn as before.
+const STATUSES = ['ok', 'warn', 'off', 'optional'];
+function checkStatus(layout, what, x) {
+  need(layout, x?.status === undefined || STATUSES.includes(x.status), `${what}: status must be ok, warn, off or optional`);
+}
+const stClass = (x) => (x?.status ? ` ws-st-${x.status}` : '');
+const stIcon = (x) => (x?.status === 'ok' ? '<i class="ws-st-ic">✓</i>' : x?.status === 'warn' ? '<i class="ws-st-ic">?</i>' : '');
+const STATUS_CSS = `
+.ws-st-ok{--st:var(--status-ok)} .ws-st-warn{--st:var(--status-warn)}
+.ws-st-ok,.ws-st-warn{position:relative}
+.ws-st-ic{position:absolute;right:18px;top:18px;width:40px;height:40px;border-radius:50%;background:var(--st);color:#fff;
+  font-style:normal;font-size:24px;font-weight:800;line-height:1;display:flex;align-items:center;justify-content:center}
+.ws-st-off>*{opacity:.5;text-decoration:line-through;text-decoration-thickness:2px}
+.ws-st-optional{background:transparent;box-shadow:none;outline:3px dashed color-mix(in oklab, var(--line) 70%, transparent);outline-offset:-3px}
+.ws-st-optional>*{opacity:.75}
+.ws-st-optional>h3{background:transparent;color:var(--heading)}
+`;
+// a card with a header band (columns, process, radial): the stripe on the band's left edge, the mark inside it
+const BAND_STATUS_CSS = (card) => `
+${card}.ws-st-ok>h3,${card}.ws-st-warn>h3{position:relative;box-shadow:inset 8px 0 0 var(--st);padding-right:72px}
+${card}.ws-st-ok>h3 .ws-st-ic,${card}.ws-st-warn>h3 .ws-st-ic{top:50%;margin-top:-20px}
+`;
+
 // ── templates ─────────────────────────────────────────────────────────────
 export const templates = {
   // Title card: kicker, multi-line title (\n), subtitle, a rule that draws, optional picture on the right.
@@ -199,12 +225,13 @@ export const templates = {
     count(L, 'cards', spec.cards, 1, 12, 'split the slide');
     const n = spec.cards.length;
     spec.cards.forEach((c, i) => need(L, c && (isStr(c.title) || isStr(c.text) || isArr(c.items)), `card ${i + 1} needs title, text or items`));
+    spec.cards.forEach((c, i) => checkStatus(L, `card ${i + 1}`, c));
     const steps0 = stepsOf(L, spec);
     checkShow(L, steps0, n, ['all', 'lead'], ['all', 'lead']);
     if (steps0.some((s) => [].concat(s.show).includes('lead'))) need(L, spec.lead, 'show "lead" without a "lead" block');
     const cols = spec.columns || (spec.lead ? (n <= 4 ? 2 : 3) : n <= 3 ? n : n <= 4 ? 2 : n <= 6 ? 3 : 4);
     const lead = spec.lead ? `<div class="cd-lead"><b>${esc(spec.lead.title)}</b><p>${esc(spec.lead.text)}</p></div>` : '';
-    const cards = spec.cards.map((c, i) => `<div class="cd-card cd-${i}">`
+    const cards = spec.cards.map((c, i) => `<div class="cd-card cd-${i}${stClass(c)}">${stIcon(c)}`
       + (c.title ? `<h3>${esc(c.title)}</h3>` : '') + (c.text ? `<p>${esc(c.text)}</p>` : '') + list(c.items) + '</div>');
     const sel = (i) => (i === 'lead' ? '.cd-lead' : `.cd-${i}`);
     const steps = steps0.map(({ show, ...s }) => {
@@ -233,7 +260,10 @@ export const templates = {
 .cd-card h3{margin:0 0 10px;font-size:34px;font-weight:700;color:var(--surface-heading);line-height:1.15}
 .cd-card p{margin:0;font-size:${spec.textSize || 29}px;line-height:1.35;color:var(--surface-ink2)}
 .cd-card ul{margin:0;padding-left:28px;font-size:27px;line-height:1.35;color:var(--surface-ink2)}
-.cd-card li::marker{color:var(--line)}`,
+.cd-card li::marker{color:var(--line)}
+.cd-card.ws-st-ok,.cd-card.ws-st-warn{border-left-color:var(--st)}
+.cd-card.ws-st-ok>h3,.cd-card.ws-st-warn>h3{margin-right:52px}
+.cd-card.ws-st-optional{border-left-color:transparent}` + STATUS_CSS,
       steps,
     };
   },
@@ -243,12 +273,12 @@ export const templates = {
     const L = 'columns';
     count(L, 'columns', spec.columns, 2, 5, 'use cards for more');
     const n = spec.columns.length;
-    spec.columns.forEach((c, i) => need(L, c && isStr(c.title), `column ${i + 1} needs a title`));
+    spec.columns.forEach((c, i) => { need(L, c && isStr(c.title), `column ${i + 1} needs a title`); checkStatus(L, `column ${i + 1}`, c); });
     const steps0 = stepsOf(L, spec);
     checkShow(L, steps0, n, ['all']);
     const colors = ['var(--c1)', 'var(--c2)', 'var(--c4)', 'var(--c5)', 'var(--c3)'];
-    const cols = spec.columns.map((c, i) => `<div class="co-col co-${i}" style="--c:${c.color || colors[i % colors.length]}">`
-      + `<h3>${esc(c.title)}</h3>${(c.items || []).map((x) => `<div class="co-it">${esc(x)}</div>`).join('')}</div>`).join('');
+    const cols = spec.columns.map((c, i) => `<div class="co-col co-${i}${stClass(c)}" style="--c:${c.color || colors[i % colors.length]}">`
+      + `<h3>${esc(c.title)}${stIcon(c)}</h3>${(c.items || []).map((x) => `<div class="co-it">${esc(x)}</div>`).join('')}</div>`).join('');
     const sel = (i) => `.co-${i}`;
     const steps = steps0.map(({ show, ...s }) => (show === undefined ? s
       : show === 'all' ? { ...s, show: range(n).map(sel).join(', ') } : { ...s, show: [].concat(show).map(sel).join(', '), focus: [].concat(show).map(sel).join(', ') }));
@@ -263,7 +293,7 @@ export const templates = {
 .co-col{background:var(--surface);border-radius:18px;overflow:hidden;box-shadow:${CARD_SHADOW};--stagger:.15s}
 .co-col.ws-focus{animation:none;transform:scale(1.025);box-shadow:${LIFT_SHADOW}}
 .co-col h3{margin:0;padding:20px 26px;background:var(--c);color:#fff;font-size:34px;font-weight:700;line-height:1.15}
-.co-it{margin:14px 18px;padding:14px 20px;border-radius:10px;background:var(--surface-soft);font-size:27px;line-height:1.3;color:var(--surface-ink2)}`,
+.co-it{margin:14px 18px;padding:14px 20px;border-radius:10px;background:var(--surface-soft);font-size:27px;line-height:1.3;color:var(--surface-ink2)}` + STATUS_CSS + BAND_STATUS_CSS('.co-col'),
       steps,
     };
   },
@@ -282,7 +312,13 @@ export const templates = {
       need(L, s.row === undefined || (Number.isInteger(s.row) && s.row >= 0 && s.row < n), `step ${i + 1}: row must be 0..${n - 1}`);
     });
     const { left: Lf, right: R } = spec;
-    const cell = (side, i, x) => `<div class="cp-cell cp-${side} cp-${side}${i}" style="grid-row:${i + 2}">${x === undefined ? '' : esc(x)}</div>`;
+    for (const side of ['left', 'right']) spec[side].items.forEach((x, i) => {
+      need(L, x === undefined || typeof x === 'string' || (x && typeof x.text === 'string'), `${side} item ${i + 1}: a string or { text, status }`);
+      checkStatus(L, `${side} item ${i + 1}`, x);
+    });
+    // a cell: a string, or { text, status } (its text in a span: a struck-through status styles the children)
+    const cell = (side, i, x) => `<div class="cp-cell cp-${side} cp-${side}${i}${stClass(x)}" style="grid-row:${i + 2}">`
+      + (x === undefined ? '' : x?.status ? `${stIcon(x)}<span>${esc(x.text)}</span>` : esc(typeof x === 'string' ? x : x.text)) + '</div>';
     // an arrow only between two filled cells (a row with one side empty has none)
     const arrow = (i) => (Lf.items[i] !== undefined && R.items[i] !== undefined
       ? `<div class="cp-vs cp-a${i}" style="grid-row:${i + 2}">→</div>` : '');
@@ -318,7 +354,9 @@ export const templates = {
 .cp-l{grid-column:1;color:var(--surface-muted)}
 .cp-r{grid-column:3;border-left:6px solid var(--line)}
 .cp-cell.ws-focus{animation:none;transform:scale(1.03);box-shadow:${LIFT_SHADOW}}
-.cp-r.ws-focus{border-left-color:var(--accent)}`,
+.cp-r.ws-focus{border-left-color:var(--accent)}
+.cp-cell.ws-st-ok,.cp-cell.ws-st-warn{border-left:6px solid var(--st);padding-right:72px}
+.cp-cell .ws-st-ic{top:50%;margin-top:-20px}` + STATUS_CSS,
       steps,
     };
   },
@@ -330,7 +368,7 @@ export const templates = {
     const L = 'process';
     count(L, 'stages', spec.stages, 2, 10, 'split the process');
     const n = spec.stages.length;
-    spec.stages.forEach((s, i) => need(L, s && isStr(s.title), `stage ${i + 1} needs a title`));
+    spec.stages.forEach((s, i) => { need(L, s && isStr(s.title), `stage ${i + 1} needs a title`); checkStatus(L, `stage ${i + 1}`, s); });
     const wrap = spec.wrap ?? 'snake';
     need(L, ['snake', 'bend', 'none'].includes(wrap), `wrap must be 'snake', 'bend' or 'none'`);
     const steps0 = stepsOf(L, spec);
@@ -344,7 +382,7 @@ export const templates = {
     const arrow = (i, rev) => `<svg class="pr-arr pr-${i}a${rev ? ' rev' : ''}" viewBox="0 0 64 40"><path d="M4 20H54M42 8l14 12-14 12"/></svg>`;
     const colors = ['var(--c1)', 'var(--c2)', 'var(--c4)', 'var(--c5)'];
     const stage = (st, i) => `<div class="pr-st pr-${i}" style="--c:${st.color || colors[i % colors.length]}">`
-      + `<div class="pr-card pr-c${i}"><h3>${esc(st.title)}</h3>${list(st.items)}</div>`
+      + `<div class="pr-card pr-c${i}${stClass(st)}"><h3>${esc(st.title)}${stIcon(st)}</h3>${list(st.items)}</div>`
       + (st.role ? `<div class="pr-role">${person}<b>${esc(st.role)}</b>${st.caption ? `<span>${esc(st.caption)}</span>` : ''}</div>`
         : hasRole ? '<div class="pr-role"></div>' : '') + '</div>';
     const row = (from, to, rev) => `<div class="pr-row${rev ? ' rev' : ''}">`
@@ -397,7 +435,7 @@ export const templates = {
 .pr-turn path, .pr-bend path{fill:none;stroke:var(--line);stroke-width:4;stroke-linecap:round;stroke-linejoin:round}
 .pr-bend{width:100%;height:70px}
 .pr-arr.ws-focus, .pr-turn.ws-focus{animation:none}
-.pr-arr.ws-focus, .pr-turn.ws-focus path, .pr-bend.ws-focus path{stroke:var(--accent)}`,
+.pr-arr.ws-focus, .pr-turn.ws-focus path, .pr-bend.ws-focus path{stroke:var(--accent)}` + STATUS_CSS + BAND_STATUS_CSS('.pr-card'),
       steps,
     };
   },
@@ -409,12 +447,12 @@ export const templates = {
     need(L, spec.center && isStr(spec.center.title), '"center" needs a title');
     count(L, 'cards', spec.cards, 3, 6, 'split the slide or use cards');
     const n = spec.cards.length;
-    spec.cards.forEach((c, i) => need(L, c && isStr(c.title), `card ${i + 1} needs a title`));
+    spec.cards.forEach((c, i) => { need(L, c && isStr(c.title), `card ${i + 1} needs a title`); checkStatus(L, `card ${i + 1}`, c); });
     const steps0 = stepsOf(L, spec);
     checkShow(L, steps0, n, ['center', 'all']);
     const colors = ['var(--c1)', 'var(--c2)', 'var(--c4)', 'var(--c3)', 'var(--c5)', 'var(--c2)'];
-    const card = (c, i) => `<div class="hb-card hb-c${i} ${i % 2 ? 'right' : 'left'}" style="--c:${c.color || colors[i]}">`
-      + `<h3>${esc(c.title)}</h3>${list(c.items)}</div>`;
+    const card = (c, i) => `<div class="hb-card hb-c${i} ${i % 2 ? 'right' : 'left'}${stClass(c)}" style="--c:${c.color || colors[i]}">`
+      + `<h3>${esc(c.title)}${stIcon(c)}</h3>${list(c.items)}</div>`;
     const leftCol = range(n).filter((i) => i % 2 === 0).map((i) => card(spec.cards[i], i)).join('');
     const rightCol = range(n).filter((i) => i % 2 === 1).map((i) => card(spec.cards[i], i)).join('');
     const links = range(n).map((i) => `<path class="hb-l${i}" data-to=".hb-c${i}"/>`).join('');
@@ -458,7 +496,93 @@ export const templates = {
 .hb-in{width:${HUB_IN}px;height:${HUB_IN}px;display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:hidden}
 .hb-hub b{font-size:62px;font-weight:800;letter-spacing:.02em;line-height:1.12}
 .hb-hub b::after{content:'';display:block;width:60px;height:5px;margin:10px auto 0;border-radius:3px;background:var(--accent)}
-.hb-hub ul{list-style:none;margin:10px 0 0;padding:0;font-size:22px;font-weight:600;line-height:1.45;opacity:.92}`,
+.hb-hub ul{list-style:none;margin:10px 0 0;padding:0;font-size:22px;font-weight:600;line-height:1.45;opacity:.92}` + STATUS_CSS + BAND_STATUS_CSS('.hb-card'),
+      steps,
+    };
+  },
+
+  // Inputs → a node → outputs, left to right (sources, processing, a result). step: show 'center' | 'all',
+  // in: i | [i] | 'all', out: i | [i] | 'all' (indexes within their column). The node: a plate, or shape 'circle'.
+  flow(spec) {
+    const L = 'flow';
+    count(L, 'inputs', spec.inputs, 1, 5, 'split the slide or use cards');
+    count(L, 'outputs', spec.outputs, 1, 4, 'split the slide or use cards');
+    need(L, spec.center && isStr(spec.center.title), '"center" needs a title');
+    need(L, spec.center.items === undefined || (isArr(spec.center.items) && spec.center.items.length <= 3), 'center: up to 3 items');
+    const shape = spec.center.shape ?? 'plate';
+    need(L, ['plate', 'circle'].includes(shape), `center.shape must be 'plate' or 'circle'`);
+    const ni = spec.inputs.length, no = spec.outputs.length;
+    for (const [side, arr] of [['input', spec.inputs], ['output', spec.outputs]]) {
+      arr.forEach((x, i) => {
+        need(L, x && (isStr(x.title) || isStr(x.text) || isArr(x.items)), `${side} ${i + 1} needs title, text or items`);
+        checkStatus(L, `${side} ${i + 1}`, x);
+      });
+    }
+    const steps0 = stepsOf(L, spec);
+    const idxOk = (v, n) => v === 'all' || [].concat(v).every((x) => Number.isInteger(x) && x >= 0 && x < n);
+    steps0.forEach((s, i) => {
+      need(L, s.show === undefined || ['center', 'all'].includes(s.show), `step ${i + 1}: show must be 'center' or 'all'`);
+      need(L, s.in === undefined || idxOk(s.in, ni), `step ${i + 1}: in must be 0..${ni - 1} or 'all'`);
+      need(L, s.out === undefined || idxOk(s.out, no), `step ${i + 1}: out must be 0..${no - 1} or 'all'`);
+    });
+    const card = (x, k) => `<div class="fl-card fl-${k}${stClass(x)}">${stIcon(x)}`
+      + (x.title ? `<h3>${esc(x.title)}</h3>` : '') + (x.text ? `<p>${esc(x.text)}</p>` : '') + list(x.items) + '</div>';
+    const circle = shape === 'circle';
+    const center = circle
+      ? `<div class="fl-center fl-circle"><div class="fl-in"><b style="font-size:${hubTitleSize(spec.center.title, spec.center.items)}px">`
+        + `${esc(spec.center.title)}</b>${list(spec.center.items)}</div></div>`
+      : `<div class="fl-center fl-plate"><b>${esc(spec.center.title)}</b>${list(spec.center.items)}</div>`;
+    const links = range(ni).map((i) => `<path class="fl-li${i}" data-to=".fl-i${i}"/>`).join('')
+      + range(no).map((i) => `<path class="fl-lo${i}" data-to=".fl-o${i}"/>`).join('');
+    const inSel = (i) => `.fl-i${i}, .fl-li${i}`, outSel = (i) => `.fl-o${i}, .fl-lo${i}`;
+    const pick = (v, n, sel) => (v === 'all' ? range(n) : [].concat(v)).map(sel);
+    const steps = steps0.map(({ show, in: inp, out, ...rest }) => {
+      const parts = [], focus = [];
+      if (show === 'center') { parts.push('.fl-center'); focus.push('.fl-center'); }
+      if (show === 'all') parts.push('.fl-center', ...range(ni).map(inSel), ...range(no).map(outSel));
+      if (inp !== undefined) { const p = pick(inp, ni, inSel); parts.push(...p); focus.push(...p); }
+      if (out !== undefined) { const p = pick(out, no, outSel); parts.push(...p); focus.push(...p); }
+      if (!parts.length) return rest;
+      const st = { ...rest, show: parts.join(', ') };
+      if (show !== 'all' && focus.length) st.focus = focus.join(', ');
+      return st;
+    });
+    steps.push({ clear: true, focus: null, hold: spec.outro ?? 1.2 });
+    const top = spec.title ? 180 : 60;
+    return {
+      push: true,
+      html: titleHtml(spec.title)
+        + `<svg class="ws-links" data-from=".fl-center"${circle ? ' data-round' : ''} viewBox="0 0 ${W} ${H}">${links}</svg>`
+        + `<div class="fl-col fl-ins ws-fit">${spec.inputs.map((x, i) => card(x, `i${i}`)).join('')}</div>`
+        + `<div class="fl-mid">${center}</div>`
+        + `<div class="fl-col fl-outs ws-fit">${spec.outputs.map((x, i) => card(x, `o${i}`)).join('')}</div>`,
+      css: TITLE_CSS + `
+.fl-col{position:absolute;top:${top}px;bottom:40px;width:520px;display:flex;flex-direction:column;justify-content:center;gap:22px}
+.fl-ins{left:96px}
+.fl-outs{right:96px}
+.fl-card{background:var(--surface);border-radius:16px;border-left:8px solid var(--line);padding:22px 28px;box-shadow:${CARD_SHADOW};--stagger:.12s}
+.fl-ins .fl-card{--dx:-28px;--dy:0px}
+.fl-outs .fl-card{--dx:28px;--dy:0px}
+.fl-card.ws-focus{animation:none;transform:scale(1.03);box-shadow:${LIFT_SHADOW};border-left-color:var(--accent)}
+.fl-card h3{margin:0 0 8px;font-size:30px;font-weight:700;color:var(--surface-heading);line-height:1.15}
+.fl-card p{margin:0;font-size:25px;line-height:1.35;color:var(--surface-ink2)}
+.fl-card ul{margin:0;padding-left:26px;font-size:25px;line-height:1.35;color:var(--surface-ink2)}
+.fl-card li::marker{color:var(--line)}
+.fl-card.ws-st-ok,.fl-card.ws-st-warn{border-left-color:var(--st)}
+.fl-card.ws-st-ok>h3,.fl-card.ws-st-warn>h3{margin-right:52px}
+.fl-card.ws-st-optional{border-left-color:transparent}
+.fl-mid{position:absolute;left:736px;width:448px;top:${top}px;bottom:40px;display:flex;align-items:center;justify-content:center}
+.fl-center{color:#fff;--dy:0px;--from-scale:.85;text-align:center}
+.fl-center.ws-focus{animation:none}
+.fl-plate{width:448px;padding:40px 36px;border-radius:24px;background:var(--c1);
+  box-shadow:0 0 0 2px var(--surface-edge),0 20px 60px color-mix(in srgb, var(--primary) 30%, transparent)}
+.fl-plate b{display:block;font-size:40px;font-weight:800;line-height:1.15}
+.fl-circle{width:380px;height:380px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  background:radial-gradient(circle at 35% 30%,var(--primary-hi),var(--primary));box-shadow:0 0 0 2px var(--surface-edge),0 20px 60px color-mix(in srgb, var(--primary) 35%, transparent)}
+.fl-in{width:${HUB_IN}px;height:${HUB_IN}px;display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:hidden}
+.fl-circle b{font-weight:800;letter-spacing:.02em;line-height:1.12}
+.fl-center b::after{content:'';display:block;width:60px;height:5px;margin:12px auto 0;border-radius:3px;background:var(--accent)}
+.fl-center ul{list-style:none;margin:14px 0 0;padding:0;font-size:24px;font-weight:600;line-height:1.45;opacity:.92}` + STATUS_CSS,
       steps,
     };
   },

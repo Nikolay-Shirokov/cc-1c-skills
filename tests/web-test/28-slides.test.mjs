@@ -189,6 +189,56 @@ export default async function({
     assert.equal(grey.card, 'rgb(255, 255, 255)', 'a light grey ground keeps white cards');
   });
 
+  await step('statuses: ok/warn/off/optional on cards, columns, process, radial, comparison cells; a wrong one is a spec error', async () => {
+    const st = (sel) => shadow((sel) => {
+      const r = document.getElementById('__ws_slide').shadowRoot;
+      return { cls: [...r.querySelectorAll(sel)].map((e) => (e.className.match(/ws-st-\w+/) || [''])[0]), marks: r.querySelectorAll('.ws-st-ic').length };
+    }, sel);
+    const four = ['ok', 'warn', 'off', 'optional'];
+    await showSlide({ layout: 'cards', cards: [...four.map((s) => ({ title: s, status: s })), { title: 'без статуса' }], steps: [{ show: 'all' }] }, fast);
+    let r = await st('.cd-card');
+    assert.deepEqual(r.cls, ['ws-st-ok', 'ws-st-warn', 'ws-st-off', 'ws-st-optional', ''], 'cards: a class per status, none without');
+    assert.equal(r.marks, 2, 'cards: marks for ok and warn only');
+    await showSlide({ layout: 'columns', columns: four.slice(0, 2).map((s) => ({ title: s, status: s })), steps: [{ show: 'all' }] }, fast);
+    assert.equal((await st('.co-col h3 .ws-st-ic')).marks, 2, 'columns: the mark sits in the header band');
+    await showSlide({ layout: 'process', stages: [{ title: 'А', status: 'off' }, { title: 'Б' }], steps: [{ show: 'all' }] }, fast);
+    assert.deepEqual((await st('.pr-card')).cls, ['ws-st-off', ''], 'process: status on the stage card');
+    await showSlide({ layout: 'radial', center: { title: 'Ц' }, cards: [{ title: 'А', status: 'warn' }, { title: 'Б' }, { title: 'В' }], steps: [{ show: 'all' }] }, fast);
+    assert.deepEqual((await st('.hb-card')).cls, ['ws-st-warn', '', ''], 'radial: status on the card');
+    await showSlide({ layout: 'comparison', left: { title: 'Л', items: ['а', 'б'] }, right: { title: 'П', items: [{ text: 'в', status: 'ok' }, 'г'] }, steps: [{ show: 'all' }] }, fast);
+    assert.deepEqual((await st('.cp-r')).cls, ['ws-st-ok', ''], 'comparison: a cell { text, status }');
+    await rejectsWith(() => prepareSlides([{ layout: 'cards', cards: [{ title: 'А', status: 'done' }], steps: [{ show: 0 }] }], { validateOnly: true }),
+      /card 1: status must be ok, warn, off or optional/, 'a wrong status');
+  });
+
+  await step("flow: inputs → centre → outputs, steps by column, links laid out, circle shape; radial 'all' lights at once", async () => {
+    await rejectsWith(() => prepareSlides([{ layout: 'flow', inputs: [...Array(7)].map((_, i) => ({ title: `${i}` })), center: { title: 'Ц' },
+      outputs: [{ title: 'Р' }], steps: [{ show: 'center' }] }], { validateOnly: true }), /1–5 inputs supported, got 7/, 'inputs limit with advice');
+    await rejectsWith(() => prepareSlides([{ layout: 'flow', inputs: [{ title: 'А' }], center: { title: 'Ц' }, outputs: [{ title: 'Р' }],
+      steps: [{ out: 3 }] }], { validateOnly: true }), /out must be 0\.\.0 or 'all'/, 'out index in range');
+    const spec = { layout: 'flow', title: 'Поток', inputs: [{ title: 'А' }, { title: 'Б', status: 'optional' }], center: { title: 'Узел', items: ['раз'] },
+      outputs: [{ title: 'Итог', status: 'ok' }], steps: [{ show: 'center' }, { in: 0 }, { in: 1 }, { out: 'all' }, { show: 'all' }] };
+    const states = [];
+    await showSlide(spec, { ...fast, onStep: async (i) => { if (i < 5) states.push(await slideState()); } });
+    log(`flow steps: ${JSON.stringify(states.map((s) => s.on.filter((c) => /^fl-(center|i\d|o\d)$/.test(c))))}`);
+    assert.ok(states[0].on.includes('fl-center') && !states[0].on.includes('fl-i0'), 'centre first');
+    assert.ok(states[1].on.includes('fl-i0') && states[1].on.includes('fl-li0') && !states[1].on.includes('fl-i1'), 'an input with its link');
+    assert.ok(states[3].on.includes('fl-o0') && states[3].on.includes('fl-lo0'), "out: 'all'");
+    assert.deepEqual([states[4].focus, states[4].dim], [0, 0], "show 'all': no focus, no dim");
+    const links = await shadow(() => [...document.getElementById('__ws_slide').shadowRoot.querySelectorAll('.ws-links path')].map((p) => p.getAttribute('d') || ''));
+    assert.equal(links.length, 3, 'a link per input and output');
+    assert.ok(links.every((d) => /^M[\d.]+ [\d.]+ L[\d.]+ [\d.]+$/.test(d)), 'links laid out');
+    await showSlide({ ...spec, center: { ...spec.center, shape: 'circle' }, steps: [{ show: 'all' }] }, fast);
+    assert.equal(await shadow(() => !!document.getElementById('__ws_slide').shadowRoot.querySelector('.fl-circle')), true, "shape: 'circle'");
+    // radial: cards shown before are lit at once on 'all' (no cascade delay from their place in the list)
+    const si = [];
+    await showSlide({ layout: 'radial', center: { title: 'Ц' }, cards: [{ title: 'А' }, { title: 'Б' }, { title: 'В' }],
+      steps: [{ show: 'center' }, { show: 0 }, { show: 1 }, { show: 2 }, { show: 'all' }] }, { ...fast, onStep: async (i) => {
+      if (i === 4) si.push(...await shadow(() => [...document.getElementById('__ws_slide').shadowRoot.querySelectorAll('.hb-card')].map((e) => e.style.getPropertyValue('--si'))));
+    } });
+    assert.deepEqual(si, ['0', '0', '0'], "radial 'all': no cascade on cards already shown");
+  });
+
   await step('checks: a long radial centre fits its circle; text spilling out of a card is flagged', async () => {
     const r = await showSlide({
       layout: 'radial', center: { title: 'Учёт заказов клиентов и оплат', items: ['Статусы', 'Сроки'] },

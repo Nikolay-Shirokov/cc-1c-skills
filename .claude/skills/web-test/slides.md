@@ -41,14 +41,19 @@ slide `title`; `image` has none (the picture carries its own). All take `theme`,
 | `comparison` | before/after, A vs B | `left`, `right`: `{ title, items }` (rows aligned) | `show: 'left' \| 'right' \| 'all'`, `row: i` (lights a pair and its arrow); both in one step: `{ show: 'right', row: 0 }` | 1–8 rows |
 | `process` | stages in order | `stages: [{ title, items, role, caption }]` (`role` — a person under the stage, `caption` — a line under the role), `wrap` | `show: i \| 'all'` | 2–10; > 5 → two rows: `wrap: 'snake'` (default) \| `'bend'` \| `'none'` |
 | `radial` | a centre and who/what around it | `center: { title, items }`, `cards: [{ title, items }]` | `show: 'center' \| i \| 'all'` | 3–6 cards |
+| `flow` | sources → processing → a result | `inputs: [{ title, text, items }]`, `center: { title, items, shape }` (`shape: 'circle'` — a circle, default a plate), `outputs: [{ title, text, items }]` | `in: i \| [i, j] \| 'all'`, `out: i \| 'all'` (indexes within their column), `show: 'center' \| 'all'` | 1–5 inputs, 1–4 outputs, ≤ 3 centre items |
 | `image` | a picture, screenshot or ready presentation slide | `src` (PNG/JPEG), `maxZoom` (1.8), `style` | `region: [x, y, w, h]` — camera on a part; `callout: { at: [x, y], label }` — numbered mark; neither — whole picture | — |
 | `summary` | takeaways + what's next | `items`, `next`, `title` | `show: i \| 'next' \| 'all'` | 1–8 |
 | `closing` | end card | see recording.md | one, built in | — |
 
-- `cards`/`columns`/`process`/`radial` focus the item a step shows (`radial` also dims the cards before); `show: 'all'` shows every item still hidden and lights them all, no focus; the slide ends with everything lit.
+- `cards`/`columns`/`process`/`radial`/`flow` focus the item a step shows (`radial` also dims the cards before); `show: 'all'` shows every item still hidden and lights them all, no focus; the slide ends with everything lit.
 - `background` (a colour, a gradient, `url(asset:…)`) replaces the slide's ground on any template; `theme.background` — the
   same for every slide without its own (below).
 - Keys like `'center'`, `'all'`, `'next'` stand on their own (`show: 'center'`); only `cards` (`'lead'`, `'all'`) and `summary` (`'next'`, `'all'`) take them inside an array.
+- `status: 'ok' | 'warn' | 'off' | 'optional'` on a card (`cards`, `radial`), a column, a stage, a `flow` input or
+  output, a `comparison` cell (an item as `{ text, status }`): ok/warn — a stripe in the status colour and a ✓ / ?
+  mark, off — faded and struck through (not confirmed, out of use), optional — a dashed outline, no plate. No
+  words on screen: the narration says what the status means. Without `status` the item looks as before.
 - `image` coordinates are pixels of the picture file. Do not zoom a small screenshot past ~1.8×: it blurs.
 - A spec past a limit throws before anything is shown, with advice (`radial: 3–6 cards supported, got 8 — split the slide or use cards`). Within the limits long text is shrunk to fit.
 
@@ -62,6 +67,19 @@ export const VALUE = {
     { show: 0, speech: 'Менеджер видит статус каждого заказа.' },
     { show: 1, speech: 'Склад заранее знает, что отгружать.' },
     { show: 2, speech: 'Бухгалтерия сверяет оплату.' },
+  ],
+};
+export const SOURCES = {
+  layout: 'flow', title: 'Откуда берётся отчёт по продажам',
+  inputs: [{ title: 'Заказы', text: 'Состав и суммы' }, { title: 'Отгрузки', text: 'Что ушло клиенту' },
+    { title: 'Таблица менеджера', text: 'Старый учёт', status: 'off' }],
+  center: { title: 'Отчёт по продажам' },
+  outputs: [{ title: 'Выручка по клиентам', status: 'ok' }],
+  steps: [
+    { show: 'center', speech: 'Отчёт по продажам' },
+    { in: [0, 1], speech: 'собирается из заказов и отгрузок;' },
+    { in: 2, speech: 'таблица менеджера больше не нужна.' },
+    { out: 0, speech: 'Итог — выручка по каждому клиенту.' },
   ],
 };
 export const SCHEME = {
@@ -110,7 +128,7 @@ Four base colours, the rest is derived (header shades and quiet tints from `prim
 `primary` (dark: title/closing ground, headers), `accent` (what is being said now: the focused card's rule,
 link and arrow, the lit section, the current takeaway; title rules, numbers, callouts), `ground` (slide
 ground), `ink` (text on the ground); optional `line` (structure: links, arrows, card rules, list markers;
-default a slate shade of `primary`), `mark` (callouts/spot, default accent), `onAccent` (text on accent),
+default a slate shade of `primary`), `mark` (callouts/spot, default accent), `onAccent` (text on accent), `statusOk` / `statusWarn` (status colours),
 `surface` / `onSurface` (cards, plates, cells and their text), `font` (a CSS font stack), `fonts`, `background`.
 Default: `#16213e` / `#f0a202` / `#f4f6fa` / `#1a1a2e` — a light ground with white cards.
 
@@ -190,7 +208,8 @@ A storyboard (frames, each with a picture to show, the voice-over, the motion, a
 not drawn by hand:
 
 - **Frame → template by meaning** (the table above): parallel points — `cards`, before/after — `comparison`,
-  stages — `process`, a centre and around it — `radial`, one thought or number — `statement`. A page of your
+  stages — `process`, a centre and around it — `radial`, sources → processing → result — `flow`, one thought or
+  number — `statement`; confirmed / doubtful / gone / optional — `status` on the items. A page of your
   own only when no template carries the meaning.
 - **Voice-over → steps by phrase**: each phrase reveals or lights its part. The storyboard's words go to
   `speech` (split long sentences into steps); on screen — only key words, not the sentence itself.
