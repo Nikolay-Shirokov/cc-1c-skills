@@ -13,7 +13,7 @@
   "expectError": true,
   "expect": {
     "stdoutContains": [
-      "[PARTIAL]            Catalog.Items — 13 changes: 6 transferred, 7 remaining",
+      "[DIVERGED]           Catalog.Items — 13 changes: 6 transferred, 7 remaining",
       "    Catalogs/Items/Forms/ItemForm/Ext/Form.xml:",
       "      [NOT_TRANSFERRED]    + [Button] PatchA_Btn (in: ФормаКоманднаяПанель)",
       "      [TRANSFERRED]        ~ [Label] L1: Title",

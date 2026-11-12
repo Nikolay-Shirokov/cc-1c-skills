@@ -548,9 +548,8 @@ def get_absorbed_in_place(ops, v1norm, v2norm, v2sig, payloads):
     for d, op in enumerate(ops):
         if op["kind"] != "delete":
             continue
-        keys = v1norm[op["start"]:op["end"] + 1]
-        if find_unique_run(v2norm, keys) >= 0:
-            continue
+        # No check that the deleted lines are gone from the whole method: the new code may well
+        # repeat them (a call wrapped into a condition). The contiguous run below settles it.
         b_idx = -1
         for z in range(op["start"] - 1, -1, -1):
             if test_significant(v1norm[z]):
@@ -973,9 +972,11 @@ def get_temp_mark(line):
     return m.group(1).strip() if m else None
 
 
-def get_method_temp_mark(lines, method):
+def get_method_temp_mark(lines, method, above_only=False):
     """Mark of a whole method: in the comment lines right above it (annotations and directives
-    skipped) or in the comment lines the body starts with."""
+    skipped) or in the comment lines the body starts with. above_only for &ИзменениеИКонтроль: its
+    body is a copy of the original, so a comment there is the configuration's, not the developer's
+    mark."""
     for z in range(method["decl_idx"] - 1, -1, -1):
         t = lines[z].strip()
         if t.startswith("&"):
@@ -985,6 +986,8 @@ def get_method_temp_mark(lines, method):
         m = get_temp_mark(t)
         if m is not None:
             return m
+    if above_only:
+        return None
     for l in method["body_lines"]:
         t = l.strip()
         if t == "":
@@ -999,11 +1002,14 @@ def get_method_temp_mark(lines, method):
 
 def get_block_temp_mark(op):
     """Mark of one #Вставка/#Удаление block: a tail comment on its opening marker or the comment
-    lines the block starts with."""
+    lines an insert starts with (the lines of a deletion are the configuration's code, not the
+    developer's)."""
     if op.get("open"):
         m = get_temp_mark(op["open"])
         if m is not None:
             return m
+    if op["kind"] != "insert":
+        return None
     for l in op["lines"]:
         t = l.strip()
         if t == "":
@@ -1036,8 +1042,15 @@ def test_payload_beside(v2sig, mid, before_ctx, after_ctx):
     """Insert payload sitting right after its line before, or right before its line after, anywhere in
     v2 (significant lines; None side is not checked). Looser than the in-place check: one neighbour is
     enough and the spot need not be unique. For an insert not found at its anchor: the anchor may be
-    lost (a payload repeated in the method leaves the search nothing to go on) or found by one side
-    only, the carried-over code then sitting before the spot instead of after it."""
+    lost (a payload repeated in the method leaves the search nothing to go on) or resolved to a
+    look-alike elsewhere. Only a neighbour with content counts (see TRIVIAL_RE)."""
+    # A block closer or a bare jump stands next to anything: as a neighbour it proves nothing
+    if before_ctx is not None and TRIVIAL_RE.search(before_ctx):
+        before_ctx = None
+    if after_ctx is not None and TRIVIAL_RE.search(after_ctx):
+        after_ctx = None
+    if before_ctx is None and after_ctx is None:
+        return False
     n = len(mid)
     for i in range(len(v2sig) - n + 1):
         if v2sig[i:i + n] != mid:
@@ -1077,6 +1090,10 @@ def get_control_transfer(ext_method, cfg_method, prefix):
     payloads = {i: [x for x in (code_key(y, prefix) for y in o["lines"]) if test_significant(x)]
                 for i, o in enumerate(ops) if o["kind"] == "insert"}
     replaced = get_absorbed_in_place(ops, v1norm, v2norm, v2sig, payloads)
+    deleted = set()
+    for o in ops:
+        if o["kind"] == "delete":
+            deleted.update(range(o["start"], o["end"] + 1))
     for oi, op in enumerate(ops):
         # res: "absorbed", "pending" or the reason the edit is disputed
         if op["kind"] == "insert":
@@ -1096,10 +1113,15 @@ def get_control_transfer(ext_method, cfg_method, prefix):
                 else:
                     sig_start = sum(1 for j in v2map if j <= k)
                     is_absorbed = test_run_at(v2sig, payload_sig, sig_start)
-                b_idx = next((z for z in range(after, -1, -1) if test_significant(v1norm[z])), -1)
-                a_idx = next((z for z in range(after + 1, len(v1norm)) if test_significant(v1norm[z])), -1)
+                # Neighbours of the insert in the edited method: deleted lines are not there
+                b_idx = next((z for z in range(after, -1, -1) if z not in deleted and test_significant(v1norm[z])), -1)
+                a_idx = next((z for z in range(after + 1, len(v1norm)) if z not in deleted and test_significant(v1norm[z])), -1)
                 b_ctx = v1norm[b_idx] if b_idx >= 0 else None
                 a_ctx = v1norm[a_idx] if a_idx >= 0 else None
+                # Not at the anchor: the anchor found by its line after leaves the carried-over code right
+                # before the spot; otherwise the payload next to a neighbour with content, anywhere
+                if not is_absorbed and k is not None:
+                    is_absorbed = test_run_at(v2sig, payload_sig, sig_start - len(payload_sig))
                 if not is_absorbed:
                     is_absorbed = test_payload_beside(v2sig, payload_sig, b_ctx, a_ctx)
                 if is_absorbed:
@@ -1198,11 +1220,15 @@ def get_heuristic_transfer(ext_method, cfg_method, prefix):
         lines = [x for x in lines if not ret_re.search(x)]
     ep = ext_method["param_names"]
     cp = cfg_method["param_names"]
+    # One pass for all names: renaming one by one would rename again a name already renamed
+    # when the two lists overlap (Источник, Отказ -> Отказ, Режим)
+    renames = {}
     for i in range(min(len(ep), len(cp))):
         if ep[i].lower() != cp[i].lower():
-            rx = re.compile(r'(?<!\w)' + re.escape(ep[i]) + r'(?!\w)', re.IGNORECASE)
-            to = cp[i].lower()
-            lines = [rx.sub(lambda _m: to, x) for x in lines]
+            renames[ep[i].lower()] = cp[i].lower()
+    if renames:
+        rx = re.compile(r'(?<!\w)(?:' + "|".join(re.escape(k) for k in renames) + r')(?!\w)', re.IGNORECASE)
+        lines = [rx.sub(lambda m: renames[m.group(0).lower()], x) for x in lines]
     # Block closers and bare jumps match anywhere — they would only inflate the score
     meaningful = [x for x in lines if not TRIVIAL_RE.search(x)]
     if meaningful:
@@ -2007,7 +2033,7 @@ def module_transfer_items(bsl, ext_dir, config_path, prefix, skip_handlers):
         label = '&%s("%s")' % (ic["raw"], ic["method"])
         loc = "%s:%d" % (rel, ic["line"] + 1)
         ext_m = get_method_safe(ext_lines, decl["name"]) if decl else None
-        mark = get_method_temp_mark(ext_lines, ext_m) if ext_m else None
+        mark = get_method_temp_mark(ext_lines, ext_m, ic["type"] == "ИзменениеИКонтроль") if ext_m else None
         cfg_m = get_method_safe(cfg_lines, ic["method"])
         it = None
         if not cfg_m:
@@ -2150,7 +2176,13 @@ def transfer_object(ext, obj, cfg_info, config_path):
     rec["items"] += own_child_items(ctx, cfg_md, prefix)
     rec["items"] += form_items
     if cfg_md is None and rec["items"]:
-        rec["items"] = [new_item("MISSING_IN_CONFIG", "object not found in config (%s)" % plural(len(rec["items"]), "change"))]
+        # Temporary changes stay apart: they are not for transfer, missing object or not
+        temp = [it for it in rec["items"] if it["status"] == "TEMPORARY"]
+        rest = len(rec["items"]) - len(temp)
+        rec["items"] = []
+        if rest > 0:
+            rec["items"].append(new_item("MISSING_IN_CONFIG", "object not found in config (%s)" % plural(rest, "change")))
+        rec["items"] += temp
         return rec
     # Section = the file the change lives in (a module line, the form's Form.xml, the object's own
     # XML for its sub-objects); the item then keeps only its line number
@@ -2286,8 +2318,10 @@ def get_expand_prefix(token):
     if len(parts) < 3 or parts[0].lower() not in TYPE_DIR_LOWER:
         return None
     base = "%s/%s" % (TYPE_DIR_LOWER[parts[0].lower()], parts[1])
-    if parts[2].lower() == "form" and len(parts) >= 4:
-        return ("%s/Forms/%s" % (base, parts[3])).lower()
+    if parts[2].lower() == "form":
+        return ("%s/Forms/%s" % (base, parts[3])).lower() if len(parts) >= 4 else base.lower()
+    if parts[2].lower() == "command":
+        return ("%s/Commands/%s" % (base, parts[3])).lower() if len(parts) >= 4 else base.lower()
     return ("%s/Ext/%s.bsl" % (base, parts[2])).lower()
 
 
@@ -2484,7 +2518,17 @@ def main():
                     for it in rec["items"]:
                         if it["status"] != "TEMPORARY" and it["status"] not in sts:
                             sts.append(it["status"])
-                    rec["status"] = "TEMPORARY" if not sts else (sts[0] if len(sts) == 1 else "PARTIAL")
+                    # A mix shows its most alarming status: a conflict must not hide behind PARTIAL
+                    if not sts:
+                        rec["status"] = "TEMPORARY"
+                    elif len(sts) == 1:
+                        rec["status"] = sts[0]
+                    elif "DIVERGED" in sts:
+                        rec["status"] = "DIVERGED"
+                    elif "MISSING_IN_CONFIG" in sts:
+                        rec["status"] = "MISSING_IN_CONFIG"
+                    else:
+                        rec["status"] = "PARTIAL"
                     done = len([it for it in rec["items"] if it["status"] == "TRANSFERRED"])
                     temp = len([it for it in rec["items"] if it["status"] == "TEMPORARY"])
                     rec["complete"] = done + temp == len(rec["items"])

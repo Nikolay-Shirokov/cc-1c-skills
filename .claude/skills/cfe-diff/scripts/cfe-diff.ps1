@@ -36,6 +36,10 @@ $Mode = $modeMap[$modeKey]
 # above it only summaries, and -Name opens the details of chosen objects.
 $DetailBudget = 80
 
+# Block closers and bare jumps: they match anywhere, so they neither score a heuristic match nor
+# serve as a neighbour that places an insert
+$script:trivialRe = '(?i)^(?:КонецЕсли|Иначе|КонецЦикла|КонецПопытки|Исключение|Возврат|Продолжить|Прервать|EndIf|Else|EndDo|EndTry|Except|Return|Continue|Break)\s*;?$'
+
 # --- Resolve paths ---
 function Resolve-InputPath([string]$p) {
 	$p = $p.Trim()
@@ -487,7 +491,7 @@ function Find-UniqueIndex {
 	param($v2norm, [string]$key)
 	$found = -1
 	for ($k = 0; $k -lt $v2norm.Count; $k++) {
-		if ($v2norm[$k] -eq $key) {
+		if ($v2norm[$k] -ceq $key) {
 			if ($found -ge 0) { return -1 }  # ambiguous
 			$found = $k
 		}
@@ -503,7 +507,7 @@ function Find-UniqueRun {
 	for ($k = 0; $k -le ($v2norm.Count - $keys.Count); $k++) {
 		$match = $true
 		for ($m = 0; $m -lt $keys.Count; $m++) {
-			if ($v2norm[$k + $m] -ne $keys[$m]) { $match = $false; break }
+			if ($v2norm[$k + $m] -cne $keys[$m]) { $match = $false; break }
 		}
 		if ($match) {
 			if ($found -ge 0) { return -1 }  # ambiguous
@@ -536,7 +540,7 @@ function Test-RunAt {
 	param($hay, $keys, [int]$at)
 	if ($keys.Count -eq 0) { return $false }
 	if ($at -lt 0 -or ($at + $keys.Count) -gt $hay.Count) { return $false }
-	for ($m = 0; $m -lt $keys.Count; $m++) { if ($hay[$at + $m] -ne $keys[$m]) { return $false } }
+	for ($m = 0; $m -lt $keys.Count; $m++) { if ($hay[$at + $m] -cne $keys[$m]) { return $false } }
 	return $true
 }
 
@@ -548,13 +552,13 @@ function Test-DeleteAbsorbed {
 	$mid = @($mid)
 	$n = $mid.Count
 	for ($i = 0; $i -le ($v2norm.Count - $n); $i++) {
-		if ($null -ne $beforeCtx) { if ($i -eq 0 -or $v2norm[$i - 1] -ne $beforeCtx) { continue } }
+		if ($null -ne $beforeCtx) { if ($i -eq 0 -or $v2norm[$i - 1] -cne $beforeCtx) { continue } }
 		elseif ($i -ne 0) { break }
 		$ok = $true
-		for ($m = 0; $m -lt $n; $m++) { if ($v2norm[$i + $m] -ne $mid[$m]) { $ok = $false; break } }
+		for ($m = 0; $m -lt $n; $m++) { if ($v2norm[$i + $m] -cne $mid[$m]) { $ok = $false; break } }
 		if (-not $ok) { continue }
 		$e = $i + $n
-		if ($null -ne $afterCtx) { if ($e -lt $v2norm.Count -and $v2norm[$e] -eq $afterCtx) { return $true } }
+		if ($null -ne $afterCtx) { if ($e -lt $v2norm.Count -and $v2norm[$e] -ceq $afterCtx) { return $true } }
 		elseif ($e -eq $v2norm.Count) { return $true }
 	}
 	return $false
@@ -574,8 +578,8 @@ function Get-AbsorbedInPlace {
 	for ($d = 0; $d -lt $ops.Count; $d++) {
 		$op = $ops[$d]
 		if ($op.Kind -ne 'delete') { continue }
-		$keys = @(); for ($m = $op.Start; $m -le $op.End; $m++) { $keys += $v1norm[$m] }
-		if ((Find-UniqueRun $v2norm $keys) -ge 0) { continue }
+		# No check that the deleted lines are gone from the whole method: the new code may well
+		# repeat them (a call wrapped into a condition). The contiguous run below settles it.
 		$bIdx = -1; for ($z = $op.Start - 1; $z -ge 0; $z--) { if (Test-Significant $v1norm[$z]) { $bIdx = $z; break } }
 		$aIdx = $v1norm.Count; for ($z = $op.End + 1; $z -lt $v1norm.Count; $z++) { if (Test-Significant $v1norm[$z]) { $aIdx = $z; break } }
 		$group = @(); $mid = @()
@@ -609,7 +613,7 @@ function Resolve-InsertionPointExact {
 	if ($nb -ge 1 -and $na -ge 1) {
 		$cands = @()
 		for ($k = 0; $k -lt ($v2norm.Count - 1); $k++) {
-			if ($v2norm[$k] -eq $beforeLines[$nb - 1] -and $v2norm[$k + 1] -eq $afterLines[0]) { $cands += $k }
+			if ($v2norm[$k] -ceq $beforeLines[$nb - 1] -and $v2norm[$k + 1] -ceq $afterLines[0]) { $cands += $k }
 		}
 		if ($cands.Count -eq 1) { return $cands[0] }
 		if ($cands.Count -gt 1) {
@@ -620,10 +624,10 @@ function Resolve-InsertionPointExact {
 				foreach ($k in $cands) {
 					$ok = $true
 					if ($w -le $nb) {
-						if (($k - ($w - 1)) -lt 0 -or $v2norm[$k - ($w - 1)] -ne $beforeLines[$nb - $w]) { $ok = $false }
+						if (($k - ($w - 1)) -lt 0 -or $v2norm[$k - ($w - 1)] -cne $beforeLines[$nb - $w]) { $ok = $false }
 					}
 					if ($ok -and $w -le $na) {
-						if (($k + $w) -ge $v2norm.Count -or $v2norm[$k + $w] -ne $afterLines[$w - 1]) { $ok = $false }
+						if (($k + $w) -ge $v2norm.Count -or $v2norm[$k + $w] -cne $afterLines[$w - 1]) { $ok = $false }
 					}
 					if ($ok) { $filtered += $k }
 				}
@@ -917,8 +921,9 @@ function Get-TempMark([string]$line) {
 }
 
 # Mark of a whole method: in the comment lines right above it (annotations and directives skipped)
-# or in the comment lines the body starts with.
-function Get-MethodTempMark($lines, $method) {
+# or in the comment lines the body starts with. -AboveOnly for &ИзменениеИКонтроль: its body is a
+# copy of the original, so a comment there is the configuration's, not the developer's mark.
+function Get-MethodTempMark($lines, $method, [switch]$AboveOnly) {
 	for ($z = $method.DeclIdx - 1; $z -ge 0; $z--) {
 		$t = $lines[$z].Trim()
 		if ($t.StartsWith('&')) { continue }
@@ -926,6 +931,7 @@ function Get-MethodTempMark($lines, $method) {
 		$m = Get-TempMark $t
 		if ($null -ne $m) { return $m }
 	}
+	if ($AboveOnly) { return $null }
 	foreach ($l in $method.BodyLines) {
 		$t = $l.Trim()
 		if ($t -eq '') { continue }
@@ -937,9 +943,10 @@ function Get-MethodTempMark($lines, $method) {
 }
 
 # Mark of one #Вставка/#Удаление block: a tail comment on its opening marker or the comment lines
-# the block starts with.
+# an insert starts with (the lines of a deletion are the configuration's code, not the developer's).
 function Get-BlockTempMark($op) {
 	if ($op.Open) { $m = Get-TempMark $op.Open; if ($null -ne $m) { return $m } }
+	if ($op.Kind -ne 'insert') { return $null }
 	foreach ($l in $op.Lines) {
 		$t = $l.Trim()
 		if ($t -eq '') { continue }
@@ -963,9 +970,13 @@ function Set-TempMark($item, $mark, [string]$label) {
 # Insert payload sitting right after its line before, or right before its line after, anywhere in v2
 # (significant lines; $null side is not checked). Looser than the in-place check: one neighbour is
 # enough and the spot need not be unique. For an insert not found at its anchor: the anchor may be
-# lost (a payload repeated in the method leaves the search nothing to go on) or found by one side
-# only, the carried-over code then sitting before the spot instead of after it.
+# lost (a payload repeated in the method leaves the search nothing to go on) or resolved to a
+# look-alike elsewhere. Only a neighbour with content counts (see $trivialRe).
 function Test-PayloadBeside($v2sig, $mid, $beforeCtx, $afterCtx) {
+	# A block closer or a bare jump stands next to anything: as a neighbour it proves nothing
+	if ($null -ne $beforeCtx -and $beforeCtx -match $script:trivialRe) { $beforeCtx = $null }
+	if ($null -ne $afterCtx -and $afterCtx -match $script:trivialRe) { $afterCtx = $null }
+	if ($null -eq $beforeCtx -and $null -eq $afterCtx) { return $false }
 	$n = $mid.Count
 	for ($i = 0; $i -le ($v2sig.Count - $n); $i++) {
 		$ok = $true
@@ -1004,6 +1015,8 @@ function Get-ControlTransfer($extMethod, $cfgMethod, [string]$prefix) {
 		if ($ops[$oi].Kind -eq 'insert') { $payloads[$oi] = @(Get-CodeKeys $ops[$oi].Lines $prefix -Significant) }
 	}
 	$replaced = Get-AbsorbedInPlace $ops $v1norm $v2norm $v2proj.Sig $payloads
+	$deleted = @{}
+	foreach ($op in $ops) { if ($op.Kind -eq 'delete') { for ($m = $op.Start; $m -le $op.End; $m++) { $deleted[$m] = $true } } }
 	$oi = -1
 	foreach ($op in $ops) {
 		$oi++
@@ -1022,10 +1035,14 @@ function Get-ControlTransfer($extMethod, $cfgMethod, [string]$prefix) {
 				$k = Resolve-InsertionPoint $v2norm $beforeLines $afterLines
 				if ($null -eq $k) { $isAbsorbed = (Find-UniqueRun $v2proj.Sig $payloadSig) -ge 0 }
 				else { $sigStart = @($v2proj.Map | Where-Object { $_ -le $k }).Count; $isAbsorbed = Test-RunAt $v2proj.Sig $payloadSig $sigStart }
-				$bIdx = -1; for ($z = $op.After; $z -ge 0; $z--) { if (Test-Significant $v1norm[$z]) { $bIdx = $z; break } }
-				$aIdx = -1; for ($z = $op.After + 1; $z -lt $v1norm.Count; $z++) { if (Test-Significant $v1norm[$z]) { $aIdx = $z; break } }
+				# Neighbours of the insert in the edited method: deleted lines are not there
+				$bIdx = -1; for ($z = $op.After; $z -ge 0; $z--) { if (-not $deleted.ContainsKey($z) -and (Test-Significant $v1norm[$z])) { $bIdx = $z; break } }
+				$aIdx = -1; for ($z = $op.After + 1; $z -lt $v1norm.Count; $z++) { if (-not $deleted.ContainsKey($z) -and (Test-Significant $v1norm[$z])) { $aIdx = $z; break } }
 				$bCtx = if ($bIdx -ge 0) { $v1norm[$bIdx] } else { $null }
 				$aCtx = if ($aIdx -ge 0) { $v1norm[$aIdx] } else { $null }
+				# Not at the anchor: the anchor found by its line after leaves the carried-over code right
+				# before the spot; otherwise the payload next to a neighbour with content, anywhere
+				if (-not $isAbsorbed -and $null -ne $k) { $isAbsorbed = Test-RunAt $v2proj.Sig $payloadSig ($sigStart - $payloadSig.Count) }
 				if (-not $isAbsorbed) { $isAbsorbed = Test-PayloadBeside $v2proj.Sig $payloadSig $bCtx $aCtx }
 				if ($isAbsorbed) { $res = 'absorbed' }
 				elseif ($null -ne $k) { $res = 'pending' }
@@ -1096,16 +1113,20 @@ function Get-HeuristicTransfer($extMethod, $cfgMethod, [string]$prefix) {
 		$lines = @($lines | Where-Object { $_ -notmatch $retRe })
 	}
 	$ep = @($extMethod.ParamNames); $cp = @($cfgMethod.ParamNames)
+	# One pass for all names: renaming one by one would rename again a name already renamed
+	# when the two lists overlap (Источник, Отказ -> Отказ, Режим)
+	$renames = @{}
 	for ($i = 0; $i -lt [Math]::Min($ep.Count, $cp.Count); $i++) {
-		if ($ep[$i] -ine $cp[$i]) {
-			$re = '(?<!\w)' + [regex]::Escape($ep[$i]) + '(?!\w)'
-			$to = $cp[$i].ToLowerInvariant()
-			$lines = @($lines | ForEach-Object { [regex]::Replace($_, $re, $to, [System.Text.RegularExpressions.RegexOptions]::IgnoreCase) })
-		}
+		if ($ep[$i] -ine $cp[$i]) { $renames[$ep[$i].ToLowerInvariant()] = $cp[$i].ToLowerInvariant() }
+	}
+	if ($renames.Count -gt 0) {
+		$alt = (@($renames.Keys) | ForEach-Object { [regex]::Escape($_) }) -join '|'
+		$re = New-Object System.Text.RegularExpressions.Regex ('(?<!\w)(?:' + $alt + ')(?!\w)'), ([System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
+		$ev = [System.Text.RegularExpressions.MatchEvaluator] { param($m) $renames[$m.Value.ToLowerInvariant()] }
+		$lines = @($lines | ForEach-Object { $re.Replace($_, $ev) })
 	}
 	# Block closers and bare jumps match anywhere — they would only inflate the score
-	$trivialRe = '(?i)^(?:КонецЕсли|Иначе|КонецЦикла|КонецПопытки|Исключение|Возврат|Продолжить|Прервать|EndIf|Else|EndDo|EndTry|Except|Return|Continue|Break)\s*;?$'
-	$meaningful = @($lines | Where-Object { $_ -notmatch $trivialRe })
+	$meaningful = @($lines | Where-Object { $_ -notmatch $script:trivialRe })
 	if ($meaningful.Count -gt 0) { $lines = $meaningful }
 	if ($lines.Count -eq 0) { return $null }
 	$hay = Get-SigLines $cfgMethod.BodyLines $prefix
@@ -1809,7 +1830,7 @@ function Get-ModuleTransferItems([string]$bsl, [string]$extDir, [string]$prefix,
 		$label = "&$($ic.Raw)(`"$($ic.Method)`")"
 		$loc = "${rel}:$($ic.Line + 1)"
 		$extM = if ($decl) { Get-MethodSafe $extLines $decl.Name } else { $null }
-		$mark = if ($extM) { Get-MethodTempMark $extLines $extM } else { $null }
+		$mark = if ($extM) { Get-MethodTempMark $extLines $extM -AboveOnly:($ic.Type -eq 'ИзменениеИКонтроль') } else { $null }
 		$cfgM = Get-MethodSafe $cfgLines $ic.Method
 		$it = $null
 		if (-not $cfgM) {
@@ -1947,7 +1968,12 @@ function Get-TransferObject($ext, $obj) {
 	$rec.Items += @(Get-OwnChildItems $ctx $cfgMd $prefix)
 	$rec.Items += $formItems
 	if (-not $cfgMd -and $rec.Items.Count -gt 0) {
-		$rec.Items = @(New-Item2 'MISSING_IN_CONFIG' "object not found in config ($(Get-Plural $rec.Items.Count 'change'))")
+		# Temporary changes stay apart: they are not for transfer, missing object or not
+		$temp = @($rec.Items | Where-Object { $_.Status -eq 'TEMPORARY' })
+		$rest = $rec.Items.Count - $temp.Count
+		$rec.Items = @()
+		if ($rest -gt 0) { $rec.Items += New-Item2 'MISSING_IN_CONFIG' "object not found in config ($(Get-Plural $rest 'change'))" }
+		$rec.Items += $temp
 		return $rec
 	}
 	# Section = the file the change lives in (a module line, the form's Form.xml, the object's own
@@ -2070,7 +2096,14 @@ function Get-ExpandPrefix([string]$token) {
 	$parts = $t.Split('.')
 	if ($parts.Count -lt 3 -or -not $childTypeDirMap.ContainsKey($parts[0])) { return $null }
 	$base = "$($childTypeDirMap[$parts[0]])/$($parts[1])"
-	if ($parts[2] -ieq 'Form' -and $parts.Count -ge 4) { return "$base/Forms/$($parts[3])".ToLower() }
+	if ($parts[2] -ieq 'Form') {
+		if ($parts.Count -ge 4) { return "$base/Forms/$($parts[3])".ToLower() }
+		return $base.ToLower()
+	}
+	if ($parts[2] -ieq 'Command') {
+		if ($parts.Count -ge 4) { return "$base/Commands/$($parts[3])".ToLower() }
+		return $base.ToLower()
+	}
 	return "$base/Ext/$($parts[2]).bsl".ToLower()
 }
 
@@ -2159,7 +2192,8 @@ foreach ($dir in $extDirs) {
 				if ($rec.Items.Count -eq 0) { continue }
 				# Temporary changes are not for transfer: they neither leave the object incomplete nor set its status
 				$sts = @($rec.Items | Where-Object { $_.Status -ne 'TEMPORARY' } | ForEach-Object { $_.Status } | Select-Object -Unique)
-				$rec.Status = if ($sts.Count -eq 0) { 'TEMPORARY' } elseif ($sts.Count -eq 1) { $sts[0] } else { 'PARTIAL' }
+				# A mix shows its most alarming status: a conflict must not hide behind PARTIAL
+				$rec.Status = if ($sts.Count -eq 0) { 'TEMPORARY' } elseif ($sts.Count -eq 1) { $sts[0] } elseif ($sts -contains 'DIVERGED') { 'DIVERGED' } elseif ($sts -contains 'MISSING_IN_CONFIG') { 'MISSING_IN_CONFIG' } else { 'PARTIAL' }
 				$done = @($rec.Items | Where-Object { $_.Status -eq 'TRANSFERRED' }).Count
 				$temp = @($rec.Items | Where-Object { $_.Status -eq 'TEMPORARY' }).Count
 				$rec.Complete = (($done + $temp) -eq $rec.Items.Count)
