@@ -141,6 +141,20 @@ export default async function({
       assert.ok((await getPage().context().cookies(base)).some((c) => c.name === 'sid'), 'the login cookie is there');
     });
 
+    await step('a saved login puts localStorage once: what the site stores later survives a reload', async () => {
+      await setActiveContext('site');
+      await getPage().evaluate(() => localStorage.setItem('token', 'saved'));
+      const file = path.join(dir, 'login-ls.json');
+      await web.saveLogin(file);
+      await getPage().evaluate(() => localStorage.removeItem('token'));
+      await web.open('site3', base + '/', { login: file });
+      const pg = getPage();
+      assert.equal(await pg.evaluate(() => localStorage.getItem('token')), 'saved', 'the saved value is put');
+      await pg.evaluate(() => localStorage.setItem('token', 'refreshed'));   // the site refreshes its token
+      await pg.reload();
+      assert.equal(await pg.evaluate(() => localStorage.getItem('token')), 'refreshed', 'not overwritten by the file on reload');
+    });
+
     await step('start --web refuses --user; --login without --web is refused', async () => {
       const run = (args) => { try { execFileSync(process.execPath, ['.claude/skills/web-test/scripts/run.mjs', ...args], { encoding: 'utf8', timeout: 20000, stdio: 'pipe' }); return ''; } catch (e) { return String(e.stdout) + String(e.stderr); } };
       assert.match(run(['start', base + '/', '--web', '--user=x']), /--user= is for 1C/, '--web with --user');
@@ -148,7 +162,7 @@ export default async function({
     });
   } finally {
     if (home) await setActiveContext(home);
-    for (const n of ['site', 'site2']) { try { await closeContext(n); } catch {} }
+    for (const n of ['site', 'site2', 'site3']) { try { await closeContext(n); } catch {} }
     server.close();
   }
 }
