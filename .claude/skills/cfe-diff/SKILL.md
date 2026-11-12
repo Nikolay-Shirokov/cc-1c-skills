@@ -1,7 +1,7 @@
 ---
 name: cfe-diff
 description: Анализ расширения конфигурации 1С (CFE) — состав, заимствованные объекты, перехватчики, проверка переноса. Используй когда нужно понять что содержит расширение или проверить перенесены ли правки в конфигурацию
-argument-hint: <ExtensionPath> [-ConfigPath <path>] [-Mode overview|transfer] [-Name <Тип.Имя>]
+argument-hint: <ExtensionPath> [-ConfigPath <path>] [-Mode overview|check-transfer] [-Name <Тип.Имя>]
 allowed-tools:
   - Bash
   - Read
@@ -10,15 +10,15 @@ allowed-tools:
 
 # /cfe-diff — Анализ расширения
 
-Два режима: `overview` — что изменено в расширении, `transfer` — перенесены ли эти изменения в основную конфигурацию.
+Два режима: `overview` — что изменено в расширении, `check-transfer` — перенесены ли эти изменения в основную конфигурацию.
 
 ## Параметры
 
 | Параметр | Описание | По умолчанию |
 |----------|----------|--------------|
 | `ExtensionPath` | Расширение; несколько — через запятую; каталог, в подкаталогах которого лежат расширения (обязат.) | — |
-| `ConfigPath` | Основная конфигурация. Обязателен для `transfer` | — |
-| `Mode` | `overview` / `transfer` | `overview` |
+| `ConfigPath` | Основная конфигурация. Обязателен для `check-transfer` | — |
+| `Mode` | `overview` / `check-transfer` | `overview` |
 | `Name` | Детали только по этим объектам: `Тип.Имя`, через запятую | — |
 | `Expand` | Раскрыть свёрнутое: объект `Тип.Имя` или путь из заголовка раздела; `*` — всё | — |
 | `Limit` / `Offset` | Пагинация тела отчёта | `150` / `0` |
@@ -36,7 +36,7 @@ powershell.exe -NoProfile -File "${CLAUDE_SKILL_DIR}/scripts/cfe-diff.ps1" -Exte
 
 Правки заимствованной формы показаны относительно исходной (`BaseForm`): `+` добавлено, `~` изменено (`было→стало`), `>` перемещено. Форму целиком, с наложенными правками, показывает `/form-info`.
 
-## transfer
+## check-transfer
 
 Проверяются все правки: перехватчики, `#Вставка`/`#Удаление`, собственные методы, объекты и подобъекты, правки форм. Роли не проверяются. Префикс расширения не мешает: перенесённое без него находится как `(found as Имя)`.
 
@@ -58,8 +58,8 @@ Exit code `1`, если перенесено не всё.
 ... -ExtensionPath src\cfe\extname -Name Document.ЗаказКлиента,CommonModule.ОбщегоНазначения
 
 # Перед релизом: всё ли перенесено из всех расширений каталога
-... -ExtensionPath src\cfe -ConfigPath src\cf -Mode transfer
+... -ExtensionPath src\cfe -ConfigPath src\cf -Mode check-transfer
 
 # Что осталось перенести по одному объекту
-... -ExtensionPath src\cfe\extname -ConfigPath src\cf -Mode transfer -Name Document.ЗаказКлиента
+... -ExtensionPath src\cfe\extname -ConfigPath src\cf -Mode check-transfer -Name Document.ЗаказКлиента
 ```

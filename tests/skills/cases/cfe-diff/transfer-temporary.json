@@ -49,7 +49,7 @@
   },
   "args_extra": [
     "-Mode",
-    "transfer"
+    "check-transfer"
   ],
   "expectError": true,
   "expect": {

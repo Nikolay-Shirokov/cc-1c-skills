@@ -125,7 +125,7 @@
   },
   "args_extra": [
     "-Mode",
-    "transfer",
+    "check-transfer",
     "-Name",
     "CommonModule.М2,М3",
     "-Limit",

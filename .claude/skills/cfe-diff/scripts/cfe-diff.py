@@ -2552,8 +2552,8 @@ def main():
     sys.stderr.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(description="Analyze 1C configuration extension (CFE): overview and transfer check", allow_abbrev=False)
     parser.add_argument("-ExtensionPath", required=True, help="Extension dump root, comma-separated list, or folder of extensions")
-    parser.add_argument("-ConfigPath", default="", help="Main configuration dump root (required for -Mode transfer)")
-    parser.add_argument("-Mode", default="overview", help="overview | transfer")
+    parser.add_argument("-ConfigPath", default="", help="Main configuration dump root (required for -Mode check-transfer)")
+    parser.add_argument("-Mode", default="overview", help="overview | check-transfer")
     parser.add_argument("-Name", default="", help="Objects to detail: Type.Name[,Type.Name]")
     parser.add_argument("-Limit", type=int, default=150)
     parser.add_argument("-Offset", type=int, default=0)
@@ -2561,10 +2561,11 @@ def main():
     parser.add_argument("-OutFile", default="")
     args = ci_parse_args(parser)
 
-    mode_map = {"overview": "overview", "transfer": "transfer", "a": "overview", "b": "transfer"}
+    # check-transfer is 'transfer' inside the script; the name says it checks, it does not carry over
+    mode_map = {"overview": "overview", "check-transfer": "transfer", "a": "overview", "b": "transfer"}
     mode_key = args.Mode.strip().lower()
     if mode_key not in mode_map:
-        die("Invalid -Mode '%s'. Expected: overview, transfer" % args.Mode)
+        die("Invalid -Mode '%s'. Expected: overview, check-transfer" % args.Mode)
     mode = mode_map[mode_key]
 
     # -ExtensionPath: an extension, a comma-separated list, or a folder whose subfolders are extensions.
@@ -2601,7 +2602,7 @@ def main():
         if cfg_info is None:
             die("Config Configuration.xml not found: " + os.path.join(config_path, "Configuration.xml"))
     if mode == "transfer" and cfg_info is None:
-        die("-Mode transfer needs -ConfigPath (the main configuration to check against)")
+        die("-Mode check-transfer needs -ConfigPath (the main configuration to check against)")
 
     name_filter = [x.strip() for x in args.Name.split(",") if x.strip()] if args.Name else []
     expand_list = [x.strip() for x in args.Expand.split(",") if x.strip()] if args.Expand else []
@@ -2703,7 +2704,8 @@ def main():
     any_folded = False
     for ext in exts:
         target = (" -> " + cfg_info["name"]) if mode == "transfer" else ""
-        body.append("=== cfe-diff %s: %s (%s)%s ===" % (mode, ext["name"], ext["purpose"], target))
+        mode_name = "check-transfer" if mode == "transfer" else mode
+        body.append("=== cfe-diff %s: %s (%s)%s ===" % (mode_name, ext["name"], ext["purpose"], target))
         if ext["prefix"]:
             body.append("NamePrefix: " + ext["prefix"])
         body.append("")

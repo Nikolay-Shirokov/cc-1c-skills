@@ -83,7 +83,7 @@
   },
   "args_extra": [
     "-Mode",
-    "transfer",
+    "check-transfer",
     "-Expand",
     "*"
   ],

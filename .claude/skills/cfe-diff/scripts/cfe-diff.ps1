@@ -24,10 +24,11 @@ $ErrorActionPreference = "Stop"
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
 # --- Mode ---
-$modeMap = @{ "overview" = "overview"; "transfer" = "transfer"; "a" = "overview"; "b" = "transfer" }
+# check-transfer is 'transfer' inside the script; the name says it checks, it does not carry over
+$modeMap = @{ "overview" = "overview"; "check-transfer" = "transfer"; "a" = "overview"; "b" = "transfer" }
 $modeKey = $Mode.Trim().ToLower()
 if (-not $modeMap.ContainsKey($modeKey)) {
-	Write-Error "Invalid -Mode '$Mode'. Expected: overview, transfer"
+	Write-Error "Invalid -Mode '$Mode'. Expected: overview, check-transfer"
 	exit 1
 }
 $Mode = $modeMap[$modeKey]
@@ -104,7 +105,7 @@ if ($ConfigPath) {
 	if (-not $cfgInfo) { Write-Error "Config Configuration.xml not found: $(Join-Path $ConfigPath 'Configuration.xml')"; exit 1 }
 }
 if ($Mode -eq "transfer" -and -not $cfgInfo) {
-	Write-Error "-Mode transfer needs -ConfigPath (the main configuration to check against)"
+	Write-Error "-Mode check-transfer needs -ConfigPath (the main configuration to check against)"
 	exit 1
 }
 
@@ -2361,7 +2362,8 @@ $body = @()
 $anyFolded = $false
 foreach ($ext in $exts) {
 	$target = if ($Mode -eq 'transfer') { " -> $($cfgInfo.Name)" } else { '' }
-	$body += "=== cfe-diff ${Mode}: $($ext.Name) ($($ext.Purpose))$target ==="
+	$modeName = if ($Mode -eq 'transfer') { 'check-transfer' } else { $Mode }
+	$body += "=== cfe-diff ${modeName}: $($ext.Name) ($($ext.Purpose))$target ==="
 	if ($ext.Prefix) { $body += "NamePrefix: $($ext.Prefix)" }
 	$body += ""
 	$shown = 0

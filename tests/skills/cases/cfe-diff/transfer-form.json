@@ -6,7 +6,7 @@
   },
   "args_extra": [
     "-Mode",
-    "transfer",
+    "check-transfer",
     "-Expand",
     "Catalogs/Items/Forms/ItemForm"
   ],
