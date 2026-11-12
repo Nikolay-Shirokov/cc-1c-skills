@@ -15,6 +15,8 @@ param(
 
 	[int]$Offset = 0,
 
+	[string]$Expand,
+
 	[string]$OutFile
 )
 
@@ -104,6 +106,8 @@ if ($Mode -eq "transfer" -and -not $cfgInfo) {
 
 $nameFilter = @()
 if ($Name) { $nameFilter = @($Name -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ }) }
+$expandList = @()
+if ($Expand) { $expandList = @($Expand -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ }) }
 
 # --- Type -> directory mapping ---
 $childTypeDirMap = @{
@@ -1918,7 +1922,11 @@ function Get-TransferObject($ext, $obj) {
 		$rel = Get-RelPath $ext.Dir $f.Xml
 		$cfgForm = Join-Path $ConfigPath $rel
 		$cfgModule = Join-Path $ConfigPath (Get-RelPath $ext.Dir $f.Module)
-		$formItems += @(Get-FormTransferItems $d $f $cfgForm $cfgModule $ext.Dir $prefix)
+		# Dialog changes have no line of their own: their file is the form's Form.xml
+		foreach ($fi in @(Get-FormTransferItems $d $f $cfgForm $cfgModule $ext.Dir $prefix)) {
+			if (-not $fi.Loc) { $fi.Section = $rel }
+			$formItems += $fi
+		}
 	}
 	foreach ($bsl in @(Get-ObjModules $ctx $forms)) {
 		$skip = @{}
@@ -1930,6 +1938,14 @@ function Get-TransferObject($ext, $obj) {
 	$rec.Items += $formItems
 	if (-not $cfgMd -and $rec.Items.Count -gt 0) {
 		$rec.Items = @(New-Item2 'MISSING_IN_CONFIG' "object not found in config ($(Get-Plural $rec.Items.Count 'change'))")
+		return $rec
+	}
+	# Section = the file the change lives in (a module line, the form's Form.xml, the object's own
+	# XML for its sub-objects); the item then keeps only its line number
+	$objRel = Get-RelPath $ext.Dir $ctx.File
+	foreach ($it in $rec.Items) {
+		if ($it.Loc -match '^(.+):(\d+)$') { $it.Section = $Matches[1]; $it.Loc = ":$($Matches[2])" }
+		elseif (-not $it.Section) { $it.Section = $objRel }
 	}
 	return $rec
 }
@@ -2035,6 +2051,82 @@ function Test-NameMatch([string]$id) {
 	return $false
 }
 
+# -Expand: a section is opened by its object (Type.Name), a path from the section headers (prefix,
+# so a form folder opens its Form.xml and Module.bsl) or * for all. A logical name as other skills
+# take it (Type.Name.Form.F, Type.Name.ObjectModule) is turned into that path.
+function Get-ExpandPrefix([string]$token) {
+	$t = $token.Trim()
+	if ($t -match '[\\/]') { return (($t -replace '\\', '/').TrimEnd('/').ToLower()) }
+	$parts = $t.Split('.')
+	if ($parts.Count -lt 3 -or -not $childTypeDirMap.ContainsKey($parts[0])) { return $null }
+	$base = "$($childTypeDirMap[$parts[0]])/$($parts[1])"
+	if ($parts[2] -ieq 'Form' -and $parts.Count -ge 4) { return "$base/Forms/$($parts[3])".ToLower() }
+	return "$base/Ext/$($parts[2]).bsl".ToLower()
+}
+
+function Test-Expanded($ext, [string]$objId, [string]$section) {
+	foreach ($t in $expandList) {
+		if ($t -eq '*' -or $t -ieq $objId) { return $true }
+		$p = Get-ExpandPrefix $t
+		if (-not $p -or -not $section) { continue }
+		$s = $section.ToLower()
+		$full = ((Join-Path $ext.Dir $section) -replace '\\', '/').ToLower()
+		foreach ($c in @($s, $full)) { if ($c -eq $p -or $c.StartsWith("$p/")) { return $true } }
+	}
+	return $false
+}
+
+# Details of an object in transfer, grouped by the file each change lives in. A plain transferred
+# change folds into "… N transferred" unless its section is expanded (one marked temporary stays
+# in sight); a section with nothing else left is one line, and so is a form whose files all are.
+function Get-TransferDetails($ext, $rec) {
+	$lines = New-Object System.Collections.Generic.List[string]
+	$folded = 0
+	$order = New-Object System.Collections.Generic.List[string]
+	$bySec = @{}
+	foreach ($it in $rec.Items) {
+		$s = [string]$it.Section
+		if (-not $bySec.ContainsKey($s)) { $bySec[$s] = New-Object System.Collections.ArrayList; $order.Add($s) }
+		[void]$bySec[$s].Add($it)
+	}
+	$formOf = @{}
+	foreach ($s in $order) { $formOf[$s] = if ($s -match '^(.*)/Ext/Form(?:\.xml|/Module\.bsl)$') { $Matches[1] } else { '' } }
+	# Shown items and the folded count of a section
+	$view = @{}
+	foreach ($s in $order) {
+		$open = Test-Expanded $ext $rec.Id $s
+		$shown = @($bySec[$s] | Where-Object { $open -or $_.Status -ne 'TRANSFERRED' -or $_.Marked })
+		$view[$s] = @{ Shown = $shown; Hidden = ($bySec[$s].Count - $shown.Count) }
+	}
+	$emit = {
+		param([string]$s)
+		$v = $view[$s]
+		$pad = if ($s) { '      ' } else { '    ' }
+		if ($s) {
+			if ($v.Shown.Count -eq 0) { $lines.Add("    ${s}: $($v.Hidden) transferred"); return }
+			$lines.Add("    ${s}:")
+		}
+		foreach ($it in $v.Shown) {
+			$loc = if ($it.Loc) { "  $($it.Loc)" } else { '' }
+			$lines.Add("$pad$(Format-Status $it.Status)$($it.Text)$loc")
+		}
+		if ($v.Hidden -gt 0) { $lines.Add("$pad… $($v.Hidden) transferred") }
+	}
+	$plain = @($order | Where-Object { -not $formOf[$_] })
+	$forms = New-Object System.Collections.Generic.List[string]
+	foreach ($s in $order) { if ($formOf[$s] -and -not $forms.Contains($formOf[$s])) { $forms.Add($formOf[$s]) } }
+	foreach ($s in $plain) { & $emit $s; $folded += $view[$s].Hidden }
+	foreach ($fd in $forms) {
+		$secs = @($order | Where-Object { $formOf[$_] -eq $fd } | Sort-Object { if ($_.EndsWith('.xml')) { 0 } else { 1 } })
+		$hidden = 0; $shown = 0
+		foreach ($s in $secs) { $hidden += $view[$s].Hidden; $shown += $view[$s].Shown.Count }
+		$folded += $hidden
+		if ($shown -eq 0) { $lines.Add("    ${fd}: $hidden transferred"); continue }
+		foreach ($s in $secs) { & $emit $s }
+	}
+	return @{ Lines = $lines.ToArray(); Folded = $folded }
+}
+
 $statusOrder = @('TRANSFERRED', 'NOT_TRANSFERRED', 'PARTIAL', 'DIVERGED', 'MISSING_IN_CONFIG', 'TEMPORARY')
 function Format-Status([string]$st) { return ("[$st]").PadRight(21) }
 
@@ -2064,19 +2156,11 @@ foreach ($dir in $extDirs) {
 				$tempNote = if ($temp -gt 0) { ", $temp temporary" } else { '' }
 				$tail = if ($rec.Complete) { "$(Get-Plural $rec.Items.Count 'change')$(if ($temp) { " ($temp temporary)" })" } else { "$(Get-Plural $rec.Items.Count 'change'): $done transferred, $($rec.Items.Count - $done - $temp) remaining$tempNote" }
 				$rec.Summary = "$(Format-Status $rec.Status)$($rec.Id) — $tail"
-				$det = @()
-				foreach ($it in @($rec.Items | Where-Object { -not $_.Group })) {
-					$loc = if ($it.Loc) { "  $($it.Loc)" } else { '' }
-					$det += "    $(Format-Status $it.Status)$($it.Text)$loc"
-				}
-				foreach ($g in @($rec.Items | Where-Object { $_.Group } | ForEach-Object { $_.Group } | Select-Object -Unique)) {
-					$det += "    ${g}:"
-					foreach ($it in @($rec.Items | Where-Object { $_.Group -eq $g })) {
-						$loc = if ($it.Loc) { "  $($it.Loc)" } else { '' }
-						$det += "      $(Format-Status $it.Status)$($it.Text)$loc"
-					}
-				}
-				$rec.Details = $det
+				$dv = Get-TransferDetails $ext $rec
+				$rec.Details = $dv.Lines
+				$rec.Folded = $dv.Folded
+				# Asked for by name or opened with -Expand: details even when all is transferred
+				$rec.Asked = ($nameFilter.Count -gt 0) -or (Test-Expanded $ext $rec.Id '')
 				$ext.Objects += $rec
 			} else {
 				$rec = Get-OverviewObject $ext $obj
@@ -2096,13 +2180,14 @@ foreach ($ext in $exts) {
 	$fullCount += 3
 	foreach ($o in $ext.Objects) {
 		$fullCount += 1
-		if ($Mode -eq 'overview' -or -not $o.Complete) { $fullCount += $o.Details.Count }
+		if ($Mode -eq 'overview' -or -not $o.Complete -or $o.Asked) { $fullCount += $o.Details.Count }
 	}
 }
 $showDetails = ($nameFilter.Count -gt 0) -or ($fullCount -le $DetailBudget)
 
 # --- Body ---
 $body = @()
+$anyFolded = $false
 foreach ($ext in $exts) {
 	$target = if ($Mode -eq 'transfer') { " -> $($cfgInfo.Name)" } else { '' }
 	$body += "=== cfe-diff ${Mode}: $($ext.Name) ($($ext.Purpose))$target ==="
@@ -2113,7 +2198,10 @@ foreach ($ext in $exts) {
 		if ($Mode -eq 'transfer' -and $o.Complete -and -not $showDetails) { continue }
 		$body += $o.Summary
 		$shown++
-		if ($showDetails -and ($Mode -eq 'overview' -or -not $o.Complete)) { $body += $o.Details }
+		if ($showDetails -and ($Mode -eq 'overview' -or -not $o.Complete -or $o.Asked)) {
+			$body += $o.Details
+			if ($o.Folded) { $anyFolded = $true }
+		}
 	}
 	if ($shown -eq 0) {
 		if ($Mode -eq 'overview') { $body += "No objects (besides Language) in extension." }
@@ -2167,6 +2255,9 @@ foreach ($f in $nameFilter) {
 }
 if (-not $showDetails) {
 	$footer += "Details omitted ($fullCount lines in full). Use -Name <Type.Name>[,<Type.Name>] for item details."
+}
+if ($anyFolded) {
+	$footer += "Hint: use -Expand <Type.Name> or a section path to list transferred changes, -Expand * for all"
 }
 
 # --- Pagination of the body; the footer stays ---

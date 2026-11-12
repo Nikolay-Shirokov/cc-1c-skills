@@ -55,13 +55,16 @@
   "expect": {
     "stdoutContains": [
       "[PARTIAL]            CommonModule.М — 6 changes: 3 transferred, 1 remaining, 2 temporary",
-      "    [TEMPORARY]          &После(\"А\") — обход ограничения расширения  CommonModules/М/Ext/Module.bsl:2",
-      "    [TRANSFERRED]        &ИзменениеИКонтроль(\"Б\") — 1/1 edits, 1 temporary  CommonModules/М/Ext/Module.bsl:7",
-      "    [TRANSFERRED]        &ИзменениеИКонтроль(\"В\") — 1/1 edits (1 marked temporary)  CommonModules/М/Ext/Module.bsl:29",
-      "    [TEMPORARY]          method Тест_Своя  CommonModules/М/Ext/Module.bsl:19",
-      "    [NOT_TRANSFERRED]    method Тест_Другая  CommonModules/М/Ext/Module.bsl:24",
-      "    [TRANSFERRED]        method Тест_Перенесённая (found as Перенесённая) (marked temporary)  CommonModules/М/Ext/Module.bsl:38",
-      "=== Summary Тест: 6 changes — 3 transferred (2 marked temporary), 1 not transferred, 2 temporary · 1 role, not checked ==="
+      "    CommonModules/М/Ext/Module.bsl:",
+      "      [TEMPORARY]          &После(\"А\") — обход ограничения расширения  :2",
+      "      [TRANSFERRED]        &ИзменениеИКонтроль(\"В\") — 1/1 edits (1 marked temporary)  :29",
+      "      [TEMPORARY]          method Тест_Своя  :19",
+      "      [NOT_TRANSFERRED]    method Тест_Другая  :24",
+      "      [TRANSFERRED]        method Тест_Перенесённая (found as Перенесённая) (marked temporary)  :38",
+      "      … 1 transferred",
+      "=== Summary Тест: 6 changes — 3 transferred (2 marked temporary), 1 not transferred, 2 temporary · 1 role, not checked ===",
+      "Remaining: CommonModule.М",
+      "Hint: use -Expand <Type.Name> or a section path to list transferred changes, -Expand * for all"
     ]
   }
 }

@@ -1,29 +1,35 @@
 {
-  "name": "Перенос правок заимствованной формы: элементы, свойства (в том числе изменённое в конфигурации по-своему), перемещение, реквизит, команда, события и перехват команды конфигурации",
+  "name": "Перенос правок заимствованной формы: элементы, свойства (в том числе изменённое в конфигурации по-своему), перемещение, реквизит, команда, события и перехват команды конфигурации; диалог и модуль формы — отдельными разделами, -Expand каталогом формы",
   "setup": "fixture:form-transfer",
   "params": {
     "extensionPath": "cfe"
   },
   "args_extra": [
     "-Mode",
-    "transfer"
+    "transfer",
+    "-Expand",
+    "Catalogs/Items/Forms/ItemForm"
   ],
   "expectError": true,
   "expect": {
     "stdoutContains": [
-      "    [TRANSFERRED]        method PatchA_Обновить (found as Обновить)  Catalogs/Items/Forms/ItemForm/Ext/Form/Module.bsl:22",
-      "    Form.ItemForm:",
+      "[PARTIAL]            Catalog.Items — 12 changes: 6 transferred, 6 remaining",
+      "    Catalogs/Items/Forms/ItemForm/Ext/Form.xml:",
       "      [NOT_TRANSFERRED]    + [Button] PatchA_Btn (in: ФормаКоманднаяПанель)",
       "      [TRANSFERRED]        ~ [Label] L1: Title",
       "      [DIVERGED]           ~ [Input] Article: Title, Width (config value differs: Width)",
       "      [NOT_TRANSFERRED]    > [Input] Article: moved (after: L1)",
+      "      [NOT_TRANSFERRED]    ~ [Label] L3: Title",
       "      [TRANSFERRED]        + [Input] PatchA_Field (found as Field)",
       "      [TRANSFERRED]        + attribute PatchA_Attr: string(20) (found as Attr)",
       "      [NOT_TRANSFERRED]    + command PatchA_Cmd -> PatchA_CmdAction[Before]",
-      "      [TRANSFERRED]        command SrcCmd1[After] -> PatchA_SrcCmd1After (heuristic: 1/1 lines)  Catalogs/Items/Forms/ItemForm/Ext/Form/Module.bsl:17",
-      "      [TRANSFERRED]        event Article.OnChange[Before] -> PatchA_ArticleOnChangeBefore (heuristic: 1/1 lines)  Catalogs/Items/Forms/ItemForm/Ext/Form/Module.bsl:7",
-      "      [NOT_TRANSFERRED]    event OnOpen[After] -> PatchA_OnOpenAfter (heuristic: 0/1 lines)  Catalogs/Items/Forms/ItemForm/Ext/Form/Module.bsl:2",
-      "=== Summary PatchA: 12 changes — 6 transferred, 5 not transferred, 1 diverged · 1 role, not checked ==="
+      "    Catalogs/Items/Forms/ItemForm/Ext/Form/Module.bsl:",
+      "      [TRANSFERRED]        method PatchA_Обновить (found as Обновить)  :22",
+      "      [TRANSFERRED]        command SrcCmd1[After] -> PatchA_SrcCmd1After (heuristic: 1/1 lines)  :17",
+      "      [TRANSFERRED]        event Article.OnChange[Before] -> PatchA_ArticleOnChangeBefore (heuristic: 1/1 lines)  :7",
+      "      [NOT_TRANSFERRED]    event OnOpen[After] -> PatchA_OnOpenAfter (heuristic: 0/1 lines)  :2",
+      "=== Summary PatchA: 12 changes — 6 transferred, 5 not transferred, 1 diverged · 1 role, not checked ===",
+      "Remaining: Catalog.Items"
     ]
   }
 }

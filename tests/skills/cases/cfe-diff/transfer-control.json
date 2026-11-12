@@ -83,21 +83,26 @@
   },
   "args_extra": [
     "-Mode",
-    "transfer"
+    "transfer",
+    "-Expand",
+    "*"
   ],
   "expectError": true,
   "expect": {
     "stdoutContains": [
       "[PARTIAL]            CommonModule.М — 5 changes: 2 transferred, 3 remaining",
-      "    [TRANSFERRED]        &ИзменениеИКонтроль(\"А\") — 1/1 edits  CommonModules/М/Ext/Module.bsl:1",
-      "    [NOT_TRANSFERRED]    &ИзменениеИКонтроль(\"Б\") — 0/1 edits  CommonModules/М/Ext/Module.bsl:10",
-      "    [PARTIAL]            &ИзменениеИКонтроль(\"В\") — 1/2 edits  CommonModules/М/Ext/Module.bsl:19",
-      "    [TRANSFERRED]        &ИзменениеИКонтроль(\"Г\") — 1/1 edits  CommonModules/М/Ext/Module.bsl:31",
-      "    [DIVERGED]           &ИзменениеИКонтроль(\"Д\") — 0/1 edits (line before insert changed in config: СтарыйЯкорь();)  CommonModules/М/Ext/Module.bsl:40",
-      "    [NOT_TRANSFERRED]    &ИзменениеИКонтроль(\"Е\") — 0/1 edits  CommonModules/М2/Ext/Module.bsl:1",
-      "    [TRANSFERRED]        &ИзменениеИКонтроль(\"Ж\") — 3/3 edits  CommonModules/М2/Ext/Module.bsl:9",
-      "    [TRANSFERRED]        &ИзменениеИКонтроль(\"З\") — 2/2 edits  CommonModules/М2/Ext/Module.bsl:31",
-      "    [DIVERGED]           &ИзменениеИКонтроль(\"И\") — 0/1 edits (line before insert commented out in config: П = Истина;)  CommonModules/М2/Ext/Module.bsl:45",
+      "    CommonModules/М/Ext/Module.bsl:",
+      "      [TRANSFERRED]        &ИзменениеИКонтроль(\"А\") — 1/1 edits  :1",
+      "      [NOT_TRANSFERRED]    &ИзменениеИКонтроль(\"Б\") — 0/1 edits  :10",
+      "      [PARTIAL]            &ИзменениеИКонтроль(\"В\") — 1/2 edits  :19",
+      "      [TRANSFERRED]        &ИзменениеИКонтроль(\"Г\") — 1/1 edits  :31",
+      "      [DIVERGED]           &ИзменениеИКонтроль(\"Д\") — 0/1 edits (line before insert changed in config: СтарыйЯкорь();)  :40",
+      "[PARTIAL]            CommonModule.М2 — 4 changes: 2 transferred, 2 remaining",
+      "    CommonModules/М2/Ext/Module.bsl:",
+      "      [NOT_TRANSFERRED]    &ИзменениеИКонтроль(\"Е\") — 0/1 edits  :1",
+      "      [TRANSFERRED]        &ИзменениеИКонтроль(\"Ж\") — 3/3 edits  :9",
+      "      [TRANSFERRED]        &ИзменениеИКонтроль(\"З\") — 2/2 edits  :31",
+      "      [DIVERGED]           &ИзменениеИКонтроль(\"И\") — 0/1 edits (line before insert commented out in config: П = Истина;)  :45",
       "=== Summary Тест: 9 changes — 4 transferred, 2 not transferred, 1 partial, 2 diverged · 1 role, not checked ===",
       "Remaining: CommonModule.М, CommonModule.М2"
     ]

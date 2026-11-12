@@ -2121,9 +2121,14 @@ def transfer_object(ext, obj, cfg_info, config_path):
         diffs[path_key(f["module"])] = d
         if d["total"] == 0:
             continue
-        cfg_form = os.path.join(config_path, rel_path(ext["dir"], f["xml"]))
+        rel = rel_path(ext["dir"], f["xml"])
+        cfg_form = os.path.join(config_path, rel)
         cfg_module = os.path.join(config_path, rel_path(ext["dir"], f["module"]))
-        form_items += form_transfer_items(d, f, cfg_form, cfg_module, ext["dir"], prefix)
+        # Dialog changes have no line of their own: their file is the form's Form.xml
+        for fi in form_transfer_items(d, f, cfg_form, cfg_module, ext["dir"], prefix):
+            if not fi["loc"]:
+                fi["section"] = rel
+            form_items.append(fi)
     for bsl in get_obj_modules(ctx, forms):
         k = path_key(bsl)
         skip = call_type_handlers(diffs[k]) if k in diffs else set()
@@ -2132,6 +2137,17 @@ def transfer_object(ext, obj, cfg_info, config_path):
     rec["items"] += form_items
     if cfg_md is None and rec["items"]:
         rec["items"] = [new_item("MISSING_IN_CONFIG", "object not found in config (%s)" % plural(len(rec["items"]), "change"))]
+        return rec
+    # Section = the file the change lives in (a module line, the form's Form.xml, the object's own
+    # XML for its sub-objects); the item then keeps only its line number
+    obj_rel = rel_path(ext["dir"], ctx["file"])
+    for it in rec["items"]:
+        m = re.match(r'^(.+):(\d+)$', it["loc"] or "")
+        if m:
+            it["section"] = m.group(1)
+            it["loc"] = ":" + m.group(2)
+        elif not it.get("section"):
+            it["section"] = obj_rel
     return rec
 
 
@@ -2242,6 +2258,100 @@ def overview_object(ext, obj):
 # Run
 # ============================================================
 
+# -Expand: a section is opened by its object (Type.Name), a path from the section headers (prefix,
+# so a form folder opens its Form.xml and Module.bsl) or * for all. A logical name as other skills
+# take it (Type.Name.Form.F, Type.Name.ObjectModule) is turned into that path.
+TYPE_DIR_LOWER = {k.lower(): v for k, v in CHILD_TYPE_DIR_MAP.items()}
+
+
+def get_expand_prefix(token):
+    t = token.strip()
+    if re.search(r'[\\/]', t):
+        return t.replace("\\", "/").rstrip("/").lower()
+    parts = t.split(".")
+    if len(parts) < 3 or parts[0].lower() not in TYPE_DIR_LOWER:
+        return None
+    base = "%s/%s" % (TYPE_DIR_LOWER[parts[0].lower()], parts[1])
+    if parts[2].lower() == "form" and len(parts) >= 4:
+        return ("%s/Forms/%s" % (base, parts[3])).lower()
+    return ("%s/Ext/%s.bsl" % (base, parts[2])).lower()
+
+
+def test_expanded(ext, obj_id, section, expand_list):
+    for t in expand_list:
+        if t == "*" or t.lower() == obj_id.lower():
+            return True
+        p = get_expand_prefix(t)
+        if not p or not section:
+            continue
+        s = section.lower()
+        full = os.path.join(ext["dir"], section).replace("\\", "/").lower()
+        for c in (s, full):
+            if c == p or c.startswith(p + "/"):
+                return True
+    return False
+
+
+def get_transfer_details(ext, rec, expand_list):
+    """Details of an object in transfer, grouped by the file each change lives in. A plain
+    transferred change folds into "… N transferred" unless its section is expanded (one marked
+    temporary stays in sight); a section with nothing else left is one line, and so is a form whose
+    files all are."""
+    lines = []
+    folded = 0
+    order = []
+    by_sec = {}
+    for it in rec["items"]:
+        s = it.get("section") or ""
+        if s not in by_sec:
+            by_sec[s] = []
+            order.append(s)
+        by_sec[s].append(it)
+    form_of = {}
+    for s in order:
+        m = re.match(r'^(.*)/Ext/Form(?:\.xml|/Module\.bsl)$', s)
+        form_of[s] = m.group(1) if m else ""
+    view = {}
+    for s in order:
+        opened = test_expanded(ext, rec["id"], s, expand_list)
+        shown = [it for it in by_sec[s] if opened or it["status"] != "TRANSFERRED" or it.get("marked")]
+        view[s] = {"shown": shown, "hidden": len(by_sec[s]) - len(shown)}
+
+    def emit(s):
+        v = view[s]
+        pad = "      " if s else "    "
+        if s:
+            if not v["shown"]:
+                lines.append("    %s: %d transferred" % (s, v["hidden"]))
+                return
+            lines.append("    %s:" % s)
+        for it in v["shown"]:
+            loc = ("  " + it["loc"]) if it["loc"] else ""
+            lines.append("%s%s%s%s" % (pad, fmt_status(it["status"]), it["text"], loc))
+        if v["hidden"] > 0:
+            lines.append("%s… %d transferred" % (pad, v["hidden"]))
+
+    forms = []
+    for s in order:
+        if form_of[s] and form_of[s] not in forms:
+            forms.append(form_of[s])
+    for s in order:
+        if not form_of[s]:
+            emit(s)
+            folded += view[s]["hidden"]
+    for fd in forms:
+        secs = sorted([s for s in order if form_of[s] == fd], key=lambda x: 0 if x.endswith(".xml") else 1)
+        hidden = sum(view[s]["hidden"] for s in secs)
+        shown = sum(len(view[s]["shown"]) for s in secs)
+        folded += hidden
+        if shown == 0:
+            lines.append("    %s: %d transferred" % (fd, hidden))
+            continue
+        for s in secs:
+            emit(s)
+    return {"lines": lines, "folded": folded}
+
+
 STATUS_ORDER = ["TRANSFERRED", "NOT_TRANSFERRED", "PARTIAL", "DIVERGED", "MISSING_IN_CONFIG", "TEMPORARY"]
 
 
@@ -2273,6 +2383,7 @@ def main():
     parser.add_argument("-Name", default="", help="Objects to detail: Type.Name[,Type.Name]")
     parser.add_argument("-Limit", type=int, default=150)
     parser.add_argument("-Offset", type=int, default=0)
+    parser.add_argument("-Expand", default="", help="Open folded transferred changes: Type.Name, a section path, or *")
     parser.add_argument("-OutFile", default="")
     args = ci_parse_args(parser)
 
@@ -2319,6 +2430,7 @@ def main():
         die("-Mode transfer needs -ConfigPath (the main configuration to check against)")
 
     name_filter = [x.strip() for x in args.Name.split(",") if x.strip()] if args.Name else []
+    expand_list = [x.strip() for x in args.Expand.split(",") if x.strip()] if args.Expand else []
 
     def name_match(oid):
         if not name_filter:
@@ -2369,20 +2481,11 @@ def main():
                     else:
                         tail = "%s: %d transferred, %d remaining%s" % (plural(n, "change"), done, n - done - temp, temp_note)
                     rec["summary"] = "%s%s — %s" % (fmt_status(rec["status"]), rec["id"], tail)
-                    det = []
-                    for it in [x for x in rec["items"] if not x["group"]]:
-                        loc = ("  " + it["loc"]) if it["loc"] else ""
-                        det.append("    %s%s%s" % (fmt_status(it["status"]), it["text"], loc))
-                    groups = []
-                    for it in rec["items"]:
-                        if it["group"] and it["group"] not in groups:
-                            groups.append(it["group"])
-                    for g in groups:
-                        det.append("    %s:" % g)
-                        for it in [x for x in rec["items"] if x["group"] == g]:
-                            loc = ("  " + it["loc"]) if it["loc"] else ""
-                            det.append("      %s%s%s" % (fmt_status(it["status"]), it["text"], loc))
-                    rec["details"] = det
+                    dv = get_transfer_details(ext, rec, expand_list)
+                    rec["details"] = dv["lines"]
+                    rec["folded"] = dv["folded"]
+                    # Asked for by name or opened with -Expand: details even when all is transferred
+                    rec["asked"] = bool(name_filter) or test_expanded(ext, rec["id"], "", expand_list)
                     ext["objects"].append(rec)
                 else:
                     rec = overview_object(ext, obj)
@@ -2402,12 +2505,13 @@ def main():
         full_count += 3
         for o in ext["objects"]:
             full_count += 1
-            if mode == "overview" or not o["complete"]:
+            if mode == "overview" or not o["complete"] or o.get("asked"):
                 full_count += len(o["details"])
     show_details = bool(name_filter) or full_count <= DETAIL_BUDGET
 
     # --- Body ---
     body = []
+    any_folded = False
     for ext in exts:
         target = (" -> " + cfg_info["name"]) if mode == "transfer" else ""
         body.append("=== cfe-diff %s: %s (%s)%s ===" % (mode, ext["name"], ext["purpose"], target))
@@ -2420,8 +2524,10 @@ def main():
                 continue
             body.append(o["summary"])
             shown += 1
-            if show_details and (mode == "overview" or not o["complete"]):
+            if show_details and (mode == "overview" or not o["complete"] or o.get("asked")):
                 body += o["details"]
+                if o.get("folded"):
+                    any_folded = True
         if shown == 0:
             if mode == "overview":
                 body.append("No objects (besides Language) in extension.")
@@ -2479,6 +2585,8 @@ def main():
             footer.append("[INFO] -Name: no object matches '%s'" % f)
     if not show_details:
         footer.append("Details omitted (%d lines in full). Use -Name <Type.Name>[,<Type.Name>] for item details." % full_count)
+    if any_folded:
+        footer.append("Hint: use -Expand <Type.Name> or a section path to list transferred changes, -Expand * for all")
 
     # --- Pagination of the body; the footer stays ---
     total = len(body)

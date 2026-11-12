@@ -1,5 +1,5 @@
 {
-  "name": "Перенос собственного кода и реквизитов: префикс снят или сохранён, &После/&Вместо эвристикой с переименованием параметров, реквизит с другим типом",
+  "name": "Перенос собственного кода и реквизитов: префикс снят или сохранён, &После/&Вместо эвристикой с переименованием параметров, реквизит с другим типом; перенесённое свёрнуто по разделам, -Expand логическим именем модуля",
   "preRun": [
     {
       "script": "meta-compile/scripts/meta-compile",
@@ -102,21 +102,28 @@
   },
   "args_extra": [
     "-Mode",
-    "transfer"
+    "transfer",
+    "-Expand",
+    "Catalog.Товары.ObjectModule"
   ],
   "expectError": true,
   "expect": {
     "stdoutContains": [
-      "    [TRANSFERRED]        &После(\"ПередЗаписью\") (heuristic: 2/2 lines)  Catalogs/Товары/Ext/ObjectModule.bsl:1",
-      "    [TRANSFERRED]        &ИзменениеИКонтроль(\"Заполнить\") — 1/1 edits  Catalogs/Товары/Ext/ObjectModule.bsl:9",
-      "    [NOT_TRANSFERRED]    &Вместо(\"ПолучитьЦену\") (heuristic: 0/1 lines)  Catalogs/Товары/Ext/ObjectModule.bsl:17",
-      "    [TRANSFERRED]        method Тест_Пересчитать (found as Пересчитать)  Catalogs/Товары/Ext/ObjectModule.bsl:24",
-      "    [NOT_TRANSFERRED]    method Тест_Служебная  Catalogs/Товары/Ext/ObjectModule.bsl:28",
-      "    [TRANSFERRED]        attribute Тест_Признак (found as Признак)",
-      "    [DIVERGED]           attribute Тест_Вес (found as Вес) (type: string vs decimal in config)",
-      "    [NOT_TRANSFERRED]    attribute Тест_Лишний",
+      "[PARTIAL]            Catalog.Товары — 8 changes: 4 transferred, 4 remaining",
+      "    Catalogs/Товары/Ext/ObjectModule.bsl:",
+      "      [TRANSFERRED]        &После(\"ПередЗаписью\") (heuristic: 2/2 lines)  :1",
+      "      [TRANSFERRED]        &ИзменениеИКонтроль(\"Заполнить\") — 1/1 edits  :9",
+      "      [NOT_TRANSFERRED]    &Вместо(\"ПолучитьЦену\") (heuristic: 0/1 lines)  :17",
+      "      [TRANSFERRED]        method Тест_Пересчитать (found as Пересчитать)  :24",
+      "      [NOT_TRANSFERRED]    method Тест_Служебная  :28",
+      "    Catalogs/Товары.xml:",
+      "      [DIVERGED]           attribute Тест_Вес (found as Вес) (type: string vs decimal in config)",
+      "      [NOT_TRANSFERRED]    attribute Тест_Лишний",
+      "      … 1 transferred",
       "[TRANSFERRED]        Catalog.Склады — 2 changes",
-      "=== Summary Тест: 10 changes — 6 transferred, 3 not transferred, 1 diverged · 1 role, not checked ==="
+      "=== Summary Тест: 10 changes — 6 transferred, 3 not transferred, 1 diverged · 1 role, not checked ===",
+      "Remaining: Catalog.Товары",
+      "Hint: use -Expand <Type.Name> or a section path to list transferred changes, -Expand * for all"
     ]
   }
 }

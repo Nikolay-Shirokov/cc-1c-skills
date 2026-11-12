@@ -134,8 +134,8 @@
   "expectError": true,
   "expect": {
     "stdoutContains": [
-      "    [NOT_TRANSFERRED]    &ИзменениеИКонтроль(\"П6\") — 0/1 edits  CommonModules/М2/Ext/Module.bsl:41",
-      "[TRUNCATED] Shown 10 of 87 lines. Use -Offset 10 to continue.",
+      "      [NOT_TRANSFERRED]    &ИзменениеИКонтроль(\"П5\") — 0/1 edits  :33",
+      "[TRUNCATED] Shown 10 of 89 lines. Use -Offset 10 to continue.",
       "=== Summary Второе: 81 changes — 0 transferred, 81 not transferred ===",
       "Remaining: CommonModule.М2, CommonModule.М3"
     ],

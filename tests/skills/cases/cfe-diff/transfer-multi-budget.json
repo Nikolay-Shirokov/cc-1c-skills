@@ -136,7 +136,7 @@
       "=== Summary Второе: 81 changes — 0 transferred, 81 not transferred · 1 role, not checked ===",
       "=== Summary Первое: 1 change — 1 transferred · 1 role, not checked ===",
       "=== Total: 2 extensions — 1 complete, 1 with 81 remaining ===",
-      "Details omitted (90 lines in full). Use -Name <Type.Name>[,<Type.Name>] for item details."
+      "Details omitted (92 lines in full). Use -Name <Type.Name>[,<Type.Name>] for item details."
     ],
     "stdoutNotContains": [
       "&ИзменениеИКонтроль(\"П1\")",
