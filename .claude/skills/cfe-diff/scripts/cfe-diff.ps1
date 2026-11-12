@@ -1484,28 +1484,35 @@ function Get-FormDiff([string]$formXml) {
 		}
 	}
 
-	# Attributes, commands, parameters added by the extension
+	# Attributes, commands, parameters added by the extension; a command present in both parts that
+	# gained an action with callType is the configuration's command intercepted (Changed)
 	foreach ($sec in @(@('Attributes', 'Attribute', 'Attributes'), @('Commands', 'Command', 'Commands'), @('Parameters', 'Parameter', 'Parameters'))) {
 		$mm = Get-SectionMap $root $sec[0] $sec[1]
 		$bm = Get-SectionMap $base $sec[0] $sec[1]
 		foreach ($nm in @($mm.Keys)) {
-			if ($bm.Contains($nm)) { continue }
 			$x = $mm[$nm]
+			$changed = $bm.Contains($nm)
+			if ($changed -and $sec[1] -ne 'Command') { continue }
+			$baseActs = @{}
+			if ($changed) { foreach ($a in $bm[$nm].SelectNodes("d:Action", $ns)) { $baseActs["$($a.GetAttribute('callType'))|$($a.InnerText.Trim())".ToLower()] = $true } }
 			$info = ''
 			$actions = @()
 			if ($sec[1] -eq 'Command') {
 				$acts = @()
 				foreach ($a in $x.SelectNodes("d:Action", $ns)) {
 					$ct = $a.GetAttribute('callType')
-					$actions += @{ Handler = $a.InnerText.Trim(); CallType = $ct }
-					$acts += $(if ($ct) { "$($a.InnerText.Trim())[$ct]" } else { $a.InnerText.Trim() })
+					$h = $a.InnerText.Trim()
+					if ($changed -and (-not $ct -or $baseActs.ContainsKey("$ct|$h".ToLower()))) { continue }
+					$actions += @{ Handler = $h; CallType = $ct }
+					$acts += $(if ($ct) { "$h[$ct]" } else { $h })
 				}
+				if ($changed -and $actions.Count -eq 0) { continue }
 				if ($acts.Count -gt 0) { $info = " -> $($acts -join ', ')" }
 			} else {
 				$ft = Format-Type ($x.SelectSingleNode("d:Type", $ns))
 				if ($ft) { $info = ": $ft" }
 			}
-			$r[$sec[2]] += @{ Name = $nm; Info = $info; Actions = $actions }
+			$r[$sec[2]] += @{ Name = $nm; Info = $info; Actions = $actions; Changed = $changed }
 		}
 	}
 
@@ -1589,7 +1596,10 @@ function Get-FormDiffHeadline($diff, [string]$label) {
 	if ($added) { $parts += "+$(Get-Plural $added 'element')" }
 	if ($changed) { $parts += "~$(Get-Plural $changed 'element')" }
 	if ($diff.Attributes.Count) { $parts += "+$(Get-Plural $diff.Attributes.Count 'attribute')" }
-	if ($diff.Commands.Count) { $parts += "+$(Get-Plural $diff.Commands.Count 'command')" }
+	$cmdChanged = @($diff.Commands | Where-Object { $_.Changed }).Count
+	$cmdAdded = $diff.Commands.Count - $cmdChanged
+	if ($cmdAdded) { $parts += "+$(Get-Plural $cmdAdded 'command')" }
+	if ($cmdChanged) { $parts += "~$(Get-Plural $cmdChanged 'command')" }
 	if ($diff.Parameters.Count) { $parts += "+$(Get-Plural $diff.Parameters.Count 'parameter')" }
 	if ($diff.Events.Count) { $parts += (Get-Plural $diff.Events.Count 'event') }
 	if ($diff.FormProps.Count) { $parts += (Get-Plural $diff.FormProps.Count 'form property') -replace 'propertys$', 'properties' }
@@ -1621,7 +1631,7 @@ function Format-FormDiff($diff, [string]$label, [string]$ind) {
 	foreach ($sec in @(@('Attributes', 'Attributes'), @('Commands', 'Commands'), @('Parameters', 'Parameters'))) {
 		if ($diff[$sec[0]].Count -eq 0) { continue }
 		$lines += "$ind  $($sec[1]):"
-		foreach ($x in $diff[$sec[0]]) { $lines += "$ind    + $($x.Name)$($x.Info)" }
+		foreach ($x in $diff[$sec[0]]) { $mk = if ($x.Changed) { '~' } else { '+' }; $lines += "$ind    $mk $($x.Name)$($x.Info)" }
 	}
 	if ($diff.Events.Count -gt 0) {
 		$lines += "$ind  Events:"
@@ -1725,11 +1735,11 @@ function Get-FormTransferItems($diff, $form, [string]$cfgFormXml, [string]$cfgMo
 		$cm = Get-SectionMap $cr $sec[0] $sec[1]
 		$cn = @($cm.Keys)
 		foreach ($x in $diff[$sec[0]]) {
-			# A configuration command the extension intercepts (its action carries callType): the base
-			# form keeps no commands, so "absent from BaseForm" alone does not make it the extension's own
+			# A configuration command the extension intercepts (its action carries callType): kept in
+			# BaseForm (Changed) or not, so "absent from BaseForm" alone does not make it the extension's own
 			$ctActs = @($x.Actions | Where-Object { $_.CallType })
-			if ($sec[1] -eq 'Command' -and $ctActs.Count -gt 0 -and $cm.Contains($x.Name)) {
-				$cfgAct = $cm[$x.Name].SelectSingleNode("d:Action", $ns)
+			if ($sec[1] -eq 'Command' -and $ctActs.Count -gt 0 -and ($cm.Contains($x.Name) -or $x.Changed)) {
+				$cfgAct = if ($cm.Contains($x.Name)) { $cm[$x.Name].SelectSingleNode("d:Action", $ns) } else { $null }
 				$cfgHandler = if ($cfgAct) { $cfgAct.InnerText.Trim() } else { '' }
 				foreach ($a in $ctActs) {
 					$it = & $checkHandler "command $($x.Name)[$($a.CallType)] -> $($a.Handler)" $a.Handler $cfgHandler "no action of $($x.Name) in config"

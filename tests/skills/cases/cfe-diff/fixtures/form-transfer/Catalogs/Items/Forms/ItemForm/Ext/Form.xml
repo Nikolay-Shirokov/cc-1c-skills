@@ -103,5 +103,8 @@
 			</Title>
 			<Action>SrcCmd1Action</Action>
 		</Command>
+		<Command name="SrcCmd2" id="2">
+			<Action>SrcCmd2Action</Action>
+		</Command>
 	</Commands>
 </Form>

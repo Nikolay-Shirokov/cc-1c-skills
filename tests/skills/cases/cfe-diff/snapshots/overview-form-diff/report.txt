@@ -5,7 +5,7 @@ NamePrefix: PatchA_
 [BORROWED]   Catalog.Items — 1 form changed, 1 form unchanged
     Catalogs/Items/Forms/ListForm/Ext/Form/Module.bsl (no interceptors)
     ChildObjects: 2 borrowed items
-    Form.ItemForm (borrowed): +2 elements, ~3 elements, +1 attribute, +2 commands, 2 events
+    Form.ItemForm (borrowed): +2 elements, ~3 elements, +1 attribute, +2 commands, ~1 command, 2 events
       Elements:
         [CmdBar] ФормаКоманднаяПанель
           + [Button] PatchA_Btn -> Form.Command.PatchA_Cmd (after: SrcBtn1)
@@ -18,6 +18,7 @@ NamePrefix: PatchA_
       Commands:
         + PatchA_Cmd -> PatchA_CmdAction[Before]
         + SrcCmd1 -> PatchA_SrcCmd1After[After]
+        ~ SrcCmd2 -> PatchA_SrcCmd2After[After]
       Events:
         Article.OnChange[Before] -> PatchA_ArticleOnChangeBefore
         OnOpen[After] -> PatchA_OnOpenAfter

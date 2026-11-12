@@ -1636,13 +1636,19 @@ def get_form_diff(form_xml):
         if ("%s|%s" % (e["name"], e["call_type"])).lower() not in base_ev:
             r["events"].append({"scope": "", "name": e["name"], "call_type": e["call_type"], "handler": e["handler"]})
 
-    # Attributes, commands, parameters added by the extension
+    # Attributes, commands, parameters added by the extension; a command present in both parts that
+    # gained an action with callType is the configuration's command intercepted (changed)
     for sec, item in (("Attributes", "Attribute"), ("Commands", "Command"), ("Parameters", "Parameter")):
         mm = section_map(root, sec, item)
         bm = section_map(base, sec, item)
         for k, (nm, x) in mm.items():
-            if k in bm:
+            changed = k in bm
+            if changed and item != "Command":
                 continue
+            base_acts = set()
+            if changed:
+                for a in bm[k][1].findall("d:Action", NSMAP):
+                    base_acts.add(("%s|%s" % (a.get("callType", ""), inner_text(a).strip())).lower())
             info = ""
             actions = []
             if item == "Command":
@@ -1650,15 +1656,19 @@ def get_form_diff(form_xml):
                 for a in x.findall("d:Action", NSMAP):
                     ct = a.get("callType", "")
                     h = inner_text(a).strip()
+                    if changed and (not ct or ("%s|%s" % (ct, h)).lower() in base_acts):
+                        continue
                     actions.append({"handler": h, "call_type": ct})
                     acts.append("%s[%s]" % (h, ct) if ct else h)
+                if changed and not actions:
+                    continue
                 if acts:
                     info = " -> " + ", ".join(acts)
             else:
                 ft = format_type(x.find("d:Type", NSMAP))
                 if ft:
                     info = ": " + ft
-            r[sec].append({"name": nm, "info": info, "actions": actions})
+            r[sec].append({"name": nm, "info": info, "actions": actions, "changed": changed})
 
     # Whole blocks: conditional appearance, command interface
     for bname, xp in (("ConditionalAppearance", "d:Attributes/d:ConditionalAppearance"), ("CommandInterface", "d:CommandInterface")):
@@ -1753,8 +1763,12 @@ def form_diff_headline(diff, label):
         parts.append("~" + plural(changed, "element"))
     if diff["Attributes"]:
         parts.append("+" + plural(len(diff["Attributes"]), "attribute"))
-    if diff["Commands"]:
-        parts.append("+" + plural(len(diff["Commands"]), "command"))
+    cmd_changed = len([c for c in diff["Commands"] if c.get("changed")])
+    cmd_added = len(diff["Commands"]) - cmd_changed
+    if cmd_added:
+        parts.append("+" + plural(cmd_added, "command"))
+    if cmd_changed:
+        parts.append("~" + plural(cmd_changed, "command"))
     if diff["Parameters"]:
         parts.append("+" + plural(len(diff["Parameters"]), "parameter"))
     if diff["events"]:
@@ -1791,7 +1805,7 @@ def format_form_diff(diff, label, ind):
             continue
         lines.append("%s  %s:" % (ind, sec))
         for x in diff[sec]:
-            lines.append("%s    + %s%s" % (ind, x["name"], x["info"]))
+            lines.append("%s    %s %s%s" % (ind, "~" if x.get("changed") else "+", x["name"], x["info"]))
     if diff["events"]:
         lines.append(ind + "  Events:")
         for e in diff["events"]:
@@ -1912,11 +1926,11 @@ def form_transfer_items(diff, form, cfg_form_xml, cfg_module_path, ext_dir, pref
         cm = section_map(cr, sec, item)
         cn = [v[0] for v in cm.values()]
         for x in diff[sec]:
-            # A configuration command the extension intercepts (its action carries callType): the base
-            # form keeps no commands, so "absent from BaseForm" alone does not make it the extension's own
+            # A configuration command the extension intercepts (its action carries callType): kept in
+            # BaseForm (changed) or not, so "absent from BaseForm" alone does not make it the extension's own
             ct_acts = [a for a in x["actions"] if a["call_type"]]
-            if item == "Command" and ct_acts and x["name"].lower() in cm:
-                cfg_act = cm[x["name"].lower()][1].find("d:Action", NSMAP)
+            if item == "Command" and ct_acts and (x["name"].lower() in cm or x.get("changed")):
+                cfg_act = cm[x["name"].lower()][1].find("d:Action", NSMAP) if x["name"].lower() in cm else None
                 cfg_handler = inner_text(cfg_act).strip() if cfg_act is not None else ""
                 for a in ct_acts:
                     it = check_handler("command %s[%s] -> %s" % (x["name"], a["call_type"], a["handler"]), a["handler"], cfg_handler,

@@ -99,6 +99,9 @@
 		<Command name="SrcCmd1" id="1">
 			<Action callType="After">PatchA_SrcCmd1After</Action>
 		</Command>
+		<Command name="SrcCmd2" id="2">
+			<Action callType="After">PatchA_SrcCmd2After</Action>
+		</Command>
 	</Commands>
 	<BaseForm version="2.20">
 		<AutoCommandBar name="ФормаКоманднаяПанель" id="-1">
@@ -148,5 +151,10 @@
 			</InputField>
 		</ChildItems>
 		<Attributes/>
+		<Commands>
+			<Command name="SrcCmd2" id="2">
+				<Action callType="Before">SrcCmd2Action</Action>
+			</Command>
+		</Commands>
 	</BaseForm>
 </Form>
