@@ -1780,6 +1780,10 @@ def event_text(e):
 def form_diff_headline(diff, label):
     if diff["total"] == 0:
         return label + " (borrowed, unchanged)"
+    return "%s (borrowed): %s" % (label, form_diff_parts(diff))
+
+
+def form_diff_parts(diff):
     added = len([c for c in diff["elements"] if c["kind"] == "added"])
     changed = len(diff["elements"]) - added
     parts = []
@@ -1805,7 +1809,7 @@ def form_diff_headline(diff, label):
         parts.append("~" + b["name"])
     if diff["removed"]:
         parts.append("!%d removed" % len(diff["removed"]))
-    return "%s (borrowed): %s" % (label, ", ".join(parts))
+    return ", ".join(parts)
 
 
 # Overview rendering: changed elements as a tree with their ancestors for context
@@ -2025,11 +2029,10 @@ def module_transfer_items(bsl, ext_dir, config_path, prefix, skip_handlers):
         return items
     rel = rel_path(ext_dir, bsl)
     cfg_lines = read_bsl_lines(os.path.join(config_path, rel))
-    ic_procs = set()
-    for ic in get_interceptors(ext_lines):
-        decl = find_decl_after(ext_lines, ic["line"])
-        if decl:
-            ic_procs.add(decl["name"].lower())
+    mc = get_module_changes(ext_lines, skip_handlers)
+    for x in mc["interceptors"]:
+        ic = x["ic"]
+        decl = x["decl"]
         label = '&%s("%s")' % (ic["raw"], ic["method"])
         loc = "%s:%d" % (rel, ic["line"] + 1)
         ext_m = get_method_safe(ext_lines, decl["name"]) if decl else None
@@ -2055,9 +2058,8 @@ def module_transfer_items(bsl, ext_dir, config_path, prefix, skip_handlers):
         if it:
             items.append(set_temp_mark(it, mark, label))
     cfg_names = get_proc_names(cfg_lines) if cfg_lines is not None else []
-    for pn in get_proc_names(ext_lines):
-        if pn.lower() in ic_procs or pn.lower() in skip_handlers:
-            continue
+    for od in mc["own"]:
+        pn = od["name"]
         ext_m = get_method_safe(ext_lines, pn)
         if not ext_m:
             continue
@@ -2174,6 +2176,8 @@ def transfer_object(ext, obj, cfg_info, config_path):
         skip = call_type_handlers(diffs[k]) if k in diffs else set()
         rec["items"] += module_transfer_items(bsl, ext["dir"], config_path, prefix, skip)
     rec["items"] += own_child_items(ctx, cfg_md, prefix)
+    if obj["type"] == "Subsystem":
+        rec["items"] += subsystem_content_items(ctx["md"], cfg_md, prefix)
     rec["items"] += form_items
     if cfg_md is None and rec["items"]:
         # Temporary changes stay apart: they are not for transfer, missing object or not
@@ -2201,6 +2205,135 @@ def transfer_object(ext, obj, cfg_info, config_path):
 # Overview of one object
 # ============================================================
 
+def get_proc_decls(lines):
+    """Declarations of a module: name and line index of each procedure and function."""
+    pat = re.compile(r'^\s*(?:' + kw_alt("Async") + r'\s+)?(?:' + kw_alt("Proc") + '|' + kw_alt("Func")
+                     + r')\s+([\w]+)\s*\(', re.IGNORECASE)
+    res = []
+    for i, line in enumerate(lines):
+        m = pat.match(line)
+        if m:
+            res.append({"name": m.group(1), "idx": i})
+    return res
+
+
+def get_module_changes(lines, skip_handlers):
+    """What a module of a borrowed object brings: interceptors (with the method each one declares)
+    and own methods, that is neither interceptors nor handlers bound in Form.xml (skip_handlers)."""
+    ics = []
+    ic_procs = set()
+    for ic in get_interceptors(lines):
+        decl = find_decl_after(lines, ic["line"])
+        if decl:
+            ic_procs.add(decl["name"].lower())
+        ics.append({"ic": ic, "decl": decl})
+    own = [d for d in get_proc_decls(lines) if d["name"].lower() not in ic_procs and d["name"].lower() not in skip_handlers]
+    return {"interceptors": ics, "own": own}
+
+
+def get_own_child_list(ctx):
+    """Own sub-objects of a borrowed object, named: kind, name, the type of an attribute. The own
+    attributes of a borrowed tabular section come as Section.Attribute."""
+    res = []
+    if ctx["md"] is None or ctx["md"]["children"] is None:
+        return res
+
+    def fmt(node, name):
+        w = kind_word(localname(node))
+        t = node.find("md:Properties/md:Type", MD_NSMAP)
+        ft = format_type(t) if t is not None else ""
+        return {"kind": w, "text": "%s %s%s" % (w, name, (": " + ft) if ft else "")}
+
+    for c in elem_children(ctx["md"]["children"]):
+        if not has_element_child(c):
+            # <Form>Имя</Form>, <Template>Имя</Template>: ownership is in the sub-object descriptor
+            nm = inner_text(c).strip()
+            desc = read_md_object(os.path.join(ctx["obj_dir"], localname(c) + "s", nm + ".xml"))
+            if desc is not None and test_adopted_node(desc["props"]):
+                continue
+            w = kind_word(localname(c))
+            res.append({"kind": w, "text": "%s %s" % (w, nm)})
+            continue
+        nm = md_child_name(c)
+        own = not test_adopted_node(c)
+        if own:
+            res.append(fmt(c, nm))
+        sub = c.find("md:ChildObjects", MD_NSMAP)
+        if sub is None:
+            continue
+        for sc in elem_children(sub):
+            if not own and test_adopted_node(sc):
+                continue
+            res.append(fmt(sc, "%s.%s" % (nm, md_child_name(sc))))
+    return res
+
+
+def subsystem_content_items(md, cfg_md, prefix):
+    """Transfer of a borrowed subsystem's content: each object the extension adds must be in the
+    content of the configuration's subsystem (own names compared with and without the prefix)."""
+    items = []
+    cfg = get_subsystem_content(cfg_md)
+    for ref in get_subsystem_content(md):
+        typ, _, nm = ref.partition(".")
+        pool = [c.partition(".")[2] for c in cfg if c.partition(".")[0] == typ]
+        hit = find_name_in(pool, nm, prefix)
+        as_ = (" (found as %s.%s)" % (typ, hit)) if hit and hit.lower() != nm.lower() else ""
+        items.append(new_item("TRANSFERRED" if hit else "NOT_TRANSFERRED", "content " + ref + as_))
+    return items
+
+
+def get_subsystem_content(md):
+    """Content of a borrowed subsystem: the objects the extension adds to it (Type.Name)."""
+    res = []
+    if md is None or md["props"] is None:
+        return res
+    content = md["props"].find("md:Content", MD_NSMAP)
+    if content is None:
+        return res
+    for i in content:
+        if isinstance(i.tag, str) and localname(i) == "Item":
+            t = inner_text(i).strip()
+            if t:
+                res.append(t)
+    return res
+
+
+def format_overview_details(items):
+    """Overview details, grouped by file like the transfer ones: modules with their interceptors and
+    own methods, the object's XML with its own sub-objects, Form.xml with the tree of changes vs
+    BaseForm."""
+    lines = []
+    order = []
+    by_sec = {}
+    for it in items:
+        s = it.get("section") or ""
+        if s not in by_sec:
+            by_sec[s] = []
+            order.append(s)
+        by_sec[s].append(it)
+    lay = section_layout(order)
+
+    def emit(s):
+        its = by_sec[s]
+        pad = "      " if s else "    "
+        if s:
+            tree = [it for it in its if it.get("head")]
+            lines.append("    %s%s" % (s, (": " + tree[0]["head"]) if tree else ":"))
+        for it in its:
+            if it.get("head"):
+                lines.extend(it["lines"])
+                continue
+            loc = ("  " + it["loc"]) if it.get("loc") else ""
+            lines.append("%s%s%s" % (pad, it["text"], loc))
+
+    for s in lay["plain"]:
+        emit(s)
+    for f in lay["forms"]:
+        for s in f["secs"]:
+            emit(s)
+    return lines
+
+
 def overview_object(ext, obj):
     oid = "%s.%s" % (obj["type"], obj["name"])
     ctx = get_obj_context(ext["dir"], obj["type"], obj["name"])
@@ -2208,8 +2341,6 @@ def overview_object(ext, obj):
         return {"id": oid, "kind": "?", "summary": "[?]          %s — unknown type" % oid, "details": []}
     if not ctx["exists"]:
         return {"id": oid, "kind": "?", "summary": "[?]          %s — file not found" % oid, "details": []}
-    ind = "    "
-    details = []
     if not ctx["borrowed"]:
         parts = []
         if ctx["md"]["children"] is not None:
@@ -2221,83 +2352,66 @@ def overview_object(ext, obj):
         tail = (" — " + ", ".join(parts)) if parts else ""
         return {"id": oid, "kind": "own", "summary": "[OWN]        " + oid + tail, "details": []}
 
+    items = []
     forms = get_obj_forms(ctx)
     diffs = {}
-    form_modules = set()
+    changed_forms = 0
     for f in forms:
         if f["own"]:
             continue
         d = get_form_diff(f["xml"])
-        if d is not None and d["is_borrowed"]:
-            diffs[f["label"]] = d
-            if d["total"] > 0:
-                form_modules.add(path_key(f["module"]))
-
-    # Modules and interceptors
-    ic_count = 0
-    for bsl in get_obj_modules(ctx, forms):
-        rel = rel_path(ext["dir"], bsl)
-        lines = read_bsl_lines(bsl)
-        ics = get_interceptors(lines)
-        ic_count += len(ics)
-        if not ics:
-            # A changed borrowed form binds its handlers in Form.xml — they are listed with the form
-            if path_key(bsl) not in form_modules:
-                details.append("%s%s (no interceptors)" % (ind, rel))
+        if d is None or not d["is_borrowed"]:
             continue
-        for ic in ics:
-            details.append('%s&%s("%s") — line %d in %s' % (ind, ic["raw"], ic["method"], ic["line"] + 1, rel))
-
-    # Own and borrowed sub-objects
-    own = {}
-    borrowed_items = 0
-    if ctx["md"]["children"] is not None:
-        for c in elem_children(ctx["md"]["children"]):
-            if not has_element_child(c):
-                desc = read_md_object(os.path.join(ctx["obj_dir"], localname(c) + "s", inner_text(c).strip() + ".xml"))
-                is_own = not (desc is not None and test_adopted_node(desc["props"]))
-            else:
-                is_own = not test_adopted_node(c)
-            if not is_own:
-                borrowed_items += 1
-                continue
-            w = kind_word(localname(c))
-            own[w] = own.get(w, 0) + 1
-    own_parts = ["own " + plural(v, w) for w, v in own.items()]
-    cp = list(own_parts)
-    if borrowed_items:
-        cp.append(plural(borrowed_items, "borrowed item"))
-    if cp:
-        details.append("%sChildObjects: %s" % (ind, ", ".join(cp)))
-
-    # Forms
-    changed_forms = 0
-    unchanged_forms = 0
-    for f in forms:
-        if f["own"]:
-            if ctx["type"] != "CommonForm":
-                details.append("%s%s (own)" % (ind, f["label"]))
-            continue
-        if f["label"] not in diffs:
-            details.append("%s%s (?)" % (ind, f["label"]))
-            continue
-        d = diffs[f["label"]]
+        diffs[path_key(f["module"])] = d
         if d["total"] == 0:
-            unchanged_forms += 1
-        else:
-            changed_forms += 1
-        details += format_form_diff(d, f["label"], ind)
+            continue
+        changed_forms += 1
+        # The headline of the tree goes to the section header, the rest under it
+        tree = format_form_diff(d, f["label"], "    ")
+        items.append({"section": rel_path(ext["dir"], f["xml"]), "head": form_diff_parts(d), "lines": tree[1:]})
+    ic_count = 0
+    own_methods = 0
+    for bsl in get_obj_modules(ctx, forms):
+        lines = read_bsl_lines(bsl)
+        if lines is None:
+            continue
+        rel = rel_path(ext["dir"], bsl)
+        k = path_key(bsl)
+        skip = call_type_handlers(diffs[k]) if k in diffs else set()
+        mc = get_module_changes(lines, skip)
+        for x in mc["interceptors"]:
+            ic_count += 1
+            items.append({"section": rel, "text": '&%s("%s")' % (x["ic"]["raw"], x["ic"]["method"]), "loc": ":%d" % (x["ic"]["line"] + 1)})
+        for o in mc["own"]:
+            own_methods += 1
+            items.append({"section": rel, "text": "method " + o["name"], "loc": ":%d" % (o["idx"] + 1)})
+    obj_rel = rel_path(ext["dir"], ctx["file"])
+    kinds = {}
+    for k in get_own_child_list(ctx):
+        items.append({"section": obj_rel, "text": k["text"], "loc": ""})
+        kinds[k["kind"]] = kinds.get(k["kind"], 0) + 1
+    content = 0
+    if obj["type"] == "Subsystem":
+        for c in get_subsystem_content(ctx["md"]):
+            items.append({"section": obj_rel, "text": "content " + c, "loc": ""})
+            content += 1
 
     sp = []
     if ic_count:
         sp.append(plural(ic_count, "interceptor"))
-    sp += own_parts
+    if own_methods:
+        sp.append(plural(own_methods, "own method"))
+    for w, v in kinds.items():
+        sp.append("own " + plural(v, w))
+    if content:
+        sp.append(plural(content, "content item"))
     if changed_forms:
         sp.append(plural(changed_forms, "form") + " changed")
-    if unchanged_forms:
-        sp.append(plural(unchanged_forms, "form") + " unchanged")
-    tail = (" — " + ", ".join(sp)) if sp else ""
-    return {"id": oid, "kind": "borrowed", "summary": "[BORROWED]   " + oid + tail, "details": details}
+    # Borrowed only as a dependency (a type, a picture, a style of the extension's own code)
+    unchanged = not items
+    tail = " — no changes" if unchanged else " — " + ", ".join(sp)
+    return {"id": oid, "type": obj["type"], "kind": "borrowed", "unchanged": unchanged,
+            "summary": "[BORROWED]   " + oid + tail, "details": format_overview_details(items)}
 
 
 # ============================================================
@@ -2340,6 +2454,25 @@ def test_expanded(ext, obj_id, section, expand_list):
     return False
 
 
+def section_layout(order):
+    """Order of detail sections, the same in both modes: plain files first, then each form with its
+    Form.xml before its Module.bsl."""
+    plain = []
+    forms = []
+    secs_of = {}
+    for s in order:
+        m = re.match(r'^(.*)/Ext/Form(?:\.xml|/Module\.bsl)$', s)
+        fd = m.group(1) if m else ""
+        if not fd:
+            plain.append(s)
+            continue
+        if fd not in secs_of:
+            secs_of[fd] = []
+            forms.append(fd)
+        secs_of[fd].append(s)
+    return {"plain": plain, "forms": [{"dir": fd, "secs": sorted(secs_of[fd], key=lambda x: 0 if x.endswith(".xml") else 1)} for fd in forms]}
+
+
 def get_transfer_details(ext, rec, expand_list):
     """Details of an object in transfer, grouped by the file each change lives in. A plain
     transferred change folds into "… N transferred" unless its section is expanded (one marked
@@ -2355,10 +2488,6 @@ def get_transfer_details(ext, rec, expand_list):
             by_sec[s] = []
             order.append(s)
         by_sec[s].append(it)
-    form_of = {}
-    for s in order:
-        m = re.match(r'^(.*)/Ext/Form(?:\.xml|/Module\.bsl)$', s)
-        form_of[s] = m.group(1) if m else ""
     view = {}
     for s in order:
         opened = test_expanded(ext, rec["id"], s, expand_list)
@@ -2379,16 +2508,13 @@ def get_transfer_details(ext, rec, expand_list):
         if v["hidden"] > 0:
             lines.append("%s… %d transferred" % (pad, v["hidden"]))
 
-    forms = []
-    for s in order:
-        if form_of[s] and form_of[s] not in forms:
-            forms.append(form_of[s])
-    for s in order:
-        if not form_of[s]:
-            emit(s)
-            folded += view[s]["hidden"]
-    for fd in forms:
-        secs = sorted([s for s in order if form_of[s] == fd], key=lambda x: 0 if x.endswith(".xml") else 1)
+    lay = section_layout(order)
+    for s in lay["plain"]:
+        emit(s)
+        folded += view[s]["hidden"]
+    for f in lay["forms"]:
+        fd = f["dir"]
+        secs = f["secs"]
         hidden = sum(view[s]["hidden"] for s in secs)
         shown = sum(len(view[s]["shown"]) for s in secs)
         folded += hidden
@@ -2551,6 +2677,9 @@ def main():
                         ext["borrowed"] += 1
                     elif rec["kind"] == "own":
                         ext["own"] += 1
+                    # A borrowed object without changes is folded into the summary unless asked for
+                    # (-Expand * lists them in the summary instead)
+                    rec["asked"] = bool(name_filter) or any(t.lower() == rec["id"].lower() for t in expand_list)
                     ext["objects"].append(rec)
         # -Name narrows the report: an extension without a matching object stays out of it
         if name_filter and ext["matched"] == 0:
@@ -2562,6 +2691,8 @@ def main():
     for ext in exts:
         full_count += 3
         for o in ext["objects"]:
+            if mode == "overview" and o.get("unchanged") and not o.get("asked"):
+                continue
             full_count += 1
             if mode == "overview" or not o["complete"] or o.get("asked"):
                 full_count += len(o["details"])
@@ -2580,6 +2711,8 @@ def main():
         for o in ext["objects"]:
             if mode == "transfer" and o["complete"] and not show_details:
                 continue
+            if mode == "overview" and o.get("unchanged") and not o.get("asked"):
+                continue
             body.append(o["summary"])
             shown += 1
             if show_details and (mode == "overview" or not o["complete"] or o.get("asked")):
@@ -2587,7 +2720,9 @@ def main():
                 if o.get("folded"):
                     any_folded = True
         if shown == 0:
-            if mode == "overview":
+            if mode == "overview" and ext["objects"]:
+                body.append("No changes in borrowed objects.")
+            elif mode == "overview":
                 body.append("No objects (besides Language) in extension.")
             elif ext["objects"]:
                 body.append("All changes transferred.")
@@ -2597,6 +2732,7 @@ def main():
 
     # --- Footer: always printed, after the body (output is often read from its tail) ---
     footer = []
+    unch_folded = False
     failed = False
     ext_done = 0
     ext_left = 0
@@ -2629,7 +2765,20 @@ def main():
             else:
                 ext_done += 1
         else:
-            footer.append("=== Summary %s: %d borrowed, %d own objects ===" % (ext["name"], ext["borrowed"], ext["own"]))
+            unch = [o for o in ext["objects"] if o.get("unchanged")]
+            bp = (" (%d changed, %d without changes)" % (ext["borrowed"] - len(unch), len(unch))) if unch else ""
+            footer.append("=== Summary %s: %d borrowed%s, %d own objects ===" % (ext["name"], ext["borrowed"], bp, ext["own"]))
+            if unch:
+                by_type = {}
+                for o in unch:
+                    by_type.setdefault(o["type"], []).append(o["id"][len(o["type"]) + 1:])
+                if "*" in expand_list:
+                    footer.append("Borrowed without changes:")
+                    for t, names in by_type.items():
+                        footer.append("    %s: %s" % (t, ", ".join(names)))
+                else:
+                    footer.append("Borrowed without changes: " + ", ".join("%s %d" % (t, len(n)) for t, n in by_type.items()))
+                    unch_folded = True
     if mode == "transfer" and len(exts) > 1:
         tail = (", %d with %d remaining" % (ext_left, left_total)) if ext_left else ""
         footer.append("=== Total: %d extensions — %d complete%s ===" % (len(exts), ext_done, tail))
@@ -2643,6 +2792,8 @@ def main():
             footer.append("[INFO] -Name: no object matches '%s'" % f)
     if not show_details:
         footer.append("Details omitted (%d lines in full). Use -Name <Type.Name>[,<Type.Name>] for item details." % full_count)
+    if unch_folded:
+        footer.append("Hint: use -Expand * to list borrowed objects without changes")
     if any_folded:
         footer.append("Hint: use -Expand <Type.Name> or a section path to list transferred changes, -Expand * for all")
 

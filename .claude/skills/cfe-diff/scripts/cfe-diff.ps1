@@ -1611,6 +1611,10 @@ function Get-EventText($e) {
 
 function Get-FormDiffHeadline($diff, [string]$label) {
 	if ($diff.Total -eq 0) { return "$label (borrowed, unchanged)" }
+	return "$label (borrowed): $(Get-FormDiffParts $diff)"
+}
+
+function Get-FormDiffParts($diff) {
 	$added = @($diff.Elements | Where-Object { $_.Kind -eq 'added' }).Count
 	$changed = $diff.Elements.Count - $added
 	$parts = @()
@@ -1626,7 +1630,7 @@ function Get-FormDiffHeadline($diff, [string]$label) {
 	if ($diff.FormProps.Count) { $parts += (Get-Plural $diff.FormProps.Count 'form property') -replace 'propertys$', 'properties' }
 	foreach ($b in $diff.Blocks) { $parts += "~$($b.Name)" }
 	if ($diff.Removed.Count) { $parts += "!$($diff.Removed.Count) removed" }
-	return "$label (borrowed): $($parts -join ', ')"
+	return ($parts -join ', ')
 }
 
 # Overview rendering: changed elements as a tree with their ancestors for context
@@ -1823,10 +1827,9 @@ function Get-ModuleTransferItems([string]$bsl, [string]$extDir, [string]$prefix,
 	if ($null -eq $extLines) { return $items }
 	$rel = Get-RelPath $extDir $bsl
 	$cfgLines = Read-BslLines (Join-Path $ConfigPath $rel)
-	$icProcs = @{}
-	foreach ($ic in @(Get-Interceptors $extLines)) {
-		$decl = Find-DeclAfter $extLines $ic.Line
-		if ($decl) { $icProcs[$decl.Name.ToLower()] = $true }
+	$mc = Get-ModuleChanges $extLines $skipHandlers
+	foreach ($x in $mc.Interceptors) {
+		$ic = $x.Ic; $decl = $x.Decl
 		$label = "&$($ic.Raw)(`"$($ic.Method)`")"
 		$loc = "${rel}:$($ic.Line + 1)"
 		$extM = if ($decl) { Get-MethodSafe $extLines $decl.Name } else { $null }
@@ -1852,8 +1855,8 @@ function Get-ModuleTransferItems([string]$bsl, [string]$extDir, [string]$prefix,
 		if ($it) { $items += (Set-TempMark $it $mark $label) }
 	}
 	$cfgNames = if ($null -ne $cfgLines) { @(Get-ProcNames $cfgLines) } else { @() }
-	foreach ($pn in @(Get-ProcNames $extLines)) {
-		if ($icProcs.ContainsKey($pn.ToLower()) -or $skipHandlers.ContainsKey($pn.ToLower())) { continue }
+	foreach ($od in $mc.Own) {
+		$pn = $od.Name
 		$extM = Get-MethodSafe $extLines $pn
 		if (-not $extM) { continue }
 		$loc = "${rel}:$($extM.DeclIdx + 1)"
@@ -1966,6 +1969,7 @@ function Get-TransferObject($ext, $obj) {
 		$rec.Items += @(Get-ModuleTransferItems $bsl $ext.Dir $prefix $skip)
 	}
 	$rec.Items += @(Get-OwnChildItems $ctx $cfgMd $prefix)
+	if ($obj.Type -eq 'Subsystem') { $rec.Items += @(Get-SubsystemContentItems $ctx.Md $cfgMd $prefix) }
 	$rec.Items += $formItems
 	if (-not $cfgMd -and $rec.Items.Count -gt 0) {
 		# Temporary changes stay apart: they are not for transfer, missing object or not
@@ -1990,13 +1994,132 @@ function Get-TransferObject($ext, $obj) {
 # Overview of one object
 # ============================================================
 
+# Declarations of a module: name and line index of each procedure and function
+function Get-ProcDecls($lines) {
+	$re = '^\s*(?:' + (Get-KwAlt 'Async') + '\s+)?(?:' + (Get-KwAlt 'Proc') + '|' + (Get-KwAlt 'Func') + ')\s+([\w]+)\s*\('
+	$res = @()
+	for ($i = 0; $i -lt $lines.Count; $i++) { if ($lines[$i] -imatch $re) { $res += @{ Name = $Matches[1]; Idx = $i } } }
+	return $res
+}
+
+# What a module of a borrowed object brings: interceptors (with the method each one declares) and
+# own methods, that is neither interceptors nor handlers bound in Form.xml ($skipHandlers)
+function Get-ModuleChanges($lines, $skipHandlers) {
+	$ics = @(); $icProcs = @{}
+	foreach ($ic in @(Get-Interceptors $lines)) {
+		$decl = Find-DeclAfter $lines $ic.Line
+		if ($decl) { $icProcs[$decl.Name.ToLower()] = $true }
+		$ics += @{ Ic = $ic; Decl = $decl }
+	}
+	$own = @(@(Get-ProcDecls $lines) | Where-Object { -not $icProcs.ContainsKey($_.Name.ToLower()) -and -not $skipHandlers.ContainsKey($_.Name.ToLower()) })
+	return @{ Interceptors = $ics; Own = $own }
+}
+
+# Own sub-objects of a borrowed object, named: kind, name, the type of an attribute. The own
+# attributes of a borrowed tabular section come as Section.Attribute.
+function Get-OwnChildList($ctx) {
+	$res = @()
+	if (-not $ctx.Md -or -not $ctx.Md.Children) { return $res }
+	$mns = $ctx.Md.Ns
+	$fmt = {
+		param($node, [string]$name)
+		$w = Get-KindWord $node.LocalName
+		$t = $node.SelectSingleNode("md:Properties/md:Type", $mns)
+		$ft = if ($t) { Format-Type $t } else { '' }
+		$tail = if ($ft) { ": $ft" } else { '' }
+		return @{ Kind = $w; Text = "$w $name$tail" }
+	}
+	foreach ($c in $ctx.Md.Children.ChildNodes) {
+		if ($c.NodeType -ne 'Element') { continue }
+		if (-not (Test-HasElementChild $c)) {
+			# <Form>Имя</Form>, <Template>Имя</Template>: ownership is in the sub-object descriptor
+			$nm = $c.InnerText.Trim()
+			$desc = Read-MdObject (Join-Path (Join-Path $ctx.ObjDir "$($c.LocalName)s") "$nm.xml")
+			if ($desc -and (Test-AdoptedNode $desc.Props $desc.Ns)) { continue }
+			$w = Get-KindWord $c.LocalName
+			$res += @{ Kind = $w; Text = "$w $nm" }
+			continue
+		}
+		$nm = Get-MdChildName $c $mns
+		$own = -not (Test-AdoptedNode $c $mns)
+		if ($own) { $res += (& $fmt $c $nm) }
+		$sub = $c.SelectSingleNode("md:ChildObjects", $mns)
+		if (-not $sub) { continue }
+		foreach ($sc in $sub.ChildNodes) {
+			if ($sc.NodeType -ne 'Element') { continue }
+			if (-not $own -and (Test-AdoptedNode $sc $mns)) { continue }
+			$res += (& $fmt $sc "$nm.$(Get-MdChildName $sc $mns)")
+		}
+	}
+	return $res
+}
+
+# Content of a borrowed subsystem: the objects the extension adds to it (Type.Name)
+function Get-SubsystemContent($md) {
+	$res = @()
+	if (-not $md -or -not $md.Props) { return $res }
+	foreach ($i in $md.Props.SelectNodes("md:Content/*[local-name()='Item']", $md.Ns)) {
+		$t = $i.InnerText.Trim()
+		if ($t) { $res += $t }
+	}
+	return $res
+}
+
+# Transfer of a borrowed subsystem's content: each object the extension adds must be in the content
+# of the configuration's subsystem (own names compared with and without the prefix)
+function Get-SubsystemContentItems($md, $cfgMd, [string]$prefix) {
+	$items = @()
+	$cfg = @(Get-SubsystemContent $cfgMd)
+	foreach ($ref in @(Get-SubsystemContent $md)) {
+		$i = $ref.IndexOf('.')
+		$typ = if ($i -ge 0) { $ref.Substring(0, $i) } else { $ref }
+		$nm = if ($i -ge 0) { $ref.Substring($i + 1) } else { '' }
+		$pool = @($cfg | Where-Object { $_.StartsWith("$typ.") } | ForEach-Object { $_.Substring($typ.Length + 1) })
+		$hit = Find-NameIn $pool $nm $prefix
+		$as = if ($hit -and $hit -ine $nm) { " (found as $typ.$hit)" } else { '' }
+		$st = if ($hit) { 'TRANSFERRED' } else { 'NOT_TRANSFERRED' }
+		$items += New-Item2 $st "content $ref$as"
+	}
+	return $items
+}
+
+# Overview details, grouped by file like the transfer ones: modules with their interceptors and own
+# methods, the object's XML with its own sub-objects, Form.xml with the tree of changes vs BaseForm
+function Format-OverviewDetails($items) {
+	$lines = New-Object System.Collections.Generic.List[string]
+	$order = New-Object System.Collections.Generic.List[string]
+	$bySec = @{}
+	foreach ($it in $items) {
+		$s = [string]$it.Section
+		if (-not $bySec.ContainsKey($s)) { $bySec[$s] = New-Object System.Collections.ArrayList; $order.Add($s) }
+		[void]$bySec[$s].Add($it)
+	}
+	$lay = Get-SectionLayout $order
+	$emit = {
+		param([string]$s)
+		$its = @($bySec[$s])
+		$pad = if ($s) { '      ' } else { '    ' }
+		if ($s) {
+			$tree = @($its | Where-Object { $_.Head })
+			$head = if ($tree.Count -gt 0) { ": $($tree[0].Head)" } else { ':' }
+			$lines.Add("    $s$head")
+		}
+		foreach ($it in $its) {
+			if ($it.Head) { foreach ($l in $it.Lines) { $lines.Add($l) }; continue }
+			$loc = if ($it.Loc) { "  $($it.Loc)" } else { '' }
+			$lines.Add("$pad$($it.Text)$loc")
+		}
+	}
+	foreach ($s in $lay.Plain) { & $emit $s }
+	foreach ($f in $lay.Forms) { foreach ($s in $f.Secs) { & $emit $s } }
+	return $lines.ToArray()
+}
+
 function Get-OverviewObject($ext, $obj) {
 	$id = "$($obj.Type).$($obj.Name)"
 	$ctx = Get-ObjContext $ext.Dir $obj.Type $obj.Name
 	if (-not $ctx.Known) { return @{ Id = $id; Kind = '?'; Summary = "[?]          $id — unknown type"; Details = @() } }
 	if (-not $ctx.Exists) { return @{ Id = $id; Kind = '?'; Summary = "[?]          $id — file not found"; Details = @() } }
-	$ind = '    '
-	$details = @()
 	if (-not $ctx.Borrowed) {
 		$parts = @()
 		if ($ctx.Md.Children) {
@@ -2012,66 +2135,53 @@ function Get-OverviewObject($ext, $obj) {
 		return @{ Id = $id; Kind = 'own'; Summary = "[OWN]        $id$tail"; Details = @() }
 	}
 
+	$items = @()
 	$forms = @(Get-ObjForms $ctx)
 	$diffs = @{}
-	$formModules = @{}
+	$changedForms = 0
 	foreach ($f in $forms) {
 		if ($f.Own) { continue }
 		$d = Get-FormDiff $f.Xml
-		if ($d -and $d.IsBorrowed) { $diffs[$f.Label] = $d; if ($d.Total -gt 0) { $formModules[[IO.Path]::GetFullPath($f.Module)] = $true } }
+		if (-not $d -or -not $d.IsBorrowed) { continue }
+		$diffs[[IO.Path]::GetFullPath($f.Module)] = $d
+		if ($d.Total -eq 0) { continue }
+		$changedForms++
+		# The headline of the tree goes to the section header, the rest under it
+		$tree = @(Format-FormDiff $d $f.Label '    ')
+		$items += @{ Section = (Get-RelPath $ext.Dir $f.Xml); Head = (Get-FormDiffParts $d); Lines = @($tree | Select-Object -Skip 1) }
 	}
-
-	# Modules and interceptors
-	$icCount = 0
+	$icCount = 0; $ownMethods = 0
 	foreach ($bsl in @(Get-ObjModules $ctx $forms)) {
-		$rel = Get-RelPath $ext.Dir $bsl
 		$lines = Read-BslLines $bsl
-		$ics = @(Get-Interceptors $lines)
-		$icCount += $ics.Count
-		if ($ics.Count -eq 0) {
-			# A changed borrowed form binds its handlers in Form.xml — they are listed with the form
-			if (-not $formModules.ContainsKey([IO.Path]::GetFullPath($bsl))) { $details += "$ind$rel (no interceptors)" }
-			continue
-		}
-		foreach ($ic in $ics) { $details += "$ind&$($ic.Raw)(`"$($ic.Method)`") — line $($ic.Line + 1) in $rel" }
+		if ($null -eq $lines) { continue }
+		$rel = Get-RelPath $ext.Dir $bsl
+		$key = [IO.Path]::GetFullPath($bsl)
+		$skip = if ($diffs.ContainsKey($key)) { Get-CallTypeHandlers $diffs[$key] } else { @{} }
+		$mc = Get-ModuleChanges $lines $skip
+		foreach ($x in $mc.Interceptors) { $icCount++; $items += @{ Section = $rel; Text = "&$($x.Ic.Raw)(`"$($x.Ic.Method)`")"; Loc = ":$($x.Ic.Line + 1)" } }
+		foreach ($o in $mc.Own) { $ownMethods++; $items += @{ Section = $rel; Text = "method $($o.Name)"; Loc = ":$($o.Idx + 1)" } }
 	}
-
-	# Own and borrowed sub-objects
-	$own = [ordered]@{}; $borrowedItems = 0
-	if ($ctx.Md.Children) {
-		foreach ($c in $ctx.Md.Children.ChildNodes) {
-			if ($c.NodeType -ne 'Element') { continue }
-			if (-not (Test-HasElementChild $c)) {
-				$desc = Read-MdObject (Join-Path (Join-Path $ctx.ObjDir "$($c.LocalName)s") "$($c.InnerText.Trim()).xml")
-				$isOwn = -not ($desc -and (Test-AdoptedNode $desc.Props $desc.Ns))
-			} else { $isOwn = -not (Test-AdoptedNode $c $ctx.Md.Ns) }
-			if (-not $isOwn) { $borrowedItems++; continue }
-			$w = Get-KindWord $c.LocalName
-			if ($own.Contains($w)) { $own[$w]++ } else { $own[$w] = 1 }
-		}
+	$objRel = Get-RelPath $ext.Dir $ctx.File
+	$kinds = [ordered]@{}
+	foreach ($k in @(Get-OwnChildList $ctx)) {
+		$items += @{ Section = $objRel; Text = $k.Text; Loc = '' }
+		if ($kinds.Contains($k.Kind)) { $kinds[$k.Kind]++ } else { $kinds[$k.Kind] = 1 }
 	}
-	$ownParts = @(@($own.Keys) | ForEach-Object { "own $(Get-Plural $own[$_] $_)" })
-	$cp = @($ownParts)
-	if ($borrowedItems -gt 0) { $cp += (Get-Plural $borrowedItems 'borrowed item') }
-	if ($cp.Count -gt 0) { $details += "${ind}ChildObjects: $($cp -join ', ')" }
-
-	# Forms
-	$changedForms = 0; $unchangedForms = 0
-	foreach ($f in $forms) {
-		if ($f.Own) { if ($ctx.Type -ne 'CommonForm') { $details += "$ind$($f.Label) (own)" }; continue }
-		if (-not $diffs.ContainsKey($f.Label)) { $details += "$ind$($f.Label) (?)"; continue }
-		$d = $diffs[$f.Label]
-		if ($d.Total -eq 0) { $unchangedForms++ } else { $changedForms++ }
-		$details += @(Format-FormDiff $d $f.Label $ind)
+	$content = 0
+	if ($obj.Type -eq 'Subsystem') {
+		foreach ($c in @(Get-SubsystemContent $ctx.Md)) { $items += @{ Section = $objRel; Text = "content $c"; Loc = '' }; $content++ }
 	}
 
 	$sp = @()
 	if ($icCount) { $sp += (Get-Plural $icCount 'interceptor') }
-	$sp += $ownParts
+	if ($ownMethods) { $sp += (Get-Plural $ownMethods 'own method') }
+	foreach ($w in @($kinds.Keys)) { $sp += "own $(Get-Plural $kinds[$w] $w)" }
+	if ($content) { $sp += (Get-Plural $content 'content item') }
 	if ($changedForms) { $sp += "$(Get-Plural $changedForms 'form') changed" }
-	if ($unchangedForms) { $sp += "$(Get-Plural $unchangedForms 'form') unchanged" }
-	$tail = if ($sp.Count) { " — $($sp -join ', ')" } else { '' }
-	return @{ Id = $id; Kind = 'borrowed'; Summary = "[BORROWED]   $id$tail"; Details = $details }
+	# Borrowed only as a dependency (a type, a picture, a style of the extension's own code)
+	$unchanged = ($items.Count -eq 0)
+	$tail = if ($unchanged) { ' — no changes' } else { " — $($sp -join ', ')" }
+	return @{ Id = $id; Type = $obj.Type; Kind = 'borrowed'; Unchanged = $unchanged; Summary = "[BORROWED]   $id$tail"; Details = @(Format-OverviewDetails $items) }
 }
 
 # ============================================================
@@ -2119,6 +2229,23 @@ function Test-Expanded($ext, [string]$objId, [string]$section) {
 	return $false
 }
 
+# Order of detail sections, the same in both modes: plain files first, then each form with its
+# Form.xml before its Module.bsl. Returns @{ Plain = @(paths); Forms = @(@{ Dir; Secs = @(paths) }) }
+function Get-SectionLayout($order) {
+	$plain = @()
+	$forms = New-Object System.Collections.Generic.List[string]
+	$secsOf = @{}
+	foreach ($s in $order) {
+		$fd = if ($s -match '^(.*)/Ext/Form(?:\.xml|/Module\.bsl)$') { $Matches[1] } else { '' }
+		if (-not $fd) { $plain += $s; continue }
+		if (-not $secsOf.ContainsKey($fd)) { $secsOf[$fd] = @(); $forms.Add($fd) }
+		$secsOf[$fd] += $s
+	}
+	$res = @()
+	foreach ($fd in $forms) { $res += @{ Dir = $fd; Secs = @($secsOf[$fd] | Sort-Object { if ($_.EndsWith('.xml')) { 0 } else { 1 } }) } }
+	return @{ Plain = $plain; Forms = $res }
+}
+
 # Details of an object in transfer, grouped by the file each change lives in. A plain transferred
 # change folds into "… N transferred" unless its section is expanded (one marked temporary stays
 # in sight); a section with nothing else left is one line, and so is a form whose files all are.
@@ -2132,8 +2259,6 @@ function Get-TransferDetails($ext, $rec) {
 		if (-not $bySec.ContainsKey($s)) { $bySec[$s] = New-Object System.Collections.ArrayList; $order.Add($s) }
 		[void]$bySec[$s].Add($it)
 	}
-	$formOf = @{}
-	foreach ($s in $order) { $formOf[$s] = if ($s -match '^(.*)/Ext/Form(?:\.xml|/Module\.bsl)$') { $Matches[1] } else { '' } }
 	# Shown items and the folded count of a section
 	$view = @{}
 	foreach ($s in $order) {
@@ -2155,12 +2280,10 @@ function Get-TransferDetails($ext, $rec) {
 		}
 		if ($v.Hidden -gt 0) { $lines.Add("$pad… $($v.Hidden) transferred") }
 	}
-	$plain = @($order | Where-Object { -not $formOf[$_] })
-	$forms = New-Object System.Collections.Generic.List[string]
-	foreach ($s in $order) { if ($formOf[$s] -and -not $forms.Contains($formOf[$s])) { $forms.Add($formOf[$s]) } }
-	foreach ($s in $plain) { & $emit $s; $folded += $view[$s].Hidden }
-	foreach ($fd in $forms) {
-		$secs = @($order | Where-Object { $formOf[$_] -eq $fd } | Sort-Object { if ($_.EndsWith('.xml')) { 0 } else { 1 } })
+	$lay = Get-SectionLayout $order
+	foreach ($s in $lay.Plain) { & $emit $s; $folded += $view[$s].Hidden }
+	foreach ($f in $lay.Forms) {
+		$fd = $f.Dir; $secs = $f.Secs
 		$hidden = 0; $shown = 0
 		foreach ($s in $secs) { $hidden += $view[$s].Hidden; $shown += $view[$s].Shown.Count }
 		$folded += $hidden
@@ -2209,6 +2332,9 @@ foreach ($dir in $extDirs) {
 			} else {
 				$rec = Get-OverviewObject $ext $obj
 				if ($rec.Kind -eq 'borrowed') { $ext.Borrowed++ } elseif ($rec.Kind -eq 'own') { $ext.Own++ }
+				# A borrowed object without changes is folded into the summary unless asked for
+				# (-Expand * lists them in the summary instead)
+				$rec.Asked = ($nameFilter.Count -gt 0) -or (@($expandList | Where-Object { $_ -ieq $rec.Id }).Count -gt 0)
 				$ext.Objects += $rec
 			}
 		}
@@ -2223,6 +2349,7 @@ $fullCount = 0
 foreach ($ext in $exts) {
 	$fullCount += 3
 	foreach ($o in $ext.Objects) {
+		if ($Mode -eq 'overview' -and $o.Unchanged -and -not $o.Asked) { continue }
 		$fullCount += 1
 		if ($Mode -eq 'overview' -or -not $o.Complete -or $o.Asked) { $fullCount += $o.Details.Count }
 	}
@@ -2240,6 +2367,7 @@ foreach ($ext in $exts) {
 	$shown = 0
 	foreach ($o in $ext.Objects) {
 		if ($Mode -eq 'transfer' -and $o.Complete -and -not $showDetails) { continue }
+		if ($Mode -eq 'overview' -and $o.Unchanged -and -not $o.Asked) { continue }
 		$body += $o.Summary
 		$shown++
 		if ($showDetails -and ($Mode -eq 'overview' -or -not $o.Complete -or $o.Asked)) {
@@ -2248,7 +2376,8 @@ foreach ($ext in $exts) {
 		}
 	}
 	if ($shown -eq 0) {
-		if ($Mode -eq 'overview') { $body += "No objects (besides Language) in extension." }
+		if ($Mode -eq 'overview' -and $ext.Objects.Count -gt 0) { $body += "No changes in borrowed objects." }
+		elseif ($Mode -eq 'overview') { $body += "No objects (besides Language) in extension." }
 		elseif ($ext.Objects.Count -gt 0) { $body += "All changes transferred." }
 		else { $body += "No changes to transfer." }
 	}
@@ -2257,6 +2386,7 @@ foreach ($ext in $exts) {
 
 # --- Footer: always printed, after the body (output is often read from its tail) ---
 $footer = @()
+$unchFolded = $false
 $failed = $false
 $extDone = 0; $extLeft = 0; $leftTotal = 0
 foreach ($ext in $exts) {
@@ -2285,7 +2415,20 @@ foreach ($ext in $exts) {
 			$footer += "Remaining: $($shown -join ', ')$more"
 		} else { $extDone++ }
 	} else {
-		$footer += "=== Summary $($ext.Name): $($ext.Borrowed) borrowed, $($ext.Own) own objects ==="
+		$unch = @($ext.Objects | Where-Object { $_.Unchanged })
+		$bp = if ($unch.Count -gt 0) { " ($($ext.Borrowed - $unch.Count) changed, $($unch.Count) without changes)" } else { '' }
+		$footer += "=== Summary $($ext.Name): $($ext.Borrowed) borrowed$bp, $($ext.Own) own objects ==="
+		if ($unch.Count -gt 0) {
+			$byType = [ordered]@{}
+			foreach ($o in $unch) { if (-not $byType.Contains($o.Type)) { $byType[$o.Type] = @() }; $byType[$o.Type] += $o.Id.Substring($o.Type.Length + 1) }
+			if ($expandList -contains '*') {
+				$footer += "Borrowed without changes:"
+				foreach ($t in @($byType.Keys)) { $footer += "    ${t}: $($byType[$t] -join ', ')" }
+			} else {
+				$footer += "Borrowed without changes: $((@($byType.Keys) | ForEach-Object { "$_ $($byType[$_].Count)" }) -join ', ')"
+				$unchFolded = $true
+			}
+		}
 	}
 }
 if ($Mode -eq 'transfer' -and $exts.Count -gt 1) {
@@ -2299,6 +2442,9 @@ foreach ($f in $nameFilter) {
 }
 if (-not $showDetails) {
 	$footer += "Details omitted ($fullCount lines in full). Use -Name <Type.Name>[,<Type.Name>] for item details."
+}
+if ($unchFolded) {
+	$footer += "Hint: use -Expand * to list borrowed objects without changes"
 }
 if ($anyFolded) {
 	$footer += "Hint: use -Expand <Type.Name> or a section path to list transferred changes, -Expand * for all"

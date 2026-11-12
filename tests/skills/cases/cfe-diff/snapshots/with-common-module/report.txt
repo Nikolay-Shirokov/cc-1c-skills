@@ -2,7 +2,7 @@
 NamePrefix: Тест_
 
 [OWN]        Role.Тест_ОсновнаяРоль
-[BORROWED]   CommonModule.ОбщийМодуль1
-    CommonModules/ОбщийМодуль1/Ext/Module.bsl (no interceptors)
 
-=== Summary Тест: 1 borrowed, 1 own objects ===
+=== Summary Тест: 1 borrowed (0 changed, 1 without changes), 1 own objects ===
+Borrowed without changes: CommonModule 1
+Hint: use -Expand * to list borrowed objects without changes
