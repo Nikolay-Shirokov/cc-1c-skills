@@ -523,7 +523,7 @@ function Find-UniqueIndex {
 	param($v2norm, [string]$key)
 	$found = -1
 	for ($k = 0; $k -lt $v2norm.Count; $k++) {
-		if ($v2norm[$k] -eq $key) {
+		if ($v2norm[$k] -ceq $key) {
 			if ($found -ge 0) { return -1 }  # ambiguous
 			$found = $k
 		}
@@ -539,7 +539,7 @@ function Find-UniqueRun {
 	for ($k = 0; $k -le ($v2norm.Count - $keys.Count); $k++) {
 		$match = $true
 		for ($m = 0; $m -lt $keys.Count; $m++) {
-			if ($v2norm[$k + $m] -ne $keys[$m]) { $match = $false; break }
+			if ($v2norm[$k + $m] -cne $keys[$m]) { $match = $false; break }
 		}
 		if ($match) {
 			if ($found -ge 0) { return -1 }  # ambiguous
@@ -572,7 +572,7 @@ function Test-RunAt {
 	param($hay, $keys, [int]$at)
 	if ($keys.Count -eq 0) { return $false }
 	if ($at -lt 0 -or ($at + $keys.Count) -gt $hay.Count) { return $false }
-	for ($m = 0; $m -lt $keys.Count; $m++) { if ($hay[$at + $m] -ne $keys[$m]) { return $false } }
+	for ($m = 0; $m -lt $keys.Count; $m++) { if ($hay[$at + $m] -cne $keys[$m]) { return $false } }
 	return $true
 }
 
@@ -584,13 +584,13 @@ function Test-DeleteAbsorbed {
 	$mid = @($mid)
 	$n = $mid.Count
 	for ($i = 0; $i -le ($v2norm.Count - $n); $i++) {
-		if ($null -ne $beforeCtx) { if ($i -eq 0 -or $v2norm[$i - 1] -ne $beforeCtx) { continue } }
+		if ($null -ne $beforeCtx) { if ($i -eq 0 -or $v2norm[$i - 1] -cne $beforeCtx) { continue } }
 		elseif ($i -ne 0) { break }
 		$ok = $true
-		for ($m = 0; $m -lt $n; $m++) { if ($v2norm[$i + $m] -ne $mid[$m]) { $ok = $false; break } }
+		for ($m = 0; $m -lt $n; $m++) { if ($v2norm[$i + $m] -cne $mid[$m]) { $ok = $false; break } }
 		if (-not $ok) { continue }
 		$e = $i + $n
-		if ($null -ne $afterCtx) { if ($e -lt $v2norm.Count -and $v2norm[$e] -eq $afterCtx) { return $true } }
+		if ($null -ne $afterCtx) { if ($e -lt $v2norm.Count -and $v2norm[$e] -ceq $afterCtx) { return $true } }
 		elseif ($e -eq $v2norm.Count) { return $true }
 	}
 	return $false
@@ -610,8 +610,8 @@ function Get-AbsorbedInPlace {
 	for ($d = 0; $d -lt $ops.Count; $d++) {
 		$op = $ops[$d]
 		if ($op.Kind -ne 'delete') { continue }
-		$keys = @(); for ($m = $op.Start; $m -le $op.End; $m++) { $keys += $v1norm[$m] }
-		if ((Find-UniqueRun $v2norm $keys) -ge 0) { continue }
+		# No check that the deleted lines are gone from the whole method: the new code may well
+		# repeat them (a call wrapped into a condition). The contiguous run below settles it.
 		$bIdx = -1; for ($z = $op.Start - 1; $z -ge 0; $z--) { if (Test-Significant $v1norm[$z]) { $bIdx = $z; break } }
 		$aIdx = $v1norm.Count; for ($z = $op.End + 1; $z -lt $v1norm.Count; $z++) { if (Test-Significant $v1norm[$z]) { $aIdx = $z; break } }
 		$group = @(); $mid = @()
@@ -645,7 +645,7 @@ function Resolve-InsertionPointExact {
 	if ($nb -ge 1 -and $na -ge 1) {
 		$cands = @()
 		for ($k = 0; $k -lt ($v2norm.Count - 1); $k++) {
-			if ($v2norm[$k] -eq $beforeLines[$nb - 1] -and $v2norm[$k + 1] -eq $afterLines[0]) { $cands += $k }
+			if ($v2norm[$k] -ceq $beforeLines[$nb - 1] -and $v2norm[$k + 1] -ceq $afterLines[0]) { $cands += $k }
 		}
 		if ($cands.Count -eq 1) { return $cands[0] }
 		if ($cands.Count -gt 1) {
@@ -656,10 +656,10 @@ function Resolve-InsertionPointExact {
 				foreach ($k in $cands) {
 					$ok = $true
 					if ($w -le $nb) {
-						if (($k - ($w - 1)) -lt 0 -or $v2norm[$k - ($w - 1)] -ne $beforeLines[$nb - $w]) { $ok = $false }
+						if (($k - ($w - 1)) -lt 0 -or $v2norm[$k - ($w - 1)] -cne $beforeLines[$nb - $w]) { $ok = $false }
 					}
 					if ($ok -and $w -le $na) {
-						if (($k + $w) -ge $v2norm.Count -or $v2norm[$k + $w] -ne $afterLines[$w - 1]) { $ok = $false }
+						if (($k + $w) -ge $v2norm.Count -or $v2norm[$k + $w] -cne $afterLines[$w - 1]) { $ok = $false }
 					}
 					if ($ok) { $filtered += $k }
 				}

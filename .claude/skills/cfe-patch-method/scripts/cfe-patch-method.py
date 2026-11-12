@@ -733,9 +733,8 @@ def get_absorbed_in_place(ops, v1norm, v2norm, v2sig, payloads):
     for d, op in enumerate(ops):
         if op["kind"] != "delete":
             continue
-        keys = v1norm[op["start"]:op["end"] + 1]
-        if find_unique_run(v2norm, keys) >= 0:
-            continue
+        # No check that the deleted lines are gone from the whole method: the new code may well
+        # repeat them (a call wrapped into a condition). The contiguous run below settles it.
         b_idx = -1
         for z in range(op["start"] - 1, -1, -1):
             if test_significant(v1norm[z]):
