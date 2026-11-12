@@ -365,6 +365,19 @@ def quote_if_needed(token):
     return token
 
 
+def quote_text(value):
+    """Free text (-comment, -name) framed in quotes for the 1cv8 command line.
+
+    On Windows the line is joined verbatim, and a lone quote inside the value ends it:
+    the repository silently stores the comment up to that quote (checked on 8.3.27).
+    1C reads a doubled quote as one, so it is doubled there. On POSIX the value goes
+    as its own argv element and run_v8 strips only the framing quotes, so it is left
+    as is."""
+    if os.name == "nt":
+        value = value.replace('"', '""')
+    return '"%s"' % value
+
+
 def run_v8(v8path, arguments):
     """Run 1cv8 in batch mode and capture its console output.
 
@@ -1206,7 +1219,7 @@ def main():
             if args.Comment:
                 # Многострочный комментарий задаётся своим -comment на каждую строку.
                 for line in args.Comment.splitlines():
-                    arguments += ["-comment", '"%s"' % line]
+                    arguments += ["-comment", quote_text(line)]
             if args.KeepLocked:
                 arguments.append("-keepLocked")
             if args.Force:
@@ -1269,10 +1282,10 @@ def main():
         elif cmd == "set-label":
             if args.Version:
                 arguments += ["-v", args.Version]
-            arguments += ["-name", '"%s"' % args.Label]
+            arguments += ["-name", quote_text(args.Label)]
             if args.Comment:
                 for line in args.Comment.splitlines():
-                    arguments += ["-comment", '"%s"' % line]
+                    arguments += ["-comment", quote_text(line)]
 
         if args.Extension:
             arguments += ["-Extension", '"%s"' % args.Extension]

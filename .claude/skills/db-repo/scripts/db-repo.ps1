@@ -1379,7 +1379,13 @@ try {
         'commit' {
             if ($Comment) {
                 # Многострочный комментарий задаётся своим -comment на каждую строку.
-                foreach ($line in ($Comment -split "`r?`n")) { $arguments += "-comment", "`"$line`"" }
+                # Кавычка внутри строки удваивается: одиночная обрывает значение, и
+                # хранилище молча сохраняет комментарий до неё (проверено на 8.3.27).
+                # Удвоение — отдельной переменной: внутри "..." литерал '""' читается как '"'.
+                foreach ($line in ($Comment -split "`r?`n")) {
+                    $escLine = $line -replace '"', '""'
+                    $arguments += "-comment", "`"$escLine`""
+                }
             }
             if ($KeepLocked) { $arguments += "-keepLocked" }
             if ($Force) { $arguments += "-force" }
@@ -1428,9 +1434,13 @@ try {
         }
         'set-label' {
             if ($Version) { $arguments += "-v", $Version }
-            $arguments += "-name", "`"$Label`""
+            $escLabel = $Label -replace '"', '""'
+            $arguments += "-name", "`"$escLabel`""
             if ($Comment) {
-                foreach ($line in ($Comment -split "`r?`n")) { $arguments += "-comment", "`"$line`"" }
+                foreach ($line in ($Comment -split "`r?`n")) {
+                    $escLine = $line -replace '"', '""'
+                    $arguments += "-comment", "`"$escLine`""
+                }
             }
         }
     }
