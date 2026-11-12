@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# cfe-patch-method v2.14 — Source-aware method interceptor for 1C extension (CFE)
+# cfe-patch-method v2.15 — Source-aware method interceptor for 1C extension (CFE)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -698,19 +698,86 @@ def test_run_at(hay, keys, at):
     return hay[at:at + len(keys)] == keys
 
 
-def test_delete_absorbed(v2norm, before_ctx, after_ctx):
-    """True if a deletion is already applied in v2: before/after context are now adjacent
-    (nothing between them), or the missing side sits at a body boundary (None = boundary)."""
-    if before_ctx is not None and after_ctx is not None:
-        for i in range(len(v2norm) - 1):
-            if v2norm[i] == before_ctx and v2norm[i + 1] == after_ctx:
+def test_delete_absorbed(v2norm, before_ctx, after_ctx, mid=()):
+    """True if a deletion is already applied in v2: before/after context now enclose exactly `mid`
+    (nothing for a plain deletion, the inserted code for a replacement), or the missing side sits
+    at a body boundary (None = boundary)."""
+    mid = list(mid)
+    n = len(mid)
+    for i in range(len(v2norm) - n + 1):
+        if before_ctx is not None:
+            if i == 0 or v2norm[i - 1] != before_ctx:
+                continue
+        elif i != 0:
+            break
+        if v2norm[i:i + n] != mid:
+            continue
+        e = i + n
+        if after_ctx is not None:
+            if e < len(v2norm) and v2norm[e] == after_ctx:
                 return True
-        return False
-    if before_ctx is None and after_ctx is not None:
-        return len(v2norm) > 0 and v2norm[0] == after_ctx
-    if before_ctx is not None and after_ctx is None:
-        return len(v2norm) > 0 and v2norm[-1] == before_ctx
+        elif e == len(v2norm):
+            return True
     return False
+
+
+def get_absorbed_in_place(ops, v1norm, v2norm, v2sig, payloads):
+    """Edits already carried into the main configuration in place: v2 holds "line before + inserted
+    code + line after" (significant lines). A deletion together with the insertions right next to it
+    (only blanks/comments between) is one replacement: its context lines are no longer adjacent and
+    the insert's own anchor was the deleted text, so neither edit is recognised alone. A plain insert
+    is checked the same way, because the payload sitting at its spot splits its anchor and the anchor
+    search may then land on a look-alike elsewhere. Returns the set of op indices absorbed.
+    payloads: op index -> significant normalized lines of that insert."""
+    hit = set()
+    for d, op in enumerate(ops):
+        if op["kind"] != "delete":
+            continue
+        keys = v1norm[op["start"]:op["end"] + 1]
+        if find_unique_run(v2norm, keys) >= 0:
+            continue
+        b_idx = -1
+        for z in range(op["start"] - 1, -1, -1):
+            if test_significant(v1norm[z]):
+                b_idx = z
+                break
+        a_idx = len(v1norm)
+        for z in range(op["end"] + 1, len(v1norm)):
+            if test_significant(v1norm[z]):
+                a_idx = z
+                break
+        group = []
+        mid = []
+        for i, o in enumerate(ops):
+            if o["kind"] == "insert" and b_idx <= o["after"] < a_idx:
+                group.append(i)
+                mid.extend(payloads.get(i, []))
+        if not mid:
+            continue
+        b_ctx = v1norm[b_idx] if b_idx >= 0 else None
+        a_ctx = v1norm[a_idx] if a_idx < len(v1norm) else None
+        if test_delete_absorbed(v2sig, b_ctx, a_ctx, mid):
+            hit.add(d)
+            hit.update(group)
+    for i, op in enumerate(ops):
+        if op["kind"] != "insert" or i in hit:
+            continue
+        mid = payloads.get(i, [])
+        if not mid:
+            continue
+        b_ctx = None
+        for z in range(op["after"], -1, -1):
+            if test_significant(v1norm[z]):
+                b_ctx = v1norm[z]
+                break
+        a_ctx = None
+        for z in range(op["after"] + 1, len(v1norm)):
+            if test_significant(v1norm[z]):
+                a_ctx = v1norm[z]
+                break
+        if test_delete_absorbed(v2sig, b_ctx, a_ctx, mid):
+            hit.add(i)
+    return hit
 
 
 def resolve_insertion_point_exact(v2norm, before_lines, after_lines):
@@ -1298,7 +1365,17 @@ def resync_one(ext_bsl, ext_lines, dup, method, logical_module, conflict_folder,
 
     insert_top = []; insert_after = {}; del_start = {}; del_end = {}; disputed = []; transferred = 0; absorbed = 0; absorbed_notes = []
     v2sig, v2map = significant_projection(v2norm)
-    for op in ops:
+    payloads = {i: [x for x in (normalize(y) for y in o["lines"]) if test_significant(x)]
+                for i, o in enumerate(ops) if o["kind"] == "insert"}
+    replaced = get_absorbed_in_place(ops, v1norm, v2norm, v2sig, payloads)
+    for oi, op in enumerate(ops):
+        if oi in replaced:
+            absorbed += 1
+            if op["kind"] == "insert":
+                for pl in op["lines"]:
+                    if normalize(pl).startswith("//"):
+                        absorbed_notes.append(pl.strip())
+            continue
         if op["kind"] == "insert":
             after = op["after"]
             before_lines = v1norm[max(0, after - 2):after + 1] if after >= 0 else []

@@ -1,4 +1,4 @@
-﻿# cfe-patch-method v2.14 — Source-aware method interceptor for 1C extension (CFE)
+﻿# cfe-patch-method v2.15 — Source-aware method interceptor for 1C extension (CFE)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -576,19 +576,63 @@ function Test-RunAt {
 	return $true
 }
 
-# True if a deletion is already applied in v2: its before/after context lines are now adjacent
-# (nothing left between them), or the missing side sits at a body boundary. $null = boundary side.
+# True if a deletion is already applied in v2: its before/after context lines now enclose exactly
+# `mid` (nothing for a plain deletion, the inserted code for a replacement), or the missing side sits
+# at a body boundary. $null = boundary side.
 function Test-DeleteAbsorbed {
-	param($v2norm, $beforeCtx, $afterCtx)
-	if ($null -ne $beforeCtx -and $null -ne $afterCtx) {
-		for ($i = 0; $i -lt ($v2norm.Count - 1); $i++) {
-			if ($v2norm[$i] -eq $beforeCtx -and $v2norm[$i + 1] -eq $afterCtx) { return $true }
-		}
-		return $false
+	param($v2norm, $beforeCtx, $afterCtx, $mid = @())
+	$mid = @($mid)
+	$n = $mid.Count
+	for ($i = 0; $i -le ($v2norm.Count - $n); $i++) {
+		if ($null -ne $beforeCtx) { if ($i -eq 0 -or $v2norm[$i - 1] -ne $beforeCtx) { continue } }
+		elseif ($i -ne 0) { break }
+		$ok = $true
+		for ($m = 0; $m -lt $n; $m++) { if ($v2norm[$i + $m] -ne $mid[$m]) { $ok = $false; break } }
+		if (-not $ok) { continue }
+		$e = $i + $n
+		if ($null -ne $afterCtx) { if ($e -lt $v2norm.Count -and $v2norm[$e] -eq $afterCtx) { return $true } }
+		elseif ($e -eq $v2norm.Count) { return $true }
 	}
-	if ($null -eq $beforeCtx -and $null -ne $afterCtx) { return ($v2norm.Count -gt 0 -and $v2norm[0] -eq $afterCtx) }
-	if ($null -ne $beforeCtx -and $null -eq $afterCtx) { return ($v2norm.Count -gt 0 -and $v2norm[$v2norm.Count - 1] -eq $beforeCtx) }
 	return $false
+}
+
+# Edits already carried into the main configuration in place: v2 holds "line before + inserted code
+# + line after" (significant lines). A deletion together with the insertions right next to it (only
+# blanks/comments between) is one replacement: its context lines are no longer adjacent and the
+# insert's own anchor was the deleted text, so neither edit is recognised alone. A plain insert is
+# checked the same way, because the payload sitting at its spot splits its anchor and the anchor
+# search may then land on a look-alike elsewhere. Returns a hashtable of op indices absorbed.
+# $payloads: op index -> significant normalized lines of that insert.
+function Get-AbsorbedInPlace {
+	param($ops, $v1norm, $v2norm, $v2sig, $payloads)
+	$ops = @($ops)
+	$hit = @{}
+	for ($d = 0; $d -lt $ops.Count; $d++) {
+		$op = $ops[$d]
+		if ($op.Kind -ne 'delete') { continue }
+		$keys = @(); for ($m = $op.Start; $m -le $op.End; $m++) { $keys += $v1norm[$m] }
+		if ((Find-UniqueRun $v2norm $keys) -ge 0) { continue }
+		$bIdx = -1; for ($z = $op.Start - 1; $z -ge 0; $z--) { if (Test-Significant $v1norm[$z]) { $bIdx = $z; break } }
+		$aIdx = $v1norm.Count; for ($z = $op.End + 1; $z -lt $v1norm.Count; $z++) { if (Test-Significant $v1norm[$z]) { $aIdx = $z; break } }
+		$group = @(); $mid = @()
+		for ($i = 0; $i -lt $ops.Count; $i++) {
+			if ($ops[$i].Kind -eq 'insert' -and $ops[$i].After -ge $bIdx -and $ops[$i].After -lt $aIdx) { $group += $i; $mid += @($payloads[$i]) }
+		}
+		if ($mid.Count -eq 0) { continue }
+		$bCtx = if ($bIdx -ge 0) { $v1norm[$bIdx] } else { $null }
+		$aCtx = if ($aIdx -lt $v1norm.Count) { $v1norm[$aIdx] } else { $null }
+		if (Test-DeleteAbsorbed $v2sig $bCtx $aCtx $mid) { $hit[$d] = $true; foreach ($i in $group) { $hit[$i] = $true } }
+	}
+	for ($i = 0; $i -lt $ops.Count; $i++) {
+		$op = $ops[$i]
+		if ($op.Kind -ne 'insert' -or $hit.ContainsKey($i)) { continue }
+		$mid = @($payloads[$i])
+		if ($mid.Count -eq 0) { continue }
+		$bCtx = $null; for ($z = $op.After; $z -ge 0; $z--) { if (Test-Significant $v1norm[$z]) { $bCtx = $v1norm[$z]; break } }
+		$aCtx = $null; for ($z = $op.After + 1; $z -lt $v1norm.Count; $z++) { if (Test-Significant $v1norm[$z]) { $aCtx = $v1norm[$z]; break } }
+		if (Test-DeleteAbsorbed $v2sig $bCtx $aCtx $mid) { $hit[$i] = $true }
+	}
+	return $hit
 }
 
 # Exact two-sided resolution over the given array.
@@ -800,7 +844,19 @@ function Invoke-Resync {
 
 	$insertTop = @(); $insertAfter = @{}; $delStart = @{}; $delEnd = @{}; $disputed = @(); $transferred = @(); $absorbed = @(); $absorbedNotes = @()
 	$v2proj = Get-SignificantProjection $v2norm
+	$payloads = @{}
+	for ($oi = 0; $oi -lt @($ops).Count; $oi++) {
+		if ($ops[$oi].Kind -eq 'insert') { $payloads[$oi] = @(($ops[$oi].Lines | ForEach-Object { Get-Normalized $_ }) | Where-Object { Test-Significant $_ }) }
+	}
+	$replaced = Get-AbsorbedInPlace $ops $v1norm $v2norm $v2proj.Sig $payloads
+	$oi = -1
 	foreach ($op in $ops) {
+		$oi++
+		if ($replaced.ContainsKey($oi)) {
+			$absorbed += @{ Kind = $op.Kind }
+			if ($op.Kind -eq 'insert') { foreach ($pl in $op.Lines) { if ((Get-Normalized $pl).StartsWith('//')) { $absorbedNotes += $pl.Trim() } } }
+			continue
+		}
 		if ($op.Kind -eq 'insert') {
 			$beforeLines = @()
 			if ($op.After -ge 0) { $bs = [Math]::Max(0, $op.After - 2); for ($m = $bs; $m -le $op.After; $m++) { $beforeLines += $v1norm[$m] } }
