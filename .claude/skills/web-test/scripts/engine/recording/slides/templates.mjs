@@ -1,4 +1,4 @@
-// web-test recording/slides/templates v1.7 — slide templates: spec → { html, css, steps, bg?, push?, maxZoom? }.
+// web-test recording/slides/templates v1.8 — slide templates: spec → { html, css, steps, bg?, push?, maxZoom? }.
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 //
 // Every template is a generator for the step protocol (protocol.mjs): it builds a 1920×1080 page and
@@ -73,7 +73,7 @@ export function imageInfo(src, layout = 'image') {
 
 // ── shared pieces ─────────────────────────────────────────────────────────
 const TITLE_CSS = `
-.ws-title{position:absolute;left:96px;right:96px;top:max(52px, var(--safe-top));font-weight:800;font-size:48px;line-height:1.1;letter-spacing:-.01em;
+.ws-title{position:absolute;left:96px;right:96px;top:max(52px, var(--safe-top));font-weight:var(--heading-weight);font-size:48px;line-height:1.1;letter-spacing:-.01em;
   color:var(--ink);animation:tplIn .8s ${EASE} both}
 .ws-title::after{content:'';display:block;width:120px;height:6px;margin-top:16px;border-radius:3px;background:var(--accent)}
 @keyframes tplIn{from{opacity:0;transform:translateY(26px)}to{opacity:1;transform:none}}
@@ -111,7 +111,7 @@ ${card}.ws-st-optional{border-left-color:transparent}`;
 // text in a circle hub (radial centre, flow circle): the inscribed square, the title, its rule, the items
 const HUB_CSS = (circle, inner) => `
 ${inner}{width:${HUB_IN}px;height:${HUB_IN}px;display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:hidden}
-${circle} b{font-size:62px;font-weight:800;letter-spacing:.02em;line-height:1.12}
+${circle} b{font-size:62px;font-weight:var(--heading-weight);letter-spacing:.02em;line-height:1.12}
 ${circle} b::after{content:'';display:block;width:60px;height:5px;margin:10px auto 0;border-radius:3px;background:var(--accent)}
 ${circle} ul{list-style:none;margin:10px 0 0;padding:0;font-size:22px;font-weight:600;line-height:1.45;opacity:.92}`;
 
@@ -134,6 +134,8 @@ const STATUS_CSS = `
 .ws-st-optional{background:transparent;box-shadow:none;outline:3px dashed color-mix(in oklab, var(--line) 70%, transparent);outline-offset:-3px}
 .ws-st-optional>*{opacity:.75}
 .ws-st-optional>h3{background:transparent;color:var(--heading)}
+/* in focus: no growth and no lift (with no plate a link would show past its edge) — the outline takes the accent */
+.ws-st-optional.ws-st-optional.ws-focus{transform:none;box-shadow:none;outline-color:var(--accent)}
 `;
 // a card with a header band (columns, process, radial): the stripe on the band's left edge, the mark inside it
 const BAND_STATUS_CSS = (card) => `
@@ -159,7 +161,7 @@ export const templates = {
       css: DARK_TEXT + `
 .tt-box{position:absolute;left:140px;top:0;bottom:0;width:${spec.image ? 1000 : 1640}px;display:flex;flex-direction:column;justify-content:center}
 .tt-kicker{font-size:28px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:var(--accent-hi);margin-bottom:28px;--dy:12px}
-.tt-title{margin:0;font-size:${spec.image ? 80 : 96}px;line-height:1.08;font-weight:800;letter-spacing:-.02em}
+.tt-title{margin:0;font-size:${spec.image ? 80 : 96}px;line-height:1.08;font-weight:var(--heading-weight);letter-spacing:-.02em}
 .tt-title span{display:block;--dy:36px;--stagger:.18s}
 .tt-rule{width:220px;height:8px;margin:40px 0 0;border-radius:4px;background:var(--accent);transform-origin:left center}
 .tt-rule.ws-pending:not(.on){transform:scaleX(0)}
@@ -195,7 +197,7 @@ export const templates = {
       html: `<div class="ag-head">${esc(spec.title || 'Содержание')}</div><div class="ag-box ws-fit"><ol class="ag-list">${items}</ol></div>`,
       css: `
 .ag-head{position:absolute;left:max(120px, var(--safe-left));top:calc(max(60px, var(--safe-top)) - 60px);bottom:calc(max(60px, var(--safe-bottom)) - 60px);width:${two ? 420 : 520}px;display:flex;align-items:center;font-size:${two ? 64 : 76}px;
-  font-weight:800;line-height:1.05;letter-spacing:-.02em;color:var(--heading);--dx:-30px;--dy:0px}
+  font-weight:var(--heading-weight);line-height:1.05;letter-spacing:-.02em;color:var(--heading);--dx:-30px;--dy:0px}
 .ag-box{position:absolute;left:max(${two ? 600 : 720}px, var(--safe-left));right:max(100px, var(--safe-right));top:max(60px, var(--safe-top));bottom:max(60px, var(--safe-bottom));display:flex;align-items:center}
 .ag-list{width:100%;margin:0;padding:0;list-style:none;display:grid;grid-template-rows:repeat(${rows},auto);grid-auto-flow:column;
   grid-auto-columns:1fr;gap:${two ? 18 : 22}px ${two ? 28 : 0}px}
@@ -225,7 +227,7 @@ export const templates = {
 .st-box{position:absolute;top:var(--safe-top);bottom:var(--safe-bottom);left:max(160px, var(--safe-left));right:max(160px, var(--safe-right));display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}
 .st-box>*{--stagger:.35s}
 .st-kick{font-size:28px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:var(--accent-text);margin-bottom:24px}
-.st-val{font-size:240px;font-weight:800;line-height:1;letter-spacing:-.04em;color:var(--accent);--from-scale:.85;--dy:0px;
+.st-val{font-size:240px;font-weight:var(--heading-weight);line-height:1;letter-spacing:-.04em;color:var(--accent);--from-scale:.85;--dy:0px;
   -webkit-text-stroke:2px color-mix(in srgb, var(--accent-text) 40%, transparent)}
 .st-text{font-size:${spec.value ? 56 : 76}px;font-weight:700;line-height:1.2;letter-spacing:-.01em;color:var(--ink);max-width:1400px;
   margin-top:${spec.value ? 30 : 0}px}
@@ -264,7 +266,7 @@ export const templates = {
       css: TITLE_CSS + `
 .cd-wrap{position:absolute;left:max(96px, var(--safe-left));right:max(80px, var(--safe-right));top:${contentTop(spec.title, spec.title ? 180 : 60)};bottom:max(40px, var(--safe-bottom));display:flex;align-items:center;gap:56px}
 .cd-lead{flex:0 0 460px;--dx:-28px;--dy:0px}
-.cd-lead b{display:block;font-size:72px;font-weight:800;color:var(--heading);letter-spacing:.02em}
+.cd-lead b{display:block;font-size:72px;font-weight:var(--heading-weight);color:var(--heading);letter-spacing:.02em}
 .cd-lead b::after{content:'';display:block;width:90px;height:6px;margin-top:14px;border-radius:3px;background:var(--accent)}
 .cd-lead p{margin:18px 0 0;font-size:30px;line-height:1.4;color:var(--ink2)}
 .cd-box{flex:1;align-self:stretch;display:flex;flex-direction:column;min-width:0}
@@ -357,7 +359,7 @@ export const templates = {
 .cp-box{position:absolute;left:max(96px, var(--safe-left));right:max(96px, var(--safe-right));top:${contentTop(spec.title, spec.title ? 180 : 60)};bottom:max(44px, var(--safe-bottom));display:flex;flex-direction:column}
 .cp-box::before{content:'';flex:1}.cp-box::after{content:'';flex:2}
 .cp-grid{width:100%;display:grid;grid-template-columns:1fr 90px 1fr;grid-auto-rows:auto;row-gap:18px}
-.cp-head{grid-row:1;padding:18px 30px;border-radius:14px;font-size:38px;font-weight:800;margin-bottom:8px}
+.cp-head{grid-row:1;padding:18px 30px;border-radius:14px;font-size:38px;font-weight:var(--heading-weight);margin-bottom:8px}
 .cp-hl{grid-column:1;background:var(--c3);color:#fff}
 .cp-hr{grid-column:3;background:var(--c1);color:#fff;box-shadow:inset 0 -6px 0 var(--accent),0 0 0 1.5px var(--surface-edge)}
 .cp-vs{grid-column:2;align-self:center;justify-self:center;font-size:44px;font-weight:800;color:var(--line);--dx:-14px;--dy:0px}
@@ -583,7 +585,7 @@ export const templates = {
 .fl-center.ws-focus{animation:none}
 .fl-plate{width:448px;padding:40px 36px;border-radius:24px;background:var(--c1);
   box-shadow:0 0 0 2px var(--surface-edge),0 20px 60px color-mix(in srgb, var(--primary) 30%, transparent)}
-.fl-plate b{display:block;font-size:40px;font-weight:800;line-height:1.15}
+.fl-plate b{display:block;font-size:40px;font-weight:var(--heading-weight);line-height:1.15}
 .fl-circle{width:380px;height:380px;border-radius:50%;display:flex;align-items:center;justify-content:center;
   background:radial-gradient(circle at 35% 30%,var(--primary-hi),var(--primary));box-shadow:0 0 0 2px var(--surface-edge),0 20px 60px color-mix(in srgb, var(--primary) 35%, transparent)}
 .fl-plate b::after{content:'';display:block;width:60px;height:5px;margin:12px auto 0;border-radius:3px;background:var(--accent)}
@@ -707,7 +709,7 @@ ${(spec.shadow ?? framed) ? '.im-main{box-shadow:0 4px 40px rgba(0,0,0,.5)}' : '
       css: DARK_TEXT + `
 .cl-box{position:absolute;left:140px;top:0;bottom:0;width:${spec.image ? 1000 : 1640}px;display:flex;flex-direction:column;justify-content:center}
 .cl-box>*{--stagger:.3s}
-.cl-title{margin:0;font-size:84px;font-weight:800;line-height:1.1;letter-spacing:-.02em}
+.cl-title{margin:0;font-size:84px;font-weight:var(--heading-weight);line-height:1.1;letter-spacing:-.02em}
 .cl-sub{margin-top:24px;font-size:40px;font-weight:600;color:var(--accent-hi)}
 .cl-contacts{margin-top:48px;font-size:32px;line-height:1.6;color:var(--on-dark-muted)}
 .cl-qr{margin-top:36px;width:200px;height:200px;border-radius:12px;background:#fff;padding:10px}

@@ -1,4 +1,4 @@
-// web-test recording/slides v1.7 — animated step slides: showSlide / hideSlide / prepareSlides / setSlideTheme / loadSlides.
+// web-test recording/slides v1.8 — animated step slides: showSlide / hideSlide / prepareSlides / setSlideTheme / loadSlides.
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 //
 // A slide is a template spec ({ layout, ... }) or a custom page ({ html, css, steps }). Each step is a phrase
@@ -114,6 +114,14 @@ function frameFor(spec, items) {
 // theme.fonts: [{ family, src, weight?, style? }] — font files from the project, registered on the page's document
 // (document.fonts reaches into the slides' shadow roots; an @font-face inside a shadow root does not). Sent once
 // per page: a registry on the document says what is there already (a 1C page keeps it across slides).
+// theme.headingWeight: the weight of the big headings (slide titles, hub and plate titles, big values) — a brand
+// that sets its headings in Bold gives 700; default 800
+function checkHeadingWeight(theme) {
+  const w = theme?.headingWeight;
+  if (w !== undefined && !(Number.isInteger(w) && w >= 100 && w <= 900 && w % 100 === 0)) {
+    throw new Error(`slides theme: "headingWeight" must be 100..900 in steps of 100 (700 — Bold), got ${JSON.stringify(w)}`);
+  }
+}
 function fontList(fonts) {
   if (fonts === undefined) return [];
   if (!Array.isArray(fonts)) throw new Error('slides theme: "fonts" must be an array of { family, src, weight?, style? }');
@@ -263,6 +271,7 @@ export async function showSlide(spec, opts = {}) {
   const instant = !motion || first;
   // the brand's frame (legacy overlays never have one) and the fields it keeps clear
   const frame = frameFor(spec, frameItems);
+  checkHeadingWeight(theme);
   const vars = { ...themeVars(theme), ...frame.vars };
   // theme.background (the brand's ground, a logo in a corner) — on slides without their own (spec or template)
   const bg = built.bg ?? (theme.background !== undefined ? rewriteAssets(theme.background) : undefined);
@@ -355,7 +364,7 @@ export async function prepareSlides(specs, opts = {}) {
   const tts = ttsOptions(rest);
   const built = specs.map((s) => buildSlide(s));
   for (const s of specs) if (s.music !== undefined) resolveMusic(s.music);
-  for (const s of specs) fontList(themeFor(s, rest).fonts);   // a missing font file fails before the recording
+  for (const s of specs) { const t = themeFor(s, rest); fontList(t.fonts); checkHeadingWeight(t); }   // a missing font file, a wrong weight fail before the recording
   for (const s of specs) for (const x of frameSpec(s, themeFor(s, rest)) || []) if (x.src) logoUrl(x.src);   // and a wrong frame
   const jobs = built.flatMap((b) => b.steps.filter((s) => s.speech).map((s) => [s.speech, s.voice ? { ...tts, voice: s.voice } : tts]));
   if (!validateOnly) {

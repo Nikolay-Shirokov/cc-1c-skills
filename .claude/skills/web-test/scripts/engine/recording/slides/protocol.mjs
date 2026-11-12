@@ -1,4 +1,4 @@
-// web-test recording/slides/protocol v1.8 — step-slide protocol: base CSS + theme, page-side mount/step/lint.
+// web-test recording/slides/protocol v1.9 — step-slide protocol: base CSS + theme, page-side mount/step/lint.
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 //
 // A slide is a 1920×1080 page inside a shadow root (its CSS cannot touch a neighbour slide or the
@@ -26,9 +26,10 @@ export { EASE };
 export const DEFAULT_THEME = { primary: '#16213e', accent: '#f0a202', ground: '#f4f6fa', ink: '#1a1a2e' };
 
 export const BASE_CSS = `
+.ws-slide{all:initial}   /* nothing inherited from the page: font features, spacing, colour */
 .ws-slide{
   --primary:${DEFAULT_THEME.primary}; --accent:${DEFAULT_THEME.accent}; --ground:${DEFAULT_THEME.ground}; --ink:${DEFAULT_THEME.ink};
-  --mark:var(--accent); --on-accent:var(--ink); --font:'Segoe UI',Arial,sans-serif;
+  --mark:var(--accent); --on-accent:var(--ink); --font:'Segoe UI',Arial,sans-serif; --heading-weight:800;
   --line:color-mix(in oklab, var(--primary), #fff 45%);   /* structure: links, arrows, card rules, list markers */
   --primary-hi:color-mix(in oklab, var(--primary), #fff 18%);
   --primary-dk:color-mix(in oklab, var(--primary), #000 35%);
@@ -159,6 +160,9 @@ export function pageMount({ html, css, bg, vars, pushSec, animated, instant, sta
   const host = document.createElement('div');
   host.id = '__ws_slide';
   if (hostId) host.dataset.kind = hostId;
+  // not in the page's language: it picks a font's local letter forms (lang="bg" — the Bulgarian Cyrillic of
+  // Montserrat); the page's text styles stop at .ws-slide (BASE_CSS)
+  host.lang = '';
   host.style.cssText = 'position:fixed;inset:0;z-index:999999;pointer-events:none;'
     + (instant ? 'opacity:1' : 'opacity:0;transition:opacity .5s ease');
   const root = host.attachShadow({ mode: 'open' });

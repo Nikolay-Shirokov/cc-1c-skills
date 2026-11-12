@@ -219,7 +219,16 @@ export default async function({
     const spec = { layout: 'flow', title: 'Поток', inputs: [{ title: 'А' }, { title: 'Б', status: 'optional' }], center: { title: 'Узел', items: ['раз'] },
       outputs: [{ title: 'Итог', status: 'ok' }], steps: [{ show: 'center' }, { in: 0 }, { in: 1 }, { out: 'all' }, { show: 'all' }] };
     const states = [];
-    await showSlide(spec, { ...fast, onStep: async (i) => { if (i < 5) states.push(await slideState()); } });
+    let optFocus = null;   // the optional input in focus: no plate, so it must not grow past its link's end
+    await showSlide(spec, { ...fast, onStep: async (i) => {
+      if (i < 5) states.push(await slideState());
+      if (i === 2) optFocus = await shadow(async () => {
+        const el = document.getElementById('__ws_slide').shadowRoot.querySelector('.fl-i1');
+        await Promise.all(el.getAnimations().map((a) => a.finished.catch(() => {})));   // past its entry
+        return getComputedStyle(el).transform;
+      });
+    } });
+    assert.equal(optFocus, 'none', `an optional item in focus does not grow (${optFocus})`);
     log(`flow steps: ${JSON.stringify(states.map((s) => s.on.filter((c) => /^fl-(center|i\d|o\d)$/.test(c))))}`);
     assert.ok(states[0].on.includes('fl-center') && !states[0].on.includes('fl-i0'), 'centre first');
     assert.ok(states[1].on.includes('fl-i0') && states[1].on.includes('fl-li0') && !states[1].on.includes('fl-i1'), 'an input with its link');
@@ -351,6 +360,53 @@ export default async function({
     assert.equal(ttsCacheFile('фраза', {}), ttsCacheFile('фраза', { provider: 'edge', voice: DEFAULT_VOICE.edge }),
       'TTS cache: no voice and the default voice are one phrase');
     await hideSlide({ motion: false });
+  });
+
+  await step('headingWeight: the big headings take the theme weight (default 800); a wrong one fails before the recording', async () => {
+    const weights = () => shadow(() => {
+      const r = document.getElementById('__ws_slide').shadowRoot, w = (sel) => getComputedStyle(r.querySelector(sel)).fontWeight;
+      return { title: w('.ws-title'), card: w('.cd-card h3') };
+    });
+    const spec = { layout: 'cards', title: 'Заголовок', cards: [{ title: 'А' }, { title: 'Б' }], steps: [{ show: 'all' }] };
+    await showSlide(spec, fast);
+    const def = await weights();
+    await showSlide({ ...spec, theme: { headingWeight: 700 } }, fast);
+    const bold = await weights();
+    log(`heading weights: default ${JSON.stringify(def)}, 700 ${JSON.stringify(bold)}`);
+    assert.equal(def.title, '800', 'default 800');
+    assert.equal(bold.title, '700', 'headingWeight: 700');
+    assert.equal(bold.card, def.card, 'card headings keep their weight');
+    await rejectsWith(() => prepareSlides([{ ...spec, theme: { headingWeight: 750 } }], { validateOnly: true }),
+      /headingWeight.*100\.\.900/, 'a weight off the scale');
+    await hideSlide({ motion: false });
+  });
+
+  await step("the slide takes nothing from the page: its language (a font's local letter forms) and its text styles", async () => {
+    const was = await shadow(() => {
+      const h = document.documentElement, was = { lang: h.getAttribute('lang'), style: h.getAttribute('style') };
+      h.lang = 'bg';   // Montserrat draws Bulgarian Cyrillic under lang="bg"
+      h.style.cssText += ';font-feature-settings:"smcp";letter-spacing:7px;color:rgb(255, 0, 0)';
+      return was;
+    });
+    try {
+      await showSlide({ layout: 'statement', text: 'Какие сведения использует анализ' }, fast);
+      const st = await shadow(() => {
+        const t = document.getElementById('__ws_slide').shadowRoot.querySelector('.st-text'), cs = getComputedStyle(t);
+        return { bg: t.matches(':lang(bg)'), features: cs.fontFeatureSettings, spacing: cs.letterSpacing, color: cs.color };
+      });
+      log(`on a lang=bg page: ${JSON.stringify(st)}`);
+      assert.equal(st.bg, false, 'not in the page language');
+      assert.equal(st.features, 'normal', 'no font features of the page');
+      assert.notEqual(st.spacing, '7px', 'no letter spacing of the page');
+      assert.notEqual(st.color, 'rgb(255, 0, 0)', 'no colour of the page');
+    } finally {
+      await hideSlide({ motion: false });
+      await shadow((was) => {
+        const h = document.documentElement;
+        if (was.lang === null) h.removeAttribute('lang'); else h.lang = was.lang;
+        if (was.style === null) h.removeAttribute('style'); else h.setAttribute('style', was.style);
+      }, was);
+    }
   });
 
   await step('page script: ready before the first step, hears steps, loads project files, cleans up', async () => {

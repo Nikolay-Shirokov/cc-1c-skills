@@ -129,7 +129,7 @@ Four base colours, the rest is derived (header shades and quiet tints from `prim
 link and arrow, the lit section, the current takeaway; title rules, numbers, callouts), `ground` (slide
 ground), `ink` (text on the ground); optional `line` (structure: links, arrows, card rules, list markers;
 default a slate shade of `primary`), `mark` (callouts/spot, default accent), `onAccent` (text on accent), `statusOk` / `statusWarn` (status colours),
-`surface` / `onSurface` (cards, plates, cells and their text), `font` (a CSS font stack), `fonts`, `background`,
+`surface` / `onSurface` (cards, plates, cells and their text), `font` (a CSS font stack), `fonts`, `headingWeight`, `background`,
 `frame` (logo, slide number, footer — below).
 Default: `#16213e` / `#f0a202` / `#f4f6fa` / `#1a1a2e` — a light ground with white cards.
 
@@ -139,8 +139,9 @@ text and a thin outline, headings on the ground take `ink`; card header bands ta
 White cards on a dark ground — `surface: '#fff'` (their text turns dark by itself; `onSurface` to choose it).
 
 `fonts: [{ family, src, weight?, style? }]` — font files from the project, one per weight the slides use:
-templates take 400 (text), 600, 700 and 800 (headings); a weight with no file is faked by the browser (smeared
-bold). Without `font` the stack starts with the first `family`; the fonts reach every slide, `title` and `closing` too. Take static faces
+templates take 400 (text), 600, 700 and the headings' weight; a weight with no file is faked by the browser (smeared
+bold). `headingWeight` — the weight of the big headings (slide titles, hub and plate titles, big values), default
+800: as the brand sets its headings — Bold is `headingWeight: 700` (and then no 800 file). Without `font` the stack starts with the first `family`; the fonts reach every slide, `title` and `closing` too. Take static faces
 (`BrandSans-Bold.ttf`), not one variable file (`BrandSans[wght].ttf`): it leaves artefacts in big numbers.
 Nothing to install on the machine.
 
