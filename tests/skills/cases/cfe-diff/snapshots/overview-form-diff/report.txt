@@ -10,7 +10,7 @@ NamePrefix: PatchA_
         [CmdBar] ФормаКоманднаяПанель
           + [Button] PatchA_Btn -> Form.Command.PatchA_Cmd (after: SrcBtn1)
         ~ [Label] L1: Title: "Src L1"→"Ext L1"
-        ~ [Input] Article: Title: "Src Article"→"Ext Article"; moved (after: L1)
+        ~ [Input] Article: Title: "Src Article"→"Ext Article"; +Width=20; moved (after: L1)
         ~ [Label] L3: Title: "Src L3"→"Ext L3"
         + [Input] PatchA_Field -> PatchA_Attr (after: SrcField1)
       Attributes:

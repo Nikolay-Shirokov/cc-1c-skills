@@ -218,6 +218,7 @@ const FAMILIES = [
     ['Get-SignificantProjection', 'significant_projection'],
     ['Test-RunAt', 'test_run_at'],
     ['Test-DeleteAbsorbed', 'test_delete_absorbed'],
+    ['Get-AbsorbedInPlace', 'get_absorbed_in_place'],
     ['Resolve-InsertionPointExact', 'resolve_insertion_point_exact'],
     ['Resolve-InsertionPoint', 'resolve_insertion_point'],
   ].map(([ps1, py]) => ({

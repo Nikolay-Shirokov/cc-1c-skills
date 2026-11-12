@@ -36,6 +36,7 @@
 					<v8:content>Ext Article</v8:content>
 				</v8:item>
 			</Title>
+			<Width>20</Width>
 			<ContextMenu name="ArticleКонтекстноеМеню" id="8"/>
 			<ExtendedTooltip name="ArticleРасширеннаяПодсказка" id="9"/>
 			<Events>

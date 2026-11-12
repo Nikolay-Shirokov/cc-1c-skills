@@ -513,19 +513,86 @@ def test_run_at(hay, keys, at):
     return hay[at:at + len(keys)] == keys
 
 
-def test_delete_absorbed(v2norm, before_ctx, after_ctx):
-    """True if a deletion is already applied in v2: before/after context are now adjacent
-    (nothing between them), or the missing side sits at a body boundary (None = boundary)."""
-    if before_ctx is not None and after_ctx is not None:
-        for i in range(len(v2norm) - 1):
-            if v2norm[i] == before_ctx and v2norm[i + 1] == after_ctx:
+def test_delete_absorbed(v2norm, before_ctx, after_ctx, mid=()):
+    """True if a deletion is already applied in v2: before/after context now enclose exactly `mid`
+    (nothing for a plain deletion, the inserted code for a replacement), or the missing side sits
+    at a body boundary (None = boundary)."""
+    mid = list(mid)
+    n = len(mid)
+    for i in range(len(v2norm) - n + 1):
+        if before_ctx is not None:
+            if i == 0 or v2norm[i - 1] != before_ctx:
+                continue
+        elif i != 0:
+            break
+        if v2norm[i:i + n] != mid:
+            continue
+        e = i + n
+        if after_ctx is not None:
+            if e < len(v2norm) and v2norm[e] == after_ctx:
                 return True
-        return False
-    if before_ctx is None and after_ctx is not None:
-        return len(v2norm) > 0 and v2norm[0] == after_ctx
-    if before_ctx is not None and after_ctx is None:
-        return len(v2norm) > 0 and v2norm[-1] == before_ctx
+        elif e == len(v2norm):
+            return True
     return False
+
+
+def get_absorbed_in_place(ops, v1norm, v2norm, v2sig, payloads):
+    """Edits already carried into the main configuration in place: v2 holds "line before + inserted
+    code + line after" (significant lines). A deletion together with the insertions right next to it
+    (only blanks/comments between) is one replacement: its context lines are no longer adjacent and
+    the insert's own anchor was the deleted text, so neither edit is recognised alone. A plain insert
+    is checked the same way, because the payload sitting at its spot splits its anchor and the anchor
+    search may then land on a look-alike elsewhere. Returns the set of op indices absorbed.
+    payloads: op index -> significant normalized lines of that insert."""
+    hit = set()
+    for d, op in enumerate(ops):
+        if op["kind"] != "delete":
+            continue
+        keys = v1norm[op["start"]:op["end"] + 1]
+        if find_unique_run(v2norm, keys) >= 0:
+            continue
+        b_idx = -1
+        for z in range(op["start"] - 1, -1, -1):
+            if test_significant(v1norm[z]):
+                b_idx = z
+                break
+        a_idx = len(v1norm)
+        for z in range(op["end"] + 1, len(v1norm)):
+            if test_significant(v1norm[z]):
+                a_idx = z
+                break
+        group = []
+        mid = []
+        for i, o in enumerate(ops):
+            if o["kind"] == "insert" and b_idx <= o["after"] < a_idx:
+                group.append(i)
+                mid.extend(payloads.get(i, []))
+        if not mid:
+            continue
+        b_ctx = v1norm[b_idx] if b_idx >= 0 else None
+        a_ctx = v1norm[a_idx] if a_idx < len(v1norm) else None
+        if test_delete_absorbed(v2sig, b_ctx, a_ctx, mid):
+            hit.add(d)
+            hit.update(group)
+    for i, op in enumerate(ops):
+        if op["kind"] != "insert" or i in hit:
+            continue
+        mid = payloads.get(i, [])
+        if not mid:
+            continue
+        b_ctx = None
+        for z in range(op["after"], -1, -1):
+            if test_significant(v1norm[z]):
+                b_ctx = v1norm[z]
+                break
+        a_ctx = None
+        for z in range(op["after"] + 1, len(v1norm)):
+            if test_significant(v1norm[z]):
+                a_ctx = v1norm[z]
+                break
+        if test_delete_absorbed(v2sig, b_ctx, a_ctx, mid):
+            hit.add(i)
+    return hit
 
 
 def resolve_insertion_point_exact(v2norm, before_lines, after_lines):
@@ -894,6 +961,36 @@ def find_decl_after(lines, ann_idx):
 # &ИзменениеИКонтроль: each #Вставка/#Удаление is classified the way cfe-patch-method -Check does
 # (absorbed = already in the main configuration, pending = still to carry over, disputed = the
 # anchor or the deleted lines changed). None when the method has no edits with code.
+def test_payload_beside(v2sig, mid, before_ctx, after_ctx):
+    """Insert payload sitting right after its line before, or right before its line after, anywhere in
+    v2 (significant lines; None side is not checked). Looser than the in-place check: one neighbour is
+    enough and the spot need not be unique. For an insert not found at its anchor: the anchor may be
+    lost (a payload repeated in the method leaves the search nothing to go on) or found by one side
+    only, the carried-over code then sitting before the spot instead of after it."""
+    n = len(mid)
+    for i in range(len(v2sig) - n + 1):
+        if v2sig[i:i + n] != mid:
+            continue
+        if before_ctx is not None and i > 0 and v2sig[i - 1] == before_ctx:
+            return True
+        if after_ctx is not None and i + n < len(v2sig) and v2sig[i + n] == after_ctx:
+            return True
+    return False
+
+
+def dispute_reason(kind, line, key, side, v2norm):
+    """Why an edit is disputed, with the line to look at: the insert's neighbour (and whether the
+    configuration keeps it commented out) or the first deleted line."""
+    txt = get_short(line, 60)
+    if kind == "delete":
+        return "deleted lines changed in config: " + txt
+    if not key:
+        return "insert anchor changed in config"
+    commented = any(l.startswith("//") and re.sub(r'^/+\s*', '', l) == key for l in v2norm)
+    how = "commented out" if commented else "changed"
+    return "line %s insert %s in config: %s" % (side, how, txt)
+
+
 def get_control_transfer(ext_method, cfg_method, prefix):
     parsed = parse_marked_body(ext_method["body_lines"])
     ops = parsed["ops"]
@@ -903,11 +1000,17 @@ def get_control_transfer(ext_method, cfg_method, prefix):
     absorbed = 0
     pending = 0
     disputed = []
-    for op in ops:
+    payloads = {i: [x for x in (code_key(y, prefix) for y in o["lines"]) if test_significant(x)]
+                for i, o in enumerate(ops) if o["kind"] == "insert"}
+    replaced = get_absorbed_in_place(ops, v1norm, v2norm, v2sig, payloads)
+    for oi, op in enumerate(ops):
         if op["kind"] == "insert":
-            payload_sig = [x for x in (code_key(y, prefix) for y in op["lines"]) if test_significant(x)]
+            payload_sig = payloads[oi]
             # A comment-only insert carries nothing to transfer
             if not payload_sig:
+                continue
+            if oi in replaced:
+                absorbed += 1
                 continue
             after = op["after"]
             before_lines = v1norm[max(0, after - 2):after + 1] if after >= 0 else []
@@ -918,13 +1021,27 @@ def get_control_transfer(ext_method, cfg_method, prefix):
             else:
                 sig_start = sum(1 for j in v2map if j <= k)
                 is_absorbed = test_run_at(v2sig, payload_sig, sig_start)
+            b_idx = next((z for z in range(after, -1, -1) if test_significant(v1norm[z])), -1)
+            a_idx = next((z for z in range(after + 1, len(v1norm)) if test_significant(v1norm[z])), -1)
+            b_ctx = v1norm[b_idx] if b_idx >= 0 else None
+            a_ctx = v1norm[a_idx] if a_idx >= 0 else None
+            if not is_absorbed:
+                is_absorbed = test_payload_beside(v2sig, payload_sig, b_ctx, a_ctx)
             if is_absorbed:
                 absorbed += 1
             elif k is None:
-                disputed.append("insert")
+                if b_idx >= 0:
+                    disputed.append(dispute_reason("insert", parsed["v1"][b_idx], b_ctx, "before", v2norm))
+                elif a_idx >= 0:
+                    disputed.append(dispute_reason("insert", parsed["v1"][a_idx], a_ctx, "after", v2norm))
+                else:
+                    disputed.append(dispute_reason("insert", "", "", "", v2norm))
             else:
                 pending += 1
         else:
+            if oi in replaced:
+                absorbed += 1
+                continue
             keys = v1norm[op["start"]:op["end"] + 1]
             p = find_unique_run(v2norm, keys)
             if p >= 0:
@@ -943,18 +1060,15 @@ def get_control_transfer(ext_method, cfg_method, prefix):
                 if test_delete_absorbed(v2sig, before_ctx, after_ctx):
                     absorbed += 1
                 else:
-                    disputed.append("delete")
+                    first = next((x for x in op["lines"] if test_significant(normalize(x))), "")
+                    disputed.append(dispute_reason("delete", first, "", "", v2norm))
     n = absorbed + pending + len(disputed)
     if n == 0:
         return None
     count = "%d/%d edits" % (absorbed, n)
     if disputed:
-        why = []
-        if "insert" in disputed:
-            why.append("insert anchor changed in config")
-        if "delete" in disputed:
-            why.append("deleted lines changed in config")
-        return {"status": "DIVERGED", "count": count, "note": "; ".join(why)}
+        more = " (+%d more)" % (len(disputed) - 1) if len(disputed) > 1 else ""
+        return {"status": "DIVERGED", "count": count, "note": disputed[0] + more}
     if absorbed == n:
         st = "TRANSFERRED"
     elif absorbed == 0:
@@ -1600,6 +1714,20 @@ def format_form_diff(diff, label, ind):
 
 
 # Transfer check of a form diff against the form of the main configuration
+def prop_transfer(cpm, p, prefix):
+    """One property change of the extension against the configuration: 'ok' (the extension's
+    value), 'pending' (still the BaseForm value) or 'differs' (changed in the configuration some
+    other way)."""
+    cv = lower_or_none(cmp_key(cpm[p["key"]], prefix)) if p["key"] in cpm else None
+    nv = lower_or_none(cmp_key(p["new"], prefix))
+    ov = lower_or_none(cmp_key(p["old"], prefix))
+    if cv == nv:
+        return "ok"
+    if cv == ov:
+        return "pending"
+    return "differs"
+
+
 def form_transfer_items(diff, form, cfg_form_xml, cfg_module_path, ext_dir, prefix):
     items = []
     group = form["label"]
@@ -1632,15 +1760,24 @@ def form_transfer_items(diff, form, cfg_form_xml, cfg_module_path, ext_dir, pref
             else:
                 cpm = get_prop_map(ci[hit.lower()]["node"])
                 ok = 0
+                differs = []
                 for p in ch["props"]:
-                    if p["new"] is None:
-                        if p["key"] not in cpm:
-                            ok += 1
-                    elif p["key"] in cpm and lower_or_none(cmp_key(cpm[p["key"]], prefix)) == lower_or_none(cmp_key(p["new"], prefix)):
+                    r = prop_transfer(cpm, p, prefix)
+                    if r == "ok":
                         ok += 1
+                    elif r == "differs":
+                        differs.append(p["key"])
                 n = len(ch["props"])
-                st = "TRANSFERRED" if ok == n else ("NOT_TRANSFERRED" if ok == 0 else "PARTIAL")
-                cnt = (" (%d/%d props)" % (ok, n)) if st == "PARTIAL" else ""
+                if differs:
+                    st = "DIVERGED"
+                else:
+                    st = "TRANSFERRED" if ok == n else ("NOT_TRANSFERRED" if ok == 0 else "PARTIAL")
+                if st == "DIVERGED" and len(differs) == n:
+                    cnt = " (config value differs)"
+                elif st == "DIVERGED":
+                    cnt = " (config value differs: %s)" % ", ".join(differs)
+                else:
+                    cnt = (" (%d/%d props)" % (ok, n)) if st == "PARTIAL" else ""
                 items.append(new_item(st, "~ %s %s: %s%s" % (tag, rec["name"], ", ".join(keys), cnt), "", group))
         if ch["moved"]:
             st = "NOT_TRANSFERRED"
@@ -1699,12 +1836,10 @@ def form_transfer_items(diff, form, cfg_form_xml, cfg_module_path, ext_dir, pref
     if diff["form_props"]:
         cpm = get_prop_map(cr, root=True)
         for p in diff["form_props"]:
-            if p["new"] is None:
-                ok = p["key"] not in cpm
-            else:
-                ok = p["key"] in cpm and lower_or_none(cmp_key(cpm[p["key"]], prefix)) == lower_or_none(cmp_key(p["new"], prefix))
-            st = "TRANSFERRED" if ok else "NOT_TRANSFERRED"
-            items.append(new_item(st, "~ form " + prop_change_text(p), "", group))
+            r = prop_transfer(cpm, p, prefix)
+            st = {"ok": "TRANSFERRED", "pending": "NOT_TRANSFERRED"}.get(r, "DIVERGED")
+            why = " (config value differs)" if r == "differs" else ""
+            items.append(new_item(st, "~ form " + prop_change_text(p) + why, "", group))
     for b in diff["blocks"]:
         cnode = cr.find(b["xpath"], NSMAP)
         st = "TRANSFERRED" if lower_or_none(cmp_key(cnode, prefix)) == lower_or_none(cmp_key(b["node"], prefix)) else "NOT_TRANSFERRED"

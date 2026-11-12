@@ -536,19 +536,63 @@ function Test-RunAt {
 	return $true
 }
 
-# True if a deletion is already applied in v2: its before/after context lines are now adjacent
-# (nothing left between them), or the missing side sits at a body boundary. $null = boundary side.
+# True if a deletion is already applied in v2: its before/after context lines now enclose exactly
+# `mid` (nothing for a plain deletion, the inserted code for a replacement), or the missing side sits
+# at a body boundary. $null = boundary side.
 function Test-DeleteAbsorbed {
-	param($v2norm, $beforeCtx, $afterCtx)
-	if ($null -ne $beforeCtx -and $null -ne $afterCtx) {
-		for ($i = 0; $i -lt ($v2norm.Count - 1); $i++) {
-			if ($v2norm[$i] -eq $beforeCtx -and $v2norm[$i + 1] -eq $afterCtx) { return $true }
-		}
-		return $false
+	param($v2norm, $beforeCtx, $afterCtx, $mid = @())
+	$mid = @($mid)
+	$n = $mid.Count
+	for ($i = 0; $i -le ($v2norm.Count - $n); $i++) {
+		if ($null -ne $beforeCtx) { if ($i -eq 0 -or $v2norm[$i - 1] -ne $beforeCtx) { continue } }
+		elseif ($i -ne 0) { break }
+		$ok = $true
+		for ($m = 0; $m -lt $n; $m++) { if ($v2norm[$i + $m] -ne $mid[$m]) { $ok = $false; break } }
+		if (-not $ok) { continue }
+		$e = $i + $n
+		if ($null -ne $afterCtx) { if ($e -lt $v2norm.Count -and $v2norm[$e] -eq $afterCtx) { return $true } }
+		elseif ($e -eq $v2norm.Count) { return $true }
 	}
-	if ($null -eq $beforeCtx -and $null -ne $afterCtx) { return ($v2norm.Count -gt 0 -and $v2norm[0] -eq $afterCtx) }
-	if ($null -ne $beforeCtx -and $null -eq $afterCtx) { return ($v2norm.Count -gt 0 -and $v2norm[$v2norm.Count - 1] -eq $beforeCtx) }
 	return $false
+}
+
+# Edits already carried into the main configuration in place: v2 holds "line before + inserted code
+# + line after" (significant lines). A deletion together with the insertions right next to it (only
+# blanks/comments between) is one replacement: its context lines are no longer adjacent and the
+# insert's own anchor was the deleted text, so neither edit is recognised alone. A plain insert is
+# checked the same way, because the payload sitting at its spot splits its anchor and the anchor
+# search may then land on a look-alike elsewhere. Returns a hashtable of op indices absorbed.
+# $payloads: op index -> significant normalized lines of that insert.
+function Get-AbsorbedInPlace {
+	param($ops, $v1norm, $v2norm, $v2sig, $payloads)
+	$ops = @($ops)
+	$hit = @{}
+	for ($d = 0; $d -lt $ops.Count; $d++) {
+		$op = $ops[$d]
+		if ($op.Kind -ne 'delete') { continue }
+		$keys = @(); for ($m = $op.Start; $m -le $op.End; $m++) { $keys += $v1norm[$m] }
+		if ((Find-UniqueRun $v2norm $keys) -ge 0) { continue }
+		$bIdx = -1; for ($z = $op.Start - 1; $z -ge 0; $z--) { if (Test-Significant $v1norm[$z]) { $bIdx = $z; break } }
+		$aIdx = $v1norm.Count; for ($z = $op.End + 1; $z -lt $v1norm.Count; $z++) { if (Test-Significant $v1norm[$z]) { $aIdx = $z; break } }
+		$group = @(); $mid = @()
+		for ($i = 0; $i -lt $ops.Count; $i++) {
+			if ($ops[$i].Kind -eq 'insert' -and $ops[$i].After -ge $bIdx -and $ops[$i].After -lt $aIdx) { $group += $i; $mid += @($payloads[$i]) }
+		}
+		if ($mid.Count -eq 0) { continue }
+		$bCtx = if ($bIdx -ge 0) { $v1norm[$bIdx] } else { $null }
+		$aCtx = if ($aIdx -lt $v1norm.Count) { $v1norm[$aIdx] } else { $null }
+		if (Test-DeleteAbsorbed $v2sig $bCtx $aCtx $mid) { $hit[$d] = $true; foreach ($i in $group) { $hit[$i] = $true } }
+	}
+	for ($i = 0; $i -lt $ops.Count; $i++) {
+		$op = $ops[$i]
+		if ($op.Kind -ne 'insert' -or $hit.ContainsKey($i)) { continue }
+		$mid = @($payloads[$i])
+		if ($mid.Count -eq 0) { continue }
+		$bCtx = $null; for ($z = $op.After; $z -ge 0; $z--) { if (Test-Significant $v1norm[$z]) { $bCtx = $v1norm[$z]; break } }
+		$aCtx = $null; for ($z = $op.After + 1; $z -lt $v1norm.Count; $z++) { if (Test-Significant $v1norm[$z]) { $aCtx = $v1norm[$z]; break } }
+		if (Test-DeleteAbsorbed $v2sig $bCtx $aCtx $mid) { $hit[$i] = $true }
+	}
+	return $hit
 }
 
 # Exact two-sided resolution over the given array.
@@ -772,7 +816,11 @@ $ns.AddNamespace("dcsset", "http://v8.1c.ru/8.1/data-composition-system/settings
 # prefix kept compare equal alike.
 function Remove-ExtPrefix([string]$text, [string]$prefix) {
 	if ([string]::IsNullOrEmpty($prefix) -or [string]::IsNullOrEmpty($text)) { return $text }
-	return [regex]::Replace($text, '(?<!\w)' + [regex]::Escape($prefix) + '(?=\w)', '', [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
+	if ($script:prefixReFor -cne $prefix) {
+		$script:prefixRe = New-Object System.Text.RegularExpressions.Regex ('(?<!\w)' + [regex]::Escape($prefix) + '(?=\w)'), ([System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
+		$script:prefixReFor = $prefix
+	}
+	return $script:prefixRe.Replace($text, '')
 }
 
 # Name lookup: the exact name first, then the name without the extension prefix
@@ -816,14 +864,25 @@ function Get-CodeKey([string]$line, [string]$prefix) {
 	return (Get-Normalized (Remove-ExtPrefix $line $prefix)).ToLowerInvariant()
 }
 
+# Get-CodeKey over a list of lines, inlined: a function call per line is what costs in PowerShell.
+# -Significant keeps only lines that carry code (Test-Significant).
+function Get-CodeKeys($lines, [string]$prefix, [switch]$Significant) {
+	$re = $null
+	if (-not [string]::IsNullOrEmpty($prefix)) { [void](Remove-ExtPrefix 'x' $prefix); $re = $script:prefixRe }
+	$r = New-Object 'System.Collections.Generic.List[string]'
+	foreach ($l in $lines) {
+		$t = [string]$l
+		if ($re -and $t.Length -gt 0) { $t = $re.Replace($t, '') }
+		$t = ($t -replace '\s+', ' ').Trim().ToLowerInvariant()
+		if ($Significant -and ($t -eq '' -or $t.StartsWith('//'))) { continue }
+		$r.Add($t)
+	}
+	return $r.ToArray()
+}
+
 # Significant lines of a body as code keys
 function Get-SigLines($lines, [string]$prefix) {
-	$out = New-Object System.Collections.Generic.List[string]
-	foreach ($l in $lines) {
-		$n = Get-CodeKey $l $prefix
-		if (Test-Significant $n) { $out.Add($n) }
-	}
-	return ,($out.ToArray())
+	return ,@(Get-CodeKeys $lines $prefix -Significant)
 }
 
 # Declaration following an annotation (context directives and other annotations may sit between)
@@ -842,21 +901,58 @@ function Find-DeclAfter($lines, [int]$annIdx) {
 # Transfer of method changes
 # ============================================================
 
+# Insert payload sitting right after its line before, or right before its line after, anywhere in v2
+# (significant lines; $null side is not checked). Looser than the in-place check: one neighbour is
+# enough and the spot need not be unique. For an insert not found at its anchor: the anchor may be
+# lost (a payload repeated in the method leaves the search nothing to go on) or found by one side
+# only, the carried-over code then sitting before the spot instead of after it.
+function Test-PayloadBeside($v2sig, $mid, $beforeCtx, $afterCtx) {
+	$n = $mid.Count
+	for ($i = 0; $i -le ($v2sig.Count - $n); $i++) {
+		$ok = $true
+		for ($m = 0; $m -lt $n; $m++) { if ($v2sig[$i + $m] -cne $mid[$m]) { $ok = $false; break } }
+		if (-not $ok) { continue }
+		if ($null -ne $beforeCtx -and $i -gt 0 -and $v2sig[$i - 1] -ceq $beforeCtx) { return $true }
+		if ($null -ne $afterCtx -and ($i + $n) -lt $v2sig.Count -and $v2sig[$i + $n] -ceq $afterCtx) { return $true }
+	}
+	return $false
+}
+
+# Why an edit is disputed, with the line to look at: the insert's neighbour (and whether the
+# configuration keeps it commented out) or the first deleted line.
+function Get-DisputeReason($kind, [string]$line, [string]$key, [string]$side, $v2norm) {
+	$txt = Get-Short $line 60
+	if ($kind -eq 'delete') { return "deleted lines changed in config: $txt" }
+	if (-not $key) { return 'insert anchor changed in config' }
+	$commented = $false
+	foreach ($l in $v2norm) { if ($l.StartsWith('//') -and (($l -replace '^/+\s*', '') -ceq $key)) { $commented = $true; break } }
+	$how = if ($commented) { 'commented out' } else { 'changed' }
+	return "line $side insert $how in config: $txt"
+}
+
 # &ИзменениеИКонтроль: each #Вставка/#Удаление is classified the way cfe-patch-method -Check does
 # (absorbed = already in the main configuration, pending = still to carry over, disputed = the
 # anchor or the deleted lines changed). $null when the method has no edits with code.
 function Get-ControlTransfer($extMethod, $cfgMethod, [string]$prefix) {
 	$parsed = Parse-MarkedBody $extMethod.BodyLines
 	$ops = @($parsed.Ops)
-	$v1norm = @($parsed.V1 | ForEach-Object { Get-CodeKey $_ $prefix })
-	$v2norm = @($cfgMethod.BodyLines | ForEach-Object { Get-CodeKey $_ $prefix })
+	$v1norm = @(Get-CodeKeys $parsed.V1 $prefix)
+	$v2norm = @(Get-CodeKeys $cfgMethod.BodyLines $prefix)
 	$v2proj = Get-SignificantProjection $v2norm
 	$absorbed = 0; $pending = 0; $disputed = @()
+	$payloads = @{}
+	for ($oi = 0; $oi -lt $ops.Count; $oi++) {
+		if ($ops[$oi].Kind -eq 'insert') { $payloads[$oi] = @(Get-CodeKeys $ops[$oi].Lines $prefix -Significant) }
+	}
+	$replaced = Get-AbsorbedInPlace $ops $v1norm $v2norm $v2proj.Sig $payloads
+	$oi = -1
 	foreach ($op in $ops) {
+		$oi++
 		if ($op.Kind -eq 'insert') {
-			$payloadSig = @(($op.Lines | ForEach-Object { Get-CodeKey $_ $prefix }) | Where-Object { Test-Significant $_ })
+			$payloadSig = @($payloads[$oi])
 			# A comment-only insert carries nothing to transfer
 			if ($payloadSig.Count -eq 0) { continue }
+			if ($replaced.ContainsKey($oi)) { $absorbed++; continue }
 			$beforeLines = @()
 			if ($op.After -ge 0) { $bs = [Math]::Max(0, $op.After - 2); for ($m = $bs; $m -le $op.After; $m++) { $beforeLines += $v1norm[$m] } }
 			$afterLines = @()
@@ -865,10 +961,20 @@ function Get-ControlTransfer($extMethod, $cfgMethod, [string]$prefix) {
 			$k = Resolve-InsertionPoint $v2norm $beforeLines $afterLines
 			if ($null -eq $k) { $isAbsorbed = (Find-UniqueRun $v2proj.Sig $payloadSig) -ge 0 }
 			else { $sigStart = @($v2proj.Map | Where-Object { $_ -le $k }).Count; $isAbsorbed = Test-RunAt $v2proj.Sig $payloadSig $sigStart }
+			$bIdx = -1; for ($z = $op.After; $z -ge 0; $z--) { if (Test-Significant $v1norm[$z]) { $bIdx = $z; break } }
+			$aIdx = -1; for ($z = $op.After + 1; $z -lt $v1norm.Count; $z++) { if (Test-Significant $v1norm[$z]) { $aIdx = $z; break } }
+			$bCtx = if ($bIdx -ge 0) { $v1norm[$bIdx] } else { $null }
+			$aCtx = if ($aIdx -ge 0) { $v1norm[$aIdx] } else { $null }
+			if (-not $isAbsorbed) { $isAbsorbed = Test-PayloadBeside $v2proj.Sig $payloadSig $bCtx $aCtx }
 			if ($isAbsorbed) { $absorbed++ }
-			elseif ($null -eq $k) { $disputed += 'insert' }
+			elseif ($null -eq $k) {
+				if ($bIdx -ge 0) { $disputed += (Get-DisputeReason 'insert' $parsed.V1[$bIdx] $bCtx 'before' $v2norm) }
+				elseif ($aIdx -ge 0) { $disputed += (Get-DisputeReason 'insert' $parsed.V1[$aIdx] $aCtx 'after' $v2norm) }
+				else { $disputed += (Get-DisputeReason 'insert' '' '' '' $v2norm) }
+			}
 			else { $pending++ }
 		} else {
+			if ($replaced.ContainsKey($oi)) { $absorbed++; continue }
 			$keys = @(); for ($m = $op.Start; $m -le $op.End; $m++) { $keys += $v1norm[$m] }
 			$p = Find-UniqueRun $v2norm $keys
 			if ($p -ge 0) { $pending++ }
@@ -876,7 +982,11 @@ function Get-ControlTransfer($extMethod, $cfgMethod, [string]$prefix) {
 				$delBeforeCtx = $null; for ($z = $op.Start - 1; $z -ge 0; $z--) { if (Test-Significant $v1norm[$z]) { $delBeforeCtx = $v1norm[$z]; break } }
 				$delAfterCtx = $null; for ($z = $op.End + 1; $z -lt $v1norm.Count; $z++) { if (Test-Significant $v1norm[$z]) { $delAfterCtx = $v1norm[$z]; break } }
 				if (Test-DeleteAbsorbed $v2proj.Sig $delBeforeCtx $delAfterCtx) { $absorbed++ }
-				else { $disputed += 'delete' }
+				else {
+					$first = @($op.Lines | Where-Object { Test-Significant (Get-Normalized $_) } | Select-Object -First 1)
+					$line = if ($first.Count -gt 0) { $first[0] } else { '' }
+					$disputed += (Get-DisputeReason 'delete' $line '' '' $v2norm)
+				}
 			}
 		}
 	}
@@ -884,10 +994,8 @@ function Get-ControlTransfer($extMethod, $cfgMethod, [string]$prefix) {
 	if ($n -eq 0) { return $null }
 	$count = "$absorbed/$n edits"
 	if ($disputed.Count -gt 0) {
-		$why = @()
-		if ($disputed -contains 'insert') { $why += 'insert anchor changed in config' }
-		if ($disputed -contains 'delete') { $why += 'deleted lines changed in config' }
-		return @{ Status = 'DIVERGED'; Count = $count; Note = ($why -join '; ') }
+		$more = if ($disputed.Count -gt 1) { " (+$($disputed.Count - 1) more)" } else { '' }
+		return @{ Status = 'DIVERGED'; Count = $count; Note = "$($disputed[0])$more" }
 	}
 	$st = if ($absorbed -eq $n) { 'TRANSFERRED' } elseif ($absorbed -eq 0) { 'NOT_TRANSFERRED' } else { 'PARTIAL' }
 	return @{ Status = $st; Count = $count; Note = '' }
@@ -1086,7 +1194,7 @@ function Add-FormElements($node, [string]$parentName, $ancestors, $idx) {
 		if ($c.LocalName -eq 'ChildItems') { foreach ($cc in $c.ChildNodes) { if (Test-FormElement $cc) { $kids += $cc } } }
 		elseif (Test-FormElement $c) { $kids += $c }
 	}
-	$names = @($kids | ForEach-Object { $_.GetAttribute('name') })
+	$names = @(foreach ($kk in $kids) { $kk.GetAttribute('name') })
 	for ($i = 0; $i -lt $kids.Count; $i++) {
 		$k = $kids[$i]
 		$nm = $names[$i]
@@ -1138,12 +1246,15 @@ function Get-MovedSet($mi, $bi) {
 		if (-not $groups.Contains($g)) { $groups[$g] = New-Object System.Collections.ArrayList }
 		[void]$groups[$g].Add($name)
 	}
+	$baseKeys = @($bi.Keys)
 	foreach ($g in @($groups.Keys)) {
 		$mainOrder = @($groups[$g])
 		if ($mainOrder.Count -lt 2) { continue }
 		$inGroup = @{}
 		foreach ($x in $mainOrder) { $inGroup[$x.ToLower()] = $true }
-		$baseOrder = @(@($bi.Keys) | Where-Object { $inGroup.ContainsKey($_.ToLower()) })
+		$baseOrder = New-Object System.Collections.ArrayList
+		foreach ($k in $baseKeys) { if ($inGroup.ContainsKey($k.ToLower())) { [void]$baseOrder.Add($k) } }
+		$baseOrder = @($baseOrder)
 		$keep = Get-LcsSet $mainOrder $baseOrder
 		foreach ($x in $mainOrder) { if (-not $keep.ContainsKey($x.ToLower())) { $moved[$x.ToLower()] = $true } }
 	}
@@ -1180,16 +1291,36 @@ function Get-PropMap($node, [switch]$Root) {
 function Get-NodeCanon($n) {
 	if ($n.NodeType -eq 'Text' -or $n.NodeType -eq 'CDATA') { return (($n.Value -replace '\s+', ' ').Trim()) }
 	if ($n.NodeType -ne 'Element') { return '' }
-	$attrs = @()
+	$sb = New-Object System.Text.StringBuilder
+	Add-NodeCanon $sb $n
+	return $sb.ToString()
+}
+
+# Element in canonical form, appended to $sb: attributes sorted (xmlns and id dropped), text with
+# whitespace collapsed. Only ever compared with another canonical form, never shown.
+function Add-NodeCanon([System.Text.StringBuilder]$sb, $n) {
+	$attrs = New-Object 'System.Collections.Generic.List[string]'
 	foreach ($a in $n.Attributes) {
 		if ($a.Prefix -eq 'xmlns' -or $a.LocalName -eq 'xmlns' -or $a.LocalName -eq 'id') { continue }
-		$attrs += "$($a.LocalName)=$($a.Value)"
+		$attrs.Add("$($a.LocalName)=$($a.Value)")
 	}
-	$attrs = @($attrs | Sort-Object)
-	$kids = @()
-	foreach ($c in $n.ChildNodes) { $s = Get-NodeCanon $c; if ($s -ne '') { $kids += $s } }
-	$head = if ($attrs.Count -gt 0) { ' ' + ($attrs -join ' ') } else { '' }
-	return "<$($n.LocalName)$head>$($kids -join '')</>"
+	$attrs.Sort([StringComparer]::Ordinal)
+	[void]$sb.Append('<').Append($n.LocalName)
+	if ($attrs.Count -gt 0) { [void]$sb.Append(' ').Append(($attrs -join ' ')) }
+	[void]$sb.Append('>')
+	foreach ($c in $n.ChildNodes) {
+		if ($c.NodeType -eq 'Element') { Add-NodeCanon $sb $c }
+		elseif ($c.NodeType -eq 'Text' -or $c.NodeType -eq 'CDATA') { [void]$sb.Append((($c.Value -replace '\s+', ' ').Trim())) }
+	}
+	[void]$sb.Append('</>')
+}
+
+# Same property in both parts. Identical text (whitespace collapsed) settles it without building the
+# canonical form; only a difference in the text is checked canonically.
+function Test-SameProp($a, $b) {
+	if (-not $a -or -not $b) { return (-not $a -and -not $b) }
+	if ((($a.get_OuterXml()) -replace '\s+', ' ') -ceq (($b.get_OuterXml()) -replace '\s+', ' ')) { return $true }
+	return ((Get-CmpKey $a '') -ceq (Get-CmpKey $b ''))
 }
 
 function Get-CmpKey($node, [string]$prefix) {
@@ -1255,7 +1386,7 @@ function Get-FormDiff([string]$formXml) {
 		$props = @()
 		foreach ($k in @($pm.Keys)) {
 			if (-not $pb.Contains($k)) { $props += @{ Key = $k; Old = $null; New = $pm[$k] } }
-			elseif ((Get-CmpKey $pm[$k] '') -cne (Get-CmpKey $pb[$k] '')) { $props += @{ Key = $k; Old = $pb[$k]; New = $pm[$k] } }
+			elseif (-not (Test-SameProp $pm[$k] $pb[$k])) { $props += @{ Key = $k; Old = $pb[$k]; New = $pm[$k] } }
 		}
 		foreach ($k in @($pb.Keys)) { if (-not $pm.Contains($k)) { $props += @{ Key = $k; Old = $pb[$k]; New = $null } } }
 		$moved = $movedSet.ContainsKey($name.ToLower())
@@ -1309,14 +1440,14 @@ function Get-FormDiff([string]$formXml) {
 	foreach ($blk in @(@('ConditionalAppearance', 'd:Attributes/d:ConditionalAppearance'), @('CommandInterface', 'd:CommandInterface'))) {
 		$mn = $root.SelectSingleNode($blk[1], $ns)
 		$bn = $base.SelectSingleNode($blk[1], $ns)
-		if ((Get-CmpKey $mn '') -cne (Get-CmpKey $bn '')) { $r.Blocks += @{ Name = $blk[0]; XPath = $blk[1]; Node = $mn } }
+		if (-not (Test-SameProp $mn $bn)) { $r.Blocks += @{ Name = $blk[0]; XPath = $blk[1]; Node = $mn } }
 	}
 
 	# Form properties
 	$pm = Get-PropMap $root -Root; $pb = Get-PropMap $base -Root
 	foreach ($k in @($pm.Keys)) {
 		if (-not $pb.Contains($k)) { $r.FormProps += @{ Key = $k; Old = $null; New = $pm[$k] } }
-		elseif ((Get-CmpKey $pm[$k] '') -cne (Get-CmpKey $pb[$k] '')) { $r.FormProps += @{ Key = $k; Old = $pb[$k]; New = $pm[$k] } }
+		elseif (-not (Test-SameProp $pm[$k] $pb[$k])) { $r.FormProps += @{ Key = $k; Old = $pb[$k]; New = $pm[$k] } }
 	}
 	foreach ($k in @($pb.Keys)) { if (-not $pm.Contains($k)) { $r.FormProps += @{ Key = $k; Old = $pb[$k]; New = $null } } }
 
@@ -1433,6 +1564,17 @@ function Format-FormDiff($diff, [string]$label, [string]$ind) {
 }
 
 # Transfer check of a form diff against the form of the main configuration
+# One property change of the extension against the configuration: 'ok' (the extension's value),
+# 'pending' (still the BaseForm value) or 'differs' (changed in the configuration some other way).
+function Get-PropTransfer($cpm, $p, [string]$prefix) {
+	$cv = if ($cpm.Contains($p.Key)) { Get-CmpKey $cpm[$p.Key] $prefix } else { $null }
+	$nv = Get-CmpKey $p.New $prefix
+	$ov = Get-CmpKey $p.Old $prefix
+	if ($cv -ieq $nv) { return 'ok' }
+	if ($cv -ieq $ov) { return 'pending' }
+	return 'differs'
+}
+
 function Get-FormTransferItems($diff, $form, [string]$cfgFormXml, [string]$cfgModulePath, [string]$extDir, [string]$prefix) {
 	$items = @()
 	$group = $form.Label
@@ -1462,14 +1604,14 @@ function Get-FormTransferItems($diff, $form, [string]$cfgFormXml, [string]$cfgMo
 				$items += New-Item2 'NOT_TRANSFERRED' "~ $tag $($rec.Name): $($keys -join ', ') (element not in config)" '' $group
 			} else {
 				$cpm = Get-PropMap $ci[$hit].Node
-				$ok = 0
+				$ok = 0; $differs = @()
 				foreach ($p in $ch.Props) {
-					if ($null -eq $p.New) { if (-not $cpm.Contains($p.Key)) { $ok++ } }
-					elseif ($cpm.Contains($p.Key) -and ((Get-CmpKey $cpm[$p.Key] $prefix) -ieq (Get-CmpKey $p.New $prefix))) { $ok++ }
+					$r = Get-PropTransfer $cpm $p $prefix
+					if ($r -eq 'ok') { $ok++ } elseif ($r -eq 'differs') { $differs += $p.Key }
 				}
 				$n = $ch.Props.Count
-				$st = if ($ok -eq $n) { 'TRANSFERRED' } elseif ($ok -eq 0) { 'NOT_TRANSFERRED' } else { 'PARTIAL' }
-				$cnt = if ($st -eq 'PARTIAL') { " ($ok/$n props)" } else { '' }
+				$st = if ($differs.Count -gt 0) { 'DIVERGED' } elseif ($ok -eq $n) { 'TRANSFERRED' } elseif ($ok -eq 0) { 'NOT_TRANSFERRED' } else { 'PARTIAL' }
+				$cnt = if ($st -eq 'DIVERGED' -and $differs.Count -eq $n) { ' (config value differs)' } elseif ($st -eq 'DIVERGED') { " (config value differs: $($differs -join ', '))" } elseif ($st -eq 'PARTIAL') { " ($ok/$n props)" } else { '' }
 				$items += New-Item2 $st "~ $tag $($rec.Name): $($keys -join ', ')$cnt" '' $group
 			}
 		}
@@ -1530,9 +1672,10 @@ function Get-FormTransferItems($diff, $form, [string]$cfgFormXml, [string]$cfgMo
 	if ($diff.FormProps.Count -gt 0) {
 		$cpm = Get-PropMap $cr -Root
 		foreach ($p in $diff.FormProps) {
-			$ok = if ($null -eq $p.New) { -not $cpm.Contains($p.Key) } else { $cpm.Contains($p.Key) -and ((Get-CmpKey $cpm[$p.Key] $prefix) -ieq (Get-CmpKey $p.New $prefix)) }
-			$st = if ($ok) { 'TRANSFERRED' } else { 'NOT_TRANSFERRED' }
-			$items += New-Item2 $st "~ form $(Get-PropChangeText $p)" '' $group
+			$r = Get-PropTransfer $cpm $p $prefix
+			$st = if ($r -eq 'ok') { 'TRANSFERRED' } elseif ($r -eq 'pending') { 'NOT_TRANSFERRED' } else { 'DIVERGED' }
+			$why = if ($r -eq 'differs') { ' (config value differs)' } else { '' }
+			$items += New-Item2 $st "~ form $(Get-PropChangeText $p)$why" '' $group
 		}
 	}
 	foreach ($b in $diff.Blocks) {
