@@ -901,6 +901,61 @@ function Find-DeclAfter($lines, [int]$annIdx) {
 # Transfer of method changes
 # ============================================================
 
+# Developer's mark "not for transfer" (a workaround for an extension limitation, a one-off fix):
+# a comment whose text starts with «Временно» or «Не переносить» (case and spaces ignored), the
+# reason may follow. Returns the reason ('' when none) or $null when the line is not such a mark.
+function Get-TempMark([string]$line) {
+	$i = $line.IndexOf('//')
+	if ($i -lt 0) { return $null }
+	$t = $line.Substring($i).TrimStart('/').Trim()
+	if ($t -match '^(?i)(?:не\s*переносить|временно)(?![\p{L}\p{Nd}_])\s*[:\-–—]?\s*(.*)$') { return $Matches[1].Trim() }
+	return $null
+}
+
+# Mark of a whole method: in the comment lines right above it (annotations and directives skipped)
+# or in the comment lines the body starts with.
+function Get-MethodTempMark($lines, $method) {
+	for ($z = $method.DeclIdx - 1; $z -ge 0; $z--) {
+		$t = $lines[$z].Trim()
+		if ($t.StartsWith('&')) { continue }
+		if (-not $t.StartsWith('//')) { break }
+		$m = Get-TempMark $t
+		if ($null -ne $m) { return $m }
+	}
+	foreach ($l in $method.BodyLines) {
+		$t = $l.Trim()
+		if ($t -eq '') { continue }
+		if (-not $t.StartsWith('//')) { break }
+		$m = Get-TempMark $t
+		if ($null -ne $m) { return $m }
+	}
+	return $null
+}
+
+# Mark of one #Вставка/#Удаление block: a tail comment on its opening marker or the comment lines
+# the block starts with.
+function Get-BlockTempMark($op) {
+	if ($op.Open) { $m = Get-TempMark $op.Open; if ($null -ne $m) { return $m } }
+	foreach ($l in $op.Lines) {
+		$t = $l.Trim()
+		if ($t -eq '') { continue }
+		if (-not $t.StartsWith('//')) { break }
+		$m = Get-TempMark $t
+		if ($null -ne $m) { return $m }
+	}
+	return $null
+}
+
+function Format-TempWhy([string]$mark) { if ($mark) { return " — $mark" } else { return '' } }
+
+# A method marked "not for transfer": still carried over -> stays TRANSFERRED with a note (a
+# workaround moved into the configuration is worth a look); otherwise -> TEMPORARY.
+function Set-TempMark($item, $mark, [string]$label) {
+	if ($null -eq $mark -or -not $item) { return $item }
+	if ($item.Status -eq 'TRANSFERRED') { $item.Text += ' (marked temporary)'; $item.Marked = $true; return $item }
+	return (New-Item2 'TEMPORARY' "$label$(Format-TempWhy $mark)" $item.Loc $item.Group)
+}
+
 # Insert payload sitting right after its line before, or right before its line after, anywhere in v2
 # (significant lines; $null side is not checked). Looser than the in-place check: one neighbour is
 # enough and the spot need not be unique. For an insert not found at its anchor: the anchor may be
@@ -939,7 +994,7 @@ function Get-ControlTransfer($extMethod, $cfgMethod, [string]$prefix) {
 	$v1norm = @(Get-CodeKeys $parsed.V1 $prefix)
 	$v2norm = @(Get-CodeKeys $cfgMethod.BodyLines $prefix)
 	$v2proj = Get-SignificantProjection $v2norm
-	$absorbed = 0; $pending = 0; $disputed = @()
+	$absorbed = 0; $pending = 0; $disputed = @(); $temp = 0; $tempWhy = $null; $markedDone = 0
 	$payloads = @{}
 	for ($oi = 0; $oi -lt $ops.Count; $oi++) {
 		if ($ops[$oi].Kind -eq 'insert') { $payloads[$oi] = @(Get-CodeKeys $ops[$oi].Lines $prefix -Significant) }
@@ -948,57 +1003,71 @@ function Get-ControlTransfer($extMethod, $cfgMethod, [string]$prefix) {
 	$oi = -1
 	foreach ($op in $ops) {
 		$oi++
+		# $res: 'absorbed', 'pending' or the reason the edit is disputed
 		if ($op.Kind -eq 'insert') {
 			$payloadSig = @($payloads[$oi])
 			# A comment-only insert carries nothing to transfer
 			if ($payloadSig.Count -eq 0) { continue }
-			if ($replaced.ContainsKey($oi)) { $absorbed++; continue }
-			$beforeLines = @()
-			if ($op.After -ge 0) { $bs = [Math]::Max(0, $op.After - 2); for ($m = $bs; $m -le $op.After; $m++) { $beforeLines += $v1norm[$m] } }
-			$afterLines = @()
-			$ae = [Math]::Min($v1norm.Count - 1, $op.After + 3)
-			for ($m = $op.After + 1; $m -le $ae; $m++) { $afterLines += $v1norm[$m] }
-			$k = Resolve-InsertionPoint $v2norm $beforeLines $afterLines
-			if ($null -eq $k) { $isAbsorbed = (Find-UniqueRun $v2proj.Sig $payloadSig) -ge 0 }
-			else { $sigStart = @($v2proj.Map | Where-Object { $_ -le $k }).Count; $isAbsorbed = Test-RunAt $v2proj.Sig $payloadSig $sigStart }
-			$bIdx = -1; for ($z = $op.After; $z -ge 0; $z--) { if (Test-Significant $v1norm[$z]) { $bIdx = $z; break } }
-			$aIdx = -1; for ($z = $op.After + 1; $z -lt $v1norm.Count; $z++) { if (Test-Significant $v1norm[$z]) { $aIdx = $z; break } }
-			$bCtx = if ($bIdx -ge 0) { $v1norm[$bIdx] } else { $null }
-			$aCtx = if ($aIdx -ge 0) { $v1norm[$aIdx] } else { $null }
-			if (-not $isAbsorbed) { $isAbsorbed = Test-PayloadBeside $v2proj.Sig $payloadSig $bCtx $aCtx }
-			if ($isAbsorbed) { $absorbed++ }
-			elseif ($null -eq $k) {
-				if ($bIdx -ge 0) { $disputed += (Get-DisputeReason 'insert' $parsed.V1[$bIdx] $bCtx 'before' $v2norm) }
-				elseif ($aIdx -ge 0) { $disputed += (Get-DisputeReason 'insert' $parsed.V1[$aIdx] $aCtx 'after' $v2norm) }
-				else { $disputed += (Get-DisputeReason 'insert' '' '' '' $v2norm) }
-			}
-			else { $pending++ }
-		} else {
-			if ($replaced.ContainsKey($oi)) { $absorbed++; continue }
-			$keys = @(); for ($m = $op.Start; $m -le $op.End; $m++) { $keys += $v1norm[$m] }
-			$p = Find-UniqueRun $v2norm $keys
-			if ($p -ge 0) { $pending++ }
+			if ($replaced.ContainsKey($oi)) { $res = 'absorbed' }
 			else {
-				$delBeforeCtx = $null; for ($z = $op.Start - 1; $z -ge 0; $z--) { if (Test-Significant $v1norm[$z]) { $delBeforeCtx = $v1norm[$z]; break } }
-				$delAfterCtx = $null; for ($z = $op.End + 1; $z -lt $v1norm.Count; $z++) { if (Test-Significant $v1norm[$z]) { $delAfterCtx = $v1norm[$z]; break } }
-				if (Test-DeleteAbsorbed $v2proj.Sig $delBeforeCtx $delAfterCtx) { $absorbed++ }
+				$beforeLines = @()
+				if ($op.After -ge 0) { $bs = [Math]::Max(0, $op.After - 2); for ($m = $bs; $m -le $op.After; $m++) { $beforeLines += $v1norm[$m] } }
+				$afterLines = @()
+				$ae = [Math]::Min($v1norm.Count - 1, $op.After + 3)
+				for ($m = $op.After + 1; $m -le $ae; $m++) { $afterLines += $v1norm[$m] }
+				$k = Resolve-InsertionPoint $v2norm $beforeLines $afterLines
+				if ($null -eq $k) { $isAbsorbed = (Find-UniqueRun $v2proj.Sig $payloadSig) -ge 0 }
+				else { $sigStart = @($v2proj.Map | Where-Object { $_ -le $k }).Count; $isAbsorbed = Test-RunAt $v2proj.Sig $payloadSig $sigStart }
+				$bIdx = -1; for ($z = $op.After; $z -ge 0; $z--) { if (Test-Significant $v1norm[$z]) { $bIdx = $z; break } }
+				$aIdx = -1; for ($z = $op.After + 1; $z -lt $v1norm.Count; $z++) { if (Test-Significant $v1norm[$z]) { $aIdx = $z; break } }
+				$bCtx = if ($bIdx -ge 0) { $v1norm[$bIdx] } else { $null }
+				$aCtx = if ($aIdx -ge 0) { $v1norm[$aIdx] } else { $null }
+				if (-not $isAbsorbed) { $isAbsorbed = Test-PayloadBeside $v2proj.Sig $payloadSig $bCtx $aCtx }
+				if ($isAbsorbed) { $res = 'absorbed' }
+				elseif ($null -ne $k) { $res = 'pending' }
+				elseif ($bIdx -ge 0) { $res = Get-DisputeReason 'insert' $parsed.V1[$bIdx] $bCtx 'before' $v2norm }
+				elseif ($aIdx -ge 0) { $res = Get-DisputeReason 'insert' $parsed.V1[$aIdx] $aCtx 'after' $v2norm }
+				else { $res = Get-DisputeReason 'insert' '' '' '' $v2norm }
+			}
+		} else {
+			if ($replaced.ContainsKey($oi)) { $res = 'absorbed' }
+			else {
+				$keys = @(); for ($m = $op.Start; $m -le $op.End; $m++) { $keys += $v1norm[$m] }
+				$p = Find-UniqueRun $v2norm $keys
+				if ($p -ge 0) { $res = 'pending' }
 				else {
-					$first = @($op.Lines | Where-Object { Test-Significant (Get-Normalized $_) } | Select-Object -First 1)
-					$line = if ($first.Count -gt 0) { $first[0] } else { '' }
-					$disputed += (Get-DisputeReason 'delete' $line '' '' $v2norm)
+					$delBeforeCtx = $null; for ($z = $op.Start - 1; $z -ge 0; $z--) { if (Test-Significant $v1norm[$z]) { $delBeforeCtx = $v1norm[$z]; break } }
+					$delAfterCtx = $null; for ($z = $op.End + 1; $z -lt $v1norm.Count; $z++) { if (Test-Significant $v1norm[$z]) { $delAfterCtx = $v1norm[$z]; break } }
+					if (Test-DeleteAbsorbed $v2proj.Sig $delBeforeCtx $delAfterCtx) { $res = 'absorbed' }
+					else {
+						$first = @($op.Lines | Where-Object { Test-Significant (Get-Normalized $_) } | Select-Object -First 1)
+						$line = if ($first.Count -gt 0) { $first[0] } else { '' }
+						$res = Get-DisputeReason 'delete' $line '' '' $v2norm
+					}
 				}
 			}
 		}
+		# A block marked "not for transfer" counts as temporary only while it is not in the configuration
+		$mark = Get-BlockTempMark $op
+		if ($null -ne $mark -and $res -ne 'absorbed') { $temp++; if ($null -eq $tempWhy) { $tempWhy = $mark }; continue }
+		if ($res -eq 'absorbed') { $absorbed++; if ($null -ne $mark) { $markedDone++ } }
+		elseif ($res -eq 'pending') { $pending++ }
+		else { $disputed += $res }
 	}
 	$n = $absorbed + $pending + $disputed.Count
-	if ($n -eq 0) { return $null }
+	if ($n -eq 0) {
+		if ($temp -gt 0) { return @{ Status = 'TEMPORARY'; Count = (Get-Plural $temp 'edit'); Note = $tempWhy } }
+		return $null
+	}
 	$count = "$absorbed/$n edits"
+	if ($temp -gt 0) { $count += ", $temp temporary" }
 	if ($disputed.Count -gt 0) {
 		$more = if ($disputed.Count -gt 1) { " (+$($disputed.Count - 1) more)" } else { '' }
 		return @{ Status = 'DIVERGED'; Count = $count; Note = "$($disputed[0])$more" }
 	}
 	$st = if ($absorbed -eq $n) { 'TRANSFERRED' } elseif ($absorbed -eq 0) { 'NOT_TRANSFERRED' } else { 'PARTIAL' }
-	return @{ Status = $st; Count = $count; Note = '' }
+	$note = if ($markedDone -gt 0) { "$markedDone marked temporary" } else { '' }
+	return @{ Status = $st; Count = $count; Note = $note; Marked = ($markedDone -gt 0) }
 }
 
 # &Перед/&После/&Вместо and form event interceptors: there is no marked original to compare with,
@@ -1637,13 +1706,14 @@ function Get-FormTransferItems($diff, $form, [string]$cfgFormXml, [string]$cfgMo
 		param([string]$label, [string]$extHandler, [string]$cfgHandler, [string]$missing)
 		$extM = Get-MethodSafe $extMod $extHandler
 		$loc = if ($extM -and $modRel) { "${modRel}:$($extM.DeclIdx + 1)" } else { '' }
-		if (-not $cfgHandler) { return (New-Item2 'NOT_TRANSFERRED' "$label ($missing)" $loc $group) }
+		$mark = if ($extM) { Get-MethodTempMark $extMod $extM } else { $null }
+		if (-not $cfgHandler) { return (Set-TempMark (New-Item2 'NOT_TRANSFERRED' "$label ($missing)" $loc $group) $mark $label) }
 		$cfgM = Get-MethodSafe $cfgMod $cfgHandler
 		if (-not $extM) { return (New-Item2 'NOT_TRANSFERRED' "$label (handler not found in extension module)" $loc $group) }
-		if (-not $cfgM) { return (New-Item2 'NOT_TRANSFERRED' "$label (config handler $cfgHandler not found in module)" $loc $group) }
+		if (-not $cfgM) { return (Set-TempMark (New-Item2 'NOT_TRANSFERRED' "$label (config handler $cfgHandler not found in module)" $loc $group) $mark $label) }
 		$h = Get-HeuristicTransfer $extM $cfgM $prefix
 		if (-not $h) { return $null }
-		return (New-Item2 (Get-HeuristicStatus $h) "$label (heuristic: $($h.Found)/$($h.Total) lines)" $loc $group)
+		return (Set-TempMark (New-Item2 (Get-HeuristicStatus $h) "$label (heuristic: $($h.Found)/$($h.Total) lines)" $loc $group) $mark $label)
 	}
 
 	foreach ($sec in @(@('Attributes', 'Attribute', 'attribute'), @('Commands', 'Command', 'command'), @('Parameters', 'Parameter', 'parameter'))) {
@@ -1724,24 +1794,27 @@ function Get-ModuleTransferItems([string]$bsl, [string]$extDir, [string]$prefix,
 		if ($decl) { $icProcs[$decl.Name.ToLower()] = $true }
 		$label = "&$($ic.Raw)(`"$($ic.Method)`")"
 		$loc = "${rel}:$($ic.Line + 1)"
+		$extM = if ($decl) { Get-MethodSafe $extLines $decl.Name } else { $null }
+		$mark = if ($extM) { Get-MethodTempMark $extLines $extM } else { $null }
 		$cfgM = Get-MethodSafe $cfgLines $ic.Method
+		$it = $null
 		if (-not $cfgM) {
 			$why = if ($null -eq $cfgLines) { 'module not found in config' } else { 'method not found in config' }
-			$items += New-Item2 'MISSING_IN_CONFIG' "$label ($why)" $loc
-			continue
-		}
-		$extM = if ($decl) { Get-MethodSafe $extLines $decl.Name } else { $null }
-		if (-not $extM) { $items += New-Item2 'DIVERGED' "$label (cannot parse the interceptor)" $loc; continue }
-		if ($ic.Type -eq 'ИзменениеИКонтроль') {
+			$it = New-Item2 'MISSING_IN_CONFIG' "$label ($why)" $loc
+		} elseif (-not $extM) {
+			$it = New-Item2 'DIVERGED' "$label (cannot parse the interceptor)" $loc
+		} elseif ($ic.Type -eq 'ИзменениеИКонтроль') {
 			$r = Get-ControlTransfer $extM $cfgM $prefix
-			if (-not $r) { continue }
-			$note = if ($r.Note) { " ($($r.Note))" } else { '' }
-			$items += New-Item2 $r.Status "$label — $($r.Count)$note" $loc
+			if ($r) {
+				$note = if ($r.Note) { " ($($r.Note))" } else { '' }
+				$it = New-Item2 $r.Status "$label — $($r.Count)$note" $loc
+				if ($r.Marked -and $r.Status -eq 'TRANSFERRED') { $it.Marked = $true }
+			}
 		} else {
 			$h = Get-HeuristicTransfer $extM $cfgM $prefix
-			if (-not $h) { continue }
-			$items += New-Item2 (Get-HeuristicStatus $h) "$label (heuristic: $($h.Found)/$($h.Total) lines)" $loc
+			if ($h) { $it = New-Item2 (Get-HeuristicStatus $h) "$label (heuristic: $($h.Found)/$($h.Total) lines)" $loc }
 		}
+		if ($it) { $items += (Set-TempMark $it $mark $label) }
 	}
 	$cfgNames = if ($null -ne $cfgLines) { @(Get-ProcNames $cfgLines) } else { @() }
 	foreach ($pn in @(Get-ProcNames $extLines)) {
@@ -1749,13 +1822,16 @@ function Get-ModuleTransferItems([string]$bsl, [string]$extDir, [string]$prefix,
 		$extM = Get-MethodSafe $extLines $pn
 		if (-not $extM) { continue }
 		$loc = "${rel}:$($extM.DeclIdx + 1)"
+		$mark = Get-MethodTempMark $extLines $extM
 		$hit = Find-NameIn $cfgNames $pn $prefix
-		if (-not $hit) { $items += New-Item2 'NOT_TRANSFERRED' "method $pn" $loc; continue }
-		$as = if ($hit -ine $pn) { " (found as $hit)" } else { '' }
-		$cfgM = Get-MethodSafe $cfgLines $hit
-		$same = $cfgM -and (((Get-SigLines $extM.BodyLines $prefix) -join "`n") -ieq ((Get-SigLines $cfgM.BodyLines $prefix) -join "`n"))
-		if ($same) { $items += New-Item2 'TRANSFERRED' "method $pn$as" $loc }
-		else { $items += New-Item2 'DIVERGED' "method $pn$as (body differs)" $loc }
+		if (-not $hit) { $it = New-Item2 'NOT_TRANSFERRED' "method $pn" $loc }
+		else {
+			$as = if ($hit -ine $pn) { " (found as $hit)" } else { '' }
+			$cfgM = Get-MethodSafe $cfgLines $hit
+			$same = $cfgM -and (((Get-SigLines $extM.BodyLines $prefix) -join "`n") -ieq ((Get-SigLines $cfgM.BodyLines $prefix) -join "`n"))
+			$it = if ($same) { New-Item2 'TRANSFERRED' "method $pn$as" $loc } else { New-Item2 'DIVERGED' "method $pn$as (body differs)" $loc }
+		}
+		$items += (Set-TempMark $it $mark "method $pn")
 	}
 	return $items
 }
@@ -1959,7 +2035,7 @@ function Test-NameMatch([string]$id) {
 	return $false
 }
 
-$statusOrder = @('TRANSFERRED', 'NOT_TRANSFERRED', 'PARTIAL', 'DIVERGED', 'MISSING_IN_CONFIG')
+$statusOrder = @('TRANSFERRED', 'NOT_TRANSFERRED', 'PARTIAL', 'DIVERGED', 'MISSING_IN_CONFIG', 'TEMPORARY')
 function Format-Status([string]$st) { return ("[$st]").PadRight(21) }
 
 $exts = @()
@@ -1979,11 +2055,14 @@ foreach ($dir in $extDirs) {
 				if ($obj.Type -eq 'Role') { $ext.Roles++; continue }
 				$rec = Get-TransferObject $ext $obj
 				if ($rec.Items.Count -eq 0) { continue }
-				$sts = @($rec.Items | ForEach-Object { $_.Status } | Select-Object -Unique)
-				$rec.Status = if ($sts.Count -eq 1) { $sts[0] } else { 'PARTIAL' }
+				# Temporary changes are not for transfer: they neither leave the object incomplete nor set its status
+				$sts = @($rec.Items | Where-Object { $_.Status -ne 'TEMPORARY' } | ForEach-Object { $_.Status } | Select-Object -Unique)
+				$rec.Status = if ($sts.Count -eq 0) { 'TEMPORARY' } elseif ($sts.Count -eq 1) { $sts[0] } else { 'PARTIAL' }
 				$done = @($rec.Items | Where-Object { $_.Status -eq 'TRANSFERRED' }).Count
-				$rec.Complete = ($done -eq $rec.Items.Count)
-				$tail = if ($rec.Complete) { Get-Plural $rec.Items.Count 'change' } else { "$(Get-Plural $rec.Items.Count 'change'): $done transferred, $($rec.Items.Count - $done) remaining" }
+				$temp = @($rec.Items | Where-Object { $_.Status -eq 'TEMPORARY' }).Count
+				$rec.Complete = (($done + $temp) -eq $rec.Items.Count)
+				$tempNote = if ($temp -gt 0) { ", $temp temporary" } else { '' }
+				$tail = if ($rec.Complete) { "$(Get-Plural $rec.Items.Count 'change')$(if ($temp) { " ($temp temporary)" })" } else { "$(Get-Plural $rec.Items.Count 'change'): $done transferred, $($rec.Items.Count - $done - $temp) remaining$tempNote" }
 				$rec.Summary = "$(Format-Status $rec.Status)$($rec.Id) — $tail"
 				$det = @()
 				foreach ($it in @($rec.Items | Where-Object { -not $_.Group })) {
@@ -2059,10 +2138,13 @@ foreach ($ext in $exts) {
 		}
 		$cnt = @{}
 		foreach ($s in $statusOrder) { $cnt[$s] = @($all | Where-Object { $_.Status -eq $s }).Count }
-		$parts = @("$($cnt['TRANSFERRED']) transferred")
-		foreach ($s in $statusOrder[1..4]) { if ($cnt[$s]) { $parts += "$($cnt[$s]) $($s.ToLower().Replace('_', ' '))" } }
+		# A workaround carried over although marked "not for transfer" is worth a look: counted apart
+		$marked = @($all | Where-Object { $_.Marked }).Count
+		$markedNote = if ($marked -gt 0) { " ($marked marked temporary)" } else { '' }
+		$parts = @("$($cnt['TRANSFERRED']) transferred$markedNote")
+		foreach ($s in $statusOrder[1..5]) { if ($cnt[$s]) { $parts += "$($cnt[$s]) $($s.ToLower().Replace('_', ' '))" } }
 		$footer += "=== Summary $($ext.Name): $(Get-Plural $all.Count 'change') — $($parts -join ', ')$rolesNote ==="
-		$left = $all.Count - $cnt['TRANSFERRED']
+		$left = $all.Count - $cnt['TRANSFERRED'] - $cnt['TEMPORARY']
 		if ($left -gt 0) {
 			$failed = $true; $extLeft++; $leftTotal += $left
 			$ids = @($ext.Objects | Where-Object { -not $_.Complete } | ForEach-Object { $_.Id })

@@ -961,6 +961,77 @@ def find_decl_after(lines, ann_idx):
 # &ИзменениеИКонтроль: each #Вставка/#Удаление is classified the way cfe-patch-method -Check does
 # (absorbed = already in the main configuration, pending = still to carry over, disputed = the
 # anchor or the deleted lines changed). None when the method has no edits with code.
+def get_temp_mark(line):
+    """Developer's mark "not for transfer" (a workaround for an extension limitation, a one-off fix):
+    a comment whose text starts with «Временно» or «Не переносить» (case and spaces ignored), the
+    reason may follow. Returns the reason ('' when none) or None when the line is not such a mark."""
+    i = line.find("//")
+    if i < 0:
+        return None
+    t = line[i:].lstrip("/").strip()
+    m = re.match(r'(?i)(?:не\s*переносить|временно)(?![^\W])\s*[:\-–—]?\s*(.*)$', t)
+    return m.group(1).strip() if m else None
+
+
+def get_method_temp_mark(lines, method):
+    """Mark of a whole method: in the comment lines right above it (annotations and directives
+    skipped) or in the comment lines the body starts with."""
+    for z in range(method["decl_idx"] - 1, -1, -1):
+        t = lines[z].strip()
+        if t.startswith("&"):
+            continue
+        if not t.startswith("//"):
+            break
+        m = get_temp_mark(t)
+        if m is not None:
+            return m
+    for l in method["body_lines"]:
+        t = l.strip()
+        if t == "":
+            continue
+        if not t.startswith("//"):
+            break
+        m = get_temp_mark(t)
+        if m is not None:
+            return m
+    return None
+
+
+def get_block_temp_mark(op):
+    """Mark of one #Вставка/#Удаление block: a tail comment on its opening marker or the comment
+    lines the block starts with."""
+    if op.get("open"):
+        m = get_temp_mark(op["open"])
+        if m is not None:
+            return m
+    for l in op["lines"]:
+        t = l.strip()
+        if t == "":
+            continue
+        if not t.startswith("//"):
+            break
+        m = get_temp_mark(t)
+        if m is not None:
+            return m
+    return None
+
+
+def fmt_temp_why(mark):
+    return (" — " + mark) if mark else ""
+
+
+def set_temp_mark(item, mark, label):
+    """A method marked "not for transfer": still carried over -> stays TRANSFERRED with a note (a
+    workaround moved into the configuration is worth a look); otherwise -> TEMPORARY."""
+    if mark is None or not item:
+        return item
+    if item["status"] == "TRANSFERRED":
+        item["text"] += " (marked temporary)"
+        item["marked"] = True
+        return item
+    return new_item("TEMPORARY", label + fmt_temp_why(mark), item["loc"], item["group"])
+
+
 def test_payload_beside(v2sig, mid, before_ctx, after_ctx):
     """Insert payload sitting right after its line before, or right before its line after, anywhere in
     v2 (significant lines; None side is not checked). Looser than the in-place check: one neighbour is
@@ -1000,72 +1071,94 @@ def get_control_transfer(ext_method, cfg_method, prefix):
     absorbed = 0
     pending = 0
     disputed = []
+    temp = 0
+    temp_why = None
+    marked_done = 0
     payloads = {i: [x for x in (code_key(y, prefix) for y in o["lines"]) if test_significant(x)]
                 for i, o in enumerate(ops) if o["kind"] == "insert"}
     replaced = get_absorbed_in_place(ops, v1norm, v2norm, v2sig, payloads)
     for oi, op in enumerate(ops):
+        # res: "absorbed", "pending" or the reason the edit is disputed
         if op["kind"] == "insert":
             payload_sig = payloads[oi]
             # A comment-only insert carries nothing to transfer
             if not payload_sig:
                 continue
             if oi in replaced:
-                absorbed += 1
-                continue
-            after = op["after"]
-            before_lines = v1norm[max(0, after - 2):after + 1] if after >= 0 else []
-            after_lines = v1norm[after + 1:after + 4]
-            k = resolve_insertion_point(v2norm, before_lines, after_lines)
-            if k is None:
-                is_absorbed = find_unique_run(v2sig, payload_sig) >= 0
+                res = "absorbed"
             else:
-                sig_start = sum(1 for j in v2map if j <= k)
-                is_absorbed = test_run_at(v2sig, payload_sig, sig_start)
-            b_idx = next((z for z in range(after, -1, -1) if test_significant(v1norm[z])), -1)
-            a_idx = next((z for z in range(after + 1, len(v1norm)) if test_significant(v1norm[z])), -1)
-            b_ctx = v1norm[b_idx] if b_idx >= 0 else None
-            a_ctx = v1norm[a_idx] if a_idx >= 0 else None
-            if not is_absorbed:
-                is_absorbed = test_payload_beside(v2sig, payload_sig, b_ctx, a_ctx)
-            if is_absorbed:
-                absorbed += 1
-            elif k is None:
-                if b_idx >= 0:
-                    disputed.append(dispute_reason("insert", parsed["v1"][b_idx], b_ctx, "before", v2norm))
-                elif a_idx >= 0:
-                    disputed.append(dispute_reason("insert", parsed["v1"][a_idx], a_ctx, "after", v2norm))
+                after = op["after"]
+                before_lines = v1norm[max(0, after - 2):after + 1] if after >= 0 else []
+                after_lines = v1norm[after + 1:after + 4]
+                k = resolve_insertion_point(v2norm, before_lines, after_lines)
+                if k is None:
+                    is_absorbed = find_unique_run(v2sig, payload_sig) >= 0
                 else:
-                    disputed.append(dispute_reason("insert", "", "", "", v2norm))
-            else:
-                pending += 1
+                    sig_start = sum(1 for j in v2map if j <= k)
+                    is_absorbed = test_run_at(v2sig, payload_sig, sig_start)
+                b_idx = next((z for z in range(after, -1, -1) if test_significant(v1norm[z])), -1)
+                a_idx = next((z for z in range(after + 1, len(v1norm)) if test_significant(v1norm[z])), -1)
+                b_ctx = v1norm[b_idx] if b_idx >= 0 else None
+                a_ctx = v1norm[a_idx] if a_idx >= 0 else None
+                if not is_absorbed:
+                    is_absorbed = test_payload_beside(v2sig, payload_sig, b_ctx, a_ctx)
+                if is_absorbed:
+                    res = "absorbed"
+                elif k is not None:
+                    res = "pending"
+                elif b_idx >= 0:
+                    res = dispute_reason("insert", parsed["v1"][b_idx], b_ctx, "before", v2norm)
+                elif a_idx >= 0:
+                    res = dispute_reason("insert", parsed["v1"][a_idx], a_ctx, "after", v2norm)
+                else:
+                    res = dispute_reason("insert", "", "", "", v2norm)
         else:
             if oi in replaced:
-                absorbed += 1
-                continue
-            keys = v1norm[op["start"]:op["end"] + 1]
-            p = find_unique_run(v2norm, keys)
-            if p >= 0:
-                pending += 1
+                res = "absorbed"
             else:
-                before_ctx = None
-                for z in range(op["start"] - 1, -1, -1):
-                    if test_significant(v1norm[z]):
-                        before_ctx = v1norm[z]
-                        break
-                after_ctx = None
-                for z in range(op["end"] + 1, len(v1norm)):
-                    if test_significant(v1norm[z]):
-                        after_ctx = v1norm[z]
-                        break
-                if test_delete_absorbed(v2sig, before_ctx, after_ctx):
-                    absorbed += 1
+                keys = v1norm[op["start"]:op["end"] + 1]
+                p = find_unique_run(v2norm, keys)
+                if p >= 0:
+                    res = "pending"
                 else:
-                    first = next((x for x in op["lines"] if test_significant(normalize(x))), "")
-                    disputed.append(dispute_reason("delete", first, "", "", v2norm))
+                    before_ctx = None
+                    for z in range(op["start"] - 1, -1, -1):
+                        if test_significant(v1norm[z]):
+                            before_ctx = v1norm[z]
+                            break
+                    after_ctx = None
+                    for z in range(op["end"] + 1, len(v1norm)):
+                        if test_significant(v1norm[z]):
+                            after_ctx = v1norm[z]
+                            break
+                    if test_delete_absorbed(v2sig, before_ctx, after_ctx):
+                        res = "absorbed"
+                    else:
+                        first = next((x for x in op["lines"] if test_significant(normalize(x))), "")
+                        res = dispute_reason("delete", first, "", "", v2norm)
+        # A block marked "not for transfer" counts as temporary only while it is not in the configuration
+        mark = get_block_temp_mark(op)
+        if mark is not None and res != "absorbed":
+            temp += 1
+            if temp_why is None:
+                temp_why = mark
+            continue
+        if res == "absorbed":
+            absorbed += 1
+            if mark is not None:
+                marked_done += 1
+        elif res == "pending":
+            pending += 1
+        else:
+            disputed.append(res)
     n = absorbed + pending + len(disputed)
     if n == 0:
+        if temp > 0:
+            return {"status": "TEMPORARY", "count": plural(temp, "edit"), "note": temp_why}
         return None
     count = "%d/%d edits" % (absorbed, n)
+    if temp > 0:
+        count += ", %d temporary" % temp
     if disputed:
         more = " (+%d more)" % (len(disputed) - 1) if len(disputed) > 1 else ""
         return {"status": "DIVERGED", "count": count, "note": disputed[0] + more}
@@ -1075,7 +1168,8 @@ def get_control_transfer(ext_method, cfg_method, prefix):
         st = "NOT_TRANSFERRED"
     else:
         st = "PARTIAL"
-    return {"status": st, "count": count, "note": ""}
+    note = ("%d marked temporary" % marked_done) if marked_done else ""
+    return {"status": st, "count": count, "note": note, "marked": marked_done > 0}
 
 
 # &Перед/&После/&Вместо and form event interceptors: there is no marked original to compare with,
@@ -1799,17 +1893,18 @@ def form_transfer_items(diff, form, cfg_form_xml, cfg_module_path, ext_dir, pref
     def check_handler(label, ext_handler, cfg_handler, missing):
         ext_m = get_method_safe(ext_mod, ext_handler)
         loc = ("%s:%d" % (mod_rel, ext_m["decl_idx"] + 1)) if ext_m and mod_rel else ""
+        mark = get_method_temp_mark(ext_mod, ext_m) if ext_m else None
         if not cfg_handler:
-            return new_item("NOT_TRANSFERRED", "%s (%s)" % (label, missing), loc, group)
+            return set_temp_mark(new_item("NOT_TRANSFERRED", "%s (%s)" % (label, missing), loc, group), mark, label)
         cfg_m = get_method_safe(cfg_mod, cfg_handler)
         if not ext_m:
             return new_item("NOT_TRANSFERRED", label + " (handler not found in extension module)", loc, group)
         if not cfg_m:
-            return new_item("NOT_TRANSFERRED", "%s (config handler %s not found in module)" % (label, cfg_handler), loc, group)
+            return set_temp_mark(new_item("NOT_TRANSFERRED", "%s (config handler %s not found in module)" % (label, cfg_handler), loc, group), mark, label)
         h = get_heuristic_transfer(ext_m, cfg_m, prefix)
         if not h:
             return None
-        return new_item(heuristic_status(h), "%s (heuristic: %d/%d lines)" % (label, h["found"], h["total"]), loc, group)
+        return set_temp_mark(new_item(heuristic_status(h), "%s (heuristic: %d/%d lines)" % (label, h["found"], h["total"]), loc, group), mark, label)
 
     for sec, item, word in (("Attributes", "Attribute", "attribute"), ("Commands", "Command", "command"), ("Parameters", "Parameter", "parameter")):
         if not diff[sec]:
@@ -1897,26 +1992,28 @@ def module_transfer_items(bsl, ext_dir, config_path, prefix, skip_handlers):
             ic_procs.add(decl["name"].lower())
         label = '&%s("%s")' % (ic["raw"], ic["method"])
         loc = "%s:%d" % (rel, ic["line"] + 1)
+        ext_m = get_method_safe(ext_lines, decl["name"]) if decl else None
+        mark = get_method_temp_mark(ext_lines, ext_m) if ext_m else None
         cfg_m = get_method_safe(cfg_lines, ic["method"])
+        it = None
         if not cfg_m:
             why = "module not found in config" if cfg_lines is None else "method not found in config"
-            items.append(new_item("MISSING_IN_CONFIG", "%s (%s)" % (label, why), loc))
-            continue
-        ext_m = get_method_safe(ext_lines, decl["name"]) if decl else None
-        if not ext_m:
-            items.append(new_item("DIVERGED", label + " (cannot parse the interceptor)", loc))
-            continue
-        if ic["type"] == "ИзменениеИКонтроль":
+            it = new_item("MISSING_IN_CONFIG", "%s (%s)" % (label, why), loc)
+        elif not ext_m:
+            it = new_item("DIVERGED", label + " (cannot parse the interceptor)", loc)
+        elif ic["type"] == "ИзменениеИКонтроль":
             r = get_control_transfer(ext_m, cfg_m, prefix)
-            if not r:
-                continue
-            note = (" (%s)" % r["note"]) if r["note"] else ""
-            items.append(new_item(r["status"], "%s — %s%s" % (label, r["count"], note), loc))
+            if r:
+                note = (" (%s)" % r["note"]) if r["note"] else ""
+                it = new_item(r["status"], "%s — %s%s" % (label, r["count"], note), loc)
+                if r.get("marked") and r["status"] == "TRANSFERRED":
+                    it["marked"] = True
         else:
             h = get_heuristic_transfer(ext_m, cfg_m, prefix)
-            if not h:
-                continue
-            items.append(new_item(heuristic_status(h), "%s (heuristic: %d/%d lines)" % (label, h["found"], h["total"]), loc))
+            if h:
+                it = new_item(heuristic_status(h), "%s (heuristic: %d/%d lines)" % (label, h["found"], h["total"]), loc)
+        if it:
+            items.append(set_temp_mark(it, mark, label))
     cfg_names = get_proc_names(cfg_lines) if cfg_lines is not None else []
     for pn in get_proc_names(ext_lines):
         if pn.lower() in ic_procs or pn.lower() in skip_handlers:
@@ -1925,17 +2022,19 @@ def module_transfer_items(bsl, ext_dir, config_path, prefix, skip_handlers):
         if not ext_m:
             continue
         loc = "%s:%d" % (rel, ext_m["decl_idx"] + 1)
+        mark = get_method_temp_mark(ext_lines, ext_m)
         hit = find_name_in(cfg_names, pn, prefix)
         if not hit:
-            items.append(new_item("NOT_TRANSFERRED", "method " + pn, loc))
-            continue
-        as_ = (" (found as %s)" % hit) if hit.lower() != pn.lower() else ""
-        cfg_m = get_method_safe(cfg_lines, hit)
-        same = bool(cfg_m) and "\n".join(sig_lines(ext_m["body_lines"], prefix)) == "\n".join(sig_lines(cfg_m["body_lines"], prefix))
-        if same:
-            items.append(new_item("TRANSFERRED", "method %s%s" % (pn, as_), loc))
+            it = new_item("NOT_TRANSFERRED", "method " + pn, loc)
         else:
-            items.append(new_item("DIVERGED", "method %s%s (body differs)" % (pn, as_), loc))
+            as_ = (" (found as %s)" % hit) if hit.lower() != pn.lower() else ""
+            cfg_m = get_method_safe(cfg_lines, hit)
+            same = bool(cfg_m) and "\n".join(sig_lines(ext_m["body_lines"], prefix)) == "\n".join(sig_lines(cfg_m["body_lines"], prefix))
+            if same:
+                it = new_item("TRANSFERRED", "method %s%s" % (pn, as_), loc)
+            else:
+                it = new_item("DIVERGED", "method %s%s (body differs)" % (pn, as_), loc)
+        items.append(set_temp_mark(it, mark, "method " + pn))
     return items
 
 
@@ -2143,7 +2242,7 @@ def overview_object(ext, obj):
 # Run
 # ============================================================
 
-STATUS_ORDER = ["TRANSFERRED", "NOT_TRANSFERRED", "PARTIAL", "DIVERGED", "MISSING_IN_CONFIG"]
+STATUS_ORDER = ["TRANSFERRED", "NOT_TRANSFERRED", "PARTIAL", "DIVERGED", "MISSING_IN_CONFIG", "TEMPORARY"]
 
 
 def fmt_status(st):
@@ -2254,15 +2353,21 @@ def main():
                     rec = transfer_object(ext, obj, cfg_info, config_path)
                     if not rec["items"]:
                         continue
+                    # Temporary changes are not for transfer: they neither leave the object incomplete nor set its status
                     sts = []
                     for it in rec["items"]:
-                        if it["status"] not in sts:
+                        if it["status"] != "TEMPORARY" and it["status"] not in sts:
                             sts.append(it["status"])
-                    rec["status"] = sts[0] if len(sts) == 1 else "PARTIAL"
+                    rec["status"] = "TEMPORARY" if not sts else (sts[0] if len(sts) == 1 else "PARTIAL")
                     done = len([it for it in rec["items"] if it["status"] == "TRANSFERRED"])
-                    rec["complete"] = done == len(rec["items"])
+                    temp = len([it for it in rec["items"] if it["status"] == "TEMPORARY"])
+                    rec["complete"] = done + temp == len(rec["items"])
                     n = len(rec["items"])
-                    tail = plural(n, "change") if rec["complete"] else "%s: %d transferred, %d remaining" % (plural(n, "change"), done, n - done)
+                    temp_note = (", %d temporary" % temp) if temp else ""
+                    if rec["complete"]:
+                        tail = plural(n, "change") + ((" (%d temporary)" % temp) if temp else "")
+                    else:
+                        tail = "%s: %d transferred, %d remaining%s" % (plural(n, "change"), done, n - done - temp, temp_note)
                     rec["summary"] = "%s%s — %s" % (fmt_status(rec["status"]), rec["id"], tail)
                     det = []
                     for it in [x for x in rec["items"] if not x["group"]]:
@@ -2341,12 +2446,15 @@ def main():
                 ext_done += 1
                 continue
             cnt = {s: len([it for it in alls if it["status"] == s]) for s in STATUS_ORDER}
-            parts = ["%d transferred" % cnt["TRANSFERRED"]]
+            # A workaround carried over although marked "not for transfer" is worth a look: counted apart
+            marked = len([it for it in alls if it.get("marked")])
+            marked_note = (" (%d marked temporary)" % marked) if marked else ""
+            parts = ["%d transferred%s" % (cnt["TRANSFERRED"], marked_note)]
             for s in STATUS_ORDER[1:]:
                 if cnt[s]:
                     parts.append("%d %s" % (cnt[s], s.lower().replace("_", " ")))
             footer.append("=== Summary %s: %s — %s%s ===" % (ext["name"], plural(len(alls), "change"), ", ".join(parts), roles_note))
-            left = len(alls) - cnt["TRANSFERRED"]
+            left = len(alls) - cnt["TRANSFERRED"] - cnt["TEMPORARY"]
             if left > 0:
                 failed = True
                 ext_left += 1
