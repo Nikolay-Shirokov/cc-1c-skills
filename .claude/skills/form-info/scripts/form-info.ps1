@@ -1,4 +1,4 @@
-﻿# form-info v1.15 — Analyze 1C managed form structure
+﻿# form-info v1.16 — Analyze 1C managed form structure
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -882,6 +882,8 @@ if ($isExtension) {
 	$bfStr = if ($bfVersion) { "present (version $bfVersion)" } else { "present" }
 	$lines += ""
 	$lines += "BaseForm: $bfStr"
+	# The tree above is the form with the extension applied; what the extension changed is a diff
+	$lines += "Hint: the extension's own changes to this form (vs BaseForm) — /cfe-diff <extension> -Name <Type.Name>"
 }
 
 # --- Hints ---

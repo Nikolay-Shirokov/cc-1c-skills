@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# form-info v1.15 — Analyze 1C managed form structure
+# form-info v1.16 — Analyze 1C managed form structure
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -980,6 +980,8 @@ def main():
         bf_str = f"present (version {bf_version})" if bf_version else "present"
         lines.append("")
         lines.append(f"BaseForm: {bf_str}")
+        # The tree above is the form with the extension applied; what the extension changed is a diff
+        lines.append("Hint: the extension's own changes to this form (vs BaseForm) — /cfe-diff <extension> -Name <Type.Name>")
 
     # --- Hints ---
     hints = []
