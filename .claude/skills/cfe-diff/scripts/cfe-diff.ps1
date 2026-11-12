@@ -1,34 +1,109 @@
-﻿# cfe-diff v1.8 — Analyze and compare 1C configuration extension (CFE)
+﻿# cfe-diff v2.0 — Analyze 1C configuration extension (CFE): overview and transfer check against the main configuration
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
 	[Parameter(Mandatory, Position=0)]
 	[string]$ExtensionPath,
 
-	[Parameter(Mandatory)]
 	[string]$ConfigPath,
 
-	[ValidateSet("A","B")]
-	[string]$Mode = "A"
+	[string]$Mode = "overview",
+
+	[string]$Name,
+
+	[int]$Limit = 150,
+
+	[int]$Offset = 0,
+
+	[string]$OutFile
 )
 
 $ErrorActionPreference = "Stop"
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
-# --- Resolve paths ---
-if (-not [System.IO.Path]::IsPathRooted($ExtensionPath)) {
-	$ExtensionPath = Join-Path (Get-Location).ProviderPath $ExtensionPath
+# --- Mode ---
+$modeMap = @{ "overview" = "overview"; "transfer" = "transfer"; "a" = "overview"; "b" = "transfer" }
+$modeKey = $Mode.Trim().ToLower()
+if (-not $modeMap.ContainsKey($modeKey)) {
+	Write-Error "Invalid -Mode '$Mode'. Expected: overview, transfer"
+	exit 1
 }
-if (-not [System.IO.Path]::IsPathRooted($ConfigPath)) {
-	$ConfigPath = Join-Path (Get-Location).ProviderPath $ConfigPath
-}
-if (Test-Path $ExtensionPath -PathType Leaf) { $ExtensionPath = Split-Path $ExtensionPath -Parent }
-if (Test-Path $ConfigPath -PathType Leaf) { $ConfigPath = Split-Path $ConfigPath -Parent }
+$Mode = $modeMap[$modeKey]
 
-$extCfg = Join-Path $ExtensionPath "Configuration.xml"
-$srcCfg = Join-Path $ConfigPath "Configuration.xml"
-if (-not (Test-Path $extCfg)) { Write-Error "Extension Configuration.xml not found: $extCfg"; exit 1 }
-if (-not (Test-Path $srcCfg)) { Write-Error "Config Configuration.xml not found: $srcCfg"; exit 1 }
+# Detail budget: below it the whole report (summaries + details) is printed in one go;
+# above it only summaries, and -Name opens the details of chosen objects.
+$DetailBudget = 80
+
+# --- Resolve paths ---
+function Resolve-InputPath([string]$p) {
+	$p = $p.Trim()
+	if (-not [System.IO.Path]::IsPathRooted($p)) { $p = Join-Path (Get-Location).ProviderPath $p }
+	if (Test-Path -LiteralPath $p -PathType Leaf) { $p = Split-Path $p -Parent }
+	return $p
+}
+
+$mdNsUri = "http://v8.1c.ru/8.3/MDClasses"
+
+function Read-ConfigurationProps([string]$dir) {
+	$file = Join-Path $dir "Configuration.xml"
+	if (-not (Test-Path -LiteralPath $file)) { return $null }
+	$doc = New-Object System.Xml.XmlDocument
+	$doc.PreserveWhitespace = $false
+	$doc.Load($file)
+	$mns = New-Object System.Xml.XmlNamespaceManager($doc.NameTable)
+	$mns.AddNamespace("md", $mdNsUri)
+	$props = $doc.SelectSingleNode("//md:Configuration/md:Properties", $mns)
+	$get = { param($n) $x = if ($props) { $props.SelectSingleNode("md:$n", $mns) } else { $null }; if ($x) { $x.InnerText } else { "" } }
+	return @{
+		Dir = $dir
+		Doc = $doc
+		Ns = $mns
+		Name = (& $get "Name")
+		Prefix = (& $get "NamePrefix")
+		Purpose = (& $get "ConfigurationExtensionPurpose")
+		IsExtension = ($props -and $props.SelectSingleNode("md:ConfigurationExtensionPurpose", $mns))
+		ChildObjects = $doc.SelectSingleNode("//md:Configuration/md:ChildObjects", $mns)
+	}
+}
+
+# -ExtensionPath: an extension, a comma-separated list, or a folder whose subfolders are extensions.
+# powershell.exe -File cannot bind an array parameter, hence the repo-wide comma convention.
+$extDirs = @()
+foreach ($raw in @($ExtensionPath -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })) {
+	$p = Resolve-InputPath $raw
+	if (Test-Path -LiteralPath (Join-Path $p "Configuration.xml")) {
+		$cp = Read-ConfigurationProps $p
+		if (-not $cp.IsExtension) { Write-Error "Not an extension (no ConfigurationExtensionPurpose): $p"; exit 1 }
+		$extDirs += $p
+		continue
+	}
+	if (-not (Test-Path -LiteralPath $p -PathType Container)) { Write-Error "Extension not found: $p"; exit 1 }
+	$found = @()
+	$subs = [string[]]@(Get-ChildItem -LiteralPath $p -Directory | ForEach-Object { $_.Name })
+	if ($subs.Count -gt 1) { [Array]::Sort($subs, [StringComparer]::Ordinal) }
+	foreach ($sub in $subs) {
+		$full = Join-Path $p $sub
+		$cp = Read-ConfigurationProps $full
+		if ($cp -and $cp.IsExtension) { $found += $full }
+	}
+	if ($found.Count -eq 0) { Write-Error "Extension Configuration.xml not found: $(Join-Path $p 'Configuration.xml') (and no extension subfolders)"; exit 1 }
+	$extDirs += $found
+}
+if ($extDirs.Count -eq 0) { Write-Error "No extension given in -ExtensionPath"; exit 1 }
+
+$cfgInfo = $null
+if ($ConfigPath) {
+	$ConfigPath = Resolve-InputPath $ConfigPath
+	$cfgInfo = Read-ConfigurationProps $ConfigPath
+	if (-not $cfgInfo) { Write-Error "Config Configuration.xml not found: $(Join-Path $ConfigPath 'Configuration.xml')"; exit 1 }
+}
+if ($Mode -eq "transfer" -and -not $cfgInfo) {
+	Write-Error "-Mode transfer needs -ConfigPath (the main configuration to check against)"
+	exit 1
+}
+
+$nameFilter = @()
+if ($Name) { $nameFilter = @($Name -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ }) }
 
 # --- Type -> directory mapping ---
 $childTypeDirMap = @{
@@ -56,115 +131,9 @@ $childTypeDirMap = @{
 	"PaletteColor"="PaletteColors"
 }
 
-# --- Parse extension Configuration.xml ---
-$extDoc = New-Object System.Xml.XmlDocument
-$extDoc.PreserveWhitespace = $false
-$extDoc.Load($extCfg)
-
-$ns = New-Object System.Xml.XmlNamespaceManager($extDoc.NameTable)
-$ns.AddNamespace("md", "http://v8.1c.ru/8.3/MDClasses")
-$ns.AddNamespace("xr", "http://v8.1c.ru/8.3/xcf/readable")
-
-$extProps = $extDoc.SelectSingleNode("//md:Configuration/md:Properties", $ns)
-$extNameNode = $extProps.SelectSingleNode("md:Name", $ns)
-$extName = if ($extNameNode) { $extNameNode.InnerText } else { "?" }
-$prefixNode = $extProps.SelectSingleNode("md:NamePrefix", $ns)
-$namePrefix = if ($prefixNode -and $prefixNode.InnerText) { $prefixNode.InnerText } else { "" }
-$purposeNode = $extProps.SelectSingleNode("md:ConfigurationExtensionPurpose", $ns)
-$purpose = if ($purposeNode) { $purposeNode.InnerText } else { "?" }
-
-Write-Host "=== cfe-diff Mode ${Mode}: $extName (${purpose}) ==="
-Write-Host "    NamePrefix: $namePrefix"
-Write-Host ""
-
-# --- Collect ChildObjects ---
-$childObjNode = $extDoc.SelectSingleNode("//md:Configuration/md:ChildObjects", $ns)
-if (-not $childObjNode) {
-	Write-Host "[WARN] No ChildObjects in extension"
-	exit 0
-}
-
-$objects = @()
-foreach ($child in $childObjNode.ChildNodes) {
-	if ($child.NodeType -ne 'Element') { continue }
-	if ($child.LocalName -eq "Language") { continue }
-	$objects += @{ Type = $child.LocalName; Name = $child.InnerText }
-}
-
-if ($objects.Count -eq 0) {
-	Write-Host "No objects (besides Language) in extension."
-	exit 0
-}
-
-# --- Helper: check if object is borrowed ---
-function Get-ObjectInfo {
-	param([string]$objType, [string]$objName)
-
-	if (-not $childTypeDirMap.ContainsKey($objType)) { return $null }
-	$dirName = $childTypeDirMap[$objType]
-	$objFile = Join-Path (Join-Path $ExtensionPath $dirName) "${objName}.xml"
-
-	if (-not (Test-Path $objFile)) { return @{ Borrowed = $false; File = $objFile; Exists = $false } }
-
-	$doc = New-Object System.Xml.XmlDocument
-	$doc.PreserveWhitespace = $false
-	$doc.Load($objFile)
-
-	$objNs = New-Object System.Xml.XmlNamespaceManager($doc.NameTable)
-	$objNs.AddNamespace("md", "http://v8.1c.ru/8.3/MDClasses")
-
-	$objEl = $null
-	foreach ($c in $doc.DocumentElement.ChildNodes) {
-		if ($c.NodeType -eq 'Element') { $objEl = $c; break }
-	}
-	if (-not $objEl) { return @{ Borrowed = $false; File = $objFile; Exists = $true } }
-
-	$propsEl = $objEl.SelectSingleNode("md:Properties", $objNs)
-	$obNode = if ($propsEl) { $propsEl.SelectSingleNode("md:ObjectBelonging", $objNs) } else { $null }
-
-	$info = @{
-		Borrowed = ($obNode -and $obNode.InnerText -eq "Adopted")
-		File = $objFile
-		Exists = $true
-		Type = $objType
-		Name = $objName
-		DirName = $dirName
-		ObjElement = $objEl
-		ObjNs = $objNs
-	}
-	return $info
-}
-
-# --- Helper: find .bsl files for object ---
-function Get-BslFiles {
-	param([string]$objType, [string]$objName)
-
-	if (-not $childTypeDirMap.ContainsKey($objType)) { return @() }
-	$dirName = $childTypeDirMap[$objType]
-	$objDir = Join-Path (Join-Path $ExtensionPath $dirName) $objName
-
-	if (-not (Test-Path $objDir -PathType Container)) { return @() }
-
-	$bslFiles = @()
-	$extDir = Join-Path $objDir "Ext"
-	if (Test-Path $extDir) {
-		$items = Get-ChildItem -Path $extDir -Filter "*.bsl" -ErrorAction SilentlyContinue
-		foreach ($item in $items) { $bslFiles += $item.FullName }
-	}
-
-	# Модуль общей формы — у неё самой, Ext/Form/Module.bsl (у прочих объектов такого файла нет)
-	$ownFormModule = Join-Path (Join-Path $extDir "Form") "Module.bsl"
-	if (Test-Path $ownFormModule) { $bslFiles += (Get-Item $ownFormModule).FullName }
-
-	# Forms
-	$formsDir = Join-Path $objDir "Forms"
-	if (Test-Path $formsDir) {
-		$formModules = Get-ChildItem -Path $formsDir -Recurse -Filter "Module.bsl" -ErrorAction SilentlyContinue
-		foreach ($fm in $formModules) { $bslFiles += $fm.FullName }
-	}
-
-	return $bslFiles
-}
+# ============================================================
+# BSL helpers — verbatim copies from cfe-patch-method (kept identical by check-inline-drift)
+# ============================================================
 
 # Built-in language keywords in both spellings. The platform accepts either one in any module
 # (pairs taken from the platform string tables), so a module written in English is ordinary
@@ -204,6 +173,23 @@ function Get-BslKeywords {
 
 $script:bslKw = Get-BslKeywords
 
+# Regex alternation for a keyword in both spellings
+function Get-KwAlt {
+	param([string]$key)
+	return '(?:' + $script:bslKw.ru[$key] + '|' + $script:bslKw.en[$key] + ')'
+}
+
+# Spelling language of a recognized keyword. English is the discriminator: a Russian keyword
+# never equals an English one, so anything else is 'ru'.
+function Get-BslLang {
+	param([string]$word)
+	$w = $word.Trim().ToLower()
+	foreach ($k in @("Async", "Proc", "EndProc", "Func", "EndFunc", "Region", "If", "Insert", "Delete", "Before", "After", "Around", "Control")) {
+		if ($script:bslKw.en[$k].ToLower() -eq $w) { return "en" }
+	}
+	return "ru"
+}
+
 # Edit marker kind at the start of a line: Insert/Delete/EndInsert/EndDelete, $null if none.
 # The marker owns the start of the line only — a trailing comment does not bother the platform
 # and must not bother us either.
@@ -241,318 +227,1742 @@ function Get-Interceptors {
 	return $result
 }
 
-# --- Helper: read a .bsl and parse its interceptors ---
-function Get-FileInterceptors {
-	param([string]$bslPath)
-
-	if (-not (Test-Path $bslPath)) { return @() }
-	$lines = [System.IO.File]::ReadAllLines($bslPath, [System.Text.Encoding]::UTF8)
+# Split text at top-level separator (respecting parens and string literals)
+function Split-TopLevel {
+	param([string]$text, [char]$sep = ',')
 	$result = @()
-	foreach ($ic in (Get-Interceptors $lines)) {
-		$result += @{ Type = $ic.Type; Raw = $ic.Raw; Method = $ic.Method; Line = $ic.Line + 1; File = $bslPath }
+	$depth = 0; $inStr = $false
+	$sb = New-Object System.Text.StringBuilder
+	for ($i = 0; $i -lt $text.Length; $i++) {
+		$ch = $text[$i]
+		if ($inStr) {
+			[void]$sb.Append($ch)
+			if ($ch -eq '"') { $inStr = $false }
+			continue
+		}
+		if ($ch -eq '"') { $inStr = $true; [void]$sb.Append($ch); continue }
+		if ($ch -eq '(') { $depth++; [void]$sb.Append($ch); continue }
+		if ($ch -eq ')') { $depth--; [void]$sb.Append($ch); continue }
+		if ($ch -eq $sep -and $depth -eq 0) { $result += $sb.ToString(); $sb = New-Object System.Text.StringBuilder; continue }
+		[void]$sb.Append($ch)
 	}
+	$result += $sb.ToString()
 	return $result
 }
 
-# --- Helper: extract #Вставка blocks from .bsl ---
-function Get-InsertionBlocks {
-	param([string]$bslPath)
+# Is a trimmed line a context-directive annotation?
+function Test-ContextDirective {
+	param([string]$trimmed)
+	$alt = ($script:bslKw.ru.Directives + $script:bslKw.en.Directives) -join '|'
+	return $trimmed -match ('^&(' + $alt + ')\s*$')
+}
 
-	if (-not (Test-Path $bslPath)) { return @() }
-	$lines = [System.IO.File]::ReadAllLines($bslPath, [System.Text.Encoding]::UTF8)
-	$blocks = @()
-	$inBlock = $false
-	$blockLines = @()
-	$startLine = 0
+# Read a method signature starting at declaration line; returns @{ ParamsText; EndLineIdx }
+function Read-Signature {
+	param($lines, [int]$startIdx)
+	$depth = 0; $inStr = $false; $openFound = $false
+	$paramsSb = New-Object System.Text.StringBuilder
+	for ($li = $startIdx; $li -lt $lines.Count; $li++) {
+		$line = $lines[$li]
+		for ($ci = 0; $ci -lt $line.Length; $ci++) {
+			$ch = $line[$ci]
+			if ($inStr) {
+				if ($openFound) { [void]$paramsSb.Append($ch) }
+				if ($ch -eq '"') { $inStr = $false }
+				continue
+			}
+			if ($ch -eq '"') { $inStr = $true; if ($openFound) { [void]$paramsSb.Append($ch) }; continue }
+			if ($ch -eq '(') {
+				$depth++
+				if (-not $openFound) { $openFound = $true } else { [void]$paramsSb.Append($ch) }
+				continue
+			}
+			if ($ch -eq ')') {
+				$depth--
+				if ($depth -eq 0) { return @{ ParamsText = $paramsSb.ToString(); EndLineIdx = $li } }
+				[void]$paramsSb.Append($ch)
+				continue
+			}
+			if ($openFound) { [void]$paramsSb.Append($ch) }
+		}
+		if ($openFound -and $depth -ge 1) { [void]$paramsSb.Append("`r`n") }
+	}
+	return $null
+}
 
+# Compute effective condition of the current branch of an #Если frame
+function Get-EffectiveCondition {
+	param($frame, [string]$lang)
+	$kwNot = $script:bslKw[$lang].Not
+	$kwAnd = $script:bslKw[$lang].And
+	$conds = $frame.Conds
+	$n = $conds.Count
+	if ($frame.InElse) {
+		$parts = @()
+		foreach ($c in $conds) { $parts += "$kwNot ($c)" }
+		return ($parts -join " $kwAnd ")
+	}
+	if ($n -eq 1) { return $conds[0] }
+	$parts = @()
+	for ($j = 0; $j -lt ($n - 1); $j++) { $parts += "$kwNot ($($conds[$j]))" }
+	$parts += $conds[$n - 1]
+	return ($parts -join " $kwAnd ")
+}
+
+# Extract the enclosing wrapper chain (regions + preprocessor) at a target line.
+# Returns array outer->inner of @{ Kind='region'|'if'; Name=..; Cond=.. }
+function Get-EnclosingChain {
+	param($lines, [int]$targetIdx, [string]$lang)
+	$reRegion = '^#' + (Get-KwAlt 'Region') + '\s+(\S+)'
+	$reEndRegion = '^#' + (Get-KwAlt 'EndRegion')
+	$reIf = '^#' + (Get-KwAlt 'If') + '\s+(.+?)\s+' + (Get-KwAlt 'Then')
+	$reElsIf = '^#' + (Get-KwAlt 'ElsIf') + '\s+(.+?)\s+' + (Get-KwAlt 'Then')
+	$reElse = '^#' + (Get-KwAlt 'Else') + '(\s|$)'
+	$reEndIf = '^#' + (Get-KwAlt 'EndIf')
+	$stack = New-Object System.Collections.ArrayList
+	for ($i = 0; $i -lt $targetIdx; $i++) {
+		$t = $lines[$i].Trim()
+		if ($t -match $reRegion) {
+			[void]$stack.Add(@{ Kind = 'region'; Name = $Matches[1] })
+		} elseif ($t -match $reEndRegion) {
+			for ($k = $stack.Count - 1; $k -ge 0; $k--) { if ($stack[$k].Kind -eq 'region') { $stack.RemoveAt($k); break } }
+		} elseif ($t -match $reIf) {
+			[void]$stack.Add(@{ Kind = 'if'; Conds = @($Matches[1].Trim()); InElse = $false })
+		} elseif ($t -match $reElsIf) {
+			for ($k = $stack.Count - 1; $k -ge 0; $k--) { if ($stack[$k].Kind -eq 'if') { $stack[$k].Conds += $Matches[1].Trim(); $stack[$k].InElse = $false; break } }
+		} elseif ($t -match $reElse) {
+			for ($k = $stack.Count - 1; $k -ge 0; $k--) { if ($stack[$k].Kind -eq 'if') { $stack[$k].InElse = $true; break } }
+		} elseif ($t -match $reEndIf) {
+			for ($k = $stack.Count - 1; $k -ge 0; $k--) { if ($stack[$k].Kind -eq 'if') { $stack.RemoveAt($k); break } }
+		}
+	}
+	$chain = @()
+	foreach ($f in $stack) {
+		if ($f.Kind -eq 'region') { $chain += @{ Kind = 'region'; Name = $f.Name } }
+		else { $chain += @{ Kind = 'if'; Cond = (Get-EffectiveCondition $f $lang) } }
+	}
+	return ,$chain
+}
+
+# Extract a method from source .bsl lines. Returns $null if not found.
+function Extract-Method {
+	param($lines, [string]$methodName)
+	$declRe = '^\s*(' + (Get-KwAlt 'Async') + '\s+)?(' + (Get-KwAlt 'Proc') + '|' + (Get-KwAlt 'Func') + ')\s+(' + [regex]::Escape($methodName) + ')\s*\('
 	for ($i = 0; $i -lt $lines.Count; $i++) {
-		$line = $lines[$i]
-		$kind = Get-BslMarkerKind $line
-		if ($kind -eq "Insert") {
-			$inBlock = $true
-			$blockLines = @()
-			$startLine = $i + 1
-		} elseif ($kind -eq "EndInsert" -and $inBlock) {
-			$inBlock = $false
-			$blocks += @{
-				StartLine = $startLine
-				EndLine = $i + 1
-				Code = ($blockLines -join "`n").Trim()
-				File = $bslPath
+		if ($lines[$i] -imatch $declRe) {
+			$isAsync = [bool]$Matches[1]
+			$keyword = $Matches[2]
+			$canonical = $Matches[3]
+			$lang = Get-BslLang $keyword
+			$isFunction = ($keyword -ieq $script:bslKw.ru.Func -or $keyword -ieq $script:bslKw.en.Func)
+
+			$sig = Read-Signature $lines $i
+			if (-not $sig) { throw "Не удалось разобрать сигнатуру метода '$methodName'" }
+			$sigEnd = $sig.EndLineIdx
+			$paramsText = $sig.ParamsText
+
+			# Parameter names (for ПродолжитьВызов)
+			$paramNames = @()
+			if ($paramsText.Trim().Length -gt 0) {
+				foreach ($seg in (Split-TopLevel $paramsText)) {
+					$s = $seg.Trim() -replace ('^' + (Get-KwAlt 'Val') + '\s+'), ''
+					if ($s -match '^([\w]+)') { $paramNames += $Matches[1] }
+				}
 			}
-		} elseif ($inBlock) {
-			$blockLines += $lines[$i]
+
+			# Body: from sigEnd+1 to matching Конец*
+			$endRe = if ($isFunction) { '^\s*' + (Get-KwAlt 'EndFunc') + '\b' } else { '^\s*' + (Get-KwAlt 'EndProc') + '\b' }
+			$bodyStart = $sigEnd + 1
+			$bodyEnd = -1
+			for ($j = $bodyStart; $j -lt $lines.Count; $j++) {
+				if ($lines[$j] -imatch $endRe) { $bodyEnd = $j; break }
+			}
+			if ($bodyEnd -lt 0) { throw "Не найден конец метода '$methodName'" }
+			$bodyLines = @()
+			for ($j = $bodyStart; $j -lt $bodyEnd; $j++) { $bodyLines += $lines[$j] }
+
+			# Context directive (immediately above declaration)
+			$context = ""
+			if ($i -ge 1) {
+				$prev = $lines[$i - 1].Trim()
+				if (Test-ContextDirective $prev) { $context = $prev }
+			}
+
+			# Enclosing chain (regions + preprocessor)
+			$chain = Get-EnclosingChain $lines $i $lang
+
+			return @{
+				Canonical   = $canonical
+				Lang        = $lang
+				IsFunction  = $isFunction
+				IsAsync     = $isAsync
+				ParamsText  = $paramsText
+				ParamNames  = $paramNames
+				Context     = $context
+				BodyLines   = $bodyLines
+				Chain       = $chain
+				DeclIdx     = $i
+				SigEndIdx   = $sigEnd
+				BodyEndIdx  = $bodyEnd
+			}
 		}
 	}
-	return $blocks
+	return $null
 }
 
-# --- Helper: analyze form for callType events and commands ---
-function Get-FormInterceptors {
-	param([string]$formXmlPath)
-
-	if (-not (Test-Path $formXmlPath)) { return $null }
-
-	$formDoc = New-Object System.Xml.XmlDocument
-	$formDoc.PreserveWhitespace = $false
-	try { $formDoc.Load($formXmlPath) } catch { return $null }
-
-	$fNs = New-Object System.Xml.XmlNamespaceManager($formDoc.NameTable)
-	$fNs.AddNamespace("f", "http://v8.1c.ru/8.3/xcf/logform")
-
-	$fRoot = $formDoc.DocumentElement
-	$baseForm = $fRoot.SelectSingleNode("f:BaseForm", $fNs)
-	$isBorrowed = ($baseForm -ne $null)
-
-	$interceptors = @()
-
-	# Form-level events with callType
-	$eventsNode = $fRoot.SelectSingleNode("f:Events", $fNs)
-	if ($eventsNode) {
-		foreach ($evt in $eventsNode.SelectNodes("f:Event", $fNs)) {
-			$ct = $evt.GetAttribute("callType")
-			if ($ct) {
-				$interceptors += "Event:$($evt.GetAttribute('name')) [$ct] -> $($evt.InnerText)"
-			}
-		}
+# Parse declared procedure/function names in a module
+function Get-ProcNames {
+	param($lines)
+	$re = '^\s*(?:' + (Get-KwAlt 'Async') + '\s+)?(?:' + (Get-KwAlt 'Proc') + '|' + (Get-KwAlt 'Func') + ')\s+([\w]+)\s*\('
+	$names = @()
+	foreach ($line in $lines) {
+		if ($line -imatch $re) { $names += $Matches[1] }
 	}
-
-	# Element-level events with callType (scan all elements recursively)
-	$childItems = $fRoot.SelectSingleNode("f:ChildItems", $fNs)
-	if ($childItems) {
-		foreach ($evtNode in $childItems.SelectNodes(".//*[f:Events/f:Event[@callType]]", $fNs)) {
-			$elName = $evtNode.GetAttribute("name")
-			foreach ($evt in $evtNode.SelectNodes("f:Events/f:Event[@callType]", $fNs)) {
-				$ct = $evt.GetAttribute("callType")
-				$interceptors += "Element:${elName}.$($evt.GetAttribute('name')) [$ct] -> $($evt.InnerText)"
-			}
-		}
-	}
-
-	# Commands with callType on Action
-	foreach ($cmd in $fRoot.SelectNodes("f:Commands/f:Command", $fNs)) {
-		$cmdName = $cmd.GetAttribute("name")
-		foreach ($action in $cmd.SelectNodes("f:Action[@callType]", $fNs)) {
-			$ct = $action.GetAttribute("callType")
-			$interceptors += "Command:$cmdName [$ct] -> $($action.InnerText)"
-		}
-	}
-
-	return @{
-		IsBorrowed = $isBorrowed
-		Interceptors = $interceptors
-	}
+	return $names
 }
 
-# ============================================================
-# MODE A: Extension overview
-# ============================================================
-if ($Mode -eq "A") {
-	$borrowedList = @()
-	$ownList = @()
+function Get-Normalized {
+	param([string]$line)
+	return (($line -replace '\s+', ' ').Trim())
+}
 
-	foreach ($obj in $objects) {
-		$info = Get-ObjectInfo $obj.Type $obj.Name
-		if (-not $info) {
-			Write-Host "  [?] $($obj.Type).$($obj.Name) — unknown type"
-			continue
-		}
-		if (-not $info.Exists) {
-			Write-Host "  [?] $($obj.Type).$($obj.Name) — file not found"
-			continue
-		}
+# Control comparison key, as the platform compares a &ИзменениеИКонтроль copy with the original:
+# each line trimmed, blank lines dropped, everything else byte-for-byte and case-sensitive
+# (inner spaces, comments and letter case are significant). Measured on 8.3.24 and 8.3.27.
+function Get-ControlKey {
+	param($lines)
+	return (@($lines | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' }) -join "`n")
+}
 
-		if ($info.Borrowed) {
-			$borrowedList += $obj
+# Parameter count of a signature params text. The platform compares only the number of
+# parameters of a &ИзменениеИКонтроль copy (names and default values it ignores).
+function Get-ParamCount {
+	param([string]$paramsText)
+	if ([string]::IsNullOrWhiteSpace($paramsText)) { return 0 }
+	return @(Split-TopLevel $paramsText | Where-Object { $_.Trim() -ne '' }).Count
+}
 
-			Write-Host "  [BORROWED] $($obj.Type).$($obj.Name)"
-
-			# Find .bsl files and interceptors
-			$bslFiles = Get-BslFiles $obj.Type $obj.Name
-			foreach ($bsl in $bslFiles) {
-				$relPath = $bsl.Replace($ExtensionPath, "").TrimStart("\", "/")
-				$interceptors = Get-FileInterceptors $bsl
-				if ($interceptors.Count -gt 0) {
-					foreach ($ic in $interceptors) {
-						Write-Host "             &$($ic.Raw)(`"$($ic.Method)`") — line $($ic.Line) in $relPath"
-					}
-				} else {
-					Write-Host "             $relPath (no interceptors)"
-				}
-			}
-
-			# Check for own attributes/forms in ChildObjects
-			if ($info.ObjElement) {
-				$childObj = $info.ObjElement.SelectSingleNode("md:ChildObjects", $info.ObjNs)
-				if ($childObj) {
-					$ownAttrs = 0
-					$ownForms = 0
-					$ownTS = 0
-					$borrowedItems = 0
-					$formNames = @()
-					foreach ($c in $childObj.ChildNodes) {
-						if ($c.NodeType -ne 'Element') { continue }
-						$cProps = $c.SelectSingleNode("md:Properties", $info.ObjNs)
-						if ($cProps) {
-							$cOb = $cProps.SelectSingleNode("md:ObjectBelonging", $info.ObjNs)
-							if ($cOb -and $cOb.InnerText -eq "Adopted") {
-								$borrowedItems++
-								continue
-							}
-						}
-						switch ($c.LocalName) {
-							"Attribute" { $ownAttrs++ }
-							"TabularSection" { $ownTS++ }
-							"Form" { $formNames += $c.InnerText; $ownForms++ }
-						}
-					}
-					$parts = @()
-					if ($ownAttrs -gt 0) { $parts += "$ownAttrs own attrs" }
-					if ($ownTS -gt 0) { $parts += "$ownTS own TS" }
-					if ($ownForms -gt 0) { $parts += "$ownForms own forms" }
-					if ($borrowedItems -gt 0) { $parts += "$borrowedItems borrowed items" }
-					if ($parts.Count -gt 0) {
-						Write-Host "             ChildObjects: $($parts -join ', ')"
-					}
-
-					# Analyze forms
-					$borrowedFormCount = 0
-					$ownFormCount = 0
-					foreach ($fn in $formNames) {
-						$formXmlPath = Join-Path (Join-Path (Join-Path (Join-Path (Join-Path $ExtensionPath $info.DirName) $info.Name) "Forms") $fn) "Ext/Form.xml"
-						$fi = Get-FormInterceptors $formXmlPath
-						if (-not $fi) {
-							Write-Host "             Form.$fn (?)"
-							continue
-						}
-						$formTag = if ($fi.IsBorrowed) { "borrowed"; $borrowedFormCount++ } else { "own"; $ownFormCount++ }
-						if ($fi.Interceptors.Count -gt 0) {
-							Write-Host "             Form.$fn ($formTag):"
-							foreach ($ic in $fi.Interceptors) {
-								Write-Host "               $ic"
-							}
-						} else {
-							Write-Host "             Form.$fn ($formTag)"
-						}
-					}
-				}
-			}
-
-			# Общая форма — сама форма: перехваты событий и команд из её Ext/Form.xml
-			if ($obj.Type -eq "CommonForm") {
-				$cfFormXml = Join-Path (Join-Path (Join-Path (Join-Path $ExtensionPath $info.DirName) $info.Name) "Ext") "Form.xml"
-				$cfi = Get-FormInterceptors $cfFormXml
-				if ($cfi -and $cfi.Interceptors.Count -gt 0) {
-					Write-Host "             Form:"
-					foreach ($ic in $cfi.Interceptors) { Write-Host "               $ic" }
-				}
-			}
+# Reconstruct v1 body and edit ops from a marked body
+function Parse-MarkedBody {
+	param($bodyLines)
+	$v1 = @()          # reconstructed original lines
+	$ops = @()         # edit operations
+	$i = 0
+	while ($i -lt $bodyLines.Count) {
+		$kind = Get-BslMarkerKind $bodyLines[$i]
+		if ($kind -eq 'Insert') {
+			# Marker lines are kept verbatim: they carry the author's spelling, indent and — since
+			# a tail comment is legal — the note explaining the edit. Re-emitting a bare keyword
+			# would silently drop that note on -Actualize.
+			$open = $bodyLines[$i]
+			$ins = @()
+			$i++
+			while ($i -lt $bodyLines.Count -and (Get-BslMarkerKind $bodyLines[$i]) -ne 'EndInsert') { $ins += $bodyLines[$i]; $i++ }
+			$close = if ($i -lt $bodyLines.Count) { $bodyLines[$i] } else { $null }
+			$i++  # skip #КонецВставки
+			$ops += @{ Kind = 'insert'; After = ($v1.Count - 1); Lines = $ins; Open = $open; Close = $close }
+		} elseif ($kind -eq 'Delete') {
+			$open = $bodyLines[$i]
+			$startIdx = $v1.Count
+			$i++
+			$del = @()
+			while ($i -lt $bodyLines.Count -and (Get-BslMarkerKind $bodyLines[$i]) -ne 'EndDelete') { $del += $bodyLines[$i]; $v1 += $bodyLines[$i]; $i++ }
+			$close = if ($i -lt $bodyLines.Count) { $bodyLines[$i] } else { $null }
+			$i++  # skip #КонецУдаления
+			$ops += @{ Kind = 'delete'; Start = $startIdx; End = ($v1.Count - 1); Lines = $del; Open = $open; Close = $close }
 		} else {
-			$ownList += $obj
-			Write-Host "  [OWN]      $($obj.Type).$($obj.Name)"
+			$v1 += $bodyLines[$i]
+			$i++
+		}
+	}
+	return @{ V1 = $v1; Ops = $ops }
+}
 
-			# Brief info for own objects
-			if ($info.ObjElement) {
-				$childObj = $info.ObjElement.SelectSingleNode("md:ChildObjects", $info.ObjNs)
-				if ($childObj) {
-					$attrs = 0; $forms = 0; $ts = 0
-					foreach ($c in $childObj.ChildNodes) {
-						if ($c.NodeType -ne 'Element') { continue }
-						switch ($c.LocalName) {
-							"Attribute" { $attrs++ }
-							"TabularSection" { $ts++ }
-							"Form" { $forms++ }
-						}
+# Find unique normalized index of a line in v2; -1 if absent or ambiguous
+function Find-UniqueIndex {
+	param($v2norm, [string]$key)
+	$found = -1
+	for ($k = 0; $k -lt $v2norm.Count; $k++) {
+		if ($v2norm[$k] -eq $key) {
+			if ($found -ge 0) { return -1 }  # ambiguous
+			$found = $k
+		}
+	}
+	return $found
+}
+
+# Find unique contiguous run of normalized lines in v2; returns start index or -1
+function Find-UniqueRun {
+	param($v2norm, $keys)
+	if ($keys.Count -eq 0) { return -1 }
+	$found = -1
+	for ($k = 0; $k -le ($v2norm.Count - $keys.Count); $k++) {
+		$match = $true
+		for ($m = 0; $m -lt $keys.Count; $m++) {
+			if ($v2norm[$k + $m] -ne $keys[$m]) { $match = $false; break }
+		}
+		if ($match) {
+			if ($found -ge 0) { return -1 }  # ambiguous
+			$found = $k
+		}
+	}
+	return $found
+}
+
+# A "significant" line carries code: non-empty and not a whole-line comment (//).
+# Blank lines and comment-only lines are cosmetic — transparent to anchor/absorption matching.
+function Test-Significant {
+	param([string]$normLine)
+	return ($normLine -ne '' -and -not $normLine.StartsWith('//'))
+}
+
+# Project normalized lines to significant-only. Returns @{ Sig = @(values); Map = @(orig indices) }.
+function Get-SignificantProjection {
+	param($norm)
+	$sig = @(); $map = @()
+	for ($i = 0; $i -lt $norm.Count; $i++) {
+		if (Test-Significant $norm[$i]) { $sig += $norm[$i]; $map += $i }
+	}
+	return @{ Sig = $sig; Map = $map }
+}
+
+# True if the normalized run `keys` sits in `hay` starting exactly at index `at` (contiguous, in-bounds).
+# Used to detect an insert whose payload the vendor already placed at the anchor (pereneseno v osnovnuyu).
+function Test-RunAt {
+	param($hay, $keys, [int]$at)
+	if ($keys.Count -eq 0) { return $false }
+	if ($at -lt 0 -or ($at + $keys.Count) -gt $hay.Count) { return $false }
+	for ($m = 0; $m -lt $keys.Count; $m++) { if ($hay[$at + $m] -ne $keys[$m]) { return $false } }
+	return $true
+}
+
+# True if a deletion is already applied in v2: its before/after context lines are now adjacent
+# (nothing left between them), or the missing side sits at a body boundary. $null = boundary side.
+function Test-DeleteAbsorbed {
+	param($v2norm, $beforeCtx, $afterCtx)
+	if ($null -ne $beforeCtx -and $null -ne $afterCtx) {
+		for ($i = 0; $i -lt ($v2norm.Count - 1); $i++) {
+			if ($v2norm[$i] -eq $beforeCtx -and $v2norm[$i + 1] -eq $afterCtx) { return $true }
+		}
+		return $false
+	}
+	if ($null -eq $beforeCtx -and $null -ne $afterCtx) { return ($v2norm.Count -gt 0 -and $v2norm[0] -eq $afterCtx) }
+	if ($null -ne $beforeCtx -and $null -eq $afterCtx) { return ($v2norm.Count -gt 0 -and $v2norm[$v2norm.Count - 1] -eq $beforeCtx) }
+	return $false
+}
+
+# Exact two-sided resolution over the given array.
+# Returns index to "insert after" (-1 = top of body), or $null if ambiguous/conflict.
+function Resolve-InsertionPointExact {
+	param($v2norm, $beforeLines, $afterLines)
+	$nb = $beforeLines.Count; $na = $afterLines.Count
+
+	# Tier A: adjacent pair (before[-1] immediately followed by after[0] in v2), widening symmetrically
+	if ($nb -ge 1 -and $na -ge 1) {
+		$cands = @()
+		for ($k = 0; $k -lt ($v2norm.Count - 1); $k++) {
+			if ($v2norm[$k] -eq $beforeLines[$nb - 1] -and $v2norm[$k + 1] -eq $afterLines[0]) { $cands += $k }
+		}
+		if ($cands.Count -eq 1) { return $cands[0] }
+		if ($cands.Count -gt 1) {
+			$w = 1
+			while ($cands.Count -gt 1 -and ($w -lt $nb -or $w -lt $na)) {
+				$w++
+				$filtered = @()
+				foreach ($k in $cands) {
+					$ok = $true
+					if ($w -le $nb) {
+						if (($k - ($w - 1)) -lt 0 -or $v2norm[$k - ($w - 1)] -ne $beforeLines[$nb - $w]) { $ok = $false }
 					}
-					$parts = @()
-					if ($attrs -gt 0) { $parts += "$attrs attrs" }
-					if ($ts -gt 0) { $parts += "$ts TS" }
-					if ($forms -gt 0) { $parts += "$forms forms" }
-					if ($parts.Count -gt 0) {
-						Write-Host "             $($parts -join ', ')"
+					if ($ok -and $w -le $na) {
+						if (($k + $w) -ge $v2norm.Count -or $v2norm[$k + $w] -ne $afterLines[$w - 1]) { $ok = $false }
 					}
+					if ($ok) { $filtered += $k }
 				}
+				if ($filtered.Count -eq 0) { break }
+				$cands = $filtered
 			}
+			if ($cands.Count -eq 1) { return $cands[0] }
+			return $null
 		}
 	}
 
-	Write-Host ""
-	Write-Host "=== Summary: $($borrowedList.Count) borrowed, $($ownList.Count) own objects ==="
+	# Tier B: one side changed -> single-side uniqueness
+	if ($nb -ge 1) {
+		$bk = Find-UniqueIndex $v2norm $beforeLines[$nb - 1]
+		if ($bk -ge 0) { return $bk }
+	}
+	if ($na -ge 1) {
+		$ak = Find-UniqueIndex $v2norm $afterLines[0]
+		if ($ak -ge 0) { return ($ak - 1) }
+	}
+	return $null
+}
+
+# Resolve where an insertion lands in v2. Exact first (comments/blanks included — keeps the insert's
+# position relative to a stable comment); on failure, retry on significant lines only (transparent to
+# vendor-added blanks/comments) and map back to a full-v2 index. Returns "insert after" idx or $null.
+function Resolve-InsertionPoint {
+	param($v2norm, $beforeLines, $afterLines)
+	$k = Resolve-InsertionPointExact $v2norm $beforeLines $afterLines
+	if ($null -ne $k) { return $k }
+	$proj = Get-SignificantProjection $v2norm
+	$bs = @($beforeLines | Where-Object { Test-Significant $_ })
+	$as = @($afterLines | Where-Object { Test-Significant $_ })
+	$ksig = Resolve-InsertionPointExact $proj.Sig $bs $as
+	if ($null -eq $ksig) { return $null }
+	if ($ksig -lt 0) { return -1 }
+	return $proj.Map[$ksig]
 }
 
 # ============================================================
-# MODE B: Transfer check
+# Form notation — verbatim copies from form-info (kept identical by check-inline-drift)
 # ============================================================
-if ($Mode -eq "B") {
-	$transferred = 0
-	$notTransferred = 0
-	$needsReview = 0
 
-	foreach ($obj in $objects) {
-		$info = Get-ObjectInfo $obj.Type $obj.Name
-		if (-not $info -or -not $info.Exists -or -not $info.Borrowed) { continue }
+# --- Helper: format type compactly ---
 
-		# Find .bsl files with &ИзменениеИКонтроль
-		$bslFiles = Get-BslFiles $obj.Type $obj.Name
-		foreach ($bsl in $bslFiles) {
-			$interceptors = Get-FileInterceptors $bsl
-			$macInterceptors = @($interceptors | Where-Object { $_.Type -eq "ИзменениеИКонтроль" })
+function Format-Type($typeNode) {
+	if (-not $typeNode -or -not $typeNode.HasChildNodes) { return "" }
 
-			if ($macInterceptors.Count -eq 0) { continue }
+	$typeSet = $typeNode.SelectSingleNode("v8:TypeSet", $ns)
+	if ($typeSet) {
+		$val = $typeSet.InnerText
+		# Strip cfg:/d5p1: prefix for DefinedType, keep as-is
+		$val = $val -replace '^(cfg|d\d+p\d+):', ''
+		return $val
+	}
 
-			foreach ($ic in $macInterceptors) {
-				$methodName = $ic.Method
-				$relBsl = $bsl.Replace($ExtensionPath, "").TrimStart("\", "/")
+	$types = $typeNode.SelectNodes("v8:Type", $ns)
+	if ($types.Count -eq 0) { return "" }
 
-				# Find #Вставка blocks in this file
-				$insertBlocks = Get-InsertionBlocks $bsl
-
-				if ($insertBlocks.Count -eq 0) {
-					Write-Host "  [NEEDS_REVIEW] $($obj.Type).$($obj.Name) — &ИзменениеИКонтроль(`"$methodName`") — no #Вставка blocks"
-					$needsReview++
-					continue
-				}
-
-				# Find corresponding module in config
-				if (-not $childTypeDirMap.ContainsKey($obj.Type)) { continue }
-				$dirName = $childTypeDirMap[$obj.Type]
-				$configBsl = $bsl.Replace($ExtensionPath, $ConfigPath)
-
-				if (-not (Test-Path $configBsl)) {
-					Write-Host "  [NEEDS_REVIEW] $($obj.Type).$($obj.Name) — &ИзменениеИКонтроль(`"$methodName`") — config module not found"
-					$needsReview++
-					continue
-				}
-
-				$configContent = [System.IO.File]::ReadAllText($configBsl, [System.Text.Encoding]::UTF8)
-
-				$allTransferred = $true
-				foreach ($block in $insertBlocks) {
-					$code = $block.Code
-					if (-not $code) { continue }
-
-					# Normalize whitespace for comparison
-					$codeNorm = $code -replace '\s+', ' '
-					$configNorm = $configContent -replace '\s+', ' '
-
-					if ($configNorm.Contains($codeNorm)) {
-						# Found in config
-					} else {
-						$allTransferred = $false
-					}
-				}
-
-				if ($allTransferred) {
-					Write-Host "  [TRANSFERRED]     $($obj.Type).$($obj.Name) — &ИзменениеИКонтроль(`"$methodName`") — $($insertBlocks.Count) block(s)"
-					$transferred++
+	$parts = @()
+	foreach ($t in $types) {
+		$raw = $t.InnerText
+		switch -Wildcard ($raw) {
+			"xs:string" {
+				$sq = $typeNode.SelectSingleNode("v8:StringQualifiers/v8:Length", $ns)
+				$al = $typeNode.SelectSingleNode("v8:StringQualifiers/v8:AllowedLength", $ns)
+				$len = if ($sq) { [int]$sq.InnerText } else { 0 }
+				if ($al -and $al.InnerText -eq 'Fixed') { $parts += "string($len,fixed)" }
+				elseif ($len -gt 0) { $parts += "string($len)" } else { $parts += "string" }
+			}
+			"xs:decimal" {
+				$nq = $typeNode.SelectSingleNode("v8:NumberQualifiers", $ns)
+				if ($nq) {
+					$d = $nq.SelectSingleNode("v8:Digits", $ns)
+					$f = $nq.SelectSingleNode("v8:FractionDigits", $ns)
+					$s = $nq.SelectSingleNode("v8:AllowedSign", $ns)
+					$digits = if ($d) { $d.InnerText } else { "0" }
+					$frac = if ($f) { $f.InnerText } else { "0" }
+					if ($s -and $s.InnerText -eq 'Nonnegative') { $parts += "decimal($digits,$frac,nonneg)" }
+					else { $parts += "decimal($digits,$frac)" }
 				} else {
-					Write-Host "  [NOT_TRANSFERRED] $($obj.Type).$($obj.Name) — &ИзменениеИКонтроль(`"$methodName`") — some blocks not found in config"
-					$notTransferred++
+					# Без квалификаторов платформа читает число как 0,0; голое decimal значило бы 10,0
+					$parts += "decimal(0,0)"
 				}
 			}
+			"xs:boolean" { $parts += "boolean" }
+			"xs:dateTime" {
+				$dq = $typeNode.SelectSingleNode("v8:DateQualifiers/v8:DateFractions", $ns)
+				if ($dq) {
+					switch ($dq.InnerText) {
+						"Date" { $parts += "date" }
+						"Time" { $parts += "time" }
+						default { $parts += "dateTime" }
+					}
+				} else {
+					$parts += "dateTime"
+				}
+			}
+			"xs:binary" { $parts += "binary" }
+			{ $_ -like "cfg:*" -or $_ -match '^d\d+p\d+:' } { $parts += ($raw -replace '^(cfg|d\d+p\d+):', '') }
+			"v8:ValueTable" { $parts += "ValueTable" }
+			"v8:ValueTree" { $parts += "ValueTree" }
+			"v8:ValueListType" { $parts += "ValueList" }
+			"v8:TypeDescription" { $parts += "TypeDescription" }
+			"v8:Universal" { $parts += "Universal" }
+			"v8:FixedArray" { $parts += "FixedArray" }
+			"v8:FixedStructure" { $parts += "FixedStructure" }
+			"v8ui:FormattedString" { $parts += "FormattedString" }
+			"v8ui:Picture" { $parts += "Picture" }
+			"v8ui:Color" { $parts += "Color" }
+			"v8ui:Font" { $parts += "Font" }
+			"dcsset:*" { $parts += $raw.Replace("dcsset:", "DCS.") }
+			"dcssch:*" { $parts += $raw.Replace("dcssch:", "DCS.") }
+			"dcscor:*" { $parts += $raw.Replace("dcscor:", "DCS.") }
+			default { $parts += $raw }
 		}
 	}
 
-	Write-Host ""
-	Write-Host "=== Transfer check: $transferred transferred, $notTransferred not transferred, $needsReview needs review ==="
+	return ($parts -join " | ")
 }
+
+# --- Element type abbreviations ---
+
+$skipElements = @{
+	"ExtendedTooltip" = $true
+	"ContextMenu" = $true
+	"AutoCommandBar" = $true
+	"SearchStringAddition" = $true
+	"ViewStatusAddition" = $true
+	"SearchControlAddition" = $true
+}
+
+function Get-ElementTag($node) {
+	$localName = $node.LocalName
+	switch ($localName) {
+		"UsualGroup" {
+			$groupNode = $node.SelectSingleNode("d:Group", $ns)
+			$orient = ""
+			if ($groupNode) {
+				switch ($groupNode.InnerText) {
+					"Vertical" { $orient = ":V" }
+					"Horizontal" { $orient = ":H" }
+					"AlwaysHorizontal" { $orient = ":AH" }
+					"AlwaysVertical" { $orient = ":AV" }
+				}
+			}
+			$beh = $node.SelectSingleNode("d:Behavior", $ns)
+			$collapse = ""
+			if ($beh -and $beh.InnerText -eq "Collapsible") { $collapse = ",collapse" }
+			return "[Group$orient$collapse]"
+		}
+		"InputField" { return "[Input]" }
+		"CheckBoxField" { return "[Check]" }
+		"LabelDecoration" { return "[Label]" }
+		"LabelField" { return "[LabelField]" }
+		"PictureDecoration" { return "[Picture]" }
+		"PictureField" { return "[PicField]" }
+		"CalendarField" { return "[Calendar]" }
+		"Table" { return "[Table]" }
+		"Button" { return "[Button]" }
+		"CommandBar" { return "[CmdBar]" }
+		"Pages" { return "[Pages]" }
+		"Page" { return "[Page]" }
+		"Popup" { return "[Popup]" }
+		"ButtonGroup" { return "[BtnGroup]" }
+		"ColumnGroup" { return "[ColGroup]" }
+		"AutoCommandBar" { return "[CmdBar]" }
+		"ContextMenu" { return "[ContextMenu]" }
+		default { return "[$localName]" }
+	}
+}
+
+# ============================================================
+# Form namespaces: one name table for every form document, so the copied form-info helpers
+# (they read $ns) work on the extension form, its BaseForm and the configuration form alike.
+# ============================================================
+$script:formNt = New-Object System.Xml.NameTable
+$ns = New-Object System.Xml.XmlNamespaceManager($script:formNt)
+$ns.AddNamespace("d", "http://v8.1c.ru/8.3/xcf/logform")
+$ns.AddNamespace("v8", "http://v8.1c.ru/8.1/data/core")
+$ns.AddNamespace("v8ui", "http://v8.1c.ru/8.1/data/ui")
+$ns.AddNamespace("xr", "http://v8.1c.ru/8.3/xcf/readable")
+$ns.AddNamespace("xs", "http://www.w3.org/2001/XMLSchema")
+$ns.AddNamespace("xsi", "http://www.w3.org/2001/XMLSchema-instance")
+$ns.AddNamespace("cfg", "http://v8.1c.ru/8.1/data/enterprise/current-config")
+$ns.AddNamespace("dcsset", "http://v8.1c.ru/8.1/data-composition-system/settings")
+
+# ============================================================
+# Common helpers
+# ============================================================
+
+# Drop the extension name prefix at the start of identifiers. Applied to BOTH sides of every
+# comparison, so a change carried over with the prefix dropped and one carried over with the
+# prefix kept compare equal alike.
+function Remove-ExtPrefix([string]$text, [string]$prefix) {
+	if ([string]::IsNullOrEmpty($prefix) -or [string]::IsNullOrEmpty($text)) { return $text }
+	return [regex]::Replace($text, '(?<!\w)' + [regex]::Escape($prefix) + '(?=\w)', '', [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
+}
+
+# Name lookup: the exact name first, then the name without the extension prefix
+function Find-NameIn($names, [string]$name, [string]$prefix) {
+	foreach ($c in $names) { if ($c -ieq $name) { return $c } }
+	$s = Remove-ExtPrefix $name $prefix
+	foreach ($c in $names) { if ((Remove-ExtPrefix $c $prefix) -ieq $s) { return $c } }
+	return $null
+}
+
+function Get-Short([string]$s, [int]$n = 40) {
+	$t = ($s -replace '\s+', ' ').Trim()
+	if ($t.Length -gt $n) { return $t.Substring(0, $n) + "…" }
+	return $t
+}
+
+function Get-Plural([int]$n, [string]$word) {
+	if ($n -eq 1) { return "1 $word" }
+	return "$n ${word}s"
+}
+
+function Get-RelPath([string]$root, [string]$full) {
+	$r = [IO.Path]::GetFullPath($root).TrimEnd('\', '/')
+	$f = [IO.Path]::GetFullPath($full)
+	return ($f.Substring($r.Length).TrimStart('\', '/') -replace '\\', '/')
+}
+
+function Read-BslLines([string]$path) {
+	if (-not $path -or -not (Test-Path -LiteralPath $path)) { return $null }
+	return ,([System.IO.File]::ReadAllLines($path, [System.Text.Encoding]::UTF8))
+}
+
+function Get-MethodSafe($lines, [string]$methodName) {
+	if ($null -eq $lines -or [string]::IsNullOrEmpty($methodName)) { return $null }
+	try { return (Extract-Method $lines $methodName) } catch { return $null }
+}
+
+# Comparable form of a code line: normalized, without the extension prefix, lower case (the language
+# ignores case; lowering here also keeps the copied matchers' -eq and Python's == in agreement)
+function Get-CodeKey([string]$line, [string]$prefix) {
+	return (Get-Normalized (Remove-ExtPrefix $line $prefix)).ToLowerInvariant()
+}
+
+# Significant lines of a body as code keys
+function Get-SigLines($lines, [string]$prefix) {
+	$out = New-Object System.Collections.Generic.List[string]
+	foreach ($l in $lines) {
+		$n = Get-CodeKey $l $prefix
+		if (Test-Significant $n) { $out.Add($n) }
+	}
+	return ,($out.ToArray())
+}
+
+# Declaration following an annotation (context directives and other annotations may sit between)
+function Find-DeclAfter($lines, [int]$annIdx) {
+	$declRe = '^\s*(?:' + (Get-KwAlt 'Async') + '\s+)?(?:' + (Get-KwAlt 'Proc') + '|' + (Get-KwAlt 'Func') + ')\s+([\w]+)\s*\('
+	$last = [Math]::Min($lines.Count - 1, $annIdx + 5)
+	for ($j = $annIdx + 1; $j -le $last; $j++) {
+		$t = $lines[$j].Trim()
+		if ($t -imatch $declRe) { return @{ Name = $Matches[1]; Idx = $j } }
+		if ($t -ne '' -and -not $t.StartsWith('&') -and -not $t.StartsWith('//')) { break }
+	}
+	return $null
+}
+
+# ============================================================
+# Transfer of method changes
+# ============================================================
+
+# &ИзменениеИКонтроль: each #Вставка/#Удаление is classified the way cfe-patch-method -Check does
+# (absorbed = already in the main configuration, pending = still to carry over, disputed = the
+# anchor or the deleted lines changed). $null when the method has no edits with code.
+function Get-ControlTransfer($extMethod, $cfgMethod, [string]$prefix) {
+	$parsed = Parse-MarkedBody $extMethod.BodyLines
+	$ops = @($parsed.Ops)
+	$v1norm = @($parsed.V1 | ForEach-Object { Get-CodeKey $_ $prefix })
+	$v2norm = @($cfgMethod.BodyLines | ForEach-Object { Get-CodeKey $_ $prefix })
+	$v2proj = Get-SignificantProjection $v2norm
+	$absorbed = 0; $pending = 0; $disputed = @()
+	foreach ($op in $ops) {
+		if ($op.Kind -eq 'insert') {
+			$payloadSig = @(($op.Lines | ForEach-Object { Get-CodeKey $_ $prefix }) | Where-Object { Test-Significant $_ })
+			# A comment-only insert carries nothing to transfer
+			if ($payloadSig.Count -eq 0) { continue }
+			$beforeLines = @()
+			if ($op.After -ge 0) { $bs = [Math]::Max(0, $op.After - 2); for ($m = $bs; $m -le $op.After; $m++) { $beforeLines += $v1norm[$m] } }
+			$afterLines = @()
+			$ae = [Math]::Min($v1norm.Count - 1, $op.After + 3)
+			for ($m = $op.After + 1; $m -le $ae; $m++) { $afterLines += $v1norm[$m] }
+			$k = Resolve-InsertionPoint $v2norm $beforeLines $afterLines
+			if ($null -eq $k) { $isAbsorbed = (Find-UniqueRun $v2proj.Sig $payloadSig) -ge 0 }
+			else { $sigStart = @($v2proj.Map | Where-Object { $_ -le $k }).Count; $isAbsorbed = Test-RunAt $v2proj.Sig $payloadSig $sigStart }
+			if ($isAbsorbed) { $absorbed++ }
+			elseif ($null -eq $k) { $disputed += 'insert' }
+			else { $pending++ }
+		} else {
+			$keys = @(); for ($m = $op.Start; $m -le $op.End; $m++) { $keys += $v1norm[$m] }
+			$p = Find-UniqueRun $v2norm $keys
+			if ($p -ge 0) { $pending++ }
+			else {
+				$delBeforeCtx = $null; for ($z = $op.Start - 1; $z -ge 0; $z--) { if (Test-Significant $v1norm[$z]) { $delBeforeCtx = $v1norm[$z]; break } }
+				$delAfterCtx = $null; for ($z = $op.End + 1; $z -lt $v1norm.Count; $z++) { if (Test-Significant $v1norm[$z]) { $delAfterCtx = $v1norm[$z]; break } }
+				if (Test-DeleteAbsorbed $v2proj.Sig $delBeforeCtx $delAfterCtx) { $absorbed++ }
+				else { $disputed += 'delete' }
+			}
+		}
+	}
+	$n = $absorbed + $pending + $disputed.Count
+	if ($n -eq 0) { return $null }
+	$count = "$absorbed/$n edits"
+	if ($disputed.Count -gt 0) {
+		$why = @()
+		if ($disputed -contains 'insert') { $why += 'insert anchor changed in config' }
+		if ($disputed -contains 'delete') { $why += 'deleted lines changed in config' }
+		return @{ Status = 'DIVERGED'; Count = $count; Note = ($why -join '; ') }
+	}
+	$st = if ($absorbed -eq $n) { 'TRANSFERRED' } elseif ($absorbed -eq 0) { 'NOT_TRANSFERRED' } else { 'PARTIAL' }
+	return @{ Status = $st; Count = $count; Note = '' }
+}
+
+# &Перед/&После/&Вместо and form event interceptors: there is no marked original to compare with,
+# so the interceptor's code lines are looked up, in order, in the body of the target method.
+# Plumbing (ПродолжитьВызов and the return of its result) is not part of the fix and is skipped;
+# the interceptor's parameters are renamed to the original's by position.
+function Get-HeuristicTransfer($extMethod, $cfgMethod, [string]$prefix) {
+	$proceedRe = '(?i)' + (Get-KwAlt 'Proceed') + '\s*\('
+	$resultVars = @()
+	$lines = @()
+	foreach ($l in $extMethod.BodyLines) {
+		$n = Get-CodeKey $l $prefix
+		if (-not (Test-Significant $n)) { continue }
+		if ($n -match $proceedRe) {
+			if ($n -match '^([\w]+)\s*=') { $resultVars += $Matches[1] }
+			continue
+		}
+		$lines += $n
+	}
+	if ($resultVars.Count -gt 0) {
+		$retRe = '(?i)^' + (Get-KwAlt 'Return') + '\s+(?:' + (($resultVars | ForEach-Object { [regex]::Escape($_) }) -join '|') + ')\s*;?$'
+		$lines = @($lines | Where-Object { $_ -notmatch $retRe })
+	}
+	$ep = @($extMethod.ParamNames); $cp = @($cfgMethod.ParamNames)
+	for ($i = 0; $i -lt [Math]::Min($ep.Count, $cp.Count); $i++) {
+		if ($ep[$i] -ine $cp[$i]) {
+			$re = '(?<!\w)' + [regex]::Escape($ep[$i]) + '(?!\w)'
+			$to = $cp[$i].ToLowerInvariant()
+			$lines = @($lines | ForEach-Object { [regex]::Replace($_, $re, $to, [System.Text.RegularExpressions.RegexOptions]::IgnoreCase) })
+		}
+	}
+	# Block closers and bare jumps match anywhere — they would only inflate the score
+	$trivialRe = '(?i)^(?:КонецЕсли|Иначе|КонецЦикла|КонецПопытки|Исключение|Возврат|Продолжить|Прервать|EndIf|Else|EndDo|EndTry|Except|Return|Continue|Break)\s*;?$'
+	$meaningful = @($lines | Where-Object { $_ -notmatch $trivialRe })
+	if ($meaningful.Count -gt 0) { $lines = $meaningful }
+	if ($lines.Count -eq 0) { return $null }
+	$hay = Get-SigLines $cfgMethod.BodyLines $prefix
+	$found = 0; $j = 0
+	foreach ($l in $lines) {
+		for ($k = $j; $k -lt $hay.Count; $k++) {
+			if ($hay[$k] -ieq $l) { $found++; $j = $k + 1; break }
+		}
+	}
+	return @{ Found = $found; Total = $lines.Count }
+}
+
+function Get-HeuristicStatus($h) {
+	if ($h.Found -eq $h.Total) { return 'TRANSFERRED' }
+	if ($h.Found -eq 0) { return 'NOT_TRANSFERRED' }
+	return 'PARTIAL'
+}
+
+function New-Item2([string]$status, [string]$text, [string]$loc = '', [string]$group = '') {
+	return @{ Status = $status; Text = $text; Loc = $loc; Group = $group }
+}
+
+# ============================================================
+# Metadata objects
+# ============================================================
+
+function Read-MdObject([string]$file) {
+	if (-not $file -or -not (Test-Path -LiteralPath $file)) { return $null }
+	$doc = New-Object System.Xml.XmlDocument
+	$doc.PreserveWhitespace = $false
+	$doc.Load($file)
+	$mns = New-Object System.Xml.XmlNamespaceManager($doc.NameTable)
+	$mns.AddNamespace("md", $mdNsUri)
+	$mns.AddNamespace("v8", "http://v8.1c.ru/8.1/data/core")
+	$el = $null
+	foreach ($c in $doc.DocumentElement.ChildNodes) { if ($c.NodeType -eq 'Element') { $el = $c; break } }
+	if (-not $el) { return $null }
+	return @{ El = $el; Ns = $mns; Props = $el.SelectSingleNode("md:Properties", $mns); Children = $el.SelectSingleNode("md:ChildObjects", $mns) }
+}
+
+function Test-AdoptedNode($node, $mns) {
+	if (-not $node) { return $false }
+	$props = if ($node.LocalName -eq 'Properties') { $node } else { $node.SelectSingleNode("md:Properties", $mns) }
+	if (-not $props) { return $false }
+	$ob = $props.SelectSingleNode("md:ObjectBelonging", $mns)
+	return ($ob -and $ob.InnerText -eq 'Adopted')
+}
+
+function Get-MdChildName($node, $mns) {
+	$n = $node.SelectSingleNode("md:Properties/md:Name", $mns)
+	if ($n) { return $n.InnerText }
+	return $node.InnerText.Trim()
+}
+
+function Test-HasElementChild($node) {
+	foreach ($c in $node.ChildNodes) { if ($c.NodeType -eq 'Element') { return $true } }
+	return $false
+}
+
+# Comparable type of an attribute: the set of its types without namespace and extension prefixes
+function Get-MdTypeKey($node, $mns, [string]$prefix) {
+	$t = $node.SelectSingleNode("md:Properties/md:Type", $mns)
+	if (-not $t) { return '' }
+	$parts = @()
+	foreach ($c in $t.ChildNodes) {
+		if ($c.NodeType -ne 'Element') { continue }
+		if ($c.LocalName -ne 'Type' -and $c.LocalName -ne 'TypeSet') { continue }
+		$parts += (Remove-ExtPrefix ($c.InnerText.Trim() -replace '^[\w]+:', '') $prefix)
+	}
+	$arr = [string[]]@($parts)
+	[Array]::Sort($arr, [StringComparer]::Ordinal)
+	return ($arr -join ' | ')
+}
+
+function Get-KindWord([string]$localName) {
+	return ([regex]::Replace($localName, '(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])', ' ')).ToLower()
+}
+
+# Context of one object of the extension
+function Get-ObjContext([string]$extDir, [string]$type, [string]$name) {
+	if (-not $childTypeDirMap.ContainsKey($type)) { return @{ Known = $false } }
+	$dir = $childTypeDirMap[$type]
+	$file = Join-Path (Join-Path $extDir $dir) "$name.xml"
+	$md = Read-MdObject $file
+	return @{
+		Known = $true; Type = $type; Name = $name; Id = "$type.$name"; Dir = $dir
+		ObjDir = (Join-Path (Join-Path $extDir $dir) $name); File = $file
+		Md = $md; Exists = [bool]$md
+		Borrowed = ($md -and (Test-AdoptedNode $md.Props $md.Ns))
+	}
+}
+
+# Forms of an object: borrowed ones carry <BaseForm>; a common form is a form itself
+function Get-ObjForms($ctx) {
+	$forms = @()
+	if ($ctx.Type -eq 'CommonForm') {
+		$forms += @{ Label = 'Form'; Name = $ctx.Name; Xml = (Join-Path $ctx.ObjDir "Ext/Form.xml"); Module = (Join-Path $ctx.ObjDir "Ext/Form/Module.bsl"); Own = (-not $ctx.Borrowed); Dir = $ctx.ObjDir }
+		return $forms
+	}
+	if (-not $ctx.Md -or -not $ctx.Md.Children) { return $forms }
+	foreach ($c in $ctx.Md.Children.ChildNodes) {
+		if ($c.NodeType -ne 'Element' -or $c.LocalName -ne 'Form') { continue }
+		$fn = $c.InnerText.Trim()
+		$fdir = Join-Path (Join-Path $ctx.ObjDir "Forms") $fn
+		$desc = Read-MdObject (Join-Path (Join-Path $ctx.ObjDir "Forms") "$fn.xml")
+		$own = -not ($desc -and (Test-AdoptedNode $desc.Props $desc.Ns))
+		$forms += @{ Label = "Form.$fn"; Name = $fn; Xml = (Join-Path $fdir "Ext/Form.xml"); Module = (Join-Path $fdir "Ext/Form/Module.bsl"); Own = $own; Dir = $fdir }
+	}
+	return $forms
+}
+
+# .bsl modules of a borrowed object, without those of its own forms and commands (they move as a whole)
+function Get-ObjModules($ctx, $forms) {
+	if (-not (Test-Path -LiteralPath $ctx.ObjDir -PathType Container)) { return @() }
+	$skipDirs = @()
+	foreach ($f in $forms) { if ($f.Own -and $ctx.Type -ne 'CommonForm') { $skipDirs += [IO.Path]::GetFullPath($f.Dir) } }
+	if ($ctx.Md -and $ctx.Md.Children) {
+		foreach ($c in $ctx.Md.Children.ChildNodes) {
+			if ($c.NodeType -ne 'Element' -or $c.LocalName -ne 'Command') { continue }
+			if (-not (Test-AdoptedNode $c $ctx.Md.Ns)) { $skipDirs += [IO.Path]::GetFullPath((Join-Path (Join-Path $ctx.ObjDir "Commands") (Get-MdChildName $c $ctx.Md.Ns))) }
+		}
+	}
+	# Ordinal order of the relative paths: the same in both ports, whatever the culture
+	$files = @(Get-ChildItem -LiteralPath $ctx.ObjDir -Recurse -Filter "*.bsl" -File | ForEach-Object { $_.FullName })
+	$keys = [string[]]@($files | ForEach-Object { Get-RelPath $ctx.ObjDir $_ })
+	$arr = [string[]]$files
+	if ($arr.Count -gt 1) { [Array]::Sort($keys, $arr, [StringComparer]::Ordinal) }
+	$res = @()
+	foreach ($full in $arr) {
+		$skip = $false
+		foreach ($sd in $skipDirs) { if ($full.StartsWith($sd + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { $skip = $true; break } }
+		if (-not $skip) { $res += $full }
+	}
+	return $res
+}
+
+# ============================================================
+# Form diff: main part of a borrowed form against its <BaseForm>
+# ============================================================
+
+function Read-FormDoc([string]$path) {
+	if (-not $path -or -not (Test-Path -LiteralPath $path)) { return $null }
+	$doc = New-Object System.Xml.XmlDocument($script:formNt)
+	$doc.PreserveWhitespace = $false
+	try { $doc.Load($path) } catch { return $null }
+	return $doc
+}
+
+function Test-FormElement($n) {
+	return ($n.NodeType -eq 'Element' -and $n.HasAttribute('name') -and $n.HasAttribute('id'))
+}
+
+# Named form elements of a part (form root or BaseForm), in document order. Elements nest through
+# ChildItems and through named companions (context menu, tooltip, command bar of a table).
+function Add-FormElements($node, [string]$parentName, $ancestors, $idx) {
+	$kids = @()
+	foreach ($c in $node.ChildNodes) {
+		if ($c.NodeType -ne 'Element') { continue }
+		if ($c.LocalName -eq 'ChildItems') { foreach ($cc in $c.ChildNodes) { if (Test-FormElement $cc) { $kids += $cc } } }
+		elseif (Test-FormElement $c) { $kids += $c }
+	}
+	$names = @($kids | ForEach-Object { $_.GetAttribute('name') })
+	for ($i = 0; $i -lt $kids.Count; $i++) {
+		$k = $kids[$i]
+		$nm = $names[$i]
+		if ($idx.Contains($nm)) { continue }
+		$rec = @{ Name = $nm; Node = $k; Parent = $parentName; Ancestors = $ancestors; Siblings = $names; Pos = $i; HasKids = $false }
+		$idx[$nm] = $rec
+		Add-FormElements $k $nm (@($ancestors) + $nm) $idx
+	}
+	if ($parentName -and $idx.Contains($parentName) -and $kids.Count -gt 0) { $idx[$parentName].HasKids = $true }
+}
+
+function Get-FormElementIndex($part) {
+	$idx = [ordered]@{}
+	Add-FormElements $part '' @() $idx
+	return ,$idx
+}
+
+# Elements of the longest common subsequence of two name orders (case-insensitive)
+function Get-LcsSet($a, $b) {
+	$n = $a.Count; $m = $b.Count
+	$dp = New-Object 'System.Collections.Generic.List[int[]]'
+	for ($i = 0; $i -le $n; $i++) { $dp.Add((New-Object 'int[]' ($m + 1))) }
+	for ($i = $n - 1; $i -ge 0; $i--) {
+		for ($j = $m - 1; $j -ge 0; $j--) {
+			if ($a[$i] -ieq $b[$j]) { $dp[$i][$j] = $dp[$i + 1][$j + 1] + 1 }
+			else { $dp[$i][$j] = [Math]::Max($dp[$i + 1][$j], $dp[$i][$j + 1]) }
+		}
+	}
+	$set = @{}
+	$i = 0; $j = 0
+	while ($i -lt $n -and $j -lt $m) {
+		if ($a[$i] -ieq $b[$j]) { $set[$a[$i].ToLower()] = $true; $i++; $j++ }
+		elseif ($dp[$i + 1][$j] -ge $dp[$i][$j + 1]) { $i++ }
+		else { $j++ }
+	}
+	return $set
+}
+
+# Elements the extension moved: a new parent, or out of the common order among the siblings
+# (one element moved must not make its neighbours look moved too)
+function Get-MovedSet($mi, $bi) {
+	$moved = @{}
+	$groups = [ordered]@{}
+	foreach ($name in @($mi.Keys)) {
+		if (-not $bi.Contains($name)) { continue }
+		$pm = $mi[$name].Parent; $pb = $bi[$name].Parent
+		if ($pm -ine $pb) { $moved[$name.ToLower()] = $true; continue }
+		$g = "|$($pm.ToLower())"
+		if (-not $groups.Contains($g)) { $groups[$g] = New-Object System.Collections.ArrayList }
+		[void]$groups[$g].Add($name)
+	}
+	foreach ($g in @($groups.Keys)) {
+		$mainOrder = @($groups[$g])
+		if ($mainOrder.Count -lt 2) { continue }
+		$inGroup = @{}
+		foreach ($x in $mainOrder) { $inGroup[$x.ToLower()] = $true }
+		$baseOrder = @(@($bi.Keys) | Where-Object { $inGroup.ContainsKey($_.ToLower()) })
+		$keep = Get-LcsSet $mainOrder $baseOrder
+		foreach ($x in $mainOrder) { if (-not $keep.ContainsKey($x.ToLower())) { $moved[$x.ToLower()] = $true } }
+	}
+	return $moved
+}
+
+# Nearest preceding sibling of a record that the other side knows (names compared without the prefix)
+function Get-PrevKnown($rec, $otherNames, [string]$prefix) {
+	for ($i = $rec.Pos - 1; $i -ge 0; $i--) {
+		$hit = Find-NameIn $otherNames $rec.Siblings[$i] $prefix
+		if ($hit) { return $hit }
+	}
+	return ''
+}
+
+$script:formStructural = @('ChildItems', 'Attributes', 'Commands', 'Parameters', 'Events', 'CommandInterface', 'BaseForm')
+
+# Property tags of an element (or of the form root): child elements that are not elements themselves
+function Get-PropMap($node, [switch]$Root) {
+	$m = [ordered]@{}
+	foreach ($c in $node.ChildNodes) {
+		if ($c.NodeType -ne 'Element') { continue }
+		if ($c.LocalName -eq 'ChildItems' -or $c.LocalName -eq 'Events') { continue }
+		if ($Root -and $script:formStructural -contains $c.LocalName) { continue }
+		if (Test-FormElement $c) { continue }
+		$key = $c.LocalName; $i = 2
+		while ($m.Contains($key)) { $key = "$($c.LocalName)#$i"; $i++ }
+		$m[$key] = $c
+	}
+	return ,$m
+}
+
+# Canonical text of a node: whitespace, ids, xmlns and namespace-prefix spelling do not matter
+function Get-NodeCanon($n) {
+	if ($n.NodeType -eq 'Text' -or $n.NodeType -eq 'CDATA') { return (($n.Value -replace '\s+', ' ').Trim()) }
+	if ($n.NodeType -ne 'Element') { return '' }
+	$attrs = @()
+	foreach ($a in $n.Attributes) {
+		if ($a.Prefix -eq 'xmlns' -or $a.LocalName -eq 'xmlns' -or $a.LocalName -eq 'id') { continue }
+		$attrs += "$($a.LocalName)=$($a.Value)"
+	}
+	$attrs = @($attrs | Sort-Object)
+	$kids = @()
+	foreach ($c in $n.ChildNodes) { $s = Get-NodeCanon $c; if ($s -ne '') { $kids += $s } }
+	$head = if ($attrs.Count -gt 0) { ' ' + ($attrs -join ' ') } else { '' }
+	return "<$($n.LocalName)$head>$($kids -join '')</>"
+}
+
+function Get-CmpKey($node, [string]$prefix) {
+	if (-not $node) { return $null }
+	$c = (Get-NodeCanon $node) -replace '(?<![\w])(?:cfg|d\d+p\d+):', ''
+	return (Remove-ExtPrefix $c $prefix)
+}
+
+function Get-PropDisplay($node) {
+	if (-not $node) { return '' }
+	$content = $node.SelectSingleNode("v8:item/v8:content", $ns)
+	if ($content) { return '"' + (Get-Short $content.InnerText 40) + '"' }
+	if (Test-HasElementChild $node) { return '{…}' }
+	return (Get-Short $node.InnerText 40)
+}
+
+function Get-EventList($node) {
+	$res = @()
+	if (-not $node) { return $res }
+	foreach ($e in $node.SelectNodes("d:Events/d:Event", $ns)) {
+		$res += @{ Name = $e.GetAttribute('name'); CallType = $e.GetAttribute('callType'); Handler = $e.InnerText.Trim() }
+	}
+	return $res
+}
+
+function Get-EventKeySet($events) {
+	$s = @{}
+	foreach ($e in $events) { $s["$($e.Name)|$($e.CallType)".ToLower()] = $true }
+	return $s
+}
+
+function Get-SectionMap($root, [string]$section, [string]$item) {
+	$m = [ordered]@{}
+	foreach ($x in $root.SelectNodes("d:$section/d:$item", $ns)) { $nm = $x.GetAttribute('name'); if ($nm -and -not $m.Contains($nm)) { $m[$nm] = $x } }
+	return ,$m
+}
+
+function Get-FormDiff([string]$formXml) {
+	$doc = Read-FormDoc $formXml
+	if (-not $doc) { return $null }
+	$root = $doc.DocumentElement
+	$base = $root.SelectSingleNode("d:BaseForm", $ns)
+	$r = @{
+		IsBorrowed = [bool]$base; Root = $root
+		Elements = @(); Removed = @(); Attributes = @(); Commands = @(); Parameters = @()
+		Events = @(); FormProps = @(); Blocks = @(); Total = 0; MainIndex = $null
+	}
+	if (-not $base) { return $r }
+	$mi = Get-FormElementIndex $root
+	$bi = Get-FormElementIndex $base
+	$r.MainIndex = $mi
+	$movedSet = Get-MovedSet $mi $bi
+	foreach ($name in @($mi.Keys)) {
+		$m = $mi[$name]
+		if (-not $bi.Contains($name)) {
+			# Context menu / tooltip that come with an added element carry nothing of their own
+			if ($skipElements.ContainsKey($m.Node.LocalName) -and $m.Parent -and -not $bi.Contains($m.Parent) -and -not $m.HasKids) { continue }
+			$r.Elements += @{ Kind = 'added'; Rec = $m; Props = @(); Moved = $false; OldParent = '' }
+			continue
+		}
+		$b = $bi[$name]
+		$pm = Get-PropMap $m.Node; $pb = Get-PropMap $b.Node
+		$props = @()
+		foreach ($k in @($pm.Keys)) {
+			if (-not $pb.Contains($k)) { $props += @{ Key = $k; Old = $null; New = $pm[$k] } }
+			elseif ((Get-CmpKey $pm[$k] '') -cne (Get-CmpKey $pb[$k] '')) { $props += @{ Key = $k; Old = $pb[$k]; New = $pm[$k] } }
+		}
+		foreach ($k in @($pb.Keys)) { if (-not $pm.Contains($k)) { $props += @{ Key = $k; Old = $pb[$k]; New = $null } } }
+		$moved = $movedSet.ContainsKey($name.ToLower())
+		if ($props.Count -gt 0 -or $moved) {
+			$kind = if ($props.Count -gt 0) { 'changed' } else { 'moved' }
+			$r.Elements += @{ Kind = $kind; Rec = $m; Props = $props; Moved = $moved; OldParent = $b.Parent }
+		}
+		$baseEv = Get-EventKeySet (Get-EventList $b.Node)
+		foreach ($e in (Get-EventList $m.Node)) {
+			if (-not $baseEv.ContainsKey("$($e.Name)|$($e.CallType)".ToLower())) {
+				$r.Events += @{ Scope = $name; Name = $e.Name; CallType = $e.CallType; Handler = $e.Handler }
+			}
+		}
+	}
+	foreach ($name in @($bi.Keys)) { if (-not $mi.Contains($name)) { $r.Removed += $name } }
+
+	# Form events
+	$baseEv = Get-EventKeySet (Get-EventList $base)
+	foreach ($e in (Get-EventList $root)) {
+		if (-not $baseEv.ContainsKey("$($e.Name)|$($e.CallType)".ToLower())) {
+			$r.Events += @{ Scope = ''; Name = $e.Name; CallType = $e.CallType; Handler = $e.Handler }
+		}
+	}
+
+	# Attributes, commands, parameters added by the extension
+	foreach ($sec in @(@('Attributes', 'Attribute', 'Attributes'), @('Commands', 'Command', 'Commands'), @('Parameters', 'Parameter', 'Parameters'))) {
+		$mm = Get-SectionMap $root $sec[0] $sec[1]
+		$bm = Get-SectionMap $base $sec[0] $sec[1]
+		foreach ($nm in @($mm.Keys)) {
+			if ($bm.Contains($nm)) { continue }
+			$x = $mm[$nm]
+			$info = ''
+			$actions = @()
+			if ($sec[1] -eq 'Command') {
+				$acts = @()
+				foreach ($a in $x.SelectNodes("d:Action", $ns)) {
+					$ct = $a.GetAttribute('callType')
+					$actions += @{ Handler = $a.InnerText.Trim(); CallType = $ct }
+					$acts += $(if ($ct) { "$($a.InnerText.Trim())[$ct]" } else { $a.InnerText.Trim() })
+				}
+				if ($acts.Count -gt 0) { $info = " -> $($acts -join ', ')" }
+			} else {
+				$ft = Format-Type ($x.SelectSingleNode("d:Type", $ns))
+				if ($ft) { $info = ": $ft" }
+			}
+			$r[$sec[2]] += @{ Name = $nm; Info = $info; Actions = $actions }
+		}
+	}
+
+	# Whole blocks: conditional appearance, command interface
+	foreach ($blk in @(@('ConditionalAppearance', 'd:Attributes/d:ConditionalAppearance'), @('CommandInterface', 'd:CommandInterface'))) {
+		$mn = $root.SelectSingleNode($blk[1], $ns)
+		$bn = $base.SelectSingleNode($blk[1], $ns)
+		if ((Get-CmpKey $mn '') -cne (Get-CmpKey $bn '')) { $r.Blocks += @{ Name = $blk[0]; XPath = $blk[1]; Node = $mn } }
+	}
+
+	# Form properties
+	$pm = Get-PropMap $root -Root; $pb = Get-PropMap $base -Root
+	foreach ($k in @($pm.Keys)) {
+		if (-not $pb.Contains($k)) { $r.FormProps += @{ Key = $k; Old = $null; New = $pm[$k] } }
+		elseif ((Get-CmpKey $pm[$k] '') -cne (Get-CmpKey $pb[$k] '')) { $r.FormProps += @{ Key = $k; Old = $pb[$k]; New = $pm[$k] } }
+	}
+	foreach ($k in @($pb.Keys)) { if (-not $pm.Contains($k)) { $r.FormProps += @{ Key = $k; Old = $pb[$k]; New = $null } } }
+
+	$r.Total = $r.Elements.Count + $r.Removed.Count + $r.Attributes.Count + $r.Commands.Count + $r.Parameters.Count + $r.Events.Count + $r.FormProps.Count + $r.Blocks.Count
+	return $r
+}
+
+function Get-PropChangeText($p) {
+	$k = $p.Key
+	if ($null -eq $p.Old) { return "+$k=$(Get-PropDisplay $p.New)" }
+	if ($null -eq $p.New) { return "-$k" }
+	return "${k}: $(Get-PropDisplay $p.Old)→$(Get-PropDisplay $p.New)"
+}
+
+function Get-ElementBinding($node) {
+	$dp = $node.SelectSingleNode("d:DataPath", $ns)
+	if ($dp -and $dp.InnerText.Trim()) { return " -> $($dp.InnerText.Trim())" }
+	$cn = $node.SelectSingleNode("d:CommandName", $ns)
+	if ($cn -and $cn.InnerText.Trim() -and $cn.InnerText.Trim() -ne '0') { return " -> $($cn.InnerText.Trim())" }
+	return ''
+}
+
+function Get-EventsInline($node) {
+	$evs = @(Get-EventList $node)
+	if ($evs.Count -eq 0) { return '' }
+	$parts = @($evs | ForEach-Object { if ($_.CallType) { "$($_.Name)[$($_.CallType)]" } else { $_.Name } })
+	return " {$($parts -join ', ')}"
+}
+
+function Get-MoveText($ch) {
+	$rec = $ch.Rec
+	$after = if ($rec.Pos -gt 0) { $rec.Siblings[$rec.Pos - 1] } else { '' }
+	$pos = if ($after) { "after: $after" } else { 'first' }
+	if ($rec.Parent -ine $ch.OldParent) {
+		$to = if ($rec.Parent) { $rec.Parent } else { '(form)' }
+		return "moved to $to ($pos)"
+	}
+	return "moved ($pos)"
+}
+
+# One line per element change, in form-info notation
+function Get-ElementChangeText($ch) {
+	$rec = $ch.Rec
+	$tag = Get-ElementTag $rec.Node
+	if ($ch.Kind -eq 'added') {
+		$after = if ($rec.Pos -gt 0) { " (after: $($rec.Siblings[$rec.Pos - 1]))" } else { " (first)" }
+		return "+ $tag $($rec.Name)$(Get-ElementBinding $rec.Node)$after$(Get-EventsInline $rec.Node)"
+	}
+	$parts = @($ch.Props | ForEach-Object { Get-PropChangeText $_ })
+	if ($ch.Moved) { $parts += (Get-MoveText $ch) }
+	$mark = if ($ch.Kind -eq 'changed') { '~' } else { '>' }
+	return "$mark $tag $($rec.Name): $($parts -join '; ')"
+}
+
+function Get-EventText($e) {
+	$ct = if ($e.CallType) { "[$($e.CallType)]" } else { '' }
+	$scope = if ($e.Scope) { "$($e.Scope)." } else { '' }
+	return "$scope$($e.Name)$ct -> $($e.Handler)"
+}
+
+function Get-FormDiffHeadline($diff, [string]$label) {
+	if ($diff.Total -eq 0) { return "$label (borrowed, unchanged)" }
+	$added = @($diff.Elements | Where-Object { $_.Kind -eq 'added' }).Count
+	$changed = $diff.Elements.Count - $added
+	$parts = @()
+	if ($added) { $parts += "+$(Get-Plural $added 'element')" }
+	if ($changed) { $parts += "~$(Get-Plural $changed 'element')" }
+	if ($diff.Attributes.Count) { $parts += "+$(Get-Plural $diff.Attributes.Count 'attribute')" }
+	if ($diff.Commands.Count) { $parts += "+$(Get-Plural $diff.Commands.Count 'command')" }
+	if ($diff.Parameters.Count) { $parts += "+$(Get-Plural $diff.Parameters.Count 'parameter')" }
+	if ($diff.Events.Count) { $parts += (Get-Plural $diff.Events.Count 'event') }
+	if ($diff.FormProps.Count) { $parts += (Get-Plural $diff.FormProps.Count 'form property') -replace 'propertys$', 'properties' }
+	foreach ($b in $diff.Blocks) { $parts += "~$($b.Name)" }
+	if ($diff.Removed.Count) { $parts += "!$($diff.Removed.Count) removed" }
+	return "$label (borrowed): $($parts -join ', ')"
+}
+
+# Overview rendering: changed elements as a tree with their ancestors for context
+function Format-FormDiff($diff, [string]$label, [string]$ind) {
+	$lines = @()
+	$lines += "$ind$(Get-FormDiffHeadline $diff $label)"
+	if ($diff.Total -eq 0) { return $lines }
+	if ($diff.Elements.Count -gt 0) {
+		$lines += "$ind  Elements:"
+		$printed = @()
+		foreach ($ch in $diff.Elements) {
+			$anc = @($ch.Rec.Ancestors)
+			$common = 0
+			while ($common -lt $anc.Count -and $common -lt $printed.Count -and $anc[$common] -ieq $printed[$common]) { $common++ }
+			for ($d = $common; $d -lt $anc.Count; $d++) {
+				$an = $diff.MainIndex[$anc[$d]].Node
+				$lines += "$ind    $('  ' * $d)$(Get-ElementTag $an) $($anc[$d])"
+			}
+			$lines += "$ind    $('  ' * $anc.Count)$(Get-ElementChangeText $ch)"
+			$printed = @($anc) + $ch.Rec.Name
+		}
+	}
+	foreach ($sec in @(@('Attributes', 'Attributes'), @('Commands', 'Commands'), @('Parameters', 'Parameters'))) {
+		if ($diff[$sec[0]].Count -eq 0) { continue }
+		$lines += "$ind  $($sec[1]):"
+		foreach ($x in $diff[$sec[0]]) { $lines += "$ind    + $($x.Name)$($x.Info)" }
+	}
+	if ($diff.Events.Count -gt 0) {
+		$lines += "$ind  Events:"
+		foreach ($e in $diff.Events) { $lines += "$ind    $(Get-EventText $e)" }
+	}
+	if ($diff.FormProps.Count -gt 0 -or $diff.Blocks.Count -gt 0) {
+		$lines += "$ind  Form:"
+		foreach ($p in $diff.FormProps) { $lines += "$ind    ~ $(Get-PropChangeText $p)" }
+		foreach ($b in $diff.Blocks) { $lines += "$ind    ~ $($b.Name) changed" }
+	}
+	if ($diff.Removed.Count -gt 0) { $lines += "$ind  ! removed (unexpected): $($diff.Removed -join ', ')" }
+	return $lines
+}
+
+# Transfer check of a form diff against the form of the main configuration
+function Get-FormTransferItems($diff, $form, [string]$cfgFormXml, [string]$cfgModulePath, [string]$extDir, [string]$prefix) {
+	$items = @()
+	$group = $form.Label
+	$cfgDoc = Read-FormDoc $cfgFormXml
+	if (-not $cfgDoc) {
+		$items += New-Item2 'MISSING_IN_CONFIG' "form not found in config ($($diff.Total) changes)" '' $group
+		return $items
+	}
+	$cr = $cfgDoc.DocumentElement
+	$ci = Get-FormElementIndex $cr
+	$cNames = @($ci.Keys)
+	$asText = { param($found, $orig) if ($found -and $found -ine $orig) { " (found as $found)" } else { '' } }
+
+	foreach ($ch in $diff.Elements) {
+		$rec = $ch.Rec
+		$tag = Get-ElementTag $rec.Node
+		$hit = Find-NameIn $cNames $rec.Name $prefix
+		if ($ch.Kind -eq 'added') {
+			$in = if ($rec.Parent) { " (in: $($rec.Parent))" } else { '' }
+			$st = if ($hit) { 'TRANSFERRED' } else { 'NOT_TRANSFERRED' }
+			$items += New-Item2 $st "+ $tag $($rec.Name)$in$(& $asText $hit $rec.Name)" '' $group
+			continue
+		}
+		if ($ch.Props.Count -gt 0) {
+			$keys = @($ch.Props | ForEach-Object { $_.Key })
+			if (-not $hit) {
+				$items += New-Item2 'NOT_TRANSFERRED' "~ $tag $($rec.Name): $($keys -join ', ') (element not in config)" '' $group
+			} else {
+				$cpm = Get-PropMap $ci[$hit].Node
+				$ok = 0
+				foreach ($p in $ch.Props) {
+					if ($null -eq $p.New) { if (-not $cpm.Contains($p.Key)) { $ok++ } }
+					elseif ($cpm.Contains($p.Key) -and ((Get-CmpKey $cpm[$p.Key] $prefix) -ieq (Get-CmpKey $p.New $prefix))) { $ok++ }
+				}
+				$n = $ch.Props.Count
+				$st = if ($ok -eq $n) { 'TRANSFERRED' } elseif ($ok -eq 0) { 'NOT_TRANSFERRED' } else { 'PARTIAL' }
+				$cnt = if ($st -eq 'PARTIAL') { " ($ok/$n props)" } else { '' }
+				$items += New-Item2 $st "~ $tag $($rec.Name): $($keys -join ', ')$cnt" '' $group
+			}
+		}
+		if ($ch.Moved) {
+			$st = 'NOT_TRANSFERRED'
+			if ($hit) {
+				$crec = $ci[$hit]
+				$sameParent = ((Remove-ExtPrefix $crec.Parent $prefix) -ieq (Remove-ExtPrefix $rec.Parent $prefix))
+				$want = Get-PrevKnown $rec $cNames $prefix
+				$have = Get-PrevKnown $crec @($diff.MainIndex.Keys) $prefix
+				$haveMapped = if ($have) { Find-NameIn $cNames $have $prefix } else { '' }
+				if ($sameParent -and ($want -ieq $haveMapped)) { $st = 'TRANSFERRED' }
+			}
+			$items += New-Item2 $st "> $tag $($rec.Name): $(Get-MoveText $ch)" '' $group
+		}
+	}
+
+	# Interceptor of a handler: the extension's handler code looked up in the configuration's one
+	$extMod = Read-BslLines $form.Module
+	$cfgMod = Read-BslLines $cfgModulePath
+	$modRel = if ($form.Module -and (Test-Path -LiteralPath $form.Module)) { Get-RelPath $extDir $form.Module } else { '' }
+	$checkHandler = {
+		param([string]$label, [string]$extHandler, [string]$cfgHandler, [string]$missing)
+		$extM = Get-MethodSafe $extMod $extHandler
+		$loc = if ($extM -and $modRel) { "${modRel}:$($extM.DeclIdx + 1)" } else { '' }
+		if (-not $cfgHandler) { return (New-Item2 'NOT_TRANSFERRED' "$label ($missing)" $loc $group) }
+		$cfgM = Get-MethodSafe $cfgMod $cfgHandler
+		if (-not $extM) { return (New-Item2 'NOT_TRANSFERRED' "$label (handler not found in extension module)" $loc $group) }
+		if (-not $cfgM) { return (New-Item2 'NOT_TRANSFERRED' "$label (config handler $cfgHandler not found in module)" $loc $group) }
+		$h = Get-HeuristicTransfer $extM $cfgM $prefix
+		if (-not $h) { return $null }
+		return (New-Item2 (Get-HeuristicStatus $h) "$label (heuristic: $($h.Found)/$($h.Total) lines)" $loc $group)
+	}
+
+	foreach ($sec in @(@('Attributes', 'Attribute', 'attribute'), @('Commands', 'Command', 'command'), @('Parameters', 'Parameter', 'parameter'))) {
+		if ($diff[$sec[0]].Count -eq 0) { continue }
+		$cm = Get-SectionMap $cr $sec[0] $sec[1]
+		$cn = @($cm.Keys)
+		foreach ($x in $diff[$sec[0]]) {
+			# A configuration command the extension intercepts (its action carries callType): the base
+			# form keeps no commands, so "absent from BaseForm" alone does not make it the extension's own
+			$ctActs = @($x.Actions | Where-Object { $_.CallType })
+			if ($sec[1] -eq 'Command' -and $ctActs.Count -gt 0 -and $cm.Contains($x.Name)) {
+				$cfgAct = $cm[$x.Name].SelectSingleNode("d:Action", $ns)
+				$cfgHandler = if ($cfgAct) { $cfgAct.InnerText.Trim() } else { '' }
+				foreach ($a in $ctActs) {
+					$it = & $checkHandler "command $($x.Name)[$($a.CallType)] -> $($a.Handler)" $a.Handler $cfgHandler "no action of $($x.Name) in config"
+					if ($it) { $items += $it }
+				}
+				continue
+			}
+			$hit = Find-NameIn $cn $x.Name $prefix
+			$st = if ($hit) { 'TRANSFERRED' } else { 'NOT_TRANSFERRED' }
+			$items += New-Item2 $st "+ $($sec[2]) $($x.Name)$($x.Info)$(& $asText $hit $x.Name)" '' $group
+		}
+	}
+
+	if ($diff.FormProps.Count -gt 0) {
+		$cpm = Get-PropMap $cr -Root
+		foreach ($p in $diff.FormProps) {
+			$ok = if ($null -eq $p.New) { -not $cpm.Contains($p.Key) } else { $cpm.Contains($p.Key) -and ((Get-CmpKey $cpm[$p.Key] $prefix) -ieq (Get-CmpKey $p.New $prefix)) }
+			$st = if ($ok) { 'TRANSFERRED' } else { 'NOT_TRANSFERRED' }
+			$items += New-Item2 $st "~ form $(Get-PropChangeText $p)" '' $group
+		}
+	}
+	foreach ($b in $diff.Blocks) {
+		$cnode = $cr.SelectSingleNode($b.XPath, $ns)
+		$st = if ((Get-CmpKey $cnode $prefix) -ieq (Get-CmpKey $b.Node $prefix)) { 'TRANSFERRED' } else { 'NOT_TRANSFERRED' }
+		$items += New-Item2 $st "~ $($b.Name)" '' $group
+	}
+
+	foreach ($e in $diff.Events) {
+		$target = $null
+		if ($e.Scope) {
+			$hit = Find-NameIn $cNames $e.Scope $prefix
+			if ($hit) { $target = $ci[$hit].Node }
+		} else { $target = $cr }
+		$cfgHandler = ''
+		if ($target) { foreach ($ce in (Get-EventList $target)) { if ($ce.Name -ieq $e.Name) { $cfgHandler = $ce.Handler; break } } }
+		$it = & $checkHandler "event $(Get-EventText $e)" $e.Handler $cfgHandler "no $($e.Name) handler in config"
+		if ($it) { $items += $it }
+	}
+	return $items
+}
+
+# Handlers bound with callType (events, command actions): they are interceptors, not own methods
+function Get-CallTypeHandlers($diff) {
+	$s = @{}
+	if ($diff) {
+		foreach ($e in $diff.Events) { if ($e.Handler) { $s[$e.Handler.ToLower()] = $true } }
+		foreach ($c in $diff.Commands) { foreach ($a in $c.Actions) { if ($a.CallType -and $a.Handler) { $s[$a.Handler.ToLower()] = $true } } }
+	}
+	return $s
+}
+
+# ============================================================
+# Transfer check of one object
+# ============================================================
+
+function Get-ModuleTransferItems([string]$bsl, [string]$extDir, [string]$prefix, $skipHandlers) {
+	$items = @()
+	$extLines = Read-BslLines $bsl
+	if ($null -eq $extLines) { return $items }
+	$rel = Get-RelPath $extDir $bsl
+	$cfgLines = Read-BslLines (Join-Path $ConfigPath $rel)
+	$icProcs = @{}
+	foreach ($ic in @(Get-Interceptors $extLines)) {
+		$decl = Find-DeclAfter $extLines $ic.Line
+		if ($decl) { $icProcs[$decl.Name.ToLower()] = $true }
+		$label = "&$($ic.Raw)(`"$($ic.Method)`")"
+		$loc = "${rel}:$($ic.Line + 1)"
+		$cfgM = Get-MethodSafe $cfgLines $ic.Method
+		if (-not $cfgM) {
+			$why = if ($null -eq $cfgLines) { 'module not found in config' } else { 'method not found in config' }
+			$items += New-Item2 'MISSING_IN_CONFIG' "$label ($why)" $loc
+			continue
+		}
+		$extM = if ($decl) { Get-MethodSafe $extLines $decl.Name } else { $null }
+		if (-not $extM) { $items += New-Item2 'DIVERGED' "$label (cannot parse the interceptor)" $loc; continue }
+		if ($ic.Type -eq 'ИзменениеИКонтроль') {
+			$r = Get-ControlTransfer $extM $cfgM $prefix
+			if (-not $r) { continue }
+			$note = if ($r.Note) { " ($($r.Note))" } else { '' }
+			$items += New-Item2 $r.Status "$label — $($r.Count)$note" $loc
+		} else {
+			$h = Get-HeuristicTransfer $extM $cfgM $prefix
+			if (-not $h) { continue }
+			$items += New-Item2 (Get-HeuristicStatus $h) "$label (heuristic: $($h.Found)/$($h.Total) lines)" $loc
+		}
+	}
+	$cfgNames = if ($null -ne $cfgLines) { @(Get-ProcNames $cfgLines) } else { @() }
+	foreach ($pn in @(Get-ProcNames $extLines)) {
+		if ($icProcs.ContainsKey($pn.ToLower()) -or $skipHandlers.ContainsKey($pn.ToLower())) { continue }
+		$extM = Get-MethodSafe $extLines $pn
+		if (-not $extM) { continue }
+		$loc = "${rel}:$($extM.DeclIdx + 1)"
+		$hit = Find-NameIn $cfgNames $pn $prefix
+		if (-not $hit) { $items += New-Item2 'NOT_TRANSFERRED' "method $pn" $loc; continue }
+		$as = if ($hit -ine $pn) { " (found as $hit)" } else { '' }
+		$cfgM = Get-MethodSafe $cfgLines $hit
+		$same = $cfgM -and (((Get-SigLines $extM.BodyLines $prefix) -join "`n") -ieq ((Get-SigLines $cfgM.BodyLines $prefix) -join "`n"))
+		if ($same) { $items += New-Item2 'TRANSFERRED' "method $pn$as" $loc }
+		else { $items += New-Item2 'DIVERGED' "method $pn$as (body differs)" $loc }
+	}
+	return $items
+}
+
+# Own sub-objects of a borrowed object (attributes, tabular sections, commands, forms, templates, …)
+function Get-OwnChildItems($ctx, $cfgMd, [string]$prefix) {
+	$items = @()
+	if (-not $ctx.Md -or -not $ctx.Md.Children) { return $items }
+	$mns = $ctx.Md.Ns
+	$cfgKids = @()
+	if ($cfgMd -and $cfgMd.Children) { foreach ($c in $cfgMd.Children.ChildNodes) { if ($c.NodeType -eq 'Element') { $cfgKids += $c } } }
+	$check = {
+		param($node, [string]$label, $cfgPool, [string]$path)
+		$nm = Get-MdChildName $node $mns
+		$cands = @($cfgPool | Where-Object { $_.LocalName -eq $node.LocalName })
+		$hit = Find-NameIn @($cands | ForEach-Object { Get-MdChildName $_ $cfgMd.Ns }) $nm $prefix
+		$full = if ($path) { "$path.$nm" } else { $nm }
+		if (-not $hit) { return (New-Item2 'NOT_TRANSFERRED' "$label $full") }
+		$as = if ($hit -ine $nm) { " (found as $hit)" } else { '' }
+		if ($node.SelectSingleNode("md:Properties/md:Type", $mns)) {
+			$cnode = @($cands | Where-Object { (Get-MdChildName $_ $cfgMd.Ns) -ieq $hit })[0]
+			$a = Get-MdTypeKey $node $mns $prefix; $b = Get-MdTypeKey $cnode $cfgMd.Ns $prefix
+			if ($a -ine $b) { return (New-Item2 'DIVERGED' "$label $full$as (type: $a vs $b in config)") }
+		}
+		return (New-Item2 'TRANSFERRED' "$label $full$as")
+	}
+	foreach ($c in $ctx.Md.Children.ChildNodes) {
+		if ($c.NodeType -ne 'Element') { continue }
+		if (-not (Test-HasElementChild $c)) {
+			# <Form>Имя</Form>, <Template>Имя</Template>: ownership is in the sub-object descriptor
+			$nm = $c.InnerText.Trim()
+			$desc = Read-MdObject (Join-Path (Join-Path $ctx.ObjDir "$($c.LocalName)s") "$nm.xml")
+			if ($desc -and (Test-AdoptedNode $desc.Props $desc.Ns)) { continue }
+			$hit = Find-NameIn @($cfgKids | Where-Object { $_.LocalName -eq $c.LocalName } | ForEach-Object { $_.InnerText.Trim() }) $nm $prefix
+			$as = if ($hit -and $hit -ine $nm) { " (found as $hit)" } else { '' }
+			$st = if ($hit) { 'TRANSFERRED' } else { 'NOT_TRANSFERRED' }
+			$items += New-Item2 $st "$(Get-KindWord $c.LocalName) $nm$as"
+			continue
+		}
+		if (-not (Test-AdoptedNode $c $mns)) {
+			$items += (& $check $c (Get-KindWord $c.LocalName) $cfgKids '')
+			continue
+		}
+		# Borrowed tabular section: its own attributes
+		$sub = $c.SelectSingleNode("md:ChildObjects", $mns)
+		if (-not $sub) { continue }
+		$tsName = Get-MdChildName $c $mns
+		$cfgTs = @($cfgKids | Where-Object { $_.LocalName -eq $c.LocalName -and (Get-MdChildName $_ $cfgMd.Ns) -ieq $tsName })[0]
+		$cfgSub = @()
+		if ($cfgTs) { $cs = $cfgTs.SelectSingleNode("md:ChildObjects", $cfgMd.Ns); if ($cs) { foreach ($x in $cs.ChildNodes) { if ($x.NodeType -eq 'Element') { $cfgSub += $x } } } }
+		foreach ($sc in $sub.ChildNodes) {
+			if ($sc.NodeType -ne 'Element' -or (Test-AdoptedNode $sc $mns)) { continue }
+			$items += (& $check $sc (Get-KindWord $sc.LocalName) $cfgSub $tsName)
+		}
+	}
+	return $items
+}
+
+function Get-TransferObject($ext, $obj) {
+	$ctx = Get-ObjContext $ext.Dir $obj.Type $obj.Name
+	$rec = @{ Id = "$($obj.Type).$($obj.Name)"; Items = @() }
+	if (-not $ctx.Known -or -not $ctx.Exists) { return $rec }
+	$prefix = $ext.Prefix
+	if (-not $ctx.Borrowed) {
+		$pool = @()
+		if ($cfgInfo.ChildObjects) { foreach ($c in $cfgInfo.ChildObjects.ChildNodes) { if ($c.NodeType -eq 'Element' -and $c.LocalName -eq $obj.Type) { $pool += $c.InnerText.Trim() } } }
+		$hit = Find-NameIn $pool $obj.Name $prefix
+		$as = if ($hit -and $hit -ine $obj.Name) { " (found as $hit)" } else { '' }
+		$st = if ($hit) { 'TRANSFERRED' } else { 'NOT_TRANSFERRED' }
+		$rec.Items += New-Item2 $st "own object$as"
+		return $rec
+	}
+	$cfgFile = Join-Path (Join-Path $ConfigPath $ctx.Dir) "$($obj.Name).xml"
+	$cfgMd = Read-MdObject $cfgFile
+	$forms = @(Get-ObjForms $ctx)
+	$diffs = @{}
+	$formItems = @()
+	foreach ($f in $forms) {
+		if ($f.Own) { continue }
+		$d = Get-FormDiff $f.Xml
+		if (-not $d -or -not $d.IsBorrowed) { continue }
+		$diffs[[IO.Path]::GetFullPath($f.Module)] = $d
+		if ($d.Total -eq 0) { continue }
+		$rel = Get-RelPath $ext.Dir $f.Xml
+		$cfgForm = Join-Path $ConfigPath $rel
+		$cfgModule = Join-Path $ConfigPath (Get-RelPath $ext.Dir $f.Module)
+		$formItems += @(Get-FormTransferItems $d $f $cfgForm $cfgModule $ext.Dir $prefix)
+	}
+	foreach ($bsl in @(Get-ObjModules $ctx $forms)) {
+		$skip = @{}
+		$key = [IO.Path]::GetFullPath($bsl)
+		if ($diffs.ContainsKey($key)) { $skip = Get-CallTypeHandlers $diffs[$key] }
+		$rec.Items += @(Get-ModuleTransferItems $bsl $ext.Dir $prefix $skip)
+	}
+	$rec.Items += @(Get-OwnChildItems $ctx $cfgMd $prefix)
+	$rec.Items += $formItems
+	if (-not $cfgMd -and $rec.Items.Count -gt 0) {
+		$rec.Items = @(New-Item2 'MISSING_IN_CONFIG' "object not found in config ($(Get-Plural $rec.Items.Count 'change'))")
+	}
+	return $rec
+}
+
+# ============================================================
+# Overview of one object
+# ============================================================
+
+function Get-OverviewObject($ext, $obj) {
+	$id = "$($obj.Type).$($obj.Name)"
+	$ctx = Get-ObjContext $ext.Dir $obj.Type $obj.Name
+	if (-not $ctx.Known) { return @{ Id = $id; Kind = '?'; Summary = "[?]          $id — unknown type"; Details = @() } }
+	if (-not $ctx.Exists) { return @{ Id = $id; Kind = '?'; Summary = "[?]          $id — file not found"; Details = @() } }
+	$ind = '    '
+	$details = @()
+	if (-not $ctx.Borrowed) {
+		$parts = @()
+		if ($ctx.Md.Children) {
+			$cnt = [ordered]@{}
+			foreach ($c in $ctx.Md.Children.ChildNodes) {
+				if ($c.NodeType -ne 'Element') { continue }
+				$w = Get-KindWord $c.LocalName
+				if ($cnt.Contains($w)) { $cnt[$w]++ } else { $cnt[$w] = 1 }
+			}
+			foreach ($w in @($cnt.Keys)) { $parts += (Get-Plural $cnt[$w] $w) }
+		}
+		$tail = if ($parts.Count) { " — $($parts -join ', ')" } else { '' }
+		return @{ Id = $id; Kind = 'own'; Summary = "[OWN]        $id$tail"; Details = @() }
+	}
+
+	$forms = @(Get-ObjForms $ctx)
+	$diffs = @{}
+	$formModules = @{}
+	foreach ($f in $forms) {
+		if ($f.Own) { continue }
+		$d = Get-FormDiff $f.Xml
+		if ($d -and $d.IsBorrowed) { $diffs[$f.Label] = $d; if ($d.Total -gt 0) { $formModules[[IO.Path]::GetFullPath($f.Module)] = $true } }
+	}
+
+	# Modules and interceptors
+	$icCount = 0
+	foreach ($bsl in @(Get-ObjModules $ctx $forms)) {
+		$rel = Get-RelPath $ext.Dir $bsl
+		$lines = Read-BslLines $bsl
+		$ics = @(Get-Interceptors $lines)
+		$icCount += $ics.Count
+		if ($ics.Count -eq 0) {
+			# A changed borrowed form binds its handlers in Form.xml — they are listed with the form
+			if (-not $formModules.ContainsKey([IO.Path]::GetFullPath($bsl))) { $details += "$ind$rel (no interceptors)" }
+			continue
+		}
+		foreach ($ic in $ics) { $details += "$ind&$($ic.Raw)(`"$($ic.Method)`") — line $($ic.Line + 1) in $rel" }
+	}
+
+	# Own and borrowed sub-objects
+	$own = [ordered]@{}; $borrowedItems = 0
+	if ($ctx.Md.Children) {
+		foreach ($c in $ctx.Md.Children.ChildNodes) {
+			if ($c.NodeType -ne 'Element') { continue }
+			if (-not (Test-HasElementChild $c)) {
+				$desc = Read-MdObject (Join-Path (Join-Path $ctx.ObjDir "$($c.LocalName)s") "$($c.InnerText.Trim()).xml")
+				$isOwn = -not ($desc -and (Test-AdoptedNode $desc.Props $desc.Ns))
+			} else { $isOwn = -not (Test-AdoptedNode $c $ctx.Md.Ns) }
+			if (-not $isOwn) { $borrowedItems++; continue }
+			$w = Get-KindWord $c.LocalName
+			if ($own.Contains($w)) { $own[$w]++ } else { $own[$w] = 1 }
+		}
+	}
+	$ownParts = @(@($own.Keys) | ForEach-Object { "own $(Get-Plural $own[$_] $_)" })
+	$cp = @($ownParts)
+	if ($borrowedItems -gt 0) { $cp += (Get-Plural $borrowedItems 'borrowed item') }
+	if ($cp.Count -gt 0) { $details += "${ind}ChildObjects: $($cp -join ', ')" }
+
+	# Forms
+	$changedForms = 0; $unchangedForms = 0
+	foreach ($f in $forms) {
+		if ($f.Own) { if ($ctx.Type -ne 'CommonForm') { $details += "$ind$($f.Label) (own)" }; continue }
+		if (-not $diffs.ContainsKey($f.Label)) { $details += "$ind$($f.Label) (?)"; continue }
+		$d = $diffs[$f.Label]
+		if ($d.Total -eq 0) { $unchangedForms++ } else { $changedForms++ }
+		$details += @(Format-FormDiff $d $f.Label $ind)
+	}
+
+	$sp = @()
+	if ($icCount) { $sp += (Get-Plural $icCount 'interceptor') }
+	$sp += $ownParts
+	if ($changedForms) { $sp += "$(Get-Plural $changedForms 'form') changed" }
+	if ($unchangedForms) { $sp += "$(Get-Plural $unchangedForms 'form') unchanged" }
+	$tail = if ($sp.Count) { " — $($sp -join ', ')" } else { '' }
+	return @{ Id = $id; Kind = 'borrowed'; Summary = "[BORROWED]   $id$tail"; Details = $details }
+}
+
+# ============================================================
+# Run
+# ============================================================
+
+function Test-NameMatch([string]$id) {
+	if ($nameFilter.Count -eq 0) { return $true }
+	foreach ($f in $nameFilter) {
+		if ($id -ieq $f) { return $true }
+		if ($f -notmatch '\.' -and $id.Substring($id.IndexOf('.') + 1) -ieq $f) { return $true }
+	}
+	return $false
+}
+
+$statusOrder = @('TRANSFERRED', 'NOT_TRANSFERRED', 'PARTIAL', 'DIVERGED', 'MISSING_IN_CONFIG')
+function Format-Status([string]$st) { return ("[$st]").PadRight(21) }
+
+$exts = @()
+$matchedIds = @{}
+foreach ($dir in $extDirs) {
+	$cp = Read-ConfigurationProps $dir
+	$ext = @{ Dir = $dir; Name = $cp.Name; Prefix = $cp.Prefix; Purpose = $cp.Purpose; Objects = @(); Roles = 0; Borrowed = 0; Own = 0; Matched = 0 }
+	if ($cp.ChildObjects) {
+		foreach ($child in $cp.ChildObjects.ChildNodes) {
+			if ($child.NodeType -ne 'Element' -or $child.LocalName -eq 'Language') { continue }
+			$obj = @{ Type = $child.LocalName; Name = $child.InnerText.Trim() }
+			$id = "$($obj.Type).$($obj.Name)"
+			if (-not (Test-NameMatch $id)) { continue }
+			$matchedIds[$id.ToLower()] = $true
+			$ext.Matched++
+			if ($Mode -eq 'transfer') {
+				if ($obj.Type -eq 'Role') { $ext.Roles++; continue }
+				$rec = Get-TransferObject $ext $obj
+				if ($rec.Items.Count -eq 0) { continue }
+				$sts = @($rec.Items | ForEach-Object { $_.Status } | Select-Object -Unique)
+				$rec.Status = if ($sts.Count -eq 1) { $sts[0] } else { 'PARTIAL' }
+				$done = @($rec.Items | Where-Object { $_.Status -eq 'TRANSFERRED' }).Count
+				$rec.Complete = ($done -eq $rec.Items.Count)
+				$tail = if ($rec.Complete) { Get-Plural $rec.Items.Count 'change' } else { "$(Get-Plural $rec.Items.Count 'change'): $done transferred, $($rec.Items.Count - $done) remaining" }
+				$rec.Summary = "$(Format-Status $rec.Status)$($rec.Id) — $tail"
+				$det = @()
+				foreach ($it in @($rec.Items | Where-Object { -not $_.Group })) {
+					$loc = if ($it.Loc) { "  $($it.Loc)" } else { '' }
+					$det += "    $(Format-Status $it.Status)$($it.Text)$loc"
+				}
+				foreach ($g in @($rec.Items | Where-Object { $_.Group } | ForEach-Object { $_.Group } | Select-Object -Unique)) {
+					$det += "    ${g}:"
+					foreach ($it in @($rec.Items | Where-Object { $_.Group -eq $g })) {
+						$loc = if ($it.Loc) { "  $($it.Loc)" } else { '' }
+						$det += "      $(Format-Status $it.Status)$($it.Text)$loc"
+					}
+				}
+				$rec.Details = $det
+				$ext.Objects += $rec
+			} else {
+				$rec = Get-OverviewObject $ext $obj
+				if ($rec.Kind -eq 'borrowed') { $ext.Borrowed++ } elseif ($rec.Kind -eq 'own') { $ext.Own++ }
+				$ext.Objects += $rec
+			}
+		}
+	}
+	# -Name narrows the report: an extension without a matching object stays out of it
+	if ($nameFilter.Count -gt 0 -and $ext.Matched -eq 0) { continue }
+	$exts += $ext
+}
+
+# --- Detail decision ---
+$fullCount = 0
+foreach ($ext in $exts) {
+	$fullCount += 3
+	foreach ($o in $ext.Objects) {
+		$fullCount += 1
+		if ($Mode -eq 'overview' -or -not $o.Complete) { $fullCount += $o.Details.Count }
+	}
+}
+$showDetails = ($nameFilter.Count -gt 0) -or ($fullCount -le $DetailBudget)
+
+# --- Body ---
+$body = @()
+foreach ($ext in $exts) {
+	$target = if ($Mode -eq 'transfer') { " -> $($cfgInfo.Name)" } else { '' }
+	$body += "=== cfe-diff ${Mode}: $($ext.Name) ($($ext.Purpose))$target ==="
+	if ($ext.Prefix) { $body += "NamePrefix: $($ext.Prefix)" }
+	$body += ""
+	$shown = 0
+	foreach ($o in $ext.Objects) {
+		if ($Mode -eq 'transfer' -and $o.Complete -and -not $showDetails) { continue }
+		$body += $o.Summary
+		$shown++
+		if ($showDetails -and ($Mode -eq 'overview' -or -not $o.Complete)) { $body += $o.Details }
+	}
+	if ($shown -eq 0) {
+		if ($Mode -eq 'overview') { $body += "No objects (besides Language) in extension." }
+		elseif ($ext.Objects.Count -gt 0) { $body += "All changes transferred." }
+		else { $body += "No changes to transfer." }
+	}
+	$body += ""
+}
+
+# --- Footer: always printed, after the body (output is often read from its tail) ---
+$footer = @()
+$failed = $false
+$extDone = 0; $extLeft = 0; $leftTotal = 0
+foreach ($ext in $exts) {
+	if ($Mode -eq 'transfer') {
+		$all = @($ext.Objects | ForEach-Object { $_.Items } | ForEach-Object { $_ })
+		$rolesNote = if ($ext.Roles) { " · $(Get-Plural $ext.Roles 'role'), not checked" } else { '' }
+		if ($all.Count -eq 0) {
+			$footer += "=== Summary $($ext.Name): no changes to transfer$rolesNote ==="
+			$extDone++
+			continue
+		}
+		$cnt = @{}
+		foreach ($s in $statusOrder) { $cnt[$s] = @($all | Where-Object { $_.Status -eq $s }).Count }
+		$parts = @("$($cnt['TRANSFERRED']) transferred")
+		foreach ($s in $statusOrder[1..4]) { if ($cnt[$s]) { $parts += "$($cnt[$s]) $($s.ToLower().Replace('_', ' '))" } }
+		$footer += "=== Summary $($ext.Name): $(Get-Plural $all.Count 'change') — $($parts -join ', ')$rolesNote ==="
+		$left = $all.Count - $cnt['TRANSFERRED']
+		if ($left -gt 0) {
+			$failed = $true; $extLeft++; $leftTotal += $left
+			$ids = @($ext.Objects | Where-Object { -not $_.Complete } | ForEach-Object { $_.Id })
+			$shown = @($ids | Select-Object -First 10)
+			$more = if ($ids.Count -gt 10) { ", …+$($ids.Count - 10)" } else { '' }
+			$footer += "Remaining: $($shown -join ', ')$more"
+		} else { $extDone++ }
+	} else {
+		$footer += "=== Summary $($ext.Name): $($ext.Borrowed) borrowed, $($ext.Own) own objects ==="
+	}
+}
+if ($Mode -eq 'transfer' -and $exts.Count -gt 1) {
+	$tail = if ($extLeft) { ", $extLeft with $leftTotal remaining" } else { '' }
+	$footer += "=== Total: $($exts.Count) extensions — $extDone complete$tail ==="
+}
+foreach ($f in $nameFilter) {
+	$hit = $false
+	foreach ($k in $matchedIds.Keys) { if ($k -eq $f.ToLower() -or ($f -notmatch '\.' -and $k.Substring($k.IndexOf('.') + 1) -eq $f.ToLower())) { $hit = $true; break } }
+	if (-not $hit) { $footer += "[INFO] -Name: no object matches '$f'" }
+}
+if (-not $showDetails) {
+	$footer += "Details omitted ($fullCount lines in full). Use -Name <Type.Name>[,<Type.Name>] for item details."
+}
+
+# --- Pagination of the body; the footer stays ---
+$total = $body.Count
+$out = @()
+if ($Offset -gt 0 -and $Offset -ge $total) {
+	$out += "[INFO] Offset $Offset exceeds total lines ($total)."
+} else {
+	$end = [Math]::Min($total, $Offset + $Limit)
+	if ($end -gt $Offset) { $out += $body[$Offset..($end - 1)] }
+	if ($end -lt $total) { $out += "[TRUNCATED] Shown $($end - $Offset) of $total lines. Use -Offset $end to continue."; $out += "" }
+}
+$out += $footer
+
+if ($OutFile) {
+	if (-not [System.IO.Path]::IsPathRooted($OutFile)) { $OutFile = Join-Path (Get-Location).ProviderPath $OutFile }
+	[System.IO.File]::WriteAllLines($OutFile, [string[]]$out, (New-Object System.Text.UTF8Encoding($true)))
+	Write-Host "Output written to $OutFile"
+} else {
+	foreach ($l in $out) { Write-Host $l }
+}
+
+if ($Mode -eq 'transfer' -and $failed) { exit 1 }
+exit 0

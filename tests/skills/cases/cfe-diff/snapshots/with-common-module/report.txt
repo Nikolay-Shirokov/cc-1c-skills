@@ -1,0 +1,8 @@
+=== cfe-diff overview: Тест (Customization) ===
+NamePrefix: Тест_
+
+[OWN]        Role.Тест_ОсновнаяРоль
+[BORROWED]   CommonModule.ОбщийМодуль1
+    CommonModules/ОбщийМодуль1/Ext/Module.bsl (no interceptors)
+
+=== Summary Тест: 1 borrowed, 1 own objects ===

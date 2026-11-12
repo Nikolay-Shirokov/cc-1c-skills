@@ -1,0 +1,29 @@
+{
+  "name": "Перенос правок заимствованной формы: элементы, свойства, перемещение, реквизит, команда, события и перехват команды конфигурации",
+  "setup": "fixture:form-transfer",
+  "params": {
+    "extensionPath": "cfe"
+  },
+  "args_extra": [
+    "-Mode",
+    "transfer"
+  ],
+  "expectError": true,
+  "expect": {
+    "stdoutContains": [
+      "    [TRANSFERRED]        method PatchA_Обновить (found as Обновить)  Catalogs/Items/Forms/ItemForm/Ext/Form/Module.bsl:22",
+      "    Form.ItemForm:",
+      "      [NOT_TRANSFERRED]    + [Button] PatchA_Btn (in: ФормаКоманднаяПанель)",
+      "      [TRANSFERRED]        ~ [Label] L1: Title",
+      "      [NOT_TRANSFERRED]    ~ [Input] Article: Title",
+      "      [NOT_TRANSFERRED]    > [Input] Article: moved (after: L1)",
+      "      [TRANSFERRED]        + [Input] PatchA_Field (found as Field)",
+      "      [TRANSFERRED]        + attribute PatchA_Attr: string(20) (found as Attr)",
+      "      [NOT_TRANSFERRED]    + command PatchA_Cmd -> PatchA_CmdAction[Before]",
+      "      [TRANSFERRED]        command SrcCmd1[After] -> PatchA_SrcCmd1After (heuristic: 1/1 lines)  Catalogs/Items/Forms/ItemForm/Ext/Form/Module.bsl:17",
+      "      [TRANSFERRED]        event Article.OnChange[Before] -> PatchA_ArticleOnChangeBefore (heuristic: 1/1 lines)  Catalogs/Items/Forms/ItemForm/Ext/Form/Module.bsl:7",
+      "      [NOT_TRANSFERRED]    event OnOpen[After] -> PatchA_OnOpenAfter (heuristic: 0/1 lines)  Catalogs/Items/Forms/ItemForm/Ext/Form/Module.bsl:2",
+      "=== Summary PatchA: 12 changes — 6 transferred, 6 not transferred · 1 role, not checked ==="
+    ]
+  }
+}

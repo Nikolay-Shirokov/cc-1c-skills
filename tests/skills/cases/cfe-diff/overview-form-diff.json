@@ -1,0 +1,16 @@
+{
+  "name": "Обзор: правки заимствованной формы деревом в нотации form-info, неизменённая форма одной строкой, -ConfigPath не нужен",
+  "setup": "fixture:form-transfer",
+  "preRun": [
+    {
+      "script": "form-add/scripts/form-add",
+      "args": { "-ObjectPath": "{workDir}/Catalogs/Items.xml", "-FormName": "ListForm", "-Purpose": "List" }
+    },
+    {
+      "script": "cfe-borrow/scripts/cfe-borrow",
+      "args": { "-ExtensionPath": "{workDir}/cfe", "-ConfigPath": "{workDir}", "-Object": "Catalog.Items.Form.ListForm" }
+    }
+  ],
+  "params": { "extensionPath": "cfe", "outFile": "report.txt" },
+  "args_extra": ["-Mode", "overview"]
+}

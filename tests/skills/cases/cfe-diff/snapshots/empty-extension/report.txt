@@ -1,0 +1,6 @@
+=== cfe-diff overview: Тест (Customization) ===
+NamePrefix: Тест_
+
+[OWN]        Role.Тест_ОсновнаяРоль
+
+=== Summary Тест: 0 borrowed, 1 own objects ===

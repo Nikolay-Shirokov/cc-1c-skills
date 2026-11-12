@@ -3,8 +3,15 @@
   "preRun": [
     {
       "script": "cfe-init/scripts/cfe-init",
-      "args": { "-Name": "Тест", "-OutputDir": "{workDir}/cfe", "-ConfigPath": "{workDir}" }
+      "args": {
+        "-Name": "Тест",
+        "-OutputDir": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}"
+      }
     }
   ],
-  "params": { "extensionPath": "cfe" }
+  "params": {
+    "extensionPath": "cfe",
+    "outFile": "report.txt"
+  }
 }

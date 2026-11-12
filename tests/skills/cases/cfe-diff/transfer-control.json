@@ -1,0 +1,102 @@
+{
+  "name": "Проверка переноса &ИзменениеИКонтроль по правкам: перенесено, не перенесено, частично, только удаление, сдвинутый якорь; один блок в модуле",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "CommonModule",
+        "name": "М",
+        "properties": {
+          "Server": true
+        }
+      },
+      "args": {
+        "-JsonPath": "{inputFile}",
+        "-OutputDir": "{workDir}"
+      }
+    },
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "CommonModule",
+        "name": "М2",
+        "properties": {
+          "Server": true
+        }
+      },
+      "args": {
+        "-JsonPath": "{inputFile}",
+        "-OutputDir": "{workDir}"
+      }
+    },
+    {
+      "script": "cfe-init/scripts/cfe-init",
+      "args": {
+        "-Name": "Тест",
+        "-OutputDir": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}"
+      }
+    },
+    {
+      "script": "cfe-borrow/scripts/cfe-borrow",
+      "args": {
+        "-ExtensionPath": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}",
+        "-Object": "CommonModule.М"
+      }
+    },
+    {
+      "script": "cfe-borrow/scripts/cfe-borrow",
+      "args": {
+        "-ExtensionPath": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}",
+        "-Object": "CommonModule.М2"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "cfe/CommonModules/М/Ext/Module.bsl",
+        "content": "&ИзменениеИКонтроль(\"А\")\nПроцедура Тест_А()\n\tХ = 1;\n\t#Вставка\n\tПроверитьПрава();\n\t#КонецВставки\n\tЗаписать();\nКонецПроцедуры\n\n&ИзменениеИКонтроль(\"Б\")\nПроцедура Тест_Б()\n\tХ = 1;\n\t#Вставка\n\tПроверитьПрава();\n\t#КонецВставки\n\tЗаписать();\nКонецПроцедуры\n\n&ИзменениеИКонтроль(\"В\")\nПроцедура Тест_В()\n\tХ = 1;\n\t#Вставка\n\tСообщить(\"в\");\n\t#КонецВставки\n\t#Удаление\n\tЛишнее();\n\t#КонецУдаления\n\tЗаписать();\nКонецПроцедуры\n\n&ИзменениеИКонтроль(\"Г\")\nПроцедура Тест_Г()\n\tХ = 1;\n\t#Удаление\n\tЛишнее();\n\t#КонецУдаления\n\tЗаписать();\nКонецПроцедуры\n\n&ИзменениеИКонтроль(\"Д\")\nПроцедура Тест_Д()\n\tСтарыйЯкорь();\n\t#Вставка\n\tДоработка();\n\t#КонецВставки\nКонецПроцедуры\n"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "cfe/CommonModules/М2/Ext/Module.bsl",
+        "content": "&ИзменениеИКонтроль(\"Е\")\nПроцедура Тест_Е()\n\tЖ = 1;\n\t#Вставка\n\tЖ = 2;\n\t#КонецВставки\nКонецПроцедуры\n"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "CommonModules/М/Ext/Module.bsl",
+        "content": "Процедура А() Экспорт\n\tХ = 1;\n\tПроверитьПрава();\n\tЗаписать();\nКонецПроцедуры\n\nПроцедура Б() Экспорт\n\tХ = 1;\n\tЗаписать();\nКонецПроцедуры\n\nПроцедура В() Экспорт\n\tХ = 1;\n\tСообщить(\"в\");\n\tЛишнее();\n\tЗаписать();\nКонецПроцедуры\n\nПроцедура Г() Экспорт\n\tХ = 1;\n\tЗаписать();\nКонецПроцедуры\n\nПроцедура Д() Экспорт\n\tНовыйЯкорь();\nКонецПроцедуры\n"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "CommonModules/М2/Ext/Module.bsl",
+        "content": "Процедура Е() Экспорт\n\tЖ = 1;\nКонецПроцедуры\n"
+      }
+    }
+  ],
+  "params": {
+    "extensionPath": "cfe"
+  },
+  "args_extra": [
+    "-Mode",
+    "transfer"
+  ],
+  "expectError": true,
+  "expect": {
+    "stdoutContains": [
+      "[PARTIAL]            CommonModule.М — 5 changes: 2 transferred, 3 remaining",
+      "    [TRANSFERRED]        &ИзменениеИКонтроль(\"А\") — 1/1 edits  CommonModules/М/Ext/Module.bsl:1",
+      "    [NOT_TRANSFERRED]    &ИзменениеИКонтроль(\"Б\") — 0/1 edits  CommonModules/М/Ext/Module.bsl:10",
+      "    [PARTIAL]            &ИзменениеИКонтроль(\"В\") — 1/2 edits  CommonModules/М/Ext/Module.bsl:19",
+      "    [TRANSFERRED]        &ИзменениеИКонтроль(\"Г\") — 1/1 edits  CommonModules/М/Ext/Module.bsl:31",
+      "    [DIVERGED]           &ИзменениеИКонтроль(\"Д\") — 0/1 edits (insert anchor changed in config)  CommonModules/М/Ext/Module.bsl:40",
+      "    [NOT_TRANSFERRED]    &ИзменениеИКонтроль(\"Е\") — 0/1 edits  CommonModules/М2/Ext/Module.bsl:1",
+      "=== Summary Тест: 6 changes — 2 transferred, 2 not transferred, 1 partial, 1 diverged · 1 role, not checked ===",
+      "Remaining: CommonModule.М, CommonModule.М2"
+    ]
+  }
+}

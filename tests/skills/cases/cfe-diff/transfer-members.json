@@ -1,0 +1,122 @@
+{
+  "name": "Перенос собственного кода и реквизитов: префикс снят или сохранён, &После/&Вместо эвристикой с переименованием параметров, реквизит с другим типом",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "Catalog",
+        "name": "Товары",
+        "attributes": [
+          "Признак: Boolean",
+          "Вес: Number(10,3)"
+        ]
+      },
+      "args": {
+        "-JsonPath": "{inputFile}",
+        "-OutputDir": "{workDir}"
+      }
+    },
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "Catalog",
+        "name": "Склады",
+        "attributes": [
+          "Тест_Код: String(10)"
+        ]
+      },
+      "args": {
+        "-JsonPath": "{inputFile}",
+        "-OutputDir": "{workDir}"
+      }
+    },
+    {
+      "script": "cfe-init/scripts/cfe-init",
+      "args": {
+        "-Name": "Тест",
+        "-OutputDir": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}"
+      }
+    },
+    {
+      "script": "cfe-borrow/scripts/cfe-borrow",
+      "args": {
+        "-ExtensionPath": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}",
+        "-Object": "Catalog.Товары"
+      }
+    },
+    {
+      "script": "cfe-borrow/scripts/cfe-borrow",
+      "args": {
+        "-ExtensionPath": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}",
+        "-Object": "Catalog.Склады"
+      }
+    },
+    {
+      "script": "meta-edit/scripts/meta-edit",
+      "args": {
+        "-ObjectPath": "{workDir}/cfe/Catalogs/Товары.xml",
+        "-Operation": "add-attribute",
+        "-Value": "Тест_Признак: Boolean ;; Тест_Вес: String(10) ;; Тест_Лишний: Number(10,0)",
+        "-NoValidate": true
+      }
+    },
+    {
+      "script": "meta-edit/scripts/meta-edit",
+      "args": {
+        "-ObjectPath": "{workDir}/cfe/Catalogs/Склады.xml",
+        "-Operation": "add-attribute",
+        "-Value": "Тест_Код: String(10)",
+        "-NoValidate": true
+      }
+    },
+    {
+      "writeFile": {
+        "path": "cfe/Catalogs/Товары/Ext/ObjectModule.bsl",
+        "content": "&После(\"ПередЗаписью\")\nПроцедура Тест_ПередЗаписьюПосле(Отк)\n\tЕсли Отк Тогда\n\t\tВозврат;\n\tКонецЕсли;\n\tТест_Пересчитать(ЭтотОбъект);\nКонецПроцедуры\n\n&ИзменениеИКонтроль(\"Заполнить\")\nПроцедура Тест_Заполнить(Данные)\n\tХ = Данные;\n\t#Вставка\n\tТест_Пересчитать(ЭтотОбъект);\n\t#КонецВставки\nКонецПроцедуры\n\n&Вместо(\"ПолучитьЦену\")\nФункция Тест_ПолучитьЦену(Товар)\n\tРезультат = ПродолжитьВызов(Товар);\n\tРезультат = Окр(Результат, 2);\n\tВозврат Результат;\nКонецФункции\n\nПроцедура Тест_Пересчитать(Объект)\n\tОбъект.Тест_Признак = Истина;\nКонецПроцедуры\n\nПроцедура Тест_Служебная()\n\tСообщить(\"служебная\");\nКонецПроцедуры\n"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "cfe/Catalogs/Склады/Ext/ObjectModule.bsl",
+        "content": "Процедура Тест_Проверка() Экспорт\n\tСообщить(Тест_Код);\nКонецПроцедуры\n"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "Catalogs/Товары/Ext/ObjectModule.bsl",
+        "content": "Процедура ПередЗаписью(Отказ)\n\tЕсли Отказ Тогда\n\t\tВозврат;\n\tКонецЕсли;\n\tПроверить();\n\tПересчитать(ЭтотОбъект);\nКонецПроцедуры\n\nПроцедура Заполнить(Данные) Экспорт\n\tХ = Данные;\n\tПересчитать(ЭтотОбъект);\nКонецПроцедуры\n\nФункция ПолучитьЦену(Товар) Экспорт\n\tЦена = 10;\n\tВозврат Цена;\nКонецФункции\n\nПроцедура Пересчитать(Объект)\n\tОбъект.Признак = Истина;\nКонецПроцедуры\n"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "Catalogs/Склады/Ext/ObjectModule.bsl",
+        "content": "Процедура Тест_Проверка() Экспорт\n\tСообщить(Тест_Код);\nКонецПроцедуры\n"
+      }
+    }
+  ],
+  "params": {
+    "extensionPath": "cfe"
+  },
+  "args_extra": [
+    "-Mode",
+    "transfer"
+  ],
+  "expectError": true,
+  "expect": {
+    "stdoutContains": [
+      "    [TRANSFERRED]        &После(\"ПередЗаписью\") (heuristic: 2/2 lines)  Catalogs/Товары/Ext/ObjectModule.bsl:1",
+      "    [TRANSFERRED]        &ИзменениеИКонтроль(\"Заполнить\") — 1/1 edits  Catalogs/Товары/Ext/ObjectModule.bsl:9",
+      "    [NOT_TRANSFERRED]    &Вместо(\"ПолучитьЦену\") (heuristic: 0/1 lines)  Catalogs/Товары/Ext/ObjectModule.bsl:17",
+      "    [TRANSFERRED]        method Тест_Пересчитать (found as Пересчитать)  Catalogs/Товары/Ext/ObjectModule.bsl:24",
+      "    [NOT_TRANSFERRED]    method Тест_Служебная  Catalogs/Товары/Ext/ObjectModule.bsl:28",
+      "    [TRANSFERRED]        attribute Тест_Признак (found as Признак)",
+      "    [DIVERGED]           attribute Тест_Вес (found as Вес) (type: string vs decimal in config)",
+      "    [NOT_TRANSFERRED]    attribute Тест_Лишний",
+      "[TRANSFERRED]        Catalog.Склады — 2 changes",
+      "=== Summary Тест: 10 changes — 6 transferred, 3 not transferred, 1 diverged · 1 role, not checked ==="
+    ]
+  }
+}

@@ -222,7 +222,7 @@ python scripts/switch.py --runtime powershell  # вернуть на PowerShell
 ├── cfe-borrow/          # Заимствование объектов
 ├── cfe-patch-method/    # Перехват методов
 ├── cfe-validate/        # Валидация расширения
-├── cfe-diff/            # Анализ и сравнение
+├── cfe-diff/            # Обзор расширения и проверка переноса
 ├── subsystem-info/      # Анализ структуры подсистемы
 ├── subsystem-compile/   # Создание подсистемы из JSON
 ├── subsystem-edit/      # Редактирование подсистемы

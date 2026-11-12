@@ -1,5 +1,5 @@
 {
-  "name": "Проверка переноса (-Mode B) находит &ИзменениеИКонтроль в модуле общей формы: вставка уже в основной",
+  "name": "Проверка переноса находит &ИзменениеИКонтроль в модуле общей формы: вставка уже в основной (старое -Mode B принимается)",
   "preRun": [
     {
       "script": "meta-compile/scripts/meta-compile",
@@ -70,10 +70,8 @@
     }
   ],
   "params": {
-    "extensionPath": "cfe"
-  },
-  "expect": {
-    "stdoutContains": "[TRANSFERRED]     CommonForm.Подбор"
+    "extensionPath": "cfe",
+    "outFile": "report.txt"
   },
   "args_extra": [
     "-Mode",

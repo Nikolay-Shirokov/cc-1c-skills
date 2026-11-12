@@ -196,6 +196,47 @@ const FAMILIES = [
       { id: 'base', authority: 'cfe-patch-method', consumers: ['cfe-diff'] },
     ],
   },
+  // Проверка переноса cfe-diff классифицирует правки &ИзменениеИКонтроль теми же сопоставлениями,
+  // что cfe-patch-method -Check. Разойдись копия — два навыка дадут разные вердикты по одному методу.
+  ...[
+    ['Get-KwAlt', 'kw_alt'],
+    ['Get-BslLang', 'bsl_lang'],
+    ['Split-TopLevel', 'split_top_level'],
+    ['Test-ContextDirective', 'is_context_directive'],
+    ['Read-Signature', 'read_signature'],
+    ['Get-EffectiveCondition', 'effective_condition'],
+    ['Get-EnclosingChain', 'get_enclosing_chain'],
+    ['Extract-Method', 'extract_method'],
+    ['Get-ProcNames', 'get_proc_names'],
+    ['Get-Normalized', 'normalize'],
+    ['Get-ControlKey', 'control_key'],
+    ['Get-ParamCount', 'param_count'],
+    ['Parse-MarkedBody', 'parse_marked_body'],
+    ['Find-UniqueIndex', 'find_unique_index'],
+    ['Find-UniqueRun', 'find_unique_run'],
+    ['Test-Significant', 'test_significant'],
+    ['Get-SignificantProjection', 'significant_projection'],
+    ['Test-RunAt', 'test_run_at'],
+    ['Test-DeleteAbsorbed', 'test_delete_absorbed'],
+    ['Resolve-InsertionPointExact', 'resolve_insertion_point_exact'],
+    ['Resolve-InsertionPoint', 'resolve_insertion_point'],
+  ].map(([ps1, py]) => ({
+    name: `BSL: ${py}`, py, ps1,
+    variants: [{ id: 'base', authority: 'cfe-patch-method', consumers: ['cfe-diff'] }],
+  })),
+  // Разница заимствованной формы в cfe-diff пишется нотацией form-info — одни теги и типы на двоих
+  {
+    name: 'форма: format_type', py: 'format_type', ps1: 'Format-Type',
+    variants: [
+      { id: 'base', authority: 'form-info', consumers: ['cfe-diff'] },
+      { id: 'metadata', authority: 'meta-info', consumers: [],
+        why: 'тип реквизита объекта метаданных, а не формы: свой набор типов и своя запись' },
+    ],
+  },
+  {
+    name: 'форма: get_element_tag', py: 'get_element_tag', ps1: 'Get-ElementTag',
+    variants: [{ id: 'base', authority: 'form-info', consumers: ['cfe-diff'] }],
+  },
 
   // ─── СКД: краткая запись значения ────────────────────────────────────────
   // compile и edit читают вариант стандартного периода в краткой записи как период, а decompile

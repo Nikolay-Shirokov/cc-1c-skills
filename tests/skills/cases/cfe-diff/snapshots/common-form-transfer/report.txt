@@ -1,0 +1,6 @@
+=== cfe-diff transfer: Тест (Customization) -> TestConfig ===
+NamePrefix: Тест_
+
+[TRANSFERRED]        CommonForm.Подбор — 1 change
+
+=== Summary Тест: 1 change — 1 transferred · 1 role, not checked ===
