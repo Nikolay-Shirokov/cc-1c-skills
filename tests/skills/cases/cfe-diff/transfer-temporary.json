@@ -1,11 +1,25 @@
 {
-  "name": "Проверка переноса: правки с пометкой «Временно»/«Не переносить» — не перенесённые отдельным статусом вне остатка, перенесённые с пометкой; слово внутри комментария пометкой не считается; комментарий конфигурации в копии тела &ИзменениеИКонтроль пометкой не считается",
+  "name": "Проверка переноса: правки с пометкой «Временно»/«Не переносить» — не перенесённые отдельным статусом вне остатка, перенесённые с пометкой; слово внутри комментария пометкой не считается; комментарий конфигурации в копии тела &ИзменениеИКонтроль пометкой не считается; у объекта, которого нет в конфигурации, временная правка остаётся в разделе своего файла",
   "preRun": [
     {
       "script": "meta-compile/scripts/meta-compile",
       "input": {
         "type": "CommonModule",
         "name": "М",
+        "properties": {
+          "Server": true
+        }
+      },
+      "args": {
+        "-JsonPath": "{inputFile}",
+        "-OutputDir": "{workDir}"
+      }
+    },
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "CommonModule",
+        "name": "Н",
         "properties": {
           "Server": true
         }
@@ -32,6 +46,21 @@
       }
     },
     {
+      "script": "cfe-borrow/scripts/cfe-borrow",
+      "args": {
+        "-ExtensionPath": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}",
+        "-Object": "CommonModule.Н"
+      }
+    },
+    {
+      "script": "meta-remove/scripts/meta-remove",
+      "args": {
+        "-ConfigDir": "{workDir}",
+        "-Object": "CommonModule.Н"
+      }
+    },
+    {
       "writeFile": {
         "path": "cfe/CommonModules/М/Ext/Module.bsl",
         "content": "// Временно: обход ограничения расширения\n&После(\"А\")\nПроцедура Тест_А()\n\tСообщить(1);\nКонецПроцедуры\n\n&ИзменениеИКонтроль(\"Б\")\nПроцедура Тест_Б()\n\tХ = 1;\n\t#Вставка // Не переносить: разовая правка\n\tРазово();\n\t#КонецВставки\n\t#Вставка\n\tНужное();\n\t#КонецВставки\n\tЗаписать();\nКонецПроцедуры\n\nФункция Тест_Своя() Экспорт\n\t// НЕПЕРЕНОСИТЬ\n\tВозврат 1;\nКонецФункции\n\nФункция Тест_Другая() Экспорт\n\t//+ STIUM-1: Временное решение\n\tВозврат 2;\nКонецФункции\n\n&ИзменениеИКонтроль(\"В\")\nПроцедура Тест_В()\n\tХ = 1;\n\t#Вставка // Временно\n\tОбход();\n\t#КонецВставки\nКонецПроцедуры\n\n// Временно: обход, перенесён по ошибке\nФункция Тест_Перенесённая() Экспорт\n\tВозврат 3;\nКонецФункции\n\n&ИзменениеИКонтроль(\"Г\")\nПроцедура Тест_Г()\n\t// Временно отключено до исправления\n\tХ = 1;\n\t#Вставка\n\tНовое();\n\t#КонецВставки\nКонецПроцедуры\n"
@@ -41,6 +70,12 @@
       "writeFile": {
         "path": "CommonModules/М/Ext/Module.bsl",
         "content": "Процедура А() Экспорт\nКонецПроцедуры\n\nПроцедура Б() Экспорт\n\tХ = 1;\n\tНужное();\n\tЗаписать();\nКонецПроцедуры\n\nПроцедура В() Экспорт\n\tХ = 1;\n\tОбход();\nКонецПроцедуры\n\nФункция Перенесённая() Экспорт\n\tВозврат 3;\nКонецФункции\n\nПроцедура Г() Экспорт\n\t// Временно отключено до исправления\n\tХ = 1;\nКонецПроцедуры\n"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "cfe/CommonModules/Н/Ext/Module.bsl",
+        "content": "// Временно: отладка\nФункция Тест_Отладка() Экспорт\n\tВозврат 1;\nКонецФункции\n\nФункция Тест_Нужная() Экспорт\n\tВозврат 2;\nКонецФункции\n"
       }
     }
   ],
@@ -63,8 +98,12 @@
       "      [NOT_TRANSFERRED]    method Тест_Другая  :24",
       "      [TRANSFERRED]        method Тест_Перенесённая (found as Перенесённая) (marked temporary)  :38",
       "      … 1 transferred",
-      "=== Summary Тест: 7 changes — 3 transferred (2 marked temporary), 2 not transferred, 2 temporary · 1 role, not checked ===",
-      "Remaining: CommonModule.М",
+      "[MISSING_IN_CONFIG]  CommonModule.Н — 2 changes: 0 transferred, 1 remaining, 1 temporary",
+      "    [MISSING_IN_CONFIG]  object not found in config (1 change)",
+      "    CommonModules/Н/Ext/Module.bsl:",
+      "      [TEMPORARY]          method Тест_Отладка — отладка  :2",
+      "=== Summary Тест: 9 changes — 3 transferred (2 marked temporary), 2 not transferred, 1 missing in config, 3 temporary · 1 role, not checked ===",
+      "Remaining: CommonModule.М, CommonModule.Н",
       "Hint: use -Expand <Type.Name> or a section path to list transferred changes, -Expand * for all"
     ]
   }

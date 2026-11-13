@@ -989,6 +989,18 @@ function Test-PayloadBeside($v2sig, $mid, $beforeCtx, $afterCtx) {
 	return $false
 }
 
+# How many times the run `keys` occurs in `hay` (contiguous, overlapping counted)
+function Get-RunCount($hay, $keys) {
+	$n = $keys.Count; $c = 0
+	if ($n -eq 0) { return 0 }
+	for ($i = 0; $i -le ($hay.Count - $n); $i++) {
+		$ok = $true
+		for ($m = 0; $m -lt $n; $m++) { if ($hay[$i + $m] -cne $keys[$m]) { $ok = $false; break } }
+		if ($ok) { $c++ }
+	}
+	return $c
+}
+
 # Why an edit is disputed, with the line to look at: the insert's neighbour (and whether the
 # configuration keeps it commented out) or the first deleted line.
 function Get-DisputeReason($kind, [string]$line, [string]$key, [string]$side, $v2norm) {
@@ -1010,6 +1022,7 @@ function Get-ControlTransfer($extMethod, $cfgMethod, [string]$prefix) {
 	$v1norm = @(Get-CodeKeys $parsed.V1 $prefix)
 	$v2norm = @(Get-CodeKeys $cfgMethod.BodyLines $prefix)
 	$v2proj = Get-SignificantProjection $v2norm
+	$v1sig = @((Get-SignificantProjection $v1norm).Sig)
 	$absorbed = 0; $pending = 0; $disputed = @(); $temp = 0; $tempWhy = $null; $markedDone = 0
 	$payloads = @{}
 	for ($oi = 0; $oi -lt $ops.Count; $oi++) {
@@ -1034,7 +1047,11 @@ function Get-ControlTransfer($extMethod, $cfgMethod, [string]$prefix) {
 				$ae = [Math]::Min($v1norm.Count - 1, $op.After + 3)
 				for ($m = $op.After + 1; $m -le $ae; $m++) { $afterLines += $v1norm[$m] }
 				$k = Resolve-InsertionPoint $v2norm $beforeLines $afterLines
-				if ($null -eq $k) { $isAbsorbed = (Find-UniqueRun $v2proj.Sig $payloadSig) -ge 0 }
+				# The looser checks below accept the payload only as new code: the configuration has it
+				# more times than the original method (an insert repeating a line next to it otherwise
+				# finds that very line)
+				$isNew = (Get-RunCount $v2proj.Sig $payloadSig) -gt (Get-RunCount $v1sig $payloadSig)
+				if ($null -eq $k) { $isAbsorbed = $isNew -and (Find-UniqueRun $v2proj.Sig $payloadSig) -ge 0 }
 				else { $sigStart = @($v2proj.Map | Where-Object { $_ -le $k }).Count; $isAbsorbed = Test-RunAt $v2proj.Sig $payloadSig $sigStart }
 				# Neighbours of the insert in the edited method: deleted lines are not there
 				$bIdx = -1; for ($z = $op.After; $z -ge 0; $z--) { if (-not $deleted.ContainsKey($z) -and (Test-Significant $v1norm[$z])) { $bIdx = $z; break } }
@@ -1043,8 +1060,8 @@ function Get-ControlTransfer($extMethod, $cfgMethod, [string]$prefix) {
 				$aCtx = if ($aIdx -ge 0) { $v1norm[$aIdx] } else { $null }
 				# Not at the anchor: the anchor found by its line after leaves the carried-over code right
 				# before the spot; otherwise the payload next to a neighbour with content, anywhere
-				if (-not $isAbsorbed -and $null -ne $k) { $isAbsorbed = Test-RunAt $v2proj.Sig $payloadSig ($sigStart - $payloadSig.Count) }
-				if (-not $isAbsorbed) { $isAbsorbed = Test-PayloadBeside $v2proj.Sig $payloadSig $bCtx $aCtx }
+				if (-not $isAbsorbed -and $isNew -and $null -ne $k) { $isAbsorbed = Test-RunAt $v2proj.Sig $payloadSig ($sigStart - $payloadSig.Count) }
+				if (-not $isAbsorbed -and $isNew) { $isAbsorbed = Test-PayloadBeside $v2proj.Sig $payloadSig $bCtx $aCtx }
 				if ($isAbsorbed) { $res = 'absorbed' }
 				elseif ($null -ne $k) { $res = 'pending' }
 				elseif ($bIdx -ge 0) { $res = Get-DisputeReason 'insert' $parsed.V1[$bIdx] $bCtx 'before' $v2norm }
@@ -1972,6 +1989,13 @@ function Get-TransferObject($ext, $obj) {
 	$rec.Items += @(Get-OwnChildItems $ctx $cfgMd $prefix)
 	if ($obj.Type -eq 'Subsystem') { $rec.Items += @(Get-SubsystemContentItems $ctx.Md $cfgMd $prefix) }
 	$rec.Items += $formItems
+	# Section = the file the change lives in (a module line, the form's Form.xml, the object's own
+	# XML for its sub-objects); the item then keeps only its line number
+	$objRel = Get-RelPath $ext.Dir $ctx.File
+	foreach ($it in $rec.Items) {
+		if ($it.Loc -match '^(.+):(\d+)$') { $it.Section = $Matches[1]; $it.Loc = ":$($Matches[2])" }
+		elseif (-not $it.Section) { $it.Section = $objRel }
+	}
 	if (-not $cfgMd -and $rec.Items.Count -gt 0) {
 		# Temporary changes stay apart: they are not for transfer, missing object or not
 		$temp = @($rec.Items | Where-Object { $_.Status -eq 'TEMPORARY' })
@@ -1979,14 +2003,6 @@ function Get-TransferObject($ext, $obj) {
 		$rec.Items = @()
 		if ($rest -gt 0) { $rec.Items += New-Item2 'MISSING_IN_CONFIG' "object not found in config ($(Get-Plural $rest 'change'))" }
 		$rec.Items += $temp
-		return $rec
-	}
-	# Section = the file the change lives in (a module line, the form's Form.xml, the object's own
-	# XML for its sub-objects); the item then keeps only its line number
-	$objRel = Get-RelPath $ext.Dir $ctx.File
-	foreach ($it in $rec.Items) {
-		if ($it.Loc -match '^(.+):(\d+)$') { $it.Section = $Matches[1]; $it.Loc = ":$($Matches[2])" }
-		elseif (-not $it.Section) { $it.Section = $objRel }
 	}
 	return $rec
 }
@@ -2003,32 +2019,50 @@ function Get-ProcDecls($lines) {
 	return $res
 }
 
+# First line of code outside the methods of a module (module variables, main program code), -1 if
+# none: comments, directives (&...) and preprocessor lines (#...) do not count
+function Get-TopCodeLine($lines) {
+	$declRe = '^\s*(?:' + (Get-KwAlt 'Async') + '\s+)?(?:' + (Get-KwAlt 'Proc') + '|' + (Get-KwAlt 'Func') + ')\s+[\w]+\s*\('
+	$endRe = '^\s*(?:' + (Get-KwAlt 'EndProc') + '|' + (Get-KwAlt 'EndFunc') + ')\b'
+	$inProc = $false
+	for ($i = 0; $i -lt $lines.Count; $i++) {
+		$t = $lines[$i].Trim()
+		if ($inProc) { if ($t -imatch $endRe) { $inProc = $false }; continue }
+		if ($t -imatch $declRe) { $inProc = $true; continue }
+		if ($t -eq '' -or $t.StartsWith('//') -or $t.StartsWith('&') -or $t.StartsWith('#')) { continue }
+		return $i
+	}
+	return -1
+}
+
 # What a module of a borrowed object brings: interceptors (with the method each one declares) and
 # own methods, that is neither interceptors nor handlers bound in Form.xml ($skipHandlers)
 function Get-ModuleChanges($lines, $skipHandlers) {
 	$ics = @(); $icProcs = @{}
+	$top = Get-TopCodeLine $lines
 	foreach ($ic in @(Get-Interceptors $lines)) {
 		$decl = Find-DeclAfter $lines $ic.Line
 		if ($decl) { $icProcs[$decl.Name.ToLower()] = $true }
 		$ics += @{ Ic = $ic; Decl = $decl }
 	}
 	$own = @(@(Get-ProcDecls $lines) | Where-Object { -not $icProcs.ContainsKey($_.Name.ToLower()) -and -not $skipHandlers.ContainsKey($_.Name.ToLower()) })
-	return @{ Interceptors = $ics; Own = $own }
+	return @{ Interceptors = $ics; Own = $own; TopCode = $top }
 }
 
 # Own sub-objects of a borrowed object, named: kind, name, the type of an attribute. The own
-# attributes of a borrowed tabular section come as Section.Attribute.
+# attributes of a borrowed tabular section come as Section.Attribute with In = the section; those of
+# an own section come with In = '*' (a part of it, not counted apart).
 function Get-OwnChildList($ctx) {
 	$res = @()
 	if (-not $ctx.Md -or -not $ctx.Md.Children) { return $res }
 	$mns = $ctx.Md.Ns
 	$fmt = {
-		param($node, [string]$name)
+		param($node, [string]$name, [string]$in)
 		$w = Get-KindWord $node.LocalName
 		$t = $node.SelectSingleNode("md:Properties/md:Type", $mns)
 		$ft = if ($t) { Format-Type $t } else { '' }
 		$tail = if ($ft) { ": $ft" } else { '' }
-		return @{ Kind = $w; Text = "$w $name$tail" }
+		return @{ Kind = $w; Text = "$w $name$tail"; In = $in }
 	}
 	foreach ($c in $ctx.Md.Children.ChildNodes) {
 		if ($c.NodeType -ne 'Element') { continue }
@@ -2038,18 +2072,19 @@ function Get-OwnChildList($ctx) {
 			$desc = Read-MdObject (Join-Path (Join-Path $ctx.ObjDir "$($c.LocalName)s") "$nm.xml")
 			if ($desc -and (Test-AdoptedNode $desc.Props $desc.Ns)) { continue }
 			$w = Get-KindWord $c.LocalName
-			$res += @{ Kind = $w; Text = "$w $nm" }
+			$res += @{ Kind = $w; Text = "$w $nm"; In = '' }
 			continue
 		}
 		$nm = Get-MdChildName $c $mns
 		$own = -not (Test-AdoptedNode $c $mns)
-		if ($own) { $res += (& $fmt $c $nm) }
+		if ($own) { $res += (& $fmt $c $nm '') }
 		$sub = $c.SelectSingleNode("md:ChildObjects", $mns)
 		if (-not $sub) { continue }
 		foreach ($sc in $sub.ChildNodes) {
 			if ($sc.NodeType -ne 'Element') { continue }
 			if (-not $own -and (Test-AdoptedNode $sc $mns)) { continue }
-			$res += (& $fmt $sc "$nm.$(Get-MdChildName $sc $mns)")
+			$in = if ($own) { '*' } else { $nm }
+			$res += (& $fmt $sc "$nm.$(Get-MdChildName $sc $mns)" $in)
 		}
 	}
 	return $res
@@ -2139,11 +2174,17 @@ function Get-OverviewObject($ext, $obj) {
 	$items = @()
 	$forms = @(Get-ObjForms $ctx)
 	$diffs = @{}
-	$changedForms = 0
+	$changedForms = 0; $badForms = 0
 	foreach ($f in $forms) {
 		if ($f.Own) { continue }
 		$d = Get-FormDiff $f.Xml
-		if (-not $d -or -not $d.IsBorrowed) { continue }
+		if (-not $d -or -not $d.IsBorrowed) {
+			# A borrowed form must carry its BaseForm: without it there is nothing to compare with
+			$why = if (-not (Test-Path -LiteralPath $f.Xml -PathType Leaf)) { 'Form.xml not found' } elseif (-not $d) { 'Form.xml cannot be read' } else { 'no BaseForm — cannot compare' }
+			$badForms++
+			$items += @{ Section = (Get-RelPath $ext.Dir $f.Xml); Text = $why; Loc = '' }
+			continue
+		}
 		$diffs[[IO.Path]::GetFullPath($f.Module)] = $d
 		if ($d.Total -eq 0) { continue }
 		$changedForms++
@@ -2151,7 +2192,7 @@ function Get-OverviewObject($ext, $obj) {
 		$tree = @(Format-FormDiff $d $f.Label '    ')
 		$items += @{ Section = (Get-RelPath $ext.Dir $f.Xml); Head = (Get-FormDiffParts $d); Lines = @($tree | Select-Object -Skip 1) }
 	}
-	$icCount = 0; $ownMethods = 0
+	$icCount = 0; $ownMethods = 0; $topCode = 0
 	foreach ($bsl in @(Get-ObjModules $ctx $forms)) {
 		$lines = Read-BslLines $bsl
 		if ($null -eq $lines) { continue }
@@ -2159,6 +2200,7 @@ function Get-OverviewObject($ext, $obj) {
 		$key = [IO.Path]::GetFullPath($bsl)
 		$skip = if ($diffs.ContainsKey($key)) { Get-CallTypeHandlers $diffs[$key] } else { @{} }
 		$mc = Get-ModuleChanges $lines $skip
+		if ($mc.TopCode -ge 0) { $topCode++; $items += @{ Section = $rel; Text = 'module code outside methods'; Loc = ":$($mc.TopCode + 1)" } }
 		foreach ($x in $mc.Interceptors) { $icCount++; $items += @{ Section = $rel; Text = "&$($x.Ic.Raw)(`"$($x.Ic.Method)`")"; Loc = ":$($x.Ic.Line + 1)" } }
 		foreach ($o in $mc.Own) { $ownMethods++; $items += @{ Section = $rel; Text = "method $($o.Name)"; Loc = ":$($o.Idx + 1)" } }
 	}
@@ -2166,7 +2208,10 @@ function Get-OverviewObject($ext, $obj) {
 	$kinds = [ordered]@{}
 	foreach ($k in @(Get-OwnChildList $ctx)) {
 		$items += @{ Section = $objRel; Text = $k.Text; Loc = '' }
-		if ($kinds.Contains($k.Kind)) { $kinds[$k.Kind]++ } else { $kinds[$k.Kind] = 1 }
+		# Parts of an own sub-object go with it; additions to a borrowed one are counted per owner
+		if ($k.In -eq '*') { continue }
+		$kk = "$($k.Kind)|$($k.In)"
+		if ($kinds.Contains($kk)) { $kinds[$kk]++ } else { $kinds[$kk] = 1 }
 	}
 	$content = 0
 	if ($obj.Type -eq 'Subsystem') {
@@ -2176,9 +2221,15 @@ function Get-OverviewObject($ext, $obj) {
 	$sp = @()
 	if ($icCount) { $sp += (Get-Plural $icCount 'interceptor') }
 	if ($ownMethods) { $sp += (Get-Plural $ownMethods 'own method') }
-	foreach ($w in @($kinds.Keys)) { $sp += "own $(Get-Plural $kinds[$w] $w)" }
+	if ($topCode) { $sp += 'module code' }
+	foreach ($kk in @($kinds.Keys)) {
+		$w, $in = $kk.Split('|')
+		$where = if ($in) { " in $in" } else { '' }
+		$sp += "own $(Get-Plural $kinds[$kk] $w)$where"
+	}
 	if ($content) { $sp += (Get-Plural $content 'content item') }
 	if ($changedForms) { $sp += "$(Get-Plural $changedForms 'form') changed" }
+	if ($badForms) { $sp += "$(Get-Plural $badForms 'form') not compared" }
 	# Borrowed only as a dependency (a type, a picture, a style of the extension's own code)
 	$unchanged = ($items.Count -eq 0)
 	$tail = if ($unchanged) { ' — no changes' } else { " — $($sp -join ', ')" }
@@ -2422,8 +2473,10 @@ foreach ($ext in $exts) {
 		$footer += "=== Summary $($ext.Name): $($ext.Borrowed) borrowed$bp, $($ext.Own) own objects ==="
 		if ($unch.Count -gt 0) {
 			$byType = [ordered]@{}
-			foreach ($o in $unch) { if (-not $byType.Contains($o.Type)) { $byType[$o.Type] = @() }; $byType[$o.Type] += $o.Id.Substring($o.Type.Length + 1) }
-			if ($expandList -contains '*') {
+			# One shown in the body (asked for by -Name or -Expand Type.Name) is not folded
+			foreach ($o in @($unch | Where-Object { -not $_.Asked })) { if (-not $byType.Contains($o.Type)) { $byType[$o.Type] = @() }; $byType[$o.Type] += $o.Id.Substring($o.Type.Length + 1) }
+			if ($byType.Count -eq 0) { }
+			elseif ($expandList -contains '*') {
 				$footer += "Borrowed without changes:"
 				foreach ($t in @($byType.Keys)) { $footer += "    ${t}: $($byType[$t] -join ', ')" }
 			} else {

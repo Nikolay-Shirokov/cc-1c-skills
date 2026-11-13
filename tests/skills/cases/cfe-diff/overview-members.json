@@ -1,5 +1,5 @@
 {
-  "name": "Обзор: перехватчики и собственные методы модулей, собственные реквизиты и ТЧ по именам с типами, состав заимствованной подсистемы — по разделам-файлам; заимствованные без правок свёрнуты в строку итога по типам",
+  "name": "Обзор: перехватчики, собственные методы и код вне методов в модулях, собственные реквизиты и ТЧ по именам с типами (реквизит заимствованной ТЧ — с её именем в сводке), состав заимствованной подсистемы, заимствованная форма без BaseForm — по разделам-файлам; заимствованные без правок свёрнуты в строку итога по типам, запрошенный через -Expand показан в теле и в итог не входит",
   "preRun": [
     {
       "script": "meta-compile/scripts/meta-compile",
@@ -8,7 +8,12 @@
         "name": "Товары",
         "attributes": [
           "Вес: Number(10,3)"
-        ]
+        ],
+        "tabularSections": {
+          "Цены": [
+            "Цена: Number(15,2)"
+          ]
+        }
       },
       "args": {
         "-JsonPath": "{inputFile}",
@@ -53,11 +58,34 @@
       }
     },
     {
+      "script": "form-add/scripts/form-add",
+      "args": {
+        "-ObjectPath": "{workDir}/Catalogs/Товары.xml",
+        "-FormName": "ФормаЭлемента"
+      }
+    },
+    {
       "script": "cfe-borrow/scripts/cfe-borrow",
       "args": {
         "-ExtensionPath": "{workDir}/cfe",
         "-ConfigPath": "{workDir}",
         "-Object": "Catalog.Товары"
+      }
+    },
+    {
+      "script": "cfe-borrow/scripts/cfe-borrow",
+      "args": {
+        "-ExtensionPath": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}",
+        "-Object": "Catalog.Товары.TabularSection.Цены"
+      }
+    },
+    {
+      "script": "cfe-borrow/scripts/cfe-borrow",
+      "args": {
+        "-ExtensionPath": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}",
+        "-Object": "Catalog.Товары.Form.ФормаЭлемента"
       }
     },
     {
@@ -111,7 +139,22 @@
     {
       "writeFile": {
         "path": "cfe/Catalogs/Товары/Ext/ObjectModule.bsl",
-        "content": "&После(\"ПередЗаписью\")\nПроцедура Тест_ПередЗаписьюПосле(Отказ)\n\tТест_Пересчитать();\nКонецПроцедуры\n\nПроцедура Тест_Пересчитать()\n\tТест_Признак = Истина;\nКонецПроцедуры\n"
+        "content": "Перем Тест_Кэш;\n\n&После(\"ПередЗаписью\")\nПроцедура Тест_ПередЗаписьюПосле(Отказ)\n\tТест_Пересчитать();\nКонецПроцедуры\n\nПроцедура Тест_Пересчитать()\n\tТест_Признак = Истина;\nКонецПроцедуры\n"
+      }
+    },
+    {
+      "script": "meta-edit/scripts/meta-edit",
+      "args": {
+        "-ObjectPath": "{workDir}/cfe/Catalogs/Товары.xml",
+        "-Operation": "add-ts-attribute",
+        "-Value": "Цены.Тест_Скидка: Number(15,2)",
+        "-NoValidate": true
+      }
+    },
+    {
+      "writeFile": {
+        "path": "cfe/Catalogs/Товары/Forms/ФормаЭлемента/Ext/Form.xml",
+        "content": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<Form xmlns=\"http://v8.1c.ru/8.3/xcf/logform\" version=\"2.17\">\n\t<ChildItems/>\n</Form>"
       }
     }
   ],
@@ -124,17 +167,26 @@
       "    Subsystems/Продажи.xml:",
       "      content Catalog.Склады",
       "[OWN]        Role.Тест_ОсновнаяРоль",
-      "[BORROWED]   Catalog.Товары — 1 interceptor, 1 own method, own 2 attributes, own 1 tabular section",
+      "[BORROWED]   Catalog.Товары — 1 interceptor, 1 own method, module code, own 1 attribute, own 1 attribute in Цены, own 1 tabular section, 1 form not compared",
       "    Catalogs/Товары/Ext/ObjectModule.bsl:",
-      "      &После(\"ПередЗаписью\")  :1",
-      "      method Тест_Пересчитать  :6",
+      "      module code outside methods  :1",
+      "      &После(\"ПередЗаписью\")  :3",
+      "      method Тест_Пересчитать  :8",
       "    Catalogs/Товары.xml:",
       "      attribute Тест_Признак: boolean",
+      "      attribute Цены.Тест_Скидка: decimal(15,2)",
       "      tabular section Тест_Состав",
       "      attribute Тест_Состав.Тест_Количество: decimal(10,0)",
+      "    Catalogs/Товары/Forms/ФормаЭлемента/Ext/Form.xml:",
+      "      no BaseForm — cannot compare",
+      "[BORROWED]   Catalog.Склады — no changes",
       "=== Summary Тест: 4 borrowed (2 changed, 2 without changes), 1 own objects ===",
-      "Borrowed without changes: Catalog 2",
+      "Borrowed without changes: Catalog 1",
       "Hint: use -Expand * to list borrowed objects without changes"
     ]
-  }
+  },
+  "args_extra": [
+    "-Expand",
+    "Catalog.Склады"
+  ]
 }

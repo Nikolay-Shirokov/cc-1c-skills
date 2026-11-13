@@ -1062,6 +1062,14 @@ def test_payload_beside(v2sig, mid, before_ctx, after_ctx):
     return False
 
 
+def run_count(hay, keys):
+    """How many times the run `keys` occurs in `hay` (contiguous, overlapping counted)."""
+    n = len(keys)
+    if n == 0:
+        return 0
+    return sum(1 for i in range(len(hay) - n + 1) if hay[i:i + n] == keys)
+
+
 def dispute_reason(kind, line, key, side, v2norm):
     """Why an edit is disputed, with the line to look at: the insert's neighbour (and whether the
     configuration keeps it commented out) or the first deleted line."""
@@ -1081,6 +1089,7 @@ def get_control_transfer(ext_method, cfg_method, prefix):
     v1norm = [code_key(x, prefix) for x in parsed["v1"]]
     v2norm = [code_key(x, prefix) for x in cfg_method["body_lines"]]
     v2sig, v2map = significant_projection(v2norm)
+    v1sig = significant_projection(v1norm)[0]
     absorbed = 0
     pending = 0
     disputed = []
@@ -1108,8 +1117,12 @@ def get_control_transfer(ext_method, cfg_method, prefix):
                 before_lines = v1norm[max(0, after - 2):after + 1] if after >= 0 else []
                 after_lines = v1norm[after + 1:after + 4]
                 k = resolve_insertion_point(v2norm, before_lines, after_lines)
+                # The looser checks below accept the payload only as new code: the configuration has it
+                # more times than the original method (an insert repeating a line next to it otherwise
+                # finds that very line)
+                is_new = run_count(v2sig, payload_sig) > run_count(v1sig, payload_sig)
                 if k is None:
-                    is_absorbed = find_unique_run(v2sig, payload_sig) >= 0
+                    is_absorbed = is_new and find_unique_run(v2sig, payload_sig) >= 0
                 else:
                     sig_start = sum(1 for j in v2map if j <= k)
                     is_absorbed = test_run_at(v2sig, payload_sig, sig_start)
@@ -1120,9 +1133,9 @@ def get_control_transfer(ext_method, cfg_method, prefix):
                 a_ctx = v1norm[a_idx] if a_idx >= 0 else None
                 # Not at the anchor: the anchor found by its line after leaves the carried-over code right
                 # before the spot; otherwise the payload next to a neighbour with content, anywhere
-                if not is_absorbed and k is not None:
+                if not is_absorbed and is_new and k is not None:
                     is_absorbed = test_run_at(v2sig, payload_sig, sig_start - len(payload_sig))
-                if not is_absorbed:
+                if not is_absorbed and is_new:
                     is_absorbed = test_payload_beside(v2sig, payload_sig, b_ctx, a_ctx)
                 if is_absorbed:
                     res = "absorbed"
@@ -2179,15 +2192,6 @@ def transfer_object(ext, obj, cfg_info, config_path):
     if obj["type"] == "Subsystem":
         rec["items"] += subsystem_content_items(ctx["md"], cfg_md, prefix)
     rec["items"] += form_items
-    if cfg_md is None and rec["items"]:
-        # Temporary changes stay apart: they are not for transfer, missing object or not
-        temp = [it for it in rec["items"] if it["status"] == "TEMPORARY"]
-        rest = len(rec["items"]) - len(temp)
-        rec["items"] = []
-        if rest > 0:
-            rec["items"].append(new_item("MISSING_IN_CONFIG", "object not found in config (%s)" % plural(rest, "change")))
-        rec["items"] += temp
-        return rec
     # Section = the file the change lives in (a module line, the form's Form.xml, the object's own
     # XML for its sub-objects); the item then keeps only its line number
     obj_rel = rel_path(ext["dir"], ctx["file"])
@@ -2198,6 +2202,14 @@ def transfer_object(ext, obj, cfg_info, config_path):
             it["loc"] = ":" + m.group(2)
         elif not it.get("section"):
             it["section"] = obj_rel
+    if cfg_md is None and rec["items"]:
+        # Temporary changes stay apart: they are not for transfer, missing object or not
+        temp = [it for it in rec["items"] if it["status"] == "TEMPORARY"]
+        rest = len(rec["items"]) - len(temp)
+        rec["items"] = []
+        if rest > 0:
+            rec["items"].append(new_item("MISSING_IN_CONFIG", "object not found in config (%s)" % plural(rest, "change")))
+        rec["items"] += temp
     return rec
 
 
@@ -2217,6 +2229,28 @@ def get_proc_decls(lines):
     return res
 
 
+def get_top_code_line(lines):
+    """First line of code outside the methods of a module (module variables, main program code), -1
+    if none: comments, directives (&...) and preprocessor lines (#...) do not count."""
+    decl_re = re.compile(r'^\s*(?:' + kw_alt("Async") + r'\s+)?(?:' + kw_alt("Proc") + '|' + kw_alt("Func")
+                         + r')\s+[\w]+\s*\(', re.IGNORECASE)
+    end_re = re.compile(r'^\s*(?:' + kw_alt("EndProc") + '|' + kw_alt("EndFunc") + r')\b', re.IGNORECASE)
+    in_proc = False
+    for i, line in enumerate(lines):
+        t = line.strip()
+        if in_proc:
+            if end_re.match(t):
+                in_proc = False
+            continue
+        if decl_re.match(t):
+            in_proc = True
+            continue
+        if t == "" or t.startswith("//") or t.startswith("&") or t.startswith("#"):
+            continue
+        return i
+    return -1
+
+
 def get_module_changes(lines, skip_handlers):
     """What a module of a borrowed object brings: interceptors (with the method each one declares)
     and own methods, that is neither interceptors nor handlers bound in Form.xml (skip_handlers)."""
@@ -2228,21 +2262,22 @@ def get_module_changes(lines, skip_handlers):
             ic_procs.add(decl["name"].lower())
         ics.append({"ic": ic, "decl": decl})
     own = [d for d in get_proc_decls(lines) if d["name"].lower() not in ic_procs and d["name"].lower() not in skip_handlers]
-    return {"interceptors": ics, "own": own}
+    return {"interceptors": ics, "own": own, "top_code": get_top_code_line(lines)}
 
 
 def get_own_child_list(ctx):
     """Own sub-objects of a borrowed object, named: kind, name, the type of an attribute. The own
-    attributes of a borrowed tabular section come as Section.Attribute."""
+    attributes of a borrowed tabular section come as Section.Attribute with in = the section; those of
+    an own section come with in = '*' (a part of it, not counted apart)."""
     res = []
     if ctx["md"] is None or ctx["md"]["children"] is None:
         return res
 
-    def fmt(node, name):
+    def fmt(node, name, in_):
         w = kind_word(localname(node))
         t = node.find("md:Properties/md:Type", MD_NSMAP)
         ft = format_type(t) if t is not None else ""
-        return {"kind": w, "text": "%s %s%s" % (w, name, (": " + ft) if ft else "")}
+        return {"kind": w, "text": "%s %s%s" % (w, name, (": " + ft) if ft else ""), "in": in_}
 
     for c in elem_children(ctx["md"]["children"]):
         if not has_element_child(c):
@@ -2252,19 +2287,19 @@ def get_own_child_list(ctx):
             if desc is not None and test_adopted_node(desc["props"]):
                 continue
             w = kind_word(localname(c))
-            res.append({"kind": w, "text": "%s %s" % (w, nm)})
+            res.append({"kind": w, "text": "%s %s" % (w, nm), "in": ""})
             continue
         nm = md_child_name(c)
         own = not test_adopted_node(c)
         if own:
-            res.append(fmt(c, nm))
+            res.append(fmt(c, nm, ""))
         sub = c.find("md:ChildObjects", MD_NSMAP)
         if sub is None:
             continue
         for sc in elem_children(sub):
             if not own and test_adopted_node(sc):
                 continue
-            res.append(fmt(sc, "%s.%s" % (nm, md_child_name(sc))))
+            res.append(fmt(sc, "%s.%s" % (nm, md_child_name(sc)), "*" if own else nm))
     return res
 
 
@@ -2356,11 +2391,21 @@ def overview_object(ext, obj):
     forms = get_obj_forms(ctx)
     diffs = {}
     changed_forms = 0
+    bad_forms = 0
     for f in forms:
         if f["own"]:
             continue
         d = get_form_diff(f["xml"])
         if d is None or not d["is_borrowed"]:
+            # A borrowed form must carry its BaseForm: without it there is nothing to compare with
+            if not os.path.isfile(f["xml"]):
+                why = "Form.xml not found"
+            elif d is None:
+                why = "Form.xml cannot be read"
+            else:
+                why = "no BaseForm — cannot compare"
+            bad_forms += 1
+            items.append({"section": rel_path(ext["dir"], f["xml"]), "text": why, "loc": ""})
             continue
         diffs[path_key(f["module"])] = d
         if d["total"] == 0:
@@ -2371,6 +2416,7 @@ def overview_object(ext, obj):
         items.append({"section": rel_path(ext["dir"], f["xml"]), "head": form_diff_parts(d), "lines": tree[1:]})
     ic_count = 0
     own_methods = 0
+    top_code = 0
     for bsl in get_obj_modules(ctx, forms):
         lines = read_bsl_lines(bsl)
         if lines is None:
@@ -2379,6 +2425,9 @@ def overview_object(ext, obj):
         k = path_key(bsl)
         skip = call_type_handlers(diffs[k]) if k in diffs else set()
         mc = get_module_changes(lines, skip)
+        if mc["top_code"] >= 0:
+            top_code += 1
+            items.append({"section": rel, "text": "module code outside methods", "loc": ":%d" % (mc["top_code"] + 1)})
         for x in mc["interceptors"]:
             ic_count += 1
             items.append({"section": rel, "text": '&%s("%s")' % (x["ic"]["raw"], x["ic"]["method"]), "loc": ":%d" % (x["ic"]["line"] + 1)})
@@ -2389,7 +2438,11 @@ def overview_object(ext, obj):
     kinds = {}
     for k in get_own_child_list(ctx):
         items.append({"section": obj_rel, "text": k["text"], "loc": ""})
-        kinds[k["kind"]] = kinds.get(k["kind"], 0) + 1
+        # Parts of an own sub-object go with it; additions to a borrowed one are counted per owner
+        if k["in"] == "*":
+            continue
+        kk = (k["kind"], k["in"])
+        kinds[kk] = kinds.get(kk, 0) + 1
     content = 0
     if obj["type"] == "Subsystem":
         for c in get_subsystem_content(ctx["md"]):
@@ -2401,12 +2454,16 @@ def overview_object(ext, obj):
         sp.append(plural(ic_count, "interceptor"))
     if own_methods:
         sp.append(plural(own_methods, "own method"))
-    for w, v in kinds.items():
-        sp.append("own " + plural(v, w))
+    if top_code:
+        sp.append("module code")
+    for (w, in_), v in kinds.items():
+        sp.append("own " + plural(v, w) + ((" in " + in_) if in_ else ""))
     if content:
         sp.append(plural(content, "content item"))
     if changed_forms:
         sp.append(plural(changed_forms, "form") + " changed")
+    if bad_forms:
+        sp.append(plural(bad_forms, "form") + " not compared")
     # Borrowed only as a dependency (a type, a picture, a style of the extension's own code)
     unchanged = not items
     tail = " — no changes" if unchanged else " — " + ", ".join(sp)
@@ -2772,9 +2829,12 @@ def main():
             footer.append("=== Summary %s: %d borrowed%s, %d own objects ===" % (ext["name"], ext["borrowed"], bp, ext["own"]))
             if unch:
                 by_type = {}
-                for o in unch:
+                # One shown in the body (asked for by -Name or -Expand Type.Name) is not folded
+                for o in (o for o in unch if not o.get("asked")):
                     by_type.setdefault(o["type"], []).append(o["id"][len(o["type"]) + 1:])
-                if "*" in expand_list:
+                if not by_type:
+                    pass
+                elif "*" in expand_list:
                     footer.append("Borrowed without changes:")
                     for t, names in by_type.items():
                         footer.append("    %s: %s" % (t, ", ".join(names)))
