@@ -42,9 +42,9 @@ export default async function({
     await rejectsWith(() => prepareSlides([tooMany], { validateOnly: true }), /3–6 cards supported, got 8/, 'radial: limit with advice');
     await rejectsWith(() => prepareSlides([{ layout: 'nope' }], { validateOnly: true }), /unknown layout "nope".*title/, 'unknown layout lists the layouts');
     const badShow = { layout: 'cards', cards: [{ title: 'А' }], steps: [{ show: 3 }] };
-    await rejectsWith(() => showSlide(badShow, fast), /step 1: show 3/, 'show index out of range');
+    await rejectsWith(() => showSlide(badShow, fast), /step 1: show 3 — no such element; addresses: 0 «А»/, 'show index out of range, the addresses listed');
     const keyInArray = { layout: 'radial', center: { title: 'Ц' }, cards: [{ title: 'А' }, { title: 'Б' }, { title: 'В' }], steps: [{ show: ['center', 0] }] };
-    await rejectsWith(() => prepareSlides([keyInArray], { validateOnly: true }), /on its own, not in an array/, 'a key inside a show array');
+    await prepareSlides([keyInArray], { validateOnly: true });   // a key and an index together: two addresses
     assert.equal(await slideState(), null, 'nothing was mounted');
   });
 
@@ -192,7 +192,8 @@ export default async function({
   await step('statuses: ok/warn/off/optional on cards, columns, process, radial, comparison cells; a wrong one is a spec error', async () => {
     const st = (sel) => shadow((sel) => {
       const r = document.getElementById('__ws_slide').shadowRoot;
-      return { cls: [...r.querySelectorAll(sel)].map((e) => (e.className.match(/ws-st-\w+/) || [''])[0]), marks: r.querySelectorAll('.ws-st-ic').length };
+      return { cls: [...r.querySelectorAll(sel)].map((e) => (e.className.match(/ws-st-\w+/) || [''])[0]),
+        marks: [...r.querySelectorAll('.ws-st-ic')].filter((e) => getComputedStyle(e).display !== 'none').length };
     }, sel);
     const four = ['ok', 'warn', 'off', 'optional'];
     await showSlide({ layout: 'cards', cards: [...four.map((s) => ({ title: s, status: s })), { title: 'без статуса' }], steps: [{ show: 'all' }] }, fast);
@@ -215,7 +216,7 @@ export default async function({
     await rejectsWith(() => prepareSlides([{ layout: 'flow', inputs: [...Array(7)].map((_, i) => ({ title: `${i}` })), center: { title: 'Ц' },
       outputs: [{ title: 'Р' }], steps: [{ show: 'center' }] }], { validateOnly: true }), /1–5 inputs supported, got 7/, 'inputs limit with advice');
     await rejectsWith(() => prepareSlides([{ layout: 'flow', inputs: [{ title: 'А' }], center: { title: 'Ц' }, outputs: [{ title: 'Р' }],
-      steps: [{ out: 3 }] }], { validateOnly: true }), /out must be 0\.\.0 or 'all'/, 'out index in range');
+      steps: [{ out: 3 }] }], { validateOnly: true }), /step 1: show \{"out":3\} — no such element/, 'out index in range');
     const spec = { layout: 'flow', title: 'Поток', inputs: [{ title: 'А' }, { title: 'Б', status: 'optional' }], center: { title: 'Узел', items: ['раз'] },
       outputs: [{ title: 'Итог', status: 'ok' }], steps: [{ show: 'center' }, { in: 0 }, { in: 1 }, { out: 'all' }, { show: 'all' }] };
     const states = [];
@@ -614,6 +615,75 @@ export default async function({
     assert.equal((await slideState()).static, true, 'motion:false → static slide');
     await hideSlide({ motion: false });
     assert.equal(await slideState(), null, 'hideSlide removed the slide');
+  });
+
+  await step('addresses: verbs by address, points one by one, status on the way, marks and a banner, camera fill; errors list the addresses', async () => {
+    const look = () => shadow(() => {
+      const r = document.getElementById('__ws_slide').shadowRoot;
+      const cls = (sel) => [...(r.querySelector(sel)?.classList || [])];
+      const box = (sel) => { const b = r.querySelector(sel)?.getBoundingClientRect(); return b ? { l: b.left, t: b.top, r: b.right, b: b.bottom } : null; };
+      return {
+        i0: cls('.cd-0 .ws-i0'), i1: cls('.cd-0 .ws-i1'), c0: cls('.cd-0'), c1: cls('.cd-1'), c2: cls('.cd-2'),
+        ic2: getComputedStyle(r.querySelector('.cd-2 .ws-st-ic'), '::before').content,
+        grp: box('.mk-grp'), note: box('.mk-note'), foot: box('.mk-foot'), b0: box('.cd-0'), b1: box('.cd-1'), b2: box('.cd-2'), wrap: box('.cd-wrap'),
+      };
+    });
+    const states = [];
+    const spec = {
+      layout: 'cards', title: 'Адреса', columns: 3,
+      cards: [{ title: 'А', items: ['а1', 'а2', 'а3'] }, { title: 'Б' }, { title: 'В', status: 'ok' }],
+      marks: { grp: { frame: [0, 1], label: 'Группа' }, note: { callout: 2, label: 'Выноска' }, foot: { banner: 'Баннер внизу кадра' } },
+      steps: [
+        { show: 0 },                                        // the card, its points not yet
+        { show: { block: 0, item: 0 } },                    // a point, lit
+        { show: [1, 2], dim: { block: 0, item: 0 } },       // two cards; a point dimmed by address
+        { status: { off: 1, warn: 2 } },                    // statuses on the way
+        { show: { mark: 'grp' } },
+        { show: { mark: 'note' }, focus: null },
+      ],
+    };
+    const r = await showSlide(spec, { ...fast, onStep: async (i) => { states[i] = await look(); } });
+    const end = await look();
+    log(`addresses: ${JSON.stringify(r.addresses)} warnings: ${JSON.stringify(r.warnings || [])}`);
+    assert.ok(states[0].c0.includes('on') && states[0].i0.includes('ws-pending') && !states[0].i0.includes('on'), 'a card shown first, its points wait');
+    assert.ok(states[1].i0.includes('on') && states[1].i0.includes('ws-focus') && !states[1].i1.includes('on'), 'a point by address: shown and lit, the next waits');
+    assert.ok(states[2].i0.includes('ws-dim'), 'dim by address');
+    assert.ok(states[3].c1.includes('ws-st-off') && states[3].c2.includes('ws-st-warn') && !states[3].c2.includes('ws-st-ok'), 'status changed on the way');
+    assert.equal(states[3].ic2, '"?"', 'the mark follows the new status');
+    assert.ok(end.i1.includes('on') && end.c1.includes('ws-st-off'), 'the end shows the points left; statuses stay');
+    const inside = (a, b) => a.l <= b.l && a.t <= b.t && a.r >= b.r && a.b >= b.b;
+    assert.ok(inside(end.grp, end.b0) && inside(end.grp, end.b1) && !inside(end.grp, end.b2), 'the frame goes round its two cards');
+    assert.ok(end.note.b <= end.b2.t + 1 && end.note.l < end.b2.r && end.note.r > end.b2.l, 'the callout stands above its card');
+    assert.ok(end.wrap.b <= end.foot.t + 1, 'the content lays out above the banner');
+    assert.ok(!(r.warnings || []).some((w) => /outside|spills|does not fit/.test(w)), 'no layout warnings');
+    for (const a of ["0 «А»", "{ block: 0, item: 2 } «а3»", "{ mark: 'grp' } «Группа»"]) assert.ok(r.addresses.includes(a), `address listed: ${a}`);
+
+    // camera fill: a card's picture takes the whole frame, the push stops
+    const img = path.join(dir, 'fill.png');
+    fs.writeFileSync(img, await screenshot());
+    await showSlide({ layout: 'cards', title: 'Экран', lead: { title: 'Платформа', text: 'Работа с ИИ' }, cards: [{ title: 'Окно', image: img }],
+      steps: [{ show: 'lead' }, { show: 0 }, { camera: { to: 0, fill: true } }] }, fast);
+    await (await getPage()).waitForTimeout(3200);   // the card settles, then the camera moves (1.4 s)
+    const fill = await shadow(() => {
+      const r = document.getElementById('__ws_slide').shadowRoot;
+      const st = r.querySelector('.ws-stage').getBoundingClientRect(), im = r.querySelector('.cd-0 .ws-img').getBoundingClientRect();
+      return { filled: r.querySelector('.ws-slide').classList.contains('ws-filled'), dl: im.left - st.left, dt: im.top - st.top, dr: im.right - st.right, db: im.bottom - st.bottom,
+        radius: getComputedStyle(r.querySelector('.cd-0 .ws-img')).borderTopLeftRadius };
+    });
+    log(`fill: ${JSON.stringify(fill)}`);
+    assert.ok(fill.filled, 'the slide is marked filled (the frame fades)');
+    assert.ok(fill.dl <= 2 && fill.dt <= 2 && fill.dr >= -2 && fill.db >= -2, `the picture covers the frame (${JSON.stringify(fill)})`);
+    assert.equal(fill.radius, '0px', 'no rounding at full size');
+
+    // errors: the addresses come with them
+    const v = (st) => prepareSlides([st], { validateOnly: true });
+    await rejectsWith(() => v({ layout: 'cards', cards: [{ title: 'А' }], steps: [{ show: { block: 0, item: 0 } }] }), /0 has no items; addresses: 0 «А»/, 'a point of a block without points');
+    await rejectsWith(() => v({ layout: 'cards', cards: [{ title: 'А', items: ['а'] }], steps: [{ status: { off: { block: 0, item: 0 } } }] }), /a status is a block's, not an item's/, 'no status on a point');
+    await rejectsWith(() => v({ layout: 'flow', inputs: [{ title: 'А' }], center: { title: 'Ц' }, outputs: [{ title: 'Р' }], steps: [{ show: 'centre' }] }),
+      /show "centre" — no such element; addresses: 'center' «Ц», \{ in: 0 \} «А», \{ out: 0 \} «Р»/, 'a typo in a key');
+    await rejectsWith(() => v({ layout: 'cards', cards: [{ title: 'А' }], steps: [{ status: { done: 0 } }] }), /"done" — a status is ok, warn, off, optional, none/, 'a wrong status value');
+    await rejectsWith(() => v({ layout: 'statement', text: 'Т', marks: { a: { banner: 'Б' } } }), /"marks" need a template with addresses/, 'marks on a template without addresses');
+    await rejectsWith(() => v({ layout: 'cards', cards: [{ title: 'А' }], marks: { a: { callout: 0 } }, steps: [{ show: 0 }] }), /a callout needs a label/, 'a callout without a label');
   });
 
   await step('layouts: process wraps into two rows (snake/bend), radial links 5 cards', async () => {

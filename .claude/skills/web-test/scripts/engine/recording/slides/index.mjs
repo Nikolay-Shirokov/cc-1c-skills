@@ -1,4 +1,4 @@
-// web-test recording/slides v1.9 — animated step slides: showSlide / hideSlide / prepareSlides / setSlideTheme / loadSlides.
+// web-test recording/slides v1.10 — animated step slides: showSlide / hideSlide / prepareSlides / setSlideTheme / loadSlides.
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 //
 // A slide is a template spec ({ layout, ... }) or a custom page ({ html, css, steps }). Each step is a phrase
@@ -175,7 +175,7 @@ export async function hold(ms) {
 
 function animatedSelectors(steps) {
   const of = (k) => steps.flatMap((s) => (s[k] ? [s[k]] : []));
-  return { show: of('show'), all: [...of('show'), ...of('hide'), ...of('focus'), ...of('dim')] };
+  return { show: of('show'), all: [...of('show'), ...of('hide'), ...of('focus'), ...of('dim'), ...of('undim')] };
 }
 
 // A page's script runs in the page: built as one expression `(pageScript)(opts, userFn)` — a function is passed as
@@ -358,7 +358,7 @@ async function playAnchored(plan, anch, built, opts, tts, warnings) {
  *   'process'|'radial'|'image'|'summary'|'closing', ... } or page { html|file, css?, steps, background?, push? }
  * @param {object} [opts] — TTS options (provider, voice, ...; default: .v8-project.json "tts"),
  *   theme, motion (false — no transitions), label (name in warnings)
- * @returns {{ steps: number, seconds: number, warnings?: string[] }}
+ * @returns {{ steps: number, seconds: number, addresses?: string[], warnings?: string[] }}  addresses — what a step can name (templates)
  */
 export async function showSlide(spec, opts = {}) {
   ensureConnected();
@@ -409,6 +409,11 @@ export async function showSlide(spec, opts = {}) {
   const frame = frameFor(spec, frameItems);
   checkHeadingWeight(theme);
   const vars = { ...themeVars(theme), ...frame.vars };
+  // a banner mark: the content lays out above it (--safe-bottom), the banner itself sits on the frame's field
+  if (built.banner) {
+    vars['--ws-frame-bottom'] = vars['--safe-bottom'] || '0px';
+    vars['--safe-bottom'] = `calc(max(40px, ${vars['--ws-frame-bottom']}) + ${built.banner}px)`;
+  }
   // theme.background (the brand's ground, a logo in a corner) — on slides without their own (spec or template)
   const bg = built.bg ?? (theme.background !== undefined ? rewriteAssets(theme.background) : undefined);
   // project files (asset: in the page or its ground, slide.import/load/asset in its script) — served on this page,
@@ -448,7 +453,7 @@ export async function showSlide(spec, opts = {}) {
     await playAnchored(plan, anch, built, opts, tts, warnings);
     const unique = [...new Set(warnings)];
     if (unique.length && opts.lint !== 'collect') for (const w of unique) console.log(`[web-test] showSlide(${label(spec, opts)}) WARN ${w}`);
-    return { steps: built.steps.length, seconds: Math.round(total * 10) / 10, anchors: anch.times, ...(unique.length ? { warnings: unique } : {}) };
+    return { steps: built.steps.length, seconds: Math.round(total * 10) / 10, anchors: anch.times, ...(built.addresses ? { addresses: built.addresses } : {}), ...(unique.length ? { warnings: unique } : {}) };
   }
   let lastSpoken = false;
   for (let i = 0; i < built.steps.length; i++) {
@@ -478,7 +483,7 @@ export async function showSlide(spec, opts = {}) {
   if (unique.length && opts.lint !== 'collect') {
     for (const w of unique) console.log(`[web-test] showSlide(${label(spec, opts)}) WARN ${w}`);
   }
-  return { steps: built.steps.length, seconds: Math.round(total * 10) / 10, ...(unique.length ? { warnings: unique } : {}) };
+  return { steps: built.steps.length, seconds: Math.round(total * 10) / 10, ...(built.addresses ? { addresses: built.addresses } : {}), ...(unique.length ? { warnings: unique } : {}) };
 }
 
 /** Fade the slide out and remove it ({ motion: false } — at once). */

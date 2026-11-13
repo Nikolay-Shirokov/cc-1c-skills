@@ -1,4 +1,4 @@
-// web-test recording/slides/protocol v1.9 — step-slide protocol: base CSS + theme, page-side mount/step/lint.
+// web-test recording/slides/protocol v1.10 — step-slide protocol: base CSS + theme, page-side mount/step/lint.
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 //
 // A slide is a 1920×1080 page inside a shadow root (its CSS cannot touch a neighbour slide or the
@@ -78,6 +78,10 @@ export const BASE_CSS = `
 .ws-links path.ws-focus{animation:none;stroke:var(--accent)}
 .ws-links path.ws-t{transition:stroke-dashoffset .7s cubic-bezier(.4,0,.2,1),opacity .4s ease,stroke .5s ease}
 .ws-static, .ws-static *{transition:none !important;animation:none !important}
+/* camera fill: the element takes the whole frame — no rounding, no shadow; the frame (logo, number) fades */
+.ws-fill-el, .ws-fill-el *{border-radius:0 !important;box-shadow:none !important}
+.ws-frame{transition:opacity .6s ease}
+.ws-filled .ws-frame{opacity:0}
 /* the frame: logo, slide number, footer — outside the push and the camera, it stands still */
 .ws-frame{position:absolute;inset:0;pointer-events:none;font-size:22px;color:var(--muted)}
 .wf-c{position:absolute;display:flex;align-items:center;gap:28px}
@@ -206,12 +210,44 @@ export function pageMount({ html, css, bg, vars, pushSec, animated, instant, sta
       const t = root.querySelector(p.dataset.to);
       if (!t) return;
       const r = box(t), tx = r.x + r.w / 2 < cx ? r.x + r.w : r.x, ty = r.y + r.h / 2;
-      const a = Math.atan2(ty - cy, tx - cx), sx = cx + R * Math.cos(a), sy = cy + R * Math.sin(a);
+      const a = Math.atan2(ty - cy, tx - cx), ca = Math.cos(a), sa = Math.sin(a);
+      // from the rim of a circle, from the edge of a plate — a line from the middle shows through it while it fades in
+      const d = R || Math.min(Math.abs(ca) > 1e-6 ? f.w / 2 / Math.abs(ca) : Infinity, Math.abs(sa) > 1e-6 ? f.h / 2 / Math.abs(sa) : Infinity);
+      const sx = cx + d * ca, sy = cy + d * sa;
       const len = Math.hypot(tx - sx, ty - sy);
       p.setAttribute('d', `M${sx.toFixed(1)} ${sy.toFixed(1)} L${tx.toFixed(1)} ${ty.toFixed(1)}`);
       p.style.strokeDasharray = len.toFixed(1);
       p.style.setProperty('--len', len.toFixed(1));
     });
+  });
+
+  // 2b. marks (addresses.mjs): a frame round all its elements, a callout at the side of its element (stage px)
+  const union = (sel) => {
+    const rs = [...root.querySelectorAll(sel)].map(box).filter((r) => r.w && r.h);
+    if (!rs.length) return null;
+    const x = Math.min(...rs.map((r) => r.x)), y = Math.min(...rs.map((r) => r.y));
+    return { x, y, w: Math.max(...rs.map((r) => r.x + r.w)) - x, h: Math.max(...rs.map((r) => r.y + r.h)) - y };
+  };
+  root.querySelectorAll('.ws-mk[data-around]').forEach((m) => {
+    const u = union(m.dataset.around), pad = 18;
+    if (u) Object.assign(m.style, { left: `${u.x - pad}px`, top: `${u.y - pad}px`, width: `${u.w + 2 * pad}px`, height: `${u.h + 2 * pad}px` });
+  });
+  root.querySelectorAll('.ws-mk[data-at]').forEach((m) => {
+    const u = union(m.dataset.at);
+    if (!u) return;
+    const mw = m.offsetWidth, mh = m.offsetHeight, gap = 16, side = m.dataset.side;
+    let x, y;
+    if (side === 'left' || side === 'right') {
+      x = side === 'left' ? u.x - gap - mw : u.x + u.w + gap;
+      y = u.y + u.h / 2 - mh / 2;
+    } else {
+      x = u.x + u.w / 2 - mw / 2;
+      y = side === 'bottom' ? u.y + u.h + gap : u.y - gap - mh;
+    }
+    const cx = Math.min(Math.max(x, 24), 1920 - 24 - mw), cy = Math.min(Math.max(y, 24), 1080 - 24 - mh);
+    // the pointer stays at the element when the box is pushed back into the frame
+    if (side === 'top' || side === 'bottom') m.style.setProperty('--px', `${Math.min(Math.max(u.x + u.w / 2 - cx, 20), mw - 20)}px`);
+    Object.assign(m.style, { left: `${cx}px`, top: `${cy}px` });
   });
 
   // 3. pending states without transitions, then transitions
@@ -254,24 +290,61 @@ export function pageStep({ step, index, maxZoom }) {
   let si = 0;
   q(step.show).forEach((e) => { e.style.setProperty('--si', e.classList.contains('on') ? 0 : si++); e.classList.add('on'); });
   q(step.dim).forEach((e) => e.classList.add('ws-dim'));
+  // a status set or changed on the way (addresses.mjs: status { off: … }): the class carries stripe, mark and fade
+  for (const { sel, to } of step.status || []) {
+    q(sel).forEach((e) => {
+      [...e.classList].filter((c) => /^ws-st-(ok|warn|off|optional)$/.test(c)).forEach((c) => e.classList.remove(c));
+      if (to) e.classList.add(`ws-st-${to}`);
+    });
+  }
   if (step.focus !== undefined) {
     root.querySelectorAll('.ws-focus').forEach((e) => e.classList.remove('ws-focus'));
     q(step.focus).forEach((e, i) => { e.style.setProperty('--fi', i); e.classList.remove('ws-dim'); e.classList.add('ws-focus'); });
   }
   root.querySelector('.ws-stage')?.dispatchEvent(new CustomEvent('ws-step', { detail: { index, step } }));
-  if (step.camera !== undefined) {
+  if (step.camera === undefined) return;
+  // an element is aimed at once its own entry (and its block's) has settled — measured mid-motion it is off
+  // by its rise; a later camera step wins over one still waiting
+  const seq = (root.__wsCam = (root.__wsCam || 0) + 1);
+  const aim = () => {
+    if (root.__wsCam !== seq) return;
     const cam = root.querySelector('.ws-cam'), spot = root.querySelector('.ws-spot');
-    let rect = step.camera;
+    const slideEl = root.querySelector('.ws-slide'), push = root.querySelector('.ws-push');
+    root.querySelectorAll('.ws-fill-el').forEach((e) => e.classList.remove('ws-fill-el'));
+    if (!step.fill) root.querySelectorAll('[data-ws-pinned]').forEach((x) => { x.style.transform = ''; delete x.dataset.wsPinned; });
+    slideEl.classList.remove('ws-filled');
+    let rect = step.camera, els = [];
     if (typeof rect === 'string') {
-      // element box in stage coordinates, undoing the stage scale and the current camera
-      const el = root.querySelector(rect);
-      if (!el) return;
+      // the elements' box in stage coordinates (their union), undoing the stage scale, the push and the camera
+      els = [...root.querySelectorAll(rect)];
+      if (!els.length) return;
       const st = root.querySelector('.ws-stage').getBoundingClientRect();
-      const k = st.width / 1920, m = new DOMMatrix(getComputedStyle(cam).transform);
-      const r = el.getBoundingClientRect();
-      rect = [((r.left - st.left) / k - m.e) / m.a, ((r.top - st.top) / k - m.f) / m.a, r.width / k / m.a, r.height / k / m.a];
+      const k = st.width / 1920, m = new DOMMatrix(getComputedStyle(cam).transform), pm = new DOMMatrix(getComputedStyle(push).transform);
+      const rs = els.map((e) => e.getBoundingClientRect());
+      const L = Math.min(...rs.map((r) => r.left)), T = Math.min(...rs.map((r) => r.top));
+      const R = Math.max(...rs.map((r) => r.right)), B = Math.max(...rs.map((r) => r.bottom));
+      // stage px → push layer (scaled about the centre) → camera layer
+      const un = (x, y) => [((x - 960) - pm.e) / pm.a + 960, ((y - 540) - pm.f) / pm.d + 540];
+      const [x0, y0] = un((L - st.left) / k, (T - st.top) / k), [x1, y1] = un((R - st.left) / k, (B - st.top) / k);
+      rect = [(x0 - m.e) / m.a, (y0 - m.f) / m.a, (x1 - x0) / m.a, (y1 - y0) / m.a];
     }
     if (!rect) { cam.style.transform = 'none'; spot.style.opacity = 0; return; }
+    if (step.fill) {
+      // the element covers the whole frame (cropped to 16:9 if its proportions differ); the push stops and
+      // returns to 1 with the camera — the frame then matches the page the slide hands over to
+      const [X, Y, RW, RH] = rect, s = Math.max(1920 / RW, 1080 / RH);
+      cam.style.transform = `translate(${960 - s * (X + RW / 2)}px,${540 - s * (Y + RH / 2)}px) scale(${s})`;
+      const now = getComputedStyle(push).transform;
+      push.style.transitionDuration = '0s';
+      push.style.transform = now;
+      void push.offsetHeight;
+      push.style.transition = `transform 1.4s ${getComputedStyle(cam).transitionTimingFunction}`;
+      push.style.transform = 'none';
+      els.forEach((e) => e.classList.add('ws-fill-el'));
+      slideEl.classList.add('ws-filled');
+      spot.style.opacity = 0;
+      return;
+    }
     const pad = 14, [X, Y, RW, RH] = [rect[0] - pad, rect[1] - pad, rect[2] + 2 * pad, rect[3] + 2 * pad];
     const s = Math.max(1, Math.min((1920 * 0.84) / RW, (1080 * 0.78) / RH, maxZoom));
     const tx = Math.min(0, Math.max(1920 - 1920 * s, 960 - s * (X + RW / 2)));
@@ -279,7 +352,28 @@ export function pageStep({ step, index, maxZoom }) {
     cam.style.transform = `translate(${tx}px,${ty}px) scale(${s})`;
     if (step.spot) Object.assign(spot.style, { left: X + 'px', top: Y + 'px', width: RW + 'px', height: RH + 'px', opacity: 1 });
     else spot.style.opacity = 0;
+  };
+  if (typeof step.camera !== 'string') { aim(); return; }
+  const cam0 = root.querySelector('.ws-cam');
+  // fill: the transforms on the element's way up are pinned where they are heading (a lit card stays scaled up) —
+  // the end's clear would otherwise shrink it under the camera, and dropping the focus first makes it pulse
+  if (step.fill) {
+    for (const e of root.querySelectorAll(step.camera)) {
+      for (let x = e; x && x !== cam0; x = x.parentElement) {
+        const tr = x.getAnimations().find((an) => an.transitionProperty === 'transform');
+        const kf = tr?.effect?.getKeyframes?.() || [];
+        x.style.transform = kf.length ? kf[kf.length - 1].transform : getComputedStyle(x).transform;
+        x.dataset.wsPinned = '';
+      }
+    }
   }
+  const moving = [...root.querySelectorAll(step.camera)].flatMap((e) => {
+    const a = [];
+    for (let x = e; x && x !== cam0; x = x.parentElement) a.push(...x.getAnimations().filter((an) => an.effect?.getTiming?.().iterations !== Infinity));
+    return a;
+  });
+  if (!moving.length) { aim(); return; }
+  Promise.race([Promise.all(moving.map((an) => an.finished.catch(() => {}))), new Promise((r) => setTimeout(r, 1600))]).then(aim);
 }
 
 /** Fade out (or drop at once) and remove the slide (page side). */

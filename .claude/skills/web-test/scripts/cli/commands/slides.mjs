@@ -1,4 +1,4 @@
-// web-test cli/commands/slides v1.4 — play / preview: slides without 1C (blank Chromium page 1920×1080)
+// web-test cli/commands/slides v1.5 — play / preview: slides without 1C (blank Chromium page 1920×1080)
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 //
 // A slides module: `export default [spec, ...]`, optional `export const tts = {...}` and `export const theme = {...}`.
@@ -100,15 +100,16 @@ export async function cmdPreview(file, outDir) {
     await browser.prepareSlides(slides, { validateOnly: true });
     mkdirSync(dir, { recursive: true });
     const res = await withBlankPage(async (page) => {
-      const warnings = [], shots = [];
+      const warnings = [], shots = [], addresses = {};
       for (let n = 0; n < slides.length; n++) {
         const r = await browser.showSlide(slides[n], {
           ...tts, fast: 1.6, lint: 'collect',
           onStep: async (i) => { const f = join(dir, `${n + 1}-${i + 1}.png`); await page.screenshot({ path: f }); shots.push(f); },
         });
         warnings.push(...(r.warnings || []).map((w) => `slide ${n + 1} (${slides[n].layout || 'page'}) ${w}`));
+        if (r.addresses) addresses[n + 1] = r.addresses;   // what a step can name on each template slide
       }
-      return { ok: true, dir, shots: shots.length, warnings };
+      return { ok: true, dir, shots: shots.length, addresses, warnings };
     });
     out(res);
   } catch (e) { fail(e); }

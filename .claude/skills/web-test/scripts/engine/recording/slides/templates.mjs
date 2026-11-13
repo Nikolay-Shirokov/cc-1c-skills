@@ -1,8 +1,9 @@
-// web-test recording/slides/templates v1.8 — slide templates: spec → { html, css, steps, bg?, push?, maxZoom? }.
+// web-test recording/slides/templates v1.9 — slide templates: spec → { html, css, steps, bg?, push?, maxZoom? }.
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 //
 // Every template is a generator for the step protocol (protocol.mjs): it builds a 1920×1080 page and
-// turns its own short step form (`show: 2`, `region: [...]`, ...) into protocol steps. Names follow
+// turns its steps into protocol steps: templates with steps register their elements by address
+// (addresses.mjs: `show: 2`, `{ in: 1 }`, `{ block: 2, item: 0 }`, marks), `image` keeps `region`/`callout`. Names follow
 // PowerPoint / Keynote / SmartArt. Specs are validated here: a wrong field or a count past the limit
 // throws before anything is shown (prepareSlides calls this ahead of the recording).
 
@@ -11,16 +12,20 @@ import { extname } from 'path';
 import { resolveProjectPath } from '../../core/state.mjs';
 import { W, H, EASE } from './protocol.mjs';
 import { rewriteAssets } from './assets.mjs';
+import { Addr, mapSteps, marksOf, MARK_CSS, ITEM_CSS, BANNER_ROOM } from './addresses.mjs';
 
 export const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const r1 = (x) => Math.round(x * 10) / 10;
-const list = (items) => (items?.length ? `<ul>${items.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : '');
+// points of a block: each its own item class (an address { block: i, item: j } names it)
+const list = (items) => (items?.length ? `<ul>${items.map((x, j) => `<li class="ws-i ws-i${j}">${esc(x)}</li>`).join('')}</ul>` : '');
+const itemTexts = (items) => (items || []).map((x) => String(x));
 const range = (n) => [...Array(n).keys()];
 
 // ── validation ────────────────────────────────────────────────────────────
 class SpecError extends Error {}
 const fail = (layout, msg) => { throw new SpecError(`showSlide(${layout}): ${msg}`); };
 function need(layout, ok, msg) { if (!ok) fail(layout, msg); }
+const newAddr = (layout) => new Addr(layout, (msg) => fail(layout, msg));
 const isStr = (x) => typeof x === 'string' && x.trim() !== '';
 const isArr = (x) => Array.isArray(x);
 function count(layout, field, arr, min, max, advice) {
@@ -34,20 +39,6 @@ function stepsOf(layout, spec, { required = true } = {}) {
   spec.steps.forEach((s, i) => need(layout, s && typeof s === 'object', `step ${i + 1} must be an object`));
   return spec.steps;
 }
-// index-like step.show values: a number in range, or one of the extra keys — inside an array only the
-// keys the template expands there (arrayExtra); the rest are valid on their own only
-function checkShow(layout, steps, n, extra = [], arrayExtra = []) {
-  steps.forEach((s, i) => {
-    if (s.show === undefined) return;
-    const arr = Array.isArray(s.show);
-    for (const v of [].concat(s.show)) {
-      const ok = (Number.isInteger(v) && v >= 0 && v < n) || (arr ? arrayExtra.includes(v) : extra.includes(v));
-      need(layout, ok, `step ${i + 1}: show ${JSON.stringify(v)} — expected 0..${n - 1}`
-        + (extra.length ? ` or ${extra.map((x) => `'${x}'`).join(', ')}${arr && extra.some((x) => !arrayExtra.includes(x)) ? ' (on its own, not in an array)' : ''}` : ''));
-    }
-  });
-}
-
 // ── images ────────────────────────────────────────────────────────────────
 /** Image file → { iw, ih, url } (PNG and JPEG sizes read from the header). */
 export function imageInfo(src, layout = 'image') {
@@ -70,6 +61,13 @@ export function imageInfo(src, layout = 'image') {
   const mime = ext === '.png' ? 'png' : ext === '.svg' ? 'svg+xml' : ext === '.jpg' ? 'jpeg' : ext.slice(1);
   return { iw, ih, url: `data:image/${mime};base64,${buf.toString('base64')}` };
 }
+
+// a picture inside a block (card, column, stage, flow item, lead): the block's width, height by its proportions
+const blockImg = (x, L) => (x?.image ? `<div class="ws-img"><img src="${imageInfo(x.image, L).url}"/></div>` : '');
+const IMG_CSS = `
+.ws-img{margin:14px 0 0;border-radius:10px;overflow:hidden;line-height:0}
+.ws-img img{display:block;width:100%;height:auto}
+`;
 
 // ── shared pieces ─────────────────────────────────────────────────────────
 const TITLE_CSS = `
@@ -123,13 +121,17 @@ const STATUSES = ['ok', 'warn', 'off', 'optional'];
 function checkStatus(layout, what, x) {
   need(layout, x?.status === undefined || STATUSES.includes(x.status), `${what}: status must be ok, warn, off or optional`);
 }
-const stClass = (x) => (x?.status ? ` ws-st-${x.status}` : '');
-const stIcon = (x) => (x?.status === 'ok' ? '<i class="ws-st-ic">✓</i>' : x?.status === 'warn' ? '<i class="ws-st-ic">?</i>' : '');
+// every element that takes a status carries ws-stc and an (empty) mark: a step may set or change the status
+const stClass = (x) => ` ws-stc${x?.status ? ` ws-st-${x.status}` : ''}`;
+const stIcon = () => '<i class="ws-st-ic"></i>';
 const STATUS_CSS = `
 .ws-st-ok{--st:var(--status-ok)} .ws-st-warn{--st:var(--status-warn)}
 .ws-st-ok,.ws-st-warn{position:relative}
 .ws-st-ic{position:absolute;right:18px;top:18px;width:40px;height:40px;border-radius:50%;background:var(--st);color:#fff;
-  font-style:normal;font-size:24px;font-weight:800;line-height:1;display:flex;align-items:center;justify-content:center}
+  font-style:normal;font-size:24px;font-weight:800;line-height:1;display:none;align-items:center;justify-content:center}
+.ws-st-ok .ws-st-ic,.ws-st-warn .ws-st-ic{display:flex}
+.ws-st-ok .ws-st-ic::before{content:'✓'} .ws-st-warn .ws-st-ic::before{content:'?'}
+.ws-stc>*{transition:opacity .6s ease}
 .ws-st-off>*{opacity:.5;text-decoration:line-through;text-decoration-thickness:2px}
 .ws-st-optional{background:transparent;box-shadow:none;outline:3px dashed color-mix(in oklab, var(--line) 70%, transparent);outline-offset:-3px}
 .ws-st-optional>*{opacity:.75}
@@ -243,24 +245,17 @@ export const templates = {
     const n = spec.cards.length;
     spec.cards.forEach((c, i) => need(L, c && (isStr(c.title) || isStr(c.text) || isArr(c.items)), `card ${i + 1} needs title, text or items`));
     spec.cards.forEach((c, i) => checkStatus(L, `card ${i + 1}`, c));
-    const steps0 = stepsOf(L, spec);
-    checkShow(L, steps0, n, ['all', 'lead'], ['all', 'lead']);
-    if (steps0.some((s) => [].concat(s.show).includes('lead'))) need(L, spec.lead, 'show "lead" without a "lead" block');
     const cols = spec.columns || (spec.lead ? (n <= 4 ? 2 : 3) : n <= 3 ? n : n <= 4 ? 2 : n <= 6 ? 3 : 4);
-    const lead = spec.lead ? `<div class="cd-lead"><b>${esc(spec.lead.title)}</b><p>${esc(spec.lead.text)}</p></div>` : '';
+    const lead = spec.lead ? `<div class="cd-lead">${spec.lead.title ? `<b>${esc(spec.lead.title)}</b>` : ''}`
+      + `${spec.lead.text ? `<p>${esc(spec.lead.text)}</p>` : ''}${blockImg(spec.lead, L)}</div>` : '';
     const cards = spec.cards.map((c, i) => `<div class="cd-card cd-${i}${stClass(c)}">${stIcon(c)}`
-      + (c.title ? `<h3>${esc(c.title)}</h3>` : '') + (c.text ? `<p>${esc(c.text)}</p>` : '') + list(c.items) + '</div>');
-    const sel = (i) => (i === 'lead' ? '.cd-lead' : `.cd-${i}`);
-    const steps = steps0.map(({ show, ...s }) => {
-      if (show === undefined) return s;
-      const keys = [].concat(show).flatMap((x) => (x === 'all' ? range(n) : [x]));
-      const st = { ...s, show: keys.map(sel).join(', ') };
-      const focus = keys.filter((x) => x !== 'lead');
-      if (spec.focus !== false && show !== 'all' && focus.length) st.focus = focus.map(sel).join(', ');
-      return st;
-    });
-    steps.push({ clear: true, focus: null, hold: spec.outro ?? 1.2 });
+      + (c.title ? `<h3>${esc(c.title)}</h3>` : '') + (c.text ? `<p>${esc(c.text)}</p>` : '') + list(c.items) + blockImg(c, L) + '</div>');
+    const A = newAddr(L);
+    spec.cards.forEach((c, i) => A.add(`b${i}`, { text: c.title || c.text || '', show: `.cd-${i}`, focus: `.cd-${i}`, box: `.cd-${i}`,
+      st: `.cd-${i}`, items: c.items?.length || 0, itemTexts: itemTexts(c.items), img: c.image ? `.cd-${i} .ws-img` : null, inAll: true }));
+    if (spec.lead) A.add('lead', { text: spec.lead.title || '', show: '.cd-lead', box: '.cd-lead', img: spec.lead.image ? '.cd-lead .ws-img' : null });
     return {
+      addr: A, mapOpts: { autoFocus: spec.focus !== false },
       push: true,
       html: titleHtml(spec.title) + `<div class="cd-wrap">${lead}<div class="cd-box ws-fit"><div class="cd-grid">${cards.join('')}</div></div></div>`,
       css: TITLE_CSS + `
@@ -279,7 +274,6 @@ export const templates = {
 .cd-card ul{margin:0;padding-left:28px;font-size:27px;line-height:1.35;color:var(--surface-ink2)}
 .cd-card li::marker{color:var(--line)}
 ` + STRIPE_STATUS_CSS('.cd-card') + STATUS_CSS,
-      steps,
     };
   },
 
@@ -289,16 +283,14 @@ export const templates = {
     count(L, 'columns', spec.columns, 2, 5, 'use cards for more');
     const n = spec.columns.length;
     spec.columns.forEach((c, i) => { need(L, c && isStr(c.title), `column ${i + 1} needs a title`); checkStatus(L, `column ${i + 1}`, c); });
-    const steps0 = stepsOf(L, spec);
-    checkShow(L, steps0, n, ['all']);
     const colors = ['var(--c1)', 'var(--c2)', 'var(--c4)', 'var(--c5)', 'var(--c3)'];
     const cols = spec.columns.map((c, i) => `<div class="co-col co-${i}${stClass(c)}" style="--c:${c.color || colors[i % colors.length]}">`
-      + `<h3>${esc(c.title)}${stIcon(c)}</h3>${(c.items || []).map((x) => `<div class="co-it">${esc(x)}</div>`).join('')}</div>`).join('');
-    const sel = (i) => `.co-${i}`;
-    const steps = steps0.map(({ show, ...s }) => (show === undefined ? s
-      : show === 'all' ? { ...s, show: range(n).map(sel).join(', ') } : { ...s, show: [].concat(show).map(sel).join(', '), focus: [].concat(show).map(sel).join(', ') }));
-    steps.push({ clear: true, focus: null, hold: spec.outro ?? 1.2 });
+      + `<h3>${esc(c.title)}${stIcon(c)}</h3>${(c.items || []).map((x, j) => `<div class="co-it ws-i ws-i${j}">${esc(x)}</div>`).join('')}${blockImg(c, L)}</div>`).join('');
+    const A = newAddr(L);
+    spec.columns.forEach((c, i) => A.add(`b${i}`, { text: c.title, show: `.co-${i}`, focus: `.co-${i}`, box: `.co-${i}`, st: `.co-${i}`,
+      items: c.items?.length || 0, itemTexts: itemTexts(c.items), img: c.image ? `.co-${i} .ws-img` : null, inAll: true }));
     return {
+      addr: A,
       push: true,
       html: titleHtml(spec.title) + `<div class="co-box ws-fit"><div class="co-row">${cols}</div></div>`,
       css: TITLE_CSS + `
@@ -308,8 +300,9 @@ export const templates = {
 .co-col{background:var(--surface);border-radius:18px;overflow:hidden;box-shadow:${CARD_SHADOW};--stagger:.15s}
 .co-col.ws-focus{animation:none;transform:scale(1.025);box-shadow:${LIFT_SHADOW}}
 .co-col h3{margin:0;padding:20px 26px;background:var(--c);color:#fff;font-size:34px;font-weight:700;line-height:1.15}
-.co-it{margin:14px 18px;padding:14px 20px;border-radius:10px;background:var(--surface-soft);font-size:27px;line-height:1.3;color:var(--surface-ink2)}` + STATUS_CSS + BAND_STATUS_CSS('.co-col'),
-      steps,
+.co-it{margin:14px 18px;padding:14px 20px;border-radius:10px;background:var(--surface-soft);font-size:27px;line-height:1.3;color:var(--surface-ink2)}
+.co-col .co-it.ws-focus{border-radius:10px;background:color-mix(in srgb, var(--accent) 16%, var(--surface-soft))}
+.co-col .ws-img{margin:14px 18px}` + STATUS_CSS + BAND_STATUS_CSS('.co-col'),
     };
   },
 
@@ -321,19 +314,14 @@ export const templates = {
     }
     const n = Math.max(spec.left.items.length, spec.right.items.length);
     need(L, n >= 1 && n <= 8, `1–8 rows supported, got ${n} — split the slide`);
-    const steps0 = stepsOf(L, spec);
-    steps0.forEach((s, i) => {
-      need(L, s.show === undefined || ['left', 'right', 'all'].includes(s.show), `step ${i + 1}: show must be 'left', 'right' or 'all'`);
-      need(L, s.row === undefined || (Number.isInteger(s.row) && s.row >= 0 && s.row < n), `step ${i + 1}: row must be 0..${n - 1}`);
-    });
     const { left: Lf, right: R } = spec;
     for (const side of ['left', 'right']) spec[side].items.forEach((x, i) => {
       need(L, x === undefined || typeof x === 'string' || (x && typeof x.text === 'string'), `${side} item ${i + 1}: a string or { text, status }`);
       checkStatus(L, `${side} item ${i + 1}`, x);
     });
     // a cell: a string, or { text, status } (its text in a span: a struck-through status styles the children)
-    const cell = (side, i, x) => `<div class="cp-cell cp-${side} cp-${side}${i}${stClass(x)}" style="grid-row:${i + 2}">`
-      + (x === undefined ? '' : x?.status ? `${stIcon(x)}<span>${esc(x.text)}</span>` : esc(typeof x === 'string' ? x : x.text)) + '</div>';
+    const cell = (side, i, x) => (x === undefined ? `<div class="cp-cell cp-${side} cp-${side}${i}" style="grid-row:${i + 2}"></div>`
+      : `<div class="cp-cell cp-${side} cp-${side}${i}${stClass(x)}" style="grid-row:${i + 2}">${stIcon(x)}<span>${esc(typeof x === 'string' ? x : x.text)}</span></div>`);
     // an arrow only between two filled cells (a row with one side empty has none)
     const arrow = (i) => (Lf.items[i] !== undefined && R.items[i] !== undefined
       ? `<div class="cp-vs cp-a${i}" style="grid-row:${i + 2}">→</div>` : '');
@@ -341,17 +329,21 @@ export const templates = {
     const sideSel = (side) => [`.cp-h${side}`, ...range(n).map((i) => `.cp-${side}${i}`)].join(', ');
     const arrows = range(n).filter((i) => Lf.items[i] !== undefined && R.items[i] !== undefined).map((i) => `.cp-a${i}`).join(', ') || '.cp-none';
     // arrows come with the right side ("became"); a lit row lights its arrow too
-    const steps = steps0.map(({ show, row, ...s }) => {
-      const st = { ...s };
-      if (show) st.show = show === 'all' ? `${sideSel('l')}, ${sideSel('r')}, ${arrows}` : show === 'right' ? `${sideSel('r')}, ${arrows}` : sideSel('l');
-      if (row !== undefined) {
-        st.show = [st.show, `.cp-l${row}, .cp-a${row}, .cp-r${row}`].filter(Boolean).join(', ');
-        st.focus = `.cp-l${row}, .cp-a${row}, .cp-r${row}`;
-      }
-      return st;
-    });
-    steps.push({ clear: true, focus: null, hold: spec.outro ?? 1.2 });
+    const A = newAddr(L);
+    A.add('left', { text: Lf.title, show: sideSel('l'), box: '.cp-hl', inAll: true });
+    A.add('right', { text: R.title, show: `${sideSel('r')}, ${arrows}`, box: '.cp-hr', inAll: true });
+    const txt = (x) => (x === undefined ? '' : typeof x === 'string' ? x : x.text);
+    for (const i of range(n)) {
+      const pair = `.cp-l${i}, .cp-a${i}, .cp-r${i}`;
+      A.add(`row${i}`, { text: `${txt(Lf.items[i])} → ${txt(R.items[i])}`, show: pair, focus: pair, box: `.cp-l${i}, .cp-r${i}` });
+    }
+    for (const [side, key, items] of [['l', 'l', Lf.items], ['r', 'r', R.items]]) {
+      items.forEach((x, i) => { if (x !== undefined) A.add(`${key}${i}`, { text: txt(x), show: `.cp-${side}${i}`, focus: `.cp-${side}${i}`, box: `.cp-${side}${i}`, st: `.cp-${side}${i}` }); });
+    }
     return {
+      addr: A,
+      // the former step key `row: i` — the pair, as an address
+      mapOpts: { legacy: ({ row, ...s }) => (row === undefined ? s : { ...s, show: [...(s.show === undefined ? [] : [].concat(s.show)), { row }] }) },
       push: true,
       html: titleHtml(spec.title) + `<div class="cp-box ws-fit"><div class="cp-grid"><div class="cp-head cp-hl">${esc(Lf.title)}</div>`
         + `<div class="cp-head cp-hr">${esc(R.title)}</div>${cells}</div></div>`,
@@ -372,7 +364,6 @@ export const templates = {
 .cp-r.ws-focus{border-left-color:var(--accent)}
 .cp-cell.ws-st-ok,.cp-cell.ws-st-warn{border-left:6px solid var(--st);padding-right:72px}
 .cp-cell .ws-st-ic{top:50%;margin-top:-20px}` + STATUS_CSS,
-      steps,
     };
   },
 
@@ -386,8 +377,6 @@ export const templates = {
     spec.stages.forEach((s, i) => { need(L, s && isStr(s.title), `stage ${i + 1} needs a title`); checkStatus(L, `stage ${i + 1}`, s); });
     const wrap = spec.wrap ?? 'snake';
     need(L, ['snake', 'bend', 'none'].includes(wrap), `wrap must be 'snake', 'bend' or 'none'`);
-    const steps0 = stepsOf(L, spec);
-    checkShow(L, steps0, n, ['all']);
     const twoRows = n > 5 && wrap !== 'none';
     const k = twoRows ? Math.ceil(n / 2) : n;                 // stages in the first (widest) row
     const ARW = 64, GAPX = 14;
@@ -397,7 +386,7 @@ export const templates = {
     const arrow = (i, rev) => `<svg class="pr-arr pr-${i}a${rev ? ' rev' : ''}" viewBox="0 0 64 40"><path d="M4 20H54M42 8l14 12-14 12"/></svg>`;
     const colors = ['var(--c1)', 'var(--c2)', 'var(--c4)', 'var(--c5)'];
     const stage = (st, i) => `<div class="pr-st pr-${i}" style="--c:${st.color || colors[i % colors.length]}">`
-      + `<div class="pr-card pr-c${i}${stClass(st)}"><h3>${esc(st.title)}${stIcon(st)}</h3>${list(st.items)}</div>`
+      + `<div class="pr-card pr-c${i}${stClass(st)}"><h3>${esc(st.title)}${stIcon(st)}</h3>${list(st.items)}${blockImg(st, L)}</div>`
       + (st.role ? `<div class="pr-role">${person}<b>${esc(st.role)}</b>${st.caption ? `<span>${esc(st.caption)}</span>` : ''}</div>`
         : hasRole ? '<div class="pr-role"></div>' : '') + '</div>';
     const row = (from, to, rev) => `<div class="pr-row${rev ? ' rev' : ''}">`
@@ -413,12 +402,11 @@ export const templates = {
         : `<svg class="pr-turn pr-bend pr-${k}a" viewBox="0 0 1800 70"><path d="M${r1(xEnd)} 4 V35 H${r1(w / 2)} V62 M${r1(w / 2 - 12)} 50 L${r1(w / 2)} 64 L${r1(w / 2 + 12)} 50"/></svg>`;
       body = row(0, k, false) + turn + row(k, n, rev);
     }
-    const sel = (i) => `.pr-${i}` + (i ? `, .pr-${i}a` : '');
-    const steps = steps0.map(({ show, ...s }) => (show === undefined ? s
-      : show === 'all' ? { ...s, show: range(n).map(sel).join(', ') }
-        : { ...s, show: [].concat(show).map(sel).join(', '), focus: [].concat(show).map((i) => `.pr-c${i}` + (i ? `, .pr-${i}a` : '')).join(', ') }));
-    steps.push({ clear: true, focus: null, hold: spec.outro ?? 1.2 });
+    const A = newAddr(L);
+    spec.stages.forEach((st, i) => A.add(`b${i}`, { text: st.title, show: `.pr-${i}` + (i ? `, .pr-${i}a` : ''), focus: `.pr-c${i}` + (i ? `, .pr-${i}a` : ''),
+      box: `.pr-c${i}`, st: `.pr-c${i}`, items: st.items?.length || 0, itemTexts: itemTexts(st.items), img: st.image ? `.pr-c${i} .ws-img` : null, inAll: true }));
     return {
+      addr: A,
       push: true,
       html: titleHtml(spec.title) + `<div class="pr-box ws-fit"><div class="pr-flow">${body}</div></div>`,
       css: TITLE_CSS + `
@@ -450,8 +438,8 @@ export const templates = {
 .pr-turn path, .pr-bend path{fill:none;stroke:var(--line);stroke-width:4;stroke-linecap:round;stroke-linejoin:round}
 .pr-bend{width:100%;height:70px}
 .pr-arr.ws-focus, .pr-turn.ws-focus{animation:none}
-.pr-arr.ws-focus, .pr-turn.ws-focus path, .pr-bend.ws-focus path{stroke:var(--accent)}` + STATUS_CSS + BAND_STATUS_CSS('.pr-card'),
-      steps,
+.pr-arr.ws-focus, .pr-turn.ws-focus path, .pr-bend.ws-focus path{stroke:var(--accent)}
+.pr-card .ws-img{margin:14px 18px 18px}` + STATUS_CSS + BAND_STATUS_CSS('.pr-card'),
     };
   },
 
@@ -463,11 +451,9 @@ export const templates = {
     count(L, 'cards', spec.cards, 3, 6, 'split the slide or use cards');
     const n = spec.cards.length;
     spec.cards.forEach((c, i) => { need(L, c && isStr(c.title), `card ${i + 1} needs a title`); checkStatus(L, `card ${i + 1}`, c); });
-    const steps0 = stepsOf(L, spec);
-    checkShow(L, steps0, n, ['center', 'all']);
     const colors = ['var(--c1)', 'var(--c2)', 'var(--c4)', 'var(--c3)', 'var(--c5)', 'var(--c2)'];
     const card = (c, i) => `<div class="hb-card hb-c${i} ${i % 2 ? 'right' : 'left'}${stClass(c)}" style="--c:${c.color || colors[i]}">`
-      + `<h3>${esc(c.title)}${stIcon(c)}</h3>${list(c.items)}</div>`;
+      + `<h3>${esc(c.title)}${stIcon(c)}</h3>${list(c.items)}${blockImg(c, L)}</div>`;
     const leftCol = range(n).filter((i) => i % 2 === 0).map((i) => card(spec.cards[i], i)).join('');
     const rightCol = range(n).filter((i) => i % 2 === 1).map((i) => card(spec.cards[i], i)).join('');
     const links = range(n).map((i) => `<path class="hb-l${i}" data-to=".hb-c${i}"/>`).join('');
@@ -475,20 +461,13 @@ export const templates = {
     const hub = `<div class="hb-hub"><div class="hb-in"><b style="font-size:${hubTitleSize(spec.center.title, spec.center.items)}px">`
       + `${esc(spec.center.title)}</b>${list(spec.center.items)}</div></div>`;
     // step { show: 'center' | i } → show the card and its line, focus it, dim the ones before
-    const shown = [];
-    const steps = steps0.map(({ show, ...rest }) => {
-      if (show === undefined) return rest;
-      if (show === 'center') return { ...rest, show: '.hb-hub' };
-      if (show === 'all') return { ...rest, show: '.hb-hub, ' + range(n).map((i) => `.hb-c${i}, .hb-l${i}`).join(', ') };
-      const idx = [].concat(show);
-      const st = { ...rest, show: idx.map((i) => `.hb-c${i}, .hb-l${i}`).join(', '), focus: idx.map((i) => `.hb-c${i}, .hb-l${i}`).join(', ') };
-      if (shown.length) st.dim = shown.map((j) => `.hb-c${j}, .hb-l${j}`).join(', ');
-      shown.push(...idx);
-      return st;
-    });
-    steps.push({ clear: true, focus: null, hold: spec.outro ?? 1.2 });
+    const A = newAddr(L);
+    A.add('center', { text: spec.center.title, show: '.hb-hub', box: '.hb-hub', items: spec.center.items?.length || 0, itemTexts: itemTexts(spec.center.items), inAll: true });
+    spec.cards.forEach((c, i) => A.add(`b${i}`, { text: c.title, show: `.hb-c${i}`, link: `.hb-l${i}`, linkTo: 'center', focus: `.hb-c${i}`, box: `.hb-c${i}`,
+      st: `.hb-c${i}`, items: c.items?.length || 0, itemTexts: itemTexts(c.items), img: c.image ? `.hb-c${i} .ws-img` : null, inAll: true }));
     const top = spec.title ? 170 : 50, cy = (top + H - 36) / 2;
     return {
+      addr: A, mapOpts: { dimBefore: true },
       push: true,
       html: titleHtml(spec.title)
         + `<svg class="ws-links" data-from=".hb-hub" data-round viewBox="0 0 ${W} ${H}">${links}</svg>${hub}`
@@ -508,8 +487,7 @@ export const templates = {
 .hb-hub{position:absolute;left:calc(770px + (max(80px, var(--safe-left)) - max(80px, var(--safe-right))) / 2);top:calc(${r1(cy - 190)}px + (${topShift(spec.title, top)} - (max(36px, var(--safe-bottom)) - 36px)) / 2);width:380px;height:380px;border-radius:50%;color:#fff;--dy:0px;--from-scale:.8;
   background:radial-gradient(circle at 35% 30%,var(--primary-hi),var(--primary));box-shadow:0 0 0 2px var(--surface-edge),0 20px 60px color-mix(in srgb, var(--primary) 35%, transparent);
   display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:30px}
-` + HUB_CSS('.hb-hub', '.hb-in') + STATUS_CSS + BAND_STATUS_CSS('.hb-card'),
-      steps,
+.hb-card .ws-img{margin:12px 22px 18px}` + HUB_CSS('.hb-hub', '.hb-in') + STATUS_CSS + BAND_STATUS_CSS('.hb-card'),
     };
   },
 
@@ -530,15 +508,8 @@ export const templates = {
         checkStatus(L, `${side} ${i + 1}`, x);
       });
     }
-    const steps0 = stepsOf(L, spec);
-    const idxOk = (v, n) => v === 'all' || [].concat(v).every((x) => Number.isInteger(x) && x >= 0 && x < n);
-    steps0.forEach((s, i) => {
-      need(L, s.show === undefined || ['center', 'all'].includes(s.show), `step ${i + 1}: show must be 'center' or 'all'`);
-      need(L, s.in === undefined || idxOk(s.in, ni), `step ${i + 1}: in must be 0..${ni - 1} or 'all'`);
-      need(L, s.out === undefined || idxOk(s.out, no), `step ${i + 1}: out must be 0..${no - 1} or 'all'`);
-    });
     const card = (x, k) => `<div class="fl-card fl-${k}${stClass(x)}">${stIcon(x)}`
-      + (x.title ? `<h3>${esc(x.title)}</h3>` : '') + (x.text ? `<p>${esc(x.text)}</p>` : '') + list(x.items) + '</div>';
+      + (x.title ? `<h3>${esc(x.title)}</h3>` : '') + (x.text ? `<p>${esc(x.text)}</p>` : '') + list(x.items) + blockImg(x, L) + '</div>';
     const circle = shape === 'circle';
     const center = circle
       ? `<div class="fl-center fl-circle"><div class="fl-in"><b style="font-size:${hubTitleSize(spec.center.title, spec.center.items)}px">`
@@ -546,22 +517,24 @@ export const templates = {
       : `<div class="fl-center fl-plate"><b>${esc(spec.center.title)}</b>${list(spec.center.items)}</div>`;
     const links = range(ni).map((i) => `<path class="fl-li${i}" data-to=".fl-i${i}"/>`).join('')
       + range(no).map((i) => `<path class="fl-lo${i}" data-to=".fl-o${i}"/>`).join('');
-    const inSel = (i) => `.fl-i${i}, .fl-li${i}`, outSel = (i) => `.fl-o${i}, .fl-lo${i}`;
-    const pick = (v, n, sel) => (v === 'all' ? range(n) : [].concat(v)).map(sel);
-    const steps = steps0.map(({ show, in: inp, out, ...rest }) => {
-      const parts = [], focus = [];
-      if (show === 'center') { parts.push('.fl-center'); focus.push('.fl-center'); }
-      if (show === 'all') parts.push('.fl-center', ...range(ni).map(inSel), ...range(no).map(outSel));
-      if (inp !== undefined) { const p = pick(inp, ni, inSel); parts.push(...p); focus.push(...p); }
-      if (out !== undefined) { const p = pick(out, no, outSel); parts.push(...p); focus.push(...p); }
-      if (!parts.length) return rest;
-      const st = { ...rest, show: parts.join(', ') };
-      if (show !== 'all' && focus.length) st.focus = focus.join(', ');
-      return st;
-    });
-    steps.push({ clear: true, focus: null, hold: spec.outro ?? 1.2 });
+    const A = newAddr(L);
+    A.add('center', { text: spec.center.title, show: '.fl-center', focus: '.fl-center', box: '.fl-center', items: spec.center.items?.length || 0,
+      itemTexts: itemTexts(spec.center.items), inAll: true });
+    for (const [kind, k, arr] of [['in', 'i', spec.inputs], ['out', 'o', spec.outputs]]) {
+      arr.forEach((x, i) => A.add(`${kind}${i}`, { text: x.title || x.text || '', show: `.fl-${k}${i}`, link: `.fl-l${k}${i}`, linkTo: 'center', focus: `.fl-${k}${i}`,
+        box: `.fl-${k}${i}`, st: `.fl-${k}${i}`, items: x.items?.length || 0, itemTexts: itemTexts(x.items), img: x.image ? `.fl-${k}${i} .ws-img` : null, inAll: true }));
+    }
     const top = spec.title ? 180 : 60;
     return {
+      addr: A,
+      // the former step keys in: / out: — addresses on show
+      mapOpts: { legacy: ({ in: inp, out, ...s }) => {
+        if (inp === undefined && out === undefined) return s;
+        const show = s.show === undefined ? [] : [].concat(s.show);
+        if (inp !== undefined) show.push({ in: inp });
+        if (out !== undefined) show.push({ out });
+        return { ...s, show };
+      } },
       push: true,
       html: titleHtml(spec.title)
         + `<svg class="ws-links" data-from=".fl-center"${circle ? ' data-round' : ''} viewBox="0 0 ${W} ${H}">${links}</svg>`
@@ -590,7 +563,6 @@ export const templates = {
   background:radial-gradient(circle at 35% 30%,var(--primary-hi),var(--primary));box-shadow:0 0 0 2px var(--surface-edge),0 20px 60px color-mix(in srgb, var(--primary) 35%, transparent)}
 .fl-plate b::after{content:'';display:block;width:60px;height:5px;margin:12px auto 0;border-radius:3px;background:var(--accent)}
 .fl-plate ul{list-style:none;margin:14px 0 0;padding:0;font-size:24px;font-weight:600;line-height:1.45;opacity:.92}` + HUB_CSS('.fl-circle', '.fl-in') + STRIPE_STATUS_CSS('.fl-card') + STATUS_CSS,
-      steps,
     };
   },
 
@@ -660,20 +632,13 @@ ${(spec.shadow ?? framed) ? '.im-main{box-shadow:0 4px 40px rgba(0,0,0,.5)}' : '
     const L = 'summary';
     count(L, 'items', spec.items, 1, 8, 'keep 3–5 takeaways');
     const n = spec.items.length;
-    const steps0 = stepsOf(L, spec);
-    checkShow(L, steps0, n, ['all', 'next'], ['all', 'next']);
-    if (steps0.some((s) => [].concat(s.show).includes('next'))) need(L, isStr(spec.next), 'show "next" without a "next" text');
     const items = spec.items.map((x, i) => `<li class="sm-${i}"><i>✓</i><span>${esc(x)}</span></li>`).join('');
-    const sel = (i) => (i === 'next' ? '.sm-next' : `.sm-${i}`);
     // the takeaway being spoken gets the accent tick; the rest stay in the structure colour
-    const steps = steps0.map(({ show, ...s }) => {
-      if (show === undefined) return s;
-      const keys = [].concat(show).flatMap((x) => (x === 'all' ? range(n) : [x]));
-      const items = keys.filter((x) => x !== 'next');
-      return { ...s, show: keys.map(sel).join(', '), focus: show === 'all' || !items.length ? null : items.map(sel).join(', ') };
-    });
-    steps.push({ clear: true, focus: null, hold: spec.outro ?? 1.2 });
+    const A = newAddr(L);
+    spec.items.forEach((x, i) => A.add(`b${i}`, { text: x, show: `.sm-${i}`, focus: `.sm-${i}`, box: `.sm-${i}`, inAll: true }));
+    if (isStr(spec.next)) A.add('next', { text: spec.next, show: '.sm-next', box: '.sm-next' });
     return {
+      addr: A, mapOpts: { clearFocus: true },
       push: true,
       html: titleHtml(spec.title || 'Итоги') + `<div class="sm-box ws-fit"><ul class="sm-list">${items}</ul></div>`
         + (spec.next ? `<div class="sm-next"><small>${esc(spec.nextLabel || 'Дальше')}</small>${esc(spec.next)}</div>` : ''),
@@ -689,7 +654,6 @@ ${(spec.shadow ?? framed) ? '.im-main{box-shadow:0 4px 40px rgba(0,0,0,.5)}' : '
 .sm-next{position:absolute;left:max(96px, var(--safe-left));right:max(96px, var(--safe-right));bottom:max(60px, var(--safe-bottom));padding:28px 36px;border-radius:18px;background:var(--c1);color:#fff;box-shadow:0 0 0 1.5px var(--surface-edge);
   font-size:36px;font-weight:600;line-height:1.3}
 .sm-next small{display:block;font-size:22px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:var(--accent-hi);margin-bottom:8px}`,
-      steps,
     };
   },
 
@@ -734,12 +698,26 @@ export function buildSlide(spec) {
     const t = templates[spec.layout];
     if (!t) throw new SpecError(`showSlide: unknown layout "${spec.layout}" — one of: ${LAYOUTS.join(', ')}`);
     const built = t(spec);
+    if (built.addr) {
+      // steps by address (addresses.mjs), marks over the template, the outro: all lit, the points not yet shown too
+      const A = built.addr;
+      const marks = marksOf(A, spec, esc);
+      const { steps, items } = mapSteps(A, stepsOf(spec.layout, spec), built.mapOpts);
+      steps.push({ clear: true, focus: null, hold: spec.outro ?? 1.2, ...(items ? { show: items } : {}) });
+      built.steps = steps;
+      built.html += marks.html;
+      built.css += ITEM_CSS + IMG_CSS + MARK_CSS;
+      built.banner = marks.banner ? BANNER_ROOM : 0;
+      built.addresses = A.list();
+      delete built.addr;
+      delete built.mapOpts;
+    } else if (spec.marks !== undefined) fail(spec.layout, '"marks" need a template with addresses (cards, columns, comparison, process, radial, flow, summary)');
     // a step whose show has 'all' lights everything: no focus, no dim left from the steps before (a comparison
-    // row given with it keeps its own focus). Template steps follow spec.steps one to one, extras go after.
+    // row given with it, or a focus of its own, keeps it). Template steps follow spec.steps one to one, extras go after.
     (isArr(spec.steps) ? spec.steps : []).forEach((s, i) => {
       if (!s || ![].concat(s.show).includes('all') || !built.steps[i]) return;
       built.steps[i].clear = true;
-      if (s.row === undefined) built.steps[i].focus = null;
+      if (s.row === undefined && s.focus === undefined) built.steps[i].focus = null;
     });
     // every template takes `background` (a colour, a gradient, url(asset:…)); without it — the template's own
     if (spec.background !== undefined) built.bg = rewriteAssets(spec.background);

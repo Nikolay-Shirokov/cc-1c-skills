@@ -27,33 +27,36 @@ browser window; the video has the window's size.
 
 ## Templates
 
-Pick by the meaning of the slide. `cards`, `columns`, `comparison`, `process`, `radial`, `summary` take a
+Pick by the meaning of the slide. `cards`, `columns`, `comparison`, `process`, `radial`, `flow`, `summary` take a
 slide `title`; `image` has none (the picture carries its own). All take `theme`, `background`, `outro`
-(seconds held at the end), `music` (background music while the slide is up — [recording.md](recording.md)). Indexes (`show: 0`, `current`, `row`) count from 0.
+(seconds held at the end), `music` (background music while the slide is up — [recording.md](recording.md)). Indexes count from 0.
+A step names the parts of its slide by address (the Addresses column; [Steps on a template](#steps-on-a-template)).
 
-| Layout | When | Fields | Steps (`steps: [{ ..., speech }]`) | Limits |
+| Layout | When | Fields | Addresses (`steps: [{ show: …, speech }]`) | Limits |
 |---|---|---|---|---|
 | `title` | opening card | see recording.md | one, built in (`speech`) | — |
 | `agenda` | contents; section break | `items`, `current` (index of the lit section), `title`, `speech` | one, built in | 2–12; > 6 → two columns |
 | `statement` | one idea, big; a key number | `value` (the big number on top), `text` (the line below it), `kicker` (small caps above), `caption` (small text at the bottom), `speech` | one, built in | — |
-| `cards` | several parallel points | `cards: [{ title, text, items }]`, `lead: { title, text }`, `columns` (auto), `focus: false` | `show: i \| [i, j] \| 'all' \| 'lead'` | 1–12 |
-| `columns` | groups side by side | `columns: [{ title, items }]` | `show: i \| 'all'` | 2–5 |
-| `comparison` | before/after, A vs B | `left`, `right`: `{ title, items }` (rows aligned) | `show: 'left' \| 'right' \| 'all'`, `row: i` (lights a pair and its arrow); both in one step: `{ show: 'right', row: 0 }` | 1–8 rows |
-| `process` | stages in order | `stages: [{ title, items, role, caption }]` (`role` — a person under the stage, `caption` — a line under the role), `wrap` | `show: i \| 'all'` | 2–10; > 5 → two rows: `wrap: 'snake'` (default) \| `'bend'` \| `'none'` |
-| `radial` | a centre and who/what around it | `center: { title, items }`, `cards: [{ title, items }]` | `show: 'center' \| i \| 'all'` | 3–6 cards |
-| `flow` | sources → processing → a result | `inputs: [{ title, text, items }]`, `center: { title, items, shape }` (`shape: 'circle'` — a circle, default a plate), `outputs: [{ title, text, items }]` | `in: i \| [i, j] \| 'all'`, `out: i \| 'all'` (indexes within their column), `show: 'center' \| 'all'` | 1–5 inputs, 1–4 outputs, ≤ 3 centre items |
+| `cards` | several parallel points | `cards: [{ title, text, items, image }]`, `lead: { title, text, image }`, `columns` (auto), `focus: false` | `i` (a card), `'lead'`, `{ block: i, item: j }` | 1–12 |
+| `columns` | groups side by side | `columns: [{ title, items, image }]` | `i`, `{ block: i, item: j }` | 2–5 |
+| `comparison` | before/after, A vs B | `left`, `right`: `{ title, items }` (rows aligned) | `'left'`, `'right'` (a side), `{ row: i }` (a pair and its arrow), `{ left: i }`, `{ right: i }` (a cell) | 1–8 rows |
+| `process` | stages in order | `stages: [{ title, items, role, caption, image }]` (`role` — a person under the stage, `caption` — a line under the role), `wrap` | `i`, `{ block: i, item: j }` | 2–10; > 5 → two rows: `wrap: 'snake'` (default) \| `'bend'` \| `'none'` |
+| `radial` | a centre and who/what around it | `center: { title, items }`, `cards: [{ title, items, image }]` | `'center'`, `i`, `{ block: i, item: j }`, `{ center: true, item: j }` | 3–6 cards |
+| `flow` | sources → processing → a result | `inputs: [{ title, text, items, image }]`, `center: { title, items, shape }` (`shape: 'circle'` — a circle, default a plate), `outputs: [{ title, text, items, image }]` | `'center'`, `{ in: i }`, `{ out: i }` (indexes within their column), `{ in: i, item: j }`, `{ center: true, item: j }` | 1–5 inputs, 1–4 outputs, ≤ 3 centre items |
 | `image` | a picture, screenshot or ready presentation slide | `src` (PNG/JPEG), `maxZoom` (1.8), `style` | `region: [x, y, w, h]` — camera on a part; `callout: { at: [x, y], label }` — numbered mark; neither — whole picture | — |
-| `summary` | takeaways + what's next | `items`, `next`, `title` | `show: i \| 'next' \| 'all'` | 1–8 |
+| `summary` | takeaways + what's next | `items`, `next`, `title` | `i`, `'next'` | 1–8 |
 | `closing` | end card | see recording.md | one, built in | — |
 
-- `cards`/`columns`/`process`/`radial`/`flow` focus the item a step shows (`radial` also dims the cards before); `show: 'all'` shows every item still hidden and lights them all, no focus; the slide ends with everything lit.
+- What a step shows is lit, and the light leaves what was lit before (`radial` also dims the cards before; a side,
+  `'lead'`, `'center'` of `radial`, `'next'` are not lit — the light stays where it was);
+  `show: 'all'` shows every item still hidden and lights them all, no focus; the slide ends with everything lit.
 - `background` (a colour, a gradient, `url(asset:…)`) replaces the slide's ground on any template; `theme.background` — the
   same for every slide without its own (below).
-- Keys like `'center'`, `'all'`, `'next'` stand on their own (`show: 'center'`); only `cards` (`'lead'`, `'all'`) and `summary` (`'next'`, `'all'`) take them inside an array.
 - `status: 'ok' | 'warn' | 'off' | 'optional'` on a card (`cards`, `radial`), a column, a stage, a `flow` input or
   output, a `comparison` cell (an item as `{ text, status }`): ok/warn — a stripe in the status colour and a ✓ / ?
   mark, off — faded and struck through (not confirmed, out of use), optional — a dashed outline, no plate. No
-  words on screen: the narration says what the status means. Without `status` the item looks as before.
+  words on screen: the narration says what the status means. Without `status` the item looks as before. A step
+  changes it on its word: `status` below.
 - `image` coordinates are pixels of the picture file. Do not zoom a small screenshot past ~1.8×: it blurs.
 - A spec past a limit throws before anything is shown, with advice (`radial: 3–6 cards supported, got 8 — split the slide or use cards`). Within the limits long text is shrunk to fit.
 
@@ -77,9 +80,9 @@ export const SOURCES = {
   outputs: [{ title: 'Выручка по клиентам', status: 'ok' }],
   steps: [
     { show: 'center', speech: 'Отчёт по продажам' },
-    { in: [0, 1], speech: 'собирается из заказов и отгрузок;' },
-    { in: 2, speech: 'таблица менеджера больше не нужна.' },
-    { out: 0, speech: 'Итог — выручка по каждому клиенту.' },
+    { show: { in: [0, 1] }, speech: 'собирается из заказов и отгрузок;' },
+    { show: { in: 2 }, speech: 'таблица менеджера больше не нужна.' },
+    { show: { out: 0 }, speech: 'Итог — выручка по каждому клиенту.' },
   ],
 };
 export const SCHEME = {
@@ -91,6 +94,59 @@ export const SCHEME = {
   ],
 };
 ```
+
+## Steps on a template
+
+A step names the parts of its slide by **address**: an index (`2` — a card, a column, a stage, a takeaway), a key
+(`'lead'`, `'center'`, `'next'`, `'left'`, `'right'`, `'all'`) or an object — `{ in: 1 }`, `{ out: [0, 1] }`,
+`{ in: 'all' }`, `{ row: 2 }`, `{ right: 0 }`, `{ mark: 'src' }`; a point inside a block (an entry of its `items`) —
+`item`: `{ block: 2, item: 1 }`, `{ in: 0, item: [0, 2] }`, `{ center: true, item: 0 }`. Several at once — a list:
+`show: [0, { in: 1 }]`. `preview` lists every address of every slide (`addresses` in its JSON), and a wrong one
+fails with the list (`step 3: show {"in":5} — no such element; addresses: 'center' «Узел», { in: 0 } «Заказы», …`).
+
+Every step action takes an address:
+
+| Action | Does |
+|---|---|
+| `show` | reveals; what it names is lit (the template's rule above) |
+| `focus`, `dim`, `undim`, `hide` | lights / fades / brings back / hides (`focus: null` — nothing lit) |
+| `status: { off: [1, 3] }`, `{ warn: { out: 0 } }`, `{ none: 2 }` | sets or changes a status on its step (`none` — drops it); the end keeps it. A block or a cell, not a point |
+| `camera: address`, `{ to: address, fill: true }`, `null` | zooms on it / on all of them, `null` — back; `fill` — the element takes the whole frame (a block with a picture — the picture; cropped to 16:9), the frame's logo and number fade: the hand-over to a live screen, `hideSlide` next |
+
+- **Points one by one.** A block whose points a `show` names starts with its title and text only; its points come
+  on their steps; the end shows the rest. `focus`/`dim` on a point hide nothing.
+- **`image: 'path'`** on a card, column, stage, flow item or `lead` — a picture under its text, the block's width.
+- **Marks** over any of these templates — `marks: { name: … }` in the spec, shown by a step (`show: { mark: 'name' }`
+  — lit as it appears; never shown by a step — on screen from the start). One banner per slide. A callout covers
+  what lies on its side: pick `side`, or put it at a frame (`callout: { mark: 'src' }` — under the whole group):
+
+```js
+marks: {
+  src: { frame: { in: 'all' }, label: 'Источники' },                 // a frame round them, the label on its edge
+  free: { callout: { in: 1 }, label: 'Доступ не нужен', side: 'right' }, // a label at the element: top (default), bottom, left, right
+  note: { banner: 'Наличие функции ≠ её использование' },             // a band at the bottom; the slide lays out above it
+},
+```
+
+```js
+// A portal, its screen — then the screen takes the whole frame and the live page follows
+export const PORTAL = {
+  layout: 'cards', title: 'Взаимодействие с пользователем', columns: 1,
+  lead: { title: 'Портал', text: 'Рабочее место аналитика' },
+  cards: [{ title: 'Анализ системы', image: 'docs/video/assets/portal-start.png' }],
+  speech: 'Результаты открываются на портале — в рабочем месте аналитика.',
+  steps: [
+    { at: 'на портале', show: 'lead' },
+    { at: 'в рабочем', show: 0 },
+    { at: 'end', camera: { to: 0, fill: true }, hold: 1.4 },
+  ],
+};
+// the picture: screenshot() of that page, taken in the same window just before showSlide (a 16:9 window — or
+// the frame and the page differ at the seam); then await hideSlide({ motion: false }) — the live page is under it
+```
+
+A string that is not a plain word stays a CSS selector — that is for a page of your own (below); on a template
+use addresses: its inner classes are not part of it and may change.
 
 ## A page of your own
 
@@ -211,7 +267,8 @@ The module (its path from the current directory; paths inside the specs — from
 - `play` records on a blank page, starting and ending on a slide; `--out` is the final narrated video,
   `<name>.captions.json` is written next to it (re-narrate later with `addNarration`). `--no-narration` —
   a silent video, no TTS calls.
-- Both print JSON; `warnings` is always there (empty when the checks found nothing).
+- Both print JSON; `warnings` is always there (empty when the checks found nothing); `preview` also gives
+  `addresses` — per slide number, what its steps can name.
 
 Run `preview` before recording over 1C: it catches layout problems and wrong `region`/`callout`
 coordinates in a minute instead of a re-recording.
@@ -280,8 +337,11 @@ not drawn by hand:
   `speech` (split long sentences into steps); on screen — only key words, not the sentence itself. A sentence
   that must sound in one take (the storyboard ties the blocks to its words) — one `speech` for the slide and
   steps with `at` ([One phrase, steps on its words](#one-phrase-steps-on-its-words)).
-- **Motion notes → step actions**: appear, focus, dim and camera are what templates do; a slide changes to the
-  next by a crossfade. Other motion (a layer falling, a strike-through) — a page of your own.
+- **Motion notes → step actions**: appears / lit / faded / zoomed — `show` / `focus` / `dim` / `camera` by address;
+  became doubtful / out of use — `status` on the word; a group of blocks — a `frame` mark, a note at a block — a
+  `callout`, a conclusion line — a `banner`; points one by one — `item`; the screen goes live — `camera` with
+  `fill`, then `hideSlide`. A slide changes to the next by a crossfade. Other motion (a layer falling) — a page of
+  your own.
 - **Timings are not kept.** A step lasts as long as its phrase sounds; a frame squeezed into the storyboard's
   seconds rushes or stalls the voice.
 - **Live screens are recorded** (steps in 1C between `hideSlide` and the next `showSlide`), not pasted in as
@@ -311,3 +371,6 @@ export const BEFORE_AFTER = {
 `showImage(path, { style, speech })` ≈ `showSlide({ layout: 'image', src: path, style, steps: [{ speech }] }, { motion: false })`;
 `hideTitleSlide()` / `hideImage()` ≈ `hideSlide({ motion: false })`. The former calls keep their old look and
 timing. When editing an existing script, leave them unless asked to change; add new slides with `showSlide`.
+
+Former step keys: `flow` — `{ in: i }` / `{ out: i }` as step fields (= `show: { in: i }`), `comparison` — `row: i`
+(= `show: { row: i }`). They still work.
