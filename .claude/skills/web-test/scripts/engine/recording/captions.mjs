@@ -137,8 +137,7 @@ export async function speak(text, opts = {}) {
       for (const w of res.warnings) if (!warned.has(w)) { warned.add(w); console.log(`[web-test] speak WARN ${w}`); }
       const { t, by } = res.times[res.times.length - 1];
       const target = t0 + t - lead;
-      const ms = (target - clock()) * 1000;
-      if (ms > 0) await hold(ms);
+      for (let ms; (ms = (target - clock()) * 1000) > 5;) await hold(Math.min(ms, 500));   // to a moment, not for a span
       const late = Math.max(0, clock() - target);
       if (late > ON_TIME) console.log(`[web-test] speak WARN at ${JSON.stringify(x)}: ${late.toFixed(2)} s late (the action before took longer — a bigger lead, or a later word)`);
       return { t, by, late: Math.round(late * 1000) / 1000 };

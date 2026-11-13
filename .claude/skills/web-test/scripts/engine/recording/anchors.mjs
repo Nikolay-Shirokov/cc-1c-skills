@@ -75,13 +75,17 @@ export function normalizeAt(at, where = 'at') {
 export function locateAnchors(speech, ats, where = 'at', labels = null) {
   const toks = tokens(speech);
   const lab = (i) => labels?.[i] || `${where} ${i + 1}`;
-  let from = 0;
+  let from = 0, prev = null;   // prev: the previous word anchor — the same words again mean the same place (another shift)
   return ats.map((at, i) => {
     const a = normalizeAt(at, lab(i));
     if (a.text === undefined) return a;
     const want = tokens(a.text).map((t) => t.w);
+    if (prev && want.join(' ') === prev.key) return { ...a, tok: prev.tok, c: prev.c };
     for (let k = from; k + want.length <= toks.length; k++) {
-      if (want.every((w, j) => toks[k + j].w === w)) { from = k + 1; return { ...a, tok: k, c: toks[k].c }; }
+      if (want.every((w, j) => toks[k + j].w === w)) {
+        from = k + 1; prev = { key: want.join(' '), tok: k, c: toks[k].c };
+        return { ...a, tok: k, c: toks[k].c };
+      }
     }
     throw new Error(`${lab(i)}: "${a.text}" is not in the phrase${from ? ' after the previous anchor' : ''}: "${speech.slice(0, 80)}${speech.length > 80 ? '…' : ''}"`);
   });

@@ -686,19 +686,34 @@ export default async function({
 
     const page = { html: '<div class="a">А</div><div class="b">Б</div><div class="c">В</div>',
       css: '.a,.b,.c{position:absolute;top:400px;font-size:60px}.a{left:300px}.b{left:900px}.c{left:1500px}', speech };
+    // when each block really appears: the page polled while the slide plays (onStep reports a step once it settled)
     const play = async (steps, opts) => {
-      const at = [];
-      const r = await showSlide({ ...page, steps }, { lint: 'collect', ...opts, onStep: () => { at.push(performance.now() / 1000); } });
-      return { r, at };
+      await hideSlide({ motion: false });
+      const seen = {}, reported = [];
+      let stop = false;
+      const watch = (async () => {
+        while (!stop) {
+          const st = await slideState().catch(() => null);
+          const now = performance.now() / 1000;
+          for (const c of st?.on || []) if (!(c in seen)) seen[c] = now;
+          await new Promise((res) => setTimeout(res, 20));
+        }
+      })();
+      const r = await showSlide({ ...page, steps }, { lint: 'collect', ...opts, onStep: (i) => { reported.push(i); } });
+      stop = true;
+      await watch;
+      return { r, seen, reported };
     };
     const steps = [{ at: 'четыре', show: '.a' }, { at: 'Шесть', show: '.b' }, { at: 'end', show: '.c' }];
 
     // (a) the provider's word timings: the steps keep the marks' spacing
     const m = await play(steps, { provider: 'edge', voice: voiceMarks });
-    log(`marks: ${JSON.stringify(m.r.anchors)} gaps ${(m.at[1] - m.at[0]).toFixed(2)} / ${(m.at[2] - m.at[1]).toFixed(2)}`);
+    const gap1 = m.seen.b - m.seen.a, gap2 = m.seen.c - m.seen.b;
+    log(`marks: ${JSON.stringify(m.r.anchors)} gaps ${gap1.toFixed(2)} / ${gap2.toFixed(2)}`);
     assert.deepEqual(m.r.anchors.map((x) => x.by), ['marks', 'marks', 'marks'], 'times from the word timings');
     assert.deepEqual(m.r.anchors.map((x) => x.t), [1.6, 3.3, 4.6], 'the words\' starts, end = the last word\'s end');
-    assert.ok(Math.abs((m.at[1] - m.at[0]) - 1.7) <= 0.15 && Math.abs((m.at[2] - m.at[1]) - 1.3) <= 0.15, 'each step on its word (±0.15 s)');
+    assert.ok(Math.abs(gap1 - 1.7) <= 0.15 && Math.abs(gap2 - 1.3) <= 0.15, 'each step on its word (±0.15 s)');
+    assert.deepEqual(m.reported, [0, 1, 2], 'every step reported once it is over');
     assert.deepEqual((await slideState()).on.sort(), ['a', 'b', 'c'], 'all three shown');
 
     // (b) no word timings: the audio's pauses (a comma's pause, the sentence's pause)
