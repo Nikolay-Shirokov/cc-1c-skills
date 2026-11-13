@@ -5,7 +5,7 @@ export const timeout = 240000;
 // Read-only on the stand: slides are overlays over the current page, nothing is written to 1C.
 export default async function({
   showSlide, hideSlide, prepareSlides, setSlideTheme, showTitleSlide, hideTitleSlide,
-  startRecording, stopRecording, getCaptions, screenshot, getPage, withMusic, addNarration,
+  startRecording, stopRecording, getCaptions, screenshot, getPage, withMusic, addNarration, speak,
   assert, step, log,
 }) {
   const fs = await import('fs');
@@ -664,5 +664,95 @@ export default async function({
     const max = +(/max_volume: (-?[\d.]+) dB/.exec(det) || [0, -99])[1];
     log(`play --no-narration --music: max ${max} dB`);
     assert.ok(max > -40 && max < -15, 'music at its level, no voice (a voice peaks far louder)');
+  });
+
+  await step('one phrase, steps on its words (at): TTS word timings, the audio\'s pauses, an estimate; speak() on a live page', async () => {
+    const { ttsCacheFile, wordsFileOf, resolveFfmpeg } = await import(pathToFileURL(path.resolve('.claude/skills/web-test/scripts/engine/recording/tts.mjs')).href);
+    // a phrase in the TTS cache, made here (no TTS service in the regress): tones where words are, pauses between —
+    // a comma pause 1.4–1.7 s, a sentence pause 2.6–3.4 s, sound ends at 4.6 s
+    const speech = 'Раз два три, четыре пять. Шесть семь восемь.';
+    const voiceMarks = 'ru-RU-WsAnchorMarksNeural', voiceAudio = 'ru-RU-WsAnchorAudioNeural', voiceNone = 'ru-RU-WsAnchorNoneNeural';
+    const tone = (file) => execFileSync(resolveFfmpeg(), ['-y', '-v', 'error', '-f', 'lavfi', '-i',
+      "aevalsrc='if(between(t,0.2,1.4)+between(t,1.7,2.6)+between(t,3.4,4.6),0.5*sin(2*PI*440*t),0)':s=24000:d=5",
+      '-c:a', 'libmp3lame', '-b:a', '48k', file], { stdio: 'pipe' });
+    const marksFile = ttsCacheFile(speech, { provider: 'edge', voice: voiceMarks });
+    const audioFile = ttsCacheFile(speech, { provider: 'edge', voice: voiceAudio });
+    fs.mkdirSync(path.dirname(marksFile), { recursive: true });
+    tone(marksFile); tone(audioFile);
+    for (const f of [audioFile, ttsCacheFile(speech, { provider: 'edge', voice: voiceNone })]) { try { fs.unlinkSync(wordsFileOf(f)); } catch { /* none */ } }
+    try { fs.unlinkSync(ttsCacheFile(speech, { provider: 'edge', voice: voiceNone })); } catch { /* none */ }
+    const W = [['Раз', 0.2], ['два', 0.6], ['три,', 1.0], ['четыре', 1.6], ['пять.', 2.1], ['Шесть', 3.3], ['семь', 3.7], ['восемь.', 4.1]];
+    fs.writeFileSync(wordsFileOf(marksFile), JSON.stringify(W.map(([w, s], i) => ({ w, s, e: W[i + 1]?.[1] ?? 4.6 }))));
+
+    const page = { html: '<div class="a">А</div><div class="b">Б</div><div class="c">В</div>',
+      css: '.a,.b,.c{position:absolute;top:400px;font-size:60px}.a{left:300px}.b{left:900px}.c{left:1500px}', speech };
+    const play = async (steps, opts) => {
+      const at = [];
+      const r = await showSlide({ ...page, steps }, { lint: 'collect', ...opts, onStep: () => { at.push(performance.now() / 1000); } });
+      return { r, at };
+    };
+    const steps = [{ at: 'четыре', show: '.a' }, { at: 'Шесть', show: '.b' }, { at: 'end', show: '.c' }];
+
+    // (a) the provider's word timings: the steps keep the marks' spacing
+    const m = await play(steps, { provider: 'edge', voice: voiceMarks });
+    log(`marks: ${JSON.stringify(m.r.anchors)} gaps ${(m.at[1] - m.at[0]).toFixed(2)} / ${(m.at[2] - m.at[1]).toFixed(2)}`);
+    assert.deepEqual(m.r.anchors.map((x) => x.by), ['marks', 'marks', 'marks'], 'times from the word timings');
+    assert.deepEqual(m.r.anchors.map((x) => x.t), [1.6, 3.3, 4.6], 'the words\' starts, end = the last word\'s end');
+    assert.ok(Math.abs((m.at[1] - m.at[0]) - 1.7) <= 0.15 && Math.abs((m.at[2] - m.at[1]) - 1.3) <= 0.15, 'each step on its word (±0.15 s)');
+    assert.deepEqual((await slideState()).on.sort(), ['a', 'b', 'c'], 'all three shown');
+
+    // (b) no word timings: the audio's pauses (a comma's pause, the sentence's pause)
+    const a = await play([...steps.slice(0, 2), { at: 'семь', show: '.c' }], { provider: 'edge', voice: voiceAudio, synth: false });
+    log(`audio: ${JSON.stringify(a.r.anchors)} ${JSON.stringify(a.r.warnings || [])}`);
+    assert.deepEqual(a.r.anchors.map((x) => x.by), ['audio', 'audio', 'audio'], 'times from the audio');
+    assert.ok(Math.abs(a.r.anchors[0].t - 1.6) <= 0.1 && Math.abs(a.r.anchors[1].t - 3.3) <= 0.1, 'after a comma / a full stop: the pause\'s end');
+    assert.ok((a.r.warnings || []).some((w) => /"семь": timed from the audio roughly/.test(w)), 'a word mid-sentence: told it is rough');
+
+    // (c) no audio at all (synth: false, not cached): an estimate, in order
+    const e = await play(steps, { provider: 'edge', voice: voiceNone, synth: false, motion: false });
+    assert.deepEqual(e.r.anchors.map((x) => x.by), ['estimate', 'estimate', 'estimate'], 'estimated');
+    assert.ok(e.r.anchors[0].t < e.r.anchors[1].t && e.r.anchors[1].t <= e.r.anchors[2].t, 'in order');
+
+    // (d) seconds and a shift; past the end — a warning
+    const n = await play([{ at: 1, show: '.a' }, { at: { text: 'Шесть', shift: -0.2 }, show: '.b' }, { at: 6, show: '.c' }], { provider: 'edge', voice: voiceMarks, motion: false });
+    assert.deepEqual(n.r.anchors.map((x) => [x.t, x.by]), [[1, 'manual'], [3.1, 'marks'], [6, 'manual']]);
+    assert.ok((n.r.warnings || []).some((w) => /past the phrase's end/.test(w)), 'seconds past the end: a warning');
+    await hideSlide({ motion: false });
+
+    // (e) wrong specs fail before the recording
+    const v = { validateOnly: true };
+    await rejectsWith(() => prepareSlides([{ ...page, steps: [{ at: 'девять', show: '.a' }] }], v), /"девять" is not in the phrase/, 'a word not in the phrase');
+    await rejectsWith(() => prepareSlides([{ ...page, steps: [{ at: 'Шесть', show: '.a' }, { at: 'четыре', show: '.b' }] }], v), /after the previous anchor/, 'anchors out of order');
+    await rejectsWith(() => prepareSlides([{ ...page, steps: [{ at: 'Шесть', show: '.a', speech: 'ещё' }] }], v), /has its own "speech"/, 'a step\'s own speech');
+    await rejectsWith(() => prepareSlides([{ ...page, speech: undefined, steps: [{ at: 'Шесть', show: '.a' }] }], v), /need the slide's "speech"/, 'no phrase');
+    await rejectsWith(() => prepareSlides([{ layout: 'statement', text: 'А', speech, steps: [{ at: 'Шесть' }] }], v), /takes no steps/, 'a layout without steps');
+    const ok = await prepareSlides([{ ...page, steps }, 'Фраза для speak.'], v);
+    assert.equal(ok.slides, 1, 'a plain string is a phrase, not a slide');
+
+    // (e2) marks as Edge gives them: a number glued to its word («2024 году,»), a word in pieces («т.» «е.»);
+    // «т.е.» and a decimal comma do not end a sentence
+    const { anchorTimes } = await import(pathToFileURL(path.resolve('.claude/skills/web-test/scripts/engine/recording/anchors.mjs')).href);
+    const glued = anchorTimes('В 2024 году, т.е. сейчас, 3,5 тысячи.', ['году', 'т.е.', 'сейчас', 'тысячи'], {
+      words: [{ w: 'В', s: 0.05, e: 0.2 }, { w: '2024 году,', s: 0.2, e: 1.8 }, { w: 'т.', s: 2.0, e: 2.1 }, { w: 'е.', s: 2.1, e: 2.2 },
+        { w: 'сейчас,', s: 2.3, e: 2.9 }, { w: '3,5', s: 3.1, e: 4.2 }, { w: 'тысячи.', s: 4.25, e: 4.8 }],
+    });
+    log(`glued marks: ${JSON.stringify(glued.times)}`);
+    assert.deepEqual(glued.times.map((x) => x.by), ['marks', 'marks', 'marks', 'marks'], 'every anchor from the marks');
+    assert.ok(glued.times[0].t > 1.2 && glued.times[0].t < 1.8, 'a word inside a glued mark: counted back from its end');
+    assert.deepEqual(glued.times.slice(1).map((x) => x.t), [2.0, 2.3, 4.25], 'a word in pieces — its first piece');
+
+    // (f) speak on a live page: actions on the words (lead — before the word)
+    const sp = await speak(speech, { provider: 'edge', voice: voiceMarks });
+    const t0 = performance.now() / 1000;
+    const r1 = await sp.at('четыре', { lead: 0.5 });
+    const t1 = performance.now() / 1000;
+    const r2 = await sp.at('end');
+    const t2 = performance.now() / 1000;
+    log(`speak: ${JSON.stringify([r1, r2])} at ${(t1 - t0).toFixed(2)} / ${(t2 - t0).toFixed(2)} s`);
+    assert.equal(r1.by, 'marks');
+    assert.ok(Math.abs((t1 - t0) - 1.1) <= 0.15 && Math.abs((t2 - t0) - 4.6) <= 0.15, 'waits for the word (minus lead) and for the end');
+    let err = null;
+    try { await sp.at('два'); } catch (x) { err = x; }
+    assert.ok(err && /not in the phrase after the previous anchor/.test(err.message), 'speak: words in order');
   });
 }

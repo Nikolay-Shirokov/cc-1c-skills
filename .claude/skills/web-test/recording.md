@@ -107,6 +107,27 @@ The caption is one for the session: with several contexts (pages) it stays on th
 
 Remove the caption overlay.
 
+### `speak(text, opts?)` → `{ seconds, at(x, { lead }) }`
+
+One phrase in one take, actions on its words — a live page shown while the voice goes on:
+
+```js
+await prepareSlides([...slides, PHRASE]);       // a plain string: synthesized ahead with the slides
+await startRecording('video.mp4');
+const v = await speak(PHRASE);                  // the phrase starts now (goes to the narration)
+await v.at('функциональные блоки', { lead: 0.7 }); await highlightAndClick(...);
+await v.at('бизнес-процессы', { lead: 0.7 });      await highlightAndClick(...);
+await v.at('end');                              // the phrase is over
+```
+
+- `at(x)` waits till the word sounds: `x` — a word of the phrase (after the previous one), seconds from its start,
+  `'end'`, or `{ text, shift }` — as `at` of a slide step ([slides.md](slides.md#one-phrase-steps-on-its-words)).
+  `lead` — seconds before the word: a highlight first, the click lands on the word.
+- The voice is not cut or stretched for the page: when an action before took longer and `at` comes later than
+  0.15 s past its word, a warning says by how much (a bigger `lead`, or a later word).
+- `opts` — TTS options as in `showCaption` (`voice`, …); a phrase not synthesized ahead is synthesized at
+  `speak` (the page waits — a warning).
+
 ### Title and closing — `showSlide(spec, tts?)`
 
 Almost every video opens with a title card and many end with a closing one. Both are animated slides:

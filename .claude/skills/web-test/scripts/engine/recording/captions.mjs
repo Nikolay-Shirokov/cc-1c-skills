@@ -1,11 +1,12 @@
-// web-test recording/captions v1.21 — Overlay primitives: captions; legacy title/image overlays over showSlide.
+// web-test recording/captions v1.22 — Overlay primitives: captions, speak (a phrase with actions on its words); legacy title/image overlays over showSlide.
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import {
   page, recorder, lastCaptions, ensureConnected,
 } from '../core/state.mjs';
-import { cachedSpeechSeconds, mergeTtsOptions, unspokenWarning } from './tts.mjs';
-import { showSlide, hideSlide } from './slides/index.mjs';
+import { cachedSpeechSeconds, cachedWords, ttsCacheFile, synthesizeCached, mergeTtsOptions, unspokenWarning } from './tts.mjs';
+import { showSlide, hideSlide, hold } from './slides/index.mjs';
+import { anchorTimes, ON_TIME } from './anchors.mjs';
 import { otherContextPages } from '../core/session.mjs';
 import { softDeadline } from '../core/deadline.mjs';
 
@@ -88,6 +89,61 @@ export async function showCaption(text, opts = {}) {
     }
     recorder.captionCredit = { waitedMs: smartWaitMs, at: Date.now() };
   }
+}
+
+/**
+ * Say a phrase in one take and act on its words: the phrase goes to the narration at this moment of the
+ * recording; `at(word)` waits till that word sounds. For a live page (clicks while the voice goes on).
+ *   const v = await speak('… функциональные блоки, бизнес-процессы …');
+ *   await v.at('функциональные блоки', { lead: 0.7 }); await click(...);
+ *   await v.at('end');
+ * @param {string} text — the phrase, written as spoken
+ * @param {object} [opts] — TTS options (voice, provider, …; default: .v8-project.json "tts"); synth: false — no TTS
+ * @returns {Promise<{ seconds: number, at: (x, o?: { lead?: number }) => Promise<{ t: number, by: string, late: number }> }>}
+ *   x — a word of the phrase (after the previous one), seconds from its start, 'end', or { text, shift };
+ *   lead — start that many seconds before the word (a highlight first, the click on the word)
+ */
+export async function speak(text, opts = {}) {
+  ensureConnected();
+  if (typeof text !== 'string' || !text.trim()) throw new Error('speak: the phrase to say (a non-empty string)');
+  const { synth, ...rest } = opts;
+  const tts = mergeTtsOptions(rest);
+  let seconds = cachedSpeechSeconds(text, tts);
+  if (synth !== false && (seconds == null || ((tts.provider || 'edge') === 'edge' && !cachedWords(text, tts)))) {
+    if (recorder) console.log('[web-test] speak WARN the phrase is synthesized during the recording (the page waits) — prepareSlides([..., phrase]) before startRecording()');
+    try { seconds = (await synthesizeCached(text, { ...tts, words: true })).seconds; }
+    catch (e) { console.log(`[web-test] speak WARN TTS failed, word times estimated: ${e.message}`); }
+  }
+  const cached = seconds != null;
+  const rate = (recorder?.speechRate || 70) / 1000;
+  const src = {
+    words: cached ? cachedWords(text, tts) : null, file: cached ? ttsCacheFile(text, tts) : null,
+    seconds: seconds ?? Math.max(2, text.length * rate), rate, ffmpegPath: tts.ffmpegPath, where: 'speak at',
+  };
+  const unspoken = unspokenWarning(text);
+  if (unspoken) console.log(`[web-test] speak WARN ${unspoken}`);
+  await clearCaptionElsewhere();
+  if (recorder) recorder.captions.push({ text, speech: text, time: Math.round(recorder.videoTimeMs), ...(opts.voice ? { voice: opts.voice } : {}) });
+  const clock = () => (recorder ? recorder.videoTimeMs : performance.now()) / 1000;
+  const t0 = clock();
+  const ats = [], warned = new Set();
+  return {
+    seconds: src.seconds,
+    async at(x, o = {}) {
+      const lead = o.lead ?? 0;
+      if (typeof lead !== 'number' || !Number.isFinite(lead) || lead < 0) throw new Error('speak at: lead must be seconds ≥ 0');
+      const res = anchorTimes(text, [...ats, x], src);   // words in order, after the previous ones
+      ats.push(x);
+      for (const w of res.warnings) if (!warned.has(w)) { warned.add(w); console.log(`[web-test] speak WARN ${w}`); }
+      const { t, by } = res.times[res.times.length - 1];
+      const target = t0 + t - lead;
+      const ms = (target - clock()) * 1000;
+      if (ms > 0) await hold(ms);
+      const late = Math.max(0, clock() - target);
+      if (late > ON_TIME) console.log(`[web-test] speak WARN at ${JSON.stringify(x)}: ${late.toFixed(2)} s late (the action before took longer — a bigger lead, or a later word)`);
+      return { t, by, late: Math.round(late * 1000) / 1000 };
+    },
+  };
 }
 
 /** Remove the caption overlay from the page. */

@@ -509,6 +509,7 @@ Clear filters. Without arguments clears all, with `{ field }` clears specific ba
 #### `getPage()` → Playwright Page (raw, for advanced scripting)
 #### `startRecording(path, opts?)` / `stopRecording()` → MP4 video recording (`{ force: true }` to restart if already recording)
 #### `showCaption(text, opts?)` / `hideCaption()` → text overlay on page
+#### `speak(text, opts?)` → one narrated phrase; `await v.at(word)` — act on its words ([recording.md](recording.md))
 #### `showSlide(spec, tts?)` / `hideSlide()` / `prepareSlides(specs, tts?)` → animated slides: title and closing cards ([recording.md](recording.md)), presentation inserts ([slides.md](slides.md)); a slides-only video without 1C — `run.mjs play` / `preview` ([slides.md](slides.md))
 #### `isRecording()` → boolean
 #### `setHighlight(on)` / `isHighlightMode()` → auto-highlight mode for video

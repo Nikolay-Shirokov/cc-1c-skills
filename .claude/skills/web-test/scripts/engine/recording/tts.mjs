@@ -1,4 +1,4 @@
-// web-test recording/tts v1.22 — TTS providers (edge/openai/elevenlabs), phrase cache and ffmpeg/ffprobe helpers.
+// web-test recording/tts v1.23 — TTS providers (edge/openai/elevenlabs), phrase cache (+ word timings) and ffmpeg/ffprobe helpers.
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import { execFileSync, spawn } from 'child_process';
@@ -116,7 +116,8 @@ export const DEFAULT_VOICE = { edge: 'ru-RU-DmitryNeural', openai: 'alloy', elev
 export async function edgeTtsProvider(text, outputPath, opts = {}) {
   const { EdgeTTS } = await resolveEdgeTts();
   const voice = opts.voice || DEFAULT_VOICE.edge;
-  const tts = new EdgeTTS({ voice });
+  // saveSubtitles: the service's word boundaries go to `${outputPath}.json` (the audio is the same)
+  const tts = new EdgeTTS({ voice, saveSubtitles: true });
   await Promise.race([
     tts.ttsPromise(text, outputPath),
     new Promise((_, reject) => setTimeout(() => reject(new Error('Edge TTS timeout (30s)')), 30000)),
@@ -228,6 +229,31 @@ export function ttsCacheFile(text, opts = {}) {
   return pathJoin(TTS_CACHE_DIR, createHash('sha1').update(key).digest('hex') + '.mp3');
 }
 
+// Word timings of a phrase, when the provider gave them: `<hash>.words.json` next to the mp3, [{ w, s, e }] in
+// seconds. Edge writes its own `<audio>.json` ([{ part, start, end }] in ms) — normalized here.
+export const wordsFileOf = (file) => file.replace(/\.mp3$/i, '') + '.words.json';
+function adoptWords(raw, file) {
+  const src = `${raw}.json`;
+  try {
+    if (!fsExistsSync(src)) return;
+    const list = JSON.parse(readFileSync(src, 'utf8'));
+    const words = (Array.isArray(list) ? list : [])
+      .filter((x) => x && typeof x.part === 'string' && Number.isFinite(x.start))
+      .map((x) => ({ w: x.part.trim(), s: x.start / 1000, e: (Number.isFinite(x.end) ? x.end : x.start) / 1000 }))
+      .filter((x) => x.w);
+    if (words.length) writeFileSync(wordsFileOf(file), JSON.stringify(words));
+  } catch { /* no timings: the audio alone is fine */ } finally {
+    try { unlinkSync(src); } catch { /* none */ }
+  }
+}
+/** Word timings of a cached phrase ([{ w, s, e }], seconds), or null. */
+export function cachedWords(text, opts = {}) {
+  const f = wordsFileOf(ttsCacheFile(text, opts));
+  if (!fsExistsSync(f)) return null;
+  touch(f);
+  try { const w = JSON.parse(readFileSync(f, 'utf8')); return Array.isArray(w) && w.length ? w : null; } catch { return null; }
+}
+
 function durationOf(file, ffmpegPath) {
   if (!_durations.has(file)) _durations.set(file, getAudioDuration(file, resolveFfmpeg(ffmpegPath)));
   return _durations.get(file);
@@ -237,7 +263,8 @@ function durationOf(file, ffmpegPath) {
  * Synthesize a phrase once (cached) and, unless { measure: false }, measure it.
  * @param {string} text
  * @param {object} [opts] — { provider, voice, apiKey, apiUrl, model, instructions, ffmpegPath,
- *   cache (false — bypass the cache: a one-off file in opts.tempDir), tempDir, measure (false — no ffprobe) }
+ *   cache (false — bypass the cache: a one-off file in opts.tempDir), tempDir, measure (false — no ffprobe),
+ *   words (true — word timings wanted: an Edge phrase cached without them is synthesized again) }
  * @returns {Promise<{ file: string, seconds?: number }>}
  */
 export async function synthesizeCached(text, opts = {}) {
@@ -248,11 +275,15 @@ export async function synthesizeCached(text, opts = {}) {
     mkdirSync(dir, { recursive: true });
     const file = pathJoin(dir, `nocache-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.mp3`);
     await getTtsProvider(opts.provider || 'edge')(text, file, opts);
+    adoptWords(file, file);
     return measure ? { file, seconds: getAudioDuration(file, resolveFfmpeg(opts.ffmpegPath)) } : { file };
   }
   pruneCache();
   const file = ttsCacheFile(text, opts);
-  if (!fsExistsSync(file) || statSync(file).size === 0) {
+  // a phrase cached before word timings were kept (Edge gives them): once more, now with them
+  const stale = opts.words && (opts.provider || 'edge') === 'edge' && fsExistsSync(file) && !fsExistsSync(wordsFileOf(file));
+  if (stale) _durations.delete(file);
+  if (stale || !fsExistsSync(file) || statSync(file).size === 0) {
     // the same phrase twice in one parallel batch: the second waits for the first
     if (!_inflight.has(file)) {
       _inflight.set(file, (async () => {
@@ -261,8 +292,10 @@ export async function synthesizeCached(text, opts = {}) {
         try {
           await getTtsProvider(opts.provider || 'edge')(text, part, opts);
           renameSync(part, file);
+          adoptWords(part, file);
         } finally {
           try { unlinkSync(part); } catch { /* renamed */ }
+          try { unlinkSync(`${part}.json`); } catch { /* adopted or none */ }
         }
       })().finally(() => _inflight.delete(file)));
     }

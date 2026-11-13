@@ -1,14 +1,16 @@
-// web-test recording/slides v1.8 — animated step slides: showSlide / hideSlide / prepareSlides / setSlideTheme / loadSlides.
+// web-test recording/slides v1.9 — animated step slides: showSlide / hideSlide / prepareSlides / setSlideTheme / loadSlides.
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 //
 // A slide is a template spec ({ layout, ... }) or a custom page ({ html, css, steps }). Each step is a phrase
 // plus what changes on screen; a spoken step becomes a caption, so addNarration voices it exactly where its
 // change happens. Step length = the phrase's real TTS length (shared phrase cache, see tts.mjs).
+// Or one phrase for the slide (spec.speech) and steps on its words (step.at) — anchors.mjs: one take, no seams.
 
 import { readFileSync, existsSync, statSync } from 'fs';
 import { pathToFileURL } from 'url';
 import { page, recorder, ensureConnected, resolveProjectPath } from '../../core/state.mjs';
-import { synthesizeCached, cachedSpeechSeconds, mergeTtsOptions, readProjectConfig, unspokenWarning } from '../tts.mjs';
+import { synthesizeCached, cachedSpeechSeconds, cachedWords, ttsCacheFile, mergeTtsOptions, readProjectConfig, unspokenWarning } from '../tts.mjs';
+import { anchorTimes, locateAnchors, ON_TIME } from '../anchors.mjs';
 import { BASE_CSS, themeVars, pageMount, pageStep, pageHide, pageLint, pageScript } from './protocol.mjs';
 import { ASSET_BASE, ensureAssetsRoute, releaseAssetsRoute, encodeAssetPath, rewriteAssets } from './assets.mjs';
 import { buildSlide, imageInfo, esc } from './templates.mjs';
@@ -194,6 +196,28 @@ async function runScript(script) {
 }
 
 const estimate = (text) => Math.max(2, text.length * ((recorder?.speechRate || 70) / 1000));
+
+// One phrase for the slide, steps on its words: some step has `at`. The slide's `speech` is the phrase; a step's
+// own speech is an error then (two voices at once). Template steps follow spec.steps one to one, so the first
+// spec.steps.length built steps are the user's; the template's extras (the outro) go after the phrase.
+function speechPlan(spec, built, name) {
+  const user = Array.isArray(spec.steps) ? spec.steps : [];
+  const anchoredUser = user.some((s) => s && typeof s === 'object' && s.at !== undefined);
+  if (!anchoredUser) return null;
+  const where = `showSlide(${name})`;
+  if (!built.steps.some((s) => s.at !== undefined)) throw new Error(`${where}: layout "${spec.layout}" takes no steps — "at" needs a layout with steps`);
+  if (typeof spec.speech !== 'string' || !spec.speech.trim()) {
+    throw new Error(`${where}: steps with "at" need the slide's "speech" — one phrase, the steps on its words`);
+  }
+  user.forEach((s, i) => {
+    if (s.speech !== undefined) throw new Error(`${where}: step ${i + 1} has its own "speech" — with "at" the slide speaks one phrase (the slide's "speech")`);
+  });
+  const userCount = spec.layout !== undefined ? user.length : built.steps.length;
+  const idx = built.steps.map((s, i) => (s.at !== undefined ? i : -1)).filter((i) => i >= 0);
+  const labels = idx.map((i) => `${where} step ${i + 1} at`);
+  locateAnchors(spec.speech, idx.map((i) => built.steps[i].at), 'at', labels);   // words found, in order
+  return { speech: spec.speech, voice: spec.voice, userCount, idx, labels };
+}
 const label = (spec, opts) => opts.label || spec.layout || 'page';
 
 // Node-side rules on top of pageLint: little text, short steps, screen text ≠ narration (redundancy),
@@ -216,6 +240,94 @@ async function lintStep(step, i, seconds) {
     }
   }
   return w.map((x) => `step ${i + 1}: ${x}`);
+}
+
+// ── one phrase, steps on its words ───────────────────────────────────────
+// The phrase is synthesized (cached, with word timings when the provider gives them); each anchor gets its time
+// from the phrase's start (anchors.mjs). fast (no-record, play --fast): every step `fast` seconds, no phrase.
+async function anchoredTimes(plan, built, tts, opts, rec, motion) {
+  const vo = plan.voice ? { ...tts, voice: plan.voice } : tts;
+  const ats = plan.idx.map((i) => built.steps[i].at);
+  const preHold = (s) => s.hold ?? (motion ? 0.8 : 0);
+  const pre = built.steps.slice(0, plan.idx[0]).reduce((a, s) => a + preHold(s), 0);
+  const tail = built.steps.slice(plan.userCount).reduce((a, s) => a + (s.hold ?? 0), 0);
+  if (opts.fast !== undefined) {
+    return { fast: true, times: ats.map(() => null), seconds: 0, end: 0, total: 0.6 + built.steps.length * opts.fast, synthesized: 0, warnings: [] };
+  }
+  let seconds = cachedSpeechSeconds(plan.speech, vo), synthesized = 0;
+  const fresh = opts.synth !== false && (seconds == null || ((vo.provider || 'edge') === 'edge' && !cachedWords(plan.speech, vo)));
+  if (fresh) {
+    try { seconds = (await synthesizeCached(plan.speech, { ...vo, words: true })).seconds; synthesized = 1; }
+    catch (e) { console.log(`[web-test] showSlide: TTS failed, anchor times estimated: ${e.message}`); }
+  }
+  const cached = seconds != null;
+  const res = anchorTimes(plan.speech, ats, {
+    words: cached ? cachedWords(plan.speech, vo) : null,
+    file: cached ? ttsCacheFile(plan.speech, vo) : null,
+    seconds: seconds ?? estimate(plan.speech),
+    rate: (rec?.speechRate || 70) / 1000, ffmpegPath: vo.ffmpegPath, labels: plan.labels,
+  });
+  seconds ??= estimate(plan.speech);
+  // the phrase ends with its last word (the file has a tail of silence after it)
+  const last = res.times.length ? res.times[res.times.length - 1].t : 0;
+  const end = Math.max(res.end, last);
+  const after = tail ? tail : GAP;   // an outro is the pause after the phrase; without one — a breath
+  return { times: res.times, seconds, end, warnings: res.warnings, synthesized, preHold, total: 0.6 + pre + LEAD + end + after };
+}
+
+async function playAnchored(plan, anch, built, opts, tts, warnings) {
+  warnings.push(...anch.warnings);
+  const unspoken = unspokenWarning(plan.speech);
+  if (unspoken) warnings.push(unspoken);
+  const clock = () => (recorder ? recorder.videoTimeMs : performance.now()) / 1000;
+  const until = async (t) => { const ms = (t - clock()) * 1000; if (ms > 0) await hold(ms); };
+  const run = async (s, i) => {
+    await page.evaluate(pageStep, { step: s, index: i, maxZoom: built.maxZoom ?? 2 });
+    if (opts.lint !== false) {
+      // the screen against the whole phrase; the phrase's length is fine here (one take)
+      const w = await lintStep({ ...s, speech: plan.speech }, i, 0);
+      warnings.push(...w.filter((x) => !/write it as spoken/.test(x)));
+    }
+    if (opts.onStep) await opts.onStep(i, s);
+  };
+  if (anch.fast) {
+    for (let i = 0; i < built.steps.length; i++) { await run(built.steps[i], i); await hold(opts.fast * 1000); }
+    return;
+  }
+  let t0 = null;
+  const start = async () => {
+    await hold(LEAD * 1000);
+    if (recorder) {
+      const voice = plan.voice && plan.voice !== tts.voice ? { voice: plan.voice } : {};
+      recorder.captions.push({ text: plan.speech, speech: plan.speech, time: Math.round(recorder.videoTimeMs), ...voice });
+    }
+    t0 = clock();
+  };
+  let k = 0;   // the next anchor
+  for (let i = 0; i < built.steps.length; i++) {
+    const s = built.steps[i];
+    if (i < plan.idx[0]) { await run(s, i); await hold(anch.preHold(s) * 1000); continue; }   // before the phrase
+    if (t0 == null) await start();
+    if (i >= plan.userCount) {
+      // the template's outro (all lit): from the phrase's last word — it is the pause before the next slide
+      if (i === plan.userCount) await until(t0 + anch.end);
+      await run(s, i);
+      await hold((s.hold ?? 0) * 1000);
+      continue;
+    }
+    if (s.at !== undefined) {
+      const target = t0 + anch.times[k++].t;
+      await until(target);
+      const late = clock() - target;
+      if (late > ON_TIME) warnings.push(`step ${i + 1}: ${late.toFixed(2)} s late for its word (the step before took longer)`);
+    }
+    await run(s, i);
+    if (s.hold) await hold(s.hold * 1000);
+  }
+  if (t0 == null) await start();
+  await until(t0 + anch.end + GAP);
+  // like showCaption: a wait() right after a spoken slide is absorbed by the time already waited
+  if (recorder) recorder.captionCredit = { waitedMs: (anch.end + GAP) * 1000, at: Date.now() };
 }
 
 // ── API ───────────────────────────────────────────────────────────────────
@@ -241,10 +353,15 @@ export async function showSlide(spec, opts = {}) {
   const tts = ttsOptions(opts);
   const rec = recorder;
 
+  // one phrase for the slide, steps on its words
+  const plan = speechPlan(spec, built, label(spec, opts));
+  let anch = null;
+  if (plan) anch = await anchoredTimes(plan, built, tts, opts, rec, motion);
+
   // step lengths
   const durs = [];
-  let synthesized = 0;
-  for (const s of built.steps) {
+  let synthesized = anch?.synthesized || 0;
+  for (const s of (anch ? [] : built.steps)) {
     if (opts.fast !== undefined) { durs.push(opts.fast); continue; }
     if (!s.speech) { durs.push(s.hold ?? (motion ? 0.8 : 0)); continue; }
     if (opts.legacy && !rec) { durs.push(0); continue; }   // the former overlays waited for speech only while recording
@@ -263,7 +380,7 @@ export async function showSlide(spec, opts = {}) {
     console.log(`[web-test] showSlide(${label(spec, opts)}): synthesized ${synthesized} phrase(s) during the recording — `
       + 'the video held still meanwhile; call prepareSlides([...]) before startRecording()');
   }
-  const total = 0.6 + durs.reduce((a, d) => a + d, 0);
+  const total = anch ? anch.total : 0.6 + durs.reduce((a, d) => a + d, 0);
 
   // the first slide right after startRecording appears at once: the video must not open on the page under it
   const onScreen = await page.evaluate(() => !!document.getElementById('__ws_slide'));
@@ -308,6 +425,12 @@ export async function showSlide(spec, opts = {}) {
   await hold(instant ? 60 : 600);
 
   const warnings = [];
+  if (anch) {
+    await playAnchored(plan, anch, built, opts, tts, warnings);
+    const unique = [...new Set(warnings)];
+    if (unique.length && opts.lint !== 'collect') for (const w of unique) console.log(`[web-test] showSlide(${label(spec, opts)}) WARN ${w}`);
+    return { steps: built.steps.length, seconds: Math.round(total * 10) / 10, anchors: anch.times, ...(unique.length ? { warnings: unique } : {}) };
+  }
   let lastSpoken = false;
   for (let i = 0; i < built.steps.length; i++) {
     const s = built.steps[i];
@@ -362,11 +485,18 @@ export async function prepareSlides(specs, opts = {}) {
   if (!Array.isArray(specs)) specs = [specs];
   const { validateOnly, ...rest } = opts;
   const tts = ttsOptions(rest);
+  // a plain string — a phrase for speak() on a live page: synthesized ahead with the slides
+  const phrases = specs.filter((s) => typeof s === 'string' && s.trim());
+  specs = specs.filter((s) => typeof s !== 'string');
   const built = specs.map((s) => buildSlide(s));
+  const plans = specs.map((s, i) => speechPlan(s, built[i], label(s, {})));   // anchors: words found, in order
   for (const s of specs) if (s.music !== undefined) resolveMusic(s.music);
   for (const s of specs) { const t = themeFor(s, rest); fontList(t.fonts); checkHeadingWeight(t); }   // a missing font file, a wrong weight fail before the recording
   for (const s of specs) for (const x of frameSpec(s, themeFor(s, rest)) || []) if (x.src) logoUrl(x.src);   // and a wrong frame
   const jobs = built.flatMap((b) => b.steps.filter((s) => s.speech).map((s) => [s.speech, s.voice ? { ...tts, voice: s.voice } : tts]));
+  // a slide's one phrase and speak() phrases — with word timings (an Edge phrase cached without them is redone)
+  plans.forEach((p) => { if (p) jobs.push([p.speech, { ...(p.voice ? { ...tts, voice: p.voice } : tts), words: true }]); });
+  for (const t of phrases) jobs.push([t, { ...tts, words: true }]);
   if (!validateOnly) {
     // several phrases at a time (like addNarration; ElevenLabs allows fewer parallel requests), two retries each
     const width = tts.provider === 'elevenlabs' ? 2 : 5;

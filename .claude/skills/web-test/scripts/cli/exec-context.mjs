@@ -64,6 +64,7 @@ export function buildContext({ noRecord = false } = {}) {
     for (const fn of ['showCaption', 'hideCaption']) {
       ctx[fn] = noop;
     }
+    ctx.speak = async () => ({ seconds: 0, at: async () => ({ t: 0, by: 'estimate', late: 0 }) });
     ctx.isRecording = () => false;
     ctx.getCaptions = () => [];
     // slides are still drawn (the page state matters for debugging), without TTS and with short holds

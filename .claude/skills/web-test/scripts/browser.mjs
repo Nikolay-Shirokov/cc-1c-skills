@@ -50,7 +50,7 @@ export {
   screenshot, wait, isRecording, startRecording, stopRecording,
 } from './engine/recording/capture.mjs';
 export {
-  showCaption, hideCaption, getCaptions,
+  showCaption, hideCaption, getCaptions, speak,
   showTitleSlide, hideTitleSlide,
   showImage, hideImage,
 } from './engine/recording/captions.mjs';

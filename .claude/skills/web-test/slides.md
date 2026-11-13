@@ -216,6 +216,38 @@ The module (its path from the current directory; paths inside the specs — from
 Run `preview` before recording over 1C: it catches layout problems and wrong `region`/`callout`
 coordinates in a minute instead of a re-recording.
 
+## One phrase, steps on its words
+
+A phrase split into steps is voiced in pieces: a pause and a new intonation at every seam. When a sentence must
+sound in one take, give the slide one `speech` and put each step on a word of it with `at`:
+
+```js
+export const LAYERS = {
+  layout: 'comparison', title: 'Описание системы',
+  left: { title: 'Технический слой', items: ['Объекты, алгоритмы, связи'] },
+  right: { title: 'Наблюдаемый слой', items: ['Признаки использования'] },
+  speech: 'В основе решения — формирование технического слоя и наблюдаемого слоя описания системы.',
+  steps: [
+    { at: 'технического слоя', show: 'left' },
+    { at: 'и наблюдаемого', show: 'right' },
+    { at: 'end', show: 'all' },
+  ],
+};
+```
+
+- `at` — a word of the phrase as written in `speech` (the first one after the previous step's word; case and
+  punctuation do not matter), seconds from the phrase's start (`2.4`), `'end'` (the last word ends), or
+  `{ text, shift }` — a word moved by `shift` seconds (`-0.2` — a bit earlier).
+- The steps' own `speech` is not allowed then. A step without `at` goes right after the step before it (before the
+  first anchored step — before the voice starts).
+- Where the time comes from (`showSlide` returns `anchors: [{ t, by }]`): `marks` — word timings the TTS service
+  gives (Edge); `audio` — the phrase's pauses (any provider: a word right after a punctuation mark is placed within
+  ~0.1 s, a word mid-sentence ~0.3 s — a warning says so); `estimate` — no audio (`synth: false`, a failed
+  TTS): the order only. Anchor words that follow a comma or a full stop; listen to the result.
+- A step later than 0.15 s past its word (a heavy step before it) is reported.
+- The template's final all-lit state starts at the last word and is the pause before the next slide:
+  `outro` seconds (1.2 by default) — shorter for a brisker change of slides.
+
 ## Checks
 
 Every step is checked; warnings go to the output (`exec`) or to `warnings` (`play`/`preview`):
@@ -243,15 +275,17 @@ not drawn by hand:
   number — `statement`; confirmed / doubtful / gone / optional — `status` on the items. A page of your
   own only when no template carries the meaning.
 - **Voice-over → steps by phrase**: each phrase reveals or lights its part. The storyboard's words go to
-  `speech` (split long sentences into steps); on screen — only key words, not the sentence itself.
+  `speech` (split long sentences into steps); on screen — only key words, not the sentence itself. A sentence
+  that must sound in one take (the storyboard ties the blocks to its words) — one `speech` for the slide and
+  steps with `at` ([One phrase, steps on its words](#one-phrase-steps-on-its-words)).
 - **Motion notes → step actions**: appear, focus, dim and camera are what templates do; a slide changes to the
   next by a crossfade. Other motion (a layer falling, a strike-through) — a page of your own.
 - **Timings are not kept.** A step lasts as long as its phrase sounds; a frame squeezed into the storyboard's
   seconds rushes or stalls the voice.
 - **Live screens are recorded** (steps in 1C between `hideSlide` and the next `showSlide`), not pasted in as
-  clips; their voice-over — `showCaption('', { speech })` at each action, voiced with the slides by
-  `addNarration` after `stopRecording` ([recording.md](recording.md)); a screen of an adjacent web system —
-  the same, on its page ([web-pages.md](web-pages.md)).
+  clips; their voice-over — `showCaption('', { speech })` at each action, or one phrase with actions on its
+  words — `speak` (`v.at(word)`); voiced with the slides by `addNarration` after `stopRecording`
+  ([recording.md](recording.md)); a screen of an adjacent web system — the same, on its page ([web-pages.md](web-pages.md)).
 - **The brand is the theme** (colours, `fonts`, `frame` with the logo, number and footer), set once in
   `.v8-project.json` — not repeated on pages of your own.
 - `preview` first, then the recording.
