@@ -4,9 +4,9 @@
 import {
   page, recorder, lastCaptions, ensureConnected,
 } from '../core/state.mjs';
-import { cachedSpeechSeconds, cachedWords, ttsCacheFile, synthesizeCached, mergeTtsOptions, unspokenWarning } from './tts.mjs';
+import { cachedSpeechSeconds, mergeTtsOptions, unspokenWarning } from './tts.mjs';
 import { showSlide, hideSlide, hold } from './slides/index.mjs';
-import { anchorTimes, ON_TIME } from './anchors.mjs';
+import { phraseSource, phraseTiming, clockNow, waitUntil, phraseSounds, afterPhrase, ON_TIME } from './anchors.mjs';
 import { otherContextPages } from '../core/session.mjs';
 import { softDeadline } from '../core/deadline.mjs';
 
@@ -35,6 +35,9 @@ export async function showCaption(text, opts = {}) {
   ensureConnected();
   // before the narration's timestamp: a slow page of another context must not put the voice ahead of the plate
   await clearCaptionElsewhere();
+
+  // a speak() phrase still sounding: this voice waits for it
+  if (recorder && opts.speech !== false) await afterPhrase(hold, 'showCaption');
 
   // Collect caption for TTS narration if recording
   let smartWaitMs = 0;
@@ -108,37 +111,31 @@ export async function speak(text, opts = {}) {
   if (typeof text !== 'string' || !text.trim()) throw new Error('speak: the phrase to say (a non-empty string)');
   const { synth, ...rest } = opts;
   const tts = mergeTtsOptions(rest);
-  let seconds = cachedSpeechSeconds(text, tts);
-  if (synth !== false && (seconds == null || ((tts.provider || 'edge') === 'edge' && !cachedWords(text, tts)))) {
-    if (recorder) console.log('[web-test] speak WARN the phrase is synthesized during the recording (the page waits) — prepareSlides([..., phrase]) before startRecording()');
-    try { seconds = (await synthesizeCached(text, { ...tts, words: true })).seconds; }
-    catch (e) { console.log(`[web-test] speak WARN TTS failed, word times estimated: ${e.message}`); }
-  }
-  const cached = seconds != null;
-  const rate = (recorder?.speechRate || 70) / 1000;
-  const src = {
-    words: cached ? cachedWords(text, tts) : null, file: cached ? ttsCacheFile(text, tts) : null,
-    seconds: seconds ?? Math.max(2, text.length * rate), rate, ffmpegPath: tts.ffmpegPath, where: 'speak at',
-  };
+  const { src } = await phraseSource(text, tts, {
+    synth, rate: (recorder?.speechRate || 70) / 1000, where: 'speak',
+    onSynth: () => { if (recorder) console.log('[web-test] speak WARN the phrase is synthesized during the recording (the page waits) — prepareSlides([..., phrase]) before startRecording()'); },
+  });
+  const timing = phraseTiming(text, src);   // worked out once; each at() finds only its own word
   const unspoken = unspokenWarning(text);
   if (unspoken) console.log(`[web-test] speak WARN ${unspoken}`);
+  const warn = (from) => { for (const w of timing.warnings.splice(from)) console.log(`[web-test] speak WARN ${w}`); };
+  warn(0);
   await clearCaptionElsewhere();
+  if (recorder) await afterPhrase(hold, 'speak');
   if (recorder) recorder.captions.push({ text, speech: text, time: Math.round(recorder.videoTimeMs), ...(opts.voice ? { voice: opts.voice } : {}) });
-  const clock = () => (recorder ? recorder.videoTimeMs : performance.now()) / 1000;
-  const t0 = clock();
-  const ats = [], warned = new Set();
+  const t0 = clockNow();
+  phraseSounds(t0 + timing.end);   // the next phrase waits for this one
+  let n = 0;
   return {
     seconds: src.seconds,
     async at(x, o = {}) {
       const lead = o.lead ?? 0;
       if (typeof lead !== 'number' || !Number.isFinite(lead) || lead < 0) throw new Error('speak at: lead must be seconds ≥ 0');
-      const res = anchorTimes(text, [...ats, x], src);   // words in order, after the previous ones
-      ats.push(x);
-      for (const w of res.warnings) if (!warned.has(w)) { warned.add(w); console.log(`[web-test] speak WARN ${w}`); }
-      const { t, by } = res.times[res.times.length - 1];
+      const { t, by } = timing.time(x, `speak at ${++n}`);   // words in order, after the previous ones
+      warn(0);
       const target = t0 + t - lead;
-      for (let ms; (ms = (target - clock()) * 1000) > 5;) await hold(Math.min(ms, 500));   // to a moment, not for a span
-      const late = Math.max(0, clock() - target);
+      await waitUntil(target, hold);
+      const late = Math.max(0, clockNow() - target);
       if (late > ON_TIME) console.log(`[web-test] speak WARN at ${JSON.stringify(x)}: ${late.toFixed(2)} s late (the action before took longer — a bigger lead, or a later word)`);
       return { t, by, late: Math.round(late * 1000) / 1000 };
     },

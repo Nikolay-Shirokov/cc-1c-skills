@@ -127,6 +127,8 @@ await v.at('end');                              // the phrase is over
   0.15 s past its word, a warning says by how much (a bigger `lead`, or a later word).
 - `opts` — TTS options as in `showCaption` (`voice`, …); a phrase not synthesized ahead is synthesized at
   `speak` (the page waits — a warning).
+- The next phrase (`showCaption`, a slide, another `speak`) waits while this one still sounds (a warning: end it
+  with `await v.at('end')`) — two voices never overlap. `--no-record` checks the words of `at` without a voice.
 
 ### Title and closing — `showSlide(spec, tts?)`
 

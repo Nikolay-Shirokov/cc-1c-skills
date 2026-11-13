@@ -5,7 +5,7 @@ export const timeout = 240000;
 // Read-only on the stand: slides are overlays over the current page, nothing is written to 1C.
 export default async function({
   showSlide, hideSlide, prepareSlides, setSlideTheme, showTitleSlide, hideTitleSlide,
-  startRecording, stopRecording, getCaptions, screenshot, getPage, withMusic, addNarration, speak,
+  startRecording, stopRecording, getCaptions, screenshot, getPage, withMusic, addNarration, speak, showCaption,
   assert, step, log,
 }) {
   const fs = await import('fs');
@@ -769,5 +769,32 @@ export default async function({
     let err = null;
     try { await sp.at('два'); } catch (x) { err = x; }
     assert.ok(err && /not in the phrase after the previous anchor/.test(err.message), 'speak: words in order');
+
+    // (g) a word repeated in the phrase: each anchor its own occurrence; same: true — the word of the anchor before
+    const { locateAnchors } = await import(pathToFileURL(path.resolve('.claude/skills/web-test/scripts/engine/recording/anchors.mjs')).href);
+    const rep = 'Нажмите Далее, затем снова Далее.';
+    assert.deepEqual(locateAnchors(rep, ['Далее', 'Далее']).map((x) => x.c), [8, 27], 'the next occurrence each time');
+    assert.deepEqual(locateAnchors(rep, ['Далее', { text: 'Далее', same: true, shift: 0.2 }, 'Далее']).map((x) => x.c), [8, 8, 27], 'same: true — the same place');
+    assert.throws(() => locateAnchors(rep, ['Нажмите', { text: 'Далее', same: true }]), /not the word of the anchor before/);
+
+    // (h) a phrase the service gave no word timings for ([] kept): timed from its audio, not synthesized again
+    const voiceEmpty = 'ru-RU-WsAnchorEmptyNeural';
+    const emptyFile = ttsCacheFile(speech, { provider: 'edge', voice: voiceEmpty });
+    tone(emptyFile);
+    fs.writeFileSync(wordsFileOf(emptyFile), '[]');
+    const em = await play(steps.slice(0, 2), { provider: 'edge', voice: voiceEmpty });   // synth allowed: a fake voice would fail
+    assert.deepEqual(em.r.anchors.map((x) => x.by), ['audio', 'audio'], 'no timings — the audio, no new synthesis');
+    await hideSlide({ motion: false });
+
+    // (i) a speak() phrase not ended: the next voice waits for it (two voices never overlap)
+    await startRecording(`${dir}/overlap.mp4`);
+    const tS = performance.now() / 1000;
+    await speak(speech, { provider: 'edge', voice: voiceMarks });
+    await showCaption('', { speech: 'Дальше.' });
+    const waited = performance.now() / 1000 - tS;
+    const caps = getCaptions();
+    await stopRecording();
+    log(`overlap: waited ${waited.toFixed(2)} s, captions at ${caps.map((c) => c.time).join(', ')}`);
+    assert.ok(caps.length === 2 && caps[1].time - caps[0].time >= 4600, 'the next caption after the phrase\'s end (4.6 s)');
   });
 }

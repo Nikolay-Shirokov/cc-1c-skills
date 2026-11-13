@@ -9,8 +9,8 @@
 import { readFileSync, existsSync, statSync } from 'fs';
 import { pathToFileURL } from 'url';
 import { page, recorder, ensureConnected, resolveProjectPath } from '../../core/state.mjs';
-import { synthesizeCached, cachedSpeechSeconds, cachedWords, ttsCacheFile, mergeTtsOptions, readProjectConfig, unspokenWarning } from '../tts.mjs';
-import { anchorTimes, locateAnchors, ON_TIME } from '../anchors.mjs';
+import { synthesizeCached, cachedSpeechSeconds, mergeTtsOptions, readProjectConfig, unspokenWarning } from '../tts.mjs';
+import { anchorTimes, locateAnchors, phraseSource, clockNow, waitUntil, afterPhrase, ON_TIME } from '../anchors.mjs';
 import { BASE_CSS, themeVars, pageMount, pageStep, pageHide, pageLint, pageScript } from './protocol.mjs';
 import { ASSET_BASE, ensureAssetsRoute, releaseAssetsRoute, encodeAssetPath, rewriteAssets } from './assets.mjs';
 import { buildSlide, imageInfo, esc } from './templates.mjs';
@@ -252,104 +252,99 @@ async function anchoredTimes(plan, built, tts, opts, rec, motion) {
   const pre = built.steps.slice(0, plan.idx[0]).reduce((a, s) => a + preHold(s), 0);
   const tail = built.steps.slice(plan.userCount).reduce((a, s) => a + (s.hold ?? 0), 0);
   if (opts.fast !== undefined) {
-    return { fast: true, times: ats.map(() => null), seconds: 0, end: 0, total: 0.6 + built.steps.length * opts.fast, synthesized: 0, warnings: [] };
+    return { fast: true, times: ats.map(() => null), end: 0, total: 0.6 + built.steps.length * opts.fast, synthesized: 0, warnings: [], preHold };
   }
-  let seconds = cachedSpeechSeconds(plan.speech, vo), synthesized = 0;
-  const fresh = opts.synth !== false && (seconds == null || ((vo.provider || 'edge') === 'edge' && !cachedWords(plan.speech, vo)));
-  if (fresh) {
-    try { seconds = (await synthesizeCached(plan.speech, { ...vo, words: true })).seconds; synthesized = 1; }
-    catch (e) { console.log(`[web-test] showSlide: TTS failed, anchor times estimated: ${e.message}`); }
-  }
-  const cached = seconds != null;
-  const res = anchorTimes(plan.speech, ats, {
-    words: cached ? cachedWords(plan.speech, vo) : null,
-    file: cached ? ttsCacheFile(plan.speech, vo) : null,
-    seconds: seconds ?? estimate(plan.speech),
-    rate: (rec?.speechRate || 70) / 1000, ffmpegPath: vo.ffmpegPath, labels: plan.labels,
+  const { src, synthesized } = await phraseSource(plan.speech, vo, {
+    synth: opts.synth, rate: (rec?.speechRate || 70) / 1000, where: 'showSlide', labels: plan.labels,
   });
-  seconds ??= estimate(plan.speech);
+  const res = anchorTimes(plan.speech, ats, src);
   // the phrase ends with its last word (the file has a tail of silence after it)
   const last = res.times.length ? res.times[res.times.length - 1].t : 0;
   const end = Math.max(res.end, last);
   const after = tail ? tail : GAP;   // an outro is the pause after the phrase; without one — a breath
-  return { times: res.times, seconds, end, warnings: res.warnings, synthesized, preHold, total: 0.6 + pre + LEAD + end + after };
+  return { times: res.times, end, warnings: res.warnings, synthesized: synthesized ? 1 : 0, preHold, total: 0.6 + pre + LEAD + end + after };
 }
 
+// Each step starts on its word (or right after the step before). A step is checked (lint) and reported (onStep —
+// preview's picture) once its motion settled, as in the phrase-per-step mode: ~1 s after it starts — but before
+// the next step's word only when there is time for it (the checks' own length, measured, counts): a word is never
+// missed for a check. A step the next one follows at once is reported without its own check (the next one's
+// covers the screen); after the last step and in the outro nothing waits for a word — they are always checked.
 async function playAnchored(plan, anch, built, opts, tts, warnings) {
   warnings.push(...anch.warnings);
   const unspoken = unspokenWarning(plan.speech);
   if (unspoken) warnings.push(unspoken);
-  const clock = () => (recorder ? recorder.videoTimeMs : performance.now()) / 1000;
-  // to a moment, not for a span: the rest is counted again after every chunk (hold's chunks run a bit over)
-  const until = async (t) => { for (let ms; (ms = (t - clock()) * 1000) > 5;) await hold(Math.min(ms, 500)); };
-  // A step is checked and reported (onStep — preview's picture) once its motion settled, as in the
-  // phrase-per-step mode: ~1 s after it starts, or just before the next step's word — never delaying it.
-  let open = null, checkTook = 0.25;   // the longest check so far (a heavy page takes longer)
-  const close = async (lint = true) => {
-    if (!open) return;
+  const until = (t) => waitUntil(t, hold);
+  let open = null, took = 0.25;   // the step not yet reported; the longest check + report so far
+  const report = async (lint) => {
     const { s, i } = open;
     open = null;
+    const t = clockNow();
     if (lint && opts.lint !== false) {
       // the screen against the whole phrase; the phrase's length is fine here (one take)
-      const t = clock();
       const w = await lintStep({ ...s, speech: plan.speech }, i, 0);
-      checkTook = Math.max(checkTook, clock() - t);
       warnings.push(...w.filter((x) => !/write it as spoken/.test(x)));
     }
     if (opts.onStep) await opts.onStep(i, s);
+    if (lint) took = Math.max(took, clockNow() - t);
   };
-  // the checks take a moment: done only when the next word is far enough (no time — the step goes unchecked)
-  const settleBefore = async (target) => {
+  // next: a moment (the next step's word), 'now' (the next step follows at once) or undefined (nothing waits)
+  const settle = async (next) => {
     if (!open) return;
-    const at = Math.min(open.at + 1, target - 0.1 - checkTook * 1.5);
-    if (at < clock()) { await close(false); return; }   // no time: this step goes unchecked rather than late
+    if (next === 'now') return report(false);
+    let at = open.at + 1;
+    if (typeof next === 'number') {
+      at = Math.min(at, next - 0.1 - took * 1.5);
+      if (at < clockNow()) return report(false);   // no time: unchecked rather than late
+    }
     await until(at);
-    await close();
+    return report(true);
   };
   const run = async (s, i) => {
-    await close();
     await page.evaluate(pageStep, { step: s, index: i, maxZoom: built.maxZoom ?? 2 });
-    open = { s, i, at: clock() };
+    open = { s, i, at: clockNow() };
   };
   if (anch.fast) {
-    for (let i = 0; i < built.steps.length; i++) { await run(built.steps[i], i); await hold(opts.fast * 1000); await close(); }
+    for (let i = 0; i < built.steps.length; i++) { await run(built.steps[i], i); await hold(opts.fast * 1000); await settle(); }
     return;
   }
   let t0 = null;
   const start = async () => {
+    await settle();
     await hold(LEAD * 1000);
+    await afterPhrase(hold, 'showSlide');
     if (recorder) {
       const voice = plan.voice && plan.voice !== tts.voice ? { voice: plan.voice } : {};
       recorder.captions.push({ text: plan.speech, speech: plan.speech, time: Math.round(recorder.videoTimeMs), ...voice });
     }
-    t0 = clock();
+    t0 = clockNow();
   };
   let k = 0;   // the next anchor
   for (let i = 0; i < built.steps.length; i++) {
     const s = built.steps[i];
-    if (i < plan.idx[0]) { await run(s, i); await hold(anch.preHold(s) * 1000); continue; }   // before the phrase
+    if (i < plan.idx[0]) { await settle(); await run(s, i); await hold(anch.preHold(s) * 1000); continue; }   // before the phrase
     if (t0 == null) await start();
     if (i >= plan.userCount) {
       // the template's outro (all lit): from the phrase's last word — it is the pause before the next slide
-      if (i === plan.userCount) { await settleBefore(t0 + anch.end); await until(t0 + anch.end); }
+      await settle();
+      if (i === plan.userCount) await until(t0 + anch.end);
       await run(s, i);
       await hold((s.hold ?? 0) * 1000);
       continue;
     }
     if (s.at !== undefined) {
       const target = t0 + anch.times[k++].t;
-      await settleBefore(target);
+      await settle(target);
       await until(target);
-      const late = clock() - target;
+      const late = clockNow() - target;
       if (late > ON_TIME) warnings.push(`step ${i + 1}: ${late.toFixed(2)} s late for its word (the step before took longer)`);
-    }
+    } else await settle('now');
     await run(s, i);
     if (s.hold) await hold(s.hold * 1000);
   }
   if (t0 == null) await start();
-  await settleBefore(t0 + anch.end + GAP);
+  await settle();
   await until(t0 + anch.end + GAP);
-  await close();
   // like showCaption: a wait() right after a spoken slide is absorbed by the time already waited
   if (recorder) recorder.captionCredit = { waitedMs: (anch.end + GAP) * 1000, at: Date.now() };
 }
@@ -462,6 +457,7 @@ export async function showSlide(spec, opts = {}) {
     if (s.speech && opts.fast === undefined) {
       const lead = opts.legacy ? 0 : LEAD;
       if (lead) await hold(lead * 1000);
+      await afterPhrase(hold, 'showSlide');
       if (recorder) {
         const voice = s.voice && s.voice !== tts.voice ? { voice: s.voice } : {};
         recorder.captions.push({ text: s.text || s.speech, speech: s.speech, time: Math.round(recorder.videoTimeMs), ...voice });

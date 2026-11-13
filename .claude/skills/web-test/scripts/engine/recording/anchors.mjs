@@ -1,4 +1,4 @@
-// web-test recording/anchors v1.0 — when a word of a phrase sounds: the provider's word timings, the audio's
+// web-test recording/anchors v1.1 — when a word of a phrase sounds: the provider's word timings, the audio's
 // pauses, an estimate. Used by slides (steps `at`) and speak() (live pages).
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 //
@@ -9,10 +9,52 @@
 // 3) no audio at all (synth: false) — characters × speechRate, for the order of steps only.
 
 import { spawnSync } from 'child_process';
-import { statSync } from 'fs';
-import { resolveFfmpeg } from './tts.mjs';
+import { existsSync, statSync } from 'fs';
+import { recorder } from '../core/state.mjs';
+import { resolveFfmpeg, synthesizeCached, cachedSpeechSeconds, cachedWords, ttsCacheFile } from './tts.mjs';
 
 export const ON_TIME = 0.15;   // a step later than this past its word is reported
+
+// ── the clock: the video's time while recording (the narration is laid on it), otherwise the wall clock ──────
+export const clockNow = () => (recorder ? recorder.videoTimeMs : performance.now()) / 1000;
+/** Wait till a moment of clockNow: the rest is counted again after every chunk (a hold's chunks run a bit over). */
+export async function waitUntil(t, hold) {
+  for (let ms; (ms = (t - clockNow()) * 1000) > 5;) await hold(Math.min(ms, 500));
+}
+
+// A speak() phrase still sounding: the next phrase (a caption, a slide's voice, another speak) waits for it —
+// two voices over each other are never wanted. { until: seconds of clockNow, rec }.
+let sounding = null;
+export function phraseSounds(until) { sounding = { until, rec: recorder }; }
+export async function afterPhrase(hold, who) {
+  if (!sounding || sounding.rec !== recorder) { sounding = null; return; }
+  const left = sounding.until - clockNow();
+  sounding = null;
+  if (left > 0.05) {
+    console.log(`[web-test] ${who} WARN the speak() phrase before is still sounding — waited ${left.toFixed(1)} s (await v.at('end') before the next phrase)`);
+    await waitUntil(clockNow() + left + 0.3, hold);
+  }
+}
+
+/**
+ * The phrase's audio for anchors: synthesized (cached, with word timings when the provider gives them) unless
+ * synth: false; without audio — the estimate. @returns {{ src, seconds, synthesized }}
+ */
+export async function phraseSource(text, tts, { synth, rate = 0.07, where, labels, onSynth } = {}) {
+  let seconds = cachedSpeechSeconds(text, tts), synthesized = false;
+  const edge = (tts.provider || 'edge') === 'edge';
+  if (synth !== false && (seconds == null || (edge && cachedWords(text, tts) == null))) {
+    onSynth?.();
+    try { seconds = (await synthesizeCached(text, { ...tts, words: true })).seconds; synthesized = true; }
+    catch (e) { console.log(`[web-test] ${where || 'TTS'}: TTS failed, word times estimated: ${e.message}`); }
+  }
+  const file = seconds != null ? ttsCacheFile(text, tts) : null;
+  const src = {
+    words: file ? cachedWords(text, tts) : null, file: file && existsSync(file) ? file : null,
+    seconds: seconds ?? Math.max(2, text.length * rate), rate, ffmpegPath: tts.ffmpegPath, where, labels,
+  };
+  return { src, seconds: src.seconds, synthesized };
+}
 
 const norm = (w) => w.toLowerCase().replace(/ё/g, 'е').replace(/[^a-zа-я0-9]/g, '');
 // How long a piece of text sounds, in letters: digits and capital abbreviations are spoken far longer than written
@@ -45,8 +87,9 @@ function tokens(text) {
 }
 
 /**
- * Normalize a step's `at`: a word (string), seconds from the phrase start (number), 'end', or { text, shift }.
- * @returns {{ text?: string, t?: number, end?: true, shift: number }}
+ * Normalize a step's `at`: a word (string), seconds from the phrase start (number), 'end', or { text, shift, same }
+ * (same: true — the word of the anchor before, not its next occurrence: two events on one word, one shifted).
+ * @returns {{ text?: string, t?: number, end?: true, same?: true, shift: number }}
  */
 export function normalizeAt(at, where = 'at') {
   if (at === 'end') return { end: true, shift: 0 };
@@ -61,34 +104,47 @@ export function normalizeAt(at, where = 'at') {
   if (at && typeof at === 'object' && (typeof at.text === 'string' || at.text === undefined)) {
     const shift = at.shift ?? 0;
     if (typeof shift !== 'number' || !Number.isFinite(shift)) throw new Error(`${where}: shift must be a number of seconds`);
-    if (at.text === undefined) throw new Error(`${where}: { text, shift } needs "text"`);
-    const base = normalizeAt(at.text, where);
-    return { ...base, shift };
+    if (at.same !== undefined && at.same !== true) throw new Error(`${where}: same must be true (the word of the anchor before)`);
+    if (at.text === undefined && !at.same) throw new Error(`${where}: { text, shift } needs "text"`);
+    if (at.text === undefined) return { same: true, shift };
+    return { ...normalizeAt(at.text, where), shift, ...(at.same ? { same: true } : {}) };
   }
-  throw new Error(`${where}: a word of the phrase, seconds (number), 'end' or { text, shift } — got ${JSON.stringify(at)}`);
+  throw new Error(`${where}: a word of the phrase, seconds (number), 'end' or { text, shift, same } — got ${JSON.stringify(at)}`);
 }
 
 /**
- * Find the anchors' words in the phrase, in order (each after the previous word anchor).
- * Throws when one is not found. @returns {Array<{ ...normalized, tok?: number, c?: number }>}
+ * Anchors found one by one, in order: each word after the previous word anchor («Далее … Далее» — each its own);
+ * { same: true } — the previous anchor's word again. next(at, label) throws when a word is not found.
  */
-export function locateAnchors(speech, ats, where = 'at', labels = null) {
+export function anchorLocator(speech) {
   const toks = tokens(speech);
-  const lab = (i) => labels?.[i] || `${where} ${i + 1}`;
-  let from = 0, prev = null;   // prev: the previous word anchor — the same words again mean the same place (another shift)
-  return ats.map((at, i) => {
-    const a = normalizeAt(at, lab(i));
+  let from = 0, prev = null;
+  return (at, label) => {
+    const a = normalizeAt(at, label);
+    if (a.same) {
+      if (!prev) throw new Error(`${label}: same: true — no word anchor before it`);
+      if (a.text !== undefined && tokens(a.text).map((t) => t.w).join(' ') !== prev.key) {
+        throw new Error(`${label}: same: true, but "${a.text}" is not the word of the anchor before ("${prev.text}")`);
+      }
+      return { ...a, text: prev.text, tok: prev.tok, c: prev.c };
+    }
     if (a.text === undefined) return a;
     const want = tokens(a.text).map((t) => t.w);
-    if (prev && want.join(' ') === prev.key) return { ...a, tok: prev.tok, c: prev.c };
     for (let k = from; k + want.length <= toks.length; k++) {
       if (want.every((w, j) => toks[k + j].w === w)) {
-        from = k + 1; prev = { key: want.join(' '), tok: k, c: toks[k].c };
+        from = k + 1;
+        prev = { key: want.join(' '), text: a.text, tok: k, c: toks[k].c };
         return { ...a, tok: k, c: toks[k].c };
       }
     }
-    throw new Error(`${lab(i)}: "${a.text}" is not in the phrase${from ? ' after the previous anchor' : ''}: "${speech.slice(0, 80)}${speech.length > 80 ? '…' : ''}"`);
-  });
+    throw new Error(`${label}: "${a.text}" is not in the phrase${from ? ' after the previous anchor' : ''}: "${speech.slice(0, 80)}${speech.length > 80 ? '…' : ''}"`);
+  };
+}
+
+/** All anchors of a phrase found at once (see anchorLocator). */
+export function locateAnchors(speech, ats, where = 'at', labels = null) {
+  const next = anchorLocator(speech);
+  return ats.map((at, i) => next(at, labels?.[i] || `${where} ${i + 1}`));
 }
 
 // ── the audio ─────────────────────────────────────────────────────────────
@@ -200,17 +256,13 @@ function marksAgree(text, mk, a) {
 }
 
 /**
- * Seconds from the phrase's start for each anchor.
- * @param {string} speech
- * @param {Array} ats — as in a step's `at`
+ * A phrase's timing, worked out once (the marks, the audio's pauses): time(at, label) gives each anchor in order —
+ * { t, by: 'marks'|'audio'|'estimate'|'manual' }, and throws when it comes before the one before.
  * @param {object} src — { words ([{ w, s, e }] or null), file (the phrase's mp3, or null), seconds (its length),
- *   rate (s per character, for no audio), ffmpegPath, where / labels (names in messages) }
- * @returns {{ times: Array<{ t, by: 'marks'|'audio'|'estimate'|'manual' }>, end: number, warnings: string[] }}
+ *   rate (s per character, for no audio), ffmpegPath }
+ * @returns {{ end: number, warnings: string[], time: (at, label) => { t, by } }}
  */
-export function anchorTimes(speech, ats, src = {}) {
-  const where = src.where || 'at';
-  const lab = (i) => src.labels?.[i] || `${where} ${i + 1}`;
-  const located = locateAnchors(speech, ats, where, src.labels);
+export function phraseTiming(speech, src = {}) {
   const warnings = [];
   let audio = null;
   if (src.file) {
@@ -225,7 +277,10 @@ export function anchorTimes(speech, ats, src = {}) {
   const clock = audio ? audioClock(speech, audio) : null;
   const rate = src.rate || 0.07;
   const end = marks ? marks.end : audio ? audio.s1 : (src.seconds || Math.max(2, speech.length * rate));
-  const times = located.map((a, i) => {
+  const locate = anchorLocator(speech);
+  let last = null;   // { t, label }
+  const time = (at, label) => {
+    const a = locate(at, label);
     let t, by;
     if (a.t !== undefined) { t = a.t; by = 'manual'; }
     else if (a.end) { t = end; by = marks ? 'marks' : audio ? 'audio' : 'estimate'; }
@@ -234,17 +289,24 @@ export function anchorTimes(speech, ats, src = {}) {
       const r = clock(a.c);
       t = r.t; by = 'audio';
       if (!r.snapped) {
-        warnings.push(`${lab(i)} "${a.text}": timed from the audio roughly (±0.3 s) — listen, or anchor a word right after a punctuation mark`);
+        warnings.push(`${label} "${a.text}": timed from the audio roughly (±0.3 s) — listen, or anchor a word right after a punctuation mark`);
       }
     } else { t = a.c * rate; by = 'estimate'; }
-    t = Math.max(0, t + a.shift);
-    if (t > end + 0.05) warnings.push(`${lab(i)}: ${t.toFixed(2)} s is past the phrase's end (${end.toFixed(2)} s) — the slide holds till then`);
-    return { t: Math.round(t * 1000) / 1000, by };
-  });
-  times.forEach((x, i) => {
-    if (i && x.t + 0.001 < times[i - 1].t) {
-      throw new Error(`${lab(i)} (${x.t.toFixed(2)} s) comes before ${lab(i - 1)} (${times[i - 1].t.toFixed(2)} s) — anchors go in the order they are spoken`);
+    t = Math.round(Math.max(0, t + a.shift) * 1000) / 1000;
+    if (t > end + 0.05) warnings.push(`${label}: ${t.toFixed(2)} s is past the phrase's end (${end.toFixed(2)} s) — the slide holds till then`);
+    if (last && t + 0.001 < last.t) {
+      throw new Error(`${label} (${t.toFixed(2)} s) comes before ${last.label} (${last.t.toFixed(2)} s) — anchors go in the order they are spoken`);
     }
-  });
-  return { times, end, warnings };
+    last = { t, label };
+    return { t, by };
+  };
+  return { end, warnings, time };
+}
+
+/** Seconds from the phrase's start for each anchor (all at once; see phraseTiming). */
+export function anchorTimes(speech, ats, src = {}) {
+  const where = src.where || 'at';
+  const pt = phraseTiming(speech, src);
+  const times = ats.map((at, i) => pt.time(at, src.labels?.[i] || `${where} ${i + 1}`));
+  return { times, end: pt.end, warnings: pt.warnings };
 }

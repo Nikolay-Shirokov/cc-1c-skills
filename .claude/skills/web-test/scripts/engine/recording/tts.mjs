@@ -232,26 +232,32 @@ export function ttsCacheFile(text, opts = {}) {
 // Word timings of a phrase, when the provider gave them: `<hash>.words.json` next to the mp3, [{ w, s, e }] in
 // seconds. Edge writes its own `<audio>.json` ([{ part, start, end }] in ms) — normalized here.
 export const wordsFileOf = (file) => file.replace(/\.mp3$/i, '') + '.words.json';
-function adoptWords(raw, file) {
+// asked: the provider was asked for them (Edge) — an empty list is kept then too, so a phrase the service gave no
+// timings for is not synthesized again and again
+function adoptWords(raw, file, asked) {
   const src = `${raw}.json`;
+  let words = [];
   try {
-    if (!fsExistsSync(src)) return;
-    const list = JSON.parse(readFileSync(src, 'utf8'));
-    const words = (Array.isArray(list) ? list : [])
-      .filter((x) => x && typeof x.part === 'string' && Number.isFinite(x.start))
-      .map((x) => ({ w: x.part.trim(), s: x.start / 1000, e: (Number.isFinite(x.end) ? x.end : x.start) / 1000 }))
-      .filter((x) => x.w);
-    if (words.length) writeFileSync(wordsFileOf(file), JSON.stringify(words));
+    if (fsExistsSync(src)) {
+      const list = JSON.parse(readFileSync(src, 'utf8'));
+      words = (Array.isArray(list) ? list : [])
+        .filter((x) => x && typeof x.part === 'string' && Number.isFinite(x.start))
+        .map((x) => ({ w: x.part.trim(), s: x.start / 1000, e: (Number.isFinite(x.end) ? x.end : x.start) / 1000 }))
+        .filter((x) => x.w);
+    }
   } catch { /* no timings: the audio alone is fine */ } finally {
     try { unlinkSync(src); } catch { /* none */ }
   }
+  if (words.length || asked) {
+    try { writeFileSync(wordsFileOf(file), JSON.stringify(words)); } catch { /* the cache is best effort */ }
+  }
 }
-/** Word timings of a cached phrase ([{ w, s, e }], seconds), or null. */
+/** Word timings of a cached phrase ([{ w, s, e }], seconds; [] — asked, none given), or null — never asked. */
 export function cachedWords(text, opts = {}) {
   const f = wordsFileOf(ttsCacheFile(text, opts));
   if (!fsExistsSync(f)) return null;
   touch(f);
-  try { const w = JSON.parse(readFileSync(f, 'utf8')); return Array.isArray(w) && w.length ? w : null; } catch { return null; }
+  try { const w = JSON.parse(readFileSync(f, 'utf8')); return Array.isArray(w) ? w : null; } catch { return null; }
 }
 
 function durationOf(file, ffmpegPath) {
@@ -275,7 +281,7 @@ export async function synthesizeCached(text, opts = {}) {
     mkdirSync(dir, { recursive: true });
     const file = pathJoin(dir, `nocache-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.mp3`);
     await getTtsProvider(opts.provider || 'edge')(text, file, opts);
-    adoptWords(file, file);
+    adoptWords(file, file, (opts.provider || 'edge') === 'edge');
     return measure ? { file, seconds: getAudioDuration(file, resolveFfmpeg(opts.ffmpegPath)) } : { file };
   }
   pruneCache();
@@ -292,7 +298,7 @@ export async function synthesizeCached(text, opts = {}) {
         try {
           await getTtsProvider(opts.provider || 'edge')(text, part, opts);
           renameSync(part, file);
-          adoptWords(part, file);
+          adoptWords(part, file, (opts.provider || 'edge') === 'edge');
         } finally {
           try { unlinkSync(part); } catch { /* renamed */ }
           try { unlinkSync(`${part}.json`); } catch { /* adopted or none */ }

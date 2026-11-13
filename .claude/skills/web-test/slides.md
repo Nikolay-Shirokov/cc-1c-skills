@@ -235,10 +235,11 @@ export const LAYERS = {
 };
 ```
 
-- `at` — a word of the phrase as written in `speech` (the first one after the previous step's word; case and
-  punctuation do not matter), seconds from the phrase's start (`2.4`), `'end'` (the last word ends), or
-  `{ text, shift }` — a word moved by `shift` seconds (`-0.2` — a bit earlier); the same words as the step before — the same
-  place (two steps on one word, one of them shifted).
+- `at` — a word of the phrase as written in `speech` (the first one after the previous step's word: «Далее … Далее»
+  — each step its own; case and punctuation do not matter), seconds from the phrase's start (`2.4`), `'end'` (the
+  last word ends), or `{ text, shift }` — a word moved by `shift` seconds (`-0.2` — a bit earlier). Two events on one
+  word, one of them shifted: the second takes `{ text, same: true }` — the word of the step before, not its next
+  occurrence (one moment for both — one step, `show: '.a, .b'`).
 - The steps' own `speech` is not allowed then. A step without `at` goes right after the step before it (before the
   first anchored step — before the voice starts).
 - Where the time comes from (`showSlide` returns `anchors: [{ t, by }]`): `marks` — word timings the TTS service
