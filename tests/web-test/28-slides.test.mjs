@@ -684,6 +684,21 @@ export default async function({
     await rejectsWith(() => v({ layout: 'cards', cards: [{ title: 'А' }], steps: [{ status: { done: 0 } }] }), /"done" — a status is ok, warn, off, optional, none/, 'a wrong status value');
     await rejectsWith(() => v({ layout: 'statement', text: 'Т', marks: { a: { banner: 'Б' } } }), /"marks" need a template with addresses/, 'marks on a template without addresses');
     await rejectsWith(() => v({ layout: 'cards', cards: [{ title: 'А' }], marks: { a: { callout: 0 } }, steps: [{ show: 0 }] }), /a callout needs a label/, 'a callout without a label');
+    await rejectsWith(() => v({ layout: 'cards', cards: [{ title: 'А' }, { title: 'Б' }], steps: [{ show: 'all' }, { camera: { to: [0, 1], fill: true } }] }),
+      /fill takes one element/, 'fill: one element');
+
+    // a card hidden and shown again gets its line to the hub back; 'all' next to a named address keeps its light
+    await showSlide({ layout: 'radial', center: { title: 'Ц' }, cards: [{ title: 'А' }, { title: 'Б' }, { title: 'В' }],
+      steps: [{ show: ['center', 0] }, { hide: 0 }, { show: 0 }, { show: ['all', 1] }] }, { ...fast, onStep: async (i) => {
+      if (i === 3) {
+        const st = await shadow(() => {
+          const r = document.getElementById('__ws_slide').shadowRoot;
+          return { line: r.querySelector('.hb-l0').classList.contains('on'), lit: r.querySelector('.hb-c1').classList.contains('ws-focus') };
+        });
+        assert.ok(st.line, 'the line comes back with its card');
+        assert.ok(st.lit, "show ['all', 1]: card 1 is lit");
+      }
+    } });
   });
 
   await step('layouts: process wraps into two rows (snake/bend), radial links 5 cards', async () => {

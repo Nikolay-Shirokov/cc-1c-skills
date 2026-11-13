@@ -311,7 +311,10 @@ export function pageStep({ step, index, maxZoom }) {
     const cam = root.querySelector('.ws-cam'), spot = root.querySelector('.ws-spot');
     const slideEl = root.querySelector('.ws-slide'), push = root.querySelector('.ws-push');
     root.querySelectorAll('.ws-fill-el').forEach((e) => e.classList.remove('ws-fill-el'));
-    if (!step.fill) root.querySelectorAll('[data-ws-pinned]').forEach((x) => { x.style.transform = ''; delete x.dataset.wsPinned; });
+    if (!step.fill) {
+      root.querySelectorAll('[data-ws-pinned]').forEach((x) => { x.style.transform = ''; delete x.dataset.wsPinned; });
+      if (push.dataset.wsHeld !== undefined) { push.style.transform = ''; delete push.dataset.wsHeld; }
+    }
     slideEl.classList.remove('ws-filled');
     let rect = step.camera, els = [];
     if (typeof rect === 'string') {
@@ -340,6 +343,7 @@ export function pageStep({ step, index, maxZoom }) {
       void push.offsetHeight;
       push.style.transition = `transform 1.4s ${getComputedStyle(cam).transitionTimingFunction}`;
       push.style.transform = 'none';
+      push.dataset.wsHeld = '';
       els.forEach((e) => e.classList.add('ws-fill-el'));
       slideEl.classList.add('ws-filled');
       spot.style.opacity = 0;

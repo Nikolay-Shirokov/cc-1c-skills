@@ -12,7 +12,7 @@ import { extname } from 'path';
 import { resolveProjectPath } from '../../core/state.mjs';
 import { W, H, EASE } from './protocol.mjs';
 import { rewriteAssets } from './assets.mjs';
-import { Addr, mapSteps, marksOf, MARK_CSS, ITEM_CSS, BANNER_ROOM } from './addresses.mjs';
+import { Addr, mapSteps, marksOf, MARK_CSS, ITEM_CSS, BANNER_ROOM, STATUSES } from './addresses.mjs';
 
 export const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const r1 = (x) => Math.round(x * 10) / 10;
@@ -117,7 +117,6 @@ ${circle} ul{list-style:none;margin:10px 0 0;padding:0;font-size:22px;font-weigh
 // status: 'ok' | 'warn' | 'off' | 'optional' on a card, column, stage, comparison cell or flow item. No words on
 // screen (the voice says it): ok/warn — a stripe in the status colour and a round mark, off — faded and struck
 // through, optional — no plate, a dashed outline. Without a status the element is drawn as before.
-const STATUSES = ['ok', 'warn', 'off', 'optional'];
 function checkStatus(layout, what, x) {
   need(layout, x?.status === undefined || STATUSES.includes(x.status), `${what}: status must be ok, warn, off or optional`);
 }
@@ -717,7 +716,7 @@ export function buildSlide(spec) {
     (isArr(spec.steps) ? spec.steps : []).forEach((s, i) => {
       if (!s || ![].concat(s.show).includes('all') || !built.steps[i]) return;
       built.steps[i].clear = true;
-      if (s.row === undefined && s.focus === undefined) built.steps[i].focus = null;
+      if (s.row === undefined && s.focus === undefined && built.steps[i].focus === undefined) built.steps[i].focus = null;
     });
     // every template takes `background` (a colour, a gradient, url(asset:…)); without it — the template's own
     if (spec.background !== undefined) built.bg = rewriteAssets(spec.background);

@@ -8,7 +8,7 @@
 // Verbs: show (and the template's own focus on what appears), focus, dim, undim, hide, status, camera.
 // A string that is not a plain word stays a CSS selector (an own page's habit; a template's inner classes).
 
-const STATUSES = ['ok', 'warn', 'off', 'optional'];
+export const STATUSES = ['ok', 'warn', 'off', 'optional'];   // protocol.mjs pageStep repeats them (page side)
 const J = (v) => JSON.stringify(v);
 const range = (n) => [...Array(n).keys()];
 // address kinds: object key → element key prefix
@@ -87,7 +87,7 @@ export class Addr {
         // { left: true } / { right: true } — the whole side, like 'left'
         if (val === true && (k === 'left' || k === 'right')) return this.one(k, v.item, v, where);
         const pre = KINDS[k];
-        const idx = val === 'all' ? range(this.count[pre] || 0) : [].concat(val);
+        const idx = val === 'all' ? range(this.count[pre] || 0).filter((i) => this.els.has(`${pre}${i}`)) : [].concat(val);
         if (!idx.length || !idx.every(Number.isInteger)) this.err(where, v, `${k}: an index, a list or 'all'`);
         return idx.flatMap((i) => this.one(`${pre}${i}`, v.item, v, where));
       }
@@ -170,7 +170,20 @@ export function mapSteps(A, steps0, opts = {}) {
     if (st.focus === '') st.focus = null;
     if (dim !== undefined) st.dim = verb(dim, `step ${n}: dim`, 'box');
     if (undim !== undefined) st.undim = verb(undim, `step ${n}: undim`, 'box');
-    if (hide !== undefined) st.hide = isCss(hide) || hide === null ? hide : join(A.targets(hide, `step ${n}: hide`).map((t) => (t.item === undefined ? join([t.el.show, t.el.link]) : itemSel(t.el, t.item))));
+    if (hide !== undefined) {
+      if (isCss(hide) || hide === null) st.hide = hide;
+      else {
+        const T = A.targets(hide, `step ${n}: hide`);
+        st.hide = join(T.map((t) => (t.item === undefined ? join([t.el.show, t.el.link]) : itemSel(t.el, t.item))));
+        for (const t of T) {
+          if (t.item !== undefined) continue;
+          visible.delete(t.el.key);
+          linked.delete(t.el.key);
+          // the hub hidden: every line to it goes too
+          for (const e of A.els.values()) if (e.linkTo === t.el.key) linked.delete(e.key);
+        }
+      }
+    }
     if (status !== undefined) st.status = statusOf(A, status, `step ${n}: status`);
     if (camera !== undefined) Object.assign(st, cameraOf(A, camera, `step ${n}: camera`));
     return st;
@@ -197,10 +210,14 @@ function statusOf(A, v, where) {
 function cameraOf(A, v, where) {
   if (v === null) return { camera: null };
   if (isCss(v)) return { camera: v };
+  // [x, y, w, h] in stage pixels (as on a page of your own): four numbers that are not all indexes of blocks
+  if (Array.isArray(v) && v.length === 4 && v.every((x) => typeof x === 'number')
+    && !v.every((x) => A.els.has(`b${x}`))) return { camera: v };
   if (v && typeof v === 'object' && !Array.isArray(v) && 'to' in v) {
     const T = A.targets(v.to, `${where}.to`);
     if (v.fill) {
       // a block with a picture fills the frame with the picture, not with the card around it
+      if (T.length !== 1) A.err(`${where}.to`, v.to, 'fill takes one element');
       const t = T[0];
       return { camera: (t.item === undefined && t.el.img) || sel(t, 'box'), fill: true };
     }
@@ -210,6 +227,9 @@ function cameraOf(A, v, where) {
 }
 
 // ── marks: a frame round elements, a callout at one, a banner at the bottom ─
+const BANNER_H = 88;
+// the room a banner takes at the bottom (its height + a gap): templates lay out above it (--safe-bottom)
+export const BANNER_ROOM = BANNER_H + 24;
 export const MARK_CSS = `
 .ws-mk{position:absolute;pointer-events:none}
 .ws-mk-frame{border:3px solid color-mix(in srgb, var(--line) 55%, transparent);border-radius:22px;--dy:0px;--from-scale:.97}
@@ -228,13 +248,11 @@ export const MARK_CSS = `
 .ws-mk-call.ws-focus::after{border-top-color:transparent;border-bottom-color:transparent;border-left-color:transparent;border-right-color:transparent}
 .ws-mk-call.ws-focus.ws-mk-top::after{border-top-color:var(--accent)} .ws-mk-call.ws-focus.ws-mk-bottom::after{border-bottom-color:var(--accent)}
 .ws-mk-call.ws-focus.ws-mk-left::after{border-left-color:var(--accent)} .ws-mk-call.ws-focus.ws-mk-right::after{border-right-color:var(--accent)}
-.ws-mk-banner{left:max(96px, var(--safe-left));right:max(96px, var(--safe-right));bottom:max(40px, var(--ws-frame-bottom, 0px));height:${'88px'};
+.ws-mk-banner{left:max(96px, var(--safe-left));right:max(96px, var(--safe-right));bottom:max(40px, var(--ws-frame-bottom, 0px));height:${BANNER_H}px;
   display:flex;align-items:center;justify-content:center;padding:0 36px;border-radius:16px;background:var(--primary);color:#fff;
   font-size:32px;font-weight:600;line-height:1.2;text-align:center;--dy:16px}
 .ws-mk-banner.ws-focus{animation:none;box-shadow:inset 0 -6px 0 var(--accent)}
 `;
-// the room a banner takes at the bottom (its height + a gap): templates lay out above it (--safe-bottom)
-export const BANNER_ROOM = 112;
 const SIDES = ['top', 'bottom', 'left', 'right'];
 
 /**
