@@ -1,4 +1,4 @@
-﻿# db-create v1.24 — Create 1C information base
+﻿# db-create v1.25 — Create 1C information base
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 # NB: *nix-раскладку платформы (/opt/1cv8/<ver>/1cv8, без .exe) знает только .py-порт — PS на *nix не исполняется.
 <#
@@ -152,6 +152,15 @@ function ConvertTo-QuotedIfNeeded {
         return '"' + $Token + '"'
     }
     return $Token
+}
+
+function ConvertTo-QuotedText {
+    # Free text (user, password, comment, label, list name) framed in quotes for the 1cv8
+    # command line. 1C reads a doubled quote inside the value as one; a lone quote ends the
+    # value, and the rest is dropped silently (замер 2026-11-14: «-comment» хранилища
+    # сохраняется до кавычки, exit 0). «\"» 1C не понимает.
+    param([string]$Value)
+    return '"' + $Value.Replace('"', '""') + '"'
 }
 
 function Assert-ExtraArgs {
@@ -729,7 +738,7 @@ try {
     # --- Add to list ---
     if ($AddToList) {
         if ($ListName) {
-            $arguments += "/AddToList", "`"$ListName`""
+            $arguments += "/AddToList", (ConvertTo-QuotedText $ListName)
         } else {
             $arguments += "/AddToList"
         }

@@ -1,0 +1,26 @@
+{
+  "name": "Кавычка в имени базы для списка (/AddToList) удваивается",
+  "osOnly": "win32",
+  "preRun": [
+    {
+      "writeFile": {
+        "path": "fake.cmd",
+        "content": "@echo off\r\necho ARGS: %*\r\nexit /b 1\r\n"
+      }
+    }
+  ],
+  "args_extra": [
+    "-V8Path",
+    "{workDir}/fake.cmd",
+    "-InfoBasePath",
+    "{workDir}/ib",
+    "-AddToList",
+    "-ListName",
+    "Моя \"база\""
+  ],
+  "expect": {
+    "stdoutContains": "/AddToList \"Моя \"\"база\"\"\""
+  },
+  "expectError": true,
+  "noSnapshot": "проверяется командная строка, файлов на выходе нет"
+}

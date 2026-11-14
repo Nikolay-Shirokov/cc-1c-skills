@@ -1,4 +1,4 @@
-﻿# epf-dump v1.24 — Dump external data processor or report (EPF/ERF) to XML sources
+﻿# epf-dump v1.25 — Dump external data processor or report (EPF/ERF) to XML sources
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 # NB: *nix-раскладку платформы (/opt/1cv8/<ver>/1cv8, без .exe) знает только .py-порт — PS на *nix не исполняется.
 <#
@@ -162,6 +162,15 @@ function ConvertTo-QuotedIfNeeded {
         return '"' + $Token + '"'
     }
     return $Token
+}
+
+function ConvertTo-QuotedText {
+    # Free text (user, password, comment, label, list name) framed in quotes for the 1cv8
+    # command line. 1C reads a doubled quote inside the value as one; a lone quote ends the
+    # value, and the rest is dropped silently (замер 2026-11-14: «-comment» хранилища
+    # сохраняется до кавычки, exit 0). «\"» 1C не понимает.
+    param([string]$Value)
+    return '"' + $Value.Replace('"', '""') + '"'
 }
 
 function Assert-ExtraArgs {
@@ -686,7 +695,9 @@ function Test-DirNonEmpty {
 function Protect-Secrets {
     # Redact literal secret values from a display string (String.Replace is literal, not regex).
     param([string]$Text, [string[]]$Secrets)
-    foreach ($s in $Secrets) { if ($s) { $Text = $Text.Replace($s, '***') } }
+    # A secret with a quote reaches the command line doubled (ConvertTo-QuotedText) —
+    # redact that form first, or it would show through.
+    foreach ($s in $Secrets) { if ($s) { $Text = $Text.Replace($s.Replace('"', '""'), '***').Replace($s, '***') } }
     return $Text
 }
 
@@ -756,8 +767,8 @@ try {
         $arguments += "/F", "`"$InfoBasePath`""
     }
 
-    if ($UserName) { $arguments += "/N`"$UserName`"" }
-    if ($Password) { $arguments += "/P`"$Password`"" }
+    if ($UserName) { $arguments += ("/N" + (ConvertTo-QuotedText $UserName)) }
+    if ($Password) { $arguments += ("/P" + (ConvertTo-QuotedText $Password)) }
 
     $arguments += "/DumpExternalDataProcessorOrReportToFiles", "`"$OutputDir`"", "`"$InputFile`""
     $arguments += "-Format", $Format

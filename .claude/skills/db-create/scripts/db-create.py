@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# db-create v1.24 — Create 1C information base
+# db-create v1.25 — Create 1C information base
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -498,6 +498,18 @@ def quote_if_needed(token):
     return token
 
 
+def quote_text(value):
+    """Free text (user, password, comment, label, list name) framed in quotes for the 1cv8
+    command line. On Windows the line is joined verbatim, and a lone quote inside the value
+    ends it: the rest is dropped silently (замер 2026-11-14: «-comment» хранилища
+    сохраняется до кавычки, exit 0). 1C reads a doubled quote as one, so it is doubled there;
+    «\\"» 1C не понимает. On POSIX the value goes as its own argv element and run_v8 strips
+    only the framing quotes, so it is left as is."""
+    if os.name == "nt":
+        value = value.replace('"', '""')
+    return '"%s"' % value
+
+
 def run_v8(v8path, arguments):
     """Run 1cv8 in batch mode and capture its console output.
 
@@ -658,7 +670,7 @@ def main():
         # --- Add to list ---
         if args.AddToList:
             if args.ListName:
-                arguments.extend(["/AddToList", f'"{args.ListName}"'])
+                arguments.extend(["/AddToList", quote_text(args.ListName)])
             else:
                 arguments.append("/AddToList")
 

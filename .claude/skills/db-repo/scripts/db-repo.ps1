@@ -1,4 +1,4 @@
-﻿# db-repo v1.25 — 1C configuration repository operations
+﻿# db-repo v1.26 — 1C configuration repository operations
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 # NB: движок только 1cv8 — ibcmd работу с хранилищем не поддерживает (нет такого режима).
 <#
@@ -186,7 +186,9 @@ $OutputEncoding = [System.Text.Encoding]::UTF8
 function Protect-Secrets {
     # Redact literal secret values from a display string (String.Replace is literal, not regex).
     param([string]$Text, [string[]]$Secrets)
-    foreach ($s in $Secrets) { if ($s) { $Text = $Text.Replace($s, '***') } }
+    # A secret with a quote reaches the command line doubled (ConvertTo-QuotedText) —
+    # redact that form first, or it would show through.
+    foreach ($s in $Secrets) { if ($s) { $Text = $Text.Replace($s.Replace('"', '""'), '***').Replace($s, '***') } }
     return $Text
 }
 
@@ -247,6 +249,15 @@ function ConvertTo-QuotedIfNeeded {
         return '"' + $Token + '"'
     }
     return $Token
+}
+
+function ConvertTo-QuotedText {
+    # Free text (user, password, comment, label, list name) framed in quotes for the 1cv8
+    # command line. 1C reads a doubled quote inside the value as one; a lone quote ends the
+    # value, and the rest is dropped silently (замер 2026-11-14: «-comment» хранилища
+    # сохраняется до кавычки, exit 0). «\"» 1C не понимает.
+    param([string]$Value)
+    return '"' + $Value.Replace('"', '""') + '"'
 }
 
 function Assert-ExtraArgs {
@@ -809,8 +820,8 @@ function Get-RepositoryArgs {
     $a = @()
     if (-not $Repo -or -not $Repo.Path) { return $a }
     $a += "/ConfigurationRepositoryF`"$($Repo.Path)`""
-    if ($Repo.User) { $a += "/ConfigurationRepositoryN`"$($Repo.User)`"" }
-    if ($Repo.Password) { $a += "/ConfigurationRepositoryP`"$($Repo.Password)`"" }
+    if ($Repo.User) { $a += ("/ConfigurationRepositoryN" + (ConvertTo-QuotedText $Repo.User)) }
+    if ($Repo.Password) { $a += ("/ConfigurationRepositoryP" + (ConvertTo-QuotedText $Repo.Password)) }
     return $a
 }
 
@@ -1345,8 +1356,8 @@ try {
     } else {
         $arguments += "/F", "`"$InfoBasePath`""
     }
-    if ($UserName) { $arguments += "/N`"$UserName`"" }
-    if ($Password) { $arguments += "/P`"$Password`"" }
+    if ($UserName) { $arguments += ("/N" + (ConvertTo-QuotedText $UserName)) }
+    if ($Password) { $arguments += ("/P" + (ConvertTo-QuotedText $Password)) }
 
     $arguments += Get-RepositoryArgs $repo
 
@@ -1379,7 +1390,7 @@ try {
         'commit' {
             if ($Comment) {
                 # Многострочный комментарий задаётся своим -comment на каждую строку.
-                foreach ($line in ($Comment -split "`r?`n")) { $arguments += "-comment", "`"$line`"" }
+                foreach ($line in ($Comment -split "`r?`n")) { $arguments += "-comment", (ConvertTo-QuotedText $line) }
             }
             if ($KeepLocked) { $arguments += "-keepLocked" }
             if ($Force) { $arguments += "-force" }
@@ -1415,22 +1426,22 @@ try {
             if ($NoBind) { $arguments += "-NoBind" }
         }
         'add-user' {
-            $arguments += "-User", "`"$NewUser`""
-            if ($NewUserPassword) { $arguments += "-Pwd", "`"$NewUserPassword`"" }
+            $arguments += "-User", (ConvertTo-QuotedText $NewUser)
+            if ($NewUserPassword) { $arguments += "-Pwd", (ConvertTo-QuotedText $NewUserPassword) }
             $arguments += "-Rights", $Rights
             if ($RestoreDeletedUser) { $arguments += "-RestoreDeletedUser" }
         }
         'copy-users' {
             $arguments += "-Path", "`"$SourcePath`""
-            $arguments += "-User", "`"$SourceUser`""
-            if ($SourcePassword) { $arguments += "-Pwd", "`"$SourcePassword`"" }
+            $arguments += "-User", (ConvertTo-QuotedText $SourceUser)
+            if ($SourcePassword) { $arguments += "-Pwd", (ConvertTo-QuotedText $SourcePassword) }
             if ($RestoreDeletedUser) { $arguments += "-RestoreDeletedUser" }
         }
         'set-label' {
             if ($Version) { $arguments += "-v", $Version }
-            $arguments += "-name", "`"$Label`""
+            $arguments += "-name", (ConvertTo-QuotedText $Label)
             if ($Comment) {
-                foreach ($line in ($Comment -split "`r?`n")) { $arguments += "-comment", "`"$line`"" }
+                foreach ($line in ($Comment -split "`r?`n")) { $arguments += "-comment", (ConvertTo-QuotedText $line) }
             }
         }
     }

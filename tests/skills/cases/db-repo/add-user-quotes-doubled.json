@@ -1,0 +1,47 @@
+{
+  "name": "Кавычка в пользователе и пароле удваивается: новый пользователь хранилища и вход в хранилище; пароли скрыты в «Running:»",
+  "osOnly": "win32",
+  "preRun": [
+    {
+      "writeFile": {
+        "path": "fake.cmd",
+        "content": "@echo off\r\necho ARGS: %*\r\nexit /b 1\r\n"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "ib/1Cv8.1CD",
+        "content": "stub"
+      }
+    }
+  ],
+  "args_extra": [
+    "-V8Path",
+    "{workDir}/fake.cmd",
+    "-InfoBasePath",
+    "{workDir}/ib",
+    "-RepositoryPath",
+    "{workDir}/repo",
+    "-RepositoryUser",
+    "Адм \"главный\"",
+    "-RepositoryPassword",
+    "r\"p",
+    "-Command",
+    "add-user",
+    "-NewUser",
+    "Иванов \"И\"",
+    "-NewUserPassword",
+    "a\"b",
+    "-Rights",
+    "ReadOnly"
+  ],
+  "expect": {
+    "stdoutContains": [
+      "ARGS: DESIGNER",
+      "/ConfigurationRepositoryN\"Адм \"\"главный\"\"\" /ConfigurationRepositoryP\"r\"\"p\" /ConfigurationRepositoryAddUser -User \"Иванов \"\"И\"\"\" -Pwd \"a\"\"b\"",
+      "/ConfigurationRepositoryP*** /ConfigurationRepositoryAddUser -User \"Иванов \"\"И\"\"\" -Pwd *** -Rights"
+    ]
+  },
+  "expectError": true,
+  "noSnapshot": "проверяется командная строка: ARGS — что получила платформа, «Running:» — что показано"
+}

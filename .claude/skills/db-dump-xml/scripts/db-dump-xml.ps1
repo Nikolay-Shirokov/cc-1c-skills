@@ -1,4 +1,4 @@
-﻿# db-dump-xml v1.31 — Dump 1C configuration to XML files
+﻿# db-dump-xml v1.32 — Dump 1C configuration to XML files
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 # NB: *nix-раскладку платформы (/opt/1cv8/<ver>/1cv8, без .exe) знает только .py-порт — PS на *nix не исполняется.
 <#
@@ -213,15 +213,17 @@ function Get-RepositoryArgs {
     $a = @()
     if (-not $Repo -or -not $Repo.Path) { return $a }
     $a += "/ConfigurationRepositoryF`"$($Repo.Path)`""
-    if ($Repo.User) { $a += "/ConfigurationRepositoryN`"$($Repo.User)`"" }
-    if ($Repo.Password) { $a += "/ConfigurationRepositoryP`"$($Repo.Password)`"" }
+    if ($Repo.User) { $a += ("/ConfigurationRepositoryN" + (ConvertTo-QuotedText $Repo.User)) }
+    if ($Repo.Password) { $a += ("/ConfigurationRepositoryP" + (ConvertTo-QuotedText $Repo.Password)) }
     return $a
 }
 
 function Protect-Secrets {
     # Redact literal secret values from a display string (String.Replace is literal, not regex).
     param([string]$Text, [string[]]$Secrets)
-    foreach ($s in $Secrets) { if ($s) { $Text = $Text.Replace($s, '***') } }
+    # A secret with a quote reaches the command line doubled (ConvertTo-QuotedText) —
+    # redact that form first, or it would show through.
+    foreach ($s in $Secrets) { if ($s) { $Text = $Text.Replace($s.Replace('"', '""'), '***').Replace($s, '***') } }
     return $Text
 }
 
@@ -293,6 +295,15 @@ function ConvertTo-QuotedIfNeeded {
         return '"' + $Token + '"'
     }
     return $Token
+}
+
+function ConvertTo-QuotedText {
+    # Free text (user, password, comment, label, list name) framed in quotes for the 1cv8
+    # command line. 1C reads a doubled quote inside the value as one; a lone quote ends the
+    # value, and the rest is dropped silently (замер 2026-11-14: «-comment» хранилища
+    # сохраняется до кавычки, exit 0). «\"» 1C не понимает.
+    param([string]$Value)
+    return '"' + $Value.Replace('"', '""') + '"'
 }
 
 function Assert-ExtraArgs {
@@ -941,8 +952,8 @@ try {
         $arguments += "/F", "`"$InfoBasePath`""
     }
 
-    if ($UserName) { $arguments += "/N`"$UserName`"" }
-    if ($Password) { $arguments += "/P`"$Password`"" }
+    if ($UserName) { $arguments += ("/N" + (ConvertTo-QuotedText $UserName)) }
+    if ($Password) { $arguments += ("/P" + (ConvertTo-QuotedText $Password)) }
 
     # База под хранилищем не примет НИ ОДНОЙ операции конфигуратора без этих реквизитов, а для
     # базы вне хранилища они безвредны — поэтому подставляем всегда, когда они известны.

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# db-load-xml v1.40 — Load 1C configuration from XML files
+# db-load-xml v1.41 — Load 1C configuration from XML files
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -222,9 +222,9 @@ def repository_args(repo):
         return a
     a.append('/ConfigurationRepositoryF"%s"' % repo["path"])
     if repo.get("user"):
-        a.append('/ConfigurationRepositoryN"%s"' % repo["user"])
+        a.append('/ConfigurationRepositoryN' + quote_text(repo["user"]))
     if repo.get("password"):
-        a.append('/ConfigurationRepositoryP"%s"' % repo["password"])
+        a.append('/ConfigurationRepositoryP' + quote_text(repo["password"]))
     return a
 
 
@@ -545,6 +545,18 @@ def quote_if_needed(token):
     return token
 
 
+def quote_text(value):
+    """Free text (user, password, comment, label, list name) framed in quotes for the 1cv8
+    command line. On Windows the line is joined verbatim, and a lone quote inside the value
+    ends it: the rest is dropped silently (замер 2026-11-14: «-comment» хранилища
+    сохраняется до кавычки, exit 0). 1C reads a doubled quote as one, so it is doubled there;
+    «\\"» 1C не понимает. On POSIX the value goes as its own argv element and run_v8 strips
+    only the framing quotes, so it is left as is."""
+    if os.name == "nt":
+        value = value.replace('"', '""')
+    return '"%s"' % value
+
+
 def run_v8(v8path, arguments):
     """Run 1cv8 in batch mode and capture its console output.
 
@@ -754,7 +766,9 @@ def _redact(text, *secrets):
     precise, never touches lookalike paths."""
     for s in secrets:
         if s:
-            text = text.replace(s, "***")
+            # A secret with a quote reaches the command line doubled (quote_text) — redact
+            # that form first, or it would show through.
+            text = text.replace(s.replace('"', '""'), "***").replace(s, "***")
     return text
 
 
@@ -934,9 +948,9 @@ def main():
                 and apply_check_enabled(args.NoApplyCheck)):
             ac_conn = ["/F", f'"{args.InfoBasePath}"']
             if args.UserName:
-                ac_conn.append(f'/N"{args.UserName}"')
+                ac_conn.append('/N' + quote_text(args.UserName))
             if args.Password:
-                ac_conn.append(f'/P"{args.Password}"')
+                ac_conn.append('/P' + quote_text(args.Password))
             if apply_check_report(v8path, ac_conn, args.Extension, []) and args.StrictLog:
                 exit_code = 1
 
@@ -957,9 +971,9 @@ def main():
             conn_args += ["/F", f'"{args.InfoBasePath}"']
 
         if args.UserName:
-            conn_args.append(f'/N"{args.UserName}"')
+            conn_args.append('/N' + quote_text(args.UserName))
         if args.Password:
-            conn_args.append(f'/P"{args.Password}"')
+            conn_args.append('/P' + quote_text(args.Password))
 
         # База под хранилищем не примет НИ ОДНОЙ операции конфигуратора без этих реквизитов, а для
         # базы вне хранилища они безвредны — поэтому подставляем всегда, когда они известны.

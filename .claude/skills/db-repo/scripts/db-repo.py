@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# db-repo v1.25 — 1C configuration repository operations
+# db-repo v1.26 — 1C configuration repository operations
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 # NB: движок только 1cv8 — ibcmd работу с хранилищем не поддерживает (нет такого режима).
 """Работа с хранилищем конфигурации 1С.
@@ -365,6 +365,18 @@ def quote_if_needed(token):
     return token
 
 
+def quote_text(value):
+    """Free text (user, password, comment, label, list name) framed in quotes for the 1cv8
+    command line. On Windows the line is joined verbatim, and a lone quote inside the value
+    ends it: the rest is dropped silently (замер 2026-11-14: «-comment» хранилища
+    сохраняется до кавычки, exit 0). 1C reads a doubled quote as one, so it is doubled there;
+    «\\"» 1C не понимает. On POSIX the value goes as its own argv element and run_v8 strips
+    only the framing quotes, so it is left as is."""
+    if os.name == "nt":
+        value = value.replace('"', '""')
+    return '"%s"' % value
+
+
 def run_v8(v8path, arguments):
     """Run 1cv8 in batch mode and capture its console output.
 
@@ -445,7 +457,9 @@ def _redact(text, *secrets):
     precise, never touches lookalike paths."""
     for s in secrets:
         if s:
-            text = text.replace(s, "***")
+            # A secret with a quote reaches the command line doubled (quote_text) — redact
+            # that form first, or it would show through.
+            text = text.replace(s.replace('"', '""'), "***").replace(s, "***")
     return text
 
 
@@ -582,9 +596,9 @@ def repository_args(repo):
         return a
     a.append('/ConfigurationRepositoryF"%s"' % repo["path"])
     if repo.get("user"):
-        a.append('/ConfigurationRepositoryN"%s"' % repo["user"])
+        a.append('/ConfigurationRepositoryN' + quote_text(repo["user"]))
     if repo.get("password"):
-        a.append('/ConfigurationRepositoryP"%s"' % repo["password"])
+        a.append('/ConfigurationRepositoryP' + quote_text(repo["password"]))
     return a
 
 
@@ -1175,9 +1189,9 @@ def main():
         else:
             arguments += ["/F", '"%s"' % args.InfoBasePath]
         if args.UserName:
-            arguments.append('/N"%s"' % args.UserName)
+            arguments.append('/N' + quote_text(args.UserName))
         if args.Password:
-            arguments.append('/P"%s"' % args.Password)
+            arguments.append('/P' + quote_text(args.Password))
         arguments += repository_args(repo)
 
         # --- Команда ---
@@ -1206,7 +1220,7 @@ def main():
             if args.Comment:
                 # Многострочный комментарий задаётся своим -comment на каждую строку.
                 for line in args.Comment.splitlines():
-                    arguments += ["-comment", '"%s"' % line]
+                    arguments += ["-comment", quote_text(line)]
             if args.KeepLocked:
                 arguments.append("-keepLocked")
             if args.Force:
@@ -1253,26 +1267,26 @@ def main():
             if args.NoBind:
                 arguments.append("-NoBind")
         elif cmd == "add-user":
-            arguments += ["-User", '"%s"' % args.NewUser]
+            arguments += ["-User", quote_text(args.NewUser)]
             if args.NewUserPassword:
-                arguments += ["-Pwd", '"%s"' % args.NewUserPassword]
+                arguments += ["-Pwd", quote_text(args.NewUserPassword)]
             arguments += ["-Rights", args.Rights]
             if args.RestoreDeletedUser:
                 arguments.append("-RestoreDeletedUser")
         elif cmd == "copy-users":
             arguments += ["-Path", '"%s"' % args.SourcePath]
-            arguments += ["-User", '"%s"' % args.SourceUser]
+            arguments += ["-User", quote_text(args.SourceUser)]
             if args.SourcePassword:
-                arguments += ["-Pwd", '"%s"' % args.SourcePassword]
+                arguments += ["-Pwd", quote_text(args.SourcePassword)]
             if args.RestoreDeletedUser:
                 arguments.append("-RestoreDeletedUser")
         elif cmd == "set-label":
             if args.Version:
                 arguments += ["-v", args.Version]
-            arguments += ["-name", '"%s"' % args.Label]
+            arguments += ["-name", quote_text(args.Label)]
             if args.Comment:
                 for line in args.Comment.splitlines():
-                    arguments += ["-comment", '"%s"' % line]
+                    arguments += ["-comment", quote_text(line)]
 
         if args.Extension:
             arguments += ["-Extension", '"%s"' % args.Extension]

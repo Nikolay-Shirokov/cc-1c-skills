@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# db-run v1.17 — Launch 1C:Enterprise
+# db-run v1.18 — Launch 1C:Enterprise
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -387,8 +387,37 @@ def _redact(text, *secrets):
     precise, never touches lookalike paths."""
     for s in secrets:
         if s:
-            text = text.replace(s, "***")
+            # A secret with a quote reaches the command line doubled (quote_text) — redact
+            # that form first, or it would show through.
+            text = text.replace(s.replace('"', '""'), "***").replace(s, "***")
     return text
+
+
+def quote_if_needed(token):
+    """Extra arguments come from the caller unquoted; the 1cv8 command line is joined
+    verbatim, so a token with a space needs quotes of its own."""
+    if token and (" " in token or "\t" in token) and '"' not in token:
+        return f'"{token}"'
+    return token
+
+
+def quote_text(value):
+    """Free text (user, password, comment, label, list name) framed in quotes for the 1cv8
+    command line. On Windows the line is joined verbatim, and a lone quote inside the value
+    ends it: the rest is dropped silently (замер 2026-11-14: «-comment» хранилища
+    сохраняется до кавычки, exit 0). 1C reads a doubled quote as one, so it is doubled there;
+    «\\"» 1C не понимает. On POSIX the value goes as its own argv element and run_v8 strips
+    only the framing quotes, so it is left as is."""
+    if os.name == "nt":
+        value = value.replace('"', '""')
+    return '"%s"' % value
+
+
+def v8_value(value):
+    """A value for the 1cv8 command line. On Windows the line is joined here verbatim (see
+    main), so the value is framed and a quote inside it doubled; on POSIX it goes as its own
+    argv element and stays as is."""
+    return quote_text(value) if os.name == "nt" else value
 
 
 def main():
@@ -445,14 +474,14 @@ def main():
     arguments = ["ENTERPRISE"]
 
     if args.InfoBaseServer and args.InfoBaseRef:
-        arguments.extend(["/S", f"{args.InfoBaseServer}/{args.InfoBaseRef}"])
+        arguments.extend(["/S", v8_value(f"{args.InfoBaseServer}/{args.InfoBaseRef}")])
     else:
-        arguments.extend(["/F", args.InfoBasePath])
+        arguments.extend(["/F", v8_value(args.InfoBasePath)])
 
     if args.UserName:
-        arguments.append(f"/N{args.UserName}")
+        arguments.append("/N" + v8_value(args.UserName))
     if args.Password:
-        arguments.append(f"/P{args.Password}")
+        arguments.append("/P" + v8_value(args.Password))
 
     # --- Optional params ---
     execute = args.Execute
@@ -465,19 +494,26 @@ def main():
             execute = ""
 
     if execute:
-        arguments.extend(["/Execute", execute])
+        arguments.extend(["/Execute", v8_value(execute)])
     if args.CParam:
-        arguments.extend(["/C", args.CParam])
+        # Параметр запуска — свободный текст (часто JSON): кавычка внутри удваивается, иначе
+        # Предприятие молча обрезает его на ней (замер 2026-11-14).
+        arguments.extend(["/C", v8_value(args.CParam)])
     if args.URL:
-        arguments.extend(["/URL", args.URL])
+        arguments.extend(["/URL", v8_value(args.URL)])
 
     arguments.append("/DisableStartupDialogs")
-    arguments.extend(extra_args)
+    arguments.extend(quote_if_needed(a) if os.name == "nt" else a for a in extra_args)
 
     # --- Execute (background) ---
     # Redact the password/user before printing the command line — never leak secrets.
     print(f"Running: 1cv8.exe {_redact(' '.join(format_args_for_display(arguments, engine)), args.Password, args.UserName)}")
-    proc = subprocess.Popen([v8path] + arguments)
+    # On Windows list2cmdline would turn a quote inside a value into «\\"», which 1cv8 does not
+    # read (замер 2026-11-14) — the command line is handed over ready-made, as in run_v8.
+    if os.name == "nt":
+        proc = subprocess.Popen('"' + v8path + '" ' + " ".join(arguments))
+    else:
+        proc = subprocess.Popen([v8path] + arguments)
 
     # --- Bounded early-exit check ---
     # The launch is a background GUI process, so we don't wait for completion. But a process

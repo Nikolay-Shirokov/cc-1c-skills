@@ -433,13 +433,23 @@ const FAMILIES = [
     ],
   },
   // Квотирование доп. аргументов 1cv8: без кавычек платформа молча режет значение по пробелу
-  // (debug/v8args-quoting). db-run собирает строку для Start-Process/Popen сам — вне семьи.
+  // (debug/v8args-quoting).
   {
     name: 'platform: quote_if_needed', py: 'quote_if_needed', ps1: 'ConvertTo-QuotedIfNeeded',
     variants: [
       { id: 'base', authority: 'db-create',
         consumers: ['db-cfe-admin', 'db-dump-cf', 'db-dump-dt', 'db-dump-xml', 'db-load-cf', 'db-load-dt',
-          'db-load-git', 'db-load-xml', 'db-repo', 'db-update', 'epf-build', 'epf-dump'] },
+          'db-load-git', 'db-load-xml', 'db-repo', 'db-run', 'db-update', 'epf-build', 'epf-dump'] },
+    ],
+  },
+  // Свободный текст в кавычках (пользователь, пароль, комментарий, метка, параметр запуска):
+  // кавычка внутри удваивается, одиночная молча обрывает значение (ПР #141, debug/db-repo-quotes).
+  {
+    name: 'platform: quote_text', py: 'quote_text', ps1: 'ConvertTo-QuotedText',
+    variants: [
+      { id: 'base', authority: 'db-create',
+        consumers: ['db-cfe-admin', 'db-dump-cf', 'db-dump-dt', 'db-dump-xml', 'db-load-cf', 'db-load-dt',
+          'db-load-git', 'db-load-xml', 'db-repo', 'db-run', 'db-update', 'epf-build', 'epf-dump'] },
     ],
   },
   // Булевы флаги DSL — общий читатель: true|да|истина / false|нет|ложь и 1/0 → bool, иное — отказ без

@@ -1,0 +1,34 @@
+{
+  "name": "Кавычка в параметре запуска (/C) удваивается, имя пользователя скрыто и в удвоенной форме; доп. аргумент с кавычкой уходит как есть",
+  "osOnly": "win32",
+  "preRun": [
+    {
+      "writeFile": {
+        "path": "fake.cmd",
+        "content": "@echo off\r\nexit /b 1\r\n"
+      }
+    }
+  ],
+  "args_extra": [
+    "-V8Path",
+    "{workDir}/fake.cmd",
+    "-InfoBasePath",
+    "{workDir}/ib",
+    "-UserName",
+    "Иванов \"И\"",
+    "-CParam",
+    "{\"a\": \"b c\"}",
+    "-AdditionalV8Arguments",
+    "/VL,ru\"x\""
+  ],
+  "expect": {
+    "stdoutContains": [
+      "ib\" /N\"***\" /C \"{\"\"a\"\": \"\"b c\"\"}\" /DisableStartupDialogs /VL ru\"x\""
+    ],
+    "stdoutNotContains": [
+      "Иванов"
+    ]
+  },
+  "expectError": true,
+  "noSnapshot": "проверяется вывод «Running:»; фейк молчит — py запускает его в той же консоли, и эхо раскрыло бы аргументы"
+}
