@@ -1,4 +1,4 @@
-// web-test recording/slides/addresses v1.0 — addresses of a template's elements and the step verbs on them.
+// web-test recording/slides/addresses v1.1 — addresses of a template's elements and the step verbs on them.
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 //
 // A template registers its elements (a block, a flow input, a comparison cell, the centre, a mark) with the
@@ -227,29 +227,31 @@ function cameraOf(A, v, where) {
 }
 
 // ── marks: a frame round elements, a callout at one, a banner at the bottom ─
+// the plates of marks (a frame's label, a callout, a banner) take the templates' header colour (--c1): primary on a
+// light ground, accent-tinted on a dark one — a primary plate vanishes on a ground of the same depth
 const BANNER_H = 88;
 // the room a banner takes at the bottom (its height + a gap): templates lay out above it (--safe-bottom)
 export const BANNER_ROOM = BANNER_H + 24;
 export const MARK_CSS = `
 .ws-mk{position:absolute;pointer-events:none}
 .ws-mk-frame{border:3px solid color-mix(in srgb, var(--line) 55%, transparent);border-radius:22px;--dy:0px;--from-scale:.97}
-.ws-mk-frame>span{position:absolute;left:26px;top:-19px;padding:5px 16px;border-radius:999px;background:var(--primary);color:#fff;
+.ws-mk-frame>span{position:absolute;left:26px;top:-19px;padding:5px 16px;border-radius:999px;background:var(--c1);color:#fff;
   font-size:22px;font-weight:700;letter-spacing:.04em;line-height:1.2;white-space:nowrap}
 .ws-mk-frame.ws-focus{animation:none;border-color:var(--accent);box-shadow:0 0 0 6px color-mix(in srgb, var(--accent) 18%, transparent)}
 .ws-mk-frame.ws-focus>span{background:var(--accent);color:var(--on-accent)}
-.ws-mk-call{padding:10px 20px;border-radius:14px;background:var(--primary);color:#fff;font-size:24px;font-weight:600;line-height:1.25;
+.ws-mk-call{padding:10px 20px;border-radius:14px;background:var(--c1);color:#fff;font-size:24px;font-weight:600;line-height:1.25;
   max-width:560px;box-shadow:0 10px 30px color-mix(in srgb, var(--primary) 30%, transparent);--dy:10px}
 .ws-mk-call::after{content:'';position:absolute;border:11px solid transparent}
-.ws-mk-call.ws-mk-top::after{left:var(--px,50%);top:100%;margin-left:-11px;border-top-color:var(--primary)}
-.ws-mk-call.ws-mk-bottom::after{left:var(--px,50%);bottom:100%;margin-left:-11px;border-bottom-color:var(--primary)}
-.ws-mk-call.ws-mk-left::after{top:50%;left:100%;margin-top:-11px;border-left-color:var(--primary)}
-.ws-mk-call.ws-mk-right::after{top:50%;right:100%;margin-top:-11px;border-right-color:var(--primary)}
+.ws-mk-call.ws-mk-top::after{left:var(--px,50%);top:100%;margin-left:-11px;border-top-color:var(--c1)}
+.ws-mk-call.ws-mk-bottom::after{left:var(--px,50%);bottom:100%;margin-left:-11px;border-bottom-color:var(--c1)}
+.ws-mk-call.ws-mk-left::after{top:50%;left:100%;margin-top:-11px;border-left-color:var(--c1)}
+.ws-mk-call.ws-mk-right::after{top:50%;right:100%;margin-top:-11px;border-right-color:var(--c1)}
 .ws-mk-call.ws-focus{animation:none;background:var(--accent);color:var(--on-accent)}
 .ws-mk-call.ws-focus::after{border-top-color:transparent;border-bottom-color:transparent;border-left-color:transparent;border-right-color:transparent}
 .ws-mk-call.ws-focus.ws-mk-top::after{border-top-color:var(--accent)} .ws-mk-call.ws-focus.ws-mk-bottom::after{border-bottom-color:var(--accent)}
 .ws-mk-call.ws-focus.ws-mk-left::after{border-left-color:var(--accent)} .ws-mk-call.ws-focus.ws-mk-right::after{border-right-color:var(--accent)}
 .ws-mk-banner{left:max(96px, var(--safe-left));right:max(96px, var(--safe-right));bottom:max(40px, var(--ws-frame-bottom, 0px));height:${BANNER_H}px;
-  display:flex;align-items:center;justify-content:center;padding:0 36px;border-radius:16px;background:var(--primary);color:#fff;
+  display:flex;align-items:center;justify-content:center;padding:0 36px;border-radius:16px;background:var(--c1);color:#fff;
   font-size:32px;font-weight:600;line-height:1.2;text-align:center;--dy:16px}
 .ws-mk-banner.ws-focus{animation:none;box-shadow:inset 0 -6px 0 var(--accent)}
 `;
