@@ -371,7 +371,7 @@ await withMusic('focus', async () => { /* long actions in 1C without speech */ }
 Presets (generated, no licence needed): `bright`, `warm`, `calm`, `focus`, `uplift`, `uplift-soft` — or a file path
 (`'audio/track.mp3'`, its licence is yours to check); `{ preset | file, level }` sets the level (dB, default −22).
 `play` takes `--music=bright`. Seams are handled: one music in a row flows on, short gaps are bridged, different
-music cross-fades. Music helps on titles, showcases and silent stretches; under a dialogue or a dense explanation it
+music cross-fades; at the end it fades out over the closing pause. Music helps on titles, showcases and silent stretches; under a dialogue or a dense explanation it
 distracts — keep one preset per video.
 
 ## Troubleshooting

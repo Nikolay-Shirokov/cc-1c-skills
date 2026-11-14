@@ -1,4 +1,4 @@
-// web-test recording/music v1.1 — background music: own presets (synthesized, no licence), cues in the
+// web-test recording/music v1.2 — background music: own presets (synthesized, no licence), cues in the
 // recording, intervals with seams, volume envelopes for addNarration.
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 //
@@ -18,6 +18,8 @@ export const BRIDGE = 3;       // s: a gap shorter than this between music stret
 export const FADE = 1.5;       // s: an edge of a stretch
 export const XFADE = 2;        // s: different presets next to each other
 export const MIN_GAP = 3;      // s: a pause in speech the whole-video music plays in
+export const END_PAUSE = 5;    // s: a closing pause shorter than this does not open the music — it fades out over it
+export const END_FADE = 3;     // s: the music's fade-out at the video's end (after a long closing pause)
 export const UNDER_SPEECH = 0.08;   // 'gaps': level under speech (of the full level)
 export const LEVEL = -22;      // dB: music under the voice
 
@@ -217,8 +219,10 @@ export function checkMusic(cues, base) {
   for (const c of cues || []) resolveMusic(c.music);
 }
 
-/** Speech spans [start, end] (s) → pauses ≥ MIN_GAP the whole-video music plays in (start and end included). */
+/** Speech spans [start, end] (s) → pauses ≥ MIN_GAP the whole-video music plays in (the start; the end when
+ *  ≥ END_PAUSE — a shorter closing pause does not swell the music just before it fades out). */
 export function speechGaps(spans, D) {
+  if (!spans.length) return D > 0 ? [[0, D]] : [];
   const s = [...spans].sort((x, y) => x[0] - y[0]);
   const gaps = [];
   let t = 0;
@@ -226,7 +230,7 @@ export function speechGaps(spans, D) {
     if (a - t >= MIN_GAP || (t === 0 && a > 0.5)) gaps.push([t, a]);
     t = Math.max(t, b);
   }
-  if (D - t > 0.5) gaps.push([t, D]);
+  if (D - t >= END_PAUSE) gaps.push([t, D]);
   return gaps;
 }
 
@@ -234,21 +238,29 @@ export function speechGaps(spans, D) {
  * ffmpeg volume expression (of t): a sum of trapezoids. `center` — edges straddle the bounds (cross-fades);
  * at the video's start and end an edge lies inside (fades from / to silence, no half-level onset or chop).
  */
-export function trapezoids(segs, fade, { center = true, D = Infinity } = {}) {
+export function trapezoids(segs, fade, { center = true, D = Infinity, endFade = fade } = {}) {
   if (!segs.length) return '0';
   return segs.map(([a, b]) => {
+    const atEnd = b >= D - 0.05;
     const s = a <= 0.05 ? 0 : center ? a - fade / 2 : a;
-    const e = b >= D - 0.05 ? D : center ? b + fade / 2 : b;
-    return `clip(min((t-(${s.toFixed(3)}))/${fade},(${e.toFixed(3)}-t)/${fade}),0,1)`;
+    const e = atEnd ? D : center ? b + fade / 2 : b;
+    const rise = `(t-(${s.toFixed(3)}))/${fade}`;
+    // endFade 0: a stretch reaching the end does not fall itself (another factor fades the music out)
+    if (atEnd && !endFade) return `clip(${rise},0,1)`;
+    return `clip(min(${rise},(${e.toFixed(3)}-t)/${atEnd ? endFade : fade}),0,1)`;
   }).join('+');
 }
 
-/** The volume expression of one track: duck stretches, or gaps stretches opened only in speech pauses. */
-export function trackEnvelope(track, gaps, D = Infinity) {
+/**
+ * The volume expression of one track: duck stretches, or gaps stretches opened only in speech pauses. `tail` — the
+ * pause after the last speech (s): the music fades out over it when short, else over END_FADE.
+ */
+export function trackEnvelope(track, gaps, D = Infinity, tail = Infinity) {
   const edge = track.mode === 'gaps' ? FADE : XFADE;
-  const on = trapezoids(track.segs, edge, { D });
+  const endFade = tail < END_PAUSE ? Math.max(FADE, tail) : END_FADE;
+  const on = trapezoids(track.segs, edge, { D, endFade });
   if (track.mode !== 'gaps') return on;
-  const pauses = trapezoids(gaps, FADE, { center: false, D });
+  const pauses = trapezoids(gaps, FADE, { center: false, D, endFade: 0 });
   return `(${on})*(${UNDER_SPEECH}+${(1 - UNDER_SPEECH).toFixed(2)}*min(1,${pauses}))`;
 }
 

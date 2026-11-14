@@ -1,4 +1,4 @@
-// web-test recording/narration v1.22 — Post-process: generate TTS audio for captions and merge with recorded video.
+// web-test recording/narration v1.23 — Post-process: generate TTS audio for captions and merge with recorded video.
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import { execFileSync } from 'child_process';
@@ -239,17 +239,19 @@ function mixMusic(speechPath, speech, cues, base, D, tempDir, ffmpegPath) {
   const tracks = musicIntervals(cues, base, D).filter((t) => t.segs.length);
   if (!tracks.length) return speechPath;
   const gaps = speechGaps(speech, D);
+  const tail = D - speech.reduce((m, s) => Math.max(m, s[1]), 0);   // the closing pause: the music fades out over it
   const inputs = ['-i', speechPath], parts = [], labels = [];
   const fmt = 'aformat=sample_rates=44100:channel_layouts=stereo';
   tracks.forEach((t, i) => {
     const m = resolveMusic(t.music);
     inputs.push('-stream_loop', '-1', '-i', sourceFile(m));
-    parts.push(`[${i + 1}:a]${fmt},atrim=0:${D},asetpts=PTS-STARTPTS,volume=${m.level}dB,volume='${trackEnvelope(t, gaps, D)}':eval=frame[m${i}]`);
+    parts.push(`[${i + 1}:a]${fmt},atrim=0:${D},asetpts=PTS-STARTPTS,volume=${m.level}dB,volume='${trackEnvelope(t, gaps, D, tail)}':eval=frame[m${i}]`);
     labels.push(`[m${i}]`);
   });
   const bus = labels.length > 1 ? `${labels.join('')}amix=inputs=${labels.length}:normalize=0,` : `${labels[0]}`;
   parts.push(`${bus}${labels.length > 1 ? '' : 'acopy,'}highpass=f=250,equalizer=f=2000:t=q:w=1.2:g=-4[mus]`);
-  parts.push(`[0:a]${fmt},asplit=2[sp][key]`);
+  // the voice is mono: to stereo without the -3 dB pan law of a plain upmix (as loud as without music)
+  parts.push('[0:a]aformat=sample_rates=44100:channel_layouts=mono,pan=stereo|c0=c0|c1=c0,asplit=2[sp][key]');
   parts.push('[mus][key]sidechaincompress=threshold=0.02:ratio=8:attack=25:release=700:knee=4[duck]');
   parts.push('[sp][duck]amix=inputs=2:normalize=0:duration=first[a]');
   const out = pathJoin(tempDir, 'narration-music.mp3');

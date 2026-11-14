@@ -1,4 +1,4 @@
-// web-test recording/slides/protocol v1.10 — step-slide protocol: base CSS + theme, page-side mount/step/lint.
+// web-test recording/slides/protocol v1.11 — step-slide protocol: base CSS + theme, page-side mount/step/lint.
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 //
 // A slide is a 1920×1080 page inside a shadow root (its CSS cannot touch a neighbour slide or the
@@ -59,6 +59,9 @@ export const BASE_CSS = `
 .ws-slide *{box-sizing:border-box}
 .ws-stage{position:absolute;left:50%;top:50%;width:${W}px;height:${H}px;transform-origin:center}
 .ws-push{position:absolute;inset:0;transform:scale(1);transition-property:transform;transition-timing-function:linear}
+/* under a slide title the slow push grows from the content's top-left corner: the content keeps its left edge in line
+   with the still title and does not come up into it (a slide without one zooms about the centre) */
+.ws-titled .ws-push{transform-origin:max(96px, var(--safe-left)) calc(max(52px, var(--safe-top)) + 128px)}
 .ws-push.go{transform:scale(1.025)}
 .ws-cam{position:absolute;left:0;top:0;width:${W}px;height:${H}px;transform-origin:0 0;transition:transform 1.4s ${CAM}}
 .ws-spot{position:absolute;border-radius:12px;opacity:0;box-shadow:0 0 0 6000px color-mix(in srgb, var(--primary-dk) 55%, transparent),0 0 0 3px var(--mark);
@@ -82,6 +85,9 @@ export const BASE_CSS = `
 .ws-fill-el, .ws-fill-el *{border-radius:0 !important;box-shadow:none !important}
 .ws-frame{transition:opacity .6s ease}
 .ws-filled .ws-frame{opacity:0}
+/* the slide title (.ws-title): outside the push and the camera, it stands still; a zoom puts it aside */
+.ws-head{position:absolute;inset:0;pointer-events:none;transition:opacity .4s ease}
+.ws-zoomed .ws-head, .ws-filled .ws-head{opacity:0}
 /* the frame: logo, slide number, footer — outside the push and the camera, it stands still */
 .ws-frame{position:absolute;inset:0;pointer-events:none;font-size:22px;color:var(--muted)}
 .wf-c{position:absolute;display:flex;align-items:center;gap:28px}
@@ -171,9 +177,12 @@ export function pageMount({ html, css, bg, vars, pushSec, animated, instant, sta
     + (instant ? 'opacity:1' : 'opacity:0;transition:opacity .5s ease');
   const root = host.attachShadow({ mode: 'open' });
   root.innerHTML = `<style>${css}</style><div class="ws-slide${staticMode ? ' ws-static' : ''}"><div class="ws-stage">`
-    + `<div class="ws-push"><div class="ws-cam">${html}<div class="ws-spot"></div></div></div>`
+    + `<div class="ws-push"><div class="ws-cam">${html}<div class="ws-spot"></div></div></div><div class="ws-head"></div>`
     + (frame ? `<div class="ws-frame">${frame}</div>` : '') + '</div></div>';
   const slide = root.querySelector('.ws-slide');
+  const head = root.querySelector('.ws-head');
+  const ownTitle = root.querySelector('.ws-cam > .ws-title');
+  if (ownTitle) { head.appendChild(ownTitle); slide.classList.add('ws-titled'); }
   for (const [k, v] of Object.entries(vars || {})) slide.style.setProperty(k, v);
   if (bg) slide.style.background = bg;
   document.body.appendChild(host);
@@ -181,6 +190,28 @@ export function pageMount({ html, css, bg, vars, pushSec, animated, instant, sta
   const scale = Math.min(innerWidth / 1920, innerHeight / 1080);
   stage.style.transform = `translate(-50%,-50%) scale(${scale})`;
   stage.style.setProperty('--k', scale);   // stage px per page px — for sizes given in page pixels (legacy overlays)
+
+  // a slide change: the same title in the same place stays (when it was on screen — not put aside by a zoom);
+  // another one fades in on its place once the old has gone — two titles crossfading in one place read as a
+  // jumble, and a rise from below as the text jumping
+  const oldTitle = old?.shadowRoot?.querySelector('.ws-head .ws-title'), newTitle = head.querySelector('.ws-title');
+  if (!instant && oldTitle && newTitle) {
+    const a = oldTitle.getBoundingClientRect(), b = newTitle.getBoundingClientRect();
+    const oldShown = getComputedStyle(oldTitle.parentElement).opacity !== '0'
+      && !old.shadowRoot.querySelector('.ws-slide.ws-zoomed, .ws-slide.ws-filled');
+    const same = oldShown && oldTitle.textContent.trim() === newTitle.textContent.trim()
+      && Math.abs(a.left - b.left) < 2 && Math.abs(a.top - b.top) < 2;
+    if (same) newTitle.style.animation = 'none';
+    else {
+      oldTitle.style.animation = 'none';
+      oldTitle.style.transition = 'opacity .25s ease';
+      requestAnimationFrame(() => { oldTitle.style.opacity = '0'; });
+      newTitle.style.animation = 'none';
+      newTitle.style.opacity = '0';
+      newTitle.style.transition = 'opacity .5s ease .3s';
+      requestAnimationFrame(() => requestAnimationFrame(() => { newTitle.style.opacity = '1'; }));
+    }
+  }
 
   // 1. fit: shrink the children of .ws-fit boxes until they stop overflowing — but no text below 22px
   //    on the stage (past that the box overflows and the check says so: split the slide)
@@ -326,11 +357,13 @@ export function pageStep({ step, index, maxZoom }) {
       const rs = els.map((e) => e.getBoundingClientRect());
       const L = Math.min(...rs.map((r) => r.left)), T = Math.min(...rs.map((r) => r.top));
       const R = Math.max(...rs.map((r) => r.right)), B = Math.max(...rs.map((r) => r.bottom));
-      // stage px → push layer (scaled about the centre) → camera layer
-      const un = (x, y) => [((x - 960) - pm.e) / pm.a + 960, ((y - 540) - pm.f) / pm.d + 540];
+      // stage px → push layer (scaled about its origin) → camera layer
+      const [ox, oy] = getComputedStyle(push).transformOrigin.split(' ').map(parseFloat);
+      const un = (x, y) => [((x - ox) - pm.e) / pm.a + ox, ((y - oy) - pm.f) / pm.d + oy];
       const [x0, y0] = un((L - st.left) / k, (T - st.top) / k), [x1, y1] = un((R - st.left) / k, (B - st.top) / k);
       rect = [(x0 - m.e) / m.a, (y0 - m.f) / m.a, (x1 - x0) / m.a, (y1 - y0) / m.a];
     }
+    slideEl.classList.toggle('ws-zoomed', !!rect);
     if (!rect) { cam.style.transform = 'none'; spot.style.opacity = 0; return; }
     if (step.fill) {
       // the element covers the whole frame (cropped to 16:9 if its proportions differ); the push stops and
@@ -467,7 +500,7 @@ export function pageLint({ showSel }) {
   const visible = (el) => !el.closest('.ws-pending:not(.on)') && getComputedStyle(el).visibility !== 'hidden';
   // the nearest element that draws a box: a background, a border or a shadow (up to the camera layer)
   const paintedBox = (el) => {
-    for (let a = el; a && !a.classList.contains('ws-cam'); a = a.parentElement) {
+    for (let a = el; a && !a.classList.contains('ws-cam') && !a.classList.contains('ws-head'); a = a.parentElement) {
       const cs = getComputedStyle(a);
       const bg = cs.backgroundImage !== 'none' || !/rgba\(0, 0, 0, 0\)|transparent/.test(cs.backgroundColor);
       const border = ['Top', 'Right', 'Bottom', 'Left'].some((s) => parseFloat(cs[`border${s}Width`]) > 0 && cs[`border${s}Style`] !== 'none');
@@ -480,7 +513,7 @@ export function pageLint({ showSel }) {
     return cls ? '.' + cls : el.tagName.toLowerCase();
   };
   // .ws-nolint — a deliberate element (a speech bubble that repeats the phrase, a figure past the edge): not checked
-  const els = [...root.querySelectorAll('.ws-cam *')].filter((e) => !e.matches('.ws-spot, style') && !e.closest('.ws-nolint') && visible(e));
+  const els = [...root.querySelectorAll('.ws-cam *, .ws-head *')].filter((e) => !e.matches('.ws-spot, style') && !e.closest('.ws-nolint') && visible(e));
   // the frame's elements (logo, number, footer): content drawn under them is flagged
   const frameRects = [...root.querySelectorAll('.ws-frame .wf-logo, .ws-frame .wf-num, .ws-frame .wf-text, .ws-frame .wf-edge')]
     .map((e) => e.getBoundingClientRect()).filter((r) => r.width && r.height);

@@ -308,6 +308,7 @@ export default async function({
     const rect = (sel) => shadow((sel) => { const b = document.getElementById('__ws_slide').shadowRoot.querySelector(sel).getBoundingClientRect(); return { l: b.left, r: b.right, t: b.top, b: b.bottom }; }, sel);
     await showSlide({ ...cards, title: 'Заголовок в две строки, чтобы проверить, что содержимое уходит ниже вместе с ним',
       theme: { frame: { logo: { src: logo, at: 'top-left' } } } }, fast);
+    await (await getPage()).waitForTimeout(900);   // a new title rises once the old one has gone
     assert.ok((await rect('.ws-title')).b <= (await rect('.cd-wrap')).t + 1, 'content starts below the title moved by a top-corner frame');
     await showSlide({ layout: 'summary', items: ['а', 'б', 'в', 'г', 'д', 'е'], next: 'Дальше по плану', steps: [{ show: 'all' }],
       theme: { frame: { logo: logo, number: true } } }, fast);
@@ -530,6 +531,11 @@ export default async function({
     assert.deepEqual(segs([c(10, 20, 'bright')], 'warm'),
       [['warm', 'gaps', [[0, 10], [20, 30]]], ['bright', 'duck', [[10, 20]]]], 'whole-video music around a slide with its own');
     assert.deepEqual(M.speechGaps([[1, 4], [5, 9], [15, 18]], 25), [[0, 1], [9, 15], [18, 25]], 'pauses of 3 s and more, start and end');
+    assert.deepEqual(M.speechGaps([[1, 4], [5, 9]], 12), [[0, 1]], 'a short closing pause does not open the music');
+    assert.deepEqual(M.speechGaps([], 4), [[0, 4]], 'no speech: the music plays throughout');
+    const tailEnv = M.trackEnvelope({ mode: 'gaps', segs: [[0, 12]] }, [[0, 1]], 12, 3);
+    assert.ok(tailEnv.includes('(12.000-t)/3)'), `it fades out over the closing pause (${tailEnv})`);
+    assert.ok(M.trackEnvelope({ mode: 'duck', segs: [[0, 30]] }, [], 30, 20).includes('(30.000-t)/3)'), 'after a long closing pause: a 3 s fade-out');
     const loop = M.renderPreset('bright');
     assert.ok(Math.abs(loop.seconds - 19.2) < 0.01 && Math.abs(loop.pcm[0] - loop.pcm[loop.pcm.length - 2]) < 300, 'a seamless loop');
     await rejectsWith(() => showSlide({ layout: 'statement', text: 'А', music: 'no-such-preset' }, fast), /music:/, 'a wrong music spec');
@@ -668,12 +674,33 @@ export default async function({
       const r = document.getElementById('__ws_slide').shadowRoot;
       const st = r.querySelector('.ws-stage').getBoundingClientRect(), im = r.querySelector('.cd-0 .ws-img').getBoundingClientRect();
       return { filled: r.querySelector('.ws-slide').classList.contains('ws-filled'), dl: im.left - st.left, dt: im.top - st.top, dr: im.right - st.right, db: im.bottom - st.bottom,
-        radius: getComputedStyle(r.querySelector('.cd-0 .ws-img')).borderTopLeftRadius };
+        radius: getComputedStyle(r.querySelector('.cd-0 .ws-img')).borderTopLeftRadius,
+        titleOut: !r.querySelector('.ws-push .ws-title') && !!r.querySelector('.ws-head .ws-title'), head: getComputedStyle(r.querySelector('.ws-head')).opacity };
     });
     log(`fill: ${JSON.stringify(fill)}`);
     assert.ok(fill.filled, 'the slide is marked filled (the frame fades)');
     assert.ok(fill.dl <= 2 && fill.dt <= 2 && fill.dr >= -2 && fill.db >= -2, `the picture covers the frame (${JSON.stringify(fill)})`);
     assert.equal(fill.radius, '0px', 'no rounding at full size');
+    assert.ok(fill.titleOut, 'the title stands outside the push and the camera');
+    assert.equal(fill.head, '0', 'a zoom puts the title aside');
+
+    // a slide change: the same title stays; another fades in on its place after the old one goes (no rise)
+    const tt = () => shadow(() => {
+      const t = document.getElementById('__ws_slide').shadowRoot.querySelector('.ws-head .ws-title');
+      return { anim: t.style.animationName || t.style.animation, delay: getComputedStyle(t).transitionDelay };
+    });
+    await showSlide({ layout: 'cards', title: 'Один', cards: [{ title: 'А' }], steps: [{ show: 0 }] }, fast);
+    await showSlide({ layout: 'cards', title: 'Один', cards: [{ title: 'Б' }], steps: [{ show: 0 }] }, fast);
+    const same = await tt();
+    await showSlide({ layout: 'cards', title: 'Два', cards: [{ title: 'В' }], steps: [{ show: 0 }] }, fast);
+    const other = await tt();
+    log(`titles: ${JSON.stringify({ same, other })}`);
+    assert.equal(same.anim, 'none', 'the same title stays put');
+    assert.ok(other.anim === 'none' && /0\.3s/.test(other.delay), `another title fades in after the old one goes, no rise (${JSON.stringify(other)})`);
+    // a page of your own: the same
+    await showSlide({ html: '<div class="ttl ws-title">Свой</div>', css: '.ttl{position:absolute;left:96px;top:52px;font-size:48px}', steps: [{ hold: 0.2 }] }, fast);
+    const own = await shadow(() => getComputedStyle(document.getElementById('__ws_slide').shadowRoot.querySelector('.ws-head .ws-title')).transitionDelay);
+    assert.ok(/0\.3s/.test(own), `an own page's title waits too (${own})`);
 
     // errors: the addresses come with them
     const v = (st) => prepareSlides([st], { validateOnly: true });

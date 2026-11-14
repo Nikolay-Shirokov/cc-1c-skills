@@ -175,7 +175,9 @@ shrinks its children until they fit. Lines from a centre to items: `<svg class="
 data-round><path data-to=".item1"/></svg>`. The page lives in a shadow root: its CSS touches nothing else.
 `file: 'path.html'` instead of `html` reads the page from a file. Mark a deliberate element `ws-nolint` (a
 speech bubble that repeats the phrase, decor that bleeds past the edge): the checks skip it. Drawn shapes may
-cross the frame edge; text and pictures may not.
+cross the frame edge; text and pictures may not. Give the slide title the class `ws-title` (`<div class="ttl
+ws-title">…</div>`, at the templates' place: `left: 96px`): it stands still while the slide slowly zooms, the
+next slide's title replaces it without a jumble, and a camera zoom puts it aside — as on a template.
 3D, Lottie, an animation from data, a video clip — a page with a script: [slide-scripts.md](slide-scripts.md).
 
 ## Theme
