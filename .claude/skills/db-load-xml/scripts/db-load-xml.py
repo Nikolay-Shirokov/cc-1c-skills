@@ -547,15 +547,13 @@ def quote_if_needed(token):
 
 def quote_text(value):
     """Free text (user, password, comment, label, list name) framed in quotes for the 1cv8
-    command line. On Windows the line is joined verbatim, and a lone quote inside the value
-    ends it: the rest is dropped silently (замер 2026-11-14: «-comment» хранилища
-    сохраняется до кавычки, exit 0). 1C reads a doubled quote as one, so it is doubled there;
-    «\\"» 1C не понимает. On POSIX the value goes as its own argv element and run_v8 strips
-    only the framing quotes, so it is left as is."""
+    command line. A lone quote inside the value ends it, and the rest is dropped silently
+    (замер 2026-11-14: «-comment» хранилища сохраняется до кавычки, exit 0); 1C reads a
+    doubled quote as one, «\\"» не понимает. On POSIX too: 1cv8 parses quotes inside each
+    argv element the same way (замер на darwin, 8.3.27), so the quote is doubled on every OS;
+    there run_v8 strips only the framing pair and leaves the doubled quote inside."""
     value = str(value)    # a registry value may be a JSON number
-    if os.name == "nt":
-        value = value.replace('"', '""')
-    return '"%s"' % value
+    return '"%s"' % value.replace('"', '""')
 
 
 def run_v8(v8path, arguments):
