@@ -122,10 +122,10 @@ export default async function({
     for (const [name, spec] of Object.entries(specs)) assert.deepEqual(await counts(spec), [0, 0], `${name}: 'all' — no focus, no dim`);
     for (const layout of ['cards', 'process', 'radial']) {
       await showSlide({ ...specs[layout], background: 'rgb(18, 49, 35)' }, fast);
-      const bg = await shadow(() => getComputedStyle(document.getElementById('__ws_slide').shadowRoot.querySelector('.ws-slide')).backgroundColor);
+      const bg = await shadow(() => getComputedStyle(document.getElementById('__ws_slide').shadowRoot.querySelector('.ws-bg')).backgroundColor);
       assert.equal(bg, 'rgb(18, 49, 35)', `${layout}: background applied`);
     }
-    const ground = () => shadow(() => getComputedStyle(document.getElementById('__ws_slide').shadowRoot.querySelector('.ws-slide')).backgroundColor);
+    const ground = () => shadow(() => getComputedStyle(document.getElementById('__ws_slide').shadowRoot.querySelector('.ws-bg')).backgroundColor);
     setSlideTheme({ background: 'rgb(1, 2, 3)' });
     await showSlide(specs.cards, fast);
     const themed = await ground();
@@ -439,7 +439,7 @@ export default async function({
     }, fast);
     const st = await shadow(() => {
       const r = document.getElementById('__ws_slide').shadowRoot, out = r.querySelector('.out'), img = r.querySelector('.pic');
-      const bg = getComputedStyle(r.querySelector('.ws-slide')).backgroundImage;
+      const bg = getComputedStyle(r.querySelector('.ws-bg')).backgroundImage;
       return { text: out.textContent, mod: out.dataset.mod, accent: out.dataset.accent, src: img.src, w: img.naturalWidth, bg };
     });
     log(`script state: ${JSON.stringify({ ...st, src: st.src.slice(0, 60), bg: st.bg.slice(0, 60) })}`);
@@ -683,6 +683,16 @@ export default async function({
     assert.equal(fill.radius, '0px', 'no rounding at full size');
     assert.ok(fill.titleOut, 'the title stands outside the push and the camera');
     assert.equal(fill.head, '0', 'a zoom puts the title aside');
+
+    // the background: the whole window, in the slide's pixels (scaled with the slide)
+    await showSlide({ layout: 'cards', title: 'Фон', cards: [{ title: 'А' }], steps: [{ show: 0 }], background: '#eef url(asset:test-tmp/slides/pic.png) no-repeat right 0 bottom 0 / 192px 108px' }, fast);
+    const bgl = await shadow(() => {
+      const r = document.getElementById('__ws_slide').shadowRoot, b = r.querySelector('.ws-bg').getBoundingClientRect(), st = r.querySelector('.ws-stage').getBoundingClientRect();
+      return { l: b.left, t: b.top, r: b.right - innerWidth, b: b.bottom - innerHeight, k: st.width / 1920, size: getComputedStyle(r.querySelector('.ws-bg')).backgroundSize };
+    });
+    log(`background: ${JSON.stringify(bgl)}`);
+    assert.ok(Math.abs(bgl.l) < 1 && Math.abs(bgl.t) < 1 && Math.abs(bgl.r) < 1 && Math.abs(bgl.b) < 1, 'the background covers the window');
+    assert.equal(bgl.size, '192px 108px', 'its sizes are in the slide\'s pixels (the layer scales with the slide)');
 
     // a slide change: the same title stays; another fades in on its place after the old one goes (no rise)
     const tt = () => shadow(() => {

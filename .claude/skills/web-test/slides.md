@@ -51,7 +51,9 @@ A step names the parts of its slide by address (the Addresses column; [Steps on 
   `'lead'`, `'center'` of `radial`, `'next'` are not lit — the light stays where it was);
   `show: 'all'` shows every item still hidden and lights them all, no focus; the slide ends with everything lit.
 - `background` (a colour, a gradient, `url(asset:…)`) replaces the slide's ground on any template; `theme.background` — the
-  same for every slide without its own (below).
+  same for every slide without its own (below). Its sizes and positions are the slide's pixels (1920×1080) — what the
+  preview shows, whatever the recording window. A window that is not 16:9 extends the ground past the slide's edges:
+  pin a picture that touches an edge to that corner (`right -200px bottom -150px`), not by `left` / `top`.
 - `status: 'ok' | 'warn' | 'off' | 'optional'` on a card (`cards`, `radial`), a column, a stage, a `flow` input or
   output, a `comparison` cell (an item as `{ text, status }`): ok/warn — a stripe in the status colour and a ✓ / ?
   mark, off — faded and struck through (not confirmed, out of use), optional — a dashed outline, no plate. No
@@ -175,8 +177,9 @@ shrinks its children until they fit. Lines from a centre to items: `<svg class="
 data-round><path data-to=".item1"/></svg>`. The page lives in a shadow root: its CSS touches nothing else.
 `file: 'path.html'` instead of `html` reads the page from a file. Mark a deliberate element `ws-nolint` (a
 speech bubble that repeats the phrase, decor that bleeds past the edge): the checks skip it. Drawn shapes may
-cross the frame edge; text and pictures may not. Give the slide title the class `ws-title` (`<div class="ttl
-ws-title">…</div>`, at the templates' place: `left: 96px`): it stands still while the slide slowly zooms, the
+cross the frame edge; text and pictures may not. Give the slide title — a top-level element of the page — the
+class `ws-title` and the templates' place and size (`<div class="ttl ws-title">…</div>`, `.ttl{position:absolute;
+left:96px; top:max(52px, var(--safe-top)); font-size:48px}`): it stands still while the slide slowly zooms, the
 next slide's title replaces it without a jumble, and a camera zoom puts it aside — as on a template.
 3D, Lottie, an animation from data, a video clip — a page with a script: [slide-scripts.md](slide-scripts.md).
 
@@ -204,8 +207,8 @@ bold). `headingWeight` — the weight of the big headings (slide titles, hub and
 Nothing to install on the machine.
 
 `background` — the brand's ground for every slide without its own (a colour, a gradient, a picture with
-`url(asset:…)`). `title`, `closing` and `image` keep their own ground; give them `background` in the spec. A logo
-goes to the frame, not into the ground.
+`url(asset:…)`; in the slide's pixels, as above). `title`, `closing` and `image` keep their own ground; give them
+`background` in the spec. A logo goes to the frame, not into the ground.
 
 ```json
 "slides": { "theme": { "primary": "#14213d", "accent": "#3fb68b", "ground": "#14213d", "ink": "#FFFFFF",

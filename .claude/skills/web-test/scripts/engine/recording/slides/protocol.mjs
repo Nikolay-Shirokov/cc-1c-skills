@@ -1,4 +1,4 @@
-// web-test recording/slides/protocol v1.11 — step-slide protocol: base CSS + theme, page-side mount/step/lint.
+// web-test recording/slides/protocol v1.12 — step-slide protocol: base CSS + theme, page-side mount/step/lint.
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 //
 // A slide is a 1920×1080 page inside a shadow root (its CSS cannot touch a neighbour slide or the
@@ -58,6 +58,9 @@ export const BASE_CSS = `
   position:absolute;inset:0;overflow:hidden;background:var(--ground);font-family:var(--font);color:var(--ink)}
 .ws-slide *{box-sizing:border-box}
 .ws-stage{position:absolute;left:50%;top:50%;width:${W}px;height:${H}px;transform-origin:center}
+/* the slide's background: the whole window, in the slide's pixels (scaled with the stage) — sizes and positions
+   read as in a 1920×1080 preview whatever the window; a corner picture stays at its corner */
+.ws-bg{position:absolute;pointer-events:none}
 .ws-push{position:absolute;inset:0;transform:scale(1);transition-property:transform;transition-timing-function:linear}
 /* under a slide title the slow push grows from the content's top-left corner: the content keeps its left edge in line
    with the still title and does not come up into it (a slide without one zooms about the centre) */
@@ -177,6 +180,7 @@ export function pageMount({ html, css, bg, vars, pushSec, animated, instant, sta
     + (instant ? 'opacity:1' : 'opacity:0;transition:opacity .5s ease');
   const root = host.attachShadow({ mode: 'open' });
   root.innerHTML = `<style>${css}</style><div class="ws-slide${staticMode ? ' ws-static' : ''}"><div class="ws-stage">`
+    + '<div class="ws-bg"></div>'
     + `<div class="ws-push"><div class="ws-cam">${html}<div class="ws-spot"></div></div></div><div class="ws-head"></div>`
     + (frame ? `<div class="ws-frame">${frame}</div>` : '') + '</div></div>';
   const slide = root.querySelector('.ws-slide');
@@ -184,12 +188,16 @@ export function pageMount({ html, css, bg, vars, pushSec, animated, instant, sta
   const ownTitle = root.querySelector('.ws-cam > .ws-title');
   if (ownTitle) { head.appendChild(ownTitle); slide.classList.add('ws-titled'); }
   for (const [k, v] of Object.entries(vars || {})) slide.style.setProperty(k, v);
-  if (bg) slide.style.background = bg;
   document.body.appendChild(host);
   const stage = root.querySelector('.ws-stage');
   const scale = Math.min(innerWidth / 1920, innerHeight / 1080);
   stage.style.transform = `translate(-50%,-50%) scale(${scale})`;
   stage.style.setProperty('--k', scale);   // stage px per page px — for sizes given in page pixels (legacy overlays)
+  if (bg) {
+    // the window in stage pixels: a window of another shape than 16:9 adds bands at the edges, the layer covers them
+    const w = innerWidth / scale, h = innerHeight / scale;
+    Object.assign(root.querySelector('.ws-bg').style, { left: `${(1920 - w) / 2}px`, top: `${(1080 - h) / 2}px`, width: `${w}px`, height: `${h}px`, background: bg });
+  }
 
   // a slide change: the same title in the same place stays (when it was on screen — not put aside by a zoom);
   // another one fades in on its place once the old has gone — two titles crossfading in one place read as a
