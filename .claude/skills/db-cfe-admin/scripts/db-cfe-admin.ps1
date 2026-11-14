@@ -206,9 +206,11 @@ function Get-RepositoryArgs {
 function Protect-Secrets {
     # Redact literal secret values from a display string (String.Replace is literal, not regex).
     param([string]$Text, [string[]]$Secrets)
-    # A secret with a quote reaches the command line doubled (ConvertTo-QuotedText) —
-    # redact that form first, or it would show through.
-    foreach ($s in $Secrets) { if ($s) { $Text = $Text.Replace($s.Replace('"', '""'), '***').Replace($s, '***') } }
+    # A secret with a quote reaches the command line doubled (ConvertTo-QuotedText), so both
+    # forms are redacted. Longest first: a shorter form replaced earlier could break a longer
+    # one that contains it and leave part of that secret visible. (No -Unique: it ignores case.)
+    $forms = @(foreach ($s in $Secrets) { if ($s) { $s; $s.Replace('"', '""') } }) | Sort-Object -Property Length -Descending
+    foreach ($f in $forms) { $Text = $Text.Replace($f, '***') }
     return $Text
 }
 

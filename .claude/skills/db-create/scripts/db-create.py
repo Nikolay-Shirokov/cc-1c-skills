@@ -505,6 +505,7 @@ def quote_text(value):
     сохраняется до кавычки, exit 0). 1C reads a doubled quote as one, so it is doubled there;
     «\\"» 1C не понимает. On POSIX the value goes as its own argv element and run_v8 strips
     only the framing quotes, so it is left as is."""
+    value = str(value)    # a registry value may be a JSON number
     if os.name == "nt":
         value = value.replace('"', '""')
     return '"%s"' % value
