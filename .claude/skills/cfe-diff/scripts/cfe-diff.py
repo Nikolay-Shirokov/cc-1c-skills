@@ -1289,7 +1289,7 @@ def main():
     # The transfer check moved to its own skill: an old call gets pointed there instead of a bare error
     mode_key = args.Mode.strip().lower()
     if mode_key in ("check-transfer", "transfer", "b"):
-        die("Transfer check moved: use /cfe-transfer -Mode check")
+        die("Transfer check moved: use /cfe-transfer -ExtensionPath <path> -ConfigPath <path>")
     if mode_key not in ("overview", "a"):
         die("Invalid -Mode '%s'. Expected: overview" % args.Mode)
 

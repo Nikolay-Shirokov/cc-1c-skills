@@ -17,6 +17,6 @@
   "expectError": true,
   "noSnapshot": "отказ до чтения расширения: проверяется сообщение",
   "expect": {
-    "stderrContains": ["Transfer check moved: use /cfe-transfer -Mode check"]
+    "stderrContains": ["Transfer check moved: use /cfe-transfer -ExtensionPath <path> -ConfigPath <path>"]
   }
 }

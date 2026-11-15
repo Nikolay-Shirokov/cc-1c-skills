@@ -210,8 +210,6 @@ const FAMILIES = [
     ['Extract-Method', 'extract_method'],
     ['Get-ProcNames', 'get_proc_names'],
     ['Get-Normalized', 'normalize'],
-    ['Get-ControlKey', 'control_key', []],
-    ['Get-ParamCount', 'param_count', []],
     ['Parse-MarkedBody', 'parse_marked_body'],
     ['Find-UniqueIndex', 'find_unique_index'],
     ['Find-UniqueRun', 'find_unique_run'],

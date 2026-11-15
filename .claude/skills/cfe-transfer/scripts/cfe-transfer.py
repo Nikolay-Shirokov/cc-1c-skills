@@ -2246,8 +2246,11 @@ def get_transfer_details(ext, rec, expand_list):
             order.append(s)
         by_sec[s].append(it)
     view = {}
+    any_open = False
     for s in order:
         opened = test_expanded(ext, rec["id"], s, expand_list)
+        if opened:
+            any_open = True
         shown = [it for it in by_sec[s] if opened or it["status"] != "TRANSFERRED" or it.get("marked")]
         view[s] = {"shown": shown, "hidden": len(by_sec[s]) - len(shown)}
 
@@ -2280,7 +2283,7 @@ def get_transfer_details(ext, rec, expand_list):
             continue
         for s in secs:
             emit(s)
-    return {"lines": lines, "folded": folded}
+    return {"lines": lines, "folded": folded, "open": any_open}
 
 
 STATUS_ORDER = ["TRANSFERRED", "NOT_TRANSFERRED", "PARTIAL", "DIVERGED", "MISSING_IN_CONFIG", "TEMPORARY"]
@@ -2351,6 +2354,8 @@ def main():
     cfg_info = read_configuration_props(config_path)
     if cfg_info is None:
         die("Config Configuration.xml not found: " + os.path.join(config_path, "Configuration.xml"))
+    if cfg_info["is_extension"]:
+        die("-ConfigPath is an extension, expected the main configuration: " + config_path)
 
     name_filter = [x.strip() for x in args.Name.split(",") if x.strip()] if args.Name else []
     expand_list = [x.strip() for x in args.Expand.split(",") if x.strip()] if args.Expand else []
@@ -2416,8 +2421,8 @@ def main():
                 dv = get_transfer_details(ext, rec, expand_list)
                 rec["details"] = dv["lines"]
                 rec["folded"] = dv["folded"]
-                # Asked for by name or opened with -Expand: details even when all is transferred
-                rec["asked"] = bool(name_filter) or test_expanded(ext, rec["id"], "", expand_list)
+                # Asked for by name or opened with -Expand (the object or one of its sections): details even when all is transferred
+                rec["asked"] = bool(name_filter) or dv["open"]
                 ext["objects"].append(rec)
         # -Name narrows the report: an extension without a matching object stays out of it
         if name_filter and ext["matched"] == 0:
@@ -2432,7 +2437,7 @@ def main():
             full_count += 1
             if not o["complete"] or o.get("asked"):
                 full_count += len(o["details"])
-    show_details = bool(name_filter) or full_count <= DETAIL_BUDGET
+    show_details = bool(name_filter) or bool(expand_list) or full_count <= DETAIL_BUDGET
 
     # --- Body ---
     body = []

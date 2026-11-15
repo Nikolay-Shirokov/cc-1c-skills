@@ -1,6 +1,6 @@
 {
   "name": "Обзор: правки заимствованной формы деревом в нотации form-info, неизменённая форма одной строкой, -ConfigPath не нужен",
-  "setup": "fixture:form-transfer",
+  "setup": "fixture:../../cfe-transfer/fixtures/form-transfer",
   "preRun": [
     {
       "script": "form-add/scripts/form-add",

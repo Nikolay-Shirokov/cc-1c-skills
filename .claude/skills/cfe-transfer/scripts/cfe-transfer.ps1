@@ -95,12 +95,10 @@ foreach ($raw in @($ExtensionPath -split ',' | ForEach-Object { $_.Trim() } | Wh
 }
 if ($extDirs.Count -eq 0) { Write-Error "No extension given in -ExtensionPath"; exit 1 }
 
-$cfgInfo = $null
-if ($ConfigPath) {
-	$ConfigPath = Resolve-InputPath $ConfigPath
-	$cfgInfo = Read-ConfigurationProps $ConfigPath
-	if (-not $cfgInfo) { Write-Error "Config Configuration.xml not found: $(Join-Path $ConfigPath 'Configuration.xml')"; exit 1 }
-}
+$ConfigPath = Resolve-InputPath $ConfigPath
+$cfgInfo = Read-ConfigurationProps $ConfigPath
+if (-not $cfgInfo) { Write-Error "Config Configuration.xml not found: $(Join-Path $ConfigPath 'Configuration.xml')"; exit 1 }
+if ($cfgInfo.IsExtension) { Write-Error "-ConfigPath is an extension, expected the main configuration: $ConfigPath"; exit 1 }
 
 $nameFilter = @()
 if ($Name) { $nameFilter = @($Name -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ }) }
@@ -2047,8 +2045,10 @@ function Get-TransferDetails($ext, $rec) {
 	}
 	# Shown items and the folded count of a section
 	$view = @{}
+	$anyOpen = $false
 	foreach ($s in $order) {
 		$open = Test-Expanded $ext $rec.Id $s
+		if ($open) { $anyOpen = $true }
 		$shown = @($bySec[$s] | Where-Object { $open -or $_.Status -ne 'TRANSFERRED' -or $_.Marked })
 		$view[$s] = @{ Shown = $shown; Hidden = ($bySec[$s].Count - $shown.Count) }
 	}
@@ -2076,7 +2076,7 @@ function Get-TransferDetails($ext, $rec) {
 		if ($shown -eq 0) { $lines.Add("    ${fd}: $hidden transferred"); continue }
 		foreach ($s in $secs) { & $emit $s }
 	}
-	return @{ Lines = $lines.ToArray(); Folded = $folded }
+	return @{ Lines = $lines.ToArray(); Folded = $folded; Open = $anyOpen }
 }
 
 $statusOrder = @('TRANSFERRED', 'NOT_TRANSFERRED', 'PARTIAL', 'DIVERGED', 'MISSING_IN_CONFIG', 'TEMPORARY')
@@ -2111,8 +2111,8 @@ foreach ($dir in $extDirs) {
 			$dv = Get-TransferDetails $ext $rec
 			$rec.Details = $dv.Lines
 			$rec.Folded = $dv.Folded
-			# Asked for by name or opened with -Expand: details even when all is transferred
-			$rec.Asked = ($nameFilter.Count -gt 0) -or (Test-Expanded $ext $rec.Id '')
+			# Asked for by name or opened with -Expand (the object or one of its sections): details even when all is transferred
+			$rec.Asked = ($nameFilter.Count -gt 0) -or $dv.Open
 			$ext.Objects += $rec
 		}
 	}
@@ -2130,7 +2130,7 @@ foreach ($ext in $exts) {
 		if (-not $o.Complete -or $o.Asked) { $fullCount += $o.Details.Count }
 	}
 }
-$showDetails = ($nameFilter.Count -gt 0) -or ($fullCount -le $DetailBudget)
+$showDetails = ($nameFilter.Count -gt 0) -or ($expandList.Count -gt 0) -or ($fullCount -le $DetailBudget)
 
 # --- Body ---
 $body = @()

@@ -27,7 +27,7 @@ $ErrorActionPreference = "Stop"
 # The transfer check moved to its own skill: an old call gets pointed there instead of a bare error
 $modeKey = $Mode.Trim().ToLower()
 if (@('check-transfer', 'transfer', 'b') -contains $modeKey) {
-	Write-Error "Transfer check moved: use /cfe-transfer -Mode check"
+	Write-Error "Transfer check moved: use /cfe-transfer -ExtensionPath <path> -ConfigPath <path>"
 	exit 1
 }
 if (@('overview', 'a') -notcontains $modeKey) {
