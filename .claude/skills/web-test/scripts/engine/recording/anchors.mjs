@@ -1,4 +1,4 @@
-// web-test recording/anchors v1.1 — when a word of a phrase sounds: the provider's word timings, the audio's
+// web-test recording/anchors v1.2 — when a word of a phrase sounds: the provider's word timings, the audio's
 // pauses, an estimate. Used by slides (steps `at`) and speak() (live pages).
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 //
@@ -11,7 +11,7 @@
 import { spawnSync } from 'child_process';
 import { existsSync, statSync } from 'fs';
 import { recorder } from '../core/state.mjs';
-import { resolveFfmpeg, synthesizeCached, cachedSpeechSeconds, cachedWords, ttsCacheFile } from './tts.mjs';
+import { resolveFfmpeg, synthesizeCached, cachedSpeechSeconds, cachedWords, ttsCacheFile, givesWords } from './tts.mjs';
 
 export const ON_TIME = 0.15;   // a step later than this past its word is reported
 
@@ -42,8 +42,7 @@ export async function afterPhrase(hold, who) {
  */
 export async function phraseSource(text, tts, { synth, rate = 0.07, where, labels, onSynth } = {}) {
   let seconds = cachedSpeechSeconds(text, tts), synthesized = false;
-  const edge = (tts.provider || 'edge') === 'edge';
-  if (synth !== false && (seconds == null || (edge && cachedWords(text, tts) == null))) {
+  if (synth !== false && (seconds == null || (givesWords(tts.provider) && cachedWords(text, tts) == null))) {
     onSynth?.();
     try { seconds = (await synthesizeCached(text, { ...tts, words: true })).seconds; synthesized = true; }
     catch (e) { console.log(`[web-test] ${where || 'TTS'}: TTS failed, word times estimated: ${e.message}`); }
@@ -242,16 +241,14 @@ function markClock(text, words) {
   return { at, end: words[words.length - 1].e };
 }
 
-// the marks agree with the audio: sentence starts (after the longest pauses) and the end of speech
+// the marks agree with the audio: the end of speech, and after every real pause (≥ 0.15 s) a marked word starts.
+// Not sentences: voices pause at commas longer than at full stops, or only breathe at a full stop (ElevenLabs) — a
+// pause is a pause wherever it is, and no pause says nothing; marks shifted off the audio leave pauses with no word
+// starting after them. A 0.05 s dip mid-word proves nothing either.
 function marksAgree(text, mk, a) {
-  const toks = tokens(text);
-  const ends = sentenceEnds(text);
-  const long = [...a.ps].sort((x, y) => (y.e - y.s) - (x.e - x.s)).slice(0, ends.length).sort((x, y) => x.s - y.s);
+  const starts = mk.at.filter((t) => t != null);
   const checks = [Math.abs(mk.end - a.s1) <= 0.5];
-  ends.slice(0, long.length).forEach((c, k) => {
-    const i = toks.findIndex((t) => t.c >= c);
-    if (i >= 0 && mk.at[i] != null) checks.push(Math.abs(mk.at[i] - (long[k].e - 0.1)) <= 0.3);
-  });
+  for (const p of a.ps.filter((x) => x.e - x.s >= 0.15)) checks.push(starts.some((t) => t >= p.e - 0.35 && t <= p.e + 0.3));
   return checks.filter(Boolean).length * 2 > checks.length;
 }
 

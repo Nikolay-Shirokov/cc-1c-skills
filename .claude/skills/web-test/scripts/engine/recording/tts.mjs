@@ -1,4 +1,4 @@
-// web-test recording/tts v1.24 — TTS providers (edge/openai/elevenlabs), phrase cache (+ word timings) and ffmpeg/ffprobe helpers.
+// web-test recording/tts v1.25 — TTS providers (edge/openai/elevenlabs), phrase cache (+ word timings) and ffmpeg/ffprobe helpers.
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import { execFileSync, spawn } from 'child_process';
@@ -142,14 +142,15 @@ export async function edgeTtsProvider(text, outputPath, opts = {}) {
   const { EdgeTTS } = await resolveEdgeTts();
   const voice = opts.voice || DEFAULT_VOICE.edge;
   // saveSubtitles: the service's word boundaries go to `${outputPath}.json` (the audio is the same)
-  const speed = ttsSpeed({ ...opts, provider: 'edge' });
-  const rate = speed === 1 ? 'default' : `${speed > 1 ? '+' : '-'}${Math.round(Math.abs(speed - 1) * 100)}%`;
-  const tts = new EdgeTTS({ voice, saveSubtitles: true, rate });
+  const tts = new EdgeTTS({ voice, saveSubtitles: true, rate: edgeRate(ttsSpeed({ ...opts, provider: 'edge' })) });
   await Promise.race([
     tts.ttsPromise(text, outputPath),
     new Promise((_, reject) => setTimeout(() => reject(new Error('Edge TTS timeout (30s)')), 30000)),
   ]);
 }
+
+/** Edge's prosody rate for a speed: 1.25 → '+25%', 0.8 → '-20%', 1 → 'default'. */
+export const edgeRate = (speed) => (speed === 1 ? 'default' : `${speed > 1 ? '+' : '-'}${Math.round(Math.abs(speed - 1) * 100)}%`);
 
 // A normal phrase takes 1–3 s; a stuck request (seen with OpenAI: 45–60 s at random) is better dropped
 // and asked again — callers retry.
@@ -192,7 +193,8 @@ export async function openaiTtsProvider(text, outputPath, opts = {}) {
 }
 
 /**
- * ElevenLabs TTS provider. Requires apiKey.
+ * ElevenLabs TTS provider. Requires apiKey. Synthesized with timestamps: the characters' times give the word timings
+ * (`${outputPath}.json` in Edge's form, taken by adoptWords).
  * @param {string} text — text to synthesize
  * @param {string} outputPath — path for the output mp3 file
  * @param {object} opts — { apiKey, apiUrl, voice, model, speed }
@@ -200,7 +202,10 @@ export async function openaiTtsProvider(text, outputPath, opts = {}) {
 export async function elevenlabsTtsProvider(text, outputPath, opts = {}) {
   const speed = ttsSpeed({ ...opts, provider: 'elevenlabs' });
   const voiceId = opts.voice || DEFAULT_VOICE.elevenlabs;
-  const apiUrl = opts.apiUrl || `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`;
+  // the synthesis with timestamps: a given apiUrl keeps its query; its /stream (another answer) becomes /with-timestamps
+  const url = new URL(opts.apiUrl || `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`);
+  if (!/\/with-timestamps\/?$/.test(url.pathname)) url.pathname = `${url.pathname.replace(/\/+$/, '').replace(/\/stream$/, '')}/with-timestamps`;
+  const apiUrl = url.href;
   if (!opts.apiKey) throw new Error('ElevenLabs TTS requires apiKey');
   const resp = await ttsFetch('ElevenLabs', apiUrl, {
     method: 'POST',
@@ -212,9 +217,30 @@ export async function elevenlabsTtsProvider(text, outputPath, opts = {}) {
     }),
   });
   if (!resp.ok) throw new Error(`ElevenLabs TTS error ${resp.status}: ${await resp.text()}`);
-  const buf = Buffer.from(await resp.arrayBuffer());
-  writeFileSync(outputPath, buf);
+  const data = await resp.json();
+  if (typeof data.audio_base64 !== 'string' || !data.audio_base64) throw new Error('ElevenLabs TTS: no audio in the answer');
+  writeFileSync(outputPath, Buffer.from(data.audio_base64, 'base64'));
+  const words = alignedWords(data.alignment);
+  if (words.length) writeFileSync(`${outputPath}.json`, JSON.stringify(words));
 }
+
+// ElevenLabs alignment (per character of the text) → words in Edge's form: [{ part, start, end }], ms
+function alignedWords(al) {
+  const ch = al?.characters, s = al?.character_start_times_seconds, e = al?.character_end_times_seconds;
+  if (!Array.isArray(ch) || !Array.isArray(s) || !Array.isArray(e)) return [];
+  const words = [];
+  let cur = null;
+  for (let i = 0, n = Math.min(ch.length, s.length, e.length); i < n; i++) {
+    if (/^\s*$/.test(ch[i] ?? '')) { cur = null; continue; }
+    if (!cur) words.push(cur = { part: '', start: Math.round(s[i] * 1000), end: 0 });
+    cur.part += ch[i];
+    cur.end = Math.round(e[i] * 1000);
+  }
+  return words.filter((w) => Number.isFinite(w.start) && Number.isFinite(w.end));
+}
+
+/** Providers that give word timings with the audio (Edge — its subtitles, ElevenLabs — timestamps). */
+export const givesWords = (provider) => ['edge', 'elevenlabs'].includes(provider || 'edge');
 
 /** Get TTS provider function by name. */
 export function getTtsProvider(name) {
@@ -263,9 +289,10 @@ export function ttsCacheFile(text, opts = {}) {
 }
 
 // Word timings of a phrase, when the provider gave them: `<hash>.words.json` next to the mp3, [{ w, s, e }] in
-// seconds. Edge writes its own `<audio>.json` ([{ part, start, end }] in ms) — normalized here.
+// seconds. The provider writes `<audio>.json` ([{ part, start, end }] in ms: Edge's subtitles, ElevenLabs' timestamps
+// in the same form) — normalized here.
 export const wordsFileOf = (file) => file.replace(/\.mp3$/i, '') + '.words.json';
-// asked: the provider was asked for them (Edge) — an empty list is kept then too, so a phrase the service gave no
+// asked: the provider was asked for them (givesWords) — an empty list is kept then too, so a phrase the service gave no
 // timings for is not synthesized again and again
 function adoptWords(raw, file, asked) {
   const src = `${raw}.json`;
@@ -303,7 +330,7 @@ function durationOf(file, ffmpegPath) {
  * @param {string} text
  * @param {object} [opts] — { provider, voice, apiKey, apiUrl, model, instructions, speed, ffmpegPath,
  *   cache (false — bypass the cache: a one-off file in opts.tempDir), tempDir, measure (false — no ffprobe),
- *   words (true — word timings wanted: an Edge phrase cached without them is synthesized again) }
+ *   words (true — word timings wanted: a phrase of a provider that gives them, cached without them, is synthesized again) }
  * @returns {Promise<{ file: string, seconds?: number }>}
  */
 export async function synthesizeCached(text, opts = {}) {
@@ -314,13 +341,13 @@ export async function synthesizeCached(text, opts = {}) {
     mkdirSync(dir, { recursive: true });
     const file = pathJoin(dir, `nocache-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.mp3`);
     await getTtsProvider(opts.provider || 'edge')(text, file, opts);
-    adoptWords(file, file, (opts.provider || 'edge') === 'edge');
+    adoptWords(file, file, givesWords(opts.provider));
     return measure ? { file, seconds: getAudioDuration(file, resolveFfmpeg(opts.ffmpegPath)) } : { file };
   }
   pruneCache();
   const file = ttsCacheFile(text, opts);
-  // a phrase cached before word timings were kept (Edge gives them): once more, now with them
-  const stale = opts.words && (opts.provider || 'edge') === 'edge' && fsExistsSync(file) && !fsExistsSync(wordsFileOf(file));
+  // a phrase cached without word timings from a provider that gives them (givesWords): once more, now with them
+  const stale = opts.words && givesWords(opts.provider) && fsExistsSync(file) && !fsExistsSync(wordsFileOf(file));
   if (stale) _durations.delete(file);
   if (stale || !fsExistsSync(file) || statSync(file).size === 0) {
     // the same phrase twice in one parallel batch: the second waits for the first
@@ -331,7 +358,7 @@ export async function synthesizeCached(text, opts = {}) {
         try {
           await getTtsProvider(opts.provider || 'edge')(text, part, opts);
           renameSync(part, file);
-          adoptWords(part, file, (opts.provider || 'edge') === 'edge');
+          adoptWords(part, file, givesWords(opts.provider));
         } finally {
           try { unlinkSync(part); } catch { /* renamed */ }
           try { unlinkSync(`${part}.json`); } catch { /* adopted or none */ }

@@ -263,6 +263,43 @@ export default async function({
     }
   });
 
+  // Ключа ElevenLabs в стенде нет: ответ /with-timestamps подделан — звук в base64 и время каждого символа
+  await step('elevenlabs: синтез с разметкой — звук из audio_base64, время слов из времени символов', async () => {
+    const { execFileSync } = await import('child_process');
+    const fs = await import('fs');
+    const { synthesizeCached, wordsFileOf } = await import(new URL('../../.claude/skills/web-test/scripts/engine/recording/tts.mjs', import.meta.url));
+    const mp3 = execFileSync(resolveFfmpeg(), ['-v', 'error', '-f', 'lavfi', '-i', 'anullsrc=r=24000:cl=mono',
+      '-t', '1', '-c:a', 'libmp3lame', '-f', 'mp3', '-']);
+    const text = 'Раз, два.';
+    const chars = [...text];
+    const reqs = [];
+    let alignment = { characters: chars, character_start_times_seconds: chars.map((_, i) => i * 0.1), character_end_times_seconds: chars.map((_, i) => i * 0.1 + 0.1) };
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = async (url, init) => {
+      reqs.push({ url: String(url), body: JSON.parse(init.body) });
+      return new Response(JSON.stringify({ audio_base64: mp3.toString('base64'), alignment }), { headers: { 'Content-Type': 'application/json' } });
+    };
+    try {
+      const r = await synthesizeCached(text, { provider: 'elevenlabs', apiKey: 'test', speed: 1.1, cache: false, tempDir: dir, words: true });
+      assert.match(reqs[0].url, /\/v1\/text-to-speech\/[^/]+\/with-timestamps$/, 'синтез с разметкой');
+      assert.deepEqual(reqs[0].body.voice_settings, { speed: 1.1 }, 'скорость — как прежде');
+      assert.ok(r.seconds > 0.9 && r.seconds < 1.2, `звук из audio_base64 (${r.seconds} s)`);
+      const words = JSON.parse(fs.readFileSync(wordsFileOf(r.file), 'utf8'));
+      log(`elevenlabs words: ${JSON.stringify(words)}`);
+      assert.deepEqual(words, [{ w: 'Раз,', s: 0, e: 0.4 }, { w: 'два.', s: 0.5, e: 0.9 }], 'слова из символов: начало первого, конец последнего');
+
+      // свой apiUrl: параметры сохраняются, потоковый /stream заменяется; ответ без разметки — звук есть, слов нет ([])
+      alignment = null;
+      const r2 = await synthesizeCached(text, { provider: 'elevenlabs', apiKey: 'test', cache: false, tempDir: dir, words: true,
+        apiUrl: 'https://tts.example.test/v1/text-to-speech/abc/stream?output_format=mp3_44100_128' });
+      assert.equal(reqs[1].url, 'https://tts.example.test/v1/text-to-speech/abc/with-timestamps?output_format=mp3_44100_128', 'адрес с разметкой');
+      assert.ok(r2.seconds > 0.9, 'звук сохранён');
+      assert.deepEqual(JSON.parse(fs.readFileSync(wordsFileOf(r2.file), 'utf8')), [], 'без разметки — пустой список (фраза не синтезируется снова)');
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
   await step('showCaption без текста (только озвучка): плашки на странице нет, прежняя подпись убирается', async () => {
     const plate = async () => (await getPage()).evaluate(() => !!document.getElementById('__web_test_caption'));
     await showCaption('Видимая подпись');

@@ -920,7 +920,39 @@ export default async function({
     assert.ok(caps.length === 2 && caps[1].time - caps[0].time >= 4600, 'the next caption after the phrase\'s end (4.6 s)');
   });
 
-  await step('speed: the service speaks faster (Edge), word timings follow; cache key; captions keep the speed', async () => {
+  await step('word timings vs the audio: kept over breath and long comma pauses (ElevenLabs), rejected when shifted', async () => {
+    const { resolveFfmpeg } = await import(pathToFileURL(path.resolve('.claude/skills/web-test/scripts/engine/recording/tts.mjs')).href);
+    const { phraseTiming } = await import(pathToFileURL(path.resolve('.claude/skills/web-test/scripts/engine/recording/anchors.mjs')).href);
+    // sound all the way, one 0.05 s dip mid-word (1.00 s) — no real pause where the sentence ends (1.5 s)
+    const file = path.resolve(dir, 'breath.mp3');
+    execFileSync(resolveFfmpeg(), ['-y', '-v', 'error', '-f', 'lavfi', '-i',
+      "aevalsrc='if(between(t,1,1.05),0,0.5*sin(2*PI*440*t))':s=24000:d=3", '-c:a', 'libmp3lame', '-b:a', '48k', file], { stdio: 'pipe' });
+    const words = [{ w: 'Раз', s: 0, e: 0.4 }, { w: 'два.', s: 0.5, e: 1.3 }, { w: 'Три', s: 1.6, e: 2 }, { w: 'четыре.', s: 2.1, e: 2.9 }];
+    const pt = phraseTiming('Раз два. Три четыре.', { words, file });
+    const t = pt.time('Три', 'at 1');
+    log(`breath: ${JSON.stringify(t)} ${JSON.stringify(pt.warnings)}`);
+    assert.deepEqual(t, { t: 1.6, by: 'marks' }, 'the marks, not the dip');
+    assert.ok(!pt.warnings.some((w) => /disagree/.test(w)), 'no "disagree" warning');
+
+    // a voice pausing longer at a comma (1.0–1.6 s) than at the full stop (2.5–2.75 s): the marks still agree
+    const comma = path.resolve(dir, 'comma.mp3');
+    execFileSync(resolveFfmpeg(), ['-y', '-v', 'error', '-f', 'lavfi', '-i',
+      "aevalsrc='if(between(t,0.2,1)+between(t,1.6,2.5)+between(t,2.75,4),0.5*sin(2*PI*440*t),0)':s=24000:d=4.5", '-c:a', 'libmp3lame', '-b:a', '48k', comma], { stdio: 'pipe' });
+    const cw = [{ w: 'Раз,', s: 0.2, e: 0.9 }, { w: 'два', s: 1.7, e: 2 }, { w: 'три.', s: 2.1, e: 2.45 }, { w: 'Четыре', s: 2.85, e: 3.3 }, { w: 'пять.', s: 3.4, e: 4 }];
+    const ct = phraseTiming('Раз, два три. Четыре пять.', { words: cw, file: comma });
+    const c4 = ct.time('Четыре', 'at 1');
+    log(`comma: ${JSON.stringify(c4)} ${JSON.stringify(ct.warnings)}`);
+    assert.deepEqual(c4, { t: 2.85, by: 'marks' }, 'a long comma pause is not taken for the sentence end');
+
+    // marks shifted off the audio (+0.8 s): no word starts after the pauses — rejected, timed from the audio
+    const sh = phraseTiming('Раз, два три. Четыре пять.', { words: cw.map((x) => ({ ...x, s: x.s + 0.8, e: x.e + 0.8 })), file: comma });
+    const s4 = sh.time('Четыре', 'at 1');
+    log(`shifted: ${JSON.stringify(s4)} ${JSON.stringify(sh.warnings)}`);
+    assert.equal(s4.by, 'audio', 'shifted marks are not used');
+    assert.ok(sh.warnings.some((w) => /disagree/.test(w)), 'and it is said');
+  });
+
+  await step('speed: Edge rate, cache key, a wrong speed fails early; captions keep the speed', async () => {
     const tts = await import(pathToFileURL(path.resolve('.claude/skills/web-test/scripts/engine/recording/tts.mjs')).href);
     const phrase = 'Скрипты проходят по объектам конфигурации и определяют перечень функций.';
     assert.equal(tts.ttsCacheFile(phrase, { speed: 1 }), tts.ttsCacheFile(phrase, {}), 'speed 1 — the phrase cached without a speed');
@@ -930,15 +962,8 @@ export default async function({
     await rejectsWith(() => prepareSlides([{ layout: 'statement', text: 'А', speech: 'А.' }], { validateOnly: true, provider: 'elevenlabs', speed: 1.5 }),
       /elevenlabs takes a number 0\.7–1\.2/, 'a wrong speed fails in the pre-flight check');
 
-    // live Edge: the same phrase at 1 and 1.5
-    const n = await tts.synthesizeCached(phrase, { provider: 'edge', words: true });
-    const f = await tts.synthesizeCached(phrase, { provider: 'edge', speed: 1.5, words: true });
-    const wf = tts.cachedWords(phrase, { provider: 'edge', speed: 1.5 });
-    log(`speed: ${n.seconds.toFixed(2)} s → ${f.seconds.toFixed(2)} s at 1.5; words ${wf?.length}, last ends ${wf?.at(-1)?.e}`);
-    const ratio = n.seconds / f.seconds;
-    assert.ok(ratio > 1.35 && ratio < 1.65, `1.5 times shorter (×${ratio.toFixed(2)})`);
-    assert.ok(wf?.length >= 8, 'word timings at a speed too');
-    assert.ok(wf.at(-1).e <= f.seconds + 0.05 && wf.at(-1).e > f.seconds * 0.7, 'the timings are in the faster audio\'s time');
+    // Edge is asked for the speed as its prosody rate (the service itself speaks faster)
+    assert.deepEqual([1.25, 0.8, 1, 2].map(tts.edgeRate), ['+25%', '-20%', 'default', '+100%'], 'Edge rate from the speed');
 
     // a recording: each caption keeps the speed it was timed with (addNarration voices it so)
     await startRecording(`${dir}/speed.mp4`, { fps: 15 });

@@ -305,7 +305,7 @@ export const LAYERS = {
 - The steps' own `speech` is not allowed then. A step without `at` goes right after the step before it (before the
   first anchored step — before the voice starts).
 - Where the time comes from (`showSlide` returns `anchors: [{ t, by }]`): `marks` — word timings the TTS service
-  gives (Edge); `audio` — the phrase's pauses (any provider: a word right after a punctuation mark is placed within
+  gives (Edge, ElevenLabs); `audio` — the phrase's pauses (any provider: a word right after a punctuation mark is placed within
   ~0.1 s, a word mid-sentence ~0.3 s — a warning says so); `estimate` — no audio (`synth: false`, a failed
   TTS): the order only. Anchor words that follow a comma or a full stop; listen to the result.
 - A step later than 0.15 s past its word (a heavy step before it) is reported.
