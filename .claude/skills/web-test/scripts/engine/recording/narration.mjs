@@ -1,7 +1,7 @@
-// web-test recording/narration v1.24 — Post-process: generate TTS audio for captions and merge with recorded video.
+// web-test recording/narration v1.25 — Post-process: generate TTS audio for captions and merge with recorded video.
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
-import { execFileSync } from 'child_process';
+import { execFileSync, spawnSync } from 'child_process';
 import { existsSync as fsExistsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'fs';
 import { extname, join as pathJoin } from 'path';
 import { removePathSync } from '../core/fsutil.mjs';
@@ -13,6 +13,27 @@ import { musicIntervals, speechGaps, trackEnvelope, sourceFile, resolveMusic, ch
 import {
   resolveFfmpeg, getAudioDuration, generateSilence, synthesizeCached, mergeTtsOptions, ttsSpeed,
 } from './tts.mjs';
+
+// Phrases to one loudness: a voice may come louder or quieter phrase by phrase (ElevenLabs: 11 dB apart in one video;
+// Edge holds −19…−20 LUFS). A plain gain — no compression, the voice keeps its dynamics; a limiter guards the peaks
+// of a raised phrase. Within 1 dB of the target a phrase is left as it is.
+const SPEECH_LUFS = -19;
+const _loudness = new Map();
+function loudnessOf(file, ffmpegPath) {
+  if (!_loudness.has(file)) {
+    const r = spawnSync(ffmpegPath, ['-hide_banner', '-nostats', '-i', file, '-af', 'ebur128=framelog=quiet', '-f', 'null', '-'], { encoding: 'utf8', timeout: 20000 });
+    const m = String(r.stderr || '').match(/I:\s+(-?[\d.]+) LUFS/g);
+    _loudness.set(file, m ? +m[m.length - 1].match(/-?[\d.]+/)[0] : null);
+  }
+  return _loudness.get(file);
+}
+/** dB to bring a phrase to the speech loudness, or 0 (close enough, silent, unmeasured). */
+export function phraseGain(file, ffmpegPath) {
+  const i = loudnessOf(file, ffmpegPath);
+  if (i == null || !Number.isFinite(i) || i < -50) return 0;
+  const g = Math.max(-10, Math.min(15, SPEECH_LUFS - i));
+  return Math.abs(g) < 1 ? 0 : Math.round(g * 10) / 10;
+}
 
 /**
  * Add TTS narration to a recorded video.
@@ -185,6 +206,10 @@ export async function addNarration(videoPath, opts = {}) {
 
       const tempoUsed = filters.length && filters[0].startsWith('atempo=') ? +filters[0].slice(7) : 1;
       speech.push([captionTimeMs / 1000, captionTimeMs / 1000 + ttsDuration / tempoUsed]);
+
+      // the phrase to the speech loudness (a raised one — under a limiter, its peaks below −1 dBFS)
+      const gain = phraseGain(ttsFile, ffmpegPath);
+      if (gain) filters.push(`volume=${gain}dB`, ...(gain > 0 ? ['alimiter=limit=0.89:level=disabled'] : []));
 
       // Delay to exact caption timestamp (milliseconds)
       if (captionTimeMs > 0) {

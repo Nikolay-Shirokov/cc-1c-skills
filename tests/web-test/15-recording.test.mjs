@@ -263,6 +263,23 @@ export default async function({
     }
   });
 
+  await step('громкость фраз: тихая фраза поднимается к уровню речи, фраза у уровня (Edge) не трогается', async () => {
+    const { execFileSync } = await import('child_process');
+    const { phraseGain } = await import(new URL('../../.claude/skills/web-test/scripts/engine/recording/narration.mjs', import.meta.url));
+    const tone = (name, amp) => {
+      const f = path.join(dir, name);
+      execFileSync(resolveFfmpeg(), ['-y', '-v', 'error', '-f', 'lavfi', '-i', `sine=frequency=1000:duration=3,volume=${amp}`, '-c:a', 'libmp3lame', f]);
+      return f;
+    };
+    const quiet = phraseGain(tone('quiet.mp3', 0.3), resolveFfmpeg());   // ≈ −32 LUFS
+    const near = phraseGain(tone('near.mp3', 1.4), resolveFfmpeg());    // ≈ −18.6 LUFS
+    const silent = phraseGain(tone('silent.mp3', 0), resolveFfmpeg());
+    log(`gains: quiet ${quiet} dB, near ${near} dB, silent ${silent} dB`);
+    assert.ok(quiet > 8 && quiet <= 15, `тихая фраза поднимается (${quiet} dB)`);
+    assert.equal(near, 0, `фраза у уровня речи (в пределах 1 дБ) не меняется (${near} dB)`);
+    assert.equal(silent, 0, 'тишина не поднимается');
+  });
+
   // Ключа ElevenLabs в стенде нет: ответ /with-timestamps подделан — звук в base64 и время каждого символа
   await step('elevenlabs: синтез с разметкой — звук из audio_base64, время слов из времени символов', async () => {
     const { execFileSync } = await import('child_process');
