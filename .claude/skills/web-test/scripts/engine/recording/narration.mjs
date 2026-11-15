@@ -1,4 +1,4 @@
-// web-test recording/narration v1.23 — Post-process: generate TTS audio for captions and merge with recorded video.
+// web-test recording/narration v1.24 — Post-process: generate TTS audio for captions and merge with recorded video.
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import { execFileSync } from 'child_process';
@@ -11,7 +11,7 @@ import {
 } from '../core/state.mjs';
 import { musicIntervals, speechGaps, trackEnvelope, sourceFile, resolveMusic, checkMusic } from './music.mjs';
 import {
-  resolveFfmpeg, getAudioDuration, generateSilence, synthesizeCached, mergeTtsOptions,
+  resolveFfmpeg, getAudioDuration, generateSilence, synthesizeCached, mergeTtsOptions, ttsSpeed,
 } from './tts.mjs';
 
 /**
@@ -19,7 +19,7 @@ import {
  * Generates speech from captions and merges audio with the video.
  * @param {string} videoPath — path to the recorded MP4 file
  * @param {object} [opts]
- * @param {Array<{text: string, speech: string, time: number, voice?: string}>} [opts.captions] — explicit captions (default: from last recording or .captions.json). Each caption may include a `voice` field to override the global voice for that segment
+ * @param {Array<{text: string, speech: string, time: number, voice?: string, speed?: number}>} [opts.captions] — explicit captions (default: from last recording or .captions.json). Each caption may include a `voice` / `speed` field to override the global one for that segment (a recording keeps the speed each phrase was timed with)
  * Options default to the project's .v8-project.json "tts" settings (the ones slides and captions are timed with).
  * @param {string} [opts.provider='edge'] — TTS provider: 'edge', 'openai' or 'elevenlabs'
  * @param {string} [opts.voice] — voice name (provider-specific)
@@ -27,6 +27,7 @@ import {
  * @param {string} [opts.apiUrl] — API endpoint (for openai provider)
  * @param {string} [opts.model] — model name (for openai provider, default: 'tts-1')
  * @param {string} [opts.instructions] — speaking style (openai gpt-4o-mini-tts)
+ * @param {number} [opts.speed] — speaking speed (1 — the voice's own; edge 0.5–2, openai 0.25–4, elevenlabs 0.7–1.2)
  * @param {string} [opts.ffmpegPath] — path to ffmpeg binary
  * @param {string} [opts.outputPath] — output file path (default: video-narrated.mp4)
  * @param {boolean} [opts.cache=true] — reuse/keep phrases in the shared TTS cache (false — synthesize afresh)
@@ -43,7 +44,7 @@ export async function addNarration(videoPath, opts = {}) {
   const tts = mergeTtsOptions(opts);
   const ttsOpts = {
     provider: tts.provider || 'edge', voice: tts.voice, apiKey: tts.apiKey, apiUrl: tts.apiUrl,
-    model: tts.model, instructions: tts.instructions, ffmpegPath, cache: tts.cache, measure: false,
+    model: tts.model, instructions: tts.instructions, speed: tts.speed, ffmpegPath, cache: tts.cache, measure: false,
   };
 
   const captionsJsonPath = videoPath.replace(/\.[^.]+$/, '.captions.json');
@@ -86,6 +87,18 @@ export async function addNarration(videoPath, opts = {}) {
     throw new Error('No captions available. Record with showCaption() first, or pass opts.captions.');
   }
 
+  // each phrase's options: a caption's own voice / speed over the global ones; a bad speed fails before any synthesis
+  const capOpts = captions.map((c) => ({
+    ...ttsOpts, ...(c.voice ? { voice: c.voice } : {}), ...(c.speed != null ? { speed: c.speed } : {}),
+  }));
+  ttsSpeed(ttsOpts);
+  capOpts.forEach((o, i) => {
+    try { ttsSpeed(o); } catch (e) {
+      throw captions[i].speed != null ? new Error(`caption ${i + 1} was recorded at speed ${captions[i].speed}: ${e.message}`) : e;
+    }
+  });
+  const recordedAt = ttsOpts.speed == null ? [] : [...new Set(captions.filter((c) => c.speed != null && c.speed !== ttsSpeed(ttsOpts)).map((c) => c.speed))];
+
   const videoDuration = getAudioDuration(videoPath, ffmpegPath);
 
   // Legacy fallback: scale wall-clock timestamps to video duration
@@ -106,8 +119,12 @@ export async function addNarration(videoPath, opts = {}) {
   const tempDir = pathJoin(tmpdir(), `web-test-tts-${Date.now()}`);
   mkdirSync(tempDir, { recursive: true });
   ttsOpts.tempDir = tempDir;
+  for (const o of capOpts) o.tempDir = tempDir;
 
   const warnings = [];
+  // a video is voiced at the speed it was recorded with: another speed (the call's or the project's) does not apply
+  if (recordedAt.length) warnings.push(`captions were recorded at speed ${recordedAt.join(', ')} — speed ${ttsOpts.speed} is not used for them (another speed — record again)`);
+  const squeezed = [];   // phrases sped up to fit their gaps: one line for all
 
   try {
     // Phase 1: Generate TTS audio for each caption
@@ -117,7 +134,7 @@ export async function addNarration(videoPath, opts = {}) {
       const batch = captions.slice(batchStart, batchStart + BATCH_SIZE);
       const promises = batch.map(async (cap, batchIdx) => {
         const idx = batchStart + batchIdx;
-        const capTtsOpts = cap.voice ? { ...ttsOpts, voice: cap.voice } : ttsOpts;
+        const capTtsOpts = capOpts[idx];
         // Shared phrase cache: phrases synthesized ahead (slides) are not synthesized again
         for (let attempt = 0; attempt < 3; attempt++) {
           try {
@@ -149,13 +166,16 @@ export async function addNarration(videoPath, opts = {}) {
       ffmpegInputs.push('-i', ttsFile);
       const filters = [];
 
-      // Speed up TTS slightly if it's longer than gap to next caption (max 1.3x)
+      // Speed up TTS slightly if it's longer than gap to next caption: at most 1.3×, and the voice's speed × this
+      // squeeze stays within max(speed, 1.3) — an already fast phrase is not squeezed into a patter
       if (i < captions.length - 1) {
         const maxDuration = (captions[i + 1].time - captions[i].time) / 1000;
         if (ttsDuration > maxDuration && maxDuration > 0.1) {
           const tempo = ttsDuration / maxDuration;
-          if (tempo <= 1.3) {
+          const speed = ttsSpeed(capOpts[i]);
+          if (tempo <= Math.min(1.3, Math.max(speed, 1.3) / speed)) {
             filters.push(`atempo=${tempo.toFixed(4)}`);
+            squeezed.push(`${i + 1} ×${tempo.toFixed(2)}`);
           } else {
             // Too fast — let audio overlap instead of distorting
             warnings.push(`Caption ${i + 1}/${captions.length}: TTS ${ttsDuration.toFixed(1)}s > gap ${maxDuration.toFixed(1)}s (need ${Math.round(ttsDuration - maxDuration)}s more pause)`);
@@ -176,6 +196,7 @@ export async function addNarration(videoPath, opts = {}) {
       // Input indices are shifted by 1 because silence reference is input [0]
       filterParts.push(`[${i + 1}]${filters.length ? filters.join(',') : 'acopy'}[${label}]`);
     }
+    if (squeezed.length) warnings.push(`${squeezed.length} phrase${squeezed.length > 1 ? 's' : ''} sped up to fit the gap before the next caption (caption ×tempo): ${squeezed.join(', ')} — give them more time in the script`);
 
     // Generate a silence reference track as input [0] so amix runs for full video duration
     const silencePath = pathJoin(tempDir, 'silence.mp3');

@@ -94,6 +94,7 @@ Display a text overlay on the page (visible in recording). Calling again updates
 | `opts.color` | string | `'#fff'` | Text color |
 | `opts.speech` | string \| false | - | TTS narration text. Omit = use displayed text, string = custom narration, false = skip narration. Write it as spoken: `'один эс'`, not `'1С'` (a warning names such words) |
 | `opts.voice` | string | - | Per-caption voice override (provider-specific voice name/ID). Used by `addNarration` instead of the global voice |
+| `opts.speed` | number | - | Per-caption speaking speed (see **Speaking speed** under Narration → Configuration) |
 
 When `text` is empty but `speech` is a string, the caption is still recorded for TTS (no visible overlay). Useful for narration-only captions (e.g. podcast mode).
 
@@ -101,7 +102,7 @@ The overlay uses `pointer-events: none` — does not interfere with clicking.
 
 The caption is one for the session: with several contexts (pages) it stays on the page it was shown on, and a new caption or `hideCaption()` takes it off the others too.
 
-**Smart TTS wait** (during recording): `showCaption` automatically pauses for the speech duration — the phrase's real length when it is already in the TTS cache (synthesized ahead or recorded before; cache key: the `.v8-project.json` `tts` settings + `opts.voice`), otherwise an estimate (default ~70ms per character, min 2s; configurable via `startRecording({ speechRate })`). The next `wait()` call accounts for this — if the explicit pause is shorter than the TTS wait already done, no extra delay is added. If longer, only the remaining difference is waited. This means script authors don't need to calculate TTS timing manually.
+**Smart TTS wait** (during recording): `showCaption` automatically pauses for the speech duration — the phrase's real length when it is already in the TTS cache (synthesized ahead or recorded before; cache key: the `.v8-project.json` `tts` settings + `opts.voice` / `opts.speed`), otherwise an estimate (default ~70ms per character, min 2s; configurable via `startRecording({ speechRate })`). The next `wait()` call accounts for this — if the explicit pause is shorter than the TTS wait already done, no extra delay is added. If longer, only the remaining difference is waited. This means script authors don't need to calculate TTS timing manually.
 
 ### `hideCaption()`
 
@@ -272,6 +273,13 @@ Add voiceover to recorded videos. Captions shown via `showCaption()` are automat
 }
 ```
 
+**Speaking speed** — `speed` in the TTS options (`"speed": 1.15` here, or `{ ...TTS, speed: 1.15 }` in a script):
+1 or none is the voice's own pace, 1.15 is 15 % faster.
+Leave it out unless the voice is found too slow or too fast: 1.1–1.25 speeds it up noticeably and still sounds
+natural. Pass the same TTS object everywhere (`prepareSlides`, `showSlide`, `speak`, `showCaption`, `addNarration`):
+the whole video follows the pace and gets shorter, the music does not. Choose the speed before recording: a
+recorded video is voiced at the speed it was recorded with — for another one, record it again.
+
 For OpenAI-compatible provider:
 ```json
 {
@@ -317,13 +325,14 @@ Generate TTS and merge audio with video. Call after `stopRecording()`.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `videoPath` | `string` | Path to the recorded MP4 file |
-| `opts.captions` | `Array` | Explicit captions (default: from last recording or `.captions.json`). Each caption may include a `voice` field to override the global voice for that segment |
+| `opts.captions` | `Array` | Explicit captions (default: from last recording or `.captions.json`). Each caption may include a `voice` / `speed` field to override the global one for that segment |
 | `opts.provider` | `string` | `'edge'` (default), `'openai'`, or `'elevenlabs'` |
 | `opts.voice` | `string` | Voice name (provider-specific; openai `cedar`/`marin` are not available on `tts-1`/`tts-1-hd`) |
 | `opts.apiKey` | `string` | API key (for openai) |
 | `opts.apiUrl` | `string` | Endpoint (for openai) |
 | `opts.model` | `string` | Model (for openai, default: `tts-1`) |
 | `opts.instructions` | `string` | Speaking style, for models that support it (openai, e.g. `gpt-4o-mini-tts`) |
+| `opts.speed` | `number` | Speaking speed (see **Speaking speed** above); a video recorded at a speed keeps it |
 | `opts.ffmpegPath` | `string` | Path to ffmpeg binary |
 | `opts.outputPath` | `string` | Output file (default: `video-narrated.mp4`) |
 | `opts.music` | `string | object` | Background music over the whole video, in speech pauses — see Background music; remembered in `.captions.json` for re-narration, `false` drops all music |
@@ -332,7 +341,7 @@ Generate TTS and merge audio with video. Call after `stopRecording()`.
 
 ### `getCaptions()`
 
-Returns captions from the current or last recording: `Array<{ text, speech, time, voice? }>`.
+Returns captions from the current or last recording: `Array<{ text, speech, time, voice?, speed? }>`.
 
 ### Example: Record and narrate
 

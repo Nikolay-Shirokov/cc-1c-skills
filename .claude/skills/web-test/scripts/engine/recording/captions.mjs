@@ -1,10 +1,10 @@
-// web-test recording/captions v1.22 — Overlay primitives: captions, speak (a phrase with actions on its words); legacy title/image overlays over showSlide.
+// web-test recording/captions v1.23 — Overlay primitives: captions, speak (a phrase with actions on its words); legacy title/image overlays over showSlide.
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import {
   page, recorder, lastCaptions, ensureConnected,
 } from '../core/state.mjs';
-import { cachedSpeechSeconds, mergeTtsOptions, unspokenWarning } from './tts.mjs';
+import { cachedSpeechSeconds, mergeTtsOptions, unspokenWarning, ttsSpeed, captionSpeed, ttsFields } from './tts.mjs';
 import { showSlide, hideSlide, hold } from './slides/index.mjs';
 import { phraseSource, phraseTiming, clockNow, waitUntil, phraseSounds, afterPhrase, ON_TIME } from './anchors.mjs';
 import { otherContextPages } from '../core/session.mjs';
@@ -28,6 +28,8 @@ async function clearCaptionElsewhere() {
  * @param {number} [opts.fontSize=24] — font size in pixels
  * @param {string} [opts.background='rgba(0,0,0,0.7)'] — background color
  * @param {string} [opts.color='#fff'] — text color
+ * @param {string} [opts.voice] — this phrase's voice (over .v8-project.json "tts"; so are provider, model, …)
+ * @param {number} [opts.speed] — its speaking speed
  * @param {string|false} [opts.speech] — TTS narration text. Omit to use displayed text,
  *   pass a string for custom narration, or false to skip narration for this caption.
  */
@@ -44,11 +46,12 @@ export async function showCaption(text, opts = {}) {
   if (recorder && (text.trim() || typeof opts.speech === 'string') && opts.speech !== false) {
     const speech = typeof opts.speech === 'string' ? opts.speech : text;
     // Use video timeline position (accounts for frame duplication) instead of wall-clock
-    recorder.captions.push({ text: text || speech, speech, time: Math.round(recorder.videoTimeMs), ...(opts.voice ? { voice: opts.voice } : {}) });
+    const tts = mergeTtsOptions(ttsFields(opts));   // the script's TTS object may come along: its provider, speed, …
+    recorder.captions.push({ text: text || speech, speech, time: Math.round(recorder.videoTimeMs), ...(opts.voice ? { voice: opts.voice } : {}), ...captionSpeed(tts) });
     // Wait so the video has screen time for the voiceover: the phrase's real length when it is already
     // in the TTS cache (synthesized ahead, or a re-recording), otherwise an estimate
-    const cached = cachedSpeechSeconds(speech, mergeTtsOptions(opts.voice ? { voice: opts.voice } : {}));
-    smartWaitMs = cached != null ? Math.round(cached * 1000 + 500) : Math.max(2000, speech.length * (recorder.speechRate || 70));
+    const cached = cachedSpeechSeconds(speech, tts);
+    smartWaitMs = cached != null ? Math.round(cached * 1000 + 500) : Math.max(2000, speech.length * (recorder.speechRate || 70) / ttsSpeed(tts));
     const unspoken = unspokenWarning(speech);
     if (unspoken) console.log(`[web-test] showCaption WARN ${unspoken}`);
   }
@@ -111,8 +114,9 @@ export async function speak(text, opts = {}) {
   if (typeof text !== 'string' || !text.trim()) throw new Error('speak: the phrase to say (a non-empty string)');
   const { synth, ...rest } = opts;
   const tts = mergeTtsOptions(rest);
+  ttsSpeed(tts);   // a wrong speed fails before the phrase
   const { src } = await phraseSource(text, tts, {
-    synth, rate: (recorder?.speechRate || 70) / 1000, where: 'speak',
+    synth, rate: (recorder?.speechRate || 70) / 1000 / ttsSpeed(tts), where: 'speak',
     onSynth: () => { if (recorder) console.log('[web-test] speak WARN the phrase is synthesized during the recording (the page waits) — prepareSlides([..., phrase]) before startRecording()'); },
   });
   const timing = phraseTiming(text, src);   // worked out once; each at() finds only its own word
@@ -122,7 +126,7 @@ export async function speak(text, opts = {}) {
   warn(0);
   await clearCaptionElsewhere();
   if (recorder) await afterPhrase(hold, 'speak');
-  if (recorder) recorder.captions.push({ text, speech: text, time: Math.round(recorder.videoTimeMs), ...(opts.voice ? { voice: opts.voice } : {}) });
+  if (recorder) recorder.captions.push({ text, speech: text, time: Math.round(recorder.videoTimeMs), ...(opts.voice ? { voice: opts.voice } : {}), ...captionSpeed(tts) });
   const t0 = clockNow();
   phraseSounds(t0 + timing.end);   // the next phrase waits for this one
   let n = 0;

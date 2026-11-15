@@ -919,4 +919,37 @@ export default async function({
     log(`overlap: waited ${waited.toFixed(2)} s, captions at ${caps.map((c) => c.time).join(', ')}`);
     assert.ok(caps.length === 2 && caps[1].time - caps[0].time >= 4600, 'the next caption after the phrase\'s end (4.6 s)');
   });
+
+  await step('speed: the service speaks faster (Edge), word timings follow; cache key; captions keep the speed', async () => {
+    const tts = await import(pathToFileURL(path.resolve('.claude/skills/web-test/scripts/engine/recording/tts.mjs')).href);
+    const phrase = 'Скрипты проходят по объектам конфигурации и определяют перечень функций.';
+    assert.equal(tts.ttsCacheFile(phrase, { speed: 1 }), tts.ttsCacheFile(phrase, {}), 'speed 1 — the phrase cached without a speed');
+    assert.notEqual(tts.ttsCacheFile(phrase, { speed: 1.25 }), tts.ttsCacheFile(phrase, {}), 'another speed — another phrase');
+    assert.throws(() => tts.ttsCacheFile(phrase, { provider: 'elevenlabs', speed: 1.5 }), /TTS speed 1\.5: elevenlabs takes a number 0\.7–1\.2/);
+    assert.throws(() => tts.ttsCacheFile(phrase, { speed: '1.2' }), /TTS speed "1\.2"/, 'a number, not a string');
+    await rejectsWith(() => prepareSlides([{ layout: 'statement', text: 'А', speech: 'А.' }], { validateOnly: true, provider: 'elevenlabs', speed: 1.5 }),
+      /elevenlabs takes a number 0\.7–1\.2/, 'a wrong speed fails in the pre-flight check');
+
+    // live Edge: the same phrase at 1 and 1.5
+    const n = await tts.synthesizeCached(phrase, { provider: 'edge', words: true });
+    const f = await tts.synthesizeCached(phrase, { provider: 'edge', speed: 1.5, words: true });
+    const wf = tts.cachedWords(phrase, { provider: 'edge', speed: 1.5 });
+    log(`speed: ${n.seconds.toFixed(2)} s → ${f.seconds.toFixed(2)} s at 1.5; words ${wf?.length}, last ends ${wf?.at(-1)?.e}`);
+    const ratio = n.seconds / f.seconds;
+    assert.ok(ratio > 1.35 && ratio < 1.65, `1.5 times shorter (×${ratio.toFixed(2)})`);
+    assert.ok(wf?.length >= 8, 'word timings at a speed too');
+    assert.ok(wf.at(-1).e <= f.seconds + 0.05 && wf.at(-1).e > f.seconds * 0.7, 'the timings are in the faster audio\'s time');
+
+    // a recording: each caption keeps the speed it was timed with (addNarration voices it so)
+    await startRecording(`${dir}/speed.mp4`, { fps: 15 });
+    await showCaption('', { speech: 'Фраза побыстрее.', provider: 'openai', model: 'tts-1', speed: 3 });   // the script's TTS object: its provider's range (edge stops at 2)
+    await showCaption('', { speech: 'Фраза побыстрее.', speed: 1.25 });
+    await showSlide({ layout: 'statement', text: 'Скорость', speech: 'Слайд побыстрее.' }, { provider: 'edge', speed: 1.5, synth: false, motion: false });
+    await showCaption('', { speech: 'Обычная фраза.' });
+    const caps = getCaptions();
+    await stopRecording();
+    await hideSlide({ motion: false });
+    log(`speed captions: ${JSON.stringify(caps.map((c) => [c.speech, c.speed]))}`);
+    assert.deepEqual(caps.map((c) => c.speed), [3, 1.25, 1.5, 1], 'every caption keeps the speed it was timed with, 1 included');
+  });
 }

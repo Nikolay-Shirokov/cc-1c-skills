@@ -201,7 +201,7 @@ export default async function({
 
   // Ключа OpenAI в стенде нет: fetch подменяется, проверяется тело запроса, а mp3-ответ —
   // секунда тишины, чтобы addNarration довел склейку до конца.
-  await step('openai instructions: addNarration передает instructions в тело запроса OpenAI', async () => {
+  await step('openai instructions, speed: addNarration передает instructions и скорость в тело запроса OpenAI; подгонка под паузу', async () => {
     const { execFileSync } = await import('child_process');
     const mp3 = execFileSync(resolveFfmpeg(), ['-v', 'error', '-f', 'lavfi', '-i', 'anullsrc=r=24000:cl=mono',
       '-t', '1', '-c:a', 'libmp3lame', '-f', 'mp3', '-']);
@@ -221,6 +221,43 @@ export default async function({
       assert.equal(bodies[0].model, 'gpt-4o-mini-tts', 'model в теле запроса');
       await narrate({});
       assert.ok(!('instructions' in bodies[1]), 'без opts.instructions поля в запросе нет');
+      assert.ok(!('speed' in bodies[1]), 'без opts.speed поля скорости в запросе нет');
+
+      // скорость речи: в теле запроса; у подписи своя скорость поверх общей; вне диапазона — ошибка до синтеза
+      await narrate({ speed: 1.25, model: 'tts-1' });
+      assert.equal(bodies[2].speed, 1.25, 'speed в теле запроса');
+      const own = await addNarration(videoPath, {
+        provider: 'openai', apiKey: 'test', cache: false, speed: 1.1,
+        captions: [{ text: 'a', speech: 'Проверка', time: 0, speed: 1.25 }], outputPath: path.join(dir, 'openai-narrated.mp4'),
+      });
+      assert.equal(bodies[3].speed, 1.25, 'скорость подписи поверх общей');
+      assert.ok((own.warnings || []).some((w) => /captions were recorded at speed 1\.25 — speed 1\.1 is not used/.test(w)), `и это сказано: ${own.warnings}`);
+      const n = bodies.length;
+      const fails = async (run, re, msg) => {
+        let bad = null;
+        try { await run(); } catch (e) { bad = e; }
+        assert.ok(re.test(bad?.message), `${msg}: ${bad?.message}`);
+      };
+      await fails(() => narrate({ speed: 9, model: 'tts-1' }), /TTS speed 9: openai takes a number 0\.25–4/, 'скорость вне диапазона');
+      await fails(() => narrate({ speed: 1.25 }), /openai gpt-4o-mini-tts does not take speed \(tts-1 \/ tts-1-hd do\)/, 'модель без скорости');
+      await fails(() => addNarration(videoPath, {
+        provider: 'elevenlabs', apiKey: 'test', cache: false,
+        captions: [{ text: 'a', speech: 'Проверка', time: 0, speed: 1.5 }], outputPath: path.join(dir, 'openai-narrated.mp4'),
+      }), /caption 1 was recorded at speed 1\.5: TTS speed 1\.5: elevenlabs takes a number 0\.7–1\.2/, 'записанная скорость вне диапазона другого сервиса');
+      assert.equal(bodies.length, n, 'при неверной скорости запросов к сервису нет');
+
+      // подгонка под паузу: фраза ~1 с, до следующей подписи 0.9 с
+      const tight = (extra) => addNarration(videoPath, {
+        provider: 'openai', apiKey: 'test', cache: false, ...extra,
+        captions: [{ text: 'a', speech: 'Раз', time: 0 }, { text: 'b', speech: 'Два', time: 900 }], outputPath: path.join(dir, 'openai-narrated.mp4'),
+      });
+      const t1 = await tight({});
+      log(`подгонка при 1: ${JSON.stringify(t1.warnings)}`);
+      assert.ok((t1.warnings || []).some((w) => /^1 phrase sped up to fit the gap before the next caption \(caption ×tempo\): 1 ×1\.\d\d — give them more time in the script$/.test(w)), 'при скорости 1 фраза ужата, и это сказано');
+      const t15 = await tight({ speed: 1.5 });
+      log(`подгонка при 1.5: ${JSON.stringify(t15.warnings)}`);
+      assert.ok(!(t15.warnings || []).some((w) => /sped up/.test(w)), 'при скорости 1.5 не ужимается ещё');
+      assert.ok((t15.warnings || []).some((w) => /Caption 1\/2: TTS .* > gap 0\.9s/.test(w)), 'а сказано, что паузы мало');
     } finally {
       globalThis.fetch = realFetch;
     }

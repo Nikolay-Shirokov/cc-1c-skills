@@ -1,4 +1,4 @@
-// web-test recording/slides v1.10 — animated step slides: showSlide / hideSlide / prepareSlides / setSlideTheme / loadSlides.
+// web-test recording/slides v1.11 — animated step slides: showSlide / hideSlide / prepareSlides / setSlideTheme / loadSlides.
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 //
 // A slide is a template spec ({ layout, ... }) or a custom page ({ html, css, steps }). Each step is a phrase
@@ -9,7 +9,7 @@
 import { readFileSync, existsSync, statSync } from 'fs';
 import { pathToFileURL } from 'url';
 import { page, recorder, ensureConnected, resolveProjectPath } from '../../core/state.mjs';
-import { synthesizeCached, cachedSpeechSeconds, mergeTtsOptions, readProjectConfig, unspokenWarning } from '../tts.mjs';
+import { synthesizeCached, cachedSpeechSeconds, mergeTtsOptions, readProjectConfig, unspokenWarning, ttsSpeed, captionSpeed } from '../tts.mjs';
 import { anchorTimes, locateAnchors, phraseSource, clockNow, waitUntil, afterPhrase, ON_TIME } from '../anchors.mjs';
 import { BASE_CSS, themeVars, pageMount, pageStep, pageHide, pageLint, pageScript } from './protocol.mjs';
 import { ASSET_BASE, ensureAssetsRoute, releaseAssetsRoute, encodeAssetPath, rewriteAssets } from './assets.mjs';
@@ -195,7 +195,8 @@ async function runScript(script) {
   catch (e) { throw new Error(`slide script failed: ${String(e.message).replace(/^page\.evaluate:\s*/, '').split('\n')[0]}`); }
 }
 
-const estimate = (text) => Math.max(2, text.length * ((recorder?.speechRate || 70) / 1000));
+// a phrase's length without its audio: characters × speechRate, faster at a set speed
+const estimate = (text, tts) => Math.max(2, text.length * ((recorder?.speechRate || 70) / 1000) / ttsSpeed(tts));
 
 // One phrase for the slide, steps on its words: some step has `at`. The slide's `speech` is the phrase; a step's
 // own speech is an error then (two voices at once). Template steps follow spec.steps one to one, so the first
@@ -255,7 +256,7 @@ async function anchoredTimes(plan, built, tts, opts, rec, motion) {
     return { fast: true, times: ats.map(() => null), end: 0, total: 0.6 + built.steps.length * opts.fast, synthesized: 0, warnings: [], preHold };
   }
   const { src, synthesized } = await phraseSource(plan.speech, vo, {
-    synth: opts.synth, rate: (rec?.speechRate || 70) / 1000, where: 'showSlide', labels: plan.labels,
+    synth: opts.synth, rate: (rec?.speechRate || 70) / 1000 / ttsSpeed(vo), where: 'showSlide', labels: plan.labels,
   });
   const res = anchorTimes(plan.speech, ats, src);
   // the phrase ends with its last word (the file has a tail of silence after it)
@@ -315,7 +316,7 @@ async function playAnchored(plan, anch, built, opts, tts, warnings) {
     await afterPhrase(hold, 'showSlide');
     if (recorder) {
       const voice = plan.voice && plan.voice !== tts.voice ? { voice: plan.voice } : {};
-      recorder.captions.push({ text: plan.speech, speech: plan.speech, time: Math.round(recorder.videoTimeMs), ...voice });
+      recorder.captions.push({ text: plan.speech, speech: plan.speech, time: Math.round(recorder.videoTimeMs), ...voice, ...captionSpeed(tts) });
     }
     t0 = clockNow();
   };
@@ -370,6 +371,7 @@ export async function showSlide(spec, opts = {}) {
   if (spec.music !== undefined) resolveMusic(spec.music);   // a wrong music spec fails before the slide
   const motion = (opts.motion ?? spec.motion) !== false;
   const tts = ttsOptions(opts);
+  ttsSpeed(tts);   // a wrong speed fails before the slide
   const rec = recorder;
 
   // one phrase for the slide, steps on its words
@@ -387,10 +389,10 @@ export async function showSlide(spec, opts = {}) {
     const vo = s.voice ? { ...tts, voice: s.voice } : tts;
     let secs = cachedSpeechSeconds(s.speech, vo);
     if (secs == null) {
-      if (opts.synth === false) secs = estimate(s.speech);
+      if (opts.synth === false) secs = estimate(s.speech, vo);
       else {
         try { secs = (await synthesizeCached(s.speech, vo)).seconds; synthesized++; }
-        catch (e) { secs = estimate(s.speech); console.log(`[web-test] showSlide: TTS failed, length estimated: ${e.message}`); }
+        catch (e) { secs = estimate(s.speech, vo); console.log(`[web-test] showSlide: TTS failed, length estimated: ${e.message}`); }
       }
     }
     durs.push(opts.legacy ? secs : LEAD + secs + GAP);
@@ -465,7 +467,7 @@ export async function showSlide(spec, opts = {}) {
       await afterPhrase(hold, 'showSlide');
       if (recorder) {
         const voice = s.voice && s.voice !== tts.voice ? { voice: s.voice } : {};
-        recorder.captions.push({ text: s.text || s.speech, speech: s.speech, time: Math.round(recorder.videoTimeMs), ...voice });
+        recorder.captions.push({ text: s.text || s.speech, speech: s.speech, time: Math.round(recorder.videoTimeMs), ...voice, ...captionSpeed(tts) });
       }
       await hold((durs[i] - lead) * 1000);
       lastSpoken = true;
@@ -510,6 +512,7 @@ export async function prepareSlides(specs, opts = {}) {
   if (!Array.isArray(specs)) specs = [specs];
   const { validateOnly, ...rest } = opts;
   const tts = ttsOptions(rest);
+  ttsSpeed(tts);   // a wrong speed fails here, not mid-recording
   // a plain string — a phrase for speak() on a live page: synthesized ahead with the slides
   const phrases = specs.filter((s) => typeof s === 'string' && s.trim());
   specs = specs.filter((s) => typeof s !== 'string');

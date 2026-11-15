@@ -1,4 +1,4 @@
-// web-test recording/tts v1.23 — TTS providers (edge/openai/elevenlabs), phrase cache (+ word timings) and ffmpeg/ffprobe helpers.
+// web-test recording/tts v1.24 — TTS providers (edge/openai/elevenlabs), phrase cache (+ word timings) and ffmpeg/ffprobe helpers.
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import { execFileSync, spawn } from 'child_process';
@@ -107,6 +107,31 @@ export async function resolveEdgeTts() {
 // so both find one phrase (and the phrases cached before this rule stay found)
 export const DEFAULT_VOICE = { edge: 'ru-RU-DmitryNeural', openai: 'alloy', elevenlabs: 'JBFqnCBsd6RMkjVDRZzb' };   // elevenlabs: George
 
+// Speaking speed (1 — the voice's own): each service says the phrase faster itself, so the audio, its length and
+// the word timings already match — every duration in the engine is measured from them.
+const SPEED_RANGE = { edge: [0.5, 2], openai: [0.25, 4], elevenlabs: [0.7, 1.2] };
+/** The speed of TTS options: a number in the provider's range (1 when not given); throws outside it. */
+export function ttsSpeed(opts = {}) {
+  const v = opts.speed;
+  if (v == null) return 1;
+  const provider = opts.provider || 'edge';
+  const [lo, hi] = SPEED_RANGE[provider] || SPEED_RANGE.edge;
+  if (typeof v !== 'number' || !Number.isFinite(v) || v < lo || v > hi) {
+    throw new Error(`TTS speed ${JSON.stringify(v)}: ${provider} takes a number ${lo}–${hi} (1 — the voice's own speed)`);
+  }
+  // OpenAI's gpt-4o-mini-tts ignores speed (the phrase would come back at its own pace)
+  if (provider === 'openai' && v !== 1 && /^gpt-/i.test(opts.model || '')) {
+    throw new Error(`TTS speed ${v}: openai ${opts.model} does not take speed (tts-1 / tts-1-hd do)`);
+  }
+  return v;
+}
+/** For a recorded caption: { speed } it was timed with (1 included) — addNarration voices the phrase at that speed. */
+export const captionSpeed = (opts = {}) => ({ speed: ttsSpeed(opts) });
+
+// The TTS fields of a call's options (showCaption mixes them with its own: position, colours, …)
+const TTS_KEYS = ['provider', 'voice', 'apiKey', 'apiUrl', 'model', 'instructions', 'speed'];
+export const ttsFields = (opts = {}) => Object.fromEntries(TTS_KEYS.filter((k) => opts[k] !== undefined).map((k) => [k, opts[k]]));
+
 /**
  * Edge TTS provider (free, no API key). Uses node-edge-tts package.
  * @param {string} text — text to synthesize
@@ -117,7 +142,9 @@ export async function edgeTtsProvider(text, outputPath, opts = {}) {
   const { EdgeTTS } = await resolveEdgeTts();
   const voice = opts.voice || DEFAULT_VOICE.edge;
   // saveSubtitles: the service's word boundaries go to `${outputPath}.json` (the audio is the same)
-  const tts = new EdgeTTS({ voice, saveSubtitles: true });
+  const speed = ttsSpeed({ ...opts, provider: 'edge' });
+  const rate = speed === 1 ? 'default' : `${speed > 1 ? '+' : '-'}${Math.round(Math.abs(speed - 1) * 100)}%`;
+  const tts = new EdgeTTS({ voice, saveSubtitles: true, rate });
   await Promise.race([
     tts.ttsPromise(text, outputPath),
     new Promise((_, reject) => setTimeout(() => reject(new Error('Edge TTS timeout (30s)')), 30000)),
@@ -140,11 +167,12 @@ async function ttsFetch(service, url, init) {
  * OpenAI-compatible TTS provider. Requires apiKey.
  * @param {string} text — text to synthesize
  * @param {string} outputPath — path for the output mp3 file
- * @param {object} opts — { apiKey, apiUrl, voice, model, instructions }
+ * @param {object} opts — { apiKey, apiUrl, voice, model, instructions, speed }
  */
 export async function openaiTtsProvider(text, outputPath, opts = {}) {
   const apiUrl = opts.apiUrl || 'https://api.openai.com/v1/audio/speech';
   if (!opts.apiKey) throw new Error('OpenAI TTS requires apiKey');
+  const speed = ttsSpeed({ ...opts, provider: 'openai' });
   const resp = await ttsFetch('OpenAI', apiUrl, {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${opts.apiKey}`, 'Content-Type': 'application/json' },
@@ -155,6 +183,7 @@ export async function openaiTtsProvider(text, outputPath, opts = {}) {
       response_format: 'mp3',
       // speaking style for gpt-4o-mini-tts (tts-1/tts-1-hd do not support it): sent only when set
       ...(opts.instructions ? { instructions: opts.instructions } : {}),
+      ...(speed !== 1 ? { speed } : {}),
     }),
   });
   if (!resp.ok) throw new Error(`OpenAI TTS error ${resp.status}: ${await resp.text()}`);
@@ -166,9 +195,10 @@ export async function openaiTtsProvider(text, outputPath, opts = {}) {
  * ElevenLabs TTS provider. Requires apiKey.
  * @param {string} text — text to synthesize
  * @param {string} outputPath — path for the output mp3 file
- * @param {object} opts — { apiKey, apiUrl, voice, model }
+ * @param {object} opts — { apiKey, apiUrl, voice, model, speed }
  */
 export async function elevenlabsTtsProvider(text, outputPath, opts = {}) {
+  const speed = ttsSpeed({ ...opts, provider: 'elevenlabs' });
   const voiceId = opts.voice || DEFAULT_VOICE.elevenlabs;
   const apiUrl = opts.apiUrl || `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`;
   if (!opts.apiKey) throw new Error('ElevenLabs TTS requires apiKey');
@@ -178,6 +208,7 @@ export async function elevenlabsTtsProvider(text, outputPath, opts = {}) {
     body: JSON.stringify({
       text,
       model_id: opts.model || 'eleven_multilingual_v2',
+      ...(speed !== 1 ? { voice_settings: { speed } } : {}),
     }),
   });
   if (!resp.ok) throw new Error(`ElevenLabs TTS error ${resp.status}: ${await resp.text()}`);
@@ -225,7 +256,9 @@ function pruneCache() {
 export function ttsCacheFile(text, opts = {}) {
   const provider = opts.provider || 'edge';
   const voice = opts.voice && opts.voice !== DEFAULT_VOICE[provider] ? opts.voice : '';
-  const key = JSON.stringify([provider, voice, opts.model || '', opts.instructions || '', opts.apiUrl || '', text]);
+  const speed = ttsSpeed(opts);
+  // the speed joins the key only when set: phrases cached before it keep their keys
+  const key = JSON.stringify([provider, voice, opts.model || '', opts.instructions || '', opts.apiUrl || '', text, ...(speed !== 1 ? [speed] : [])]);
   return pathJoin(TTS_CACHE_DIR, createHash('sha1').update(key).digest('hex') + '.mp3');
 }
 
@@ -268,7 +301,7 @@ function durationOf(file, ffmpegPath) {
 /**
  * Synthesize a phrase once (cached) and, unless { measure: false }, measure it.
  * @param {string} text
- * @param {object} [opts] — { provider, voice, apiKey, apiUrl, model, instructions, ffmpegPath,
+ * @param {object} [opts] — { provider, voice, apiKey, apiUrl, model, instructions, speed, ffmpegPath,
  *   cache (false — bypass the cache: a one-off file in opts.tempDir), tempDir, measure (false — no ffprobe),
  *   words (true — word timings wanted: an Edge phrase cached without them is synthesized again) }
  * @returns {Promise<{ file: string, seconds?: number }>}

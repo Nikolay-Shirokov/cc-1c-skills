@@ -19,7 +19,7 @@ await hideSlide();                      // back to the 1C page
 A spoken step becomes a caption, so `addNarration` voices it exactly where its change happens. A step
 lasts as long as its phrase really sounds. Write `speech` as it is spoken: `'один эс'`, `'опен эй ай'` —
 the screen text keeps the written form (`1С`, `OpenAI`). Keep the specs in a module: the recording script, `play` and
-`preview` share it.
+`preview` share it. A voice too slow or too fast: `speed` in `TTS` (recording.md → **Speaking speed**).
 
 Paths in specs (`src`, `image`, `qr`, `file`) and in `loadSlides`, `startRecording`, `addNarration`'s
 `outputPath` are from the project root (or absolute). Slides are drawn at 1920×1080 and scaled to the
