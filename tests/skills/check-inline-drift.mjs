@@ -181,25 +181,26 @@ const FAMILIES = [
   {
     name: 'BSL: таблица ключевых слов', py: 'bsl_keywords', ps1: 'Get-BslKeywords',
     variants: [
-      { id: 'base', authority: 'cfe-patch-method', consumers: ['cfe-diff', 'cfe-validate'] },
+      { id: 'base', authority: 'cfe-patch-method', consumers: ['cfe-diff', 'cfe-transfer', 'cfe-validate'] },
     ],
   },
   {
     name: 'BSL: вид маркера правки', py: 'bsl_marker_kind', ps1: 'Get-BslMarkerKind',
     variants: [
-      { id: 'base', authority: 'cfe-patch-method', consumers: ['cfe-diff'] },
+      { id: 'base', authority: 'cfe-patch-method', consumers: ['cfe-transfer'] },
     ],
   },
   {
     name: 'BSL: разбор аннотаций перехвата', py: 'get_interceptors', ps1: 'Get-Interceptors',
     variants: [
-      { id: 'base', authority: 'cfe-patch-method', consumers: ['cfe-diff'] },
+      { id: 'base', authority: 'cfe-patch-method', consumers: ['cfe-diff', 'cfe-transfer'] },
     ],
   },
-  // Проверка переноса cfe-diff классифицирует правки &ИзменениеИКонтроль теми же сопоставлениями,
+  // Проверка переноса cfe-transfer классифицирует правки &ИзменениеИКонтроль теми же сопоставлениями,
   // что cfe-patch-method -Check. Разойдись копия — два навыка дадут разные вердикты по одному методу.
+  // Третий элемент — потребители, если они не только cfe-transfer.
   ...[
-    ['Get-KwAlt', 'kw_alt'],
+    ['Get-KwAlt', 'kw_alt', ['cfe-diff', 'cfe-transfer']],
     ['Get-BslLang', 'bsl_lang'],
     ['Split-TopLevel', 'split_top_level'],
     ['Test-ContextDirective', 'is_context_directive'],
@@ -209,8 +210,8 @@ const FAMILIES = [
     ['Extract-Method', 'extract_method'],
     ['Get-ProcNames', 'get_proc_names'],
     ['Get-Normalized', 'normalize'],
-    ['Get-ControlKey', 'control_key'],
-    ['Get-ParamCount', 'param_count'],
+    ['Get-ControlKey', 'control_key', []],
+    ['Get-ParamCount', 'param_count', []],
     ['Parse-MarkedBody', 'parse_marked_body'],
     ['Find-UniqueIndex', 'find_unique_index'],
     ['Find-UniqueRun', 'find_unique_run'],
@@ -221,23 +222,79 @@ const FAMILIES = [
     ['Get-AbsorbedInPlace', 'get_absorbed_in_place'],
     ['Resolve-InsertionPointExact', 'resolve_insertion_point_exact'],
     ['Resolve-InsertionPoint', 'resolve_insertion_point'],
-  ].map(([ps1, py]) => ({
+  ].map(([ps1, py, consumers = ['cfe-transfer']]) => ({
     name: `BSL: ${py}`, py, ps1,
-    variants: [{ id: 'base', authority: 'cfe-patch-method', consumers: ['cfe-diff'] }],
+    variants: [{ id: 'base', authority: 'cfe-patch-method', consumers }],
   })),
-  // Разница заимствованной формы в cfe-diff пишется нотацией form-info — одни теги и типы на двоих
+  // Разница заимствованной формы в cfe-diff и cfe-transfer пишется нотацией form-info — одни теги и типы
   {
     name: 'форма: format_type', py: 'format_type', ps1: 'Format-Type',
     variants: [
-      { id: 'base', authority: 'form-info', consumers: ['cfe-diff'] },
+      { id: 'base', authority: 'form-info', consumers: ['cfe-diff', 'cfe-transfer'] },
       { id: 'metadata', authority: 'meta-info', consumers: [],
         why: 'тип реквизита объекта метаданных, а не формы: свой набор типов и своя запись' },
     ],
   },
   {
     name: 'форма: get_element_tag', py: 'get_element_tag', ps1: 'Get-ElementTag',
-    variants: [{ id: 'base', authority: 'form-info', consumers: ['cfe-diff'] }],
+    variants: [{ id: 'base', authority: 'form-info', consumers: ['cfe-diff', 'cfe-transfer'] }],
   },
+
+  // ─── cfe-diff ↔ cfe-transfer: разбор расширения ─────────────────────────
+  // Сверка переноса выделена из cfe-diff в отдельный навык. Обзор и сверка читают расширение
+  // одинаково: объект и его модули/формы, разница формы с BaseForm, собственные методы, адресация
+  // разделов. Разойдись копия — обзор покажет правку, которой сверка не видит, или наоборот.
+  ...[
+    ['Resolve-InputPath', 'resolve_input_path'],
+    ['Read-ConfigurationProps', 'read_configuration_props'],
+    ['Remove-ExtPrefix', 'remove_ext_prefix'],
+    ['Get-Short', 'get_short'],
+    ['Get-Plural', 'plural'],
+    ['Get-RelPath', 'rel_path'],
+    ['Read-BslLines', 'read_bsl_lines'],
+    ['Find-DeclAfter', 'find_decl_after'],
+    ['Read-MdObject', 'read_md_object'],
+    ['Test-AdoptedNode', 'test_adopted_node'],
+    ['Get-MdChildName', 'md_child_name'],
+    ['Test-HasElementChild', 'has_element_child'],
+    ['Get-KindWord', 'kind_word'],
+    ['Get-ObjContext', 'get_obj_context'],
+    ['Get-ObjForms', 'get_obj_forms'],
+    ['Get-ObjModules', 'get_obj_modules'],
+    ['Read-FormDoc', 'read_form_doc'],
+    ['Test-FormElement', 'is_form_element'],
+    ['Add-FormElements', 'add_form_elements'],
+    ['Get-FormElementIndex', 'form_element_index'],
+    ['Get-LcsSet', 'lcs_set'],
+    ['Get-MovedSet', 'get_moved_set'],
+    ['Get-PropMap', 'get_prop_map'],
+    ['Get-NodeCanon', 'node_canon'],
+    ['Add-NodeCanon', null],
+    ['Test-SameProp', null],
+    ['Get-CmpKey', 'cmp_key'],
+    ['Get-PropDisplay', 'prop_display'],
+    ['Get-EventList', 'event_list'],
+    ['Get-EventKeySet', 'event_key_set'],
+    ['Get-SectionMap', 'section_map'],
+    ['Get-FormDiff', 'get_form_diff'],
+    ['Get-PropChangeText', 'prop_change_text'],
+    ['Get-MoveText', 'move_text'],
+    ['Get-EventText', 'event_text'],
+    ['Get-CallTypeHandlers', 'call_type_handlers'],
+    ['Get-ProcDecls', 'get_proc_decls'],
+    ['Get-TopCodeLine', 'get_top_code_line'],
+    ['Get-ModuleChanges', 'get_module_changes'],
+    ['Get-SubsystemContent', 'get_subsystem_content'],
+    ['Test-NameMatch', null],
+    ['Get-SectionLayout', 'section_layout'],
+    [null, 'elem_children'],
+    [null, 'path_key'],
+    [null, 'read_xml'],
+    [null, '_ws'],
+  ].map(([ps1, py]) => ({
+    name: `cfe-разбор: ${py || ps1}`, py, ps1,
+    variants: [{ id: 'base', authority: 'cfe-diff', consumers: ['cfe-transfer'] }],
+  })),
 
   // ─── СКД: краткая запись значения ────────────────────────────────────────
   // compile и edit читают вариант стандартного периода в краткой записи как период, а decompile
@@ -693,7 +750,7 @@ const FAMILIES = [
       { id: 'base', authority: 'meta-compile',
         consumers: [
           'cf-edit', 'cf-info', 'cf-init', 'cf-validate', 'cfe-borrow', 'cfe-diff', 'cfe-init',
-          'cfe-patch-method', 'cfe-validate', 'db-cfe-admin', 'db-create', 'db-dump-cf', 'db-dump-dt', 'db-dump-xml',
+          'cfe-patch-method', 'cfe-transfer', 'cfe-validate', 'db-cfe-admin', 'db-create', 'db-dump-cf', 'db-dump-dt', 'db-dump-xml',
           'db-load-cf', 'db-load-dt', 'db-load-git', 'db-load-xml', 'db-repo', 'db-run', 'db-update', 'epf-build',
           'epf-dump', 'epf-init', 'epf-validate', 'erf-init', 'form-add', 'form-compile',
           'form-decompile', 'form-edit', 'form-info', 'form-remove', 'form-validate', 'help-add',

@@ -1,4 +1,4 @@
-=== cfe-diff check-transfer: Тест (Customization) -> TestConfig ===
+=== cfe-transfer check: Тест (Customization) -> TestConfig ===
 NamePrefix: Тест_
 
 [TRANSFERRED]        CommonForm.Подбор — 1 change

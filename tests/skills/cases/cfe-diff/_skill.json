@@ -3,7 +3,6 @@
   "setup": "empty-config",
   "args": [
     { "flag": "-ExtensionPath", "from": "workPath", "field": "extensionPath" },
-    { "flag": "-ConfigPath", "from": "workDir" },
     { "flag": "-OutFile", "from": "workPath", "field": "outFile", "optional": true }
   ],
   "snapshot": {

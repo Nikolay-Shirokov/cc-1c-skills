@@ -1,4 +1,4 @@
-﻿# cfe-diff v2.0 — Analyze 1C configuration extension (CFE): overview and transfer check against the main configuration
+﻿# cfe-diff v2.0 — Analyze 1C configuration extension (CFE): borrowed objects, interceptors, own members, form changes
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -24,22 +24,20 @@ $ErrorActionPreference = "Stop"
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
 # --- Mode ---
-# check-transfer is 'transfer' inside the script; the name says it checks, it does not carry over
-$modeMap = @{ "overview" = "overview"; "check-transfer" = "transfer"; "a" = "overview"; "b" = "transfer" }
+# The transfer check moved to its own skill: an old call gets pointed there instead of a bare error
 $modeKey = $Mode.Trim().ToLower()
-if (-not $modeMap.ContainsKey($modeKey)) {
-	Write-Error "Invalid -Mode '$Mode'. Expected: overview, check-transfer"
+if (@('check-transfer', 'transfer', 'b') -contains $modeKey) {
+	Write-Error "Transfer check moved: use /cfe-transfer -Mode check"
 	exit 1
 }
-$Mode = $modeMap[$modeKey]
+if (@('overview', 'a') -notcontains $modeKey) {
+	Write-Error "Invalid -Mode '$Mode'. Expected: overview"
+	exit 1
+}
 
 # Detail budget: below it the whole report (summaries + details) is printed in one go;
 # above it only summaries, and -Name opens the details of chosen objects.
 $DetailBudget = 80
-
-# Block closers and bare jumps: they match anywhere, so they neither score a heuristic match nor
-# serve as a neighbour that places an insert
-$script:trivialRe = '(?i)^(?:КонецЕсли|Иначе|КонецЦикла|КонецПопытки|Исключение|Возврат|Продолжить|Прервать|EndIf|Else|EndDo|EndTry|Except|Return|Continue|Break)\s*;?$'
 
 # --- Resolve paths ---
 function Resolve-InputPath([string]$p) {
@@ -98,16 +96,8 @@ foreach ($raw in @($ExtensionPath -split ',' | ForEach-Object { $_.Trim() } | Wh
 }
 if ($extDirs.Count -eq 0) { Write-Error "No extension given in -ExtensionPath"; exit 1 }
 
-$cfgInfo = $null
-if ($ConfigPath) {
-	$ConfigPath = Resolve-InputPath $ConfigPath
-	$cfgInfo = Read-ConfigurationProps $ConfigPath
-	if (-not $cfgInfo) { Write-Error "Config Configuration.xml not found: $(Join-Path $ConfigPath 'Configuration.xml')"; exit 1 }
-}
-if ($Mode -eq "transfer" -and -not $cfgInfo) {
-	Write-Error "-Mode check-transfer needs -ConfigPath (the main configuration to check against)"
-	exit 1
-}
+# -ConfigPath is kept so that a call written for the old transfer check reaches the hint above
+# instead of failing on an unknown parameter; the overview does not use it
 
 $nameFilter = @()
 if ($Name) { $nameFilter = @($Name -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ }) }
@@ -188,28 +178,6 @@ function Get-KwAlt {
 	return '(?:' + $script:bslKw.ru[$key] + '|' + $script:bslKw.en[$key] + ')'
 }
 
-# Spelling language of a recognized keyword. English is the discriminator: a Russian keyword
-# never equals an English one, so anything else is 'ru'.
-function Get-BslLang {
-	param([string]$word)
-	$w = $word.Trim().ToLower()
-	foreach ($k in @("Async", "Proc", "EndProc", "Func", "EndFunc", "Region", "If", "Insert", "Delete", "Before", "After", "Around", "Control")) {
-		if ($script:bslKw.en[$k].ToLower() -eq $w) { return "en" }
-	}
-	return "ru"
-}
-
-# Edit marker kind at the start of a line: Insert/Delete/EndInsert/EndDelete, $null if none.
-# The marker owns the start of the line only — a trailing comment does not bother the platform
-# and must not bother us either.
-function Get-BslMarkerKind {
-	param([string]$line)
-	$kw = $script:bslKw
-	foreach ($k in @("EndInsert", "EndDelete", "Insert", "Delete")) {
-		if ($line -match ('^\s*#(?:' + $kw.ru[$k] + '|' + $kw.en[$k] + ')\b')) { return $k }
-	}
-	return $null
-}
 
 # Parse interceptor annotations present in a module. Type is normalized to the Russian spelling
 # so everything downstream stays single-language; Raw keeps what the file actually says.
@@ -236,437 +204,6 @@ function Get-Interceptors {
 	return $result
 }
 
-# Split text at top-level separator (respecting parens and string literals)
-function Split-TopLevel {
-	param([string]$text, [char]$sep = ',')
-	$result = @()
-	$depth = 0; $inStr = $false
-	$sb = New-Object System.Text.StringBuilder
-	for ($i = 0; $i -lt $text.Length; $i++) {
-		$ch = $text[$i]
-		if ($inStr) {
-			[void]$sb.Append($ch)
-			if ($ch -eq '"') { $inStr = $false }
-			continue
-		}
-		if ($ch -eq '"') { $inStr = $true; [void]$sb.Append($ch); continue }
-		if ($ch -eq '(') { $depth++; [void]$sb.Append($ch); continue }
-		if ($ch -eq ')') { $depth--; [void]$sb.Append($ch); continue }
-		if ($ch -eq $sep -and $depth -eq 0) { $result += $sb.ToString(); $sb = New-Object System.Text.StringBuilder; continue }
-		[void]$sb.Append($ch)
-	}
-	$result += $sb.ToString()
-	return $result
-}
-
-# Is a trimmed line a context-directive annotation?
-function Test-ContextDirective {
-	param([string]$trimmed)
-	$alt = ($script:bslKw.ru.Directives + $script:bslKw.en.Directives) -join '|'
-	return $trimmed -match ('^&(' + $alt + ')\s*$')
-}
-
-# Read a method signature starting at declaration line; returns @{ ParamsText; EndLineIdx }
-function Read-Signature {
-	param($lines, [int]$startIdx)
-	$depth = 0; $inStr = $false; $openFound = $false
-	$paramsSb = New-Object System.Text.StringBuilder
-	for ($li = $startIdx; $li -lt $lines.Count; $li++) {
-		$line = $lines[$li]
-		for ($ci = 0; $ci -lt $line.Length; $ci++) {
-			$ch = $line[$ci]
-			if ($inStr) {
-				if ($openFound) { [void]$paramsSb.Append($ch) }
-				if ($ch -eq '"') { $inStr = $false }
-				continue
-			}
-			if ($ch -eq '"') { $inStr = $true; if ($openFound) { [void]$paramsSb.Append($ch) }; continue }
-			if ($ch -eq '(') {
-				$depth++
-				if (-not $openFound) { $openFound = $true } else { [void]$paramsSb.Append($ch) }
-				continue
-			}
-			if ($ch -eq ')') {
-				$depth--
-				if ($depth -eq 0) { return @{ ParamsText = $paramsSb.ToString(); EndLineIdx = $li } }
-				[void]$paramsSb.Append($ch)
-				continue
-			}
-			if ($openFound) { [void]$paramsSb.Append($ch) }
-		}
-		if ($openFound -and $depth -ge 1) { [void]$paramsSb.Append("`r`n") }
-	}
-	return $null
-}
-
-# Compute effective condition of the current branch of an #Если frame
-function Get-EffectiveCondition {
-	param($frame, [string]$lang)
-	$kwNot = $script:bslKw[$lang].Not
-	$kwAnd = $script:bslKw[$lang].And
-	$conds = $frame.Conds
-	$n = $conds.Count
-	if ($frame.InElse) {
-		$parts = @()
-		foreach ($c in $conds) { $parts += "$kwNot ($c)" }
-		return ($parts -join " $kwAnd ")
-	}
-	if ($n -eq 1) { return $conds[0] }
-	$parts = @()
-	for ($j = 0; $j -lt ($n - 1); $j++) { $parts += "$kwNot ($($conds[$j]))" }
-	$parts += $conds[$n - 1]
-	return ($parts -join " $kwAnd ")
-}
-
-# Extract the enclosing wrapper chain (regions + preprocessor) at a target line.
-# Returns array outer->inner of @{ Kind='region'|'if'; Name=..; Cond=.. }
-function Get-EnclosingChain {
-	param($lines, [int]$targetIdx, [string]$lang)
-	$reRegion = '^#' + (Get-KwAlt 'Region') + '\s+(\S+)'
-	$reEndRegion = '^#' + (Get-KwAlt 'EndRegion')
-	$reIf = '^#' + (Get-KwAlt 'If') + '\s+(.+?)\s+' + (Get-KwAlt 'Then')
-	$reElsIf = '^#' + (Get-KwAlt 'ElsIf') + '\s+(.+?)\s+' + (Get-KwAlt 'Then')
-	$reElse = '^#' + (Get-KwAlt 'Else') + '(\s|$)'
-	$reEndIf = '^#' + (Get-KwAlt 'EndIf')
-	$stack = New-Object System.Collections.ArrayList
-	for ($i = 0; $i -lt $targetIdx; $i++) {
-		$t = $lines[$i].Trim()
-		if ($t -match $reRegion) {
-			[void]$stack.Add(@{ Kind = 'region'; Name = $Matches[1] })
-		} elseif ($t -match $reEndRegion) {
-			for ($k = $stack.Count - 1; $k -ge 0; $k--) { if ($stack[$k].Kind -eq 'region') { $stack.RemoveAt($k); break } }
-		} elseif ($t -match $reIf) {
-			[void]$stack.Add(@{ Kind = 'if'; Conds = @($Matches[1].Trim()); InElse = $false })
-		} elseif ($t -match $reElsIf) {
-			for ($k = $stack.Count - 1; $k -ge 0; $k--) { if ($stack[$k].Kind -eq 'if') { $stack[$k].Conds += $Matches[1].Trim(); $stack[$k].InElse = $false; break } }
-		} elseif ($t -match $reElse) {
-			for ($k = $stack.Count - 1; $k -ge 0; $k--) { if ($stack[$k].Kind -eq 'if') { $stack[$k].InElse = $true; break } }
-		} elseif ($t -match $reEndIf) {
-			for ($k = $stack.Count - 1; $k -ge 0; $k--) { if ($stack[$k].Kind -eq 'if') { $stack.RemoveAt($k); break } }
-		}
-	}
-	$chain = @()
-	foreach ($f in $stack) {
-		if ($f.Kind -eq 'region') { $chain += @{ Kind = 'region'; Name = $f.Name } }
-		else { $chain += @{ Kind = 'if'; Cond = (Get-EffectiveCondition $f $lang) } }
-	}
-	return ,$chain
-}
-
-# Extract a method from source .bsl lines. Returns $null if not found.
-function Extract-Method {
-	param($lines, [string]$methodName)
-	$declRe = '^\s*(' + (Get-KwAlt 'Async') + '\s+)?(' + (Get-KwAlt 'Proc') + '|' + (Get-KwAlt 'Func') + ')\s+(' + [regex]::Escape($methodName) + ')\s*\('
-	for ($i = 0; $i -lt $lines.Count; $i++) {
-		if ($lines[$i] -imatch $declRe) {
-			$isAsync = [bool]$Matches[1]
-			$keyword = $Matches[2]
-			$canonical = $Matches[3]
-			$lang = Get-BslLang $keyword
-			$isFunction = ($keyword -ieq $script:bslKw.ru.Func -or $keyword -ieq $script:bslKw.en.Func)
-
-			$sig = Read-Signature $lines $i
-			if (-not $sig) { throw "Не удалось разобрать сигнатуру метода '$methodName'" }
-			$sigEnd = $sig.EndLineIdx
-			$paramsText = $sig.ParamsText
-
-			# Parameter names (for ПродолжитьВызов)
-			$paramNames = @()
-			if ($paramsText.Trim().Length -gt 0) {
-				foreach ($seg in (Split-TopLevel $paramsText)) {
-					$s = $seg.Trim() -replace ('^' + (Get-KwAlt 'Val') + '\s+'), ''
-					if ($s -match '^([\w]+)') { $paramNames += $Matches[1] }
-				}
-			}
-
-			# Body: from sigEnd+1 to matching Конец*
-			$endRe = if ($isFunction) { '^\s*' + (Get-KwAlt 'EndFunc') + '\b' } else { '^\s*' + (Get-KwAlt 'EndProc') + '\b' }
-			$bodyStart = $sigEnd + 1
-			$bodyEnd = -1
-			for ($j = $bodyStart; $j -lt $lines.Count; $j++) {
-				if ($lines[$j] -imatch $endRe) { $bodyEnd = $j; break }
-			}
-			if ($bodyEnd -lt 0) { throw "Не найден конец метода '$methodName'" }
-			$bodyLines = @()
-			for ($j = $bodyStart; $j -lt $bodyEnd; $j++) { $bodyLines += $lines[$j] }
-
-			# Context directive (immediately above declaration)
-			$context = ""
-			if ($i -ge 1) {
-				$prev = $lines[$i - 1].Trim()
-				if (Test-ContextDirective $prev) { $context = $prev }
-			}
-
-			# Enclosing chain (regions + preprocessor)
-			$chain = Get-EnclosingChain $lines $i $lang
-
-			return @{
-				Canonical   = $canonical
-				Lang        = $lang
-				IsFunction  = $isFunction
-				IsAsync     = $isAsync
-				ParamsText  = $paramsText
-				ParamNames  = $paramNames
-				Context     = $context
-				BodyLines   = $bodyLines
-				Chain       = $chain
-				DeclIdx     = $i
-				SigEndIdx   = $sigEnd
-				BodyEndIdx  = $bodyEnd
-			}
-		}
-	}
-	return $null
-}
-
-# Parse declared procedure/function names in a module
-function Get-ProcNames {
-	param($lines)
-	$re = '^\s*(?:' + (Get-KwAlt 'Async') + '\s+)?(?:' + (Get-KwAlt 'Proc') + '|' + (Get-KwAlt 'Func') + ')\s+([\w]+)\s*\('
-	$names = @()
-	foreach ($line in $lines) {
-		if ($line -imatch $re) { $names += $Matches[1] }
-	}
-	return $names
-}
-
-function Get-Normalized {
-	param([string]$line)
-	return (($line -replace '\s+', ' ').Trim())
-}
-
-# Control comparison key, as the platform compares a &ИзменениеИКонтроль copy with the original:
-# each line trimmed, blank lines dropped, everything else byte-for-byte and case-sensitive
-# (inner spaces, comments and letter case are significant). Measured on 8.3.24 and 8.3.27.
-function Get-ControlKey {
-	param($lines)
-	return (@($lines | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' }) -join "`n")
-}
-
-# Parameter count of a signature params text. The platform compares only the number of
-# parameters of a &ИзменениеИКонтроль copy (names and default values it ignores).
-function Get-ParamCount {
-	param([string]$paramsText)
-	if ([string]::IsNullOrWhiteSpace($paramsText)) { return 0 }
-	return @(Split-TopLevel $paramsText | Where-Object { $_.Trim() -ne '' }).Count
-}
-
-# Reconstruct v1 body and edit ops from a marked body
-function Parse-MarkedBody {
-	param($bodyLines)
-	$v1 = @()          # reconstructed original lines
-	$ops = @()         # edit operations
-	$i = 0
-	while ($i -lt $bodyLines.Count) {
-		$kind = Get-BslMarkerKind $bodyLines[$i]
-		if ($kind -eq 'Insert') {
-			# Marker lines are kept verbatim: they carry the author's spelling, indent and — since
-			# a tail comment is legal — the note explaining the edit. Re-emitting a bare keyword
-			# would silently drop that note on -Actualize.
-			$open = $bodyLines[$i]
-			$ins = @()
-			$i++
-			while ($i -lt $bodyLines.Count -and (Get-BslMarkerKind $bodyLines[$i]) -ne 'EndInsert') { $ins += $bodyLines[$i]; $i++ }
-			$close = if ($i -lt $bodyLines.Count) { $bodyLines[$i] } else { $null }
-			$i++  # skip #КонецВставки
-			$ops += @{ Kind = 'insert'; After = ($v1.Count - 1); Lines = $ins; Open = $open; Close = $close }
-		} elseif ($kind -eq 'Delete') {
-			$open = $bodyLines[$i]
-			$startIdx = $v1.Count
-			$i++
-			$del = @()
-			while ($i -lt $bodyLines.Count -and (Get-BslMarkerKind $bodyLines[$i]) -ne 'EndDelete') { $del += $bodyLines[$i]; $v1 += $bodyLines[$i]; $i++ }
-			$close = if ($i -lt $bodyLines.Count) { $bodyLines[$i] } else { $null }
-			$i++  # skip #КонецУдаления
-			$ops += @{ Kind = 'delete'; Start = $startIdx; End = ($v1.Count - 1); Lines = $del; Open = $open; Close = $close }
-		} else {
-			$v1 += $bodyLines[$i]
-			$i++
-		}
-	}
-	return @{ V1 = $v1; Ops = $ops }
-}
-
-# Find unique normalized index of a line in v2; -1 if absent or ambiguous
-function Find-UniqueIndex {
-	param($v2norm, [string]$key)
-	$found = -1
-	for ($k = 0; $k -lt $v2norm.Count; $k++) {
-		if ($v2norm[$k] -ceq $key) {
-			if ($found -ge 0) { return -1 }  # ambiguous
-			$found = $k
-		}
-	}
-	return $found
-}
-
-# Find unique contiguous run of normalized lines in v2; returns start index or -1
-function Find-UniqueRun {
-	param($v2norm, $keys)
-	if ($keys.Count -eq 0) { return -1 }
-	$found = -1
-	for ($k = 0; $k -le ($v2norm.Count - $keys.Count); $k++) {
-		$match = $true
-		for ($m = 0; $m -lt $keys.Count; $m++) {
-			if ($v2norm[$k + $m] -cne $keys[$m]) { $match = $false; break }
-		}
-		if ($match) {
-			if ($found -ge 0) { return -1 }  # ambiguous
-			$found = $k
-		}
-	}
-	return $found
-}
-
-# A "significant" line carries code: non-empty and not a whole-line comment (//).
-# Blank lines and comment-only lines are cosmetic — transparent to anchor/absorption matching.
-function Test-Significant {
-	param([string]$normLine)
-	return ($normLine -ne '' -and -not $normLine.StartsWith('//'))
-}
-
-# Project normalized lines to significant-only. Returns @{ Sig = @(values); Map = @(orig indices) }.
-function Get-SignificantProjection {
-	param($norm)
-	$sig = @(); $map = @()
-	for ($i = 0; $i -lt $norm.Count; $i++) {
-		if (Test-Significant $norm[$i]) { $sig += $norm[$i]; $map += $i }
-	}
-	return @{ Sig = $sig; Map = $map }
-}
-
-# True if the normalized run `keys` sits in `hay` starting exactly at index `at` (contiguous, in-bounds).
-# Used to detect an insert whose payload the vendor already placed at the anchor (pereneseno v osnovnuyu).
-function Test-RunAt {
-	param($hay, $keys, [int]$at)
-	if ($keys.Count -eq 0) { return $false }
-	if ($at -lt 0 -or ($at + $keys.Count) -gt $hay.Count) { return $false }
-	for ($m = 0; $m -lt $keys.Count; $m++) { if ($hay[$at + $m] -cne $keys[$m]) { return $false } }
-	return $true
-}
-
-# True if a deletion is already applied in v2: its before/after context lines now enclose exactly
-# `mid` (nothing for a plain deletion, the inserted code for a replacement), or the missing side sits
-# at a body boundary. $null = boundary side.
-function Test-DeleteAbsorbed {
-	param($v2norm, $beforeCtx, $afterCtx, $mid = @())
-	$mid = @($mid)
-	$n = $mid.Count
-	for ($i = 0; $i -le ($v2norm.Count - $n); $i++) {
-		if ($null -ne $beforeCtx) { if ($i -eq 0 -or $v2norm[$i - 1] -cne $beforeCtx) { continue } }
-		elseif ($i -ne 0) { break }
-		$ok = $true
-		for ($m = 0; $m -lt $n; $m++) { if ($v2norm[$i + $m] -cne $mid[$m]) { $ok = $false; break } }
-		if (-not $ok) { continue }
-		$e = $i + $n
-		if ($null -ne $afterCtx) { if ($e -lt $v2norm.Count -and $v2norm[$e] -ceq $afterCtx) { return $true } }
-		elseif ($e -eq $v2norm.Count) { return $true }
-	}
-	return $false
-}
-
-# Edits already carried into the main configuration in place: v2 holds "line before + inserted code
-# + line after" (significant lines). A deletion together with the insertions right next to it (only
-# blanks/comments between) is one replacement: its context lines are no longer adjacent and the
-# insert's own anchor was the deleted text, so neither edit is recognised alone. A plain insert is
-# checked the same way, because the payload sitting at its spot splits its anchor and the anchor
-# search may then land on a look-alike elsewhere. Returns a hashtable of op indices absorbed.
-# $payloads: op index -> significant normalized lines of that insert.
-function Get-AbsorbedInPlace {
-	param($ops, $v1norm, $v2norm, $v2sig, $payloads)
-	$ops = @($ops)
-	$hit = @{}
-	for ($d = 0; $d -lt $ops.Count; $d++) {
-		$op = $ops[$d]
-		if ($op.Kind -ne 'delete') { continue }
-		# No check that the deleted lines are gone from the whole method: the new code may well
-		# repeat them (a call wrapped into a condition). The contiguous run below settles it.
-		$bIdx = -1; for ($z = $op.Start - 1; $z -ge 0; $z--) { if (Test-Significant $v1norm[$z]) { $bIdx = $z; break } }
-		$aIdx = $v1norm.Count; for ($z = $op.End + 1; $z -lt $v1norm.Count; $z++) { if (Test-Significant $v1norm[$z]) { $aIdx = $z; break } }
-		$group = @(); $mid = @()
-		for ($i = 0; $i -lt $ops.Count; $i++) {
-			if ($ops[$i].Kind -eq 'insert' -and $ops[$i].After -ge $bIdx -and $ops[$i].After -lt $aIdx) { $group += $i; $mid += @($payloads[$i]) }
-		}
-		if ($mid.Count -eq 0) { continue }
-		$bCtx = if ($bIdx -ge 0) { $v1norm[$bIdx] } else { $null }
-		$aCtx = if ($aIdx -lt $v1norm.Count) { $v1norm[$aIdx] } else { $null }
-		if (Test-DeleteAbsorbed $v2sig $bCtx $aCtx $mid) { $hit[$d] = $true; foreach ($i in $group) { $hit[$i] = $true } }
-	}
-	for ($i = 0; $i -lt $ops.Count; $i++) {
-		$op = $ops[$i]
-		if ($op.Kind -ne 'insert' -or $hit.ContainsKey($i)) { continue }
-		$mid = @($payloads[$i])
-		if ($mid.Count -eq 0) { continue }
-		$bCtx = $null; for ($z = $op.After; $z -ge 0; $z--) { if (Test-Significant $v1norm[$z]) { $bCtx = $v1norm[$z]; break } }
-		$aCtx = $null; for ($z = $op.After + 1; $z -lt $v1norm.Count; $z++) { if (Test-Significant $v1norm[$z]) { $aCtx = $v1norm[$z]; break } }
-		if (Test-DeleteAbsorbed $v2sig $bCtx $aCtx $mid) { $hit[$i] = $true }
-	}
-	return $hit
-}
-
-# Exact two-sided resolution over the given array.
-# Returns index to "insert after" (-1 = top of body), or $null if ambiguous/conflict.
-function Resolve-InsertionPointExact {
-	param($v2norm, $beforeLines, $afterLines)
-	$nb = $beforeLines.Count; $na = $afterLines.Count
-
-	# Tier A: adjacent pair (before[-1] immediately followed by after[0] in v2), widening symmetrically
-	if ($nb -ge 1 -and $na -ge 1) {
-		$cands = @()
-		for ($k = 0; $k -lt ($v2norm.Count - 1); $k++) {
-			if ($v2norm[$k] -ceq $beforeLines[$nb - 1] -and $v2norm[$k + 1] -ceq $afterLines[0]) { $cands += $k }
-		}
-		if ($cands.Count -eq 1) { return $cands[0] }
-		if ($cands.Count -gt 1) {
-			$w = 1
-			while ($cands.Count -gt 1 -and ($w -lt $nb -or $w -lt $na)) {
-				$w++
-				$filtered = @()
-				foreach ($k in $cands) {
-					$ok = $true
-					if ($w -le $nb) {
-						if (($k - ($w - 1)) -lt 0 -or $v2norm[$k - ($w - 1)] -cne $beforeLines[$nb - $w]) { $ok = $false }
-					}
-					if ($ok -and $w -le $na) {
-						if (($k + $w) -ge $v2norm.Count -or $v2norm[$k + $w] -cne $afterLines[$w - 1]) { $ok = $false }
-					}
-					if ($ok) { $filtered += $k }
-				}
-				if ($filtered.Count -eq 0) { break }
-				$cands = $filtered
-			}
-			if ($cands.Count -eq 1) { return $cands[0] }
-			return $null
-		}
-	}
-
-	# Tier B: one side changed -> single-side uniqueness
-	if ($nb -ge 1) {
-		$bk = Find-UniqueIndex $v2norm $beforeLines[$nb - 1]
-		if ($bk -ge 0) { return $bk }
-	}
-	if ($na -ge 1) {
-		$ak = Find-UniqueIndex $v2norm $afterLines[0]
-		if ($ak -ge 0) { return ($ak - 1) }
-	}
-	return $null
-}
-
-# Resolve where an insertion lands in v2. Exact first (comments/blanks included — keeps the insert's
-# position relative to a stable comment); on failure, retry on significant lines only (transparent to
-# vendor-added blanks/comments) and map back to a full-v2 index. Returns "insert after" idx or $null.
-function Resolve-InsertionPoint {
-	param($v2norm, $beforeLines, $afterLines)
-	$k = Resolve-InsertionPointExact $v2norm $beforeLines $afterLines
-	if ($null -ne $k) { return $k }
-	$proj = Get-SignificantProjection $v2norm
-	$bs = @($beforeLines | Where-Object { Test-Significant $_ })
-	$as = @($afterLines | Where-Object { Test-Significant $_ })
-	$ksig = Resolve-InsertionPointExact $proj.Sig $bs $as
-	if ($null -eq $ksig) { return $null }
-	if ($ksig -lt 0) { return -1 }
-	return $proj.Map[$ksig]
-}
 
 # ============================================================
 # Form notation — verbatim copies from form-info (kept identical by check-inline-drift)
@@ -832,13 +369,6 @@ function Remove-ExtPrefix([string]$text, [string]$prefix) {
 	return $script:prefixRe.Replace($text, '')
 }
 
-# Name lookup: the exact name first, then the name without the extension prefix
-function Find-NameIn($names, [string]$name, [string]$prefix) {
-	foreach ($c in $names) { if ($c -ieq $name) { return $c } }
-	$s = Remove-ExtPrefix $name $prefix
-	foreach ($c in $names) { if ((Remove-ExtPrefix $c $prefix) -ieq $s) { return $c } }
-	return $null
-}
 
 function Get-Short([string]$s, [int]$n = 40) {
 	$t = ($s -replace '\s+', ' ').Trim()
@@ -862,37 +392,6 @@ function Read-BslLines([string]$path) {
 	return ,([System.IO.File]::ReadAllLines($path, [System.Text.Encoding]::UTF8))
 }
 
-function Get-MethodSafe($lines, [string]$methodName) {
-	if ($null -eq $lines -or [string]::IsNullOrEmpty($methodName)) { return $null }
-	try { return (Extract-Method $lines $methodName) } catch { return $null }
-}
-
-# Comparable form of a code line: normalized, without the extension prefix, lower case (the language
-# ignores case; lowering here also keeps the copied matchers' -eq and Python's == in agreement)
-function Get-CodeKey([string]$line, [string]$prefix) {
-	return (Get-Normalized (Remove-ExtPrefix $line $prefix)).ToLowerInvariant()
-}
-
-# Get-CodeKey over a list of lines, inlined: a function call per line is what costs in PowerShell.
-# -Significant keeps only lines that carry code (Test-Significant).
-function Get-CodeKeys($lines, [string]$prefix, [switch]$Significant) {
-	$re = $null
-	if (-not [string]::IsNullOrEmpty($prefix)) { [void](Remove-ExtPrefix 'x' $prefix); $re = $script:prefixRe }
-	$r = New-Object 'System.Collections.Generic.List[string]'
-	foreach ($l in $lines) {
-		$t = [string]$l
-		if ($re -and $t.Length -gt 0) { $t = $re.Replace($t, '') }
-		$t = ($t -replace '\s+', ' ').Trim().ToLowerInvariant()
-		if ($Significant -and ($t -eq '' -or $t.StartsWith('//'))) { continue }
-		$r.Add($t)
-	}
-	return $r.ToArray()
-}
-
-# Significant lines of a body as code keys
-function Get-SigLines($lines, [string]$prefix) {
-	return ,@(Get-CodeKeys $lines $prefix -Significant)
-}
 
 # Declaration following an annotation (context directives and other annotations may sit between)
 function Find-DeclAfter($lines, [int]$annIdx) {
@@ -904,267 +403,6 @@ function Find-DeclAfter($lines, [int]$annIdx) {
 		if ($t -ne '' -and -not $t.StartsWith('&') -and -not $t.StartsWith('//')) { break }
 	}
 	return $null
-}
-
-# ============================================================
-# Transfer of method changes
-# ============================================================
-
-# Developer's mark "not for transfer" (a workaround for an extension limitation, a one-off fix):
-# a comment whose text starts with «Временно» or «Не переносить» (case and spaces ignored), the
-# reason may follow. Returns the reason ('' when none) or $null when the line is not such a mark.
-function Get-TempMark([string]$line) {
-	$i = $line.IndexOf('//')
-	if ($i -lt 0) { return $null }
-	$t = $line.Substring($i).TrimStart('/').Trim()
-	if ($t -match '^(?i)(?:не\s*переносить|временно)(?![\p{L}\p{Nd}_])\s*[:\-–—]?\s*(.*)$') { return $Matches[1].Trim() }
-	return $null
-}
-
-# Mark of a whole method: in the comment lines right above it (annotations and directives skipped)
-# or in the comment lines the body starts with. -AboveOnly for &ИзменениеИКонтроль: its body is a
-# copy of the original, so a comment there is the configuration's, not the developer's mark.
-function Get-MethodTempMark($lines, $method, [switch]$AboveOnly) {
-	for ($z = $method.DeclIdx - 1; $z -ge 0; $z--) {
-		$t = $lines[$z].Trim()
-		if ($t.StartsWith('&')) { continue }
-		if (-not $t.StartsWith('//')) { break }
-		$m = Get-TempMark $t
-		if ($null -ne $m) { return $m }
-	}
-	if ($AboveOnly) { return $null }
-	foreach ($l in $method.BodyLines) {
-		$t = $l.Trim()
-		if ($t -eq '') { continue }
-		if (-not $t.StartsWith('//')) { break }
-		$m = Get-TempMark $t
-		if ($null -ne $m) { return $m }
-	}
-	return $null
-}
-
-# Mark of one #Вставка/#Удаление block: a tail comment on its opening marker or the comment lines
-# an insert starts with (the lines of a deletion are the configuration's code, not the developer's).
-function Get-BlockTempMark($op) {
-	if ($op.Open) { $m = Get-TempMark $op.Open; if ($null -ne $m) { return $m } }
-	if ($op.Kind -ne 'insert') { return $null }
-	foreach ($l in $op.Lines) {
-		$t = $l.Trim()
-		if ($t -eq '') { continue }
-		if (-not $t.StartsWith('//')) { break }
-		$m = Get-TempMark $t
-		if ($null -ne $m) { return $m }
-	}
-	return $null
-}
-
-function Format-TempWhy([string]$mark) { if ($mark) { return " — $mark" } else { return '' } }
-
-# A method marked "not for transfer": still carried over -> stays TRANSFERRED with a note (a
-# workaround moved into the configuration is worth a look); otherwise -> TEMPORARY.
-function Set-TempMark($item, $mark, [string]$label) {
-	if ($null -eq $mark -or -not $item) { return $item }
-	if ($item.Status -eq 'TRANSFERRED') { $item.Text += ' (marked temporary)'; $item.Marked = $true; return $item }
-	return (New-Item2 'TEMPORARY' "$label$(Format-TempWhy $mark)" $item.Loc $item.Group)
-}
-
-# Insert payload sitting right after its line before, or right before its line after, anywhere in v2
-# (significant lines; $null side is not checked). Looser than the in-place check: one neighbour is
-# enough and the spot need not be unique. For an insert not found at its anchor: the anchor may be
-# lost (a payload repeated in the method leaves the search nothing to go on) or resolved to a
-# look-alike elsewhere. Only a neighbour with content counts (see $trivialRe).
-function Test-PayloadBeside($v2sig, $mid, $beforeCtx, $afterCtx) {
-	# A block closer or a bare jump stands next to anything: as a neighbour it proves nothing
-	if ($null -ne $beforeCtx -and $beforeCtx -match $script:trivialRe) { $beforeCtx = $null }
-	if ($null -ne $afterCtx -and $afterCtx -match $script:trivialRe) { $afterCtx = $null }
-	if ($null -eq $beforeCtx -and $null -eq $afterCtx) { return $false }
-	$n = $mid.Count
-	for ($i = 0; $i -le ($v2sig.Count - $n); $i++) {
-		$ok = $true
-		for ($m = 0; $m -lt $n; $m++) { if ($v2sig[$i + $m] -cne $mid[$m]) { $ok = $false; break } }
-		if (-not $ok) { continue }
-		if ($null -ne $beforeCtx -and $i -gt 0 -and $v2sig[$i - 1] -ceq $beforeCtx) { return $true }
-		if ($null -ne $afterCtx -and ($i + $n) -lt $v2sig.Count -and $v2sig[$i + $n] -ceq $afterCtx) { return $true }
-	}
-	return $false
-}
-
-# How many times the run `keys` occurs in `hay` (contiguous, overlapping counted)
-function Get-RunCount($hay, $keys) {
-	$n = $keys.Count; $c = 0
-	if ($n -eq 0) { return 0 }
-	for ($i = 0; $i -le ($hay.Count - $n); $i++) {
-		$ok = $true
-		for ($m = 0; $m -lt $n; $m++) { if ($hay[$i + $m] -cne $keys[$m]) { $ok = $false; break } }
-		if ($ok) { $c++ }
-	}
-	return $c
-}
-
-# Why an edit is disputed, with the line to look at: the insert's neighbour (and whether the
-# configuration keeps it commented out) or the first deleted line.
-function Get-DisputeReason($kind, [string]$line, [string]$key, [string]$side, $v2norm) {
-	$txt = Get-Short $line 60
-	if ($kind -eq 'delete') { return "deleted lines changed in config: $txt" }
-	if (-not $key) { return 'insert anchor changed in config' }
-	$commented = $false
-	foreach ($l in $v2norm) { if ($l.StartsWith('//') -and (($l -replace '^/+\s*', '') -ceq $key)) { $commented = $true; break } }
-	$how = if ($commented) { 'commented out' } else { 'changed' }
-	return "line $side insert $how in config: $txt"
-}
-
-# &ИзменениеИКонтроль: each #Вставка/#Удаление is classified the way cfe-patch-method -Check does
-# (absorbed = already in the main configuration, pending = still to carry over, disputed = the
-# anchor or the deleted lines changed). $null when the method has no edits with code.
-function Get-ControlTransfer($extMethod, $cfgMethod, [string]$prefix) {
-	$parsed = Parse-MarkedBody $extMethod.BodyLines
-	$ops = @($parsed.Ops)
-	$v1norm = @(Get-CodeKeys $parsed.V1 $prefix)
-	$v2norm = @(Get-CodeKeys $cfgMethod.BodyLines $prefix)
-	$v2proj = Get-SignificantProjection $v2norm
-	$v1sig = @((Get-SignificantProjection $v1norm).Sig)
-	$absorbed = 0; $pending = 0; $disputed = @(); $temp = 0; $tempWhy = $null; $markedDone = 0
-	$payloads = @{}
-	for ($oi = 0; $oi -lt $ops.Count; $oi++) {
-		if ($ops[$oi].Kind -eq 'insert') { $payloads[$oi] = @(Get-CodeKeys $ops[$oi].Lines $prefix -Significant) }
-	}
-	$replaced = Get-AbsorbedInPlace $ops $v1norm $v2norm $v2proj.Sig $payloads
-	$deleted = @{}
-	foreach ($op in $ops) { if ($op.Kind -eq 'delete') { for ($m = $op.Start; $m -le $op.End; $m++) { $deleted[$m] = $true } } }
-	$oi = -1
-	foreach ($op in $ops) {
-		$oi++
-		# $res: 'absorbed', 'pending' or the reason the edit is disputed
-		if ($op.Kind -eq 'insert') {
-			$payloadSig = @($payloads[$oi])
-			# A comment-only insert carries nothing to transfer
-			if ($payloadSig.Count -eq 0) { continue }
-			if ($replaced.ContainsKey($oi)) { $res = 'absorbed' }
-			else {
-				$beforeLines = @()
-				if ($op.After -ge 0) { $bs = [Math]::Max(0, $op.After - 2); for ($m = $bs; $m -le $op.After; $m++) { $beforeLines += $v1norm[$m] } }
-				$afterLines = @()
-				$ae = [Math]::Min($v1norm.Count - 1, $op.After + 3)
-				for ($m = $op.After + 1; $m -le $ae; $m++) { $afterLines += $v1norm[$m] }
-				$k = Resolve-InsertionPoint $v2norm $beforeLines $afterLines
-				# The looser checks below accept the payload only as new code: the configuration has it
-				# more times than the original method (an insert repeating a line next to it otherwise
-				# finds that very line)
-				$isNew = (Get-RunCount $v2proj.Sig $payloadSig) -gt (Get-RunCount $v1sig $payloadSig)
-				if ($null -eq $k) { $isAbsorbed = $isNew -and (Find-UniqueRun $v2proj.Sig $payloadSig) -ge 0 }
-				else { $sigStart = @($v2proj.Map | Where-Object { $_ -le $k }).Count; $isAbsorbed = Test-RunAt $v2proj.Sig $payloadSig $sigStart }
-				# Neighbours of the insert in the edited method: deleted lines are not there
-				$bIdx = -1; for ($z = $op.After; $z -ge 0; $z--) { if (-not $deleted.ContainsKey($z) -and (Test-Significant $v1norm[$z])) { $bIdx = $z; break } }
-				$aIdx = -1; for ($z = $op.After + 1; $z -lt $v1norm.Count; $z++) { if (-not $deleted.ContainsKey($z) -and (Test-Significant $v1norm[$z])) { $aIdx = $z; break } }
-				$bCtx = if ($bIdx -ge 0) { $v1norm[$bIdx] } else { $null }
-				$aCtx = if ($aIdx -ge 0) { $v1norm[$aIdx] } else { $null }
-				# Not at the anchor: the anchor found by its line after leaves the carried-over code right
-				# before the spot; otherwise the payload next to a neighbour with content, anywhere
-				if (-not $isAbsorbed -and $isNew -and $null -ne $k) { $isAbsorbed = Test-RunAt $v2proj.Sig $payloadSig ($sigStart - $payloadSig.Count) }
-				if (-not $isAbsorbed -and $isNew) { $isAbsorbed = Test-PayloadBeside $v2proj.Sig $payloadSig $bCtx $aCtx }
-				if ($isAbsorbed) { $res = 'absorbed' }
-				elseif ($null -ne $k) { $res = 'pending' }
-				elseif ($bIdx -ge 0) { $res = Get-DisputeReason 'insert' $parsed.V1[$bIdx] $bCtx 'before' $v2norm }
-				elseif ($aIdx -ge 0) { $res = Get-DisputeReason 'insert' $parsed.V1[$aIdx] $aCtx 'after' $v2norm }
-				else { $res = Get-DisputeReason 'insert' '' '' '' $v2norm }
-			}
-		} else {
-			if ($replaced.ContainsKey($oi)) { $res = 'absorbed' }
-			else {
-				$keys = @(); for ($m = $op.Start; $m -le $op.End; $m++) { $keys += $v1norm[$m] }
-				$p = Find-UniqueRun $v2norm $keys
-				if ($p -ge 0) { $res = 'pending' }
-				else {
-					$delBeforeCtx = $null; for ($z = $op.Start - 1; $z -ge 0; $z--) { if (Test-Significant $v1norm[$z]) { $delBeforeCtx = $v1norm[$z]; break } }
-					$delAfterCtx = $null; for ($z = $op.End + 1; $z -lt $v1norm.Count; $z++) { if (Test-Significant $v1norm[$z]) { $delAfterCtx = $v1norm[$z]; break } }
-					if (Test-DeleteAbsorbed $v2proj.Sig $delBeforeCtx $delAfterCtx) { $res = 'absorbed' }
-					else {
-						$first = @($op.Lines | Where-Object { Test-Significant (Get-Normalized $_) } | Select-Object -First 1)
-						$line = if ($first.Count -gt 0) { $first[0] } else { '' }
-						$res = Get-DisputeReason 'delete' $line '' '' $v2norm
-					}
-				}
-			}
-		}
-		# A block marked "not for transfer" counts as temporary only while it is not in the configuration
-		$mark = Get-BlockTempMark $op
-		if ($null -ne $mark -and $res -ne 'absorbed') { $temp++; if ($null -eq $tempWhy) { $tempWhy = $mark }; continue }
-		if ($res -eq 'absorbed') { $absorbed++; if ($null -ne $mark) { $markedDone++ } }
-		elseif ($res -eq 'pending') { $pending++ }
-		else { $disputed += $res }
-	}
-	$n = $absorbed + $pending + $disputed.Count
-	if ($n -eq 0) {
-		if ($temp -gt 0) { return @{ Status = 'TEMPORARY'; Count = (Get-Plural $temp 'edit'); Note = $tempWhy } }
-		return $null
-	}
-	$count = "$absorbed/$n edits"
-	if ($temp -gt 0) { $count += ", $temp temporary" }
-	if ($disputed.Count -gt 0) {
-		$more = if ($disputed.Count -gt 1) { " (+$($disputed.Count - 1) more)" } else { '' }
-		return @{ Status = 'DIVERGED'; Count = $count; Note = "$($disputed[0])$more" }
-	}
-	$st = if ($absorbed -eq $n) { 'TRANSFERRED' } elseif ($absorbed -eq 0) { 'NOT_TRANSFERRED' } else { 'PARTIAL' }
-	$note = if ($markedDone -gt 0) { "$markedDone marked temporary" } else { '' }
-	return @{ Status = $st; Count = $count; Note = $note; Marked = ($markedDone -gt 0) }
-}
-
-# &Перед/&После/&Вместо and form event interceptors: there is no marked original to compare with,
-# so the interceptor's code lines are looked up, in order, in the body of the target method.
-# Plumbing (ПродолжитьВызов and the return of its result) is not part of the fix and is skipped;
-# the interceptor's parameters are renamed to the original's by position.
-function Get-HeuristicTransfer($extMethod, $cfgMethod, [string]$prefix) {
-	$proceedRe = '(?i)' + (Get-KwAlt 'Proceed') + '\s*\('
-	$resultVars = @()
-	$lines = @()
-	foreach ($l in $extMethod.BodyLines) {
-		$n = Get-CodeKey $l $prefix
-		if (-not (Test-Significant $n)) { continue }
-		if ($n -match $proceedRe) {
-			if ($n -match '^([\w]+)\s*=') { $resultVars += $Matches[1] }
-			continue
-		}
-		$lines += $n
-	}
-	if ($resultVars.Count -gt 0) {
-		$retRe = '(?i)^' + (Get-KwAlt 'Return') + '\s+(?:' + (($resultVars | ForEach-Object { [regex]::Escape($_) }) -join '|') + ')\s*;?$'
-		$lines = @($lines | Where-Object { $_ -notmatch $retRe })
-	}
-	$ep = @($extMethod.ParamNames); $cp = @($cfgMethod.ParamNames)
-	# One pass for all names: renaming one by one would rename again a name already renamed
-	# when the two lists overlap (Источник, Отказ -> Отказ, Режим)
-	$renames = @{}
-	for ($i = 0; $i -lt [Math]::Min($ep.Count, $cp.Count); $i++) {
-		if ($ep[$i] -ine $cp[$i]) { $renames[$ep[$i].ToLowerInvariant()] = $cp[$i].ToLowerInvariant() }
-	}
-	if ($renames.Count -gt 0) {
-		$alt = (@($renames.Keys) | ForEach-Object { [regex]::Escape($_) }) -join '|'
-		$re = New-Object System.Text.RegularExpressions.Regex ('(?<!\w)(?:' + $alt + ')(?!\w)'), ([System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
-		$ev = [System.Text.RegularExpressions.MatchEvaluator] { param($m) $renames[$m.Value.ToLowerInvariant()] }
-		$lines = @($lines | ForEach-Object { $re.Replace($_, $ev) })
-	}
-	# Block closers and bare jumps match anywhere — they would only inflate the score
-	$meaningful = @($lines | Where-Object { $_ -notmatch $script:trivialRe })
-	if ($meaningful.Count -gt 0) { $lines = $meaningful }
-	if ($lines.Count -eq 0) { return $null }
-	$hay = Get-SigLines $cfgMethod.BodyLines $prefix
-	$found = 0; $j = 0
-	foreach ($l in $lines) {
-		for ($k = $j; $k -lt $hay.Count; $k++) {
-			if ($hay[$k] -ieq $l) { $found++; $j = $k + 1; break }
-		}
-	}
-	return @{ Found = $found; Total = $lines.Count }
-}
-
-function Get-HeuristicStatus($h) {
-	if ($h.Found -eq $h.Total) { return 'TRANSFERRED' }
-	if ($h.Found -eq 0) { return 'NOT_TRANSFERRED' }
-	return 'PARTIAL'
-}
-
-function New-Item2([string]$status, [string]$text, [string]$loc = '', [string]$group = '') {
-	return @{ Status = $status; Text = $text; Loc = $loc; Group = $group }
 }
 
 # ============================================================
@@ -1204,20 +442,6 @@ function Test-HasElementChild($node) {
 	return $false
 }
 
-# Comparable type of an attribute: the set of its types without namespace and extension prefixes
-function Get-MdTypeKey($node, $mns, [string]$prefix) {
-	$t = $node.SelectSingleNode("md:Properties/md:Type", $mns)
-	if (-not $t) { return '' }
-	$parts = @()
-	foreach ($c in $t.ChildNodes) {
-		if ($c.NodeType -ne 'Element') { continue }
-		if ($c.LocalName -ne 'Type' -and $c.LocalName -ne 'TypeSet') { continue }
-		$parts += (Remove-ExtPrefix ($c.InnerText.Trim() -replace '^[\w]+:', '') $prefix)
-	}
-	$arr = [string[]]@($parts)
-	[Array]::Sort($arr, [StringComparer]::Ordinal)
-	return ($arr -join ' | ')
-}
 
 function Get-KindWord([string]$localName) {
 	return ([regex]::Replace($localName, '(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])', ' ')).ToLower()
@@ -1373,14 +597,6 @@ function Get-MovedSet($mi, $bi) {
 	return $moved
 }
 
-# Nearest preceding sibling of a record that the other side knows (names compared without the prefix)
-function Get-PrevKnown($rec, $otherNames, [string]$prefix) {
-	for ($i = $rec.Pos - 1; $i -ge 0; $i--) {
-		$hit = Find-NameIn $otherNames $rec.Siblings[$i] $prefix
-		if ($hit) { return $hit }
-	}
-	return ''
-}
 
 $script:formStructural = @('ChildItems', 'Attributes', 'Commands', 'Parameters', 'Events', 'CommandInterface', 'BaseForm')
 
@@ -1689,141 +905,6 @@ function Format-FormDiff($diff, [string]$label, [string]$ind) {
 	return $lines
 }
 
-# Transfer check of a form diff against the form of the main configuration
-# One property change of the extension against the configuration: 'ok' (the extension's value),
-# 'pending' (still the BaseForm value) or 'differs' (changed in the configuration some other way).
-function Get-PropTransfer($cpm, $p, [string]$prefix) {
-	$cv = if ($cpm.Contains($p.Key)) { Get-CmpKey $cpm[$p.Key] $prefix } else { $null }
-	$nv = Get-CmpKey $p.New $prefix
-	$ov = Get-CmpKey $p.Old $prefix
-	if ($cv -ieq $nv) { return 'ok' }
-	if ($cv -ieq $ov) { return 'pending' }
-	return 'differs'
-}
-
-function Get-FormTransferItems($diff, $form, [string]$cfgFormXml, [string]$cfgModulePath, [string]$extDir, [string]$prefix) {
-	$items = @()
-	$group = $form.Label
-	$cfgDoc = Read-FormDoc $cfgFormXml
-	if (-not $cfgDoc) {
-		$items += New-Item2 'MISSING_IN_CONFIG' "form not found in config ($($diff.Total) changes)" '' $group
-		return $items
-	}
-	$cr = $cfgDoc.DocumentElement
-	$ci = Get-FormElementIndex $cr
-	$cNames = @($ci.Keys)
-	$asText = { param($found, $orig) if ($found -and $found -ine $orig) { " (found as $found)" } else { '' } }
-
-	foreach ($ch in $diff.Elements) {
-		$rec = $ch.Rec
-		$tag = Get-ElementTag $rec.Node
-		$hit = Find-NameIn $cNames $rec.Name $prefix
-		if ($ch.Kind -eq 'added') {
-			$in = if ($rec.Parent) { " (in: $($rec.Parent))" } else { '' }
-			$st = if ($hit) { 'TRANSFERRED' } else { 'NOT_TRANSFERRED' }
-			$items += New-Item2 $st "+ $tag $($rec.Name)$in$(& $asText $hit $rec.Name)" '' $group
-			continue
-		}
-		if ($ch.Props.Count -gt 0) {
-			$keys = @($ch.Props | ForEach-Object { $_.Key })
-			if (-not $hit) {
-				$items += New-Item2 'NOT_TRANSFERRED' "~ $tag $($rec.Name): $($keys -join ', ') (element not in config)" '' $group
-			} else {
-				$cpm = Get-PropMap $ci[$hit].Node
-				$ok = 0; $differs = @()
-				foreach ($p in $ch.Props) {
-					$r = Get-PropTransfer $cpm $p $prefix
-					if ($r -eq 'ok') { $ok++ } elseif ($r -eq 'differs') { $differs += $p.Key }
-				}
-				$n = $ch.Props.Count
-				$st = if ($differs.Count -gt 0) { 'DIVERGED' } elseif ($ok -eq $n) { 'TRANSFERRED' } elseif ($ok -eq 0) { 'NOT_TRANSFERRED' } else { 'PARTIAL' }
-				$cnt = if ($st -eq 'DIVERGED' -and $differs.Count -eq $n) { ' (config value differs)' } elseif ($st -eq 'DIVERGED') { " (config value differs: $($differs -join ', '))" } elseif ($st -eq 'PARTIAL') { " ($ok/$n props)" } else { '' }
-				$items += New-Item2 $st "~ $tag $($rec.Name): $($keys -join ', ')$cnt" '' $group
-			}
-		}
-		if ($ch.Moved) {
-			$st = 'NOT_TRANSFERRED'
-			if ($hit) {
-				$crec = $ci[$hit]
-				$sameParent = ((Remove-ExtPrefix $crec.Parent $prefix) -ieq (Remove-ExtPrefix $rec.Parent $prefix))
-				$want = Get-PrevKnown $rec $cNames $prefix
-				$have = Get-PrevKnown $crec @($diff.MainIndex.Keys) $prefix
-				$haveMapped = if ($have) { Find-NameIn $cNames $have $prefix } else { '' }
-				if ($sameParent -and ($want -ieq $haveMapped)) { $st = 'TRANSFERRED' }
-			}
-			$items += New-Item2 $st "> $tag $($rec.Name): $(Get-MoveText $ch)" '' $group
-		}
-	}
-
-	# Interceptor of a handler: the extension's handler code looked up in the configuration's one
-	$extMod = Read-BslLines $form.Module
-	$cfgMod = Read-BslLines $cfgModulePath
-	$modRel = if ($form.Module -and (Test-Path -LiteralPath $form.Module)) { Get-RelPath $extDir $form.Module } else { '' }
-	$checkHandler = {
-		param([string]$label, [string]$extHandler, [string]$cfgHandler, [string]$missing)
-		$extM = Get-MethodSafe $extMod $extHandler
-		$loc = if ($extM -and $modRel) { "${modRel}:$($extM.DeclIdx + 1)" } else { '' }
-		$mark = if ($extM) { Get-MethodTempMark $extMod $extM } else { $null }
-		if (-not $cfgHandler) { return (Set-TempMark (New-Item2 'NOT_TRANSFERRED' "$label ($missing)" $loc $group) $mark $label) }
-		$cfgM = Get-MethodSafe $cfgMod $cfgHandler
-		if (-not $extM) { return (New-Item2 'NOT_TRANSFERRED' "$label (handler not found in extension module)" $loc $group) }
-		if (-not $cfgM) { return (Set-TempMark (New-Item2 'NOT_TRANSFERRED' "$label (config handler $cfgHandler not found in module)" $loc $group) $mark $label) }
-		$h = Get-HeuristicTransfer $extM $cfgM $prefix
-		if (-not $h) { return $null }
-		return (Set-TempMark (New-Item2 (Get-HeuristicStatus $h) "$label (heuristic: $($h.Found)/$($h.Total) lines)" $loc $group) $mark $label)
-	}
-
-	foreach ($sec in @(@('Attributes', 'Attribute', 'attribute'), @('Commands', 'Command', 'command'), @('Parameters', 'Parameter', 'parameter'))) {
-		if ($diff[$sec[0]].Count -eq 0) { continue }
-		$cm = Get-SectionMap $cr $sec[0] $sec[1]
-		$cn = @($cm.Keys)
-		foreach ($x in $diff[$sec[0]]) {
-			# A configuration command the extension intercepts (its action carries callType): kept in
-			# BaseForm (Changed) or not, so "absent from BaseForm" alone does not make it the extension's own
-			$ctActs = @($x.Actions | Where-Object { $_.CallType })
-			if ($sec[1] -eq 'Command' -and $ctActs.Count -gt 0 -and ($cm.Contains($x.Name) -or $x.Changed)) {
-				$cfgAct = if ($cm.Contains($x.Name)) { $cm[$x.Name].SelectSingleNode("d:Action", $ns) } else { $null }
-				$cfgHandler = if ($cfgAct) { $cfgAct.InnerText.Trim() } else { '' }
-				foreach ($a in $ctActs) {
-					$it = & $checkHandler "command $($x.Name)[$($a.CallType)] -> $($a.Handler)" $a.Handler $cfgHandler "no action of $($x.Name) in config"
-					if ($it) { $items += $it }
-				}
-				continue
-			}
-			$hit = Find-NameIn $cn $x.Name $prefix
-			$st = if ($hit) { 'TRANSFERRED' } else { 'NOT_TRANSFERRED' }
-			$items += New-Item2 $st "+ $($sec[2]) $($x.Name)$($x.Info)$(& $asText $hit $x.Name)" '' $group
-		}
-	}
-
-	if ($diff.FormProps.Count -gt 0) {
-		$cpm = Get-PropMap $cr -Root
-		foreach ($p in $diff.FormProps) {
-			$r = Get-PropTransfer $cpm $p $prefix
-			$st = if ($r -eq 'ok') { 'TRANSFERRED' } elseif ($r -eq 'pending') { 'NOT_TRANSFERRED' } else { 'DIVERGED' }
-			$why = if ($r -eq 'differs') { ' (config value differs)' } else { '' }
-			$items += New-Item2 $st "~ form $(Get-PropChangeText $p)$why" '' $group
-		}
-	}
-	foreach ($b in $diff.Blocks) {
-		$cnode = $cr.SelectSingleNode($b.XPath, $ns)
-		$st = if ((Get-CmpKey $cnode $prefix) -ieq (Get-CmpKey $b.Node $prefix)) { 'TRANSFERRED' } else { 'NOT_TRANSFERRED' }
-		$items += New-Item2 $st "~ $($b.Name)" '' $group
-	}
-
-	foreach ($e in $diff.Events) {
-		$target = $null
-		if ($e.Scope) {
-			$hit = Find-NameIn $cNames $e.Scope $prefix
-			if ($hit) { $target = $ci[$hit].Node }
-		} else { $target = $cr }
-		$cfgHandler = ''
-		if ($target) { foreach ($ce in (Get-EventList $target)) { if ($ce.Name -ieq $e.Name) { $cfgHandler = $ce.Handler; break } } }
-		$it = & $checkHandler "event $(Get-EventText $e)" $e.Handler $cfgHandler "no $($e.Name) handler in config"
-		if ($it) { $items += $it }
-	}
-	return $items
-}
 
 # Handlers bound with callType (events, command actions): they are interceptors, not own methods
 function Get-CallTypeHandlers($diff) {
@@ -1833,178 +914,6 @@ function Get-CallTypeHandlers($diff) {
 		foreach ($c in $diff.Commands) { foreach ($a in $c.Actions) { if ($a.CallType -and $a.Handler) { $s[$a.Handler.ToLower()] = $true } } }
 	}
 	return $s
-}
-
-# ============================================================
-# Transfer check of one object
-# ============================================================
-
-function Get-ModuleTransferItems([string]$bsl, [string]$extDir, [string]$prefix, $skipHandlers) {
-	$items = @()
-	$extLines = Read-BslLines $bsl
-	if ($null -eq $extLines) { return $items }
-	$rel = Get-RelPath $extDir $bsl
-	$cfgLines = Read-BslLines (Join-Path $ConfigPath $rel)
-	$mc = Get-ModuleChanges $extLines $skipHandlers
-	foreach ($x in $mc.Interceptors) {
-		$ic = $x.Ic; $decl = $x.Decl
-		$label = "&$($ic.Raw)(`"$($ic.Method)`")"
-		$loc = "${rel}:$($ic.Line + 1)"
-		$extM = if ($decl) { Get-MethodSafe $extLines $decl.Name } else { $null }
-		$mark = if ($extM) { Get-MethodTempMark $extLines $extM -AboveOnly:($ic.Type -eq 'ИзменениеИКонтроль') } else { $null }
-		$cfgM = Get-MethodSafe $cfgLines $ic.Method
-		$it = $null
-		if (-not $cfgM) {
-			$why = if ($null -eq $cfgLines) { 'module not found in config' } else { 'method not found in config' }
-			$it = New-Item2 'MISSING_IN_CONFIG' "$label ($why)" $loc
-		} elseif (-not $extM) {
-			$it = New-Item2 'DIVERGED' "$label (cannot parse the interceptor)" $loc
-		} elseif ($ic.Type -eq 'ИзменениеИКонтроль') {
-			$r = Get-ControlTransfer $extM $cfgM $prefix
-			if ($r) {
-				$note = if ($r.Note) { " ($($r.Note))" } else { '' }
-				$it = New-Item2 $r.Status "$label — $($r.Count)$note" $loc
-				if ($r.Marked -and $r.Status -eq 'TRANSFERRED') { $it.Marked = $true }
-			}
-		} else {
-			$h = Get-HeuristicTransfer $extM $cfgM $prefix
-			if ($h) { $it = New-Item2 (Get-HeuristicStatus $h) "$label (heuristic: $($h.Found)/$($h.Total) lines)" $loc }
-		}
-		if ($it) { $items += (Set-TempMark $it $mark $label) }
-	}
-	$cfgNames = if ($null -ne $cfgLines) { @(Get-ProcNames $cfgLines) } else { @() }
-	foreach ($od in $mc.Own) {
-		$pn = $od.Name
-		$extM = Get-MethodSafe $extLines $pn
-		if (-not $extM) { continue }
-		$loc = "${rel}:$($extM.DeclIdx + 1)"
-		$mark = Get-MethodTempMark $extLines $extM
-		$hit = Find-NameIn $cfgNames $pn $prefix
-		if (-not $hit) { $it = New-Item2 'NOT_TRANSFERRED' "method $pn" $loc }
-		else {
-			$as = if ($hit -ine $pn) { " (found as $hit)" } else { '' }
-			$cfgM = Get-MethodSafe $cfgLines $hit
-			$same = $cfgM -and (((Get-SigLines $extM.BodyLines $prefix) -join "`n") -ieq ((Get-SigLines $cfgM.BodyLines $prefix) -join "`n"))
-			$it = if ($same) { New-Item2 'TRANSFERRED' "method $pn$as" $loc } else { New-Item2 'DIVERGED' "method $pn$as (body differs)" $loc }
-		}
-		$items += (Set-TempMark $it $mark "method $pn")
-	}
-	return $items
-}
-
-# Own sub-objects of a borrowed object (attributes, tabular sections, commands, forms, templates, …)
-function Get-OwnChildItems($ctx, $cfgMd, [string]$prefix) {
-	$items = @()
-	if (-not $ctx.Md -or -not $ctx.Md.Children) { return $items }
-	$mns = $ctx.Md.Ns
-	$cfgKids = @()
-	if ($cfgMd -and $cfgMd.Children) { foreach ($c in $cfgMd.Children.ChildNodes) { if ($c.NodeType -eq 'Element') { $cfgKids += $c } } }
-	$check = {
-		param($node, [string]$label, $cfgPool, [string]$path)
-		$nm = Get-MdChildName $node $mns
-		$cands = @($cfgPool | Where-Object { $_.LocalName -eq $node.LocalName })
-		$hit = Find-NameIn @($cands | ForEach-Object { Get-MdChildName $_ $cfgMd.Ns }) $nm $prefix
-		$full = if ($path) { "$path.$nm" } else { $nm }
-		if (-not $hit) { return (New-Item2 'NOT_TRANSFERRED' "$label $full") }
-		$as = if ($hit -ine $nm) { " (found as $hit)" } else { '' }
-		if ($node.SelectSingleNode("md:Properties/md:Type", $mns)) {
-			$cnode = @($cands | Where-Object { (Get-MdChildName $_ $cfgMd.Ns) -ieq $hit })[0]
-			$a = Get-MdTypeKey $node $mns $prefix; $b = Get-MdTypeKey $cnode $cfgMd.Ns $prefix
-			if ($a -ine $b) { return (New-Item2 'DIVERGED' "$label $full$as (type: $a vs $b in config)") }
-		}
-		return (New-Item2 'TRANSFERRED' "$label $full$as")
-	}
-	foreach ($c in $ctx.Md.Children.ChildNodes) {
-		if ($c.NodeType -ne 'Element') { continue }
-		if (-not (Test-HasElementChild $c)) {
-			# <Form>Имя</Form>, <Template>Имя</Template>: ownership is in the sub-object descriptor
-			$nm = $c.InnerText.Trim()
-			$desc = Read-MdObject (Join-Path (Join-Path $ctx.ObjDir "$($c.LocalName)s") "$nm.xml")
-			if ($desc -and (Test-AdoptedNode $desc.Props $desc.Ns)) { continue }
-			$hit = Find-NameIn @($cfgKids | Where-Object { $_.LocalName -eq $c.LocalName } | ForEach-Object { $_.InnerText.Trim() }) $nm $prefix
-			$as = if ($hit -and $hit -ine $nm) { " (found as $hit)" } else { '' }
-			$st = if ($hit) { 'TRANSFERRED' } else { 'NOT_TRANSFERRED' }
-			$items += New-Item2 $st "$(Get-KindWord $c.LocalName) $nm$as"
-			continue
-		}
-		if (-not (Test-AdoptedNode $c $mns)) {
-			$items += (& $check $c (Get-KindWord $c.LocalName) $cfgKids '')
-			continue
-		}
-		# Borrowed tabular section: its own attributes
-		$sub = $c.SelectSingleNode("md:ChildObjects", $mns)
-		if (-not $sub) { continue }
-		$tsName = Get-MdChildName $c $mns
-		$cfgTs = @($cfgKids | Where-Object { $_.LocalName -eq $c.LocalName -and (Get-MdChildName $_ $cfgMd.Ns) -ieq $tsName })[0]
-		$cfgSub = @()
-		if ($cfgTs) { $cs = $cfgTs.SelectSingleNode("md:ChildObjects", $cfgMd.Ns); if ($cs) { foreach ($x in $cs.ChildNodes) { if ($x.NodeType -eq 'Element') { $cfgSub += $x } } } }
-		foreach ($sc in $sub.ChildNodes) {
-			if ($sc.NodeType -ne 'Element' -or (Test-AdoptedNode $sc $mns)) { continue }
-			$items += (& $check $sc (Get-KindWord $sc.LocalName) $cfgSub $tsName)
-		}
-	}
-	return $items
-}
-
-function Get-TransferObject($ext, $obj) {
-	$ctx = Get-ObjContext $ext.Dir $obj.Type $obj.Name
-	$rec = @{ Id = "$($obj.Type).$($obj.Name)"; Items = @() }
-	if (-not $ctx.Known -or -not $ctx.Exists) { return $rec }
-	$prefix = $ext.Prefix
-	if (-not $ctx.Borrowed) {
-		$pool = @()
-		if ($cfgInfo.ChildObjects) { foreach ($c in $cfgInfo.ChildObjects.ChildNodes) { if ($c.NodeType -eq 'Element' -and $c.LocalName -eq $obj.Type) { $pool += $c.InnerText.Trim() } } }
-		$hit = Find-NameIn $pool $obj.Name $prefix
-		$as = if ($hit -and $hit -ine $obj.Name) { " (found as $hit)" } else { '' }
-		$st = if ($hit) { 'TRANSFERRED' } else { 'NOT_TRANSFERRED' }
-		$rec.Items += New-Item2 $st "own object$as"
-		return $rec
-	}
-	$cfgFile = Join-Path (Join-Path $ConfigPath $ctx.Dir) "$($obj.Name).xml"
-	$cfgMd = Read-MdObject $cfgFile
-	$forms = @(Get-ObjForms $ctx)
-	$diffs = @{}
-	$formItems = @()
-	foreach ($f in $forms) {
-		if ($f.Own) { continue }
-		$d = Get-FormDiff $f.Xml
-		if (-not $d -or -not $d.IsBorrowed) { continue }
-		$diffs[[IO.Path]::GetFullPath($f.Module)] = $d
-		if ($d.Total -eq 0) { continue }
-		$rel = Get-RelPath $ext.Dir $f.Xml
-		$cfgForm = Join-Path $ConfigPath $rel
-		$cfgModule = Join-Path $ConfigPath (Get-RelPath $ext.Dir $f.Module)
-		# Dialog changes have no line of their own: their file is the form's Form.xml
-		foreach ($fi in @(Get-FormTransferItems $d $f $cfgForm $cfgModule $ext.Dir $prefix)) {
-			if (-not $fi.Loc) { $fi.Section = $rel }
-			$formItems += $fi
-		}
-	}
-	foreach ($bsl in @(Get-ObjModules $ctx $forms)) {
-		$skip = @{}
-		$key = [IO.Path]::GetFullPath($bsl)
-		if ($diffs.ContainsKey($key)) { $skip = Get-CallTypeHandlers $diffs[$key] }
-		$rec.Items += @(Get-ModuleTransferItems $bsl $ext.Dir $prefix $skip)
-	}
-	$rec.Items += @(Get-OwnChildItems $ctx $cfgMd $prefix)
-	if ($obj.Type -eq 'Subsystem') { $rec.Items += @(Get-SubsystemContentItems $ctx.Md $cfgMd $prefix) }
-	$rec.Items += $formItems
-	# Section = the file the change lives in (a module line, the form's Form.xml, the object's own
-	# XML for its sub-objects); the item then keeps only its line number
-	$objRel = Get-RelPath $ext.Dir $ctx.File
-	foreach ($it in $rec.Items) {
-		if ($it.Loc -match '^(.+):(\d+)$') { $it.Section = $Matches[1]; $it.Loc = ":$($Matches[2])" }
-		elseif (-not $it.Section) { $it.Section = $objRel }
-	}
-	if (-not $cfgMd -and $rec.Items.Count -gt 0) {
-		# Temporary changes stay apart: they are not for transfer, missing object or not
-		$temp = @($rec.Items | Where-Object { $_.Status -eq 'TEMPORARY' })
-		$rest = $rec.Items.Count - $temp.Count
-		$rec.Items = @()
-		if ($rest -gt 0) { $rec.Items += New-Item2 'MISSING_IN_CONFIG' "object not found in config ($(Get-Plural $rest 'change'))" }
-		$rec.Items += $temp
-	}
-	return $rec
 }
 
 # ============================================================
@@ -2101,25 +1010,8 @@ function Get-SubsystemContent($md) {
 	return $res
 }
 
-# Transfer of a borrowed subsystem's content: each object the extension adds must be in the content
-# of the configuration's subsystem (own names compared with and without the prefix)
-function Get-SubsystemContentItems($md, $cfgMd, [string]$prefix) {
-	$items = @()
-	$cfg = @(Get-SubsystemContent $cfgMd)
-	foreach ($ref in @(Get-SubsystemContent $md)) {
-		$i = $ref.IndexOf('.')
-		$typ = if ($i -ge 0) { $ref.Substring(0, $i) } else { $ref }
-		$nm = if ($i -ge 0) { $ref.Substring($i + 1) } else { '' }
-		$pool = @($cfg | Where-Object { $_.StartsWith("$typ.") } | ForEach-Object { $_.Substring($typ.Length + 1) })
-		$hit = Find-NameIn $pool $nm $prefix
-		$as = if ($hit -and $hit -ine $nm) { " (found as $typ.$hit)" } else { '' }
-		$st = if ($hit) { 'TRANSFERRED' } else { 'NOT_TRANSFERRED' }
-		$items += New-Item2 $st "content $ref$as"
-	}
-	return $items
-}
 
-# Overview details, grouped by file like the transfer ones: modules with their interceptors and own
+# Overview details, grouped by file like the cfe-transfer report: modules with their interceptors and own
 # methods, the object's XML with its own sub-objects, Form.xml with the tree of changes vs BaseForm
 function Format-OverviewDetails($items) {
 	$lines = New-Object System.Collections.Generic.List[string]
@@ -2249,39 +1141,8 @@ function Test-NameMatch([string]$id) {
 	return $false
 }
 
-# -Expand: a section is opened by its object (Type.Name), a path from the section headers (prefix,
-# so a form folder opens its Form.xml and Module.bsl) or * for all. A logical name as other skills
-# take it (Type.Name.Form.F, Type.Name.ObjectModule) is turned into that path.
-function Get-ExpandPrefix([string]$token) {
-	$t = $token.Trim()
-	if ($t -match '[\\/]') { return (($t -replace '\\', '/').TrimEnd('/').ToLower()) }
-	$parts = $t.Split('.')
-	if ($parts.Count -lt 3 -or -not $childTypeDirMap.ContainsKey($parts[0])) { return $null }
-	$base = "$($childTypeDirMap[$parts[0]])/$($parts[1])"
-	if ($parts[2] -ieq 'Form') {
-		if ($parts.Count -ge 4) { return "$base/Forms/$($parts[3])".ToLower() }
-		return $base.ToLower()
-	}
-	if ($parts[2] -ieq 'Command') {
-		if ($parts.Count -ge 4) { return "$base/Commands/$($parts[3])".ToLower() }
-		return $base.ToLower()
-	}
-	return "$base/Ext/$($parts[2]).bsl".ToLower()
-}
 
-function Test-Expanded($ext, [string]$objId, [string]$section) {
-	foreach ($t in $expandList) {
-		if ($t -eq '*' -or $t -ieq $objId) { return $true }
-		$p = Get-ExpandPrefix $t
-		if (-not $p -or -not $section) { continue }
-		$s = $section.ToLower()
-		$full = ((Join-Path $ext.Dir $section) -replace '\\', '/').ToLower()
-		foreach ($c in @($s, $full)) { if ($c -eq $p -or $c.StartsWith("$p/")) { return $true } }
-	}
-	return $false
-}
-
-# Order of detail sections, the same in both modes: plain files first, then each form with its
+# Order of detail sections: plain files first, then each form with its
 # Form.xml before its Module.bsl. Returns @{ Plain = @(paths); Forms = @(@{ Dir; Secs = @(paths) }) }
 function Get-SectionLayout($order) {
 	$plain = @()
@@ -2298,61 +1159,12 @@ function Get-SectionLayout($order) {
 	return @{ Plain = $plain; Forms = $res }
 }
 
-# Details of an object in transfer, grouped by the file each change lives in. A plain transferred
-# change folds into "… N transferred" unless its section is expanded (one marked temporary stays
-# in sight); a section with nothing else left is one line, and so is a form whose files all are.
-function Get-TransferDetails($ext, $rec) {
-	$lines = New-Object System.Collections.Generic.List[string]
-	$folded = 0
-	$order = New-Object System.Collections.Generic.List[string]
-	$bySec = @{}
-	foreach ($it in $rec.Items) {
-		$s = [string]$it.Section
-		if (-not $bySec.ContainsKey($s)) { $bySec[$s] = New-Object System.Collections.ArrayList; $order.Add($s) }
-		[void]$bySec[$s].Add($it)
-	}
-	# Shown items and the folded count of a section
-	$view = @{}
-	foreach ($s in $order) {
-		$open = Test-Expanded $ext $rec.Id $s
-		$shown = @($bySec[$s] | Where-Object { $open -or $_.Status -ne 'TRANSFERRED' -or $_.Marked })
-		$view[$s] = @{ Shown = $shown; Hidden = ($bySec[$s].Count - $shown.Count) }
-	}
-	$emit = {
-		param([string]$s)
-		$v = $view[$s]
-		$pad = if ($s) { '      ' } else { '    ' }
-		if ($s) {
-			if ($v.Shown.Count -eq 0) { $lines.Add("    ${s}: $($v.Hidden) transferred"); return }
-			$lines.Add("    ${s}:")
-		}
-		foreach ($it in $v.Shown) {
-			$loc = if ($it.Loc) { "  $($it.Loc)" } else { '' }
-			$lines.Add("$pad$(Format-Status $it.Status)$($it.Text)$loc")
-		}
-		if ($v.Hidden -gt 0) { $lines.Add("$pad… $($v.Hidden) transferred") }
-	}
-	$lay = Get-SectionLayout $order
-	foreach ($s in $lay.Plain) { & $emit $s; $folded += $view[$s].Hidden }
-	foreach ($f in $lay.Forms) {
-		$fd = $f.Dir; $secs = $f.Secs
-		$hidden = 0; $shown = 0
-		foreach ($s in $secs) { $hidden += $view[$s].Hidden; $shown += $view[$s].Shown.Count }
-		$folded += $hidden
-		if ($shown -eq 0) { $lines.Add("    ${fd}: $hidden transferred"); continue }
-		foreach ($s in $secs) { & $emit $s }
-	}
-	return @{ Lines = $lines.ToArray(); Folded = $folded }
-}
-
-$statusOrder = @('TRANSFERRED', 'NOT_TRANSFERRED', 'PARTIAL', 'DIVERGED', 'MISSING_IN_CONFIG', 'TEMPORARY')
-function Format-Status([string]$st) { return ("[$st]").PadRight(21) }
 
 $exts = @()
 $matchedIds = @{}
 foreach ($dir in $extDirs) {
 	$cp = Read-ConfigurationProps $dir
-	$ext = @{ Dir = $dir; Name = $cp.Name; Prefix = $cp.Prefix; Purpose = $cp.Purpose; Objects = @(); Roles = 0; Borrowed = 0; Own = 0; Matched = 0 }
+	$ext = @{ Dir = $dir; Name = $cp.Name; Prefix = $cp.Prefix; Purpose = $cp.Purpose; Objects = @(); Borrowed = 0; Own = 0; Matched = 0 }
 	if ($cp.ChildObjects) {
 		foreach ($child in $cp.ChildObjects.ChildNodes) {
 			if ($child.NodeType -ne 'Element' -or $child.LocalName -eq 'Language') { continue }
@@ -2361,34 +1173,12 @@ foreach ($dir in $extDirs) {
 			if (-not (Test-NameMatch $id)) { continue }
 			$matchedIds[$id.ToLower()] = $true
 			$ext.Matched++
-			if ($Mode -eq 'transfer') {
-				if ($obj.Type -eq 'Role') { $ext.Roles++; continue }
-				$rec = Get-TransferObject $ext $obj
-				if ($rec.Items.Count -eq 0) { continue }
-				# Temporary changes are not for transfer: they neither leave the object incomplete nor set its status
-				$sts = @($rec.Items | Where-Object { $_.Status -ne 'TEMPORARY' } | ForEach-Object { $_.Status } | Select-Object -Unique)
-				# A mix shows its most alarming status: a conflict must not hide behind PARTIAL
-				$rec.Status = if ($sts.Count -eq 0) { 'TEMPORARY' } elseif ($sts.Count -eq 1) { $sts[0] } elseif ($sts -contains 'DIVERGED') { 'DIVERGED' } elseif ($sts -contains 'MISSING_IN_CONFIG') { 'MISSING_IN_CONFIG' } else { 'PARTIAL' }
-				$done = @($rec.Items | Where-Object { $_.Status -eq 'TRANSFERRED' }).Count
-				$temp = @($rec.Items | Where-Object { $_.Status -eq 'TEMPORARY' }).Count
-				$rec.Complete = (($done + $temp) -eq $rec.Items.Count)
-				$tempNote = if ($temp -gt 0) { ", $temp temporary" } else { '' }
-				$tail = if ($rec.Complete) { "$(Get-Plural $rec.Items.Count 'change')$(if ($temp) { " ($temp temporary)" })" } else { "$(Get-Plural $rec.Items.Count 'change'): $done transferred, $($rec.Items.Count - $done - $temp) remaining$tempNote" }
-				$rec.Summary = "$(Format-Status $rec.Status)$($rec.Id) — $tail"
-				$dv = Get-TransferDetails $ext $rec
-				$rec.Details = $dv.Lines
-				$rec.Folded = $dv.Folded
-				# Asked for by name or opened with -Expand: details even when all is transferred
-				$rec.Asked = ($nameFilter.Count -gt 0) -or (Test-Expanded $ext $rec.Id '')
-				$ext.Objects += $rec
-			} else {
-				$rec = Get-OverviewObject $ext $obj
-				if ($rec.Kind -eq 'borrowed') { $ext.Borrowed++ } elseif ($rec.Kind -eq 'own') { $ext.Own++ }
-				# A borrowed object without changes is folded into the summary unless asked for
-				# (-Expand * lists them in the summary instead)
-				$rec.Asked = ($nameFilter.Count -gt 0) -or (@($expandList | Where-Object { $_ -ieq $rec.Id }).Count -gt 0)
-				$ext.Objects += $rec
-			}
+			$rec = Get-OverviewObject $ext $obj
+			if ($rec.Kind -eq 'borrowed') { $ext.Borrowed++ } elseif ($rec.Kind -eq 'own') { $ext.Own++ }
+			# A borrowed object without changes is folded into the summary unless asked for
+			# (-Expand * lists them in the summary instead)
+			$rec.Asked = ($nameFilter.Count -gt 0) -or (@($expandList | Where-Object { $_ -ieq $rec.Id }).Count -gt 0)
+			$ext.Objects += $rec
 		}
 	}
 	# -Name narrows the report: an extension without a matching object stays out of it
@@ -2401,38 +1191,28 @@ $fullCount = 0
 foreach ($ext in $exts) {
 	$fullCount += 3
 	foreach ($o in $ext.Objects) {
-		if ($Mode -eq 'overview' -and $o.Unchanged -and -not $o.Asked) { continue }
-		$fullCount += 1
-		if ($Mode -eq 'overview' -or -not $o.Complete -or $o.Asked) { $fullCount += $o.Details.Count }
+		if ($o.Unchanged -and -not $o.Asked) { continue }
+		$fullCount += 1 + $o.Details.Count
 	}
 }
 $showDetails = ($nameFilter.Count -gt 0) -or ($fullCount -le $DetailBudget)
 
 # --- Body ---
 $body = @()
-$anyFolded = $false
 foreach ($ext in $exts) {
-	$target = if ($Mode -eq 'transfer') { " -> $($cfgInfo.Name)" } else { '' }
-	$modeName = if ($Mode -eq 'transfer') { 'check-transfer' } else { $Mode }
-	$body += "=== cfe-diff ${modeName}: $($ext.Name) ($($ext.Purpose))$target ==="
+	$body += "=== cfe-diff overview: $($ext.Name) ($($ext.Purpose)) ==="
 	if ($ext.Prefix) { $body += "NamePrefix: $($ext.Prefix)" }
 	$body += ""
 	$shown = 0
 	foreach ($o in $ext.Objects) {
-		if ($Mode -eq 'transfer' -and $o.Complete -and -not $showDetails) { continue }
-		if ($Mode -eq 'overview' -and $o.Unchanged -and -not $o.Asked) { continue }
+		if ($o.Unchanged -and -not $o.Asked) { continue }
 		$body += $o.Summary
 		$shown++
-		if ($showDetails -and ($Mode -eq 'overview' -or -not $o.Complete -or $o.Asked)) {
-			$body += $o.Details
-			if ($o.Folded) { $anyFolded = $true }
-		}
+		if ($showDetails) { $body += $o.Details }
 	}
 	if ($shown -eq 0) {
-		if ($Mode -eq 'overview' -and $ext.Objects.Count -gt 0) { $body += "No changes in borrowed objects." }
-		elseif ($Mode -eq 'overview') { $body += "No objects (besides Language) in extension." }
-		elseif ($ext.Objects.Count -gt 0) { $body += "All changes transferred." }
-		else { $body += "No changes to transfer." }
+		if ($ext.Objects.Count -gt 0) { $body += "No changes in borrowed objects." }
+		else { $body += "No objects (besides Language) in extension." }
 	}
 	$body += ""
 }
@@ -2440,55 +1220,23 @@ foreach ($ext in $exts) {
 # --- Footer: always printed, after the body (output is often read from its tail) ---
 $footer = @()
 $unchFolded = $false
-$failed = $false
-$extDone = 0; $extLeft = 0; $leftTotal = 0
 foreach ($ext in $exts) {
-	if ($Mode -eq 'transfer') {
-		$all = @($ext.Objects | ForEach-Object { $_.Items } | ForEach-Object { $_ })
-		$rolesNote = if ($ext.Roles) { " · $(Get-Plural $ext.Roles 'role'), not checked" } else { '' }
-		if ($all.Count -eq 0) {
-			$footer += "=== Summary $($ext.Name): no changes to transfer$rolesNote ==="
-			$extDone++
-			continue
-		}
-		$cnt = @{}
-		foreach ($s in $statusOrder) { $cnt[$s] = @($all | Where-Object { $_.Status -eq $s }).Count }
-		# A workaround carried over although marked "not for transfer" is worth a look: counted apart
-		$marked = @($all | Where-Object { $_.Marked }).Count
-		$markedNote = if ($marked -gt 0) { " ($marked marked temporary)" } else { '' }
-		$parts = @("$($cnt['TRANSFERRED']) transferred$markedNote")
-		foreach ($s in $statusOrder[1..5]) { if ($cnt[$s]) { $parts += "$($cnt[$s]) $($s.ToLower().Replace('_', ' '))" } }
-		$footer += "=== Summary $($ext.Name): $(Get-Plural $all.Count 'change') — $($parts -join ', ')$rolesNote ==="
-		$left = $all.Count - $cnt['TRANSFERRED'] - $cnt['TEMPORARY']
-		if ($left -gt 0) {
-			$failed = $true; $extLeft++; $leftTotal += $left
-			$ids = @($ext.Objects | Where-Object { -not $_.Complete } | ForEach-Object { $_.Id })
-			$shown = @($ids | Select-Object -First 10)
-			$more = if ($ids.Count -gt 10) { ", …+$($ids.Count - 10)" } else { '' }
-			$footer += "Remaining: $($shown -join ', ')$more"
-		} else { $extDone++ }
-	} else {
-		$unch = @($ext.Objects | Where-Object { $_.Unchanged })
-		$bp = if ($unch.Count -gt 0) { " ($($ext.Borrowed - $unch.Count) changed, $($unch.Count) without changes)" } else { '' }
-		$footer += "=== Summary $($ext.Name): $($ext.Borrowed) borrowed$bp, $($ext.Own) own objects ==="
-		if ($unch.Count -gt 0) {
-			$byType = [ordered]@{}
-			# One shown in the body (asked for by -Name or -Expand Type.Name) is not folded
-			foreach ($o in @($unch | Where-Object { -not $_.Asked })) { if (-not $byType.Contains($o.Type)) { $byType[$o.Type] = @() }; $byType[$o.Type] += $o.Id.Substring($o.Type.Length + 1) }
-			if ($byType.Count -eq 0) { }
-			elseif ($expandList -contains '*') {
-				$footer += "Borrowed without changes:"
-				foreach ($t in @($byType.Keys)) { $footer += "    ${t}: $($byType[$t] -join ', ')" }
-			} else {
-				$footer += "Borrowed without changes: $((@($byType.Keys) | ForEach-Object { "$_ $($byType[$_].Count)" }) -join ', ')"
-				$unchFolded = $true
-			}
+	$unch = @($ext.Objects | Where-Object { $_.Unchanged })
+	$bp = if ($unch.Count -gt 0) { " ($($ext.Borrowed - $unch.Count) changed, $($unch.Count) without changes)" } else { '' }
+	$footer += "=== Summary $($ext.Name): $($ext.Borrowed) borrowed$bp, $($ext.Own) own objects ==="
+	if ($unch.Count -gt 0) {
+		$byType = [ordered]@{}
+		# One shown in the body (asked for by -Name or -Expand Type.Name) is not folded
+		foreach ($o in @($unch | Where-Object { -not $_.Asked })) { if (-not $byType.Contains($o.Type)) { $byType[$o.Type] = @() }; $byType[$o.Type] += $o.Id.Substring($o.Type.Length + 1) }
+		if ($byType.Count -eq 0) { }
+		elseif ($expandList -contains '*') {
+			$footer += "Borrowed without changes:"
+			foreach ($t in @($byType.Keys)) { $footer += "    ${t}: $($byType[$t] -join ', ')" }
+		} else {
+			$footer += "Borrowed without changes: $((@($byType.Keys) | ForEach-Object { "$_ $($byType[$_].Count)" }) -join ', ')"
+			$unchFolded = $true
 		}
 	}
-}
-if ($Mode -eq 'transfer' -and $exts.Count -gt 1) {
-	$tail = if ($extLeft) { ", $extLeft with $leftTotal remaining" } else { '' }
-	$footer += "=== Total: $($exts.Count) extensions — $extDone complete$tail ==="
 }
 foreach ($f in $nameFilter) {
 	$hit = $false
@@ -2500,9 +1248,6 @@ if (-not $showDetails) {
 }
 if ($unchFolded) {
 	$footer += "Hint: use -Expand * to list borrowed objects without changes"
-}
-if ($anyFolded) {
-	$footer += "Hint: use -Expand <Type.Name> or a section path to list transferred changes, -Expand * for all"
 }
 
 # --- Pagination of the body; the footer stays ---
@@ -2525,5 +1270,4 @@ if ($OutFile) {
 	foreach ($l in $out) { Write-Host $l }
 }
 
-if ($Mode -eq 'transfer' -and $failed) { exit 1 }
 exit 0

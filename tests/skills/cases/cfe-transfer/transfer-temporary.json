@@ -82,10 +82,6 @@
   "params": {
     "extensionPath": "cfe"
   },
-  "args_extra": [
-    "-Mode",
-    "check-transfer"
-  ],
   "expectError": true,
   "expect": {
     "stdoutContains": [

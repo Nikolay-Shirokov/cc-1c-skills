@@ -46,6 +46,12 @@ const MAPS = [
       Language: 'навык пропускает языки при сборе объектов (cfe-diff.py, сбор ChildObjects в main) — запись в карте была бы недостижима',
     },
   },
+  {
+    skill: 'cfe-transfer', file: 'cfe-transfer', kind: 'dir', py: 'CHILD_TYPE_DIR_MAP', ps1: '$childTypeDirMap',
+    exclude: {
+      Language: 'навык пропускает языки при сборе объектов (cfe-transfer.py, сбор ChildObjects в main) — запись в карте была бы недостижима',
+    },
+  },
 
   // порядок типов
   { skill: 'cf-edit', file: 'cf-edit', kind: 'order', py: 'TYPE_ORDER', ps1: '$script:typeOrder' },

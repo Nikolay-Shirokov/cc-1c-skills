@@ -1,5 +1,5 @@
 {
-  "name": "-Name открывает детали выбранных объектов без бюджета; -Limit режет тело, итог остаётся последним",
+  "name": "Каталог с расширениями: сводка по каждому и общий итог в конце; детали сверх бюджета опущены с ориентиром -Name",
   "preRun": [
     {
       "script": "meta-compile/scripts/meta-compile",
@@ -123,26 +123,20 @@
   "params": {
     "extensionPath": "exts"
   },
-  "args_extra": [
-    "-Mode",
-    "check-transfer",
-    "-Name",
-    "CommonModule.М2,М3",
-    "-Limit",
-    "10"
-  ],
   "expectError": true,
   "expect": {
     "stdoutContains": [
-      "      [NOT_TRANSFERRED]    &ИзменениеИКонтроль(\"П5\") — 0/1 edits  :33",
-      "[TRUNCATED] Shown 10 of 89 lines. Use -Offset 10 to continue.",
-      "=== Summary Второе: 81 changes — 0 transferred, 81 not transferred ===",
-      "Remaining: CommonModule.М2, CommonModule.М3"
+      "[NOT_TRANSFERRED]    CommonModule.М2 — 80 changes: 0 transferred, 80 remaining",
+      "[NOT_TRANSFERRED]    CommonModule.М3 — 1 change: 0 transferred, 1 remaining",
+      "All changes transferred.",
+      "=== Summary Второе: 81 changes — 0 transferred, 81 not transferred · 1 role, not checked ===",
+      "=== Summary Первое: 1 change — 1 transferred · 1 role, not checked ===",
+      "=== Total: 2 extensions — 1 complete, 1 with 81 remaining ===",
+      "Details omitted (92 lines in full). Use -Name <Type.Name>[,<Type.Name>] for item details."
     ],
     "stdoutNotContains": [
-      "Первое",
-      "Details omitted",
-      "&ИзменениеИКонтроль(\"П7\")"
+      "&ИзменениеИКонтроль(\"П1\")",
+      "[TRANSFERRED]        CommonModule.М — 1 change"
     ]
   }
 }

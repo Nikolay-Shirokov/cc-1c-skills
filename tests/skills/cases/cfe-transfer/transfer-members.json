@@ -122,8 +122,6 @@
     "extensionPath": "cfe"
   },
   "args_extra": [
-    "-Mode",
-    "check-transfer",
     "-Expand",
     "Catalog.Товары.ObjectModule"
   ],

@@ -5,8 +5,6 @@
     "extensionPath": "cfe"
   },
   "args_extra": [
-    "-Mode",
-    "check-transfer",
     "-Expand",
     "Catalogs/Items/Forms/ItemForm"
   ],
