@@ -144,7 +144,7 @@ export async function edgeTtsProvider(text, outputPath, opts = {}) {
   // saveSubtitles: the service's word boundaries go to `${outputPath}.json` (the audio is the same)
   const tts = new EdgeTTS({ voice, saveSubtitles: true, rate: edgeRate(ttsSpeed({ ...opts, provider: 'edge' })) });
   await Promise.race([
-    tts.ttsPromise(text, outputPath),
+    tts.ttsPromise(text.replace(/́/g, ''), outputPath),   // a stress mark (U+0301, for ElevenLabs) breaks Edge's word
     new Promise((_, reject) => setTimeout(() => reject(new Error('Edge TTS timeout (30s)')), 30000)),
   ]);
 }

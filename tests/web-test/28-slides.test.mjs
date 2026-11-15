@@ -896,6 +896,8 @@ export default async function({
     const { locateAnchors } = await import(pathToFileURL(path.resolve('.claude/skills/web-test/scripts/engine/recording/anchors.mjs')).href);
     const rep = 'Нажмите Далее, затем снова Далее.';
     assert.deepEqual(locateAnchors(rep, ['Далее', 'Далее']).map((x) => x.c), [8, 27], 'the next occurrence each time');
+    // a stress mark in the speech (U+0301): the anchor is written without it
+    assert.deepEqual(locateAnchors('Анализ собирает све́дения.', ['сведения']).map((x) => x.c), [16], 'a stress mark does not hide the word');
     assert.deepEqual(locateAnchors(rep, ['Далее', { text: 'Далее', same: true, shift: 0.2 }, 'Далее']).map((x) => x.c), [8, 8, 27], 'same: true — the same place');
     assert.throws(() => locateAnchors(rep, ['Нажмите', { text: 'Далее', same: true }]), /not the word of the anchor before/);
 
