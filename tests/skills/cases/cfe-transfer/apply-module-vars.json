@@ -1,0 +1,43 @@
+{
+  "name": "Код модуля вне методов: переменные модуля переносятся — после переменных модуля конфигурации или перед первым методом (внутри обёртки #Если), префикс снимается, комментарий над переменной идёт с ней; переменная с занятым именем — CONFLICT, и код, который использует переменные этого объявления, ждёт (WAITING); операторы основной программы — MANUAL",
+  "preRun": [
+    { "script": "meta-compile/scripts/meta-compile", "input": { "type": "Catalog", "name": "Т1" }, "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" } },
+    { "script": "meta-compile/scripts/meta-compile", "input": { "type": "Catalog", "name": "Т2" }, "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" } },
+    { "script": "meta-compile/scripts/meta-compile", "input": { "type": "Catalog", "name": "Т3" }, "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" } },
+    { "script": "meta-compile/scripts/meta-compile", "input": { "type": "Catalog", "name": "Т4" }, "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" } },
+    { "script": "cfe-init/scripts/cfe-init", "args": { "-Name": "Тест", "-OutputDir": "{workDir}/cfe", "-ConfigPath": "{workDir}" } },
+    { "script": "cfe-borrow/scripts/cfe-borrow", "args": { "-ExtensionPath": "{workDir}/cfe", "-ConfigPath": "{workDir}", "-Object": "Catalog.Т1 ;; Catalog.Т2 ;; Catalog.Т3 ;; Catalog.Т4" } },
+    { "writeFile": { "path": "Catalogs/Т1/Ext/ObjectModule.bsl", "content": "Перем Кэш;\n\nПроцедура А() Экспорт\n\tРабота();\nКонецПроцедуры\n" } },
+    { "writeFile": { "path": "cfe/Catalogs/Т1/Ext/ObjectModule.bsl", "content": "// Сколько раз вызван\nПерем Тест_Счетчик;\n\nПроцедура Тест_Посчитать() Экспорт\n\tТест_Счетчик = 1;\nКонецПроцедуры\n" } },
+    { "writeFile": { "path": "Catalogs/Т2/Ext/ObjectModule.bsl", "content": "#Если Сервер Или ТолстыйКлиентОбычноеПриложение Или ВнешнееСоединение Тогда\n\nПроцедура А() Экспорт\n\tРабота();\nКонецПроцедуры\n\n#Иначе\nВызватьИсключение \"Недопустимый вызов объекта на клиенте.\";\n#КонецЕсли\n" } },
+    { "writeFile": { "path": "cfe/Catalogs/Т2/Ext/ObjectModule.bsl", "content": "Перем Тест_Кэш Экспорт;\n" } },
+    { "writeFile": { "path": "Catalogs/Т3/Ext/ObjectModule.bsl", "content": "Перем Кэш;\n\nПроцедура А() Экспорт\n\tРабота();\nКонецПроцедуры\n" } },
+    { "writeFile": { "path": "cfe/Catalogs/Т3/Ext/ObjectModule.bsl", "content": "Перем Тест_Кэш, Тест_Флаг;\n\nПроцедура Тест_Проверить() Экспорт\n\tТест_Флаг = Истина;\nКонецПроцедуры\n" } },
+    { "writeFile": { "path": "Catalogs/Т4/Ext/ObjectModule.bsl", "content": "Процедура А() Экспорт\n\tРабота();\nКонецПроцедуры\n" } },
+    { "writeFile": { "path": "cfe/Catalogs/Т4/Ext/ObjectModule.bsl", "content": "Перем Тест_Счетчик;\n\nТест_Счетчик = 0;\n" } }
+  ],
+  "params": {
+    "extensionPath": "cfe"
+  },
+  "cwd": "workDir",
+  "args_extra": [
+    "-Mode",
+    "transfer"
+  ],
+  "expectError": true,
+  "expect": {
+    "stdoutContains": [
+      "[TRANSFERRED]        module code outside methods — 1 variable declaration -> after the module variables",
+      "[TRANSFERRED]        module code outside methods — 1 variable declaration -> before the first method",
+      "[CONFLICT]           module code outside methods — variable Кэш is declared in config already; not changed",
+      "[WAITING]            method Тест_Проверить — waits for: Тест_Флаг",
+      "[MANUAL]             module code outside methods — statements of the module body are not transferred by the skill"
+    ],
+    "fileContains": [
+      { "file": "Catalogs/Т1/Ext/ObjectModule.bsl", "text": "Перем Кэш;\n// Сколько раз вызван\nПерем Счетчик;\n\nПроцедура А() Экспорт" },
+      { "file": "Catalogs/Т2/Ext/ObjectModule.bsl", "text": "#Если Сервер Или ТолстыйКлиентОбычноеПриложение Или ВнешнееСоединение Тогда\n\nПерем Кэш Экспорт;\n\nПроцедура А() Экспорт" },
+      { "file": "Catalogs/Т3/Ext/ObjectModule.bsl", "text": "Перем Кэш;\n\nПроцедура А() Экспорт\n\tРабота();\nКонецПроцедуры\n" },
+      { "file": "Catalogs/Т4/Ext/ObjectModule.bsl", "text": "Процедура А() Экспорт\n\tРабота();\nКонецПроцедуры\n" }
+    ]
+  }
+}

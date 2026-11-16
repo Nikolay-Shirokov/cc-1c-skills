@@ -1,4 +1,4 @@
-﻿# cfe-transfer v1.6 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+﻿# cfe-transfer v1.7 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -1893,7 +1893,68 @@ function Get-ModuleTransferItems([string]$bsl, [string]$extDir, [string]$prefix,
 		$it.Plan = @{ Kind = 'own'; Rel = $rel; ExtM = $extM; ExtLines = $extLines; CfgM = $cfgM; Name = $pn; Hit = $hit; CfgMissing = ($null -eq $cfgLines) }
 		$items += (Set-TempMark $it $mark "method $pn")
 	}
+	# Code outside methods (module variables, statements of the module body): its lines looked up among
+	# the configuration module's code outside methods, prefixes left out; order is not compared
+	if ($mc.TopCode -ge 0) {
+		$extTop = @(); $tl = Get-TopCodeLines $extLines; foreach ($l in $tl) { $extTop += (Get-CodeKey $l $prefix) }
+		$pool = New-Object System.Collections.Generic.List[string]
+		if ($null -ne $cfgLines) { $tl = Get-TopCodeLines $cfgLines; foreach ($l in $tl) { $pool.Add((Get-CodeKey $l $prefix)) } }
+		$found = 0
+		foreach ($l in $extTop) { $j = $pool.IndexOf($l); if ($j -ge 0) { $found++; $pool.RemoveAt($j) } }
+		$st = Get-HeuristicStatus @{ Found = $found; Total = $extTop.Count }
+		$it = New-Item2 $st "module code outside methods (heuristic: $found/$($extTop.Count) lines)" "${rel}:$($mc.TopCode + 1)"
+		$it.Plan = @{ Kind = 'topcode'; Rel = $rel; Line = $mc.TopCode; ExtLines = $extLines }
+		$items += $it
+	}
 	return $items
+}
+
+# Layout of a module's code outside methods: each Перем line with the directive and comment lines
+# right above it (Vars: Start, Idx, Names), other code lines (Statements: indexes), the last Перем
+# line, the first method with the directive and comment lines above it
+function Get-ModuleLayout($lines) {
+	$declRe = '^\s*(?:' + (Get-KwAlt 'Async') + '\s+)?(?:' + (Get-KwAlt 'Proc') + '|' + (Get-KwAlt 'Func') + ')\s+[\w]+\s*\('
+	$endRe = '^\s*(?:' + (Get-KwAlt 'EndProc') + '|' + (Get-KwAlt 'EndFunc') + ')\b'
+	$lines = @($lines)
+	$vars = @(); $stmts = @(); $lastVar = -1; $firstMethod = -1
+	$inProc = $false
+	for ($i = 0; $i -lt $lines.Count; $i++) {
+		$t = ([string]$lines[$i]).Trim()
+		if ($inProc) { if ($t -imatch $endRe) { $inProc = $false }; continue }
+		if ($t -imatch $declRe) {
+			$inProc = $true
+			if ($firstMethod -lt 0) {
+				$s = $i; while ($s -gt 0 -and (([string]$lines[$s - 1]).Trim() -match '^(//|&)')) { $s-- }
+				$firstMethod = $s
+			}
+			continue
+		}
+		if ($t -eq '' -or $t.StartsWith('//') -or $t.StartsWith('&') -or $t.StartsWith('#')) { continue }
+		if ($t -match $script:icVarRe) {
+			$s = $i; while ($s -gt 0 -and (([string]$lines[$s - 1]).Trim() -match '^(//|&)')) { $s-- }
+			$names = @()
+			if ($t -match ($script:icVarRe + '\s+([^;]*)')) { foreach ($v in $Matches[1].Split(',')) { $n = ($v.Trim() -split '\s+')[0]; if ($n) { $names += $n } } }
+			$vars += @{ Start = $s; Idx = $i; Names = $names }
+			if ($firstMethod -lt 0) { $lastVar = $i }
+		} else { $stmts += $i }
+	}
+	return @{ Vars = $vars; Statements = $stmts; LastVar = $lastVar; FirstMethod = $firstMethod }
+}
+
+# Code lines of a module outside its methods: not blank, not comments, annotations or preprocessor lines
+function Get-TopCodeLines($lines) {
+	$declRe = '^\s*(?:' + (Get-KwAlt 'Async') + '\s+)?(?:' + (Get-KwAlt 'Proc') + '|' + (Get-KwAlt 'Func') + ')\s+[\w]+\s*\('
+	$endRe = '^\s*(?:' + (Get-KwAlt 'EndProc') + '|' + (Get-KwAlt 'EndFunc') + ')\b'
+	$res = @()
+	$inProc = $false
+	foreach ($l in @($lines)) {
+		$t = ([string]$l).Trim()
+		if ($inProc) { if ($t -imatch $endRe) { $inProc = $false }; continue }
+		if ($t -imatch $declRe) { $inProc = $true; continue }
+		if ($t -eq '' -or $t.StartsWith('//') -or $t.StartsWith('&') -or $t.StartsWith('#')) { continue }
+		$res += $t
+	}
+	return ,$res
 }
 
 # Own sub-objects of a borrowed object (attributes, tabular sections, commands, forms, templates, …)
@@ -2452,7 +2513,7 @@ function Get-MethodRole([string]$name, [string]$kind, $bind, $notify, [bool]$exp
 # (createRegions), the service region, the end of the module.
 function Get-MethodPlace($cfgLines, $regions, $extM, $role, $set, $created) {
 	# {table}: the table's name as the configuration gets it
-	$table = if ($role.Table) { @(Convert-ExtCode @($role.Table) @{})[0] } else { '' }
+	$table = if ($role.Table) { [string](Convert-ExtCode @($role.Table) @{})[0] } else { '' }
 	$names = { param([string]$r) @($set.Regions[$r] | ForEach-Object { ([string]$_).Replace('{table}', $table) }) }
 	$find = { param([string]$n) @($regions | Where-Object { $_.Name -ieq $n })[0] }
 	$service = @(& $names 'service')
@@ -3367,6 +3428,7 @@ if ($Mode -eq 'transfer') {
 		$recs = @()
 		$ownItems = @()
 		$icPending = @()
+		$topItems = @()
 		$ctlKeys = @{}
 		foreach ($w in $work) {
 			$titems = @()
@@ -3377,11 +3439,11 @@ if ($Mode -eq 'transfer') {
 				$t = New-TItem $it.Status $it.Text $it.Loc $it.Section
 				$t.Group = $it.Group; $t.Marked = $it.Marked
 				if ($pl -and $pl.Kind -eq 'own' -and $it.Status -eq 'NOT_TRANSFERRED') { $ownItems += @{ Plan = $pl; T = $t } }
-			# A method with an &ИзменениеИКонтроль edit not in the configuration yet: an interceptor of it
-			# would move the lines the edit is anchored to
-			if ($pl -and $pl.Kind -eq 'control' -and $pl.CfgM -and @('TRANSFERRED', 'TEMPORARY') -notcontains $it.Status) {
-				$ctlKeys["$((Join-Path $ConfigPath $pl.Rel).ToLower())|$($pl.CfgM.DeclIdx)"] = $true
-			}
+				# A method with an &ИзменениеИКонтроль edit not in the configuration yet: an interceptor of it
+				# would move the lines the edit is anchored to
+				if ($pl -and $pl.Kind -eq 'control' -and $pl.CfgM -and @('TRANSFERRED', 'TEMPORARY') -notcontains $it.Status) {
+					$ctlKeys["$((Join-Path $ConfigPath $pl.Rel).ToLower())|$($pl.CfgM.DeclIdx)"] = $true
+				}
 				if ($it.Status -eq 'TEMPORARY') { $tempCount++; continue }
 				if ($it.Status -eq 'TRANSFERRED') { $titems += $t; continue }
 				$t.Status = 'MANUAL'
@@ -3394,13 +3456,64 @@ if ($Mode -eq 'transfer') {
 				}
 				$cfgFile = Join-Path $ConfigPath $pl.Rel
 				$fileMap = if ($fileMaps.ContainsKey($cfgFile.ToLower())) { $fileMaps[$cfgFile.ToLower()] } else { @{} }
-				$label = if ($pl.Kind -eq 'own') { "method $($pl.Name)" } else { $pl.Label }
+				$label = if ($pl.Kind -eq 'own') { "method $($pl.Name)" } elseif ($pl.Kind -eq 'topcode') { 'module code outside methods' } else { $pl.Label }
 				if ($w.Support -eq 'locked') {
 					$t.Text = "$label — object is locked by vendor support"
 					$t.Sub = Get-WhereLines $pl 'allow editing with /support-edit, then re-run -Mode transfer'
 					$titems += $t; continue
 				}
 				$warnNote = if ($w.Support -eq 'warn') { ' (object locked by vendor support, written: editingAllowedCheck = warn)' } else { '' }
+				# Code outside methods: module variables go over (after the configuration's, or before its
+				# first method); statements of the module body are left to a person
+				if ($pl.Kind -eq 'topcode') {
+					$label = 'module code outside methods'
+					$whereSub = @("from: extension $($pl.Rel):$($pl.Line + 1)")
+					if (-not (Test-Path -LiteralPath $cfgFile)) {
+						$t.Text = "$label — module not found in config"
+						$t.Sub = $whereSub + @('next: add the module to the configuration first, then re-run -Mode transfer')
+						$titems += $t; continue
+					}
+					$fe = Get-FileEdits $cfgFile
+					$el = Get-ModuleLayout $pl.ExtLines
+					$cl = Get-ModuleLayout $fe.File.Lines
+					$have = @{}; $tl = Get-TopCodeLines $fe.File.Lines; foreach ($l in $tl) { $have[(Get-CodeKey $l $prefix)] = $true }
+					$taken = @{}
+					foreach ($v in $cl.Vars) { foreach ($n in $v.Names) { $taken[$n.ToLower()] = $true } }
+					foreach ($n in @(Get-ProcNames $fe.File.Lines)) { $taken[$n.ToLower()] = $true }
+					$stmts = @($el.Statements | Where-Object { -not $have.ContainsKey((Get-CodeKey $pl.ExtLines[$_] $prefix)) })
+					$todo = @(); $clash = @()
+					foreach ($v in $el.Vars) {
+						if ($have.ContainsKey((Get-CodeKey $pl.ExtLines[$v.Idx] $prefix))) { continue }
+						foreach ($n in $v.Names) { $tn = [string](Convert-ExtCode @($n) $fileMap)[0]; if ($taken.ContainsKey($tn.ToLower())) { $clash += $tn } }
+						$todo += $v
+					}
+					# Variables that stay out make the code using them wait, like a method that stays out
+					$t.OutNames = @(foreach ($v in $todo) { $v.Names }); $t.OutFile = $cfgFile
+					$topItems += $t
+					if ($stmts.Count -gt 0) {
+						$t.Text = "$label — statements of the module body are not transferred by the skill"
+						$t.Sub = @("from: extension $($pl.Rel):$($stmts[0] + 1)", 'next: add them to the configuration module by hand, then re-run -Mode check')
+						$titems += $t; continue
+					}
+					if ($clash.Count -gt 0) {
+						$t.Status = 'CONFLICT'
+						$t.Text = "$label — variable $($clash -join ', ') is declared in config already; not changed"
+						$t.Sub = $whereSub + @('next: rename or merge by hand, then re-run -Mode check')
+						$titems += $t; continue
+					}
+					$block = @()
+					foreach ($v in $todo) { $cv = Convert-ExtCode @($pl.ExtLines[$v.Start..$v.Idx]) $fileMap; $block += $cv }
+					$block = Get-Framed $block $frame
+					if ($cl.LastVar -ge 0) { [void]$fe.Repl.Add(@{ Start = $cl.LastVar + 1; End = $cl.LastVar + 1; Lines = $block; Seq = $script:seq++ }); $where = 'after the module variables' }
+					else {
+						$at = if ($cl.FirstMethod -ge 0) { $cl.FirstMethod } else { Get-ModuleEnd $fe.File.Lines }
+						[void]$fe.Repl.Add(@{ Start = $at; End = $at; Lines = (Get-SpacedBlock $fe.File.Lines $at $block); Seq = $script:seq++ })
+						$where = if ($cl.FirstMethod -ge 0) { 'before the first method' } else { 'end of module' }
+					}
+					$t.Status = 'TRANSFERRED'; $t.Now = $true
+					$t.Text = "$label — $(Get-Plural $todo.Count 'variable declaration') -> $where$warnNote"
+					$titems += $t; continue
+				}
 				# Code that uses names the configuration does not have yet waits for them
 				$missing = @{}
 				foreach ($m in @($missingGlobal, $missingByObj[$w.Id])) { if ($m) { foreach ($k in $m.Keys) { $missing[$k] = $m[$k] } } }
@@ -3573,6 +3686,13 @@ if ($Mode -eq 'transfer') {
 			}
 			[void]$fe.Repl.Add(@{ Start = $cfgM.SigEndIdx + 1; End = $cfgM.BodyEndIdx; Lines = $body; Seq = $script:seq++ })
 			foreach ($p in $g) { $p.T.Status = 'TRANSFERRED'; $p.T.Now = $true; $p.T.Text = "$($p.Label) — $($p.Where)$($p.Warn)" }
+		}
+		# Module variables that stay out, the same way
+		foreach ($o in $topItems) {
+			if ($o.Status -eq 'TRANSFERRED') { continue }
+			$fk = $o.OutFile.ToLower()
+			if (-not $outByFile.ContainsKey($fk)) { $outByFile[$fk] = @{} }
+			foreach ($nm in $o.OutNames) { if (-not $outByFile[$fk].ContainsKey($nm.ToLower())) { $outByFile[$fk][$nm.ToLower()] = $nm; $again = $true } }
 		}
 		# Own methods that stay out: new ones make the pass run again
 		foreach ($o in $ownItems) {

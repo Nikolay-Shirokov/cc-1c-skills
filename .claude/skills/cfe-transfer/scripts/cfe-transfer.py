@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# cfe-transfer v1.6 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+# cfe-transfer v1.7 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -2104,7 +2104,89 @@ def module_transfer_items(bsl, ext_dir, config_path, prefix, skip_handlers):
                 it = new_item("DIVERGED", "method %s%s (body differs)" % (pn, as_), loc)
         it["plan"] = {"kind": "own", "rel": rel, "ext_m": ext_m, "ext_lines": ext_lines, "cfg_m": cfg_m, "name": pn, "hit": hit, "cfg_missing": cfg_lines is None}
         items.append(set_temp_mark(it, mark, "method " + pn))
+    # Code outside methods (module variables, statements of the module body): its lines looked up among
+    # the configuration module's code outside methods, prefixes left out; order is not compared
+    if mc["top_code"] >= 0:
+        ext_top = [code_key(l, prefix) for l in get_top_code_lines(ext_lines)]
+        pool = [code_key(l, prefix) for l in get_top_code_lines(cfg_lines)] if cfg_lines is not None else []
+        found = 0
+        for l in ext_top:
+            if l in pool:
+                found += 1
+                pool.remove(l)
+        st = heuristic_status({"found": found, "total": len(ext_top)})
+        it = new_item(st, "module code outside methods (heuristic: %d/%d lines)" % (found, len(ext_top)), "%s:%d" % (rel, mc["top_code"] + 1))
+        it["plan"] = {"kind": "topcode", "rel": rel, "line": mc["top_code"], "ext_lines": ext_lines}
+        items.append(it)
     return items
+
+
+def get_module_layout(lines):
+    """Layout of a module's code outside methods: each Перем line with the directive and comment lines
+    right above it (vars: start, idx, names), other code lines (statements: indexes), the last Перем
+    line, the first method with the directive and comment lines above it."""
+    decl_re = re.compile(r'^\s*(?:' + kw_alt("Async") + r'\s+)?(?:' + kw_alt("Proc") + '|' + kw_alt("Func")
+                         + r')\s+[\w]+\s*\(', re.IGNORECASE)
+    end_re = re.compile(r'^\s*(?:' + kw_alt("EndProc") + '|' + kw_alt("EndFunc") + r')\b', re.IGNORECASE)
+    vars_, stmts = [], []
+    last_var = first_method = -1
+    in_proc = False
+
+    def lead(i):
+        s = i
+        while s > 0 and re.match(r'^(//|&)', lines[s - 1].strip()):
+            s -= 1
+        return s
+
+    for i, line in enumerate(lines):
+        t = line.strip()
+        if in_proc:
+            if end_re.match(t):
+                in_proc = False
+            continue
+        if decl_re.match(t):
+            in_proc = True
+            if first_method < 0:
+                first_method = lead(i)
+            continue
+        if t == "" or t.startswith("//") or t.startswith("&") or t.startswith("#"):
+            continue
+        if re.match(IC_VAR_RE, t, re.IGNORECASE):
+            names = []
+            m = re.match(IC_VAR_RE + r'\s+([^;]*)', t, re.IGNORECASE)
+            if m:
+                for v in m.group(1).split(","):
+                    parts = v.strip().split()
+                    if parts:
+                        names.append(parts[0])
+            vars_.append({"start": lead(i), "idx": i, "names": names})
+            if first_method < 0:
+                last_var = i
+        else:
+            stmts.append(i)
+    return {"vars": vars_, "statements": stmts, "last_var": last_var, "first_method": first_method}
+
+
+def get_top_code_lines(lines):
+    """Code lines of a module outside its methods: not blank, not comments, annotations or preprocessor lines."""
+    decl_re = re.compile(r'^\s*(?:' + kw_alt("Async") + r'\s+)?(?:' + kw_alt("Proc") + '|' + kw_alt("Func")
+                         + r')\s+[\w]+\s*\(', re.IGNORECASE)
+    end_re = re.compile(r'^\s*(?:' + kw_alt("EndProc") + '|' + kw_alt("EndFunc") + r')\b', re.IGNORECASE)
+    res = []
+    in_proc = False
+    for line in lines:
+        t = line.strip()
+        if in_proc:
+            if end_re.match(t):
+                in_proc = False
+            continue
+        if decl_re.match(t):
+            in_proc = True
+            continue
+        if t == "" or t.startswith("//") or t.startswith("&") or t.startswith("#"):
+            continue
+        res.append(t)
+    return res
 
 
 # Own sub-objects of a borrowed object (attributes, tabular sections, commands, forms, templates, …)
@@ -3990,6 +4072,7 @@ def main():
             recs = []
             own_items = []
             ic_pending = []
+            top_items = []
             ctl_keys = set()
             for w in work:
                 titems = []
@@ -4029,13 +4112,71 @@ def main():
                         continue
                     cfg_file = os.path.join(config_path, pl["rel"])
                     file_map = file_maps.get(cfg_file.lower(), {})
-                    label = "method " + pl["name"] if pl["kind"] == "own" else pl["label"]
+                    label = ("method " + pl["name"] if pl["kind"] == "own"
+                             else "module code outside methods" if pl["kind"] == "topcode" else pl["label"])
                     if w["support"] == "locked":
                         t["text"] = label + " — object is locked by vendor support"
                         t["sub"] = get_where_lines(pl, "allow editing with /support-edit, then re-run -Mode transfer")
                         titems.append(t)
                         continue
                     warn_note = " (object locked by vendor support, written: editingAllowedCheck = warn)" if w["support"] == "warn" else ""
+                    # Code outside methods: module variables go over (after the configuration's, or before its
+                    # first method); statements of the module body are left to a person
+                    if pl["kind"] == "topcode":
+                        where_sub = ["from: extension %s:%d" % (pl["rel"], pl["line"] + 1)]
+                        if not os.path.exists(cfg_file):
+                            t["text"] = label + " — module not found in config"
+                            t["sub"] = where_sub + ["next: add the module to the configuration first, then re-run -Mode transfer"]
+                            titems.append(t)
+                            continue
+                        fe = get_file_edits(cfg_file)
+                        el = get_module_layout(pl["ext_lines"])
+                        cl = get_module_layout(fe["file"]["lines"])
+                        have = {code_key(l, prefix) for l in get_top_code_lines(fe["file"]["lines"])}
+                        taken = {n.lower() for v in cl["vars"] for n in v["names"]} | {n.lower() for n in get_proc_names(fe["file"]["lines"])}
+                        stmts = [i for i in el["statements"] if code_key(pl["ext_lines"][i], prefix) not in have]
+                        todo, clash = [], []
+                        for v in el["vars"]:
+                            if code_key(pl["ext_lines"][v["idx"]], prefix) in have:
+                                continue
+                            for n in v["names"]:
+                                tn = convert_ext_code([n], file_map)[0]
+                                if tn.lower() in taken:
+                                    clash.append(tn)
+                            todo.append(v)
+                        # Variables that stay out make the code using them wait, like a method that stays out
+                        t["out_names"] = [n for v in todo for n in v["names"]]
+                        t["out_file"] = cfg_file
+                        top_items.append(t)
+                        if stmts:
+                            t["text"] = label + " — statements of the module body are not transferred by the skill"
+                            t["sub"] = ["from: extension %s:%d" % (pl["rel"], stmts[0] + 1), "next: add them to the configuration module by hand, then re-run -Mode check"]
+                            titems.append(t)
+                            continue
+                        if clash:
+                            t["status"] = "CONFLICT"
+                            t["text"] = "%s — variable %s is declared in config already; not changed" % (label, ", ".join(clash))
+                            t["sub"] = where_sub + ["next: rename or merge by hand, then re-run -Mode check"]
+                            titems.append(t)
+                            continue
+                        block = []
+                        for v in todo:
+                            block += convert_ext_code(pl["ext_lines"][v["start"]:v["idx"] + 1], file_map)
+                        block = get_framed(block, frame)
+                        if cl["last_var"] >= 0:
+                            at = cl["last_var"] + 1
+                            fe["repl"].append({"start": at, "end": at, "lines": block, "seq": EDIT_SEQ[0]})
+                            where = "after the module variables"
+                        else:
+                            at = cl["first_method"] if cl["first_method"] >= 0 else get_module_end(fe["file"]["lines"])
+                            fe["repl"].append({"start": at, "end": at, "lines": get_spaced_block(fe["file"]["lines"], at, block), "seq": EDIT_SEQ[0]})
+                            where = "before the first method" if cl["first_method"] >= 0 else "end of module"
+                        EDIT_SEQ[0] += 1
+                        t["status"] = "TRANSFERRED"
+                        t["now"] = True
+                        t["text"] = "%s — %s -> %s%s" % (label, plural(len(todo), "variable declaration"), where, warn_note)
+                        titems.append(t)
+                        continue
                     # Code that uses names the configuration does not have yet waits for them
                     missing = {}
                     for m in (missing_global, missing_by_obj.get(w["id"])):
@@ -4234,6 +4375,15 @@ def main():
                     p["t"]["status"] = "TRANSFERRED"
                     p["t"]["now"] = True
                     p["t"]["text"] = "%s — %s%s" % (p["label"], p["where"], p["warn"])
+            # Module variables that stay out, the same way
+            for o in top_items:
+                if o["status"] == "TRANSFERRED":
+                    continue
+                dst = out_by_file.setdefault(o["out_file"].lower(), {})
+                for nm in o["out_names"]:
+                    if nm.lower() not in dst:
+                        dst[nm.lower()] = nm
+                        again = True
             # Own methods that stay out: new ones make the pass run again
             for o in own_items:
                 if o["t"]["status"] == "TRANSFERRED":
