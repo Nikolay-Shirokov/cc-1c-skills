@@ -1,0 +1,80 @@
+{
+  "name": "Временные пометки при переносе: помеченная вставка &ИзменениеИКонтроль не пишется, соседняя обычная — пишется; помеченный собственный метод и помеченный &Перед не переносятся (temporary skipped); код, вызывающий помеченный метод, — MANUAL, а не перенос с вызовом несуществующего метода",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "CommonModule",
+        "name": "М",
+        "properties": {
+          "Server": true
+        }
+      },
+      "args": {
+        "-JsonPath": "{inputFile}",
+        "-OutputDir": "{workDir}"
+      }
+    },
+    {
+      "script": "cfe-init/scripts/cfe-init",
+      "args": {
+        "-Name": "Тест",
+        "-OutputDir": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}"
+      }
+    },
+    {
+      "script": "cfe-borrow/scripts/cfe-borrow",
+      "args": {
+        "-ExtensionPath": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}",
+        "-Object": "CommonModule.М"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "CommonModules/М/Ext/Module.bsl",
+        "content": "Процедура А() Экспорт\n\tНачало();\n\tКонец();\nКонецПроцедуры\n\nПроцедура Б() Экспорт\n\tНачало();\n\tКонец();\nКонецПроцедуры\n\nПроцедура В() Экспорт\n\tРабота();\nКонецПроцедуры\n"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "cfe/CommonModules/М/Ext/Module.bsl",
+        "content": "&ИзменениеИКонтроль(\"А\")\nПроцедура Тест_А()\n\tНачало();\n\t#Вставка\n\tПроверить();\n\t#КонецВставки\n\t#Вставка // Временно: замер\n\tЗамер();\n\t#КонецВставки\n\tКонец();\nКонецПроцедуры\n\n&ИзменениеИКонтроль(\"Б\")\nПроцедура Тест_Б()\n\tНачало();\n\t#Вставка\n\tТест_Отладка();\n\t#КонецВставки\n\tКонец();\nКонецПроцедуры\n\n// Временно: отладка до релиза\nПроцедура Тест_Отладка() Экспорт\n\tСообщить(1);\nКонецПроцедуры\n\n// Не переносить: заплатка до обновления\n&Перед(\"В\")\nПроцедура Тест_В()\n\tПодготовить();\nКонецПроцедуры\n"
+      }
+    }
+  ],
+  "params": {
+    "extensionPath": "cfe"
+  },
+  "cwd": "workDir",
+  "args_extra": [
+    "-Mode",
+    "transfer"
+  ],
+  "expectError": true,
+  "expect": {
+    "stdoutContains": [
+      "[TRANSFERRED]        &ИзменениеИКонтроль(\"А\") — 1 edit",
+      "[MANUAL]             &ИзменениеИКонтроль(\"Б\") — calls Тест_Отладка, marked as not for transfer",
+      "next: drop the call before the transfer or remove the mark from the method, then re-run -Mode transfer",
+      "1 transferred now, 1 manual · 2 temporary skipped"
+    ],
+    "fileContains": [
+      {
+        "file": "CommonModules/М/Ext/Module.bsl",
+        "text": "Процедура А() Экспорт\n\tНачало();\n\tПроверить();\n\tКонец();\nКонецПроцедуры\n\nПроцедура Б() Экспорт\n\tНачало();\n\tКонец();\nКонецПроцедуры\n\nПроцедура В() Экспорт\n\tРабота();\nКонецПроцедуры\n"
+      }
+    ],
+    "fileNotContains": [
+      {
+        "file": "CommonModules/М/Ext/Module.bsl",
+        "text": [
+          "Замер",
+          "Отладка",
+          "Подготовить"
+        ]
+      }
+    ]
+  }
+}

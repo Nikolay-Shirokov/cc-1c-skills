@@ -1,4 +1,4 @@
-﻿# cfe-transfer v1.5 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+﻿# cfe-transfer v1.6 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -966,7 +966,10 @@ function Format-TempWhy([string]$mark) { if ($mark) { return " — $mark" } else
 function Set-TempMark($item, $mark, [string]$label) {
 	if ($null -eq $mark -or -not $item) { return $item }
 	if ($item.Status -eq 'TRANSFERRED') { $item.Text += ' (marked temporary)'; $item.Marked = $true; return $item }
-	return (New-Item2 'TEMPORARY' "$label$(Format-TempWhy $mark)" $item.Loc $item.Group)
+	$t = New-Item2 'TEMPORARY' "$label$(Format-TempWhy $mark)" $item.Loc $item.Group
+	# The plan stays: code that calls a temporary method must know it is not coming
+	if ($item.Plan) { $t.Plan = $item.Plan }
+	return $t
 }
 
 # Insert payload sitting right after its line before, or right before its line after, anywhere in v2
@@ -3340,6 +3343,22 @@ if ($Mode -eq 'transfer') {
 	$formMissing = @{}
 	$outByFile = @{}
 	$outCommon = @{}
+	# Own methods marked "not for transfer" and not in the configuration: never coming, so code that
+	# calls them is left to a person (drop the call or the mark) rather than waiting
+	$tempByFile = @{}
+	$tempCommon = @{}
+	foreach ($w in $work) {
+		foreach ($it in $w.Rec.Items) {
+			$pl = $it.Plan
+			if ($it.Status -ne 'TEMPORARY' -or -not $pl -or $pl.Kind -ne 'own' -or $pl.Hit) { continue }
+			$set = if ((Get-ModuleKind $pl.Rel) -eq 'common') { $tempCommon } else {
+				$fk = (Join-Path $ConfigPath $pl.Rel).ToLower()
+				if (-not $tempByFile.ContainsKey($fk)) { $tempByFile[$fk] = @{} }
+				$tempByFile[$fk]
+			}
+			$set[$pl.Name.ToLower()] = $pl.Name
+		}
+	}
 	do {
 		$again = $false
 		foreach ($fe in $script:fileEdits.Values) { $fe.Repl.Clear(); $fe.Create.Clear(); $fe.OwnAt.Clear() }
@@ -3402,7 +3421,15 @@ if ($Mode -eq 'transfer') {
 				$blocked = ($pl.Kind -eq 'control' -and @($pl.Ops | Where-Object { @('pending', 'absorbed', 'temp') -notcontains $_.Res }).Count -gt 0) -or
 					($pl.Kind -eq 'own' -and ($it.Status -eq 'DIVERGED' -or $pl.CfgMissing -or ($pl.Target -and $pl.Target.Taken))) -or
 				($pl.Kind -eq 'intercept' -and $it.Status -eq 'PARTIAL')
-				if ($deps.Count -gt 0 -and -not $blocked) {
+				$tempMap = @{}
+			foreach ($m in @($tempByFile[$cfgFile.ToLower()], $tempCommon)) { if ($m) { foreach ($k in $m.Keys) { $tempMap[$k] = $m[$k] } } }
+			$tempDeps = @(Get-UsedMissing $code $tempMap)
+			if ($tempDeps.Count -gt 0 -and -not $blocked) {
+				$t.Text = "$label — calls $($tempDeps -join ', '), marked as not for transfer"
+				$t.Sub = Get-WhereLines $pl 'drop the call before the transfer or remove the mark from the method, then re-run -Mode transfer'
+				$titems += $t; continue
+			}
+			if ($deps.Count -gt 0 -and -not $blocked) {
 					$shownDeps = @($deps | Select-Object -First 5)
 					$more = if ($deps.Count -gt 5) { ", …+$($deps.Count - 5)" } else { '' }
 					$t.Status = 'WAITING'

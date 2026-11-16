@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# cfe-transfer v1.5 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+# cfe-transfer v1.6 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -1038,7 +1038,11 @@ def set_temp_mark(item, mark, label):
         item["text"] += " (marked temporary)"
         item["marked"] = True
         return item
-    return new_item("TEMPORARY", label + fmt_temp_why(mark), item["loc"], item["group"])
+    t = new_item("TEMPORARY", label + fmt_temp_why(mark), item["loc"], item["group"])
+    # The plan stays: code that calls a temporary method must know it is not coming
+    if item.get("plan"):
+        t["plan"] = item["plan"]
+    return t
 
 
 def test_payload_beside(v2sig, mid, before_ctx, after_ctx):
@@ -3960,6 +3964,20 @@ def main():
         form_missing = {}
         out_by_file = {}
         out_common = {}
+        # Own methods marked "not for transfer" and not in the configuration: never coming, so code that
+        # calls them is left to a person (drop the call or the mark) rather than waiting
+        temp_by_file = {}
+        temp_common = {}
+        for w in work:
+            for it in w["rec"]["items"]:
+                pl = it.get("plan")
+                if it["status"] != "TEMPORARY" or not pl or pl["kind"] != "own" or pl["hit"]:
+                    continue
+                if get_module_kind(pl["rel"]) == "common":
+                    dst = temp_common
+                else:
+                    dst = temp_by_file.setdefault(os.path.join(config_path, pl["rel"]).lower(), {})
+                dst[pl["name"].lower()] = pl["name"]
         while True:
             again = False
             for fe in FILE_EDITS.values():
@@ -4046,6 +4064,16 @@ def main():
                                or (pl["kind"] == "own" and (it["status"] == "DIVERGED" or pl["cfg_missing"]
                                                             or (pl.get("target") or {}).get("taken")))
                                or (pl["kind"] == "intercept" and it["status"] == "PARTIAL"))
+                    temp_map = {}
+                    for m in (temp_by_file.get(cfg_file.lower()), temp_common):
+                        if m:
+                            temp_map.update(m)
+                    temp_deps = get_used_missing(code, temp_map)
+                    if temp_deps and not blocked:
+                        t["text"] = "%s — calls %s, marked as not for transfer" % (label, ", ".join(temp_deps))
+                        t["sub"] = get_where_lines(pl, "drop the call before the transfer or remove the mark from the method, then re-run -Mode transfer")
+                        titems.append(t)
+                        continue
                     if deps and not blocked:
                         more = (", …+%d" % (len(deps) - 5)) if len(deps) > 5 else ""
                         t["status"] = "WAITING"
