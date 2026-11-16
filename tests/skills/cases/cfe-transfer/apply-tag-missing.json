@@ -46,7 +46,7 @@
     {
       "writeFile": {
         "path": ".v8-project.json",
-        "content": "{\n  \"cfeTransfer\": {\n    \"insertComment\": {\n      \"begin\": \"// ++ {tag}\",\n      \"end\": \"// --\"\n    }\n  }\n}"
+        "content": "{\n  \"cfeTransfer\": {\n    \"insertComment\": {\n      \"begin\": \"// ++ {Tag}\",\n      \"end\": \"// --\"\n    }\n  }\n}"
       }
     }
   ],

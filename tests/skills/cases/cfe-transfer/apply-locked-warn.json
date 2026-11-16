@@ -1,5 +1,5 @@
 {
-  "name": "Поддержка: editingAllowedCheck = off в .v8-project.json снимает запрет — объект на замке переносится",
+  "name": "Поддержка: editingAllowedCheck = warn в .v8-project.json снимает запрет — объект на замке переносится с пометкой в отчёте",
   "preRun": [
     {
       "script": "meta-compile/scripts/meta-compile",
@@ -90,7 +90,7 @@
     {
       "writeFile": {
         "path": ".v8-project.json",
-        "content": "{ \"editingAllowedCheck\": \"off\" }"
+        "content": "{ \"editingAllowedCheck\": \"warn\" }"
       }
     }
   ],
@@ -105,10 +105,11 @@
   "expect": {
     "stdoutContains": [
       "    Catalogs/Закрытый/Ext/ObjectModule.bsl",
-      "    Catalogs/Снятый/Ext/ObjectModule.bsl"
+      "    Catalogs/Снятый/Ext/ObjectModule.bsl",
+      "(as Новый) -> end of module (object locked by vendor support, written: editingAllowedCheck = warn)"
     ],
     "stdoutNotContains": [
-      "locked by vendor support"
+      "[MANUAL]"
     ]
   }
 }
