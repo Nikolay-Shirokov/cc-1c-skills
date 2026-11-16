@@ -1,4 +1,4 @@
-﻿# cfe-transfer v1.2 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+﻿# cfe-transfer v1.3 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -1125,9 +1125,17 @@ function Get-ControlTransfer($extMethod, $cfgMethod, [string]$prefix) {
 # the interceptor's parameters are renamed to the original's by position.
 function Get-HeuristicTransfer($extMethod, $cfgMethod, [string]$prefix) {
 	$proceedRe = '(?i)' + (Get-KwAlt 'Proceed') + '\s*\('
+	$ep = @($extMethod.ParamNames); $cp = @($cfgMethod.ParamNames)
+	# Parameters renamed in code only: a literal or a comment that mentions one stays as written, the
+	# way the transfer writes it. One pass for all names: renaming one by one would rename again a
+	# name already renamed when the two lists overlap (Источник, Отказ -> Отказ, Режим)
+	$renames = @{}
+	for ($i = 0; $i -lt [Math]::Min($ep.Count, $cp.Count); $i++) {
+		if ($ep[$i] -ine $cp[$i]) { $renames[$ep[$i].ToLowerInvariant()] = $cp[$i] }
+	}
 	$resultVars = @()
 	$lines = @()
-	foreach ($l in $extMethod.BodyLines) {
+	foreach ($l in (Rename-CodeWords $extMethod.BodyLines $renames)) {
 		$n = Get-CodeKey $l $prefix
 		if (-not (Test-Significant $n)) { continue }
 		if ($n -match $proceedRe) {
@@ -1139,19 +1147,6 @@ function Get-HeuristicTransfer($extMethod, $cfgMethod, [string]$prefix) {
 	if ($resultVars.Count -gt 0) {
 		$retRe = '(?i)^' + (Get-KwAlt 'Return') + '\s+(?:' + (($resultVars | ForEach-Object { [regex]::Escape($_) }) -join '|') + ')\s*;?$'
 		$lines = @($lines | Where-Object { $_ -notmatch $retRe })
-	}
-	$ep = @($extMethod.ParamNames); $cp = @($cfgMethod.ParamNames)
-	# One pass for all names: renaming one by one would rename again a name already renamed
-	# when the two lists overlap (Источник, Отказ -> Отказ, Режим)
-	$renames = @{}
-	for ($i = 0; $i -lt [Math]::Min($ep.Count, $cp.Count); $i++) {
-		if ($ep[$i] -ine $cp[$i]) { $renames[$ep[$i].ToLowerInvariant()] = $cp[$i].ToLowerInvariant() }
-	}
-	if ($renames.Count -gt 0) {
-		$alt = (@($renames.Keys) | ForEach-Object { [regex]::Escape($_) }) -join '|'
-		$re = New-Object System.Text.RegularExpressions.Regex ('(?<!\w)(?:' + $alt + ')(?!\w)'), ([System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
-		$ev = [System.Text.RegularExpressions.MatchEvaluator] { param($m) $renames[$m.Value.ToLowerInvariant()] }
-		$lines = @($lines | ForEach-Object { $re.Replace($_, $ev) })
 	}
 	# Block closers and bare jumps match anywhere — they would only inflate the score
 	$meaningful = @($lines | Where-Object { $_ -notmatch $script:trivialRe })
@@ -2507,6 +2502,296 @@ function Get-ControlBody($cfgM, $plan, $frame, [string]$deletion, $fileMap) {
 	return ,$out.ToArray()
 }
 
+# ============================================================
+# &Перед / &После / &Вместо: the handler's code put into the original's body
+# ============================================================
+
+# Each line's code without comments; string literals are kept (-KeepStrings) or left as "" — a
+# literal that runs on over lines (the | continuation) is followed from line to line
+function Get-CodeOnly($lines, [switch]$KeepStrings) {
+	$res = New-Object System.Collections.Generic.List[string]
+	$inStr = $false
+	foreach ($l in @($lines)) {
+		$s = [string]$l
+		$sb = New-Object System.Text.StringBuilder
+		$i = 0
+		while ($i -lt $s.Length) {
+			$c = $s[$i]
+			if ($inStr) {
+				if ($c -eq '"') {
+					if ($i + 1 -lt $s.Length -and $s[$i + 1] -eq '"') { if ($KeepStrings) { [void]$sb.Append('""') }; $i += 2; continue }
+					$inStr = $false; [void]$sb.Append('"')
+				} elseif ($KeepStrings) { [void]$sb.Append($c) }
+				$i++; continue
+			}
+			if ($c -eq '"') { $inStr = $true; [void]$sb.Append('"'); $i++; continue }
+			if ($c -eq '/' -and $i + 1 -lt $s.Length -and $s[$i + 1] -eq '/') { break }
+			[void]$sb.Append($c); $i++
+		}
+		$res.Add($sb.ToString())
+	}
+	return ,$res.ToArray()
+}
+
+# Words renamed in code only (not in literals or comments, not after a dot): $map lower-case -> new
+function Rename-CodeWords($lines, $map) {
+	if ($map.Count -eq 0) { return ,@($lines) }
+	$alt = (@($map.Keys) | ForEach-Object { [regex]::Escape($_) }) -join '|'
+	$re = New-Object System.Text.RegularExpressions.Regex ('(?<![\w.])(?:' + $alt + ')(?!\w)'), ([System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
+	$ev = [System.Text.RegularExpressions.MatchEvaluator] { param($m) $map[$m.Value.ToLowerInvariant()] }
+	$out = New-Object System.Collections.Generic.List[string]
+	$inStr = $false
+	foreach ($l in @($lines)) {
+		$s = [string]$l
+		$sb = New-Object System.Text.StringBuilder
+		$code = New-Object System.Text.StringBuilder
+		$i = 0
+		while ($i -lt $s.Length) {
+			$c = $s[$i]
+			if ($inStr) {
+				[void]$sb.Append($c)
+				if ($c -eq '"') {
+					if ($i + 1 -lt $s.Length -and $s[$i + 1] -eq '"') { [void]$sb.Append('"'); $i += 2; continue }
+					$inStr = $false
+				}
+				$i++; continue
+			}
+			if ($c -eq '"' -or ($c -eq '/' -and $i + 1 -lt $s.Length -and $s[$i + 1] -eq '/')) {
+				[void]$sb.Append($re.Replace($code.ToString(), $ev)); [void]$code.Clear()
+				if ($c -eq '"') { $inStr = $true; [void]$sb.Append($c); $i++; continue }
+				[void]$sb.Append($s.Substring($i)); $i = $s.Length; break
+			}
+			[void]$code.Append($c); $i++
+		}
+		[void]$sb.Append($re.Replace($code.ToString(), $ev))
+		$out.Add($sb.ToString())
+	}
+	return ,$out.ToArray()
+}
+
+$script:icOpenRe = '(?i)(?<![\w.])(?:Если|If|Для|For|Пока|While|Попытка|Try)(?!\w)'
+$script:icCloseRe = '(?i)(?<![\w.])(?:КонецЕсли|EndIf|КонецЦикла|EndDo|КонецПопытки|EndTry)(?!\w)'
+$script:icRetRe = '(?i)(?<![\w.])(?:Возврат|Return)(?!\w)'
+$script:icProceedRe = '(?i)(?<![\w.])(?:ПродолжитьВызов|ProceedWithCall)\s*\('
+$script:icVarRe = '(?i)^\s*(?:Перем|Var)(?!\w)'
+
+# Shape of a body from its code lines: block depth before each line, blocks opened on it, Возврат on
+# it (inside a block when the line opens one too); the last line with code and whether it is a
+# lone Возврат at the top level (the terminal one)
+function Get-BodyShape($code) {
+	$n = @($code).Count
+	$depth = New-Object int[] $n; $ret = New-Object bool[] $n; $inBlock = New-Object bool[] $n
+	$d = 0; $last = -1
+	for ($i = 0; $i -lt $n; $i++) {
+		$t = [string]$code[$i]
+		$depth[$i] = $d
+		$o = [regex]::Matches($t, $script:icOpenRe).Count
+		$c = [regex]::Matches($t, $script:icCloseRe).Count
+		if ($t -match $script:icRetRe) { $ret[$i] = $true; $inBlock[$i] = ($d -gt 0 -or $o -gt 0) }
+		$d += $o - $c; if ($d -lt 0) { $d = 0 }
+		$tt = $t.Trim()
+		if ($tt -ne '' -and -not $tt.StartsWith('#')) { $last = $i }
+	}
+	$term = -1
+	if ($last -ge 0 -and $ret[$last] -and -not $inBlock[$last] -and ([string]$code[$last]).Trim() -match '(?i)^(?:Возврат|Return)(?!\w)[^;]*;?$') { $term = $last }
+	return @{ Ret = $ret; InBlock = $inBlock; Depth = $depth; Last = $last; Term = $term }
+}
+
+# Local variables of a body (assigned, loop variables, Перем), parameters left out: lower -> name
+function Get-LocalNames($code, $params) {
+	$skip = @{}; foreach ($p in @($params)) { $skip[$p.ToLower()] = $true }
+	$res = [ordered]@{}
+	$add = { param($n) if ($n -and -not $skip.ContainsKey($n.ToLower()) -and -not $res.Contains($n.ToLower())) { $res[$n.ToLower()] = $n } }
+	foreach ($l in @($code)) {
+		$t = [string]$l
+		if ($t -match '^\s*([\w]+)\s*=') { & $add $Matches[1] }
+		if ($t -match '(?i)^\s*(?:Для\s+Каждого|For\s+Each)\s+([\w]+)') { & $add $Matches[1] }
+		elseif ($t -match '(?i)^\s*(?:Для|For)\s+([\w]+)\s*=') { & $add $Matches[1] }
+		if ($t -match ($script:icVarRe + '\s+([^;]*)')) { foreach ($v in $Matches[1].Split(',')) { & $add (($v.Trim() -split '\s+')[0]) } }
+	}
+	return $res
+}
+
+function Get-WordSet($code) {
+	$set = New-Object 'System.Collections.Generic.HashSet[string]'
+	foreach ($l in @($code)) { foreach ($m in [regex]::Matches([string]$l, '[\w]+')) { [void]$set.Add($m.Value.ToLower()) } }
+	return ,$set
+}
+
+# Lines framed by the project's comments, at the indent of their first code line
+function Get-Framed($lines, $frame) {
+	$lines = @($lines)
+	$first = @($lines | Where-Object { ([string]$_).Trim() -ne '' } | Select-Object -First 1)
+	$ind = if ($first.Count -gt 0) { Get-Indent $first[0] } else { '' }
+	$out = @()
+	if ($frame.Begin) { $out += "$ind$($frame.Begin)" }
+	$out += $lines
+	if ($frame.End) { $out += "$ind$($frame.End)" }
+	return ,$out
+}
+
+# Original lines that leave: commented out and framed, or gone (deletion = remove)
+function Get-Removed($lines, $frame, [string]$deletion) {
+	if ($deletion -ne 'comment') { return ,@() }
+	return ,(Get-Framed @(@($lines) | ForEach-Object { "//$_" }) $frame)
+}
+
+# Blank lines off both ends
+function Get-Trimmed($lines) {
+	$a = @($lines)
+	$s = 0; $e = $a.Count - 1
+	while ($s -le $e -and ([string]$a[$s]).Trim() -eq '') { $s++ }
+	while ($e -ge $s -and ([string]$a[$e]).Trim() -eq '') { $e-- }
+	if ($s -gt $e) { return ,@() }
+	return ,@($a[$s..$e])
+}
+
+# Index of the last Перем line in the leading run of Перем, blank and comment lines (-1: none)
+function Get-VarEnd($lines, $code) {
+	$end = -1
+	for ($i = 0; $i -lt @($lines).Count; $i++) {
+		$t = ([string]$code[$i]).Trim()
+		if ($t -eq '') { continue }
+		if ($t -match $script:icVarRe) { $end = $i; continue }
+		break
+	}
+	return $end
+}
+
+# Edits that put an interceptor's code into the original's body, as insertions after an index of the
+# original's body (-1: at the top) and replacements of a range of it; or the reason it cannot be done
+function Get-InterceptOps($extM, $cfgM, [string]$type, $frame, [string]$deletion, $fileMap) {
+	if ([bool]$extM.IsAsync -ne [bool]$cfgM.IsAsync) { return @{ Why = 'Асинх differs between the handler and the original' } }
+	$ep = @($extM.ParamNames); $cp = @($cfgM.ParamNames)
+	if ($ep.Count -ne $cp.Count) { return @{ Why = "parameters differ from the original's" } }
+	$map = @{}
+	for ($i = 0; $i -lt $ep.Count; $i++) { if ($ep[$i] -cne $cp[$i]) { $map[$ep[$i].ToLowerInvariant()] = $cp[$i] } }
+	$h = Convert-ExtCode (Rename-CodeWords $extM.BodyLines $map) $fileMap
+	$o = @($cfgM.BodyLines)
+	$hc = Get-CodeOnly $h; $oc = Get-CodeOnly $o
+	$hs = Get-BodyShape $hc; $os = Get-BodyShape $oc
+	$oVar = Get-VarEnd $o $oc
+	# A local of the handler the original also names, or the other way round, becomes one variable
+	$clash = {
+		$hl = Get-LocalNames $hc $cp; $ol = Get-LocalNames $oc $cp
+		$hw = Get-WordSet $hc; $ow = Get-WordSet $oc
+		$names = @(@($hl.Keys | Where-Object { $ow.Contains($_) } | ForEach-Object { $hl[$_] }) + @($ol.Keys | Where-Object { $hw.Contains($_) } | ForEach-Object { $ol[$_] }) | Select-Object -Unique)
+		if ($names.Count -gt 0) { return "variable $($names -join ', ') is in both the handler and the original" }
+		return $null
+	}
+	# The original's Возврат lines other than a bare terminal one: code put after its body would be skipped
+	$oEarly = { for ($i = 0; $i -lt $o.Count; $i++) { if ($os.Ret[$i] -and -not ($i -eq $os.Term -and $oc[$i].Trim() -match '(?i)^(?:Возврат|Return)\s*;?$')) { return $true } }; return $false }
+	# Where code goes after the original's body: before its bare terminal Возврат, else after its last line
+	$oTail = {
+		$end = if ($os.Term -ge 0 -and $oc[$os.Term].Trim() -match '(?i)^(?:Возврат|Return)\s*;?$') { $os.Term } else { $o.Count }
+		for ($i = $end - 1; $i -ge 0; $i--) { if ($o[$i].Trim() -ne '') { return $i } }
+		return $oVar
+	}
+	# A handler part: its Перем lines go up to the original's, the rest stays in place
+	$split = {
+		param([int]$from, [int]$to, [bool]$dropTerm)
+		$vars = @(); $rest = @()
+		for ($i = $from; $i -le $to; $i++) {
+			if ($dropTerm -and $i -eq $hs.Term -and $hc[$i].Trim() -match '(?i)^(?:Возврат|Return)\s*;?$') { continue }
+			if ($hc[$i] -match $script:icVarRe) { $vars += $h[$i] } else { $rest += $h[$i] }
+		}
+		return @{ Vars = $vars; Code = (Get-Trimmed $rest) }
+	}
+	$ops = New-Object System.Collections.ArrayList
+	$put = {
+		param([int]$after, $part)
+		if ($part.Vars.Count -gt 0) { [void]$ops.Add(@{ Kind = 'insert'; After = $oVar; Lines = (Get-Framed $part.Vars $frame) }) }
+		if ($part.Code.Count -gt 0) { [void]$ops.Add(@{ Kind = 'insert'; After = $after; Lines = (Get-Framed $part.Code $frame) }) }
+	}
+	$last = $h.Count - 1
+	if ($type -eq 'Перед' -or $type -eq 'После') {
+		if ($cfgM.IsFunction) { return @{ Why = 'a function cannot have &Перед/&После' } }
+		$why = & $clash; if ($why) { return @{ Why = $why } }
+		if ($type -eq 'Перед') {
+			for ($i = 0; $i -le $last; $i++) {
+				if ($hs.Ret[$i] -and -not ($i -eq $hs.Term -and $hc[$i].Trim() -match '(?i)^(?:Возврат|Return)\s*;?$')) { return @{ Why = 'Возврат in the handler would skip the original' } }
+			}
+			& $put $oVar (& $split 0 $last $true)
+			return @{ Ops = $ops; Where = 'before the original' }
+		}
+		if (& $oEarly) { return @{ Why = 'the original returns early: the code after it would be skipped' } }
+		& $put (& $oTail) (& $split 0 $last $true)
+		return @{ Ops = $ops; Where = 'after the original' }
+	}
+	# &Вместо
+	$calls = @(for ($i = 0; $i -le $last; $i++) { if ($hc[$i] -match $script:icProceedRe) { $i } })
+	if ($calls.Count -eq 0) {
+		$new = Get-Framed (Get-Trimmed $h) $frame
+		$rm = Get-Removed $o $frame $deletion
+		if ($o.Count -gt 0) { [void]$ops.Add(@{ Kind = 'replace'; Start = 0; End = $o.Count - 1; Lines = @(@($rm) + @($new)) }) }
+		else { [void]$ops.Add(@{ Kind = 'insert'; After = -1; Lines = $new }) }
+		return @{ Ops = $ops; Where = 'in place of the original' }
+	}
+	if ($calls.Count -gt 1) { return @{ Why = 'ПродолжитьВызов is called more than once' } }
+	$c = $calls[0]
+	if ($hs.Depth[$c] -gt 0 -or [regex]::Matches($hc[$c], $script:icOpenRe).Count -gt 0) { return @{ Why = 'ПродолжитьВызов sits inside a block' } }
+	$ct = $hc[$c].Trim()
+	$var = $null
+	if ($ct -match '(?i)^(?:ПродолжитьВызов|ProceedWithCall)\s*\((.*)\)\s*;?$') { $kind = 'call'; $argText = $Matches[1] }
+	elseif ($ct -match '(?i)^([\w]+)\s*=\s*(?:ПродолжитьВызов|ProceedWithCall)\s*\((.*)\)\s*;?$') { $kind = 'assign'; $var = $Matches[1]; $argText = $Matches[2] }
+	elseif ($ct -match '(?i)^(?:Возврат|Return)\s+(?:ПродолжитьВызов|ProceedWithCall)\s*\((.*)\)\s*;?$') { $kind = 'return'; $argText = $Matches[1] }
+	else { return @{ Why = 'ПродолжитьВызов is part of an expression' } }
+	$given = @(if ($argText.Trim() -ne '') { Split-TopLevel $argText | ForEach-Object { $_.Trim().ToLower() } })
+	if (($given -join ',') -cne ((@($cp) | ForEach-Object { $_.ToLower() }) -join ',')) { return @{ Why = 'ПродолжитьВызов gets other arguments than the parameters' } }
+	$why = & $clash; if ($why) { return @{ Why = $why } }
+	$before = & $split 0 ($c - 1) $false
+	$after = & $split ($c + 1) $last ($kind -eq 'call')
+	if ($kind -eq 'call') {
+		if ($cfgM.IsFunction) { return @{ Why = 'the result of ПродолжитьВызов is not used' } }
+		if ($after.Code.Count -gt 0 -and (& $oEarly)) { return @{ Why = 'the original returns early: the code after it would be skipped' } }
+		& $put $oVar $before
+		if ($after.Code.Count -gt 0) { & $put (& $oTail) @{ Vars = @(); Code = $after.Code } }
+		return @{ Ops = $ops; Where = 'around the original' }
+	}
+	if (-not $cfgM.IsFunction) { return @{ Why = 'ПродолжитьВызов of a procedure gives no value' } }
+	if ($kind -eq 'return') {
+		if ($after.Code.Count -gt 0) { return @{ Why = 'the code after Возврат ПродолжитьВызов is never reached' } }
+		& $put $oVar $before
+		return @{ Ops = $ops; Where = 'around the original' }
+	}
+	# Р = ПродолжитьВызов(…): the original's one Возврат, at its end, gives Р its value
+	$rets = @(for ($i = 0; $i -lt $o.Count; $i++) { if ($os.Ret[$i]) { $i } })
+	$r = $os.Term
+	$raw = if ($r -ge 0) { (Get-CodeOnly @($o[$r]) -KeepStrings)[0].Trim() } else { '' }
+	if ($rets.Count -ne 1 -or $r -lt 0 -or $raw -notmatch '(?i)^(?:Возврат|Return)\s+(.+?)\s*;?$') { return @{ Why = 'the original returns other than by one Возврат at its end' } }
+	$expr = $Matches[1]
+	& $put $oVar $before
+	$setLines = Get-Framed (@("$(Get-Indent $o[$r])$var = $expr;") + @($after.Code)) $frame
+	$rm = Get-Removed @($o[$r]) $frame $deletion
+	[void]$ops.Add(@{ Kind = 'replace'; Start = $r; End = $r; Lines = @(@($rm) + @($setLines)) })
+	return @{ Ops = $ops; Where = 'around the original' }
+}
+
+# The original's body with interceptor edits laid on it
+function Get-InterceptBody($body, $ops) {
+	$body = @($body)
+	$ins = @{}; $rep = @{}
+	foreach ($op in $ops) {
+		if ($op.Kind -eq 'insert') { $k = [int]$op.After; if (-not $ins.ContainsKey($k)) { $ins[$k] = New-Object System.Collections.ArrayList }; [void]$ins[$k].Add($op) }
+		else { $rep[[int]$op.Start] = $op }
+	}
+	$out = New-Object System.Collections.Generic.List[string]
+	if ($ins.ContainsKey(-1)) { foreach ($op in $ins[-1]) { foreach ($l in $op.Lines) { $out.Add($l) } } }
+	$i = 0
+	while ($i -lt $body.Count) {
+		if ($rep.ContainsKey($i)) {
+			$op = $rep[$i]
+			foreach ($l in $op.Lines) { $out.Add($l) }
+			for ($j = $op.Start; $j -le $op.End; $j++) { if ($ins.ContainsKey($j)) { foreach ($x in $ins[$j]) { foreach ($l in $x.Lines) { $out.Add($l) } } } }
+			$i = $op.End + 1; continue
+		}
+		$out.Add($body[$i])
+		if ($ins.ContainsKey($i)) { foreach ($x in $ins[$i]) { foreach ($l in $x.Lines) { $out.Add($l) } } }
+		$i++
+	}
+	return ,$out.ToArray()
+}
+
 # Names the extension declares and the configuration does not have yet, under any prefix (lower-case
 # name -> name): code that uses them waits until those objects, sub-objects or form items are there
 function Get-MissingNames($extNames, $cfgNames) {
@@ -2939,6 +3224,7 @@ if ($Mode -eq 'transfer') {
 		$tempCount = 0
 		$recs = @()
 		$ownItems = @()
+		$icPending = @()
 		foreach ($w in $work) {
 			$titems = @()
 			$set = $script:settings[$w.Kind]
@@ -2958,14 +3244,9 @@ if ($Mode -eq 'transfer') {
 					$t.Sub = Get-WhereLines $pl $next
 					$titems += $t; continue
 				}
-				if ($pl.Kind -eq 'intercept') {
-					$t.Text = "$($pl.Label) — &Перед/&После/&Вместо are not transferred yet"
-					$t.Sub = Get-WhereLines $pl 'apply by hand'
-					$titems += $t; continue
-				}
 				$cfgFile = Join-Path $ConfigPath $pl.Rel
 				$fileMap = if ($fileMaps.ContainsKey($cfgFile.ToLower())) { $fileMaps[$cfgFile.ToLower()] } else { @{} }
-				$label = if ($pl.Kind -eq 'control') { $pl.Label } else { "method $($pl.Name)" }
+				$label = if ($pl.Kind -eq 'own') { "method $($pl.Name)" } else { $pl.Label }
 				if ($w.Support -eq 'locked') {
 					$t.Text = "$label — object is locked by vendor support"
 					$t.Sub = Get-WhereLines $pl 'allow editing with /support-edit, then re-run -Mode transfer'
@@ -2996,6 +3277,23 @@ if ($Mode -eq 'transfer') {
 					$more = if ($deps.Count -gt 5) { ", …+$($deps.Count - 5)" } else { '' }
 					$t.Status = 'WAITING'
 					$t.Text = "$label — waits for: $($shownDeps -join ', ')$more"
+					$titems += $t; continue
+				}
+				if ($pl.Kind -eq 'intercept') {
+					if ($it.Status -eq 'PARTIAL') {
+						$t.Status = 'CONFLICT'
+						$t.Text = "$($it.Text) — partly in the configuration already; method not changed"
+						$t.Sub = Get-WhereLines $pl 'compare with the original and finish by hand, then re-run -Mode check'
+						$titems += $t; continue
+					}
+					$r = Get-InterceptOps $pl.ExtM $pl.CfgM $pl.Type $frame $set.Deletion $fileMap
+					if ($r.Why) {
+						$t.Text = "$label — $($r.Why)"
+						$t.Sub = Get-WhereLines $pl 'apply by hand, then re-run -Mode check'
+						$titems += $t; continue
+					}
+					# Laid once every interceptor of the module is known: two of one method go together
+					$icPending += @{ T = $t; Pl = $pl; Fe = (Get-FileEdits $cfgFile); Ops = $r.Ops; Where = $r.Where; Label = $label; Warn = $warnNote }
 					$titems += $t; continue
 				}
 				if ($pl.Kind -eq 'control') {
@@ -3076,6 +3374,36 @@ if ($Mode -eq 'transfer') {
 			}
 			if ($titems.Count -eq 0) { continue }
 			$recs += @{ Id = $w.Id; Items = $titems }
+		}
+		# Interceptors, by the method they intercept: &Перед and &После of one method go into one body;
+		# &Вместо next to another interceptor, or any next to &ИзменениеИКонтроль, is left to a person
+		$icGroups = [ordered]@{}
+		foreach ($p in $icPending) {
+			$key = "$($p.Fe.File.Path.ToLower())|$($p.Pl.CfgM.DeclIdx)"
+			if (-not $icGroups.Contains($key)) { $icGroups[$key] = @() }
+			$icGroups[$key] += $p
+		}
+		foreach ($g in $icGroups.Values) {
+			$g = @($g)
+			$fe = $g[0].Fe; $cfgM = $g[0].Pl.CfgM
+			$manual = $null
+			if (@($fe.Repl | Where-Object { $_.Start -eq $cfgM.SigEndIdx + 1 }).Count -gt 0) { $manual = 'the method has &ИзменениеИКонтроль too' }
+			elseif ($g.Count -gt 1 -and @($g | Where-Object { $_.Pl.Type -eq 'Вместо' }).Count -gt 0) { $manual = 'the method has other interceptors too' }
+			if ($manual) {
+				foreach ($p in $g) { $p.T.Text = "$($p.Label) — $manual"; $p.T.Sub = Get-WhereLines $p.Pl 'apply by hand, then re-run -Mode check' }
+				continue
+			}
+			$ops = @(); foreach ($p in $g) { $ops += @($p.Ops) }
+			$body = Get-InterceptBody $cfgM.BodyLines $ops
+			# The check must find every handler's code in the new body, or a re-run would put it in again
+			$m2 = @{ BodyLines = $body; ParamNames = $cfgM.ParamNames }
+			$bad = @($g | Where-Object { $h2 = Get-HeuristicTransfer $_.Pl.ExtM $m2 $prefix; $h2 -and $h2.Found -ne $h2.Total })
+			if ($bad.Count -gt 0) {
+				foreach ($p in $g) { $p.T.Status = 'CONFLICT'; $p.T.Text = "$($p.Label) — after the transfer the check would not find the handler's code; method not changed"; $p.T.Sub = Get-WhereLines $p.Pl 'apply by hand, then re-run -Mode check' }
+				continue
+			}
+			[void]$fe.Repl.Add(@{ Start = $cfgM.SigEndIdx + 1; End = $cfgM.BodyEndIdx; Lines = $body; Seq = $script:seq++ })
+			foreach ($p in $g) { $p.T.Status = 'TRANSFERRED'; $p.T.Now = $true; $p.T.Text = "$($p.Label) — $($p.Where)$($p.Warn)" }
 		}
 		# Own methods that stay out: new ones make the pass run again
 		foreach ($o in $ownItems) {
