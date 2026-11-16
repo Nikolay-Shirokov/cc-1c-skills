@@ -1,0 +1,84 @@
+{
+  "name": "Код, которому нужно то, чего в конфигурации ещё нет (свой реквизит), не переносится: MANUAL с именами; свой реквизит — MANUAL этапа метаданных; независимый метод перенесён",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "Catalog",
+        "name": "Товары"
+      },
+      "args": {
+        "-JsonPath": "{inputFile}",
+        "-OutputDir": "{workDir}"
+      }
+    },
+    {
+      "script": "cfe-init/scripts/cfe-init",
+      "args": {
+        "-Name": "Тест",
+        "-OutputDir": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}"
+      }
+    },
+    {
+      "script": "cfe-borrow/scripts/cfe-borrow",
+      "args": {
+        "-ExtensionPath": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}",
+        "-Object": "Catalog.Товары"
+      }
+    },
+    {
+      "script": "meta-edit/scripts/meta-edit",
+      "args": {
+        "-ObjectPath": "{workDir}/cfe/Catalogs/Товары.xml",
+        "-Operation": "add-attribute",
+        "-Value": "Тест_Признак: Boolean",
+        "-NoValidate": true
+      }
+    },
+    {
+      "writeFile": {
+        "path": "Catalogs/Товары/Ext/ObjectModule.bsl",
+        "content": "Процедура ПередЗаписью(Отказ)\n\tХ = 1;\nКонецПроцедуры\n"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "cfe/Catalogs/Товары/Ext/ObjectModule.bsl",
+        "content": "&ИзменениеИКонтроль(\"ПередЗаписью\")\nПроцедура Тест_ПередЗаписью(Отказ)\n\tХ = 1;\n\t#Вставка\n\tТест_Признак = Истина;\n\t#КонецВставки\nКонецПроцедуры\n\nПроцедура Тест_Проверить() Экспорт\n\tСообщить(1);\nКонецПроцедуры\n"
+      }
+    }
+  ],
+  "params": {
+    "extensionPath": "cfe"
+  },
+  "cwd": "workDir",
+  "args_extra": [
+    "-Mode",
+    "transfer"
+  ],
+  "expectError": true,
+  "expect": {
+    "stdoutContains": [
+      "[MANUAL]             &ИзменениеИКонтроль(\"ПередЗаписью\") — uses what the configuration does not have yet: Тест_Признак",
+      "metadata is not transferred yet",
+      "[TRANSFERRED]        method Тест_Проверить (as Проверить) -> new region ПрограммныйИнтерфейс"
+    ],
+    "fileContains": [
+      {
+        "file": "Catalogs/Товары/Ext/ObjectModule.bsl",
+        "text": [
+          "Процедура ПередЗаписью(Отказ)\n\tХ = 1;\nКонецПроцедуры\n",
+          "#Область ПрограммныйИнтерфейс\n\nПроцедура Проверить() Экспорт\n\tСообщить(1);\nКонецПроцедуры\n\n#КонецОбласти"
+        ]
+      }
+    ],
+    "fileNotContains": [
+      {
+        "file": "Catalogs/Товары/Ext/ObjectModule.bsl",
+        "text": "Признак"
+      }
+    ]
+  }
+}

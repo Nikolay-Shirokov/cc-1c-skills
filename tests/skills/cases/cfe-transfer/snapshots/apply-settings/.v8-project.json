@@ -1,0 +1,25 @@
+{
+  "devPrefix": [
+    "мп"
+  ],
+  "cfeTransfer": {
+    "vendor": {
+      "insertComment": {
+        "begin": "++ {prefixBare} {tag}",
+        "end": "// -- {prefixBare}"
+      },
+      "addDevPrefix": {
+        "methods": true
+      }
+    },
+    "own": {
+      "deletion": "remove",
+      "createRegions": false,
+      "regions": {
+        "service": [
+          "Прочее"
+        ]
+      }
+    }
+  }
+}

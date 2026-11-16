@@ -1,0 +1,123 @@
+{
+  "name": "Поддержка: объект на замке не правится (MANUAL с подсказкой /support-edit), снятый с поддержки — переносится",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "Catalog",
+        "name": "Закрытый"
+      },
+      "args": {
+        "-JsonPath": "{inputFile}",
+        "-OutputDir": "{workDir}"
+      }
+    },
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "Catalog",
+        "name": "Снятый"
+      },
+      "args": {
+        "-JsonPath": "{inputFile}",
+        "-OutputDir": "{workDir}"
+      }
+    },
+    {
+      "script": "cfe-init/scripts/cfe-init",
+      "args": {
+        "-Name": "Тест",
+        "-OutputDir": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}"
+      }
+    },
+    {
+      "script": "cfe-borrow/scripts/cfe-borrow",
+      "args": {
+        "-ExtensionPath": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}",
+        "-Object": "Catalog.Закрытый"
+      }
+    },
+    {
+      "script": "cfe-borrow/scripts/cfe-borrow",
+      "args": {
+        "-ExtensionPath": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}",
+        "-Object": "Catalog.Снятый"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "Catalogs/Закрытый/Ext/ObjectModule.bsl",
+        "content": "Процедура А()\nКонецПроцедуры\n"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "Catalogs/Снятый/Ext/ObjectModule.bsl",
+        "content": "Процедура А()\nКонецПроцедуры\n"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "cfe/Catalogs/Закрытый/Ext/ObjectModule.bsl",
+        "content": "Процедура Тест_Новый() Экспорт\n\tСообщить(1);\nКонецПроцедуры\n"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "cfe/Catalogs/Снятый/Ext/ObjectModule.bsl",
+        "content": "Процедура Тест_Новый() Экспорт\n\tСообщить(1);\nКонецПроцедуры\n"
+      }
+    },
+    {
+      "editFile": "Catalogs/Закрытый.xml",
+      "replace": "<Catalog uuid=\"",
+      "with": "<Catalog uuid=\"22222222-2222-2222-2222-222222222222\" data-was=\""
+    },
+    {
+      "editFile": "Catalogs/Снятый.xml",
+      "replace": "<Catalog uuid=\"",
+      "with": "<Catalog uuid=\"33333333-3333-3333-3333-333333333333\" data-was=\""
+    },
+    {
+      "writeFile": {
+        "path": "Ext/ParentConfigurations.bin",
+        "content": "{6,0,1,aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa,0,bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb,\"1.0\",\"ТестВендор\",\"ТестКонфиг\",2,0,0,22222222-2222-2222-2222-222222222222,22222222-2222-2222-2222-222222222222,2,0,33333333-3333-3333-3333-333333333333,33333333-3333-3333-3333-333333333333}"
+      }
+    }
+  ],
+  "params": {
+    "extensionPath": "cfe"
+  },
+  "cwd": "workDir",
+  "args_extra": [
+    "-Mode",
+    "transfer"
+  ],
+  "expectError": true,
+  "expect": {
+    "stdoutContains": [
+      "[MANUAL]             method Тест_Новый — object is locked by vendor support",
+      "next: allow editing with /support-edit, then re-run -Mode transfer",
+      "[TRANSFERRED]        method Тест_Новый (as Новый) -> new region ПрограммныйИнтерфейс"
+    ],
+    "fileContains": [
+      {
+        "file": "Catalogs/Снятый/Ext/ObjectModule.bsl",
+        "text": "Процедура Новый() Экспорт"
+      },
+      {
+        "file": "Catalogs/Закрытый/Ext/ObjectModule.bsl",
+        "text": "Процедура А()\nКонецПроцедуры\n"
+      }
+    ],
+    "fileNotContains": [
+      {
+        "file": "Catalogs/Закрытый/Ext/ObjectModule.bsl",
+        "text": "Новый"
+      }
+    ]
+  }
+}

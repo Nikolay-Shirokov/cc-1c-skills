@@ -1,0 +1,122 @@
+{
+  "name": "Перенос &ИзменениеИКонтроль и собственных методов: вставка после якоря и в начало, удаление комментированием, частично перенесённый метод, заметка маркера; вызов своего метода во вставке без префикса; свои методы по областям (интерфейс — новой областью, служебный — в служебную); метод с разошедшейся правкой и правка-перемещение не тронуты (CONFLICT с from/to/next), метода нет в конфигурации и тело своего метода отличается — MANUAL и CONFLICT",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "CommonModule",
+        "name": "М",
+        "properties": {
+          "Server": true
+        }
+      },
+      "args": {
+        "-JsonPath": "{inputFile}",
+        "-OutputDir": "{workDir}"
+      }
+    },
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "CommonModule",
+        "name": "М2",
+        "properties": {
+          "Server": true
+        }
+      },
+      "args": {
+        "-JsonPath": "{inputFile}",
+        "-OutputDir": "{workDir}"
+      }
+    },
+    {
+      "script": "cfe-init/scripts/cfe-init",
+      "args": {
+        "-Name": "Тест",
+        "-OutputDir": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}"
+      }
+    },
+    {
+      "script": "cfe-borrow/scripts/cfe-borrow",
+      "args": {
+        "-ExtensionPath": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}",
+        "-Object": "CommonModule.М"
+      }
+    },
+    {
+      "script": "cfe-borrow/scripts/cfe-borrow",
+      "args": {
+        "-ExtensionPath": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}",
+        "-Object": "CommonModule.М2"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "CommonModules/М/Ext/Module.bsl",
+        "content": "#Область СлужебныеПроцедурыИФункции\n\nПроцедура А() Экспорт\n\tХ = 1;\n\tЗаписать();\nКонецПроцедуры\n\nПроцедура Б() Экспорт\n\tНачало();\n\tУдалить1();\n\tКонец();\nКонецПроцедуры\n\nПроцедура В() Экспорт\n\tХ = 1;\n\tПроверить();\n\tЗаписать();\nКонецПроцедуры\n\n#КонецОбласти\n"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "cfe/CommonModules/М/Ext/Module.bsl",
+        "content": "&ИзменениеИКонтроль(\"А\")\nПроцедура Тест_А()\n\tХ = 1;\n\t#Вставка // проверка прав\n\tПроверитьПрава();\n\t#КонецВставки\n\tЗаписать();\nКонецПроцедуры\n\n&ИзменениеИКонтроль(\"Б\")\nПроцедура Тест_Б()\n\t#Вставка\n\tНачать();\n\t#КонецВставки\n\tНачало();\n\t#Удаление\n\tУдалить1();\n\t#КонецУдаления\n\tКонец();\nКонецПроцедуры\n\n&ИзменениеИКонтроль(\"В\")\nПроцедура Тест_В()\n\tХ = 1;\n\t#Вставка\n\tПроверить();\n\t#КонецВставки\n\tЗаписать();\n\t#Вставка\n\tТест_Сообщить();\n\t#КонецВставки\nКонецПроцедуры\n\nПроцедура Тест_Сообщить() Экспорт\n\tСообщить(\"Готово\");\nКонецПроцедуры\n\nФункция Тест_Сумма(А, Б)\n\tВозврат А + Б;\nКонецФункции\n"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "CommonModules/М2/Ext/Module.bsl",
+        "content": "Процедура Г() Экспорт\n\tНачало();\n\tХ = 2;\n\tСохранить();\nКонецПроцедуры\n\nПроцедура Д() Экспорт\n\tПодготовить();\n\tПеренести();\n\tЗавершить();\nКонецПроцедуры\n\nПроцедура Е() Экспорт\n\tПодготовить();\nКонецПроцедуры\n"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "cfe/CommonModules/М2/Ext/Module.bsl",
+        "content": "&ИзменениеИКонтроль(\"Г\")\nПроцедура Тест_Г()\n\tНачало();\n\t#Вставка\n\tПервая();\n\t#КонецВставки\n\tХ = 1;\n\t#Вставка\n\tВторая();\n\t#КонецВставки\n\tЗаписать();\nКонецПроцедуры\n\n&ИзменениеИКонтроль(\"Д\")\nПроцедура Тест_Д()\n\tПодготовить();\n\t#Удаление\n\tПеренести();\n\t#КонецУдаления\n\tЗавершить();\n\t#Вставка\n\tПеренести();\n\t#КонецВставки\nКонецПроцедуры\n\n&ИзменениеИКонтроль(\"Ж\")\nПроцедура Тест_Ж()\n\tПодготовить();\n\t#Вставка\n\tНачать();\n\t#КонецВставки\nКонецПроцедуры\n\nПроцедура Е()\n\tПодготовить();\n\tСообщить(1);\nКонецПроцедуры\n"
+      }
+    }
+  ],
+  "params": {
+    "extensionPath": "cfe"
+  },
+  "cwd": "workDir",
+  "args_extra": [
+    "-Mode",
+    "transfer"
+  ],
+  "expectError": true,
+  "expect": {
+    "stdoutContains": [
+      "[TRANSFERRED]        &ИзменениеИКонтроль(\"А\") — 1 edit",
+      "[TRANSFERRED]        &ИзменениеИКонтроль(\"Б\") — 2 edits",
+      "[TRANSFERRED]        &ИзменениеИКонтроль(\"В\") — 1 edit, 1 already there",
+      "[TRANSFERRED]        method Тест_Сообщить (kept prefix: Сообщить exists) -> new region ПрограммныйИнтерфейс",
+      "[TRANSFERRED]        method Тест_Сумма (as Сумма) -> region СлужебныеПроцедурыИФункции",
+      "&ИзменениеИКонтроль(\"Г\") — 1 of 2 edits fit, 1 diverged; method not changed",
+      "next: original changed in config -> /cfe-patch-method -Actualize, then re-run -Mode transfer; otherwise apply by hand",
+      "&ИзменениеИКонтроль(\"Д\") — after the transfer the check would still see 1 edit as not transferred; method not changed",
+      "[MANUAL]             &ИзменениеИКонтроль(\"Ж\") (method not found in config)",
+      "[CONFLICT]           method Е (body differs); not changed",
+      "Changed files:",
+      "    CommonModules/М/Ext/Module.bsl"
+    ],
+    "fileContains": [
+      {
+        "file": "CommonModules/М/Ext/Module.bsl",
+        "text": [
+          "\tХ = 1;\n\t// проверка прав\n\tПроверитьПрава();\n\tЗаписать();",
+          "\tНачать();\n\tНачало();\n//\tУдалить1();\n\tКонец();",
+          "\tЗаписать();\n\tТест_Сообщить();\nКонецПроцедуры",
+          "Функция Сумма(А, Б)\n\tВозврат А + Б;\nКонецФункции\n\n#КонецОбласти",
+          "#Область ПрограммныйИнтерфейс\n\nПроцедура Тест_Сообщить() Экспорт\n\tСообщить(\"Готово\");\nКонецПроцедуры\n\n#КонецОбласти"
+        ]
+      },
+      {
+        "file": "CommonModules/М2/Ext/Module.bsl",
+        "text": "Процедура Г() Экспорт\n\tНачало();\n\tХ = 2;\n\tСохранить();\nКонецПроцедуры\n\nПроцедура Д() Экспорт\n\tПодготовить();\n\tПеренести();\n\tЗавершить();\nКонецПроцедуры\n\nПроцедура Е() Экспорт\n\tПодготовить();\nКонецПроцедуры\n"
+      }
+    ]
+  }
+}

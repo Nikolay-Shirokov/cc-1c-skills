@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-# cfe-transfer v1.0 — Check transfer of 1C configuration extension (CFE) changes into the main configuration
+# cfe-transfer v1.1 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
+import json
 import os
 import re
 import sys
@@ -854,11 +855,28 @@ def find_name_in(names, name, prefix):
     for c in names:
         if c.lower() == name.lower():
             return c
-    s = remove_ext_prefix(name, prefix).lower()
+    s = get_name_key(name, prefix).lower()
     for c in names:
-        if remove_ext_prefix(c, prefix).lower() == s:
+        if get_name_key(c, prefix).lower() == s:
             return c
     return None
+
+
+# All names that may stand for name: the same name first, then those equal without the prefixes
+def find_names_in(names, name, prefix):
+    res = [c for c in names if c.lower() == name.lower()]
+    s = get_name_key(name, prefix).lower()
+    res += [c for c in names if c.lower() != name.lower() and get_name_key(c, prefix).lower() == s]
+    return res
+
+
+# A name compared without the extension prefix and, when the project has them, without the
+# development prefixes: the transfer may give an own name either way (see get_target_name)
+def get_name_key(name, prefix):
+    t = remove_ext_prefix(name, prefix)
+    if DEV_RE is not None:
+        t = DEV_RE.sub("", t)
+    return t
 
 
 def get_short(s, n=40):
@@ -908,7 +926,10 @@ def get_method_safe(lines, method_name):
 # Comparable form of a code line: normalized, without the extension prefix, lower case (the language
 # ignores case; lowering here also keeps the copied matchers' -eq and Python's == in agreement)
 def code_key(line, prefix):
-    return normalize(remove_ext_prefix(line, prefix)).lower()
+    t = remove_ext_prefix(line, prefix)
+    if DEV_RE is not None:
+        t = DEV_RE.sub("", t)
+    return normalize(t).lower()
 
 
 # Significant lines of a body as code keys
@@ -1078,6 +1099,8 @@ def get_control_transfer(ext_method, cfg_method, prefix):
     temp = 0
     temp_why = None
     marked_done = 0
+    # Per edit, for -Mode transfer: the result and where it goes in the configuration's body
+    plan = []
     payloads = {i: [x for x in (code_key(y, prefix) for y in o["lines"]) if test_significant(x)]
                 for i, o in enumerate(ops) if o["kind"] == "insert"}
     replaced = get_absorbed_in_place(ops, v1norm, v2norm, v2sig, payloads)
@@ -1092,6 +1115,7 @@ def get_control_transfer(ext_method, cfg_method, prefix):
             # A comment-only insert carries nothing to transfer
             if not payload_sig:
                 continue
+            k = None
             if oi in replaced:
                 res = "absorbed"
             else:
@@ -1130,6 +1154,7 @@ def get_control_transfer(ext_method, cfg_method, prefix):
                 else:
                     res = dispute_reason("insert", "", "", "", v2norm)
         else:
+            p = -1
             if oi in replaced:
                 res = "absorbed"
             else:
@@ -1155,11 +1180,14 @@ def get_control_transfer(ext_method, cfg_method, prefix):
                         res = dispute_reason("delete", first, "", "", v2norm)
         # A block marked "not for transfer" counts as temporary only while it is not in the configuration
         mark = get_block_temp_mark(op)
+        pk = k if op["kind"] == "insert" else p
         if mark is not None and res != "absorbed":
+            plan.append({"op": op, "res": "temp", "at": pk})
             temp += 1
             if temp_why is None:
                 temp_why = mark
             continue
+        plan.append({"op": op, "res": res, "at": pk})
         if res == "absorbed":
             absorbed += 1
             if mark is not None:
@@ -1171,14 +1199,14 @@ def get_control_transfer(ext_method, cfg_method, prefix):
     n = absorbed + pending + len(disputed)
     if n == 0:
         if temp > 0:
-            return {"status": "TEMPORARY", "count": plural(temp, "edit"), "note": temp_why}
+            return {"status": "TEMPORARY", "count": plural(temp, "edit"), "note": temp_why, "plan": plan}
         return None
     count = "%d/%d edits" % (absorbed, n)
     if temp > 0:
         count += ", %d temporary" % temp
     if disputed:
         more = " (+%d more)" % (len(disputed) - 1) if len(disputed) > 1 else ""
-        return {"status": "DIVERGED", "count": count, "note": disputed[0] + more}
+        return {"status": "DIVERGED", "count": count, "note": disputed[0] + more, "plan": plan}
     if absorbed == n:
         st = "TRANSFERRED"
     elif absorbed == 0:
@@ -1186,7 +1214,7 @@ def get_control_transfer(ext_method, cfg_method, prefix):
     else:
         st = "PARTIAL"
     note = ("%d marked temporary" % marked_done) if marked_done else ""
-    return {"status": st, "count": count, "note": note, "marked": marked_done > 0}
+    return {"status": st, "count": count, "note": note, "marked": marked_done > 0, "plan": plan}
 
 
 # &Перед/&После/&Вместо and form event interceptors: there is no marked original to compare with,
@@ -1928,11 +1956,14 @@ def module_transfer_items(bsl, ext_dir, config_path, prefix, skip_handlers):
         mark = get_method_temp_mark(ext_lines, ext_m, ic["type"] == "ИзменениеИКонтроль") if ext_m else None
         cfg_m = get_method_safe(cfg_lines, ic["method"])
         it = None
+        plan = {"kind": "missing", "rel": rel, "ext_m": ext_m, "cfg_m": cfg_m, "label": label}
         if not cfg_m:
             why = "module not found in config" if cfg_lines is None else "method not found in config"
             it = new_item("MISSING_IN_CONFIG", "%s (%s)" % (label, why), loc)
+            plan["why"] = why
         elif not ext_m:
             it = new_item("DIVERGED", label + " (cannot parse the interceptor)", loc)
+            plan["why"] = "cannot parse the interceptor"
         elif ic["type"] == "ИзменениеИКонтроль":
             r = get_control_transfer(ext_m, cfg_m, prefix)
             if r:
@@ -1940,10 +1971,16 @@ def module_transfer_items(bsl, ext_dir, config_path, prefix, skip_handlers):
                 it = new_item(r["status"], "%s — %s%s" % (label, r["count"], note), loc)
                 if r.get("marked") and r["status"] == "TRANSFERRED":
                     it["marked"] = True
+                plan["kind"] = "control"
+                plan["ops"] = r["plan"]
         else:
             h = get_heuristic_transfer(ext_m, cfg_m, prefix)
             if h:
                 it = new_item(heuristic_status(h), "%s (heuristic: %d/%d lines)" % (label, h["found"], h["total"]), loc)
+            plan["kind"] = "intercept"
+            plan["type"] = ic["type"]
+        if it:
+            it["plan"] = plan
         if it:
             items.append(set_temp_mark(it, mark, label))
     cfg_names = get_proc_names(cfg_lines) if cfg_lines is not None else []
@@ -1954,17 +1991,30 @@ def module_transfer_items(bsl, ext_dir, config_path, prefix, skip_handlers):
             continue
         loc = "%s:%d" % (rel, ext_m["decl_idx"] + 1)
         mark = get_method_temp_mark(ext_lines, ext_m)
-        hit = find_name_in(cfg_names, pn, prefix)
-        if not hit:
+        # Every method of the module the name may stand for; the one with the same body wins (a name
+        # given with the development prefix next to a vendor method of the plain name)
+        hits = find_names_in(cfg_names, pn, prefix)
+        hit = None
+        cfg_m = None
+        if not hits:
             it = new_item("NOT_TRANSFERRED", "method " + pn, loc)
         else:
+            ext_sig = "\n".join(sig_lines(ext_m["body_lines"], prefix))
+            same = False
+            for h in hits:
+                m = get_method_safe(cfg_lines, h)
+                if m and "\n".join(sig_lines(m["body_lines"], prefix)).lower() == ext_sig.lower():
+                    hit, cfg_m, same = h, m, True
+                    break
+            if not same:
+                hit = hits[0]
+                cfg_m = get_method_safe(cfg_lines, hit)
             as_ = (" (found as %s)" % hit) if hit.lower() != pn.lower() else ""
-            cfg_m = get_method_safe(cfg_lines, hit)
-            same = bool(cfg_m) and "\n".join(sig_lines(ext_m["body_lines"], prefix)) == "\n".join(sig_lines(cfg_m["body_lines"], prefix))
             if same:
                 it = new_item("TRANSFERRED", "method %s%s" % (pn, as_), loc)
             else:
                 it = new_item("DIVERGED", "method %s%s (body differs)" % (pn, as_), loc)
+        it["plan"] = {"kind": "own", "rel": rel, "ext_m": ext_m, "ext_lines": ext_lines, "cfg_m": cfg_m, "name": pn, "hit": hit, "cfg_missing": cfg_lines is None}
         items.append(set_temp_mark(it, mark, "method " + pn))
     return items
 
@@ -2172,6 +2222,770 @@ def get_subsystem_content(md):
 
 
 # ============================================================
+# Transfer: writing into the configuration (-Mode transfer)
+# ============================================================
+
+# --- support-guard copies (verbatim from cf-edit, kept identical by check-inline-drift) ---
+def _sg_root_uuid(xml_path):
+    if not os.path.isfile(xml_path):
+        return None
+    try:
+        mx = etree.parse(xml_path).getroot()
+        for child in mx:
+            if isinstance(child.tag, str) and child.get("uuid"):
+                return child.get("uuid")
+    except Exception:
+        return None
+    return None
+
+
+def _sg_find_v8project(start_dir):
+    d = start_dir
+    for _ in range(20):
+        if not d:
+            break
+        pj = os.path.join(d, ".v8-project.json")
+        if os.path.isfile(pj):
+            return pj
+        parent = os.path.dirname(d)
+        if parent == d:
+            break
+        d = parent
+    return None
+
+
+def _sg_get_edit_mode(cfg_dir):
+    try:
+        pj = _sg_find_v8project(os.getcwd()) or _sg_find_v8project(os.path.abspath(cfg_dir))
+        if not pj:
+            return "deny"
+        proj = json.loads(open(pj, encoding="utf-8-sig").read())
+        # configSrc — от каталога .v8-project.json, а не от рабочего каталога: иначе из подкаталога
+        # проекта база не сопоставляется и берётся правило проекта. Пути — настоящие (realpath):
+        # на macOS /var — ссылка на /private/var, и getcwd с путём аргумента иначе не совпадут.
+        proj_dir = os.path.dirname(pj)
+        cfg_full = os.path.normcase(os.path.realpath(cfg_dir)).rstrip("\\/")
+        for db in proj.get("databases", []):
+            src = db.get("configSrc")
+            if src:
+                src_full = os.path.normcase(os.path.realpath(os.path.join(proj_dir, src))).rstrip("\\/")
+                if cfg_full == src_full or cfg_full.startswith(src_full + os.sep):
+                    if db.get("editingAllowedCheck"):
+                        return db["editingAllowedCheck"]
+        if proj.get("editingAllowedCheck"):
+            return proj["editingAllowedCheck"]
+        return "deny"
+    except Exception:
+        return "deny"
+
+
+
+# Run state of -Mode transfer (set in main)
+SETTINGS = {"dev_prefix": []}
+DEV_RE = None
+NAME_MAP = {}
+TRANSFER_PREFIX = ""
+SUPPORT_INFO = {"g": 0, "k": 0, "map": {}, "mode": "deny"}
+FILE_EDITS = {}
+EDIT_SEQ = [0]
+
+# Role of an own method -> region, by the module structure standard; a project overrides any of them
+# in cfeTransfer.regions with a name or a list of names (the first one the module has wins)
+REGION_DEFAULTS = [
+    ("formEvents", ["ОбработчикиСобытийФормы"]),
+    ("headerItemEvents", ["ОбработчикиСобытийЭлементовШапкиФормы"]),
+    ("tableItemEvents", ["ОбработчикиСобытийЭлементовТаблицыФормы{table}"]),
+    ("commands", ["ОбработчикиКомандФормы"]),
+    ("notifications", ["ОбработчикиОповещений", "СлужебныеПроцедурыИФункции"]),
+    ("objectEvents", ["ОбработчикиСобытий"]),
+    ("api", ["ПрограммныйИнтерфейс"]),
+    ("service", ["СлужебныеПроцедурыИФункции"]),
+]
+REGION_ORDER = [k for k, _ in REGION_DEFAULTS]
+
+# Events of object, manager and record set modules (both spellings): their handlers go to objectEvents
+OBJECT_EVENT_NAMES = {x.lower() for x in (
+    "ПередЗаписью", "ПриЗаписи", "ОбработкаЗаполнения", "ОбработкаПроверкиЗаполнения", "ПриКопировании",
+    "ПередУдалением", "ОбработкаПроведения", "ОбработкаУдаленияПроведения", "ПриУстановкеНовогоКода",
+    "ПриУстановкеНовогоНомера", "ОбработкаПолученияДанныхВыбора", "ОбработкаПолученияФормы",
+    "ОбработкаПолученияПредставления", "ОбработкаПолученияПолейПредставления", "ПриКомпоновкеРезультата",
+    "BeforeWrite", "OnWrite", "Filling", "FillCheckProcessing", "OnCopy", "BeforeDelete", "Posting",
+    "UndoPosting", "OnSetNewCode", "OnSetNewNumber", "ChoiceDataGetProcessing", "FormGetProcessing",
+    "PresentationGetProcessing", "PresentationFieldsGetProcessing", "OnComposeResult")}
+
+
+def _same_or_under(path, root):
+    a = os.path.normcase(os.path.abspath(path)).rstrip("\\/")
+    b = os.path.normcase(os.path.abspath(root)).rstrip("\\/")
+    return a == b or a.startswith(b + os.sep)
+
+
+def get_transfer_settings(cfg_dir):
+    """Project settings: the database record whose configSrc holds the configuration, else the
+    project level. devPrefix — the project's development prefixes; cfeTransfer — keys on its top level
+    apply to both kinds of objects, its vendor/own sections refine them."""
+    proj = None
+    db = None
+    pj = _sg_find_v8project(os.getcwd()) or _sg_find_v8project(os.path.abspath(cfg_dir))
+    if pj:
+        try:
+            proj = json.loads(open(pj, encoding="utf-8-sig").read())
+        except Exception as e:
+            die("Cannot read %s: %s" % (pj, e))
+        proj_dir = os.path.dirname(pj)
+        for d in (proj.get("databases") or []) if isinstance(proj, dict) else []:
+            if not isinstance(d, dict) or not d.get("configSrc"):
+                continue
+            if _same_or_under(cfg_dir, os.path.join(proj_dir, d["configSrc"])):
+                db = d
+                break
+
+    def pick(key):
+        if db is not None and key in db:
+            return db[key]
+        if isinstance(proj, dict) and key in proj:
+            return proj[key]
+        return None
+
+    dp = pick("devPrefix")
+    if dp is None:
+        dp = []
+    elif not isinstance(dp, list):
+        dp = [dp]
+    res = {"dev_prefix": [str(x) for x in dp if x]}
+    ct = pick("cfeTransfer")
+    if not isinstance(ct, dict):
+        ct = {}
+    for kind in ("vendor", "own"):
+        e = {"insert_comment": None, "deletion": "comment", "create_regions": kind == "own",
+             "regions": {k: list(v) for k, v in REGION_DEFAULTS}, "add_dev_objects": True, "add_dev_methods": False}
+        for src in (ct, ct.get(kind)):
+            if not isinstance(src, dict):
+                continue
+            if "insertComment" in src:
+                e["insert_comment"] = src["insertComment"]
+            if "deletion" in src:
+                e["deletion"] = str(src["deletion"]).lower()
+            if "createRegions" in src:
+                e["create_regions"] = bool(src["createRegions"])
+            if isinstance(src.get("regions"), dict):
+                for k, v in src["regions"].items():
+                    e["regions"][k] = [str(x) for x in (v if isinstance(v, list) else [v])]
+            if isinstance(src.get("addDevPrefix"), dict):
+                if "objects" in src["addDevPrefix"]:
+                    e["add_dev_objects"] = bool(src["addDevPrefix"]["objects"])
+                if "methods" in src["addDevPrefix"]:
+                    e["add_dev_methods"] = bool(src["addDevPrefix"]["methods"])
+        if e["deletion"] not in ("comment", "remove"):
+            die("cfeTransfer.deletion: expected comment or remove, got '%s'" % e["deletion"])
+        res[kind] = e
+    return res
+
+
+def get_template_vars(ext_dir, cp, tag):
+    """Values for the comment template, from the extension's properties."""
+    root = read_xml(os.path.join(ext_dir, "Configuration.xml")).getroot()
+    props = root.find(".//md:Configuration/md:Properties", MD_NSMAP)
+
+    def txt(n):
+        x = props.find("md:" + n, MD_NSMAP) if props is not None else None
+        return (x.text or "").strip() if x is not None else ""
+
+    syn = ""
+    if props is not None:
+        for it in props.findall("md:Synonym/*", MD_NSMAP):
+            if localname(it) != "item":
+                continue
+            lang = next((c for c in it if isinstance(c.tag, str) and localname(c) == "lang"), None)
+            content = next((c for c in it if isinstance(c.tag, str) and localname(c) == "content"), None)
+            if content is None:
+                continue
+            if not syn:
+                syn = (content.text or "").strip()
+            if lang is not None and (lang.text or "").strip() == "ru":
+                syn = (content.text or "").strip()
+                break
+    prefix = cp["prefix"] or ""
+    return {"name": cp["name"] or "", "synonym": syn, "version": txt("Version"), "vendor": txt("Vendor"),
+            "prefix": prefix, "prefixBare": prefix.rstrip("_"), "tag": tag}
+
+
+# .NET date format (as in the .ps1) -> strftime: the tokens a date template needs
+_DATE_TOKENS = [("yyyy", "%Y"), ("yy", "%y"), ("MM", "%m"), ("dd", "%d"), ("HH", "%H"), ("mm", "%M"), ("ss", "%S"),
+                ("M", "%-m"), ("d", "%-d"), ("H", "%-H")]
+
+
+def format_date(fmt):
+    import datetime
+    now = datetime.datetime.now()
+    out = []
+    i = 0
+    while i < len(fmt):
+        for tok, _ in _DATE_TOKENS:
+            if fmt.startswith(tok, i):
+                if tok == "M":
+                    out.append(str(now.month))
+                elif tok == "d":
+                    out.append(str(now.day))
+                elif tok == "H":
+                    out.append(str(now.hour))
+                else:
+                    out.append(now.strftime(dict(_DATE_TOKENS)[tok]))
+                i += len(tok)
+                break
+        else:
+            out.append(fmt[i])
+            i += 1
+    return "".join(out)
+
+
+def expand_template(tpl, vars_):
+    """A comment line from a template: {name} {synonym} {version} {vendor} {prefix} {prefixBare} {tag},
+    {date} or {date:<.NET format>}; a template that is not a comment yet becomes one."""
+    def ev(m):
+        k = m.group(1)
+        if k == "date":
+            return format_date(m.group(2) if m.group(2) is not None else "dd.MM.yyyy")
+        if k in vars_:
+            return str(vars_[k] if vars_[k] is not None else "")
+        return m.group(0)
+    out = re.sub(r'\{(\w+)(?::([^}]*))?\}', ev, tpl)
+    if not out.lstrip().startswith("//"):
+        out = "// " + out
+    return out
+
+
+def get_frame(set_, vars_):
+    """Begin/end comment lines of a kind of object (None when the project frames nothing)."""
+    ic = set_["insert_comment"]
+    b = e = None
+    if isinstance(ic, dict):
+        if ic.get("begin"):
+            b = expand_template(str(ic["begin"]), vars_)
+        if ic.get("end"):
+            e = expand_template(str(ic["end"]), vars_)
+    return {"begin": b, "end": e}
+
+
+def get_support_info(cfg_dir):
+    """Support settings of the configuration, read once: capability (g), objects on support (k), the
+    support state per object uuid (0 locked, 1 editable with support, 2 taken off support)."""
+    info = {"g": 0, "k": 0, "map": {}, "mode": _sg_get_edit_mode(cfg_dir)}
+    path = os.path.join(cfg_dir, "Ext", "ParentConfigurations.bin")
+    if not os.path.exists(path):
+        return info
+    data = open(path, "rb").read()
+    if len(data) <= 32:
+        return info
+    if data[:3] == b"\xef\xbb\xbf":
+        data = data[3:]
+    text = data.decode("utf-8", "replace")
+    h = re.match(r"\{6,(\d+),(\d+),", text)
+    if not h:
+        return info
+    info["g"] = int(h.group(1))
+    info["k"] = int(h.group(2))
+    for m in re.finditer(r"([0-2]),0,([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})", text):
+        u = m.group(2).lower()
+        f = int(m.group(1))
+        if u not in info["map"] or f < info["map"][u]:
+            info["map"][u] = f
+    return info
+
+
+def get_object_support(xml_path):
+    """Support state of a configuration object: locked (the support settings forbid editing it), vendor
+    (on support) or own (taken off support, created in the configuration, no support at all).
+    editingAllowedCheck = off/warn in .v8-project.json lifts the lock, as for the editing skills."""
+    si = SUPPORT_INFO
+    if si["k"] == 0:
+        return "own"
+    lock_on = si["mode"] not in ("off", "warn")
+    if si["g"] == 1 and lock_on:
+        return "locked"
+    u = _sg_root_uuid(xml_path)
+    f = si["map"].get(u.lower()) if u else None
+    if f is None or f == 2:
+        return "own"
+    if f == 0 and lock_on:
+        return "locked"
+    return "vendor"
+
+
+def has_dev_prefix(name):
+    return any(name.lower().startswith(p.lower()) for p in SETTINGS["dev_prefix"])
+
+
+def get_object_kind(obj_name, support):
+    """Own or vendor: by the development prefix in the object's name when the project has one, else by support."""
+    if SETTINGS["dev_prefix"]:
+        return "own" if has_dev_prefix(obj_name) else "vendor"
+    return "own" if support == "own" else "vendor"
+
+
+def get_target_name(name, prefix, taken, add_dev):
+    """Name in the configuration for an own name of the extension: without the extension prefix; taken ->
+    with the development prefix; taken too -> as it is. add_dev puts the development prefix first.
+    taken — lower-case names of the target (module or object) plus those given in this run."""
+    bare = remove_ext_prefix(name, prefix) if prefix else name
+    dp = SETTINGS["dev_prefix"]
+    with_dev = (dp[0] + bare) if dp and not has_dev_prefix(bare) else None
+    if add_dev and with_dev:
+        cands = [with_dev]
+    else:
+        cands = [bare] + ([with_dev] if with_dev else [])
+    for i, c in enumerate(cands):
+        if c.lower() in taken:
+            continue
+        note = ""
+        if i > 0:
+            note = "as %s: %s exists" % (c, cands[0])
+        elif c != name:
+            note = "as " + c
+        return {"name": c, "note": note}
+    verb = "exist" if len(cands) > 1 else "exists"
+    if name.lower() in taken:
+        return {"name": name, "taken": True, "note": "%s %s" % (", ".join(cands), verb)}
+    return {"name": name, "note": "kept prefix: %s %s" % (", ".join(cands), verb)}
+
+
+CALL_RE = re.compile(r'(?<![\w.])(\w+)\s*\(')
+
+
+def get_called_names(lines, skip):
+    """Names called as functions (not methods of an object: no dot before them), lower case, without
+    those in skip (the extension's own methods: calling them is not a global name)."""
+    sk = {n.lower() for n in skip if n}
+    res = set()
+    for l in lines:
+        t = l
+        ci = t.find("//")
+        if ci >= 0:
+            t = t[:ci]
+        for m in CALL_RE.finditer(t):
+            k = m.group(1).lower()
+            if k not in sk:
+                res.add(k)
+    return res
+
+
+def convert_ext_code(lines, file_map):
+    """Code of the extension as the configuration gets it: a name from the map (per file, then for the
+    whole run) becomes its target, any other identifier with the extension prefix loses the prefix."""
+    prefix = TRANSFER_PREFIX
+    keys = set()
+    for m in (file_map, NAME_MAP):
+        for k in m:
+            if not prefix or not k.startswith(prefix.lower()):
+                keys.add(re.escape(k))
+    alts = sorted(keys, key=lambda x: (-len(x), x))
+    if prefix:
+        alts.append(re.escape(prefix) + r'\w+')
+    if not alts:
+        return list(lines)
+    rx = re.compile(r'(?<!\w)(?:' + "|".join(alts) + r')(?!\w)', re.IGNORECASE)
+
+    def ev(m):
+        k = m.group(0).lower()
+        if k in file_map:
+            return file_map[k]
+        if k in NAME_MAP:
+            return NAME_MAP[k]
+        if prefix and k.startswith(prefix.lower()):
+            return m.group(0)[len(prefix):]
+        return m.group(0)
+    return [rx.sub(ev, l) for l in lines]
+
+
+def get_regions(lines):
+    """Regions of a module, nested ones included: {name, start, end} (line indexes of the markers)."""
+    re_region = re.compile(r'^\s*#' + kw_alt("Region") + r'\s+(\S+)', re.IGNORECASE)
+    re_end = re.compile(r'^\s*#' + kw_alt("EndRegion") + r'(?!\w)', re.IGNORECASE)
+    stack = []
+    res = []
+    for i, t in enumerate(lines):
+        m = re_region.match(t)
+        if m:
+            stack.append({"name": m.group(1), "start": i, "end": -1})
+        elif re_end.match(t) and stack:
+            r = stack.pop()
+            r["end"] = i
+            res.append(r)
+    return res
+
+
+def get_module_kind(rel):
+    r = rel.replace("\\", "/")
+    if re.search(r'/Ext/Form/Module\.bsl$', r):
+        return "form"
+    if r.startswith("CommonModules/"):
+        return "common"
+    if re.search(r'/Ext/(?:ObjectModule|ManagerModule|RecordSetModule|ValueManagerModule)\.bsl$', r):
+        return "object"
+    return "other"
+
+
+def _load_xml_root(path):
+    if not path or not os.path.isfile(path):
+        return None
+    try:
+        return etree.parse(path).getroot()
+    except Exception:
+        return None
+
+
+def _in_base_form(node, root):
+    n = node
+    while n is not None and n is not root:
+        if isinstance(n.tag, str) and localname(n) == "BaseForm":
+            return True
+        n = n.getparent()
+    return False
+
+
+def get_form_bindings(form_xml):
+    """Handlers a form binds (its own part, BaseForm left out): lower-case name -> {role, table}."""
+    res = {}
+    root = _load_xml_root(form_xml)
+    if root is None:
+        return res
+
+    def put(h, role, table):
+        if not h:
+            return
+        k = h.strip().lower()
+        if k in res and REGION_ORDER.index(res[k]["role"]) <= REGION_ORDER.index(role):
+            return
+        res[k] = {"role": role, "table": table}
+
+    for ev in root.iter():
+        if not isinstance(ev.tag, str) or localname(ev) != "Event":
+            continue
+        owner = ev.getparent().getparent()
+        in_base = False
+        table = ""
+        n = owner
+        while n is not None and n is not root:
+            if localname(n) == "BaseForm":
+                in_base = True
+                break
+            if not table and localname(n) == "Table":
+                table = n.get("name") or ""
+            n = n.getparent()
+        if in_base:
+            continue
+        role = "formEvents" if owner is root else ("tableItemEvents" if table else "headerItemEvents")
+        put(ev.text or "", role, table)
+    for a in root.iter():
+        if not isinstance(a.tag, str) or localname(a) != "Action":
+            continue
+        p = a.getparent()
+        if p is None or localname(p) != "Command" or _in_base_form(a, root):
+            continue
+        put(a.text or "", "commands", "")
+    return res
+
+
+NOTIFY_RE = re.compile(r'(?:Новый|New)\s+(?:ОписаниеОповещения|NotifyDescription)\s*\(\s*"(\w+)"', re.IGNORECASE)
+
+
+def get_notify_names(lines):
+    """Procedures a module names in Новый ОписаниеОповещения("Имя", ...)."""
+    res = set()
+    for l in lines:
+        for m in NOTIFY_RE.finditer(l):
+            res.add(m.group(1).lower())
+    return res
+
+
+def is_export(lines, m):
+    t = lines[m["sig_end_idx"]]
+    i = t.rfind(")")
+    return i >= 0 and re.match(r'\s*(?:Экспорт|Export)(?!\w)', t[i + 1:], re.IGNORECASE) is not None
+
+
+def get_method_role(name, kind, bind, notify, export):
+    """Role of an own method: the first one by the order of the regions table."""
+    k = name.lower()
+    if kind == "form" and k in bind:
+        return {"role": bind[k]["role"], "table": bind[k]["table"]}
+    if kind == "form" and k in notify:
+        return {"role": "notifications", "table": ""}
+    if kind == "object" and k in OBJECT_EVENT_NAMES:
+        return {"role": "objectEvents", "table": ""}
+    if export and kind != "form":
+        return {"role": "api", "table": ""}
+    return {"role": "service", "table": ""}
+
+
+def get_method_place(cfg_lines, regions, ext_m, role, set_, created):
+    """Where an own method goes in the configuration's module. First the region it sits in, in the
+    extension, if the module has it — unless that is the service region and the method has a role of
+    its own (a service region often collects everything); then the region of the role; then a new one
+    (createRegions), the service region, the end of the module."""
+    # {table}: the table's name as the configuration gets it
+    table = convert_ext_code([role["table"]], {})[0] if role["table"] else ""
+
+    def names(r):
+        return [str(x).replace("{table}", table) for x in set_["regions"].get(r, [])]
+
+    def find(n):
+        return next((r for r in regions if r["name"].lower() == n.lower()), None)
+
+    service = names("service")
+    chain = [c for c in ext_m["chain"] if c["kind"] == "region"]
+    for c in reversed(chain):
+        r = find(c["name"])
+        if r is None:
+            continue
+        if role["role"] != "service" and r["name"].lower() in [x.lower() for x in service]:
+            break
+        return {"at": r["end"], "region": r["name"]}
+    role_names = names(role["role"])
+    for n in role_names:
+        r = find(n)
+        if r is not None:
+            return {"at": r["end"], "region": r["name"]}
+    for n in role_names:
+        if n.lower() in created:
+            return {"create": n}
+    if set_["create_regions"] and role_names:
+        return {"create": role_names[0]}
+    for n in service:
+        r = find(n)
+        if r is not None:
+            return {"at": r["end"], "region": r["name"]}
+    return {"at": len(cfg_lines), "region": ""}
+
+
+def read_bsl_file(path):
+    """A .bsl file read for writing back as it was: BOM, line breaks, final line break."""
+    data = open(path, "rb").read()
+    bom = data[:3] == b"\xef\xbb\xbf"
+    text = data[3:].decode("utf-8", "replace") if bom else data.decode("utf-8", "replace")
+    eol = "\r\n" if "\r\n" in text else ("\n" if "\n" in text else "\r\n")
+    final = text.endswith("\n") or text.endswith("\r")
+    lines = re.split(r'\r\n|\n|\r', text) if text != "" else []
+    if final and lines:
+        lines = lines[:-1]
+    return {"path": path, "lines": lines, "bom": bom, "eol": eol, "final": final}
+
+
+def write_bsl_file(f, lines):
+    text = f["eol"].join(lines)
+    if f["final"]:
+        text += f["eol"]
+    with open(f["path"], "wb") as fh:
+        fh.write((b"\xef\xbb\xbf" if f["bom"] else b"") + text.encode("utf-8"))
+
+
+def get_indent(line):
+    m = re.match(r'^(\s*)', line)
+    return m.group(1) if m else ""
+
+
+def get_control_body(cfg_m, plan, frame, deletion, file_map):
+    """The pending edits of an &ИзменениеИКонтроль method laid onto the configuration's body: inserts
+    after their anchor, deletions removed or commented out, each framed by the project's comments."""
+    v2 = list(cfg_m["body_lines"])
+    ins_after = {}
+    del_at = {}
+    for e in plan:
+        if e["res"] != "pending":
+            continue
+        if e["op"]["kind"] == "insert":
+            ins_after.setdefault(int(e["at"]), []).append(e["op"])
+        else:
+            del_at[int(e["at"])] = e["op"]["end"] - e["op"]["start"] + 1
+    out = []
+
+    def emit_ins(op):
+        lines = convert_ext_code(op["lines"], file_map)
+        first = next((l for l in lines if l.strip() != ""), None)
+        ind = get_indent(first) if first is not None else get_indent(op.get("open") or "")
+        if frame["begin"]:
+            out.append(ind + frame["begin"])
+        # A note on the opening marker (#Вставка // why) stays with the code
+        if op.get("open"):
+            ci = op["open"].find("//")
+            if ci >= 0:
+                out.append(ind + op["open"][ci:].strip())
+        out.extend(lines)
+        if frame["end"]:
+            out.append(ind + frame["end"])
+
+    for op in ins_after.get(-1, []):
+        emit_ins(op)
+    i = 0
+    while i < len(v2):
+        if i in del_at:
+            n = del_at[i]
+            if deletion == "comment":
+                first = next((l for l in v2[i:i + n] if l.strip() != ""), None)
+                ind = get_indent(first) if first is not None else ""
+                if frame["begin"]:
+                    out.append(ind + frame["begin"])
+                for j in range(i, i + n):
+                    out.append("//" + v2[j])
+                if frame["end"]:
+                    out.append(ind + frame["end"])
+            for j in range(i, i + n):
+                for op in ins_after.get(j, []):
+                    emit_ins(op)
+            i += n
+            continue
+        out.append(v2[i])
+        for op in ins_after.get(i, []):
+            emit_ins(op)
+        i += 1
+    return out
+
+
+def get_missing_names(ext_names, cfg_names):
+    """Names the extension declares and the configuration does not have yet (key -> name): code that
+    uses them waits until those objects, sub-objects or form items are in the configuration."""
+    have = {get_name_key(n, TRANSFER_PREFIX).lower() for n in cfg_names if n}
+    res = {}
+    for n in ext_names:
+        if not n:
+            continue
+        k = get_name_key(n, TRANSFER_PREFIX).lower()
+        if k not in have:
+            res[k] = n
+    return res
+
+
+def get_form_item_names(form_xml):
+    """Named items of a form (elements, attributes, commands, parameters), its BaseForm left out."""
+    root = _load_xml_root(form_xml)
+    if root is None:
+        return []
+    return [n.get("name") for n in root.iter() if isinstance(n.tag, str) and n.get("name") is not None and not _in_base_form(n, root)]
+
+
+def get_used_missing(lines, missing):
+    """Missing names the code uses (comments left out): the sorted original names."""
+    if not missing:
+        return []
+    hit = set()
+    for l in lines:
+        t = l
+        ci = t.find("//")
+        if ci >= 0:
+            t = t[:ci]
+        for m in re.finditer(r'\w+', t):
+            k = get_name_key(m.group(0), TRANSFER_PREFIX).lower()
+            if k in missing:
+                hit.add(missing[k])
+    # Ordinal, case-insensitive (as StringComparer.OrdinalIgnoreCase in the .ps1, which upper-cases)
+    return sorted(hit, key=lambda x: x.upper())
+
+
+def get_control_result_gap(plan, body):
+    """The new body of an &ИзменениеИКонтроль method, compared again: every edit must come out absorbed,
+    the way the check sees it after the write — the ones laid now and the ones already there (lines an
+    edit moves within the method reappear in its insert, and a deletion then looks undone again).
+    Returns the number of edits the check would still see as not transferred."""
+    r2 = get_control_transfer(plan["ext_m"], {"body_lines": list(body)}, TRANSFER_PREFIX)
+    before = plan["ops"]
+    if not r2:
+        return len(before)
+    after = r2["plan"]
+    if len(after) != len(before):
+        return len(before)
+    return sum(1 for b, a in zip(before, after) if b["res"] in ("pending", "absorbed") and a["res"] != "absorbed")
+
+
+def test_own_result(plan, fe, file_map):
+    """An own method after the transfer, seen by the check: found by its name, with the same body."""
+    names = get_proc_names(fe["file"]["lines"]) + list(fe["given"])
+    if not any(h.lower() == plan["target"]["name"].lower() for h in find_names_in(names, plan["name"], TRANSFER_PREFIX)):
+        return False
+    conv = convert_ext_code(plan["ext_m"]["body_lines"], file_map)
+    return "\n".join(sig_lines(plan["ext_m"]["body_lines"], TRANSFER_PREFIX)).lower() == "\n".join(sig_lines(conv, TRANSFER_PREFIX)).lower()
+
+
+def get_own_method_block(ext_lines, ext_m, frame, file_map):
+    """An own method as the configuration gets it: the description comments above it, the directive, the
+    declaration through Конец*; names converted; begin comment on top, end comment on the Конец* line."""
+    start = ext_m["decl_idx"]
+    if start >= 1 and is_context_directive(ext_lines[start - 1].strip()):
+        start -= 1
+    while start >= 1 and ext_lines[start - 1].strip().startswith("//"):
+        start -= 1
+    conv = convert_ext_code(ext_lines[start:ext_m["body_end_idx"] + 1], file_map)
+    out = []
+    if frame["begin"]:
+        out.append(frame["begin"])
+    out.extend(conv)
+    if frame["end"]:
+        out[-1] = out[-1] + " " + frame["end"]
+    return out
+
+
+def get_file_edits(path):
+    """Edits of one configuration file, collected over the run and written once."""
+    key = path.lower()
+    if key not in FILE_EDITS:
+        f = read_bsl_file(path)
+        FILE_EDITS[key] = {"file": f, "repl": [], "create": {}, "create_order": [], "regions": get_regions(f["lines"]), "given": set()}
+    return FILE_EDITS[key]
+
+
+def write_file_edits():
+    """All collected edits written: replacements from the bottom up (indexes stay valid; inserts at one
+    spot keep the order they came in), then regions created at the end of the module."""
+    changed = []
+    for fe in FILE_EDITS.values():
+        if not fe["repl"] and not fe["create"]:
+            continue
+        lines = list(fe["file"]["lines"])
+        for r in sorted(fe["repl"], key=lambda x: (x["start"], x["seq"]), reverse=True):
+            lines[r["start"]:r["end"]] = list(r["lines"])
+        lang = "en" if any(re.match(r'^\s*#Region\b', l) for l in fe["file"]["lines"]) else "ru"
+        for name in fe["create_order"]:
+            if lines and lines[-1].strip() != "":
+                lines.append("")
+            lines.append("#%s %s" % (BSL_KW[lang]["Region"], name))
+            for blk in fe["create"][name]:
+                lines.append("")
+                lines.extend(blk)
+            lines.append("")
+            lines.append("#" + BSL_KW[lang]["EndRegion"])
+        write_bsl_file(fe["file"], lines)
+        changed.append(fe["file"]["path"])
+    return changed
+
+
+def get_spaced_block(lines, at, block):
+    """Lines around the spot: one blank line between the block and its neighbours."""
+    res = []
+    if at > 0 and lines[at - 1].strip() != "":
+        res.append("")
+    res.extend(block)
+    if at < len(lines) and lines[at].strip() != "":
+        res.append("")
+    return res
+
+
+def new_titem(status, text, loc, section):
+    return {"status": status, "text": text, "loc": loc, "section": section, "group": "", "sub": []}
+
+
+def get_where_lines(plan, next_):
+    """from/to/next lines of a change the skill leaves to a person."""
+    sub = []
+    if plan and plan.get("ext_m"):
+        sub.append("from: extension %s:%d-%d" % (plan["rel"], plan["ext_m"]["decl_idx"] + 1, plan["ext_m"]["body_end_idx"] + 1))
+    if plan and plan.get("cfg_m"):
+        cm = plan["cfg_m"]
+        kw = BSL_KW[cm["lang"]]["Func"] if cm["is_function"] else BSL_KW[cm["lang"]]["Proc"]
+        sub.append("to:   config %s:%d (%s %s)" % (plan["rel"], cm["decl_idx"] + 1, kw, cm["canonical"]))
+    if next_:
+        sub.append("next: " + next_)
+    return sub
+
+# ============================================================
 # Run
 # ============================================================
 
@@ -2230,7 +3044,7 @@ def section_layout(order):
     return {"plain": plain, "forms": [{"dir": fd, "secs": sorted(secs_of[fd], key=lambda x: 0 if x.endswith(".xml") else 1)} for fd in forms]}
 
 
-def get_transfer_details(ext, rec, expand_list):
+def get_transfer_details(ext, rec, expand_list, fold_word="transferred"):
     """Details of an object in transfer, grouped by the file each change lives in. A plain
     transferred change folds into "… N transferred" unless its section is expanded (one marked
     temporary stays in sight); a section with nothing else left is one line, and so is a form whose
@@ -2251,7 +3065,7 @@ def get_transfer_details(ext, rec, expand_list):
         opened = test_expanded(ext, rec["id"], s, expand_list)
         if opened:
             any_open = True
-        shown = [it for it in by_sec[s] if opened or it["status"] != "TRANSFERRED" or it.get("marked")]
+        shown = [it for it in by_sec[s] if opened or it["status"] != "TRANSFERRED" or it.get("marked") or it.get("now")]
         view[s] = {"shown": shown, "hidden": len(by_sec[s]) - len(shown)}
 
     def emit(s):
@@ -2259,14 +3073,17 @@ def get_transfer_details(ext, rec, expand_list):
         pad = "      " if s else "    "
         if s:
             if not v["shown"]:
-                lines.append("    %s: %d transferred" % (s, v["hidden"]))
+                lines.append("    %s: %d %s" % (s, v["hidden"], fold_word))
                 return
             lines.append("    %s:" % s)
         for it in v["shown"]:
             loc = ("  " + it["loc"]) if it["loc"] else ""
             lines.append("%s%s%s%s" % (pad, fmt_status(it["status"]), it["text"], loc))
+            for sl in it.get("sub") or []:
+                if sl:
+                    lines.append("%s    %s" % (pad, sl))
         if v["hidden"] > 0:
-            lines.append("%s… %d transferred" % (pad, v["hidden"]))
+            lines.append("%s… %d %s" % (pad, v["hidden"], fold_word))
 
     lay = section_layout(order)
     for s in lay["plain"]:
@@ -2279,7 +3096,7 @@ def get_transfer_details(ext, rec, expand_list):
         shown = sum(len(view[s]["shown"]) for s in secs)
         folded += hidden
         if shown == 0:
-            lines.append("    %s: %d transferred" % (fd, hidden))
+            lines.append("    %s: %d %s" % (fd, hidden, fold_word))
             continue
         for s in secs:
             emit(s)
@@ -2308,21 +3125,24 @@ def resolve_input_path(p):
 
 
 def main():
+    global SETTINGS, DEV_RE, NAME_MAP, TRANSFER_PREFIX, SUPPORT_INFO
     sys.stdout.reconfigure(encoding="utf-8")
     sys.stderr.reconfigure(encoding="utf-8")
-    parser = argparse.ArgumentParser(description="Check transfer of 1C configuration extension (CFE) changes into the main configuration", allow_abbrev=False)
+    parser = argparse.ArgumentParser(description="Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer", allow_abbrev=False)
     parser.add_argument("-ExtensionPath", required=True, help="Extension dump root, comma-separated list, or folder of extensions")
     parser.add_argument("-ConfigPath", required=True, help="Main configuration dump root")
-    parser.add_argument("-Mode", default="check", help="check")
+    parser.add_argument("-Mode", default="check", help="check | transfer")
     parser.add_argument("-Name", default="", help="Objects to detail: Type.Name[,Type.Name]")
     parser.add_argument("-Limit", type=int, default=150)
     parser.add_argument("-Offset", type=int, default=0)
     parser.add_argument("-Expand", default="", help="Open folded transferred changes: Type.Name, a section path, or *")
+    parser.add_argument("-Tag", default="", help="Value of {tag} in the comment template")
     parser.add_argument("-OutFile", default="")
     args = ci_parse_args(parser)
 
-    if args.Mode.strip().lower() != "check":
-        die("Invalid -Mode '%s'. Expected: check" % args.Mode)
+    mode = args.Mode.strip().lower()
+    if mode not in ("check", "transfer"):
+        die("Invalid -Mode '%s'. Expected: check, transfer" % mode)
 
     # -ExtensionPath: an extension, a comma-separated list, or a folder whose subfolders are extensions.
     ext_dirs = []
@@ -2349,6 +3169,9 @@ def main():
         ext_dirs += found
     if not ext_dirs:
         die("No extension given in -ExtensionPath")
+    # Two extensions may change one method: the order they go in is a person's decision
+    if mode == "transfer" and len(ext_dirs) > 1:
+        die("-Mode transfer takes one extension, got %d: %s" % (len(ext_dirs), ", ".join(ext_dirs)))
 
     config_path = resolve_input_path(args.ConfigPath)
     cfg_info = read_configuration_props(config_path)
@@ -2370,135 +3193,506 @@ def main():
                 return True
         return False
 
-    exts = []
+    # Project settings (.v8-project.json): development prefixes for both modes, the rest for transfer
+    SETTINGS = get_transfer_settings(config_path)
+    DEV_RE = None
+    if SETTINGS["dev_prefix"]:
+        alt = "|".join(re.escape(x) for x in sorted(SETTINGS["dev_prefix"], key=len, reverse=True))
+        DEV_RE = re.compile(r'(?<!\w)(?:' + alt + r')(?=\w)', re.IGNORECASE)
     matched_ids = set()
-    for d in ext_dirs:
-        cp = read_configuration_props(d)
-        ext = {"dir": d, "name": cp["name"], "prefix": cp["prefix"], "purpose": cp["purpose"], "objects": [],
-               "roles": 0, "matched": 0}
-        if cp["child_objects"] is not None:
-            for child in elem_children(cp["child_objects"]):
-                if localname(child) == "Language":
-                    continue
-                obj = {"type": localname(child), "name": (child.text or "").strip()}
-                oid = "%s.%s" % (obj["type"], obj["name"])
-                if not name_match(oid):
-                    continue
-                matched_ids.add(oid.lower())
-                ext["matched"] += 1
-                if obj["type"] == "Role":
-                    ext["roles"] += 1
-                    continue
-                rec = transfer_object(ext, obj, cfg_info, config_path)
-                if not rec["items"]:
-                    continue
-                # Temporary changes are not for transfer: they neither leave the object incomplete nor set its status
-                sts = []
-                for it in rec["items"]:
-                    if it["status"] != "TEMPORARY" and it["status"] not in sts:
-                        sts.append(it["status"])
-                # A mix shows its most alarming status: a conflict must not hide behind PARTIAL
-                if not sts:
-                    rec["status"] = "TEMPORARY"
-                elif len(sts) == 1:
-                    rec["status"] = sts[0]
-                elif "DIVERGED" in sts:
-                    rec["status"] = "DIVERGED"
-                elif "MISSING_IN_CONFIG" in sts:
-                    rec["status"] = "MISSING_IN_CONFIG"
-                else:
-                    rec["status"] = "PARTIAL"
-                done = len([it for it in rec["items"] if it["status"] == "TRANSFERRED"])
-                temp = len([it for it in rec["items"] if it["status"] == "TEMPORARY"])
-                rec["complete"] = done + temp == len(rec["items"])
-                n = len(rec["items"])
-                temp_note = (", %d temporary" % temp) if temp else ""
-                if rec["complete"]:
-                    tail = plural(n, "change") + ((" (%d temporary)" % temp) if temp else "")
-                else:
-                    tail = "%s: %d transferred, %d remaining%s" % (plural(n, "change"), done, n - done - temp, temp_note)
-                rec["summary"] = "%s%s — %s" % (fmt_status(rec["status"]), rec["id"], tail)
-                dv = get_transfer_details(ext, rec, expand_list)
-                rec["details"] = dv["lines"]
-                rec["folded"] = dv["folded"]
-                # Asked for by name or opened with -Expand (the object or one of its sections): details even when all is transferred
-                rec["asked"] = bool(name_filter) or dv["open"]
-                ext["objects"].append(rec)
-        # -Name narrows the report: an extension without a matching object stays out of it
-        if name_filter and ext["matched"] == 0:
-            continue
-        exts.append(ext)
 
-    # --- Detail decision ---
-    full_count = 0
-    for ext in exts:
-        full_count += 3
-        for o in ext["objects"]:
-            full_count += 1
-            if not o["complete"] or o.get("asked"):
-                full_count += len(o["details"])
-    show_details = bool(name_filter) or bool(expand_list) or full_count <= DETAIL_BUDGET
+    if mode == "transfer":
+        ext_dir0 = ext_dirs[0]
+        cp0 = read_configuration_props(ext_dir0)
+        prefix = cp0["prefix"] or ""
+        TRANSFER_PREFIX = prefix
+        vars_ = get_template_vars(ext_dir0, cp0, args.Tag)
+        for kind in ("vendor", "own"):
+            ic = SETTINGS[kind]["insert_comment"]
+            if isinstance(ic, dict) and not args.Tag:
+                for k in ("begin", "end"):
+                    if re.search(r'\{tag(?::[^}]*)?\}', str(ic.get(k) or "")):
+                        die("The project's comment template (cfeTransfer.insertComment.%s in .v8-project.json) uses {tag}: "
+                            "ask the user for the value (e.g. the task number) and pass -Tag <value>. Nothing was written." % k)
+        SUPPORT_INFO = get_support_info(config_path)
+        FILE_EDITS.clear()
+        NAME_MAP = {}
+        ext = {"dir": ext_dir0, "name": cp0["name"], "prefix": prefix, "purpose": cp0["purpose"]}
+        roles = 0
 
-    # --- Body ---
-    body = []
-    any_folded = False
-    for ext in exts:
-        body.append("=== cfe-transfer check: %s (%s) -> %s ===" % (ext["name"], ext["purpose"], cfg_info["name"]))
+        # --- Pass 1: what the check sees, object by object ---
+        work = []
+        cfg_pools = {}
+        if cfg_info["child_objects"] is not None:
+            for c in elem_children(cfg_info["child_objects"]):
+                cfg_pools.setdefault(localname(c), []).append((c.text or "").strip())
+        all_objs = []
+        if cp0["child_objects"] is not None:
+            for c in elem_children(cp0["child_objects"]):
+                if localname(c) != "Language":
+                    all_objs.append({"type": localname(c), "name": (c.text or "").strip()})
+        for obj in all_objs:
+            oid = "%s.%s" % (obj["type"], obj["name"])
+            if not name_match(oid):
+                continue
+            matched_ids.add(oid.lower())
+            if obj["type"] == "Role":
+                roles += 1
+                continue
+            rec = transfer_object(ext, obj, cfg_info, config_path)
+            if not rec["items"]:
+                continue
+            ctx = get_obj_context(ext_dir0, obj["type"], obj["name"])
+            sup = "own"
+            if ctx.get("known"):
+                cfg_xml = os.path.join(config_path, ctx["dir"], obj["name"] + ".xml")
+                if os.path.exists(cfg_xml):
+                    sup = get_object_support(cfg_xml)
+            work.append({"id": oid, "obj": obj, "rec": rec, "ctx": ctx, "support": sup, "kind": get_object_kind(obj["name"], sup)})
+
+        # --- Pass 2: names the configuration gets ---
+        # Own objects and own sub-objects of borrowed ones: the names code refers to. Only a name that
+        # differs from the plain one (prefix dropped) goes to the map: found under another name, or with
+        # the development prefix.
+        missing_global = {}
+        missing_by_obj = {}
+        for obj in all_objs:
+            if obj["type"] == "Role":
+                continue
+            ctx = get_obj_context(ext_dir0, obj["type"], obj["name"])
+            if not ctx.get("known") or not ctx["exists"]:
+                continue
+            if not ctx["borrowed"]:
+                pool = cfg_pools.get(obj["type"], [])
+                hit = find_name_in(pool, obj["name"], prefix)
+                if not hit:
+                    missing_global[get_name_key(obj["name"], prefix).lower()] = obj["name"]
+                t = hit if hit else get_target_name(obj["name"], prefix, {n.lower() for n in pool}, SETTINGS["vendor"]["add_dev_objects"])["name"]
+                if t != remove_ext_prefix(obj["name"], prefix):
+                    NAME_MAP[obj["name"].lower()] = t
+                continue
+            md = ctx["md"]
+            if md is None or md["children"] is None:
+                continue
+            cfg_xml = os.path.join(config_path, ctx["dir"], obj["name"] + ".xml")
+            cfg_md = read_md_object(cfg_xml)
+            sup = get_object_support(cfg_xml) if os.path.exists(cfg_xml) else "own"
+            add_dev = SETTINGS[get_object_kind(obj["name"], sup)]["add_dev_objects"]
+            cfg_names = []
+            if cfg_md is not None and cfg_md["children"] is not None:
+                for c in elem_children(cfg_md["children"]):
+                    cfg_names.append(md_child_name(c) if has_element_child(c) else inner_text(c).strip())
+            taken = {n.lower() for n in cfg_names}
+            for c in elem_children(md["children"]):
+                own = []
+                if not has_element_child(c):
+                    nm = inner_text(c).strip()
+                    desc = read_md_object(os.path.join(ctx["obj_dir"], localname(c) + "s", nm + ".xml"))
+                    if not (desc is not None and test_adopted_node(desc["props"])):
+                        own.append(nm)
+                elif not test_adopted_node(c):
+                    own.append(md_child_name(c))
+                else:
+                    sub = c.find("md:ChildObjects", MD_NSMAP)
+                    if sub is not None:
+                        for sc in elem_children(sub):
+                            if not test_adopted_node(sc):
+                                own.append(md_child_name(sc))
+                for nm in own:
+                    if not nm:
+                        continue
+                    hit = find_name_in(cfg_names, nm, prefix)
+                    if not hit:
+                        missing_by_obj.setdefault("%s.%s" % (obj["type"], obj["name"]), {})[get_name_key(nm, prefix).lower()] = nm
+                    if nm.lower() in NAME_MAP:
+                        continue
+                    t = hit if hit else get_target_name(nm, prefix, taken, add_dev)["name"]
+                    if t != remove_ext_prefix(nm, prefix):
+                        NAME_MAP[nm.lower()] = t
+        # Own methods: the target name in their module (taken: the module's methods and those given in
+        # this run); a common module's method is called from other modules too, so it goes to the run map
+        file_maps = {}
+        for w in work:
+            for it in w["rec"]["items"]:
+                pl = it.get("plan")
+                if not pl or pl["kind"] != "own":
+                    continue
+                cfg_file = os.path.join(config_path, pl["rel"])
+                fk = cfg_file.lower()
+                file_maps.setdefault(fk, {})
+                if pl["hit"]:
+                    if pl["hit"] != pl["name"]:
+                        file_maps[fk][pl["name"].lower()] = pl["hit"]
+                    continue
+                if it["status"] != "NOT_TRANSFERRED" or pl["cfg_missing"] or w["support"] == "locked":
+                    continue
+                fe = get_file_edits(cfg_file)
+                taken = {n.lower() for n in get_proc_names(fe["file"]["lines"])} | set(fe["given"])
+                # A module method shadows a global function of the same name for every call in the module:
+                # a name called as a function there (or in the extension's module) is taken too
+                taken |= get_called_names(list(fe["file"]["lines"]) + list(pl["ext_lines"]), get_proc_names(pl["ext_lines"]))
+                set_ = SETTINGS[w["kind"]]
+                tn = get_target_name(pl["name"], prefix, taken, set_["add_dev_methods"] and w["kind"] == "vendor")
+                pl["target"] = tn
+                if tn.get("taken"):
+                    continue
+                fe["given"].add(tn["name"].lower())
+                file_maps[fk][pl["name"].lower()] = tn["name"]
+                if get_module_kind(pl["rel"]) == "common" and tn["name"] != remove_ext_prefix(pl["name"], prefix):
+                    NAME_MAP[pl["name"].lower()] = tn["name"]
+
+        # --- Pass 3: each change -> transferred now, left to a person (manual) or in conflict ---
+        temp_count = 0
+        form_missing = {}
+        recs = []
+        for w in work:
+            titems = []
+            set_ = SETTINGS[w["kind"]]
+            frame = get_frame(set_, vars_)
+            for it in w["rec"]["items"]:
+                pl = it.get("plan")
+                t = new_titem(it["status"], it["text"], it.get("loc", ""), it.get("section", ""))
+                t["group"] = it.get("group", "")
+                t["marked"] = it.get("marked", False)
+                if it["status"] == "TEMPORARY":
+                    temp_count += 1
+                    continue
+                if it["status"] == "TRANSFERRED":
+                    titems.append(t)
+                    continue
+                t["status"] = "MANUAL"
+                if it.get("group"):
+                    t["text"] = it["text"] + " — forms are not transferred yet"
+                    titems.append(t)
+                    continue
+                if not pl:
+                    t["text"] = it["text"] + " — metadata is not transferred yet"
+                    titems.append(t)
+                    continue
+                if pl["kind"] == "missing":
+                    t["sub"] = get_where_lines(pl, "the target is not in the configuration: add it there first, then re-run -Mode transfer")
+                    titems.append(t)
+                    continue
+                if pl["kind"] == "intercept":
+                    t["text"] = pl["label"] + " — &Перед/&После/&Вместо are not transferred yet"
+                    t["sub"] = get_where_lines(pl, "apply by hand")
+                    titems.append(t)
+                    continue
+                cfg_file = os.path.join(config_path, pl["rel"])
+                file_map = file_maps.get(cfg_file.lower(), {})
+                label = pl["label"] if pl["kind"] == "control" else "method " + pl["name"]
+                if w["support"] == "locked":
+                    t["text"] = label + " — object is locked by vendor support"
+                    t["sub"] = get_where_lines(pl, "allow editing with /support-edit, then re-run -Mode transfer")
+                    titems.append(t)
+                    continue
+                # Code that uses names the configuration does not have yet waits for them
+                missing = {}
+                for m in (missing_global, missing_by_obj.get(w["id"])):
+                    if m:
+                        missing.update(m)
+                if get_module_kind(pl["rel"]) == "form":
+                    fk = pl["rel"].lower()
+                    if fk not in form_missing:
+                        def fx(root):
+                            return re.sub(r'[\\/]Ext[\\/]Form[\\/]Module\.bsl$', '/Ext/Form.xml', os.path.join(root, pl["rel"]))
+                        form_missing[fk] = get_missing_names(get_form_item_names(fx(ext_dir0)), get_form_item_names(fx(config_path)))
+                    missing.update(form_missing[fk])
+                if pl["kind"] == "control":
+                    code = [l for e in pl["ops"] if e["res"] == "pending" and e["op"]["kind"] == "insert" for l in e["op"]["lines"]]
+                else:
+                    code = list(pl["ext_m"]["body_lines"])
+                deps = get_used_missing(code, missing)
+                diverged_ctl = pl["kind"] == "control" and any(e["res"] not in ("pending", "absorbed", "temp") for e in pl["ops"])
+                if deps and not diverged_ctl and not (pl["kind"] == "own" and it["status"] == "DIVERGED"):
+                    more = (", …+%d" % (len(deps) - 5)) if len(deps) > 5 else ""
+                    t["text"] = "%s — uses what the configuration does not have yet: %s%s" % (label, ", ".join(deps[:5]), more)
+                    t["sub"] = get_where_lines(pl, "transfer those objects, sub-objects or form items first (not automated yet), then re-run -Mode transfer")
+                    titems.append(t)
+                    continue
+                if pl["kind"] == "control":
+                    fit = sum(1 for e in pl["ops"] if e["res"] in ("pending", "absorbed"))
+                    pend = sum(1 for e in pl["ops"] if e["res"] == "pending")
+                    div = [e for e in pl["ops"] if e["res"] not in ("pending", "absorbed", "temp")]
+                    if div:
+                        t["status"] = "CONFLICT"
+                        t["text"] = "%s — %d of %d edits fit, %d diverged; method not changed" % (label, fit, fit + len(div), len(div))
+                        t["sub"] = ["diverged: " + e["res"] for e in div] + get_where_lines(pl, "original changed in config -> /cfe-patch-method -Actualize, then re-run -Mode transfer; otherwise apply by hand")
+                        titems.append(t)
+                        continue
+                    fe = get_file_edits(cfg_file)
+                    body = get_control_body(pl["cfg_m"], pl["ops"], frame, set_["deletion"], file_map)
+                    # The check must see the result as transferred, or a re-run would carry it over again:
+                    # the new body goes through the same comparison before anything is written
+                    gap = get_control_result_gap(pl, body)
+                    if gap > 0:
+                        t["status"] = "CONFLICT"
+                        t["text"] = "%s — after the transfer the check would still see %s as not transferred; method not changed" % (label, plural(gap, "edit"))
+                        t["sub"] = get_where_lines(pl, "lines moved within the method or already partly carried over: transfer by hand, then re-run -Mode check")
+                        titems.append(t)
+                        continue
+                    fe["repl"].append({"start": pl["cfg_m"]["sig_end_idx"] + 1, "end": pl["cfg_m"]["body_end_idx"], "lines": body, "seq": EDIT_SEQ[0]})
+                    EDIT_SEQ[0] += 1
+                    t["status"] = "TRANSFERRED"
+                    t["now"] = True
+                    already = fit - pend
+                    t["text"] = "%s — %s%s" % (label, plural(pend, "edit"), (", %d already there" % already) if already else "")
+                    titems.append(t)
+                    continue
+                # own method
+                if it["status"] == "DIVERGED":
+                    t["status"] = "CONFLICT"
+                    t["text"] = it["text"] + "; not changed"
+                    t["sub"] = get_where_lines(pl, "compare the bodies and merge by hand")
+                    titems.append(t)
+                    continue
+                if pl["cfg_missing"]:
+                    t["text"] = label + " — module not found in config"
+                    t["sub"] = get_where_lines(pl, "add the module to the configuration first, then re-run -Mode transfer")
+                    titems.append(t)
+                    continue
+                if pl["target"].get("taken"):
+                    t["status"] = "CONFLICT"
+                    t["text"] = "%s — name taken in config (%s); not changed" % (label, pl["target"]["note"])
+                    t["sub"] = get_where_lines(pl, "rename the method or merge by hand")
+                    titems.append(t)
+                    continue
+                fe = get_file_edits(cfg_file)
+                kind_mod = get_module_kind(pl["rel"])
+                bind = {}
+                if kind_mod == "form":
+                    bind = get_form_bindings(re.sub(r'[\\/]Ext[\\/]Form[\\/]Module\.bsl$', '/Ext/Form.xml', os.path.join(ext_dir0, pl["rel"])))
+                notify = get_notify_names(list(pl["ext_lines"]) + list(fe["file"]["lines"]))
+                role = get_method_role(pl["name"], kind_mod, bind, notify, is_export(pl["ext_lines"], pl["ext_m"]))
+                created = {k.lower() for k in fe["create_order"]}
+                place = get_method_place(fe["file"]["lines"], fe["regions"], pl["ext_m"], role, set_, created)
+                block = get_own_method_block(pl["ext_lines"], pl["ext_m"], frame, file_map)
+                if not test_own_result(pl, fe, file_map):
+                    t["status"] = "CONFLICT"
+                    t["text"] = "%s — after the transfer the check would not find it under %s; not changed" % (label, pl["target"]["name"])
+                    t["sub"] = get_where_lines(pl, "transfer by hand")
+                    titems.append(t)
+                    continue
+                if place.get("create"):
+                    key = next((k for k in fe["create_order"] if k.lower() == place["create"].lower()), None)
+                    if key is None:
+                        key = place["create"]
+                        fe["create_order"].append(key)
+                        fe["create"][key] = []
+                    fe["create"][key].append(block)
+                    where = "new region " + key
+                else:
+                    fe["repl"].append({"start": place["at"], "end": place["at"], "lines": get_spaced_block(fe["file"]["lines"], place["at"], block), "seq": EDIT_SEQ[0]})
+                    EDIT_SEQ[0] += 1
+                    where = ("region " + place["region"]) if place["region"] else "end of module"
+                t["status"] = "TRANSFERRED"
+                t["now"] = True
+                note = (" (%s)" % pl["target"]["note"]) if pl["target"]["note"] else ""
+                t["text"] = "%s%s -> %s" % (label, note, where)
+                titems.append(t)
+            if not titems:
+                continue
+            recs.append({"id": w["id"], "items": titems})
+
+        # --- Pass 4: write ---
+        changed = write_file_edits()
+
+        # --- Report ---
+        c_now = c_already = c_manual = c_conflict = 0
+        body = []
+        any_folded = False
+        body.append("=== cfe-transfer transfer: %s (%s) -> %s ===" % (ext["name"], ext["purpose"], cfg_info["name"]))
         if ext["prefix"]:
             body.append("NamePrefix: " + ext["prefix"])
         body.append("")
         shown = 0
-        for o in ext["objects"]:
-            if o["complete"] and not show_details:
+        for r in recs:
+            now = sum(1 for x in r["items"] if x.get("now"))
+            already = sum(1 for x in r["items"] if x["status"] == "TRANSFERRED" and not x.get("now"))
+            man = sum(1 for x in r["items"] if x["status"] == "MANUAL")
+            con = sum(1 for x in r["items"] if x["status"] == "CONFLICT")
+            c_now += now
+            c_already += already
+            c_manual += man
+            c_conflict += con
+            if now + man + con == 0:
                 continue
-            body.append(o["summary"])
+            st = "CONFLICT" if con else ("MANUAL" if man else "TRANSFERRED")
+            parts = []
+            if now:
+                parts.append("%d transferred now" % now)
+            if man:
+                parts.append("%d manual" % man)
+            if con:
+                parts.append("%d conflict" % con)
+            if already:
+                parts.append("%d already transferred" % already)
+            body.append("%s%s — %s" % (fmt_status(st), r["id"], ", ".join(parts)))
+            dv = get_transfer_details(ext, r, expand_list, "already transferred")
+            body += dv["lines"]
+            if dv["folded"]:
+                any_folded = True
             shown += 1
-            if show_details and (not o["complete"] or o.get("asked")):
-                body += o["details"]
-                if o.get("folded"):
-                    any_folded = True
         if shown == 0:
-            if ext["objects"]:
-                body.append("All changes transferred.")
-            else:
-                body.append("No changes to transfer.")
+            body.append("All changes already transferred." if recs else "No changes to transfer.")
         body.append("")
 
-    # --- Footer: always printed, after the body (output is often read from its tail) ---
-    footer = []
-    failed = False
-    ext_done = 0
-    ext_left = 0
-    left_total = 0
-    for ext in exts:
-        alls = [it for o in ext["objects"] for it in o["items"]]
-        roles_note = (" · %s, not checked" % plural(ext["roles"], "role")) if ext["roles"] else ""
-        if not alls:
-            footer.append("=== Summary %s: no changes to transfer%s ===" % (ext["name"], roles_note))
-            ext_done += 1
-            continue
-        cnt = {s: len([it for it in alls if it["status"] == s]) for s in STATUS_ORDER}
-        # A workaround carried over although marked "not for transfer" is worth a look: counted apart
-        marked = len([it for it in alls if it.get("marked")])
-        marked_note = (" (%d marked temporary)" % marked) if marked else ""
-        parts = ["%d transferred%s" % (cnt["TRANSFERRED"], marked_note)]
-        for s in STATUS_ORDER[1:]:
-            if cnt[s]:
-                parts.append("%d %s" % (cnt[s], s.lower().replace("_", " ")))
-        footer.append("=== Summary %s: %s — %s%s ===" % (ext["name"], plural(len(alls), "change"), ", ".join(parts), roles_note))
-        left = len(alls) - cnt["TRANSFERRED"] - cnt["TEMPORARY"]
-        if left > 0:
-            failed = True
-            ext_left += 1
-            left_total += left
-            ids = [o["id"] for o in ext["objects"] if not o["complete"]]
-            more = (", …+%d" % (len(ids) - 10)) if len(ids) > 10 else ""
-            footer.append("Remaining: %s%s" % (", ".join(ids[:10]), more))
-        else:
-            ext_done += 1
-    if len(exts) > 1:
-        tail = (", %d with %d remaining" % (ext_left, left_total)) if ext_left else ""
-        footer.append("=== Total: %d extensions — %d complete%s ===" % (len(exts), ext_done, tail))
+        footer = []
+        parts = ["%d transferred now" % c_now]
+        if c_manual:
+            parts.append("%d manual" % c_manual)
+        if c_conflict:
+            parts.append("%d conflict" % c_conflict)
+        tail = []
+        if c_already:
+            tail.append("%d already transferred" % c_already)
+        if temp_count:
+            tail.append("%d temporary skipped" % temp_count)
+        if roles:
+            tail.append("%s, not transferred" % plural(roles, "role"))
+        tail_text = (" · " + " · ".join(tail)) if tail else ""
+        footer.append("=== Summary %s: %s%s ===" % (ext["name"], ", ".join(parts), tail_text))
+        if changed:
+            footer.append("Changed files:")
+            for c in changed:
+                footer.append("    " + rel_path(config_path, c))
+            footer.append("Hint: validate the changed modules, then re-run -Mode check")
+        if c_conflict:
+            footer.append("Hint: resolve each conflict (see next:), then re-run -Mode transfer")
+        failed = (c_manual + c_conflict) > 0
+        show_details = True
+        full_count = 0
+        unch_folded = False
+    else:
+        exts = []
+        matched_ids = set()
+        for d in ext_dirs:
+            cp = read_configuration_props(d)
+            ext = {"dir": d, "name": cp["name"], "prefix": cp["prefix"], "purpose": cp["purpose"], "objects": [],
+                   "roles": 0, "matched": 0}
+            if cp["child_objects"] is not None:
+                for child in elem_children(cp["child_objects"]):
+                    if localname(child) == "Language":
+                        continue
+                    obj = {"type": localname(child), "name": (child.text or "").strip()}
+                    oid = "%s.%s" % (obj["type"], obj["name"])
+                    if not name_match(oid):
+                        continue
+                    matched_ids.add(oid.lower())
+                    ext["matched"] += 1
+                    if obj["type"] == "Role":
+                        ext["roles"] += 1
+                        continue
+                    rec = transfer_object(ext, obj, cfg_info, config_path)
+                    if not rec["items"]:
+                        continue
+                    # Temporary changes are not for transfer: they neither leave the object incomplete nor set its status
+                    sts = []
+                    for it in rec["items"]:
+                        if it["status"] != "TEMPORARY" and it["status"] not in sts:
+                            sts.append(it["status"])
+                    # A mix shows its most alarming status: a conflict must not hide behind PARTIAL
+                    if not sts:
+                        rec["status"] = "TEMPORARY"
+                    elif len(sts) == 1:
+                        rec["status"] = sts[0]
+                    elif "DIVERGED" in sts:
+                        rec["status"] = "DIVERGED"
+                    elif "MISSING_IN_CONFIG" in sts:
+                        rec["status"] = "MISSING_IN_CONFIG"
+                    else:
+                        rec["status"] = "PARTIAL"
+                    done = len([it for it in rec["items"] if it["status"] == "TRANSFERRED"])
+                    temp = len([it for it in rec["items"] if it["status"] == "TEMPORARY"])
+                    rec["complete"] = done + temp == len(rec["items"])
+                    n = len(rec["items"])
+                    temp_note = (", %d temporary" % temp) if temp else ""
+                    if rec["complete"]:
+                        tail = plural(n, "change") + ((" (%d temporary)" % temp) if temp else "")
+                    else:
+                        tail = "%s: %d transferred, %d remaining%s" % (plural(n, "change"), done, n - done - temp, temp_note)
+                    rec["summary"] = "%s%s — %s" % (fmt_status(rec["status"]), rec["id"], tail)
+                    dv = get_transfer_details(ext, rec, expand_list)
+                    rec["details"] = dv["lines"]
+                    rec["folded"] = dv["folded"]
+                    # Asked for by name or opened with -Expand (the object or one of its sections): details even when all is transferred
+                    rec["asked"] = bool(name_filter) or dv["open"]
+                    ext["objects"].append(rec)
+            # -Name narrows the report: an extension without a matching object stays out of it
+            if name_filter and ext["matched"] == 0:
+                continue
+            exts.append(ext)
+
+        # --- Detail decision ---
+        full_count = 0
+        for ext in exts:
+            full_count += 3
+            for o in ext["objects"]:
+                full_count += 1
+                if not o["complete"] or o.get("asked"):
+                    full_count += len(o["details"])
+        show_details = bool(name_filter) or bool(expand_list) or full_count <= DETAIL_BUDGET
+
+        # --- Body ---
+        body = []
+        any_folded = False
+        for ext in exts:
+            body.append("=== cfe-transfer check: %s (%s) -> %s ===" % (ext["name"], ext["purpose"], cfg_info["name"]))
+            if ext["prefix"]:
+                body.append("NamePrefix: " + ext["prefix"])
+            body.append("")
+            shown = 0
+            for o in ext["objects"]:
+                if o["complete"] and not show_details:
+                    continue
+                body.append(o["summary"])
+                shown += 1
+                if show_details and (not o["complete"] or o.get("asked")):
+                    body += o["details"]
+                    if o.get("folded"):
+                        any_folded = True
+            if shown == 0:
+                if ext["objects"]:
+                    body.append("All changes transferred.")
+                else:
+                    body.append("No changes to transfer.")
+            body.append("")
+
+        # --- Footer: always printed, after the body (output is often read from its tail) ---
+        footer = []
+        failed = False
+        ext_done = 0
+        ext_left = 0
+        left_total = 0
+        for ext in exts:
+            alls = [it for o in ext["objects"] for it in o["items"]]
+            roles_note = (" · %s, not checked" % plural(ext["roles"], "role")) if ext["roles"] else ""
+            if not alls:
+                footer.append("=== Summary %s: no changes to transfer%s ===" % (ext["name"], roles_note))
+                ext_done += 1
+                continue
+            cnt = {s: len([it for it in alls if it["status"] == s]) for s in STATUS_ORDER}
+            # A workaround carried over although marked "not for transfer" is worth a look: counted apart
+            marked = len([it for it in alls if it.get("marked")])
+            marked_note = (" (%d marked temporary)" % marked) if marked else ""
+            parts = ["%d transferred%s" % (cnt["TRANSFERRED"], marked_note)]
+            for s in STATUS_ORDER[1:]:
+                if cnt[s]:
+                    parts.append("%d %s" % (cnt[s], s.lower().replace("_", " ")))
+            footer.append("=== Summary %s: %s — %s%s ===" % (ext["name"], plural(len(alls), "change"), ", ".join(parts), roles_note))
+            left = len(alls) - cnt["TRANSFERRED"] - cnt["TEMPORARY"]
+            if left > 0:
+                failed = True
+                ext_left += 1
+                left_total += left
+                ids = [o["id"] for o in ext["objects"] if not o["complete"]]
+                more = (", …+%d" % (len(ids) - 10)) if len(ids) > 10 else ""
+                footer.append("Remaining: %s%s" % (", ".join(ids[:10]), more))
+            else:
+                ext_done += 1
+        if len(exts) > 1:
+            tail = (", %d with %d remaining" % (ext_left, left_total)) if ext_left else ""
+            footer.append("=== Total: %d extensions — %d complete%s ===" % (len(exts), ext_done, tail))
     for f in name_filter:
         hit = False
         for k in matched_ids:
@@ -2510,7 +3704,8 @@ def main():
     if not show_details:
         footer.append("Details omitted (%d lines in full). Use -Name <Type.Name>[,<Type.Name>] for item details." % full_count)
     if any_folded:
-        footer.append("Hint: use -Expand <Type.Name> or a section path to list transferred changes, -Expand * for all")
+        what = "already transferred" if mode == "transfer" else "transferred"
+        footer.append("Hint: use -Expand <Type.Name> or a section path to list %s changes, -Expand * for all" % what)
 
     # --- Pagination of the body; the footer stays ---
     total = len(body)

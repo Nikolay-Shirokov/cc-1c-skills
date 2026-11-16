@@ -64,7 +64,7 @@ const FAMILIES = [
     name: 'support-guard: get_edit_mode', py: '_sg_get_edit_mode', ps1: 'Get-EditMode',
     variants: [
       { id: 'full', authority: 'cf-edit',
-        consumers: ['form-add', 'form-compile', 'form-edit', 'help-add', 'interface-edit', 'meta-compile',
+        consumers: ['cfe-transfer', 'form-add', 'form-compile', 'form-edit', 'help-add', 'interface-edit', 'meta-compile',
           'meta-edit', 'meta-remove', 'mxl-compile', 'role-compile', 'role-edit', 'skd-compile', 'skd-edit',
           'subsystem-compile', 'subsystem-edit', 'template-add', 'xdto-compile', 'xdto-edit'] },
     ],
@@ -91,7 +91,7 @@ const FAMILIES = [
       // вверх. Группа db-* использует её же, чтобы найти запись базы и взять реквизиты
       // хранилища и путь к платформе — задача одна, поэтому семья общая, а не вторая с тем же телом.
       { id: 'full', authority: 'cf-edit',
-        consumers: ['cfe-borrow', 'db-cfe-admin', 'db-create', 'db-dump-cf', 'db-dump-dt', 'db-dump-xml',
+        consumers: ['cfe-transfer', 'cfe-borrow', 'db-cfe-admin', 'db-create', 'db-dump-cf', 'db-dump-dt', 'db-dump-xml',
           'db-load-cf', 'db-load-dt', 'db-load-git', 'db-load-xml', 'db-repo', 'db-run', 'db-update',
           'epf-build', 'epf-dump', 'web-publish', 'v8-xsd-fetch', 'skd-validate',
           'form-add', 'form-compile', 'form-edit', 'help-add', 'interface-edit', 'meta-compile',
@@ -103,7 +103,7 @@ const FAMILIES = [
     name: 'support-guard: root_uuid', py: '_sg_root_uuid', ps1: 'Get-RootUuid',
     variants: [
       { id: 'full', authority: 'cf-edit',
-        consumers: ['form-add', 'form-compile', 'form-edit', 'help-add', 'interface-edit', 'meta-compile',
+        consumers: ['cfe-transfer', 'form-add', 'form-compile', 'form-edit', 'help-add', 'interface-edit', 'meta-compile',
           'meta-edit', 'meta-remove', 'mxl-compile', 'role-compile', 'role-edit', 'skd-compile', 'skd-edit',
           'subsystem-compile', 'subsystem-edit', 'template-add', 'xdto-compile', 'xdto-edit'],
         // support-edit и *-info читают uuid для ОТОБРАЖЕНИЯ состояния поддержки; в PY-портах

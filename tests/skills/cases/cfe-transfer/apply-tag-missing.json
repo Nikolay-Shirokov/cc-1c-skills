@@ -1,0 +1,79 @@
+{
+  "name": "Шаблон обрамления использует {tag}, а -Tag не передан: остановка до записи с подсказкой спросить метку",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "CommonModule",
+        "name": "М",
+        "properties": {
+          "Server": true
+        }
+      },
+      "args": {
+        "-JsonPath": "{inputFile}",
+        "-OutputDir": "{workDir}"
+      }
+    },
+    {
+      "script": "cfe-init/scripts/cfe-init",
+      "args": {
+        "-Name": "Тест",
+        "-OutputDir": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}"
+      }
+    },
+    {
+      "script": "cfe-borrow/scripts/cfe-borrow",
+      "args": {
+        "-ExtensionPath": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}",
+        "-Object": "CommonModule.М"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "CommonModules/М/Ext/Module.bsl",
+        "content": "Процедура А() Экспорт\nКонецПроцедуры\n"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "cfe/CommonModules/М/Ext/Module.bsl",
+        "content": "Процедура Тест_Новый() Экспорт\n\tСообщить(1);\nКонецПроцедуры\n"
+      }
+    },
+    {
+      "writeFile": {
+        "path": ".v8-project.json",
+        "content": "{\n  \"cfeTransfer\": {\n    \"insertComment\": {\n      \"begin\": \"// ++ {tag}\",\n      \"end\": \"// --\"\n    }\n  }\n}"
+      }
+    }
+  ],
+  "params": {
+    "extensionPath": "cfe"
+  },
+  "cwd": "workDir",
+  "args_extra": [
+    "-Mode",
+    "transfer"
+  ],
+  "expectError": true,
+  "expect": {
+    "stderrContains": [
+      "uses {tag}: ask the user for the value (e.g. the task number) and pass -Tag <value>. Nothing was written."
+    ],
+    "fileContains": [
+      {
+        "file": "CommonModules/М/Ext/Module.bsl",
+        "text": "Процедура А() Экспорт\nКонецПроцедуры\n"
+      }
+    ],
+    "fileNotContains": [
+      {
+        "file": "CommonModules/М/Ext/Module.bsl",
+        "text": "Новый"
+      }
+    ]
+  }
+}
