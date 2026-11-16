@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# cfe-transfer v1.7 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+# cfe-transfer v1.8 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -1090,26 +1090,39 @@ def dispute_reason(kind, line, key, side, v2norm):
     return "line %s insert %s in config: %s" % (side, how, txt)
 
 
-def test_commented_run(v2norm, keys):
-    """A deletion carried over by commenting the lines out: its significant lines stand in v2norm as a run
-    of // comments, blank lines and other comments (the frame, //-blank lines) between them allowed, code not."""
+def find_commented_run(v2norm, keys, before_ctx, after_ctx):
+    """A deletion carried over by commenting the lines out, at its own place: its significant lines stand in
+    v2norm as a run of // comments (blank lines and other comments — the frame, //-blank lines — between
+    them allowed, code not), with the deleted block's line before right above the run or its line after
+    right below it (None: a body boundary). One neighbour is enough: the replacing code may follow the
+    run. Returns the index of the run's last line in v2norm, -1 when there is none."""
     if not keys:
-        return False
+        return -1
     run = []
 
     def check():
-        return any(run[s:s + len(keys)] == keys for s in range(len(run) - len(keys) + 1))
+        for s in range(len(run) - len(keys) + 1):
+            if [c for c, _ in run[s:s + len(keys)]] != keys:
+                continue
+            first = run[s][1]
+            last = run[s + len(keys) - 1][1]
+            b = next((v2norm[z] for z in range(first - 1, -1, -1) if test_significant(v2norm[z])), None)
+            a = next((v2norm[z] for z in range(last + 1, len(v2norm)) if test_significant(v2norm[z])), None)
+            if b == before_ctx or a == after_ctx:
+                return last
+        return -1
 
-    for l in v2norm:
+    for i, l in enumerate(v2norm):
         if l == "":
             continue
         if l.startswith("//"):
             c = re.sub(r'\s+', ' ', l[2:]).strip()
             if test_significant(c):
-                run.append(c)
+                run.append((c, i))
             continue
-        if check():
-            return True
+        r = check()
+        if r >= 0:
+            return r
         run = []
     return check()
 
@@ -1170,7 +1183,7 @@ def get_control_transfer(ext_method, cfg_method, prefix):
         if o["kind"] == "delete":
             deleted.update(range(o["start"], o["end"] + 1))
     # Lines of deletions found carried over (an insert anchored to them cannot be pending elsewhere)
-    deleted_done = set()
+    deleted_done = {}
     for oi, op in enumerate(ops):
         # res: "absorbed", "pending" or the reason the edit is disputed
         if op["kind"] == "insert":
@@ -1206,15 +1219,26 @@ def get_control_transfer(ext_method, cfg_method, prefix):
                     is_absorbed = test_run_at(v2sig, payload_sig, sig_start - len(payload_sig))
                 if not is_absorbed and is_new:
                     is_absorbed = test_payload_beside(v2sig, payload_sig, b_ctx, a_ctx)
+                # Anchored to deleted lines whose deletion is carried over already: the spot is right after the
+                # commented-out lines, with nothing but comments up to it and the insert's line after next.
+                # Anywhere else the anchor is a look-alike, and code at the spot means the insert went over
+                # differently.
+                free_spot = False
+                done_at = deleted_done.get(op["after"], -1)
+                if k is not None and done_at >= 0 and k >= done_at:
+                    free_spot = not any(test_significant(v2norm[z]) for z in range(done_at + 1, k + 1))
+                    nx = next((v2norm[z] for z in range(k + 1, len(v2norm)) if test_significant(v2norm[z])), None)
+                    if nx != a_ctx:
+                        free_spot = False
+                # Lines that stand anywhere (КонецЕсли;, Возврат;) prove nothing by being elsewhere
+                plain = all(TRIVIAL_RE.search(x) for x in payload_sig)
                 if is_absorbed:
                     res = "absorbed"
-                # Anchored to deleted lines whose deletion is carried over already: that spot has no anchor
-                # left, a line found elsewhere is a look-alike — the code there differs from the edit
-                elif k is not None and op["after"] in deleted_done:
+                elif k is not None and op["after"] in deleted_done and not free_spot:
                     res = "inserted code next to the carried-over deletion differs in config"
                 # Not at the anchor, yet the configuration has the code more times than the original: carried
                 # over to another spot (other code may have come in between). Writing it would make a copy.
-                elif k is not None and is_new:
+                elif k is not None and is_new and not plain:
                     res = "inserted code is in config already, elsewhere in the method"
                 elif k is not None:
                     res = "pending"
@@ -1247,10 +1271,13 @@ def get_control_transfer(ext_method, cfg_method, prefix):
                 # the original would after the edits: one less, plus the inserts that carry it.
                 ins_runs = sum(run_count(payloads[pk], sig_keys) for pk in payloads)
                 v1_runs = run_count(v1sig, sig_keys)
-                stays = bool(sig_keys) and (ins_runs > 0 or v1_runs > 1) and run_count(v2sig, sig_keys) == v1_runs - 1 + ins_runs
-                # Commented out in the configuration: carried over. Looked at first — a line the edit moves
-                # into its own insert is there as code too, and deleting it would break the carried-over insert.
-                if test_commented_run(v2norm, sig_keys):
+                live_left = bool(sig_keys) and run_count(v2sig, sig_keys) == v1_runs - 1 + ins_runs
+                stays = live_left and (ins_runs > 0 or v1_runs > 1)
+                # Commented out at its own place, and the code left as often as after the edit: carried over.
+                # Looked at first — a line the edit moves into its own insert is there as code too, and
+                # deleting it would break the carried-over insert. An old comment elsewhere does not count.
+                c_at = find_commented_run(v2norm, sig_keys, before_ctx, after_ctx) if live_left else -1
+                if c_at >= 0:
                     res = "absorbed"
                 elif stays and test_delete_absorbed(v2sig, before_ctx, after_ctx):
                     res = "absorbed"
@@ -1266,8 +1293,11 @@ def get_control_transfer(ext_method, cfg_method, prefix):
                     else:
                         first = next((x for x in op["lines"] if test_significant(normalize(x))), "")
                         res = dispute_reason("delete", first, "", "", v2norm)
+        # Where the carried-over deletion stands in the configuration: the last commented line, -1 unknown
         if op["kind"] == "delete" and res == "absorbed":
-            deleted_done.update(range(op["start"], op["end"] + 1))
+            at = -1 if oi in replaced else c_at
+            for m in range(op["start"], op["end"] + 1):
+                deleted_done[m] = at
         # A block marked "not for transfer" counts as temporary only while it is not in the configuration
         mark = get_block_temp_mark(op)
         pk = k if op["kind"] == "insert" else p
@@ -2105,15 +2135,12 @@ def module_transfer_items(bsl, ext_dir, config_path, prefix, skip_handlers):
         it["plan"] = {"kind": "own", "rel": rel, "ext_m": ext_m, "ext_lines": ext_lines, "cfg_m": cfg_m, "name": pn, "hit": hit, "cfg_missing": cfg_lines is None}
         items.append(set_temp_mark(it, mark, "method " + pn))
     # Code outside methods (module variables, statements of the module body): its lines looked up among
-    # the configuration module's code outside methods, prefixes left out; order is not compared
+    # the configuration module's code outside methods, prefixes left out; order is not compared. A line
+    # counts once: a variable declared twice in the extension is declared once in the configuration.
     if mc["top_code"] >= 0:
-        ext_top = [code_key(l, prefix) for l in get_top_code_lines(ext_lines)]
-        pool = [code_key(l, prefix) for l in get_top_code_lines(cfg_lines)] if cfg_lines is not None else []
-        found = 0
-        for l in ext_top:
-            if l in pool:
-                found += 1
-                pool.remove(l)
+        ext_top = list(dict.fromkeys(get_top_key(l, prefix) for l in get_top_code_lines(ext_lines)))
+        have = {get_top_key(l, prefix) for l in get_top_code_lines(cfg_lines)} if cfg_lines is not None else set()
+        found = sum(1 for k in ext_top if k in have)
         st = heuristic_status({"found": found, "total": len(ext_top)})
         it = new_item(st, "module code outside methods (heuristic: %d/%d lines)" % (found, len(ext_top)), "%s:%d" % (rel, mc["top_code"] + 1))
         it["plan"] = {"kind": "topcode", "rel": rel, "line": mc["top_code"], "ext_lines": ext_lines}
@@ -2122,15 +2149,19 @@ def module_transfer_items(bsl, ext_dir, config_path, prefix, skip_handlers):
 
 
 def get_module_layout(lines):
-    """Layout of a module's code outside methods: each Перем line with the directive and comment lines
-    right above it (vars: start, idx, names), other code lines (statements: indexes), the last Перем
-    line, the first method with the directive and comment lines above it."""
+    """Layout of a module's code outside methods, in one walk: each Перем line with the directive and comment
+    lines right above it (vars: start, idx, names, depth — of #Если nesting), the other code lines
+    (statements: indexes), the last Перем before the methods at the methods' #Если depth, the first method
+    with the directive and comment lines above it, the line after the last method."""
     decl_re = re.compile(r'^\s*(?:' + kw_alt("Async") + r'\s+)?(?:' + kw_alt("Proc") + '|' + kw_alt("Func")
                          + r')\s+[\w]+\s*\(', re.IGNORECASE)
     end_re = re.compile(r'^\s*(?:' + kw_alt("EndProc") + '|' + kw_alt("EndFunc") + r')\b', re.IGNORECASE)
     vars_, stmts = [], []
-    last_var = first_method = -1
+    first_method = -1
+    method_depth = 0
+    after_methods = 0
     in_proc = False
+    depth = 0
 
     def lead(i):
         s = i
@@ -2143,11 +2174,19 @@ def get_module_layout(lines):
         if in_proc:
             if end_re.match(t):
                 in_proc = False
+                after_methods = i + 1
             continue
         if decl_re.match(t):
             in_proc = True
             if first_method < 0:
                 first_method = lead(i)
+                method_depth = depth
+            continue
+        if re.match(r'^#(Если|If)(?!\w)', t, re.IGNORECASE):
+            depth += 1
+            continue
+        if re.match(r'^#(КонецЕсли|EndIf)(?!\w)', t, re.IGNORECASE):
+            depth = max(0, depth - 1)
             continue
         if t == "" or t.startswith("//") or t.startswith("&") or t.startswith("#"):
             continue
@@ -2159,34 +2198,29 @@ def get_module_layout(lines):
                     parts = v.strip().split()
                     if parts:
                         names.append(parts[0])
-            vars_.append({"start": lead(i), "idx": i, "names": names})
-            if first_method < 0:
-                last_var = i
+            vars_.append({"start": lead(i), "idx": i, "names": names, "depth": depth, "before_methods": first_method < 0})
         else:
             stmts.append(i)
-    return {"vars": vars_, "statements": stmts, "last_var": last_var, "first_method": first_method}
+    # New variables go after the last one declared where the methods are: one in a #Если block of its
+    # own (#Если Клиент …) would carry them into that block
+    last_var = -1
+    for v in vars_:
+        if v["before_methods"] and (first_method < 0 or v["depth"] == method_depth):
+            last_var = v["idx"]
+    return {"vars": vars_, "statements": stmts, "last_var": last_var, "first_method": first_method, "after_methods": after_methods}
 
 
 def get_top_code_lines(lines):
-    """Code lines of a module outside its methods: not blank, not comments, annotations or preprocessor lines."""
-    decl_re = re.compile(r'^\s*(?:' + kw_alt("Async") + r'\s+)?(?:' + kw_alt("Proc") + '|' + kw_alt("Func")
-                         + r')\s+[\w]+\s*\(', re.IGNORECASE)
-    end_re = re.compile(r'^\s*(?:' + kw_alt("EndProc") + '|' + kw_alt("EndFunc") + r')\b', re.IGNORECASE)
-    res = []
-    in_proc = False
-    for line in lines:
-        t = line.strip()
-        if in_proc:
-            if end_re.match(t):
-                in_proc = False
-            continue
-        if decl_re.match(t):
-            in_proc = True
-            continue
-        if t == "" or t.startswith("//") or t.startswith("&") or t.startswith("#"):
-            continue
-        res.append(t)
-    return res
+    """Code lines of a module outside its methods (not blank, not comments, annotations or preprocessor
+    lines), trimmed."""
+    lay = get_module_layout(lines)
+    idx = sorted([v["idx"] for v in lay["vars"]] + lay["statements"])
+    return [lines[i].strip() for i in idx]
+
+
+def get_top_key(line, prefix):
+    """Comparable form of a line of code outside methods: no trailing comment, prefixes left out."""
+    return code_key(get_code_only([line], True)[0], prefix)
 
 
 # Own sub-objects of a borrowed object (attributes, tabular sections, commands, forms, templates, …)
@@ -2954,9 +2988,23 @@ def get_method_place(cfg_lines, regions, ext_m, role, set_, created):
 
 
 def get_module_end(lines):
-    """Where code appended to a module goes: its end, or — in a module wrapped whole in
-    #Если Сервер ... Тогда ... [#Иначе ВызватьИсключение ...] #КонецЕсли — before the wrapper's #Иначе
-    (#КонецЕсли when it has none): after the wrapper a procedure would not compile."""
+    """Where methods appended to a module go: before the statements of the module body after the last method
+    (a method after them would not compile), else the module's tail (get_module_tail)."""
+    tail = get_module_tail(lines)
+    lay = get_module_layout(lines)
+    body = [i for i in lay["statements"] if lay["after_methods"] <= i < tail]
+    if not body:
+        return tail
+    s = body[0]
+    while s > 0 and re.match(r'^(//|&)', lines[s - 1].strip()):
+        s -= 1
+    return s
+
+
+def get_module_tail(lines):
+    """The tail of a module, where statements of the module body are added after the existing ones: its end,
+    or — in a module wrapped whole in #Если Сервер ... Тогда ... [#Иначе ВызватьИсключение ...] #КонецЕсли —
+    before the wrapper's #Иначе (#КонецЕсли when it has none): after the wrapper the code would not compile."""
     n = len(lines)
 
     def skip(t):
@@ -3248,6 +3296,11 @@ def get_assigned_names(code):
     for line in code:
         for t in IC_STMT_RE.split(line):
             m = re.match(r'^\s*([\w]+)\s*=', t)
+            if m:
+                res.add(m.group(1).lower())
+            # A loop variable is assigned too
+            m = (re.match(r'^\s*(?:Для\s+Каждого|For\s+Each)\s+([\w]+)', t, re.IGNORECASE)
+                 or re.match(r'^\s*(?:Для|For)\s+([\w]+)\s*=', t, re.IGNORECASE))
             if m:
                 res.add(m.group(1).lower())
     return res
@@ -3546,6 +3599,19 @@ def get_form_item_names(form_xml):
     return [n.get("name") for n in root.iter() if isinstance(n.tag, str) and n.get("name") is not None and not _in_base_form(n, root)]
 
 
+def add_out_name(by_file, common, cfg_file, rel, name):
+    """A method that is not coming, for the code that calls it: by its name in its own module; a common
+    module's method also as Модуль.Метод for the other modules (a bare name there is someone else's).
+    Returns True when it is new."""
+    dst = by_file.setdefault(cfg_file.lower(), {})
+    new = name.lower() not in dst
+    dst[name.lower()] = name
+    if get_module_kind(rel) == "common":
+        mod = rel.replace("\\", "/").split("/")[1]
+        common[(mod + "." + name).lower()] = mod + "." + name
+    return new
+
+
 def get_used_missing(lines, missing):
     """Missing names the code uses (comments left out): the sorted original names. The extension's code
     names its own things as the extension does, so a word matches by the very name: a plain Товары is
@@ -3556,6 +3622,11 @@ def get_used_missing(lines, missing):
     for t in get_code_only(lines, True):
         for m in re.finditer(r'\w+', t):
             k = m.group(0).lower()
+            if k in missing:
+                hit.add(missing[k])
+        # A common module's method called from another module: Модуль.Метод
+        for m in re.finditer(r'(\w+)\s*\.\s*(\w+)', t):
+            k = (m.group(1) + "." + m.group(2)).lower()
             if k in missing:
                 hit.add(missing[k])
     # Ordinal, case-insensitive (as StringComparer.OrdinalIgnoreCase in the .ps1, which upper-cases)
@@ -3609,7 +3680,7 @@ def get_file_edits(path):
     key = path.lower()
     if key not in FILE_EDITS:
         f = read_bsl_file(path)
-        FILE_EDITS[key] = {"file": f, "repl": [], "create": {}, "create_order": [], "own_at": {}, "regions": get_regions(f["lines"]), "given": set()}
+        FILE_EDITS[key] = {"file": f, "repl": [], "create": {}, "create_order": [], "own_at": {}, "tail": [], "regions": get_regions(f["lines"]), "layout": get_module_layout(f["lines"]), "given": set()}
     return FILE_EDITS[key]
 
 
@@ -3619,7 +3690,7 @@ def write_file_edits():
     at the end of the module."""
     changed = []
     for fe in FILE_EDITS.values():
-        if not fe["repl"] and not fe["create"] and not fe["own_at"]:
+        if not fe["repl"] and not fe["create"] and not fe["own_at"] and not fe["tail"]:
             continue
         lines = list(fe["file"]["lines"])
         repl = list(fe["repl"])
@@ -3649,6 +3720,10 @@ def write_file_edits():
             if end_at < len(lines) and lines[end_at].strip() != "":
                 add.append("")
             lines[end_at:end_at] = add
+        # Statements of the module body: after the configuration's own, at the tail
+        for blk in fe["tail"]:
+            at = get_module_tail(lines)
+            lines[at:at] = get_spaced_block(lines, at, blk)
         write_bsl_file(fe["file"], lines)
         changed.append(fe["file"]["path"])
     return changed
@@ -4055,11 +4130,7 @@ def main():
                 pl = it.get("plan")
                 if it["status"] != "TEMPORARY" or not pl or pl["kind"] != "own" or pl["hit"]:
                     continue
-                if get_module_kind(pl["rel"]) == "common":
-                    dst = temp_common
-                else:
-                    dst = temp_by_file.setdefault(os.path.join(config_path, pl["rel"]).lower(), {})
-                dst[pl["name"].lower()] = pl["name"]
+                add_out_name(temp_by_file, temp_common, os.path.join(config_path, pl["rel"]), pl["rel"], pl["name"])
         while True:
             again = False
             for fe in FILE_EDITS.values():
@@ -4067,6 +4138,7 @@ def main():
                 fe["create"].clear()
                 fe["create_order"].clear()
                 fe["own_at"].clear()
+                fe["tail"].clear()
             EDIT_SEQ[0] = 0
             temp_count = 0
             recs = []
@@ -4120,8 +4192,9 @@ def main():
                         titems.append(t)
                         continue
                     warn_note = " (object locked by vendor support, written: editingAllowedCheck = warn)" if w["support"] == "warn" else ""
-                    # Code outside methods: module variables go over (after the configuration's, or before its
-                    # first method); statements of the module body are left to a person
+                    # Code outside methods: module variables go after the configuration's (or before its first
+                    # method), statements of the module body after the configuration's own, at the module's tail —
+                    # the extension's body runs after the configuration's, so the order stays
                     if pl["kind"] == "topcode":
                         where_sub = ["from: extension %s:%d" % (pl["rel"], pl["line"] + 1)]
                         if not os.path.exists(cfg_file):
@@ -4130,15 +4203,31 @@ def main():
                             titems.append(t)
                             continue
                         fe = get_file_edits(cfg_file)
-                        el = get_module_layout(pl["ext_lines"])
-                        cl = get_module_layout(fe["file"]["lines"])
-                        have = {code_key(l, prefix) for l in get_top_code_lines(fe["file"]["lines"])}
+                        if "layout" not in pl:
+                            pl["layout"] = get_module_layout(pl["ext_lines"])
+                        if "top_keys" not in fe:
+                            fe["top_keys"] = {get_top_key(l, prefix) for l in get_top_code_lines(fe["file"]["lines"])}
+                        el, cl, have = pl["layout"], fe["layout"], fe["top_keys"]
                         taken = {n.lower() for v in cl["vars"] for n in v["names"]} | {n.lower() for n in get_proc_names(fe["file"]["lines"])}
-                        stmts = [i for i in el["statements"] if code_key(pl["ext_lines"][i], prefix) not in have]
+                        # Each line once: a variable declared twice in the extension is declared once in the configuration
+                        seen = set()
+                        stmts = []
+                        stmts_have = 0
+                        for i in el["statements"]:
+                            key = get_top_key(pl["ext_lines"][i], prefix)
+                            if key in have:
+                                stmts_have += 1
+                                continue
+                            if key in seen:
+                                continue
+                            seen.add(key)
+                            stmts.append(i)
                         todo, clash = [], []
                         for v in el["vars"]:
-                            if code_key(pl["ext_lines"][v["idx"]], prefix) in have:
+                            key = get_top_key(pl["ext_lines"][v["idx"]], prefix)
+                            if key in have or key in seen:
                                 continue
+                            seen.add(key)
                             for n in v["names"]:
                                 tn = convert_ext_code([n], file_map)[0]
                                 if tn.lower() in taken:
@@ -4148,9 +4237,10 @@ def main():
                         t["out_names"] = [n for v in todo for n in v["names"]]
                         t["out_file"] = cfg_file
                         top_items.append(t)
-                        if stmts:
-                            t["text"] = label + " — statements of the module body are not transferred by the skill"
-                            t["sub"] = ["from: extension %s:%d" % (pl["rel"], stmts[0] + 1), "next: add them to the configuration module by hand, then re-run -Mode check"]
+                        # The platform drops a manager module with variables or statements, its methods included
+                        if re.search(r'[\\/]Ext[\\/]ManagerModule\.bsl$', pl["rel"]):
+                            t["text"] = label + " — a manager module with variables or statements is not applied by the platform: this code never ran"
+                            t["sub"] = where_sub + ["next: remove the code outside methods from the extension's manager module (none of its methods run either), then re-run -Mode check"]
                             titems.append(t)
                             continue
                         if clash:
@@ -4159,22 +4249,50 @@ def main():
                             t["sub"] = where_sub + ["next: rename or merge by hand, then re-run -Mode check"]
                             titems.append(t)
                             continue
-                        block = []
-                        for v in todo:
-                            block += convert_ext_code(pl["ext_lines"][v["start"]:v["idx"] + 1], file_map)
-                        block = get_framed(block, frame)
-                        if cl["last_var"] >= 0:
-                            at = cl["last_var"] + 1
-                            fe["repl"].append({"start": at, "end": at, "lines": block, "seq": EDIT_SEQ[0]})
-                            where = "after the module variables"
-                        else:
-                            at = cl["first_method"] if cl["first_method"] >= 0 else get_module_end(fe["file"]["lines"])
-                            fe["repl"].append({"start": at, "end": at, "lines": get_spaced_block(fe["file"]["lines"], at, block), "seq": EDIT_SEQ[0]})
-                            where = "before the first method" if cl["first_method"] >= 0 else "end of module"
-                        EDIT_SEQ[0] += 1
+                        body = None
+                        if stmts:
+                            s0 = stmts[0]
+                            while s0 > 0 and re.match(r'^(//|&)', pl["ext_lines"][s0 - 1].strip()):
+                                s0 -= 1
+                            s1 = stmts[-1]
+                            rng = pl["ext_lines"][s0:s1 + 1]
+                            why = None
+                            if stmts_have:
+                                why = "statements of the module body are partly in config"
+                            elif any(x.strip().startswith("#") for x in rng):
+                                why = "statements of the module body stand under preprocessor instructions"
+                            if why:
+                                t["text"] = "%s — %s" % (label, why)
+                                t["sub"] = ["from: extension %s:%d-%d" % (pl["rel"], s0 + 1, s1 + 1), "next: add them at the end of the configuration module by hand, then re-run -Mode check"]
+                                titems.append(t)
+                                continue
+                            body = convert_ext_code(rng, file_map)
+                        parts = []
+                        if todo:
+                            block = []
+                            for v in todo:
+                                block += convert_ext_code(pl["ext_lines"][v["start"]:v["idx"] + 1], file_map)
+                            block = get_framed(block, frame)
+                            if cl["last_var"] >= 0:
+                                at = cl["last_var"] + 1
+                                fe["repl"].append({"start": at, "end": at, "lines": block, "seq": EDIT_SEQ[0]})
+                                where = "after the module variables"
+                            else:
+                                at = cl["first_method"] if cl["first_method"] >= 0 else get_module_end(fe["file"]["lines"])
+                                fe["repl"].append({"start": at, "end": at, "lines": get_spaced_block(fe["file"]["lines"], at, block), "seq": EDIT_SEQ[0]})
+                                where = "before the first method" if cl["first_method"] >= 0 else "end of module"
+                            EDIT_SEQ[0] += 1
+                            parts.append("%s -> %s" % (plural(len(todo), "variable declaration"), where))
+                        if body is not None:
+                            fe["tail"].append(get_framed(body, frame))
+                            parts.append("statements of the module body -> end of module")
+                        if not parts:
+                            t["status"] = "TRANSFERRED"
+                            titems.append(t)
+                            continue
                         t["status"] = "TRANSFERRED"
                         t["now"] = True
-                        t["text"] = "%s — %s -> %s%s" % (label, plural(len(todo), "variable declaration"), where, warn_note)
+                        t["text"] = "%s — %s%s" % (label, "; ".join(parts), warn_note)
                         titems.append(t)
                         continue
                     # Code that uses names the configuration does not have yet waits for them
@@ -4388,13 +4506,7 @@ def main():
             for o in own_items:
                 if o["t"]["status"] == "TRANSFERRED":
                     continue
-                nm = o["plan"]["name"]
-                if get_module_kind(o["plan"]["rel"]) == "common":
-                    dst = out_common
-                else:
-                    dst = out_by_file.setdefault(os.path.join(config_path, o["plan"]["rel"]).lower(), {})
-                if nm.lower() not in dst:
-                    dst[nm.lower()] = nm
+                if add_out_name(out_by_file, out_common, os.path.join(config_path, o["plan"]["rel"]), o["plan"]["rel"], o["plan"]["name"]):
                     again = True
             if not again:
                 break

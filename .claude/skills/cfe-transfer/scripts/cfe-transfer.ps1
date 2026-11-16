@@ -1,4 +1,4 @@
-﻿# cfe-transfer v1.7 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+﻿# cfe-transfer v1.8 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -1020,28 +1020,37 @@ function Get-DisputeReason($kind, [string]$line, [string]$key, [string]$side, $v
 # &ИзменениеИКонтроль: each #Вставка/#Удаление is classified the way cfe-patch-method -Check does
 # (absorbed = already in the main configuration, pending = still to carry over, disputed = the
 # anchor or the deleted lines changed). $null when the method has no edits with code.
-# A deletion carried over by commenting the lines out: its significant lines stand in $v2norm as a run of
-# // comments, blank lines and other comments (the frame, //-blank lines) between them allowed, code not
-function Test-CommentedRun($v2norm, $keys) {
-	$keys = @($keys)
-	if ($keys.Count -eq 0) { return $false }
-	$run = New-Object System.Collections.Generic.List[string]
+# A deletion carried over by commenting the lines out, at its own place: its significant lines stand in
+# $v2norm as a run of // comments (blank lines and other comments — the frame, //-blank lines — between
+# them allowed, code not), with the deleted block's line before right above the run or its line after
+# right below it ($null: a body boundary). One neighbour is enough: the replacing code may follow the
+# run. Returns the index of the run's last line in $v2norm, -1 when there is none.
+function Find-CommentedRun($v2norm, $keys, $beforeCtx, $afterCtx) {
+	$keys = @($keys); $v2norm = @($v2norm)
+	if ($keys.Count -eq 0) { return -1 }
+	$run = New-Object System.Collections.ArrayList
 	$check = {
 		for ($s = 0; $s -le $run.Count - $keys.Count; $s++) {
 			$ok = $true
-			for ($m = 0; $m -lt $keys.Count; $m++) { if ($run[$s + $m] -cne $keys[$m]) { $ok = $false; break } }
-			if ($ok) { return $true }
+			for ($m = 0; $m -lt $keys.Count; $m++) { if ($run[$s + $m].C -cne $keys[$m]) { $ok = $false; break } }
+			if (-not $ok) { continue }
+			$first = $run[$s].I; $last = $run[$s + $keys.Count - 1].I
+			$b = $null; for ($z = $first - 1; $z -ge 0; $z--) { if (Test-Significant $v2norm[$z]) { $b = $v2norm[$z]; break } }
+			$a = $null; for ($z = $last + 1; $z -lt $v2norm.Count; $z++) { if (Test-Significant $v2norm[$z]) { $a = $v2norm[$z]; break } }
+			if ($b -ceq $beforeCtx -or $a -ceq $afterCtx) { return $last }
 		}
-		return $false
+		return -1
 	}
-	foreach ($l in @($v2norm)) {
+	for ($i = 0; $i -lt $v2norm.Count; $i++) {
+		$l = $v2norm[$i]
 		if ($l -eq '') { continue }
 		if ($l.StartsWith('//')) {
 			$c = ($l.Substring(2) -replace '\s+', ' ').Trim()
-			if (Test-Significant $c) { $run.Add($c) }
+			if (Test-Significant $c) { [void]$run.Add(@{ C = $c; I = $i }) }
 			continue
 		}
-		if (& $check) { return $true }
+		$r = & $check
+		if ($r -ge 0) { return $r }
 		$run.Clear()
 	}
 	return (& $check)
@@ -1118,13 +1127,24 @@ function Get-ControlTransfer($extMethod, $cfgMethod, [string]$prefix) {
 				# before the spot; otherwise the payload next to a neighbour with content, anywhere
 				if (-not $isAbsorbed -and $isNew -and $null -ne $k) { $isAbsorbed = Test-RunAt $v2proj.Sig $payloadSig ($sigStart - $payloadSig.Count) }
 				if (-not $isAbsorbed -and $isNew) { $isAbsorbed = Test-PayloadBeside $v2proj.Sig $payloadSig $bCtx $aCtx }
+				# Anchored to deleted lines whose deletion is carried over already: the spot is right after the
+				# commented-out lines, with nothing but comments up to it and the insert's line after next.
+				# Anywhere else the anchor is a look-alike, and code at the spot means the insert went over
+				# differently.
+				$freeSpot = $false
+				if ($null -ne $k -and $deletedDone.ContainsKey($op.After) -and $deletedDone[$op.After] -ge 0 -and $k -ge $deletedDone[$op.After]) {
+					$freeSpot = $true
+					for ($z = $deletedDone[$op.After] + 1; $z -le $k; $z++) { if (Test-Significant $v2norm[$z]) { $freeSpot = $false; break } }
+					$nx = $null; for ($z = $k + 1; $z -lt $v2norm.Count; $z++) { if (Test-Significant $v2norm[$z]) { $nx = $v2norm[$z]; break } }
+					if ($nx -cne $aCtx) { $freeSpot = $false }
+				}
+				# Lines that stand anywhere (КонецЕсли;, Возврат;) prove nothing by being elsewhere
+				$plain = @($payloadSig | Where-Object { $_ -notmatch $script:trivialRe }).Count -eq 0
 				if ($isAbsorbed) { $res = 'absorbed' }
-				# Anchored to deleted lines whose deletion is carried over already: that spot has no anchor
-				# left, a line found elsewhere is a look-alike — the code there differs from the edit
-				elseif ($null -ne $k -and $deletedDone.ContainsKey($op.After)) { $res = 'inserted code next to the carried-over deletion differs in config' }
+				elseif ($null -ne $k -and $deletedDone.ContainsKey($op.After) -and -not $freeSpot) { $res = 'inserted code next to the carried-over deletion differs in config' }
 				# Not at the anchor, yet the configuration has the code more times than the original: carried
 				# over to another spot (other code may have come in between). Writing it would make a copy.
-				elseif ($null -ne $k -and $isNew) { $res = 'inserted code is in config already, elsewhere in the method' }
+				elseif ($null -ne $k -and $isNew -and -not $plain) { $res = 'inserted code is in config already, elsewhere in the method' }
 				elseif ($null -ne $k) { $res = 'pending' }
 				elseif ($bIdx -ge 0) { $res = Get-DisputeReason 'insert' $parsed.V1[$bIdx] $bCtx 'before' $v2norm }
 				elseif ($aIdx -ge 0) { $res = Get-DisputeReason 'insert' $parsed.V1[$aIdx] $aCtx 'after' $v2norm }
@@ -1144,10 +1164,13 @@ function Get-ControlTransfer($extMethod, $cfgMethod, [string]$prefix) {
 				# the original would after the edits: one less, plus the inserts that carry it.
 				$insRuns = 0; foreach ($pk in @($payloads.Keys)) { $insRuns += Get-RunCount @($payloads[$pk]) $sigKeys }
 				$v1Runs = Get-RunCount $v1sig $sigKeys
-				$stays = $sigKeys.Count -gt 0 -and ($insRuns -gt 0 -or $v1Runs -gt 1) -and (Get-RunCount $v2proj.Sig $sigKeys) -eq ($v1Runs - 1 + $insRuns)
-				# Commented out in the configuration: carried over. Looked at first — a line the edit moves
-				# into its own insert is there as code too, and deleting it would break the carried-over insert.
-				if (Test-CommentedRun $v2norm $sigKeys) { $res = 'absorbed' }
+				$liveLeft = $sigKeys.Count -gt 0 -and (Get-RunCount $v2proj.Sig $sigKeys) -eq ($v1Runs - 1 + $insRuns)
+				$stays = $liveLeft -and ($insRuns -gt 0 -or $v1Runs -gt 1)
+				# Commented out at its own place, and the code left as often as after the edit: carried over.
+				# Looked at first — a line the edit moves into its own insert is there as code too, and
+				# deleting it would break the carried-over insert. An old comment elsewhere does not count.
+				$cAt = if ($liveLeft) { Find-CommentedRun $v2norm $sigKeys $delBeforeCtx $delAfterCtx } else { -1 }
+				if ($cAt -ge 0) { $res = 'absorbed' }
 				elseif ($stays -and (Test-DeleteAbsorbed $v2proj.Sig $delBeforeCtx $delAfterCtx)) { $res = 'absorbed' }
 				elseif (($p = Find-UniqueRun $v2norm $keys) -ge 0) { $res = 'pending' }
 				elseif ($v1Runs -gt 1 -and ($p = Find-RunInContext $v2norm $v2proj $keys $sigKeys $delBeforeCtx $delAfterCtx) -ge 0) { $res = 'pending' }
@@ -1162,7 +1185,11 @@ function Get-ControlTransfer($extMethod, $cfgMethod, [string]$prefix) {
 				}
 			}
 		}
-		if ($op.Kind -eq 'delete' -and $res -eq 'absorbed') { for ($m = $op.Start; $m -le $op.End; $m++) { $deletedDone[$m] = $true } }
+		# Where the carried-over deletion stands in the configuration: the last commented line, -1 unknown
+		if ($op.Kind -eq 'delete' -and $res -eq 'absorbed') {
+			$at = if ($replaced.ContainsKey($oi)) { -1 } else { $cAt }
+			for ($m = $op.Start; $m -le $op.End; $m++) { $deletedDone[$m] = $at }
+		}
 		# A block marked "not for transfer" counts as temporary only while it is not in the configuration
 		$mark = Get-BlockTempMark $op
 		$pk = if ($op.Kind -eq 'insert') { $k } else { $p }
@@ -1896,11 +1923,11 @@ function Get-ModuleTransferItems([string]$bsl, [string]$extDir, [string]$prefix,
 	# Code outside methods (module variables, statements of the module body): its lines looked up among
 	# the configuration module's code outside methods, prefixes left out; order is not compared
 	if ($mc.TopCode -ge 0) {
-		$extTop = @(); $tl = Get-TopCodeLines $extLines; foreach ($l in $tl) { $extTop += (Get-CodeKey $l $prefix) }
-		$pool = New-Object System.Collections.Generic.List[string]
-		if ($null -ne $cfgLines) { $tl = Get-TopCodeLines $cfgLines; foreach ($l in $tl) { $pool.Add((Get-CodeKey $l $prefix)) } }
-		$found = 0
-		foreach ($l in $extTop) { $j = $pool.IndexOf($l); if ($j -ge 0) { $found++; $pool.RemoveAt($j) } }
+		# A line counts once: a variable declared twice in the extension is declared once in the configuration
+		$extTop = [ordered]@{}; $tl = Get-TopCodeLines $extLines; foreach ($l in $tl) { $extTop[(Get-TopKey $l $prefix)] = $true }
+		$have = @{}
+		if ($null -ne $cfgLines) { $tl = Get-TopCodeLines $cfgLines; foreach ($l in $tl) { $have[(Get-TopKey $l $prefix)] = $true } }
+		$found = @($extTop.Keys | Where-Object { $have.ContainsKey($_) }).Count
 		$st = Get-HeuristicStatus @{ Found = $found; Total = $extTop.Count }
 		$it = New-Item2 $st "module code outside methods (heuristic: $found/$($extTop.Count) lines)" "${rel}:$($mc.TopCode + 1)"
 		$it.Plan = @{ Kind = 'topcode'; Rel = $rel; Line = $mc.TopCode; ExtLines = $extLines }
@@ -1909,52 +1936,53 @@ function Get-ModuleTransferItems([string]$bsl, [string]$extDir, [string]$prefix,
 	return $items
 }
 
-# Layout of a module's code outside methods: each Перем line with the directive and comment lines
-# right above it (Vars: Start, Idx, Names), other code lines (Statements: indexes), the last Перем
-# line, the first method with the directive and comment lines above it
+# Layout of a module's code outside methods, in one walk: each Перем line with the directive and comment
+# lines right above it (Vars: Start, Idx, Names, Depth — of #Если nesting), the other code lines
+# (Statements: indexes), the last Перем before the methods at the methods' #Если depth, the first method
+# with the directive and comment lines above it, the line after the last method
 function Get-ModuleLayout($lines) {
 	$declRe = '^\s*(?:' + (Get-KwAlt 'Async') + '\s+)?(?:' + (Get-KwAlt 'Proc') + '|' + (Get-KwAlt 'Func') + ')\s+[\w]+\s*\('
 	$endRe = '^\s*(?:' + (Get-KwAlt 'EndProc') + '|' + (Get-KwAlt 'EndFunc') + ')\b'
 	$lines = @($lines)
-	$vars = @(); $stmts = @(); $lastVar = -1; $firstMethod = -1
-	$inProc = $false
+	$lead = { param([int]$i) $s = $i; while ($s -gt 0 -and (([string]$lines[$s - 1]).Trim() -match '^(//|&)')) { $s-- }; $s }
+	$vars = @(); $stmts = @(); $firstMethod = -1; $methodDepth = 0; $afterMethods = 0
+	$inProc = $false; $depth = 0
 	for ($i = 0; $i -lt $lines.Count; $i++) {
 		$t = ([string]$lines[$i]).Trim()
-		if ($inProc) { if ($t -imatch $endRe) { $inProc = $false }; continue }
+		if ($inProc) { if ($t -imatch $endRe) { $inProc = $false; $afterMethods = $i + 1 }; continue }
 		if ($t -imatch $declRe) {
 			$inProc = $true
-			if ($firstMethod -lt 0) {
-				$s = $i; while ($s -gt 0 -and (([string]$lines[$s - 1]).Trim() -match '^(//|&)')) { $s-- }
-				$firstMethod = $s
-			}
+			if ($firstMethod -lt 0) { $firstMethod = & $lead $i; $methodDepth = $depth }
 			continue
 		}
+		if ($t -match '^#(Если|If)(?!\w)') { $depth++; continue }
+		if ($t -match '^#(КонецЕсли|EndIf)(?!\w)') { if ($depth -gt 0) { $depth-- }; continue }
 		if ($t -eq '' -or $t.StartsWith('//') -or $t.StartsWith('&') -or $t.StartsWith('#')) { continue }
 		if ($t -match $script:icVarRe) {
-			$s = $i; while ($s -gt 0 -and (([string]$lines[$s - 1]).Trim() -match '^(//|&)')) { $s-- }
 			$names = @()
 			if ($t -match ($script:icVarRe + '\s+([^;]*)')) { foreach ($v in $Matches[1].Split(',')) { $n = ($v.Trim() -split '\s+')[0]; if ($n) { $names += $n } } }
-			$vars += @{ Start = $s; Idx = $i; Names = $names }
-			if ($firstMethod -lt 0) { $lastVar = $i }
+			$vars += @{ Start = (& $lead $i); Idx = $i; Names = $names; Depth = $depth; BeforeMethods = ($firstMethod -lt 0) }
 		} else { $stmts += $i }
 	}
-	return @{ Vars = $vars; Statements = $stmts; LastVar = $lastVar; FirstMethod = $firstMethod }
+	# New variables go after the last one declared where the methods are: one in a #Если block of its
+	# own (#Если Клиент …) would carry them into that block
+	$lastVar = -1
+	foreach ($v in $vars) { if ($v.BeforeMethods -and ($firstMethod -lt 0 -or $v.Depth -eq $methodDepth)) { $lastVar = $v.Idx } }
+	return @{ Vars = $vars; Statements = $stmts; LastVar = $lastVar; FirstMethod = $firstMethod; AfterMethods = $afterMethods }
 }
 
-# Code lines of a module outside its methods: not blank, not comments, annotations or preprocessor lines
+# Code lines of a module outside its methods (not blank, not comments, annotations or preprocessor lines),
+# trimmed
 function Get-TopCodeLines($lines) {
-	$declRe = '^\s*(?:' + (Get-KwAlt 'Async') + '\s+)?(?:' + (Get-KwAlt 'Proc') + '|' + (Get-KwAlt 'Func') + ')\s+[\w]+\s*\('
-	$endRe = '^\s*(?:' + (Get-KwAlt 'EndProc') + '|' + (Get-KwAlt 'EndFunc') + ')\b'
-	$res = @()
-	$inProc = $false
-	foreach ($l in @($lines)) {
-		$t = ([string]$l).Trim()
-		if ($inProc) { if ($t -imatch $endRe) { $inProc = $false }; continue }
-		if ($t -imatch $declRe) { $inProc = $true; continue }
-		if ($t -eq '' -or $t.StartsWith('//') -or $t.StartsWith('&') -or $t.StartsWith('#')) { continue }
-		$res += $t
-	}
+	$lay = Get-ModuleLayout $lines
+	$idx = @(@($lay.Vars | ForEach-Object { $_.Idx }) + @($lay.Statements) | Sort-Object)
+	$res = @(); foreach ($i in $idx) { $res += ([string]$lines[$i]).Trim() }
 	return ,$res
+}
+
+# Comparable form of a line of code outside methods: no trailing comment, prefixes left out
+function Get-TopKey([string]$line, [string]$prefix) {
+	return (Get-CodeKey ((Get-CodeOnly @($line) -KeepStrings)[0]) $prefix)
 }
 
 # Own sub-objects of a borrowed object (attributes, tabular sections, commands, forms, templates, …)
@@ -2532,10 +2560,22 @@ function Get-MethodPlace($cfgLines, $regions, $extM, $role, $set, $created) {
 	return @{ At = (Get-ModuleEnd $cfgLines); Region = '' }
 }
 
-# Where code appended to a module goes: its end, or — in a module wrapped whole in
-# #Если Сервер ... Тогда ... [#Иначе ВызватьИсключение ...] #КонецЕсли — before the wrapper's #Иначе
-# (#КонецЕсли when it has none): after the wrapper a procedure would not compile
+# Where methods appended to a module go: before the statements of the module body after the last method
+# (a method after them would not compile), else the module's tail (Get-ModuleTail)
 function Get-ModuleEnd($lines) {
+	$tail = Get-ModuleTail $lines
+	$lay = Get-ModuleLayout $lines
+	$body = @($lay.Statements | Where-Object { $_ -ge $lay.AfterMethods -and $_ -lt $tail })
+	if ($body.Count -eq 0) { return $tail }
+	$s = $body[0]
+	while ($s -gt 0 -and (([string]$lines[$s - 1]).Trim() -match '^(//|&)')) { $s-- }
+	return $s
+}
+
+# The tail of a module, where statements of the module body are added after the existing ones: its end,
+# or — in a module wrapped whole in #Если Сервер ... Тогда ... [#Иначе ВызватьИсключение ...] #КонецЕсли —
+# before the wrapper's #Иначе (#КонецЕсли when it has none): after the wrapper the code would not compile
+function Get-ModuleTail($lines) {
 	$n = @($lines).Count
 	$skip = { param([string]$t) $t = $t.Trim(); ($t -eq '' -or $t.StartsWith('//')) }
 	$i = $n - 1
@@ -2757,7 +2797,12 @@ function Get-LocalNames($code, $params) {
 function Get-AssignedNames($code) {
 	$set = New-Object 'System.Collections.Generic.HashSet[string]'
 	foreach ($l in @($code)) {
-		foreach ($t in [regex]::Split([string]$l, $script:icStmtRe)) { if ($t -match '^\s*([\w]+)\s*=') { [void]$set.Add($Matches[1].ToLower()) } }
+		foreach ($t in [regex]::Split([string]$l, $script:icStmtRe)) {
+			if ($t -match '^\s*([\w]+)\s*=') { [void]$set.Add($Matches[1].ToLower()) }
+			# A loop variable is assigned too
+			if ($t -match '(?i)^\s*(?:Для\s+Каждого|For\s+Each)\s+([\w]+)') { [void]$set.Add($Matches[1].ToLower()) }
+			elseif ($t -match '(?i)^\s*(?:Для|For)\s+([\w]+)\s*=') { [void]$set.Add($Matches[1].ToLower()) }
+		}
 	}
 	return ,$set
 }
@@ -3004,6 +3049,21 @@ function Get-FormItemNames([string]$formXml) {
 	return $res
 }
 
+# A method that is not coming, for the code that calls it: by its name in its own module; a common
+# module's method also as Модуль.Метод for the other modules (a bare name there is someone else's).
+# Returns $true when it is new.
+function Add-OutName($byFile, $common, [string]$cfgFile, [string]$rel, [string]$name) {
+	$fk = $cfgFile.ToLower()
+	if (-not $byFile.ContainsKey($fk)) { $byFile[$fk] = @{} }
+	$new = -not $byFile[$fk].ContainsKey($name.ToLower())
+	$byFile[$fk][$name.ToLower()] = $name
+	if ((Get-ModuleKind $rel) -eq 'common') {
+		$mod = ($rel -replace '\\', '/').Split('/')[1]
+		$common["$mod.$name".ToLower()] = "$mod.$name"
+	}
+	return $new
+}
+
 # Missing names the code uses (comments left out): the sorted original names. The extension's code
 # names its own things as the extension does, so a word matches by the very name: a plain Товары is
 # not the extension's Расш_Товары.
@@ -3013,6 +3073,11 @@ function Get-UsedMissing($lines, $missing) {
 	foreach ($t in (Get-CodeOnly $lines -KeepStrings)) {
 		foreach ($m in [regex]::Matches($t, '[\w]+')) {
 			$k = $m.Value.ToLower()
+			if ($missing.ContainsKey($k)) { $hit[$missing[$k]] = $true }
+		}
+		# A common module's method called from another module: Модуль.Метод
+		foreach ($m in [regex]::Matches($t, '([\w]+)\s*\.\s*([\w]+)')) {
+			$k = ($m.Groups[1].Value + '.' + $m.Groups[2].Value).ToLower()
 			if ($missing.ContainsKey($k)) { $hit[$missing[$k]] = $true }
 		}
 	}
@@ -3068,7 +3133,7 @@ function Get-FileEdits([string]$path) {
 	$key = $path.ToLower()
 	if (-not $script:fileEdits.Contains($key)) {
 		$f = Read-BslFile $path
-		$script:fileEdits[$key] = @{ File = $f; Repl = (New-Object System.Collections.ArrayList); Create = [ordered]@{}; OwnAt = @{}; Regions = (Get-Regions $f.Lines); Given = (New-Object 'System.Collections.Generic.HashSet[string]') }
+		$script:fileEdits[$key] = @{ File = $f; Repl = (New-Object System.Collections.ArrayList); Create = [ordered]@{}; OwnAt = @{}; Tail = (New-Object System.Collections.ArrayList); Regions = (Get-Regions $f.Lines); Layout = (Get-ModuleLayout $f.Lines); Given = (New-Object 'System.Collections.Generic.HashSet[string]') }
 	}
 	return $script:fileEdits[$key]
 }
@@ -3079,7 +3144,7 @@ function Get-FileEdits([string]$path) {
 function Write-FileEdits {
 	$changed = @()
 	foreach ($fe in $script:fileEdits.Values) {
-		if ($fe.Repl.Count -eq 0 -and $fe.Create.Count -eq 0 -and $fe.OwnAt.Count -eq 0) { continue }
+		if ($fe.Repl.Count -eq 0 -and $fe.Create.Count -eq 0 -and $fe.OwnAt.Count -eq 0 -and $fe.Tail.Count -eq 0) { continue }
 		$lines = New-Object System.Collections.Generic.List[string]
 		foreach ($l in $fe.File.Lines) { $lines.Add($l) }
 		$repl = @($fe.Repl)
@@ -3108,6 +3173,12 @@ function Write-FileEdits {
 			}
 			if ($endAt -lt $lines.Count -and $lines[$endAt].Trim() -ne '') { $add.Add('') }
 			$lines.InsertRange($endAt, $add)
+		}
+		# Statements of the module body: after the configuration's own, at the tail
+		foreach ($blk in $fe.Tail) {
+			$at = Get-ModuleTail $lines.ToArray()
+			$sb = Get-SpacedBlock $lines.ToArray() $at $blk
+			$lines.InsertRange($at, [string[]]$sb)
 		}
 		Write-BslFile $fe.File $lines.ToArray()
 		$changed += $fe.File.Path
@@ -3412,17 +3483,12 @@ if ($Mode -eq 'transfer') {
 		foreach ($it in $w.Rec.Items) {
 			$pl = $it.Plan
 			if ($it.Status -ne 'TEMPORARY' -or -not $pl -or $pl.Kind -ne 'own' -or $pl.Hit) { continue }
-			$set = if ((Get-ModuleKind $pl.Rel) -eq 'common') { $tempCommon } else {
-				$fk = (Join-Path $ConfigPath $pl.Rel).ToLower()
-				if (-not $tempByFile.ContainsKey($fk)) { $tempByFile[$fk] = @{} }
-				$tempByFile[$fk]
-			}
-			$set[$pl.Name.ToLower()] = $pl.Name
+			[void](Add-OutName $tempByFile $tempCommon (Join-Path $ConfigPath $pl.Rel) $pl.Rel $pl.Name)
 		}
 	}
 	do {
 		$again = $false
-		foreach ($fe in $script:fileEdits.Values) { $fe.Repl.Clear(); $fe.Create.Clear(); $fe.OwnAt.Clear() }
+		foreach ($fe in $script:fileEdits.Values) { $fe.Repl.Clear(); $fe.Create.Clear(); $fe.OwnAt.Clear(); $fe.Tail.Clear() }
 		$script:seq = 0
 		$tempCount = 0
 		$recs = @()
@@ -3463,8 +3529,9 @@ if ($Mode -eq 'transfer') {
 					$titems += $t; continue
 				}
 				$warnNote = if ($w.Support -eq 'warn') { ' (object locked by vendor support, written: editingAllowedCheck = warn)' } else { '' }
-				# Code outside methods: module variables go over (after the configuration's, or before its
-				# first method); statements of the module body are left to a person
+				# Code outside methods: module variables go after the configuration's (or before its first
+				# method), statements of the module body after the configuration's own, at the module's tail —
+				# the extension's body runs after the configuration's, so the order stays
 				if ($pl.Kind -eq 'topcode') {
 					$label = 'module code outside methods'
 					$whereSub = @("from: extension $($pl.Rel):$($pl.Line + 1)")
@@ -3474,25 +3541,36 @@ if ($Mode -eq 'transfer') {
 						$titems += $t; continue
 					}
 					$fe = Get-FileEdits $cfgFile
-					$el = Get-ModuleLayout $pl.ExtLines
-					$cl = Get-ModuleLayout $fe.File.Lines
-					$have = @{}; $tl = Get-TopCodeLines $fe.File.Lines; foreach ($l in $tl) { $have[(Get-CodeKey $l $prefix)] = $true }
+					if (-not $pl.Layout) { $pl.Layout = Get-ModuleLayout $pl.ExtLines }
+					if (-not $fe.TopKeys) { $fe.TopKeys = @{}; $tl = Get-TopCodeLines $fe.File.Lines; foreach ($l in $tl) { $fe.TopKeys[(Get-TopKey $l $prefix)] = $true } }
+					$el = $pl.Layout; $cl = $fe.Layout; $have = $fe.TopKeys
 					$taken = @{}
 					foreach ($v in $cl.Vars) { foreach ($n in $v.Names) { $taken[$n.ToLower()] = $true } }
 					foreach ($n in @(Get-ProcNames $fe.File.Lines)) { $taken[$n.ToLower()] = $true }
-					$stmts = @($el.Statements | Where-Object { -not $have.ContainsKey((Get-CodeKey $pl.ExtLines[$_] $prefix)) })
+					# Each line once: a variable declared twice in the extension is declared once in the configuration
+					$seen = @{}
+					$stmts = @(); $stmtsHave = 0
+					foreach ($i in $el.Statements) {
+						$key = Get-TopKey $pl.ExtLines[$i] $prefix
+						if ($have.ContainsKey($key)) { $stmtsHave++; continue }
+						if ($seen.ContainsKey($key)) { continue }
+						$seen[$key] = $true; $stmts += $i
+					}
 					$todo = @(); $clash = @()
 					foreach ($v in $el.Vars) {
-						if ($have.ContainsKey((Get-CodeKey $pl.ExtLines[$v.Idx] $prefix))) { continue }
+						$key = Get-TopKey $pl.ExtLines[$v.Idx] $prefix
+						if ($have.ContainsKey($key) -or $seen.ContainsKey($key)) { continue }
+						$seen[$key] = $true
 						foreach ($n in $v.Names) { $tn = [string](Convert-ExtCode @($n) $fileMap)[0]; if ($taken.ContainsKey($tn.ToLower())) { $clash += $tn } }
 						$todo += $v
 					}
 					# Variables that stay out make the code using them wait, like a method that stays out
 					$t.OutNames = @(foreach ($v in $todo) { $v.Names }); $t.OutFile = $cfgFile
 					$topItems += $t
-					if ($stmts.Count -gt 0) {
-						$t.Text = "$label — statements of the module body are not transferred by the skill"
-						$t.Sub = @("from: extension $($pl.Rel):$($stmts[0] + 1)", 'next: add them to the configuration module by hand, then re-run -Mode check')
+					# The platform drops a manager module with variables or statements, its methods included
+					if ($pl.Rel -match '[\\/]Ext[\\/]ManagerModule\.bsl$') {
+						$t.Text = "$label — a manager module with variables or statements is not applied by the platform: this code never ran"
+						$t.Sub = $whereSub + @('next: remove the code outside methods from the extension''s manager module (none of its methods run either), then re-run -Mode check')
 						$titems += $t; continue
 					}
 					if ($clash.Count -gt 0) {
@@ -3501,17 +3579,41 @@ if ($Mode -eq 'transfer') {
 						$t.Sub = $whereSub + @('next: rename or merge by hand, then re-run -Mode check')
 						$titems += $t; continue
 					}
-					$block = @()
-					foreach ($v in $todo) { $cv = Convert-ExtCode @($pl.ExtLines[$v.Start..$v.Idx]) $fileMap; $block += $cv }
-					$block = Get-Framed $block $frame
-					if ($cl.LastVar -ge 0) { [void]$fe.Repl.Add(@{ Start = $cl.LastVar + 1; End = $cl.LastVar + 1; Lines = $block; Seq = $script:seq++ }); $where = 'after the module variables' }
-					else {
-						$at = if ($cl.FirstMethod -ge 0) { $cl.FirstMethod } else { Get-ModuleEnd $fe.File.Lines }
-						[void]$fe.Repl.Add(@{ Start = $at; End = $at; Lines = (Get-SpacedBlock $fe.File.Lines $at $block); Seq = $script:seq++ })
-						$where = if ($cl.FirstMethod -ge 0) { 'before the first method' } else { 'end of module' }
+					$body = $null
+					if ($stmts.Count -gt 0) {
+						$s0 = $stmts[0]; while ($s0 -gt 0 -and (([string]$pl.ExtLines[$s0 - 1]).Trim() -match '^(//|&)')) { $s0-- }
+						$s1 = $stmts[-1]
+						$range = @($pl.ExtLines[$s0..$s1])
+						$why = $null
+						if ($stmtsHave -gt 0) { $why = 'statements of the module body are partly in config' }
+						elseif (@($range | Where-Object { ([string]$_).Trim().StartsWith('#') }).Count -gt 0) { $why = 'statements of the module body stand under preprocessor instructions' }
+						if ($why) {
+							$t.Text = "$label — $why"
+							$t.Sub = @("from: extension $($pl.Rel):$($s0 + 1)-$($s1 + 1)", 'next: add them at the end of the configuration module by hand, then re-run -Mode check')
+							$titems += $t; continue
+						}
+						$body = Convert-ExtCode $range $fileMap
 					}
+					$parts = @()
+					if ($todo.Count -gt 0) {
+						$block = @()
+						foreach ($v in $todo) { $cv = Convert-ExtCode @($pl.ExtLines[$v.Start..$v.Idx]) $fileMap; $block += $cv }
+						$block = Get-Framed $block $frame
+						if ($cl.LastVar -ge 0) { [void]$fe.Repl.Add(@{ Start = $cl.LastVar + 1; End = $cl.LastVar + 1; Lines = $block; Seq = $script:seq++ }); $where = 'after the module variables' }
+						else {
+							$at = if ($cl.FirstMethod -ge 0) { $cl.FirstMethod } else { Get-ModuleEnd $fe.File.Lines }
+							[void]$fe.Repl.Add(@{ Start = $at; End = $at; Lines = (Get-SpacedBlock $fe.File.Lines $at $block); Seq = $script:seq++ })
+							$where = if ($cl.FirstMethod -ge 0) { 'before the first method' } else { 'end of module' }
+						}
+						$parts += "$(Get-Plural $todo.Count 'variable declaration') -> $where"
+					}
+					if ($null -ne $body) {
+						[void]$fe.Tail.Add((Get-Framed $body $frame))
+						$parts += "statements of the module body -> end of module"
+					}
+					if ($parts.Count -eq 0) { $t.Status = 'TRANSFERRED'; $titems += $t; continue }
 					$t.Status = 'TRANSFERRED'; $t.Now = $true
-					$t.Text = "$label — $(Get-Plural $todo.Count 'variable declaration') -> $where$warnNote"
+					$t.Text = "$label — $($parts -join '; ')$warnNote"
 					$titems += $t; continue
 				}
 				# Code that uses names the configuration does not have yet waits for them
@@ -3697,13 +3799,7 @@ if ($Mode -eq 'transfer') {
 		# Own methods that stay out: new ones make the pass run again
 		foreach ($o in $ownItems) {
 			if ($o.T.Status -eq 'TRANSFERRED') { continue }
-			$nm = $o.Plan.Name
-			$set = if ((Get-ModuleKind $o.Plan.Rel) -eq 'common') { $outCommon } else {
-				$fk = (Join-Path $ConfigPath $o.Plan.Rel).ToLower()
-				if (-not $outByFile.ContainsKey($fk)) { $outByFile[$fk] = @{} }
-				$outByFile[$fk]
-			}
-			if (-not $set.ContainsKey($nm.ToLower())) { $set[$nm.ToLower()] = $nm; $again = $true }
+			if (Add-OutName $outByFile $outCommon (Join-Path $ConfigPath $o.Plan.Rel) $o.Plan.Rel $o.Plan.Name) { $again = $true }
 		}
 	} while ($again)
 
