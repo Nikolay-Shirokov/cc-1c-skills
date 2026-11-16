@@ -1,0 +1,85 @@
+{
+  "name": "Удаление без следа (deletion: remove): перемещение строки внутри метода и удаление одного из повторов строки переносятся, повторная сверка видит их перенесёнными (соседи удалённого сомкнулись), повторный перенос ничего не пишет",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "CommonModule",
+        "name": "М",
+        "properties": {
+          "Server": true
+        }
+      },
+      "args": {
+        "-JsonPath": "{inputFile}",
+        "-OutputDir": "{workDir}"
+      }
+    },
+    {
+      "script": "cfe-init/scripts/cfe-init",
+      "args": {
+        "-Name": "Тест",
+        "-OutputDir": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}"
+      }
+    },
+    {
+      "script": "cfe-borrow/scripts/cfe-borrow",
+      "args": {
+        "-ExtensionPath": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}",
+        "-Object": "CommonModule.М"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "CommonModules/М/Ext/Module.bsl",
+        "content": "Процедура Д() Экспорт\n\tПодготовить();\n\tПеренести();\n\tЗавершить();\nКонецПроцедуры\n\nПроцедура П() Экспорт\n\tА();\n\tБ();\n\tА();\n\tВ();\nКонецПроцедуры\n"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "cfe/CommonModules/М/Ext/Module.bsl",
+        "content": "&ИзменениеИКонтроль(\"Д\")\nПроцедура Тест_Д()\n\tПодготовить();\n\t#Удаление\n\tПеренести();\n\t#КонецУдаления\n\tЗавершить();\n\t#Вставка\n\tПеренести();\n\t#КонецВставки\nКонецПроцедуры\n\n&ИзменениеИКонтроль(\"П\")\nПроцедура Тест_П()\n\tА();\n\tБ();\n\t#Удаление\n\tА();\n\t#КонецУдаления\n\tВ();\nКонецПроцедуры\n"
+      }
+    },
+    {
+      "writeFile": {
+        "path": ".v8-project.json",
+        "content": "{ \"cfeTransfer\": { \"deletion\": \"remove\" } }"
+      }
+    },
+    {
+      "script": "cfe-transfer/scripts/cfe-transfer",
+      "cwd": "{workDir}",
+      "args": {
+        "-ExtensionPath": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}",
+        "-Mode": "transfer"
+      }
+    }
+  ],
+  "params": {
+    "extensionPath": "cfe"
+  },
+  "cwd": "workDir",
+  "args_extra": [
+    "-Mode",
+    "transfer"
+  ],
+  "expect": {
+    "stdoutContains": [
+      "All changes already transferred.",
+      "=== Summary Тест: 0 transferred now · 2 already transferred · 1 role, not transferred ==="
+    ],
+    "stdoutNotContains": [
+      "Changed files:"
+    ],
+    "fileContains": [
+      {
+        "file": "CommonModules/М/Ext/Module.bsl",
+        "text": "Процедура Д() Экспорт\n\tПодготовить();\n\tЗавершить();\n\tПеренести();\nКонецПроцедуры\n\nПроцедура П() Экспорт\n\tА();\n\tБ();\n\tВ();\nКонецПроцедуры\n"
+      }
+    ]
+  }
+}

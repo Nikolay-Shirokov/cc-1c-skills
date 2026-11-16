@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# cfe-transfer v1.4 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+# cfe-transfer v1.5 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -1086,6 +1086,63 @@ def dispute_reason(kind, line, key, side, v2norm):
     return "line %s insert %s in config: %s" % (side, how, txt)
 
 
+def test_commented_run(v2norm, keys):
+    """A deletion carried over by commenting the lines out: its significant lines stand in v2norm as a run
+    of // comments, blank lines and other comments (the frame, //-blank lines) between them allowed, code not."""
+    if not keys:
+        return False
+    run = []
+
+    def check():
+        return any(run[s:s + len(keys)] == keys for s in range(len(run) - len(keys) + 1))
+
+    for l in v2norm:
+        if l == "":
+            continue
+        if l.startswith("//"):
+            c = re.sub(r'\s+', ' ', l[2:]).strip()
+            if test_significant(c):
+                run.append(c)
+            continue
+        if check():
+            return True
+        run = []
+    return check()
+
+
+def find_run_in_context(v2norm, v2sig, v2map, keys, sig_keys, before_ctx, after_ctx):
+    """Where deleted lines that occur more than once stand between the same neighbours as in the original:
+    the index in v2norm when exactly one occurrence does, else -1."""
+    n = len(sig_keys)
+    if n == 0:
+        return -1
+    lead = 0
+    while lead < len(keys) and not test_significant(keys[lead]):
+        lead += 1
+    found = -1
+    for i in range(len(v2sig) - n + 1):
+        if not test_run_at(v2sig, sig_keys, i):
+            continue
+        if before_ctx is not None:
+            if i == 0 or v2sig[i - 1] != before_ctx:
+                continue
+        elif i != 0:
+            continue
+        e = i + n
+        if after_ctx is not None:
+            if e >= len(v2sig) or v2sig[e] != after_ctx:
+                continue
+        elif e != len(v2sig):
+            continue
+        at = v2map[i] - lead
+        if not test_run_at(v2norm, keys, at):
+            continue
+        if found >= 0:
+            return -1
+        found = at
+    return found
+
+
 def get_control_transfer(ext_method, cfg_method, prefix):
     parsed = parse_marked_body(ext_method["body_lines"])
     ops = parsed["ops"]
@@ -1108,6 +1165,8 @@ def get_control_transfer(ext_method, cfg_method, prefix):
     for o in ops:
         if o["kind"] == "delete":
             deleted.update(range(o["start"], o["end"] + 1))
+    # Lines of deletions found carried over (an insert anchored to them cannot be pending elsewhere)
+    deleted_done = set()
     for oi, op in enumerate(ops):
         # res: "absorbed", "pending" or the reason the edit is disputed
         if op["kind"] == "insert":
@@ -1145,6 +1204,14 @@ def get_control_transfer(ext_method, cfg_method, prefix):
                     is_absorbed = test_payload_beside(v2sig, payload_sig, b_ctx, a_ctx)
                 if is_absorbed:
                     res = "absorbed"
+                # Anchored to deleted lines whose deletion is carried over already: that spot has no anchor
+                # left, a line found elsewhere is a look-alike — the code there differs from the edit
+                elif k is not None and op["after"] in deleted_done:
+                    res = "inserted code next to the carried-over deletion differs in config"
+                # Not at the anchor, yet the configuration has the code more times than the original: carried
+                # over to another spot (other code may have come in between). Writing it would make a copy.
+                elif k is not None and is_new:
+                    res = "inserted code is in config already, elsewhere in the method"
                 elif k is not None:
                     res = "pending"
                 elif b_idx >= 0:
@@ -1159,25 +1226,44 @@ def get_control_transfer(ext_method, cfg_method, prefix):
                 res = "absorbed"
             else:
                 keys = v1norm[op["start"]:op["end"] + 1]
-                p = find_unique_run(v2norm, keys)
-                if p >= 0:
+                sig_keys = [x for x in keys if test_significant(x)]
+                before_ctx = None
+                for z in range(op["start"] - 1, -1, -1):
+                    if test_significant(v1norm[z]):
+                        before_ctx = v1norm[z]
+                        break
+                after_ctx = None
+                for z in range(op["end"] + 1, len(v1norm)):
+                    if test_significant(v1norm[z]):
+                        after_ctx = v1norm[z]
+                        break
+                # Deleted text that stays in the method elsewhere — moved into an insert of the method, or one
+                # of its repeats — is found by the search below even once the deletion is done. Then the
+                # closed-up neighbours decide, provided the configuration holds the text as many times as
+                # the original would after the edits: one less, plus the inserts that carry it.
+                ins_runs = sum(run_count(payloads[pk], sig_keys) for pk in payloads)
+                v1_runs = run_count(v1sig, sig_keys)
+                stays = bool(sig_keys) and (ins_runs > 0 or v1_runs > 1) and run_count(v2sig, sig_keys) == v1_runs - 1 + ins_runs
+                # Commented out in the configuration: carried over. Looked at first — a line the edit moves
+                # into its own insert is there as code too, and deleting it would break the carried-over insert.
+                if test_commented_run(v2norm, sig_keys):
+                    res = "absorbed"
+                elif stays and test_delete_absorbed(v2sig, before_ctx, after_ctx):
+                    res = "absorbed"
+                elif find_unique_run(v2norm, keys) >= 0:
+                    p = find_unique_run(v2norm, keys)
+                    res = "pending"
+                elif v1_runs > 1 and find_run_in_context(v2norm, v2sig, v2map, keys, sig_keys, before_ctx, after_ctx) >= 0:
+                    p = find_run_in_context(v2norm, v2sig, v2map, keys, sig_keys, before_ctx, after_ctx)
                     res = "pending"
                 else:
-                    before_ctx = None
-                    for z in range(op["start"] - 1, -1, -1):
-                        if test_significant(v1norm[z]):
-                            before_ctx = v1norm[z]
-                            break
-                    after_ctx = None
-                    for z in range(op["end"] + 1, len(v1norm)):
-                        if test_significant(v1norm[z]):
-                            after_ctx = v1norm[z]
-                            break
                     if test_delete_absorbed(v2sig, before_ctx, after_ctx):
                         res = "absorbed"
                     else:
                         first = next((x for x in op["lines"] if test_significant(normalize(x))), "")
                         res = dispute_reason("delete", first, "", "", v2norm)
+        if op["kind"] == "delete" and res == "absorbed":
+            deleted_done.update(range(op["start"], op["end"] + 1))
         # A block marked "not for transfer" counts as temporary only while it is not in the configuration
         mark = get_block_temp_mark(op)
         pk = k if op["kind"] == "insert" else p

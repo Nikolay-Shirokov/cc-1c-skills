@@ -1,4 +1,4 @@
-﻿# cfe-transfer v1.4 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+﻿# cfe-transfer v1.5 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -1017,6 +1017,53 @@ function Get-DisputeReason($kind, [string]$line, [string]$key, [string]$side, $v
 # &ИзменениеИКонтроль: each #Вставка/#Удаление is classified the way cfe-patch-method -Check does
 # (absorbed = already in the main configuration, pending = still to carry over, disputed = the
 # anchor or the deleted lines changed). $null when the method has no edits with code.
+# A deletion carried over by commenting the lines out: its significant lines stand in $v2norm as a run of
+# // comments, blank lines and other comments (the frame, //-blank lines) between them allowed, code not
+function Test-CommentedRun($v2norm, $keys) {
+	$keys = @($keys)
+	if ($keys.Count -eq 0) { return $false }
+	$run = New-Object System.Collections.Generic.List[string]
+	$check = {
+		for ($s = 0; $s -le $run.Count - $keys.Count; $s++) {
+			$ok = $true
+			for ($m = 0; $m -lt $keys.Count; $m++) { if ($run[$s + $m] -cne $keys[$m]) { $ok = $false; break } }
+			if ($ok) { return $true }
+		}
+		return $false
+	}
+	foreach ($l in @($v2norm)) {
+		if ($l -eq '') { continue }
+		if ($l.StartsWith('//')) {
+			$c = ($l.Substring(2) -replace '\s+', ' ').Trim()
+			if (Test-Significant $c) { $run.Add($c) }
+			continue
+		}
+		if (& $check) { return $true }
+		$run.Clear()
+	}
+	return (& $check)
+}
+
+# Where deleted lines that occur more than once stand between the same neighbours as in the original:
+# the index in $v2norm when exactly one occurrence does, else -1
+function Find-RunInContext($v2norm, $v2proj, $keys, $sigKeys, $beforeCtx, $afterCtx) {
+	$sig = @($v2proj.Sig); $n = @($sigKeys).Count
+	if ($n -eq 0) { return -1 }
+	$lead = 0; while ($lead -lt $keys.Count -and -not (Test-Significant $keys[$lead])) { $lead++ }
+	$found = -1
+	for ($i = 0; $i -le $sig.Count - $n; $i++) {
+		if (-not (Test-RunAt $sig $sigKeys $i)) { continue }
+		if ($null -ne $beforeCtx) { if ($i -eq 0 -or $sig[$i - 1] -cne $beforeCtx) { continue } } elseif ($i -ne 0) { continue }
+		$e = $i + $n
+		if ($null -ne $afterCtx) { if ($e -ge $sig.Count -or $sig[$e] -cne $afterCtx) { continue } } elseif ($e -ne $sig.Count) { continue }
+		$at = $v2proj.Map[$i] - $lead
+		if (-not (Test-RunAt $v2norm $keys $at)) { continue }
+		if ($found -ge 0) { return -1 }
+		$found = $at
+	}
+	return $found
+}
+
 function Get-ControlTransfer($extMethod, $cfgMethod, [string]$prefix) {
 	$parsed = Parse-MarkedBody $extMethod.BodyLines
 	$ops = @($parsed.Ops)
@@ -1034,6 +1081,8 @@ function Get-ControlTransfer($extMethod, $cfgMethod, [string]$prefix) {
 	$replaced = Get-AbsorbedInPlace $ops $v1norm $v2norm $v2proj.Sig $payloads
 	$deleted = @{}
 	foreach ($op in $ops) { if ($op.Kind -eq 'delete') { for ($m = $op.Start; $m -le $op.End; $m++) { $deleted[$m] = $true } } }
+	# Lines of deletions found carried over (an insert anchored to them cannot be pending elsewhere)
+	$deletedDone = @{}
 	$oi = -1
 	foreach ($op in $ops) {
 		$oi++
@@ -1067,6 +1116,12 @@ function Get-ControlTransfer($extMethod, $cfgMethod, [string]$prefix) {
 				if (-not $isAbsorbed -and $isNew -and $null -ne $k) { $isAbsorbed = Test-RunAt $v2proj.Sig $payloadSig ($sigStart - $payloadSig.Count) }
 				if (-not $isAbsorbed -and $isNew) { $isAbsorbed = Test-PayloadBeside $v2proj.Sig $payloadSig $bCtx $aCtx }
 				if ($isAbsorbed) { $res = 'absorbed' }
+				# Anchored to deleted lines whose deletion is carried over already: that spot has no anchor
+				# left, a line found elsewhere is a look-alike — the code there differs from the edit
+				elseif ($null -ne $k -and $deletedDone.ContainsKey($op.After)) { $res = 'inserted code next to the carried-over deletion differs in config' }
+				# Not at the anchor, yet the configuration has the code more times than the original: carried
+				# over to another spot (other code may have come in between). Writing it would make a copy.
+				elseif ($null -ne $k -and $isNew) { $res = 'inserted code is in config already, elsewhere in the method' }
 				elseif ($null -ne $k) { $res = 'pending' }
 				elseif ($bIdx -ge 0) { $res = Get-DisputeReason 'insert' $parsed.V1[$bIdx] $bCtx 'before' $v2norm }
 				elseif ($aIdx -ge 0) { $res = Get-DisputeReason 'insert' $parsed.V1[$aIdx] $aCtx 'after' $v2norm }
@@ -1077,11 +1132,24 @@ function Get-ControlTransfer($extMethod, $cfgMethod, [string]$prefix) {
 			if ($replaced.ContainsKey($oi)) { $res = 'absorbed' }
 			else {
 				$keys = @(); for ($m = $op.Start; $m -le $op.End; $m++) { $keys += $v1norm[$m] }
-				$p = Find-UniqueRun $v2norm $keys
-				if ($p -ge 0) { $res = 'pending' }
+				$sigKeys = @($keys | Where-Object { Test-Significant $_ })
+				$delBeforeCtx = $null; for ($z = $op.Start - 1; $z -ge 0; $z--) { if (Test-Significant $v1norm[$z]) { $delBeforeCtx = $v1norm[$z]; break } }
+				$delAfterCtx = $null; for ($z = $op.End + 1; $z -lt $v1norm.Count; $z++) { if (Test-Significant $v1norm[$z]) { $delAfterCtx = $v1norm[$z]; break } }
+				# Deleted text that stays in the method elsewhere — moved into an insert of the method, or one
+				# of its repeats — is found by the search below even once the deletion is done. Then the
+				# closed-up neighbours decide, provided the configuration holds the text as many times as
+				# the original would after the edits: one less, plus the inserts that carry it.
+				$insRuns = 0; foreach ($pk in @($payloads.Keys)) { $insRuns += Get-RunCount @($payloads[$pk]) $sigKeys }
+				$v1Runs = Get-RunCount $v1sig $sigKeys
+				$stays = $sigKeys.Count -gt 0 -and ($insRuns -gt 0 -or $v1Runs -gt 1) -and (Get-RunCount $v2proj.Sig $sigKeys) -eq ($v1Runs - 1 + $insRuns)
+				# Commented out in the configuration: carried over. Looked at first — a line the edit moves
+				# into its own insert is there as code too, and deleting it would break the carried-over insert.
+				if (Test-CommentedRun $v2norm $sigKeys) { $res = 'absorbed' }
+				elseif ($stays -and (Test-DeleteAbsorbed $v2proj.Sig $delBeforeCtx $delAfterCtx)) { $res = 'absorbed' }
+				elseif (($p = Find-UniqueRun $v2norm $keys) -ge 0) { $res = 'pending' }
+				elseif ($v1Runs -gt 1 -and ($p = Find-RunInContext $v2norm $v2proj $keys $sigKeys $delBeforeCtx $delAfterCtx) -ge 0) { $res = 'pending' }
 				else {
-					$delBeforeCtx = $null; for ($z = $op.Start - 1; $z -ge 0; $z--) { if (Test-Significant $v1norm[$z]) { $delBeforeCtx = $v1norm[$z]; break } }
-					$delAfterCtx = $null; for ($z = $op.End + 1; $z -lt $v1norm.Count; $z++) { if (Test-Significant $v1norm[$z]) { $delAfterCtx = $v1norm[$z]; break } }
+					$p = -1
 					if (Test-DeleteAbsorbed $v2proj.Sig $delBeforeCtx $delAfterCtx) { $res = 'absorbed' }
 					else {
 						$first = @($op.Lines | Where-Object { Test-Significant (Get-Normalized $_) } | Select-Object -First 1)
@@ -1091,6 +1159,7 @@ function Get-ControlTransfer($extMethod, $cfgMethod, [string]$prefix) {
 				}
 			}
 		}
+		if ($op.Kind -eq 'delete' -and $res -eq 'absorbed') { for ($m = $op.Start; $m -le $op.End; $m++) { $deletedDone[$m] = $true } }
 		# A block marked "not for transfer" counts as temporary only while it is not in the configuration
 		$mark = Get-BlockTempMark $op
 		$pk = if ($op.Kind -eq 'insert') { $k } else { $p }

@@ -101,10 +101,10 @@
       "      [TRANSFERRED]        &ИзменениеИКонтроль(\"Ж\") — 3/3 edits  :9",
       "      [TRANSFERRED]        &ИзменениеИКонтроль(\"З\") — 2/2 edits  :31",
       "      [DIVERGED]           &ИзменениеИКонтроль(\"И\") — 0/1 edits (line before insert commented out in config: П = Истина;)  :45",
-      "      [NOT_TRANSFERRED]    &ИзменениеИКонтроль(\"К\") — 0/1 edits  :53",
+      "      [DIVERGED]           &ИзменениеИКонтроль(\"К\") — 0/1 edits (inserted code is in config already, elsewhere in the method)  :53",
       "      [TRANSFERRED]        &ИзменениеИКонтроль(\"Л\") — 2/2 edits  :67",
       "      [NOT_TRANSFERRED]    &ИзменениеИКонтроль(\"Повтор\") — 0/1 edits  :81",
-      "=== Summary Тест: 12 changes — 5 transferred, 4 not transferred, 1 partial, 2 diverged · 1 role, not checked ===",
+      "=== Summary Тест: 12 changes — 5 transferred, 3 not transferred, 1 partial, 3 diverged · 1 role, not checked ===",
       "Remaining: CommonModule.М, CommonModule.М2"
     ]
   }
