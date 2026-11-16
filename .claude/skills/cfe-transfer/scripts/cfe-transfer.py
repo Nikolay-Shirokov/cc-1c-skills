@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# cfe-transfer v1.3 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+# cfe-transfer v1.4 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -2584,11 +2584,7 @@ def get_called_names(lines, skip):
     those in skip (the extension's own methods: calling them is not a global name)."""
     sk = {n.lower() for n in skip if n}
     res = set()
-    for l in lines:
-        t = l
-        ci = t.find("//")
-        if ci >= 0:
-            t = t[:ci]
+    for t in get_code_only(lines, True):
         for m in CALL_RE.finditer(t):
             k = m.group(1).lower()
             if k not in sk:
@@ -3008,6 +3004,13 @@ IC_RET_RE = re.compile(r'(?<![\w.])(?:Возврат|Return)(?!\w)', re.IGNORECA
 IC_PROCEED_RE = re.compile(r'(?<![\w.])(?:ПродолжитьВызов|ProceedWithCall)\s*\(', re.IGNORECASE)
 IC_VAR_RE = r'^\s*(?:Перем|Var)(?!\w)'
 IC_BARE_RET_RE = re.compile(r'^(?:Возврат|Return)\s*;?$', re.IGNORECASE)
+# Where one statement ends and the next may start within a line
+IC_STMT_RE = re.compile(r';|(?<![\w.])(?:Тогда|Иначе|Цикл|Попытка|Исключение|Then|Else|Do|Try|Except)(?!\w)', re.IGNORECASE)
+
+
+def test_bare_term(shape, code, i):
+    """Is line i the terminal Возврат of a body, and a bare one (without a value)?"""
+    return i == shape["term"] and IC_BARE_RET_RE.match(code[i].strip()) is not None
 
 
 def get_body_shape(code):
@@ -3038,7 +3041,8 @@ def get_body_shape(code):
 
 
 def get_local_names(code, params):
-    """Local variables of a body (assigned, loop variables, Перем), parameters left out: lower -> name."""
+    """Local variables of a body (assigned, loop variables, Перем), parameters left out: lower -> name.
+    A line may hold several statements (Если … Тогда Х = 1; КонецЕсли;): each is looked at."""
     skip = {p.lower() for p in params}
     res = {}
 
@@ -3046,23 +3050,43 @@ def get_local_names(code, params):
         if n and n.lower() not in skip and n.lower() not in res:
             res[n.lower()] = n
 
-    for t in code:
-        m = re.match(r'^\s*([\w]+)\s*=', t)
-        if m:
-            add(m.group(1))
-        m = re.match(r'^\s*(?:Для\s+Каждого|For\s+Each)\s+([\w]+)', t, re.IGNORECASE)
-        if m:
-            add(m.group(1))
-        else:
-            m = re.match(r'^\s*(?:Для|For)\s+([\w]+)\s*=', t, re.IGNORECASE)
+    for line in code:
+        for t in IC_STMT_RE.split(line):
+            m = re.match(r'^\s*([\w]+)\s*=', t)
             if m:
                 add(m.group(1))
-        m = re.match(IC_VAR_RE + r'\s+([^;]*)', t, re.IGNORECASE)
+            m = re.match(r'^\s*(?:Для\s+Каждого|For\s+Each)\s+([\w]+)', t, re.IGNORECASE)
+            if m:
+                add(m.group(1))
+            else:
+                m = re.match(r'^\s*(?:Для|For)\s+([\w]+)\s*=', t, re.IGNORECASE)
+                if m:
+                    add(m.group(1))
+        m = re.match(IC_VAR_RE + r'\s+([^;]*)', line, re.IGNORECASE)
         if m:
             for v in m.group(1).split(","):
                 parts = v.strip().split()
                 add(parts[0] if parts else "")
     return res
+
+
+def get_assigned_names(code):
+    """Names a body assigns to (any statement of a line), lower case."""
+    res = set()
+    for line in code:
+        for t in IC_STMT_RE.split(line):
+            m = re.match(r'^\s*([\w]+)\s*=', t)
+            if m:
+                res.add(m.group(1).lower())
+    return res
+
+
+def get_val_flags(params_text):
+    """Знач of each parameter, by position."""
+    if not params_text.strip():
+        return []
+    rx = re.compile(r'^\s*' + kw_alt("Val") + r'\s', re.IGNORECASE)
+    return [bool(rx.match(seg)) for seg in split_top_level(params_text)]
 
 
 def get_word_set(code):
@@ -3123,6 +3147,12 @@ def get_intercept_ops(ext_m, cfg_m, type_, frame, deletion, file_map):
     cp = list(cfg_m["param_names"])
     if len(ep) != len(cp):
         return {"why": "parameters differ from the original's"}
+    # The platform does not apply an interceptor whose Знач differs from the original's: its code never ran
+    cv = get_val_flags(cfg_m["params_text"])
+    if get_val_flags(ext_m["params_text"]) != cv:
+        return {"why": "the interceptor never applied: Знач differs from the original's",
+                "next": "fix the signature in the extension or drop the interceptor, then re-run -Mode check"}
+    val_names = [cp[i].lower() for i in range(len(cp)) if cv[i]]
     mapping = {ep[i].lower(): cp[i] for i in range(len(ep)) if ep[i] != cp[i]}
     h = convert_ext_code(rename_code_words(ext_m["body_lines"], mapping), file_map)
     o = list(cfg_m["body_lines"])
@@ -3144,16 +3174,13 @@ def get_intercept_ops(ext_m, cfg_m, type_, frame, deletion, file_map):
                 names.append(n)
         return ("variable %s is in both the handler and the original" % ", ".join(names)) if names else None
 
-    def bare_term(shape, code, i):
-        return i == shape["term"] and IC_BARE_RET_RE.match(code[i].strip()) is not None
-
     def o_early():
         # The original's Возврат lines other than a bare terminal one: code put after its body would be skipped
-        return any(os_["ret"][i] and not bare_term(os_, oc, i) for i in range(len(o)))
+        return any(os_["ret"][i] and not test_bare_term(os_, oc, i) for i in range(len(o)))
 
     def o_tail():
         # Where code goes after the original's body: before its bare terminal Возврат, else after its last line
-        end = os_["term"] if os_["term"] >= 0 and IC_BARE_RET_RE.match(oc[os_["term"]].strip()) else len(o)
+        end = os_["term"] if os_["term"] >= 0 and test_bare_term(os_, oc, os_["term"]) else len(o)
         for i in range(end - 1, -1, -1):
             if o[i].strip() != "":
                 return i
@@ -3163,7 +3190,7 @@ def get_intercept_ops(ext_m, cfg_m, type_, frame, deletion, file_map):
         # A handler part: its Перем lines go up to the original's, the rest stays in place
         vars_, rest = [], []
         for i in range(frm, to + 1):
-            if drop_term and bare_term(hs, hc, i):
+            if drop_term and test_bare_term(hs, hc, i):
                 continue
             if re.match(IC_VAR_RE, hc[i], re.IGNORECASE):
                 vars_.append(h[i])
@@ -3173,13 +3200,38 @@ def get_intercept_ops(ext_m, cfg_m, type_, frame, deletion, file_map):
 
     ops = []
 
-    def put(after, part):
+    # Rank orders edits at one spot, whatever interceptor they come from: Перем, then code that runs
+    # before the original, then code that runs after it
+    def put(after, part, rank):
         if part["vars"]:
-            ops.append({"kind": "insert", "after": o_var, "lines": get_framed(part["vars"], frame)})
+            ops.append({"kind": "insert", "after": o_var, "lines": get_framed(part["vars"], frame), "rank": 0})
         if part["code"]:
-            ops.append({"kind": "insert", "after": after, "lines": get_framed(part["code"], frame)})
+            ops.append({"kind": "insert", "after": after, "lines": get_framed(part["code"], frame), "rank": rank})
+
+    # What the handler's code names: another interceptor of the method must not share its locals
+    def done(where):
+        return {"ops": ops, "where": where, "locals": get_local_names(hc, cp), "words": get_word_set(hc)}
 
     last = len(h) - 1
+
+    def val_check(side, frm):
+        # Знач parameters: the handler and the original each had a copy. What one of them changed the
+        # other did not see; in one body it would.
+        def shown(names):
+            return ", ".join(next(p for p in cp if p.lower() == n) for n in names)
+        if side == "handler":
+            assigned = get_assigned_names(hc)
+            names = [n for n in val_names if n in assigned]
+            if names:
+                return "the handler changes Знач parameter %s: the original did not see it" % shown(names)
+        else:
+            assigned = get_assigned_names(oc)
+            words = get_word_set(hc[frm:last + 1])
+            names = [n for n in val_names if n in assigned and n in words]
+            if names:
+                return "the original changes Знач parameter %s: the handler did not see it" % shown(names)
+        return None
+
     if type_ in ("Перед", "После"):
         if cfg_m["is_function"]:
             return {"why": "a function cannot have &Перед/&После"}
@@ -3188,23 +3240,29 @@ def get_intercept_ops(ext_m, cfg_m, type_, frame, deletion, file_map):
             return {"why": why}
         if type_ == "Перед":
             for i in range(last + 1):
-                if hs["ret"][i] and not bare_term(hs, hc, i):
+                if hs["ret"][i] and not test_bare_term(hs, hc, i):
                     return {"why": "Возврат in the handler would skip the original"}
-            put(o_var, split(0, last, True))
-            return {"ops": ops, "where": "before the original"}
+            why = val_check("handler", 0)
+            if why:
+                return {"why": why}
+            put(o_var, split(0, last, True), 1)
+            return done("before the original")
         if o_early():
             return {"why": "the original returns early: the code after it would be skipped"}
-        put(o_tail(), split(0, last, True))
-        return {"ops": ops, "where": "after the original"}
+        why = val_check("original", 0)
+        if why:
+            return {"why": why}
+        put(o_tail(), split(0, last, True), 2)
+        return done("after the original")
     # &Вместо
     calls = [i for i in range(last + 1) if IC_PROCEED_RE.search(hc[i])]
     if not calls:
         new = get_framed(get_trimmed(h), frame)
         if o:
-            ops.append({"kind": "replace", "start": 0, "end": len(o) - 1, "lines": get_removed(o, frame, deletion) + new})
+            ops.append({"kind": "replace", "start": 0, "end": len(o) - 1, "lines": get_removed(o, frame, deletion) + new, "rank": 1})
         else:
-            ops.append({"kind": "insert", "after": -1, "lines": new})
-        return {"ops": ops, "where": "in place of the original"}
+            ops.append({"kind": "insert", "after": -1, "lines": new, "rank": 1})
+        return done("in place of the original")
     if len(calls) > 1:
         return {"why": "ПродолжитьВызов is called more than once"}
     c = calls[0]
@@ -3230,6 +3288,9 @@ def get_intercept_ops(ext_m, cfg_m, type_, frame, deletion, file_map):
     why = clash()
     if why:
         return {"why": why}
+    why = val_check("original", c + 1)
+    if why:
+        return {"why": why}
     before = split(0, c - 1, False)
     after = split(c + 1, last, kind == "call")
     if kind == "call":
@@ -3237,17 +3298,17 @@ def get_intercept_ops(ext_m, cfg_m, type_, frame, deletion, file_map):
             return {"why": "the result of ПродолжитьВызов is not used"}
         if after["code"] and o_early():
             return {"why": "the original returns early: the code after it would be skipped"}
-        put(o_var, before)
-        if after["code"]:
-            put(o_tail(), {"vars": [], "code": after["code"]})
-        return {"ops": ops, "where": "around the original"}
+        put(o_var, before, 1)
+        put(o_tail(), after, 2)
+        return done("around the original")
     if not cfg_m["is_function"]:
         return {"why": "ПродолжитьВызов of a procedure gives no value"}
     if kind == "return":
         if after["code"]:
             return {"why": "the code after Возврат ПродолжитьВызов is never reached"}
-        put(o_var, before)
-        return {"ops": ops, "where": "around the original"}
+        put(o_var, before, 1)
+        put(o_var, {"vars": after["vars"], "code": []}, 0)
+        return done("around the original")
     # Р = ПродолжитьВызов(…): the original's one Возврат, at its end, gives Р its value
     rets = [i for i in range(len(o)) if os_["ret"][i]]
     r = os_["term"]
@@ -3255,17 +3316,19 @@ def get_intercept_ops(ext_m, cfg_m, type_, frame, deletion, file_map):
     m = re.match(r'^(?:Возврат|Return)\s+(.+?)\s*;?$', raw, re.IGNORECASE)
     if len(rets) != 1 or r < 0 or not m:
         return {"why": "the original returns other than by one Возврат at its end"}
-    put(o_var, before)
+    put(o_var, before, 1)
+    put(o_var, {"vars": after["vars"], "code": []}, 0)
     set_lines = get_framed(["%s%s = %s;" % (get_indent(o[r]), var, m.group(1))] + after["code"], frame)
-    ops.append({"kind": "replace", "start": r, "end": r, "lines": get_removed([o[r]], frame, deletion) + set_lines})
-    return {"ops": ops, "where": "around the original"}
+    ops.append({"kind": "replace", "start": r, "end": r, "lines": get_removed([o[r]], frame, deletion) + set_lines, "rank": 2})
+    return done("around the original")
 
 
 def get_intercept_body(body, ops):
     """The original's body with interceptor edits laid on it."""
     ins = {}
     rep = {}
-    for op in ops:
+    # At one spot: by rank, then in the order they came (a stable sort, the same in both ports)
+    for op in sorted(ops, key=lambda x: x.get("rank", 0)):
         if op["kind"] == "insert":
             ins.setdefault(int(op["after"]), []).append(op)
         else:
@@ -3318,11 +3381,7 @@ def get_used_missing(lines, missing):
     if not missing:
         return []
     hit = set()
-    for l in lines:
-        t = l
-        ci = t.find("//")
-        if ci >= 0:
-            t = t[:ci]
+    for t in get_code_only(lines, True):
         for m in re.finditer(r'\w+', t):
             k = m.group(0).lower()
             if k in missing:
@@ -3827,6 +3886,7 @@ def main():
             recs = []
             own_items = []
             ic_pending = []
+            ctl_keys = set()
             for w in work:
                 titems = []
                 set_ = SETTINGS[w["kind"]]
@@ -3838,6 +3898,10 @@ def main():
                     t["marked"] = it.get("marked", False)
                     if pl and pl["kind"] == "own" and it["status"] == "NOT_TRANSFERRED":
                         own_items.append({"plan": pl, "t": t})
+                    # A method with an &ИзменениеИКонтроль edit not in the configuration yet: an interceptor of it
+                    # would move the lines the edit is anchored to
+                    if pl and pl["kind"] == "control" and pl.get("cfg_m") and it["status"] not in ("TRANSFERRED", "TEMPORARY"):
+                        ctl_keys.add("%s|%d" % (os.path.join(config_path, pl["rel"]).lower(), pl["cfg_m"]["decl_idx"]))
                     if it["status"] == "TEMPORARY":
                         temp_count += 1
                         continue
@@ -3894,7 +3958,8 @@ def main():
                     # A conflict or a missing module shows first: waiting would hide it
                     blocked = ((pl["kind"] == "control" and any(e["res"] not in ("pending", "absorbed", "temp") for e in pl["ops"]))
                                or (pl["kind"] == "own" and (it["status"] == "DIVERGED" or pl["cfg_missing"]
-                                                            or (pl.get("target") or {}).get("taken"))))
+                                                            or (pl.get("target") or {}).get("taken")))
+                               or (pl["kind"] == "intercept" and it["status"] == "PARTIAL"))
                     if deps and not blocked:
                         more = (", …+%d" % (len(deps) - 5)) if len(deps) > 5 else ""
                         t["status"] = "WAITING"
@@ -3911,11 +3976,11 @@ def main():
                         r = get_intercept_ops(pl["ext_m"], pl["cfg_m"], pl["type"], frame, set_["deletion"], file_map)
                         if r.get("why"):
                             t["text"] = "%s — %s" % (label, r["why"])
-                            t["sub"] = get_where_lines(pl, "apply by hand, then re-run -Mode check")
+                            t["sub"] = get_where_lines(pl, r.get("next") or "apply by hand, then re-run -Mode check")
                             titems.append(t)
                             continue
                         # Laid once every interceptor of the module is known: two of one method go together
-                        ic_pending.append({"t": t, "pl": pl, "fe": get_file_edits(cfg_file), "ops": r["ops"], "where": r["where"], "label": label, "warn": warn_note})
+                        ic_pending.append({"t": t, "pl": pl, "fe": get_file_edits(cfg_file), "ops": r["ops"], "where": r["where"], "label": label, "warn": warn_note, "locals": r["locals"], "words": r["words"]})
                         titems.append(t)
                         continue
                     if pl["kind"] == "control":
@@ -4009,14 +4074,26 @@ def main():
             ic_groups = {}
             for p in ic_pending:
                 ic_groups.setdefault("%s|%d" % (p["fe"]["file"]["path"].lower(), p["pl"]["cfg_m"]["decl_idx"]), []).append(p)
-            for g in ic_groups.values():
+            for key, g in ic_groups.items():
                 fe = g[0]["fe"]
                 cfg_m = g[0]["pl"]["cfg_m"]
                 manual = None
-                if any(x["start"] == cfg_m["sig_end_idx"] + 1 for x in fe["repl"]):
+                if key in ctl_keys:
                     manual = "the method has &ИзменениеИКонтроль too"
                 elif len(g) > 1 and any(p["pl"]["type"] == "Вместо" for p in g):
                     manual = "the method has other interceptors too"
+                elif len(g) > 1:
+                    # Two handlers in one body: a local of one that the other names becomes one variable
+                    shared = []
+                    for a in range(len(g)):
+                        for b in range(len(g)):
+                            if a == b:
+                                continue
+                            for k in g[a]["locals"]:
+                                if k in g[b]["words"] and g[a]["locals"][k] not in shared:
+                                    shared.append(g[a]["locals"][k])
+                    if shared:
+                        manual = "variable %s is in more than one interceptor of the method" % ", ".join(shared)
                 if manual:
                     for p in g:
                         p["t"]["text"] = "%s — %s" % (p["label"], manual)
