@@ -1,0 +1,28 @@
+{
+  "name": "Сверка формы: колонки, добавленные в реквизит конфигурации; правила условного оформления по одному (добавленное и удалённое); элемент BaseForm, которого нет в форме расширения; пометка «не переносить элементы формы» в шапке модуля — TEMPORARY (и её причина в строке), спутники удалённого элемента не считаются отдельными правками",
+  "setup": "fixture:form-gaps",
+  "params": {
+    "extensionPath": "cfe"
+  },
+  "args_extra": [
+    "-Expand",
+    "Catalogs/Items/Forms/ItemForm"
+  ],
+  "expectError": true,
+  "expect": {
+    "stdoutContains": [
+      "[DIVERGED]           Catalog.Items — 18 changes: 7 transferred, 10 remaining, 1 temporary",
+      "      [NOT_TRANSFERRED]    + column Tbl.PatchA_Col2: string",
+      "      [NOT_TRANSFERRED]    + column Tbl.PatchA_Col3: string",
+      "      [TRANSFERRED]        + conditional appearance rule Article: ЦветТекста",
+      "      [NOT_TRANSFERRED]    - conditional appearance rule L1: ЦветТекста",
+      "      [DIVERGED]           ! SrcField1 (in BaseForm, not in the extension's form: the configuration's form changed since the borrowing)",
+      "      [TEMPORARY]          ~ [Label] L3: Title — обход до расширения типа",
+      "=== Summary PatchA: 18 changes — 7 transferred, 8 not transferred, 2 diverged, 1 temporary · 1 role, not checked ==="
+    ],
+    "stdoutNotContains": [
+      "! SrcField1КонтекстноеМеню",
+      "! SrcField1РасширеннаяПодсказка"
+    ]
+  }
+}

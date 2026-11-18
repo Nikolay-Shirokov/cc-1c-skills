@@ -1,4 +1,4 @@
-﻿# cfe-transfer v1.8 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+﻿# cfe-transfer v1.9 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -796,6 +796,7 @@ $ns.AddNamespace("xs", "http://www.w3.org/2001/XMLSchema")
 $ns.AddNamespace("xsi", "http://www.w3.org/2001/XMLSchema-instance")
 $ns.AddNamespace("cfg", "http://v8.1c.ru/8.1/data/enterprise/current-config")
 $ns.AddNamespace("dcsset", "http://v8.1c.ru/8.1/data-composition-system/settings")
+$ns.AddNamespace("dcscor", "http://v8.1c.ru/8.1/data-composition-system/core")
 
 # ============================================================
 # Common helpers
@@ -918,8 +919,28 @@ function Get-TempMark([string]$line) {
 	$i = $line.IndexOf('//')
 	if ($i -lt 0) { return $null }
 	$t = $line.Substring($i).TrimStart('/').Trim()
+	# The form's own mark (Get-FormTempMarks) names form items, not the method below it
+	if ($t -match '^(?i)не\s*переносить\s+элементы\s+формы') { return $null }
 	if ($t -match '^(?i)(?:не\s*переносить|временно)(?![\p{L}\p{Nd}_])\s*[:\-–—]?\s*(.*)$') { return $Matches[1].Trim() }
 	return $null
+}
+
+# Form items kept out of the transfer: "// Не переносить элементы формы: Имя1, Имя2 — причина" among the
+# comment lines the form module starts with, before its variables and methods. Lower-case name -> reason.
+function Get-FormTempMarks($lines) {
+	$res = @{}
+	foreach ($l in @($lines)) {
+		$t = ([string]$l).Trim()
+		if ($t -eq '' -or $t.StartsWith('#')) { continue }
+		if (-not $t.StartsWith('//')) { break }
+		if ($t -match '^//+\s*(?i:не\s*переносить\s+элементы\s+формы)\s*:\s*(.+)$') {
+			$body = $Matches[1]; $why = ''
+			$sep = [regex]::Match($body, '\s+[—–-]\s+')
+			if ($sep.Success) { $why = $body.Substring($sep.Index + $sep.Length).Trim(); $body = $body.Substring(0, $sep.Index) }
+			foreach ($n in $body.Split(',')) { $n = $n.Trim(); if ($n) { $res[$n.ToLower()] = $why } }
+		}
+	}
+	return $res
 }
 
 # Mark of a whole method: in the comment lines right above it (annotations and directives skipped)
@@ -1581,8 +1602,8 @@ function Get-FormDiff([string]$formXml) {
 	$base = $root.SelectSingleNode("d:BaseForm", $ns)
 	$r = @{
 		IsBorrowed = [bool]$base; Root = $root
-		Elements = @(); Removed = @(); Attributes = @(); Commands = @(); Parameters = @()
-		Events = @(); FormProps = @(); Blocks = @(); Total = 0; MainIndex = $null
+		Elements = @(); Removed = @(); Attributes = @(); Columns = @(); Commands = @(); Parameters = @()
+		Events = @(); FormProps = @(); Blocks = @(); Appearance = @(); Total = 0; MainIndex = $null
 	}
 	if (-not $base) { return $r }
 	$mi = Get-FormElementIndex $root
@@ -1617,7 +1638,13 @@ function Get-FormDiff([string]$formXml) {
 			}
 		}
 	}
-	foreach ($name in @($bi.Keys)) { if (-not $mi.Contains($name)) { $r.Removed += $name } }
+	foreach ($name in @($bi.Keys)) {
+		if ($mi.Contains($name)) { continue }
+		$b = $bi[$name]
+		# A companion comes and goes with its element
+		if ($skipElements.ContainsKey($b.Node.LocalName) -and $b.Parent -and -not $mi.Contains($b.Parent)) { continue }
+		$r.Removed += $b.Name
+	}
 
 	# Form events
 	$baseEv = Get-EventKeySet (Get-EventList $base)
@@ -1635,6 +1662,17 @@ function Get-FormDiff([string]$formXml) {
 		foreach ($nm in @($mm.Keys)) {
 			$x = $mm[$nm]
 			$changed = $bm.Contains($nm)
+			# An attribute of the configuration the extension adds columns to (a value table)
+			if ($changed -and $sec[1] -eq 'Attribute') {
+				$had = @{}
+				foreach ($c in $bm[$nm].SelectNodes("d:Columns/d:Column", $ns)) { $had[$c.GetAttribute('name')] = $true }
+				foreach ($c in $x.SelectNodes("d:Columns/d:Column", $ns)) {
+					$cn = $c.GetAttribute('name')
+					if (-not $cn -or $had.ContainsKey($cn)) { continue }
+					$ft = Format-Type ($c.SelectSingleNode("d:Type", $ns))
+					$r.Columns += @{ Attr = $nm; Name = $cn; Info = $(if ($ft) { ": $ft" } else { '' }); Node = $c }
+				}
+			}
 			if ($changed -and $sec[1] -ne 'Command') { continue }
 			$baseActs = @{}
 			if ($changed) { foreach ($a in $bm[$nm].SelectNodes("d:Action", $ns)) { $baseActs["$($a.GetAttribute('callType'))|$($a.InnerText.Trim())".ToLower()] = $true } }
@@ -1659,8 +1697,22 @@ function Get-FormDiff([string]$formXml) {
 		}
 	}
 
-	# Whole blocks: conditional appearance, command interface
-	foreach ($blk in @(@('ConditionalAppearance', 'd:Attributes/d:ConditionalAppearance'), @('CommandInterface', 'd:CommandInterface'))) {
+	# Conditional appearance, rule by rule: the main part holds the whole form's rules, BaseForm the
+	# configuration's at the borrowing — a rule only in the main part is added, only in BaseForm removed
+	$caRules = {
+		param($part)
+		$list = New-Object System.Collections.ArrayList
+		foreach ($it in $part.SelectNodes("d:Attributes/d:ConditionalAppearance/dcsset:item", $ns)) { [void]$list.Add(@{ Key = (Get-CmpKey $it ''); Node = $it }) }
+		return ,$list
+	}
+	$mr = & $caRules $root; $br = & $caRules $base
+	$left = New-Object System.Collections.ArrayList; foreach ($x in $br) { [void]$left.Add($x.Key) }
+	foreach ($x in $mr) { $j = $left.IndexOf($x.Key); if ($j -ge 0) { $left.RemoveAt($j) } else { $r.Appearance += @{ Kind = 'added'; Key = $x.Key; Node = $x.Node } } }
+	$left = New-Object System.Collections.ArrayList; foreach ($x in $mr) { [void]$left.Add($x.Key) }
+	foreach ($x in $br) { $j = $left.IndexOf($x.Key); if ($j -ge 0) { $left.RemoveAt($j) } else { $r.Appearance += @{ Kind = 'removed'; Key = $x.Key; Node = $x.Node } } }
+
+	# Whole blocks: command interface
+	foreach ($blk in @(, @('CommandInterface', 'd:CommandInterface'))) {
 		$mn = $root.SelectSingleNode($blk[1], $ns)
 		$bn = $base.SelectSingleNode($blk[1], $ns)
 		if (-not (Test-SameProp $mn $bn)) { $r.Blocks += @{ Name = $blk[0]; XPath = $blk[1]; Node = $mn } }
@@ -1674,7 +1726,7 @@ function Get-FormDiff([string]$formXml) {
 	}
 	foreach ($k in @($pb.Keys)) { if (-not $pm.Contains($k)) { $r.FormProps += @{ Key = $k; Old = $pb[$k]; New = $null } } }
 
-	$r.Total = $r.Elements.Count + $r.Removed.Count + $r.Attributes.Count + $r.Commands.Count + $r.Parameters.Count + $r.Events.Count + $r.FormProps.Count + $r.Blocks.Count
+	$r.Total = $r.Elements.Count + $r.Removed.Count + $r.Attributes.Count + $r.Columns.Count + $r.Commands.Count + $r.Parameters.Count + $r.Events.Count + $r.FormProps.Count + $r.Blocks.Count + $r.Appearance.Count
 	return $r
 }
 
@@ -1697,6 +1749,14 @@ function Get-MoveText($ch) {
 	return "moved ($pos)"
 }
 
+
+# A conditional appearance rule in short: the fields it colours and the parameters it sets
+function Get-AppearanceText($rule) {
+	$fields = @(); foreach ($f in $rule.SelectNodes("dcsset:selection/dcsset:item/dcsset:field", $ns)) { $fields += $f.InnerText.Trim() }
+	$params = @(); foreach ($p in $rule.SelectNodes("dcsset:appearance/dcscor:item/dcscor:parameter", $ns)) { $params += $p.InnerText.Trim() }
+	$f = if ($fields.Count) { $fields -join ', ' } else { '(form)' }
+	return "${f}: $($params -join ', ')"
+}
 
 function Get-EventText($e) {
 	$ct = if ($e.CallType) { "[$($e.CallType)]" } else { '' }
@@ -1729,21 +1789,31 @@ function Get-FormTransferItems($diff, $form, [string]$cfgFormXml, [string]$cfgMo
 	$ci = Get-FormElementIndex $cr
 	$cNames = @($ci.Keys)
 	$asText = { param($found, $orig) if ($found -and $found -ine $orig) { " (found as $found)" } else { '' } }
+	# Items the form module marks "not for transfer", with everything inside them
+	$extMod = Read-BslLines $form.Module
+	$tmarks = Get-FormTempMarks $extMod
+	$marked = {
+		param($it, $names)
+		if (-not $it -or $tmarks.Count -eq 0) { return $it }
+		foreach ($n in @($names)) { if ($n -and $tmarks.ContainsKey(([string]$n).ToLower())) { return (Set-TempMark $it $tmarks[([string]$n).ToLower()] $it.Text) } }
+		return $it
+	}
 
 	foreach ($ch in $diff.Elements) {
 		$rec = $ch.Rec
 		$tag = Get-ElementTag $rec.Node
 		$hit = Find-NameIn $cNames $rec.Name $prefix
+		$own = @($rec.Name) + @($rec.Ancestors)
 		if ($ch.Kind -eq 'added') {
 			$in = if ($rec.Parent) { " (in: $($rec.Parent))" } else { '' }
 			$st = if ($hit) { 'TRANSFERRED' } else { 'NOT_TRANSFERRED' }
-			$items += New-Item2 $st "+ $tag $($rec.Name)$in$(& $asText $hit $rec.Name)" '' $group
+			$items += & $marked (New-Item2 $st "+ $tag $($rec.Name)$in$(& $asText $hit $rec.Name)" '' $group) $own
 			continue
 		}
 		if ($ch.Props.Count -gt 0) {
 			$keys = @($ch.Props | ForEach-Object { $_.Key })
 			if (-not $hit) {
-				$items += New-Item2 'NOT_TRANSFERRED' "~ $tag $($rec.Name): $($keys -join ', ') (element not in config)" '' $group
+				$items += & $marked (New-Item2 'NOT_TRANSFERRED' "~ $tag $($rec.Name): $($keys -join ', ') (element not in config)" '' $group) $own
 			} else {
 				$cpm = Get-PropMap $ci[$hit].Node
 				$ok = 0; $differs = @()
@@ -1754,7 +1824,7 @@ function Get-FormTransferItems($diff, $form, [string]$cfgFormXml, [string]$cfgMo
 				$n = $ch.Props.Count
 				$st = if ($differs.Count -gt 0) { 'DIVERGED' } elseif ($ok -eq $n) { 'TRANSFERRED' } elseif ($ok -eq 0) { 'NOT_TRANSFERRED' } else { 'PARTIAL' }
 				$cnt = if ($st -eq 'DIVERGED' -and $differs.Count -eq $n) { ' (config value differs)' } elseif ($st -eq 'DIVERGED') { " (config value differs: $($differs -join ', '))" } elseif ($st -eq 'PARTIAL') { " ($ok/$n props)" } else { '' }
-				$items += New-Item2 $st "~ $tag $($rec.Name): $($keys -join ', ')$cnt" '' $group
+				$items += & $marked (New-Item2 $st "~ $tag $($rec.Name): $($keys -join ', ')$cnt" '' $group) $own
 			}
 		}
 		if ($ch.Moved) {
@@ -1767,12 +1837,11 @@ function Get-FormTransferItems($diff, $form, [string]$cfgFormXml, [string]$cfgMo
 				$haveMapped = if ($have) { Find-NameIn $cNames $have $prefix } else { '' }
 				if ($sameParent -and ($want -ieq $haveMapped)) { $st = 'TRANSFERRED' }
 			}
-			$items += New-Item2 $st "> $tag $($rec.Name): $(Get-MoveText $ch)" '' $group
+			$items += & $marked (New-Item2 $st "> $tag $($rec.Name): $(Get-MoveText $ch)" '' $group) $own
 		}
 	}
 
 	# Interceptor of a handler: the extension's handler code looked up in the configuration's one
-	$extMod = Read-BslLines $form.Module
 	$cfgMod = Read-BslLines $cfgModulePath
 	$modRel = if ($form.Module -and (Test-Path -LiteralPath $form.Module)) { Get-RelPath $extDir $form.Module } else { '' }
 	$checkHandler = {
@@ -1802,13 +1871,28 @@ function Get-FormTransferItems($diff, $form, [string]$cfgFormXml, [string]$cfgMo
 				$cfgHandler = if ($cfgAct) { $cfgAct.InnerText.Trim() } else { '' }
 				foreach ($a in $ctActs) {
 					$it = & $checkHandler "command $($x.Name)[$($a.CallType)] -> $($a.Handler)" $a.Handler $cfgHandler "no action of $($x.Name) in config"
-					if ($it) { $items += $it }
+					if ($it) { $items += & $marked $it @($x.Name) }
 				}
 				continue
 			}
 			$hit = Find-NameIn $cn $x.Name $prefix
 			$st = if ($hit) { 'TRANSFERRED' } else { 'NOT_TRANSFERRED' }
-			$items += New-Item2 $st "+ $($sec[2]) $($x.Name)$($x.Info)$(& $asText $hit $x.Name)" '' $group
+			$items += & $marked (New-Item2 $st "+ $($sec[2]) $($x.Name)$($x.Info)$(& $asText $hit $x.Name)" '' $group) @($x.Name)
+		}
+	}
+
+	# Columns the extension adds to an attribute of the configuration
+	if ($diff.Columns.Count -gt 0) {
+		$am = Get-SectionMap $cr 'Attributes' 'Attribute'
+		$an = @($am.Keys)
+		foreach ($c in $diff.Columns) {
+			$label = "+ column $($c.Attr).$($c.Name)$($c.Info)"
+			$ah = Find-NameIn $an $c.Attr $prefix
+			if (-not $ah) { $items += & $marked (New-Item2 'NOT_TRANSFERRED' "$label (attribute not in config)" '' $group) @($c.Attr, "$($c.Attr).$($c.Name)"); continue }
+			$cols = @(); foreach ($x in $am[$ah].SelectNodes("d:Columns/d:Column", $ns)) { $cols += $x.GetAttribute('name') }
+			$hit = Find-NameIn $cols $c.Name $prefix
+			$st = if ($hit) { 'TRANSFERRED' } else { 'NOT_TRANSFERRED' }
+			$items += & $marked (New-Item2 $st "$label$(& $asText $hit $c.Name)" '' $group) @($c.Attr, "$($c.Attr).$($c.Name)")
 		}
 	}
 
@@ -1819,6 +1903,18 @@ function Get-FormTransferItems($diff, $form, [string]$cfgFormXml, [string]$cfgMo
 			$st = if ($r -eq 'ok') { 'TRANSFERRED' } elseif ($r -eq 'pending') { 'NOT_TRANSFERRED' } else { 'DIVERGED' }
 			$why = if ($r -eq 'differs') { ' (config value differs)' } else { '' }
 			$items += New-Item2 $st "~ form $(Get-PropChangeText $p)$why" '' $group
+		}
+	}
+	# Conditional appearance rules: an added one must be among the configuration's rules, a removed one not
+	if ($diff.Appearance.Count -gt 0) {
+		$have = New-Object System.Collections.ArrayList
+		foreach ($x in $cr.SelectNodes("d:Attributes/d:ConditionalAppearance/dcsset:item", $ns)) { [void]$have.Add((Get-CmpKey $x $prefix)) }
+		foreach ($a in $diff.Appearance) {
+			$in = $have.Contains((Get-CmpKey $a.Node $prefix))
+			$done = if ($a.Kind -eq 'added') { $in } else { -not $in }
+			$mk = if ($a.Kind -eq 'added') { '+' } else { '-' }
+			$st = if ($done) { 'TRANSFERRED' } else { 'NOT_TRANSFERRED' }
+			$items += New-Item2 $st "$mk conditional appearance rule $(Get-AppearanceText $a.Node)" '' $group
 		}
 	}
 	foreach ($b in $diff.Blocks) {
@@ -1836,7 +1932,12 @@ function Get-FormTransferItems($diff, $form, [string]$cfgFormXml, [string]$cfgMo
 		$cfgHandler = ''
 		if ($target) { foreach ($ce in (Get-EventList $target)) { if ($ce.Name -ieq $e.Name) { $cfgHandler = $ce.Handler; break } } }
 		$it = & $checkHandler "event $(Get-EventText $e)" $e.Handler $cfgHandler "no $($e.Name) handler in config"
-		if ($it) { $items += $it }
+		if ($it) { $items += & $marked $it @($e.Scope) }
+	}
+	# An element of BaseForm the main part lacks: the extension cannot drop a borrowed element, so the
+	# configuration's form has changed since the borrowing
+	foreach ($nm in $diff.Removed) {
+		$items += New-Item2 'DIVERGED' "! $nm (in BaseForm, not in the extension's form: the configuration's form changed since the borrowing)" '' $group
 	}
 	return $items
 }
@@ -3473,6 +3574,7 @@ if ($Mode -eq 'transfer') {
 	# method stays out. A method of a common module is called from other modules, the rest from
 	# their own module only.
 	$formMissing = @{}
+	$formTemp = @{}
 	$outByFile = @{}
 	$outCommon = @{}
 	# Own methods marked "not for transfer" and not in the configuration: never coming, so code that
@@ -3626,6 +3728,13 @@ if ($Mode -eq 'transfer') {
 						$formMissing[$fk] = Get-MissingNames (Get-FormItemNames (& $fx $extDir0)) (Get-FormItemNames (& $fx $ConfigPath))
 					}
 					foreach ($k in $formMissing[$fk].Keys) { $missing[$k] = $formMissing[$fk][$k] }
+					# Form items the form module marks "not for transfer" are never coming
+					if (-not $formTemp.ContainsKey($fk)) {
+						$fm = Get-FormTempMarks (Read-BslLines (Join-Path $extDir0 $pl.Rel))
+						$formTemp[$fk] = @{}
+						foreach ($k in $fm.Keys) { $formTemp[$fk][$k] = $(if ($formMissing[$fk].ContainsKey($k)) { $formMissing[$fk][$k] } else { $k }) }
+					}
+					foreach ($k in $formTemp[$fk].Keys) { $missing.Remove($k) }
 				}
 				foreach ($m in @($outByFile[$cfgFile.ToLower()], $outCommon)) { if ($m) { foreach ($k in $m.Keys) { $missing[$k] = $m[$k] } } }
 				# A method calling itself does not wait for itself
@@ -3635,16 +3744,22 @@ if ($Mode -eq 'transfer') {
 				# A conflict or a missing module shows first: waiting would hide it
 				$blocked = ($pl.Kind -eq 'control' -and @($pl.Ops | Where-Object { @('pending', 'absorbed', 'temp') -notcontains $_.Res }).Count -gt 0) -or
 					($pl.Kind -eq 'own' -and ($it.Status -eq 'DIVERGED' -or $pl.CfgMissing -or ($pl.Target -and $pl.Target.Taken))) -or
-				($pl.Kind -eq 'intercept' -and $it.Status -eq 'PARTIAL')
+					($pl.Kind -eq 'intercept' -and $it.Status -eq 'PARTIAL')
 				$tempMap = @{}
-			foreach ($m in @($tempByFile[$cfgFile.ToLower()], $tempCommon)) { if ($m) { foreach ($k in $m.Keys) { $tempMap[$k] = $m[$k] } } }
-			$tempDeps = @(Get-UsedMissing $code $tempMap)
-			if ($tempDeps.Count -gt 0 -and -not $blocked) {
-				$t.Text = "$label — calls $($tempDeps -join ', '), marked as not for transfer"
-				$t.Sub = Get-WhereLines $pl 'drop the call before the transfer or remove the mark from the method, then re-run -Mode transfer'
-				$titems += $t; continue
-			}
-			if ($deps.Count -gt 0 -and -not $blocked) {
+				foreach ($m in @($tempByFile[$cfgFile.ToLower()], $tempCommon)) { if ($m) { foreach ($k in $m.Keys) { $tempMap[$k] = $m[$k] } } }
+				$tempDeps = @(Get-UsedMissing $code $tempMap)
+				if ($tempDeps.Count -gt 0 -and -not $blocked) {
+					$t.Text = "$label — calls $($tempDeps -join ', '), marked as not for transfer"
+					$t.Sub = Get-WhereLines $pl 'drop the call before the transfer or remove the mark from the method, then re-run -Mode transfer'
+					$titems += $t; continue
+				}
+				$formTempDeps = if ((Get-ModuleKind $pl.Rel) -eq 'form') { @(Get-UsedMissing $code $formTemp[$pl.Rel.ToLower()]) } else { @() }
+				if ($formTempDeps.Count -gt 0 -and -not $blocked) {
+					$t.Text = "$label — uses form items $($formTempDeps -join ', '), marked as not for transfer"
+					$t.Sub = Get-WhereLines $pl 'drop the use before the transfer or remove the mark from the form module, then re-run -Mode transfer'
+					$titems += $t; continue
+				}
+				if ($deps.Count -gt 0 -and -not $blocked) {
 					$shownDeps = @($deps | Select-Object -First 5)
 					$more = if ($deps.Count -gt 5) { ", …+$($deps.Count - 5)" } else { '' }
 					$t.Status = 'WAITING'

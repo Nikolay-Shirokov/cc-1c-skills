@@ -1,4 +1,4 @@
-﻿# cfe-diff v2.0 — Analyze 1C configuration extension (CFE): borrowed objects, interceptors, own members, form changes
+﻿# cfe-diff v2.1 — Analyze 1C configuration extension (CFE): borrowed objects, interceptors, own members, form changes
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -352,6 +352,7 @@ $ns.AddNamespace("xs", "http://www.w3.org/2001/XMLSchema")
 $ns.AddNamespace("xsi", "http://www.w3.org/2001/XMLSchema-instance")
 $ns.AddNamespace("cfg", "http://v8.1c.ru/8.1/data/enterprise/current-config")
 $ns.AddNamespace("dcsset", "http://v8.1c.ru/8.1/data-composition-system/settings")
+$ns.AddNamespace("dcscor", "http://v8.1c.ru/8.1/data-composition-system/core")
 
 # ============================================================
 # Common helpers
@@ -693,8 +694,8 @@ function Get-FormDiff([string]$formXml) {
 	$base = $root.SelectSingleNode("d:BaseForm", $ns)
 	$r = @{
 		IsBorrowed = [bool]$base; Root = $root
-		Elements = @(); Removed = @(); Attributes = @(); Commands = @(); Parameters = @()
-		Events = @(); FormProps = @(); Blocks = @(); Total = 0; MainIndex = $null
+		Elements = @(); Removed = @(); Attributes = @(); Columns = @(); Commands = @(); Parameters = @()
+		Events = @(); FormProps = @(); Blocks = @(); Appearance = @(); Total = 0; MainIndex = $null
 	}
 	if (-not $base) { return $r }
 	$mi = Get-FormElementIndex $root
@@ -729,7 +730,13 @@ function Get-FormDiff([string]$formXml) {
 			}
 		}
 	}
-	foreach ($name in @($bi.Keys)) { if (-not $mi.Contains($name)) { $r.Removed += $name } }
+	foreach ($name in @($bi.Keys)) {
+		if ($mi.Contains($name)) { continue }
+		$b = $bi[$name]
+		# A companion comes and goes with its element
+		if ($skipElements.ContainsKey($b.Node.LocalName) -and $b.Parent -and -not $mi.Contains($b.Parent)) { continue }
+		$r.Removed += $b.Name
+	}
 
 	# Form events
 	$baseEv = Get-EventKeySet (Get-EventList $base)
@@ -747,6 +754,17 @@ function Get-FormDiff([string]$formXml) {
 		foreach ($nm in @($mm.Keys)) {
 			$x = $mm[$nm]
 			$changed = $bm.Contains($nm)
+			# An attribute of the configuration the extension adds columns to (a value table)
+			if ($changed -and $sec[1] -eq 'Attribute') {
+				$had = @{}
+				foreach ($c in $bm[$nm].SelectNodes("d:Columns/d:Column", $ns)) { $had[$c.GetAttribute('name')] = $true }
+				foreach ($c in $x.SelectNodes("d:Columns/d:Column", $ns)) {
+					$cn = $c.GetAttribute('name')
+					if (-not $cn -or $had.ContainsKey($cn)) { continue }
+					$ft = Format-Type ($c.SelectSingleNode("d:Type", $ns))
+					$r.Columns += @{ Attr = $nm; Name = $cn; Info = $(if ($ft) { ": $ft" } else { '' }); Node = $c }
+				}
+			}
 			if ($changed -and $sec[1] -ne 'Command') { continue }
 			$baseActs = @{}
 			if ($changed) { foreach ($a in $bm[$nm].SelectNodes("d:Action", $ns)) { $baseActs["$($a.GetAttribute('callType'))|$($a.InnerText.Trim())".ToLower()] = $true } }
@@ -771,8 +789,22 @@ function Get-FormDiff([string]$formXml) {
 		}
 	}
 
-	# Whole blocks: conditional appearance, command interface
-	foreach ($blk in @(@('ConditionalAppearance', 'd:Attributes/d:ConditionalAppearance'), @('CommandInterface', 'd:CommandInterface'))) {
+	# Conditional appearance, rule by rule: the main part holds the whole form's rules, BaseForm the
+	# configuration's at the borrowing — a rule only in the main part is added, only in BaseForm removed
+	$caRules = {
+		param($part)
+		$list = New-Object System.Collections.ArrayList
+		foreach ($it in $part.SelectNodes("d:Attributes/d:ConditionalAppearance/dcsset:item", $ns)) { [void]$list.Add(@{ Key = (Get-CmpKey $it ''); Node = $it }) }
+		return ,$list
+	}
+	$mr = & $caRules $root; $br = & $caRules $base
+	$left = New-Object System.Collections.ArrayList; foreach ($x in $br) { [void]$left.Add($x.Key) }
+	foreach ($x in $mr) { $j = $left.IndexOf($x.Key); if ($j -ge 0) { $left.RemoveAt($j) } else { $r.Appearance += @{ Kind = 'added'; Key = $x.Key; Node = $x.Node } } }
+	$left = New-Object System.Collections.ArrayList; foreach ($x in $mr) { [void]$left.Add($x.Key) }
+	foreach ($x in $br) { $j = $left.IndexOf($x.Key); if ($j -ge 0) { $left.RemoveAt($j) } else { $r.Appearance += @{ Kind = 'removed'; Key = $x.Key; Node = $x.Node } } }
+
+	# Whole blocks: command interface
+	foreach ($blk in @(, @('CommandInterface', 'd:CommandInterface'))) {
 		$mn = $root.SelectSingleNode($blk[1], $ns)
 		$bn = $base.SelectSingleNode($blk[1], $ns)
 		if (-not (Test-SameProp $mn $bn)) { $r.Blocks += @{ Name = $blk[0]; XPath = $blk[1]; Node = $mn } }
@@ -786,7 +818,7 @@ function Get-FormDiff([string]$formXml) {
 	}
 	foreach ($k in @($pb.Keys)) { if (-not $pm.Contains($k)) { $r.FormProps += @{ Key = $k; Old = $pb[$k]; New = $null } } }
 
-	$r.Total = $r.Elements.Count + $r.Removed.Count + $r.Attributes.Count + $r.Commands.Count + $r.Parameters.Count + $r.Events.Count + $r.FormProps.Count + $r.Blocks.Count
+	$r.Total = $r.Elements.Count + $r.Removed.Count + $r.Attributes.Count + $r.Columns.Count + $r.Commands.Count + $r.Parameters.Count + $r.Events.Count + $r.FormProps.Count + $r.Blocks.Count + $r.Appearance.Count
 	return $r
 }
 
@@ -837,6 +869,13 @@ function Get-ElementChangeText($ch) {
 	return "$mark $tag $($rec.Name): $($parts -join '; ')"
 }
 
+# A conditional appearance rule in short: the fields it colours and the parameters it sets
+function Get-AppearanceText($rule) {
+	$fields = @(); foreach ($f in $rule.SelectNodes("dcsset:selection/dcsset:item/dcsset:field", $ns)) { $fields += $f.InnerText.Trim() }
+	$params = @(); foreach ($p in $rule.SelectNodes("dcsset:appearance/dcscor:item/dcscor:parameter", $ns)) { $params += $p.InnerText.Trim() }
+	$f = if ($fields.Count) { $fields -join ', ' } else { '(form)' }
+	return "${f}: $($params -join ', ')"
+}
 function Get-EventText($e) {
 	$ct = if ($e.CallType) { "[$($e.CallType)]" } else { '' }
 	$scope = if ($e.Scope) { "$($e.Scope)." } else { '' }
@@ -855,6 +894,7 @@ function Get-FormDiffParts($diff) {
 	if ($added) { $parts += "+$(Get-Plural $added 'element')" }
 	if ($changed) { $parts += "~$(Get-Plural $changed 'element')" }
 	if ($diff.Attributes.Count) { $parts += "+$(Get-Plural $diff.Attributes.Count 'attribute')" }
+	if ($diff.Columns.Count) { $parts += "+$(Get-Plural $diff.Columns.Count 'column')" }
 	$cmdChanged = @($diff.Commands | Where-Object { $_.Changed }).Count
 	$cmdAdded = $diff.Commands.Count - $cmdChanged
 	if ($cmdAdded) { $parts += "+$(Get-Plural $cmdAdded 'command')" }
@@ -863,6 +903,10 @@ function Get-FormDiffParts($diff) {
 	if ($diff.Events.Count) { $parts += (Get-Plural $diff.Events.Count 'event') }
 	if ($diff.FormProps.Count) { $parts += (Get-Plural $diff.FormProps.Count 'form property') -replace 'propertys$', 'properties' }
 	foreach ($b in $diff.Blocks) { $parts += "~$($b.Name)" }
+	$caAdded = @($diff.Appearance | Where-Object { $_.Kind -eq 'added' }).Count
+	$caRemoved = $diff.Appearance.Count - $caAdded
+	if ($caAdded) { $parts += "+$(Get-Plural $caAdded 'appearance rule')" }
+	if ($caRemoved) { $parts += "-$(Get-Plural $caRemoved 'appearance rule')" }
 	if ($diff.Removed.Count) { $parts += "!$($diff.Removed.Count) removed" }
 	return ($parts -join ', ')
 }
@@ -891,6 +935,16 @@ function Format-FormDiff($diff, [string]$label, [string]$ind) {
 		if ($diff[$sec[0]].Count -eq 0) { continue }
 		$lines += "$ind  $($sec[1]):"
 		foreach ($x in $diff[$sec[0]]) { $mk = if ($x.Changed) { '~' } else { '+' }; $lines += "$ind    $mk $($x.Name)$($x.Info)" }
+		if ($sec[0] -eq 'Attributes') { foreach ($c in $diff.Columns) { $lines += "$ind    + $($c.Attr).$($c.Name)$($c.Info)" } }
+	}
+	# Columns added to an attribute of the configuration, when the form adds no attribute of its own
+	if ($diff.Attributes.Count -eq 0 -and $diff.Columns.Count -gt 0) {
+		$lines += "$ind  Attributes:"
+		foreach ($c in $diff.Columns) { $lines += "$ind    + $($c.Attr).$($c.Name)$($c.Info)" }
+	}
+	if ($diff.Appearance.Count -gt 0) {
+		$lines += "$ind  Conditional appearance:"
+		foreach ($a in $diff.Appearance) { $mk = if ($a.Kind -eq 'added') { '+' } else { '-' }; $lines += "$ind    $mk rule $(Get-AppearanceText $a.Node)" }
 	}
 	if ($diff.Events.Count -gt 0) {
 		$lines += "$ind  Events:"

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# cfe-diff v2.0 — Analyze 1C configuration extension (CFE): borrowed objects, interceptors, own members, form changes
+# cfe-diff v2.1 — Analyze 1C configuration extension (CFE): borrowed objects, interceptors, own members, form changes
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -171,6 +171,7 @@ NSMAP = {
     "xsi": "http://www.w3.org/2001/XMLSchema-instance",
     "cfg": "http://v8.1c.ru/8.1/data/enterprise/current-config",
     "dcsset": "http://v8.1c.ru/8.1/data-composition-system/settings",
+    "dcscor": "http://v8.1c.ru/8.1/data-composition-system/core",
 }
 
 # --- Skip elements ---
@@ -743,8 +744,8 @@ def get_form_diff(form_xml):
         return None
     root = doc.getroot()
     base = root.find("d:BaseForm", NSMAP)
-    r = {"is_borrowed": base is not None, "root": root, "elements": [], "removed": [], "Attributes": [], "Commands": [],
-         "Parameters": [], "events": [], "form_props": [], "blocks": [], "total": 0, "main_index": None}
+    r = {"is_borrowed": base is not None, "root": root, "elements": [], "removed": [], "Attributes": [], "columns": [], "Commands": [],
+         "Parameters": [], "events": [], "form_props": [], "blocks": [], "appearance": [], "total": 0, "main_index": None}
     if base is None:
         return r
     mi = form_element_index(root)
@@ -779,8 +780,12 @@ def get_form_diff(form_xml):
             if ("%s|%s" % (e["name"], e["call_type"])).lower() not in base_ev:
                 r["events"].append({"scope": name, "name": e["name"], "call_type": e["call_type"], "handler": e["handler"]})
     for key, b in bi.items():
-        if key not in mi:
-            r["removed"].append(b["name"])
+        if key in mi:
+            continue
+        # A companion comes and goes with its element
+        if localname(b["node"]) in SKIP_ELEMENTS and b["parent"] and b["parent"].lower() not in mi:
+            continue
+        r["removed"].append(b["name"])
 
     # Form events
     base_ev = event_key_set(event_list(base))
@@ -795,6 +800,15 @@ def get_form_diff(form_xml):
         bm = section_map(base, sec, item)
         for k, (nm, x) in mm.items():
             changed = k in bm
+            # An attribute of the configuration the extension adds columns to (a value table)
+            if changed and item == "Attribute":
+                had = {c.get("name") for c in bm[k][1].findall("d:Columns/d:Column", NSMAP)}
+                for c in x.findall("d:Columns/d:Column", NSMAP):
+                    cn = c.get("name")
+                    if not cn or cn in had:
+                        continue
+                    ft = format_type(c.find("d:Type", NSMAP))
+                    r["columns"].append({"attr": nm, "name": cn, "info": (": " + ft) if ft else "", "node": c})
             if changed and item != "Command":
                 continue
             base_acts = set()
@@ -822,8 +836,27 @@ def get_form_diff(form_xml):
                     info = ": " + ft
             r[sec].append({"name": nm, "info": info, "actions": actions, "changed": changed})
 
-    # Whole blocks: conditional appearance, command interface
-    for bname, xp in (("ConditionalAppearance", "d:Attributes/d:ConditionalAppearance"), ("CommandInterface", "d:CommandInterface")):
+    # Conditional appearance, rule by rule: the main part holds the whole form's rules, BaseForm the
+    # configuration's at the borrowing — a rule only in the main part is added, only in BaseForm removed
+    def ca_rules(part):
+        return [(cmp_key(it, ""), it) for it in part.findall("d:Attributes/d:ConditionalAppearance/dcsset:item", NSMAP)]
+    mr = ca_rules(root)
+    br = ca_rules(base)
+    left = [k for k, _ in br]
+    for k, it in mr:
+        if k in left:
+            left.remove(k)
+        else:
+            r["appearance"].append({"kind": "added", "key": k, "node": it})
+    left = [k for k, _ in mr]
+    for k, it in br:
+        if k in left:
+            left.remove(k)
+        else:
+            r["appearance"].append({"kind": "removed", "key": k, "node": it})
+
+    # Whole blocks: command interface
+    for bname, xp in (("CommandInterface", "d:CommandInterface"),):
         mn = root.find(xp, NSMAP)
         bn = base.find(xp, NSMAP)
         if cmp_key(mn, "") != cmp_key(bn, ""):
@@ -841,9 +874,18 @@ def get_form_diff(form_xml):
         if k not in pm:
             r["form_props"].append({"key": k, "old": pb[k], "new": None})
 
-    r["total"] = (len(r["elements"]) + len(r["removed"]) + len(r["Attributes"]) + len(r["Commands"]) + len(r["Parameters"])
-                  + len(r["events"]) + len(r["form_props"]) + len(r["blocks"]))
+    r["total"] = (len(r["elements"]) + len(r["removed"]) + len(r["Attributes"]) + len(r["columns"]) + len(r["Commands"]) + len(r["Parameters"])
+                  + len(r["events"]) + len(r["form_props"]) + len(r["blocks"]) + len(r["appearance"]))
     return r
+
+
+def appearance_text(rule):
+    """A conditional appearance rule in short: the fields it colours and the parameters it sets."""
+    fields = [inner_text(f).strip() for f in rule.findall("dcsset:selection/dcsset:item/dcsset:field", NSMAP)]
+    params = [inner_text(p).strip() for p in rule.findall("dcsset:appearance/dcscor:item/dcscor:parameter", NSMAP)]
+    return "%s: %s" % (", ".join(fields) if fields else "(form)", ", ".join(params))
+
+
 
 
 def prop_change_text(p):
@@ -919,6 +961,8 @@ def form_diff_parts(diff):
         parts.append("~" + plural(changed, "element"))
     if diff["Attributes"]:
         parts.append("+" + plural(len(diff["Attributes"]), "attribute"))
+    if diff["columns"]:
+        parts.append("+" + plural(len(diff["columns"]), "column"))
     cmd_changed = len([c for c in diff["Commands"] if c.get("changed")])
     cmd_added = len(diff["Commands"]) - cmd_changed
     if cmd_added:
@@ -933,6 +977,12 @@ def form_diff_parts(diff):
         parts.append(re.sub(r'propertys$', 'properties', plural(len(diff["form_props"]), "form property")))
     for b in diff["blocks"]:
         parts.append("~" + b["name"])
+    ca_added = len([a for a in diff["appearance"] if a["kind"] == "added"])
+    ca_removed = len(diff["appearance"]) - ca_added
+    if ca_added:
+        parts.append("+" + plural(ca_added, "appearance rule"))
+    if ca_removed:
+        parts.append("-" + plural(ca_removed, "appearance rule"))
     if diff["removed"]:
         parts.append("!%d removed" % len(diff["removed"]))
     return ", ".join(parts)
@@ -962,6 +1012,18 @@ def format_form_diff(diff, label, ind):
         lines.append("%s  %s:" % (ind, sec))
         for x in diff[sec]:
             lines.append("%s    %s %s%s" % (ind, "~" if x.get("changed") else "+", x["name"], x["info"]))
+        if sec == "Attributes":
+            for c in diff["columns"]:
+                lines.append("%s    + %s.%s%s" % (ind, c["attr"], c["name"], c["info"]))
+    # Columns added to an attribute of the configuration, when the form adds no attribute of its own
+    if not diff["Attributes"] and diff["columns"]:
+        lines.append(ind + "  Attributes:")
+        for c in diff["columns"]:
+            lines.append("%s    + %s.%s%s" % (ind, c["attr"], c["name"], c["info"]))
+    if diff["appearance"]:
+        lines.append(ind + "  Conditional appearance:")
+        for a in diff["appearance"]:
+            lines.append("%s    %s rule %s" % (ind, "+" if a["kind"] == "added" else "-", appearance_text(a["node"])))
     if diff["events"]:
         lines.append(ind + "  Events:")
         for e in diff["events"]:

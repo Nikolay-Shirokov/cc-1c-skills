@@ -1,0 +1,223 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<Form xmlns="http://v8.1c.ru/8.3/xcf/logform" xmlns:app="http://v8.1c.ru/8.2/managed-application/core" xmlns:cfg="http://v8.1c.ru/8.1/data/enterprise/current-config" xmlns:dcscor="http://v8.1c.ru/8.1/data-composition-system/core" xmlns:dcssch="http://v8.1c.ru/8.1/data-composition-system/schema" xmlns:dcsset="http://v8.1c.ru/8.1/data-composition-system/settings" xmlns:ent="http://v8.1c.ru/8.1/data/enterprise" xmlns:lf="http://v8.1c.ru/8.2/managed-application/logform" xmlns:style="http://v8.1c.ru/8.1/data/ui/style" xmlns:sys="http://v8.1c.ru/8.1/data/ui/fonts/system" xmlns:v8="http://v8.1c.ru/8.1/data/core" xmlns:v8ui="http://v8.1c.ru/8.1/data/ui" xmlns:web="http://v8.1c.ru/8.1/data/ui/colors/web" xmlns:win="http://v8.1c.ru/8.1/data/ui/colors/windows" xmlns:xr="http://v8.1c.ru/8.3/xcf/readable" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" version="2.20">
+	<AutoCommandBar name="ФормаКоманднаяПанель" id="-1">
+		<Autofill>false</Autofill>
+		<ChildItems>
+			<Button name="SrcBtn1" id="13">
+				<Type>CommandBarButton</Type>
+				<CommandName>0</CommandName>
+				<ExtendedTooltip name="SrcBtn1РасширеннаяПодсказка" id="14"/>
+			</Button>
+			<Button name="PatchA_Btn" id="1000003">
+				<Type>CommandBarButton</Type>
+				<CommandName>Form.Command.PatchA_Cmd</CommandName>
+				<ExtendedTooltip name="PatchA_BtnРасширеннаяПодсказка" id="1000004"/>
+			</Button>
+		</ChildItems>
+	</AutoCommandBar>
+	<Events>
+		<Event name="OnOpen" callType="After">PatchA_OnOpenAfter</Event>
+	</Events>
+	<ChildItems>
+		<LabelDecoration name="L1" id="1">
+			<Title formatted="false">
+				<v8:item>
+					<v8:lang>ru</v8:lang>
+					<v8:content>Ext L1</v8:content>
+				</v8:item>
+			</Title>
+			<ContextMenu name="L1КонтекстноеМеню" id="2"/>
+			<ExtendedTooltip name="L1РасширеннаяПодсказка" id="3"/>
+		</LabelDecoration>
+		<InputField name="Article" id="7">
+			<Title>
+				<v8:item>
+					<v8:lang>ru</v8:lang>
+					<v8:content>Ext Article</v8:content>
+				</v8:item>
+			</Title>
+			<Width>20</Width>
+			<ContextMenu name="ArticleКонтекстноеМеню" id="8"/>
+			<ExtendedTooltip name="ArticleРасширеннаяПодсказка" id="9"/>
+			<Events>
+				<Event name="OnChange" callType="Before">PatchA_ArticleOnChangeBefore</Event>
+			</Events>
+		</InputField>
+		<LabelDecoration name="L3" id="4">
+			<Title formatted="false">
+				<v8:item>
+					<v8:lang>ru</v8:lang>
+					<v8:content>Ext L3</v8:content>
+				</v8:item>
+			</Title>
+			<ContextMenu name="L3КонтекстноеМеню" id="5"/>
+			<ExtendedTooltip name="L3РасширеннаяПодсказка" id="6"/>
+		</LabelDecoration>
+		<InputField name="PatchA_Field" id="1000000">
+			<DataPath>PatchA_Attr</DataPath>
+			<Title>
+				<v8:item>
+					<v8:lang>ru</v8:lang>
+					<v8:content>Ext field</v8:content>
+				</v8:item>
+			</Title>
+			<ContextMenu name="PatchA_FieldКонтекстноеМеню" id="1000001"/>
+			<ExtendedTooltip name="PatchA_FieldРасширеннаяПодсказка" id="1000002"/>
+		</InputField>
+	</ChildItems>
+	<Attributes>
+		<Attribute name="PatchA_Attr" id="1000000">
+			<Title>
+				<v8:item>
+					<v8:lang>ru</v8:lang>
+					<v8:content>Ext attr</v8:content>
+				</v8:item>
+			</Title>
+			<Type>
+				<v8:Type>xs:string</v8:Type>
+				<v8:StringQualifiers>
+					<v8:Length>20</v8:Length>
+					<v8:AllowedLength>Variable</v8:AllowedLength>
+				</v8:StringQualifiers>
+			</Type>
+		</Attribute>
+		<Attribute name="Tbl" id="1000001">
+			<Type>
+				<v8:Type>v8:ValueTable</v8:Type>
+			</Type>
+			<Columns>
+				<Column name="Col1" id="1">
+					<Type>
+						<v8:Type>xs:string</v8:Type>
+					</Type>
+				</Column>
+				<Column name="PatchA_Col2" id="2">
+					<Type>
+						<v8:Type>xs:string</v8:Type>
+					</Type>
+				</Column>
+				<Column name="PatchA_Col3" id="3">
+					<Type>
+						<v8:Type>xs:string</v8:Type>
+					</Type>
+				</Column>
+			</Columns>
+		</Attribute>
+		<ConditionalAppearance>
+				<dcsset:item>
+					<dcsset:selection>
+						<dcsset:item>
+							<dcsset:field>Article</dcsset:field>
+						</dcsset:item>
+					</dcsset:selection>
+					<dcsset:filter/>
+					<dcsset:appearance>
+						<dcscor:item xsi:type="dcsset:SettingsParameterValue">
+							<dcscor:parameter>ЦветТекста</dcscor:parameter>
+							<dcscor:value xsi:type="v8ui:Color">#00FF00</dcscor:value>
+						</dcscor:item>
+					</dcsset:appearance>
+				</dcsset:item>
+		</ConditionalAppearance>
+	</Attributes>
+	<Commands>
+		<Command name="PatchA_Cmd" id="1000000">
+			<Title>
+				<v8:item>
+					<v8:lang>ru</v8:lang>
+					<v8:content>Ext cmd</v8:content>
+				</v8:item>
+			</Title>
+			<Action callType="Before">PatchA_CmdAction</Action>
+		</Command>
+		<Command name="SrcCmd1" id="1">
+			<Action callType="After">PatchA_SrcCmd1After</Action>
+		</Command>
+		<Command name="SrcCmd2" id="2">
+			<Action callType="After">PatchA_SrcCmd2After</Action>
+		</Command>
+	</Commands>
+	<BaseForm version="2.20">
+		<AutoCommandBar name="ФормаКоманднаяПанель" id="-1">
+			<Autofill>false</Autofill>
+			<ChildItems>
+				<Button name="SrcBtn1" id="13">
+					<Type>CommandBarButton</Type>
+					<CommandName>0</CommandName>
+					<ExtendedTooltip name="SrcBtn1РасширеннаяПодсказка" id="14"/>
+				</Button>
+			</ChildItems>
+		</AutoCommandBar>
+		<ChildItems>
+			<LabelDecoration name="L1" id="1">
+				<Title formatted="false">
+					<v8:item>
+						<v8:lang>ru</v8:lang>
+						<v8:content>Src L1</v8:content>
+					</v8:item>
+				</Title>
+				<ContextMenu name="L1КонтекстноеМеню" id="2"/>
+				<ExtendedTooltip name="L1РасширеннаяПодсказка" id="3"/>
+			</LabelDecoration>
+			<LabelDecoration name="L3" id="4">
+				<Title formatted="false">
+					<v8:item>
+						<v8:lang>ru</v8:lang>
+						<v8:content>Src L3</v8:content>
+					</v8:item>
+				</Title>
+				<ContextMenu name="L3КонтекстноеМеню" id="5"/>
+				<ExtendedTooltip name="L3РасширеннаяПодсказка" id="6"/>
+			</LabelDecoration>
+			<InputField name="Article" id="7">
+				<Title>
+					<v8:item>
+						<v8:lang>ru</v8:lang>
+						<v8:content>Src Article</v8:content>
+					</v8:item>
+				</Title>
+				<ContextMenu name="ArticleКонтекстноеМеню" id="8"/>
+				<ExtendedTooltip name="ArticleРасширеннаяПодсказка" id="9"/>
+			</InputField>
+			<InputField name="SrcField1" id="10">
+				<ContextMenu name="SrcField1КонтекстноеМеню" id="11"/>
+				<ExtendedTooltip name="SrcField1РасширеннаяПодсказка" id="12"/>
+			</InputField>
+		</ChildItems>
+		<Attributes>
+			<Attribute name="Tbl" id="4">
+				<Type>
+					<v8:Type>v8:ValueTable</v8:Type>
+				</Type>
+				<Columns>
+				<Column name="Col1" id="1">
+					<Type>
+						<v8:Type>xs:string</v8:Type>
+					</Type>
+				</Column>
+				</Columns>
+			</Attribute>
+			<ConditionalAppearance>
+				<dcsset:item>
+					<dcsset:selection>
+						<dcsset:item>
+							<dcsset:field>L1</dcsset:field>
+						</dcsset:item>
+					</dcsset:selection>
+					<dcsset:filter/>
+					<dcsset:appearance>
+						<dcscor:item xsi:type="dcsset:SettingsParameterValue">
+							<dcscor:parameter>ЦветТекста</dcscor:parameter>
+							<dcscor:value xsi:type="v8ui:Color">#FF0000</dcscor:value>
+						</dcscor:item>
+					</dcsset:appearance>
+				</dcsset:item>
+			</ConditionalAppearance>
+		</Attributes>
+		<Commands>
+			<Command name="SrcCmd2" id="2">
+				<Action callType="Before">SrcCmd2Action</Action>
+			</Command>
+		</Commands>
+	</BaseForm>
+</Form>

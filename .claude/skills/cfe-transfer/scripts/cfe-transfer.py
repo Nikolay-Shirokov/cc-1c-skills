@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# cfe-transfer v1.8 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+# cfe-transfer v1.9 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -655,6 +655,7 @@ NSMAP = {
     "xsi": "http://www.w3.org/2001/XMLSchema-instance",
     "cfg": "http://v8.1c.ru/8.1/data/enterprise/current-config",
     "dcsset": "http://v8.1c.ru/8.1/data-composition-system/settings",
+    "dcscor": "http://v8.1c.ru/8.1/data-composition-system/core",
 }
 
 # --- Skip elements ---
@@ -971,8 +972,36 @@ def get_temp_mark(line):
     if i < 0:
         return None
     t = line[i:].lstrip("/").strip()
+    # The form's own mark (get_form_temp_marks) names form items, not the method below it
+    if re.match(r'(?i)не\s*переносить\s+элементы\s+формы', t):
+        return None
     m = re.match(r'(?i)(?:не\s*переносить|временно)(?![^\W])\s*[:\-–—]?\s*(.*)$', t)
     return m.group(1).strip() if m else None
+
+
+def get_form_temp_marks(lines):
+    """Form items kept out of the transfer: "// Не переносить элементы формы: Имя1, Имя2 — причина" among the
+    comment lines the form module starts with, before its variables and methods. Lower-case name -> reason."""
+    res = {}
+    for line in lines or []:
+        t = line.strip()
+        if t == "" or t.startswith("#"):
+            continue
+        if not t.startswith("//"):
+            break
+        m = re.match(r'^//+\s*(?i:не\s*переносить\s+элементы\s+формы)\s*:\s*(.+)$', t)
+        if not m:
+            continue
+        body, why = m.group(1), ""
+        sep = re.search(r'\s+[—–-]\s+', body)
+        if sep:
+            why = body[sep.end():].strip()
+            body = body[:sep.start()]
+        for n in body.split(","):
+            n = n.strip()
+            if n:
+                res[n.lower()] = why
+    return res
 
 
 def get_method_temp_mark(lines, method, above_only=False):
@@ -1758,8 +1787,8 @@ def get_form_diff(form_xml):
         return None
     root = doc.getroot()
     base = root.find("d:BaseForm", NSMAP)
-    r = {"is_borrowed": base is not None, "root": root, "elements": [], "removed": [], "Attributes": [], "Commands": [],
-         "Parameters": [], "events": [], "form_props": [], "blocks": [], "total": 0, "main_index": None}
+    r = {"is_borrowed": base is not None, "root": root, "elements": [], "removed": [], "Attributes": [], "columns": [], "Commands": [],
+         "Parameters": [], "events": [], "form_props": [], "blocks": [], "appearance": [], "total": 0, "main_index": None}
     if base is None:
         return r
     mi = form_element_index(root)
@@ -1794,8 +1823,12 @@ def get_form_diff(form_xml):
             if ("%s|%s" % (e["name"], e["call_type"])).lower() not in base_ev:
                 r["events"].append({"scope": name, "name": e["name"], "call_type": e["call_type"], "handler": e["handler"]})
     for key, b in bi.items():
-        if key not in mi:
-            r["removed"].append(b["name"])
+        if key in mi:
+            continue
+        # A companion comes and goes with its element
+        if localname(b["node"]) in SKIP_ELEMENTS and b["parent"] and b["parent"].lower() not in mi:
+            continue
+        r["removed"].append(b["name"])
 
     # Form events
     base_ev = event_key_set(event_list(base))
@@ -1810,6 +1843,15 @@ def get_form_diff(form_xml):
         bm = section_map(base, sec, item)
         for k, (nm, x) in mm.items():
             changed = k in bm
+            # An attribute of the configuration the extension adds columns to (a value table)
+            if changed and item == "Attribute":
+                had = {c.get("name") for c in bm[k][1].findall("d:Columns/d:Column", NSMAP)}
+                for c in x.findall("d:Columns/d:Column", NSMAP):
+                    cn = c.get("name")
+                    if not cn or cn in had:
+                        continue
+                    ft = format_type(c.find("d:Type", NSMAP))
+                    r["columns"].append({"attr": nm, "name": cn, "info": (": " + ft) if ft else "", "node": c})
             if changed and item != "Command":
                 continue
             base_acts = set()
@@ -1837,8 +1879,27 @@ def get_form_diff(form_xml):
                     info = ": " + ft
             r[sec].append({"name": nm, "info": info, "actions": actions, "changed": changed})
 
-    # Whole blocks: conditional appearance, command interface
-    for bname, xp in (("ConditionalAppearance", "d:Attributes/d:ConditionalAppearance"), ("CommandInterface", "d:CommandInterface")):
+    # Conditional appearance, rule by rule: the main part holds the whole form's rules, BaseForm the
+    # configuration's at the borrowing — a rule only in the main part is added, only in BaseForm removed
+    def ca_rules(part):
+        return [(cmp_key(it, ""), it) for it in part.findall("d:Attributes/d:ConditionalAppearance/dcsset:item", NSMAP)]
+    mr = ca_rules(root)
+    br = ca_rules(base)
+    left = [k for k, _ in br]
+    for k, it in mr:
+        if k in left:
+            left.remove(k)
+        else:
+            r["appearance"].append({"kind": "added", "key": k, "node": it})
+    left = [k for k, _ in mr]
+    for k, it in br:
+        if k in left:
+            left.remove(k)
+        else:
+            r["appearance"].append({"kind": "removed", "key": k, "node": it})
+
+    # Whole blocks: command interface
+    for bname, xp in (("CommandInterface", "d:CommandInterface"),):
         mn = root.find(xp, NSMAP)
         bn = base.find(xp, NSMAP)
         if cmp_key(mn, "") != cmp_key(bn, ""):
@@ -1856,9 +1917,16 @@ def get_form_diff(form_xml):
         if k not in pm:
             r["form_props"].append({"key": k, "old": pb[k], "new": None})
 
-    r["total"] = (len(r["elements"]) + len(r["removed"]) + len(r["Attributes"]) + len(r["Commands"]) + len(r["Parameters"])
-                  + len(r["events"]) + len(r["form_props"]) + len(r["blocks"]))
+    r["total"] = (len(r["elements"]) + len(r["removed"]) + len(r["Attributes"]) + len(r["columns"]) + len(r["Commands"]) + len(r["Parameters"])
+                  + len(r["events"]) + len(r["form_props"]) + len(r["blocks"]) + len(r["appearance"]))
     return r
+
+
+def appearance_text(rule):
+    """A conditional appearance rule in short: the fields it colours and the parameters it sets."""
+    fields = [inner_text(f).strip() for f in rule.findall("dcsset:selection/dcsset:item/dcsset:field", NSMAP)]
+    params = [inner_text(p).strip() for p in rule.findall("dcsset:appearance/dcscor:item/dcscor:parameter", NSMAP)]
+    return "%s: %s" % (", ".join(fields) if fields else "(form)", ", ".join(params))
 
 
 def prop_change_text(p):
@@ -1917,19 +1985,32 @@ def form_transfer_items(diff, form, cfg_form_xml, cfg_module_path, ext_dir, pref
             return " (found as %s)" % found
         return ""
 
+    # Items the form module marks "not for transfer", with everything inside them
+    ext_mod = read_bsl_lines(form["module"])
+    tmarks = get_form_temp_marks(ext_mod)
+
+    def marked(it, names):
+        if not it or not tmarks:
+            return it
+        for n in names or []:
+            if n and n.lower() in tmarks:
+                return set_temp_mark(it, tmarks[n.lower()], it["text"])
+        return it
+
     for ch in diff["elements"]:
         rec = ch["rec"]
         tag = get_element_tag(rec["node"])
         hit = find_name_in(c_names, rec["name"], prefix)
+        own = [rec["name"]] + list(rec["ancestors"])
         if ch["kind"] == "added":
             inn = (" (in: %s)" % rec["parent"]) if rec["parent"] else ""
             st = "TRANSFERRED" if hit else "NOT_TRANSFERRED"
-            items.append(new_item(st, "+ %s %s%s%s" % (tag, rec["name"], inn, as_text(hit, rec["name"])), "", group))
+            items.append(marked(new_item(st, "+ %s %s%s%s" % (tag, rec["name"], inn, as_text(hit, rec["name"])), "", group), own))
             continue
         if ch["props"]:
             keys = [p["key"] for p in ch["props"]]
             if not hit:
-                items.append(new_item("NOT_TRANSFERRED", "~ %s %s: %s (element not in config)" % (tag, rec["name"], ", ".join(keys)), "", group))
+                items.append(marked(new_item("NOT_TRANSFERRED", "~ %s %s: %s (element not in config)" % (tag, rec["name"], ", ".join(keys)), "", group), own))
             else:
                 cpm = get_prop_map(ci[hit.lower()]["node"])
                 ok = 0
@@ -1951,7 +2032,7 @@ def form_transfer_items(diff, form, cfg_form_xml, cfg_module_path, ext_dir, pref
                     cnt = " (config value differs: %s)" % ", ".join(differs)
                 else:
                     cnt = (" (%d/%d props)" % (ok, n)) if st == "PARTIAL" else ""
-                items.append(new_item(st, "~ %s %s: %s%s" % (tag, rec["name"], ", ".join(keys), cnt), "", group))
+                items.append(marked(new_item(st, "~ %s %s: %s%s" % (tag, rec["name"], ", ".join(keys), cnt), "", group), own))
         if ch["moved"]:
             st = "NOT_TRANSFERRED"
             if hit:
@@ -1962,10 +2043,9 @@ def form_transfer_items(diff, form, cfg_form_xml, cfg_module_path, ext_dir, pref
                 have_mapped = (find_name_in(c_names, have, prefix) or "") if have else ""
                 if same_parent and want.lower() == have_mapped.lower():
                     st = "TRANSFERRED"
-            items.append(new_item(st, "> %s %s: %s" % (tag, rec["name"], move_text(ch)), "", group))
+            items.append(marked(new_item(st, "> %s %s: %s" % (tag, rec["name"], move_text(ch)), "", group), own))
 
     # Interceptor of a handler: the extension's handler code looked up in the configuration's one
-    ext_mod = read_bsl_lines(form["module"])
     cfg_mod = read_bsl_lines(cfg_module_path)
     mod_rel = rel_path(ext_dir, form["module"]) if form["module"] and os.path.isfile(form["module"]) else ""
 
@@ -2001,11 +2081,26 @@ def form_transfer_items(diff, form, cfg_form_xml, cfg_module_path, ext_dir, pref
                     it = check_handler("command %s[%s] -> %s" % (x["name"], a["call_type"], a["handler"]), a["handler"], cfg_handler,
                                        "no action of %s in config" % x["name"])
                     if it:
-                        items.append(it)
+                        items.append(marked(it, [x["name"]]))
                 continue
             hit = find_name_in(cn, x["name"], prefix)
             st = "TRANSFERRED" if hit else "NOT_TRANSFERRED"
-            items.append(new_item(st, "+ %s %s%s%s" % (word, x["name"], x["info"], as_text(hit, x["name"])), "", group))
+            items.append(marked(new_item(st, "+ %s %s%s%s" % (word, x["name"], x["info"], as_text(hit, x["name"])), "", group), [x["name"]]))
+
+    # Columns the extension adds to an attribute of the configuration
+    if diff["columns"]:
+        am = section_map(cr, "Attributes", "Attribute")
+        an = [v[0] for v in am.values()]
+        for c in diff["columns"]:
+            label = "+ column %s.%s%s" % (c["attr"], c["name"], c["info"])
+            ah = find_name_in(an, c["attr"], prefix)
+            if not ah:
+                items.append(marked(new_item("NOT_TRANSFERRED", label + " (attribute not in config)", "", group), [c["attr"], "%s.%s" % (c["attr"], c["name"])]))
+                continue
+            cols = [x.get("name") for x in am[ah.lower()][1].findall("d:Columns/d:Column", NSMAP)]
+            hit = find_name_in(cols, c["name"], prefix)
+            st = "TRANSFERRED" if hit else "NOT_TRANSFERRED"
+            items.append(marked(new_item(st, label + as_text(hit, c["name"]), "", group), [c["attr"], "%s.%s" % (c["attr"], c["name"])]))
 
     if diff["form_props"]:
         cpm = get_prop_map(cr, root=True)
@@ -2014,6 +2109,14 @@ def form_transfer_items(diff, form, cfg_form_xml, cfg_module_path, ext_dir, pref
             st = {"ok": "TRANSFERRED", "pending": "NOT_TRANSFERRED"}.get(r, "DIVERGED")
             why = " (config value differs)" if r == "differs" else ""
             items.append(new_item(st, "~ form " + prop_change_text(p) + why, "", group))
+    # Conditional appearance rules: an added one must be among the configuration's rules, a removed one not
+    if diff["appearance"]:
+        have = [cmp_key(x, prefix) for x in cr.findall("d:Attributes/d:ConditionalAppearance/dcsset:item", NSMAP)]
+        for a in diff["appearance"]:
+            inn = cmp_key(a["node"], prefix) in have
+            done = inn if a["kind"] == "added" else not inn
+            mk = "+" if a["kind"] == "added" else "-"
+            items.append(new_item("TRANSFERRED" if done else "NOT_TRANSFERRED", "%s conditional appearance rule %s" % (mk, appearance_text(a["node"])), "", group))
     for b in diff["blocks"]:
         cnode = cr.find(b["xpath"], NSMAP)
         st = "TRANSFERRED" if lower_or_none(cmp_key(cnode, prefix)) == lower_or_none(cmp_key(b["node"], prefix)) else "NOT_TRANSFERRED"
@@ -2035,7 +2138,11 @@ def form_transfer_items(diff, form, cfg_form_xml, cfg_module_path, ext_dir, pref
                     break
         it = check_handler("event " + event_text(e), e["handler"], cfg_handler, "no %s handler in config" % e["name"])
         if it:
-            items.append(it)
+            items.append(marked(it, [e["scope"]]))
+    # An element of BaseForm the main part lacks: the extension cannot drop a borrowed element, so the
+    # configuration's form has changed since the borrowing
+    for nm in diff["removed"]:
+        items.append(new_item("DIVERGED", "! %s (in BaseForm, not in the extension's form: the configuration's form changed since the borrowing)" % nm, "", group))
     return items
 
 
@@ -4119,6 +4226,7 @@ def main():
         # method stays out. A method of a common module is called from other modules, the rest from
         # their own module only.
         form_missing = {}
+        form_temp = {}
         out_by_file = {}
         out_common = {}
         # Own methods marked "not for transfer" and not in the configuration: never coming, so code that
@@ -4307,6 +4415,13 @@ def main():
                                 return re.sub(r'[\\/]Ext[\\/]Form[\\/]Module\.bsl$', '/Ext/Form.xml', os.path.join(root, pl["rel"]))
                             form_missing[fk] = get_missing_names(get_form_item_names(fx(ext_dir0)), get_form_item_names(fx(config_path)))
                         missing.update(form_missing[fk])
+                        # Form items the form module marks "not for transfer" are never coming
+                        if fk not in form_temp:
+                            form_temp[fk] = {}
+                            for k, why in get_form_temp_marks(read_bsl_lines(os.path.join(ext_dir0, pl["rel"]))).items():
+                                form_temp[fk][k] = form_missing[fk].get(k, k)
+                        for k in form_temp[fk]:
+                            missing.pop(k, None)
                     for m in (out_by_file.get(cfg_file.lower()), out_common):
                         if m:
                             missing.update(m)
@@ -4331,6 +4446,12 @@ def main():
                     if temp_deps and not blocked:
                         t["text"] = "%s — calls %s, marked as not for transfer" % (label, ", ".join(temp_deps))
                         t["sub"] = get_where_lines(pl, "drop the call before the transfer or remove the mark from the method, then re-run -Mode transfer")
+                        titems.append(t)
+                        continue
+                    form_temp_deps = get_used_missing(code, form_temp.get(pl["rel"].lower(), {})) if get_module_kind(pl["rel"]) == "form" else []
+                    if form_temp_deps and not blocked:
+                        t["text"] = "%s — uses form items %s, marked as not for transfer" % (label, ", ".join(form_temp_deps))
+                        t["sub"] = get_where_lines(pl, "drop the use before the transfer or remove the mark from the form module, then re-run -Mode transfer")
                         titems.append(t)
                         continue
                     if deps and not blocked:
