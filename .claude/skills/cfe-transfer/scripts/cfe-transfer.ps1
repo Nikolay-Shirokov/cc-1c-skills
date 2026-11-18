@@ -1,4 +1,4 @@
-﻿# cfe-transfer v1.9 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+﻿# cfe-transfer v1.10 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -1693,7 +1693,7 @@ function Get-FormDiff([string]$formXml) {
 				$ft = Format-Type ($x.SelectSingleNode("d:Type", $ns))
 				if ($ft) { $info = ": $ft" }
 			}
-			$r[$sec[2]] += @{ Name = $nm; Info = $info; Actions = $actions; Changed = $changed }
+			$r[$sec[2]] += @{ Name = $nm; Info = $info; Actions = $actions; Changed = $changed; Node = $x }
 		}
 	}
 
@@ -1807,7 +1807,9 @@ function Get-FormTransferItems($diff, $form, [string]$cfgFormXml, [string]$cfgMo
 		if ($ch.Kind -eq 'added') {
 			$in = if ($rec.Parent) { " (in: $($rec.Parent))" } else { '' }
 			$st = if ($hit) { 'TRANSFERRED' } else { 'NOT_TRANSFERRED' }
-			$items += & $marked (New-Item2 $st "+ $tag $($rec.Name)$in$(& $asText $hit $rec.Name)" '' $group) $own
+			$ni = & $marked (New-Item2 $st "+ $tag $($rec.Name)$in$(& $asText $hit $rec.Name)" '' $group) $own
+			if (-not $hit) { $ni.Plan = @{ Kind = 'element'; Rec = $rec }; $ni.PlanKey = "+ $tag $($rec.Name)" }
+			$items += $ni
 			continue
 		}
 		if ($ch.Props.Count -gt 0) {
@@ -1824,7 +1826,15 @@ function Get-FormTransferItems($diff, $form, [string]$cfgFormXml, [string]$cfgMo
 				$n = $ch.Props.Count
 				$st = if ($differs.Count -gt 0) { 'DIVERGED' } elseif ($ok -eq $n) { 'TRANSFERRED' } elseif ($ok -eq 0) { 'NOT_TRANSFERRED' } else { 'PARTIAL' }
 				$cnt = if ($st -eq 'DIVERGED' -and $differs.Count -eq $n) { ' (config value differs)' } elseif ($st -eq 'DIVERGED') { " (config value differs: $($differs -join ', '))" } elseif ($st -eq 'PARTIAL') { " ($ok/$n props)" } else { '' }
-				$items += & $marked (New-Item2 $st "~ $tag $($rec.Name): $($keys -join ', ')$cnt" '' $group) $own
+				$ni = & $marked (New-Item2 $st "~ $tag $($rec.Name): $($keys -join ', ')$cnt" '' $group) $own
+				# Only the properties still at their BaseForm value: a value changed in the configuration some
+				# other way stays as it is and is left to a person
+				$pend = @($ch.Props | Where-Object { (Get-PropTransfer $cpm $_ $prefix) -eq 'pending' })
+				if ($pend.Count -gt 0) {
+					$ni.Plan = @{ Kind = 'prop'; Rec = $rec; Props = $pend }
+					$ni.PlanKey = "~ $tag $($rec.Name): $($keys -join ', ')"
+				}
+				$items += $ni
 			}
 		}
 		if ($ch.Moved) {
@@ -1837,7 +1847,9 @@ function Get-FormTransferItems($diff, $form, [string]$cfgFormXml, [string]$cfgMo
 				$haveMapped = if ($have) { Find-NameIn $cNames $have $prefix } else { '' }
 				if ($sameParent -and ($want -ieq $haveMapped)) { $st = 'TRANSFERRED' }
 			}
-			$items += & $marked (New-Item2 $st "> $tag $($rec.Name): $(Get-MoveText $ch)" '' $group) $own
+			$ni = & $marked (New-Item2 $st "> $tag $($rec.Name): $(Get-MoveText $ch)" '' $group) $own
+			if ($st -ne 'TRANSFERRED') { $ni.Plan = @{ Kind = 'move'; Rec = $rec }; $ni.PlanKey = "> $tag $($rec.Name)" }
+			$items += $ni
 		}
 	}
 
@@ -1877,7 +1889,15 @@ function Get-FormTransferItems($diff, $form, [string]$cfgFormXml, [string]$cfgMo
 			}
 			$hit = Find-NameIn $cn $x.Name $prefix
 			$st = if ($hit) { 'TRANSFERRED' } else { 'NOT_TRANSFERRED' }
-			$items += & $marked (New-Item2 $st "+ $($sec[2]) $($x.Name)$($x.Info)$(& $asText $hit $x.Name)" '' $group) @($x.Name)
+			$ni = & $marked (New-Item2 $st "+ $($sec[2]) $($x.Name)$($x.Info)$(& $asText $hit $x.Name)" '' $group) @($x.Name)
+			# A command whose action intercepts a method is a transfer of its own kind: events and command
+			# interceptors go with the handlers
+			$ctActions = @($x.Actions | Where-Object { $_.CallType })
+			if (-not $hit -and $ctActions.Count -eq 0) {
+				$ni.Plan = @{ Kind = $(switch ($sec[2]) { 'attribute' { 'attribute' } 'command' { 'command' } default { 'parameter' } }); Node = $x.Node; Name = $x.Name }
+				$ni.PlanKey = "+ $($sec[2]) $($x.Name)"
+			}
+			$items += $ni
 		}
 	}
 
@@ -1892,7 +1912,9 @@ function Get-FormTransferItems($diff, $form, [string]$cfgFormXml, [string]$cfgMo
 			$cols = @(); foreach ($x in $am[$ah].SelectNodes("d:Columns/d:Column", $ns)) { $cols += $x.GetAttribute('name') }
 			$hit = Find-NameIn $cols $c.Name $prefix
 			$st = if ($hit) { 'TRANSFERRED' } else { 'NOT_TRANSFERRED' }
-			$items += & $marked (New-Item2 $st "$label$(& $asText $hit $c.Name)" '' $group) @($c.Attr, "$($c.Attr).$($c.Name)")
+			$ni = & $marked (New-Item2 $st "$label$(& $asText $hit $c.Name)" '' $group) @($c.Attr, "$($c.Attr).$($c.Name)")
+			if (-not $hit) { $ni.Plan = @{ Kind = 'column'; Node = $c.Node; Attr = $c.Attr }; $ni.PlanKey = $label }
+			$items += $ni
 		}
 	}
 
@@ -1902,7 +1924,9 @@ function Get-FormTransferItems($diff, $form, [string]$cfgFormXml, [string]$cfgMo
 			$r = Get-PropTransfer $cpm $p $prefix
 			$st = if ($r -eq 'ok') { 'TRANSFERRED' } elseif ($r -eq 'pending') { 'NOT_TRANSFERRED' } else { 'DIVERGED' }
 			$why = if ($r -eq 'differs') { ' (config value differs)' } else { '' }
-			$items += New-Item2 $st "~ form $(Get-PropChangeText $p)$why" '' $group
+			$ni = New-Item2 $st "~ form $(Get-PropChangeText $p)$why" '' $group
+			if ($r -eq 'pending') { $ni.Plan = @{ Kind = 'formprop'; Props = @($p); ExtRoot = $diff.Root }; $ni.PlanKey = "~ form $($p.Key)" }
+			$items += $ni
 		}
 	}
 	# Conditional appearance rules: an added one must be among the configuration's rules, a removed one not
@@ -1914,7 +1938,9 @@ function Get-FormTransferItems($diff, $form, [string]$cfgFormXml, [string]$cfgMo
 			$done = if ($a.Kind -eq 'added') { $in } else { -not $in }
 			$mk = if ($a.Kind -eq 'added') { '+' } else { '-' }
 			$st = if ($done) { 'TRANSFERRED' } else { 'NOT_TRANSFERRED' }
-			$items += New-Item2 $st "$mk conditional appearance rule $(Get-AppearanceText $a.Node)" '' $group
+			$ni = New-Item2 $st "$mk conditional appearance rule $(Get-AppearanceText $a.Node)" '' $group
+			if (-not $done) { $ni.Plan = @{ Kind = 'appearance'; Rule = $a.Node; Add = ($a.Kind -eq 'added') }; $ni.PlanKey = "$mk conditional appearance rule $(Get-AppearanceText $a.Node)" }
+			$items += $ni
 		}
 	}
 	foreach ($b in $diff.Blocks) {
@@ -2274,6 +2300,551 @@ function Get-SubsystemContentItems($md, $cfgMd, [string]$prefix) {
 }
 
 
+# ============================================================
+# Form writing: nodes of the extension's Form.xml copied into the configuration's one
+# ============================================================
+
+function Test-IsWs($n) {
+	return ($null -ne $n -and ($n.NodeType -eq 'Whitespace' -or $n.NodeType -eq 'SignificantWhitespace'))
+}
+
+# A form document for writing: the text is kept as is (whitespace significant), BOM and line breaks remembered
+function Read-FormWrite([string]$path) {
+	$bytes = [System.IO.File]::ReadAllBytes($path)
+	$bom = ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF)
+	$off = if ($bom) { 3 } else { 0 }
+	$text = [System.Text.Encoding]::UTF8.GetString($bytes, $off, $bytes.Length - $off)
+	$eol = if ($text.Contains("`r`n")) { "`r`n" } else { "`n" }
+	$doc = New-Object System.Xml.XmlDocument
+	$doc.PreserveWhitespace = $true
+	$doc.LoadXml($text)
+	return @{ Path = $path; Doc = $doc; Bom = $bom; Eol = $eol }
+}
+
+# The same file parsed keeping whitespace: the nodes copied into the configuration come from here, so the
+# copy carries the platform's line breaks and indents of the extension
+function Read-FormDocKeep([string]$path) {
+	$doc = New-Object System.Xml.XmlDocument
+	$doc.PreserveWhitespace = $true
+	try { $doc.Load($path) } catch { return $null }
+	return $doc
+}
+
+# Where a node sits among element children, from the root: indexes of element siblings
+function Get-NodePath($node) {
+	$path = New-Object System.Collections.ArrayList
+	$cur = $node
+	while ($cur -and $cur.NodeType -eq 'Element') {
+		$i = 0
+		$sib = $cur.PreviousSibling
+		while ($sib) { if ($sib.NodeType -eq 'Element') { $i++ }; $sib = $sib.PreviousSibling }
+		[void]$path.Insert(0, $i)
+		$cur = $cur.ParentNode
+	}
+	return ,$path.ToArray()
+}
+
+function Get-NodeByPath($doc, $path) {
+	$cur = $doc.DocumentElement
+	for ($k = 1; $k -lt $path.Count; $k++) {
+		$want = $path[$k]; $i = 0; $next = $null
+		foreach ($c in $cur.ChildNodes) {
+			if ($c.NodeType -ne 'Element') { continue }
+			if ($i -eq $want) { $next = $c; break }
+			$i++
+		}
+		if (-not $next) { return $null }
+		$cur = $next
+	}
+	return $cur
+}
+
+# The document written the way the platform dumps it: UTF-8, <a/> without a space, the file's line breaks and BOM
+function Save-FormWrite($fw, [string]$path) {
+	if (-not $path) { $path = $fw.Path }
+	$settings = New-Object System.Xml.XmlWriterSettings
+	$settings.Encoding = New-Object System.Text.UTF8Encoding($false)
+	$settings.Indent = $false
+	$settings.NewLineHandling = [System.Xml.NewLineHandling]::None
+	$settings.OmitXmlDeclaration = $false
+	$ms = New-Object System.IO.MemoryStream
+	$w = [System.Xml.XmlWriter]::Create($ms, $settings)
+	$fw.Doc.Save($w)
+	$w.Flush(); $w.Close()
+	$text = [System.Text.Encoding]::UTF8.GetString($ms.ToArray())
+	# Ordinal: a culture-sensitive comparison treats the BOM as ignorable and matches anything
+	if ($text.Length -gt 0 -and $text[0] -eq [char]0xFEFF) { $text = $text.Substring(1) }
+	$text = $text -replace 'encoding="utf-8"', 'encoding="UTF-8"'
+	$text = [regex]::Replace($text, '(?<=\S) />', '/>')
+	if ($fw.Eol -eq "`r`n") { $text = $text -replace "`r?`n", "`r`n" } else { $text = $text -replace "`r`n", "`n" }
+	[System.IO.File]::WriteAllText($path, $text, (New-Object System.Text.UTF8Encoding($fw.Bom)))
+}
+
+# Free ids of the configuration's form: elements (with companions), attributes, commands, columns per attribute
+function Get-FormIdPools($root) {
+	$res = @{ Elem = 0; Attr = 0; Cmd = 0; Col = @{} }
+	foreach ($n in $root.SelectNodes(".//*[@id]", $ns)) {
+		$v = 0
+		if (-not [int]::TryParse($n.GetAttribute('id'), [ref]$v)) { continue }
+		switch ($n.LocalName) {
+			'Attribute' { if ($v -gt $res.Attr) { $res.Attr = $v } }
+			'Command' { if ($v -gt $res.Cmd) { $res.Cmd = $v } }
+			'Column' {
+				$at = $n.ParentNode
+				while ($at -and $at.LocalName -ne 'Attribute') { $at = $at.ParentNode }
+				$k = if ($at) { $at.GetAttribute('name').ToLower() } else { '' }
+				if (-not $res.Col.ContainsKey($k) -or $v -gt $res.Col[$k]) { $res.Col[$k] = $v }
+			}
+			default { if ($v -gt $res.Elem) { $res.Elem = $v } }
+		}
+	}
+	return $res
+}
+
+# Indent of the container's children, from the whitespace of its first child
+function Get-FormChildIndent($container, [string]$eol) {
+	foreach ($c in $container.ChildNodes) {
+		if (-not (Test-IsWs $c)) { continue }
+		if ($c.Value -match '^\r?\n(\t+)$') { return $Matches[1] }
+		if ($c.Value -match '^\r?\n(\t+)') { return $Matches[1] }
+	}
+	$depth = 0
+	$cur = $container
+	while ($cur -and $cur.NodeType -eq 'Element' -and $cur.ParentNode -and $cur.ParentNode.NodeType -eq 'Element') { $depth++; $cur = $cur.ParentNode }
+	return ("`t" * ($depth + 1))
+}
+
+# Whitespace of a subtree rewritten for a new depth: children on the next level, the closing tag at the node's own
+function Set-FormSubtreeIndent($node, [string]$eol, [int]$depth) {
+	$kids = @($node.ChildNodes)
+	for ($i = 0; $i -lt $kids.Count; $i++) {
+		$c = $kids[$i]
+		if (Test-IsWs $c) {
+			$nv = if ($i -eq $kids.Count - 1) { "$eol$("`t" * $depth)" } else { "$eol$("`t" * ($depth + 1))" }
+			$c.Value = $nv
+		} elseif ($c.NodeType -eq 'Element') {
+			$hasElems = $false
+			foreach ($x in $c.ChildNodes) { if ($x.NodeType -eq 'Element') { $hasElems = $true; break } }
+			if ($hasElems) { Set-FormSubtreeIndent $c $eol ($depth + 1) }
+		}
+	}
+}
+
+function Get-FormDepth($node) {
+	$d = 0
+	$cur = $node
+	while ($cur -and $cur.ParentNode -and $cur.ParentNode.NodeType -eq 'Element') { $d++; $cur = $cur.ParentNode }
+	return $d
+}
+
+# Two whitespace nodes side by side make a blank line the platform never writes: one goes
+function Remove-DuplicateWhitespace($node) {
+	$kids = @($node.ChildNodes)
+	for ($i = 1; $i -lt $kids.Count; $i++) {
+		if ((Test-IsWs $kids[$i]) -and (Test-IsWs $kids[$i - 1])) { [void]$node.RemoveChild($kids[$i - 1]) }
+	}
+	foreach ($c in @($node.ChildNodes)) { if ($c.NodeType -eq 'Element') { Remove-DuplicateWhitespace $c } }
+}
+
+# A node put among the container's children: before $ref when given, else after the last child. Whitespace of
+# the container is kept: one line per node.
+function Insert-FormNodeAt($container, $node, $ref, [string]$eol) {
+	$ind = Get-FormChildIndent $container $eol
+	if ($null -ne $ref) {
+		# A line of its own before the reference and one after: the reference keeps the line break that
+		# used to stand before it
+		[void]$container.InsertBefore($container.OwnerDocument.CreateWhitespace("$eol$ind"), $ref)
+		[void]$container.InsertBefore($node, $ref)
+		[void]$container.InsertBefore($container.OwnerDocument.CreateWhitespace("$eol$ind"), $ref)
+		return
+	}
+	$trailing = $container.LastChild
+	if (Test-IsWs $trailing) {
+		[void]$container.InsertBefore($container.OwnerDocument.CreateWhitespace("$eol$ind"), $trailing)
+		[void]$container.InsertBefore($node, $trailing)
+	} else {
+		[void]$container.AppendChild($container.OwnerDocument.CreateWhitespace("$eol$ind"))
+		[void]$container.AppendChild($node)
+		$parentIndent = if ($ind.Length -gt 0) { $ind.Substring(0, $ind.Length - 1) } else { '' }
+		[void]$container.AppendChild($container.OwnerDocument.CreateWhitespace("$eol$parentIndent"))
+	}
+}
+
+function Remove-FormNode($node) {
+	$parent = $node.ParentNode
+	if ($parent -and (Test-IsWs $node.PreviousSibling)) { [void]$parent.RemoveChild($node.PreviousSibling) }
+	[void]$parent.RemoveChild($node)
+}
+
+# ChildItems of a form or an element; created where the platform writes it — after AutoCommandBar/Events of the
+# form, at the end of an element's own children
+function Get-FormChildItems($container, $root) {
+	$ci = $container.SelectSingleNode("d:ChildItems", $ns)
+	if ($ci) { return $ci }
+	$doc = $container.OwnerDocument
+	$ci = $doc.CreateElement('ChildItems', $ns.LookupNamespace('d'))
+	if ($container -eq $root) {
+		$after = $container.SelectSingleNode("d:Events", $ns)
+		if (-not $after) { $after = $container.SelectSingleNode("d:AutoCommandBar", $ns) }
+		if ($after -and -not (Test-IsWs $after.NextSibling)) { Remove-FormNode $after; Insert-FormNodeAt $container $after $null $script:formEol; $after = $after.PreviousSibling.PreviousSibling }
+	}
+	Insert-FormNodeAt $container $ci $null $script:formEol
+	return $ci
+}
+
+# Name of the property node as Get-PropMap keys it: the tag, a repeat gets #2, #3…
+function Get-FormPropKeys($node) {
+	$res = @{}
+	$seen = @{}
+	foreach ($c in $node.ChildNodes) {
+		if ($c.NodeType -ne 'Element') { continue }
+		$k = $c.LocalName
+		if ($seen.ContainsKey($k)) { $seen[$k]++; $k = "$k#$($seen[$k])" } else { $seen[$k] = 1 }
+		$res[$k] = $c
+	}
+	return $res
+}
+
+# A property node of the target put where the extension's layout has it: after the previous property both sides
+# have, else before the next one, else first
+function Insert-FormProp($target, $extNode, [string]$key, $newNode, [string]$eol) {
+	$extKeys = @(); foreach ($k in @(Get-FormPropKeys $extNode).Keys) { $extKeys += $k }
+	$pos = [Array]::IndexOf($extKeys, $key)
+	$prevKey = $null; $nextKey = $null
+	if ($pos -gt 0) { $prevKey = $extKeys[$pos - 1] }
+	if ($pos -ge 0 -and $pos -lt $extKeys.Count - 1) { $nextKey = $extKeys[$pos + 1] }
+	$tgt = Get-FormPropKeys $target
+	$ref = $null
+	if ($prevKey -and $tgt.ContainsKey($prevKey)) {
+		$ref = $tgt[$prevKey].NextSibling
+		while ($ref -and (Test-IsWs $ref) -and $null -eq $ref.NextSibling) { $ref = $null }
+	} elseif ($prevKey) {
+		# the previous one is missing in the configuration: go further back
+		for ($i = $pos - 2; $i -ge 0; $i--) { if ($tgt.ContainsKey($extKeys[$i])) { $ref = $tgt[$extKeys[$i]].NextSibling; break } }
+	}
+	if (-not $ref -and $nextKey -and $tgt.ContainsKey($nextKey)) { $ref = $tgt[$nextKey] }
+	if (-not $ref) { $ref = $target.LastChild; if (Test-IsWs $ref) { $ref = $null } }
+	Insert-FormNodeAt $target $newNode $ref $eol
+}
+
+# Names of the configuration as a pool: lower-case name -> true
+function Get-FormNameSet($root) {
+	$s = @{}
+	foreach ($n in $root.SelectNodes(".//*[@name]", $ns)) { $s[$n.GetAttribute('name').ToLower()] = $true }
+	return $s
+}
+
+# Names of the extension's main part -> names in the configuration: the extension prefix goes, a taken name
+# gets the project's development prefix (Get-TargetName), a taken one as well stays as it is
+function Get-FormNameMap($extRoot, $cfgRoot, [string]$prefix) {
+	$taken = Get-FormNameSet $cfgRoot
+	$map = @{}
+	foreach ($n in $extRoot.SelectNodes(".//*[@name]", $ns)) {
+		$nm = $n.GetAttribute('name')
+		if (-not $nm) { continue }
+		$k = $nm.ToLower()
+		if ($map.ContainsKey($k)) { continue }
+		if ($prefix -and $nm.StartsWith($prefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+			$tn = Get-TargetName $nm $prefix $taken $false
+			if (-not $tn.Taken) { $taken[$tn.Name.ToLower()] = $true }
+			$map[$k] = $tn.Name
+		}
+	}
+	return $map
+}
+
+# Objects of the configuration by uuid, for the extension's "0:<uuid>" references: StyleItem -> style:<name>,
+# CommonPicture -> CommonPicture.<name>
+function Get-ConfigRefMap([string]$cfgDir) {
+	$res = @{}
+	$p = Join-Path $cfgDir 'ConfigDumpInfo.xml'
+	if (-not (Test-Path -LiteralPath $p)) { return $res }
+	try { $doc = New-Object System.Xml.XmlDocument; $doc.Load($p) } catch { return $res }
+	foreach ($m in $doc.SelectNodes("//*[local-name()='Metadata']")) {
+		$nm = $m.GetAttribute('name'); $id = $m.GetAttribute('id')
+		if (-not $nm -or -not $id) { continue }
+		$dot = $nm.IndexOf('.')
+		if ($dot -lt 1) { continue }
+		$kind = $nm.Substring(0, $dot); $name = $nm.Substring($dot + 1)
+		if ($kind -eq 'StyleItem') { $res[$id.ToLower()] = "style:$name" }
+		elseif ($kind -eq 'CommonPicture') { $res[$id.ToLower()] = "CommonPicture.$name" }
+	}
+	return $res
+}
+
+$script:formPathTags = '(?:DataPath|TitleDataPath|FooterDataPath|HeaderDataPath|MultipleValue\w*DataPath)$'
+
+# Text of a leaf rewritten: names renamed, "0:<uuid>" references resolved, handler names renamed. Returns the
+# unresolved references found.
+function Convert-FormLeaf($node, $nameMap, $refMap, $handlerMap, $bad) {
+	$tag = $node.LocalName
+	if ($tag -eq 'Action' -or $tag -eq 'Event') {
+		$v = $node.InnerText.Trim()
+		if ($handlerMap -and $handlerMap.ContainsKey($v.ToLower())) { $node.InnerText = $handlerMap[$v.ToLower()] }
+		return
+	}
+	$v = $node.InnerText
+	if ($v -match '^\s*0:([0-9a-fA-F-]{36})\s*$') {
+		$u = $Matches[1].ToLower()
+		if ($refMap.ContainsKey($u)) { $node.InnerText = $refMap[$u] }
+		else { [void]$bad.Add("$tag 0:$u") }
+		return
+	}
+	if ($tag -eq 'CommandName' -and $v.Trim().StartsWith('Form.Command.')) {
+		$cn = $v.Trim().Substring('Form.Command.'.Length)
+		if ($nameMap.ContainsKey($cn.ToLower())) { $node.InnerText = 'Form.Command.' + $nameMap[$cn.ToLower()] }
+		return
+	}
+	if ($tag -match $script:formPathTags -and $nameMap.Count -gt 0) {
+		$alt = (@($nameMap.Keys) | ForEach-Object { [regex]::Escape($_) }) -join '|'
+		$re = New-Object System.Text.RegularExpressions.Regex ('(?<![\w.])(' + $alt + ')(?!\w)'), ([System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
+		$node.InnerText = $re.Replace($v, [System.Text.RegularExpressions.MatchEvaluator] { param($m) $nameMap[$m.Value.ToLower()] })
+	}
+}
+
+# A copy of the extension's node for the configuration: ids from its pools, names and references converted,
+# whitespace at the new depth. $colOwner — the attribute whose columns are copied.
+function Copy-FormNode($node, $dstDoc, $pools, $nameMap, $refMap, $handlerMap, $bad, [string]$colOwner) {
+	$copy = $dstDoc.ImportNode($node, $true)
+	# Document order: the node itself before its descendants, as the py port walks it
+	$all = @($copy) + @($copy.SelectNodes(".//*[@id]"))
+	foreach ($n in $all) {
+		if ($n.NodeType -ne 'Element' -or -not $n.HasAttribute('id')) { continue }
+		switch ($n.LocalName) {
+			'Attribute' { $pools.Attr++; $n.SetAttribute('id', [string]$pools.Attr) }
+			'Command' { $pools.Cmd++; $n.SetAttribute('id', [string]$pools.Cmd) }
+			'Column' {
+				$owner = $colOwner.ToLower()
+				if (-not $pools.Col.ContainsKey($owner)) { $pools.Col[$owner] = 0 }
+				$pools.Col[$owner]++
+				$n.SetAttribute('id', [string]$pools.Col[$owner])
+			}
+			default { $pools.Elem++; $n.SetAttribute('id', [string]$pools.Elem) }
+		}
+	}
+	foreach ($n in @($copy.SelectNodes(".//*[@name]")) + @($copy)) {
+		if ($n.NodeType -ne 'Element' -or -not $n.HasAttribute('name')) { continue }
+		$nm = $n.GetAttribute('name')
+		if ($nameMap.ContainsKey($nm.ToLower())) { $n.SetAttribute('name', $nameMap[$nm.ToLower()]) }
+	}
+	foreach ($n in @($copy.SelectNodes(".//*"))) {
+		if ($n.NodeType -ne 'Element') { continue }
+		$hasKids = $false
+		foreach ($c in $n.ChildNodes) { if ($c.NodeType -eq 'Element') { $hasKids = $true; break } }
+		if (-not $hasKids) { Convert-FormLeaf $n $nameMap $refMap $handlerMap $bad }
+	}
+	return $copy
+}
+
+# Attributes section of the form, created at its canonical place
+function Get-FormSection($root, [string]$name) {
+	$s = $root.SelectSingleNode("d:$name", $ns)
+	if ($s) { return $s }
+	$doc = $root.OwnerDocument
+	$s = $doc.CreateElement($name, $ns.LookupNamespace('d'))
+	Insert-FormNodeAt $root $s $null $script:formEol
+	return $s
+}
+
+# Where a new attribute goes: before ConditionalAppearance (it is the last child of Attributes), else at the end
+function Insert-FormAttribute($attrs, $node) {
+	$ca = $attrs.SelectSingleNode("d:ConditionalAppearance", $ns)
+	if ($ca) { Insert-FormNodeAt $attrs $node $ca $script:formEol } else { Insert-FormNodeAt $attrs $node $null $script:formEol }
+}
+
+# An element put among its parent's children: after the nearest previous sibling of the extension that the
+# configuration has, else first
+function Insert-FormElement($rec, $root, $nameMap, [string]$eol) {
+	$parentName = $rec.Parent
+	$container = $root
+	if ($parentName) {
+		$target = $root.SelectSingleNode(".//*[@name='" + $parentName.Replace("'", "&apos;") + "']", $ns)
+		if (-not $target) { return $null }
+		$container = $target
+	}
+	$ci = Get-FormChildItems $container $root
+	$ref = $null
+	for ($i = $rec.Pos - 1; $i -ge 0; $i--) {
+		$sib = $rec.Siblings[$i]
+		$mn = if ($nameMap.ContainsKey($sib.ToLower())) { $nameMap[$sib.ToLower()] } else { $sib }
+		$found = $ci.SelectSingleNode("d:*[@name='" + $mn.Replace("'", "&apos;") + "']", $ns)
+		if ($found) { $ref = $found.NextSibling; break }
+	}
+	if ($ref -and $ref.NodeType -ne 'Element' -and $ref.NextSibling) { $ref = $ref.NextSibling }
+	if ($ref -and $ref.NodeType -ne 'Element') { $ref = $null }
+	return @{ Ci = $ci; Ref = $ref }
+}
+
+# --- the plan of one form item and applying it ---
+
+function New-FormEdit([string]$path, [string]$extForm, [string]$extModule, [string]$cfgModule, [string]$extDir, [string]$prefix, [string]$label) {
+	$k = $path.ToLower()
+	if (-not $script:formEdits.ContainsKey($k)) {
+		$fw = Read-FormWrite $path
+		$script:formEdits[$k] = @{
+			Path = $path; Fw = $fw; SrcDoc = (Read-FormDocKeep $extForm); Pools = (Get-FormIdPools $fw.Doc.DocumentElement)
+			ExtForm = $extForm; ExtModule = $extModule; CfgModule = $cfgModule; ExtDir = $extDir; Prefix = $prefix; Label = $label
+			FormInfo = @{ Xml = $extForm; Module = $extModule; Label = $label }
+			Ops = (New-Object System.Collections.ArrayList); Failed = 0
+		}
+	}
+	return $script:formEdits[$k]
+}
+
+# The element of the configuration by its name in the extension: the name map applied
+function Find-FormTarget($root, $nameMap, [string]$name) {
+	$mn = if ($nameMap.ContainsKey($name.ToLower())) { $nameMap[$name.ToLower()] } else { $name }
+	return $root.SelectSingleNode(".//*[@name='" + $mn.Replace("'", "&apos;") + "']", $ns)
+}
+
+function Apply-FormOp($fe, $op, $ctx) {
+	$root = $fe.Fw.Doc.DocumentElement
+	$eol = $fe.Fw.Eol
+	$pools = $fe.Pools
+	$copy = {
+		param($node, [string]$colOwner)
+		$src = if ($fe.SrcDoc) { Get-NodeByPath $fe.SrcDoc (Get-NodePath $node) } else { $null }
+		if (-not $src) { $src = $node }
+		Copy-FormNode $src $fe.Fw.Doc $pools $ctx.NameMap $ctx.RefMap $ctx.HandlerMap $ctx.Bad $colOwner
+	}
+	switch ($op.Kind) {
+		'attribute' {
+			$attrs = Get-FormSection $root 'Attributes'
+			$node = & $copy $op.Node $op.Name
+			Set-FormSubtreeIndent $node $eol ((Get-FormDepth $attrs) + 1)
+			Insert-FormAttribute $attrs $node
+		}
+		'column' {
+			$at = Find-FormTarget $root $ctx.NameMap $op.Attr
+			if (-not $at) { throw "attribute $($op.Attr) is not in the configuration" }
+			$cols = $at.SelectSingleNode("d:Columns", $ns)
+			if (-not $cols) {
+				$doc = $root.OwnerDocument
+				$cols = $doc.CreateElement('Columns', $ns.LookupNamespace('d'))
+				Insert-FormNodeAt $at $cols $null $eol
+			}
+			$owner = $at.GetAttribute('name')
+			$node = & $copy $op.Node $owner
+			Set-FormSubtreeIndent $node $eol ((Get-FormDepth $cols) + 1)
+			Insert-FormNodeAt $cols $node $null $eol
+		}
+		'command' {
+			$cmds = Get-FormSection $root 'Commands'
+			$node = & $copy $op.Node $null
+			Set-FormSubtreeIndent $node $eol ((Get-FormDepth $cmds) + 1)
+			Insert-FormNodeAt $cmds $node $null $eol
+		}
+		'element' {
+			$where = Insert-FormElement $op.Rec $root $ctx.NameMap $eol
+			if (-not $where) { throw "parent $($op.Rec.Parent) is not in the configuration" }
+			$node = & $copy $op.Rec.Node $null
+			Set-FormSubtreeIndent $node $eol ((Get-FormDepth $where.Ci) + 1)
+			Insert-FormNodeAt $where.Ci $node $where.Ref $eol
+		}
+		'prop' {
+			$target = Find-FormTarget $root $ctx.NameMap $op.Rec.Name
+			if (-not $target) { throw "element $($op.Rec.Name) is not in the configuration" }
+			foreach ($p in $op.Props) {
+				$keys = Get-FormPropKeys $target
+				if ($null -eq $p.New) {
+					if ($keys.ContainsKey($p.Key)) { Remove-FormNode $keys[$p.Key] }
+					continue
+				}
+				$node = & $copy $p.New $null
+				if ($keys.ContainsKey($p.Key)) { [void]$target.ReplaceChild($node, $keys[$p.Key]) }
+				else { Insert-FormProp $target $op.Rec.Node $p.Key $node $eol }
+			}
+		}
+		'formprop' {
+			foreach ($p in $op.Props) {
+				$keys = Get-FormPropKeys $root
+				if ($null -eq $p.New) {
+					if ($keys.ContainsKey($p.Key)) { Remove-FormNode $keys[$p.Key] }
+					continue
+				}
+				$node = & $copy $p.New $null
+				if ($keys.ContainsKey($p.Key)) { [void]$root.ReplaceChild($node, $keys[$p.Key]) }
+				else { Insert-FormProp $root $op.ExtRoot $p.Key $node $eol }
+			}
+		}
+		'move' {
+			$target = Find-FormTarget $root $ctx.NameMap $op.Rec.Name
+			if (-not $target) { throw "element $($op.Rec.Name) is not in the configuration" }
+			$node = $target.CloneNode($true)
+			Remove-FormNode $target
+			# The spot is looked up after the element has left: its neighbours have changed
+			$where = Insert-FormElement $op.Rec $root $ctx.NameMap $eol
+			if (-not $where) { throw "parent $($op.Rec.Parent) is not in the configuration" }
+			$ci = $where.Ci
+			$ref = $null
+			if ($where.Ref -and $where.Ref.ParentNode -eq $ci) { $ref = $where.Ref }
+			Insert-FormNodeAt $ci $node $ref $eol
+		}
+		'appearance' {
+			$attrs = Get-FormSection $root 'Attributes'
+			$ca = $attrs.SelectSingleNode("d:ConditionalAppearance", $ns)
+			if ($op.Add) {
+				if (-not $ca) {
+					$doc = $root.OwnerDocument
+					$ca = $doc.CreateElement('ConditionalAppearance', $ns.LookupNamespace('d'))
+					Insert-FormNodeAt $attrs $ca $null $eol
+				}
+				$node = & $copy $op.Rule $null
+				Set-FormSubtreeIndent $node $eol ((Get-FormDepth $ca) + 1)
+				Insert-FormNodeAt $ca $node $null $eol
+			} elseif ($ca) {
+				$key = Get-CmpKey $op.Rule $script:transferPrefix
+				foreach ($it in @($ca.SelectNodes("dcsset:item", $ns))) {
+					if ((Get-CmpKey $it $script:transferPrefix) -ieq $key) { Remove-FormNode $it; break }
+				}
+			}
+		}
+		default { throw "unknown form operation $($op.Kind)" }
+	}
+}
+
+# The form written and read back the same way the check reads it: every planned item must come out in place —
+# a property by its value, the rest by the line the check would print for it
+function Test-FormWrite($fe) {
+	$tmp = [System.IO.Path]::GetTempFileName()
+	try {
+		Remove-DuplicateWhitespace $fe.Fw.Doc.DocumentElement
+		Save-FormWrite $fe.Fw $tmp
+		$miss = @()
+		$diff = Get-FormDiff $fe.ExtForm
+		$items = Get-FormTransferItems $diff $fe.FormInfo $tmp $fe.CfgModule $fe.ExtDir $fe.Prefix
+		$ok = @()
+		foreach ($it in $items) { if ($it.Status -eq 'TRANSFERRED') { $ok += $it.Text } }
+		$doc = Read-FormDoc $tmp
+		$names = if ($doc) { @(Get-FormElementIndex $doc.DocumentElement).Keys } else { @() }
+		$checkProps = {
+			param($target, $props)
+			$bad = @()
+			if (-not $target) { return @('target not found') }
+			$cpm = Get-PropMap $target
+			foreach ($p in $props) { if ((Get-PropTransfer $cpm $p $fe.Prefix) -ne 'ok') { $bad += $p.Key } }
+			return $bad
+		}
+		foreach ($op in $fe.Ops) {
+			if ($op.Kind -eq 'prop') {
+				$hit = Find-NameIn $names $op.Rec.Name $fe.Prefix
+				$target = if ($hit -and $doc) { (Get-FormElementIndex $doc.DocumentElement)[$hit].Node } else { $null }
+				foreach ($k in (& $checkProps $target $op.Props)) { $miss += "$($op.Rec.Name).$k" }
+				continue
+			}
+			if ($op.Kind -eq 'formprop') {
+				foreach ($k in (& $checkProps $doc.DocumentElement $op.Props)) { $miss += "form.$k" }
+				continue
+			}
+			$hit = $false
+			foreach ($t in $ok) { if ($t.StartsWith($op.Key)) { $hit = $true; break } }
+			if (-not $hit) { $miss += $op.Key }
+		}
+		return $miss
+	} finally {
+		Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+	}
+}
 # ============================================================
 # Transfer: writing into the configuration (-Mode transfer)
 # ============================================================
@@ -3448,6 +4019,7 @@ if ($Mode -eq 'transfer') {
 		}
 	}
 	$script:supportInfo = Get-SupportInfo $ConfigPath
+	$script:configRefMap = Get-ConfigRefMap $ConfigPath
 	$script:fileEdits = [ordered]@{}
 	$script:nameMap = @{}
 	$script:seq = 0
@@ -3591,6 +4163,7 @@ if ($Mode -eq 'transfer') {
 	do {
 		$again = $false
 		foreach ($fe in $script:fileEdits.Values) { $fe.Repl.Clear(); $fe.Create.Clear(); $fe.OwnAt.Clear(); $fe.Tail.Clear() }
+		$script:formEdits = @{}
 		$script:seq = 0
 		$tempCount = 0
 		$recs = @()
@@ -3614,6 +4187,44 @@ if ($Mode -eq 'transfer') {
 				}
 				if ($it.Status -eq 'TEMPORARY') { $tempCount++; continue }
 				if ($it.Status -eq 'TRANSFERRED') { $titems += $t; continue }
+				if ($it.Group -and $w.Support -eq 'locked') {
+					$t.Status = 'MANUAL'
+					$t.Text = "$($it.Text) — object is locked by vendor support"
+					$t.Sub = @('next: allow editing with /support-edit, then re-run -Mode transfer')
+					$titems += $t; continue
+				}
+				if ($it.Group -and $it.Plan) {
+					$relForm = [string]$it.Section
+					$cfgForm = Join-Path $ConfigPath $relForm
+					$extForm = Join-Path $extDir0 $relForm
+					$cfgFormMod = $cfgForm -replace '[\/]Ext[\/]Form\.xml$', '/Ext/Form/Module.bsl'
+					$extFormMod = $extForm -replace '[\/]Ext[\/]Form\.xml$', '/Ext/Form/Module.bsl'
+					$fe = New-FormEdit $cfgForm $extForm $extFormMod $cfgFormMod $extDir0 $prefix $it.Group
+					if (-not $fe.Ctx) {
+						$hm = @{}
+						if ($fileMaps.ContainsKey($cfgFormMod.ToLower())) { $hm = $fileMaps[$cfgFormMod.ToLower()] }
+						$fe.Ctx = @{ NameMap = (Get-FormNameMap (Read-FormDoc $extForm).DocumentElement $fe.Fw.Doc.DocumentElement $prefix); RefMap = $script:configRefMap; HandlerMap = $hm; Bad = (New-Object System.Collections.ArrayList) }
+					}
+					try {
+						Apply-FormOp $fe $it.Plan $fe.Ctx
+						if ($fe.Ctx.Bad.Count -gt 0) { throw "reference $($fe.Ctx.Bad[0]) is not in the configuration" }
+						if ($it.Plan.Kind -eq 'prop') { [void]$fe.Ops.Add(@{ Kind = 'prop'; Rec = $it.Plan.Rec; Props = $it.Plan.Props; Item = $t }) }
+						elseif ($it.Plan.Kind -eq 'formprop') { [void]$fe.Ops.Add(@{ Kind = 'formprop'; Props = $it.Plan.Props; Item = $t }) }
+						else { [void]$fe.Ops.Add(@{ Kind = 'text'; Key = $it.PlanKey; Item = $t }) }
+						# A property changed in the configuration some other way stays as it is: the item keeps
+						# its divergence, what was pending has gone over
+						if ($it.Status -eq 'DIVERGED') { $t.Status = 'DIVERGED'; $t.Now = $false; $t.Text = "$($it.Text) — the rest transferred" }
+						else { $t.Status = 'TRANSFERRED'; $t.Now = $true }
+						$titems += $t
+					} catch {
+						$fe.Failed++
+						$t.Status = 'CONFLICT'
+						$t.Text = "$($it.Text) — $($_.Exception.Message); form not changed"
+						$t.Sub = @('next: apply by hand, then re-run -Mode check')
+						$titems += $t
+					}
+					continue
+				}
 				$t.Status = 'MANUAL'
 				if ($it.Group) { $t.Text = "$($it.Text) — forms are not transferred yet"; $titems += $t; continue }
 				if (-not $pl) { $t.Text = "$($it.Text) — metadata is not transferred yet"; $titems += $t; continue }
@@ -3920,6 +4531,24 @@ if ($Mode -eq 'transfer') {
 
 	# --- Pass 4: write ---
 	$changed = Write-FileEdits
+	foreach ($fe in @($script:formEdits.Values)) {
+		if ($fe.Ops.Count -eq 0 -and $fe.Failed -eq 0) { continue }
+		$why = if ($fe.Failed -gt 0) { 'another change of the same form could not be applied' } else { $null }
+		if (-not $why) {
+			$miss = Test-FormWrite $fe
+			if ($miss.Count -gt 0) { $why = "after the transfer the check would not find it: $($miss[0])" }
+		}
+		if ($why) {
+			foreach ($op in $fe.Ops) {
+				$op.Item.Status = 'CONFLICT'; $op.Item.Now = $false
+				$op.Item.Text = "$($op.Item.Text) — $why; form not changed"
+				$op.Item.Sub = @('next: apply by hand, then re-run -Mode check')
+			}
+			continue
+		}
+		Save-FormWrite $fe.Fw
+		$changed += $fe.Path
+	}
 
 	# --- Report ---
 	$cNow = 0; $cAlready = 0; $cWait = 0; $cManual = 0; $cConflict = 0

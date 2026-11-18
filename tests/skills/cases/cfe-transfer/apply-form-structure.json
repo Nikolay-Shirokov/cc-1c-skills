@@ -1,0 +1,41 @@
+{
+  "name": "Перенос структуры формы: новый элемент с командной панелью, свойство с изменённым в конфигурации значением (остаётся, расхождение сохраняется), перемещение элемента, правка реквизита; команда с перехватом действия не переносится",
+  "setup": "fixture:form-transfer",
+  "params": {
+    "extensionPath": "cfe"
+  },
+  "cwd": "workDir",
+  "args_extra": [
+    "-Mode",
+    "transfer"
+  ],
+  "expectError": true,
+  "expect": {
+    "stdoutContains": [
+      "[TRANSFERRED]        + [Button] PatchA_Btn (in: ФормаКоманднаяПанель)",
+      "[DIVERGED]           ~ [Input] Article: Title, Width (config value differs: Width) — the rest transferred",
+      "[TRANSFERRED]        > [Input] Article: moved (after: L1)",
+      "[TRANSFERRED]        ~ [Label] L3: Title",
+      "[MANUAL]             + command PatchA_Cmd -> PatchA_CmdAction[Before]",
+      "Changed files:",
+      "    Catalogs/Items/Forms/ItemForm/Ext/Form.xml"
+    ],
+    "fileContains": [
+      {
+        "file": "Catalogs/Items/Forms/ItemForm/Ext/Form.xml",
+        "text": [
+          "\t\t\t<Button name=\"Btn\" id=\"18\">\n\t\t\t\t<Type>CommandBarButton</Type>\n\t\t\t\t<CommandName>Form.Command.Cmd</CommandName>",
+          "\t\t\t\t\t<v8:content>Ext Article</v8:content>",
+          "\t\t</InputField>\n\t\t<LabelDecoration name=\"L3\" id=\"4\">",
+          "\t\t\t\t\t<v8:content>Ext L3</v8:content>"
+        ]
+      }
+    ],
+    "fileNotContains": [
+      {
+        "file": "Catalogs/Items/Forms/ItemForm/Ext/Form.xml",
+        "text": "<Command name=\"Cmd\""
+      }
+    ]
+  }
+}

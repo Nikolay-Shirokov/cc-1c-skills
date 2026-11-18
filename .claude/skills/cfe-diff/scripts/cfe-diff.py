@@ -834,7 +834,7 @@ def get_form_diff(form_xml):
                 ft = format_type(x.find("d:Type", NSMAP))
                 if ft:
                     info = ": " + ft
-            r[sec].append({"name": nm, "info": info, "actions": actions, "changed": changed})
+            r[sec].append({"name": nm, "info": info, "actions": actions, "changed": changed, "node": x})
 
     # Conditional appearance, rule by rule: the main part holds the whole form's rules, BaseForm the
     # configuration's at the borrowing — a rule only in the main part is added, only in BaseForm removed

@@ -1,8 +1,9 @@
-#!/usr/bin/env python3
-# cfe-transfer v1.9 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+﻿#!/usr/bin/env python3
+# cfe-transfer v1.10 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
+import copy
 import json
 import os
 import re
@@ -1877,7 +1878,7 @@ def get_form_diff(form_xml):
                 ft = format_type(x.find("d:Type", NSMAP))
                 if ft:
                     info = ": " + ft
-            r[sec].append({"name": nm, "info": info, "actions": actions, "changed": changed})
+            r[sec].append({"name": nm, "info": info, "actions": actions, "changed": changed, "node": x})
 
     # Conditional appearance, rule by rule: the main part holds the whole form's rules, BaseForm the
     # configuration's at the borrowing — a rule only in the main part is added, only in BaseForm removed
@@ -2005,7 +2006,11 @@ def form_transfer_items(diff, form, cfg_form_xml, cfg_module_path, ext_dir, pref
         if ch["kind"] == "added":
             inn = (" (in: %s)" % rec["parent"]) if rec["parent"] else ""
             st = "TRANSFERRED" if hit else "NOT_TRANSFERRED"
-            items.append(marked(new_item(st, "+ %s %s%s%s" % (tag, rec["name"], inn, as_text(hit, rec["name"])), "", group), own))
+            ni = marked(new_item(st, "+ %s %s%s%s" % (tag, rec["name"], inn, as_text(hit, rec["name"])), "", group), own)
+            if not hit:
+                ni["plan"] = {"kind": "element", "rec": rec}
+                ni["plan_key"] = "+ %s %s" % (tag, rec["name"])
+            items.append(ni)
             continue
         if ch["props"]:
             keys = [p["key"] for p in ch["props"]]
@@ -2032,7 +2037,14 @@ def form_transfer_items(diff, form, cfg_form_xml, cfg_module_path, ext_dir, pref
                     cnt = " (config value differs: %s)" % ", ".join(differs)
                 else:
                     cnt = (" (%d/%d props)" % (ok, n)) if st == "PARTIAL" else ""
-                items.append(marked(new_item(st, "~ %s %s: %s%s" % (tag, rec["name"], ", ".join(keys), cnt), "", group), own))
+                ni = marked(new_item(st, "~ %s %s: %s%s" % (tag, rec["name"], ", ".join(keys), cnt), "", group), own)
+                # Only the properties still at their BaseForm value: a value changed in the configuration some
+                # other way stays as it is and is left to a person
+                pend = [p for p in ch["props"] if prop_transfer(cpm, p, prefix) == "pending"]
+                if pend:
+                    ni["plan"] = {"kind": "prop", "rec": rec, "props": pend}
+                    ni["plan_key"] = "~ %s %s: %s" % (tag, rec["name"], ", ".join(keys))
+                items.append(ni)
         if ch["moved"]:
             st = "NOT_TRANSFERRED"
             if hit:
@@ -2043,7 +2055,11 @@ def form_transfer_items(diff, form, cfg_form_xml, cfg_module_path, ext_dir, pref
                 have_mapped = (find_name_in(c_names, have, prefix) or "") if have else ""
                 if same_parent and want.lower() == have_mapped.lower():
                     st = "TRANSFERRED"
-            items.append(marked(new_item(st, "> %s %s: %s" % (tag, rec["name"], move_text(ch)), "", group), own))
+            ni = marked(new_item(st, "> %s %s: %s" % (tag, rec["name"], move_text(ch)), "", group), own)
+            if st != "TRANSFERRED":
+                ni["plan"] = {"kind": "move", "rec": rec}
+                ni["plan_key"] = "> %s %s" % (tag, rec["name"])
+            items.append(ni)
 
     # Interceptor of a handler: the extension's handler code looked up in the configuration's one
     cfg_mod = read_bsl_lines(cfg_module_path)
@@ -2085,7 +2101,13 @@ def form_transfer_items(diff, form, cfg_form_xml, cfg_module_path, ext_dir, pref
                 continue
             hit = find_name_in(cn, x["name"], prefix)
             st = "TRANSFERRED" if hit else "NOT_TRANSFERRED"
-            items.append(marked(new_item(st, "+ %s %s%s%s" % (word, x["name"], x["info"], as_text(hit, x["name"])), "", group), [x["name"]]))
+            ni = marked(new_item(st, "+ %s %s%s%s" % (word, x["name"], x["info"], as_text(hit, x["name"])), "", group), [x["name"]])
+            # A command whose action intercepts a method is a transfer of its own kind
+            ct_actions = [a for a in x["actions"] if a["call_type"]]
+            if not hit and not ct_actions:
+                ni["plan"] = {"kind": word if word != "parameter" else "parameter", "node": x["node"], "name": x["name"]}
+                ni["plan_key"] = "+ %s %s" % (word, x["name"])
+            items.append(ni)
 
     # Columns the extension adds to an attribute of the configuration
     if diff["columns"]:
@@ -2100,7 +2122,11 @@ def form_transfer_items(diff, form, cfg_form_xml, cfg_module_path, ext_dir, pref
             cols = [x.get("name") for x in am[ah.lower()][1].findall("d:Columns/d:Column", NSMAP)]
             hit = find_name_in(cols, c["name"], prefix)
             st = "TRANSFERRED" if hit else "NOT_TRANSFERRED"
-            items.append(marked(new_item(st, label + as_text(hit, c["name"]), "", group), [c["attr"], "%s.%s" % (c["attr"], c["name"])]))
+            ni = marked(new_item(st, label + as_text(hit, c["name"]), "", group), [c["attr"], "%s.%s" % (c["attr"], c["name"])])
+            if not hit:
+                ni["plan"] = {"kind": "column", "node": c["node"], "attr": c["attr"]}
+                ni["plan_key"] = label
+            items.append(ni)
 
     if diff["form_props"]:
         cpm = get_prop_map(cr, root=True)
@@ -2108,7 +2134,11 @@ def form_transfer_items(diff, form, cfg_form_xml, cfg_module_path, ext_dir, pref
             r = prop_transfer(cpm, p, prefix)
             st = {"ok": "TRANSFERRED", "pending": "NOT_TRANSFERRED"}.get(r, "DIVERGED")
             why = " (config value differs)" if r == "differs" else ""
-            items.append(new_item(st, "~ form " + prop_change_text(p) + why, "", group))
+            ni = new_item(st, "~ form " + prop_change_text(p) + why, "", group)
+            if r == "pending":
+                ni["plan"] = {"kind": "formprop", "props": [p], "ext_root": diff["root"]}
+                ni["plan_key"] = "~ form " + p["key"]
+            items.append(ni)
     # Conditional appearance rules: an added one must be among the configuration's rules, a removed one not
     if diff["appearance"]:
         have = [cmp_key(x, prefix) for x in cr.findall("d:Attributes/d:ConditionalAppearance/dcsset:item", NSMAP)]
@@ -2116,7 +2146,11 @@ def form_transfer_items(diff, form, cfg_form_xml, cfg_module_path, ext_dir, pref
             inn = cmp_key(a["node"], prefix) in have
             done = inn if a["kind"] == "added" else not inn
             mk = "+" if a["kind"] == "added" else "-"
-            items.append(new_item("TRANSFERRED" if done else "NOT_TRANSFERRED", "%s conditional appearance rule %s" % (mk, appearance_text(a["node"])), "", group))
+            ni = new_item("TRANSFERRED" if done else "NOT_TRANSFERRED", "%s conditional appearance rule %s" % (mk, appearance_text(a["node"])), "", group)
+            if not done:
+                ni["plan"] = {"kind": "appearance", "rule": a["node"], "add": a["kind"] == "added"}
+                ni["plan_key"] = "%s conditional appearance rule %s" % (mk, appearance_text(a["node"]))
+            items.append(ni)
     for b in diff["blocks"]:
         cnode = cr.find(b["xpath"], NSMAP)
         st = "TRANSFERRED" if lower_or_none(cmp_key(cnode, prefix)) == lower_or_none(cmp_key(b["node"], prefix)) else "NOT_TRANSFERRED"
@@ -2533,6 +2567,462 @@ def get_subsystem_content(md):
 
 
 # ============================================================
+# Form writing: nodes of the extension's Form.xml copied into the configuration's one
+# ============================================================
+
+def read_form_write(path):
+    """A form document for writing: whitespace is kept, BOM and line breaks are remembered."""
+    data = open(path, "rb").read()
+    bom = data[:3] == b"\xef\xbb\xbf"
+    parser = etree.XMLParser(remove_blank_text=False)
+    root = etree.fromstring(data, parser)
+    return {"path": path, "root": root, "bom": bom, "eol": "\r\n" if b"\r\n" in data else "\n"}
+
+
+def save_form_write(fw, path=None):
+    """The document written the way the platform dumps it: UTF-8, <a/> without a space, the file's line breaks."""
+    body = etree.tostring(fw["root"], encoding="unicode")
+    text = '<?xml version="1.0" encoding="UTF-8"?>\n' + body
+    text = re.sub(r'(?<=\S) />', '/>', text)
+    if fw["eol"] == "\r\n":
+        text = text.replace("\r\n", "\n").replace("\n", "\r\n")
+    with open(path or fw["path"], "wb") as fh:
+        fh.write((b"\xef\xbb\xbf" if fw["bom"] else b"") + text.encode("utf-8"))
+
+
+def get_form_id_pools(root):
+    """Free ids of the configuration's form: elements (with companions), attributes, commands, columns per attribute."""
+    res = {"elem": 0, "attr": 0, "cmd": 0, "col": {}}
+    for n in root.iter():
+        if not isinstance(n.tag, str) or n.get("id") is None:
+            continue
+        try:
+            v = int(n.get("id"))
+        except ValueError:
+            continue
+        tag = localname(n)
+        if tag == "Attribute":
+            res["attr"] = max(res["attr"], v)
+        elif tag == "Command":
+            res["cmd"] = max(res["cmd"], v)
+        elif tag == "Column":
+            at = n.getparent()
+            while at is not None and localname(at) != "Attribute":
+                at = at.getparent()
+            k = (at.get("name") or "").lower() if at is not None else ""
+            res["col"][k] = max(res["col"].get(k, 0), v)
+        else:
+            res["elem"] = max(res["elem"], v)
+    return res
+
+
+def get_form_depth(node):
+    d = 0
+    cur = node
+    while cur is not None and cur.getparent() is not None:
+        d += 1
+        cur = cur.getparent()
+    return d
+
+
+def get_form_child_indent(container, eol):
+    """Indent of the container's children, from the whitespace it already has."""
+    for s in [container.text] + [c.tail for c in container]:
+        m = re.match(r'^\r?\n(\t+)', s or "")
+        if m:
+            return m.group(1)
+    return "\t" * (get_form_depth(container) + 1)
+
+
+def set_form_subtree_indent(node, eol, depth):
+    """Whitespace of a subtree rewritten for a new depth: the gaps between children are the children's tails."""
+    kids = list(node)
+    if not kids:
+        return
+    node.text = eol + "\t" * (depth + 1)
+    for i, c in enumerate(kids):
+        set_form_subtree_indent(c, eol, depth + 1)
+        c.tail = eol + ("\t" * (depth + 1) if i < len(kids) - 1 else "\t" * depth)
+
+
+def insert_form_node_at(container, node, ref, eol):
+    """A node put among the container's children: before the reference, else after the last child."""
+    ind = get_form_child_indent(container, eol)
+    depth = get_form_depth(container)
+    if ref is not None:
+        node.tail = eol + ind
+        container.insert(container.index(ref), node)
+        return
+    kids = list(container)
+    if kids:
+        kids[-1].tail = eol + ind
+    else:
+        container.text = eol + ind
+    container.append(node)
+    node.tail = eol + "\t" * depth
+
+
+def remove_form_node(node):
+    parent = node.getparent()
+    prev = node.getprevious()
+    tail = node.tail
+    parent.remove(node)
+    if prev is not None:
+        prev.tail = tail
+    else:
+        parent.text = tail
+
+
+def get_form_child_items(container):
+    ci = container.find("d:ChildItems", NSMAP)
+    if ci is not None:
+        return ci
+    ci = etree.SubElement(container, "{%s}ChildItems" % NSMAP["d"])
+    return ci
+
+
+def get_form_prop_keys(node):
+    """Name of the property node as get_prop_map keys it: the tag, a repeat gets #2, #3…"""
+    res = {}
+    seen = {}
+    for c in node:
+        if not isinstance(c.tag, str):
+            continue
+        k = localname(c)
+        if k in seen:
+            seen[k] += 1
+            k = "%s#%d" % (k, seen[k])
+        else:
+            seen[k] = 1
+        res[k] = c
+    return res
+
+
+def insert_form_prop(target, ext_node, key, new_node, eol):
+    """A property node put where the extension's layout has it: after the previous one both sides have, else
+    before the next, else first."""
+    keys = []
+    seen = {}
+    for c in ext_node:
+        if not isinstance(c.tag, str):
+            continue
+        k = localname(c)
+        if k in seen:
+            seen[k] += 1
+            k = "%s#%d" % (k, seen[k])
+        else:
+            seen[k] = 1
+        keys.append(k)
+    pos = keys.index(key) if key in keys else -1
+    tgt = get_form_prop_keys(target)
+    ref = None
+    if pos > 0:
+        for i in range(pos - 1, -1, -1):
+            if keys[i] in tgt:
+                ref = tgt[keys[i]].getnext()
+                break
+    if ref is None and pos >= 0:
+        for i in range(pos + 1, len(keys)):
+            if keys[i] in tgt:
+                ref = tgt[keys[i]]
+                break
+    if ref is None and len(target):
+        ref = target[0]
+    insert_form_node_at(target, new_node, ref, eol)
+
+
+def get_form_name_set(root):
+    return {(n.get("name") or "").lower() for n in root.iter() if isinstance(n.tag, str) and n.get("name")}
+
+
+def get_form_name_map(ext_root, cfg_root, prefix):
+    """Names of the extension's main part -> names in the configuration: the extension prefix goes, a taken
+    name gets the project's development prefix."""
+    taken = get_form_name_set(cfg_root)
+    res = {}
+    for n in ext_root.iter():
+        if not isinstance(n.tag, str):
+            continue
+        nm = n.get("name")
+        if not nm:
+            continue
+        k = nm.lower()
+        if k in res:
+            continue
+        if prefix and nm.lower().startswith(prefix.lower()):
+            tn = get_target_name(nm, prefix, taken, False)
+            if not tn.get("taken"):
+                taken.add(tn["name"].lower())
+            res[k] = tn["name"]
+    return res
+
+
+def get_config_ref_map(cfg_dir):
+    """Objects of the configuration by uuid: StyleItem -> style:<name>, CommonPicture -> CommonPicture.<name>."""
+    res = {}
+    root = _load_xml_root(os.path.join(cfg_dir, "ConfigDumpInfo.xml"))
+    if root is None:
+        return res
+    for m in root.iter():
+        if not isinstance(m.tag, str) or localname(m) != "Metadata":
+            continue
+        nm, mid = m.get("name"), m.get("id")
+        if not nm or not mid or "." not in nm:
+            continue
+        kind, name = nm.split(".", 1)
+        if kind == "StyleItem":
+            res[mid.lower()] = "style:" + name
+        elif kind == "CommonPicture":
+            res[mid.lower()] = "CommonPicture." + name
+    return res
+
+
+FORM_PATH_TAGS = re.compile(r'(DataPath|TitleDataPath|FooterDataPath|HeaderDataPath|MultipleValue\w*DataPath)$')
+
+
+def convert_form_leaf(node, name_map, ref_map, handler_map, bad):
+    """Text of a leaf rewritten: names renamed, "0:<uuid>" references resolved, handler names renamed."""
+    tag = localname(node)
+    v = node.text or ""
+    if tag in ("Action", "Event"):
+        t = v.strip()
+        if handler_map and t.lower() in handler_map:
+            node.text = handler_map[t.lower()]
+        return
+    if v.strip().startswith("Form.Command."):
+        cn = v.strip()[len("Form.Command."):]
+        if cn.lower() in name_map:
+            node.text = "Form.Command." + name_map[cn.lower()]
+        return
+    m = re.match(r'^\s*0:([0-9a-fA-F-]{36})\s*$', v)
+    if m:
+        u = m.group(1).lower()
+        if u in ref_map:
+            node.text = ref_map[u]
+        else:
+            bad.append("%s 0:%s" % (tag, u))
+        return
+    if FORM_PATH_TAGS.search(tag) and name_map:
+        node.text = re.sub(r'(?<![\w.])(\w+)(?!\w)',
+                           lambda mm: name_map.get(mm.group(1).lower(), mm.group(1)), v)
+
+
+def copy_form_node(node, pools, name_map, ref_map, handler_map, bad, col_owner=""):
+    """A copy of the extension's node for the configuration: ids from its pools, names and references converted."""
+    c = copy.deepcopy(node)
+    for n in c.iter():
+        if not isinstance(n.tag, str):
+            continue
+        if n.get("id") is not None:
+            tag = localname(n)
+            if tag == "Attribute":
+                pools["attr"] += 1
+                n.set("id", str(pools["attr"]))
+            elif tag == "Command":
+                pools["cmd"] += 1
+                n.set("id", str(pools["cmd"]))
+            elif tag == "Column":
+                owner = (col_owner or "").lower()
+                pools["col"][owner] = pools["col"].get(owner, 0) + 1
+                n.set("id", str(pools["col"][owner]))
+            else:
+                pools["elem"] += 1
+                n.set("id", str(pools["elem"]))
+        nm = n.get("name")
+        if nm and nm.lower() in name_map:
+            n.set("name", name_map[nm.lower()])
+        if len(n) == 0:
+            convert_form_leaf(n, name_map, ref_map, handler_map, bad)
+    return c
+
+
+def get_form_section(root, name):
+    s = root.find("d:" + name, NSMAP)
+    if s is not None:
+        return s
+    s = etree.SubElement(root, "{%s}%s" % (NSMAP["d"], name))
+    return s
+
+
+def insert_form_element(rec, root, name_map):
+    """An element put among its parent's children: after the nearest previous sibling the configuration has."""
+    parent_name = rec["parent"]
+    container = root
+    if parent_name:
+        target = next((n for n in root.iter() if isinstance(n.tag, str) and n.get("name") == parent_name), None)
+        if target is None:
+            return None
+        container = target
+    ci = get_form_child_items(container)
+    ref = None
+    for sib in reversed(rec["siblings"][:rec["pos"]]):
+        mn = name_map.get(sib.lower(), sib)
+        found = next((c for c in ci if isinstance(c.tag, str) and c.get("name") == mn), None)
+        if found is not None:
+            ref = found.getnext()
+            break
+    return {"ci": ci, "ref": ref}
+
+
+def find_form_target(root, name_map, name):
+    mn = name_map.get(name.lower(), name)
+    return next((n for n in root.iter() if isinstance(n.tag, str) and n.get("name") == mn), None)
+
+
+def apply_form_op(fe, op, ctx):
+    root = fe["fw"]["root"]
+    eol = fe["fw"]["eol"]
+    pools = fe["pools"]
+
+    def copy_node(node, col_owner=""):
+        return copy_form_node(node, pools, ctx["name_map"], ctx["ref_map"], ctx["handler_map"], ctx["bad"], col_owner)
+
+    kind = op["kind"]
+    if kind == "attribute":
+        attrs = get_form_section(root, "Attributes")
+        node = copy_node(op["node"], op.get("name", ""))
+        set_form_subtree_indent(node, eol, get_form_depth(attrs) + 1)
+        ca = attrs.find("d:ConditionalAppearance", NSMAP)
+        insert_form_node_at(attrs, node, ca, eol)
+    elif kind == "column":
+        at = find_form_target(root, ctx["name_map"], op["attr"])
+        if at is None:
+            raise ValueError("attribute %s is not in the configuration" % op["attr"])
+        cols = at.find("d:Columns", NSMAP)
+        if cols is None:
+            cols = etree.SubElement(at, "{%s}Columns" % NSMAP["d"])
+        node = copy_node(op["node"], at.get("name") or "")
+        set_form_subtree_indent(node, eol, get_form_depth(cols) + 1)
+        insert_form_node_at(cols, node, None, eol)
+    elif kind == "command":
+        cmds = get_form_section(root, "Commands")
+        node = copy_node(op["node"])
+        set_form_subtree_indent(node, eol, get_form_depth(cmds) + 1)
+        insert_form_node_at(cmds, node, None, eol)
+    elif kind == "element":
+        where = insert_form_element(op["rec"], root, ctx["name_map"])
+        if where is None:
+            raise ValueError("parent %s is not in the configuration" % op["rec"]["parent"])
+        node = copy_node(op["rec"]["node"])
+        set_form_subtree_indent(node, eol, get_form_depth(where["ci"]) + 1)
+        insert_form_node_at(where["ci"], node, where["ref"], eol)
+    elif kind == "prop":
+        target = find_form_target(root, ctx["name_map"], op["rec"]["name"])
+        if target is None:
+            raise ValueError("element %s is not in the configuration" % op["rec"]["name"])
+        for p in op["props"]:
+            keys = get_form_prop_keys(target)
+            if p["new"] is None:
+                if p["key"] in keys:
+                    remove_form_node(keys[p["key"]])
+                continue
+            node = copy_node(p["new"])
+            if p["key"] in keys:
+                old = keys[p["key"]]
+                old.addprevious(node)
+                node.tail = old.tail
+                target.remove(old)
+            else:
+                insert_form_prop(target, op["rec"]["node"], p["key"], node, eol)
+    elif kind == "formprop":
+        for p in op["props"]:
+            keys = get_form_prop_keys(root)
+            if p["new"] is None:
+                if p["key"] in keys:
+                    remove_form_node(keys[p["key"]])
+                continue
+            node = copy_node(p["new"])
+            if p["key"] in keys:
+                old = keys[p["key"]]
+                old.addprevious(node)
+                node.tail = old.tail
+                root.remove(old)
+            else:
+                insert_form_prop(root, op["ext_root"], p["key"], node, eol)
+    elif kind == "move":
+        target = find_form_target(root, ctx["name_map"], op["rec"]["name"])
+        if target is None:
+            raise ValueError("element %s is not in the configuration" % op["rec"]["name"])
+        node = copy.deepcopy(target)
+        remove_form_node(target)
+        where = insert_form_element(op["rec"], root, ctx["name_map"])
+        if where is None:
+            raise ValueError("parent %s is not in the configuration" % op["rec"]["parent"])
+        insert_form_node_at(where["ci"], node, where["ref"], eol)
+    elif kind == "appearance":
+        attrs = get_form_section(root, "Attributes")
+        ca = attrs.find("d:ConditionalAppearance", NSMAP)
+        if op["add"]:
+            if ca is None:
+                ca = etree.SubElement(attrs, "{%s}ConditionalAppearance" % NSMAP["d"])
+            node = copy_node(op["rule"])
+            set_form_subtree_indent(node, eol, get_form_depth(ca) + 1)
+            insert_form_node_at(ca, node, None, eol)
+        elif ca is not None:
+            key = cmp_key(op["rule"], TRANSFER_PREFIX)
+            for it in ca.findall("dcsset:item", NSMAP):
+                if cmp_key(it, TRANSFER_PREFIX).lower() == key.lower():
+                    remove_form_node(it)
+                    break
+    else:
+        raise ValueError("unknown form operation %s" % kind)
+
+
+def new_form_edit(path, ext_form, ext_module, cfg_module, ext_dir, prefix, label):
+    k = path.lower()
+    if k not in FORM_EDITS:
+        fw = read_form_write(path)
+        FORM_EDITS[k] = {
+            "path": path, "fw": fw, "pools": get_form_id_pools(fw["root"]),
+            "ext_form": ext_form, "ext_module": ext_module, "cfg_module": cfg_module,
+            "ext_dir": ext_dir, "prefix": prefix, "label": label,
+            "form_info": {"xml": ext_form, "module": ext_module, "label": label},
+            "ops": [], "failed": 0,
+        }
+    return FORM_EDITS[k]
+
+
+def test_form_write(fe):
+    """The form written and read back the same way the check reads it: every planned item must come out in place —
+    a property by its value, the rest by the line the check would print for it."""
+    import tempfile
+    fd, tmp = tempfile.mkstemp(suffix=".xml")
+    os.close(fd)
+    try:
+        save_form_write(fe["fw"], tmp)
+        diff = get_form_diff(fe["ext_form"])
+        items = form_transfer_items(diff, fe["form_info"], tmp, fe["cfg_module"], fe["ext_dir"], fe["prefix"])
+        ok = [it["text"] for it in items if it["status"] == "TRANSFERRED"]
+        doc = read_form_doc(tmp)
+        names = list(form_element_index(doc.getroot()).keys()) if doc is not None else []
+        miss = []
+
+        def bad_props(target, props):
+            if target is None:
+                return ["target not found"]
+            cpm = get_prop_map(target)
+            return [p["key"] for p in props if prop_transfer(cpm, p, fe["prefix"]) != "ok"]
+
+        for op in fe["ops"]:
+            if op["kind"] == "prop":
+                hit = find_name_in(names, op["rec"]["name"], fe["prefix"])
+                target = form_element_index(doc.getroot())[hit.lower()]["node"] if (hit and doc is not None) else None
+                miss += ["%s.%s" % (op["rec"]["name"], x) for x in bad_props(target, op["props"])]
+                continue
+            if op["kind"] == "formprop":
+                miss += ["form." + x for x in bad_props(doc.getroot() if doc is not None else None, op["props"])]
+                continue
+            if not any(t.startswith(op["key"]) for t in ok):
+                miss.append(op["key"])
+        return miss
+    finally:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+
+
+# ============================================================
 # Transfer: writing into the configuration (-Mode transfer)
 # ============================================================
 
@@ -2598,7 +3088,9 @@ NAME_MAP = {}
 TRANSFER_PREFIX = ""
 SUPPORT_INFO = {"g": 0, "k": 0, "map": {}, "mode": "deny"}
 FILE_EDITS = {}
+FORM_EDITS = {}
 EDIT_SEQ = [0]
+CONFIG_REF_MAP = {}
 
 # Role of an own method -> region, by the module structure standard; a project overrides any of them
 # in cfeTransfer.regions with a name or a list of names (the first one the module has wins)
@@ -4094,6 +4586,8 @@ def main():
                         die("The project's comment template (cfeTransfer.insertComment.%s in .v8-project.json) uses {tag}: "
                             "ask the user for the value (e.g. the task number) and pass -Tag <value>. Nothing was written." % k)
         SUPPORT_INFO = get_support_info(config_path)
+        CONFIG_REF_MAP.clear()
+        CONFIG_REF_MAP.update(get_config_ref_map(config_path))
         FILE_EDITS.clear()
         NAME_MAP = {}
         ext = {"dir": ext_dir0, "name": cp0["name"], "prefix": prefix, "purpose": cp0["purpose"]}
@@ -4247,6 +4741,7 @@ def main():
                 fe["create_order"].clear()
                 fe["own_at"].clear()
                 fe["tail"].clear()
+            FORM_EDITS.clear()
             EDIT_SEQ[0] = 0
             temp_count = 0
             recs = []
@@ -4274,6 +4769,52 @@ def main():
                         continue
                     if it["status"] == "TRANSFERRED":
                         titems.append(t)
+                        continue
+                    if it.get("group") and w["support"] == "locked":
+                        t["status"] = "MANUAL"
+                        t["text"] = it["text"] + " — object is locked by vendor support"
+                        t["sub"] = ["next: allow editing with /support-edit, then re-run -Mode transfer"]
+                        titems.append(t)
+                        continue
+                    if it.get("group") and it.get("plan"):
+                        rel_form = it.get("section") or ""
+                        cfg_form = os.path.join(config_path, rel_form)
+                        ext_form = os.path.join(ext_dir0, rel_form)
+                        cfg_form_mod = re.sub(r'[\/]Ext[\/]Form\.xml$', '/Ext/Form/Module.bsl', cfg_form)
+                        ext_form_mod = re.sub(r'[\/]Ext[\/]Form\.xml$', '/Ext/Form/Module.bsl', ext_form)
+                        fe = new_form_edit(cfg_form, ext_form, ext_form_mod, cfg_form_mod, ext_dir0, prefix, it["group"])
+                        if "ctx" not in fe:
+                            hm = file_maps.get(cfg_form_mod.lower(), {})
+                            ext_root = read_form_doc(ext_form).getroot()
+                            fe["ctx"] = {"name_map": get_form_name_map(ext_root, fe["fw"]["root"], prefix),
+                                         "ref_map": CONFIG_REF_MAP, "handler_map": hm, "bad": []}
+                        try:
+                            apply_form_op(fe, it["plan"], fe["ctx"])
+                            if fe["ctx"]["bad"]:
+                                raise ValueError("reference %s is not in the configuration" % fe["ctx"]["bad"][0])
+                            pk = it["plan"]["kind"]
+                            if pk == "prop":
+                                fe["ops"].append({"kind": "prop", "rec": it["plan"]["rec"], "props": it["plan"]["props"], "item": t})
+                            elif pk == "formprop":
+                                fe["ops"].append({"kind": "formprop", "props": it["plan"]["props"], "item": t})
+                            else:
+                                fe["ops"].append({"kind": "text", "key": it["plan_key"], "item": t})
+                            # A property changed in the configuration some other way stays as it is: the item
+                            # keeps its divergence, what was pending has gone over
+                            if it["status"] == "DIVERGED":
+                                t["status"] = "DIVERGED"
+                                t["now"] = False
+                                t["text"] = it["text"] + " — the rest transferred"
+                            else:
+                                t["status"] = "TRANSFERRED"
+                                t["now"] = True
+                            titems.append(t)
+                        except Exception as e:
+                            fe["failed"] += 1
+                            t["status"] = "CONFLICT"
+                            t["text"] = "%s — %s; form not changed" % (it["text"], e)
+                            t["sub"] = ["next: apply by hand, then re-run -Mode check"]
+                            titems.append(t)
                         continue
                     t["status"] = "MANUAL"
                     if it.get("group"):
@@ -4634,6 +5175,25 @@ def main():
 
         # --- Pass 4: write ---
         changed = write_file_edits()
+        for fe in list(FORM_EDITS.values()):
+            if not fe["ops"] and not fe["failed"]:
+                continue
+            why = None
+            if fe["failed"]:
+                why = "another change of the same form could not be applied"
+            else:
+                miss = test_form_write(fe)
+                if miss:
+                    why = "after the transfer the check would not find it: %s" % miss[0]
+            if why:
+                for op in fe["ops"]:
+                    op["item"]["status"] = "CONFLICT"
+                    op["item"]["now"] = False
+                    op["item"]["text"] = "%s — %s; form not changed" % (op["item"]["text"], why)
+                    op["item"]["sub"] = ["next: apply by hand, then re-run -Mode check"]
+                continue
+            save_form_write(fe["fw"])
+            changed.append(fe["path"])
 
         # --- Report ---
         c_now = c_already = c_wait = c_manual = c_conflict = 0

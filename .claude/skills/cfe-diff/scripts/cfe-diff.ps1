@@ -785,7 +785,7 @@ function Get-FormDiff([string]$formXml) {
 				$ft = Format-Type ($x.SelectSingleNode("d:Type", $ns))
 				if ($ft) { $info = ": $ft" }
 			}
-			$r[$sec[2]] += @{ Name = $nm; Info = $info; Actions = $actions; Changed = $changed }
+			$r[$sec[2]] += @{ Name = $nm; Info = $info; Actions = $actions; Changed = $changed; Node = $x }
 		}
 	}
 
