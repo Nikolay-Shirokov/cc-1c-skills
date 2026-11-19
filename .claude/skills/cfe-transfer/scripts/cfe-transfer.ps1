@@ -1,4 +1,4 @@
-﻿# cfe-transfer v1.10 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+﻿# cfe-transfer v1.11 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -1884,7 +1884,15 @@ function Get-FormTransferItems($diff, $form, [string]$cfgFormXml, [string]$cfgMo
 				$cfgAct = if ($cm.Contains($x.Name)) { $cm[$x.Name].SelectSingleNode("d:Action", $ns) } else { $null }
 				$cfgHandler = if ($cfgAct) { $cfgAct.InnerText.Trim() } else { '' }
 				foreach ($a in $ctActs) {
-					$it = & $checkHandler "command $($x.Name)[$($a.CallType)] -> $($a.Handler)" $a.Handler $cfgHandler "no action of $($x.Name) in config"
+					$label = "command $($x.Name)[$($a.CallType)] -> $($a.Handler)"
+					$it = & $checkHandler $label $a.Handler $cfgHandler "no action of $($x.Name) in config"
+					$kind = Get-CallTypeKind $a.CallType
+					$extM = if ($a.Handler) { Get-MethodSafe $extMod $a.Handler } else { $null }
+					$cfgM = if ($cfgHandler) { Get-MethodSafe $cfgMod $cfgHandler } else { $null }
+					if ($it -and $kind -and $extM -and $cfgM -and $it.Status -ne 'TRANSFERRED') {
+						$it.Plan = @{ Kind = 'intercept'; Type = $kind; ExtM = $extM; CfgM = $cfgM; Rel = $modRel; Label = $label }
+						$it.PlanKey = $label
+					}
 					if ($it) { $items += & $marked $it @($x.Name) }
 				}
 				continue
@@ -1960,6 +1968,13 @@ function Get-FormTransferItems($diff, $form, [string]$cfgFormXml, [string]$cfgMo
 		$cfgHandler = ''
 		if ($target) { foreach ($ce in (Get-EventList $target)) { if ($ce.Name -ieq $e.Name) { $cfgHandler = $ce.Handler; break } } }
 		$it = & $checkHandler "event $(Get-EventText $e)" $e.Handler $cfgHandler "no $($e.Name) handler in config"
+		$kind = Get-CallTypeKind $e.CallType
+		$extM = if ($e.Handler) { Get-MethodSafe $extMod $e.Handler } else { $null }
+		$cfgM = if ($cfgHandler) { Get-MethodSafe $cfgMod $cfgHandler } else { $null }
+		if ($it -and $kind -and $extM -and $cfgM -and $it.Status -ne 'TRANSFERRED') {
+			$it.Plan = @{ Kind = 'intercept'; Type = $kind; ExtM = $extM; CfgM = $cfgM; Rel = $modRel; Label = "event $(Get-EventText $e)" }
+			$it.PlanKey = "event $(Get-EventText $e)"
+		}
 		if ($it) { $items += & $marked $it @($e.Scope) }
 	}
 	# An element of BaseForm the main part lacks: the extension cannot drop a borrowed element, so the
@@ -1968,6 +1983,17 @@ function Get-FormTransferItems($diff, $form, [string]$cfgFormXml, [string]$cfgMo
 		$items += New-Item2 'DIVERGED' "! $nm (in BaseForm, not in the extension's form: the configuration's form changed since the borrowing)" '' $group
 	}
 	return $items
+}
+
+# A form event or command action with callType intercepts the configuration's handler: same kinds as the
+# module annotations
+function Get-CallTypeKind([string]$callType) {
+	switch -Regex ($callType) {
+		'^(?i)before$' { return 'Перед' }
+		'^(?i)after$' { return 'После' }
+		'^(?i)override$' { return 'Вместо' }
+	}
+	return $null
 }
 
 # Handlers bound with callType (events, command actions): they are interceptors, not own methods
@@ -4210,6 +4236,20 @@ if ($Mode -eq 'transfer') {
 					$t.Text = "$($it.Text) — object is locked by vendor support"
 					$t.Sub = @('next: allow editing with /support-edit, then re-run -Mode transfer')
 					$titems += $t; continue
+				}
+				if ($it.Group -and $it.Plan -and $it.Plan.Kind -eq 'intercept') {
+					$cfgFile = Join-Path $ConfigPath $it.Plan.Rel
+					$fm = if ($fileMaps.ContainsKey($cfgFile.ToLower())) { $fileMaps[$cfgFile.ToLower()] } else { @{} }
+					$r = Get-InterceptOps $it.Plan.ExtM $it.Plan.CfgM $it.Plan.Type $frame $set.Deletion $fm
+					if ($r.Why) {
+						$t.Text = "$($it.Plan.Label) — $($r.Why)"
+						$t.Sub = @('next: apply by hand, then re-run -Mode check')
+						$titems += $t
+						continue
+					}
+					$icPending += @{ T = $t; Pl = $it.Plan; Fe = (Get-FileEdits $cfgFile); Ops = $r.Ops; Where = $r.Where; Label = $it.Plan.Label; Warn = ''; Locals = $r.Locals; Words = $r.Words }
+					$titems += $t
+					continue
 				}
 				if ($it.Group -and $it.Plan) {
 					$relForm = [string]$it.Section

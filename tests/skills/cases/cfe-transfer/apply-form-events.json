@@ -1,0 +1,35 @@
+{
+  "name": "Событие формы и действие команды с callType переносятся подстановкой в обработчик конфигурации (After — в конец тела); уже перенесённые события остаются как были; обработчики в форме переименованы без префикса",
+  "setup": "fixture:form-transfer",
+  "params": {
+    "extensionPath": "cfe"
+  },
+  "cwd": "workDir",
+  "args_extra": [
+    "-Mode",
+    "transfer"
+  ],
+  "expectError": true,
+  "expect": {
+    "stdoutContains": [
+      "[TRANSFERRED]        event OnOpen[After] -> PatchA_OnOpenAfter — after the original",
+      "[TRANSFERRED]        command SrcCmd2[After] -> PatchA_SrcCmd2After — after the original"
+    ],
+    "fileContains": [
+      {
+        "file": "Catalogs/Items/Forms/ItemForm/Ext/Form/Module.bsl",
+        "text": [
+          "Процедура ПриОткрытии(Отказ)\n\tОбновить();\nКонецПроцедуры",
+          "Процедура ArticleOnChange(Элемент)\n\tСообщить(\"Артикул изменён\");\nКонецПроцедуры",
+          "Процедура Обновить()\n\tЭлементы.Field.Видимость = Истина;\nКонецПроцедуры"
+        ]
+      }
+    ],
+    "fileNotContains": [
+      {
+        "file": "Catalogs/Items/Forms/ItemForm/Ext/Form/Module.bsl",
+        "text": "PatchA_"
+      }
+    ]
+  }
+}

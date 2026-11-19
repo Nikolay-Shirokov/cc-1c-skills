@@ -1,5 +1,5 @@
 ﻿#!/usr/bin/env python3
-# cfe-transfer v1.10 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+# cfe-transfer v1.11 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -2097,8 +2097,14 @@ def form_transfer_items(diff, form, cfg_form_xml, cfg_module_path, ext_dir, pref
                 cfg_act = cm[x["name"].lower()][1].find("d:Action", NSMAP) if x["name"].lower() in cm else None
                 cfg_handler = inner_text(cfg_act).strip() if cfg_act is not None else ""
                 for a in ct_acts:
-                    it = check_handler("command %s[%s] -> %s" % (x["name"], a["call_type"], a["handler"]), a["handler"], cfg_handler,
-                                       "no action of %s in config" % x["name"])
+                    label = "command %s[%s] -> %s" % (x["name"], a["call_type"], a["handler"])
+                    it = check_handler(label, a["handler"], cfg_handler, "no action of %s in config" % x["name"])
+                    kind = get_call_type_kind(a["call_type"])
+                    ext_m = get_method_safe(ext_mod, a["handler"]) if a["handler"] else None
+                    cfg_m = get_method_safe(cfg_mod, cfg_handler) if cfg_handler else None
+                    if it and kind and ext_m and cfg_m and it["status"] != "TRANSFERRED":
+                        it["plan"] = {"kind": "intercept", "type": kind, "ext_m": ext_m, "cfg_m": cfg_m, "rel": mod_rel, "label": label}
+                        it["plan_key"] = label
                     if it:
                         items.append(marked(it, [x["name"]]))
                 continue
@@ -2174,6 +2180,13 @@ def form_transfer_items(diff, form, cfg_form_xml, cfg_module_path, ext_dir, pref
                     cfg_handler = ce["handler"]
                     break
         it = check_handler("event " + event_text(e), e["handler"], cfg_handler, "no %s handler in config" % e["name"])
+        kind = get_call_type_kind(e["call_type"])
+        ext_m = get_method_safe(ext_mod, e["handler"]) if e["handler"] else None
+        cfg_m = get_method_safe(cfg_mod, cfg_handler) if cfg_handler else None
+        if it and kind and ext_m and cfg_m and it["status"] != "TRANSFERRED":
+            it["plan"] = {"kind": "intercept", "type": kind, "ext_m": ext_m, "cfg_m": cfg_m, "rel": mod_rel,
+                          "label": "event " + event_text(e)}
+            it["plan_key"] = "event " + event_text(e)
         if it:
             items.append(marked(it, [e["scope"]]))
     # An element of BaseForm the main part lacks: the extension cannot drop a borrowed element, so the
@@ -2181,6 +2194,13 @@ def form_transfer_items(diff, form, cfg_form_xml, cfg_module_path, ext_dir, pref
     for nm in diff["removed"]:
         items.append(new_item("DIVERGED", "! %s (in BaseForm, not in the extension's form: the configuration's form changed since the borrowing)" % nm, "", group))
     return items
+
+
+def get_call_type_kind(call_type):
+    """A form event or command action with callType intercepts the configuration's handler: same kinds as the
+    module annotations."""
+    ct = (call_type or "").strip().lower()
+    return {"before": "Перед", "after": "После", "override": "Вместо"}.get(ct)
 
 
 # Handlers bound with callType (events, command actions): they are interceptors, not own methods
@@ -4793,6 +4813,20 @@ def main():
                         t["status"] = "MANUAL"
                         t["text"] = it["text"] + " — object is locked by vendor support"
                         t["sub"] = ["next: allow editing with /support-edit, then re-run -Mode transfer"]
+                        titems.append(t)
+                        continue
+                    if it.get("group") and it.get("plan") and it["plan"]["kind"] == "intercept":
+                        cfg_file = os.path.join(config_path, it["plan"]["rel"])
+                        fm = file_maps.get(cfg_file.lower(), {})
+                        r = get_intercept_ops(it["plan"]["ext_m"], it["plan"]["cfg_m"], it["plan"]["type"], frame, set_["deletion"], fm)
+                        if r.get("why"):
+                            t["text"] = "%s — %s" % (it["plan"]["label"], r["why"])
+                            t["sub"] = ["next: apply by hand, then re-run -Mode check"]
+                            titems.append(t)
+                            continue
+                        ic_pending.append({"t": t, "pl": it["plan"], "fe": get_file_edits(cfg_file), "ops": r["ops"],
+                                           "where": r["where"], "label": it["plan"]["label"], "warn": "",
+                                           "locals": r["locals"], "words": r["words"]})
                         titems.append(t)
                         continue
                     if it.get("group") and it.get("plan"):
