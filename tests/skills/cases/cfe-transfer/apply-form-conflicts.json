@@ -12,7 +12,7 @@
   "expectError": true,
   "expect": {
     "stdoutContains": [
-      "7 transferred now",
+      "6 transferred now",
       "1 temporary skipped"
     ],
     "fileNotContains": [

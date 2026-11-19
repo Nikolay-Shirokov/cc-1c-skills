@@ -1,5 +1,5 @@
 ﻿#!/usr/bin/env python3
-# cfe-transfer v1.11 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+# cfe-transfer v1.12 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -7,6 +7,7 @@ import copy
 import json
 import os
 import re
+import subprocess
 import sys
 from lxml import etree
 
@@ -2942,6 +2943,16 @@ def apply_form_op(fe, op, ctx):
         if where is None:
             raise ValueError("parent %s is not in the configuration" % op["rec"]["parent"])
         node = copy_node(op["rec"]["node"])
+        # A button carries its command with it: a command the configuration does not have leaves the
+        # form broken
+        cmds0 = section_map(root, "Commands", "Command")
+        for cn in node.findall(".//d:CommandName", NSMAP):
+            v = (cn.text or "").strip()
+            if not v.startswith("Form.Command."):
+                continue
+            v = v[len("Form.Command."):]
+            if v.lower() not in cmds0:
+                raise ValueError("SKIP: command %s is not in the configuration" % v)
         set_form_subtree_indent(node, eol, get_form_depth(where["ci"]) + 1)
         insert_form_node_at(where["ci"], node, where["ref"], eol)
     elif kind == "prop":
@@ -3020,6 +3031,24 @@ def new_form_edit(path, ext_form, ext_module, cfg_module, ext_dir, prefix, label
     return FORM_EDITS[k]
 
 
+def get_form_validate_errors(path):
+    """Errors of the form validator (form-validate) for a form file: what the write must not add."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    script = os.path.join(here, "..", "..", "form-validate", "scripts", "form-validate.py")
+    if not os.path.exists(script):
+        return []
+    try:
+        out = subprocess.run([sys.executable, script, "-FormPath", path], capture_output=True, text=True,
+                             encoding="utf-8", errors="replace").stdout
+    except Exception:
+        return []
+    errs = []
+    for line in out.splitlines():
+        if "[ERROR]" in line:
+            errs.append(re.sub(r'\s+', ' ', line.split("[ERROR]", 1)[1]).strip())
+    return errs
+
+
 def test_form_write(fe):
     """The form written and read back the same way the check reads it: every planned item must come out in place —
     a property by its value, the rest by the line the check would print for it."""
@@ -3028,6 +3057,12 @@ def test_form_write(fe):
     os.close(fd)
     try:
         save_form_write(fe["fw"], tmp)
+        # The validator must not see errors the configuration's form did not have before the write
+        before = get_form_validate_errors(fe["path"])
+        after = get_form_validate_errors(tmp)
+        added = [x for x in after if x not in before]
+        if added:
+            return ["form-validate: " + added[0]]
         diff = get_form_diff(fe["ext_form"])
         items = form_transfer_items(diff, fe["form_info"], tmp, fe["cfg_module"], fe["ext_dir"], fe["prefix"])
         ok = [it["text"] for it in items if it["status"] == "TRANSFERRED"]
@@ -4864,9 +4899,15 @@ def main():
                                 t["text"] = re.sub(r' \(\d+/\d+ props\)$', '', it["text"])
                             titems.append(t)
                         except Exception as e:
-                            fe["failed"] += 1
+                            # A change that was refused before touching the document leaves the rest of
+                            # the form transferable
+                            msg = str(e)
+                            if msg.startswith("SKIP: "):
+                                msg = msg[6:]
+                            else:
+                                fe["failed"] += 1
                             t["status"] = "CONFLICT"
-                            t["text"] = "%s — %s; form not changed" % (it["text"], e)
+                            t["text"] = "%s — %s; form not changed" % (it["text"], msg)
                             t["sub"] = ["next: apply by hand, then re-run -Mode check"]
                             titems.append(t)
                         continue

@@ -1,4 +1,4 @@
-﻿# cfe-transfer v1.11 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+﻿# cfe-transfer v1.12 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -2782,6 +2782,15 @@ function Apply-FormOp($fe, $op, $ctx) {
 			$where = Insert-FormElement $op.Rec $root $ctx.NameMap $eol
 			if (-not $where) { throw "parent $($op.Rec.Parent) is not in the configuration" }
 			$node = & $copy $op.Rec.Node $null
+			# A button carries its command with it: a command the configuration does not have leaves
+			# the form broken
+			$cmds0 = Get-SectionMap $root 'Commands' 'Command'
+			foreach ($cn in @($node.SelectNodes(".//d:CommandName", $ns))) {
+				$v = $cn.InnerText.Trim()
+				if (-not $v.StartsWith('Form.Command.')) { continue }
+				$v = $v.Substring('Form.Command.'.Length)
+				if (-not $cmds0.Contains($v)) { throw "SKIP: command $v is not in the configuration" }
+			}
 			Set-FormSubtreeIndent $node $eol ((Get-FormDepth $where.Ci) + 1)
 			Insert-FormNodeAt $where.Ci $node $where.Ref $eol
 		}
@@ -2849,11 +2858,27 @@ function Apply-FormOp($fe, $op, $ctx) {
 
 # The form written and read back the same way the check reads it: every planned item must come out in place —
 # a property by its value, the rest by the line the check would print for it
+# Errors of the form validator (form-validate) for a form file: what the write must not add
+function Get-FormValidateErrors([string]$path) {
+	$vs = [System.IO.Path]::GetFullPath((Join-Path (Join-Path $PSScriptRoot '../../form-validate') 'scripts/form-validate.ps1'))
+	if (-not (Test-Path -LiteralPath $vs)) { return @() }
+	$out = & powershell.exe -NoProfile -File $vs -FormPath $path 2>&1
+	$errs = @()
+	foreach ($l in @($out)) { $t = [string]$l; if ($t -match '\[ERROR\]') { $errs += ($t.Substring($t.IndexOf('[ERROR]') + 7) -replace '\s+', ' ').Trim() } }
+	return , $errs
+}
+
 function Test-FormWrite($fe) {
 	$tmp = [System.IO.Path]::GetTempFileName()
 	try {
 		Remove-DuplicateWhitespace $fe.Fw.Doc.DocumentElement
 		Save-FormWrite $fe.Fw $tmp
+		# The validator must not see errors the configuration's form did not have before the write
+		$before = Get-FormValidateErrors $fe.Path
+		$after = Get-FormValidateErrors $tmp
+		$added = @($after | Where-Object { $before -notcontains $_ })
+		# The comma keeps a one-item array an array: a bare string would unroll to characters
+		if ($added.Count -gt 0) { return , @("form-validate: $($added[0])") }
 		$miss = @()
 		$diff = Get-FormDiff $fe.ExtForm
 		$items = Get-FormTransferItems $diff $fe.FormInfo $tmp $fe.CfgModule $fe.ExtDir $fe.Prefix
@@ -4275,9 +4300,12 @@ if ($Mode -eq 'transfer') {
 						else { $t.Status = 'TRANSFERRED'; $t.Now = $true; $t.Text = ($it.Text -replace ' \(\d+/\d+ props\)$', '') }
 						$titems += $t
 					} catch {
-						$fe.Failed++
+						# A change that was refused before touching the document leaves the rest of the form
+						# transferable
+						$msg = $_.Exception.Message
+						if ($msg.StartsWith('SKIP: ')) { $msg = $msg.Substring(6) } else { $fe.Failed++ }
 						$t.Status = 'CONFLICT'
-						$t.Text = "$($it.Text) — $($_.Exception.Message); form not changed"
+						$t.Text = "$($it.Text) — $msg; form not changed"
 						$t.Sub = @('next: apply by hand, then re-run -Mode check')
 						$titems += $t
 					}
