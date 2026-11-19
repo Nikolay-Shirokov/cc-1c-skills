@@ -2722,7 +2722,8 @@ function Insert-FormElement($rec, $root, $nameMap, [string]$eol) {
 # --- the plan of one form item and applying it ---
 
 function New-FormEdit([string]$path, [string]$extForm, [string]$extModule, [string]$cfgModule, [string]$extDir, [string]$prefix, [string]$label) {
-	$k = $path.ToLower()
+	# The full path as the key: two spellings of one file must not make two documents
+	$k = [System.IO.Path]::GetFullPath($path).ToLower()
 	if (-not $script:formEdits.ContainsKey($k)) {
 		$fw = Read-FormWrite $path
 		$script:formEdits[$k] = @{
@@ -2793,6 +2794,19 @@ function Apply-FormOp($fe, $op, $ctx) {
 			}
 			Set-FormSubtreeIndent $node $eol ((Get-FormDepth $where.Ci) + 1)
 			Insert-FormNodeAt $where.Ci $node $where.Ref $eol
+		}
+		'event' {
+			$target = if ($op.Scope) { Find-FormTarget $root $ctx.NameMap $op.Scope } else { $root }
+			if (-not $target) { throw "SKIP: element $($op.Scope) is not in the configuration" }
+			$evs = $target.SelectSingleNode("d:Events", $ns)
+			if (-not $evs) {
+				$evs = $fe.Fw.Doc.CreateElement('Events', $ns.LookupNamespace('d'))
+				Insert-FormNodeAt $target $evs $null $eol
+			}
+			$node = $fe.Fw.Doc.CreateElement('Event', $ns.LookupNamespace('d'))
+			$node.SetAttribute('name', $op.Name)
+			$node.InnerText = $op.Handler
+			Insert-FormNodeAt $evs $node $null $eol
 		}
 		'prop' {
 			$target = Find-FormTarget $root $ctx.NameMap $op.Rec.Name

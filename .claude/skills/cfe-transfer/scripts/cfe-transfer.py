@@ -3018,7 +3018,8 @@ def apply_form_op(fe, op, ctx):
 
 
 def new_form_edit(path, ext_form, ext_module, cfg_module, ext_dir, prefix, label):
-    k = path.lower()
+    # The full path as the key: two spellings of one file must not make two documents
+    k = os.path.abspath(path).lower()
     if k not in FORM_EDITS:
         fw = read_form_write(path)
         FORM_EDITS[k] = {
