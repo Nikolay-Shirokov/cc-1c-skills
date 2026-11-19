@@ -3036,6 +3036,8 @@ def get_form_validate_errors(path):
     here = os.path.dirname(os.path.abspath(__file__))
     script = os.path.join(here, "..", "..", "form-validate", "scripts", "form-validate.py")
     if not os.path.exists(script):
+        # The skill may be installed on its own: say so rather than skip the check silently
+        globals()["FORM_VALIDATE_MISSING"] = True
         return []
     try:
         out = subprocess.run([sys.executable, script, "-FormPath", path], capture_output=True, text=True,
@@ -5358,6 +5360,8 @@ def main():
             footer.append("Hint: validate the changed modules, then re-run -Mode check")
         if c_conflict:
             footer.append("Hint: resolve each conflict (see next:), then re-run -Mode transfer")
+        if globals().get("FORM_VALIDATE_MISSING"):
+            footer.append("Hint: /form-validate is not installed — the written forms were not checked; run /form-validate by hand")
         if c_wait:
             footer.append("Hint: waiting changes go over by themselves on a re-run of -Mode transfer once what they wait for is in the configuration: "
                           "own methods of this run (see their lines), objects, sub-objects and form items (by hand for now)")

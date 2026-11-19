@@ -2861,7 +2861,11 @@ function Apply-FormOp($fe, $op, $ctx) {
 # Errors of the form validator (form-validate) for a form file: what the write must not add
 function Get-FormValidateErrors([string]$path) {
 	$vs = [System.IO.Path]::GetFullPath((Join-Path (Join-Path $PSScriptRoot '../../form-validate') 'scripts/form-validate.ps1'))
-	if (-not (Test-Path -LiteralPath $vs)) { return @() }
+	if (-not (Test-Path -LiteralPath $vs)) {
+		# The skill may be installed on its own: say so rather than skip the check silently
+		$script:formValidateMissing = $true
+		return @()
+	}
 	$out = & powershell.exe -NoProfile -File $vs -FormPath $path 2>&1
 	$errs = @()
 	foreach ($l in @($out)) { $t = [string]$l; if ($t -match '\[ERROR\]') { $errs += ($t.Substring($t.IndexOf('[ERROR]') + 7) -replace '\s+', ' ').Trim() } }
@@ -4685,6 +4689,7 @@ if ($Mode -eq 'transfer') {
 		$footer += "Hint: validate the changed modules, then re-run -Mode check"
 	}
 	if ($cConflict) { $footer += "Hint: resolve each conflict (see next:), then re-run -Mode transfer" }
+	if ($script:formValidateMissing) { $footer += "Hint: /form-validate is not installed — the written forms were not checked; run /form-validate by hand" }
 	if ($cWait) { $footer += "Hint: waiting changes go over by themselves on a re-run of -Mode transfer once what they wait for is in the configuration: own methods of this run (see their lines), objects, sub-objects and form items (by hand for now)" }
 	$failed = ($cWait + $cManual + $cConflict) -gt 0
 	$showDetails = $true
