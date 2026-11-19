@@ -1773,6 +1773,8 @@ function Get-PropTransfer($cpm, $p, [string]$prefix) {
 	$nv = Get-CmpKey $p.New $prefix
 	$ov = Get-CmpKey $p.Old $prefix
 	if ($cv -ieq $nv) { return 'ok' }
+	# A property the configuration never had: the extension's own, still to be added
+	if ($null -eq $p.Old -and -not $cv) { return 'pending' }
 	if ($cv -ieq $ov) { return 'pending' }
 	return 'differs'
 }
@@ -2627,7 +2629,8 @@ function Copy-FormNode($node, $dstDoc, $pools, $nameMap, $refMap, $handlerMap, $
 		$nm = $n.GetAttribute('name')
 		if ($nameMap.ContainsKey($nm.ToLower())) { $n.SetAttribute('name', $nameMap[$nm.ToLower()]) }
 	}
-	foreach ($n in @($copy.SelectNodes(".//*"))) {
+	# The node itself too: a copied property is a leaf on its own
+	foreach ($n in @($copy) + @($copy.SelectNodes(".//*"))) {
 		if ($n.NodeType -ne 'Element') { continue }
 		$hasKids = $false
 		foreach ($c in $n.ChildNodes) { if ($c.NodeType -eq 'Element') { $hasKids = $true; break } }
@@ -4000,6 +4003,7 @@ function Format-Status([string]$st) { return ("[$st]").PadRight(21) }
 
 # Project settings (.v8-project.json): development prefixes for both modes, the rest for transfer
 $script:settings = Get-TransferSettings $ConfigPath
+$script:configRefMap = Get-ConfigRefMap $ConfigPath
 $script:devRe = $null
 if ($script:settings.DevPrefix.Count -gt 0) {
 	$alt = (@($script:settings.DevPrefix | Sort-Object -Property Length -Descending) | ForEach-Object { [regex]::Escape($_) }) -join '|'
@@ -4019,7 +4023,6 @@ if ($Mode -eq 'transfer') {
 		}
 	}
 	$script:supportInfo = Get-SupportInfo $ConfigPath
-	$script:configRefMap = Get-ConfigRefMap $ConfigPath
 	$script:fileEdits = [ordered]@{}
 	$script:nameMap = @{}
 	$script:seq = 0
@@ -4214,7 +4217,7 @@ if ($Mode -eq 'transfer') {
 						# A property changed in the configuration some other way stays as it is: the item keeps
 						# its divergence, what was pending has gone over
 						if ($it.Status -eq 'DIVERGED') { $t.Status = 'DIVERGED'; $t.Now = $false; $t.Text = "$($it.Text) — the rest transferred" }
-						else { $t.Status = 'TRANSFERRED'; $t.Now = $true }
+						else { $t.Status = 'TRANSFERRED'; $t.Now = $true; $t.Text = ($it.Text -replace ' \(\d+/\d+ props\)$', '') }
 						$titems += $t
 					} catch {
 						$fe.Failed++

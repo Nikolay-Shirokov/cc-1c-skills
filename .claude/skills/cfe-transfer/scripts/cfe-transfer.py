@@ -1965,6 +1965,9 @@ def prop_transfer(cpm, p, prefix):
     ov = lower_or_none(cmp_key(p["old"], prefix))
     if cv == nv:
         return "ok"
+    # A property the configuration never had: the extension's own, still to be added
+    if p["old"] is None and not cv:
+        return "pending"
     if cv == ov:
         return "pending"
     return "differs"
@@ -4566,6 +4569,8 @@ def main():
 
     # Project settings (.v8-project.json): development prefixes for both modes, the rest for transfer
     SETTINGS = get_transfer_settings(config_path)
+    CONFIG_REF_MAP.clear()
+    CONFIG_REF_MAP.update(get_config_ref_map(config_path))
     DEV_RE = None
     if SETTINGS["dev_prefix"]:
         alt = "|".join(re.escape(x) for x in sorted(SETTINGS["dev_prefix"], key=len, reverse=True))
@@ -4586,8 +4591,7 @@ def main():
                         die("The project's comment template (cfeTransfer.insertComment.%s in .v8-project.json) uses {tag}: "
                             "ask the user for the value (e.g. the task number) and pass -Tag <value>. Nothing was written." % k)
         SUPPORT_INFO = get_support_info(config_path)
-        CONFIG_REF_MAP.clear()
-        CONFIG_REF_MAP.update(get_config_ref_map(config_path))
+
         FILE_EDITS.clear()
         NAME_MAP = {}
         ext = {"dir": ext_dir0, "name": cp0["name"], "prefix": prefix, "purpose": cp0["purpose"]}
@@ -4808,6 +4812,7 @@ def main():
                             else:
                                 t["status"] = "TRANSFERRED"
                                 t["now"] = True
+                                t["text"] = re.sub(r' \(\d+/\d+ props\)$', '', it["text"])
                             titems.append(t)
                         except Exception as e:
                             fe["failed"] += 1

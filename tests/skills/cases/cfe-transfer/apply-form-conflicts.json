@@ -1,0 +1,25 @@
+{
+  "name": "Форма: элемент, помеченный «не переносить элементы формы», пропускается (временная правка), остальное переносится",
+  "setup": "fixture:form-gaps",
+  "params": {
+    "extensionPath": "cfe"
+  },
+  "cwd": "workDir",
+  "args_extra": [
+    "-Mode",
+    "transfer"
+  ],
+  "expectError": true,
+  "expect": {
+    "stdoutContains": [
+      "5 transferred now",
+      "1 temporary skipped"
+    ],
+    "fileNotContains": [
+      {
+        "file": "Catalogs/Items/Forms/ItemForm/Ext/Form.xml",
+        "text": "Ext L3"
+      }
+    ]
+  }
+}
