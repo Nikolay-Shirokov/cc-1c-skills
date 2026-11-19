@@ -2955,6 +2955,16 @@ def apply_form_op(fe, op, ctx):
                 raise ValueError("SKIP: command %s is not in the configuration" % v)
         set_form_subtree_indent(node, eol, get_form_depth(where["ci"]) + 1)
         insert_form_node_at(where["ci"], node, where["ref"], eol)
+    elif kind == "event":
+        target = find_form_target(root, ctx["name_map"], op["scope"]) if op["scope"] else root
+        if target is None:
+            raise ValueError("SKIP: element %s is not in the configuration" % op["scope"])
+        evs = target.find("d:Events", NSMAP)
+        if evs is None:
+            evs = etree.SubElement(target, "{%s}Events" % NSMAP["d"])
+        node = etree.SubElement(evs, "{%s}Event" % NSMAP["d"])
+        node.set("name", op["name"])
+        node.text = op["handler"]
     elif kind == "prop":
         target = find_form_target(root, ctx["name_map"], op["rec"]["name"])
         if target is None:
