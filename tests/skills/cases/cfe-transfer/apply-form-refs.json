@@ -1,0 +1,32 @@
+{
+  "name": "Ссылка на объект расширения 0:<uuid> переводится в имя по исходникам стилей и картинок конфигурации: цвет текста, заданный ссылкой на элемент стиля, записывается как style:<Имя> и сверка видит свойство перенесённым",
+  "setup": "fixture:form-refs",
+  "params": {
+    "extensionPath": "cfe"
+  },
+  "cwd": "workDir",
+  "args_extra": [
+    "-Mode",
+    "transfer"
+  ],
+  "expectError": true,
+  "expect": {
+    "stdoutContains": [
+      "[TRANSFERRED]        ~ [Label] L1: Title, TitleTextColor",
+      "Changed files:",
+      "    Catalogs/Items/Forms/ItemForm/Ext/Form.xml"
+    ],
+    "fileContains": [
+      {
+        "file": "Catalogs/Items/Forms/ItemForm/Ext/Form.xml",
+        "text": "\t\t\t<TitleTextColor>style:TitleColor</TitleTextColor>"
+      }
+    ],
+    "fileNotContains": [
+      {
+        "file": "Catalogs/Items/Forms/ItemForm/Ext/Form.xml",
+        "text": "0:757b547b"
+      }
+    ]
+  }
+}

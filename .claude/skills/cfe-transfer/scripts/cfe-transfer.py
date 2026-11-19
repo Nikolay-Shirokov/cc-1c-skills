@@ -1960,9 +1960,9 @@ def prop_transfer(cpm, p, prefix):
     """One property change of the extension against the configuration: 'ok' (the extension's
     value), 'pending' (still the BaseForm value) or 'differs' (changed in the configuration some
     other way)."""
-    cv = lower_or_none(cmp_key(cpm[p["key"]], prefix)) if p["key"] in cpm else None
-    nv = lower_or_none(cmp_key(p["new"], prefix))
-    ov = lower_or_none(cmp_key(p["old"], prefix))
+    cv = lower_or_none(get_ref_cmp_key(cpm[p["key"]], prefix)) if p["key"] in cpm else None
+    nv = lower_or_none(get_ref_cmp_key(p["new"], prefix))
+    ov = lower_or_none(get_ref_cmp_key(p["old"], prefix))
     if cv == nv:
         return "ok"
     # A property the configuration never had: the extension's own, still to be added
@@ -2761,23 +2761,38 @@ def get_form_name_map(ext_root, cfg_root, prefix):
 
 
 def get_config_ref_map(cfg_dir):
-    """Objects of the configuration by uuid: StyleItem -> style:<name>, CommonPicture -> CommonPicture.<name>."""
+    """Objects of the configuration by uuid: the style items and common pictures name themselves in their own
+    source files — StyleItems/<Name>.xml, CommonPictures/<Name>.xml."""
     res = {}
-    root = _load_xml_root(os.path.join(cfg_dir, "ConfigDumpInfo.xml"))
-    if root is None:
-        return res
-    for m in root.iter():
-        if not isinstance(m.tag, str) or localname(m) != "Metadata":
+    for folder, prefix in (("StyleItems", "style:"), ("CommonPictures", "CommonPicture.")):
+        d = os.path.join(cfg_dir, folder)
+        if not os.path.isdir(d):
             continue
-        nm, mid = m.get("name"), m.get("id")
-        if not nm or not mid or "." not in nm:
-            continue
-        kind, name = nm.split(".", 1)
-        if kind == "StyleItem":
-            res[mid.lower()] = "style:" + name
-        elif kind == "CommonPicture":
-            res[mid.lower()] = "CommonPicture." + name
+        for f in os.listdir(d):
+            if not f.lower().endswith(".xml"):
+                continue
+            root = _load_xml_root(os.path.join(d, f))
+            if root is None:
+                continue
+            obj = next((c for c in root if isinstance(c.tag, str)), None)
+            if obj is None or not obj.get("uuid"):
+                continue
+            props = next((c for c in obj if isinstance(c.tag, str) and localname(c) == "Properties"), None)
+            nm = next((c for c in props if isinstance(c.tag, str) and localname(c) == "Name"), None) if props is not None else None
+            if nm is not None and (nm.text or "").strip():
+                res[obj.get("uuid").lower()] = prefix + nm.text.strip()
     return res
+
+
+def get_ref_cmp_key(node, prefix):
+    """A compared value that is a reference to a style item or a picture: the extension has "0:<uuid>", the
+    configuration's dump has "style:<Name>"/"CommonPicture.<Name>", so the extension's side is read the same."""
+    k = cmp_key(node, prefix)
+    if not k or "0:" not in k or not CONFIG_REF_MAP:
+        return k
+    # The value of a leaf inside the canonical form: <tag>0:<uuid></>
+    return re.sub(r'(?<=>)0:([0-9a-fA-F-]{36})(?=<)',
+                  lambda m: CONFIG_REF_MAP.get(m.group(1).lower(), m.group(0)), k)
 
 
 FORM_PATH_TAGS = re.compile(r'(DataPath|TitleDataPath|FooterDataPath|HeaderDataPath|MultipleValue\w*DataPath)$')

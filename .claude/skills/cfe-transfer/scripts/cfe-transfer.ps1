@@ -1769,9 +1769,9 @@ function Get-EventText($e) {
 # One property change of the extension against the configuration: 'ok' (the extension's value),
 # 'pending' (still the BaseForm value) or 'differs' (changed in the configuration some other way).
 function Get-PropTransfer($cpm, $p, [string]$prefix) {
-	$cv = if ($cpm.Contains($p.Key)) { Get-CmpKey $cpm[$p.Key] $prefix } else { $null }
-	$nv = Get-CmpKey $p.New $prefix
-	$ov = Get-CmpKey $p.Old $prefix
+	$cv = if ($cpm.Contains($p.Key)) { Get-RefCmpKey $cpm[$p.Key] $prefix } else { $null }
+	$nv = Get-RefCmpKey $p.New $prefix
+	$ov = Get-RefCmpKey $p.Old $prefix
 	if ($cv -ieq $nv) { return 'ok' }
 	# A property the configuration never had: the extension's own, still to be added
 	if ($null -eq $p.Old -and -not $cv) { return 'pending' }
@@ -2555,23 +2555,38 @@ function Get-FormNameMap($extRoot, $cfgRoot, [string]$prefix) {
 	return $map
 }
 
-# Objects of the configuration by uuid, for the extension's "0:<uuid>" references: StyleItem -> style:<name>,
-# CommonPicture -> CommonPicture.<name>
+# Objects of the configuration by uuid, for the extension's "0:<uuid>" references: the style items and
+# common pictures name themselves in their own source files — StyleItems/<Name>.xml, CommonPictures/<Name>.xml
 function Get-ConfigRefMap([string]$cfgDir) {
 	$res = @{}
-	$p = Join-Path $cfgDir 'ConfigDumpInfo.xml'
-	if (-not (Test-Path -LiteralPath $p)) { return $res }
-	try { $doc = New-Object System.Xml.XmlDocument; $doc.Load($p) } catch { return $res }
-	foreach ($m in $doc.SelectNodes("//*[local-name()='Metadata']")) {
-		$nm = $m.GetAttribute('name'); $id = $m.GetAttribute('id')
-		if (-not $nm -or -not $id) { continue }
-		$dot = $nm.IndexOf('.')
-		if ($dot -lt 1) { continue }
-		$kind = $nm.Substring(0, $dot); $name = $nm.Substring($dot + 1)
-		if ($kind -eq 'StyleItem') { $res[$id.ToLower()] = "style:$name" }
-		elseif ($kind -eq 'CommonPicture') { $res[$id.ToLower()] = "CommonPicture.$name" }
+	foreach ($pair in @(@('StyleItems', 'style:'), @('CommonPictures', 'CommonPicture.'))) {
+		$dir = Join-Path $cfgDir $pair[0]
+		if (-not (Test-Path -LiteralPath $dir)) { continue }
+		foreach ($f in @(Get-ChildItem -LiteralPath $dir -Filter '*.xml' -File)) {
+			try { $doc = New-Object System.Xml.XmlDocument; $doc.Load($f.FullName) } catch { continue }
+			$obj = $null
+			foreach ($c in $doc.DocumentElement.ChildNodes) { if ($c.NodeType -eq 'Element') { $obj = $c; break } }
+			if (-not $obj) { continue }
+			$u = $obj.GetAttribute('uuid')
+			$nm = $obj.SelectSingleNode("*[local-name()='Properties']/*[local-name()='Name']")
+			if ($u -and $nm -and $nm.InnerText.Trim()) { $res[$u.ToLower()] = $pair[1] + $nm.InnerText.Trim() }
+		}
 	}
 	return $res
+}
+
+# A compared value that is a reference to a style item or a picture: the extension has "0:<uuid>", the
+# configuration's dump has "style:<Name>"/"CommonPicture.<Name>", so the extension's side is read the same
+function Get-RefCmpKey($node, [string]$prefix) {
+	$k = Get-CmpKey $node $prefix
+	if (-not $k -or $k.IndexOf('0:') -lt 0 -or -not $script:configRefMap) { return $k }
+	# The value of a leaf inside the canonical form: <tag>0:<uuid></>
+	return [regex]::Replace($k, '(?<=>)0:([0-9a-fA-F-]{36})(?=<)', {
+		param($m)
+		$u = $m.Groups[1].Value.ToLower()
+		if ($script:configRefMap.ContainsKey($u)) { return $script:configRefMap[$u] }
+		return $m.Value
+	})
 }
 
 $script:formPathTags = '(?:DataPath|TitleDataPath|FooterDataPath|HeaderDataPath|MultipleValue\w*DataPath)$'
