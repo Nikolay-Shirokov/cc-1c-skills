@@ -1,4 +1,4 @@
-﻿# cfe-transfer v1.15 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+﻿# cfe-transfer v1.16 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -24,6 +24,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+trap { [Console]::Error.WriteLine("TRAP line $($_.InvocationInfo.ScriptLineNumber): $($_.Exception.Message)"); [Console]::Error.WriteLine($_.ScriptStackTrace); exit 1 }
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
 # --- Mode ---
@@ -1352,6 +1353,63 @@ function Get-KindWord([string]$localName) {
 	return ([regex]::Replace($localName, '(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])', ' ')).ToLower()
 }
 
+# --- Copies from meta-edit (kept identical by check-inline-drift): the canonical place of a child
+# in <ChildObjects> by the object's kind, in the order MDClasses XSD gives it ---
+function Get-ObjectChildOrder {
+	return @{
+		"Catalog"                    = @("Attribute", "TabularSection", "Form", "Template", "Command")
+		"Document"                   = @("Attribute", "Form", "TabularSection", "Template", "Command")
+		"ExchangePlan"               = @("Attribute", "TabularSection", "Form", "Template", "Command")
+		"ChartOfCharacteristicTypes" = @("Attribute", "TabularSection", "Form", "Template", "Command")
+		"ChartOfAccounts"            = @("Attribute", "TabularSection", "AccountingFlag", "ExtDimensionAccountingFlag", "Form", "Template", "Command")
+		"ChartOfCalculationTypes"    = @("Attribute", "TabularSection", "Form", "Template", "Command")
+		"BusinessProcess"            = @("Attribute", "TabularSection", "Form", "Template", "Command")
+		"Task"                       = @("Attribute", "TabularSection", "Form", "Template", "AddressingAttribute", "Command")
+		"DataProcessor"              = @("Attribute", "TabularSection", "Form", "Template", "Command")
+		"Report"                     = @("Attribute", "TabularSection", "Form", "Template", "Command")
+		"ExternalDataProcessor"      = @("Attribute", "TabularSection", "Form", "Template")
+		"ExternalReport"             = @("Attribute", "TabularSection", "Form", "Template")
+		"Enum"                       = @("EnumValue", "Form", "Template", "Command")
+		"InformationRegister"        = @("Resource", "Attribute", "Dimension", "Form", "Template", "Command")
+		"AccumulationRegister"       = @("Resource", "Attribute", "Dimension", "Form", "Template", "Command")
+		"AccountingRegister"         = @("Dimension", "Resource", "Attribute", "Form", "Template", "Command")
+		"CalculationRegister"        = @("Resource", "Attribute", "Dimension", "Recalculation", "Form", "Template", "Command")
+		"DocumentJournal"            = @("Column", "Form", "Template", "Command")
+		"Table"                      = @("Field", "Form", "Command", "Template")
+		"ExternalDataSource"         = @("Table", "Cube", "Function")
+		"Cube"                       = @("DimensionTable", "Dimension", "Resource", "Form", "Command", "Template")
+		"DimensionTable"             = @("Field", "Form", "Command", "Template")
+		"FilterCriterion"            = @("Form", "Command")
+		"SettingsStorage"            = @("Form", "Template")
+		"TabularSection"             = @("Attribute")
+	}
+}
+
+# Элемент <ChildObjects>, ПЕРЕД которым встаёт новый <tag>; $null — дописать в конец.
+# Сразу за последним элементом своего тега, иначе перед первым элементом группы, идущей
+# по канону вида позже. Вид или тег вне канона — $null, как раньше.
+function Find-ChildAnchor($container, [string]$tag, [string]$objType) {
+	$children = New-Object System.Collections.Generic.List[object]
+	foreach ($c in $container.ChildNodes) { if ($c.NodeType -eq 'Element') { $children.Add($c) } }
+	$lastIdx = -1
+	for ($i = 0; $i -lt $children.Count; $i++) {
+		if ($children[$i].LocalName -ceq $tag) { $lastIdx = $i }
+	}
+	if ($lastIdx -ge 0) {
+		if ($lastIdx + 1 -lt $children.Count) { return $children[$lastIdx + 1] }
+		return $null
+	}
+	$order = (Get-ObjectChildOrder)[$objType]
+	if (-not $order) { return $null }
+	$tagIdx = [array]::IndexOf([string[]]$order, $tag)
+	if ($tagIdx -lt 0) { return $null }
+	$later = @($order | Select-Object -Skip ($tagIdx + 1))
+	foreach ($c in $children) {
+		if ($later -ccontains $c.LocalName) { return $c }
+	}
+	return $null
+}
+
 # Context of one object of the extension
 function Get-ObjContext([string]$extDir, [string]$type, [string]$name) {
 	if (-not $childTypeDirMap.ContainsKey($type)) { return @{ Known = $false } }
@@ -2165,24 +2223,44 @@ function Get-TopKey([string]$line, [string]$prefix) {
 }
 
 # Own sub-objects of a borrowed object (attributes, tabular sections, commands, forms, templates, …)
-function Get-OwnChildItems($ctx, $cfgMd, [string]$prefix) {
+function Get-OwnChildItems($ctx, $cfgMd, [string]$prefix, [string]$rel) {
 	$items = @()
 	if (-not $ctx.Md -or -not $ctx.Md.Children) { return $items }
 	$mns = $ctx.Md.Ns
 	$cfgKids = @()
 	if ($cfgMd -and $cfgMd.Children) { foreach ($c in $cfgMd.Children.ChildNodes) { if ($c.NodeType -eq 'Element') { $cfgKids += $c } } }
+	# Kinds kept in files of their own: a form, a template, a command module. The metadata transfer
+	# carries XML-only children; these stay for a person
+	$fileKinds = @('Form', 'Template', 'Command')
 	$check = {
 		param($node, [string]$label, $cfgPool, [string]$path)
 		$nm = Get-MdChildName $node $mns
 		$cands = @($cfgPool | Where-Object { $_.LocalName -eq $node.LocalName })
 		$hit = Find-NameIn @($cands | ForEach-Object { Get-MdChildName $_ $cfgMd.Ns }) $nm $prefix
 		$full = if ($path) { "$path.$nm" } else { $nm }
-		if (-not $hit) { return (New-Item2 'NOT_TRANSFERRED' "$label $full") }
+		$plan = @{ Kind = 'md'; Rel = $rel; ObjType = $ctx.Type; Tag = $node.LocalName; Name = $nm; Parent = $path; Node = $node; TypeKey = '' }
+		if ($node.LocalName -eq 'TabularSection') {
+			$plan.ChildNames = @()
+			$sk = $node.SelectSingleNode("md:ChildObjects", $mns)
+			if ($sk) { foreach ($x in $sk.ChildNodes) { if ($x.NodeType -eq 'Element') { $plan.ChildNames += (Get-MdChildName $x $mns) } } }
+		}
+		if (-not $hit) {
+			$ni = New-Item2 'NOT_TRANSFERRED' "$label $full"
+			$ni.Plan = if ($fileKinds -contains $node.LocalName) {
+				@{ Kind = 'md-skip'; Rel = $rel; Reason = "own $($node.LocalName.ToLower()) is kept in files and is not transferred by this stage; copy it by hand" }
+			} else { $plan }
+			return $ni
+		}
 		$as = if ($hit -ine $nm) { " (found as $hit)" } else { '' }
 		if ($node.SelectSingleNode("md:Properties/md:Type", $mns)) {
 			$cnode = @($cands | Where-Object { (Get-MdChildName $_ $cfgMd.Ns) -ieq $hit })[0]
 			$a = Get-MdTypeKey $node $mns $prefix; $b = Get-MdTypeKey $cnode $cfgMd.Ns $prefix
-			if ($a -ine $b) { return (New-Item2 'DIVERGED' "$label $full$as (type: $a vs $b in config)") }
+			if ($a -ine $b) {
+				$ni = New-Item2 'DIVERGED' "$label $full$as (type: $a vs $b in config)"
+				$plan.TypeKey = $a; $plan.Conflict = 'the type differs'
+				$ni.Plan = $plan
+				return $ni
+			}
 		}
 		return (New-Item2 'TRANSFERRED' "$label $full$as")
 	}
@@ -2196,7 +2274,11 @@ function Get-OwnChildItems($ctx, $cfgMd, [string]$prefix) {
 			$hit = Find-NameIn @($cfgKids | Where-Object { $_.LocalName -eq $c.LocalName } | ForEach-Object { $_.InnerText.Trim() }) $nm $prefix
 			$as = if ($hit -and $hit -ine $nm) { " (found as $hit)" } else { '' }
 			$st = if ($hit) { 'TRANSFERRED' } else { 'NOT_TRANSFERRED' }
-			$items += New-Item2 $st "$(Get-KindWord $c.LocalName) $nm$as"
+			$ni = New-Item2 $st "$(Get-KindWord $c.LocalName) $nm$as"
+			if (-not $hit) {
+				$ni.Plan = @{ Kind = 'md-skip'; Rel = $rel; Reason = "own $($c.LocalName.ToLower()) is kept in files and is not transferred by this stage; copy it by hand" }
+			}
+			$items += $ni
 			continue
 		}
 		if (-not (Test-AdoptedNode $c $mns)) {
@@ -2258,12 +2340,12 @@ function Get-TransferObject($ext, $obj) {
 		if ($diffs.ContainsKey($key)) { $skip = Get-CallTypeHandlers $diffs[$key] }
 		$rec.Items += @(Get-ModuleTransferItems $bsl $ext.Dir $prefix $skip)
 	}
-	$rec.Items += @(Get-OwnChildItems $ctx $cfgMd $prefix)
-	if ($obj.Type -eq 'Subsystem') { $rec.Items += @(Get-SubsystemContentItems $ctx.Md $cfgMd $prefix) }
-	$rec.Items += $formItems
 	# Section = the file the change lives in (a module line, the form's Form.xml, the object's own
 	# XML for its sub-objects); the item then keeps only its line number
 	$objRel = Get-RelPath $ext.Dir $ctx.File
+	$rec.Items += @(Get-OwnChildItems $ctx $cfgMd $prefix $objRel)
+	if ($obj.Type -eq 'Subsystem') { $rec.Items += @(Get-SubsystemContentItems $ctx.Md $cfgMd $prefix $objRel) }
+	$rec.Items += $formItems
 	foreach ($it in $rec.Items) {
 		if ($it.Loc -match '^(.+):(\d+)$') { $it.Section = $Matches[1]; $it.Loc = ":$($Matches[2])" }
 		elseif (-not $it.Section) { $it.Section = $objRel }
@@ -2335,7 +2417,7 @@ function Get-SubsystemContent($md) {
 
 # Transfer of a borrowed subsystem's content: each object the extension adds must be in the content
 # of the configuration's subsystem (own names compared with and without the prefix)
-function Get-SubsystemContentItems($md, $cfgMd, [string]$prefix) {
+function Get-SubsystemContentItems($md, $cfgMd, [string]$prefix, [string]$rel) {
 	$items = @()
 	$cfg = @(Get-SubsystemContent $cfgMd)
 	foreach ($ref in @(Get-SubsystemContent $md)) {
@@ -2346,7 +2428,14 @@ function Get-SubsystemContentItems($md, $cfgMd, [string]$prefix) {
 		$hit = Find-NameIn $pool $nm $prefix
 		$as = if ($hit -and $hit -ine $nm) { " (found as $typ.$hit)" } else { '' }
 		$st = if ($hit) { 'TRANSFERRED' } else { 'NOT_TRANSFERRED' }
-		$items += New-Item2 $st "content $ref$as"
+		$ni = New-Item2 $st "content $ref$as"
+		if (-not $hit) {
+			# The referenced object must be in the configuration: the subsystem cannot name a missing one
+			$missing = $false
+			if ($cfgPools -and $cfgPools.ContainsKey($typ)) { $missing = -not (Find-NameIn @($cfgPools[$typ]) $nm $prefix) }
+			$ni.Plan = @{ Kind = 'md-content'; Rel = $rel; Ref = $ref; Type = $typ; Name = $nm; Missing = $missing }
+		}
+		$items += $ni
 	}
 	return $items
 }
@@ -2994,6 +3083,197 @@ function Test-FormWrite($fe) {
 			if (-not $hit) { $miss += $op.Key }
 		}
 		# The comma keeps a one-item array an array: a bare string would unroll to characters
+		return , $miss
+	} finally {
+		Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+	}
+}
+
+# ============================================================
+# Metadata writing: nodes of the extension's object XML copied into the configuration's one
+# ============================================================
+
+function New-MdNt($doc) {
+	$m = New-Object System.Xml.XmlNamespaceManager($doc.NameTable)
+	$m.AddNamespace('md', $mdNsUri)
+	$m.AddNamespace('xr', 'http://v8.1c.ru/8.3/xcf/readable')
+	$m.AddNamespace('v8', 'http://v8.1c.ru/8.1/data/core')
+	# A namespace manager is enumerable: the comma keeps it one object
+	return , $m
+}
+
+# Edits of one configuration's object XML, collected over the run and written once
+function Get-MdEdits([string]$path, [string]$objType) {
+	$k = [System.IO.Path]::GetFullPath($path).ToLower()
+	if (-not $script:mdEdits.Contains($k)) {
+		$script:mdEdits[$k] = @{ Path = $path; ObjType = $objType; Fw = (Read-FormWrite $path); Ops = (New-Object System.Collections.ArrayList); Failed = 0 }
+	}
+	return $script:mdEdits[$k]
+}
+
+# The object element of a configuration's object XML
+function Get-MdObjectElement($doc) {
+	foreach ($c in $doc.DocumentElement.ChildNodes) { if ($c.NodeType -eq 'Element') { return $c } }
+	return $null
+}
+
+# The <ChildObjects> of the object or of its tabular section $parent, created where it belongs
+function Get-MdContainer($me, [string]$parent, [string]$tag) {
+	$doc = $me.Fw.Doc; $eol = $me.Fw.Eol
+	$m = New-MdNt $doc
+	$objEl = Get-MdObjectElement $doc
+	if (-not $objEl) { return $null }
+	$owner = $objEl
+	if ($parent) {
+		$owner = $null
+		$kids = $objEl.SelectSingleNode("md:ChildObjects", $m)
+		if ($kids) {
+			foreach ($c in $kids.ChildNodes) {
+				if ($c.NodeType -eq 'Element' -and $c.LocalName -eq 'TabularSection' -and (Get-MdChildName $c $m) -ieq $parent) { $owner = $c; break }
+			}
+		}
+		if (-not $owner) { return $null }
+	}
+	$co = $owner.SelectSingleNode("md:ChildObjects", $m)
+	if (-not $co) {
+		$co = $doc.CreateElement('ChildObjects', $doc.DocumentElement.GetNamespaceOfPrefix('md'))
+		Insert-FormNodeAt $owner $co $null $eol
+	}
+	return $co
+}
+
+# The extension's node by the plan: a whitespace-keeping copy of the source document, so the copied
+# subtree carries the platform's line breaks and indents
+function Get-MdSourceNode($plan, [string]$extDir) {
+	$src = Read-FormDocKeep (Join-Path $extDir $plan.Rel)
+	if (-not $src) { return $null }
+	return (Get-NodeByPath $src (Get-NodePath $plan.Node))
+}
+
+function Apply-MdOp($me, $plan, [string]$extDir) {
+	$doc = $me.Fw.Doc; $eol = $me.Fw.Eol
+	$m = New-MdNt $doc
+	$objEl = Get-MdObjectElement $doc
+	if (-not $objEl) { throw "SKIP: the object is not in the configuration" }
+	if ($plan.Kind -eq 'md-content') {
+		$props = $objEl.SelectSingleNode("md:Properties", $m)
+		if (-not $props) { throw "SKIP: the subsystem has no Properties" }
+		$content = $props.SelectSingleNode("md:Content", $m)
+		if (-not $content) {
+			$content = $doc.CreateElement('Content', $doc.DocumentElement.GetNamespaceOfPrefix('md'))
+			Insert-FormNodeAt $props $content $null $eol
+		}
+		$item = $doc.CreateElement('xr:Item', $doc.DocumentElement.GetNamespaceOfPrefix('xr'))
+		[void]$item.SetAttribute('type', $doc.DocumentElement.GetNamespaceOfPrefix('xsi'), 'xr:MDObjectRef')
+		$item.InnerText = $plan.Ref
+		Insert-FormNodeAt $content $item $null $eol
+		return
+	}
+	$container = Get-MdContainer $me $plan.Parent $plan.Tag
+	if (-not $container) {
+		$why = if ($plan.Parent) { "tabular section $($plan.Parent) is not in the configuration" } else { 'ChildObjects is not in the configuration' }
+		throw "SKIP: $why"
+	}
+	$src = Get-MdSourceNode $plan $extDir
+	if (-not $src) { throw "SKIP: the node is not found in the extension" }
+	$node = $doc.ImportNode($src, $true)
+	# Identifiers are new: a configuration's object must not share them with the extension's own one
+	foreach ($n in @($node) + @($node.SelectNodes(".//*", $m))) {
+		if ($n.NodeType -ne 'Element') { continue }
+		if ($n.HasAttribute('uuid')) { $n.SetAttribute('uuid', [guid]::NewGuid().ToString()) }
+	}
+	# A new tabular section: its generated types are new and named after it
+	foreach ($g in @($node.SelectNodes(".//xr:GeneratedType", $m))) {
+		foreach ($x in @($g.SelectNodes("xr:TypeId|xr:ValueId", $m))) { $x.InnerText = [guid]::NewGuid().ToString() }
+		$gn = $g.GetAttribute('name')
+		if ($gn) { $g.SetAttribute('name', [regex]::Replace($gn, '[^.]+$', $plan.Target.Name)) }
+	}
+	$nmNode = $node.SelectSingleNode("md:Properties/md:Name", $m)
+	if ($nmNode) { $nmNode.InnerText = $plan.Target.Name }
+	# Inner names of a copied subtree: a tabular section's own attributes lose the prefix too
+	foreach ($x in @($node.SelectNodes(".//md:Properties/md:Name", $m))) {
+		if ($x -eq $nmNode) { continue }
+		$conv = Convert-ExtCode @($x.InnerText) @{}
+		$x.InnerText = [string]$conv[0]
+	}
+	# The node is the configuration's own: the extension's belongings have no place here
+	foreach ($x in @($node.SelectNodes("md:Properties/md:ObjectBelonging|md:Properties/md:ExtendedConfigurationObject", $m))) { [void]$x.ParentNode.RemoveChild($x) }
+	# Reference types name the objects the configuration has
+	foreach ($t in @($node.SelectNodes(".//v8:Type|.//v8:TypeSet", $m))) {
+		$conv = Convert-ExtCode @($t.InnerText) @{}
+		$t.InnerText = [string]$conv[0]
+	}
+	$ref = Find-ChildAnchor $container $plan.Tag $plan.ObjType
+	Insert-FormNodeAt $container $node $ref $eol
+}
+
+# Errors of the metadata validator (meta-validate for an object, subsystem-validate for a subsystem)
+function Get-MdValidateErrors([string]$path, [string]$objType) {
+	$rel = if ($objType -eq 'Subsystem') { '../../subsystem-validate/scripts/subsystem-validate.ps1' } else { '../../meta-validate/scripts/meta-validate.ps1' }
+	$vs = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot $rel))
+	if (-not (Test-Path -LiteralPath $vs)) {
+		$script:mdValidateMissing = $true
+		return , @()
+	}
+	$param = if ($objType -eq 'Subsystem') { '-SubsystemPath' } else { '-ObjectPath' }
+	$out = & powershell.exe -NoProfile -File $vs $param $path 2>&1
+	$errs = @()
+	foreach ($l in @($out)) { $t = [string]$l; if ($t -match '\[ERROR\]') { $errs += ($t.Substring($t.IndexOf('[ERROR]') + 7) -replace '\s+', ' ').Trim() } }
+	return , $errs
+}
+
+# The written file read back the same way the check reads it: every planned node is in place with the
+# type the extension has, and the validator sees no error the configuration's file did not have
+function Test-MdWrite($me) {
+	$dir = [System.IO.Path]::GetDirectoryName($me.Path)
+	# Next to the original: meta-validate looks for Configuration.xml upward, a temp dir would lose it
+	$tmp = Join-Path $dir ('.cfe-md-' + [guid]::NewGuid().ToString() + '.xml')
+	try {
+		Remove-DuplicateWhitespace $me.Fw.Doc.DocumentElement
+		Save-FormWrite $me.Fw $tmp
+		$before = Get-MdValidateErrors $me.Path $me.ObjType
+		$after = Get-MdValidateErrors $tmp $me.ObjType
+		$added = @($after | Where-Object { $before -notcontains $_ })
+		if ($added.Count -gt 0) { return , @("validator: $($added[0])") }
+		$doc = Read-FormDoc $tmp
+		$m = New-MdNt $doc
+		$objEl = Get-MdObjectElement $doc
+		$miss = @()
+		foreach ($op in $me.Ops) {
+			$pl = $op.Plan
+			if ($pl.Kind -eq 'md-content') {
+				$content = if ($objEl) { $objEl.SelectSingleNode("md:Properties/md:Content", $m) } else { $null }
+				$found = $false
+				if ($content) { foreach ($i in @($content.SelectNodes("*[local-name()='Item']", $m))) { if ($i.InnerText.Trim() -ieq $pl.Ref) { $found = $true; break } } }
+				if (-not $found) { $miss += "$($op.Item.Text)" }
+				continue
+			}
+			$container = $null; $node = $null
+			if ($objEl) {
+				if ($pl.Parent) {
+					$kids = $objEl.SelectSingleNode("md:ChildObjects", $m)
+					if ($kids) {
+						foreach ($c in $kids.ChildNodes) {
+							if ($c.NodeType -eq 'Element' -and $c.LocalName -eq 'TabularSection' -and (Get-MdChildName $c $m) -ieq $pl.Parent) { $container = $c.SelectSingleNode("md:ChildObjects", $m); break }
+						}
+					}
+				} else { $container = $objEl.SelectSingleNode("md:ChildObjects", $m) }
+			}
+			if ($container) {
+				foreach ($c in $container.ChildNodes) {
+					if ($c.NodeType -eq 'Element' -and $c.LocalName -eq $pl.Tag -and (Get-MdChildName $c $m) -ieq $pl.Target.Name) { $node = $c; break }
+				}
+			}
+			$bad = -not $node
+			if (-not $bad -and $pl.TypeKey) { $bad = ((Get-MdTypeKey $node $m $script:transferPrefix) -ine $pl.TypeKey) }
+			if (-not $bad -and $pl.Tag -eq 'TabularSection' -and $pl.ChildNames) {
+				$sub = $node.SelectSingleNode("md:ChildObjects", $m)
+				$have = @()
+				if ($sub) { foreach ($x in $sub.ChildNodes) { if ($x.NodeType -eq 'Element') { $have += (Get-MdChildName $x $m) } } }
+				foreach ($n in @($pl.ChildNames)) { if (-not (Find-NameIn $have $n $script:transferPrefix)) { $bad = $true; break } }
+			}
+			if ($bad) { $miss += "$($op.Item.Text)" }
+		}
 		return , $miss
 	} finally {
 		Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
@@ -4263,6 +4543,16 @@ if ($Mode -eq 'transfer') {
 		}
 		$taken = New-Object 'System.Collections.Generic.HashSet[string]'
 		foreach ($n in $cfgNames) { [void]$taken.Add($n.ToLower()) }
+		# Names code may refer to: attributes of the configuration's tabular sections too — a method waiting
+		# for one must stop waiting once the metadata transfer has put it into the configuration
+		$cfgKnown = @($cfgNames)
+		if ($cfgMd -and $cfgMd.Children) {
+			foreach ($c in $cfgMd.Children.ChildNodes) {
+				if ($c.NodeType -ne 'Element') { continue }
+				$csub = $c.SelectSingleNode("md:ChildObjects", $cfgMd.Ns)
+				if ($csub) { foreach ($x in $csub.ChildNodes) { if ($x.NodeType -eq 'Element') { $cfgKnown += (Get-MdChildName $x $cfgMd.Ns) } } }
+			}
+		}
 		$mns = $ctx.Md.Ns
 		foreach ($c in $ctx.Md.Children.ChildNodes) {
 			if ($c.NodeType -ne 'Element') { continue }
@@ -4278,7 +4568,7 @@ if ($Mode -eq 'transfer') {
 			}
 			foreach ($nm in $own) {
 				if (-not $nm) { continue }
-				$hit = Find-NameIn $cfgNames $nm $prefix
+				$hit = Find-NameIn $cfgKnown $nm $prefix
 				if (-not $hit) {
 					if (-not $missingByObj.ContainsKey("$($obj.Type).$($obj.Name)")) { $missingByObj["$($obj.Type).$($obj.Name)"] = @{} }
 					$missingByObj["$($obj.Type).$($obj.Name)"][$nm.ToLower()] = $nm
@@ -4343,6 +4633,9 @@ if ($Mode -eq 'transfer') {
 		foreach ($fe in $script:fileEdits.Values) { $fe.Repl.Clear(); $fe.Create.Clear(); $fe.OwnAt.Clear(); $fe.Tail.Clear() }
 		# Ordered: the written forms are listed for review in the order they were touched
 		$script:formEdits = [ordered]@{}
+		$script:mdEdits = [ordered]@{}
+		$mdGiven = @{}
+		$mdWarn = @()
 		$script:seq = 0
 		$tempCount = 0
 		$recs = @()
@@ -4513,8 +4806,85 @@ if ($Mode -eq 'transfer') {
 					continue
 				}
 				$t.Status = 'MANUAL'
-				if ($it.Group) { $t.Text = "$($it.Text) — forms are not transferred yet"; $titems += $t; continue }
+				if ($it.Group) { $t.Text = "$($it.Text) — the configuration's form changed since the borrowing; not applied"; $titems += $t; continue }
 				if (-not $pl) { $t.Text = "$($it.Text) — metadata is not transferred yet"; $titems += $t; continue }
+				if ($pl.Kind -eq 'md' -or $pl.Kind -like 'md-*') {
+					if ($pl.Kind -eq 'md-skip') { $t.Text = "$($it.Text) — $($pl.Reason)"; $titems += $t; continue }
+					if ($w.Support -eq 'locked') {
+						$t.Text = "$($it.Text) — object is locked by vendor support"
+						$t.Sub = @('next: allow editing with /support-edit, then re-run -Mode transfer')
+						$titems += $t; continue
+					}
+					if ($pl.Kind -eq 'md-content') {
+						if ($pl.Missing) {
+							$t.Text = "$($it.Text) — the object is not in the configuration"
+							$t.Sub = @('next: add the object to the configuration first, then re-run -Mode transfer')
+							$titems += $t; continue
+						}
+						$me = Get-MdEdits (Get-CfgPath $pl.Rel) 'Subsystem'
+						try {
+							Apply-MdOp $me $pl $extDir0
+							[void]$me.Ops.Add(@{ Plan = $pl; Item = $t })
+							$t.Status = 'TRANSFERRED'; $t.Now = $true
+							$titems += $t
+						} catch {
+							$msg = $_.Exception.Message
+							$skip = $msg.StartsWith('SKIP: ')
+							if ($skip) { $msg = $msg.Substring(6) } else { $me.Failed++ }
+							$t.Status = 'CONFLICT'
+							$t.Text = "$($it.Text) — $msg; $(if ($skip) { 'change not applied' } else { 'object not changed' })"
+							$t.Sub = @('next: apply by hand, then re-run -Mode check')
+							$titems += $t
+						}
+						continue
+					}
+					if ($pl.Conflict) {
+						$t.Status = 'CONFLICT'
+						$t.Text = "$($it.Text) — the type differs; object not changed"
+						$t.Sub = @("from: extension $($pl.Rel)", "to:   config $($pl.Rel)", 'next: compare the types and merge by hand, then re-run -Mode check')
+						$titems += $t; continue
+					}
+					$me = Get-MdEdits (Get-CfgPath $pl.Rel) $pl.ObjType
+					# The name is the one pass 2 gave the code, else the container's pool decides
+					$tn = if ($script:nameMap.ContainsKey($pl.Name.ToLower())) { @{ Name = $script:nameMap[$pl.Name.ToLower()]; Note = '' } } else { $null }
+					if (-not $tn) {
+						$m = New-MdNt $me.Fw.Doc
+						$co = Get-MdContainer $me $pl.Parent $pl.Tag
+						$taken = New-Object 'System.Collections.Generic.HashSet[string]'
+						if ($co) { foreach ($x in $co.ChildNodes) { if ($x.NodeType -eq 'Element') { [void]$taken.Add((Get-MdChildName $x $m).ToLower()) } } }
+						$gk = "$($pl.Rel)|$($pl.Parent)|$($pl.Tag)"
+						if ($mdGiven.ContainsKey($gk)) { foreach ($n in $mdGiven[$gk]) { [void]$taken.Add($n) } }
+						$tn = Get-TargetName $pl.Name $prefix $taken $set.AddDevObjects
+					}
+					if ($tn.Taken) {
+						$t.Status = 'CONFLICT'
+						$t.Text = "$($it.Text) — name taken in config ($($tn.Note)); object not changed"
+						$t.Sub = @('next: rename it in the extension or merge by hand, then re-run -Mode transfer')
+						$titems += $t; continue
+					}
+					$pl.Target = $tn
+					$gk = "$($pl.Rel)|$($pl.Parent)|$($pl.Tag)"
+					if (-not $mdGiven.ContainsKey($gk)) { $mdGiven[$gk] = @() }
+					$mdGiven[$gk] += $tn.Name.ToLower()
+					try {
+						Apply-MdOp $me $pl $extDir0
+						[void]$me.Ops.Add(@{ Plan = $pl; Item = $t })
+						$note = if ($tn.Name -ine $pl.Name) { " (as $($tn.Name))" } else { '' }
+						$t.Status = 'TRANSFERRED'; $t.Now = $true
+						$t.Text = "$($it.Text)$note — structure only, stored values are not migrated"
+						$mdWarn += "$($pl.Rel): $($it.Text)$note"
+						$titems += $t
+					} catch {
+						$msg = $_.Exception.Message
+						$skip = $msg.StartsWith('SKIP: ')
+						if ($skip) { $msg = $msg.Substring(6) } else { $me.Failed++ }
+						$t.Status = 'CONFLICT'
+						$t.Text = "$($it.Text) — $msg; $(if ($skip) { 'change not applied' } else { 'object not changed' })"
+						$t.Sub = @('next: apply by hand, then re-run -Mode check')
+						$titems += $t
+					}
+					continue
+				}
 				if ($pl.Kind -eq 'missing') {
 					$next = if ($pl.CfgM) { "the interceptor does not parse: fix it in the extension, then re-run -Mode transfer" } else { 'the target is not in the configuration: add it there first, then re-run -Mode transfer' }
 					$t.Sub = Get-WhereLines $pl $next
@@ -4838,6 +5208,25 @@ if ($Mode -eq 'transfer') {
 		Save-FormWrite $fe.Fw
 		$changed += $fe.Path
 	}
+	# Metadata: written only after the same comparison and the validator see it in place
+	foreach ($me in @($script:mdEdits.Values)) {
+		if ($me.Ops.Count -eq 0) { continue }
+		$why = if ($me.Failed -gt 0) { 'another change of the same file could not be applied' } else { $null }
+		if (-not $why) {
+			$miss = Test-MdWrite $me
+			if ($miss.Count -gt 0) { $why = "after the transfer the check would not find it: $($miss[0])" }
+		}
+		if ($why) {
+			foreach ($op in $me.Ops) {
+				$op.Item.Status = 'CONFLICT'; $op.Item.Now = $false
+				$op.Item.Text = "$($op.Item.Text) — $why; object not changed"
+				$op.Item.Sub = @('next: apply by hand, then re-run -Mode check')
+			}
+			continue
+		}
+		Save-FormWrite $me.Fw
+		$changed += $me.Path
+	}
 
 	# --- Report ---
 	$cNow = 0; $cAlready = 0; $cWait = 0; $cManual = 0; $cConflict = 0
@@ -4882,6 +5271,15 @@ if ($Mode -eq 'transfer') {
 	if ($roles) { $tail += "$(Get-Plural $roles 'role'), not transferred" }
 	$tailText = if ($tail.Count) { " · $($tail -join ' · ')" } else { '' }
 	$footer += "=== Summary $($ext.Name): $($parts -join ', ')$tailText ==="
+	# The values the extension wrote into its own attributes do not come along: loud and never cut by
+	# the detail budget, so it goes into the footer with the summary
+	if ($mdWarn.Count -gt 0) {
+		$footer += "!!! Stored data is NOT migrated:"
+		foreach ($l in @($mdWarn | Select-Object -Unique)) { $footer += "    $l" }
+		$footer += "    The metadata is transferred as structure only, with new identifiers. Values the extension"
+		$footer += "    wrote into its own attributes stay in the extension's columns and are LOST when it is"
+		$footer += "    disabled or removed. Copy them into the configuration's attributes BEFORE that."
+	}
 	if ($changed.Count -gt 0) {
 		$footer += "Changed files:"
 		foreach ($c in $changed) { $footer += "    $(Get-RelPath $ConfigPath $c)" }
@@ -4889,6 +5287,7 @@ if ($Mode -eq 'transfer') {
 	}
 	if ($cConflict) { $footer += "Hint: resolve each conflict (see next:), then re-run -Mode transfer" }
 	if ($script:formValidateMissing) { $footer += "Hint: /form-validate is not installed — the written forms were not checked; run /form-validate by hand" }
+	if ($script:mdValidateMissing) { $footer += "Hint: /meta-validate (or /subsystem-validate) is not installed — the written metadata was not checked; run it by hand" }
 	if ($cWait) { $footer += "Hint: waiting changes go over by themselves on a re-run of -Mode transfer once what they wait for is in the configuration: own methods of this run (see their lines), objects, sub-objects and form items (by hand for now)" }
 	$failed = ($cWait + $cManual + $cConflict) -gt 0
 	$showDetails = $true

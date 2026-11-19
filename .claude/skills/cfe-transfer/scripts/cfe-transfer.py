@@ -1,5 +1,5 @@
 ﻿#!/usr/bin/env python3
-# cfe-transfer v1.15 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+# cfe-transfer v1.16 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -9,6 +9,7 @@ import os
 import re
 import subprocess
 import sys
+import uuid
 from lxml import etree
 
 # Регистронезависимый ввод — паритет с PS1: в PowerShell имена параметров и [ValidateSet]
@@ -1525,6 +1526,61 @@ def kind_word(name):
     return re.sub(r'(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])', ' ', name).lower()
 
 
+# --- ChildObjects canon (verbatim from meta-edit, kept identical by check-inline-drift) ---
+def object_child_order():
+    """Порядок групп в <ChildObjects> объекта по виду. Это xs:sequence <Вид>ChildObjects из MDClasses XSD,
+    сверенный выгрузкой платформы: выгрузка сама ставит группы в этот порядок, так что вставка не на место
+    даёт дифф при следующей выгрузке. Единого порядка нет — у документа Form стоит до TabularSection."""
+    return {
+        "Catalog":                    ["Attribute", "TabularSection", "Form", "Template", "Command"],
+        "Document":                   ["Attribute", "Form", "TabularSection", "Template", "Command"],
+        "ExchangePlan":               ["Attribute", "TabularSection", "Form", "Template", "Command"],
+        "ChartOfCharacteristicTypes": ["Attribute", "TabularSection", "Form", "Template", "Command"],
+        "ChartOfAccounts":            ["Attribute", "TabularSection", "AccountingFlag", "ExtDimensionAccountingFlag", "Form", "Template", "Command"],
+        "ChartOfCalculationTypes":    ["Attribute", "TabularSection", "Form", "Template", "Command"],
+        "BusinessProcess":            ["Attribute", "TabularSection", "Form", "Template", "Command"],
+        "Task":                       ["Attribute", "TabularSection", "Form", "Template", "AddressingAttribute", "Command"],
+        "DataProcessor":              ["Attribute", "TabularSection", "Form", "Template", "Command"],
+        "Report":                     ["Attribute", "TabularSection", "Form", "Template", "Command"],
+        "ExternalDataProcessor":      ["Attribute", "TabularSection", "Form", "Template"],
+        "ExternalReport":             ["Attribute", "TabularSection", "Form", "Template"],
+        "Enum":                       ["EnumValue", "Form", "Template", "Command"],
+        "InformationRegister":        ["Resource", "Attribute", "Dimension", "Form", "Template", "Command"],
+        "AccumulationRegister":       ["Resource", "Attribute", "Dimension", "Form", "Template", "Command"],
+        "AccountingRegister":         ["Dimension", "Resource", "Attribute", "Form", "Template", "Command"],
+        "CalculationRegister":        ["Resource", "Attribute", "Dimension", "Recalculation", "Form", "Template", "Command"],
+        "DocumentJournal":            ["Column", "Form", "Template", "Command"],
+        "Table":                      ["Field", "Form", "Command", "Template"],
+        "ExternalDataSource":         ["Table", "Cube", "Function"],
+        "Cube":                       ["DimensionTable", "Dimension", "Resource", "Form", "Command", "Template"],
+        "DimensionTable":             ["Field", "Form", "Command", "Template"],
+        "FilterCriterion":            ["Form", "Command"],
+        "SettingsStorage":            ["Form", "Template"],
+        "TabularSection":             ["Attribute"],
+    }
+
+
+def find_child_anchor(container, tag, obj_type):
+    """Элемент <ChildObjects>, ПЕРЕД которым встаёт новый <tag>; None — дописать в конец.
+    Сразу за последним элементом своего тега, иначе перед первым элементом группы, идущей
+    по канону вида позже. Вид или тег вне канона — None, как раньше."""
+    children = [c for c in container if isinstance(c.tag, str)]
+    last_idx = -1
+    for i, c in enumerate(children):
+        if c.tag.rsplit('}', 1)[-1] == tag:
+            last_idx = i
+    if last_idx >= 0:
+        return children[last_idx + 1] if last_idx + 1 < len(children) else None
+    order = object_child_order().get(obj_type)
+    if not order or tag not in order:
+        return None
+    later = order[order.index(tag) + 1:]
+    for c in children:
+        if c.tag.rsplit('}', 1)[-1] in later:
+            return c
+    return None
+
+
 # Context of one object of the extension
 def get_obj_context(ext_dir, typ, name):
     if typ not in CHILD_TYPE_DIR_MAP:
@@ -2421,26 +2477,45 @@ def get_top_key(line, prefix):
 
 
 # Own sub-objects of a borrowed object (attributes, tabular sections, commands, forms, templates, …)
-def own_child_items(ctx, cfg_md, prefix):
+def own_child_items(ctx, cfg_md, prefix, rel):
     items = []
     if ctx["md"] is None or ctx["md"]["children"] is None:
         return items
     cfg_kids = elem_children(cfg_md["children"]) if cfg_md is not None and cfg_md["children"] is not None else []
+    # Kinds kept in files of their own: a form, a template, a command module. The metadata transfer
+    # carries XML-only children; these stay for a person
+    file_kinds = ("Form", "Template", "Command")
 
     def check(node, label, cfg_pool, path):
         nm = md_child_name(node)
         cands = [c for c in cfg_pool if localname(c) == localname(node)]
         hit = find_name_in([md_child_name(c) for c in cands], nm, prefix)
         full = (path + "." + nm) if path else nm
+        plan = {"kind": "md", "rel": rel, "obj_type": ctx["type"], "tag": localname(node), "name": nm,
+                "parent": path, "node": node, "type_key": ""}
+        if localname(node) == "TabularSection":
+            plan["child_names"] = []
+            sk = node.find("md:ChildObjects", MD_NSMAP)
+            if sk is not None:
+                plan["child_names"] = [md_child_name(x) for x in elem_children(sk)]
         if not hit:
-            return new_item("NOT_TRANSFERRED", "%s %s" % (label, full))
+            ni = new_item("NOT_TRANSFERRED", "%s %s" % (label, full))
+            ni["plan"] = ({"kind": "md-skip", "rel": rel,
+                           "reason": "own %s is kept in files and is not transferred by this stage; copy it by hand"
+                                     % localname(node).lower()}
+                          if localname(node) in file_kinds else plan)
+            return ni
         as_ = (" (found as %s)" % hit) if hit.lower() != nm.lower() else ""
         if node.find("md:Properties/md:Type", MD_NSMAP) is not None:
             cnode = [c for c in cands if md_child_name(c).lower() == hit.lower()][0]
             a = md_type_key(node, prefix)
             b = md_type_key(cnode, prefix)
             if a.lower() != b.lower():
-                return new_item("DIVERGED", "%s %s%s (type: %s vs %s in config)" % (label, full, as_, a, b))
+                ni = new_item("DIVERGED", "%s %s%s (type: %s vs %s in config)" % (label, full, as_, a, b))
+                plan["type_key"] = a
+                plan["conflict"] = "the type differs"
+                ni["plan"] = plan
+                return ni
         return new_item("TRANSFERRED", "%s %s%s" % (label, full, as_))
 
     for c in elem_children(ctx["md"]["children"]):
@@ -2453,7 +2528,12 @@ def own_child_items(ctx, cfg_md, prefix):
             hit = find_name_in([inner_text(x).strip() for x in cfg_kids if localname(x) == localname(c)], nm, prefix)
             as_ = (" (found as %s)" % hit) if hit and hit.lower() != nm.lower() else ""
             st = "TRANSFERRED" if hit else "NOT_TRANSFERRED"
-            items.append(new_item(st, "%s %s%s" % (kind_word(localname(c)), nm, as_)))
+            ni = new_item(st, "%s %s%s" % (kind_word(localname(c)), nm, as_))
+            if not hit:
+                ni["plan"] = {"kind": "md-skip", "rel": rel,
+                              "reason": "own %s is kept in files and is not transferred by this stage; copy it by hand"
+                                        % localname(c).lower()}
+            items.append(ni)
             continue
         if not test_adopted_node(c):
             items.append(check(c, kind_word(localname(c)), cfg_kids, ""))
@@ -2476,7 +2556,7 @@ def own_child_items(ctx, cfg_md, prefix):
     return items
 
 
-def transfer_object(ext, obj, cfg_info, config_path):
+def transfer_object(ext, obj, cfg_info, config_path, cfg_pools=None):
     ctx = get_obj_context(ext["dir"], obj["type"], obj["name"])
     rec = {"id": "%s.%s" % (obj["type"], obj["name"]), "items": []}
     if not ctx["known"] or not ctx["exists"]:
@@ -2515,13 +2595,13 @@ def transfer_object(ext, obj, cfg_info, config_path):
         k = path_key(bsl)
         skip = call_type_handlers(diffs[k]) if k in diffs else set()
         rec["items"] += module_transfer_items(bsl, ext["dir"], config_path, prefix, skip)
-    rec["items"] += own_child_items(ctx, cfg_md, prefix)
-    if obj["type"] == "Subsystem":
-        rec["items"] += subsystem_content_items(ctx["md"], cfg_md, prefix)
-    rec["items"] += form_items
     # Section = the file the change lives in (a module line, the form's Form.xml, the object's own
     # XML for its sub-objects); the item then keeps only its line number
     obj_rel = rel_path(ext["dir"], ctx["file"])
+    rec["items"] += own_child_items(ctx, cfg_md, prefix, obj_rel)
+    if obj["type"] == "Subsystem":
+        rec["items"] += subsystem_content_items(ctx["md"], cfg_md, prefix, obj_rel, cfg_pools)
+    rec["items"] += form_items
     for it in rec["items"]:
         m = re.match(r'^(.+):(\d+)$', it["loc"] or "")
         if m:
@@ -2592,7 +2672,7 @@ def get_module_changes(lines, skip_handlers):
     return {"interceptors": ics, "own": own, "top_code": get_top_code_line(lines)}
 
 
-def subsystem_content_items(md, cfg_md, prefix):
+def subsystem_content_items(md, cfg_md, prefix, rel, cfg_pools=None):
     """Transfer of a borrowed subsystem's content: each object the extension adds must be in the
     content of the configuration's subsystem (own names compared with and without the prefix)."""
     items = []
@@ -2602,7 +2682,12 @@ def subsystem_content_items(md, cfg_md, prefix):
         pool = [c.partition(".")[2] for c in cfg if c.partition(".")[0] == typ]
         hit = find_name_in(pool, nm, prefix)
         as_ = (" (found as %s.%s)" % (typ, hit)) if hit and hit.lower() != nm.lower() else ""
-        items.append(new_item("TRANSFERRED" if hit else "NOT_TRANSFERRED", "content " + ref + as_))
+        ni = new_item("TRANSFERRED" if hit else "NOT_TRANSFERRED", "content " + ref + as_)
+        if not hit:
+            # The referenced object must be in the configuration: the subsystem cannot name a missing one
+            missing = bool(cfg_pools) and typ in cfg_pools and not find_name_in(cfg_pools[typ], nm, prefix)
+            ni["plan"] = {"kind": "md-content", "rel": rel, "ref": ref, "type": typ, "name": nm, "missing": missing}
+        items.append(ni)
     return items
 
 
@@ -3186,6 +3271,200 @@ def test_form_write(fe):
 
 
 # ============================================================
+# Metadata writing: nodes of the extension's object XML copied into the configuration's one
+# ============================================================
+
+XR_NS = "http://v8.1c.ru/8.3/xcf/readable"
+V8_NS = "http://v8.1c.ru/8.1/data/core"
+XSI_NS = "http://www.w3.org/2001/XMLSchema-instance"
+
+
+def get_md_edits(path, obj_type):
+    """Edits of one configuration's object XML, collected over the run and written once."""
+    k = os.path.abspath(path).lower()
+    if k not in MD_EDITS:
+        MD_EDITS[k] = {"path": path, "obj_type": obj_type, "fw": read_form_write(path), "ops": [], "failed": 0}
+    return MD_EDITS[k]
+
+
+def get_md_object_element(root):
+    """The object element of a configuration's object XML."""
+    for c in root:
+        if isinstance(c.tag, str):
+            return c
+    return None
+
+
+def get_md_container(me, parent, tag):
+    """The <ChildObjects> of the object or of its tabular section `parent`, created where it belongs."""
+    root = me["fw"]["root"]
+    eol = me["fw"]["eol"]
+    obj_el = get_md_object_element(root)
+    if obj_el is None:
+        return None
+    owner = obj_el
+    if parent:
+        owner = None
+        kids = obj_el.find("md:ChildObjects", MD_NSMAP)
+        if kids is not None:
+            for c in elem_children(kids):
+                if localname(c) == "TabularSection" and md_child_name(c).lower() == parent.lower():
+                    owner = c
+                    break
+        if owner is None:
+            return None
+    co = owner.find("md:ChildObjects", MD_NSMAP)
+    if co is None:
+        co = etree.SubElement(owner, "{%s}ChildObjects" % MD_NS)
+        insert_form_node_at(owner, co, None, eol)
+    return co
+
+
+def apply_md_op(me, plan):
+    root = me["fw"]["root"]
+    eol = me["fw"]["eol"]
+    obj_el = get_md_object_element(root)
+    if obj_el is None:
+        raise ValueError("SKIP: the object is not in the configuration")
+    if plan["kind"] == "md-content":
+        props = obj_el.find("md:Properties", MD_NSMAP)
+        if props is None:
+            raise ValueError("SKIP: the subsystem has no Properties")
+        content = props.find("md:Content", MD_NSMAP)
+        if content is None:
+            content = etree.SubElement(props, "{%s}Content" % MD_NS)
+            insert_form_node_at(props, content, None, eol)
+        item = etree.SubElement(content, "{%s}Item" % XR_NS)
+        item.set("{%s}type" % XSI_NS, "xr:MDObjectRef")
+        item.text = plan["ref"]
+        insert_form_node_at(content, item, None, eol)
+        return
+    container = get_md_container(me, plan["parent"], plan["tag"])
+    if container is None:
+        why = ("tabular section %s is not in the configuration" % plan["parent"]) if plan["parent"] \
+            else "ChildObjects is not in the configuration"
+        raise ValueError("SKIP: " + why)
+    node = copy.deepcopy(plan["node"])
+    # Identifiers are new: a configuration's object must not share them with the extension's own one
+    for n in node.iter():
+        if isinstance(n.tag, str) and n.get("uuid"):
+            n.set("uuid", str(uuid.uuid4()))
+    # A new tabular section: its generated types are new and named after it
+    for g in node.iter("{%s}GeneratedType" % XR_NS):
+        for x in g:
+            if isinstance(x.tag, str) and localname(x) in ("TypeId", "ValueId"):
+                x.text = str(uuid.uuid4())
+        gn = g.get("name")
+        if gn:
+            g.set("name", re.sub(r'[^.]+$', plan["target"]["name"], gn))
+    nm_node = node.find("md:Properties/md:Name", MD_NSMAP)
+    if nm_node is not None:
+        nm_node.text = plan["target"]["name"]
+    # Inner names of a copied subtree: a tabular section's own attributes lose the prefix too
+    for x in node.iter("{%s}Name" % MD_NS):
+        if x is nm_node or localname(x.getparent()) != "Properties":
+            continue
+        x.text = convert_ext_code([x.text or ""], {})[0]
+    # The node is the configuration's own: the extension's belongings have no place here
+    for x in (node.findall("md:Properties/md:ObjectBelonging", MD_NSMAP)
+              + node.findall("md:Properties/md:ExtendedConfigurationObject", MD_NSMAP)):
+        x.getparent().remove(x)
+    # Reference types name the objects the configuration has
+    for t in list(node.iter("{%s}Type" % V8_NS)) + list(node.iter("{%s}TypeSet" % V8_NS)):
+        t.text = convert_ext_code([inner_text(t)], {})[0]
+    ref = find_child_anchor(container, plan["tag"], plan["obj_type"])
+    insert_form_node_at(container, node, ref, eol)
+
+
+def get_md_validate_errors(path, obj_type):
+    """Errors of the metadata validator (meta-validate for an object, subsystem-validate for a subsystem)."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    rel = ("../../subsystem-validate/scripts/subsystem-validate.py" if obj_type == "Subsystem"
+           else "../../meta-validate/scripts/meta-validate.py")
+    script = os.path.normpath(os.path.join(here, rel))
+    if not os.path.exists(script):
+        globals()["MD_VALIDATE_MISSING"] = True
+        return []
+    param = "-SubsystemPath" if obj_type == "Subsystem" else "-ObjectPath"
+    try:
+        out = subprocess.run([sys.executable, script, param, path], capture_output=True, text=True,
+                             encoding="utf-8", errors="replace").stdout
+    except Exception:
+        return []
+    errs = []
+    for line in out.splitlines():
+        if "[ERROR]" in line:
+            errs.append(re.sub(r'\s+', ' ', line.split("[ERROR]", 1)[1]).strip())
+    return errs
+
+
+def test_md_write(me):
+    """The written file read back the same way the check reads it: every planned node is in place with the
+    type the extension has, and the validator sees no error the configuration's file did not have."""
+    # Next to the original: meta-validate looks for Configuration.xml upward, a temp dir would lose it
+    tmp = os.path.join(os.path.dirname(me["path"]), ".cfe-md-%s.xml" % uuid.uuid4())
+    try:
+        save_form_write(me["fw"], tmp)
+        before = get_md_validate_errors(me["path"], me["obj_type"])
+        after = get_md_validate_errors(tmp, me["obj_type"])
+        added = [x for x in after if x not in before]
+        if added:
+            return ["validator: " + added[0]]
+        doc = read_form_write(tmp)
+        root = doc["root"]
+        obj_el = get_md_object_element(root)
+        miss = []
+        for op in me["ops"]:
+            pl = op["plan"]
+            if pl["kind"] == "md-content":
+                content = obj_el.find("md:Properties/md:Content", MD_NSMAP) if obj_el is not None else None
+                found = False
+                if content is not None:
+                    for i in elem_children(content):
+                        if localname(i) == "Item" and inner_text(i).strip().lower() == pl["ref"].lower():
+                            found = True
+                            break
+                if not found:
+                    miss.append(op["item"]["text"])
+                continue
+            container = None
+            node = None
+            if obj_el is not None:
+                if pl["parent"]:
+                    kids = obj_el.find("md:ChildObjects", MD_NSMAP)
+                    if kids is not None:
+                        for c in elem_children(kids):
+                            if localname(c) == "TabularSection" and md_child_name(c).lower() == pl["parent"].lower():
+                                container = c.find("md:ChildObjects", MD_NSMAP)
+                                break
+                else:
+                    container = obj_el.find("md:ChildObjects", MD_NSMAP)
+            if container is not None:
+                for c in elem_children(container):
+                    if localname(c) == pl["tag"] and md_child_name(c).lower() == pl["target"]["name"].lower():
+                        node = c
+                        break
+            bad = node is None
+            if not bad and pl["type_key"]:
+                bad = md_type_key(node, TRANSFER_PREFIX).lower() != pl["type_key"].lower()
+            if not bad and pl["tag"] == "TabularSection" and pl.get("child_names"):
+                sub = node.find("md:ChildObjects", MD_NSMAP)
+                have = [md_child_name(x) for x in elem_children(sub)] if sub is not None else []
+                for n in pl["child_names"]:
+                    if not find_name_in(have, n, TRANSFER_PREFIX):
+                        bad = True
+                        break
+            if bad:
+                miss.append(op["item"]["text"])
+        return miss
+    finally:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+
+
+# ============================================================
 # Transfer: writing into the configuration (-Mode transfer)
 # ============================================================
 
@@ -3252,6 +3531,9 @@ TRANSFER_PREFIX = ""
 SUPPORT_INFO = {"g": 0, "k": 0, "map": {}, "mode": "deny"}
 FILE_EDITS = {}
 FORM_EDITS = {}
+MD_EDITS = {}
+MD_GIVEN = {}
+MD_WARN = []
 EDIT_SEQ = [0]
 CONFIG_REF_MAP = {}
 
@@ -4778,7 +5060,7 @@ def main():
             if obj["type"] == "Role":
                 roles += 1
                 continue
-            rec = transfer_object(ext, obj, cfg_info, config_path)
+            rec = transfer_object(ext, obj, cfg_info, config_path, cfg_pools)
             if not rec["items"]:
                 continue
             ctx = get_obj_context(ext_dir0, obj["type"], obj["name"])
@@ -4822,6 +5104,14 @@ def main():
                 for c in elem_children(cfg_md["children"]):
                     cfg_names.append(md_child_name(c) if has_element_child(c) else inner_text(c).strip())
             taken = {n.lower() for n in cfg_names}
+            # Names code may refer to: attributes of the configuration's tabular sections too — a method
+            # waiting for one must stop waiting once the metadata transfer has put it into the configuration
+            cfg_known = list(cfg_names)
+            if cfg_md is not None and cfg_md["children"] is not None:
+                for c in elem_children(cfg_md["children"]):
+                    csub = c.find("md:ChildObjects", MD_NSMAP)
+                    if csub is not None:
+                        cfg_known += [md_child_name(x) for x in elem_children(csub)]
             for c in elem_children(md["children"]):
                 own = []
                 if not has_element_child(c):
@@ -4840,7 +5130,7 @@ def main():
                 for nm in own:
                     if not nm:
                         continue
-                    hit = find_name_in(cfg_names, nm, prefix)
+                    hit = find_name_in(cfg_known, nm, prefix)
                     if not hit:
                         missing_by_obj.setdefault("%s.%s" % (obj["type"], obj["name"]), {})[nm.lower()] = nm
                     if nm.lower() in NAME_MAP:
@@ -4908,6 +5198,9 @@ def main():
                 fe["own_at"].clear()
                 fe["tail"].clear()
             FORM_EDITS.clear()
+            MD_EDITS.clear()
+            MD_GIVEN.clear()
+            del MD_WARN[:]
             EDIT_SEQ[0] = 0
             temp_count = 0
             recs = []
@@ -5102,12 +5395,94 @@ def main():
                         continue
                     t["status"] = "MANUAL"
                     if it.get("group"):
-                        t["text"] = it["text"] + " — forms are not transferred yet"
+                        t["text"] = it["text"] + " — the configuration's form changed since the borrowing; not applied"
                         titems.append(t)
                         continue
                     if not pl:
                         t["text"] = it["text"] + " — metadata is not transferred yet"
                         titems.append(t)
+                        continue
+                    if pl["kind"] == "md" or pl["kind"].startswith("md-"):
+                        if pl["kind"] == "md-skip":
+                            t["text"] = it["text"] + " — " + pl["reason"]
+                            titems.append(t)
+                            continue
+                        if w["support"] == "locked":
+                            t["text"] = it["text"] + " — object is locked by vendor support"
+                            t["sub"] = ["next: allow editing with /support-edit, then re-run -Mode transfer"]
+                            titems.append(t)
+                            continue
+                        if pl["kind"] == "md-content":
+                            if pl.get("missing"):
+                                t["text"] = it["text"] + " — the object is not in the configuration"
+                                t["sub"] = ["next: add the object to the configuration first, then re-run -Mode transfer"]
+                                titems.append(t)
+                                continue
+                            me = get_md_edits(os.path.abspath(os.path.join(config_path, pl["rel"])), "Subsystem")
+                            try:
+                                apply_md_op(me, pl)
+                                me["ops"].append({"plan": pl, "item": t})
+                                t["status"] = "TRANSFERRED"
+                                t["now"] = True
+                                titems.append(t)
+                            except Exception as e:
+                                msg = str(e)
+                                skip = msg.startswith("SKIP: ")
+                                if skip:
+                                    msg = msg[6:]
+                                else:
+                                    me["failed"] += 1
+                                t["status"] = "CONFLICT"
+                                t["text"] = "%s — %s; %s" % (it["text"], msg, "change not applied" if skip else "object not changed")
+                                t["sub"] = ["next: apply by hand, then re-run -Mode check"]
+                                titems.append(t)
+                            continue
+                        if pl.get("conflict"):
+                            t["status"] = "CONFLICT"
+                            t["text"] = it["text"] + " — the type differs; object not changed"
+                            t["sub"] = ["from: extension " + pl["rel"], "to:   config " + pl["rel"],
+                                        "next: compare the types and merge by hand, then re-run -Mode check"]
+                            titems.append(t)
+                            continue
+                        me = get_md_edits(os.path.abspath(os.path.join(config_path, pl["rel"])), pl["obj_type"])
+                        # The name is the one pass 2 gave the code, else the container's pool decides
+                        tn = ({"name": NAME_MAP[pl["name"].lower()], "note": ""}
+                              if pl["name"].lower() in NAME_MAP else None)
+                        if tn is None:
+                            co = get_md_container(me, pl["parent"], pl["tag"])
+                            taken = {md_child_name(x).lower() for x in elem_children(co)} if co is not None else set()
+                            gk = (pl["rel"].lower(), pl["parent"].lower(), pl["tag"])
+                            taken |= MD_GIVEN.get(gk, set())
+                            tn = get_target_name(pl["name"], prefix, taken, set_["add_dev_objects"])
+                        if tn.get("taken"):
+                            t["status"] = "CONFLICT"
+                            t["text"] = "%s — name taken in config (%s); object not changed" % (it["text"], tn["note"])
+                            t["sub"] = ["next: rename it in the extension or merge by hand, then re-run -Mode transfer"]
+                            titems.append(t)
+                            continue
+                        pl["target"] = tn
+                        gk = (pl["rel"].lower(), pl["parent"].lower(), pl["tag"])
+                        MD_GIVEN.setdefault(gk, set()).add(tn["name"].lower())
+                        try:
+                            apply_md_op(me, pl)
+                            me["ops"].append({"plan": pl, "item": t})
+                            note = (" (as %s)" % tn["name"]) if tn["name"].lower() != pl["name"].lower() else ""
+                            t["status"] = "TRANSFERRED"
+                            t["now"] = True
+                            t["text"] = "%s%s — structure only, stored values are not migrated" % (it["text"], note)
+                            MD_WARN.append("%s: %s%s" % (pl["rel"], it["text"], note))
+                            titems.append(t)
+                        except Exception as e:
+                            msg = str(e)
+                            skip = msg.startswith("SKIP: ")
+                            if skip:
+                                msg = msg[6:]
+                            else:
+                                me["failed"] += 1
+                            t["status"] = "CONFLICT"
+                            t["text"] = "%s — %s; %s" % (it["text"], msg, "change not applied" if skip else "object not changed")
+                            t["sub"] = ["next: apply by hand, then re-run -Mode check"]
+                            titems.append(t)
                         continue
                     if pl["kind"] == "missing":
                         nxt = ("the interceptor does not parse: fix it in the extension, then re-run -Mode transfer" if pl.get("cfg_m")
@@ -5479,6 +5854,24 @@ def main():
                 continue
             save_form_write(fe["fw"])
             changed.append(fe["path"])
+        # Metadata: written only after the same comparison and the validator see it in place
+        for me in list(MD_EDITS.values()):
+            if not me["ops"]:
+                continue
+            why = "another change of the same file could not be applied" if me["failed"] else None
+            if not why:
+                miss = test_md_write(me)
+                if miss:
+                    why = "after the transfer the check would not find it: %s" % miss[0]
+            if why:
+                for op in me["ops"]:
+                    op["item"]["status"] = "CONFLICT"
+                    op["item"]["now"] = False
+                    op["item"]["text"] = "%s — %s; object not changed" % (op["item"]["text"], why)
+                    op["item"]["sub"] = ["next: apply by hand, then re-run -Mode check"]
+                continue
+            save_form_write(me["fw"])
+            changed.append(me["path"])
 
         # --- Report ---
         c_now = c_already = c_wait = c_manual = c_conflict = 0
@@ -5541,6 +5934,15 @@ def main():
             tail.append("%s, not transferred" % plural(roles, "role"))
         tail_text = (" · " + " · ".join(tail)) if tail else ""
         footer.append("=== Summary %s: %s%s ===" % (ext["name"], ", ".join(parts), tail_text))
+        # The values the extension wrote into its own attributes do not come along: loud and never cut by
+        # the detail budget, so it goes into the footer with the summary
+        if MD_WARN:
+            footer.append("!!! Stored data is NOT migrated:")
+            for l in dict.fromkeys(MD_WARN):
+                footer.append("    " + l)
+            footer.append("    The metadata is transferred as structure only, with new identifiers. Values the extension")
+            footer.append("    wrote into its own attributes stay in the extension's columns and are LOST when it is")
+            footer.append("    disabled or removed. Copy them into the configuration's attributes BEFORE that.")
         if changed:
             footer.append("Changed files:")
             for c in changed:
@@ -5550,6 +5952,8 @@ def main():
             footer.append("Hint: resolve each conflict (see next:), then re-run -Mode transfer")
         if globals().get("FORM_VALIDATE_MISSING"):
             footer.append("Hint: /form-validate is not installed — the written forms were not checked; run /form-validate by hand")
+        if globals().get("MD_VALIDATE_MISSING"):
+            footer.append("Hint: /meta-validate (or /subsystem-validate) is not installed — the written metadata was not checked; run it by hand")
         if c_wait:
             footer.append("Hint: waiting changes go over by themselves on a re-run of -Mode transfer once what they wait for is in the configuration: "
                           "own methods of this run (see their lines), objects, sub-objects and form items (by hand for now)")

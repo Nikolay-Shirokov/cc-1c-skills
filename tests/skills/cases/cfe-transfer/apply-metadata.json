@@ -1,0 +1,173 @@
+{
+  "name": "Перенос XML-метаданных: свой реквизит объекта, реквизит заимствованной ТЧ, своя ТЧ с колонкой, состав подсистемы — имена без префикса, канон ChildObjects, принадлежность расширения снята, громкое предупреждение о неперенесённых значениях",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "Catalog",
+        "name": "Товары",
+        "attributes": [
+          "Артикул: String(10)"
+        ],
+        "tabularSections": [
+          {
+            "name": "Ошибки",
+            "attributes": [
+              { "name": "Текст", "type": "String", "length": 50 }
+            ]
+          }
+        ]
+      },
+      "args": {
+        "-JsonPath": "{inputFile}",
+        "-OutputDir": "{workDir}"
+      }
+    },
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "Catalog",
+        "name": "Склады",
+        "attributes": [
+          "Артикул: String(10)"
+        ]
+      },
+      "args": {
+        "-JsonPath": "{inputFile}",
+        "-OutputDir": "{workDir}"
+      }
+    },
+    {
+      "script": "subsystem-compile/scripts/subsystem-compile",
+      "args": {
+        "-Value": "{\"name\":\"Продажи\",\"content\":[\"Catalog.Товары\"]}",
+        "-OutputDir": "{workDir}"
+      }
+    },
+    {
+      "script": "cfe-init/scripts/cfe-init",
+      "args": {
+        "-Name": "Тест",
+        "-OutputDir": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}"
+      }
+    },
+    {
+      "script": "cfe-borrow/scripts/cfe-borrow",
+      "args": {
+        "-ExtensionPath": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}",
+        "-Object": "Catalog.Товары"
+      }
+    },
+    {
+      "script": "cfe-borrow/scripts/cfe-borrow",
+      "args": {
+        "-ExtensionPath": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}",
+        "-Object": "Catalog.Товары.TabularSection.Ошибки"
+      }
+    },
+    {
+      "script": "cfe-borrow/scripts/cfe-borrow",
+      "args": {
+        "-ExtensionPath": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}",
+        "-Object": "Subsystem.Продажи"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "cfe/Subsystems/Продажи.xml",
+        "content": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<MetaDataObject xmlns=\"http://v8.1c.ru/8.3/MDClasses\" xmlns:app=\"http://v8.1c.ru/8.2/managed-application/core\" xmlns:cfg=\"http://v8.1c.ru/8.1/data/enterprise/current-config\" xmlns:cmi=\"http://v8.1c.ru/8.2/managed-application/cmi\" xmlns:ent=\"http://v8.1c.ru/8.1/data/enterprise\" xmlns:lf=\"http://v8.1c.ru/8.2/managed-application/logform\" xmlns:style=\"http://v8.1c.ru/8.1/data/ui/style\" xmlns:sys=\"http://v8.1c.ru/8.1/data/ui/fonts/system\" xmlns:v8=\"http://v8.1c.ru/8.1/data/core\" xmlns:v8ui=\"http://v8.1c.ru/8.1/data/ui\" xmlns:web=\"http://v8.1c.ru/8.1/data/ui/colors/web\" xmlns:win=\"http://v8.1c.ru/8.1/data/ui/colors/windows\" xmlns:xen=\"http://v8.1c.ru/8.3/xcf/enums\" xmlns:xpr=\"http://v8.1c.ru/8.3/xcf/predef\" xmlns:xr=\"http://v8.1c.ru/8.3/xcf/readable\" xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" version=\"2.17\">\n\t<Subsystem uuid=\"925b05d5-e05a-4db6-a162-2bea7978ee41\">\n\t\t<InternalInfo/>\n\t\t<Properties>\n\t\t\t<ObjectBelonging>Adopted</ObjectBelonging>\n\t\t\t<Name>Продажи</Name>\n\t\t\t<Comment/>\n\t\t\t<ExtendedConfigurationObject>de3fe65c-9065-411a-947a-078d05a49f06</ExtendedConfigurationObject>\n\t\t\t<Content>\n\t\t\t\t<xr:Item xsi:type=\"xr:MDObjectRef\">Catalog.Склады</xr:Item>\n\t\t\t</Content>\n\t\t</Properties>\n\t\t<ChildObjects/>\n\t</Subsystem>\n</MetaDataObject>"
+      }
+    },
+    {
+      "script": "meta-edit/scripts/meta-edit",
+      "args": {
+        "-ObjectPath": "{workDir}/cfe/Catalogs/Товары.xml",
+        "-Operation": "add-attribute",
+        "-Value": "Тест_Признак: Boolean",
+        "-NoValidate": true
+      }
+    },
+    {
+      "script": "meta-edit/scripts/meta-edit",
+      "args": {
+        "-ObjectPath": "{workDir}/cfe/Catalogs/Товары.xml",
+        "-Operation": "add-ts",
+        "-Value": "Тест_ТЧ: Тест_Кол: Number(10,0)",
+        "-NoValidate": true
+      }
+    },
+    {
+      "script": "meta-edit/scripts/meta-edit",
+      "args": {
+        "-ObjectPath": "{workDir}/cfe/Catalogs/Товары.xml",
+        "-Operation": "add-ts-attribute",
+        "-Value": "Ошибки.Тест_Отметка: Boolean",
+        "-NoValidate": true
+      }
+    }
+  ],
+  "params": {
+    "extensionPath": "cfe"
+  },
+  "cwd": "workDir",
+  "args_extra": [
+    "-Mode",
+    "transfer"
+  ],
+  "idempotent": true,
+  "expect": {
+    "stdoutContains": [
+      "[TRANSFERRED]        attribute Тест_Признак (as Признак) — structure only, stored values are not migrated",
+      "[TRANSFERRED]        attribute Ошибки.Тест_Отметка (as Отметка) — structure only, stored values are not migrated",
+      "[TRANSFERRED]        tabular section Тест_ТЧ (as ТЧ) — structure only, stored values are not migrated",
+      "[TRANSFERRED]        content Catalog.Склады",
+      "!!! Stored data is NOT migrated:",
+      "Values the extension",
+      "=== Summary Тест: 4 transferred now · 1 role, not transferred ===",
+      "Changed files:",
+      "Catalogs/Товары.xml",
+      "Subsystems/Продажи.xml"
+    ],
+    "fileContains": [
+      {
+        "file": "Catalogs/Товары.xml",
+        "text": [
+          "<Name>Признак</Name>",
+          "<Name>Отметка</Name>",
+          "<Name>ТЧ</Name>",
+          "<Name>Кол</Name>",
+          "CatalogTabularSection.Товары.ТЧ"
+        ]
+      },
+      {
+        "file": "Subsystems/Продажи.xml",
+        "text": [
+          "<xr:Item xsi:type=\"xr:MDObjectRef\">Catalog.Склады</xr:Item>"
+        ]
+      }
+    ],
+    "fileNotContains": [
+      {
+        "file": "Catalogs/Товары.xml",
+        "text": [
+          "ObjectBelonging",
+          "ExtendedConfigurationObject",
+          "<Name>Тест_Признак</Name>",
+          "<Name>Тест_Отметка</Name>",
+          "<Name>Тест_ТЧ</Name>"
+        ]
+      },
+      {
+        "file": "Subsystems/Продажи.xml",
+        "text": [
+          "ObjectBelonging",
+          "ExtendedConfigurationObject"
+        ]
+      }
+    ]
+  }
+}

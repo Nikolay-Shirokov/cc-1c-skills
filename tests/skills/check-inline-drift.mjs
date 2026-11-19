@@ -883,7 +883,7 @@ const FAMILIES = [
     py: 'object_child_order', ps1: 'Get-ObjectChildOrder',
     variants: [
       { id: 'base', authority: 'meta-edit',
-        consumers: ['cfe-borrow', 'form-add', 'form-compile', 'meta-validate', 'template-add'] },
+        consumers: ['cfe-borrow', 'cfe-transfer', 'form-add', 'form-compile', 'meta-validate', 'template-add'] },
     ],
   },
   {
@@ -891,7 +891,7 @@ const FAMILIES = [
     py: 'find_child_anchor', ps1: 'Find-ChildAnchor',
     variants: [
       { id: 'base', authority: 'meta-edit',
-        consumers: ['cfe-borrow', 'form-add', 'template-add'],
+        consumers: ['cfe-borrow', 'cfe-transfer', 'form-add', 'template-add'],
         consumersPs1: ['form-compile'] },
     ],
   },

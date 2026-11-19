@@ -1,0 +1,83 @@
+{
+  "name": "Реквизит расширения совпал с реквизитом конфигурации по имени, но не по типу: перенос не молчит о расхождении и файл не трогает",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "Catalog",
+        "name": "Товары",
+        "attributes": [
+          "Артикул: String(10)",
+          "Тест_Признак: Number(5,0)"
+        ]
+      },
+      "args": {
+        "-JsonPath": "{inputFile}",
+        "-OutputDir": "{workDir}"
+      }
+    },
+    {
+      "script": "cfe-init/scripts/cfe-init",
+      "args": {
+        "-Name": "Тест",
+        "-OutputDir": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}"
+      }
+    },
+    {
+      "script": "cfe-borrow/scripts/cfe-borrow",
+      "args": {
+        "-ExtensionPath": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}",
+        "-Object": "Catalog.Товары"
+      }
+    },
+    {
+      "script": "meta-edit/scripts/meta-edit",
+      "args": {
+        "-ObjectPath": "{workDir}/cfe/Catalogs/Товары.xml",
+        "-Operation": "add-attribute",
+        "-Value": "Тест_Признак: Boolean",
+        "-NoValidate": true
+      }
+    }
+  ],
+  "params": {
+    "extensionPath": "cfe"
+  },
+  "cwd": "workDir",
+  "args_extra": [
+    "-Mode",
+    "transfer"
+  ],
+  "expectError": true,
+  "expect": {
+    "stdoutContains": [
+      "[CONFLICT]           Catalog.Товары — 1 conflict",
+      "attribute Тест_Признак (type: boolean vs decimal in config) — the type differs; object not changed",
+      "next: compare the types and merge by hand",
+      "=== Summary Тест: 0 transferred now, 1 conflict · 1 role, not transferred ==="
+    ],
+    "stdoutNotContains": [
+      "Changed files:",
+      "Stored data is NOT migrated"
+    ],
+    "fileContains": [
+      {
+        "file": "Catalogs/Товары.xml",
+        "text": [
+          "<Name>Тест_Признак</Name>",
+          "<v8:Type>xs:decimal</v8:Type>"
+        ]
+      }
+    ],
+    "fileNotContains": [
+      {
+        "file": "Catalogs/Товары.xml",
+        "text": [
+          "<v8:Type>xs:boolean</v8:Type>"
+        ]
+      }
+    ]
+  }
+}
