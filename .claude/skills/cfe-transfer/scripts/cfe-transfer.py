@@ -1,5 +1,5 @@
 ﻿#!/usr/bin/env python3
-# cfe-transfer v1.12 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+# cfe-transfer v1.15 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -901,6 +901,18 @@ def rel_path(root, full):
 
 def path_key(p):
     return os.path.normcase(os.path.abspath(p))
+
+
+def form_item_rank(it):
+    """Order of a form's changes in the transfer: what the others rely on goes first (a column needs its
+    attribute, an element may name a command or carry a property and an event), a form change left to a
+    person or applied in place goes last; anything not of a form keeps its place."""
+    if not it.get("group"):
+        return 100
+    k = it["plan"]["kind"] if it.get("plan") else ""
+    return {"attribute": 0, "command": 1, "command-bind": 1, "column": 2, "element": 3,
+            "prop": 4, "move": 4, "event-bind": 5, "appearance": 6, "formprop": 6,
+            "intercept": 9}.get(k, 8)
 
 
 # Lines of a module as [System.IO.File]::ReadAllLines gives them
@@ -2112,11 +2124,25 @@ def form_transfer_items(diff, form, cfg_form_xml, cfg_module_path, ext_dir, pref
             hit = find_name_in(cn, x["name"], prefix)
             st = "TRANSFERRED" if hit else "NOT_TRANSFERRED"
             ni = marked(new_item(st, "+ %s %s%s%s" % (word, x["name"], x["info"], as_text(hit, x["name"])), "", group), [x["name"]])
-            # A command whose action intercepts a method is a transfer of its own kind
+            # A command whose action intercepts a method is a transfer of its own kind. A command the
+            # configuration lacks is the extension's own even when its action carries callType — there is no
+            # handler to intercept: it goes as a command, with its handler as an own method and the callType
+            # dropped on the write
             ct_actions = [a for a in x["actions"] if a["call_type"]]
-            if not hit and not ct_actions:
-                ni["plan"] = {"kind": word if word != "parameter" else "parameter", "node": x["node"], "name": x["name"]}
-                ni["plan_key"] = "+ %s %s" % (word, x["name"])
+            if not hit:
+                cmd_own = []
+                if word == "command" and ct_actions:
+                    for a in ct_actions:
+                        m = get_method_safe(ext_mod, a["handler"]) if a["handler"] else None
+                        if m is not None:
+                            cmd_own.append({"handler": a["handler"], "ext_m": m})
+                if cmd_own:
+                    ni["plan"] = {"kind": "command-bind", "node": x["node"], "name": x["name"],
+                                  "handlers": cmd_own, "ext_lines": ext_mod, "rel": mod_rel}
+                    ni["plan_key"] = "+ %s %s" % (word, x["name"])
+                elif not ct_actions:
+                    ni["plan"] = {"kind": word if word != "parameter" else "parameter", "node": x["node"], "name": x["name"]}
+                    ni["plan_key"] = "+ %s %s" % (word, x["name"])
             items.append(ni)
 
     # Columns the extension adds to an attribute of the configuration
@@ -2188,6 +2214,12 @@ def form_transfer_items(diff, form, cfg_form_xml, cfg_module_path, ext_dir, pref
             it["plan"] = {"kind": "intercept", "type": kind, "ext_m": ext_m, "cfg_m": cfg_m, "rel": mod_rel,
                           "label": "event " + event_text(e)}
             it["plan_key"] = "event " + event_text(e)
+        # An event the configuration has no handler for — whatever its callType: there is nothing to intercept,
+        # the event is the extension's own. It goes into the configuration's form and its handler as own method
+        if it and ext_m and not cfg_handler and it["status"] != "TRANSFERRED":
+            it["plan"] = {"kind": "event-bind", "ext_m": ext_m, "ext_lines": ext_mod, "rel": mod_rel,
+                          "scope": e["scope"], "name": e["name"], "handler": e["handler"]}
+            it["plan_key"] = "event " + (e["scope"] + "." if e["scope"] else "") + e["name"]
         if it:
             items.append(marked(it, [e["scope"]]))
     # An element of BaseForm the main part lacks: the extension cannot drop a borrowed element, so the
@@ -2600,7 +2632,10 @@ def read_form_write(path):
     bom = data[:3] == b"\xef\xbb\xbf"
     parser = etree.XMLParser(remove_blank_text=False)
     root = etree.fromstring(data, parser)
-    return {"path": path, "root": root, "bom": bom, "eol": "\r\n" if b"\r\n" in data else "\n"}
+    # The parser normalizes line breaks of the tree to "\n": the nodes are written with it, and the file's
+    # own line breaks are restored on save (a raw "\r" in a text node would come out as "&#13;")
+    return {"path": path, "root": root, "bom": bom, "eol": "\n",
+            "file_eol": "\r\n" if b"\r\n" in data else "\n"}
 
 
 def save_form_write(fw, path=None):
@@ -2608,7 +2643,7 @@ def save_form_write(fw, path=None):
     body = etree.tostring(fw["root"], encoding="unicode")
     text = '<?xml version="1.0" encoding="UTF-8"?>\n' + body
     text = re.sub(r'(?<=\S) />', '/>', text)
-    if fw["eol"] == "\r\n":
+    if fw.get("file_eol", fw["eol"]) == "\r\n":
         text = text.replace("\r\n", "\n").replace("\n", "\r\n")
     with open(path or fw["path"], "wb") as fh:
         fh.write((b"\xef\xbb\xbf" if fw["bom"] else b"") + text.encode("utf-8"))
@@ -2888,24 +2923,37 @@ def insert_form_element(rec, root, name_map):
     parent_name = rec["parent"]
     container = root
     if parent_name:
-        target = next((n for n in root.iter() if isinstance(n.tag, str) and n.get("name") == parent_name), None)
+        target = find_form_target(root, name_map, parent_name)
         if target is None:
             return None
         container = target
     ci = get_form_child_items(container)
     ref = None
+    found_any = False
     for sib in reversed(rec["siblings"][:rec["pos"]]):
         mn = name_map.get(sib.lower(), sib)
         found = next((c for c in ci if isinstance(c.tag, str) and c.get("name") == mn), None)
         if found is not None:
+            found_any = True
             ref = found.getnext()
             break
+    # None of the previous siblings is there: the element stands first, as the check reads it back
+    if not found_any:
+        ref = next((c for c in ci if isinstance(c.tag, str)), None)
     return {"ci": ci, "ref": ref}
 
 
 def find_form_target(root, name_map, name):
+    """The element of the configuration by its name in the extension: the name map applied. Attributes and
+    commands may share a name with an element — only the form's own elements are looked up here."""
     mn = name_map.get(name.lower(), name)
-    return next((n for n in root.iter() if isinstance(n.tag, str) and n.get("name") == mn), None)
+    rec = form_element_index(root).get(mn.lower())
+    return rec["node"] if rec else None
+
+
+def find_form_attr(root, name):
+    """The attribute of the configuration by its name: a form element may share it, the element stands first."""
+    return next((a for a in root.findall("d:Attributes/d:Attribute", NSMAP) if (a.get("name") or "").lower() == name.lower()), None)
 
 
 def apply_form_op(fe, op, ctx):
@@ -2924,9 +2972,9 @@ def apply_form_op(fe, op, ctx):
         ca = attrs.find("d:ConditionalAppearance", NSMAP)
         insert_form_node_at(attrs, node, ca, eol)
     elif kind == "column":
-        at = find_form_target(root, ctx["name_map"], op["attr"])
+        at = find_form_attr(root, ctx["name_map"].get(op["attr"].lower(), op["attr"]))
         if at is None:
-            raise ValueError("attribute %s is not in the configuration" % op["attr"])
+            raise ValueError("SKIP: attribute %s is not in the configuration" % op["attr"])
         cols = at.find("d:Columns", NSMAP)
         if cols is None:
             cols = etree.SubElement(at, "{%s}Columns" % NSMAP["d"])
@@ -2936,13 +2984,31 @@ def apply_form_op(fe, op, ctx):
     elif kind == "command":
         cmds = get_form_section(root, "Commands")
         node = copy_node(op["node"])
+        # A command of the extension's own: callType has no handler of the configuration to intercept
+        if op.get("strip_call_type"):
+            for a in node.findall("d:Action", NSMAP):
+                a.attrib.pop("callType", None)
         set_form_subtree_indent(node, eol, get_form_depth(cmds) + 1)
         insert_form_node_at(cmds, node, None, eol)
     elif kind == "element":
+        # Only the form's own elements count: an attribute may share a name with an element
+        el_names = form_element_index(root)
+        # What a copied ancestor brought into this run is not added a second time
+        mn = ctx["name_map"].get(op["rec"]["name"].lower(), op["rec"]["name"])
+        if mn.lower() in el_names:
+            return
         where = insert_form_element(op["rec"], root, ctx["name_map"])
         if where is None:
-            raise ValueError("parent %s is not in the configuration" % op["rec"]["parent"])
+            raise ValueError("SKIP: parent %s is not in the configuration" % op["rec"]["parent"])
         node = copy_node(op["rec"]["node"])
+        # Descendants the configuration already has come with their own items: a property, a move — the copy
+        # of the new element must not bring a second one
+        for d in list(node.iter()):
+            if d is node or not isinstance(d.tag, str):
+                continue
+            dn = d.get("name")
+            if dn and dn.lower() in el_names:
+                d.getparent().remove(d)
         # A button carries its command with it: a command the configuration does not have leaves the
         # form broken
         cmds0 = section_map(root, "Commands", "Command")
@@ -2961,14 +3027,16 @@ def apply_form_op(fe, op, ctx):
             raise ValueError("SKIP: element %s is not in the configuration" % op["scope"])
         evs = target.find("d:Events", NSMAP)
         if evs is None:
-            evs = etree.SubElement(target, "{%s}Events" % NSMAP["d"])
-        node = etree.SubElement(evs, "{%s}Event" % NSMAP["d"])
+            evs = etree.Element("{%s}Events" % NSMAP["d"])
+            insert_form_node_at(target, evs, None, eol)
+        node = etree.Element("{%s}Event" % NSMAP["d"])
         node.set("name", op["name"])
         node.text = op["handler"]
+        insert_form_node_at(evs, node, None, eol)
     elif kind == "prop":
         target = find_form_target(root, ctx["name_map"], op["rec"]["name"])
         if target is None:
-            raise ValueError("element %s is not in the configuration" % op["rec"]["name"])
+            raise ValueError("SKIP: element %s is not in the configuration" % op["rec"]["name"])
         for p in op["props"]:
             keys = get_form_prop_keys(target)
             if p["new"] is None:
@@ -3001,12 +3069,15 @@ def apply_form_op(fe, op, ctx):
     elif kind == "move":
         target = find_form_target(root, ctx["name_map"], op["rec"]["name"])
         if target is None:
-            raise ValueError("element %s is not in the configuration" % op["rec"]["name"])
+            raise ValueError("SKIP: element %s is not in the configuration" % op["rec"]["name"])
+        # The element must not leave the document only to have nowhere to go
+        if op["rec"]["parent"] and find_form_target(root, ctx["name_map"], op["rec"]["parent"]) is None:
+            raise ValueError("SKIP: parent %s is not in the configuration" % op["rec"]["parent"])
         node = copy.deepcopy(target)
         remove_form_node(target)
         where = insert_form_element(op["rec"], root, ctx["name_map"])
         if where is None:
-            raise ValueError("parent %s is not in the configuration" % op["rec"]["parent"])
+            raise ValueError("SKIP: parent %s is not in the configuration" % op["rec"]["parent"])
         insert_form_node_at(where["ci"], node, where["ref"], eol)
     elif kind == "appearance":
         attrs = get_form_section(root, "Attributes")
@@ -3098,7 +3169,13 @@ def test_form_write(fe):
             if op["kind"] == "formprop":
                 miss += ["form." + x for x in bad_props(doc.getroot() if doc is not None else None, op["props"])]
                 continue
-            if not any(t.startswith(op["key"]) for t in ok):
+            hit = any(t.startswith(op["key"]) for t in ok)
+            # A command of the extension's own is read back by the check as an interception of itself: its
+            # item goes by the command and the callType of the extension's action
+            if not hit and op["key"].startswith("+ command "):
+                cre = re.compile(r'^command ' + re.escape(op["key"][len("+ command "):]) + r'\[')
+                hit = any(cre.match(t) for t in ok)
+            if not hit:
                 miss.append(op["key"])
         return miss
     finally:
@@ -4362,6 +4439,8 @@ def get_own_method_block(ext_lines, ext_m, frame, file_map):
 
 def get_file_edits(path):
     """Edits of one configuration file, collected over the run and written once."""
+    # One pool per file, however the path was spelled
+    path = os.path.abspath(path)
     key = path.lower()
     if key not in FILE_EDITS:
         f = read_bsl_file(path)
@@ -4777,7 +4856,7 @@ def main():
                 pl = it.get("plan")
                 if not pl or pl["kind"] != "own":
                     continue
-                cfg_file = os.path.join(config_path, pl["rel"])
+                cfg_file = os.path.abspath(os.path.join(config_path, pl["rel"]))
                 fk = cfg_file.lower()
                 file_maps.setdefault(fk, {})
                 if pl["hit"]:
@@ -4819,7 +4898,7 @@ def main():
                 pl = it.get("plan")
                 if it["status"] != "TEMPORARY" or not pl or pl["kind"] != "own" or pl["hit"]:
                     continue
-                add_out_name(temp_by_file, temp_common, os.path.join(config_path, pl["rel"]), pl["rel"], pl["name"])
+                add_out_name(temp_by_file, temp_common, os.path.abspath(os.path.join(config_path, pl["rel"])), pl["rel"], pl["name"])
         while True:
             again = False
             for fe in FILE_EDITS.values():
@@ -4840,17 +4919,22 @@ def main():
                 titems = []
                 set_ = SETTINGS[w["kind"]]
                 frame = get_frame(set_, vars_)
-                for it in w["rec"]["items"]:
+                # Changes of one form go in the order they depend on each other — a column needs its attribute,
+                # an element may name a command added in this run — the report keeps the items' own order
+                order = sorted(((form_item_rank(it), i, it) for i, it in enumerate(w["rec"]["items"])),
+                               key=lambda x: (x[0], x[1]))
+                for _, oi, it in order:
                     pl = it.get("plan")
                     t = new_titem(it["status"], it["text"], it.get("loc", ""), it.get("section", ""))
                     t["group"] = it.get("group", "")
                     t["marked"] = it.get("marked", False)
+                    t["seq"] = oi
                     if pl and pl["kind"] == "own" and it["status"] == "NOT_TRANSFERRED":
                         own_items.append({"plan": pl, "t": t})
                     # A method with an &ИзменениеИКонтроль edit not in the configuration yet: an interceptor of it
                     # would move the lines the edit is anchored to
                     if pl and pl["kind"] == "control" and pl.get("cfg_m") and it["status"] not in ("TRANSFERRED", "TEMPORARY"):
-                        ctl_keys.add("%s|%d" % (os.path.join(config_path, pl["rel"]).lower(), pl["cfg_m"]["decl_idx"]))
+                        ctl_keys.add("%s|%d" % (os.path.abspath(os.path.join(config_path, pl["rel"])).lower(), pl["cfg_m"]["decl_idx"]))
                     if it["status"] == "TEMPORARY":
                         temp_count += 1
                         continue
@@ -4864,7 +4948,7 @@ def main():
                         titems.append(t)
                         continue
                     if it.get("group") and it.get("plan") and it["plan"]["kind"] == "intercept":
-                        cfg_file = os.path.join(config_path, it["plan"]["rel"])
+                        cfg_file = os.path.abspath(os.path.join(config_path, it["plan"]["rel"]))
                         fm = file_maps.get(cfg_file.lower(), {})
                         r = get_intercept_ops(it["plan"]["ext_m"], it["plan"]["cfg_m"], it["plan"]["type"], frame, set_["deletion"], fm)
                         if r.get("why"):
@@ -4878,26 +4962,103 @@ def main():
                         titems.append(t)
                         continue
                     if it.get("group") and it.get("plan"):
+                        pl = it["plan"]
                         rel_form = it.get("section") or ""
-                        cfg_form = os.path.join(config_path, rel_form)
-                        ext_form = os.path.join(ext_dir0, rel_form)
-                        cfg_form_mod = re.sub(r'[\/]Ext[\/]Form\.xml$', '/Ext/Form/Module.bsl', cfg_form)
-                        ext_form_mod = re.sub(r'[\/]Ext[\/]Form\.xml$', '/Ext/Form/Module.bsl', ext_form)
+                        # A new event or a new command's handler lives in the form's module, the change itself
+                        # in Form.xml
+                        if pl["kind"] in ("event-bind", "command-bind"):
+                            rel_form = re.sub(r'[\\/]Ext[\\/]Form[\\/]Module\.bsl$', '/Ext/Form.xml', pl["rel"])
+                        cfg_form = os.path.abspath(os.path.join(config_path, rel_form))
+                        ext_form = os.path.abspath(os.path.join(ext_dir0, rel_form))
+                        cfg_form_mod = os.path.abspath(re.sub(r'[\\/]Ext[\\/]Form\.xml$', '/Ext/Form/Module.bsl', cfg_form))
+                        ext_form_mod = os.path.abspath(re.sub(r'[\\/]Ext[\\/]Form\.xml$', '/Ext/Form/Module.bsl', ext_form))
                         fe = new_form_edit(cfg_form, ext_form, ext_form_mod, cfg_form_mod, ext_dir0, prefix, it["group"])
                         if "ctx" not in fe:
-                            hm = file_maps.get(cfg_form_mod.lower(), {})
+                            # The same map the handlers of this module are registered in: a node copied later
+                            # (a command's Action, an element's Event) finds the names given in this run
+                            hm = file_maps.setdefault(cfg_form_mod.lower(), {})
                             ext_root = read_form_doc(ext_form).getroot()
                             fe["ctx"] = {"name_map": get_form_name_map(ext_root, fe["fw"]["root"], prefix),
                                          "ref_map": CONFIG_REF_MAP, "handler_map": hm, "bad": []}
+                        # A binding of the extension's own (an event, a new command's actions): its handlers go
+                        # into the module by the role the form gives them, the item into Form.xml; nothing is
+                        # committed until the item itself has been applied
+                        op = pl
+                        mod_adds = []
+                        map_ref = None
+                        map_added = []
+                        if pl["kind"] in ("event-bind", "command-bind"):
+                            cfg_mod_file = os.path.abspath(os.path.join(config_path, pl["rel"]))
+                            fw = get_file_edits(cfg_mod_file)
+                            fk = cfg_mod_file.lower()
+                            # The names go into the shared map before the item is copied: a command's Action
+                            # text is renamed by the copy; on a refusal they are taken back
+                            map_ref = file_maps.setdefault(fk, {})
+                            hs = ([{"handler": pl["handler"], "ext_m": pl["ext_m"]}] if pl["kind"] == "event-bind"
+                                  else list(pl["handlers"]))
+                            bind = get_form_bindings(ext_form)
+                            notify = get_notify_names(list(pl["ext_lines"]) + list(fw["file"]["lines"]))
+                            conflict = None
+                            for h in hs:
+                                hk = h["handler"].lower()
+                                tn = {"name": map_ref[hk], "note": ""} if hk in map_ref else None
+                                if tn is None:
+                                    taken = {n.lower() for n in get_proc_names(fw["file"]["lines"])} | set(fw["given"])
+                                    taken |= {n.lower() for n in get_called_names(list(fw["file"]["lines"]) + list(pl["ext_lines"]), get_proc_names(pl["ext_lines"]))}
+                                    tn = get_target_name(h["handler"], prefix, taken, set_["add_dev_methods"] and w["kind"] == "vendor")
+                                if tn.get("taken"):
+                                    conflict = "name taken in config (%s)" % tn["note"]
+                                    break
+                                map_ref[hk] = tn["name"]
+                                map_added.append(hk)
+                                conv = convert_ext_code(h["ext_m"]["body_lines"], map_ref)
+                                if "\n".join(sig_lines(h["ext_m"]["body_lines"], prefix)).lower() != "\n".join(sig_lines(conv, prefix)).lower():
+                                    conflict = "after the transfer the check would not find the handler's code"
+                                    break
+                                role = get_method_role(h["handler"], "form", bind, notify, is_export(pl["ext_lines"], h["ext_m"]))
+                                created = {k.lower() for k in fw["create_order"]}
+                                place = get_method_place(fw["file"]["lines"], fw["regions"], h["ext_m"], role, set_, created)
+                                mod_adds.append({"name": tn["name"], "note": tn["note"], "fw": fw, "place": place,
+                                                 "block": get_own_method_block(pl["ext_lines"], h["ext_m"], frame, map_ref),
+                                                 "where": ""})
+                            if conflict:
+                                for k in map_added:
+                                    map_ref.pop(k, None)
+                                t["status"] = "CONFLICT"
+                                t["text"] = "%s — %s; form not changed" % (it["text"], conflict)
+                                t["sub"] = ["next: rename the handler in the extension or merge by hand, then re-run -Mode transfer"]
+                                titems.append(t)
+                                continue
+                            if pl["kind"] == "event-bind":
+                                op = {"kind": "event", "scope": pl["scope"], "name": pl["name"], "handler": mod_adds[0]["name"]}
+                            else:
+                                op = {"kind": "command", "node": pl["node"], "name": pl["name"], "strip_call_type": True}
                         try:
-                            apply_form_op(fe, it["plan"], fe["ctx"])
+                            apply_form_op(fe, op, fe["ctx"])
                             if fe["ctx"]["bad"]:
                                 raise ValueError("reference %s is not in the configuration" % fe["ctx"]["bad"][0])
-                            pk = it["plan"]["kind"]
+                            for ma in mod_adds:
+                                mf, mp = ma["fw"], ma["place"]
+                                if mp.get("create"):
+                                    key = next((k for k in mf["create_order"] if k.lower() == mp["create"].lower()), None)
+                                    if key is None:
+                                        key = mp["create"]
+                                        mf["create_order"].append(key)
+                                        mf["create"][key] = []
+                                    mf["create"][key].append(ma["block"])
+                                    ma["where"] = "new region " + key
+                                else:
+                                    at = int(mp["at"])
+                                    if at not in mf["own_at"]:
+                                        mf["own_at"][at] = {"blocks": [], "seq": EDIT_SEQ[0]}
+                                        EDIT_SEQ[0] += 1
+                                    mf["own_at"][at]["blocks"].append(ma["block"])
+                                    ma["where"] = ("region " + mp["region"]) if mp["region"] else "end of module"
+                            pk = pl["kind"]
                             if pk == "prop":
-                                fe["ops"].append({"kind": "prop", "rec": it["plan"]["rec"], "props": it["plan"]["props"], "item": t})
+                                fe["ops"].append({"kind": "prop", "rec": pl["rec"], "props": pl["props"], "item": t})
                             elif pk == "formprop":
-                                fe["ops"].append({"kind": "formprop", "props": it["plan"]["props"], "item": t})
+                                fe["ops"].append({"kind": "formprop", "props": pl["props"], "item": t})
                             else:
                                 fe["ops"].append({"kind": "text", "key": it["plan_key"], "item": t})
                             # A property changed in the configuration some other way stays as it is: the item
@@ -4909,18 +5070,33 @@ def main():
                             else:
                                 t["status"] = "TRANSFERRED"
                                 t["now"] = True
-                                t["text"] = re.sub(r' \(\d+/\d+ props\)$', '', it["text"])
+                                if mod_adds:
+                                    names = ", ".join("%s%s" % (m["name"], (" (%s)" % m["note"]) if m["note"] else "") for m in mod_adds)
+                                    where = ", ".join(sorted({m["where"] for m in mod_adds}))
+                                    if pl["kind"] == "event-bind":
+                                        t["text"] = "event %s%s -> %s — method in %s" % (
+                                            (pl["scope"] + ".") if pl["scope"] else "", pl["name"], names, where)
+                                    else:
+                                        t["text"] = "%s — method %s -> %s" % (it["text"], names, where)
+                                else:
+                                    t["text"] = re.sub(r' \(\d+/\d+ props\)$', '', it["text"])
                             titems.append(t)
                         except Exception as e:
                             # A change that was refused before touching the document leaves the rest of
                             # the form transferable
+                            if map_ref is not None:
+                                for k in map_added:
+                                    map_ref.pop(k, None)
                             msg = str(e)
-                            if msg.startswith("SKIP: "):
+                            # A refused change leaves the rest of the form transferable; a failure of the write
+                            # itself keeps the whole form as it is
+                            skip = msg.startswith("SKIP: ")
+                            if skip:
                                 msg = msg[6:]
                             else:
                                 fe["failed"] += 1
                             t["status"] = "CONFLICT"
-                            t["text"] = "%s — %s; form not changed" % (it["text"], msg)
+                            t["text"] = "%s — %s; %s" % (it["text"], msg, "change not applied" if skip else "form not changed")
                             t["sub"] = ["next: apply by hand, then re-run -Mode check"]
                             titems.append(t)
                         continue
@@ -4939,7 +5115,7 @@ def main():
                         t["sub"] = get_where_lines(pl, nxt)
                         titems.append(t)
                         continue
-                    cfg_file = os.path.join(config_path, pl["rel"])
+                    cfg_file = os.path.abspath(os.path.join(config_path, pl["rel"]))
                     file_map = file_maps.get(cfg_file.lower(), {})
                     label = ("method " + pl["name"] if pl["kind"] == "own"
                              else "module code outside methods" if pl["kind"] == "topcode" else pl["label"])
@@ -5211,6 +5387,7 @@ def main():
                     titems.append(t)
                 if not titems:
                     continue
+                titems.sort(key=lambda x: x["seq"])
                 recs.append({"id": w["id"], "items": titems})
             # Interceptors, by the method they intercept: &Перед and &После of one method go into one body;
             # &Вместо next to another interceptor, or any next to &ИзменениеИКонтроль, is left to a person
@@ -5276,7 +5453,7 @@ def main():
             for o in own_items:
                 if o["t"]["status"] == "TRANSFERRED":
                     continue
-                if add_out_name(out_by_file, out_common, os.path.join(config_path, o["plan"]["rel"]), o["plan"]["rel"], o["plan"]["name"]):
+                if add_out_name(out_by_file, out_common, os.path.abspath(os.path.join(config_path, o["plan"]["rel"])), o["plan"]["rel"], o["plan"]["name"]):
                     again = True
             if not again:
                 break

@@ -1,5 +1,5 @@
 {
-  "name": "Перенос структуры формы: перемещение и свойства переносятся; кнопка, ссылающаяся на неперенесённую команду, не добавляется; команда с перехватом действия — MANUAL",
+  "name": "Перенос структуры формы: перемещение и свойства переносятся; новая команда расширения с callType в действии переносится своим (callType снимается, обработчик — своим методом), кнопка на неё добавляется",
   "setup": "fixture:form-transfer",
   "params": {
     "extensionPath": "cfe"
@@ -9,7 +9,6 @@
     "-Mode",
     "transfer"
   ],
-  "expectError": true,
   "expect": {
     "stdoutContains": [
       "[DIVERGED]           ~ [Input] Article: Title, Width (config value differs: Width) — the rest transferred",
@@ -17,8 +16,8 @@
       "[TRANSFERRED]        ~ [Label] L3: Title",
       "Changed files:",
       "    Catalogs/Items/Forms/ItemForm/Ext/Form.xml",
-      "[CONFLICT]           + [Button] PatchA_Btn (in: ФормаКоманднаяПанель) — command Cmd is not in the configuration; form not changed",
-      "[MANUAL]             + command PatchA_Cmd"
+      "[TRANSFERRED]        + [Button] PatchA_Btn (in: ФормаКоманднаяПанель)",
+      "[TRANSFERRED]        + command PatchA_Cmd -> PatchA_CmdAction[Before] — method CmdAction (as CmdAction) -> new region ОбработчикиКомандФормы"
     ],
     "fileContains": [
       {
@@ -26,14 +25,16 @@
         "text": [
           "\t\t\t\t\t<v8:content>Ext Article</v8:content>",
           "\t\t</InputField>\n\t\t<LabelDecoration name=\"L3\" id=\"4\">",
-          "\t\t\t\t\t<v8:content>Ext L3</v8:content>"
+          "\t\t\t\t\t<v8:content>Ext L3</v8:content>",
+          "<CommandName>Form.Command.Cmd</CommandName>",
+          "<Action>CmdAction</Action>"
         ]
       }
     ],
     "fileNotContains": [
       {
         "file": "Catalogs/Items/Forms/ItemForm/Ext/Form.xml",
-        "text": "<Command name=\"Cmd\""
+        "text": "callType=\"Before\">PatchA_"
       }
     ]
   }

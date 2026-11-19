@@ -9,7 +9,6 @@
     "-Mode",
     "transfer"
   ],
-  "expectError": true,
   "expect": {
     "stdoutContains": [
       "[TRANSFERRED]        event OnOpen[After] -> PatchA_OnOpenAfter — after the original",

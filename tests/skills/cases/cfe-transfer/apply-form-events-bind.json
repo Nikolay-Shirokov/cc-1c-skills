@@ -1,0 +1,48 @@
+{
+  "name": "Свои привязки расширения: новое событие (в том числе с callType в расширении) и новая команда с callType встают в Form.xml без callType, обработчики — своими методами по ролям (события формы/элемента, команды); кнопка на новую команду добавляется",
+  "setup": "fixture:form-event-new",
+  "params": {
+    "extensionPath": "cfe"
+  },
+  "cwd": "workDir",
+  "args_extra": [
+    "-Mode",
+    "transfer"
+  ],
+  "expect": {
+    "stdoutContains": [
+      "[TRANSFERRED]        event L1.OnClick -> L1Click (as L1Click) — method in new region ОбработчикиСобытийЭлементовШапкиФормы",
+      "[TRANSFERRED]        event L3.OnClick -> L3Click (as L3Click) — method in new region ОбработчикиСобытийЭлементовШапкиФормы",
+      "[TRANSFERRED]        + command PatchA_Cmd -> PatchA_CmdAction[Before] — method CmdAction (as CmdAction) -> new region ОбработчикиКомандФормы",
+      "[TRANSFERRED]        + [Button] PatchA_Btn (in: ФормаКоманднаяПанель)"
+    ],
+    "fileContains": [
+      {
+        "file": "Catalogs/Items/Forms/ItemForm/Ext/Form.xml",
+        "text": [
+          "\t\t\t<Events>\n\t\t\t\t<Event name=\"OnClick\">L1Click</Event>\n\t\t\t</Events>",
+          "\t\t\t<Events>\n\t\t\t\t<Event name=\"OnClick\">L3Click</Event>\n\t\t\t</Events>",
+          "<CommandName>Form.Command.Cmd</CommandName>",
+          "<Action>CmdAction</Action>"
+        ]
+      },
+      {
+        "file": "Catalogs/Items/Forms/ItemForm/Ext/Form/Module.bsl",
+        "text": [
+          "#Область ОбработчикиКомандФормы\n\n&НаКлиенте\nПроцедура CmdAction(Команда)\n\tСообщить(\"своя команда\");\nКонецПроцедуры\n\n#КонецОбласти",
+          "#Область ОбработчикиСобытийЭлементовШапкиФормы\n\n&НаКлиенте\nПроцедура L1Click(Элемент)\n\tСообщить(\"Нажали L1\");\nКонецПроцедуры\n\n&НаКлиенте\nПроцедура L3Click(Элемент)\n\tСообщить(\"Нажали L3\");\nКонецПроцедуры\n\n#КонецОбласти"
+        ]
+      }
+    ],
+    "fileNotContains": [
+      {
+        "file": "Catalogs/Items/Forms/ItemForm/Ext/Form.xml",
+        "text": "PatchA_"
+      },
+      {
+        "file": "Catalogs/Items/Forms/ItemForm/Ext/Form/Module.bsl",
+        "text": "PatchA_"
+      }
+    ]
+  }
+}

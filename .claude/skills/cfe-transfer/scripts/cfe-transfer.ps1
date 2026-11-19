@@ -1,4 +1,4 @@
-﻿# cfe-transfer v1.12 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+﻿# cfe-transfer v1.15 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -855,6 +855,10 @@ function Get-RelPath([string]$root, [string]$full) {
 	$f = [IO.Path]::GetFullPath($full)
 	return ($f.Substring($r.Length).TrimStart('\', '/') -replace '\\', '/')
 }
+
+# A configuration file by its relative path: one spelling for every map and edit pool keyed by it, whatever
+# the spelling the caller's Join-Path produced
+function Get-CfgPath([string]$rel) { return [System.IO.Path]::GetFullPath((Join-Path $ConfigPath $rel)) }
 
 function Read-BslLines([string]$path) {
 	if (-not $path -or -not (Test-Path -LiteralPath $path)) { return $null }
@@ -1901,11 +1905,25 @@ function Get-FormTransferItems($diff, $form, [string]$cfgFormXml, [string]$cfgMo
 			$st = if ($hit) { 'TRANSFERRED' } else { 'NOT_TRANSFERRED' }
 			$ni = & $marked (New-Item2 $st "+ $($sec[2]) $($x.Name)$($x.Info)$(& $asText $hit $x.Name)" '' $group) @($x.Name)
 			# A command whose action intercepts a method is a transfer of its own kind: events and command
-			# interceptors go with the handlers
+			# interceptors go with the handlers. A command the configuration lacks is the extension's own even
+			# when its action carries callType — there is no handler to intercept: it goes as a command, with
+			# its handler as an own method and the callType dropped on the write
 			$ctActions = @($x.Actions | Where-Object { $_.CallType })
-			if (-not $hit -and $ctActions.Count -eq 0) {
-				$ni.Plan = @{ Kind = $(switch ($sec[2]) { 'attribute' { 'attribute' } 'command' { 'command' } default { 'parameter' } }); Node = $x.Node; Name = $x.Name }
-				$ni.PlanKey = "+ $($sec[2]) $($x.Name)"
+			if (-not $hit) {
+				$cmdOwn = @()
+				if ($sec[2] -eq 'command' -and $ctActions.Count -gt 0) {
+					foreach ($a in $ctActions) {
+						$m = if ($a.Handler) { Get-MethodSafe $extMod $a.Handler } else { $null }
+						if ($m) { $cmdOwn += @{ Handler = $a.Handler; ExtM = $m } }
+					}
+				}
+				if ($cmdOwn.Count -gt 0) {
+					$ni.Plan = @{ Kind = 'command-bind'; Node = $x.Node; Name = $x.Name; Handlers = $cmdOwn; ExtLines = $extMod; Rel = $modRel }
+					$ni.PlanKey = "+ $($sec[2]) $($x.Name)"
+				} elseif ($ctActions.Count -eq 0) {
+					$ni.Plan = @{ Kind = $(switch ($sec[2]) { 'attribute' { 'attribute' } 'command' { 'command' } default { 'parameter' } }); Node = $x.Node; Name = $x.Name }
+					$ni.PlanKey = "+ $($sec[2]) $($x.Name)"
+				}
 			}
 			$items += $ni
 		}
@@ -1974,6 +1992,12 @@ function Get-FormTransferItems($diff, $form, [string]$cfgFormXml, [string]$cfgMo
 		if ($it -and $kind -and $extM -and $cfgM -and $it.Status -ne 'TRANSFERRED') {
 			$it.Plan = @{ Kind = 'intercept'; Type = $kind; ExtM = $extM; CfgM = $cfgM; Rel = $modRel; Label = "event $(Get-EventText $e)" }
 			$it.PlanKey = "event $(Get-EventText $e)"
+		}
+		# An event the configuration has no handler for — whatever its callType: there is nothing to intercept,
+		# the event is the extension's own. It goes into the configuration's form and its handler as own method
+		if ($it -and $extM -and -not $cfgHandler -and $it.Status -ne 'TRANSFERRED') {
+			$it.Plan = @{ Kind = 'event-bind'; ExtM = $extM; ExtLines = $extMod; Rel = $modRel; Scope = $e.Scope; Name = $e.Name; Handler = $e.Handler }
+			$it.PlanKey = "event $(if ($e.Scope) { "$($e.Scope)." } else { '' })$($e.Name)"
 		}
 		if ($it) { $items += & $marked $it @($e.Scope) }
 	}
@@ -2536,7 +2560,14 @@ function Get-FormPropKeys($node) {
 # A property node of the target put where the extension's layout has it: after the previous property both sides
 # have, else before the next one, else first
 function Insert-FormProp($target, $extNode, [string]$key, $newNode, [string]$eol) {
-	$extKeys = @(); foreach ($k in @(Get-FormPropKeys $extNode).Keys) { $extKeys += $k }
+	# The extension's own document order: a hashtable's keys have none
+	$extKeys = @(); $seen = @{}
+	foreach ($c in $extNode.ChildNodes) {
+		if ($c.NodeType -ne 'Element') { continue }
+		$k = $c.LocalName
+		if ($seen.ContainsKey($k)) { $seen[$k]++; $k = "$k#$($seen[$k])" } else { $seen[$k] = 1 }
+		$extKeys += $k
+	}
 	$pos = [Array]::IndexOf($extKeys, $key)
 	$prevKey = $null; $nextKey = $null
 	if ($pos -gt 0) { $prevKey = $extKeys[$pos - 1] }
@@ -2702,20 +2733,22 @@ function Insert-FormElement($rec, $root, $nameMap, [string]$eol) {
 	$parentName = $rec.Parent
 	$container = $root
 	if ($parentName) {
-		$target = $root.SelectSingleNode(".//*[@name='" + $parentName.Replace("'", "&apos;") + "']", $ns)
+		$target = Find-FormTarget $root $nameMap $parentName
 		if (-not $target) { return $null }
 		$container = $target
 	}
 	$ci = Get-FormChildItems $container $root
-	$ref = $null
+	$ref = $null; $foundAny = $false
 	for ($i = $rec.Pos - 1; $i -ge 0; $i--) {
 		$sib = $rec.Siblings[$i]
 		$mn = if ($nameMap.ContainsKey($sib.ToLower())) { $nameMap[$sib.ToLower()] } else { $sib }
 		$found = $ci.SelectSingleNode("d:*[@name='" + $mn.Replace("'", "&apos;") + "']", $ns)
-		if ($found) { $ref = $found.NextSibling; break }
+		if ($found) { $foundAny = $true; $ref = $found.NextSibling; break }
 	}
 	if ($ref -and $ref.NodeType -ne 'Element' -and $ref.NextSibling) { $ref = $ref.NextSibling }
 	if ($ref -and $ref.NodeType -ne 'Element') { $ref = $null }
+	# None of the previous siblings is there: the element stands first, as the check reads it back
+	if (-not $foundAny) { foreach ($c in $ci.ChildNodes) { if ($c.NodeType -eq 'Element') { $ref = $c; break } } }
 	return @{ Ci = $ci; Ref = $ref }
 }
 
@@ -2724,7 +2757,7 @@ function Insert-FormElement($rec, $root, $nameMap, [string]$eol) {
 function New-FormEdit([string]$path, [string]$extForm, [string]$extModule, [string]$cfgModule, [string]$extDir, [string]$prefix, [string]$label) {
 	# The full path as the key: two spellings of one file must not make two documents
 	$k = [System.IO.Path]::GetFullPath($path).ToLower()
-	if (-not $script:formEdits.ContainsKey($k)) {
+	if (-not $script:formEdits.Contains($k)) {
 		$fw = Read-FormWrite $path
 		$script:formEdits[$k] = @{
 			Path = $path; Fw = $fw; SrcDoc = (Read-FormDocKeep $extForm); Pools = (Get-FormIdPools $fw.Doc.DocumentElement)
@@ -2733,13 +2766,24 @@ function New-FormEdit([string]$path, [string]$extForm, [string]$extModule, [stri
 			Ops = (New-Object System.Collections.ArrayList); Failed = 0
 		}
 	}
+	# Insertion helpers of this form write its line breaks
+	$script:formEol = $script:formEdits[$k].Fw.Eol
 	return $script:formEdits[$k]
 }
 
-# The element of the configuration by its name in the extension: the name map applied
+# The element of the configuration by its name in the extension: the name map applied. Attributes, commands
+# and parameters may share a name with an element — only the form's own elements are looked up here
 function Find-FormTarget($root, $nameMap, [string]$name) {
 	$mn = if ($nameMap.ContainsKey($name.ToLower())) { $nameMap[$name.ToLower()] } else { $name }
-	return $root.SelectSingleNode(".//*[@name='" + $mn.Replace("'", "&apos;") + "']", $ns)
+	$idx = Get-FormElementIndex $root
+	$hit = Find-NameIn @($idx.Keys) $mn ''
+	if ($hit) { return $idx[$hit].Node }
+	return $null
+}
+# The attribute of the configuration by its name: a form element may share it, the element stands first
+function Find-FormAttr($root, [string]$name) {
+	foreach ($a in @($root.SelectNodes("d:Attributes/d:Attribute", $ns))) { if ($a.GetAttribute('name') -ieq $name) { return $a } }
+	return $null
 }
 
 function Apply-FormOp($fe, $op, $ctx) {
@@ -2760,8 +2804,9 @@ function Apply-FormOp($fe, $op, $ctx) {
 			Insert-FormAttribute $attrs $node
 		}
 		'column' {
-			$at = Find-FormTarget $root $ctx.NameMap $op.Attr
-			if (-not $at) { throw "attribute $($op.Attr) is not in the configuration" }
+			$anm = if ($ctx.NameMap.ContainsKey($op.Attr.ToLower())) { $ctx.NameMap[$op.Attr.ToLower()] } else { $op.Attr }
+			$at = Find-FormAttr $root $anm
+			if (-not $at) { throw "SKIP: attribute $($op.Attr) is not in the configuration" }
 			$cols = $at.SelectSingleNode("d:Columns", $ns)
 			if (-not $cols) {
 				$doc = $root.OwnerDocument
@@ -2776,13 +2821,26 @@ function Apply-FormOp($fe, $op, $ctx) {
 		'command' {
 			$cmds = Get-FormSection $root 'Commands'
 			$node = & $copy $op.Node $null
+			# A command of the extension's own: callType has no handler of the configuration to intercept
+			if ($op.StripCallType) { foreach ($a in @($node.SelectNodes("d:Action", $ns))) { $a.RemoveAttribute('callType') } }
 			Set-FormSubtreeIndent $node $eol ((Get-FormDepth $cmds) + 1)
 			Insert-FormNodeAt $cmds $node $null $eol
 		}
 		'element' {
+			# Only the form's own elements count: an attribute may share a name with an element
+			$elNames = @((Get-FormElementIndex $root).Keys)
+			# What a copied ancestor brought into this run is not added a second time
+			$mn = if ($ctx.NameMap.ContainsKey($op.Rec.Name.ToLower())) { $ctx.NameMap[$op.Rec.Name.ToLower()] } else { $op.Rec.Name }
+			if (Find-NameIn $elNames $mn '') { return }
 			$where = Insert-FormElement $op.Rec $root $ctx.NameMap $eol
-			if (-not $where) { throw "parent $($op.Rec.Parent) is not in the configuration" }
+			if (-not $where) { throw "SKIP: parent $($op.Rec.Parent) is not in the configuration" }
 			$node = & $copy $op.Rec.Node $null
+			# Descendants the configuration already has come with their own items: a property, a move — the
+			# copy of the new element must not bring a second one
+			foreach ($d in @($node.SelectNodes(".//*[@name]", $ns))) {
+				$dn = $d.GetAttribute('name')
+				if ($dn -and (Find-NameIn $elNames $dn '')) { [void]$d.ParentNode.RemoveChild($d) }
+			}
 			# A button carries its command with it: a command the configuration does not have leaves
 			# the form broken
 			$cmds0 = Get-SectionMap $root 'Commands' 'Command'
@@ -2810,7 +2868,7 @@ function Apply-FormOp($fe, $op, $ctx) {
 		}
 		'prop' {
 			$target = Find-FormTarget $root $ctx.NameMap $op.Rec.Name
-			if (-not $target) { throw "element $($op.Rec.Name) is not in the configuration" }
+			if (-not $target) { throw "SKIP: element $($op.Rec.Name) is not in the configuration" }
 			foreach ($p in $op.Props) {
 				$keys = Get-FormPropKeys $target
 				if ($null -eq $p.New) {
@@ -2836,12 +2894,14 @@ function Apply-FormOp($fe, $op, $ctx) {
 		}
 		'move' {
 			$target = Find-FormTarget $root $ctx.NameMap $op.Rec.Name
-			if (-not $target) { throw "element $($op.Rec.Name) is not in the configuration" }
+			if (-not $target) { throw "SKIP: element $($op.Rec.Name) is not in the configuration" }
+			# The element must not leave the document only to have nowhere to go
+			if ($op.Rec.Parent -and -not (Find-FormTarget $root $ctx.NameMap $op.Rec.Parent)) { throw "SKIP: parent $($op.Rec.Parent) is not in the configuration" }
 			$node = $target.CloneNode($true)
 			Remove-FormNode $target
 			# The spot is looked up after the element has left: its neighbours have changed
 			$where = Insert-FormElement $op.Rec $root $ctx.NameMap $eol
-			if (-not $where) { throw "parent $($op.Rec.Parent) is not in the configuration" }
+			if (-not $where) { throw "SKIP: parent $($op.Rec.Parent) is not in the configuration" }
 			$ci = $where.Ci
 			$ref = $null
 			if ($where.Ref -and $where.Ref.ParentNode -eq $ci) { $ref = $where.Ref }
@@ -2925,9 +2985,16 @@ function Test-FormWrite($fe) {
 			}
 			$hit = $false
 			foreach ($t in $ok) { if ($t.StartsWith($op.Key)) { $hit = $true; break } }
+			# A command of the extension's own is read back by the check as an interception of itself:
+			# its item goes by the command and the callType of the extension's action
+			if (-not $hit -and $op.Key.StartsWith('+ command ')) {
+				$cre = '^command ' + [regex]::Escape($op.Key.Substring('+ command '.Length)) + '\['
+				foreach ($t in $ok) { if ($t -match $cre) { $hit = $true; break } }
+			}
 			if (-not $hit) { $miss += $op.Key }
 		}
-		return $miss
+		# The comma keeps a one-item array an array: a bare string would unroll to characters
+		return , $miss
 	} finally {
 		Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
 	}
@@ -3889,6 +3956,8 @@ function Get-OwnMethodBlock($extLines, $extM, $frame, $fileMap) {
 
 # Edits of one configuration file, collected over the run and written once
 function Get-FileEdits([string]$path) {
+	# One pool per file, however the path was spelled
+	$path = [System.IO.Path]::GetFullPath($path)
 	$key = $path.ToLower()
 	if (-not $script:fileEdits.Contains($key)) {
 		$f = Read-BslFile $path
@@ -4085,6 +4154,28 @@ function Get-TransferDetails($ext, $rec, [string]$foldWord = 'transferred') {
 $statusOrder = @('TRANSFERRED', 'NOT_TRANSFERRED', 'PARTIAL', 'DIVERGED', 'MISSING_IN_CONFIG', 'TEMPORARY')
 function Format-Status([string]$st) { return ("[$st]").PadRight(21) }
 
+# Order of a form's changes in the transfer: what the others rely on goes first (a column needs its
+# attribute, an element may name a command or carry a property and an event), a form change left to a
+# person or applied in place goes last; anything not of a form keeps its place
+function Get-FormItemRank($it) {
+	if (-not $it.Group) { return 100 }
+	$k = if ($it.Plan) { $it.Plan.Kind } else { '' }
+	switch ($k) {
+		'attribute' { return 0 }
+		'command' { return 1 }
+		'command-bind' { return 1 }
+		'column' { return 2 }
+		'element' { return 3 }
+		'prop' { return 4 }
+		'move' { return 4 }
+		'event-bind' { return 5 }
+		'appearance' { return 6 }
+		'formprop' { return 6 }
+		'intercept' { return 9 }
+	}
+	return 8
+}
+
 # Project settings (.v8-project.json): development prefixes for both modes, the rest for transfer
 $script:settings = Get-TransferSettings $ConfigPath
 $script:configRefMap = Get-ConfigRefMap $ConfigPath
@@ -4205,7 +4296,7 @@ if ($Mode -eq 'transfer') {
 		foreach ($it in $w.Rec.Items) {
 			$pl = $it.Plan
 			if (-not $pl -or $pl.Kind -ne 'own') { continue }
-			$cfgFile = Join-Path $ConfigPath $pl.Rel
+			$cfgFile = Get-CfgPath $pl.Rel
 			$fk = $cfgFile.ToLower()
 			if (-not $fileMaps.ContainsKey($fk)) { $fileMaps[$fk] = @{} }
 			if ($pl.Hit) { if ($pl.Hit -cne $pl.Name) { $fileMaps[$fk][$pl.Name.ToLower()] = $pl.Hit }; continue }
@@ -4244,13 +4335,14 @@ if ($Mode -eq 'transfer') {
 		foreach ($it in $w.Rec.Items) {
 			$pl = $it.Plan
 			if ($it.Status -ne 'TEMPORARY' -or -not $pl -or $pl.Kind -ne 'own' -or $pl.Hit) { continue }
-			[void](Add-OutName $tempByFile $tempCommon (Join-Path $ConfigPath $pl.Rel) $pl.Rel $pl.Name)
+			[void](Add-OutName $tempByFile $tempCommon (Get-CfgPath $pl.Rel) $pl.Rel $pl.Name)
 		}
 	}
 	do {
 		$again = $false
 		foreach ($fe in $script:fileEdits.Values) { $fe.Repl.Clear(); $fe.Create.Clear(); $fe.OwnAt.Clear(); $fe.Tail.Clear() }
-		$script:formEdits = @{}
+		# Ordered: the written forms are listed for review in the order they were touched
+		$script:formEdits = [ordered]@{}
 		$script:seq = 0
 		$tempCount = 0
 		$recs = @()
@@ -4262,15 +4354,21 @@ if ($Mode -eq 'transfer') {
 			$titems = @()
 			$set = $script:settings[$w.Kind]
 			$frame = Get-Frame $set $vars
-			foreach ($it in $w.Rec.Items) {
+			# Changes of one form go in the order they depend on each other — a column needs its attribute, an
+			# element may name a command added in this run — the report keeps the order the items came in
+			$order = @()
+			for ($oi = 0; $oi -lt $w.Rec.Items.Count; $oi++) { $order += @{ I = $oi; R = (Get-FormItemRank $w.Rec.Items[$oi]) } }
+			$order = @($order | Sort-Object -Property @{ Expression = { $_.R } }, @{ Expression = { $_.I } })
+			foreach ($o in $order) {
+				$it = $w.Rec.Items[$o.I]
 				$pl = $it.Plan
 				$t = New-TItem $it.Status $it.Text $it.Loc $it.Section
-				$t.Group = $it.Group; $t.Marked = $it.Marked
+				$t.Group = $it.Group; $t.Marked = $it.Marked; $t.Seq = $o.I
 				if ($pl -and $pl.Kind -eq 'own' -and $it.Status -eq 'NOT_TRANSFERRED') { $ownItems += @{ Plan = $pl; T = $t } }
 				# A method with an &ИзменениеИКонтроль edit not in the configuration yet: an interceptor of it
 				# would move the lines the edit is anchored to
 				if ($pl -and $pl.Kind -eq 'control' -and $pl.CfgM -and @('TRANSFERRED', 'TEMPORARY') -notcontains $it.Status) {
-					$ctlKeys["$((Join-Path $ConfigPath $pl.Rel).ToLower())|$($pl.CfgM.DeclIdx)"] = $true
+					$ctlKeys["$((Get-CfgPath $pl.Rel).ToLower())|$($pl.CfgM.DeclIdx)"] = $true
 				}
 				if ($it.Status -eq 'TEMPORARY') { $tempCount++; continue }
 				if ($it.Status -eq 'TRANSFERRED') { $titems += $t; continue }
@@ -4281,7 +4379,7 @@ if ($Mode -eq 'transfer') {
 					$titems += $t; continue
 				}
 				if ($it.Group -and $it.Plan -and $it.Plan.Kind -eq 'intercept') {
-					$cfgFile = Join-Path $ConfigPath $it.Plan.Rel
+					$cfgFile = Get-CfgPath $it.Plan.Rel
 					$fm = if ($fileMaps.ContainsKey($cfgFile.ToLower())) { $fileMaps[$cfgFile.ToLower()] } else { @{} }
 					$r = Get-InterceptOps $it.Plan.ExtM $it.Plan.CfgM $it.Plan.Type $frame $set.Deletion $fm
 					if ($r.Why) {
@@ -4295,35 +4393,120 @@ if ($Mode -eq 'transfer') {
 					continue
 				}
 				if ($it.Group -and $it.Plan) {
+					$pl = $it.Plan
 					$relForm = [string]$it.Section
+					# A new event or a new command's handler lives in the form's module, the change itself in Form.xml
+					if ($pl.Kind -eq 'event-bind' -or $pl.Kind -eq 'command-bind') { $relForm = $pl.Rel -replace '[\\/]Ext[\\/]Form[\\/]Module\.bsl$', '/Ext/Form.xml' }
 					$cfgForm = Join-Path $ConfigPath $relForm
 					$extForm = Join-Path $extDir0 $relForm
-					$cfgFormMod = $cfgForm -replace '[\/]Ext[\/]Form\.xml$', '/Ext/Form/Module.bsl'
-					$extFormMod = $extForm -replace '[\/]Ext[\/]Form\.xml$', '/Ext/Form/Module.bsl'
+					# Join-Path turns the forward slashes of a relative path into backslashes: both are matched;
+					# the module path is normalized so that it keys the same map as a module path built from Rel
+					$cfgFormMod = [IO.Path]::GetFullPath(($cfgForm -replace '[\\/]Ext[\\/]Form\.xml$', '/Ext/Form/Module.bsl'))
+					$extFormMod = [IO.Path]::GetFullPath(($extForm -replace '[\\/]Ext[\\/]Form\.xml$', '/Ext/Form/Module.bsl'))
 					$fe = New-FormEdit $cfgForm $extForm $extFormMod $cfgFormMod $extDir0 $prefix $it.Group
 					if (-not $fe.Ctx) {
-						$hm = @{}
-						if ($fileMaps.ContainsKey($cfgFormMod.ToLower())) { $hm = $fileMaps[$cfgFormMod.ToLower()] }
-						$fe.Ctx = @{ NameMap = (Get-FormNameMap (Read-FormDoc $extForm).DocumentElement $fe.Fw.Doc.DocumentElement $prefix); RefMap = $script:configRefMap; HandlerMap = $hm; Bad = (New-Object System.Collections.ArrayList) }
+						# The same map the handlers of this module are registered in: a node copied later (a command's
+						# Action, an element's Event) finds the names given in this run
+						$fk = $cfgFormMod.ToLower()
+						if (-not $fileMaps.ContainsKey($fk)) { $fileMaps[$fk] = @{} }
+						$fe.Ctx = @{ NameMap = (Get-FormNameMap (Read-FormDoc $extForm).DocumentElement $fe.Fw.Doc.DocumentElement $prefix); RefMap = $script:configRefMap; HandlerMap = $fileMaps[$fk]; Bad = (New-Object System.Collections.ArrayList) }
+					}
+					# A binding of the extension's own (an event, a new command's actions): its handlers go into
+					# the module by the role the form gives them, the item into Form.xml; nothing is committed
+					# until the item itself has been applied
+					$op = $pl
+					$modAdds = @()
+					$mapRef = $null
+					$mapAdded = @()
+					if ($pl.Kind -eq 'event-bind' -or $pl.Kind -eq 'command-bind') {
+						$cfgModFile = Get-CfgPath $pl.Rel
+						$fw = Get-FileEdits $cfgModFile
+						$fk = $cfgModFile.ToLower()
+						if (-not $fileMaps.ContainsKey($fk)) { $fileMaps[$fk] = @{} }
+						# The names go into the shared map before the item is copied: a command's Action text is
+						# renamed by the copy; on a refusal they are taken back
+						$mapRef = $fileMaps[$fk]
+						$hs = if ($pl.Kind -eq 'event-bind') { @(@{ Handler = $pl.Handler; ExtM = $pl.ExtM }) } else { @($pl.Handlers) }
+						$bind = Get-FormBindings $extForm
+						$notify = Get-NotifyNames (@($pl.ExtLines) + @($fw.File.Lines))
+						$conflict = $null
+						foreach ($h in $hs) {
+							$hk = $h.Handler.ToLower()
+							$tn = if ($mapRef.ContainsKey($hk)) { @{ Name = $mapRef[$hk]; Note = '' } } else { $null }
+							if (-not $tn) {
+								$taken = New-Object 'System.Collections.Generic.HashSet[string]'
+								foreach ($n in @(Get-ProcNames $fw.File.Lines)) { [void]$taken.Add($n.ToLower()) }
+								foreach ($n in $fw.Given) { [void]$taken.Add($n) }
+								foreach ($n in @(Get-CalledNames (@($fw.File.Lines) + @($pl.ExtLines)) @(Get-ProcNames $pl.ExtLines))) { [void]$taken.Add($n) }
+								$tn = Get-TargetName $h.Handler $prefix $taken ($set.AddDevMethods -and $w.Kind -eq 'vendor')
+							}
+							if ($tn.Taken) { $conflict = "name taken in config ($($tn.Note))"; break }
+							$mapRef[$hk] = $tn.Name; $mapAdded += $hk
+							$conv = Convert-ExtCode $h.ExtM.BodyLines $mapRef
+							if (((Get-SigLines $h.ExtM.BodyLines $prefix) -join "`n") -ine ((Get-SigLines $conv $prefix) -join "`n")) {
+								$conflict = "after the transfer the check would not find the handler's code"; break
+							}
+							$role = Get-MethodRole $h.Handler 'form' $bind $notify (Test-IsExport $pl.ExtLines $h.ExtM)
+							$created = @($fw.Create.Keys | ForEach-Object { $_.ToLower() })
+							$place = Get-MethodPlace $fw.File.Lines $fw.Regions $h.ExtM $role $set $created
+							$modAdds += @{ Name = $tn.Name; Note = $tn.Note; Fw = $fw; Place = $place
+								Block = (Get-OwnMethodBlock $pl.ExtLines $h.ExtM $frame $mapRef); Where = '' }
+						}
+						if ($conflict) {
+							foreach ($k in $mapAdded) { [void]$mapRef.Remove($k) }
+							$t.Status = 'CONFLICT'
+							$t.Text = "$($it.Text) — $conflict; form not changed"
+							$t.Sub = @('next: rename the handler in the extension or merge by hand, then re-run -Mode transfer')
+							$titems += $t; continue
+						}
+						if ($pl.Kind -eq 'event-bind') { $op = @{ Kind = 'event'; Scope = $pl.Scope; Name = $pl.Name; Handler = $modAdds[0].Name } }
+						else { $op = @{ Kind = 'command'; Node = $pl.Node; Name = $pl.Name; StripCallType = $true } }
 					}
 					try {
-						Apply-FormOp $fe $it.Plan $fe.Ctx
+						Apply-FormOp $fe $op $fe.Ctx
 						if ($fe.Ctx.Bad.Count -gt 0) { throw "reference $($fe.Ctx.Bad[0]) is not in the configuration" }
-						if ($it.Plan.Kind -eq 'prop') { [void]$fe.Ops.Add(@{ Kind = 'prop'; Rec = $it.Plan.Rec; Props = $it.Plan.Props; Item = $t }) }
-						elseif ($it.Plan.Kind -eq 'formprop') { [void]$fe.Ops.Add(@{ Kind = 'formprop'; Props = $it.Plan.Props; Item = $t }) }
+						foreach ($ma in $modAdds) {
+							$mf = $ma.Fw; $mp = $ma.Place
+							if ($mp.Create) {
+								$key = @($mf.Create.Keys | Where-Object { $_ -ieq $mp.Create })[0]
+								if (-not $key) { $key = $mp.Create; $mf.Create[$key] = New-Object System.Collections.ArrayList }
+								[void]$mf.Create[$key].Add($ma.Block)
+								$ma.Where = "new region $key"
+							} else {
+								$at = [int]$mp.At
+								if (-not $mf.OwnAt.ContainsKey($at)) { $mf.OwnAt[$at] = @{ Blocks = (New-Object System.Collections.ArrayList); Seq = $script:seq++ } }
+								[void]$mf.OwnAt[$at].Blocks.Add($ma.Block)
+								$ma.Where = if ($mp.Region) { "region $($mp.Region)" } else { 'end of module' }
+							}
+						}
+						if ($pl.Kind -eq 'prop') { [void]$fe.Ops.Add(@{ Kind = 'prop'; Rec = $pl.Rec; Props = $pl.Props; Item = $t }) }
+						elseif ($pl.Kind -eq 'formprop') { [void]$fe.Ops.Add(@{ Kind = 'formprop'; Props = $pl.Props; Item = $t }) }
 						else { [void]$fe.Ops.Add(@{ Kind = 'text'; Key = $it.PlanKey; Item = $t }) }
 						# A property changed in the configuration some other way stays as it is: the item keeps
 						# its divergence, what was pending has gone over
 						if ($it.Status -eq 'DIVERGED') { $t.Status = 'DIVERGED'; $t.Now = $false; $t.Text = "$($it.Text) — the rest transferred" }
-						else { $t.Status = 'TRANSFERRED'; $t.Now = $true; $t.Text = ($it.Text -replace ' \(\d+/\d+ props\)$', '') }
+						else {
+							$t.Status = 'TRANSFERRED'; $t.Now = $true
+							if ($modAdds.Count -gt 0) {
+								$names = @($modAdds | ForEach-Object { "$($_.Name)$(if ($_.Note) { " ($($_.Note))" })" }) -join ', '
+								$where = @($modAdds | ForEach-Object { $_.Where } | Select-Object -Unique) -join ', '
+								if ($pl.Kind -eq 'event-bind') {
+									$t.Text = "event $(if ($pl.Scope) { "$($pl.Scope)." } else { '' })$($pl.Name) -> $names — method in $where"
+								} else { $t.Text = "$($it.Text) — method $names -> $where" }
+							} else { $t.Text = ($it.Text -replace ' \(\d+/\d+ props\)$', '') }
+						}
 						$titems += $t
 					} catch {
 						# A change that was refused before touching the document leaves the rest of the form
 						# transferable
+						foreach ($k in $mapAdded) { [void]$mapRef.Remove($k) }
 						$msg = $_.Exception.Message
-						if ($msg.StartsWith('SKIP: ')) { $msg = $msg.Substring(6) } else { $fe.Failed++ }
+						# A refused change leaves the rest of the form transferable; a failure of the write itself
+						# keeps the whole form as it is
+						$skip = $msg.StartsWith('SKIP: ')
+						if ($skip) { $msg = $msg.Substring(6) } else { $fe.Failed++ }
 						$t.Status = 'CONFLICT'
-						$t.Text = "$($it.Text) — $msg; form not changed"
+						$t.Text = "$($it.Text) — $msg; $(if ($skip) { 'change not applied' } else { 'form not changed' })"
 						$t.Sub = @('next: apply by hand, then re-run -Mode check')
 						$titems += $t
 					}
@@ -4337,7 +4520,7 @@ if ($Mode -eq 'transfer') {
 					$t.Sub = Get-WhereLines $pl $next
 					$titems += $t; continue
 				}
-				$cfgFile = Join-Path $ConfigPath $pl.Rel
+				$cfgFile = Get-CfgPath $pl.Rel
 				$fileMap = if ($fileMaps.ContainsKey($cfgFile.ToLower())) { $fileMaps[$cfgFile.ToLower()] } else { @{} }
 				$label = if ($pl.Kind -eq 'own') { "method $($pl.Name)" } elseif ($pl.Kind -eq 'topcode') { 'module code outside methods' } else { $pl.Label }
 				if ($w.Support -eq 'locked') {
@@ -4575,6 +4758,8 @@ if ($Mode -eq 'transfer') {
 				$titems += $t
 			}
 			if ($titems.Count -eq 0) { continue }
+			# A hashtable's keys are not what Sort-Object orders by: the index is taken by expression
+			$titems = @($titems | Sort-Object -Property @{ Expression = { [int]$_.Seq } })
 			$recs += @{ Id = $w.Id; Items = $titems }
 		}
 		# Interceptors, by the method they intercept: &Перед and &После of one method go into one body;
@@ -4629,7 +4814,7 @@ if ($Mode -eq 'transfer') {
 		# Own methods that stay out: new ones make the pass run again
 		foreach ($o in $ownItems) {
 			if ($o.T.Status -eq 'TRANSFERRED') { continue }
-			if (Add-OutName $outByFile $outCommon (Join-Path $ConfigPath $o.Plan.Rel) $o.Plan.Rel $o.Plan.Name) { $again = $true }
+			if (Add-OutName $outByFile $outCommon (Get-CfgPath $o.Plan.Rel) $o.Plan.Rel $o.Plan.Name) { $again = $true }
 		}
 	} while ($again)
 

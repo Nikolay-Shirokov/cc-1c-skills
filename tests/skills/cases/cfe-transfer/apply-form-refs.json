@@ -9,7 +9,6 @@
     "-Mode",
     "transfer"
   ],
-  "expectError": true,
   "expect": {
     "stdoutContains": [
       "[TRANSFERRED]        ~ [Label] L1: Title, TitleTextColor",
