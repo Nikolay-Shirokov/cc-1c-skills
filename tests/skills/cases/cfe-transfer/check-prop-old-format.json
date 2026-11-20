@@ -1,0 +1,40 @@
+{
+  "name": "Формат ≤ 2.18: режимов PropertyState нет — переопределения не видны, но расходящиеся значения не молчат, а показываются как снимок момента заимствования",
+  "setup": "fixture:prop-positive",
+  "preRun": [
+    {
+      "editFile": "cfe/Catalogs/Товары.xml",
+      "replace": "version=\"2.20\"",
+      "with": "version=\"2.18\""
+    }
+  ],
+  "params": {
+    "extensionPath": "cfe"
+  },
+  "cwd": "workDir",
+  "args_extra": [
+    "-Mode",
+    "check"
+  ],
+  "expectError": true,
+  "skipPlatformVerify": "объект расширения помечен версией 2.18 при наличии PropertyState: платформа такой режим при загрузке выбрасывает и расширение не применяет — кейс проверяет отчёт о снимке старого формата, а не применимость",
+  "expect": {
+    "stdoutContains": [
+      "object property CodeLength — the value differs (this format has no override modes); compare by hand",
+      "attribute Артикул.Type — the value differs (this format has no override modes); compare by hand",
+      "=== Summary Тест: 2 changes — 0 transferred, 2 manual · 1 role, not checked ==="
+    ],
+    "stdoutNotContains": [
+      "object property CodeLength: 11 vs 9 in config",
+      "Type: + Number(10,2)"
+    ],
+    "fileContains": [
+      {
+        "file": "Catalogs/Товары.xml",
+        "text": [
+          "<CodeLength>9</CodeLength>"
+        ]
+      }
+    ]
+  }
+}

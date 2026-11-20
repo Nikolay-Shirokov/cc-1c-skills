@@ -1,5 +1,5 @@
 ﻿#!/usr/bin/env python3
-# cfe-transfer v1.16 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+# cfe-transfer v1.17 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -1526,6 +1526,384 @@ def kind_word(name):
     return re.sub(r'(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])', ' ', name).lower()
 
 
+# --- Property overrides of adopted elements (xr:PropertyState) ---
+
+def format_rank(ver):
+    """"2.20" → 220, "2.9" → 209. Строковое сравнение неверно ("2.9" > "2.17")."""
+    m = re.match(r'^(\d+)\.(\d+)$', ver or '')
+    return int(m.group(1)) * 100 + int(m.group(2)) if m else 0
+
+
+# --- Copies from cfe-borrow (kept identical by check-cfe-prop-lists): how a declared property of an
+# adopted element is treated. The extension's mode decides; these lists tell the exceptions ---
+controlled_props = ['Type', 'Owners', 'Global', 'ClientManagedApplication', 'Server', 'ExternalConnection',
+                    'ClientOrdinaryApplication', 'ServerCall', 'Hierarchical', 'CodeLength', 'DescriptionLength', 'CodeType',
+                    'CodeAllowedLength', 'NumberType', 'NumberLength', 'NumberAllowedLength', 'InformationRegisterPeriodicity',
+                    'WriteMode', 'LanguageCode', 'RegisteredDocuments', 'ExtDimensionTypes', 'MaxExtDimensionCount']
+additive_props = ['RegisterRecords', 'Content']
+no_override_props = ['Hierarchical', 'InformationRegisterPeriodicity', 'WriteMode', 'Global',
+                     'ClientManagedApplication', 'Server', 'ExternalConnection', 'ClientOrdinaryApplication', 'ServerCall', 'CodeAllowedLength', 'LanguageCode']
+
+# Properties the other stages bring: modules and forms are transfered as code, not as a property value
+md_module_props = ('Module', 'ObjectModule', 'ManagerModule', 'RecordSetModule', 'ValueManagerModule', 'CommandModule', 'Form')
+md_service_props = ('ObjectBelonging', 'Name', 'Comment', 'ExtendedConfigurationObject')
+
+XSI_NS = "http://www.w3.org/2001/XMLSchema-instance"
+md_qual_kind_by_type = {"string": "StringQualifiers", "decimal": "NumberQualifiers", "dateTime": "DateQualifiers", "base64Binary": "BinaryDataQualifiers"}
+md_qual_order = ["NumberQualifiers", "StringQualifiers", "DateQualifiers", "BinaryDataQualifiers"]
+
+
+def get_md_type_ref_base(kind):
+    """Type kinds that name a metadata object of the configuration; a *Ref kind looks up its base kind."""
+    if kind.endswith("Ref") and len(kind) > 3:
+        return kind[:-3]
+    return kind
+
+
+def get_md_property_states(el):
+    """Modes of one element: property -> Notify / MultiState / Extended, from InternalInfo/PropertyState."""
+    states = {}
+    if el is None:
+        return states
+    ii = None
+    for c in elem_children(el):
+        if localname(c) == "InternalInfo":
+            ii = c
+            break
+    if ii is None:
+        return states
+    for ps in elem_children(ii):
+        if localname(ps) != "PropertyState":
+            continue
+        p = s = ""
+        for x in elem_children(ps):
+            if localname(x) == "Property":
+                p = inner_text(x).strip()
+            elif localname(x) == "State":
+                s = inner_text(x).strip()
+        if p and s and p not in states:
+            states[p] = s
+    return states
+
+
+def get_md_type_entry_key(local, value, prefix):
+    """Comparable key of one type entry: kind|value, without the namespace prefix, an object name
+    without the extension prefix — the configuration has the name the transfer gives it."""
+    v = re.sub(r'^[\w]+:', '', (value or "").strip())
+    i = v.find(".")
+    if i >= 0:
+        v = v[:i + 1] + get_name_key(v[i + 1:], prefix)
+    return (local + "|" + v).lower()
+
+
+def get_md_type_model(type_el, prefix):
+    """Composition of a <Type>: type entries with their keys and the qualifier elements by kind."""
+    types = []
+    quals = {}
+    if type_el is not None:
+        for c in elem_children(type_el):
+            if localname(c) in ("Type", "TypeSet", "TypeId"):
+                val = inner_text(c).strip()
+                types.append({"local": localname(c), "value": val, "key": get_md_type_entry_key(localname(c), val, prefix)})
+            elif localname(c).endswith("Qualifiers"):
+                quals[localname(c)] = c
+    return {"types": types, "quals": quals}
+
+
+def get_md_type_qual_kind(t):
+    """Qualifier element a type entry of the model needs, '' when the type has none."""
+    v = re.sub(r'^[\w]+:', '', t["value"])
+    if "." in v:
+        return ""
+    return md_qual_kind_by_type.get(v, "")
+
+
+def get_md_qual_value(q, local):
+    if q is None:
+        return ""
+    for c in elem_children(q):
+        if localname(c) == local:
+            return inner_text(c).strip()
+    return ""
+
+
+def format_md_type_model(model):
+    """Short type composition for the report: String(20), Number(10,2), CatalogRef.X."""
+    parts = []
+    for t in model["types"]:
+        v = re.sub(r'^[\w]+:', '', t["value"])
+        k = get_md_type_qual_kind(t)
+        q = model["quals"].get(k) if t["local"] == "Type" else None
+        if v == "string":
+            v = ("String(%s)" % get_md_qual_value(q, "Length")) if q is not None else "String"
+        elif v == "decimal":
+            v = ("Number(%s,%s)" % (get_md_qual_value(q, "Digits"), get_md_qual_value(q, "FractionDigits"))) if q is not None else "Number"
+        elif v == "boolean":
+            v = "Boolean"
+        elif v == "dateTime":
+            v = "Date"
+        parts.append(v)
+    return ", ".join(parts)
+
+
+def test_md_type_model_equal(a, b):
+    """Same composition of a type: the same entries (their order is not a value) and qualifiers."""
+    if len(a["types"]) != len(b["types"]):
+        return False
+    for t in a["types"]:
+        if not any(x["key"] == t["key"] for x in b["types"]):
+            return False
+    for k in set(a["quals"]) | set(b["quals"]):
+        if k not in a["quals"] or k not in b["quals"]:
+            return False
+        if node_canon(a["quals"][k]) != node_canon(b["quals"][k]):
+            return False
+    return True
+
+
+def test_md_type_model_includes(cfg, ext):
+    """Every type of the part is in the configuration with the qualifiers the part declares for it."""
+    for t in ext["types"]:
+        ct = next((x for x in cfg["types"] if x["key"] == t["key"]), None)
+        if ct is None:
+            return False
+        k = get_md_type_qual_kind(t)
+        if not k or k not in ext["quals"]:
+            continue
+        if k not in cfg["quals"]:
+            return False
+        if node_canon(ext["quals"][k]) != node_canon(cfg["quals"][k]):
+            return False
+    return True
+
+
+def get_md_missing_type_text(cfg, ext):
+    """Types of the part the configuration does not have yet, as a short text."""
+    parts = []
+    for t in ext["types"]:
+        if any(x["key"] == t["key"] for x in cfg["types"]):
+            continue
+        parts.append(format_md_type_model({"types": [t], "quals": ext["quals"]}))
+    return ", ".join(parts)
+
+
+def get_md_type_merge_conflict(cfg, ext):
+    """Why the part cannot be merged into the configuration, '' when it can."""
+    for t in ext["types"]:
+        if t["local"] == "TypeId":
+            return "a generated type identifier cannot be transferred"
+        k = get_md_type_qual_kind(t)
+        if not k:
+            continue
+        has = k in ext["quals"]
+        cfg_has = k in cfg["quals"]
+        ct = next((x for x in cfg["types"] if x["key"] == t["key"]), None)
+        ext_one = format_md_type_model({"types": [t], "quals": ext["quals"]})
+        if ct is not None:
+            if has != cfg_has:
+                return "the qualifiers differ (%s)" % ext_one
+            if has and node_canon(ext["quals"][k]) != node_canon(cfg["quals"][k]):
+                return "the configuration already has %s, the extension declares %s" % (
+                    format_md_type_model({"types": [ct], "quals": cfg["quals"]}), ext_one)
+        elif cfg_has:
+            # The kind belongs to another type already: adding this one would change that type too
+            if not has or node_canon(ext["quals"][k]) != node_canon(cfg["quals"][k]):
+                return "the configuration already has %s for another type, the extension declares %s" % (k, ext_one)
+    return ""
+
+
+def test_md_scalar_prop(p):
+    """A property value the transfer can write: no element children, only xsi:type / xsi:nil attributes."""
+    for c in p:
+        if isinstance(c.tag, str):
+            return False
+    for a in p.attrib:
+        if not a.startswith("{%s}" % XSI_NS):
+            return False
+        if a.rsplit("}", 1)[-1] not in ("type", "nil"):
+            return False
+    return True
+
+
+def format_md_prop_value(p):
+    if p is None:
+        return "—"
+    if has_element_child(p):
+        return "{…}"
+    t = inner_text(p).strip()
+    if not t:
+        if p.get("{%s}nil" % XSI_NS) is not None:
+            return "nil"
+        return "—"
+    return get_short(t, 30)
+
+
+def get_md_props_element(el):
+    if el is None:
+        return None
+    for c in elem_children(el):
+        if localname(c) == "Properties":
+            return c
+    return None
+
+
+def get_md_prop_node(props, prop):
+    if props is None:
+        return None
+    for c in elem_children(props):
+        if localname(c) == prop:
+            return c
+    return None
+
+
+def add_md_prop_items(items, ext_el, cfg_el, prefix, rank, rel, obj_type, tag, name, parent, subject, is_object):
+    """Items of the property overrides one adopted element declares: Extended scalars are transfered
+    (the config's own element gets the value, its uuid and name stay), a type extension is merged into
+    the config's <Type>; Notify and a difference without a mode are shown but never written."""
+    if ext_el is None:
+        return
+    ext_props = get_md_props_element(ext_el)
+    if ext_props is None:
+        return
+    states = get_md_property_states(ext_el) if rank >= 219 else {}
+    cfg_props = get_md_props_element(cfg_el)
+    elem_missing = cfg_el is None
+
+    def new_plan(mode, why, next_="", prop=""):
+        pl = {"kind": "md-prop", "rel": rel, "obj_type": obj_type, "tag": tag, "name": name,
+              "parent": parent, "prop": prop, "mode": mode}
+        if why:
+            pl["conflict"] = why
+        if next_:
+            pl["next"] = next_
+        return pl
+
+    for p in elem_children(ext_props):
+        prop = localname(p)
+        if prop in md_service_props or prop in md_module_props or prop in additive_props:
+            continue
+        state = states.get(prop, "")
+        at = ("%s property %s" % (subject, prop)) if is_object else ("%s.%s" % (subject, prop))
+
+        # Type extension: the extension declares parts; the configuration gets the missing types
+        if rank >= 219 and prop == "Type":
+            is_xp = any(a.rsplit("}", 1)[-1] == "type" and "ExtendedProperty" in (p.attrib[a] or "") for a in p.attrib)
+            if state == "MultiState" or is_xp:
+                parts = [c for c in elem_children(p) if localname(c) == "ExtendValue"]
+                if not parts:
+                    continue
+                ex = {"types": [], "quals": {}}
+                for pt in parts:
+                    m = get_md_type_model(pt, prefix)
+                    ex["types"] += m["types"]
+                    for k, v in m["quals"].items():
+                        ex["quals"].setdefault(k, v)
+                cfg_type = get_md_prop_node(cfg_props, "Type")
+                why = ""
+                if elem_missing:
+                    why = "the element is not in the configuration"
+                elif cfg_type is None:
+                    why = "the element has no type in the configuration"
+                else:
+                    why = get_md_type_merge_conflict(get_md_type_model(cfg_type, ""), ex)
+                if why:
+                    ni = new_item("DIVERGED", "%s — %s" % (at, why))
+                    ni["plan"] = new_plan("TypeExtend", why,
+                                          "next: compare the types and merge by hand, then re-run -Mode check", "Type")
+                    items.append(ni)
+                    continue
+                if test_md_type_model_includes(get_md_type_model(cfg_type, ""), ex):
+                    items.append(new_item("TRANSFERRED", at))
+                    continue
+                ni = new_item("NOT_TRANSFERRED", "%s: + %s" % (at, get_md_missing_type_text(get_md_type_model(cfg_type, ""), ex)))
+                pl = new_plan("TypeExtend", "")
+                pl.update({"prop": "Type", "node": p, "parts": parts, "ext_model": ex})
+                ni["plan"] = pl
+                items.append(ni)
+                continue
+            if state == "Extended":
+                ni = new_item("MANUAL", "%s (mode: Extended) — the platform does not apply a single override of the type; compare by hand" % at)
+                ni["manual"] = True
+                items.append(ni)
+                continue
+
+        cfg_p = get_md_prop_node(cfg_props, prop)
+        # An empty element in the shell declares no value: nothing to compare and nothing to report
+        declared = inner_text(p).strip() != "" or has_element_child(p) or bool(p.attrib)
+        if not declared and state != "Extended":
+            continue
+        differs = True
+        if cfg_p is not None:
+            if prop == "Type":
+                # The order of the type entries is not a value: the same set is the same type
+                differs = not test_md_type_model_equal(get_md_type_model(p, prefix), get_md_type_model(cfg_p, ""))
+            else:
+                differs = cmp_key(p, prefix) != cmp_key(cfg_p, "")
+
+        if state == "Extended":
+            if prop in no_override_props:
+                ni = new_item("MANUAL", "%s (mode: Extended) — override mode is not supported for this property" % at)
+                ni["manual"] = True
+                items.append(ni)
+                continue
+            if not test_md_scalar_prop(p):
+                ni = new_item("MANUAL", "%s (mode: Extended) — not a scalar; not transferred by this stage" % at)
+                ni["manual"] = True
+                items.append(ni)
+                continue
+            if cfg_p is None:
+                why = "the element is not in the configuration" if elem_missing else "the property is not in the configuration"
+                ni = new_item("DIVERGED", "%s — %s" % (at, why))
+                ni["plan"] = new_plan("Scalar", why,
+                                      "next: add it by hand if it belongs in the configuration, then re-run -Mode check", prop)
+                items.append(ni)
+                continue
+            if not differs:
+                items.append(new_item("TRANSFERRED", at))
+                continue
+            ni = new_item("NOT_TRANSFERRED", "%s: %s vs %s in config" % (at, format_md_prop_value(p), format_md_prop_value(cfg_p)))
+            pl = new_plan("Scalar", "", "", prop)
+            pl["node"] = p
+            pl["value"] = inner_text(p)
+            pl["xml_type"] = p.get("{%s}type" % XSI_NS)
+            pl["nil"] = p.get("{%s}nil" % XSI_NS) == "true"
+            ni["plan"] = pl
+            items.append(ni)
+            continue
+
+        if state == "Notify":
+            if cfg_p is None:
+                why = "the element is not in the configuration" if elem_missing else "the property is not in the configuration"
+                ni = new_item("MANUAL", "%s (mode: Notify) — %s" % (at, why))
+                ni["manual"] = True
+                items.append(ni)
+                continue
+            if not differs:
+                continue
+            ni = new_item("MANUAL", "%s (mode: Notify): %s vs %s in config — the platform only warns, the extension is not applied; the configuration keeps its value"
+                          % (at, format_md_prop_value(p), format_md_prop_value(cfg_p)))
+            ni["manual"] = True
+            items.append(ni)
+            continue
+
+        # No mode: with no override declared this is a stale snapshot, not a change to move
+        if cfg_p is None:
+            why = "the element is not in the configuration" if elem_missing else "the property is not in the configuration"
+            ni = new_item("MANUAL", "%s — %s" % (at, why))
+            ni["manual"] = True
+            items.append(ni)
+            continue
+        if not differs:
+            continue
+        if rank >= 219:
+            msg = "%s — no override mode: the platform will not apply it — align the extension or change the configuration by hand"
+        else:
+            msg = "%s — the value differs (this format has no override modes); compare by hand"
+        ni = new_item("MANUAL", msg % at)
+        ni["manual"] = True
+        items.append(ni)
+
+
 # --- ChildObjects canon (verbatim from meta-edit, kept identical by check-inline-drift) ---
 def object_child_order():
     """Порядок групп в <ChildObjects> объекта по виду. Это xs:sequence <Вид>ChildObjects из MDClasses XSD,
@@ -2477,7 +2855,7 @@ def get_top_key(line, prefix):
 
 
 # Own sub-objects of a borrowed object (attributes, tabular sections, commands, forms, templates, …)
-def own_child_items(ctx, cfg_md, prefix, rel):
+def own_child_items(ctx, cfg_md, prefix, rel, rank):
     items = []
     if ctx["md"] is None or ctx["md"]["children"] is None:
         return items
@@ -2538,21 +2916,38 @@ def own_child_items(ctx, cfg_md, prefix, rel):
         if not test_adopted_node(c):
             items.append(check(c, kind_word(localname(c)), cfg_kids, ""))
             continue
-        # Borrowed tabular section: its own attributes
+        # Adopted element: overrides of its own properties; a borrowed tabular section is also walked
+        # for its own children — adopted ones carry overrides, the rest are the extension's new columns
+        nm = md_child_name(c)
+        hit = find_name_in([md_child_name(x) for x in cfg_kids if localname(x) == localname(c)], nm, prefix)
+        cnode = ([x for x in cfg_kids if localname(x) == localname(c) and md_child_name(x).lower() == hit.lower()][0]
+                 if hit else None)
+        cname = hit if hit else nm
+        add_md_prop_items(items, c, cnode, prefix, rank, rel, ctx["type"],
+                          localname(c), cname, "", "%s %s" % (kind_word(localname(c)), nm), False)
         sub = c.find("md:ChildObjects", MD_NSMAP)
         if sub is None:
             continue
-        ts_name = md_child_name(c)
-        cfg_ts = [x for x in cfg_kids if localname(x) == localname(c) and md_child_name(x).lower() == ts_name.lower()]
+        ts_name = nm
+        cfg_children = [x for x in cfg_kids if localname(x) == localname(c)]
+        cfg_ts = ([x for x in cfg_children if md_child_name(x).lower() == hit.lower()][0] if hit else None)
         cfg_sub = []
-        if cfg_ts:
-            cs = cfg_ts[0].find("md:ChildObjects", MD_NSMAP)
+        if cfg_ts is not None:
+            cs = cfg_ts.find("md:ChildObjects", MD_NSMAP)
             if cs is not None:
                 cfg_sub = elem_children(cs)
         for sc in elem_children(sub):
-            if test_adopted_node(sc):
+            sc_name = md_child_name(sc)
+            if not test_adopted_node(sc):
+                items.append(check(sc, kind_word(localname(sc)), cfg_sub, ts_name))
                 continue
-            items.append(check(sc, kind_word(localname(sc)), cfg_sub, ts_name))
+            s_hit = find_name_in([md_child_name(x) for x in cfg_sub], sc_name, prefix)
+            sc_node = ([x for x in cfg_sub if md_child_name(x).lower() == s_hit.lower()][0] if s_hit else None)
+            sc_target = s_hit if s_hit else sc_name
+            ts_target = md_child_name(cfg_ts) if cfg_ts is not None else ts_name
+            add_md_prop_items(items, sc, sc_node, prefix, rank, rel, ctx["type"],
+                              localname(sc), sc_target, ts_target,
+                              "%s %s.%s" % (kind_word(localname(sc)), ts_name, sc_name), False)
     return items
 
 
@@ -2598,7 +2993,12 @@ def transfer_object(ext, obj, cfg_info, config_path, cfg_pools=None):
     # Section = the file the change lives in (a module line, the form's Form.xml, the object's own
     # XML for its sub-objects); the item then keeps only its line number
     obj_rel = rel_path(ext["dir"], ctx["file"])
-    rec["items"] += own_child_items(ctx, cfg_md, prefix, obj_rel)
+    # Overrides of the borrowed object's own properties; a missing config object is MISSING_IN_CONFIG anyway
+    rank = format_rank(ctx["md"]["el"].getroottree().getroot().get("version")) if ctx["md"]["el"] is not None else 0
+    if cfg_md is not None:
+        add_md_prop_items(rec["items"], ctx["md"]["el"], cfg_md["el"], prefix, rank, obj_rel,
+                          ctx["type"], "", "", "", "object", True)
+    rec["items"] += own_child_items(ctx, cfg_md, prefix, obj_rel, rank)
     if obj["type"] == "Subsystem":
         rec["items"] += subsystem_content_items(ctx["md"], cfg_md, prefix, obj_rel, cfg_pools)
     rec["items"] += form_items
@@ -3326,6 +3726,9 @@ def apply_md_op(me, plan):
     obj_el = get_md_object_element(root)
     if obj_el is None:
         raise ValueError("SKIP: the object is not in the configuration")
+    if plan["kind"] == "md-prop":
+        apply_md_prop_op(me, plan)
+        return
     if plan["kind"] == "md-content":
         props = obj_el.find("md:Properties", MD_NSMAP)
         if props is None:
@@ -3374,6 +3777,151 @@ def apply_md_op(me, plan):
         t.text = convert_ext_code([inner_text(t)], {})[0]
     ref = find_child_anchor(container, plan["tag"], plan["obj_type"])
     insert_form_node_at(container, node, ref, eol)
+
+
+def get_md_target_element(obj_el, plan):
+    """The config's element a property override belongs to: the object itself or a named child (inside
+    the named tabular section when parent is given), None when the configuration has no such element."""
+    if not plan["tag"]:
+        return obj_el
+    kids = obj_el.find("md:ChildObjects", MD_NSMAP)
+    if kids is None:
+        return None
+    if plan["parent"]:
+        ts = None
+        for c in elem_children(kids):
+            if localname(c) == "TabularSection" and md_child_name(c).lower() == plan["parent"].lower():
+                ts = c
+                break
+        if ts is None:
+            return None
+        kids = ts.find("md:ChildObjects", MD_NSMAP)
+        if kids is None:
+            return None
+    for c in elem_children(kids):
+        if localname(c) == plan["tag"] and md_child_name(c).lower() == plan["name"].lower():
+            return c
+    return None
+
+
+def set_md_scalar_prop(p, plan):
+    """One scalar property of the configuration's existing element takes the extension's value."""
+    for a in list(p.attrib):
+        if a.startswith("{%s}" % XSI_NS) and a.rsplit("}", 1)[-1] in ("type", "nil"):
+            del p.attrib[a]
+    if plan.get("nil"):
+        p.set("{%s}nil" % XSI_NS, "true")
+    elif plan.get("xml_type"):
+        p.set("{%s}type" % XSI_NS, plan["xml_type"])
+    for c in list(p):
+        p.remove(c)
+    p.text = convert_ext_code([plan.get("value") or ""], {})[0]
+    plan["expected_key"] = cmp_key(p, "")
+
+
+def add_md_type_extends(props, plan, eol):
+    """Missing types of the extension's ExtendValue parts merged into the configuration's <Type>: the
+    type entries keep their order, the qualifiers follow by kind; the element stays a plain <Type>."""
+    type_el = get_md_prop_node(props, "Type")
+    if type_el is None:
+        raise ValueError("SKIP: the element has no Type in the configuration")
+    src_type = plan.get("node")
+    if src_type is None:
+        raise ValueError("SKIP: the type is not found in the extension")
+    # Declared parts converted to the configuration's names
+    ex = {"types": [], "quals": {}}
+    for part in elem_children(src_type):
+        if localname(part) != "ExtendValue":
+            continue
+        for c in elem_children(part):
+            if localname(c) in ("Type", "TypeSet"):
+                val = convert_ext_code([inner_text(c).strip()], {})[0]
+                ex["types"].append({"local": localname(c), "value": val,
+                                    "key": get_md_type_entry_key(localname(c), val, ""), "node": c})
+            elif localname(c).endswith("Qualifiers"):
+                ex["quals"].setdefault(localname(c), c)
+    if not ex["types"]:
+        return
+    cfg_model = get_md_type_model(type_el, "")
+    why = get_md_type_merge_conflict(cfg_model, ex)
+    if why:
+        raise ValueError("SKIP: " + why)
+    # A type naming a metadata object the configuration lacks would dangle
+    for t in ex["types"]:
+        v = re.sub(r'^[\w]+:', '', t["value"])
+        j = v.find(".")
+        if j < 0:
+            continue
+        base = get_md_type_ref_base(v[:j])
+        obj = v[j + 1:]
+        if CFG_POOLS and base in CFG_POOLS and not find_name_in(CFG_POOLS[base], obj, ""):
+            raise ValueError("SKIP: %s is not in the configuration" % v)
+    new = etree.Element("{%s}Type" % MD_NS)
+    new.tail = type_el.tail
+    type_el.getparent().replace(type_el, new)
+    existing = []
+    existing_quals = {}
+    for c in list(type_el):
+        if not isinstance(c.tag, str):
+            continue
+        if localname(c) in ("Type", "TypeSet", "TypeId"):
+            existing.append(c)
+        elif localname(c).endswith("Qualifiers"):
+            existing_quals[localname(c)] = c
+    have = {}
+    for c in existing:
+        insert_form_node_at(new, c, None, eol)
+        have[get_md_type_entry_key(localname(c), inner_text(c), "")] = True
+    need = []
+    for t in ex["types"]:
+        if t["key"] in have:
+            continue
+        n = copy.deepcopy(t["node"])
+        for ch in list(n):
+            n.remove(ch)
+        n.text = t["value"]
+        insert_form_node_at(new, n, None, eol)
+        have[t["key"]] = True
+        k = get_md_type_qual_kind(t)
+        if k and k not in need:
+            need.append(k)
+    for k in md_qual_order:
+        if k in existing_quals:
+            insert_form_node_at(new, existing_quals[k], None, eol)
+            continue
+        if k in need and k in ex["quals"]:
+            q = copy.deepcopy(ex["quals"][k])
+            insert_form_node_at(new, q, None, eol)
+            # The source qualifier sat deeper (inside ExtendValue): its children are re-indented for <Type>
+            set_form_subtree_indent(q, eol, get_form_depth(q))
+    for k in existing_quals:
+        if k not in md_qual_order:
+            insert_form_node_at(new, existing_quals[k], None, eol)
+    plan["expected_model"] = ex
+
+
+def apply_md_prop_op(me, plan):
+    """An override of one property of the configuration's existing element: the element keeps its uuid
+    and name, only the declared value (or the missing type entries) is written."""
+    root = me["fw"]["root"]
+    obj_el = get_md_object_element(root)
+    if obj_el is None:
+        raise ValueError("SKIP: the object is not in the configuration")
+    target = get_md_target_element(obj_el, plan)
+    if target is None:
+        why = ("the element %s %s is not in the configuration" % (plan["tag"], plan["name"])) if plan["tag"] \
+            else "the object is not in the configuration"
+        raise ValueError("SKIP: " + why)
+    props = get_md_props_element(target)
+    if props is None:
+        raise ValueError("SKIP: the element has no Properties in the configuration")
+    if plan["mode"] == "TypeExtend":
+        add_md_type_extends(props, plan, me["fw"]["eol"])
+        return
+    p = get_md_prop_node(props, plan["prop"])
+    if p is None:
+        raise ValueError("SKIP: property %s is not in the configuration" % plan["prop"])
+    set_md_scalar_prop(p, plan)
 
 
 def get_md_validate_errors(path, obj_type):
@@ -3425,6 +3973,20 @@ def test_md_write(me):
                             found = True
                             break
                 if not found:
+                    miss.append(op["item"]["text"])
+                continue
+            if pl["kind"] == "md-prop":
+                target = get_md_target_element(obj_el, pl) if obj_el is not None else None
+                props = get_md_props_element(target)
+                bad = target is None
+                if not bad:
+                    if pl["mode"] == "TypeExtend":
+                        type_el = get_md_prop_node(props, "Type")
+                        bad = type_el is None or not test_md_type_model_includes(get_md_type_model(type_el, ""), pl["expected_model"])
+                    else:
+                        p = get_md_prop_node(props, pl["prop"])
+                        bad = p is None or cmp_key(p, "") != pl["expected_key"]
+                if bad:
                     miss.append(op["item"]["text"])
                 continue
             container = None
@@ -3534,6 +4096,7 @@ FORM_EDITS = {}
 MD_EDITS = {}
 MD_GIVEN = {}
 MD_WARN = []
+CFG_POOLS = {}
 EDIT_SEQ = [0]
 CONFIG_REF_MAP = {}
 
@@ -4921,7 +5484,7 @@ def get_transfer_details(ext, rec, expand_list, fold_word="transferred"):
     return {"lines": lines, "folded": folded, "open": any_open}
 
 
-STATUS_ORDER = ["TRANSFERRED", "NOT_TRANSFERRED", "PARTIAL", "DIVERGED", "MISSING_IN_CONFIG", "TEMPORARY"]
+STATUS_ORDER = ["TRANSFERRED", "NOT_TRANSFERRED", "PARTIAL", "DIVERGED", "MISSING_IN_CONFIG", "TEMPORARY", "MANUAL"]
 
 
 def fmt_status(st):
@@ -5047,6 +5610,8 @@ def main():
         if cfg_info["child_objects"] is not None:
             for c in elem_children(cfg_info["child_objects"]):
                 cfg_pools.setdefault(localname(c), []).append((c.text or "").strip())
+        # The write side refuses a type reference the configuration lacks: same pools there
+        globals()["CFG_POOLS"] = cfg_pools
         all_objs = []
         if cp0["child_objects"] is not None:
             for c in elem_children(cp0["child_objects"]):
@@ -5398,6 +5963,11 @@ def main():
                         t["text"] = it["text"] + " — the configuration's form changed since the borrowing; not applied"
                         titems.append(t)
                         continue
+                    # A metadata property left to a person: the check side already said why, nothing to add
+                    if it.get("manual") and not pl:
+                        t["text"] = it["text"]
+                        titems.append(t)
+                        continue
                     if not pl:
                         t["text"] = it["text"] + " — metadata is not transferred yet"
                         titems.append(t)
@@ -5411,6 +5981,35 @@ def main():
                             t["text"] = it["text"] + " — object is locked by vendor support"
                             t["sub"] = ["next: allow editing with /support-edit, then re-run -Mode transfer"]
                             titems.append(t)
+                            continue
+                        if pl["kind"] == "md-prop":
+                            if pl.get("conflict"):
+                                t["status"] = "CONFLICT"
+                                # The check's line already names the reason (the type qualifiers, the missing property)
+                                t["text"] = it["text"] + "; property not changed"
+                                nxt = pl.get("next") or "next: compare and merge by hand, then re-run -Mode check"
+                                t["sub"] = ["from: extension " + pl["rel"], "to:   config " + pl["rel"], nxt]
+                                titems.append(t)
+                                continue
+                            me = get_md_edits(os.path.abspath(os.path.join(config_path, pl["rel"])), pl["obj_type"])
+                            try:
+                                apply_md_op(me, pl)
+                                me["ops"].append({"plan": pl, "item": t})
+                                t["status"] = "TRANSFERRED"
+                                t["now"] = True
+                                t["text"] = it["text"] + " — applied"
+                                titems.append(t)
+                            except Exception as e:
+                                msg = str(e)
+                                skip = msg.startswith("SKIP: ")
+                                if skip:
+                                    msg = msg[6:]
+                                else:
+                                    me["failed"] += 1
+                                t["status"] = "CONFLICT"
+                                t["text"] = "%s — %s; %s" % (it["text"], msg, "property not changed" if skip else "object not changed")
+                                t["sub"] = ["next: apply by hand, then re-run -Mode check"]
+                                titems.append(t)
                             continue
                         if pl["kind"] == "md-content":
                             if pl.get("missing"):
@@ -5439,9 +6038,9 @@ def main():
                             continue
                         if pl.get("conflict"):
                             t["status"] = "CONFLICT"
-                            t["text"] = it["text"] + " — the type differs; object not changed"
+                            t["text"] = "%s — %s; object not changed" % (it["text"], pl["conflict"])
                             t["sub"] = ["from: extension " + pl["rel"], "to:   config " + pl["rel"],
-                                        "next: compare the types and merge by hand, then re-run -Mode check"]
+                                        pl.get("next") or "next: compare the types and merge by hand, then re-run -Mode check"]
                             titems.append(t)
                             continue
                         me = get_md_edits(os.path.abspath(os.path.join(config_path, pl["rel"])), pl["obj_type"])

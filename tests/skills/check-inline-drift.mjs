@@ -149,7 +149,7 @@ const FAMILIES = [
     name: 'format_rank', py: 'format_rank', ps1: 'Get-FormatRank',
     variants: [
       { id: 'base', authority: 'meta-compile',
-        consumers: ['cf-init', 'cf-validate', 'cfe-borrow', 'cfe-init', 'cfe-patch-method', 'cfe-validate', 'epf-build',
+        consumers: ['cf-init', 'cf-validate', 'cfe-borrow', 'cfe-init', 'cfe-patch-method', 'cfe-transfer', 'cfe-validate', 'epf-build',
           'epf-init', 'epf-validate', 'erf-init', 'form-add', 'form-compile', 'form-edit', 'form-validate',
           'meta-validate', 'mxl-compile', 'role-compile', 'role-edit', 'skd-validate', 'subsystem-compile', 'subsystem-edit',
           'template-add', 'xdto-compile'] },

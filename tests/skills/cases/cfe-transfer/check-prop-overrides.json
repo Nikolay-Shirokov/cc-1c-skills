@@ -1,0 +1,43 @@
+{
+  "name": "Изменения метаданных: переопределение скалярного свойства и расширение типа видны в сверке — значение и недостающий тип",
+  "setup": "fixture:prop-positive",
+  "params": {
+    "extensionPath": "cfe"
+  },
+  "cwd": "workDir",
+  "args_extra": [
+    "-Mode",
+    "check"
+  ],
+  "expectError": true,
+  "expect": {
+    "stdoutContains": [
+      "[NOT_TRANSFERRED]    Catalog.Товары — 2 changes: 0 transferred, 2 remaining",
+      "Catalogs/Товары.xml:",
+      "object property CodeLength: 11 vs 9 in config",
+      "attribute Артикул.Type: + Number(10,2)",
+      "=== Summary Тест: 2 changes — 0 transferred, 2 not transferred · 1 role, not checked ===",
+      "Remaining: Catalog.Товары"
+    ],
+    "stdoutNotContains": [
+      "MANUAL"
+    ],
+    "fileContains": [
+      {
+        "file": "Catalogs/Товары.xml",
+        "text": [
+          "<CodeLength>9</CodeLength>"
+        ]
+      }
+    ],
+    "fileNotContains": [
+      {
+        "file": "Catalogs/Товары.xml",
+        "text": [
+          "<CodeLength>11</CodeLength>",
+          "<v8:Type>xs:decimal</v8:Type>"
+        ]
+      }
+    ]
+  }
+}

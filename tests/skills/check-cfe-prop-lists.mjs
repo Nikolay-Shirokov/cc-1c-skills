@@ -16,6 +16,7 @@ const SKILLS = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '.claud
 const FILES = [
   ['cfe-borrow', 'cfe-borrow.ps1'], ['cfe-borrow', 'cfe-borrow.py'],
   ['cfe-validate', 'cfe-validate.ps1'], ['cfe-validate', 'cfe-validate.py'],
+  ['cfe-transfer', 'cfe-transfer.ps1'], ['cfe-transfer', 'cfe-transfer.py'],
 ];
 const LISTS = [['controlledProps', 'controlled_props'], ['additiveProps', 'additive_props'], ['noOverrideProps', 'no_override_props']];
 

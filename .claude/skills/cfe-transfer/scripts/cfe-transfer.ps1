@@ -1,4 +1,4 @@
-﻿# cfe-transfer v1.16 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+﻿# cfe-transfer v1.17 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -51,6 +51,8 @@ function Resolve-InputPath([string]$p) {
 }
 
 $mdNsUri = "http://v8.1c.ru/8.3/MDClasses"
+$v8NsUri = "http://v8.1c.ru/8.1/data/core"
+$xsiNsUri = "http://www.w3.org/2001/XMLSchema-instance"
 
 function Read-ConfigurationProps([string]$dir) {
 	$file = Join-Path $dir "Configuration.xml"
@@ -1353,6 +1355,359 @@ function Get-KindWord([string]$localName) {
 	return ([regex]::Replace($localName, '(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])', ' ')).ToLower()
 }
 
+# --- Property overrides of adopted elements (xr:PropertyState) ---
+
+# --- Copy from meta-compile (kept identical by check-inline-drift): the format version as a number,
+# "2.20" -> 220, "2.9" -> 209; a string comparison would be wrong ---
+function Get-FormatRank([string]$ver) {
+	if ($ver -match '^(\d+)\.(\d+)$') { return [int]$Matches[1] * 100 + [int]$Matches[2] }
+	return 0
+}
+
+# --- Copy from cfe-borrow (kept identical by check-cfe-prop-lists): how a declared property of an
+# adopted element is treated. The extension's mode decides; these lists tell the exceptions ---
+$script:controlledProps = @('Type', 'Owners', 'Global', 'ClientManagedApplication', 'Server', 'ExternalConnection',
+	'ClientOrdinaryApplication', 'ServerCall', 'Hierarchical', 'CodeLength', 'DescriptionLength', 'CodeType',
+	'CodeAllowedLength', 'NumberType', 'NumberLength', 'NumberAllowedLength', 'InformationRegisterPeriodicity',
+	'WriteMode', 'LanguageCode', 'RegisteredDocuments', 'ExtDimensionTypes', 'MaxExtDimensionCount')
+$script:additiveProps = @('RegisterRecords', 'Content')
+$script:noOverrideProps = @('Hierarchical', 'InformationRegisterPeriodicity', 'WriteMode', 'Global',
+	'ClientManagedApplication', 'Server', 'ExternalConnection', 'ClientOrdinaryApplication', 'ServerCall', 'CodeAllowedLength', 'LanguageCode')
+
+# Properties the other stages bring: modules and forms are transfered as code, not as a property value
+$script:mdModuleProps = @('Module', 'ObjectModule', 'ManagerModule', 'RecordSetModule', 'ValueManagerModule', 'CommandModule', 'Form')
+$script:mdServiceProps = @('ObjectBelonging', 'Name', 'Comment', 'ExtendedConfigurationObject')
+
+# Qualifier element a type needs; the order the platform writes them in
+$script:mdQualKindByType = @{ 'string' = 'StringQualifiers'; 'decimal' = 'NumberQualifiers'; 'dateTime' = 'DateQualifiers'; 'base64Binary' = 'BinaryDataQualifiers' }
+$script:mdQualOrder = @('NumberQualifiers', 'StringQualifiers', 'DateQualifiers', 'BinaryDataQualifiers')
+
+# Type kinds that name a metadata object of the configuration; a *Ref kind looks up its base kind
+function Get-MdTypeRefBase([string]$kind) {
+	if ($kind.EndsWith('Ref') -and $kind.Length -gt 3) { return $kind.Substring(0, $kind.Length - 3) }
+	return $kind
+}
+
+# Modes of one element: property -> Notify / MultiState / Extended, from InternalInfo/PropertyState
+function Get-MdPropertyStates($el) {
+	$states = @{}
+	if (-not $el) { return $states }
+	$ii = $null
+	foreach ($c in $el.ChildNodes) { if ($c.NodeType -eq 'Element' -and $c.LocalName -eq 'InternalInfo') { $ii = $c; break } }
+	if (-not $ii) { return $states }
+	foreach ($ps in $ii.ChildNodes) {
+		if ($ps.NodeType -ne 'Element' -or $ps.LocalName -ne 'PropertyState') { continue }
+		$p = ''; $s = ''
+		foreach ($x in $ps.ChildNodes) {
+			if ($x.NodeType -ne 'Element') { continue }
+			if ($x.LocalName -eq 'Property') { $p = $x.InnerText.Trim() }
+			elseif ($x.LocalName -eq 'State') { $s = $x.InnerText.Trim() }
+		}
+		if ($p -and $s -and -not $states.ContainsKey($p)) { $states[$p] = $s }
+	}
+	return $states
+}
+
+# Comparable key of one type entry: kind|value, without the namespace prefix, an object name without
+# the extension prefix — the configuration has the name the transfer gives it
+function Get-MdTypeEntryKey([string]$local, [string]$value, [string]$prefix) {
+	$v = $value.Trim() -replace '^[\w]+:', ''
+	$i = $v.IndexOf('.')
+	if ($i -ge 0) { $v = $v.Substring(0, $i + 1) + (Get-NameKey $v.Substring($i + 1) $prefix) }
+	return (($local + '|' + $v).ToLower())
+}
+
+# Composition of a <Type>: type entries with their keys and the qualifier elements by kind
+function Get-MdTypeModel($typeEl, [string]$prefix) {
+	$types = @(); $quals = @{}
+	if ($typeEl) {
+		foreach ($c in $typeEl.ChildNodes) {
+			if ($c.NodeType -ne 'Element') { continue }
+			if ($c.LocalName -eq 'Type' -or $c.LocalName -eq 'TypeSet' -or $c.LocalName -eq 'TypeId') {
+				$types += @{ Local = $c.LocalName; Value = $c.InnerText.Trim(); Key = (Get-MdTypeEntryKey $c.LocalName $c.InnerText $prefix) }
+			} elseif ($c.LocalName.EndsWith('Qualifiers')) { $quals[$c.LocalName] = $c }
+		}
+	}
+	return @{ Types = $types; Quals = $quals }
+}
+
+# Qualifier element a type entry of the model needs, '' when the type has none
+function Get-MdTypeQualKind($t) {
+	$v = $t.Value -replace '^[\w]+:', ''
+	if ($v.Contains('.')) { return '' }
+	if ($script:mdQualKindByType.ContainsKey($v)) { return $script:mdQualKindByType[$v] }
+	return ''
+}
+
+function Get-MdQualValue($q, [string]$local) {
+	if (-not $q) { return '' }
+	foreach ($c in $q.ChildNodes) { if ($c.NodeType -eq 'Element' -and $c.LocalName -eq $local) { return $c.InnerText.Trim() } }
+	return ''
+}
+
+# Short type composition for the report: String(20), Number(10,2), CatalogRef.X
+function Format-MdTypeModel($model) {
+	$parts = @()
+	foreach ($t in $model.Types) {
+		$v = $t.Value -replace '^[\w]+:', ''
+		$q = if ($t.Local -eq 'Type') { $model.Quals[(Get-MdTypeQualKind $t)] } else { $null }
+		switch -CaseSensitive ($v) {
+			'string' { $v = if ($q) { "String($(Get-MdQualValue $q 'Length'))" } else { 'String' } }
+			'decimal' { $v = if ($q) { "Number($(Get-MdQualValue $q 'Digits'),$(Get-MdQualValue $q 'FractionDigits'))" } else { 'Number' } }
+			'boolean' { $v = 'Boolean' }
+			'dateTime' { $v = 'Date' }
+		}
+		$parts += $v
+	}
+	return ($parts -join ', ')
+}
+
+# Same composition of a type: the same entries (their order is not a value) and qualifiers
+function Test-MdTypeModelEqual($a, $b) {
+	if ($a.Types.Count -ne $b.Types.Count) { return $false }
+	foreach ($t in $a.Types) { if (@($b.Types | Where-Object { $_.Key -ceq $t.Key }).Count -eq 0) { return $false } }
+	$keys = @(@($a.Quals.Keys) + @($b.Quals.Keys) | Select-Object -Unique)
+	foreach ($k in $keys) {
+		if (-not $a.Quals.ContainsKey($k) -or -not $b.Quals.ContainsKey($k)) { return $false }
+		if ((Get-NodeCanon $a.Quals[$k]) -cne (Get-NodeCanon $b.Quals[$k])) { return $false }
+	}
+	return $true
+}
+
+# Every type of the part is in the configuration with the qualifiers the part declares for it
+function Test-MdTypeModelIncludes($cfg, $ext) {
+	foreach ($t in $ext.Types) {
+		$ct = @($cfg.Types | Where-Object { $_.Key -ceq $t.Key })[0]
+		if (-not $ct) { return $false }
+		$k = Get-MdTypeQualKind $t
+		if (-not $k -or -not $ext.Quals.ContainsKey($k)) { continue }
+		if (-not $cfg.Quals.ContainsKey($k)) { return $false }
+		if ((Get-NodeCanon $ext.Quals[$k]) -cne (Get-NodeCanon $cfg.Quals[$k])) { return $false }
+	}
+	return $true
+}
+
+# Types of the part the configuration does not have yet, as a short text
+function Get-MdMissingTypeText($cfg, $ext) {
+	$parts = @()
+	foreach ($t in $ext.Types) {
+		if (@($cfg.Types | Where-Object { $_.Key -ceq $t.Key }).Count -gt 0) { continue }
+		$one = @{ Types = @($t); Quals = $ext.Quals }
+		$parts += (Format-MdTypeModel $one)
+	}
+	return ($parts -join ', ')
+}
+
+# Why the part cannot be merged into the configuration, '' when it can
+function Get-MdTypeMergeConflict($cfg, $ext) {
+	foreach ($t in $ext.Types) {
+		if ($t.Local -eq 'TypeId') { return 'a generated type identifier cannot be transferred' }
+		$v = $t.Value -replace '^[\w]+:', ''
+		$k = Get-MdTypeQualKind $t
+		if (-not $k) { continue }
+		$has = $ext.Quals.ContainsKey($k); $cfgHas = $cfg.Quals.ContainsKey($k)
+		$ct = @($cfg.Types | Where-Object { $_.Key -ceq $t.Key })[0]
+		$extOne = Format-MdTypeModel @{ Types = @($t); Quals = $ext.Quals }
+		if ($ct) {
+			if ($has -ne $cfgHas) { return "the qualifiers differ ($extOne)" }
+			if ($has -and ((Get-NodeCanon $ext.Quals[$k]) -cne (Get-NodeCanon $cfg.Quals[$k]))) {
+				return "the configuration already has $(Format-MdTypeModel @{ Types = @($ct); Quals = $cfg.Quals }), the extension declares $extOne"
+			}
+		} elseif ($cfgHas) {
+			# The kind belongs to another type already: adding this one would change that type too
+			if (-not $has -or ((Get-NodeCanon $ext.Quals[$k]) -cne (Get-NodeCanon $cfg.Quals[$k]))) { return "the configuration already has $k for another type, the extension declares $extOne" }
+		}
+	}
+	return ''
+}
+
+# A property value the transfer can write: no element children, only xsi:type / xsi:nil attributes
+function Test-MdScalarProp($p) {
+	foreach ($c in $p.ChildNodes) { if ($c.NodeType -eq 'Element') { return $false } }
+	foreach ($a in $p.Attributes) {
+		if ($a.Prefix -ne 'xsi') { return $false }
+		if ($a.LocalName -ne 'type' -and $a.LocalName -ne 'nil') { return $false }
+	}
+	return $true
+}
+
+# Short value of a property for the report
+function Format-MdPropValue($p) {
+	if (-not $p) { return '—' }
+	if (Test-HasElementChild $p) { return '{…}' }
+	$t = $p.InnerText.Trim()
+	if (-not $t) {
+		foreach ($a in $p.Attributes) { if ($a.LocalName -eq 'nil') { return 'nil' } }
+		return '—'
+	}
+	return (Get-Short $t 30)
+}
+
+# The <Properties> of an element, null when there is none
+function Get-MdPropsElement($el) {
+	if (-not $el) { return $null }
+	foreach ($c in $el.ChildNodes) { if ($c.NodeType -eq 'Element' -and $c.LocalName -eq 'Properties') { return $c } }
+	return $null
+}
+
+# A named property of <Properties>, null when the element has no such property
+function Get-MdPropNode($props, [string]$prop) {
+	if (-not $props) { return $null }
+	foreach ($c in $props.ChildNodes) { if ($c.NodeType -eq 'Element' -and $c.LocalName -ceq $prop) { return $c } }
+	return $null
+}
+
+# Items of the property overrides one adopted element declares: Extended scalars are transfered (the
+# config's own element gets the value, its uuid and name stay), a type extension is merged into the
+# config's <Type>; Notify and a difference without a mode are shown but never written
+function Get-MdPropItems($extEl, $cfgEl, [string]$prefix, [int]$rank, [string]$rel, [string]$objType, [string]$tag, [string]$name, [string]$parent, [string]$subject, [bool]$isObject) {
+	$items = @()
+	if (-not $extEl) { return $items }
+	$extProps = Get-MdPropsElement $extEl
+	if (-not $extProps) { return $items }
+	$states = if ($rank -ge 219) { Get-MdPropertyStates $extEl } else { @{} }
+	$cfgProps = Get-MdPropsElement $cfgEl
+	$elemMissing = (-not $cfgEl)
+	$newPlan = {
+		param($mode, $why, $next)
+		$pl = @{ Kind = 'md-prop'; Rel = $rel; ObjType = $objType; Tag = $tag; Name = $name; Parent = $parent; Prop = ''; Mode = $mode }
+		if ($why) { $pl.Conflict = $why }
+		if ($next) { $pl.Next = $next }
+		return $pl
+	}
+	foreach ($p in $extProps.ChildNodes) {
+		if ($p.NodeType -ne 'Element') { continue }
+		$prop = $p.LocalName
+		if ($script:mdServiceProps -contains $prop -or $script:mdModuleProps -contains $prop -or $script:additiveProps -contains $prop) { continue }
+		$state = if ($states.ContainsKey($prop)) { $states[$prop] } else { '' }
+		$at = if ($isObject) { "$subject property $prop" } else { "$subject.$prop" }
+
+		# Type extension: the extension declares parts; the configuration gets the missing types
+		if ($rank -ge 219 -and $prop -eq 'Type') {
+			$isXp = $false
+			foreach ($a in $p.Attributes) { if ($a.LocalName -eq 'type' -and $a.Value -match 'ExtendedProperty') { $isXp = $true } }
+			if ($state -eq 'MultiState' -or $isXp) {
+				$parts = @()
+				foreach ($c in $p.ChildNodes) { if ($c.NodeType -eq 'Element' -and $c.LocalName -eq 'ExtendValue') { $parts += $c } }
+				if ($parts.Count -eq 0) { continue }
+				$ex = @{ Types = @(); Quals = @{} }
+				foreach ($pt in $parts) {
+					$m = Get-MdTypeModel $pt $prefix
+					$ex.Types += $m.Types
+					foreach ($k in $m.Quals.Keys) { if (-not $ex.Quals.ContainsKey($k)) { $ex.Quals[$k] = $m.Quals[$k] } }
+				}
+				$cfgType = Get-MdPropNode $cfgProps 'Type'
+				$why = ''
+				if ($elemMissing) { $why = 'the element is not in the configuration' }
+				elseif (-not $cfgType) { $why = "the element has no type in the configuration" }
+				else { $why = Get-MdTypeMergeConflict (Get-MdTypeModel $cfgType '') $ex }
+				if ($why) {
+					$ni = New-Item2 'DIVERGED' "$at — $why"
+					$pl = & $newPlan 'TypeExtend' $why 'next: compare the types and merge by hand, then re-run -Mode check'
+					$pl.Prop = 'Type'
+					$ni.Plan = $pl
+					$items += $ni
+					continue
+				}
+				if (Test-MdTypeModelIncludes (Get-MdTypeModel $cfgType '') $ex) { $items += (New-Item2 'TRANSFERRED' $at); continue }
+				$ni = New-Item2 'NOT_TRANSFERRED' "${at}: + $(Get-MdMissingTypeText (Get-MdTypeModel $cfgType '') $ex)"
+				$pl = & $newPlan 'TypeExtend' '' ''
+				$pl.Prop = 'Type'; $pl.Node = $p; $pl.Path = Get-NodePath $p; $pl.Parts = $parts; $pl.ExtModel = $ex
+				$ni.Plan = $pl
+				$items += $ni
+				continue
+			}
+			if ($state -eq 'Extended') {
+				$ni = New-Item2 'MANUAL' "$at (mode: Extended) — the platform does not apply a single override of the type; compare by hand"
+				$ni.Manual = $true
+				$items += $ni
+				continue
+			}
+		}
+
+		$cfgP = Get-MdPropNode $cfgProps $prop
+		# An empty element in the shell declares no value: nothing to compare and nothing to report
+		$declared = ($p.InnerText.Trim() -ne '') -or (Test-HasElementChild $p) -or ($p.Attributes.Count -gt 0)
+		if (-not $declared -and $state -ne 'Extended') { continue }
+		$differs = $true
+		if ($cfgP) {
+			if ($prop -eq 'Type') {
+				# The order of the type entries is not a value: the same set is the same type
+				$differs = -not (Test-MdTypeModelEqual (Get-MdTypeModel $p $prefix) (Get-MdTypeModel $cfgP ''))
+			} else {
+				$differs = ((Get-CmpKey $p $prefix) -cne (Get-CmpKey $cfgP ''))
+			}
+		}
+
+		if ($state -eq 'Extended') {
+			if ($script:noOverrideProps -contains $prop) {
+				$ni = New-Item2 'MANUAL' "$at (mode: Extended) — override mode is not supported for this property"
+				$ni.Manual = $true
+				$items += $ni
+				continue
+			}
+			if (-not (Test-MdScalarProp $p)) {
+				$ni = New-Item2 'MANUAL' "$at (mode: Extended) — not a scalar; not transferred by this stage"
+				$ni.Manual = $true
+				$items += $ni
+				continue
+			}
+			if (-not $cfgP) {
+				$why = if ($elemMissing) { 'the element is not in the configuration' } else { 'the property is not in the configuration' }
+				$ni = New-Item2 'DIVERGED' "$at — $why"
+				$pl = & $newPlan 'Scalar' $why 'next: add it by hand if it belongs in the configuration, then re-run -Mode check'
+				$pl.Prop = $prop
+				$ni.Plan = $pl
+				$items += $ni
+				continue
+			}
+			if (-not $differs) { $items += (New-Item2 'TRANSFERRED' $at); continue }
+			$ni = New-Item2 'NOT_TRANSFERRED' "${at}: $(Format-MdPropValue $p) vs $(Format-MdPropValue $cfgP) in config"
+			$pl = & $newPlan 'Scalar' '' ''
+			$pl.Prop = $prop; $pl.Node = $p; $pl.Value = $p.InnerText
+			foreach ($a in $p.Attributes) {
+				if ($a.Prefix -ne 'xsi') { continue }
+				if ($a.LocalName -eq 'type') { $pl.XmlType = $a.Value }
+				elseif ($a.LocalName -eq 'nil') { $pl.Nil = ($a.Value -eq 'true') }
+			}
+			$ni.Plan = $pl
+			$items += $ni
+			continue
+		}
+
+		if ($state -eq 'Notify') {
+			if (-not $cfgP) {
+				$ni = New-Item2 'MANUAL' "$at (mode: Notify) — $(if ($elemMissing) { 'the element is not in the configuration' } else { 'the property is not in the configuration' })"
+				$ni.Manual = $true
+				$items += $ni
+				continue
+			}
+			if (-not $differs) { continue }
+			$ni = New-Item2 'MANUAL' "$at (mode: Notify): $(Format-MdPropValue $p) vs $(Format-MdPropValue $cfgP) in config — the platform only warns, the extension is not applied; the configuration keeps its value"
+			$ni.Manual = $true
+			$items += $ni
+			continue
+		}
+
+		# No mode: with no override declared this is a stale snapshot, not a change to move
+		if (-not $cfgP) {
+			$ni = New-Item2 'MANUAL' "$at — $(if ($elemMissing) { 'the element is not in the configuration' } else { 'the property is not in the configuration' })"
+			$ni.Manual = $true
+			$items += $ni
+			continue
+		}
+		if (-not $differs) { continue }
+		if ($rank -ge 219) {
+			$ni = New-Item2 'MANUAL' "$at — no override mode: the platform will not apply it — align the extension or change the configuration by hand"
+		} else {
+			$ni = New-Item2 'MANUAL' "$at — the value differs (this format has no override modes); compare by hand"
+		}
+		$ni.Manual = $true
+		$items += $ni
+	}
+	return $items
+}
+
 # --- Copies from meta-edit (kept identical by check-inline-drift): the canonical place of a child
 # in <ChildObjects> by the object's kind, in the order MDClasses XSD gives it ---
 function Get-ObjectChildOrder {
@@ -2223,7 +2578,7 @@ function Get-TopKey([string]$line, [string]$prefix) {
 }
 
 # Own sub-objects of a borrowed object (attributes, tabular sections, commands, forms, templates, …)
-function Get-OwnChildItems($ctx, $cfgMd, [string]$prefix, [string]$rel) {
+function Get-OwnChildItems($ctx, $cfgMd, [string]$prefix, [string]$rel, [int]$rank) {
 	$items = @()
 	if (-not $ctx.Md -or -not $ctx.Md.Children) { return $items }
 	$mns = $ctx.Md.Ns
@@ -2285,16 +2640,31 @@ function Get-OwnChildItems($ctx, $cfgMd, [string]$prefix, [string]$rel) {
 			$items += (& $check $c (Get-KindWord $c.LocalName) $cfgKids '')
 			continue
 		}
-		# Borrowed tabular section: its own attributes
+		# Adopted element: overrides of its own properties; a borrowed tabular section is also walked
+		# for its own children — adopted ones carry overrides, the rest are the extension's new columns
+		$nm = Get-MdChildName $c $mns
+		$hit = Find-NameIn @($cfgKids | Where-Object { $_.LocalName -eq $c.LocalName } | ForEach-Object { Get-MdChildName $_ $cfgMd.Ns }) $nm $prefix
+		$cnode = if ($hit) { @($cfgKids | Where-Object { $_.LocalName -eq $c.LocalName -and (Get-MdChildName $_ $cfgMd.Ns) -ieq $hit })[0] } else { $null }
+		$cname = if ($hit) { $hit } else { $nm }
+		$items += @(Get-MdPropItems $c $cnode $prefix $rank $rel $ctx.Type $c.LocalName $cname '' "$(Get-KindWord $c.LocalName) $nm" $false)
 		$sub = $c.SelectSingleNode("md:ChildObjects", $mns)
 		if (-not $sub) { continue }
-		$tsName = Get-MdChildName $c $mns
-		$cfgTs = @($cfgKids | Where-Object { $_.LocalName -eq $c.LocalName -and (Get-MdChildName $_ $cfgMd.Ns) -ieq $tsName })[0]
+		$tsName = $nm
+		$cfgTs = $cnode
 		$cfgSub = @()
 		if ($cfgTs) { $cs = $cfgTs.SelectSingleNode("md:ChildObjects", $cfgMd.Ns); if ($cs) { foreach ($x in $cs.ChildNodes) { if ($x.NodeType -eq 'Element') { $cfgSub += $x } } } }
 		foreach ($sc in $sub.ChildNodes) {
-			if ($sc.NodeType -ne 'Element' -or (Test-AdoptedNode $sc $mns)) { continue }
-			$items += (& $check $sc (Get-KindWord $sc.LocalName) $cfgSub $tsName)
+			if ($sc.NodeType -ne 'Element') { continue }
+			$scName = Get-MdChildName $sc $mns
+			if (-not (Test-AdoptedNode $sc $mns)) {
+				$items += (& $check $sc (Get-KindWord $sc.LocalName) $cfgSub $tsName)
+				continue
+			}
+			$sHit = Find-NameIn @($cfgSub | ForEach-Object { Get-MdChildName $_ $cfgMd.Ns }) $scName $prefix
+			$scNode = if ($sHit) { @($cfgSub | Where-Object { (Get-MdChildName $_ $cfgMd.Ns) -ieq $sHit })[0] } else { $null }
+			$scTarget = if ($sHit) { $sHit } else { $scName }
+			$tsTarget = if ($cfgTs) { Get-MdChildName $cfgTs $cfgMd.Ns } else { $tsName }
+			$items += @(Get-MdPropItems $sc $scNode $prefix $rank $rel $ctx.Type $sc.LocalName $scTarget $tsTarget "$(Get-KindWord $sc.LocalName) $tsName.$scName" $false)
 		}
 	}
 	return $items
@@ -2343,7 +2713,10 @@ function Get-TransferObject($ext, $obj) {
 	# Section = the file the change lives in (a module line, the form's Form.xml, the object's own
 	# XML for its sub-objects); the item then keeps only its line number
 	$objRel = Get-RelPath $ext.Dir $ctx.File
-	$rec.Items += @(Get-OwnChildItems $ctx $cfgMd $prefix $objRel)
+	# Overrides of the borrowed object's own properties; a missing config object is MISSING_IN_CONFIG anyway
+	$rank = if ($ctx.Md -and $ctx.Md.El) { Get-FormatRank $ctx.Md.El.OwnerDocument.DocumentElement.GetAttribute('version') } else { 0 }
+	if ($cfgMd) { $rec.Items += @(Get-MdPropItems $ctx.Md.El $cfgMd.El $prefix $rank $objRel $ctx.Type '' '' '' 'object' $true) }
+	$rec.Items += @(Get-OwnChildItems $ctx $cfgMd $prefix $objRel $rank)
 	if ($obj.Type -eq 'Subsystem') { $rec.Items += @(Get-SubsystemContentItems $ctx.Md $cfgMd $prefix $objRel) }
 	$rec.Items += $formItems
 	foreach ($it in $rec.Items) {
@@ -3155,6 +3528,10 @@ function Apply-MdOp($me, $plan, [string]$extDir) {
 	$m = New-MdNt $doc
 	$objEl = Get-MdObjectElement $doc
 	if (-not $objEl) { throw "SKIP: the object is not in the configuration" }
+	if ($plan.Kind -eq 'md-prop') {
+		Apply-MdPropOp $me $plan $extDir
+		return
+	}
 	if ($plan.Kind -eq 'md-content') {
 		$props = $objEl.SelectSingleNode("md:Properties", $m)
 		if (-not $props) { throw "SKIP: the subsystem has no Properties" }
@@ -3207,6 +3584,140 @@ function Apply-MdOp($me, $plan, [string]$extDir) {
 	Insert-FormNodeAt $container $node $ref $eol
 }
 
+# The config's element a property override belongs to: the object itself or a named child (inside the
+# named tabular section when Parent is given), null when the configuration has no such element
+function Get-MdTargetElement($objEl, $plan, $m) {
+	if (-not $plan.Tag) { return $objEl }
+	$kids = $objEl.SelectSingleNode("md:ChildObjects", $m)
+	if (-not $kids) { return $null }
+	if ($plan.Parent) {
+		$ts = $null
+		foreach ($c in $kids.ChildNodes) {
+			if ($c.NodeType -eq 'Element' -and $c.LocalName -eq 'TabularSection' -and (Get-MdChildName $c $m) -ieq $plan.Parent) { $ts = $c; break }
+		}
+		if (-not $ts) { return $null }
+		$kids = $ts.SelectSingleNode("md:ChildObjects", $m)
+		if (-not $kids) { return $null }
+	}
+	foreach ($c in $kids.ChildNodes) {
+		if ($c.NodeType -eq 'Element' -and $c.LocalName -eq $plan.Tag -and (Get-MdChildName $c $m) -ieq $plan.Name) { return $c }
+	}
+	return $null
+}
+
+# The extension's node by the path recorded at the check, with the platform's whitespace kept
+function Get-MdSourcePropNode($plan, [string]$extDir) {
+	$src = Read-FormDocKeep (Join-Path $extDir $plan.Rel)
+	if (-not $src) { return $null }
+	return (Get-NodeByPath $src $plan.Path)
+}
+
+# One scalar property of the configuration's existing element takes the extension's value
+function Set-MdScalarProp($p, $plan) {
+	foreach ($a in @($p.Attributes)) {
+		if ($a.Prefix -eq 'xsi' -and ($a.LocalName -eq 'type' -or $a.LocalName -eq 'nil')) { [void]$p.Attributes.Remove($a) }
+	}
+	$xsi = $p.OwnerDocument.DocumentElement.GetNamespaceOfPrefix('xsi')
+	if ($plan.Nil) { [void]$p.SetAttribute('nil', $xsi, 'true') }
+	elseif ($plan.XmlType) { [void]$p.SetAttribute('type', $xsi, $plan.XmlType) }
+	$conv = [string](Convert-ExtCode @([string]$plan.Value) @{})[0]
+	$p.InnerText = $conv
+	$plan.ExpectedKey = Get-CmpKey $p ''
+}
+
+# Missing types of the extension's ExtendValue parts merged into the configuration's <Type>: the type
+# entries keep their order, the qualifiers follow by kind; the element itself stays a plain <Type>
+function Add-MdTypeExtends($props, $plan, [string]$extDir, [string]$eol) {
+	$type = Get-MdPropNode $props 'Type'
+	if (-not $type) { throw "SKIP: the element has no Type in the configuration" }
+	$srcType = Get-MdSourcePropNode $plan $extDir
+	if (-not $srcType) { throw "SKIP: the type is not found in the extension" }
+	# Declared parts converted to the configuration's names
+	$ex = @{ Types = @(); Quals = @{} }
+	foreach ($part in $srcType.ChildNodes) {
+		if ($part.NodeType -ne 'Element' -or $part.LocalName -ne 'ExtendValue') { continue }
+		foreach ($c in $part.ChildNodes) {
+			if ($c.NodeType -ne 'Element') { continue }
+			if ($c.LocalName -eq 'Type' -or $c.LocalName -eq 'TypeSet') {
+				$val = [string](Convert-ExtCode @($c.InnerText.Trim()) @{})[0]
+				$ex.Types += @{ Local = $c.LocalName; Value = $val; Key = (Get-MdTypeEntryKey $c.LocalName $val ''); Node = $c }
+			} elseif ($c.LocalName.EndsWith('Qualifiers')) {
+				if (-not $ex.Quals.ContainsKey($c.LocalName)) { $ex.Quals[$c.LocalName] = $c }
+			}
+		}
+	}
+	if ($ex.Types.Count -eq 0) { return }
+	$cfgModel = Get-MdTypeModel $type ''
+	$why = Get-MdTypeMergeConflict $cfgModel $ex
+	if ($why) { throw "SKIP: $why" }
+	# A type naming a metadata object the configuration lacks would dangle
+	foreach ($t in $ex.Types) {
+		$v = $t.Value -replace '^[\w]+:', ''
+		$j = $v.IndexOf('.')
+		if ($j -lt 0) { continue }
+		$base = Get-MdTypeRefBase $v.Substring(0, $j)
+		$obj = $v.Substring($j + 1)
+		if ($cfgPools -and $cfgPools.ContainsKey($base) -and -not (Find-NameIn @($cfgPools[$base]) $obj '')) { throw "SKIP: $v is not in the configuration" }
+	}
+	$doc = $props.OwnerDocument
+	$new = $doc.CreateElement('Type', $mdNsUri)
+	[void]$type.ParentNode.ReplaceChild($new, $type)
+	$existing = @(); $existingQuals = @{}
+	foreach ($c in @($type.ChildNodes)) {
+		if ($c.NodeType -ne 'Element') { continue }
+		if ($c.LocalName -eq 'Type' -or $c.LocalName -eq 'TypeSet' -or $c.LocalName -eq 'TypeId') { $existing += $c }
+		elseif ($c.LocalName.EndsWith('Qualifiers')) { $existingQuals[$c.LocalName] = $c }
+	}
+	$have = @{}
+	foreach ($c in $existing) {
+		Insert-FormNodeAt $new $c $null $eol
+		$have[(Get-MdTypeEntryKey $c.LocalName $c.InnerText '')] = $true
+	}
+	$needKinds = @()
+	foreach ($t in $ex.Types) {
+		if ($have.ContainsKey($t.Key)) { continue }
+		$n = $doc.ImportNode($t.Node, $true)
+		$n.InnerText = $t.Value
+		Insert-FormNodeAt $new $n $null $eol
+		$have[$t.Key] = $true
+		$k = Get-MdTypeQualKind $t
+		if ($k -and $needKinds -cnotcontains $k) { $needKinds += $k }
+	}
+	foreach ($k in $script:mdQualOrder) {
+		if ($existingQuals.ContainsKey($k)) { Insert-FormNodeAt $new $existingQuals[$k] $null $eol; continue }
+		if ($needKinds -ccontains $k -and $ex.Quals.ContainsKey($k)) {
+			$q = $doc.ImportNode($ex.Quals[$k], $true)
+			Insert-FormNodeAt $new $q $null $eol
+			# The source qualifier sat deeper (inside ExtendValue): its children are re-indented for <Type>
+			Set-FormSubtreeIndent $q $eol (Get-FormDepth $q)
+		}
+	}
+	foreach ($k in $existingQuals.Keys) {
+		if ($script:mdQualOrder -cnotcontains $k) { Insert-FormNodeAt $new $existingQuals[$k] $null $eol }
+	}
+	$plan.ExpectedModel = $ex
+}
+
+# An override of one property of the configuration's existing element: the element keeps its uuid and
+# name, only the declared value (or the missing type entries) is written
+function Apply-MdPropOp($me, $plan, [string]$extDir) {
+	$doc = $me.Fw.Doc; $eol = $me.Fw.Eol
+	$m = New-MdNt $doc
+	$objEl = Get-MdObjectElement $doc
+	if (-not $objEl) { throw "SKIP: the object is not in the configuration" }
+	$target = Get-MdTargetElement $objEl $plan $m
+	if (-not $target) {
+		$why = if ($plan.Tag) { "the element $($plan.Tag) $($plan.Name) is not in the configuration" } else { 'the object is not in the configuration' }
+		throw "SKIP: $why"
+	}
+	$props = Get-MdPropsElement $target
+	if (-not $props) { throw "SKIP: the element has no Properties in the configuration" }
+	if ($plan.Mode -eq 'TypeExtend') { Add-MdTypeExtends $props $plan $extDir $eol; return }
+	$p = Get-MdPropNode $props $plan.Prop
+	if (-not $p) { throw "SKIP: property $($plan.Prop) is not in the configuration" }
+	Set-MdScalarProp $p $plan
+}
+
 # Errors of the metadata validator (meta-validate for an object, subsystem-validate for a subsystem)
 function Get-MdValidateErrors([string]$path, [string]$objType) {
 	$rel = if ($objType -eq 'Subsystem') { '../../subsystem-validate/scripts/subsystem-validate.ps1' } else { '../../meta-validate/scripts/meta-validate.ps1' }
@@ -3246,6 +3757,22 @@ function Test-MdWrite($me) {
 				$found = $false
 				if ($content) { foreach ($i in @($content.SelectNodes("*[local-name()='Item']", $m))) { if ($i.InnerText.Trim() -ieq $pl.Ref) { $found = $true; break } } }
 				if (-not $found) { $miss += "$($op.Item.Text)" }
+				continue
+			}
+			if ($pl.Kind -eq 'md-prop') {
+				$target = if ($objEl) { Get-MdTargetElement $objEl $pl $m } else { $null }
+				$props = Get-MdPropsElement $target
+				$bad = -not $target
+				if (-not $bad) {
+					if ($pl.Mode -eq 'TypeExtend') {
+						$type = Get-MdPropNode $props 'Type'
+						$bad = (-not $type) -or (-not (Test-MdTypeModelIncludes (Get-MdTypeModel $type '') $pl.ExpectedModel))
+					} else {
+						$p = Get-MdPropNode $props $pl.Prop
+						$bad = (-not $p) -or ((Get-CmpKey $p '') -cne $pl.ExpectedKey)
+					}
+				}
+				if ($bad) { $miss += "$($op.Item.Text)" }
 				continue
 			}
 			$container = $null; $node = $null
@@ -4431,7 +4958,7 @@ function Get-TransferDetails($ext, $rec, [string]$foldWord = 'transferred') {
 	return @{ Lines = $lines.ToArray(); Folded = $folded; Open = $anyOpen }
 }
 
-$statusOrder = @('TRANSFERRED', 'NOT_TRANSFERRED', 'PARTIAL', 'DIVERGED', 'MISSING_IN_CONFIG', 'TEMPORARY')
+$statusOrder = @('TRANSFERRED', 'NOT_TRANSFERRED', 'PARTIAL', 'DIVERGED', 'MISSING_IN_CONFIG', 'TEMPORARY', 'MANUAL')
 function Format-Status([string]$st) { return ("[$st]").PadRight(21) }
 
 # Order of a form's changes in the transfer: what the others rely on goes first (a column needs its
@@ -4807,6 +5334,8 @@ if ($Mode -eq 'transfer') {
 				}
 				$t.Status = 'MANUAL'
 				if ($it.Group) { $t.Text = "$($it.Text) — the configuration's form changed since the borrowing; not applied"; $titems += $t; continue }
+				# A metadata property left to a person: the check side already said why, nothing to add
+				if ($it.Manual -and -not $pl) { $t.Text = $it.Text; $titems += $t; continue }
 				if (-not $pl) { $t.Text = "$($it.Text) — metadata is not transferred yet"; $titems += $t; continue }
 				if ($pl.Kind -eq 'md' -or $pl.Kind -like 'md-*') {
 					if ($pl.Kind -eq 'md-skip') { $t.Text = "$($it.Text) — $($pl.Reason)"; $titems += $t; continue }
@@ -4814,6 +5343,33 @@ if ($Mode -eq 'transfer') {
 						$t.Text = "$($it.Text) — object is locked by vendor support"
 						$t.Sub = @('next: allow editing with /support-edit, then re-run -Mode transfer')
 						$titems += $t; continue
+					}
+					if ($pl.Kind -eq 'md-prop') {
+						if ($pl.Conflict) {
+							$t.Status = 'CONFLICT'
+							# The check's line already names the reason (the type qualifiers, the missing property)
+							$t.Text = "$($it.Text); property not changed"
+							$next = if ($pl.Next) { $pl.Next } else { 'next: compare and merge by hand, then re-run -Mode check' }
+							$t.Sub = @("from: extension $($pl.Rel)", "to:   config $($pl.Rel)", $next)
+							$titems += $t; continue
+						}
+						$me = Get-MdEdits (Get-CfgPath $pl.Rel) $pl.ObjType
+						try {
+							Apply-MdOp $me $pl $extDir0
+							[void]$me.Ops.Add(@{ Plan = $pl; Item = $t })
+							$t.Status = 'TRANSFERRED'; $t.Now = $true
+							$t.Text = "$($it.Text) — applied"
+							$titems += $t
+						} catch {
+							$msg = $_.Exception.Message
+							$skip = $msg.StartsWith('SKIP: ')
+							if ($skip) { $msg = $msg.Substring(6) } else { $me.Failed++ }
+							$t.Status = 'CONFLICT'
+							$t.Text = "$($it.Text) — $msg; $(if ($skip) { 'property not changed' } else { 'object not changed' })"
+							$t.Sub = @('next: apply by hand, then re-run -Mode check')
+							$titems += $t
+						}
+						continue
 					}
 					if ($pl.Kind -eq 'md-content') {
 						if ($pl.Missing) {
@@ -4840,8 +5396,9 @@ if ($Mode -eq 'transfer') {
 					}
 					if ($pl.Conflict) {
 						$t.Status = 'CONFLICT'
-						$t.Text = "$($it.Text) — the type differs; object not changed"
-						$t.Sub = @("from: extension $($pl.Rel)", "to:   config $($pl.Rel)", 'next: compare the types and merge by hand, then re-run -Mode check')
+						$t.Text = "$($it.Text) — $($pl.Conflict); object not changed"
+						$next = if ($pl.Next) { $pl.Next } else { 'next: compare the types and merge by hand, then re-run -Mode check' }
+						$t.Sub = @("from: extension $($pl.Rel)", "to:   config $($pl.Rel)", $next)
 						$titems += $t; continue
 					}
 					$me = Get-MdEdits (Get-CfgPath $pl.Rel) $pl.ObjType
@@ -5384,7 +5941,7 @@ if ($Mode -eq 'transfer') {
 		$marked = @($all | Where-Object { $_.Marked }).Count
 		$markedNote = if ($marked -gt 0) { " ($marked marked temporary)" } else { '' }
 		$parts = @("$($cnt['TRANSFERRED']) transferred$markedNote")
-		foreach ($s in $statusOrder[1..5]) { if ($cnt[$s]) { $parts += "$($cnt[$s]) $($s.ToLower().Replace('_', ' '))" } }
+		foreach ($s in $statusOrder[1..($statusOrder.Count - 1)]) { if ($cnt[$s]) { $parts += "$($cnt[$s]) $($s.ToLower().Replace('_', ' '))" } }
 		$footer += "=== Summary $($ext.Name): $(Get-Plural $all.Count 'change') — $($parts -join ', ')$rolesNote ==="
 		$left = $all.Count - $cnt['TRANSFERRED'] - $cnt['TEMPORARY']
 		if ($left -gt 0) {

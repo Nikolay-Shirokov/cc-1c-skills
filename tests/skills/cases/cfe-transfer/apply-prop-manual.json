@@ -1,0 +1,54 @@
+{
+  "name": "Перенос изменений метаданных отказывает и не пишет: Notify, расхождение без режима, noOverride и одиночный Extended у Type остаются вручную, конфликт квалификаторов — CONFLICT",
+  "setup": "fixture:prop-manual",
+  "params": {
+    "extensionPath": "cfe"
+  },
+  "cwd": "workDir",
+  "args_extra": [
+    "-Mode",
+    "transfer"
+  ],
+  "expectError": true,
+  "skipPlatformVerify": "фикстура намеренно неприменима платформой: объявлены расхождение без режима и одиночный Extended у Type — UpdateDBCfg -Extension даёт код 101; кейс проверяет отказы навыка и то, что файл не тронут",
+  "expect": {
+    "stdoutContains": [
+      "[CONFLICT]           Catalog.Товары — 4 manual, 1 conflict",
+      "object property DescriptionLength (mode: Notify): 30 vs 25 in config — the platform only warns, the extension is not applied; the configuration keeps its value",
+      "object property CodeLength — no override mode: the platform will not apply it — align the extension or change the configuration by hand",
+      "object property Hierarchical (mode: Extended) — override mode is not supported for this property",
+      "attribute Артикул.Type (mode: Extended) — the platform does not apply a single override of the type; compare by hand",
+      "attribute Цена.Type — the configuration already has Number(15,2), the extension declares Number(10,2); property not changed",
+      "next: compare the types and merge by hand, then re-run -Mode check",
+      "=== Summary Тест: 0 transferred now, 4 manual, 1 conflict · 1 role, not transferred ==="
+    ],
+    "stdoutNotContains": [
+      "Changed files:"
+    ],
+    "fileContains": [
+      {
+        "file": "Catalogs/Товары.xml",
+        "text": [
+          "<CodeLength>9</CodeLength>",
+          "<DescriptionLength>25</DescriptionLength>",
+          "<Hierarchical>false</Hierarchical>",
+          "<v8:Length>10</v8:Length>",
+          "<v8:Digits>15</v8:Digits>"
+        ]
+      }
+    ],
+    "fileNotContains": [
+      {
+        "file": "Catalogs/Товары.xml",
+        "text": [
+          "<CodeLength>11</CodeLength>",
+          "<DescriptionLength>30</DescriptionLength>",
+          "<Hierarchical>true</Hierarchical>",
+          "<v8:Length>99</v8:Length>",
+          "<v8:Digits>10</v8:Digits>",
+          "xr:PropertyState"
+        ]
+      }
+    ]
+  }
+}
