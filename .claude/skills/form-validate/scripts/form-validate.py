@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# form-validate v1.41 — Validate 1C managed form
+# form-validate v1.42 — Validate 1C managed form
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -1193,6 +1193,8 @@ def main():
     parser.add_argument("-FormPath", "-Path", required=True)
     parser.add_argument("-Detailed", action="store_true")
     parser.add_argument("-MaxErrors", type=int, default=30)
+    parser.add_argument("-ContextFormPath")
+    parser.add_argument("-ModulePath")
     args = ci_parse_args(parser)
 
     form_path = args.FormPath
@@ -1224,6 +1226,15 @@ def main():
         print(f"File not found: {form_path}", file=sys.stderr)
         sys.exit(1)
 
+    context_path = os.path.abspath(args.ContextFormPath or form_path)
+    if not os.path.isfile(context_path):
+        print(f"Context form file not found: {context_path}", file=sys.stderr)
+        sys.exit(1)
+    if args.ModulePath and not os.path.isfile(args.ModulePath):
+        print(f"Module file not found: {args.ModulePath}", file=sys.stderr)
+        sys.exit(1)
+    form_module_path = args.ModulePath or os.path.join(os.path.dirname(context_path), 'Form', 'Module.bsl')
+
     # --- Load XML ---
     try:
         xml_parser = etree.XMLParser(remove_blank_text=True)
@@ -1242,7 +1253,7 @@ def main():
     # обработка/отчёт. Ближайший побеждает: автономная обработка остаётся автономной, даже если её
     # исходники лежат внутри дерева с Configuration.xml (типовая раскладка проекта: src/cf рядом с
     # src/epf). Иначе её собственные External*-типы считались бы ошибкой.
-    dump_anchor = find_dump_anchor(os.path.dirname(os.path.abspath(form_path)))
+    dump_anchor = find_dump_anchor(os.path.dirname(context_path))
     is_config_context = bool(dump_anchor) and os.path.basename(dump_anchor) == 'Configuration.xml'
 
     errors = 0
@@ -1270,8 +1281,8 @@ def main():
         output_lines.append(f"[WARN]  {msg}")
 
     # --- Form name from path ---
-    form_name = os.path.splitext(os.path.basename(form_path))[0]
-    parent_dir = os.path.dirname(form_path)
+    form_name = os.path.splitext(os.path.basename(context_path))[0]
+    parent_dir = os.path.dirname(context_path)
     if parent_dir:
         ext_dir = os.path.basename(parent_dir)
         if ext_dir == "Ext":
@@ -1999,7 +2010,7 @@ def main():
     # лишь неоднородность выгрузки (типично после мержа веток, выгруженных разными платформами).
     if not stopped:
         form_ver = root.get('version', '')
-        owner_path = ext_body_owner(os.path.abspath(form_path))
+        owner_path = ext_body_owner(context_path)
         owner_ver = root_version(owner_path) if owner_path else None
         dump_ver = root_version(dump_anchor) if dump_anchor else None
 
@@ -2346,9 +2357,8 @@ def main():
     # Читается только модуль формы: общие модули, которые подключают процедуры формы по имени, не смотрим —
     # поэтому процедура без привязки только предупреждение.
     if not stopped:
-        module_path = os.path.join(os.path.dirname(os.path.abspath(form_path)), 'Form', 'Module.bsl')
-        module_text = read_module_text(module_path) if os.path.isfile(module_path) else None
-        if not os.path.isfile(module_path):
+        module_text = read_module_text(form_module_path) if os.path.isfile(form_module_path) else None
+        if not os.path.isfile(form_module_path):
             report_ok("22. Form module handlers: no module \u2014 skipped")
         elif module_text is None:
             report_warn("22. Form module is not UTF-8 \u2014 handlers are not checked")
@@ -2458,11 +2468,10 @@ def main():
     # с указанным именем уже определена». Загрузка XML и обновление конфигурации этого не показывают — ошибка
     # всплывает при первом обращении к форме. Локальная Перем в процедуре реквизит перекрывает, это допустимо.
     if not stopped:
-        module_path = os.path.join(os.path.dirname(os.path.abspath(form_path)), 'Form', 'Module.bsl')
-        if not os.path.isfile(module_path):
+        if not os.path.isfile(form_module_path):
             report_ok("24. Module variables: no module — skipped")
         else:
-            module_text = read_module_text(module_path)
+            module_text = read_module_text(form_module_path)
             if module_text is None:
                 report_warn("24. Form module is not UTF-8 — module variables are not checked")
             else:

@@ -1,5 +1,5 @@
 ﻿#!/usr/bin/env python3
-# cfe-transfer v1.27 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+# cfe-transfer v1.28 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -7,8 +7,11 @@ import copy
 import json
 import os
 import re
+import shutil
+import stat
 import subprocess
 import sys
+import tempfile
 import uuid
 from collections import Counter
 from lxml import etree
@@ -3965,7 +3968,7 @@ def new_form_edit(path, ext_form, ext_module, cfg_module, ext_dir, prefix, label
     return FORM_EDITS[k]
 
 
-def get_form_validate_errors(path):
+def get_form_validate_errors(path, context_path=None, module_path=None):
     """Errors of the form validator (form-validate) for a form file: what the write must not add."""
     here = os.path.dirname(os.path.abspath(__file__))
     script = os.path.join(here, "..", "..", "form-validate", "scripts", "form-validate.py")
@@ -3973,34 +3976,57 @@ def get_form_validate_errors(path):
         # The skill may be installed on its own: say so rather than skip the check silently
         globals()["FORM_VALIDATE_MISSING"] = True
         return []
-    try:
-        out = subprocess.run([sys.executable, script, "-FormPath", path], capture_output=True, text=True,
-                             encoding="utf-8", errors="replace").stdout
-    except Exception:
-        return []
+    command = [sys.executable, script, "-FormPath", path, "-MaxErrors", "2147483647"]
+    if context_path:
+        command.extend(["-ContextFormPath", context_path])
+    if module_path:
+        command.extend(["-ModulePath", module_path])
+    result = subprocess.run(command, capture_output=True, text=True, encoding="utf-8", errors="replace")
     errs = []
-    for line in out.splitlines():
+    complete = False
+    for line in result.stdout.splitlines():
+        if re.match(r'^Stopped after \d+ errors', line):
+            raise ValueError("form-validate stopped before checking the entire form")
         if "[ERROR]" in line:
             errs.append(re.sub(r'\s+', ' ', line.split("[ERROR]", 1)[1]).strip())
+        if re.match(r'^(=== (Validation OK|Result):|Errors: \d+, Warnings: \d+)', line):
+            complete = True
+    if not complete or result.returncode not in (0, 1) or (result.returncode == 1 and not errs):
+        raise ValueError("form-validate did not complete (exit %d)" % result.returncode)
     return errs
 
 
-def test_form_write(fe):
+def test_form_write(fe, module_only=False):
     """The form written and read back the same way the check reads it: every planned item must come out in place —
     a property by its value, the rest by the line the check would print for it."""
-    import tempfile
-    fd, tmp = tempfile.mkstemp(suffix=".xml")
-    os.close(fd)
+    tmp = None
+    tmp_module = None
     try:
-        save_form_write(fe["fw"], tmp)
+        module = FILE_EDITS.get(fe["cfg_module"].lower())
+        if module:
+            lines = get_file_edit_lines(module)
+            if lines is not None:
+                fd, tmp_module = tempfile.mkstemp(suffix=".bsl")
+                os.close(fd)
+                write_bsl_file(module["file"], lines, tmp_module)
+        if module_only and not tmp_module:
+            return []
+        if not module_only:
+            fd, tmp = tempfile.mkstemp(suffix=".xml")
+            os.close(fd)
+            save_form_write(fe["fw"], tmp)
         # The validator must not see errors the configuration's form did not have before the write
-        before = get_form_validate_errors(fe["path"])
-        after = get_form_validate_errors(tmp)
-        added = [x for x in after if x not in before]
+        before = {re.sub(r'Module\.bsl:\d+', 'Module.bsl', error)
+                  for error in get_form_validate_errors(fe["path"])}
+        after = get_form_validate_errors(fe["path"] if module_only else tmp, fe["path"], tmp_module)
+        added = [error for error in after if re.sub(r'Module\.bsl:\d+', 'Module.bsl', error) not in before]
         if added:
             return ["form-validate: " + added[0]]
+        if module_only:
+            return []
         diff = get_form_diff(fe["ext_form"])
-        items = form_transfer_items(diff, fe["form_info"], tmp, fe["cfg_module"], fe["ext_dir"], fe["prefix"])
+        set_bsl_context(rel_path(fe["ext_dir"], fe["ext_module"]))
+        items = form_transfer_items(diff, fe["form_info"], tmp, tmp_module or fe["cfg_module"], fe["ext_dir"], fe["prefix"])
         ok = [it["text"] for it in items if it["status"] == "TRANSFERRED"]
         doc = read_form_doc(tmp)
         names = list(form_element_index(doc.getroot()).keys()) if doc is not None else []
@@ -4030,11 +4056,15 @@ def test_form_write(fe):
             if not hit:
                 miss.append(op["key"])
         return miss
+    except Exception as exc:
+        return [str(exc)]
     finally:
-        try:
-            os.remove(tmp)
-        except OSError:
-            pass
+        for path in (tmp, tmp_module):
+            if path:
+                try:
+                    os.remove(path)
+                except OSError:
+                    pass
 
 
 # ============================================================
@@ -5548,11 +5578,11 @@ def read_bsl_file(path):
     return {"path": path, "lines": lines, "bom": bom, "eol": eol, "final": final}
 
 
-def write_bsl_file(f, lines):
+def write_bsl_file(f, lines, path=None):
     text = f["eol"].join(lines)
     if f["final"]:
         text += f["eol"]
-    with open(f["path"], "wb") as fh:
+    with open(path or f["path"], "wb") as fh:
         fh.write((b"\xef\xbb\xbf" if f["bom"] else b"") + text.encode("utf-8"))
 
 
@@ -6252,56 +6282,153 @@ def get_file_edits(path):
     return FILE_EDITS[key]
 
 
-def write_file_edits():
-    """All collected edits written: replacements from the bottom up (indexes stay valid; inserts at one
-    spot keep the order they came in), own methods put at one spot as one block, then regions created
-    at the end of the module."""
+def get_file_edit_lines(fe):
+    """Render the staged edits for validation or writing. Indexes refer to the original file."""
+    if not fe["repl"] and not fe["create"] and not fe["own_at"] and not fe["tail"]:
+        return None
+    lines = list(fe["file"]["lines"])
+    repl = list(fe["repl"])
+    for at, o in fe["own_at"].items():
+        blk = join_own_method_blocks(o["blocks"])
+        repl.append({"start": at, "end": at, "lines": get_spaced_block(fe["file"]["lines"], at, blk), "seq": o["seq"]})
+    region_at = get_module_end(fe["file"]["lines"]) if fe["create_order"] else -1
+    end_at = region_at
+    tail_at = get_module_tail(fe["file"]["lines"]) if fe["tail"] else -1
+    body_at = tail_at
+    for r in sorted(repl, key=lambda x: (x["start"], x["seq"]), reverse=True):
+        # Keep the original insertion scope even when edits add a new conditional block at this spot.
+        delta = len(r["lines"]) - (r["end"] - r["start"])
+        if r["end"] <= region_at:
+            end_at += delta
+        if r["end"] <= tail_at:
+            body_at += delta
+        lines[r["start"]:r["end"]] = list(r["lines"])
+    if fe["create_order"]:
+        lang = get_module_lang(fe["file"]["lines"])
+        prev = lines[end_at - 1] if end_at > 0 else ""
+        add = []
+        for name in fe["create_order"]:
+            if add or prev.strip() != "":
+                add.append("")
+            add.append("#%s %s" % (BSL_KW[lang]["Region"], name))
+            add.append("")
+            add.extend(join_own_method_blocks(fe["create"][name]))
+            add.append("")
+            add.append("#" + BSL_KW[lang]["EndRegion"])
+        if end_at < len(lines) and lines[end_at].strip() != "":
+            add.append("")
+        lines[end_at:end_at] = add
+        if region_at <= tail_at:
+            body_at += len(add)
+    # Statements of the module body: after the configuration's own, at the tail
+    for blk in fe["tail"]:
+        spaced = get_spaced_block(lines, body_at, blk)
+        lines[body_at:body_at] = spaced
+        body_at += len(spaced)
+    return lines
+
+
+def write_file_edits(excluded):
     changed = []
-    for fe in FILE_EDITS.values():
-        if not fe["repl"] and not fe["create"] and not fe["own_at"] and not fe["tail"]:
+    for key, fe in FILE_EDITS.items():
+        if key in excluded:
             continue
-        lines = list(fe["file"]["lines"])
-        repl = list(fe["repl"])
-        for at, o in fe["own_at"].items():
-            blk = join_own_method_blocks(o["blocks"])
-            repl.append({"start": at, "end": at, "lines": get_spaced_block(fe["file"]["lines"], at, blk), "seq": o["seq"]})
-        region_at = get_module_end(fe["file"]["lines"]) if fe["create_order"] else -1
-        end_at = region_at
-        tail_at = get_module_tail(fe["file"]["lines"]) if fe["tail"] else -1
-        body_at = tail_at
-        for r in sorted(repl, key=lambda x: (x["start"], x["seq"]), reverse=True):
-            # Keep the original insertion scope even when edits add a new conditional block at this spot.
-            delta = len(r["lines"]) - (r["end"] - r["start"])
-            if r["end"] <= region_at:
-                end_at += delta
-            if r["end"] <= tail_at:
-                body_at += delta
-            lines[r["start"]:r["end"]] = list(r["lines"])
-        if fe["create_order"]:
-            lang = get_module_lang(fe["file"]["lines"])
-            prev = lines[end_at - 1] if end_at > 0 else ""
-            add = []
-            for name in fe["create_order"]:
-                if add or prev.strip() != "":
-                    add.append("")
-                add.append("#%s %s" % (BSL_KW[lang]["Region"], name))
-                add.append("")
-                add.extend(join_own_method_blocks(fe["create"][name]))
-                add.append("")
-                add.append("#" + BSL_KW[lang]["EndRegion"])
-            if end_at < len(lines) and lines[end_at].strip() != "":
-                add.append("")
-            lines[end_at:end_at] = add
-            if region_at <= tail_at:
-                body_at += len(add)
-        # Statements of the module body: after the configuration's own, at the tail
-        for blk in fe["tail"]:
-            spaced = get_spaced_block(lines, body_at, blk)
-            lines[body_at:body_at] = spaced
-            body_at += len(spaced)
+        lines = get_file_edit_lines(fe)
+        if lines is None:
+            continue
         write_bsl_file(fe["file"], lines)
         changed.append(fe["file"]["path"])
     return changed
+
+
+def replace_form_file(source, target, backup=None):
+    if os.name != "nt":
+        if backup:
+            shutil.copy2(target, backup)
+        os.replace(source, target)
+        return
+
+    # ReplaceFileW keeps the destination ACL, as File.Replace does in PowerShell.
+    import ctypes
+    from ctypes import wintypes
+    replace = ctypes.WinDLL("kernel32", use_last_error=True).ReplaceFileW
+    replace.argtypes = [wintypes.LPCWSTR, wintypes.LPCWSTR, wintypes.LPCWSTR,
+                        wintypes.DWORD, wintypes.LPVOID, wintypes.LPVOID]
+    replace.restype = wintypes.BOOL
+    if not replace(target, source, backup, 0, None, None):
+        raise ctypes.WinError(ctypes.get_last_error())
+
+
+def write_form_pair(fe):
+    paths = []
+    backup = None
+    module_written = False
+
+    def staging_path(target):
+        if not os.stat(target).st_mode & (stat.S_IWUSR | stat.S_IWGRP | stat.S_IWOTH):
+            raise PermissionError("read-only file: %s" % target)
+        fd, path = tempfile.mkstemp(prefix=".cfe-transfer-", suffix=".tmp", dir=os.path.dirname(target))
+        paths.append(path)
+        os.close(fd)
+        return path
+
+    try:
+        form_path = os.path.realpath(fe["path"])
+        module_path = os.path.realpath(fe["cfg_module"])
+        candidate = staging_path(form_path)
+        save_form_write(fe["fw"], candidate)
+        shutil.copymode(form_path, candidate)
+        module = FILE_EDITS.get(fe["cfg_module"].lower())
+        lines = get_file_edit_lines(module) if module else None
+        if lines is not None:
+            candidate_module = staging_path(module_path)
+            write_bsl_file(module["file"], lines, candidate_module)
+            shutil.copymode(module_path, candidate_module)
+            backup = staging_path(module_path)
+            os.remove(backup)
+            replace_form_file(candidate_module, module_path, backup)
+            module_written = True
+        replace_form_file(candidate, form_path)
+        return [fe["cfg_module"], fe["path"]] if module_written else [fe["path"]]
+    except Exception:
+        if module_written:
+            try:
+                replace_form_file(backup, module_path)
+            except OSError as exc:
+                paths.remove(backup)
+                raise OSError("Could not restore the form module. Restore %s from %s. %s" %
+                              (module_path, backup, exc)) from exc
+        raise
+    finally:
+        for path in paths:
+            try:
+                if os.path.exists(path):
+                    os.chmod(path, 0o600)
+                    os.remove(path)
+            except OSError:
+                pass
+
+
+def set_form_write_conflict(fe, recs, config_path, reason):
+    items = [op["item"] for op in fe.get("ops", [])]
+    for rec in recs:
+        for item in rec["items"]:
+            plan = item.get("plan") or {}
+            rel = plan.get("rel")
+            if (item.get("now") and rel and plan["kind"] not in ("event-bind", "command-bind")
+                    and os.path.abspath(os.path.join(config_path, rel)).lower() == fe["cfg_module"].lower()):
+                items.append(item)
+    for item in items:
+        item["status"] = "CONFLICT"
+        item["now"] = False
+        item["text"] = "%s — %s" % (item["text"], reason)
+        item["sub"] = [get_form_conflict_hint(reason)]
+
+
+def get_form_conflict_hint(reason):
+    if "form-validate: 24. Module variable" in reason:
+        return "next: give the form attribute or module variable a distinct name and update its references, then re-run -Mode transfer"
+    return "next: resolve the reported form or module issue, then re-run -Mode transfer"
 
 
 def get_spaced_block(lines, at, block):
@@ -6720,6 +6847,9 @@ def main():
         # their own module only.
         form_missing = {}
         form_temp = {}
+        form_rejections = {}
+        form_handler_rejections = {}
+        form_topcode_rejections = {}
         out_by_file = {}
         out_common = {}
         # Own methods marked "not for transfer" and not in the configuration: never coming, so code that
@@ -6772,6 +6902,14 @@ def main():
                     t["group"] = it.get("group", "")
                     t["marked"] = it.get("marked", False)
                     t["seq"] = oi
+                    if pl and pl["kind"] == "own" and it["status"] != "TRANSFERRED":
+                        handler_key = (os.path.abspath(os.path.join(config_path, pl["rel"])).lower(), pl["name"].lower())
+                        if handler_key in form_handler_rejections:
+                            t["status"] = "CONFLICT"
+                            t["text"] = "%s — %s; handler not added" % (it["text"], form_handler_rejections[handler_key])
+                            t["sub"] = get_where_lines(pl, "resolve the form conflict, then re-run -Mode transfer")
+                            titems.append(t)
+                            continue
                     if pl and pl["kind"] == "own" and it["status"] in ("NOT_TRANSFERRED", "MANUAL", "DIVERGED"):
                         own_items.append({"plan": pl, "t": t})
                     # A method with an &ИзменениеИКонтроль edit not in the configuration yet: an interceptor of it
@@ -6826,19 +6964,37 @@ def main():
                                            "locals": r["locals"], "words": r["words"]})
                         titems.append(t)
                         continue
-                    if pl and pl['kind'] in ('event-bind', 'command-bind'):
-                        blocked2 = get_bsl_blocked_dependencies(pl, out_by_file, out_common, config_path)
-                        if blocked2:
-                            t['status'] = 'WAITING'; t['text'] = it['text'] + ' - waits for: ' + ', '.join(blocked2)
-                            titems.append(t); continue
                     if it.get("group") and it.get("plan"):
                         pl = it["plan"]
                         rel_form = it.get("section") or ""
                         # A new event or a new command's handler lives in the form's module, the change itself
                         # in Form.xml
-                        if pl["kind"] in ("event-bind", "command-bind"):
+                        is_binding = pl["kind"] in ("event-bind", "command-bind")
+                        if is_binding:
                             rel_form = re.sub(r'[\\/]Ext[\\/]Form[\\/]Module\.bsl$', '/Ext/Form.xml', pl["rel"])
                         cfg_form = os.path.abspath(os.path.join(config_path, rel_form))
+                        form_key = cfg_form.lower()
+                        if form_key in form_rejections:
+                            t["status"] = "CONFLICT"
+                            t["text"] = "%s — %s; form not changed" % (it["text"], form_rejections[form_key]["reason"])
+                            t["sub"] = [get_form_conflict_hint(form_rejections[form_key]["reason"])]
+                            if is_binding:
+                                cfg_mod_file = os.path.abspath(os.path.join(config_path, pl["rel"]))
+                                file_map = file_maps.get(cfg_mod_file.lower(), {})
+                                names = [pl["handler"]] if pl["kind"] == "event-bind" else [h["handler"] for h in pl["handlers"]]
+                                for name in names:
+                                    file_map.pop(name.lower(), None)
+                                    if add_out_name(out_by_file, out_common, cfg_mod_file, pl["rel"], name):
+                                        again = True
+                            titems.append(t)
+                            continue
+                        if is_binding:
+                            blocked2 = get_bsl_blocked_dependencies(pl, out_by_file, out_common, config_path)
+                            if blocked2:
+                                t["status"] = "WAITING"
+                                t["text"] = it["text"] + " - waits for: " + ", ".join(blocked2)
+                                titems.append(t)
+                                continue
                         ext_form = os.path.abspath(os.path.join(ext_dir0, rel_form))
                         cfg_form_mod = os.path.abspath(re.sub(r'[\\/]Ext[\\/]Form\.xml$', '/Ext/Form/Module.bsl', cfg_form))
                         ext_form_mod = os.path.abspath(re.sub(r'[\\/]Ext[\\/]Form\.xml$', '/Ext/Form/Module.bsl', ext_form))
@@ -6857,7 +7013,7 @@ def main():
                         mod_adds = []
                         map_ref = None
                         map_added = []
-                        if pl["kind"] in ("event-bind", "command-bind"):
+                        if is_binding:
                             cfg_mod_file = os.path.abspath(os.path.join(config_path, pl["rel"]))
                             fw = get_file_edits(cfg_mod_file)
                             fk = cfg_mod_file.lower()
@@ -6969,6 +7125,7 @@ def main():
                                 msg = msg[6:]
                             else:
                                 fe["failed"] += 1
+                                fe.setdefault("failure_reason", msg)
                             t["status"] = "CONFLICT"
                             t["text"] = "%s — %s; %s" % (it["text"], msg, "change not applied" if skip else "form not changed")
                             t["sub"] = ["next: apply by hand, then re-run -Mode check"]
@@ -7153,6 +7310,13 @@ def main():
                         t["out_names"] = [n for v in todo for n in v["names"]]
                         t["out_file"] = cfg_file
                         top_items.append(t)
+                        if cfg_file.lower() in form_topcode_rejections:
+                            reason = form_topcode_rejections[cfg_file.lower()]
+                            t["status"] = "CONFLICT"
+                            t["text"] = "%s — %s; declarations not transferred" % (label, reason)
+                            t["sub"] = where_sub + [get_form_conflict_hint(reason)]
+                            titems.append(t)
+                            continue
                         # The platform drops a manager module with variables or statements, its methods included
                         if re.search(r'[\\/]Ext[\\/]ManagerModule\.bsl$', pl["rel"]):
                             t["text"] = label + " — a manager module with variables or statements is not applied by the platform: this code never ran"
@@ -7480,29 +7644,66 @@ def main():
                 if add_out_name(out_by_file, out_common, os.path.abspath(os.path.join(config_path, o["plan"]["rel"])), o["plan"]["rel"], o["plan"]["name"]):
                     again = True
             if not again:
+                for item in top_items:
+                    if not item.get("now") or not item["out_names"]:
+                        continue
+                    module_key = item["out_file"].lower()
+                    form_key = os.path.abspath(re.sub(r'[\\/]ext[\\/]form[\\/]module\.bsl$', '/ext/form.xml', module_key))
+                    rejected = form_rejections.get(form_key)
+                    if not rejected:
+                        continue
+                    miss = test_form_write(rejected, module_only=True)
+                    if miss and miss[0].startswith("form-validate: 24. Module variable"):
+                        form_topcode_rejections[module_key] = miss[0]
+                        again = True
+            if not again:
+                for form_key, fe in FORM_EDITS.items():
+                    if not fe["ops"] and not fe["failed"]:
+                        continue
+                    why = fe.get("failure_reason")
+                    if not why:
+                        miss = test_form_write(fe)
+                        if miss:
+                            why = "after the transfer the check would not find it: %s" % miss[0]
+                    if not why:
+                        continue
+                    # Replan before publishing either file. A handler staged as an own method belongs
+                    # to the rejected form unless the original form already binds it.
+                    form_rejections[form_key] = {"path": fe["path"], "cfg_module": fe["cfg_module"], "reason": why}
+                    again = True
+                    ext_bindings = get_form_bindings(fe["ext_form"])
+                    cfg_bindings = get_form_bindings(fe["path"])
+                    for o in own_items:
+                        pl = o["plan"]
+                        cfg_module = fe["cfg_module"]
+                        if not o["t"].get("now") or os.path.abspath(os.path.join(config_path, pl["rel"])).lower() != cfg_module.lower():
+                            continue
+                        name = pl["name"].lower()
+                        if name not in ext_bindings or pl["target"]["name"].lower() in cfg_bindings:
+                            continue
+                        form_handler_rejections[(cfg_module.lower(), name)] = why
+                        add_out_name(out_by_file, out_common, cfg_module, pl["rel"], pl["name"])
+            if not again:
                 break
 
         # --- Pass 4: write ---
-        changed = write_file_edits()
+        handled_modules = set()
+        for fe in form_rejections.values():
+            miss = test_form_write(fe, module_only=True)
+            if not miss:
+                continue
+            handled_modules.add(fe["cfg_module"].lower())
+            set_form_write_conflict(fe, recs, config_path, "%s; module not changed" % miss[0])
+        changed = []
         for fe in list(FORM_EDITS.values()):
-            if not fe["ops"] and not fe["failed"]:
+            if not fe["ops"]:
                 continue
-            why = None
-            if fe["failed"]:
-                why = "another change of the same form could not be applied"
-            else:
-                miss = test_form_write(fe)
-                if miss:
-                    why = "after the transfer the check would not find it: %s" % miss[0]
-            if why:
-                for op in fe["ops"]:
-                    op["item"]["status"] = "CONFLICT"
-                    op["item"]["now"] = False
-                    op["item"]["text"] = "%s — %s; form not changed" % (op["item"]["text"], why)
-                    op["item"]["sub"] = ["next: apply by hand, then re-run -Mode check"]
-                continue
-            save_form_write(fe["fw"])
-            changed.append(fe["path"])
+            handled_modules.add(fe["cfg_module"].lower())
+            try:
+                changed.extend(write_form_pair(fe))
+            except Exception as exc:
+                set_form_write_conflict(fe, recs, config_path, "could not write the form and its module: %s" % exc)
+        changed.extend(write_file_edits(handled_modules))
         # Metadata: written only after the same comparison and the validator see it in place
         for me in list(MD_EDITS.values()):
             if not me["ops"]:

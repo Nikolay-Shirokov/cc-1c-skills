@@ -1,4 +1,4 @@
-﻿# cfe-transfer v1.27 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+﻿# cfe-transfer v1.28 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -3795,33 +3795,62 @@ function Apply-FormOp($fe, $op, $ctx) {
 # The form written and read back the same way the check reads it: every planned item must come out in place —
 # a property by its value, the rest by the line the check would print for it
 # Errors of the form validator (form-validate) for a form file: what the write must not add
-function Get-FormValidateErrors([string]$path) {
+function Get-FormValidateErrors([string]$path, [string]$contextPath, [string]$modulePath) {
 	$vs = [System.IO.Path]::GetFullPath((Join-Path (Join-Path $PSScriptRoot '../../form-validate') 'scripts/form-validate.ps1'))
 	if (-not (Test-Path -LiteralPath $vs)) {
 		# The skill may be installed on its own: say so rather than skip the check silently
 		$script:formValidateMissing = $true
 		return @()
 	}
-	$out = & powershell.exe -NoProfile -File $vs -FormPath $path 2>&1
+	$validatorArgs = @('-FormPath', $path, '-MaxErrors', [string][int]::MaxValue)
+	if ($contextPath) { $validatorArgs += @('-ContextFormPath', $contextPath) }
+	if ($modulePath) { $validatorArgs += @('-ModulePath', $modulePath) }
+	$out = & powershell.exe -NoProfile -File $vs @validatorArgs 2>&1
+	$exitCode = $LASTEXITCODE
 	$errs = @()
-	foreach ($l in @($out)) { $t = [string]$l; if ($t -match '\[ERROR\]') { $errs += ($t.Substring($t.IndexOf('[ERROR]') + 7) -replace '\s+', ' ').Trim() } }
+	$complete = $false
+	foreach ($l in @($out)) {
+		$t = [string]$l
+		if ($t -match '\[ERROR\]') { $errs += ($t.Substring($t.IndexOf('[ERROR]') + 7) -replace '\s+', ' ').Trim() }
+		if ($t -match '^Stopped after \d+ errors') { throw 'form-validate stopped before checking the entire form' }
+		if ($t -match '^(=== (Validation OK|Result):|Errors: \d+, Warnings: \d+)') { $complete = $true }
+	}
+	if (-not $complete -or $exitCode -notin @(0, 1) -or ($exitCode -eq 1 -and $errs.Count -eq 0)) {
+		throw "form-validate did not complete (exit $exitCode)"
+	}
 	return , $errs
 }
 
-function Test-FormWrite($fe) {
-	$tmp = [System.IO.Path]::GetTempFileName()
+function Test-FormWrite($fe, [switch]$ModuleOnly) {
+	$tmp = $null
+	$tmpModule = $null
 	try {
-		Remove-DuplicateWhitespace $fe.Fw.Doc.DocumentElement
-		Save-FormWrite $fe.Fw $tmp
+		$module = $script:fileEdits[$fe.CfgModule.ToLower()]
+		if ($module) {
+			$lines = Get-FileEditLines $module
+			if ($null -ne $lines) {
+				$tmpModule = [System.IO.Path]::GetTempFileName()
+				Write-BslFile $module.File $lines $tmpModule
+			}
+		}
+		if ($ModuleOnly -and -not $tmpModule) { return ,@() }
+		if (-not $ModuleOnly) {
+			$tmp = [System.IO.Path]::GetTempFileName()
+			Remove-DuplicateWhitespace $fe.Fw.Doc.DocumentElement
+			Save-FormWrite $fe.Fw $tmp
+		}
 		# The validator must not see errors the configuration's form did not have before the write
-		$before = Get-FormValidateErrors $fe.Path
-		$after = Get-FormValidateErrors $tmp
-		$added = @($after | Where-Object { $before -notcontains $_ })
+		$before = (Get-FormValidateErrors $fe.Path) -replace 'Module\.bsl:\d+', 'Module.bsl'
+		$after = Get-FormValidateErrors $(if ($ModuleOnly) { $fe.Path } else { $tmp }) $fe.Path $tmpModule
+		$added = @($after | Where-Object { $before -notcontains ($_ -replace 'Module\.bsl:\d+', 'Module.bsl') })
 		# The comma keeps a one-item array an array: a bare string would unroll to characters
 		if ($added.Count -gt 0) { return , @("form-validate: $($added[0])") }
+		if ($ModuleOnly) { return ,@() }
 		$miss = @()
 		$diff = Get-FormDiff $fe.ExtForm
-		$items = Get-FormTransferItems $diff $fe.FormInfo $tmp $fe.CfgModule $fe.ExtDir $fe.Prefix
+		$modulePath = if ($tmpModule) { $tmpModule } else { $fe.CfgModule }
+		Set-BslContext (Get-RelPath $fe.ExtDir $fe.ExtModule)
+		$items = Get-FormTransferItems $diff $fe.FormInfo $tmp $modulePath $fe.ExtDir $fe.Prefix
 		$ok = @()
 		foreach ($it in $items) { if ($it.Status -eq 'TRANSFERRED') { $ok += $it.Text } }
 		$doc = Read-FormDoc $tmp
@@ -3857,8 +3886,11 @@ function Test-FormWrite($fe) {
 		}
 		# The comma keeps a one-item array an array: a bare string would unroll to characters
 		return , $miss
+	} catch {
+		return , @($_.Exception.Message)
 	} finally {
-		Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+		if ($tmp) { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue }
+		if ($tmpModule) { Remove-Item -LiteralPath $tmpModule -Force -ErrorAction SilentlyContinue }
 	}
 }
 
@@ -5127,11 +5159,11 @@ function Read-BslFile([string]$path) {
 	return @{ Path = $path; Lines = $lines; Bom = $bom; Eol = $eol; Final = $final }
 }
 
-function Write-BslFile($f, $lines) {
+function Write-BslFile($f, $lines, [string]$path = $f.Path) {
 	$text = ($lines -join $f.Eol)
 	if ($f.Final) { $text += $f.Eol }
 	$enc = New-Object System.Text.UTF8Encoding($f.Bom)
-	[System.IO.File]::WriteAllText($f.Path, $text, $enc)
+	[System.IO.File]::WriteAllText($path, $text, $enc)
 }
 
 function Get-Indent([string]$line) { if ($line -match '^(\s*)') { return $Matches[1] } else { return '' } }
@@ -5743,60 +5775,130 @@ function Get-FileEdits([string]$path) {
 	return $script:fileEdits[$key]
 }
 
-# All collected edits written: replacements from the bottom up (indexes stay valid; inserts at one
-# spot keep the order they came in), own methods put at one spot as one block, then regions created
-# at the end of the module
-function Write-FileEdits {
+# Render the staged edits for validation or writing. The insertion indexes refer to the original file.
+function Get-FileEditLines($fe) {
+	if ($fe.Repl.Count -eq 0 -and $fe.Create.Count -eq 0 -and $fe.OwnAt.Count -eq 0 -and $fe.Tail.Count -eq 0) { return $null }
+	$lines = New-Object System.Collections.Generic.List[string]
+	foreach ($l in $fe.File.Lines) { $lines.Add($l) }
+	$repl = @($fe.Repl)
+	foreach ($at in @($fe.OwnAt.Keys)) {
+		$o = $fe.OwnAt[$at]
+		$blk = Join-OwnMethodBlocks $o.Blocks
+		$repl += @{ Start = [int]$at; End = [int]$at; Lines = (Get-SpacedBlock $fe.File.Lines ([int]$at) $blk); Seq = $o.Seq }
+	}
+	$sorted = @($repl | Sort-Object -Property @{ Expression = { $_.Start }; Descending = $true }, @{ Expression = { $_.Seq }; Descending = $true })
+	$regionAt = if ($fe.Create.Count -gt 0) { Get-ModuleEnd $fe.File.Lines } else { -1 }
+	$endAt = $regionAt
+	$tailAt = if ($fe.Tail.Count -gt 0) { Get-ModuleTail $fe.File.Lines } else { -1 }
+	$bodyAt = $tailAt
+	foreach ($r in $sorted) {
+		# Keep the original insertion scope even when edits add a new conditional block at this spot.
+		$delta = @($r.Lines).Count - ($r.End - $r.Start)
+		if ($r.End -le $regionAt) { $endAt += $delta }
+		if ($r.End -le $tailAt) { $bodyAt += $delta }
+		if ($r.End -gt $r.Start) { $lines.RemoveRange($r.Start, $r.End - $r.Start) }
+		$lines.InsertRange($r.Start, [string[]]@($r.Lines))
+	}
+	if ($fe.Create.Count -gt 0) {
+		$lang = Get-ModuleLang $fe.File.Lines
+		$prev = if ($endAt -gt 0) { $lines[$endAt - 1] } else { '' }
+		$add = New-Object System.Collections.Generic.List[string]
+		foreach ($name in $fe.Create.Keys) {
+			if ($add.Count -gt 0 -or $prev.Trim() -ne '') { $add.Add('') }
+			$add.Add("#$($script:bslKw[$lang].Region) $name")
+			$add.Add('')
+			foreach ($l in (Join-OwnMethodBlocks $fe.Create[$name])) { $add.Add($l) }
+			$add.Add('')
+			$add.Add("#$($script:bslKw[$lang].EndRegion)")
+		}
+		if ($endAt -lt $lines.Count -and $lines[$endAt].Trim() -ne '') { $add.Add('') }
+		$lines.InsertRange($endAt, $add)
+		if ($regionAt -le $tailAt) { $bodyAt += $add.Count }
+	}
+	# Statements of the module body: after the configuration's own, at the tail
+	foreach ($blk in $fe.Tail) {
+		$sb = Get-SpacedBlock $lines.ToArray() $bodyAt $blk
+		$lines.InsertRange($bodyAt, [string[]]$sb)
+		$bodyAt += $sb.Count
+	}
+	return ,($lines.ToArray())
+}
+
+function Write-FileEdits($excluded) {
 	$changed = @()
-	foreach ($fe in $script:fileEdits.Values) {
-		if ($fe.Repl.Count -eq 0 -and $fe.Create.Count -eq 0 -and $fe.OwnAt.Count -eq 0 -and $fe.Tail.Count -eq 0) { continue }
-		$lines = New-Object System.Collections.Generic.List[string]
-		foreach ($l in $fe.File.Lines) { $lines.Add($l) }
-		$repl = @($fe.Repl)
-		foreach ($at in @($fe.OwnAt.Keys)) {
-			$o = $fe.OwnAt[$at]
-			$blk = Join-OwnMethodBlocks $o.Blocks
-			$repl += @{ Start = [int]$at; End = [int]$at; Lines = (Get-SpacedBlock $fe.File.Lines ([int]$at) $blk); Seq = $o.Seq }
-		}
-		$sorted = @($repl | Sort-Object -Property @{ Expression = { $_.Start }; Descending = $true }, @{ Expression = { $_.Seq }; Descending = $true })
-		$regionAt = if ($fe.Create.Count -gt 0) { Get-ModuleEnd $fe.File.Lines } else { -1 }
-		$endAt = $regionAt
-		$tailAt = if ($fe.Tail.Count -gt 0) { Get-ModuleTail $fe.File.Lines } else { -1 }
-		$bodyAt = $tailAt
-		foreach ($r in $sorted) {
-			# Keep the original insertion scope even when edits add a new conditional block at this spot.
-			$delta = @($r.Lines).Count - ($r.End - $r.Start)
-			if ($r.End -le $regionAt) { $endAt += $delta }
-			if ($r.End -le $tailAt) { $bodyAt += $delta }
-			if ($r.End -gt $r.Start) { $lines.RemoveRange($r.Start, $r.End - $r.Start) }
-			$lines.InsertRange($r.Start, [string[]]@($r.Lines))
-		}
-		if ($fe.Create.Count -gt 0) {
-			$lang = Get-ModuleLang $fe.File.Lines
-			$prev = if ($endAt -gt 0) { $lines[$endAt - 1] } else { '' }
-			$add = New-Object System.Collections.Generic.List[string]
-			foreach ($name in $fe.Create.Keys) {
-				if ($add.Count -gt 0 -or $prev.Trim() -ne '') { $add.Add('') }
-				$add.Add("#$($script:bslKw[$lang].Region) $name")
-				$add.Add('')
-				foreach ($l in (Join-OwnMethodBlocks $fe.Create[$name])) { $add.Add($l) }
-				$add.Add('')
-				$add.Add("#$($script:bslKw[$lang].EndRegion)")
-			}
-			if ($endAt -lt $lines.Count -and $lines[$endAt].Trim() -ne '') { $add.Add('') }
-			$lines.InsertRange($endAt, $add)
-			if ($regionAt -le $tailAt) { $bodyAt += $add.Count }
-		}
-		# Statements of the module body: after the configuration's own, at the tail
-		foreach ($blk in $fe.Tail) {
-			$sb = Get-SpacedBlock $lines.ToArray() $bodyAt $blk
-			$lines.InsertRange($bodyAt, [string[]]$sb)
-			$bodyAt += $sb.Count
-		}
-		Write-BslFile $fe.File $lines.ToArray()
+	foreach ($key in $script:fileEdits.Keys) {
+		if ($excluded.ContainsKey($key)) { continue }
+		$fe = $script:fileEdits[$key]
+		$lines = Get-FileEditLines $fe
+		if ($null -eq $lines) { continue }
+		Write-BslFile $fe.File $lines
 		$changed += $fe.File.Path
 	}
 	return ,$changed
+}
+
+function Write-FormPair($fe) {
+	$suffix = '.cfe-transfer-' + [guid]::NewGuid().ToString() + '.tmp'
+	$tmp = $fe.Path + $suffix
+	$moduleTemp = $fe.CfgModule + $suffix
+	$backup = $moduleTemp + '.bak'
+	$moduleWritten = $false
+	$keepBackup = $false
+	try {
+		if ([IO.File]::GetAttributes($fe.Path) -band [IO.FileAttributes]::ReadOnly) { throw "read-only file: $($fe.Path)" }
+		Save-FormWrite $fe.Fw $tmp
+		$module = $script:fileEdits[$fe.CfgModule.ToLower()]
+		$lines = if ($module) { Get-FileEditLines $module }
+		if ($null -ne $lines) {
+			if ([IO.File]::GetAttributes($fe.CfgModule) -band [IO.FileAttributes]::ReadOnly) { throw "read-only file: $($fe.CfgModule)" }
+			Write-BslFile $module.File $lines $moduleTemp
+			[IO.File]::Replace($moduleTemp, $fe.CfgModule, $backup)
+			$moduleWritten = $true
+		}
+		[IO.File]::Replace($tmp, $fe.Path, [NullString]::Value)
+	} catch {
+		if ($moduleWritten) {
+			try { [IO.File]::Replace($backup, $fe.CfgModule, [NullString]::Value) }
+			catch {
+				$keepBackup = $true
+				throw "Could not restore the form module. Restore $($fe.CfgModule) from $backup. $($_.Exception.Message)"
+			}
+		}
+		throw
+	} finally {
+		foreach ($path in @($tmp, $moduleTemp, $(if (-not $keepBackup) { $backup }))) {
+			if ($path -and [IO.File]::Exists($path)) { Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue }
+		}
+	}
+	$changed = @($fe.Path)
+	if ($moduleWritten) { $changed = @($fe.CfgModule) + $changed }
+	return ,$changed
+}
+
+function Set-FormWriteConflict($fe, $recs, [string]$reason) {
+	$items = @()
+	foreach ($op in $fe.Ops) { $items += $op.Item }
+	foreach ($rec in $recs) {
+		foreach ($item in $rec.Items) {
+			if ($item.Now -and $item.Plan.Rel -and $item.Plan.Kind -notin @('event-bind', 'command-bind') -and
+				(Get-CfgPath $item.Plan.Rel) -ieq $fe.CfgModule) {
+				$items += $item
+			}
+		}
+	}
+	foreach ($item in $items) {
+		$item.Status = 'CONFLICT'
+		$item.Now = $false
+		$item.Text = "$($item.Text) — $reason"
+		$item.Sub = @(Get-FormConflictHint $reason)
+	}
+}
+
+function Get-FormConflictHint([string]$reason) {
+	if ($reason.Contains('form-validate: 24. Module variable')) {
+		return 'next: give the form attribute or module variable a distinct name and update its references, then re-run -Mode transfer'
+	}
+	return 'next: resolve the reported form or module issue, then re-run -Mode transfer'
 }
 
 # Lines around the spot: one blank line between the block and its neighbours
@@ -6135,6 +6237,9 @@ if ($Mode -eq 'transfer') {
 	# their own module only.
 	$formMissing = @{}
 	$formTemp = @{}
+	$formRejections = @{}
+	$formHandlerRejections = @{}
+	$formTopcodeRejections = @{}
 	$outByFile = @{}
 	$outCommon = @{}
 	# Own methods marked "not for transfer" and not in the configuration: never coming, so code that
@@ -6184,6 +6289,15 @@ if ($Mode -eq 'transfer') {
 				$t = New-TItem $it.Status $it.Text $it.Loc $it.Section
 				$t.Plan = $pl
 				$t.Group = $it.Group; $t.Marked = $it.Marked; $t.Seq = $o.I
+				if ($pl.Kind -eq 'own' -and $it.Status -ne 'TRANSFERRED') {
+					$handlerKey = "$((Get-CfgPath $pl.Rel).ToLower())|$($pl.Name)"
+					if ($formHandlerRejections.ContainsKey($handlerKey)) {
+						$t.Status = 'CONFLICT'
+						$t.Text = "$($it.Text) — $($formHandlerRejections[$handlerKey]); handler not added"
+						$t.Sub = Get-WhereLines $pl 'resolve the form conflict, then re-run -Mode transfer'
+						$titems += $t; continue
+					}
+				}
 				if ($pl -and $pl.Kind -eq 'own' -and $it.Status -in @('NOT_TRANSFERRED', 'MANUAL', 'DIVERGED')) { $ownItems += @{ Plan = $pl; T = $t } }
 				# A method with an &ИзменениеИКонтроль edit not in the configuration yet: an interceptor of it
 				# would move the lines the edit is anchored to
@@ -6233,16 +6347,33 @@ if ($Mode -eq 'transfer') {
 					$titems += $t
 					continue
 				}
-				if ($pl.Kind -in @('event-bind', 'command-bind')) {
-					$blocked2 = @(Get-BslBlockedDependencies $pl $outByFile $outCommon)
-					if ($blocked2.Count) { $t.Status = 'WAITING'; $t.Text = "$($it.Text) - waits for: $($blocked2 -join ', ')"; $titems += $t; continue }
-				}
 				if ($it.Group -and $it.Plan) {
 					$pl = $it.Plan
 					$relForm = [string]$it.Section
 					# A new event or a new command's handler lives in the form's module, the change itself in Form.xml
-					if ($pl.Kind -eq 'event-bind' -or $pl.Kind -eq 'command-bind') { $relForm = $pl.Rel -replace '[\\/]Ext[\\/]Form[\\/]Module\.bsl$', '/Ext/Form.xml' }
-					$cfgForm = Join-Path $ConfigPath $relForm
+					$isBinding = $pl.Kind -in @('event-bind', 'command-bind')
+					if ($isBinding) { $relForm = $pl.Rel -replace '[\\/]Ext[\\/]Form[\\/]Module\.bsl$', '/Ext/Form.xml' }
+					$cfgForm = Get-CfgPath $relForm
+					$formKey = $cfgForm.ToLower()
+					if ($formRejections.ContainsKey($formKey)) {
+						$t.Status = 'CONFLICT'
+						$t.Text = "$($it.Text) — $($formRejections[$formKey].Reason); form not changed"
+						$t.Sub = @(Get-FormConflictHint $formRejections[$formKey].Reason)
+						if ($isBinding) {
+							$cfgModFile = Get-CfgPath $pl.Rel
+							$fk = $cfgModFile.ToLower()
+							$names = if ($pl.Kind -eq 'event-bind') { @($pl.Handler) } else { @($pl.Handlers | ForEach-Object { $_.Handler }) }
+							foreach ($name in $names) {
+								if ($fileMaps.ContainsKey($fk)) { [void]$fileMaps[$fk].Remove($name.ToLower()) }
+								if (Add-OutName $outByFile $outCommon $cfgModFile $pl.Rel $name) { $again = $true }
+							}
+						}
+						$titems += $t; continue
+					}
+					if ($isBinding) {
+						$blocked2 = @(Get-BslBlockedDependencies $pl $outByFile $outCommon)
+						if ($blocked2.Count) { $t.Status = 'WAITING'; $t.Text = "$($it.Text) - waits for: $($blocked2 -join ', ')"; $titems += $t; continue }
+					}
 					$extForm = Join-Path $extDir0 $relForm
 					# Join-Path turns the forward slashes of a relative path into backslashes: both are matched;
 					# the module path is normalized so that it keys the same map as a module path built from Rel
@@ -6263,7 +6394,7 @@ if ($Mode -eq 'transfer') {
 					$modAdds = @()
 					$mapRef = $null
 					$mapAdded = @()
-					if ($pl.Kind -eq 'event-bind' -or $pl.Kind -eq 'command-bind') {
+					if ($isBinding) {
 						$cfgModFile = Get-CfgPath $pl.Rel
 						$fw = Get-FileEdits $cfgModFile
 						$fk = $cfgModFile.ToLower()
@@ -6351,7 +6482,7 @@ if ($Mode -eq 'transfer') {
 						# A refused change leaves the rest of the form transferable; a failure of the write itself
 						# keeps the whole form as it is
 						$skip = $msg.StartsWith('SKIP: ')
-						if ($skip) { $msg = $msg.Substring(6) } else { $fe.Failed++ }
+						if ($skip) { $msg = $msg.Substring(6) } else { $fe.Failed++; if (-not $fe.FailureReason) { $fe.FailureReason = $msg } }
 						$t.Status = 'CONFLICT'
 						$t.Text = "$($it.Text) — $msg; $(if ($skip) { 'change not applied' } else { 'form not changed' })"
 						$t.Sub = @('next: apply by hand, then re-run -Mode check')
@@ -6518,6 +6649,12 @@ if ($Mode -eq 'transfer') {
 					# Variables that stay out make the code using them wait, like a method that stays out
 					$t.OutNames = @(foreach ($v in $todo) { $v.Names }); $t.OutFile = $cfgFile
 					$topItems += $t
+					if ($formTopcodeRejections.ContainsKey($cfgFile)) {
+						$t.Status = 'CONFLICT'
+						$t.Text = "$label — $($formTopcodeRejections[$cfgFile]); declarations not transferred"
+						$t.Sub = $whereSub + @(Get-FormConflictHint $formTopcodeRejections[$cfgFile])
+						$titems += $t; continue
+					}
 					# The platform drops a manager module with variables or statements, its methods included
 					if ($pl.Rel -match '[\\/]Ext[\\/]ManagerModule\.bsl$') {
 						$t.Text = "$label — a manager module with variables or statements is not applied by the platform: this code never ran"
@@ -6813,28 +6950,62 @@ if ($Mode -eq 'transfer') {
 			if ($o.T.Status -eq 'TRANSFERRED') { continue }
 			if (Add-OutName $outByFile $outCommon (Get-CfgPath $o.Plan.Rel) $o.Plan.Rel $o.Plan.Name) { $again = $true }
 		}
+		if (-not $again) {
+			foreach ($o in $topItems) {
+				if (-not $o.Now -or $o.OutNames.Count -eq 0) { continue }
+				$formKey = $o.OutFile.ToLower() -replace '[\\/]ext[\\/]form[\\/]module\.bsl$', '/ext/form.xml'
+				$formKey = [IO.Path]::GetFullPath($formKey)
+				if (-not $formRejections.ContainsKey($formKey)) { continue }
+				$miss = Test-FormWrite $formRejections[$formKey] -ModuleOnly
+				if ($miss.Count -gt 0 -and $miss[0].StartsWith('form-validate: 24. Module variable')) {
+					$formTopcodeRejections[$o.OutFile] = $miss[0]
+					$again = $true
+				}
+			}
+		}
+		if (-not $again) {
+			foreach ($formKey in @($script:formEdits.Keys)) {
+				$fe = $script:formEdits[$formKey]
+				if ($fe.Ops.Count -eq 0 -and $fe.Failed -eq 0) { continue }
+				$why = $fe.FailureReason
+				if (-not $why) {
+					$miss = Test-FormWrite $fe
+					if ($miss.Count -gt 0) { $why = "after the transfer the check would not find it: $($miss[0])" }
+				}
+				if (-not $why) { continue }
+				# Replan without these bindings before publishing either file. A handler of a copied element
+				# can be staged as an ordinary own method; keep it only if the original form already binds it.
+				$formRejections[$formKey] = @{ Path = $fe.Path; CfgModule = $fe.CfgModule; Reason = $why }
+				$again = $true
+				$extBindings = Get-FormBindings $fe.ExtForm
+				$cfgBindings = Get-FormBindings $fe.Path
+				foreach ($o in $ownItems) {
+					$pl = $o.Plan
+					if (-not $o.T.Now -or (Get-CfgPath $pl.Rel) -ine $fe.CfgModule) { continue }
+					if (-not $extBindings.ContainsKey($pl.Name) -or $cfgBindings.ContainsKey($pl.Target.Name)) { continue }
+					$formHandlerRejections["$($fe.CfgModule.ToLower())|$($pl.Name)"] = $why
+					[void](Add-OutName $outByFile $outCommon $fe.CfgModule $pl.Rel $pl.Name)
+				}
+			}
+		}
 	} while ($again)
 
 	# --- Pass 4: write ---
-	$changed = Write-FileEdits
-	foreach ($fe in @($script:formEdits.Values)) {
-		if ($fe.Ops.Count -eq 0 -and $fe.Failed -eq 0) { continue }
-		$why = if ($fe.Failed -gt 0) { 'another change of the same form could not be applied' } else { $null }
-		if (-not $why) {
-			$miss = Test-FormWrite $fe
-			if ($miss.Count -gt 0) { $why = "after the transfer the check would not find it: $($miss[0])" }
-		}
-		if ($why) {
-			foreach ($op in $fe.Ops) {
-				$op.Item.Status = 'CONFLICT'; $op.Item.Now = $false
-				$op.Item.Text = "$($op.Item.Text) — $why; form not changed"
-				$op.Item.Sub = @('next: apply by hand, then re-run -Mode check')
-			}
-			continue
-		}
-		Save-FormWrite $fe.Fw
-		$changed += $fe.Path
+	$handledModules = @{}
+	foreach ($fe in $formRejections.Values) {
+		$miss = Test-FormWrite $fe -ModuleOnly
+		if ($miss.Count -eq 0) { continue }
+		$handledModules[$fe.CfgModule.ToLower()] = $true
+		Set-FormWriteConflict $fe $recs "$($miss[0]); module not changed"
 	}
+	$changed = @()
+	foreach ($fe in @($script:formEdits.Values)) {
+		if ($fe.Ops.Count -eq 0) { continue }
+		$handledModules[$fe.CfgModule.ToLower()] = $true
+		try { $changed += Write-FormPair $fe }
+		catch { Set-FormWriteConflict $fe $recs "could not write the form and its module: $($_.Exception.Message)" }
+	}
+	$changed += Write-FileEdits $handledModules
 	# Metadata: written only after the same comparison and the validator see it in place
 	foreach ($me in @($script:mdEdits.Values)) {
 		if ($me.Ops.Count -eq 0) { continue }

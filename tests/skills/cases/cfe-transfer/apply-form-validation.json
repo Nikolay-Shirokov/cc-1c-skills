@@ -1,0 +1,81 @@
+{
+  "name": "При отказе проверки формы привязки и обработчики не записываются, независимый код модуля переносится",
+  "setup": "fixture:form-event-new",
+  "params": {
+    "extensionPath": "cfe"
+  },
+  "cwd": "workDir",
+  "args_extra": [
+    "-Mode",
+    "transfer"
+  ],
+  "expectError": true,
+  "preRun": [
+    {
+      "editFile": "Catalogs/Items/Forms/ItemForm/Ext/Form.xml",
+      "replace": "<LabelDecoration name=\"L1\" id=\"1\">",
+      "with": "<InputField name=\"ExistingField1\" id=\"600\"/>\n\t\t<InputField name=\"ExistingField2\" id=\"601\"/>\n\t\t<InputField name=\"ExistingField3\" id=\"602\"/>\n\t\t<InputField name=\"ExistingField4\" id=\"603\"/>\n\t\t<InputField name=\"ExistingField5\" id=\"604\"/>\n\t\t<InputField name=\"ExistingField6\" id=\"605\"/>\n\t\t<InputField name=\"ExistingField7\" id=\"606\"/>\n\t\t<InputField name=\"ExistingField8\" id=\"607\"/>\n\t\t<InputField name=\"ExistingField9\" id=\"608\"/>\n\t\t<InputField name=\"ExistingField10\" id=\"609\"/>\n\t\t<InputField name=\"ExistingField11\" id=\"610\"/>\n\t\t<InputField name=\"ExistingField12\" id=\"611\"/>\n\t\t<InputField name=\"ExistingField13\" id=\"612\"/>\n\t\t<InputField name=\"ExistingField14\" id=\"613\"/>\n\t\t<InputField name=\"ExistingField15\" id=\"614\"/>\n\t\t<InputField name=\"ExistingField16\" id=\"615\"/>\n\t\t<LabelDecoration name=\"L1\" id=\"1\">"
+    },
+    {
+      "editFile": "Catalogs/Items/Forms/ItemForm/Ext/Form/Module.bsl",
+      "replace": "&НаКлиенте",
+      "with": "Перем Clash;\n\n&НаКлиенте"
+    },
+    {
+      "editFile": "cfe/Catalogs/Items/Forms/ItemForm/Ext/Form/Module.bsl",
+      "replace": "&НаКлиенте",
+      "with": "Var SrcAttr1;\n\n&НаКлиенте\nФункция PatchA_VarReader()\n\tВозврат SrcAttr1;\nКонецФункции\n\n&НаКлиенте\nПроцедура PatchA_Independent()\n\tСообщить(\"Независимый метод\");\nКонецПроцедуры\n\n&НаКлиенте\nПроцедура PatchA_Dependant()\n\tPatchA_L1Click(Неопределено);\nКонецПроцедуры\n\n&НаКлиенте\nПроцедура PatchA_ExtraClick(Элемент)\n\tСообщить(\"Обработчик нового элемента\");\nКонецПроцедуры\n\n&НаКлиенте"
+    },
+    {
+      "editFile": "cfe/Catalogs/Items/Forms/ItemForm/Ext/Form.xml",
+      "replace": "<Attributes>",
+      "with": "<Attributes>\n\t\t<Attribute name=\"PatchA_Clash\" id=\"1000090\">\n\t\t\t<Type><v8:Type>xs:string</v8:Type></Type>\n\t\t</Attribute>"
+    },
+    {
+      "editFile": "cfe/Catalogs/Items/Forms/ItemForm/Ext/Form.xml",
+      "replace": "<LabelDecoration name=\"L1\" id=\"1\">",
+      "with": "<LabelDecoration name=\"PatchA_ExtraLabel\" id=\"1000091\">\n\t\t\t<ContextMenu name=\"PatchA_ExtraLabelMenu\" id=\"1000092\"/>\n\t\t\t<ExtendedTooltip name=\"PatchA_ExtraLabelTip\" id=\"1000093\"/>\n\t\t\t<Events><Event name=\"OnClick\">PatchA_ExtraClick</Event></Events>\n\t\t</LabelDecoration>\n\t\t<LabelDecoration name=\"L1\" id=\"1\">"
+    }
+  ],
+  "expect": {
+    "stdoutContains": [
+      "form-validate: 24. Module variable 'Clash'",
+      "next: give the form attribute or module variable a distinct name and update its references, then re-run -Mode transfer",
+      "[CONFLICT]           event L1.OnClick",
+      "[CONFLICT]           + command PatchA_Cmd",
+      "[WAITING]            method PatchA_Dependant",
+      "[WAITING]            method PatchA_VarReader",
+      "declarations not transferred",
+      "[TRANSFERRED]        method PatchA_Independent"
+    ],
+    "fileContains": [
+      {
+        "file": "Catalogs/Items/Forms/ItemForm/Ext/Form/Module.bsl",
+        "text": "Процедура Independent()"
+      }
+    ],
+    "fileNotContains": [
+      {
+        "file": "Catalogs/Items/Forms/ItemForm/Ext/Form.xml",
+        "text": [
+          "name=\"Clash\"",
+          ">L1Click</Event>",
+          "<Action>CmdAction</Action>",
+          "name=\"ExtraLabel\""
+        ]
+      },
+      {
+        "file": "Catalogs/Items/Forms/ItemForm/Ext/Form/Module.bsl",
+        "text": [
+          "L1Click(",
+          "L3Click(",
+          "CmdAction(",
+          "ExtraClick(",
+          "Var SrcAttr1;",
+          "VarReader(",
+          "Dependant("
+        ]
+      }
+    ]
+  }
+}
