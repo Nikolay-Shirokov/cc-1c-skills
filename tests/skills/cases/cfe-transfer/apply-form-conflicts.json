@@ -1,5 +1,5 @@
 {
-  "name": "Форма: элемент, помеченный «не переносить элементы формы», пропускается (временная правка), остальное переносится",
+  "name": "Конфликты структуры формы: временный элемент пропускается, конфликт перемещения сохраняет поддерево, остальные правки переносятся",
   "setup": "fixture:form-gaps",
   "params": {
     "extensionPath": "cfe"
@@ -13,13 +13,38 @@
   "expect": {
     "stdoutContains": [
       "8 transferred now",
-      "1 temporary skipped"
+      "1 temporary skipped",
+      "[CONFLICT]           > [Group:V] GroupA: moved to GroupB",
+      "destination GroupB is inside the element being moved; change not applied"
     ],
     "fileNotContains": [
       {
         "file": "Catalogs/Items/Forms/ItemForm/Ext/Form.xml",
         "text": "Ext L3"
       }
+    ],
+    "fileContains": [
+      {
+        "file": "Catalogs/Items/Forms/ItemForm/Ext/Form.xml",
+        "text": "\t\t<UsualGroup name=\"GroupA\" id=\"80\">\n\t\t\t<Group>Vertical</Group>\n\t\t\t<ExtendedTooltip name=\"GroupATip\" id=\"81\"/>\n\t\t\t<ChildItems>\n\t\t\t\t<InputField name=\"GroupAField\" id=\"82\">\n\t\t\t\t\t<ContextMenu name=\"GroupAFieldMenu\" id=\"83\"/>\n\t\t\t\t\t<ExtendedTooltip name=\"GroupAFieldTip\" id=\"84\"/>\n\t\t\t\t</InputField>\n\t\t\t\t<UsualGroup name=\"GroupB\" id=\"90\">\n\t\t\t\t\t<Group>Vertical</Group>\n\t\t\t\t\t<ExtendedTooltip name=\"GroupBTip\" id=\"91\"/>\n\t\t\t\t\t<ChildItems>\n\t\t\t\t\t\t<InputField name=\"GroupBField\" id=\"92\">\n\t\t\t\t\t\t\t<ContextMenu name=\"GroupBFieldMenu\" id=\"93\"/>\n\t\t\t\t\t\t\t<ExtendedTooltip name=\"GroupBFieldTip\" id=\"94\"/>\n\t\t\t\t\t\t</InputField>\n\t\t\t\t\t</ChildItems>\n\t\t\t\t</UsualGroup>\n\t\t\t</ChildItems>\n\t\t</UsualGroup>"
+      }
     ]
-  }
+  },
+  "preRun": [
+    {
+      "editFile": "Catalogs/Items/Forms/ItemForm/Ext/Form.xml",
+      "replace": "\n\t<ChildItems>\n",
+      "with": "\n\t<ChildItems>\n\t\t<UsualGroup name=\"GroupA\" id=\"80\">\n\t\t\t<Group>Vertical</Group>\n\t\t\t<ExtendedTooltip name=\"GroupATip\" id=\"81\"/>\n\t\t\t<ChildItems>\n\t\t\t\t<InputField name=\"GroupAField\" id=\"82\">\n\t\t\t\t\t<ContextMenu name=\"GroupAFieldMenu\" id=\"83\"/>\n\t\t\t\t\t<ExtendedTooltip name=\"GroupAFieldTip\" id=\"84\"/>\n\t\t\t\t</InputField>\n\t\t\t\t<UsualGroup name=\"GroupB\" id=\"90\">\n\t\t\t\t\t<Group>Vertical</Group>\n\t\t\t\t\t<ExtendedTooltip name=\"GroupBTip\" id=\"91\"/>\n\t\t\t\t\t<ChildItems>\n\t\t\t\t\t\t<InputField name=\"GroupBField\" id=\"92\">\n\t\t\t\t\t\t\t<ContextMenu name=\"GroupBFieldMenu\" id=\"93\"/>\n\t\t\t\t\t\t\t<ExtendedTooltip name=\"GroupBFieldTip\" id=\"94\"/>\n\t\t\t\t\t\t</InputField>\n\t\t\t\t\t</ChildItems>\n\t\t\t\t</UsualGroup>\n\t\t\t</ChildItems>\n\t\t</UsualGroup>\n"
+    },
+    {
+      "editFile": "cfe/Catalogs/Items/Forms/ItemForm/Ext/Form.xml",
+      "replace": "\n\t\t</AutoCommandBar>\n\t\t<ChildItems>\n",
+      "with": "\n\t\t</AutoCommandBar>\n\t\t<ChildItems>\n\t\t\t<UsualGroup name=\"GroupA\" id=\"80\">\n\t\t\t\t<Group>Vertical</Group>\n\t\t\t\t<ExtendedTooltip name=\"GroupATip\" id=\"81\"/>\n\t\t\t\t<ChildItems>\n\t\t\t\t\t<InputField name=\"GroupAField\" id=\"82\">\n\t\t\t\t\t\t<ContextMenu name=\"GroupAFieldMenu\" id=\"83\"/>\n\t\t\t\t\t\t<ExtendedTooltip name=\"GroupAFieldTip\" id=\"84\"/>\n\t\t\t\t\t</InputField>\n\t\t\t\t</ChildItems>\n\t\t\t</UsualGroup>\n\t\t\t<UsualGroup name=\"GroupB\" id=\"90\">\n\t\t\t\t<Group>Vertical</Group>\n\t\t\t\t<ExtendedTooltip name=\"GroupBTip\" id=\"91\"/>\n\t\t\t\t<ChildItems>\n\t\t\t\t\t<InputField name=\"GroupBField\" id=\"92\">\n\t\t\t\t\t\t<ContextMenu name=\"GroupBFieldMenu\" id=\"93\"/>\n\t\t\t\t\t\t<ExtendedTooltip name=\"GroupBFieldTip\" id=\"94\"/>\n\t\t\t\t\t</InputField>\n\t\t\t\t</ChildItems>\n\t\t\t</UsualGroup>\n"
+    },
+    {
+      "editFile": "cfe/Catalogs/Items/Forms/ItemForm/Ext/Form.xml",
+      "replace": "\n\t<ChildItems>\n",
+      "with": "\n\t<ChildItems>\n\t\t<UsualGroup name=\"GroupB\" id=\"90\">\n\t\t\t<Group>Vertical</Group>\n\t\t\t<ExtendedTooltip name=\"GroupBTip\" id=\"91\"/>\n\t\t\t<ChildItems>\n\t\t\t\t<InputField name=\"GroupBField\" id=\"92\">\n\t\t\t\t\t<ContextMenu name=\"GroupBFieldMenu\" id=\"93\"/>\n\t\t\t\t\t<ExtendedTooltip name=\"GroupBFieldTip\" id=\"94\"/>\n\t\t\t\t</InputField>\n\t\t\t\t<UsualGroup name=\"GroupA\" id=\"80\">\n\t\t\t\t\t<Group>Vertical</Group>\n\t\t\t\t\t<ExtendedTooltip name=\"GroupATip\" id=\"81\"/>\n\t\t\t\t\t<ChildItems>\n\t\t\t\t\t\t<InputField name=\"GroupAField\" id=\"82\">\n\t\t\t\t\t\t\t<ContextMenu name=\"GroupAFieldMenu\" id=\"83\"/>\n\t\t\t\t\t\t\t<ExtendedTooltip name=\"GroupAFieldTip\" id=\"84\"/>\n\t\t\t\t\t\t</InputField>\n\t\t\t\t\t</ChildItems>\n\t\t\t\t</UsualGroup>\n\t\t\t</ChildItems>\n\t\t</UsualGroup>\n"
+    }
+  ]
 }

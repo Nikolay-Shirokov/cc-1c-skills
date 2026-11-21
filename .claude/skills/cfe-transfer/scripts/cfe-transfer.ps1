@@ -1,4 +1,4 @@
-﻿# cfe-transfer v1.26 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+﻿# cfe-transfer v1.27 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -3750,13 +3750,20 @@ function Apply-FormOp($fe, $op, $ctx) {
 		'move' {
 			$target = Find-FormTarget $root $ctx.NameMap $op.Rec.Name
 			if (-not $target) { throw "SKIP: element $($op.Rec.Name) is not in the configuration" }
-			# The element must not leave the document only to have nowhere to go
-			if ($op.Rec.Parent -and -not (Find-FormTarget $root $ctx.NameMap $op.Rec.Parent)) { throw "SKIP: parent $($op.Rec.Parent) is not in the configuration" }
+			if ($op.Rec.Parent) {
+				$parent = Find-FormTarget $root $ctx.NameMap $op.Rec.Parent
+				if (-not $parent) { throw "SKIP: parent $($op.Rec.Parent) is not in the configuration" }
+				for ($ancestor = $parent; $ancestor; $ancestor = $ancestor.ParentNode) {
+					if ([object]::ReferenceEquals($ancestor, $target)) {
+						throw "SKIP: destination $($op.Rec.Parent) is inside the element being moved"
+					}
+				}
+			}
 			$node = $target.CloneNode($true)
 			Remove-FormNode $target
 			# The spot is looked up after the element has left: its neighbours have changed
 			$where = Insert-FormElement $op.Rec $root $ctx.NameMap $eol
-			if (-not $where) { throw "SKIP: parent $($op.Rec.Parent) is not in the configuration" }
+			if (-not $where) { throw "parent $($op.Rec.Parent) disappeared during the move" }
 			$ci = $where.Ci
 			$ref = $null
 			if ($where.Ref -and $where.Ref.ParentNode -eq $ci) { $ref = $where.Ref }

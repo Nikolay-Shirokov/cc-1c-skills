@@ -1,5 +1,5 @@
 ﻿#!/usr/bin/env python3
-# cfe-transfer v1.26 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+# cfe-transfer v1.27 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -3919,14 +3919,17 @@ def apply_form_op(fe, op, ctx):
         target = find_form_target(root, ctx["name_map"], op["rec"]["name"])
         if target is None:
             raise ValueError("SKIP: element %s is not in the configuration" % op["rec"]["name"])
-        # The element must not leave the document only to have nowhere to go
-        if op["rec"]["parent"] and find_form_target(root, ctx["name_map"], op["rec"]["parent"]) is None:
-            raise ValueError("SKIP: parent %s is not in the configuration" % op["rec"]["parent"])
+        if op["rec"]["parent"]:
+            parent = find_form_target(root, ctx["name_map"], op["rec"]["parent"])
+            if parent is None:
+                raise ValueError("SKIP: parent %s is not in the configuration" % op["rec"]["parent"])
+            if parent is target or any(ancestor is target for ancestor in parent.iterancestors()):
+                raise ValueError("SKIP: destination %s is inside the element being moved" % op["rec"]["parent"])
         node = copy.deepcopy(target)
         remove_form_node(target)
         where = insert_form_element(op["rec"], root, ctx["name_map"])
         if where is None:
-            raise ValueError("SKIP: parent %s is not in the configuration" % op["rec"]["parent"])
+            raise ValueError("parent %s disappeared during the move" % op["rec"]["parent"])
         insert_form_node_at(where["ci"], node, where["ref"], eol)
     elif kind == "appearance":
         attrs = get_form_section(root, "Attributes")
