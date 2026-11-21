@@ -1,5 +1,5 @@
 ﻿#!/usr/bin/env python3
-# cfe-transfer v1.17 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+# cfe-transfer v1.18 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -939,23 +939,79 @@ def get_method_safe(lines, method_name):
         return None
 
 
-# Comparable form of a code line: normalized, without the extension prefix, lower case (the language
-# ignores case; lowering here also keeps the copied matchers' -eq and Python's == in agreement)
+# Fold identifiers while protecting literal values from case and whitespace normalization.
+def code_keys(lines, prefix, significant=False, params=()):
+    lines = protect_bsl_parameter_members(lines, params)
+    source = '\n'.join(lines)
+    parts, pos, line_no, comments = [], 0, 0, {}
+    def code_part(value):
+        value = remove_ext_prefix(value, prefix)
+        return DEV_RE.sub('', value) if DEV_RE is not None else value
+    for match in re.finditer(r'//[^\r\n]*|' + BSL_LITERAL_PATTERN, source):
+        segment = source[pos:match.start()]
+        line_no += segment.count('\n')
+        parts.append(code_part(segment))
+        if match[0].startswith('//'):
+            line_start = source.rfind('\n', 0, match.start()) + 1
+            if not source[line_start:match.start()].strip():
+                comments[line_no] = match[0][2:]
+            parts.append(code_part(match[0]))
+        else:
+            segments = match[0].split('\n')
+            encoded = []
+            for i, part in enumerate(segments):
+                if i and part.lstrip().startswith('//'):
+                    archive = part.lstrip()[2:].lstrip()
+                    if archive.startswith('|'):
+                        encoded.append('//' + code_keys(['"', archive, '|"'], prefix)[1])
+                    else:
+                        encoded.append(part.strip())
+                    continue
+                if i and not part.strip():
+                    encoded.append(''); continue
+                if i:
+                    part = re.sub(r'^[\t ]+(?=\|)', '', part)
+                encoded.append('~' + part.encode('utf-16-le', errors='surrogatepass').hex())
+            parts.append('"' + '\n'.join(encoded) + '"')
+        pos = match.end()
+        line_no += match[0].count('\n')
+    parts.append(code_part(source[pos:]))
+    keys = ''.join(parts).split('\n')
+    i = 0
+    while i < len(keys):
+        if i not in comments:
+            i += 1; continue
+        start, archive = i, []
+        while i < len(keys) and i in comments:
+            archive.append(comments[i]); i += 1
+        for j, key in enumerate(code_keys(archive, prefix, params=params)):
+            keys[start + j] = '//' + key
+    result = [normalize(line).lower() for line in keys]
+    return [line for line in result if test_significant(line)] if significant else result
+
+
 def code_key(line, prefix):
-    t = remove_ext_prefix(line, prefix)
-    if DEV_RE is not None:
-        t = DEV_RE.sub("", t)
-    return normalize(t).lower()
+    return code_keys([line], prefix)[0]
 
 
-# Significant lines of a body as code keys
 def sig_lines(lines, prefix):
-    out = []
-    for l in lines:
-        n = code_key(l, prefix)
-        if test_significant(n):
-            out.append(n)
-    return out
+    return code_keys(lines, prefix, True)
+
+
+def previously_folded_body_match(left, right, prefix):
+    """Only scopes dependency protection to newly exposed literal mismatches; never accepts code."""
+    signatures = []
+    for lines in (left, right):
+        keys = []
+        for line in lines:
+            value = remove_ext_prefix(line, prefix)
+            if DEV_RE is not None:
+                value = DEV_RE.sub('', value)
+            value = normalize(value).lower()
+            if test_significant(value):
+                keys.append(value)
+        signatures.append('\n'.join(keys))
+    return signatures[0] == signatures[1]
 
 
 # Declaration following an annotation (context directives and other annotations may sit between)
@@ -1206,9 +1262,13 @@ def find_run_in_context(v2norm, v2sig, v2map, keys, sig_keys, before_ctx, after_
 
 def get_control_transfer(ext_method, cfg_method, prefix):
     parsed = parse_marked_body(ext_method["body_lines"])
+    projection = get_control_projection(ext_method['body_lines'], {}, prefix, ext_method['param_names'])
     ops = parsed["ops"]
-    v1norm = [code_key(x, prefix) for x in parsed["v1"]]
-    v2norm = [code_key(x, prefix) for x in cfg_method["body_lines"]]
+    for i, op in enumerate(ops):
+        op["source_index"] = i
+    params = ext_method["param_names"]
+    v1norm = code_keys(convert_bsl_code(parsed['v1'], {}, params), prefix, params=params)
+    v2norm = code_keys(cfg_method["body_lines"], prefix, params=cfg_method["param_names"])
     v2sig, v2map = significant_projection(v2norm)
     v1sig = significant_projection(v1norm)[0]
     absorbed = 0
@@ -1219,7 +1279,7 @@ def get_control_transfer(ext_method, cfg_method, prefix):
     marked_done = 0
     # Per edit, for -Mode transfer: the result and where it goes in the configuration's body
     plan = []
-    payloads = {i: [x for x in (code_key(y, prefix) for y in o["lines"]) if test_significant(x)]
+    payloads = {i: [k for k in projection['payload_keys'][i] if test_significant(k)]
                 for i, o in enumerate(ops) if o["kind"] == "insert"}
     replaced = get_absorbed_in_place(ops, v1norm, v2norm, v2sig, payloads)
     deleted = set()
@@ -1401,8 +1461,7 @@ def get_heuristic_transfer(ext_method, cfg_method, prefix):
             renames[ep[i].lower()] = cp[i]
     result_vars = []
     lines = []
-    for l in rename_code_words(ext_method["body_lines"], renames):
-        n = code_key(l, prefix)
+    for n in code_keys(protect_bsl_parameter_members(rename_code_words(convert_bsl_code(ext_method["body_lines"], {}, ep), renames), cp), prefix):
         if not test_significant(n):
             continue
         if proceed_re.search(n):
@@ -1420,7 +1479,7 @@ def get_heuristic_transfer(ext_method, cfg_method, prefix):
         lines = meaningful
     if not lines:
         return None
-    hay = sig_lines(cfg_method["body_lines"], prefix)
+    hay = sig_lines(protect_bsl_parameter_members(cfg_method["body_lines"], cp), prefix)
     found = 0
     j = 0
     for l in lines:
@@ -2694,6 +2753,7 @@ def module_transfer_items(bsl, ext_dir, config_path, prefix, skip_handlers):
     if ext_lines is None:
         return items
     rel = rel_path(ext_dir, bsl)
+    set_bsl_context(rel)
     cfg_lines = read_bsl_lines(os.path.join(config_path, rel))
     mc = get_module_changes(ext_lines, skip_handlers)
     for x in mc["interceptors"]:
@@ -2745,16 +2805,19 @@ def module_transfer_items(bsl, ext_dir, config_path, prefix, skip_handlers):
         hits = find_names_in(cfg_names, pn, prefix)
         hit = None
         cfg_m = None
+        literal_mismatch = False
         if not hits:
             it = new_item("NOT_TRANSFERRED", "method " + pn, loc)
         else:
-            ext_sig = "\n".join(sig_lines(ext_m["body_lines"], prefix))
+            ext_sig = "\n".join(sig_lines(protect_bsl_parameter_members(convert_bsl_code(ext_m["body_lines"], {}, ext_m["param_names"]), ext_m["param_names"]), prefix))
             same = False
             for h in hits:
                 m = get_method_safe(cfg_lines, h)
-                if m and "\n".join(sig_lines(m["body_lines"], prefix)).lower() == ext_sig.lower():
+                if m and "\n".join(sig_lines(protect_bsl_parameter_members(m["body_lines"], m["param_names"]), prefix)).lower() == ext_sig.lower():
                     hit, cfg_m, same = h, m, True
                     break
+                if m and previously_folded_body_match(ext_m['body_lines'], m['body_lines'], prefix):
+                    literal_mismatch = True
             if not same:
                 hit = hits[0]
                 cfg_m = get_method_safe(cfg_lines, hit)
@@ -2763,14 +2826,14 @@ def module_transfer_items(bsl, ext_dir, config_path, prefix, skip_handlers):
                 it = new_item("TRANSFERRED", "method %s%s" % (pn, as_), loc)
             else:
                 it = new_item("DIVERGED", "method %s%s (body differs)" % (pn, as_), loc)
-        it["plan"] = {"kind": "own", "rel": rel, "ext_m": ext_m, "ext_lines": ext_lines, "cfg_m": cfg_m, "name": pn, "hit": hit, "cfg_missing": cfg_lines is None}
+        it["plan"] = {"kind": "own", "rel": rel, "ext_m": ext_m, "ext_lines": ext_lines, "cfg_m": cfg_m, "name": pn, "hit": hit, "cfg_missing": cfg_lines is None, "literal_mismatch": literal_mismatch}
         items.append(set_temp_mark(it, mark, "method " + pn))
     # Code outside methods (module variables, statements of the module body): its lines looked up among
     # the configuration module's code outside methods, prefixes left out; order is not compared. A line
     # counts once: a variable declared twice in the extension is declared once in the configuration.
     if mc["top_code"] >= 0:
-        ext_top = list(dict.fromkeys(get_top_key(l, prefix) for l in get_top_code_lines(ext_lines)))
-        have = {get_top_key(l, prefix) for l in get_top_code_lines(cfg_lines)} if cfg_lines is not None else set()
+        ext_top = list(dict.fromkeys(get_top_code_keys(ext_lines, prefix, True).values()))
+        have = set(get_top_code_keys(cfg_lines, prefix).values()) if cfg_lines is not None else set()
         found = sum(1 for k in ext_top if k in have)
         st = heuristic_status({"found": found, "total": len(ext_top)})
         it = new_item(st, "module code outside methods (heuristic: %d/%d lines)" % (found, len(ext_top)), "%s:%d" % (rel, mc["top_code"] + 1))
@@ -2841,17 +2904,11 @@ def get_module_layout(lines):
     return {"vars": vars_, "statements": stmts, "last_var": last_var, "first_method": first_method, "after_methods": after_methods}
 
 
-def get_top_code_lines(lines):
-    """Code lines of a module outside its methods (not blank, not comments, annotations or preprocessor
-    lines), trimmed."""
+def get_top_code_keys(lines, prefix, extension=False):
+    src = convert_bsl_code(lines, {}) if extension else lines
+    keys = code_keys(get_code_only(src, True), prefix)
     lay = get_module_layout(lines)
-    idx = sorted([v["idx"] for v in lay["vars"]] + lay["statements"])
-    return [lines[i].strip() for i in idx]
-
-
-def get_top_key(line, prefix):
-    """Comparable form of a line of code outside methods: no trailing comment, prefixes left out."""
-    return code_key(get_code_only([line], True)[0], prefix)
+    return {i: keys[i] for i in sorted([v['idx'] for v in lay['vars']] + lay['statements'])}
 
 
 # Own sub-objects of a borrowed object (attributes, tabular sections, commands, forms, templates, …)
@@ -2981,6 +3038,7 @@ def transfer_object(ext, obj, cfg_info, config_path, cfg_pools=None):
         rel = rel_path(ext["dir"], f["xml"])
         cfg_form = os.path.join(config_path, rel)
         cfg_module = os.path.join(config_path, rel_path(ext["dir"], f["module"]))
+        set_bsl_context(rel_path(ext["dir"], f["module"]))
         # Dialog changes have no line of their own: their file is the form's Form.xml
         for fi in form_transfer_items(d, f, cfg_form, cfg_module, ext["dir"], prefix):
             if not fi["loc"]:
@@ -3003,6 +3061,13 @@ def transfer_object(ext, obj, cfg_info, config_path, cfg_pools=None):
         rec["items"] += subsystem_content_items(ctx["md"], cfg_md, prefix, obj_rel, cfg_pools)
     rec["items"] += form_items
     for it in rec["items"]:
+        pl2 = it.get('plan')
+        if pl2 and pl2.get('rel') and it['status'] not in ('TRANSFERRED', 'TEMPORARY'):
+            set_bsl_context(pl2['rel'])
+            problem = get_bsl_plan_issue(pl2)
+            if problem:
+                it['status'] = 'MANUAL'; it['text'] += ' — ' + problem['issue']['why']
+                it['sub'] = get_bsl_manual_details(pl2, problem)
         m = re.match(r'^(.+):(\d+)$', it["loc"] or "")
         if m:
             it["section"] = m.group(1)
@@ -4397,7 +4462,7 @@ def get_called_names(lines, skip):
     those in skip (the extension's own methods: calling them is not a global name)."""
     sk = {n.lower() for n in skip if n}
     res = set()
-    for t in get_code_only(lines, True):
+    for t in get_code_only(lines):
         for m in CALL_RE.finditer(t):
             k = m.group(1).lower()
             if k not in sk:
@@ -4405,9 +4470,459 @@ def get_called_names(lines, skip):
     return res
 
 
+BSL_CATALOG = {}
+BSL_COMMON = {}
+BSL_GLOBALS = {}
+BSL_GLOBAL_OWNERS = []
+BSL_CONTEXT = None
+BSL_LITERAL_PATTERN = r'"(?:""|[^"\r\n])*(?:\r?\n[\t ]*(?:\|(?:""|[^"\r\n])*|//[^\r\n]*|(?=\r?\n|$)))*(?:"|(?=\r?\n|$))'
+BSL_TOKEN_RE = re.compile(r'//[^\r\n]*|' + BSL_LITERAL_PATTERN + r'|\w+|\s+|[^\w\s]')
+
+
+def bsl_tokens(lines):
+    for m in BSL_TOKEN_RE.finditer("\n".join(lines)):
+        v = m.group()
+        kind = "comment" if v.startswith("//") else "string" if v.startswith('"') and len(v) >= 2 and v.endswith('"') else "fragment" if v.startswith('"') else "word" if re.fullmatch(r'\w+', v) else "punct"
+        yield {"kind": kind, "value": v, "start": m.start(), "length": len(v)}
+
+
+def initialize_bsl_catalog(ext_dir, config_path, prefix):
+    global BSL_CONTEXT
+    BSL_CATALOG.clear(); BSL_COMMON.clear(); BSL_GLOBALS.clear(); BSL_GLOBAL_OWNERS.clear(); BSL_CONTEXT = None
+    for directory, dirs, files in os.walk(ext_dir):
+        dirs.sort()
+        for filename in sorted(files):
+            if not filename.lower().endswith('.bsl'):
+                continue
+            path = os.path.join(directory, filename)
+            rel = rel_path(ext_dir, path)
+            cfg = os.path.join(config_path, rel)
+            el, cl = read_bsl_lines(path), read_bsl_lines(cfg)
+            kind = get_module_kind(rel)
+            ctx = {"rel": rel, "ext": el, "cfg": cl, "kind": kind, "methods": {}, "attrs": {}, "data_attrs": {}, "form_names": {}, "names": {}}
+            BSL_CATALOG[rel.lower()] = ctx
+            cn, en = get_proc_names(cl or []), get_proc_names(el)
+            taken = {n.lower() for n in cn} | get_called_names((cl or []) + el, en)
+            intercept_names = set()
+            for ic in get_interceptors(el):
+                declaration = find_decl_after(el, ic['line'])
+                if declaration:
+                    intercept_names.add(declaration['name'].lower())
+            for d in get_proc_decls(el):
+                n = d['name']
+                if n.lower() in intercept_names:
+                    continue
+                hits = find_names_in(cn, n, prefix)
+                hit = None
+                em = get_method_safe(el, n)
+                for h in hits:
+                    cm = get_method_safe(cl, h)
+                    if cm and sig_lines(cm['body_lines'], prefix) == sig_lines(em['body_lines'], prefix):
+                        hit = h; break
+                hit = hit or (hits[0] if hits else None)
+                target = hit or get_target_name(n, prefix, taken, False)['name']
+                ctx['methods'][n.lower()] = target; ctx['names'][n.lower()] = n
+                taken.add(target.lower())
+            match = re.match(r'^CommonModules[/\\]([^/\\]+)', rel, re.I)
+            if kind == 'common' and match:
+                BSL_COMMON[match[1].lower()] = ctx
+            for v in get_module_layout(el)['vars']:
+                for n in v['names']:
+                    ctx['attrs'][n.lower()] = remove_ext_prefix(n, prefix); ctx['names'][n.lower()] = n
+            if kind == 'form':
+                ef = re.sub(r'[/\\]Form[/\\]Module\.bsl$', '/Form.xml', path, flags=re.I)
+                cf = re.sub(r'[/\\]Form[/\\]Module\.bsl$', '/Form.xml', cfg, flags=re.I)
+                ed, cd = read_form_doc(ef), read_form_doc(cf)
+                if ed is not None and cd is not None:
+                    fm = get_form_name_map(ed, cd, prefix)
+                    cfg_names2 = [x.get('name') for x in cd.iter() if x.get('name')]
+                    for k2 in list(fm):
+                        hit2 = find_name_in(cfg_names2, k2, prefix)
+                        if hit2:
+                            fm[k2] = hit2
+                    ctx['form_names'] = fm
+                    for x in ed.findall('{*}Attributes/{*}Attribute'):
+                        if localname(x) != 'Attribute':
+                            continue
+                        n = x.get('name', '')
+                        if n:
+                            ctx['attrs'][n.lower()] = fm.get(n.lower(), remove_ext_prefix(n, prefix)); ctx['names'][n.lower()] = n
+            match = re.match(r'^([^/\\]+)[/\\]([^/\\]+)[/\\]', rel)
+            if match:
+                md_rel = '%s/%s.xml' % (match[1], match[2])
+                ed, cd = read_md_object(os.path.join(ext_dir, md_rel)), read_md_object(os.path.join(config_path, md_rel))
+                if ed and ed['children'] is not None:
+                    cfg_names = [md_child_name(x) for x in elem_children(cd['children'])] if cd and cd['children'] is not None else []
+                    for x in elem_children(ed['children']):
+                        if localname(x) not in ('Attribute', 'TabularSection'):
+                            continue
+                        n = md_child_name(x)
+                        if not n:
+                            continue
+                        target = find_name_in(cfg_names, n, prefix) or remove_ext_prefix(n, prefix)
+                        ctx['data_attrs'][n.lower()] = target; ctx['names'][n.lower()] = n
+                        if kind != 'form':
+                            ctx['attrs'][n.lower()] = target
+    cp = read_configuration_props(ext_dir)
+    cfg_props = read_configuration_props(config_path)
+    if cp['child_objects'] is not None:
+        for x in elem_children(cp['child_objects']):
+            n = (x.text or '').strip()
+            pool = [(c.text or '').strip() for c in elem_children(cfg_props['child_objects']) if localname(c) == localname(x)] if cfg_props['child_objects'] is not None else []
+            BSL_GLOBALS[n.lower()] = find_name_in(pool, n, prefix) or remove_ext_prefix(n, prefix)
+
+    global_paths = {}
+    for root2 in (config_path, ext_dir):
+        directory = os.path.join(root2, 'CommonModules')
+        if not os.path.isdir(directory):
+            continue
+        for filename in sorted(os.listdir(directory)):
+            if not filename.lower().endswith('.xml'):
+                continue
+            md = read_md_object(os.path.join(directory, filename))
+            if not md or md['props'] is None:
+                continue
+            glob = md['props'].find('{*}Global')
+            if glob is not None and (glob.text or '').lower() == 'true':
+                rel2 = 'CommonModules/%s/Ext/Module.bsl' % filename[:-4]
+                global_paths[rel2.lower()] = rel2
+    for rel2 in global_paths.values():
+        gc = BSL_CATALOG.get(rel2.lower())
+        if gc is None:
+            gc = {'rel': rel2, 'kind': 'common', 'methods': {}, 'ext': [], 'cfg': read_bsl_lines(os.path.join(config_path, rel2))}
+        BSL_GLOBAL_OWNERS.append(gc)
+    for rel2 in ('Ext/ManagedApplicationModule.bsl', 'Ext/OrdinaryApplicationModule.bsl'):
+        ac = BSL_CATALOG.get(rel2.lower())
+        acl = read_bsl_lines(os.path.join(config_path, rel2))
+        if ac is not None or acl is not None:
+            BSL_GLOBAL_OWNERS.append({'rel': rel2, 'kind': 'application',
+                                      'methods': ac['methods'] if ac else {},
+                                      'ext': ac['ext'] if ac else [], 'cfg': acl})
+    api_re = re.compile(r'(ОписаниеОповещения|CallbackDescription|NotifyDescription|ОбработчикОжидания|IdleHandler|УстановитьДействие|SetAction|РеквизитФормыВЗначение|FormAttributeToValue)\s*\(', re.I)
+    for _ in range(len(BSL_CATALOG) + 1):
+        changed = False
+        for ctx2 in BSL_CATALOG.values():
+            BSL_CONTEXT = ctx2
+            for k2 in list(ctx2['methods']):
+                n2 = ctx2['names'][k2]
+                em2 = get_method_safe(ctx2['ext'], n2)
+                if not em2 or not api_re.search('\n'.join(em2['body_lines'])):
+                    continue
+                old, found = ctx2['methods'][k2], None
+                for hit in find_names_in(get_proc_names(ctx2['cfg'] or []), n2, prefix):
+                    ctx2['methods'][k2] = hit
+                    cm2 = get_method_safe(ctx2['cfg'], hit)
+                    if cm2 and sig_lines(protect_bsl_parameter_members(convert_bsl_code(em2['body_lines'], {}, em2['param_names']), em2['param_names']), prefix) == sig_lines(protect_bsl_parameter_members(cm2['body_lines'], cm2['param_names']), prefix):
+                        found = hit; break
+                ctx2['methods'][k2] = found or old
+                changed |= found is not None and found != old
+        if not changed:
+            break
+    BSL_CONTEXT = None
+
+
+def get_bsl_global_references(name):
+    result, k = [], name.lower()
+    for gc in BSL_GLOBAL_OWNERS:
+        em = get_method_safe(gc['ext'], name)
+        if em and is_export(gc['ext'], em) and k in gc['methods']:
+            target = gc['methods'][k]
+            if gc['kind'] == 'application' and not get_method_safe(gc['cfg'], target):
+                target = name
+            result.append({'target': target, 'context': gc})
+        cm = get_method_safe(gc['cfg'], name)
+        if cm and is_export(gc['cfg'], cm):
+            result.append({'target': name, 'context': gc})
+    return result
+
+
+def set_bsl_context(rel):
+    global BSL_CONTEXT
+    BSL_CONTEXT = BSL_CATALOG.get(rel.lower())
+
+
+def get_bsl_owner(owner, ctx):
+    k = owner.strip().lower()
+    if len(k) >= 2 and k.startswith('"') and k.endswith('"'):
+        k = k[1:-1]
+    else:
+        k = re.sub(r'\s+', '', k)
+    if not k:
+        return ctx
+    if k in ('этаформа', 'thisform') and ctx and ctx['kind'] == 'form':
+        return ctx
+    if k in ('этотобъект', 'thisobject') and ctx and ctx['kind'] in ('form', 'object'):
+        return ctx
+    return BSL_COMMON.get(k)
+
+
+def get_bsl_arguments(tokens, opening):
+    args, part, depth = [], [], 0
+    for j in range(opening + 1, len(tokens)):
+        v = tokens[j]['value']
+        if tokens[j]['kind'] == 'punct':
+            if v in ('(', '['):
+                depth += 1
+            elif v in (')', ']'):
+                if depth == 0:
+                    args.append(part); break
+                depth -= 1
+            elif v == ',' and depth == 0:
+                args.append(part); part = []; continue
+        part.append(j)
+    return args
+
+
+def get_bsl_conversion(lines, file_map, ctx, params=(), comparison=False):
+    params = {name.lower() for name in params}
+    all_tokens = list(bsl_tokens(lines))
+    ts = [t for t in all_tokens if t['kind'] != 'comment' and not t['value'].isspace()]
+    edits, handled, issues, warnings, references = {}, set(), [], [], []
+    methods = dict(ctx['methods']) if ctx else {}
+    methods.update(file_map)
+    attrs = ctx['attrs'] if ctx else {}
+    for i, t in enumerate(ts):
+        if t['kind'] != 'word':
+            continue
+        k, owner = t['value'].lower(), ''
+        qualified = i > 0 and ts[i - 1]['value'] == '.'
+        if qualified:
+            a = i - 2
+            while a > 1 and ts[a - 1]['value'] == '.' and ts[a - 2]['kind'] == 'word':
+                a -= 2
+            owner = ''.join(x['value'] for x in ts[a:i - 1])
+        receiver = owner.split('.', 1)[0].lower()
+        if qualified and receiver in params:
+            if comparison and receiver in BSL_COMMON:
+                edits[t['start']] = '~' + k.encode('utf-16-le').hex() + '~'
+            continue
+        oc = get_bsl_owner(owner, ctx) if not comparison else None
+        om = methods if oc is ctx and oc else oc['methods'] if oc else {}
+        is_call = i + 1 < len(ts) and ts[i + 1]['value'] == '('
+        is_ctor = i > 0 and ts[i - 1]['value'].lower() in ('новый', 'new')
+        if comparison or (not qualified and not is_call and k in params):
+            continue
+        if not is_ctor:
+            if k in om and (is_call or not qualified):
+                edits[t['start']] = om[k]
+            elif not qualified and k in attrs:
+                edits[t['start']] = attrs[k]
+            elif qualified and not is_call and oc and k in oc.get('attrs', {}):
+                edits[t['start']] = oc['attrs'][k]
+            elif not qualified and i + 1 < len(ts) and ts[i + 1]['value'] == '.' and k in BSL_GLOBALS:
+                edits[t['start']] = BSL_GLOBALS[k]
+            elif qualified and ctx and owner.lower() in ('элементы', 'items', 'команды', 'commands') and k in ctx['form_names']:
+                edits[t['start']] = ctx['form_names'][k]
+            elif qualified and ctx and owner.lower() in ('объект', 'object') and ctx['kind'] == 'form' and k in ctx['data_attrs']:
+                edits[t['start']] = ctx['data_attrs'][k]
+            elif qualified and not is_call and k in BSL_GLOBALS:
+                edits[t['start']] = BSL_GLOBALS[k]
+        if not is_call:
+            continue
+        if not is_ctor and (k in om or (qualified and oc and oc['kind'] == 'common')):
+            continue
+        specs = []
+        if k in ('описаниеоповещения', 'notifydescription', 'callbackdescription'):
+            if i == 0 or ts[i - 1]['value'].lower() not in ('новый', 'new'):
+                continue
+            specs = [(0, 1, 'method'), (3, 4, 'method')]
+        elif k in ('подключитьобработчикожидания', 'attachidlehandler', 'отключитьобработчикожидания', 'detachidlehandler'):
+            specs = [(0, -1, 'method')]
+        elif k in ('установитьдействие', 'setaction'):
+            specs = [(1, -1, 'method')]
+        elif k in ('реквизитформывзначение', 'formattributetovalue'):
+            specs = [(0, -1, 'attribute')]
+        if not specs:
+            continue
+        args = get_bsl_arguments(ts, i + 1)
+        if k in ('setaction', 'установитьдействие') and args and len(args[0]) == 1:
+            handled.add(ts[args[0][0]]['start'])
+        for arg, owner_arg, ref_kind in specs:
+            if len(args) <= arg or len(args[arg]) != 1:
+                continue
+            st = ts[args[arg][0]]
+            if st['kind'] != 'string':
+                continue
+            value = st['value'][1:-1].replace('""', '"'); sk = value.lower()
+            ref_owner = owner
+            if owner_arg >= 0:
+                ref_owner = ''.join(ts[j]['value'] for j in args[owner_arg]) if len(args) > owner_arg else '?'
+            rc = get_bsl_owner(ref_owner, ctx) if ref_owner.lower() not in params else None
+            if owner_arg >= 0 and rc and len(args) > owner_arg and len(args[owner_arg]) == 1:
+                mt = ts[args[owner_arg][0]]
+                if mt['kind'] == 'string':
+                    mk = mt['value'][1:-1].lower()
+                    handled.add(mt['start'])
+                    if mk in BSL_GLOBALS:
+                        edits[mt['start']] = '"' + BSL_GLOBALS[mk] + '"'
+            if k in ('setaction', 'установитьдействие') and ctx and ctx['kind'] == 'form' and re.match(r'^(Элементы|Items)\.', ref_owner, re.I):
+                rc = ctx
+            if k in ('attachidlehandler', 'detachidlehandler', 'подключитьобработчикожидания', 'отключитьобработчикожидания') and not qualified and ctx and ctx['kind'] != 'form':
+                gs = get_bsl_global_references(value)
+                targets = {g['target'].lower(): g['target'] for g in gs}
+                handled.add(st['start'])
+                if len(targets) == 1:
+                    edits[st['start']] = '"' + next(iter(targets.values())) + '"'
+                    references += [{'name': value, 'context': gr['context'], 'kind': 'method', 'token': st} for gr in gs]
+                elif len(targets) > 1:
+                    issues.append({'token': st, 'rename': value + ' -> ' + ', '.join(sorted(targets.values())), 'why': 'global handler resolves to different target names'})
+                continue
+            rm = (rc['attrs'] if rc and rc['kind'] == 'form' else {}) if ref_kind == 'attribute' else methods if rc is ctx and rc else rc['methods'] if rc else {}
+            handled.add(st['start'])
+            if sk in rm:
+                edits[st['start']] = '"' + rm[sk].replace('"', '""') + '"'
+                references.append({'name': value, 'context': rc, 'kind': ref_kind, 'token': st})
+            elif rc is None:
+                matches = set()
+                for c in BSL_CATALOG.values():
+                    mm = c['attrs'] if ref_kind == 'attribute' else c['methods']
+                    if sk in mm and mm[sk].lower() != sk:
+                        matches.add('%s -> %s' % (value, mm[sk]))
+                if matches:
+                    issues.append({'token': st, 'rename': ', '.join(sorted(matches)), 'why': 'handler owner is unknown; the current module map cannot be used'})
+    for t in ts:
+        if t['kind'] != 'string' or t['start'] in handled:
+            continue
+        value = t['value'][1:-1].replace('""', '"'); k = value.lower()
+        for mapping, kind in ((methods, 'method'), (attrs, 'attribute')):
+            maps = [mapping] + [c['methods'] if kind == 'method' else c['attrs'] for c in BSL_CATALOG.values()]
+            renames = {m[k].lower(): '%s -> %s' % (value, m[k]) for m in maps if k in m and m[k].lower() != k}
+            if renames:
+                warnings.append({'token': t, 'kind': kind, 'rename': ', '.join(sorted(renames.values()))})
+    text = ''.join(edits.get(t['start'], t['value']) for t in all_tokens)
+    return {'lines': text.split('\n'), 'issues': issues, 'warnings': warnings, 'references': references}
+
+
+def convert_bsl_code(lines, file_map, params=()):
+    return get_bsl_conversion(lines, file_map, BSL_CONTEXT, params)['lines']
+
+
+def protect_bsl_parameter_members(lines, params):
+    # Protect member names of shadowing parameters only in comparison keys.
+    if any(name.lower() in BSL_COMMON for name in params):
+        return get_bsl_conversion(lines, {}, None, params, comparison=True)['lines']
+    return lines
+
+
+def get_control_projection(body, file_map, prefix, params=()):
+    desired, source, ranges, op_index, i = [], [], {}, -1, 0
+    while i < len(body):
+        kind = bsl_marker_kind(body[i])
+        if kind in ('Insert', 'Delete'):
+            op_index += 1; i += 1; start = len(desired)
+            end_kind = 'EndInsert' if kind == 'Insert' else 'EndDelete'
+            while i < len(body) and bsl_marker_kind(body[i]) != end_kind:
+                if kind == 'Insert':
+                    desired.append(body[i]); source.append(i)
+                i += 1
+            ranges[op_index] = (start, len(desired)); i += 1
+        else:
+            desired.append(body[i]); source.append(i); i += 1
+    converted = convert_bsl_code(desired, file_map, params)
+    keys = code_keys(converted, prefix, params=params)
+    return {'desired': desired, 'source': source, 'ranges': ranges,
+            'payloads': {k: converted[a:b] for k, (a, b) in ranges.items()},
+            'payload_keys': {k: keys[a:b] for k, (a, b) in ranges.items()}}
+
+
+def get_bsl_plan_issue(plan):
+    if not plan:
+        return None
+    methods = [plan['ext_m']] if plan.get('ext_m') else []
+    methods += [h['ext_m'] for h in plan.get('handlers', []) if h.get('ext_m')]
+    allowed = None
+    if plan['kind'] == 'topcode':
+        methods.append({'body_lines': plan['ext_lines'], 'sig_end_idx': -1})
+        allowed = get_top_code_keys(plan['ext_lines'], TRANSFER_PREFIX)
+    for m in methods:
+        lines, source_map = m['body_lines'], None
+        if plan['kind'] == 'control':
+            projection = get_control_projection(lines, {}, TRANSFER_PREFIX, m.get('param_names', ()))
+            lines, source_map = projection['desired'], projection['source']
+        bc = get_bsl_conversion(lines, {}, BSL_CONTEXT, m.get('param_names', ()))
+        for issue in bc['issues']:
+            offset = '\n'.join(lines)[:issue['token']['start']].count('\n')
+            if allowed is not None and offset not in allowed:
+                continue
+            if source_map is not None:
+                offset = source_map[offset]
+            return {'method': m, 'issue': issue, 'offset': offset}
+    return None
+
+
+def get_bsl_manual_details(plan, problem):
+    m, issue = problem['method'], problem['issue']
+    offset = problem['offset']
+    return ['from: extension %s:%d' % (plan['rel'], m['sig_end_idx'] + 2 + offset),
+            'code: ' + m['body_lines'][offset].strip(), 'rename: ' + issue['rename'],
+            'next: resolve the handler context in the extension, or copy the complete method and verify its handler by hand; then re-run -Mode transfer']
+
+
+def get_bsl_blocked_dependencies(plan, by_file, common, config_path):
+    missing = dict(common)
+    missing.update(by_file.get(os.path.abspath(os.path.join(config_path, plan['rel'])).lower(), {}))
+    methods = [plan.get('ext_m')] + [h.get('ext_m') for h in plan.get('handlers', [])]
+    deps = {dep for m in methods if m
+            for dep in get_used_missing(m['body_lines'], missing, params=m['param_names'])}
+    return sorted(deps, key=str.upper)
+
+
+def get_bsl_warning_report(records, config_path):
+    result, seen = [], set()
+    for rec in records:
+        units = list(rec['items'])
+        for it2 in rec['items']:
+            for h2 in (it2.get('plan') or {}).get('handlers', []):
+                if h2.get('ext_m'):
+                    units.append({'status': it2['status'], 'plan': {'kind': 'own', 'rel': it2['plan']['rel'], 'ext_m': h2['ext_m'], 'name': h2['handler']}})
+        for it in units:
+            pl = it.get('plan')
+            if not pl or (not pl.get('ext_m') and pl['kind'] != 'topcode') or not pl.get('rel'):
+                continue
+            ctx = BSL_CATALOG.get(pl['rel'].lower())
+            if not ctx:
+                continue
+            key = (pl['rel'], pl['ext_m']['decl_idx'] if pl.get('ext_m') else None)
+            if key in seen:
+                continue
+            seen.add(key)
+            side, m, allowed = 'extension', pl.get('ext_m'), None
+            if pl['kind'] == 'topcode':
+                src2 = pl['ext_lines']
+                if it['status'] == 'TRANSFERRED':
+                    src2 = read_bsl_lines(os.path.join(config_path, pl['rel'])); side = 'config'
+                m = {'body_lines': src2, 'sig_end_idx': -1}
+                allowed = get_top_code_keys(src2, TRANSFER_PREFIX)
+            if it['status'] == 'TRANSFERRED' and pl['kind'] != 'topcode':
+                cl = read_bsl_lines(os.path.join(config_path, pl['rel']))
+                if pl['kind'] == 'own':
+                    name = ctx['methods'].get(pl['name'].lower(), '')
+                elif pl.get('cfg_m'):
+                    name = pl['cfg_m']['canonical']
+                elif pl.get('handler'):
+                    name = ctx['methods'].get(pl['handler'].lower(), '')
+                else:
+                    name = ''
+                cm = get_method_safe(cl, name)
+                if cm:
+                    m, side = cm, 'config'
+            bc = get_bsl_conversion(m['body_lines'], {}, ctx, m.get('param_names', ()))
+            text = '\n'.join(m['body_lines'])
+            for w in bc['warnings']:
+                offset = text[:w['token']['start']].count('\n')
+                line = m['sig_end_idx'] + 2 + offset
+                if allowed is not None and line - 1 not in allowed:
+                    continue
+                result += ['[WARNING] string matches a renamed %s; left unchanged' % w['kind'],
+                           '  to:   %s %s:%d' % (side, pl['rel'], line),
+                           '  code: ' + m['body_lines'][offset].strip(),
+                           '  rename: ' + w['rename'],
+                           '  next: check whether the string refers to this ' + w['kind']]
+    return ['Warnings: %d' % (len(result) // 5)] + result if result else []
+
+
 def convert_ext_code(lines, file_map):
-    """Code of the extension as the configuration gets it: a name from the map (per file, then for the
-    whole run) becomes its target, any other identifier with the extension prefix loses the prefix."""
+    """Legacy XML value conversion; BSL uses convert_bsl_code and its scoped symbol catalog."""
     prefix = TRANSFER_PREFIX
     keys = set()
     for m in (file_map, NAME_MAP):
@@ -4522,7 +5037,7 @@ def get_form_bindings(form_xml):
     return res
 
 
-NOTIFY_RE = re.compile(r'(?:Новый|New)\s+(?:ОписаниеОповещения|NotifyDescription)\s*\(\s*"(\w+)"', re.IGNORECASE)
+NOTIFY_RE = re.compile(r'(?:Новый|New)\s+(?:ОписаниеОповещения|NotifyDescription|CallbackDescription)\s*\(\s*"(\w+)"', re.IGNORECASE)
 
 
 def get_notify_names(lines):
@@ -4681,7 +5196,8 @@ def get_indent(line):
     return m.group(1) if m else ""
 
 
-def get_control_body(cfg_m, plan, frame, deletion, file_map):
+def get_control_body(cfg_m, plan, frame, deletion, file_map, ext_m):
+    projection = get_control_projection(ext_m['body_lines'], file_map, TRANSFER_PREFIX, ext_m['param_names'])
     """The pending edits of an &ИзменениеИКонтроль method laid onto the configuration's body: inserts
     after their anchor, deletions removed or commented out, each framed by the project's comments."""
     v2 = list(cfg_m["body_lines"])
@@ -4697,7 +5213,7 @@ def get_control_body(cfg_m, plan, frame, deletion, file_map):
     out = []
 
     def emit_ins(op):
-        lines = convert_ext_code(op["lines"], file_map)
+        lines = projection['payloads'][op['source_index']]
         first = next((l for l in lines if l.strip() != ""), None)
         ind = get_indent(first) if first is not None else get_indent(op.get("open") or "")
         if frame["begin"]:
@@ -4743,86 +5259,35 @@ def get_control_body(cfg_m, plan, frame, deletion, file_map):
 # ============================================================
 
 def get_code_only(lines, keep_strings=False):
-    """Each line's code without comments; string literals are kept (keep_strings) or left as "" — a
-    literal that runs on over lines (the | continuation) is followed from line to line."""
-    res = []
-    in_str = False
-    for s in lines:
-        s = s or ""
-        out = []
-        i = 0
-        while i < len(s):
-            c = s[i]
-            if in_str:
-                if c == '"':
-                    if i + 1 < len(s) and s[i + 1] == '"':
-                        if keep_strings:
-                            out.append('""')
-                        i += 2
-                        continue
-                    in_str = False
-                    out.append('"')
-                elif keep_strings:
-                    out.append(c)
-                i += 1
-                continue
-            if c == '"':
-                in_str = True
-                out.append('"')
-                i += 1
-                continue
-            if c == '/' and i + 1 < len(s) and s[i + 1] == '/':
-                break
-            out.append(c)
-            i += 1
-        res.append("".join(out))
-    return res
+    if not lines:
+        return []
+    source, parts, pos = '\n'.join(lines), [], 0
+    for match in re.finditer(r'//[^\r\n]*|' + BSL_LITERAL_PATTERN, source):
+        parts.append(source[pos:match.start()])
+        value = match[0]
+        if not value.startswith('//'):
+            if keep_strings:
+                parts.append(value)
+            else:
+                parts.append('"' + '\n' * value.count('\n') + ('"' if len(value) >= 2 and value.endswith('"') else ''))
+        pos = match.end()
+    parts.append(source[pos:])
+    return ''.join(parts).split('\n')
 
 
 def rename_code_words(lines, mapping):
-    """Words renamed in code only (not in literals or comments, not after a dot): mapping lower-case -> new."""
-    if not mapping:
+    if not mapping or not lines:
         return list(lines)
-    rx = re.compile(r'(?<![\w.])(?:' + "|".join(re.escape(k) for k in mapping) + r')(?!\w)', re.IGNORECASE)
-
-    def sub(t):
-        return rx.sub(lambda m: mapping[m.group(0).lower()], t)
-
-    out = []
-    in_str = False
-    for s in lines:
-        s = s or ""
-        res = []
-        code = []
-        i = 0
-        while i < len(s):
-            c = s[i]
-            if in_str:
-                res.append(c)
-                if c == '"':
-                    if i + 1 < len(s) and s[i + 1] == '"':
-                        res.append('"')
-                        i += 2
-                        continue
-                    in_str = False
-                i += 1
-                continue
-            if c == '"' or (c == '/' and i + 1 < len(s) and s[i + 1] == '/'):
-                res.append(sub("".join(code)))
-                code = []
-                if c == '"':
-                    in_str = True
-                    res.append(c)
-                    i += 1
-                    continue
-                res.append(s[i:])
-                i = len(s)
-                break
-            code.append(c)
-            i += 1
-        res.append(sub("".join(code)))
-        out.append("".join(res))
-    return out
+    parts, previous = [], ''
+    for token in bsl_tokens(lines):
+        key = token['value'].lower()
+        if token['kind'] == 'word' and previous.lower() not in ('.', '\u043d\u043e\u0432\u044b\u0439', 'new') and key in mapping:
+            parts.append(mapping[key])
+        else:
+            parts.append(token['value'])
+        if token['kind'] != 'comment' and not token['value'].isspace():
+            previous = token['value']
+    return ''.join(parts).split('\n')
 
 
 IC_OPEN_RE = re.compile(r'(?<![\w.])(?:Если|If|Для|For|Пока|While|Попытка|Try)(?!\w)', re.IGNORECASE)
@@ -4986,7 +5451,7 @@ def get_intercept_ops(ext_m, cfg_m, type_, frame, deletion, file_map):
                 "next": "fix the signature in the extension or drop the interceptor, then re-run -Mode check"}
     val_names = [cp[i].lower() for i in range(len(cp)) if cv[i]]
     mapping = {ep[i].lower(): cp[i] for i in range(len(ep)) if ep[i] != cp[i]}
-    h = convert_ext_code(rename_code_words(ext_m["body_lines"], mapping), file_map)
+    h = convert_bsl_code(rename_code_words(ext_m["body_lines"], mapping), file_map, cp)
     o = list(cfg_m["body_lines"])
     hc = get_code_only(h)
     oc = get_code_only(o)
@@ -5219,23 +5684,49 @@ def add_out_name(by_file, common, cfg_file, rel, name):
     return new
 
 
-def get_used_missing(lines, missing):
+def get_used_missing(lines, missing, selected=None, params=()):
     """Missing names the code uses (comments left out): the sorted original names. The extension's code
     names its own things as the extension does, so a word matches by the very name: a plain Товары is
     not the extension's Расш_Товары."""
     if not missing:
         return []
+    shadowed = {name.lower() for name in params}
     hit = set()
-    for t in get_code_only(lines, True):
+    for line_idx, t in enumerate(get_code_only(lines)):
+        if selected is not None and line_idx not in selected:
+            continue
         for m in re.finditer(r'\w+', t):
             k = m.group(0).lower()
+            if BSL_CONTEXT and k in BSL_CONTEXT['methods']:
+                before2 = re.search(r'(\w+)\s*\.\s*$', t[:m.start()])
+                if before2:
+                    if before2[1].lower() in shadowed:
+                        continue
+                    owner2 = get_bsl_owner(before2[1], BSL_CONTEXT)
+                    if owner2 is not BSL_CONTEXT:
+                        continue
             if k in missing:
                 hit.add(missing[k])
         # A common module's method called from another module: Модуль.Метод
         for m in re.finditer(r'(\w+)\s*\.\s*(\w+)', t):
+            if m[1].lower() in shadowed:
+                continue
             k = (m.group(1) + "." + m.group(2)).lower()
             if k in missing:
                 hit.add(missing[k])
+    bc = get_bsl_conversion(lines, {}, BSL_CONTEXT, params)
+    for ref in bc['references']:
+        ref_line = '\n'.join(lines)[:ref['token']['start']].count('\n')
+        if selected is not None and ref_line not in selected:
+            continue
+        k = ref['name'].lower()
+        if ref['context'] and ref['context'] is not BSL_CONTEXT and ref['context']['kind'] == 'common':
+            mod = ref['context']['rel'].replace('\\', '/').split('/')[1]
+            k = (mod + '.' + ref['name']).lower()
+        if ref['context'] and ref['context'] is not BSL_CONTEXT and ref['context']['kind'] == 'application':
+            continue
+        if k in missing:
+            hit.add(missing[k])
     # Ordinal, case-insensitive (as StringComparer.OrdinalIgnoreCase in the .ps1, which upper-cases)
     return sorted(hit, key=lambda x: x.upper())
 
@@ -5245,7 +5736,7 @@ def get_control_result_gap(plan, body):
     the way the check sees it after the write — the ones laid now and the ones already there (lines an
     edit moves within the method reappear in its insert, and a deletion then looks undone again).
     Returns the number of edits the check would still see as not transferred."""
-    r2 = get_control_transfer(plan["ext_m"], {"body_lines": list(body)}, TRANSFER_PREFIX)
+    r2 = get_control_transfer(plan["ext_m"], dict(plan["cfg_m"], body_lines=list(body)), TRANSFER_PREFIX)
     before = plan["ops"]
     if not r2:
         return len(before)
@@ -5260,8 +5751,8 @@ def test_own_result(plan, fe, file_map):
     names = get_proc_names(fe["file"]["lines"]) + list(fe["given"])
     if not any(h.lower() == plan["target"]["name"].lower() for h in find_names_in(names, plan["name"], TRANSFER_PREFIX)):
         return False
-    conv = convert_ext_code(plan["ext_m"]["body_lines"], file_map)
-    return "\n".join(sig_lines(plan["ext_m"]["body_lines"], TRANSFER_PREFIX)).lower() == "\n".join(sig_lines(conv, TRANSFER_PREFIX)).lower()
+    conv = convert_bsl_code(plan["ext_m"]["body_lines"], file_map, plan["ext_m"]["param_names"])
+    return "\n".join(sig_lines(convert_bsl_code(plan["ext_m"]["body_lines"], file_map, plan["ext_m"]["param_names"]), TRANSFER_PREFIX)).lower() == "\n".join(sig_lines(conv, TRANSFER_PREFIX)).lower()
 
 
 def get_own_method_block(ext_lines, ext_m, frame, file_map):
@@ -5272,7 +5763,7 @@ def get_own_method_block(ext_lines, ext_m, frame, file_map):
         start -= 1
     while start >= 1 and ext_lines[start - 1].strip().startswith("//"):
         start -= 1
-    conv = convert_ext_code(ext_lines[start:ext_m["body_end_idx"] + 1], file_map)
+    conv = convert_bsl_code(ext_lines[start:ext_m["body_end_idx"] + 1], file_map, ext_m["param_names"])
     out = []
     if frame["begin"]:
         out.append(frame["begin"])
@@ -5604,6 +6095,7 @@ def main():
         ext = {"dir": ext_dir0, "name": cp0["name"], "prefix": prefix, "purpose": cp0["purpose"]}
         roles = 0
 
+        initialize_bsl_catalog(ext_dir0, config_path, prefix)
         # --- Pass 1: what the check sees, object by object ---
         work = []
         cfg_pools = {}
@@ -5732,8 +6224,14 @@ def main():
                     continue
                 fe["given"].add(tn["name"].lower())
                 file_maps[fk][pl["name"].lower()] = tn["name"]
+                # XML keeps its legacy map; BSL resolves methods through owner-scoped catalogs.
                 if get_module_kind(pl["rel"]) == "common" and tn["name"] != remove_ext_prefix(pl["name"], prefix):
                     NAME_MAP[pl["name"].lower()] = tn["name"]
+
+
+        for ctx2 in BSL_CATALOG.values():
+            fk2 = os.path.abspath(os.path.join(config_path, ctx2['rel'])).lower()
+            ctx2['methods'].update(file_maps.get(fk2, {}))
 
         # --- Pass 3: each change -> transferred now, waiting, left to a person (manual) or in conflict ---
         # An own method that stays out of the configuration in this run is one more missing name: code
@@ -5783,11 +6281,14 @@ def main():
                                key=lambda x: (x[0], x[1]))
                 for _, oi, it in order:
                     pl = it.get("plan")
+                    if pl and pl.get("rel"):
+                        set_bsl_context(pl["rel"])
                     t = new_titem(it["status"], it["text"], it.get("loc", ""), it.get("section", ""))
+                    t["plan"] = pl
                     t["group"] = it.get("group", "")
                     t["marked"] = it.get("marked", False)
                     t["seq"] = oi
-                    if pl and pl["kind"] == "own" and it["status"] == "NOT_TRANSFERRED":
+                    if pl and pl["kind"] == "own" and (it["status"] in ("NOT_TRANSFERRED", "MANUAL") or (it["status"] == "DIVERGED" and pl.get('literal_mismatch'))):
                         own_items.append({"plan": pl, "t": t})
                     # A method with an &ИзменениеИКонтроль edit not in the configuration yet: an interceptor of it
                     # would move the lines the edit is anchored to
@@ -5799,6 +6300,17 @@ def main():
                     if it["status"] == "TRANSFERRED":
                         titems.append(t)
                         continue
+                    problem = get_bsl_plan_issue(pl)
+                    if problem:
+                        t['status'] = 'MANUAL'
+                        if it['status'] != 'MANUAL':
+                            t['text'] += ' — ' + problem['issue']['why']
+                        t['sub'] = get_bsl_manual_details(pl, problem)
+                        blocked_names2 = [pl['handler']] if pl['kind'] == 'event-bind' else [h['handler'] for h in pl.get('handlers', [])] if pl['kind'] == 'command-bind' else []
+                        for n2 in blocked_names2:
+                            if add_out_name(out_by_file, out_common, os.path.abspath(os.path.join(config_path, pl['rel'])), pl['rel'], n2):
+                                again = True
+                        titems.append(t); continue
                     if it.get("group") and w["support"] == "locked":
                         t["status"] = "MANUAL"
                         t["text"] = it["text"] + " — object is locked by vendor support"
@@ -5814,11 +6326,20 @@ def main():
                             t["sub"] = ["next: apply by hand, then re-run -Mode check"]
                             titems.append(t)
                             continue
+                        blocked2 = get_bsl_blocked_dependencies(pl, out_by_file, out_common, config_path)
+                        if blocked2:
+                            t['status'] = 'WAITING'; t['text'] = it['text'] + ' - waits for: ' + ', '.join(blocked2)
+                            titems.append(t); continue
                         ic_pending.append({"t": t, "pl": it["plan"], "fe": get_file_edits(cfg_file), "ops": r["ops"],
                                            "where": r["where"], "label": it["plan"]["label"], "warn": "",
                                            "locals": r["locals"], "words": r["words"]})
                         titems.append(t)
                         continue
+                    if pl and pl['kind'] in ('event-bind', 'command-bind'):
+                        blocked2 = get_bsl_blocked_dependencies(pl, out_by_file, out_common, config_path)
+                        if blocked2:
+                            t['status'] = 'WAITING'; t['text'] = it['text'] + ' - waits for: ' + ', '.join(blocked2)
+                            titems.append(t); continue
                     if it.get("group") and it.get("plan"):
                         pl = it["plan"]
                         rel_form = it.get("section") or ""
@@ -5869,8 +6390,8 @@ def main():
                                     break
                                 map_ref[hk] = tn["name"]
                                 map_added.append(hk)
-                                conv = convert_ext_code(h["ext_m"]["body_lines"], map_ref)
-                                if "\n".join(sig_lines(h["ext_m"]["body_lines"], prefix)).lower() != "\n".join(sig_lines(conv, prefix)).lower():
+                                conv = convert_bsl_code(h["ext_m"]["body_lines"], map_ref, h["ext_m"]["param_names"])
+                                if "\n".join(sig_lines(convert_bsl_code(h["ext_m"]["body_lines"], map_ref, h["ext_m"]["param_names"]), prefix)).lower() != "\n".join(sig_lines(conv, prefix)).lower():
                                     conflict = "after the transfer the check would not find the handler's code"
                                     break
                                 role = get_method_role(h["handler"], "form", bind, notify, is_export(pl["ext_lines"], h["ext_m"]))
@@ -6113,7 +6634,7 @@ def main():
                         if "layout" not in pl:
                             pl["layout"] = get_module_layout(pl["ext_lines"])
                         if "top_keys" not in fe:
-                            fe["top_keys"] = {get_top_key(l, prefix) for l in get_top_code_lines(fe["file"]["lines"])}
+                            fe["top_keys"] = set(get_top_code_keys(fe["file"]["lines"], prefix).values())
                         el, cl, have = pl["layout"], fe["layout"], fe["top_keys"]
                         taken = {n.lower() for v in cl["vars"] for n in v["names"]} | {n.lower() for n in get_proc_names(fe["file"]["lines"])}
                         # Each line once: a variable declared twice in the extension is declared once in the configuration
@@ -6121,7 +6642,7 @@ def main():
                         stmts = []
                         stmts_have = 0
                         for i in el["statements"]:
-                            key = get_top_key(pl["ext_lines"][i], prefix)
+                            key = get_top_code_keys(pl["ext_lines"], prefix, True)[i]
                             if key in have:
                                 stmts_have += 1
                                 continue
@@ -6131,12 +6652,12 @@ def main():
                             stmts.append(i)
                         todo, clash = [], []
                         for v in el["vars"]:
-                            key = get_top_key(pl["ext_lines"][v["idx"]], prefix)
+                            key = get_top_code_keys(pl["ext_lines"], prefix, True)[v["idx"]]
                             if key in have or key in seen:
                                 continue
                             seen.add(key)
                             for n in v["names"]:
-                                tn = convert_ext_code([n], file_map)[0]
+                                tn = convert_bsl_code([n], file_map)[0]
                                 if tn.lower() in taken:
                                     clash.append(tn)
                             todo.append(v)
@@ -6173,12 +6694,22 @@ def main():
                                 t["sub"] = ["from: extension %s:%d-%d" % (pl["rel"], s0 + 1, s1 + 1), "next: add them at the end of the configuration module by hand, then re-run -Mode check"]
                                 titems.append(t)
                                 continue
-                            body = convert_ext_code(rng, file_map)
+                            blocked_methods = dict(out_by_file.get(cfg_file.lower(), {}))
+                            blocked_methods.update(out_common)
+                            deps = get_used_missing(rng, blocked_methods)
+                            if deps:
+                                t["status"] = "WAITING"
+                                t["text"] = "%s — waits for: %s" % (label, ", ".join(deps))
+                                t["sub"] = ["from: extension %s:%d-%d" % (pl["rel"], s0 + 1, s1 + 1),
+                                            "next: transfer the required methods, then re-run -Mode transfer"]
+                                titems.append(t)
+                                continue
+                            body = convert_bsl_code(rng, file_map)
                         parts = []
                         if todo:
                             block = []
                             for v in todo:
-                                block += convert_ext_code(pl["ext_lines"][v["start"]:v["idx"] + 1], file_map)
+                                block += convert_bsl_code(pl["ext_lines"][v["start"]:v["idx"] + 1], file_map)
                             block = get_framed(block, frame)
                             if cl["last_var"] >= 0:
                                 at = cl["last_var"] + 1
@@ -6227,11 +6758,17 @@ def main():
                     # A method calling itself does not wait for itself
                     if pl["kind"] == "own":
                         missing.pop(pl["name"].lower(), None)
+                    selected2 = None
                     if pl["kind"] == "control":
-                        code = [l for e in pl["ops"] if e["res"] == "pending" and e["op"]["kind"] == "insert" for l in e["op"]["lines"]]
+                        cp2 = get_control_projection(pl['ext_m']['body_lines'], file_map, prefix, pl['ext_m']['param_names'])
+                        code, selected2 = cp2['desired'], set()
+                        for op2 in pl['ops']:
+                            if op2['res'] == 'pending' and op2['op']['kind'] == 'insert':
+                                a2, b2 = cp2['ranges'][op2['op']['source_index']]
+                                selected2.update(range(a2, b2))
                     else:
                         code = list(pl["ext_m"]["body_lines"])
-                    deps = get_used_missing(code, missing)
+                    deps = get_used_missing(code, missing, selected2, pl["ext_m"]["param_names"])
                     # A conflict or a missing module shows first: waiting would hide it
                     blocked = ((pl["kind"] == "control" and any(e["res"] not in ("pending", "absorbed", "temp") for e in pl["ops"]))
                                or (pl["kind"] == "own" and (it["status"] == "DIVERGED" or pl["cfg_missing"]
@@ -6241,13 +6778,13 @@ def main():
                     for m in (temp_by_file.get(cfg_file.lower()), temp_common):
                         if m:
                             temp_map.update(m)
-                    temp_deps = get_used_missing(code, temp_map)
+                    temp_deps = get_used_missing(code, temp_map, selected2, pl["ext_m"]["param_names"])
                     if temp_deps and not blocked:
                         t["text"] = "%s — calls %s, marked as not for transfer" % (label, ", ".join(temp_deps))
                         t["sub"] = get_where_lines(pl, "drop the call before the transfer or remove the mark from the method, then re-run -Mode transfer")
                         titems.append(t)
                         continue
-                    form_temp_deps = get_used_missing(code, form_temp.get(pl["rel"].lower(), {})) if get_module_kind(pl["rel"]) == "form" else []
+                    form_temp_deps = get_used_missing(code, form_temp.get(pl["rel"].lower(), {}), params=pl["ext_m"]["param_names"]) if get_module_kind(pl["rel"]) == "form" else []
                     if form_temp_deps and not blocked:
                         t["text"] = "%s — uses form items %s, marked as not for transfer" % (label, ", ".join(form_temp_deps))
                         t["sub"] = get_where_lines(pl, "drop the use before the transfer or remove the mark from the form module, then re-run -Mode transfer")
@@ -6287,7 +6824,7 @@ def main():
                             titems.append(t)
                             continue
                         fe = get_file_edits(cfg_file)
-                        body = get_control_body(pl["cfg_m"], pl["ops"], frame, set_["deletion"], file_map)
+                        body = get_control_body(pl["cfg_m"], pl["ops"], frame, set_["deletion"], file_map, pl["ext_m"])
                         # The check must see the result as transferred, or a re-run would carry it over again:
                         # the new body goes through the same comparison before anything is written
                         gap = get_control_result_gap(pl, body)
@@ -6371,6 +6908,7 @@ def main():
             for key, g in ic_groups.items():
                 fe = g[0]["fe"]
                 cfg_m = g[0]["pl"]["cfg_m"]
+                set_bsl_context(g[0]["pl"]["rel"])
                 manual = None
                 if key in ctl_keys:
                     manual = "the method has &ИзменениеИКонтроль too"
@@ -6556,6 +7094,10 @@ def main():
         if c_wait:
             footer.append("Hint: waiting changes go over by themselves on a re-run of -Mode transfer once what they wait for is in the configuration: "
                           "own methods of this run (see their lines), objects, sub-objects and form items (by hand for now)")
+        for ctx2 in BSL_CATALOG.values():
+            fk2 = os.path.abspath(os.path.join(config_path, ctx2['rel'])).lower()
+            ctx2['methods'].update(file_maps.get(fk2, {}))
+        footer += get_bsl_warning_report(recs, config_path)
         failed = (c_wait + c_manual + c_conflict) > 0
         show_details = True
         full_count = 0
@@ -6565,6 +7107,7 @@ def main():
         matched_ids = set()
         for d in ext_dirs:
             cp = read_configuration_props(d)
+            initialize_bsl_catalog(d, config_path, cp["prefix"] or "")
             ext = {"dir": d, "name": cp["name"], "prefix": cp["prefix"], "purpose": cp["purpose"], "objects": [],
                    "roles": 0, "matched": 0}
             if cp["child_objects"] is not None:
@@ -6615,6 +7158,7 @@ def main():
                     # Asked for by name or opened with -Expand (the object or one of its sections): details even when all is transferred
                     rec["asked"] = bool(name_filter) or dv["open"]
                     ext["objects"].append(rec)
+            ext["string_warnings"] = get_bsl_warning_report(ext["objects"], config_path)
             # -Name narrows the report: an extension without a matching object stays out of it
             if name_filter and ext["matched"] == 0:
                 continue
@@ -6662,6 +7206,7 @@ def main():
         ext_left = 0
         left_total = 0
         for ext in exts:
+            footer += ext.get("string_warnings", [])
             alls = [it for o in ext["objects"] for it in o["items"]]
             roles_note = (" · %s, not checked" % plural(ext["roles"], "role")) if ext["roles"] else ""
             if not alls:

@@ -1,4 +1,4 @@
-﻿# cfe-transfer v1.17 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+﻿# cfe-transfer v1.18 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -873,27 +873,85 @@ function Get-MethodSafe($lines, [string]$methodName) {
 	try { return (Extract-Method $lines $methodName) } catch { return $null }
 }
 
-# Comparable form of a code line: normalized, without the extension prefix, lower case (the language
-# ignores case; lowering here also keeps the copied matchers' -eq and Python's == in agreement)
-function Get-CodeKey([string]$line, [string]$prefix) {
-	$t = Remove-ExtPrefix $line $prefix
-	if ($script:devRe) { $t = $script:devRe.Replace($t, '') }
-	return (Get-Normalized $t).ToLowerInvariant()
+# Lexical spans cover the original text, including multiline literals and doubled quotes.
+# Offsets are used for edits; formatting never comes from comparison keys.
+$script:bslLiteralRe = '"(?:""|[^"\r\n])*(?:\r?\n[\t ]*(?:\|(?:""|[^"\r\n])*|//[^\r\n]*|(?=\r?\n|$)))*(?:"|(?=\r?\n|$))'
+function Get-BslTokens($lines) {
+	$text = @($lines) -join "`n"
+	$rx = '//[^\r\n]*|' + $script:bslLiteralRe + '|\w+|\s+|[^\w\s]'
+	foreach ($m in [regex]::Matches($text, $rx)) {
+		$v = $m.Value
+		$kind = if ($v.StartsWith('//')) { 'comment' } elseif ($v.StartsWith('"') -and $v.Length -ge 2 -and $v.EndsWith('"')) { 'string' } elseif ($v.StartsWith('"')) { 'fragment' } elseif ($v -match '^\w+$') { 'word' } else { 'punct' }
+		@{ Kind = $kind; Value = $v; Start = $m.Index; Length = $m.Length }
+	}
 }
 
-# Get-CodeKey over a list of lines, inlined: a function call per line is what costs in PowerShell.
-# -Significant keeps only lines that carry code (Test-Significant).
-function Get-CodeKeys($lines, [string]$prefix, [switch]$Significant) {
-	$re = $null
-	if (-not [string]::IsNullOrEmpty($prefix)) { [void](Remove-ExtPrefix 'x' $prefix); $re = $script:prefixRe }
+function Get-CodeKey([string]$line, [string]$prefix) {
+	return [string](@(Get-CodeKeys @($line) $prefix)[0])
+}
+
+# Encode literals before the legacy case-insensitive matchers see them. Hex is invariant under
+# case folding and whitespace normalization, so differing literal bytes cannot compare equal.
+function Get-CodeKeys($lines, [string]$prefix, [switch]$Significant, $params = $null) {
+	if ($params.Count -gt 0) { $lines = Protect-BslParameterMembers $lines $params }
+	$src = @($lines) -join "`n"
+	$sb = New-Object System.Text.StringBuilder; $pos2 = 0; $line2 = 0; $comments2 = @{}
+	foreach ($m2 in [regex]::Matches($src, ('//[^\r\n]*|' + $script:bslLiteralRe))) {
+		$segment2 = $src.Substring($pos2, $m2.Index - $pos2)
+		$line2 += ([regex]::Matches($segment2, "`n")).Count
+		$code2 = Remove-ExtPrefix $segment2 $prefix
+		if ($script:devRe) { $code2 = $script:devRe.Replace($code2, '') }
+		[void]$sb.Append($code2)
+		if ($m2.Value.StartsWith('//')) {
+			$lineStart2 = $src.LastIndexOf("`n", $m2.Index) + 1
+			if ($src.Substring($lineStart2, $m2.Index - $lineStart2).Trim() -eq '') { $comments2[$line2] = $m2.Value.Substring(2) }
+			$code2 = Remove-ExtPrefix $m2.Value $prefix
+			if ($script:devRe) { $code2 = $script:devRe.Replace($code2, '') }
+			[void]$sb.Append($code2)
+		} else {
+			[void]$sb.Append('"'); $first2 = $true
+			foreach ($part2 in ($m2.Value -split "`n", 0, 'SimpleMatch')) {
+				if (-not $first2) {
+					[void]$sb.Append("`n")
+					# Between |continuations, a // line is a BSL source comment, not string data.
+					if ($part2.TrimStart().StartsWith('//')) {
+						$arch2 = $part2.TrimStart().Substring(2).TrimStart()
+						if ($arch2.StartsWith('|')) {
+							$ak2 = @(Get-CodeKeys @('"', $arch2, '|"') $prefix)
+							[void]$sb.Append('//' + $ak2[1])
+						} else { [void]$sb.Append($part2.Trim()) }
+						continue
+					}
+					if ($part2.Trim() -eq '') { continue }
+					$part2 = $part2 -replace '^[\t ]+(?=\|)', ''
+				}
+				$hex2 = [BitConverter]::ToString([Text.Encoding]::Unicode.GetBytes($part2)).Replace('-', '')
+				[void]$sb.Append('~'); [void]$sb.Append($hex2); $first2 = $false
+			}
+			[void]$sb.Append('"')
+		}
+		$pos2 = $m2.Index + $m2.Length
+		$line2 += ([regex]::Matches($m2.Value, "`n")).Count
+	}
+	$code2 = Remove-ExtPrefix $src.Substring($pos2) $prefix
+	if ($script:devRe) { $code2 = $script:devRe.Replace($code2, '') }
+	[void]$sb.Append($code2)
+	$keys2 = @($sb.ToString() -split "`n", 0, 'SimpleMatch')
+	# A removed block may remain as //code. Its literals need the same keys as live code;
+	# lex a whole comment run so a multiline removed literal keeps its state as well.
+	for ($i2 = 0; $i2 -lt $keys2.Count; $i2++) {
+		if (-not $comments2.ContainsKey($i2)) { continue }
+		$start2 = $i2; $archive2 = @()
+		while ($i2 -lt $keys2.Count -and $comments2.ContainsKey($i2)) { $archive2 += $comments2[$i2]; $i2++ }
+		$archiveKeys2 = @(Get-CodeKeys $archive2 $prefix -params $params)
+		for ($j2 = $start2; $j2 -lt $i2; $j2++) { $keys2[$j2] = '//' + $archiveKeys2[$j2 - $start2] }
+		$i2--
+	}
 	$r = New-Object 'System.Collections.Generic.List[string]'
-	foreach ($l in $lines) {
-		$t = [string]$l
-		if ($re -and $t.Length -gt 0) { $t = $re.Replace($t, '') }
-		if ($script:devRe -and $t.Length -gt 0) { $t = $script:devRe.Replace($t, '') }
-		$t = ($t -replace '\s+', ' ').Trim().ToLowerInvariant()
-		if ($Significant -and ($t -eq '' -or $t.StartsWith('//'))) { continue }
-		$r.Add($t)
+	foreach ($l in $keys2) {
+		$v = ($l -replace '\s+', ' ').Trim().ToLowerInvariant()
+		if ($Significant -and -not (Test-Significant $v)) { continue }
+		$r.Add($v)
 	}
 	return $r.ToArray()
 }
@@ -901,6 +959,23 @@ function Get-CodeKeys($lines, [string]$prefix, [switch]$Significant) {
 # Significant lines of a body as code keys
 function Get-SigLines($lines, [string]$prefix) {
 	return ,@(Get-CodeKeys $lines $prefix -Significant)
+}
+
+# Only scopes dependency protection to newly exposed literal mismatches. This historical
+# folding is never used to accept code as transferred; the actual comparison uses Get-SigLines.
+function Test-PreviouslyFoldedBody($left, $right, [string]$prefix) {
+	$signatures = @()
+	foreach ($ls in @(@{ Lines = $left }, @{ Lines = $right })) {
+		$keys = @()
+		foreach ($l in $ls.Lines) {
+			$t = Remove-ExtPrefix ([string]$l) $prefix
+			if ($script:devRe) { $t = $script:devRe.Replace($t, '') }
+			$t = (Get-Normalized $t).ToLowerInvariant()
+			if (Test-Significant $t) { $keys += $t }
+		}
+		$signatures += ($keys -join "`n")
+	}
+	return $signatures[0] -ceq $signatures[1]
 }
 
 # Declaration following an annotation (context directives and other annotations may sit between)
@@ -1106,9 +1181,10 @@ function Find-RunInContext($v2norm, $v2proj, $keys, $sigKeys, $beforeCtx, $after
 
 function Get-ControlTransfer($extMethod, $cfgMethod, [string]$prefix) {
 	$parsed = Parse-MarkedBody $extMethod.BodyLines
+	$projection = Get-ControlProjection $extMethod.BodyLines @{} $prefix $extMethod.ParamNames
 	$ops = @($parsed.Ops)
-	$v1norm = @(Get-CodeKeys $parsed.V1 $prefix)
-	$v2norm = @(Get-CodeKeys $cfgMethod.BodyLines $prefix)
+	$v1norm = @(Get-CodeKeys (Convert-BslCode $parsed.V1 @{} $extMethod.ParamNames) $prefix -params $extMethod.ParamNames)
+	$v2norm = @(Get-CodeKeys $cfgMethod.BodyLines $prefix -params $cfgMethod.ParamNames)
 	$v2proj = Get-SignificantProjection $v2norm
 	$v1sig = @((Get-SignificantProjection $v1norm).Sig)
 	$absorbed = 0; $pending = 0; $disputed = @(); $temp = 0; $tempWhy = $null; $markedDone = 0
@@ -1116,7 +1192,8 @@ function Get-ControlTransfer($extMethod, $cfgMethod, [string]$prefix) {
 	$plan = New-Object System.Collections.ArrayList
 	$payloads = @{}
 	for ($oi = 0; $oi -lt $ops.Count; $oi++) {
-		if ($ops[$oi].Kind -eq 'insert') { $payloads[$oi] = @(Get-CodeKeys $ops[$oi].Lines $prefix -Significant) }
+		$ops[$oi].SourceIndex = $oi
+		if ($ops[$oi].Kind -eq 'insert') { $payloads[$oi] = @($projection.PayloadKeys[$oi] | Where-Object { Test-Significant $_ }) }
 	}
 	$replaced = Get-AbsorbedInPlace $ops $v1norm $v2norm $v2proj.Sig $payloads
 	$deleted = @{}
@@ -1262,8 +1339,7 @@ function Get-HeuristicTransfer($extMethod, $cfgMethod, [string]$prefix) {
 	}
 	$resultVars = @()
 	$lines = @()
-	foreach ($l in (Rename-CodeWords $extMethod.BodyLines $renames)) {
-		$n = Get-CodeKey $l $prefix
+	foreach ($n in @(Get-CodeKeys (Protect-BslParameterMembers (Rename-CodeWords (Convert-BslCode $extMethod.BodyLines @{} $ep) $renames) $cp) $prefix)) {
 		if (-not (Test-Significant $n)) { continue }
 		if ($n -match $proceedRe) {
 			if ($n -match '^([\w]+)\s*=') { $resultVars += $Matches[1] }
@@ -1279,7 +1355,7 @@ function Get-HeuristicTransfer($extMethod, $cfgMethod, [string]$prefix) {
 	$meaningful = @($lines | Where-Object { $_ -notmatch $script:trivialRe })
 	if ($meaningful.Count -gt 0) { $lines = $meaningful }
 	if ($lines.Count -eq 0) { return $null }
-	$hay = Get-SigLines $cfgMethod.BodyLines $prefix
+	$hay = Get-SigLines (Protect-BslParameterMembers $cfgMethod.BodyLines $cfgMethod.ParamNames) $prefix
 	$found = 0; $j = 0
 	foreach ($l in $lines) {
 		for ($k = $j; $k -lt $hay.Count; $k++) {
@@ -2452,6 +2528,7 @@ function Get-ModuleTransferItems([string]$bsl, [string]$extDir, [string]$prefix,
 	$extLines = Read-BslLines $bsl
 	if ($null -eq $extLines) { return $items }
 	$rel = Get-RelPath $extDir $bsl
+	Set-BslContext $rel
 	$cfgLines = Read-BslLines (Join-Path $ConfigPath $rel)
 	$mc = Get-ModuleChanges $extLines $skipHandlers
 	foreach ($x in $mc.Interceptors) {
@@ -2496,29 +2573,30 @@ function Get-ModuleTransferItems([string]$bsl, [string]$extDir, [string]$prefix,
 		# Every method of the module the name may stand for; the one with the same body wins (a name
 		# given with the development prefix next to a vendor method of the plain name)
 		$hits = @(Find-NamesIn $cfgNames $pn $prefix)
-		$hit = $null; $cfgM = $null
+		$hit = $null; $cfgM = $null; $literalMismatch = $false
 		if ($hits.Count -eq 0) { $it = New-Item2 'NOT_TRANSFERRED' "method $pn" $loc }
 		else {
-			$extSig = (Get-SigLines $extM.BodyLines $prefix) -join "`n"
+			$extSig = (Get-SigLines (Protect-BslParameterMembers (Convert-BslCode $extM.BodyLines @{} $extM.ParamNames) $extM.ParamNames) $prefix) -join "`n"
 			$same = $false
 			foreach ($h in $hits) {
 				$m = Get-MethodSafe $cfgLines $h
-				if ($m -and (((Get-SigLines $m.BodyLines $prefix) -join "`n") -ieq $extSig)) { $hit = $h; $cfgM = $m; $same = $true; break }
+				if ($m -and (((Get-SigLines (Protect-BslParameterMembers $m.BodyLines $m.ParamNames) $prefix) -join "`n") -ieq $extSig)) { $hit = $h; $cfgM = $m; $same = $true; break }
+				if ($m -and (Test-PreviouslyFoldedBody $extM.BodyLines $m.BodyLines $prefix)) { $literalMismatch = $true }
 			}
 			if (-not $same) { $hit = $hits[0]; $cfgM = Get-MethodSafe $cfgLines $hit }
 			$as = if ($hit -ine $pn) { " (found as $hit)" } else { '' }
 			$it = if ($same) { New-Item2 'TRANSFERRED' "method $pn$as" $loc } else { New-Item2 'DIVERGED' "method $pn$as (body differs)" $loc }
 		}
-		$it.Plan = @{ Kind = 'own'; Rel = $rel; ExtM = $extM; ExtLines = $extLines; CfgM = $cfgM; Name = $pn; Hit = $hit; CfgMissing = ($null -eq $cfgLines) }
+		$it.Plan = @{ Kind = 'own'; Rel = $rel; ExtM = $extM; ExtLines = $extLines; CfgM = $cfgM; Name = $pn; Hit = $hit; CfgMissing = ($null -eq $cfgLines); LiteralMismatch = $literalMismatch }
 		$items += (Set-TempMark $it $mark "method $pn")
 	}
 	# Code outside methods (module variables, statements of the module body): its lines looked up among
 	# the configuration module's code outside methods, prefixes left out; order is not compared
 	if ($mc.TopCode -ge 0) {
 		# A line counts once: a variable declared twice in the extension is declared once in the configuration
-		$extTop = [ordered]@{}; $tl = Get-TopCodeLines $extLines; foreach ($l in $tl) { $extTop[(Get-TopKey $l $prefix)] = $true }
+		$extTop = [ordered]@{}; foreach ($key in (Get-TopCodeKeys $extLines $prefix -Extension).Values) { $extTop[$key] = $true }
 		$have = @{}
-		if ($null -ne $cfgLines) { $tl = Get-TopCodeLines $cfgLines; foreach ($l in $tl) { $have[(Get-TopKey $l $prefix)] = $true } }
+		if ($null -ne $cfgLines) { foreach ($key in (Get-TopCodeKeys $cfgLines $prefix).Values) { $have[$key] = $true } }
 		$found = @($extTop.Keys | Where-Object { $have.ContainsKey($_) }).Count
 		$st = Get-HeuristicStatus @{ Found = $found; Total = $extTop.Count }
 		$it = New-Item2 $st "module code outside methods (heuristic: $found/$($extTop.Count) lines)" "${rel}:$($mc.TopCode + 1)"
@@ -2565,16 +2643,13 @@ function Get-ModuleLayout($lines) {
 
 # Code lines of a module outside its methods (not blank, not comments, annotations or preprocessor lines),
 # trimmed
-function Get-TopCodeLines($lines) {
+function Get-TopCodeKeys($lines, [string]$prefix, [switch]$Extension) {
+	$src = if ($Extension) { Convert-BslCode $lines @{} } else { $lines }
+	$keys = @(Get-CodeKeys (Get-CodeOnly $src -KeepStrings) $prefix)
 	$lay = Get-ModuleLayout $lines
-	$idx = @(@($lay.Vars | ForEach-Object { $_.Idx }) + @($lay.Statements) | Sort-Object)
-	$res = @(); foreach ($i in $idx) { $res += ([string]$lines[$i]).Trim() }
-	return ,$res
-}
-
-# Comparable form of a line of code outside methods: no trailing comment, prefixes left out
-function Get-TopKey([string]$line, [string]$prefix) {
-	return (Get-CodeKey ((Get-CodeOnly @($line) -KeepStrings)[0]) $prefix)
+	$res = [ordered]@{}
+	foreach ($i in @(@($lay.Vars | ForEach-Object { $_.Idx }) + @($lay.Statements) | Sort-Object)) { $res[[string]$i] = $keys[$i] }
+	return $res
 }
 
 # Own sub-objects of a borrowed object (attributes, tabular sections, commands, forms, templates, …)
@@ -2698,6 +2773,7 @@ function Get-TransferObject($ext, $obj) {
 		$rel = Get-RelPath $ext.Dir $f.Xml
 		$cfgForm = Join-Path $ConfigPath $rel
 		$cfgModule = Join-Path $ConfigPath (Get-RelPath $ext.Dir $f.Module)
+		Set-BslContext (Get-RelPath $ext.Dir $f.Module)
 		# Dialog changes have no line of their own: their file is the form's Form.xml
 		foreach ($fi in @(Get-FormTransferItems $d $f $cfgForm $cfgModule $ext.Dir $prefix)) {
 			if (-not $fi.Loc) { $fi.Section = $rel }
@@ -2720,6 +2796,15 @@ function Get-TransferObject($ext, $obj) {
 	if ($obj.Type -eq 'Subsystem') { $rec.Items += @(Get-SubsystemContentItems $ctx.Md $cfgMd $prefix $objRel) }
 	$rec.Items += $formItems
 	foreach ($it in $rec.Items) {
+		$pl2 = $it.Plan
+		if ($pl2.Rel -and $it.Status -notin @('TRANSFERRED', 'TEMPORARY')) {
+			Set-BslContext $pl2.Rel
+			$problem = Get-BslPlanIssue $pl2
+			if ($problem) {
+				$it.Status = 'MANUAL'; $it.Text += " — $($problem.Issue.Why)"
+				$it.Sub = Get-BslManualDetails $pl2 $problem
+			}
+		}
 		if ($it.Loc -match '^(.+):(\d+)$') { $it.Section = $Matches[1]; $it.Loc = ":$($Matches[2])" }
 		elseif (-not $it.Section) { $it.Section = $objRel }
 	}
@@ -4060,14 +4145,431 @@ function Get-CalledNames($lines, $skip) {
 	$sk = @{}
 	foreach ($n in @($skip)) { if ($n) { $sk[$n.ToLower()] = $true } }
 	$res = @{}
-	foreach ($t in (Get-CodeOnly $lines -KeepStrings)) {
+	foreach ($t in (Get-CodeOnly $lines)) {
 		foreach ($m in [regex]::Matches($t, '(?<![\w.])([\w]+)\s*\(')) { $k = $m.Groups[1].Value.ToLower(); if (-not $sk.ContainsKey($k)) { $res[$k] = $true } }
 	}
 	return @($res.Keys)
 }
 
-# Code of the extension as the configuration gets it: a name from the map (per file, then for the
-# whole run) becomes its target, any other identifier with the extension prefix loses the prefix
+# Per-extension symbol catalog. Methods and attributes never share a global short-name map.
+function Initialize-BslCatalog([string]$extDir, [string]$prefix) {
+	$script:bslCatalog = @{}; $script:bslCommon = @{}; $script:bslGlobals = @{}; $script:bslGlobalOwners = @()
+	$script:transferPrefix = $prefix
+	foreach ($f in @(Get-ChildItem -LiteralPath $extDir -Filter '*.bsl' -Recurse)) {
+		$rel = Get-RelPath $extDir $f.FullName
+		$cfg = Get-CfgPath $rel
+		$el = Read-BslLines $f.FullName; $cl = Read-BslLines $cfg
+		$kind = Get-ModuleKind $rel
+		$ctx = @{ Rel = $rel; Ext = $el; Cfg = $cl; Kind = $kind; Methods = @{}; Attrs = @{}; DataAttrs = @{}; FormNames = @{}; Names = @{} }
+		$script:bslCatalog[$rel.ToLower()] = $ctx
+		$cn = @(Get-ProcNames $cl)
+		$taken = New-Object 'System.Collections.Generic.HashSet[string]'
+		foreach ($n in $cn) { [void]$taken.Add($n.ToLower()) }
+		$en = @(Get-ProcNames $el)
+		foreach ($n in @(Get-CalledNames (@($cl) + @($el)) $en)) { [void]$taken.Add($n) }
+		$interceptNames2 = @{}
+		foreach ($ic2 in @(Get-Interceptors $el)) { $dd2 = Find-DeclAfter $el $ic2.Line; if ($dd2) { $interceptNames2[$dd2.Name.ToLower()] = $true } }
+		foreach ($d in @(Get-ProcDecls $el)) {
+			$n = $d.Name
+			# An interceptor is not a separately callable own method.
+			if ($interceptNames2.ContainsKey($n.ToLower())) { continue }
+			$hits = @(Find-NamesIn $cn $n $prefix)
+			$hit = $null
+			$em = Get-MethodSafe $el $n
+			foreach ($h in $hits) {
+				$cm = Get-MethodSafe $cl $h
+				if ($cm -and ((Get-SigLines $cm.BodyLines $prefix) -join "`n") -ceq ((Get-SigLines $em.BodyLines $prefix) -join "`n")) { $hit = $h; break }
+			}
+			if (-not $hit -and $hits.Count) { $hit = $hits[0] }
+			if ($hit) { $target = $hit } else { $target = (Get-TargetName $n $prefix $taken $false).Name }
+			$ctx.Methods[$n.ToLower()] = $target; $ctx.Names[$n.ToLower()] = $n
+			[void]$taken.Add($target.ToLower())
+		}
+		if ($kind -eq 'common' -and $rel -match '^CommonModules[/\\]([^/\\]+)') { $script:bslCommon[$Matches[1].ToLower()] = $ctx }
+		# Module variables are real identifiers too; arbitrary prefixed words are not names.
+		foreach ($v in (Get-ModuleLayout $el).Vars) { foreach ($n in $v.Names) { $ctx.Attrs[$n.ToLower()] = Remove-ExtPrefix $n $prefix; $ctx.Names[$n.ToLower()] = $n } }
+		if ($kind -eq 'form') {
+			$ef = ($f.FullName -replace '[/\\]Form[/\\]Module\.bsl$', '/Form.xml')
+			$cf = ($cfg -replace '[/\\]Form[/\\]Module\.bsl$', '/Form.xml')
+			$ed = Read-FormDoc $ef; $cd = Read-FormDoc $cf
+			if ($ed -and $cd) {
+				$fm = Get-FormNameMap $ed.DocumentElement $cd.DocumentElement $prefix
+				$cfgNames2 = @($cd.SelectNodes('//*[@name]') | ForEach-Object { $_.GetAttribute('name') })
+				foreach ($k2 in @($fm.Keys)) { $hit2 = Find-NameIn $cfgNames2 $k2 $prefix; if ($hit2) { $fm[$k2] = $hit2 } }
+				$ctx.FormNames = $fm
+				foreach ($x in $ed.SelectNodes("/*/*[local-name()='Attributes']/*[local-name()='Attribute']")) {
+					$n = $x.GetAttribute('name'); if (-not $n) { continue }
+					$ctx.Attrs[$n.ToLower()] = if ($fm.ContainsKey($n.ToLower())) { $fm[$n.ToLower()] } else { Remove-ExtPrefix $n $prefix }
+					$ctx.Names[$n.ToLower()] = $n
+				}
+			}
+		}
+		# Object metadata belongs to the object, including its form's data attribute Object.
+		if ($rel -match '^([^/\\]+)[/\\]([^/\\]+)[/\\]') {
+			$mdRel = "$($Matches[1])/$($Matches[2]).xml"
+			$ed = Read-MdObject (Join-Path $extDir $mdRel); $cd = Read-MdObject (Get-CfgPath $mdRel)
+			if ($ed -and $ed.Children) {
+				$cfgNames = @(); if ($cd -and $cd.Children) { foreach ($x in $cd.Children.ChildNodes) { if ($x.NodeType -eq 'Element') { $cfgNames += (Get-MdChildName $x $cd.Ns) } } }
+				foreach ($x in $ed.Children.ChildNodes) {
+					if ($x.LocalName -notin @('Attribute', 'TabularSection')) { continue }
+					$n = Get-MdChildName $x $ed.Ns; if (-not $n) { continue }
+					$hit = Find-NameIn $cfgNames $n $prefix
+					$target = if ($hit) { $hit } else { Remove-ExtPrefix $n $prefix }
+					$ctx.DataAttrs[$n.ToLower()] = $target; $ctx.Names[$n.ToLower()] = $n
+					if ($kind -ne 'form') { $ctx.Attrs[$n.ToLower()] = $target }
+				}
+			}
+		}
+	}
+	# Actual metadata object names, for qualified code references only.
+	$cp = Read-ConfigurationProps $extDir
+	if ($cp.ChildObjects) { foreach ($x in $cp.ChildObjects.ChildNodes) {
+		if ($x.NodeType -ne 'Element') { continue }; $n = $x.InnerText.Trim()
+		$pool2 = @(); if ($cfgInfo.ChildObjects) { foreach ($c2 in $cfgInfo.ChildObjects.ChildNodes) { if ($c2.NodeType -eq 'Element' -and $c2.LocalName -eq $x.LocalName) { $pool2 += $c2.InnerText.Trim() } } }
+		$hit2 = Find-NameIn $pool2 $n $prefix
+		$script:bslGlobals[$n.ToLower()] = if ($hit2) { $hit2 } else { Remove-ExtPrefix $n $prefix }
+	} }
+	# The global idle-handler API can only see application/global common-module exports.
+	# Include configuration-only modules too: extension-only coincidences are not an exhaustive set.
+	$globalPaths = @{}
+	foreach ($root2 in @($ConfigPath, $extDir)) {
+		$dir2 = Join-Path $root2 'CommonModules'
+		if (-not (Test-Path -LiteralPath $dir2)) { continue }
+		foreach ($md2 in @(Get-ChildItem -LiteralPath $dir2 -Filter '*.xml')) {
+			$md3 = Read-MdObject $md2.FullName
+			if (-not $md3 -or -not $md3.Props) { continue }
+			$g = $md3.Props.SelectSingleNode('md:Global', $md3.Ns)
+			if ($g -and $g.InnerText -ieq 'true') { $globalPaths["CommonModules/$($md2.BaseName)/Ext/Module.bsl".ToLower()] = "CommonModules/$($md2.BaseName)/Ext/Module.bsl" }
+		}
+	}
+	foreach ($rel2 in $globalPaths.Values) {
+		$gc = $script:bslCatalog[$rel2.ToLower()]
+		if (-not $gc) { $gc = @{ Rel = $rel2; Kind = 'common'; Methods = @{}; Ext = @(); Cfg = (Read-BslLines (Get-CfgPath $rel2)) } }
+		$script:bslGlobalOwners += $gc
+	}
+	foreach ($rel2 in @('Ext/ManagedApplicationModule.bsl', 'Ext/OrdinaryApplicationModule.bsl')) {
+		$ac = $script:bslCatalog[$rel2.ToLower()]; $acl = Read-BslLines (Get-CfgPath $rel2)
+		if ($ac -or $null -ne $acl) {
+			$script:bslGlobalOwners += @{ Rel = $rel2; Kind = 'application'; Methods = $(if ($ac) { $ac.Methods } else { @{} }); Ext = $(if ($ac) { $ac.Ext } else { @() }); Cfg = $acl }
+		}
+	}
+	# A carried-over callback contains the target name inside a literal. Resolve candidate
+	# bodies with that candidate's map, including self-references and cross-module cycles.
+	for ($pass2 = 0; $pass2 -le $script:bslCatalog.Count; $pass2++) {
+		$changed2 = $false
+		foreach ($ctx2 in $script:bslCatalog.Values) {
+			$script:bslContext = $ctx2
+			foreach ($k2 in @($ctx2.Methods.Keys)) {
+				$n2 = $ctx2.Names[$k2]; $em2 = Get-MethodSafe $ctx2.Ext $n2
+				if (-not $em2 -or (@($em2.BodyLines) -join "`n") -notmatch '(?i)(ОписаниеОповещения|CallbackDescription|NotifyDescription|ОбработчикОжидания|IdleHandler|УстановитьДействие|SetAction|РеквизитФормыВЗначение|FormAttributeToValue)\s*\(') { continue }
+				$old2 = $ctx2.Methods[$k2]; $found2 = $null
+				foreach ($hit2 in @(Find-NamesIn @(Get-ProcNames $ctx2.Cfg) $n2 $prefix)) {
+					$ctx2.Methods[$k2] = $hit2
+					$cm2 = Get-MethodSafe $ctx2.Cfg $hit2
+					if ($cm2 -and ((Get-SigLines (Protect-BslParameterMembers (Convert-BslCode $em2.BodyLines @{} $em2.ParamNames) $em2.ParamNames) $prefix) -join "`n") -ceq ((Get-SigLines (Protect-BslParameterMembers $cm2.BodyLines $cm2.ParamNames) $prefix) -join "`n")) { $found2 = $hit2; break }
+				}
+				$ctx2.Methods[$k2] = if ($found2) { $found2 } else { $old2 }
+				if ($found2 -and $found2 -cne $old2) { $changed2 = $true }
+			}
+		}
+		if (-not $changed2) { break }
+	}
+	$script:bslContext = $null
+}
+
+function Get-BslGlobalReferences([string]$name) {
+	$res = @(); $k = $name.ToLower()
+	foreach ($gc in $script:bslGlobalOwners) {
+		$em = Get-MethodSafe $gc.Ext $name
+		if ($em -and (Test-IsExport $gc.Ext $em) -and $gc.Methods.ContainsKey($k)) {
+			$target2 = $gc.Methods[$k]
+			# Application-module transfer is outside this stage: only an existing target is a rename.
+			if ($gc.Kind -eq 'application' -and -not (Get-MethodSafe $gc.Cfg $target2)) { $target2 = $name }
+			$res += @{ Target = $target2; Context = $gc }
+		}
+		$cm = Get-MethodSafe $gc.Cfg $name
+		if ($cm -and (Test-IsExport $gc.Cfg $cm)) { $res += @{ Target = $name; Context = $gc } }
+	}
+	return ,$res
+}
+
+function Set-BslContext([string]$rel) {
+	$script:bslContext = $script:bslCatalog[$rel.ToLower()]
+}
+
+# Resolve only an explicit, supported owner. Unknown variables are not aliases of ThisObject.
+function Get-BslOwner([string]$owner, $ctx) {
+	$k = $owner.Trim().ToLowerInvariant()
+	if ($k.Length -ge 2 -and $k.StartsWith('"') -and $k.EndsWith('"')) { $k = $k.Substring(1, $k.Length - 2) }
+	else { $k = $k -replace '\s+', '' }
+	if ($k -eq '') { return $ctx }
+	if ($k -in @('этаформа', 'thisform') -and $ctx.Kind -eq 'form') { return $ctx }
+	if ($k -in @('этотобъект', 'thisobject') -and $ctx.Kind -in @('form', 'object')) { return $ctx }
+	if ($script:bslCommon.ContainsKey($k)) { return $script:bslCommon[$k] }
+	return $null
+}
+
+# Token indexes of call arguments; commas nested in calls/arrays/strings are not separators.
+function Get-BslArguments($tokens, [int]$open) {
+	$args2 = New-Object System.Collections.ArrayList; $part = New-Object System.Collections.ArrayList; $depth = 0
+	for ($j = $open + 1; $j -lt $tokens.Count; $j++) {
+		$v = $tokens[$j].Value
+		if ($tokens[$j].Kind -eq 'punct') {
+			if ($v -in @('(', '[')) { $depth++ }
+			elseif ($v -in @(')', ']')) { if ($depth -eq 0) { [void]$args2.Add(@($part)); break }; $depth-- }
+			elseif ($v -eq ',' -and $depth -eq 0) { [void]$args2.Add(@($part)); $part.Clear(); continue }
+		}
+		[void]$part.Add($j)
+	}
+	return ,$args2.ToArray()
+}
+
+# Result includes diagnostics; callers decide whether a complete transfer unit must stay manual.
+function Get-BslConversion($lines, $fileMap, $ctx, $params = $null, [switch]$Comparison) {
+	$all = @(Get-BslTokens $lines)
+	$ts = @($all | Where-Object { $_.Kind -ne 'comment' -and $_.Value -notmatch '^\s+$' })
+	$edits = @{}; $handled = @{}; $issues = @(); $warnings = @(); $references = @()
+	$methods = @{}; $attrs = @{}
+	if ($ctx) { foreach ($k in $ctx.Methods.Keys) { $methods[$k] = $ctx.Methods[$k] }; $attrs = $ctx.Attrs }
+	foreach ($k in $fileMap.Keys) { $methods[$k] = $fileMap[$k] }
+	for ($i = 0; $i -lt $ts.Count; $i++) {
+		$t = $ts[$i]; if ($t.Kind -ne 'word') { continue }; $k = $t.Value.ToLowerInvariant()
+		$owner = ''; $qualified = $i -gt 0 -and $ts[$i - 1].Value -eq '.'
+		if ($qualified) {
+			$a = $i - 2
+			while ($a -gt 1 -and $ts[$a - 1].Value -eq '.' -and $ts[$a - 2].Kind -eq 'word') { $a -= 2 }
+			$owner = (@($ts[$a..($i - 2)] | ForEach-Object { $_.Value }) -join '')
+		}
+		if ($qualified -and $params -contains ($owner -split '\.', 2)[0]) {
+			if ($Comparison -and $script:bslCommon.ContainsKey((($owner -split '\.', 2)[0]).ToLowerInvariant())) {
+				$edits[$t.Start] = '~' + [BitConverter]::ToString([text.encoding]::Unicode.GetBytes($k)).Replace('-', '') + '~'
+			}
+			continue
+		}
+		$oc = if (-not $Comparison) { Get-BslOwner $owner $ctx } else { $null }
+		$om = if ($oc -and $oc -eq $ctx) { $methods } elseif ($oc) { $oc.Methods } else { @{} }
+		$isCall = $i + 1 -lt $ts.Count -and $ts[$i + 1].Value -eq '('
+		$isCtor = $i -gt 0 -and $ts[$i - 1].Value -in @('Новый', 'New')
+		if ($Comparison -or (-not $qualified -and -not $isCall -and $params -contains $k)) { continue }
+		if (-not $isCtor) {
+			if ($om.ContainsKey($k) -and ($isCall -or -not $qualified)) { $edits[$t.Start] = $om[$k] }
+			elseif (-not $qualified -and $attrs.ContainsKey($k)) { $edits[$t.Start] = $attrs[$k] }
+			elseif ($qualified -and -not $isCall -and $oc.Attrs -and $oc.Attrs.ContainsKey($k)) { $edits[$t.Start] = $oc.Attrs[$k] }
+			elseif (-not $qualified -and $i + 1 -lt $ts.Count -and $ts[$i + 1].Value -eq '.' -and $script:bslGlobals.ContainsKey($k)) { $edits[$t.Start] = $script:bslGlobals[$k] }
+			elseif ($qualified -and $ctx -and $owner.ToLower() -in @('элементы', 'items', 'команды', 'commands') -and $ctx.FormNames.ContainsKey($k)) { $edits[$t.Start] = $ctx.FormNames[$k] }
+			elseif ($qualified -and $ctx -and $owner.ToLower() -in @('объект', 'object') -and $ctx.Kind -eq 'form' -and $ctx.DataAttrs.ContainsKey($k)) { $edits[$t.Start] = $ctx.DataAttrs[$k] }
+			elseif ($qualified -and -not $isCall -and $script:bslGlobals.ContainsKey($k)) { $edits[$t.Start] = $script:bslGlobals[$k] }
+		}
+		if (-not $isCall) { continue }
+		if (-not $isCtor -and ($om.ContainsKey($k) -or ($qualified -and $oc.Kind -eq 'common'))) { continue }
+		$specs = @()
+		if ($k -in @('описаниеоповещения', 'notifydescription', 'callbackdescription')) {
+			if ($i -eq 0 -or $ts[$i - 1].Value -notin @('Новый', 'New')) { continue }
+			$specs = @(@{ Arg = 0; Owner = 1; Kind = 'method' }, @{ Arg = 3; Owner = 4; Kind = 'method' })
+		} elseif ($k -in @('подключитьобработчикожидания', 'attachidlehandler', 'отключитьобработчикожидания', 'detachidlehandler')) {
+			$specs = @(@{ Arg = 0; Owner = -1; Kind = 'method' })
+		} elseif ($k -in @('установитьдействие', 'setaction')) {
+			$specs = @(@{ Arg = 1; Owner = -1; Kind = 'method' })
+		} elseif ($k -in @('реквизитформывзначение', 'formattributetovalue')) {
+			$specs = @(@{ Arg = 0; Owner = -1; Kind = 'attribute' })
+		}
+		if (-not $specs.Count) { continue }
+		$args2 = Get-BslArguments $ts ($i + 1)
+		# SetAction's event name is explicitly not a method reference.
+		if ($k -in @('setaction', 'установитьдействие') -and $args2.Count -gt 0 -and @($args2[0]).Count -eq 1) { $handled[$ts[$args2[0][0]].Start] = $true }
+		foreach ($sp in $specs) {
+			if ($args2.Count -le $sp.Arg -or @($args2[$sp.Arg]).Count -ne 1) { continue }
+			$st = $ts[$args2[$sp.Arg][0]]; if ($st.Kind -ne 'string') { continue }
+			$value = $st.Value.Substring(1, $st.Value.Length - 2).Replace('""', '"'); $sk = $value.ToLowerInvariant()
+			$refOwner = $owner
+			if ($sp.Owner -ge 0) {
+				$refOwner = '?'
+				if ($args2.Count -gt $sp.Owner) { $refOwner = (@($args2[$sp.Owner] | ForEach-Object { $ts[$_].Value }) -join '') }
+			}
+			$rc = if ($params -notcontains $refOwner) { Get-BslOwner $refOwner $ctx }
+			if ($sp.Owner -ge 0 -and $rc -and $args2.Count -gt $sp.Owner -and @($args2[$sp.Owner]).Count -eq 1) {
+				$mt = $ts[$args2[$sp.Owner][0]]
+				if ($mt.Kind -eq 'string') {
+					$mk = $mt.Value.Substring(1, $mt.Value.Length - 2).ToLower()
+					$handled[$mt.Start] = $true
+					if ($script:bslGlobals.ContainsKey($mk)) { $edits[$mt.Start] = '"' + $script:bslGlobals[$mk] + '"' }
+				}
+			}
+			if ($k -in @('setaction', 'установитьдействие') -and $ctx.Kind -eq 'form' -and $refOwner -match '^(Элементы|Items)\.') { $rc = $ctx }
+			if ($k -in @('attachidlehandler', 'detachidlehandler', 'подключитьобработчикожидания', 'отключитьобработчикожидания') -and -not $qualified -and $ctx.Kind -ne 'form') {
+				$gs = @(Get-BslGlobalReferences $value)
+				$targets2 = @($gs | ForEach-Object { $_.Target } | Sort-Object -Unique)
+				$handled[$st.Start] = $true
+				if ($targets2.Count -eq 1) {
+					$edits[$st.Start] = '"' + $targets2[0] + '"'
+					foreach ($gr in $gs) { $references += @{ Name = $value; Context = $gr.Context; Kind = 'method'; Token = $st } }
+				} elseif ($targets2.Count -gt 1) {
+					$issues += @{ Token = $st; Rename = "$value -> $($targets2 -join ', ')"; Why = 'global handler resolves to different target names' }
+				}
+				continue
+			}
+			$rm = if ($sp.Kind -eq 'attribute') { if ($rc -and $rc.Kind -eq 'form') { $rc.Attrs } else { @{} } } elseif ($rc -eq $ctx -and $rc) { $methods } elseif ($rc) { $rc.Methods } else { @{} }
+			$handled[$st.Start] = $true
+			if ($rm.ContainsKey($sk)) {
+				$edits[$st.Start] = '"' + $rm[$sk].Replace('"', '""') + '"'
+				$references += @{ Name = $value; Context = $rc; Kind = $sp.Kind; Token = $st }
+			}
+			elseif (-not $rc) {
+				$matches = @()
+				foreach ($c in $script:bslCatalog.Values) { $mm = if ($sp.Kind -eq 'attribute') { $c.Attrs } else { $c.Methods }; if ($mm.ContainsKey($sk) -and $mm[$sk] -ine $value) { $matches += "$value -> $($mm[$sk])" } }
+				if ($matches.Count) { $issues += @{ Token = $st; Rename = (@($matches | Sort-Object -Unique) -join ', '); Why = 'handler owner is unknown; the current module map cannot be used' } }
+			}
+		}
+	}
+	foreach ($t in $ts) {
+		if ($t.Kind -ne 'string' -or $handled.ContainsKey($t.Start)) { continue }
+		$v = $t.Value.Substring(1, $t.Value.Length - 2).Replace('""', '"'); $k = $v.ToLowerInvariant()
+		foreach ($pair in @(@{ Map = $methods; Kind = 'method' }, @{ Map = $attrs; Kind = 'attribute' })) {
+			$renames2 = @{}
+			$maps2 = @($pair.Map)
+			foreach ($c2 in $script:bslCatalog.Values) { $maps2 += if ($pair.Kind -eq 'method') { $c2.Methods } else { $c2.Attrs } }
+			foreach ($map2 in $maps2) { if ($map2.ContainsKey($k) -and $map2[$k] -ine $v) { $renames2[$map2[$k]] = "$v -> $($map2[$k])" } }
+			if ($renames2.Count) { $warnings += @{ Token = $t; Kind = $pair.Kind; Rename = (@($renames2.Values | Sort-Object) -join ', ') } }
+		}
+	}
+	$sb = New-Object System.Text.StringBuilder
+	foreach ($t in $all) { if ($edits.ContainsKey($t.Start)) { [void]$sb.Append($edits[$t.Start]) } else { [void]$sb.Append($t.Value) } }
+	return @{ Lines = @($sb.ToString() -split "`n", 0, 'SimpleMatch'); Issues = $issues; Warnings = $warnings; References = $references }
+}
+
+function Convert-BslCode($lines, $fileMap, $params = $null) {
+	return ,@((Get-BslConversion $lines $fileMap $script:bslContext $params).Lines)
+}
+
+# Protect member names of shadowing parameters only in comparison keys.
+function Protect-BslParameterMembers($lines, $params) {
+	foreach ($name in $params) {
+		if ($script:bslCommon.ContainsKey($name.ToLowerInvariant())) {
+			return ,@((Get-BslConversion $lines @{} $null $params -Comparison).Lines)
+		}
+	}
+	return ,@($lines)
+}
+
+# Project the effective method before lexing it: a payload may begin or end inside a literal.
+# Ranges keep each raw edit's identity while strings and call arguments see the complete body.
+function Get-ControlProjection($body, $fileMap, [string]$prefix, $params = $null) {
+	$desired = @(); $source = @(); $ranges = @{}; $opIndex = -1; $i = 0
+	while ($i -lt $body.Count) {
+		$kind2 = Get-BslMarkerKind $body[$i]
+		if ($kind2 -in @('Insert', 'Delete')) {
+			$opIndex++; $i++; $start2 = $desired.Count
+			$endKind = if ($kind2 -eq 'Insert') { 'EndInsert' } else { 'EndDelete' }
+			while ($i -lt $body.Count -and (Get-BslMarkerKind $body[$i]) -ne $endKind) {
+				if ($kind2 -eq 'Insert') { $desired += $body[$i]; $source += $i }; $i++
+			}
+			$ranges[$opIndex] = @{ Start = $start2; End = $desired.Count }; $i++
+		} else { $desired += $body[$i]; $source += $i; $i++ }
+	}
+	$converted2 = Convert-BslCode $desired $fileMap $params
+	$keys2 = @(Get-CodeKeys $converted2 $prefix -params $params)
+	$payloads2 = @{}; $payloadKeys2 = @{}
+	foreach ($k2 in $ranges.Keys) {
+		$r2 = $ranges[$k2]; $ls2 = @(); $ks2 = @()
+		for ($j2 = $r2.Start; $j2 -lt $r2.End; $j2++) { $ls2 += $converted2[$j2]; $ks2 += $keys2[$j2] }
+		$payloads2[$k2] = $ls2; $payloadKeys2[$k2] = $ks2
+	}
+	return @{ Desired = $desired; Source = $source; Ranges = $ranges; Payloads = $payloads2; PayloadKeys = $payloadKeys2 }
+}
+
+function Get-BslPlanIssue($plan) {
+	$methods2 = @(); if ($plan.ExtM) { $methods2 += $plan.ExtM }
+	foreach ($h2 in @($plan.Handlers)) { if ($h2.ExtM) { $methods2 += $h2.ExtM } }
+	$allowed = $null
+	if ($plan.Kind -eq 'topcode') {
+		$methods2 += @{ BodyLines = $plan.ExtLines; SigEndIdx = -1 }
+		$allowed = Get-TopCodeKeys $plan.ExtLines $script:transferPrefix
+	}
+	foreach ($m2 in $methods2) {
+		$ls2 = $m2.BodyLines; $sourceMap = $null
+		if ($plan.Kind -eq 'control') { $projection2 = Get-ControlProjection $ls2 @{} $script:transferPrefix $m2.ParamNames; $ls2 = $projection2.Desired; $sourceMap = $projection2.Source }
+		$r2 = Get-BslConversion $ls2 @{} $script:bslContext $m2.ParamNames
+		foreach ($issue2 in $r2.Issues) {
+			$offset2 = ([regex]::Matches((@($ls2) -join "`n").Substring(0, $issue2.Token.Start), "`n")).Count
+			if ($null -ne $allowed -and -not $allowed.Contains([string]$offset2)) { continue }
+			if ($null -ne $sourceMap) { $offset2 = $sourceMap[$offset2] }
+			return @{ Method = $m2; Issue = $issue2; Offset = $offset2 }
+		}
+	}
+	return $null
+}
+
+function Get-BslManualDetails($plan, $problem) {
+	$m2 = $problem.Method; $issue = $problem.Issue
+	$offset2 = $problem.Offset
+	return @("from: extension $($plan.Rel):$($m2.SigEndIdx + 2 + $offset2)",
+		"code: $(([string]$m2.BodyLines[$offset2]).Trim())", "rename: $($issue.Rename)",
+		'next: resolve the handler context in the extension, or copy the complete method and verify its handler by hand; then re-run -Mode transfer')
+}
+
+function Get-BslBlockedDependencies($plan, $byFile, $common) {
+	$missing2 = @{}
+	foreach ($map2 in @($byFile[(Get-CfgPath $plan.Rel).ToLower()], $common)) {
+		if ($map2) { foreach ($k2 in $map2.Keys) { $missing2[$k2] = $map2[$k2] } }
+	}
+	$methods2 = @($plan.ExtM) + @(foreach ($h2 in @($plan.Handlers)) { $h2.ExtM })
+	$deps2 = @(foreach ($m2 in $methods2) { if ($m2) { Get-UsedMissing $m2.BodyLines $missing2 $null $m2.ParamNames } })
+	$deps2 = [string[]]@($deps2 | Select-Object -Unique)
+	[Array]::Sort($deps2, [StringComparer]::OrdinalIgnoreCase)
+	return $deps2
+}
+
+# Scan the final method by its owner and declaration, never by a potentially repeated text line.
+# Diagnostics live in the footer so folding and pagination cannot hide them.
+function Get-BslWarningReport($records, [string]$extDir) {
+	$result = @(); $seen = @{}
+	if ($Mode -eq 'transfer') {
+		foreach ($ctx2 in $script:bslCatalog.Values) {
+			$fk2 = (Get-CfgPath $ctx2.Rel).ToLower()
+			if ($fileMaps.ContainsKey($fk2)) { foreach ($k2 in $fileMaps[$fk2].Keys) { $ctx2.Methods[$k2] = $fileMaps[$fk2][$k2] } }
+		}
+	}
+	foreach ($rec in $records) {
+		$units = @($rec.Items)
+		foreach ($it2 in $rec.Items) { foreach ($h2 in @($it2.Plan.Handlers)) {
+			if ($h2.ExtM) { $units += @{ Status = $it2.Status; Plan = @{ Kind = 'own'; Rel = $it2.Plan.Rel; ExtM = $h2.ExtM; Name = $h2.Handler } } }
+		} }
+		foreach ($it in $units) {
+		$pl = $it.Plan
+		if (-not $pl -or (-not $pl.ExtM -and $pl.Kind -ne 'topcode') -or -not $pl.Rel) { continue }
+		$ctx = $script:bslCatalog[$pl.Rel.ToLower()]; if (-not $ctx) { continue }
+		$key = "$($pl.Rel)|$($pl.ExtM.DeclIdx)"; if ($seen.ContainsKey($key)) { continue }; $seen[$key] = $true
+		$side = 'extension'; $m = $pl.ExtM
+		$allowed = $null
+		if ($pl.Kind -eq 'topcode') {
+			$src2 = $pl.ExtLines
+			if ($it.Status -eq 'TRANSFERRED') { $src2 = Read-BslLines (Get-CfgPath $pl.Rel); $side = 'config' }
+			$m = @{ BodyLines = $src2; SigEndIdx = -1 }; $allowed = Get-TopCodeKeys $src2 $script:transferPrefix
+		}
+		if ($it.Status -eq 'TRANSFERRED' -and $pl.Kind -ne 'topcode') {
+			$name = if ($pl.Kind -eq 'own') { $ctx.Methods[$pl.Name.ToLower()] } elseif ($pl.CfgM) { $pl.CfgM.Canonical } elseif ($pl.Handler) { $ctx.Methods[$pl.Handler.ToLower()] } else { '' }
+			$cm = Get-MethodSafe (Read-BslLines (Get-CfgPath $pl.Rel)) $name
+			if ($cm) { $m = $cm; $side = 'config' }
+		}
+		$bc = Get-BslConversion $m.BodyLines @{} $ctx $m.ParamNames
+		$text = @($m.BodyLines) -join "`n"
+		foreach ($w in $bc.Warnings) {
+			$line = $m.SigEndIdx + 2 + ([regex]::Matches($text.Substring(0, $w.Token.Start), "`n")).Count
+			if ($null -ne $allowed -and -not $allowed.Contains([string]($line - 1))) { continue }
+			$snippet = @($m.BodyLines)[$line - $m.SigEndIdx - 2].Trim()
+			$result += "[WARNING] string matches a renamed $($w.Kind); left unchanged"
+			$result += "  to:   $side $($pl.Rel):$line"
+			$result += "  code: $snippet"
+			$result += "  rename: $($w.Rename)"
+			$result += "  next: check whether the string refers to this $($w.Kind)"
+		}
+	} }
+	if ($result.Count) { return ,(@("Warnings: $($result.Count / 5)") + $result) }
+	return ,@()
+}
+
+
+# Legacy XML value conversion. BSL uses Convert-BslCode and its owner-scoped symbol catalog.
 function Convert-ExtCode($lines, $fileMap) {
 	$prefix = $script:transferPrefix
 	$keys = @()
@@ -4147,7 +4649,7 @@ function Get-FormBindings([string]$formXml) {
 # Procedures a module names in Новый ОписаниеОповещения("Имя", ...)
 function Get-NotifyNames($lines) {
 	$res = @{}
-	$re = '(?i)(?:Новый|New)\s+(?:ОписаниеОповещения|NotifyDescription)\s*\(\s*"([\w]+)"'
+	$re = '(?i)(?:Новый|New)\s+(?:ОписаниеОповещения|NotifyDescription|CallbackDescription)\s*\(\s*"([\w]+)"'
 	foreach ($l in @($lines)) { foreach ($m in [regex]::Matches([string]$l, $re)) { $res[$m.Groups[1].Value.ToLower()] = $true } }
 	return $res
 }
@@ -4263,7 +4765,8 @@ function Get-Indent([string]$line) { if ($line -match '^(\s*)') { return $Matche
 
 # The pending edits of an &ИзменениеИКонтроль method laid onto the configuration's body: inserts
 # after their anchor, deletions removed or commented out, each framed by the project's comments
-function Get-ControlBody($cfgM, $plan, $frame, [string]$deletion, $fileMap) {
+function Get-ControlBody($cfgM, $plan, $frame, [string]$deletion, $fileMap, $extM) {
+	$projection2 = Get-ControlProjection $extM.BodyLines $fileMap $script:transferPrefix $extM.ParamNames
 	$v2 = @($cfgM.BodyLines)
 	$insAfter = @{}; $delAt = @{}
 	foreach ($e in $plan) {
@@ -4274,7 +4777,7 @@ function Get-ControlBody($cfgM, $plan, $frame, [string]$deletion, $fileMap) {
 	$out = New-Object System.Collections.Generic.List[string]
 	$emitIns = {
 		param($op)
-		$lines = Convert-ExtCode $op.Lines $fileMap
+		$lines = @($projection2.Payloads[$op.SourceIndex])
 		$first = @($lines | Where-Object { $_.Trim() -ne '' } | Select-Object -First 1)
 		$ind = if ($first.Count -gt 0) { Get-Indent $first[0] } else { Get-Indent ([string]$op.Open) }
 		if ($frame.Begin) { $out.Add("$ind$($frame.Begin)") }
@@ -4313,64 +4816,36 @@ function Get-ControlBody($cfgM, $plan, $frame, [string]$deletion, $fileMap) {
 # Each line's code without comments; string literals are kept (-KeepStrings) or left as "" — a
 # literal that runs on over lines (the | continuation) is followed from line to line
 function Get-CodeOnly($lines, [switch]$KeepStrings) {
-	$res = New-Object System.Collections.Generic.List[string]
-	$inStr = $false
-	foreach ($l in @($lines)) {
-		$s = [string]$l
-		$sb = New-Object System.Text.StringBuilder
-		$i = 0
-		while ($i -lt $s.Length) {
-			$c = $s[$i]
-			if ($inStr) {
-				if ($c -eq '"') {
-					if ($i + 1 -lt $s.Length -and $s[$i + 1] -eq '"') { if ($KeepStrings) { [void]$sb.Append('""') }; $i += 2; continue }
-					$inStr = $false; [void]$sb.Append('"')
-				} elseif ($KeepStrings) { [void]$sb.Append($c) }
-				$i++; continue
+	if (@($lines).Count -eq 0) { return ,@() }
+	$src = @($lines) -join "`n"
+	$sb = New-Object System.Text.StringBuilder; $pos2 = 0
+	foreach ($m2 in [regex]::Matches($src, ('//[^\r\n]*|' + $script:bslLiteralRe))) {
+		[void]$sb.Append($src.Substring($pos2, $m2.Index - $pos2))
+		if (-not $m2.Value.StartsWith('//')) {
+			if ($KeepStrings) { [void]$sb.Append($m2.Value) }
+			else {
+				[void]$sb.Append('"')
+				[void]$sb.Append(("`n" * ([regex]::Matches($m2.Value, "`n")).Count))
+				if ($m2.Value.Length -ge 2 -and $m2.Value.EndsWith('"')) { [void]$sb.Append('"') }
 			}
-			if ($c -eq '"') { $inStr = $true; [void]$sb.Append('"'); $i++; continue }
-			if ($c -eq '/' -and $i + 1 -lt $s.Length -and $s[$i + 1] -eq '/') { break }
-			[void]$sb.Append($c); $i++
 		}
-		$res.Add($sb.ToString())
+		$pos2 = $m2.Index + $m2.Length
 	}
-	return ,$res.ToArray()
+	[void]$sb.Append($src.Substring($pos2))
+	return ,@($sb.ToString() -split "`n", 0, 'SimpleMatch')
 }
 
-# Words renamed in code only (not in literals or comments, not after a dot): $map lower-case -> new
+# Parameter substitutions share the BSL lexer: member names, literals and comments retain identity.
 function Rename-CodeWords($lines, $map) {
-	if ($map.Count -eq 0) { return ,@($lines) }
-	$alt = (@($map.Keys) | ForEach-Object { [regex]::Escape($_) }) -join '|'
-	$re = New-Object System.Text.RegularExpressions.Regex ('(?<![\w.])(?:' + $alt + ')(?!\w)'), ([System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
-	$ev = [System.Text.RegularExpressions.MatchEvaluator] { param($m) $map[$m.Value.ToLowerInvariant()] }
-	$out = New-Object System.Collections.Generic.List[string]
-	$inStr = $false
-	foreach ($l in @($lines)) {
-		$s = [string]$l
-		$sb = New-Object System.Text.StringBuilder
-		$code = New-Object System.Text.StringBuilder
-		$i = 0
-		while ($i -lt $s.Length) {
-			$c = $s[$i]
-			if ($inStr) {
-				[void]$sb.Append($c)
-				if ($c -eq '"') {
-					if ($i + 1 -lt $s.Length -and $s[$i + 1] -eq '"') { [void]$sb.Append('"'); $i += 2; continue }
-					$inStr = $false
-				}
-				$i++; continue
-			}
-			if ($c -eq '"' -or ($c -eq '/' -and $i + 1 -lt $s.Length -and $s[$i + 1] -eq '/')) {
-				[void]$sb.Append($re.Replace($code.ToString(), $ev)); [void]$code.Clear()
-				if ($c -eq '"') { $inStr = $true; [void]$sb.Append($c); $i++; continue }
-				[void]$sb.Append($s.Substring($i)); $i = $s.Length; break
-			}
-			[void]$code.Append($c); $i++
-		}
-		[void]$sb.Append($re.Replace($code.ToString(), $ev))
-		$out.Add($sb.ToString())
+	if ($map.Count -eq 0 -or @($lines).Count -eq 0) { return ,@($lines) }
+	$sb = New-Object System.Text.StringBuilder; $previous = ''
+	foreach ($t in @(Get-BslTokens $lines)) {
+		$k = $t.Value.ToLowerInvariant()
+		if ($t.Kind -eq 'word' -and $previous -notin @('.', 'Новый', 'New') -and $map.ContainsKey($k)) { [void]$sb.Append($map[$k]) }
+		else { [void]$sb.Append($t.Value) }
+		if ($t.Kind -ne 'comment' -and $t.Value -notmatch '^\s+$') { $previous = $t.Value }
 	}
-	return ,$out.ToArray()
+	return ,@($sb.ToString() -split "`n", 0, 'SimpleMatch')
 }
 
 $script:icOpenRe = '(?i)(?<![\w.])(?:Если|If|Для|For|Пока|While|Попытка|Try)(?!\w)'
@@ -4504,7 +4979,7 @@ function Get-InterceptOps($extM, $cfgM, [string]$type, $frame, [string]$deletion
 	$valNames = @(for ($i = 0; $i -lt $cp.Count; $i++) { if ($cv[$i]) { $cp[$i].ToLower() } })
 	$map = @{}
 	for ($i = 0; $i -lt $ep.Count; $i++) { if ($ep[$i] -cne $cp[$i]) { $map[$ep[$i].ToLowerInvariant()] = $cp[$i] } }
-	$h = Convert-ExtCode (Rename-CodeWords $extM.BodyLines $map) $fileMap
+	$h = Convert-BslCode (Rename-CodeWords $extM.BodyLines $map) $fileMap $cp
 	$o = @($cfgM.BodyLines)
 	$hc = Get-CodeOnly $h; $oc = Get-CodeOnly $o
 	$hs = Get-BodyShape $hc; $os = Get-BodyShape $oc
@@ -4700,19 +5175,44 @@ function Add-OutName($byFile, $common, [string]$cfgFile, [string]$rel, [string]$
 # Missing names the code uses (comments left out): the sorted original names. The extension's code
 # names its own things as the extension does, so a word matches by the very name: a plain Товары is
 # not the extension's Расш_Товары.
-function Get-UsedMissing($lines, $missing) {
+function Get-UsedMissing($lines, $missing, $selected = $null, $params = $null) {
 	$hit = @{}
 	if ($missing.Count -eq 0) { return @() }
-	foreach ($t in (Get-CodeOnly $lines -KeepStrings)) {
+	$only = Get-CodeOnly $lines
+	for ($lineIdx = 0; $lineIdx -lt $only.Count; $lineIdx++) {
+		if ($null -ne $selected -and -not $selected.ContainsKey($lineIdx)) { continue }
+		$t = $only[$lineIdx]
 		foreach ($m in [regex]::Matches($t, '[\w]+')) {
 			$k = $m.Value.ToLower()
+			if ($script:bslContext.Methods.ContainsKey($k)) {
+				$before2 = $t.Substring(0, $m.Index)
+				if ($before2 -match '([\w]+)\s*\.\s*$') {
+					if ($params -contains $Matches[1]) { continue }
+					$owner2 = Get-BslOwner $Matches[1] $script:bslContext
+					if (-not $owner2 -or $owner2 -ne $script:bslContext) { continue }
+				}
+			}
 			if ($missing.ContainsKey($k)) { $hit[$missing[$k]] = $true }
 		}
 		# A common module's method called from another module: Модуль.Метод
 		foreach ($m in [regex]::Matches($t, '([\w]+)\s*\.\s*([\w]+)')) {
+			if ($params -contains $m.Groups[1].Value) { continue }
 			$k = ($m.Groups[1].Value + '.' + $m.Groups[2].Value).ToLower()
 			if ($missing.ContainsKey($k)) { $hit[$missing[$k]] = $true }
 		}
+	}
+	# Only explicit API references carry dependencies through strings. Ordinary data may warn,
+	# but never waits merely because its text is also the name of a blocked method.
+	$bc = Get-BslConversion $lines @{} $script:bslContext $params
+	foreach ($ref in $bc.References) {
+		$refLine = ([regex]::Matches((@($lines) -join "`n").Substring(0, $ref.Token.Start), "`n")).Count
+		if ($null -ne $selected -and -not $selected.ContainsKey($refLine)) { continue }
+		$k = $ref.Name.ToLower()
+		if ($ref.Context -and $ref.Context -ne $script:bslContext -and $ref.Context.Kind -eq 'common') {
+			$mod = ($ref.Context.Rel -replace '\\', '/').Split('/')[1]; $k = "$mod.$($ref.Name)".ToLower()
+		}
+		if ($ref.Context -and $ref.Context -ne $script:bslContext -and $ref.Context.Kind -eq 'application') { continue }
+		if ($missing.ContainsKey($k)) { $hit[$missing[$k]] = $true }
 	}
 	# Ordinal, case-insensitive: the same order in both ports, whatever the culture
 	$arr = [string[]]@($hit.Keys)
@@ -4725,7 +5225,7 @@ function Get-UsedMissing($lines, $missing) {
 # edit moves within the method reappear in its insert, and a deletion then looks undone again).
 # Returns the number of edits the check would still see as not transferred.
 function Get-ControlResultGap($plan, $body) {
-	$m2 = @{ BodyLines = @($body) }
+	$m2 = @{ BodyLines = @($body); ParamNames = $plan.CfgM.ParamNames }
 	$r2 = Get-ControlTransfer $plan.ExtM $m2 $script:transferPrefix
 	$before = @($plan.Ops)
 	if (-not $r2) { return $before.Count }
@@ -4742,8 +5242,8 @@ function Get-ControlResultGap($plan, $body) {
 function Test-OwnResult($plan, $fe, $fileMap) {
 	$names = @(Get-ProcNames $fe.File.Lines) + @($fe.Given)
 	if (@(Find-NamesIn $names $plan.Name $script:transferPrefix | Where-Object { $_ -ieq $plan.Target.Name }).Count -eq 0) { return $false }
-	$conv = Convert-ExtCode $plan.ExtM.BodyLines $fileMap
-	return (((Get-SigLines $plan.ExtM.BodyLines $script:transferPrefix) -join "`n") -ieq ((Get-SigLines $conv $script:transferPrefix) -join "`n"))
+	$conv = Convert-BslCode $plan.ExtM.BodyLines $fileMap $plan.ExtM.ParamNames
+	return (((Get-SigLines (Convert-BslCode $plan.ExtM.BodyLines $fileMap $plan.ExtM.ParamNames) $script:transferPrefix) -join "`n") -ieq ((Get-SigLines $conv $script:transferPrefix) -join "`n"))
 }
 
 # An own method as the configuration gets it: the description comments above it, the directive, the
@@ -4753,7 +5253,7 @@ function Get-OwnMethodBlock($extLines, $extM, $frame, $fileMap) {
 	if ($start -ge 1 -and (Test-ContextDirective $extLines[$start - 1].Trim())) { $start-- }
 	while ($start -ge 1 -and $extLines[$start - 1].Trim().StartsWith('//')) { $start-- }
 	$src = @(); for ($j = $start; $j -le $extM.BodyEndIdx; $j++) { $src += $extLines[$j] }
-	$conv = Convert-ExtCode $src $fileMap
+	$conv = Convert-BslCode $src $fileMap $extM.ParamNames
 	$out = New-Object System.Collections.Generic.List[string]
 	if ($frame.Begin) { $out.Add($frame.Begin) }
 	foreach ($l in $conv) { $out.Add($l) }
@@ -5012,6 +5512,7 @@ if ($Mode -eq 'transfer') {
 	$matchedIds = @{}
 	$roles = 0
 
+	Initialize-BslCatalog $extDir0 $prefix
 	# --- Pass 1: what the check sees, object by object ---
 	$work = @()
 	$cfgPools = @{}
@@ -5117,7 +5618,7 @@ if ($Mode -eq 'transfer') {
 			$fk = $cfgFile.ToLower()
 			if (-not $fileMaps.ContainsKey($fk)) { $fileMaps[$fk] = @{} }
 			if ($pl.Hit) { if ($pl.Hit -cne $pl.Name) { $fileMaps[$fk][$pl.Name.ToLower()] = $pl.Hit }; continue }
-			if ($it.Status -ne 'NOT_TRANSFERRED' -or $pl.CfgMissing -or $w.Support -eq 'locked') { continue }
+			if ($it.Status -notin @('NOT_TRANSFERRED', 'MANUAL') -or $pl.CfgMissing -or $w.Support -eq 'locked') { continue }
 			$fe = Get-FileEdits $cfgFile
 			$taken = New-Object 'System.Collections.Generic.HashSet[string]'
 			foreach ($n in @(Get-ProcNames $fe.File.Lines)) { [void]$taken.Add($n.ToLower()) }
@@ -5131,8 +5632,15 @@ if ($Mode -eq 'transfer') {
 			if ($tn.Taken) { continue }
 			[void]$fe.Given.Add($tn.Name.ToLower())
 			$fileMaps[$fk][$pl.Name.ToLower()] = $tn.Name
+			# Preserve the XML converter's map; BSL never resolves methods through this flat map.
 			if ((Get-ModuleKind $pl.Rel) -eq 'common' -and $tn.Name -cne (Remove-ExtPrefix $pl.Name $prefix)) { $script:nameMap[$pl.Name.ToLower()] = $tn.Name }
+
 		}
+	}
+
+	foreach ($ctx2 in $script:bslCatalog.Values) {
+		$fk2 = (Get-CfgPath $ctx2.Rel).ToLower()
+		if ($fileMaps.ContainsKey($fk2)) { foreach ($k2 in $fileMaps[$fk2].Keys) { $ctx2.Methods[$k2] = $fileMaps[$fk2][$k2] } }
 	}
 
 	# --- Pass 3: each change -> transferred now, waiting, left to a person (manual) or in conflict ---
@@ -5182,9 +5690,11 @@ if ($Mode -eq 'transfer') {
 			foreach ($o in $order) {
 				$it = $w.Rec.Items[$o.I]
 				$pl = $it.Plan
+				if ($pl.Rel) { Set-BslContext $pl.Rel }
 				$t = New-TItem $it.Status $it.Text $it.Loc $it.Section
+				$t.Plan = $pl
 				$t.Group = $it.Group; $t.Marked = $it.Marked; $t.Seq = $o.I
-				if ($pl -and $pl.Kind -eq 'own' -and $it.Status -eq 'NOT_TRANSFERRED') { $ownItems += @{ Plan = $pl; T = $t } }
+				if ($pl -and $pl.Kind -eq 'own' -and ($it.Status -in @('NOT_TRANSFERRED', 'MANUAL') -or ($it.Status -eq 'DIVERGED' -and $pl.LiteralMismatch))) { $ownItems += @{ Plan = $pl; T = $t } }
 				# A method with an &ИзменениеИКонтроль edit not in the configuration yet: an interceptor of it
 				# would move the lines the edit is anchored to
 				if ($pl -and $pl.Kind -eq 'control' -and $pl.CfgM -and @('TRANSFERRED', 'TEMPORARY') -notcontains $it.Status) {
@@ -5192,6 +5702,18 @@ if ($Mode -eq 'transfer') {
 				}
 				if ($it.Status -eq 'TEMPORARY') { $tempCount++; continue }
 				if ($it.Status -eq 'TRANSFERRED') { $titems += $t; continue }
+				$problem = Get-BslPlanIssue $pl
+				if ($problem) {
+					$t.Status = 'MANUAL'
+					if ($it.Status -ne 'MANUAL') { $t.Text += " — $($problem.Issue.Why)" }
+					$t.Sub = Get-BslManualDetails $pl $problem
+					# New refusals of event/command handlers must also protect their callers.
+					$blockedNames2 = @()
+					if ($pl.Kind -eq 'event-bind') { $blockedNames2 += $pl.Handler }
+					if ($pl.Kind -eq 'command-bind') { $blockedNames2 += @($pl.Handlers | ForEach-Object { $_.Handler }) }
+					foreach ($n2 in $blockedNames2) { if (Add-OutName $outByFile $outCommon (Get-CfgPath $pl.Rel) $pl.Rel $n2) { $again = $true } }
+					$titems += $t; continue
+				}
 				if ($it.Group -and $w.Support -eq 'locked') {
 					$t.Status = 'MANUAL'
 					$t.Text = "$($it.Text) — object is locked by vendor support"
@@ -5208,9 +5730,15 @@ if ($Mode -eq 'transfer') {
 						$titems += $t
 						continue
 					}
+					$blocked2 = @(Get-BslBlockedDependencies $pl $outByFile $outCommon)
+					if ($blocked2.Count) { $t.Status = 'WAITING'; $t.Text = "$($it.Text) - waits for: $($blocked2 -join ', ')"; $titems += $t; continue }
 					$icPending += @{ T = $t; Pl = $it.Plan; Fe = (Get-FileEdits $cfgFile); Ops = $r.Ops; Where = $r.Where; Label = $it.Plan.Label; Warn = ''; Locals = $r.Locals; Words = $r.Words }
 					$titems += $t
 					continue
+				}
+				if ($pl.Kind -in @('event-bind', 'command-bind')) {
+					$blocked2 = @(Get-BslBlockedDependencies $pl $outByFile $outCommon)
+					if ($blocked2.Count) { $t.Status = 'WAITING'; $t.Text = "$($it.Text) - waits for: $($blocked2 -join ', ')"; $titems += $t; continue }
 				}
 				if ($it.Group -and $it.Plan) {
 					$pl = $it.Plan
@@ -5262,8 +5790,8 @@ if ($Mode -eq 'transfer') {
 							}
 							if ($tn.Taken) { $conflict = "name taken in config ($($tn.Note))"; break }
 							$mapRef[$hk] = $tn.Name; $mapAdded += $hk
-							$conv = Convert-ExtCode $h.ExtM.BodyLines $mapRef
-							if (((Get-SigLines $h.ExtM.BodyLines $prefix) -join "`n") -ine ((Get-SigLines $conv $prefix) -join "`n")) {
+							$conv = Convert-BslCode $h.ExtM.BodyLines $mapRef $h.ExtM.ParamNames
+							if (((Get-SigLines (Convert-BslCode $h.ExtM.BodyLines $mapRef $h.ExtM.ParamNames) $prefix) -join "`n") -ine ((Get-SigLines $conv $prefix) -join "`n")) {
 								$conflict = "after the transfer the check would not find the handler's code"; break
 							}
 							$role = Get-MethodRole $h.Handler 'form' $bind $notify (Test-IsExport $pl.ExtLines $h.ExtM)
@@ -5469,8 +5997,9 @@ if ($Mode -eq 'transfer') {
 					}
 					$fe = Get-FileEdits $cfgFile
 					if (-not $pl.Layout) { $pl.Layout = Get-ModuleLayout $pl.ExtLines }
-					if (-not $fe.TopKeys) { $fe.TopKeys = @{}; $tl = Get-TopCodeLines $fe.File.Lines; foreach ($l in $tl) { $fe.TopKeys[(Get-TopKey $l $prefix)] = $true } }
+					if (-not $fe.TopKeys) { $fe.TopKeys = @{}; foreach ($key in (Get-TopCodeKeys $fe.File.Lines $prefix).Values) { $fe.TopKeys[$key] = $true } }
 					$el = $pl.Layout; $cl = $fe.Layout; $have = $fe.TopKeys
+					$extKeys = Get-TopCodeKeys $pl.ExtLines $prefix -Extension
 					$taken = @{}
 					foreach ($v in $cl.Vars) { foreach ($n in $v.Names) { $taken[$n.ToLower()] = $true } }
 					foreach ($n in @(Get-ProcNames $fe.File.Lines)) { $taken[$n.ToLower()] = $true }
@@ -5478,17 +6007,17 @@ if ($Mode -eq 'transfer') {
 					$seen = @{}
 					$stmts = @(); $stmtsHave = 0
 					foreach ($i in $el.Statements) {
-						$key = Get-TopKey $pl.ExtLines[$i] $prefix
+						$key = $extKeys[[string]$i]
 						if ($have.ContainsKey($key)) { $stmtsHave++; continue }
 						if ($seen.ContainsKey($key)) { continue }
 						$seen[$key] = $true; $stmts += $i
 					}
 					$todo = @(); $clash = @()
 					foreach ($v in $el.Vars) {
-						$key = Get-TopKey $pl.ExtLines[$v.Idx] $prefix
+						$key = $extKeys[[string]$v.Idx]
 						if ($have.ContainsKey($key) -or $seen.ContainsKey($key)) { continue }
 						$seen[$key] = $true
-						foreach ($n in $v.Names) { $tn = [string](Convert-ExtCode @($n) $fileMap)[0]; if ($taken.ContainsKey($tn.ToLower())) { $clash += $tn } }
+						foreach ($n in $v.Names) { $tn = [string](Convert-BslCode @($n) $fileMap)[0]; if ($taken.ContainsKey($tn.ToLower())) { $clash += $tn } }
 						$todo += $v
 					}
 					# Variables that stay out make the code using them wait, like a method that stays out
@@ -5519,12 +6048,23 @@ if ($Mode -eq 'transfer') {
 							$t.Sub = @("from: extension $($pl.Rel):$($s0 + 1)-$($s1 + 1)", 'next: add them at the end of the configuration module by hand, then re-run -Mode check')
 							$titems += $t; continue
 						}
-						$body = Convert-ExtCode $range $fileMap
+						$blockedMethods = @{}
+						foreach ($methodMap in @($outByFile[$cfgFile.ToLower()], $outCommon)) {
+							if ($methodMap) { foreach ($name in $methodMap.Keys) { $blockedMethods[$name] = $methodMap[$name] } }
+						}
+						$deps = @(Get-UsedMissing $range $blockedMethods)
+						if ($deps.Count -gt 0) {
+							$t.Status = 'WAITING'
+							$t.Text = "$label — waits for: $($deps -join ', ')"
+							$t.Sub = @("from: extension $($pl.Rel):$($s0 + 1)-$($s1 + 1)", 'next: transfer the required methods, then re-run -Mode transfer')
+							$titems += $t; continue
+						}
+						$body = Convert-BslCode $range $fileMap
 					}
 					$parts = @()
 					if ($todo.Count -gt 0) {
 						$block = @()
-						foreach ($v in $todo) { $cv = Convert-ExtCode @($pl.ExtLines[$v.Start..$v.Idx]) $fileMap; $block += $cv }
+						foreach ($v in $todo) { $cv = Convert-BslCode @($pl.ExtLines[$v.Start..$v.Idx]) $fileMap; $block += $cv }
 						$block = Get-Framed $block $frame
 						if ($cl.LastVar -ge 0) { [void]$fe.Repl.Add(@{ Start = $cl.LastVar + 1; End = $cl.LastVar + 1; Lines = $block; Seq = $script:seq++ }); $where = 'after the module variables' }
 						else {
@@ -5564,21 +6104,29 @@ if ($Mode -eq 'transfer') {
 				foreach ($m in @($outByFile[$cfgFile.ToLower()], $outCommon)) { if ($m) { foreach ($k in $m.Keys) { $missing[$k] = $m[$k] } } }
 				# A method calling itself does not wait for itself
 				if ($pl.Kind -eq 'own') { $missing.Remove($pl.Name.ToLower()) }
-				$code = if ($pl.Kind -eq 'control') { @($pl.Ops | Where-Object { $_.Res -eq 'pending' -and $_.Op.Kind -eq 'insert' } | ForEach-Object { $_.Op.Lines }) } else { @($pl.ExtM.BodyLines) }
-				$deps = @(Get-UsedMissing $code $missing)
+				$selected2 = $null
+				if ($pl.Kind -eq 'control') {
+					$cp2 = Get-ControlProjection $pl.ExtM.BodyLines $fileMap $prefix $pl.ExtM.ParamNames
+					$code = $cp2.Desired; $selected2 = @{}
+					foreach ($op2 in @($pl.Ops | Where-Object { $_.Res -eq 'pending' -and $_.Op.Kind -eq 'insert' })) {
+						$range2 = $cp2.Ranges[$op2.Op.SourceIndex]
+						for ($j2 = $range2.Start; $j2 -lt $range2.End; $j2++) { $selected2[$j2] = $true }
+					}
+				} else { $code = @($pl.ExtM.BodyLines) }
+				$deps = @(Get-UsedMissing $code $missing $selected2 $pl.ExtM.ParamNames)
 				# A conflict or a missing module shows first: waiting would hide it
 				$blocked = ($pl.Kind -eq 'control' -and @($pl.Ops | Where-Object { @('pending', 'absorbed', 'temp') -notcontains $_.Res }).Count -gt 0) -or
 					($pl.Kind -eq 'own' -and ($it.Status -eq 'DIVERGED' -or $pl.CfgMissing -or ($pl.Target -and $pl.Target.Taken))) -or
 					($pl.Kind -eq 'intercept' -and $it.Status -eq 'PARTIAL')
 				$tempMap = @{}
 				foreach ($m in @($tempByFile[$cfgFile.ToLower()], $tempCommon)) { if ($m) { foreach ($k in $m.Keys) { $tempMap[$k] = $m[$k] } } }
-				$tempDeps = @(Get-UsedMissing $code $tempMap)
+				$tempDeps = @(Get-UsedMissing $code $tempMap $selected2 $pl.ExtM.ParamNames)
 				if ($tempDeps.Count -gt 0 -and -not $blocked) {
 					$t.Text = "$label — calls $($tempDeps -join ', '), marked as not for transfer"
 					$t.Sub = Get-WhereLines $pl 'drop the call before the transfer or remove the mark from the method, then re-run -Mode transfer'
 					$titems += $t; continue
 				}
-				$formTempDeps = if ((Get-ModuleKind $pl.Rel) -eq 'form') { @(Get-UsedMissing $code $formTemp[$pl.Rel.ToLower()]) } else { @() }
+				$formTempDeps = if ((Get-ModuleKind $pl.Rel) -eq 'form') { @(Get-UsedMissing $code $formTemp[$pl.Rel.ToLower()] $selected2 $pl.ExtM.ParamNames) } else { @() }
 				if ($formTempDeps.Count -gt 0 -and -not $blocked) {
 					$t.Text = "$label — uses form items $($formTempDeps -join ', '), marked as not for transfer"
 					$t.Sub = Get-WhereLines $pl 'drop the use before the transfer or remove the mark from the form module, then re-run -Mode transfer'
@@ -5619,7 +6167,7 @@ if ($Mode -eq 'transfer') {
 						$titems += $t; continue
 					}
 					$fe = Get-FileEdits $cfgFile
-					$body = Get-ControlBody $pl.CfgM $pl.Ops $frame $set.Deletion $fileMap
+					$body = Get-ControlBody $pl.CfgM $pl.Ops $frame $set.Deletion $fileMap $pl.ExtM
 					# The check must see the result as transferred, or a re-run would carry it over again:
 					# the new body goes through the same comparison before anything is written
 					$gap = Get-ControlResultGap $pl $body
@@ -5700,6 +6248,7 @@ if ($Mode -eq 'transfer') {
 		foreach ($key in @($icGroups.Keys)) {
 			$g = @($icGroups[$key])
 			$fe = $g[0].Fe; $cfgM = $g[0].Pl.CfgM
+			Set-BslContext $g[0].Pl.Rel
 			$manual = $null
 			if ($ctlKeys.ContainsKey($key)) { $manual = 'the method has &ИзменениеИКонтроль too' }
 			elseif ($g.Count -gt 1 -and @($g | Where-Object { $_.Pl.Type -eq 'Вместо' }).Count -gt 0) { $manual = 'the method has other interceptors too' }
@@ -5846,6 +6395,7 @@ if ($Mode -eq 'transfer') {
 	if ($script:formValidateMissing) { $footer += "Hint: /form-validate is not installed — the written forms were not checked; run /form-validate by hand" }
 	if ($script:mdValidateMissing) { $footer += "Hint: /meta-validate (or /subsystem-validate) is not installed — the written metadata was not checked; run it by hand" }
 	if ($cWait) { $footer += "Hint: waiting changes go over by themselves on a re-run of -Mode transfer once what they wait for is in the configuration: own methods of this run (see their lines), objects, sub-objects and form items (by hand for now)" }
+	$footer += Get-BslWarningReport $recs $extDir0
 	$failed = ($cWait + $cManual + $cConflict) -gt 0
 	$showDetails = $true
 } else {
@@ -5853,6 +6403,7 @@ if ($Mode -eq 'transfer') {
 	$matchedIds = @{}
 	foreach ($dir in $extDirs) {
 		$cp = Read-ConfigurationProps $dir
+		Initialize-BslCatalog $dir ([string]$cp.Prefix)
 		$ext = @{ Dir = $dir; Name = $cp.Name; Prefix = $cp.Prefix; Purpose = $cp.Purpose; Objects = @(); Roles = 0; Matched = 0 }
 		if ($cp.ChildObjects) {
 			foreach ($child in $cp.ChildObjects.ChildNodes) {
@@ -5883,6 +6434,7 @@ if ($Mode -eq 'transfer') {
 				$ext.Objects += $rec
 			}
 		}
+		$ext.StringWarnings = Get-BslWarningReport $ext.Objects $dir
 		# -Name narrows the report: an extension without a matching object stays out of it
 		if ($nameFilter.Count -gt 0 -and $ext.Matched -eq 0) { continue }
 		$exts += $ext
@@ -5928,6 +6480,7 @@ if ($Mode -eq 'transfer') {
 	$failed = $false
 	$extDone = 0; $extLeft = 0; $leftTotal = 0
 	foreach ($ext in $exts) {
+		$footer += $ext.StringWarnings
 		$all = @($ext.Objects | ForEach-Object { $_.Items } | ForEach-Object { $_ })
 		$rolesNote = if ($ext.Roles) { " · $(Get-Plural $ext.Roles 'role'), not checked" } else { '' }
 		if ($all.Count -eq 0) {

@@ -1,0 +1,101 @@
+{
+  "name": "Literal case, whitespace, multiline continuations, doubled quotes and comment markers remain significant",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "CommonModule",
+        "name": "Alpha",
+        "properties": {
+          "Server": true
+        }
+      },
+      "args": {
+        "-JsonPath": "{inputFile}",
+        "-OutputDir": "{workDir}"
+      }
+    },
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "CommonModule",
+        "name": "Beta",
+        "properties": {
+          "Server": true
+        }
+      },
+      "args": {
+        "-JsonPath": "{inputFile}",
+        "-OutputDir": "{workDir}"
+      }
+    },
+    {
+      "script": "cfe-init/scripts/cfe-init",
+      "args": {
+        "-Name": "Ext",
+        "-OutputDir": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}"
+      }
+    },
+    {
+      "script": "cfe-borrow/scripts/cfe-borrow",
+      "args": {
+        "-ExtensionPath": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}",
+        "-Object": "CommonModule.Alpha"
+      }
+    },
+    {
+      "script": "cfe-borrow/scripts/cfe-borrow",
+      "args": {
+        "-ExtensionPath": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}",
+        "-Object": "CommonModule.Beta"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "CommonModules/Alpha/Ext/Module.bsl",
+        "content": "Procedure Case() Export\n    Value = \"ABC\";\nEndProcedure\nProcedure Spaces() Export\n    Value = \"a b\";\nEndProcedure\nProcedure Multi() Export\n    Value = \"first\n    |Second\";\nEndProcedure\nProcedure Escaped() Export\n    Value = \"a\"\"B //  x\"; // tail\nEndProcedure\n\nProcedure Same() Export\n    Text = \"first\n    |tail\";\nEndProcedure\n"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "CommonModules/Beta/Ext/Module.bsl",
+        "content": "Procedure Original() Export\n\nEndProcedure\n"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "cfe/CommonModules/Alpha/Ext/Module.bsl",
+        "content": "Procedure Ext_Case() Export\n    Value = \"abc\";\nEndProcedure\nProcedure Ext_Spaces() Export\n    Value = \"a  b\";\nEndProcedure\nProcedure Ext_Multi() Export\n    Value = \"first\n    |second\";\nEndProcedure\nProcedure Ext_Escaped() Export\n    Value = \"a\"\"b //  x\"; // tail\nEndProcedure\n\nProcedure Ext_Same() Export\n    Text = \"first\n    //| source comment \"quotes\" Ext_Same\n    |tail\";\nEndProcedure\n"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "cfe/CommonModules/Beta/Ext/Module.bsl",
+        "content": ""
+      }
+    }
+  ],
+  "params": {
+    "extensionPath": "cfe"
+  },
+  "cwd": "workDir",
+  "args_extra": [
+    "-Mode",
+    "check",
+    "-Expand",
+    "*"
+  ],
+  "expect": {
+    "stdoutContains": [
+      "method Ext_Case (found as Case) (body differs)",
+      "method Ext_Spaces (found as Spaces) (body differs)",
+      "method Ext_Multi (found as Multi) (body differs)",
+      "method Ext_Escaped (found as Escaped) (body differs)",
+      "[TRANSFERRED]        method Ext_Same (found as Same)"
+    ]
+  },
+  "expectError": true
+}
