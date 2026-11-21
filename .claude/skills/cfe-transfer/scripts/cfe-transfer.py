@@ -1,5 +1,5 @@
 ﻿#!/usr/bin/env python3
-# cfe-transfer v1.20 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+# cfe-transfer v1.22 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -2563,7 +2563,7 @@ def prop_transfer(cpm, p, prefix):
     return "differs"
 
 
-def form_transfer_items(diff, form, cfg_form_xml, cfg_module_path, ext_dir, prefix):
+def form_transfer_items(diff, form, cfg_form_xml, cfg_module_path, ext_dir, prefix, form_interceptors=None):
     items = []
     group = form["label"]
     cfg_doc = read_form_doc(cfg_form_xml)
@@ -2696,7 +2696,10 @@ def form_transfer_items(diff, form, cfg_form_xml, cfg_module_path, ext_dir, pref
                         it["plan"] = {"kind": "intercept", "type": kind, "ext_m": ext_m, "cfg_m": cfg_m, "rel": mod_rel, "label": label}
                         it["plan_key"] = label
                     if it:
-                        items.append(marked(it, [x["name"]]))
+                        it = marked(it, [x["name"]])
+                        items.append(it)
+                    if form_interceptors is not None and kind and cfg_m:
+                        form_interceptors.append((mod_rel, cfg_m["decl_idx"], it))
                 continue
             hit = find_name_in(cn, x["name"], prefix)
             st = "TRANSFERRED" if hit else "NOT_TRANSFERRED"
@@ -2798,7 +2801,10 @@ def form_transfer_items(diff, form, cfg_form_xml, cfg_module_path, ext_dir, pref
                           "scope": e["scope"], "name": e["name"], "handler": e["handler"]}
             it["plan_key"] = "event " + (e["scope"] + "." if e["scope"] else "") + e["name"]
         if it:
-            items.append(marked(it, [e["scope"]]))
+            it = marked(it, [e["scope"]])
+            items.append(it)
+        if form_interceptors is not None and kind and cfg_m:
+            form_interceptors.append((mod_rel, cfg_m["decl_idx"], it))
     # An element of BaseForm the main part lacks: the extension cannot drop a borrowed element, so the
     # configuration's form has changed since the borrowing
     for nm in diff["removed"]:
@@ -2883,7 +2889,7 @@ def own_declaration_difference(ext_lines, ext_method, cfg_lines, cfg_method):
     return None
 
 
-def module_transfer_items(bsl, ext_dir, config_path, prefix, skip_handlers):
+def module_transfer_items(bsl, ext_dir, config_path, prefix, skip_handlers, form_interceptors):
     items = []
     ext_lines = read_bsl_lines(bsl)
     if ext_lines is None:
@@ -2892,6 +2898,8 @@ def module_transfer_items(bsl, ext_dir, config_path, prefix, skip_handlers):
     set_bsl_context(rel)
     cfg_lines = read_bsl_lines(os.path.join(config_path, rel))
     mc = get_module_changes(ext_lines, skip_handlers)
+    form_interceptors = [(idx, it) for module, idx, it in form_interceptors if module.lower() == rel.lower()]
+    mixed_empty_around = set()
     for x in mc["interceptors"]:
         ic = x["ic"]
         decl = x["decl"]
@@ -2918,6 +2926,25 @@ def module_transfer_items(bsl, ext_dir, config_path, prefix, skip_handlers):
                     it["marked"] = True
                 plan["kind"] = "control"
                 plan["ops"] = r["plan"]
+        elif ic["type"] == "Вместо" and is_empty_interceptor_body(ext_m["body_lines"]):
+            plan.update(kind="intercept", type=ic["type"], empty_around=True)
+            status = "NOT_TRANSFERRED"
+            if (sum(x["ic"]["method"].lower() == ic["method"].lower() for x in mc["interceptors"]) > 1
+                    or any(idx == cfg_m["decl_idx"] for idx, _ in form_interceptors)):
+                if mark is None:
+                    mixed_empty_around.add(cfg_m["decl_idx"])
+            elif ext_m["is_function"] or cfg_m["is_function"]:
+                plan["manual_reason"] = "empty replacement of a function requires manual review"
+            elif any(frame["kind"] == "if" for frame in ext_m["chain"] + cfg_m["chain"]):
+                plan["manual_reason"] = "empty replacement under a preprocessor condition requires manual review"
+            elif has_inline_method_body(ext_lines, ext_m) or has_inline_method_body(cfg_lines, cfg_m):
+                plan["manual_reason"] = "statement on the signature line requires manual review"
+            elif is_empty_interceptor_body(cfg_m["body_lines"]):
+                status = "TRANSFERRED"
+            if plan.get("manual_reason"):
+                status = "MANUAL"
+            note = plan.get("manual_reason", "empty replacement body")
+            it = new_item(status, "%s (%s)" % (label, note), loc)
         else:
             h = get_heuristic_transfer(ext_m, cfg_m, prefix)
             if h:
@@ -2928,6 +2955,13 @@ def module_transfer_items(bsl, ext_dir, config_path, prefix, skip_handlers):
             it["plan"] = plan
         if it:
             items.append(set_temp_mark(it, mark, label))
+    interceptor_items = items + [it for _, it in form_interceptors if it]
+    for it in interceptor_items:
+        plan = it.get("plan")
+        if plan and plan.get("cfg_m") and plan["cfg_m"]["decl_idx"] in mixed_empty_around and it["status"] not in ("TRANSFERRED", "TEMPORARY"):
+            plan["manual_reason"] = "the method has an empty replacement and other interceptors"
+            it["status"] = "MANUAL"
+            it["text"] = "%s (%s)" % (plan["label"], plan["manual_reason"])
     cfg_names = get_proc_names(cfg_lines) if cfg_lines is not None else []
     for od in mc["own"]:
         pn = od["name"]
@@ -3171,6 +3205,7 @@ def transfer_object(ext, obj, cfg_info, config_path, cfg_pools=None):
     forms = get_obj_forms(ctx)
     diffs = {}
     form_items = []
+    form_interceptors = []
     for f in forms:
         if f["own"]:
             continue
@@ -3185,14 +3220,14 @@ def transfer_object(ext, obj, cfg_info, config_path, cfg_pools=None):
         cfg_module = os.path.join(config_path, rel_path(ext["dir"], f["module"]))
         set_bsl_context(rel_path(ext["dir"], f["module"]))
         # Dialog changes have no line of their own: their file is the form's Form.xml
-        for fi in form_transfer_items(d, f, cfg_form, cfg_module, ext["dir"], prefix):
+        for fi in form_transfer_items(d, f, cfg_form, cfg_module, ext["dir"], prefix, form_interceptors):
             if not fi["loc"]:
                 fi["section"] = rel
             form_items.append(fi)
     for bsl in get_obj_modules(ctx, forms):
         k = path_key(bsl)
         skip = call_type_handlers(diffs[k]) if k in diffs else set()
-        rec["items"] += module_transfer_items(bsl, ext["dir"], config_path, prefix, skip)
+        rec["items"] += module_transfer_items(bsl, ext["dir"], config_path, prefix, skip, form_interceptors)
     # Section = the file the change lives in (a module line, the form's Form.xml, the object's own
     # XML for its sub-objects); the item then keeps only its line number
     obj_rel = rel_path(ext["dir"], ctx["file"])
@@ -5420,6 +5455,20 @@ def get_code_only(lines, keep_strings=False):
     return ''.join(parts).split('\n')
 
 
+def is_empty_interceptor_body(lines):
+    return not "\n".join(get_code_only(lines)).strip()
+
+
+def has_inline_method_body(lines, method):
+    line = lines[method["sig_end_idx"]]
+    # params_text retains the text up to the closing parenthesis, including indentation.
+    end = len(method["params_text"].rsplit("\n", 1)[-1])
+    if method["decl_idx"] == method["sig_end_idx"]:
+        end += line.index("(") + 1
+    suffix = re.sub(r'^\s*(?:Экспорт|Export)\b', '', line[end + 1:], flags=re.I)
+    return not is_empty_interceptor_body([suffix])
+
+
 def rename_code_words(lines, mapping):
     if not mapping or not lines:
         return list(lines)
@@ -6445,6 +6494,10 @@ def main():
                     if it["status"] == "TRANSFERRED":
                         titems.append(t)
                         continue
+                    if pl and pl.get("manual_reason"):
+                        t["sub"] = get_where_lines(pl, "apply by hand, then re-run -Mode check")
+                        titems.append(t)
+                        continue
                     problem = get_bsl_plan_issue(pl)
                     if problem:
                         t['status'] = 'MANUAL'
@@ -7078,10 +7131,13 @@ def main():
                     continue
                 ops = [op for p in g for op in p["ops"]]
                 body = get_intercept_body(cfg_m["body_lines"], ops)
-                # The check must find every handler's code in the new body, or a re-run would put it in again
+                # Reuse the check's criteria so a re-run cannot apply the same handler again.
                 m2 = {"body_lines": body, "param_names": cfg_m["param_names"]}
                 bad = False
                 for p in g:
+                    if p["pl"].get("empty_around"):
+                        bad |= not is_empty_interceptor_body(body)
+                        continue
                     h2 = get_heuristic_transfer(p["pl"]["ext_m"], m2, prefix)
                     if h2 and h2["found"] != h2["total"]:
                         bad = True

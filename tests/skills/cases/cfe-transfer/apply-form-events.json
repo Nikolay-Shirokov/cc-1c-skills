@@ -12,7 +12,8 @@
   "expect": {
     "stdoutContains": [
       "[TRANSFERRED]        event OnOpen[After] -> PatchA_OnOpenAfter — after the original",
-      "[TRANSFERRED]        command SrcCmd2[After] -> PatchA_SrcCmd2After — after the original"
+      "[TRANSFERRED]        command SrcCmd2[After] -> PatchA_SrcCmd2After — after the original",
+      "[MANUAL]             &Around(\"ArticleOnChange\") (the method has an empty replacement and other interceptors)"
     ],
     "fileContains": [
       {
@@ -30,5 +31,14 @@
         "text": "PatchA_"
       }
     ]
-  }
+  },
+  "preRun": [
+    {
+      "writeFile": {
+        "path": "cfe/Catalogs/Items/Forms/ItemForm/Ext/Form/Module.bsl",
+        "content": "&НаКлиенте\nПроцедура PatchA_OnOpenAfter(Отказ)\n\tPatchA_Обновить();\nКонецПроцедуры\n\n&НаКлиенте\nПроцедура PatchA_ArticleOnChangeBefore(Элемент)\n\tСообщить(\"Артикул изменён\");\nКонецПроцедуры\n\n&НаКлиенте\nПроцедура PatchA_CmdAction(Команда)\n\tСообщить(\"своя команда\");\nКонецПроцедуры\n\n&НаКлиенте\nПроцедура PatchA_SrcCmd1After(Команда)\n\tСообщить(\"после команды\");\nКонецПроцедуры\n\n&НаКлиенте\nПроцедура PatchA_Обновить()\n\tЭлементы.PatchA_Field.Видимость = Истина;\nКонецПроцедуры\n\n&НаКлиенте\nПроцедура PatchA_SrcCmd2After(Команда)\n\tСообщить(\"после второй команды\");\nКонецПроцедуры\n\n&Around(\"ArticleOnChange\")\nProcedure PatchA_EmptyAround(Element)\nEndProcedure\n"
+      }
+    }
+  ],
+  "expectError": true
 }

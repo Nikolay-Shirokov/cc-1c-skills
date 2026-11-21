@@ -35,3 +35,6 @@ Procedure DeleteComment() Export
     NewCode();
     // old comment
 EndProcedure
+
+Procedure EmptyAround() Export
+EndProcedure

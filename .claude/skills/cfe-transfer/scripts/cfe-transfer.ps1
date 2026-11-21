@@ -1,4 +1,4 @@
-﻿# cfe-transfer v1.20 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+﻿# cfe-transfer v1.22 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -2368,7 +2368,7 @@ function Get-PropTransfer($cpm, $p, [string]$prefix) {
 	return 'differs'
 }
 
-function Get-FormTransferItems($diff, $form, [string]$cfgFormXml, [string]$cfgModulePath, [string]$extDir, [string]$prefix) {
+function Get-FormTransferItems($diff, $form, [string]$cfgFormXml, [string]$cfgModulePath, [string]$extDir, [string]$prefix, $formInterceptors) {
 	$items = @()
 	$group = $form.Label
 	$cfgDoc = Read-FormDoc $cfgFormXml
@@ -2482,7 +2482,10 @@ function Get-FormTransferItems($diff, $form, [string]$cfgFormXml, [string]$cfgMo
 						$it.Plan = @{ Kind = 'intercept'; Type = $kind; ExtM = $extM; CfgM = $cfgM; Rel = $modRel; Label = $label }
 						$it.PlanKey = $label
 					}
-					if ($it) { $items += & $marked $it @($x.Name) }
+					if ($it) { $it = & $marked $it @($x.Name); $items += $it }
+					if ($null -ne $formInterceptors -and $kind -and $cfgM) {
+						[void]$formInterceptors.Add(@{ Rel = $modRel; DeclIdx = $cfgM.DeclIdx; Item = $it })
+					}
 				}
 				continue
 			}
@@ -2584,7 +2587,10 @@ function Get-FormTransferItems($diff, $form, [string]$cfgFormXml, [string]$cfgMo
 			$it.Plan = @{ Kind = 'event-bind'; ExtM = $extM; ExtLines = $extMod; Rel = $modRel; Scope = $e.Scope; Name = $e.Name; Handler = $e.Handler }
 			$it.PlanKey = "event $(if ($e.Scope) { "$($e.Scope)." } else { '' })$($e.Name)"
 		}
-		if ($it) { $items += & $marked $it @($e.Scope) }
+		if ($it) { $it = & $marked $it @($e.Scope); $items += $it }
+		if ($null -ne $formInterceptors -and $kind -and $cfgM) {
+			[void]$formInterceptors.Add(@{ Rel = $modRel; DeclIdx = $cfgM.DeclIdx; Item = $it })
+		}
 	}
 	# An element of BaseForm the main part lacks: the extension cannot drop a borrowed element, so the
 	# configuration's form has changed since the borrowing
@@ -2668,7 +2674,7 @@ function Get-OwnDeclarationDifference($extLines, $extMethod, $cfgLines, $cfgMeth
 	return $null
 }
 
-function Get-ModuleTransferItems([string]$bsl, [string]$extDir, [string]$prefix, $skipHandlers) {
+function Get-ModuleTransferItems([string]$bsl, [string]$extDir, [string]$prefix, $skipHandlers, $formInterceptors) {
 	$items = @()
 	$extLines = Read-BslLines $bsl
 	if ($null -eq $extLines) { return $items }
@@ -2676,6 +2682,8 @@ function Get-ModuleTransferItems([string]$bsl, [string]$extDir, [string]$prefix,
 	Set-BslContext $rel
 	$cfgLines = Read-BslLines (Join-Path $ConfigPath $rel)
 	$mc = Get-ModuleChanges $extLines $skipHandlers
+	$formInterceptors = @($formInterceptors | Where-Object { $_.Rel -ieq $rel })
+	$mixedEmptyAround = @{}
 	foreach ($x in $mc.Interceptors) {
 		$ic = $x.Ic; $decl = $x.Decl
 		$label = "&$($ic.Raw)(`"$($ic.Method)`")"
@@ -2700,6 +2708,22 @@ function Get-ModuleTransferItems([string]$bsl, [string]$extDir, [string]$prefix,
 				if ($r.Marked -and $r.Status -eq 'TRANSFERRED') { $it.Marked = $true }
 				$plan.Kind = 'control'; $plan.Ops = $r.Plan
 			}
+		} elseif ($ic.Type -eq 'Вместо' -and (Test-EmptyInterceptorBody $extM.BodyLines)) {
+			$plan.Kind = 'intercept'; $plan.Type = $ic.Type; $plan.EmptyAround = $true
+			$status = 'NOT_TRANSFERRED'
+			if ((@($mc.Interceptors | Where-Object { $_.Ic.Method -ieq $ic.Method }).Count -gt 1) -or
+				@($formInterceptors | Where-Object { $_.DeclIdx -eq $cfgM.DeclIdx }).Count -gt 0) {
+				if ($null -eq $mark) { $mixedEmptyAround[$cfgM.DeclIdx] = $true }
+			} elseif ($extM.IsFunction -or $cfgM.IsFunction) {
+				$plan.ManualReason = 'empty replacement of a function requires manual review'
+			} elseif (@(@($extM.Chain) + @($cfgM.Chain) | Where-Object { $_.Kind -eq 'if' }).Count -gt 0) {
+				$plan.ManualReason = 'empty replacement under a preprocessor condition requires manual review'
+			} elseif ((Test-InlineMethodBody $extLines $extM) -or (Test-InlineMethodBody $cfgLines $cfgM)) {
+				$plan.ManualReason = 'statement on the signature line requires manual review'
+			} elseif (Test-EmptyInterceptorBody $cfgM.BodyLines) { $status = 'TRANSFERRED' }
+			if ($plan.ManualReason) { $status = 'MANUAL' }
+			$note = if ($plan.ManualReason) { $plan.ManualReason } else { 'empty replacement body' }
+			$it = New-Item2 $status "$label ($note)" $loc
 		} else {
 			$h = Get-HeuristicTransfer $extM $cfgM $prefix
 			if ($h) { $it = New-Item2 (Get-HeuristicStatus $h) "$label (heuristic: $($h.Found)/$($h.Total) lines)" $loc }
@@ -2707,6 +2731,15 @@ function Get-ModuleTransferItems([string]$bsl, [string]$extDir, [string]$prefix,
 		}
 		if ($it) { $it.Plan = $plan }
 		if ($it) { $items += (Set-TempMark $it $mark $label) }
+	}
+	$interceptorItems = $items + @($formInterceptors | ForEach-Object { $_.Item })
+	foreach ($it in $interceptorItems) {
+		$plan = $it.Plan
+		if ($plan.CfgM -and $mixedEmptyAround.ContainsKey($plan.CfgM.DeclIdx) -and $it.Status -notin @('TRANSFERRED', 'TEMPORARY')) {
+			$plan.ManualReason = 'the method has an empty replacement and other interceptors'
+			$it.Status = 'MANUAL'
+			$it.Text = "$($plan.Label) ($($plan.ManualReason))"
+		}
 	}
 	$cfgNames = if ($null -ne $cfgLines) { @(Get-ProcNames $cfgLines) } else { @() }
 	foreach ($od in $mc.Own) {
@@ -2916,6 +2949,7 @@ function Get-TransferObject($ext, $obj) {
 	$forms = @(Get-ObjForms $ctx)
 	$diffs = @{}
 	$formItems = @()
+	$formInterceptors = New-Object System.Collections.ArrayList
 	foreach ($f in $forms) {
 		if ($f.Own) { continue }
 		$d = Get-FormDiff $f.Xml
@@ -2927,7 +2961,7 @@ function Get-TransferObject($ext, $obj) {
 		$cfgModule = Join-Path $ConfigPath (Get-RelPath $ext.Dir $f.Module)
 		Set-BslContext (Get-RelPath $ext.Dir $f.Module)
 		# Dialog changes have no line of their own: their file is the form's Form.xml
-		foreach ($fi in @(Get-FormTransferItems $d $f $cfgForm $cfgModule $ext.Dir $prefix)) {
+		foreach ($fi in @(Get-FormTransferItems $d $f $cfgForm $cfgModule $ext.Dir $prefix $formInterceptors)) {
 			if (-not $fi.Loc) { $fi.Section = $rel }
 			$formItems += $fi
 		}
@@ -2936,7 +2970,7 @@ function Get-TransferObject($ext, $obj) {
 		$skip = @{}
 		$key = [IO.Path]::GetFullPath($bsl)
 		if ($diffs.ContainsKey($key)) { $skip = Get-CallTypeHandlers $diffs[$key] }
-		$rec.Items += @(Get-ModuleTransferItems $bsl $ext.Dir $prefix $skip)
+		$rec.Items += @(Get-ModuleTransferItems $bsl $ext.Dir $prefix $skip $formInterceptors)
 	}
 	# Section = the file the change lives in (a module line, the form's Form.xml, the object's own
 	# XML for its sub-objects); the item then keeps only its line number
@@ -4987,6 +5021,20 @@ function Get-CodeOnly($lines, [switch]$KeepStrings) {
 	return ,@($sb.ToString() -split "`n", 0, 'SimpleMatch')
 }
 
+function Test-EmptyInterceptorBody($lines) {
+	return [string]::IsNullOrWhiteSpace(((Get-CodeOnly $lines) -join [char]10))
+}
+
+function Test-InlineMethodBody($lines, $method) {
+	$line = $lines[$method.SigEndIdx]
+	# ParamsText retains the text up to the closing parenthesis, including indentation.
+	$lastPart = ($method.ParamsText -split '\r?\n')[-1]
+	$end = $lastPart.Length
+	if ($method.DeclIdx -eq $method.SigEndIdx) { $end += $line.IndexOf('(') + 1 }
+	$suffix = $line.Substring($end + 1) -ireplace '^\s*(?:Экспорт|Export)\b', ''
+	return -not (Test-EmptyInterceptorBody @($suffix))
+}
+
 # Parameter substitutions share the BSL lexer: member names, literals and comments retain identity.
 function Rename-CodeWords($lines, $map) {
 	if ($map.Count -eq 0 -or @($lines).Count -eq 0) { return ,@($lines) }
@@ -5854,6 +5902,10 @@ if ($Mode -eq 'transfer') {
 				}
 				if ($it.Status -eq 'TEMPORARY') { $tempCount++; continue }
 				if ($it.Status -eq 'TRANSFERRED') { $titems += $t; continue }
+				if ($pl.ManualReason) {
+					$t.Sub = Get-WhereLines $pl 'apply by hand, then re-run -Mode check'
+					$titems += $t; continue
+				}
 				$problem = Get-BslPlanIssue $pl
 				if ($problem) {
 					$t.Status = 'MANUAL'
@@ -6422,9 +6474,12 @@ if ($Mode -eq 'transfer') {
 			}
 			$ops = @(); foreach ($p in $g) { $ops += @($p.Ops) }
 			$body = Get-InterceptBody $cfgM.BodyLines $ops
-			# The check must find every handler's code in the new body, or a re-run would put it in again
+			# Reuse the check's criteria so a re-run cannot apply the same handler again.
 			$m2 = @{ BodyLines = $body; ParamNames = $cfgM.ParamNames }
-			$bad = @($g | Where-Object { $h2 = Get-HeuristicTransfer $_.Pl.ExtM $m2 $prefix; $h2 -and $h2.Found -ne $h2.Total })
+			$bad = @($g | Where-Object {
+				if ($_.Pl.EmptyAround) { -not (Test-EmptyInterceptorBody $body) }
+				else { $h2 = Get-HeuristicTransfer $_.Pl.ExtM $m2 $prefix; $h2 -and $h2.Found -ne $h2.Total }
+			})
 			if ($bad.Count -gt 0) {
 				foreach ($p in $g) { $p.T.Status = 'CONFLICT'; $p.T.Text = "$($p.Label) — after the transfer the check would not find the handler's code; method not changed"; $p.T.Sub = Get-WhereLines $p.Pl 'apply by hand, then re-run -Mode check' }
 				continue

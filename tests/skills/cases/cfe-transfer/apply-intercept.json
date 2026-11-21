@@ -34,13 +34,13 @@
     {
       "writeFile": {
         "path": "CommonModules/М/Ext/Module.bsl",
-        "content": "Процедура А(Параметр) Экспорт\n\tХ = 1;\nКонецПроцедуры\n\nПроцедура Б(Параметр) Экспорт\n\tПерем Л;\n\tЛ = 2;\n\tВозврат;\nКонецПроцедуры\n\nФункция В(Параметр) Экспорт\n\tЗначение = Параметр * 2;\n\tВозврат Значение;\nКонецФункции\n\nПроцедура Г(Параметр) Экспорт\n\tСтарое();\nКонецПроцедуры\n\nПроцедура Д(Параметр) Экспорт\n\tЕсли Параметр Тогда\n\t\tВозврат;\n\tКонецЕсли;\n\tРабота();\nКонецПроцедуры\n\nПроцедура Е(Параметр) Экспорт\n\tРабота();\nКонецПроцедуры\n\nПроцедура Ж(Параметр) Экспорт\n\tРабота();\nКонецПроцедуры\n\nПроцедура З(Параметр) Экспорт\n\tСумма = 1;\n\tЗаписать(Сумма);\nКонецПроцедуры\n\nПроцедура И(Параметр) Экспорт\n\tРабота();\nКонецПроцедуры\n\nФункция К(Параметр) Экспорт\n\tВозврат Параметр + 1;\nКонецФункции\n"
+        "content": "Процедура А(Параметр) Экспорт\n\tХ = 1;\nКонецПроцедуры\n\nПроцедура Б(Параметр) Экспорт\n\tПерем Л;\n\tЛ = 2;\n\tВозврат;\nКонецПроцедуры\n\nФункция В(Параметр) Экспорт\n\tЗначение = Параметр * 2;\n\tВозврат Значение;\nКонецФункции\n\nПроцедура Г(Параметр) Экспорт\n\tСтарое();\nКонецПроцедуры\n\nПроцедура Д(Параметр) Экспорт\n\tЕсли Параметр Тогда\n\t\tВозврат;\n\tКонецЕсли;\n\tРабота();\nКонецПроцедуры\n\nПроцедура Е(Параметр) Экспорт\n\tРабота();\nКонецПроцедуры\n\nПроцедура Ж(Параметр) Экспорт\n\tРабота();\nКонецПроцедуры\n\nПроцедура З(Параметр) Экспорт\n\tСумма = 1;\n\tЗаписать(Сумма);\nКонецПроцедуры\n\nПроцедура И(Параметр) Экспорт\n\tРабота();\nКонецПроцедуры\n\nФункция К(Параметр) Экспорт\n\tВозврат Параметр + 1;\nКонецФункции\n\nProcedure EmptyAround() Export\n    Message(\"  \");\nEndProcedure\n\nProcedure AlreadyEmptyAround() Export\n    // original comment\n\t \nEndProcedure\n\nProcedure MixedAround() Export\n    Work();\n    AfterWork();\nEndProcedure\n\nFunction EmptyFunction() Export\n    Return 42;\nEndFunction\n\nProcedure ConditionalAround() Export\n    Survives();\nEndProcedure\n\nProcedure InlineReplacement() Export\n    Survives();\nEndProcedure\n\nProcedure InlineOriginal() Export Survives();\nEndProcedure\n"
       }
     },
     {
       "writeFile": {
         "path": "cfe/CommonModules/М/Ext/Module.bsl",
-        "content": "&Перед(\"А\")\nПроцедура Тест_А(П)\n\tСообщить(\"П = \" + П); // П\n\tВозврат;\nКонецПроцедуры\n\n&После(\"Б\")\nПроцедура Тест_Б(Параметр)\n\tПерем Т;\n\tТ = 3;\n\tСообщить(Т);\nКонецПроцедуры\n\n&Вместо(\"В\")\nФункция Тест_В(Параметр)\n\tПроверить(Параметр);\n\tРезультат = ПродолжитьВызов(Параметр);\n\tРезультат = Результат + 1;\n\tВозврат Результат;\nКонецФункции\n\n&Вместо(\"Г\")\nПроцедура Тест_Г(Параметр)\n\tНовое();\nКонецПроцедуры\n\n&После(\"Д\")\nПроцедура Тест_Д(Параметр)\n\tИтог();\nКонецПроцедуры\n\n&Перед(\"Е\")\nПроцедура Тест_Е(Параметр)\n\tЕсли Параметр Тогда\n\t\tВозврат;\n\tКонецЕсли;\n\tПодготовка();\nКонецПроцедуры\n\n&Вместо(\"Ж\")\nПроцедура Тест_Ж(Параметр)\n\tЕсли Параметр Тогда\n\t\tПродолжитьВызов(Параметр);\n\tКонецЕсли;\nКонецПроцедуры\n\n&Перед(\"З\")\nПроцедура Тест_З(Параметр)\n\tСумма = 5;\nКонецПроцедуры\n\n&Перед(\"И\")\nПроцедура Тест_И1(Параметр)\n\tНачать();\nКонецПроцедуры\n\n&После(\"И\")\nПроцедура Тест_И2(Параметр)\n\tЗавершить();\nКонецПроцедуры\n\n&Вместо(\"К\")\nФункция Тест_К(Параметр)\n\tПроверить(Параметр);\n\tВозврат ПродолжитьВызов(Параметр);\nКонецФункции\n"
+        "content": "&Перед(\"А\")\nПроцедура Тест_А(П)\n\tСообщить(\"П = \" + П); // П\n\tВозврат;\nКонецПроцедуры\n\n&После(\"Б\")\nПроцедура Тест_Б(Параметр)\n\tПерем Т;\n\tТ = 3;\n\tСообщить(Т);\nКонецПроцедуры\n\n&Вместо(\"В\")\nФункция Тест_В(Параметр)\n\tПроверить(Параметр);\n\tРезультат = ПродолжитьВызов(Параметр);\n\tРезультат = Результат + 1;\n\tВозврат Результат;\nКонецФункции\n\n&Вместо(\"Г\")\nПроцедура Тест_Г(Параметр)\n\tНовое();\nКонецПроцедуры\n\n&После(\"Д\")\nПроцедура Тест_Д(Параметр)\n\tИтог();\nКонецПроцедуры\n\n&Перед(\"Е\")\nПроцедура Тест_Е(Параметр)\n\tЕсли Параметр Тогда\n\t\tВозврат;\n\tКонецЕсли;\n\tПодготовка();\nКонецПроцедуры\n\n&Вместо(\"Ж\")\nПроцедура Тест_Ж(Параметр)\n\tЕсли Параметр Тогда\n\t\tПродолжитьВызов(Параметр);\n\tКонецЕсли;\nКонецПроцедуры\n\n&Перед(\"З\")\nПроцедура Тест_З(Параметр)\n\tСумма = 5;\nКонецПроцедуры\n\n&Перед(\"И\")\nПроцедура Тест_И1(Параметр)\n\tНачать();\nКонецПроцедуры\n\n&После(\"И\")\nПроцедура Тест_И2(Параметр)\n\tЗавершить();\nКонецПроцедуры\n\n&Вместо(\"К\")\nФункция Тест_К(Параметр)\n\tПроверить(Параметр);\n\tВозврат ПродолжитьВызов(Параметр);\nКонецФункции\n\n&Вместо(\"EmptyAround\")\nProcedure Test_EmptyAround()\n\t \n    // intentionally empty\n\nEndProcedure\n\n&Around(\"AlreadyEmptyAround\")\nProcedure Test_AlreadyEmptyAround()\nEndProcedure\n\n&Around(\"MixedAround\")\nProcedure Test_MixedAround()\nEndProcedure\n\n&After(\"MixedAround\")\nProcedure Test_MixedAfter()\n    AfterWork();\nEndProcedure\n\n&Before(\"MixedAround\")\nProcedure Test_MixedBefore()\n    BeforeWork();\nEndProcedure\n\n&Around(\"EmptyFunction\")\nFunction Test_EmptyFunction()\nEndFunction\n\n#If Server Then\n&Around(\"ConditionalAround\")\nProcedure Test_ConditionalAround()\nEndProcedure\n#EndIf\n\n&Around(\"InlineReplacement\")\nProcedure Test_InlineReplacement(\n) Replacement();\nEndProcedure\n\n&Around(\"InlineOriginal\")\nProcedure Test_InlineOriginal()\nEndProcedure\n"
       }
     }
   ],
@@ -50,7 +50,9 @@
   "cwd": "workDir",
   "args_extra": [
     "-Mode",
-    "transfer"
+    "transfer",
+    "-Expand",
+    "*"
   ],
   "expectError": true,
   "expect": {
@@ -65,7 +67,15 @@
       "[MANUAL]             &Перед(\"З\") — variable Сумма is in both the handler and the original",
       "[TRANSFERRED]        &Перед(\"И\") — before the original",
       "[TRANSFERRED]        &После(\"И\") — after the original",
-      "[TRANSFERRED]        &Вместо(\"К\") — around the original"
+      "[TRANSFERRED]        &Вместо(\"К\") — around the original",
+      "[TRANSFERRED]        &Вместо(\"EmptyAround\") — in place of the original",
+      "[TRANSFERRED]        &Around(\"AlreadyEmptyAround\") (empty replacement body)",
+      "[MANUAL]             &Around(\"MixedAround\") (the method has an empty replacement and other interceptors)",
+      "[MANUAL]             &Around(\"EmptyFunction\") (empty replacement of a function requires manual review)",
+      "[MANUAL]             &Before(\"MixedAround\") (the method has an empty replacement and other interceptors)",
+      "[MANUAL]             &Around(\"ConditionalAround\") (empty replacement under a preprocessor condition requires manual review)",
+      "[MANUAL]             &Around(\"InlineReplacement\") (statement on the signature line requires manual review)",
+      "[MANUAL]             &Around(\"InlineOriginal\") (statement on the signature line requires manual review)"
     ],
     "fileContains": [
       {
@@ -77,7 +87,14 @@
           "Процедура Г(Параметр) Экспорт\n//\tСтарое();\n\tНовое();\nКонецПроцедуры",
           "Процедура И(Параметр) Экспорт\n\tНачать();\n\tРабота();\n\tЗавершить();\nКонецПроцедуры",
           "Функция К(Параметр) Экспорт\n\tПроверить(Параметр);\n\tВозврат Параметр + 1;\nКонецФункции",
-          "\tЕсли Параметр Тогда\n\t\tВозврат;\n\tКонецЕсли;\n\tРабота();\nКонецПроцедуры\n\nПроцедура Е(Параметр) Экспорт\n\tРабота();\nКонецПроцедуры\n\nПроцедура Ж(Параметр) Экспорт\n\tРабота();\nКонецПроцедуры\n\nПроцедура З(Параметр) Экспорт\n\tСумма = 1;\n\tЗаписать(Сумма);\nКонецПроцедуры"
+          "\tЕсли Параметр Тогда\n\t\tВозврат;\n\tКонецЕсли;\n\tРабота();\nКонецПроцедуры\n\nПроцедура Е(Параметр) Экспорт\n\tРабота();\nКонецПроцедуры\n\nПроцедура Ж(Параметр) Экспорт\n\tРабота();\nКонецПроцедуры\n\nПроцедура З(Параметр) Экспорт\n\tСумма = 1;\n\tЗаписать(Сумма);\nКонецПроцедуры",
+          "Procedure EmptyAround() Export\n//    Message(\"  \");\n    // intentionally empty\nEndProcedure",
+          "Procedure AlreadyEmptyAround() Export\n    // original comment\n\t \nEndProcedure",
+          "Procedure MixedAround() Export\n    Work();\n    AfterWork();\nEndProcedure",
+          "Function EmptyFunction() Export\n    Return 42;\nEndFunction",
+          "Procedure ConditionalAround() Export\n    Survives();\nEndProcedure",
+          "Procedure InlineReplacement() Export\n    Survives();\nEndProcedure",
+          "Procedure InlineOriginal() Export Survives();\nEndProcedure"
         ]
       }
     ]

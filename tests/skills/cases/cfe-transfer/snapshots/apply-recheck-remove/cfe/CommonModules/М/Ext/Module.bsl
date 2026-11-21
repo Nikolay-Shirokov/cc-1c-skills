@@ -70,3 +70,8 @@ Procedure Test_DeleteComment()
 #EndInsert
     // old comment
 EndProcedure
+
+&Around("EmptyAround")
+Procedure Test_EmptyAround()
+
+EndProcedure
