@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# cfe-diff v2.1 — Analyze 1C configuration extension (CFE): borrowed objects, interceptors, own members, form changes
+# cfe-diff v2.2 — Analyze 1C configuration extension (CFE): borrowed objects, interceptors, own members, form changes
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -802,10 +802,10 @@ def get_form_diff(form_xml):
             changed = k in bm
             # An attribute of the configuration the extension adds columns to (a value table)
             if changed and item == "Attribute":
-                had = {c.get("name") for c in bm[k][1].findall("d:Columns/d:Column", NSMAP)}
+                had = {(c.get("name") or "").lower() for c in bm[k][1].findall("d:Columns/d:Column", NSMAP)}
                 for c in x.findall("d:Columns/d:Column", NSMAP):
                     cn = c.get("name")
-                    if not cn or cn in had:
+                    if not cn or cn.lower() in had:
                         continue
                     ft = format_type(c.find("d:Type", NSMAP))
                     r["columns"].append({"attr": nm, "name": cn, "info": (": " + ft) if ft else "", "node": c})

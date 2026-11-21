@@ -7,23 +7,46 @@
   "cwd": "workDir",
   "args_extra": [
     "-Mode",
-    "transfer"
+    "transfer",
+    "-Expand",
+    "*"
   ],
   "expectError": true,
   "expect": {
     "stdoutContains": [
-      "8 transferred now",
-      "1 temporary skipped",
+      "[TRANSFERRED]        + column Tbl.PatchA_Col2: string",
+      "4 temporary skipped",
+      "[TRANSFERRED]        ~ [Label] L1: Title",
+      "[MANUAL]             + [Input] PatchA_NameCollision",
       "[CONFLICT]           > [Group:V] GroupA: moved to GroupB",
-      "destination GroupB is inside the element being moved; change not applied"
+      "destination GroupB is inside the element being moved; change not applied",
+      "[TRANSFERRED]        + [Input] PatchA_Alias (found as Dev_Alias)"
     ],
     "fileNotContains": [
       {
         "file": "Catalogs/Items/Forms/ItemForm/Ext/Form.xml",
-        "text": "Ext L3"
+        "text": [
+          "Ext L3",
+          "name=\"SkipGroup\"",
+          "name=\"SkipField\"",
+          "<InputField name=\"NameCollision\"",
+          "name=\"SkipTable\"",
+          "name=\"SkipSearch\""
+        ]
       }
     ],
     "fileContains": [
+      {
+        "file": "Catalogs/Items/Forms/ItemForm/Ext/Form.xml",
+        "text": [
+          "<v8:content>SRC\nL1</v8:content>",
+          "<UsualGroup name=\"NewGroup\"",
+          "<InputField name=\"Keep\"",
+          "<LabelDecoration name=\"NameCollision\"",
+          "<v8:content>Form.Command.PatchA_Cmd</v8:content>",
+          "<InputField name=\"Dev_Alias\" id=\"523\">"
+        ]
+      },
       {
         "file": "Catalogs/Items/Forms/ItemForm/Ext/Form.xml",
         "text": "\t\t<UsualGroup name=\"GroupA\" id=\"80\">\n\t\t\t<Group>Vertical</Group>\n\t\t\t<ExtendedTooltip name=\"GroupATip\" id=\"81\"/>\n\t\t\t<ChildItems>\n\t\t\t\t<InputField name=\"GroupAField\" id=\"82\">\n\t\t\t\t\t<ContextMenu name=\"GroupAFieldMenu\" id=\"83\"/>\n\t\t\t\t\t<ExtendedTooltip name=\"GroupAFieldTip\" id=\"84\"/>\n\t\t\t\t</InputField>\n\t\t\t\t<UsualGroup name=\"GroupB\" id=\"90\">\n\t\t\t\t\t<Group>Vertical</Group>\n\t\t\t\t\t<ExtendedTooltip name=\"GroupBTip\" id=\"91\"/>\n\t\t\t\t\t<ChildItems>\n\t\t\t\t\t\t<InputField name=\"GroupBField\" id=\"92\">\n\t\t\t\t\t\t\t<ContextMenu name=\"GroupBFieldMenu\" id=\"93\"/>\n\t\t\t\t\t\t\t<ExtendedTooltip name=\"GroupBFieldTip\" id=\"94\"/>\n\t\t\t\t\t\t</InputField>\n\t\t\t\t\t</ChildItems>\n\t\t\t\t</UsualGroup>\n\t\t\t</ChildItems>\n\t\t</UsualGroup>"
@@ -31,6 +54,51 @@
     ]
   },
   "preRun": [
+    {
+      "writeFile": {
+        "path": ".v8-project.json",
+        "content": {
+          "devPrefix": [
+            "Dev_"
+          ]
+        }
+      }
+    },
+    {
+      "editFile": "Catalogs/Items/Forms/ItemForm/Ext/Form.xml",
+      "replace": "<LabelDecoration name=\"L1\" id=\"1\">",
+      "with": "<LabelDecoration name=\"NameCollision\" id=\"500\"><ContextMenu name=\"NameCollisionMenu\" id=\"501\"/><ExtendedTooltip name=\"NameCollisionTip\" id=\"502\"/></LabelDecoration>\n\t\t<LabelDecoration name=\"Alias\" id=\"520\"><ContextMenu name=\"AliasMenu\" id=\"521\"/><ExtendedTooltip name=\"AliasTip\" id=\"522\"/></LabelDecoration><InputField name=\"Dev_Alias\" id=\"523\"><ContextMenu name=\"Dev_AliasMenu\" id=\"524\"/><ExtendedTooltip name=\"Dev_AliasTip\" id=\"525\"/></InputField>\n\t\t<LabelDecoration name=\"L1\" id=\"1\">"
+    },
+    {
+      "editFile": "cfe/Catalogs/Items/Forms/ItemForm/Ext/Form.xml",
+      "replace": "<LabelDecoration name=\"L1\" id=\"1\">",
+      "with": "<UsualGroup name=\"PatchA_NewGroup\" id=\"1000110\"><Group>Vertical</Group><ExtendedTooltip name=\"PatchA_NewGroupTip\" id=\"1000111\"/><ChildItems><InputField name=\"PatchA_Keep\" id=\"1000120\"><ContextMenu name=\"PatchA_KeepMenu\" id=\"1000121\"/><ExtendedTooltip name=\"PatchA_KeepTip\" id=\"1000122\"/></InputField><UsualGroup name=\"PatchA_SkipGroup\" id=\"1000130\"><Group>Vertical</Group><ExtendedTooltip name=\"PatchA_SkipGroupTip\" id=\"1000131\"/><ChildItems><Table name=\"PatchA_SkipTable\" id=\"1000160\"/><InputField name=\"PatchA_SkipField\" id=\"1000140\"><ContextMenu name=\"PatchA_SkipFieldMenu\" id=\"1000141\"/><ExtendedTooltip name=\"PatchA_SkipFieldTip\" id=\"1000142\"/></InputField></ChildItems></UsualGroup><SearchStringAddition name=\"PatchA_SkipSearch\" id=\"1000165\"><AdditionSource><Item>PatchA_SkipTable</Item><Type>SearchStringRepresentation</Type></AdditionSource></SearchStringAddition></ChildItems></UsualGroup>\n\t\t<InputField name=\"PatchA_NameCollision\" id=\"1000150\"><ContextMenu name=\"PatchA_NameCollisionMenu\" id=\"1000151\"/><ExtendedTooltip name=\"PatchA_NameCollisionTip\" id=\"1000152\"/></InputField>\n\t\t<InputField name=\"PatchA_Alias\" id=\"1000180\"><ContextMenu name=\"PatchA_AliasMenu\" id=\"1000181\"/><ExtendedTooltip name=\"PatchA_AliasTip\" id=\"1000182\"/></InputField>\n\t\t<LabelDecoration name=\"L1\" id=\"1\">"
+    },
+    {
+      "editFile": "Catalogs/Items/Forms/ItemForm/Ext/Form.xml",
+      "replace": "<v8:content>Ext L1</v8:content>",
+      "with": "<v8:content>Src&#13;\nL1</v8:content>"
+    },
+    {
+      "editFile": "cfe/Catalogs/Items/Forms/ItemForm/Ext/Form.xml",
+      "replace": "<v8:content>Ext L1</v8:content>",
+      "with": "<v8:content>SRC\nL1</v8:content>"
+    },
+    {
+      "editFile": "cfe/Catalogs/Items/Forms/ItemForm/Ext/Form.xml",
+      "replace": "<v8:content>Ext Article</v8:content>",
+      "with": "<v8:content>Form.Command.PatchA_Cmd</v8:content>"
+    },
+    {
+      "editFile": "cfe/Catalogs/Items/Forms/ItemForm/Ext/Form.xml",
+      "replace": "<v8:content>Src L1</v8:content>",
+      "with": "<v8:content>Src\nL1</v8:content>"
+    },
+    {
+      "editFile": "cfe/Catalogs/Items/Forms/ItemForm/Ext/Form/Module.bsl",
+      "replace": "L3 —",
+      "with": "L3, PatchA_SkipGroup —"
+    },
     {
       "editFile": "Catalogs/Items/Forms/ItemForm/Ext/Form.xml",
       "replace": "\n\t<ChildItems>\n",

@@ -1,4 +1,4 @@
-﻿# cfe-diff v2.1 — Analyze 1C configuration extension (CFE): borrowed objects, interceptors, own members, form changes
+﻿# cfe-diff v2.2 — Analyze 1C configuration extension (CFE): borrowed objects, interceptors, own members, form changes
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(

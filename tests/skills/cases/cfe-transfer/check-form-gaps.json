@@ -9,6 +9,13 @@
     "Catalogs/Items/Forms/ItemForm"
   ],
   "expectError": true,
+  "preRun": [
+    {
+      "editFile": "cfe/Catalogs/Items/Forms/ItemForm/Ext/Form.xml",
+      "replace": "<Column name=\"Col1\" id=\"1\">",
+      "with": "<Column name=\"COL1\" id=\"1\">"
+    }
+  ],
   "expect": {
     "stdoutContains": [
       "[DIVERGED]           Catalog.Items — 18 changes: 7 transferred, 10 remaining, 1 temporary",

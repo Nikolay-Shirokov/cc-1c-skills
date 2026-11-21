@@ -1,5 +1,5 @@
 ﻿#!/usr/bin/env python3
-# cfe-transfer v1.29 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+# cfe-transfer v1.30 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -2425,10 +2425,10 @@ def get_form_diff(form_xml):
             changed = k in bm
             # An attribute of the configuration the extension adds columns to (a value table)
             if changed and item == "Attribute":
-                had = {c.get("name") for c in bm[k][1].findall("d:Columns/d:Column", NSMAP)}
+                had = {(c.get("name") or "").lower() for c in bm[k][1].findall("d:Columns/d:Column", NSMAP)}
                 for c in x.findall("d:Columns/d:Column", NSMAP):
                     cn = c.get("name")
-                    if not cn or cn in had:
+                    if not cn or cn.lower() in had:
                         continue
                     ft = format_type(c.find("d:Type", NSMAP))
                     r["columns"].append({"attr": nm, "name": cn, "info": (": " + ft) if ft else "", "node": c})
@@ -2535,21 +2535,49 @@ def event_text(e):
 
 
 # Transfer check of a form diff against the form of the main configuration
+def form_localized_text(node):
+    if node is None:
+        return ()
+    return tuple(inner_text(n).replace("\r\n", "\n").replace("\r", "\n")
+                 for n in node.iter("{%s}content" % NSMAP["v8"]))
+
+
 def prop_transfer(cpm, p, prefix):
     """One property change of the extension against the configuration: 'ok' (the extension's
     value), 'pending' (still the BaseForm value) or 'differs' (changed in the configuration some
     other way)."""
-    cv = lower_or_none(get_ref_cmp_key(cpm[p["key"]], prefix)) if p["key"] in cpm else None
+    current = cpm.get(p["key"])
+    cv = lower_or_none(get_ref_cmp_key(current, prefix))
     nv = lower_or_none(get_ref_cmp_key(p["new"], prefix))
     ov = lower_or_none(get_ref_cmp_key(p["old"], prefix))
-    if cv == nv:
+    if cv == nv and form_localized_text(current) == form_localized_text(p["new"]):
         return "ok"
     # A property the configuration never had: the extension's own, still to be added
     if p["old"] is None and not cv:
         return "pending"
-    if cv == ov:
+    if cv == ov and form_localized_text(current) == form_localized_text(p["old"]):
         return "pending"
     return "differs"
+
+
+def get_form_transfer_marks(index, lines):
+    marks = get_form_temp_marks(lines)
+    if not marks:
+        return marks
+    for rec in index.values():
+        for ancestor in rec["ancestors"]:
+            if ancestor.lower() in marks:
+                marks.setdefault(rec["name"].lower(), marks[ancestor.lower()])
+                break
+    for rec in index.values():
+        key = rec["name"].lower()
+        if key in marks or localname(rec["node"]) not in ("SearchStringAddition", "SearchControlAddition", "ViewStatusAddition"):
+            continue
+        source = rec["node"].find("d:AdditionSource/d:Item", NSMAP)
+        source_name = inner_text(source).strip() if source is not None else ""
+        if source_name.lower() in marks:
+            marks[key] = "depends on excluded source " + source_name
+    return marks
 
 
 def form_transfer_items(diff, form, cfg_form_xml, cfg_module_path, ext_dir, prefix, form_interceptors=None):
@@ -2570,7 +2598,7 @@ def form_transfer_items(diff, form, cfg_form_xml, cfg_module_path, ext_dir, pref
 
     # Items the form module marks "not for transfer", with everything inside them
     ext_mod = read_bsl_lines(form["module"])
-    tmarks = get_form_temp_marks(ext_mod)
+    tmarks = get_form_transfer_marks(diff["main_index"], ext_mod)
 
     def marked(it, names):
         if not it or not tmarks:
@@ -2587,6 +2615,15 @@ def form_transfer_items(diff, form, cfg_form_xml, cfg_module_path, ext_dir, pref
         own = [rec["name"]] + list(rec["ancestors"])
         if ch["kind"] == "added":
             inn = (" (in: %s)" % rec["parent"]) if rec["parent"] else ""
+            if hit and localname(ci[hit.lower()]["node"]) != localname(rec["node"]):
+                compatible = next((name for name in find_names_in(c_names, rec["name"], prefix)
+                                   if localname(ci[name.lower()]["node"]) == localname(rec["node"])), None)
+                if compatible is None:
+                    actual = localname(ci[hit.lower()]["node"])
+                    items.append(marked(new_item("DIVERGED", "+ %s %s%s (name %s is occupied by %s)" %
+                                                 (tag, rec["name"], inn, hit, actual), "", group), own))
+                    continue
+                hit = compatible
             st = "TRANSFERRED" if hit else "NOT_TRANSFERRED"
             ni = marked(new_item(st, "+ %s %s%s%s" % (tag, rec["name"], inn, as_text(hit, rec["name"])), "", group), own)
             if not hit:
@@ -3716,13 +3753,15 @@ FORM_PATH_TAGS = re.compile(r'(DataPath|TitleDataPath|FooterDataPath|HeaderDataP
 def convert_form_leaf(node, name_map, ref_map, handler_map, bad):
     """Text of a leaf rewritten: names renamed, "0:<uuid>" references resolved, handler names renamed."""
     tag = localname(node)
+    if node.tag == "{%s}content" % NSMAP["v8"]:
+        return
     v = node.text or ""
     if tag in ("Action", "Event"):
         t = v.strip()
         if handler_map and t.lower() in handler_map:
             node.text = handler_map[t.lower()]
         return
-    if v.strip().startswith("Form.Command."):
+    if tag == "CommandName" and v.strip().startswith("Form.Command."):
         cn = v.strip()[len("Form.Command."):]
         if cn.lower() in name_map:
             node.text = "Form.Command." + name_map[cn.lower()]
@@ -3740,9 +3779,13 @@ def convert_form_leaf(node, name_map, ref_map, handler_map, bad):
                            lambda mm: name_map.get(mm.group(1).lower(), mm.group(1)), v)
 
 
-def copy_form_node(node, pools, name_map, ref_map, handler_map, bad, col_owner=""):
+def copy_form_node(node, pools, name_map, ref_map, handler_map, bad, col_owner="", omit_names=None):
     """A copy of the extension's node for the configuration: ids from its pools, names and references converted."""
     c = copy.deepcopy(node)
+    if omit_names:
+        for child in list(c.iterdescendants()):
+            if is_form_element(child) and child.get("name").lower() in omit_names:
+                child.getparent().remove(child)
     for n in c.iter():
         if not isinstance(n.tag, str):
             continue
@@ -3820,8 +3863,8 @@ def apply_form_op(fe, op, ctx):
     eol = fe["fw"]["eol"]
     pools = fe["pools"]
 
-    def copy_node(node, col_owner=""):
-        return copy_form_node(node, pools, ctx["name_map"], ctx["ref_map"], ctx["handler_map"], ctx["bad"], col_owner)
+    def copy_node(node, col_owner="", omit_names=None):
+        return copy_form_node(node, pools, ctx["name_map"], ctx["ref_map"], ctx["handler_map"], ctx["bad"], col_owner, omit_names)
 
     kind = op["kind"]
     if kind == "attribute":
@@ -3859,7 +3902,7 @@ def apply_form_op(fe, op, ctx):
         where = insert_form_element(op["rec"], root, ctx["name_map"])
         if where is None:
             raise ValueError("SKIP: parent %s is not in the configuration" % op["rec"]["parent"])
-        node = copy_node(op["rec"]["node"])
+        node = copy_node(op["rec"]["node"], omit_names=ctx["temp_marks"])
         # Descendants the configuration already has come with their own items: a property, a move — the copy
         # of the new element must not bring a second one
         for d in list(node.iter()):
@@ -6188,11 +6231,14 @@ def get_form_code_dependencies(rel, ext_dir, config_path, cache):
     key = rel.lower()
     if key not in cache:
         form_rel = re.sub(r'[\\/]Ext[\\/]Form[\\/]Module\.bsl$', '/Ext/Form.xml', rel)
+        ext_form = os.path.join(ext_dir, form_rel)
         missing = get_missing_names(
-            get_form_item_names(os.path.join(ext_dir, form_rel)),
+            get_form_item_names(ext_form),
             get_form_item_names(os.path.join(config_path, form_rel)),
         )
-        marks = get_form_temp_marks(read_bsl_lines(os.path.join(ext_dir, rel)))
+        ext_doc = read_form_doc(ext_form)
+        index = form_element_index(ext_doc.getroot()) if ext_doc is not None else {}
+        marks = get_form_transfer_marks(index, read_bsl_lines(os.path.join(ext_dir, rel)))
         temporary = {name: missing.pop(name, name) for name in marks}
         cache[key] = (missing, temporary)
     return cache[key]
@@ -7047,7 +7093,8 @@ def main():
                             hm = file_maps.setdefault(cfg_form_mod.lower(), {})
                             ext_root = read_form_doc(ext_form).getroot()
                             fe["ctx"] = {"name_map": get_form_name_map(ext_root, fe["fw"]["root"], prefix),
-                                         "ref_map": CONFIG_REF_MAP, "handler_map": hm, "bad": []}
+                                         "ref_map": CONFIG_REF_MAP, "handler_map": hm, "bad": [],
+                                         "temp_marks": get_form_transfer_marks(form_element_index(ext_root), read_bsl_lines(ext_form_mod))}
                         # A binding of the extension's own (an event, a new command's actions): its handlers go
                         # into the module by the role the form gives them, the item into Form.xml; nothing is
                         # committed until the item itself has been applied

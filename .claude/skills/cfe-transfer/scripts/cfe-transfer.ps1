@@ -1,4 +1,4 @@
-﻿# cfe-transfer v1.29 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+﻿# cfe-transfer v1.30 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -2339,17 +2339,49 @@ function Get-EventText($e) {
 
 
 # Transfer check of a form diff against the form of the main configuration
+function Test-FormLocalizedText($left, $right) {
+	$a = @(if ($left) { foreach ($n in $left.SelectNodes('descendant-or-self::v8:content', $ns)) { $n.InnerText } })
+	$b = @(if ($right) { foreach ($n in $right.SelectNodes('descendant-or-self::v8:content', $ns)) { $n.InnerText } })
+	if ($a.Count -ne $b.Count) { return $false }
+	for ($i = 0; $i -lt $a.Count; $i++) {
+		$av = $a[$i].Replace("`r`n", "`n").Replace("`r", "`n")
+		$bv = $b[$i].Replace("`r`n", "`n").Replace("`r", "`n")
+		if (-not [string]::Equals($av, $bv, [StringComparison]::Ordinal)) { return $false }
+	}
+	return $true
+}
+
 # One property change of the extension against the configuration: 'ok' (the extension's value),
 # 'pending' (still the BaseForm value) or 'differs' (changed in the configuration some other way).
 function Get-PropTransfer($cpm, $p, [string]$prefix) {
-	$cv = if ($cpm.Contains($p.Key)) { Get-RefCmpKey $cpm[$p.Key] $prefix } else { $null }
+	$current = $cpm[$p.Key]
+	$cv = Get-RefCmpKey $current $prefix
 	$nv = Get-RefCmpKey $p.New $prefix
 	$ov = Get-RefCmpKey $p.Old $prefix
-	if ($cv -ieq $nv) { return 'ok' }
+	if ($cv -ieq $nv -and (Test-FormLocalizedText $current $p.New)) { return 'ok' }
 	# A property the configuration never had: the extension's own, still to be added
 	if ($null -eq $p.Old -and -not $cv) { return 'pending' }
-	if ($cv -ieq $ov) { return 'pending' }
+	if ($cv -ieq $ov -and (Test-FormLocalizedText $current $p.Old)) { return 'pending' }
 	return 'differs'
+}
+
+function Get-FormTransferMarks($index, $lines) {
+	$marks = Get-FormTempMarks $lines
+	if ($marks.Count -eq 0) { return $marks }
+	foreach ($rec in $index.Values) {
+		foreach ($ancestor in $rec.Ancestors) {
+			if ($marks.ContainsKey($rec.Name)) { break }
+			if ($marks.ContainsKey($ancestor)) { $marks[$rec.Name.ToLower()] = $marks[$ancestor]; break }
+		}
+	}
+	foreach ($rec in $index.Values) {
+		if ($marks.ContainsKey($rec.Name) -or $rec.Node.LocalName -notin @('SearchStringAddition', 'SearchControlAddition', 'ViewStatusAddition')) { continue }
+		$source = $rec.Node.SelectSingleNode('d:AdditionSource/d:Item', $ns)
+		if ($source -and $marks.ContainsKey($source.InnerText.Trim())) {
+			$marks[$rec.Name.ToLower()] = "depends on excluded source $($source.InnerText.Trim())"
+		}
+	}
+	return $marks
 }
 
 function Get-FormTransferItems($diff, $form, [string]$cfgFormXml, [string]$cfgModulePath, [string]$extDir, [string]$prefix, $formInterceptors) {
@@ -2366,7 +2398,7 @@ function Get-FormTransferItems($diff, $form, [string]$cfgFormXml, [string]$cfgMo
 	$asText = { param($found, $orig) if ($found -and $found -ine $orig) { " (found as $found)" } else { '' } }
 	# Items the form module marks "not for transfer", with everything inside them
 	$extMod = Read-BslLines $form.Module
-	$tmarks = Get-FormTempMarks $extMod
+	$tmarks = Get-FormTransferMarks $diff.MainIndex $extMod
 	$marked = {
 		param($it, $names)
 		if (-not $it -or $tmarks.Count -eq 0) { return $it }
@@ -2381,6 +2413,15 @@ function Get-FormTransferItems($diff, $form, [string]$cfgFormXml, [string]$cfgMo
 		$own = @($rec.Name) + @($rec.Ancestors)
 		if ($ch.Kind -eq 'added') {
 			$in = if ($rec.Parent) { " (in: $($rec.Parent))" } else { '' }
+			if ($hit -and $ci[$hit].Node.LocalName -cne $rec.Node.LocalName) {
+				$compatible = @(Find-NamesIn $cNames $rec.Name $prefix | Where-Object { $ci[$_].Node.LocalName -ceq $rec.Node.LocalName } | Select-Object -First 1)[0]
+				if (-not $compatible) {
+					$actual = $ci[$hit].Node.LocalName
+					$items += & $marked (New-Item2 'DIVERGED' "+ $tag $($rec.Name)$in (name $hit is occupied by $actual)" '' $group) $own
+					continue
+				}
+				$hit = $compatible
+			}
 			$st = if ($hit) { 'TRANSFERRED' } else { 'NOT_TRANSFERRED' }
 			$ni = & $marked (New-Item2 $st "+ $tag $($rec.Name)$in$(& $asText $hit $rec.Name)" '' $group) $own
 			if (-not $hit) { $ni.Plan = @{ Kind = 'element'; Rec = $rec }; $ni.PlanKey = "+ $tag $($rec.Name)" }
@@ -3514,6 +3555,7 @@ $script:formPathTags = '(?:DataPath|TitleDataPath|FooterDataPath|HeaderDataPath|
 # unresolved references found.
 function Convert-FormLeaf($node, $nameMap, $refMap, $handlerMap, $bad) {
 	$tag = $node.LocalName
+	if ($tag -eq 'content' -and $node.NamespaceURI -eq $ns.LookupNamespace('v8')) { return }
 	if ($tag -eq 'Action' -or $tag -eq 'Event') {
 		$v = $node.InnerText.Trim()
 		if ($handlerMap -and $handlerMap.ContainsKey($v.ToLower())) { $node.InnerText = $handlerMap[$v.ToLower()] }
@@ -3540,8 +3582,13 @@ function Convert-FormLeaf($node, $nameMap, $refMap, $handlerMap, $bad) {
 
 # A copy of the extension's node for the configuration: ids from its pools, names and references converted,
 # whitespace at the new depth. $colOwner — the attribute whose columns are copied.
-function Copy-FormNode($node, $dstDoc, $pools, $nameMap, $refMap, $handlerMap, $bad, [string]$colOwner) {
+function Copy-FormNode($node, $dstDoc, $pools, $nameMap, $refMap, $handlerMap, $bad, [string]$colOwner, $omitNames) {
 	$copy = $dstDoc.ImportNode($node, $true)
+	if ($omitNames) {
+		foreach ($n in @($copy.SelectNodes(".//*[@name and @id]"))) {
+			if ($omitNames.ContainsKey($n.GetAttribute('name'))) { [void]$n.ParentNode.RemoveChild($n) }
+		}
+	}
 	# Document order: the node itself before its descendants, as the py port walks it
 	$all = @($copy) + @($copy.SelectNodes(".//*[@id]"))
 	foreach ($n in $all) {
@@ -3653,10 +3700,10 @@ function Apply-FormOp($fe, $op, $ctx) {
 	$eol = $fe.Fw.Eol
 	$pools = $fe.Pools
 	$copy = {
-		param($node, [string]$colOwner)
+		param($node, [string]$colOwner, $omitNames = $null)
 		$src = if ($fe.SrcDoc) { Get-NodeByPath $fe.SrcDoc (Get-NodePath $node) } else { $null }
 		if (-not $src) { $src = $node }
-		Copy-FormNode $src $fe.Fw.Doc $pools $ctx.NameMap $ctx.RefMap $ctx.HandlerMap $ctx.Bad $colOwner
+		Copy-FormNode $src $fe.Fw.Doc $pools $ctx.NameMap $ctx.RefMap $ctx.HandlerMap $ctx.Bad $colOwner $omitNames
 	}
 	switch ($op.Kind) {
 		'attribute' {
@@ -3696,7 +3743,7 @@ function Apply-FormOp($fe, $op, $ctx) {
 			if (Find-NameIn $elNames $mn '') { return }
 			$where = Insert-FormElement $op.Rec $root $ctx.NameMap $eol
 			if (-not $where) { throw "SKIP: parent $($op.Rec.Parent) is not in the configuration" }
-			$node = & $copy $op.Rec.Node $null
+			$node = & $copy $op.Rec.Node $null $ctx.TempMarks
 			# Descendants the configuration already has come with their own items: a property, a move — the
 			# copy of the new element must not bring a second one
 			foreach ($d in @($node.SelectNodes(".//*[@name]", $ns))) {
@@ -5678,9 +5725,12 @@ function Get-FormCodeDependencies([string]$rel, [string]$extDir, $cache) {
 	$key = $rel.ToLower()
 	if (-not $cache.ContainsKey($key)) {
 		$formRel = $rel -replace '[\\/]Ext[\\/]Form[\\/]Module\.bsl$', '/Ext/Form.xml'
-		$missing = Get-MissingNames (Get-FormItemNames (Join-Path $extDir $formRel)) (Get-FormItemNames (Get-CfgPath $formRel))
+		$extForm = Join-Path $extDir $formRel
+		$missing = Get-MissingNames (Get-FormItemNames $extForm) (Get-FormItemNames (Get-CfgPath $formRel))
 		$temporary = @{}
-		foreach ($name in (Get-FormTempMarks (Read-BslLines (Join-Path $extDir $rel))).Keys) {
+		$root = (Read-FormDoc $extForm).DocumentElement
+		$index = if ($root) { Get-FormElementIndex $root } else { @{} }
+		foreach ($name in (Get-FormTransferMarks $index (Read-BslLines (Join-Path $extDir $rel))).Keys) {
 			$temporary[$name] = if ($missing.ContainsKey($name)) { $missing[$name] } else { $name }
 			$missing.Remove($name)
 		}
@@ -6427,7 +6477,9 @@ if ($Mode -eq 'transfer') {
 						# Action, an element's Event) finds the names given in this run
 						$fk = $cfgFormMod.ToLower()
 						if (-not $fileMaps.ContainsKey($fk)) { $fileMaps[$fk] = @{} }
-						$fe.Ctx = @{ NameMap = (Get-FormNameMap (Read-FormDoc $extForm).DocumentElement $fe.Fw.Doc.DocumentElement $prefix); RefMap = $script:configRefMap; HandlerMap = $fileMaps[$fk]; Bad = (New-Object System.Collections.ArrayList) }
+						$extRoot = (Read-FormDoc $extForm).DocumentElement
+						$fe.Ctx = @{ NameMap = (Get-FormNameMap $extRoot $fe.Fw.Doc.DocumentElement $prefix); RefMap = $script:configRefMap; HandlerMap = $fileMaps[$fk]; Bad = (New-Object System.Collections.ArrayList)
+							TempMarks = (Get-FormTransferMarks (Get-FormElementIndex $extRoot) (Read-BslLines $extFormMod)) }
 					}
 					# A binding of the extension's own (an event, a new command's actions): its handlers go into
 					# the module by the role the form gives them, the item into Form.xml; nothing is committed
