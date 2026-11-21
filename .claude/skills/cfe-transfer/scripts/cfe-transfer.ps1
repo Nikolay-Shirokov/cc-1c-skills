@@ -1,4 +1,4 @@
-﻿# cfe-transfer v1.30 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+﻿# cfe-transfer v1.31 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -2353,11 +2353,13 @@ function Test-FormLocalizedText($left, $right) {
 
 # One property change of the extension against the configuration: 'ok' (the extension's value),
 # 'pending' (still the BaseForm value) or 'differs' (changed in the configuration some other way).
-function Get-PropTransfer($cpm, $p, [string]$prefix) {
+function Get-PropTransfer($cpm, $p, [string]$prefix, $scope, $nameMap) {
 	$current = $cpm[$p.Key]
-	$cv = Get-RefCmpKey $current $prefix
-	$nv = Get-RefCmpKey $p.New $prefix
-	$ov = Get-RefCmpKey $p.Old $prefix
+	$bad = [System.Collections.ArrayList]::new()
+	$cv = Get-FormPropertyKey $current $prefix
+	$nv = Get-FormPropertyKey $p.New $prefix $scope $nameMap $bad
+	$ov = Get-FormPropertyKey $p.Old $prefix $scope $nameMap $bad
+	if ($bad.Count) { return 'differs' }
 	if ($cv -ieq $nv -and (Test-FormLocalizedText $current $p.New)) { return 'ok' }
 	# A property the configuration never had: the extension's own, still to be added
 	if ($null -eq $p.Old -and -not $cv) { return 'pending' }
@@ -2395,6 +2397,9 @@ function Get-FormTransferItems($diff, $form, [string]$cfgFormXml, [string]$cfgMo
 	$cr = $cfgDoc.DocumentElement
 	$ci = Get-FormElementIndex $cr
 	$cNames = @($ci.Keys)
+	$cfgMod = Read-BslLines $cfgModulePath
+	$referenceScope = Get-FormReferenceScope $diff.Root $cr $prefix $cfgMod
+	$referenceNames = Get-FormNameMap $diff.Root $cr $prefix
 	$asText = { param($found, $orig) if ($found -and $found -ine $orig) { " (found as $found)" } else { '' } }
 	# Items the form module marks "not for transfer", with everything inside them
 	$extMod = Read-BslLines $form.Module
@@ -2436,7 +2441,7 @@ function Get-FormTransferItems($diff, $form, [string]$cfgFormXml, [string]$cfgMo
 				$cpm = Get-PropMap $ci[$hit].Node
 				$ok = 0; $differs = @()
 				foreach ($p in $ch.Props) {
-					$r = Get-PropTransfer $cpm $p $prefix
+					$r = Get-PropTransfer $cpm $p $prefix $referenceScope $referenceNames
 					if ($r -eq 'ok') { $ok++ } elseif ($r -eq 'differs') { $differs += $p.Key }
 				}
 				$n = $ch.Props.Count
@@ -2445,7 +2450,7 @@ function Get-FormTransferItems($diff, $form, [string]$cfgFormXml, [string]$cfgMo
 				$ni = & $marked (New-Item2 $st "~ $tag $($rec.Name): $($keys -join ', ')$cnt" '' $group) $own
 				# Only the properties still at their BaseForm value: a value changed in the configuration some
 				# other way stays as it is and is left to a person
-				$pend = @($ch.Props | Where-Object { (Get-PropTransfer $cpm $_ $prefix) -eq 'pending' })
+				$pend = @($ch.Props | Where-Object { (Get-PropTransfer $cpm $_ $prefix $referenceScope $referenceNames) -eq 'pending' })
 				if ($pend.Count -gt 0) {
 					$ni.Plan = @{ Kind = 'prop'; Rec = $rec; Props = $pend }
 					$ni.PlanKey = "~ $tag $($rec.Name): $($keys -join ', ')"
@@ -2470,7 +2475,6 @@ function Get-FormTransferItems($diff, $form, [string]$cfgFormXml, [string]$cfgMo
 	}
 
 	# Interceptor of a handler: the extension's handler code looked up in the configuration's one
-	$cfgMod = Read-BslLines $cfgModulePath
 	$modRel = if ($form.Module -and (Test-Path -LiteralPath $form.Module)) { Get-RelPath $extDir $form.Module } else { '' }
 	$extMethodNames = @(Get-ProcNames $extMod)
 	$cfgMethodNames = @(Get-ProcNames $cfgMod)
@@ -2529,7 +2533,14 @@ function Get-FormTransferItems($diff, $form, [string]$cfgFormXml, [string]$cfgMo
 				}
 				continue
 			}
-			$hit = Find-NameIn $cn $x.Name $prefix
+			if ($sec[2] -eq 'attribute') {
+				$matches = @(Find-ScopedFormNames $cn $x.Name $prefix @($referenceScope.Attributes.Keys))
+				if ($matches.Count -gt 1 -and $matches[0] -ine $x.Name) {
+					$items += & $marked (New-Item2 'MANUAL' "+ attribute $($x.Name)$($x.Info) (matches $($matches -join ', '); choose the intended target)" '' $group) @($x.Name)
+					continue
+				}
+				$hit = $matches[0]
+			} else { $hit = Find-NameIn $cn $x.Name $prefix }
 			$st = if ($hit) { 'TRANSFERRED' } else { 'NOT_TRANSFERRED' }
 			$ni = & $marked (New-Item2 $st "+ $($sec[2]) $($x.Name)$($x.Info)$(& $asText $hit $x.Name)" '' $group) @($x.Name)
 			# A command whose action intercepts a method is a transfer of its own kind: events and command
@@ -2594,7 +2605,7 @@ function Get-FormTransferItems($diff, $form, [string]$cfgFormXml, [string]$cfgMo
 	if ($diff.FormProps.Count -gt 0) {
 		$cpm = Get-PropMap $cr -Root
 		foreach ($p in $diff.FormProps) {
-			$r = Get-PropTransfer $cpm $p $prefix
+			$r = Get-PropTransfer $cpm $p $prefix $referenceScope $referenceNames
 			$st = if ($r -eq 'ok') { 'TRANSFERRED' } elseif ($r -eq 'pending') { 'NOT_TRANSFERRED' } else { 'DIVERGED' }
 			$why = if ($r -eq 'differs') { ' (config value differs)' } else { '' }
 			$ni = New-Item2 $st "~ form $(Get-PropChangeText $p)$why" '' $group
@@ -2605,11 +2616,22 @@ function Get-FormTransferItems($diff, $form, [string]$cfgFormXml, [string]$cfgMo
 	# Conditional appearance rules: an added one must be among the configuration's rules, a removed one not
 	if ($diff.Appearance.Count -gt 0) {
 		$have = New-Object System.Collections.ArrayList
-		foreach ($x in $cr.SelectNodes("d:Attributes/d:ConditionalAppearance/dcsset:item", $ns)) { [void]$have.Add((Get-CmpKey $x $prefix)) }
+		$oldKeys = New-Object System.Collections.ArrayList
+		foreach ($x in $cr.SelectNodes("d:Attributes/d:ConditionalAppearance/dcsset:item", $ns)) {
+			[void]$have.Add((Get-FormPropertyKey $x $prefix))
+			[void]$oldKeys.Add((Get-CmpKey $x $prefix))
+		}
 		foreach ($a in $diff.Appearance) {
-			$in = $have.Contains((Get-CmpKey $a.Node $prefix))
-			$done = if ($a.Kind -eq 'added') { $in } else { -not $in }
+			$bad = [System.Collections.ArrayList]::new()
+			$in = $have.Contains((Get-FormPropertyKey $a.Node $prefix $referenceScope $referenceNames $bad))
 			$mk = if ($a.Kind -eq 'added') { '+' } else { '-' }
+			$label = "$mk conditional appearance rule $(Get-AppearanceText $a.Node)"
+			if ($bad.Count -gt 0 -or (-not $in -and $oldKeys.Contains((Get-CmpKey $a.Node $prefix)))) {
+				$reason = if ($bad.Count -gt 0) { $bad[0] } else { 'form references differ' }
+				$items += New-Item2 'DIVERGED' "$label ($reason)" '' $group
+				continue
+			}
+			$done = if ($a.Kind -eq 'added') { $in } else { -not $in }
 			$st = if ($done) { 'TRANSFERRED' } else { 'NOT_TRANSFERRED' }
 			$ni = New-Item2 $st "$mk conditional appearance rule $(Get-AppearanceText $a.Node)" '' $group
 			if (-not $done) { $ni.Plan = @{ Kind = 'appearance'; Rule = $a.Node; Add = ($a.Kind -eq 'added') }; $ni.PlanKey = "$mk conditional appearance rule $(Get-AppearanceText $a.Node)" }
@@ -3498,6 +3520,27 @@ function Get-FormNameSet($root) {
 
 # Names of the extension's main part -> names in the configuration: the extension prefix goes, a taken name
 # gets the project's development prefix (Get-TargetName), a taken one as well stays as it is
+function Find-ScopedFormNames($targets, [string]$name, [string]$prefix, $owners) {
+	return @(Find-NamesIn $targets $name $prefix | Where-Object { $_ -ieq $name -or $owners -notcontains $_ })
+}
+
+function Get-FormAttributeTargets($extRoot, $cfgRoot, [string]$prefix, $cfgLines) {
+	$taken = Get-FormNameSet $cfgRoot
+	$extAttrs = Get-SectionMap $extRoot 'Attributes' 'Attribute'
+	$cfgAttrs = Get-SectionMap $cfgRoot 'Attributes' 'Attribute'
+	foreach ($v in (Get-ModuleLayout $cfgLines).Vars) { foreach ($name in $v.Names) { $taken[$name.ToLower()] = $true } }
+	$targets = @{}
+	foreach ($name in $extAttrs.Keys) {
+		if (-not $prefix -or -not $name.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)) { continue }
+		$hit = @(Find-ScopedFormNames @($cfgAttrs.Keys) $name $prefix @($extAttrs.Keys) | Select-Object -First 1)[0]
+		if ($hit) { $targets[$name.ToLower()] = $hit; continue }
+		$tn = Get-TargetName $name $prefix $taken $false
+		$targets[$name.ToLower()] = $tn.Name
+		if (-not $tn.Taken) { $taken[$tn.Name.ToLower()] = $true }
+	}
+	return $targets
+}
+
 function Get-FormNameMap($extRoot, $cfgRoot, [string]$prefix) {
 	$taken = Get-FormNameSet $cfgRoot
 	$map = @{}
@@ -3551,9 +3594,90 @@ function Get-RefCmpKey($node, [string]$prefix) {
 
 $script:formPathTags = '(?:DataPath|TitleDataPath|FooterDataPath|HeaderDataPath|MultipleValue\w*DataPath)$'
 
+function Get-FormReferenceScope($extRoot, $cfgRoot, [string]$prefix, $cfgLines) {
+	$attrs = @{}
+	foreach ($a in $extRoot.SelectNodes('d:Attributes/d:Attribute', $ns)) {
+		$cols = @{}
+		foreach ($c in $a.SelectNodes('d:Columns/d:Column', $ns)) { $cols[$c.GetAttribute('name')] = $true }
+		$attrs[$a.GetAttribute('name')] = $cols
+	}
+	return @{ Attributes = $attrs; AttributeTargets = (Get-FormAttributeTargets $extRoot $cfgRoot $prefix $cfgLines)
+		Elements = (Get-FormElementIndex $extRoot); Config = $cfgRoot; Prefix = $prefix }
+}
+
+function Resolve-FormReferenceName([string]$name, $targets, $nameMap, $scope, $bad, $owners) {
+	$hits = @(Find-ScopedFormNames $targets $name $scope.Prefix $owners)
+	if ($hits.Count -eq 1 -or ($hits.Count -gt 1 -and $hits[0] -ieq $name)) { return $hits[0] }
+	if ($hits.Count -gt 1) {
+		[void]$bad.Add("ambiguous form reference $name (matches $($hits -join ', ')); choose the intended target")
+		return $name
+	}
+	if ($nameMap.ContainsKey($name.ToLower())) { return $nameMap[$name.ToLower()] }
+	return $name
+}
+
+function Resolve-FormElementReference([string]$name, $nameMap, $scope, $bad) {
+	if (-not $scope.Elements.Contains($name)) { return $name }
+	$kind = $scope.Elements[$name].Node.LocalName
+	$index = Get-FormElementIndex $scope.Config
+	$targets = @(foreach ($rec in $index.Values) { if ($rec.Node.LocalName -ceq $kind) { $rec.Name } })
+	return Resolve-FormReferenceName $name $targets $nameMap $scope $bad @($scope.Elements.Keys)
+}
+
+function Convert-FormPath([string]$value, $nameMap, $scope, $bad) {
+	$m = [regex]::Match($value, '^\s*~?(?<head>\w+)(?:\[\d+\])?(?:\.(?<member>\w+))?(?:\[\d+\])?(?:\.\w+(?:\[\d+\])?)*\s*$')
+	if (-not $m.Success) { return $value }
+	$head = $m.Groups['head']; $member = $m.Groups['member']
+	if ($head.Value -in @('Items', 'Элементы') -and $member.Success) {
+		$n = Resolve-FormElementReference $member.Value $nameMap $scope $bad
+		return $value.Remove($member.Index, $member.Length).Insert($member.Index, $n)
+	}
+	if (-not $scope.Attributes.ContainsKey($head.Value)) { return $value }
+	$attrs = Get-SectionMap $scope.Config 'Attributes' 'Attribute'
+	$target = Resolve-FormReferenceName $head.Value @($attrs.Keys) $scope.AttributeTargets $scope $bad @($scope.Attributes.Keys)
+	if ($member.Success -and $scope.Attributes[$head.Value].ContainsKey($member.Value)) {
+		$cols = @(if ($attrs.Contains($target)) { foreach ($c in $attrs[$target].SelectNodes('d:Columns/d:Column', $ns)) { $c.GetAttribute('name') } })
+		$n = Resolve-FormReferenceName $member.Value $cols $nameMap $scope $bad @($scope.Attributes[$head.Value].Keys)
+		$value = $value.Remove($member.Index, $member.Length).Insert($member.Index, $n)
+	}
+	return $value.Remove($head.Index, $head.Length).Insert($head.Index, $target)
+}
+
 # Text of a leaf rewritten: names renamed, "0:<uuid>" references resolved, handler names renamed. Returns the
 # unresolved references found.
-function Convert-FormLeaf($node, $nameMap, $refMap, $handlerMap, $bad) {
+function Get-FormReferenceKind($node) {
+	$tag = $node.LocalName
+	if (($node.NamespaceURI -eq $ns.LookupNamespace('dcsset') -and $tag -ceq 'field' -and $node.ParentNode.ParentNode.LocalName -ceq 'selection') -or
+		($node.NamespaceURI -eq $ns.LookupNamespace('d') -and $tag -ceq 'Item' -and $node.ParentNode.LocalName -ceq 'AdditionSource')) { return 'element' }
+	if ($tag -match $script:formPathTags -or
+		($node.NamespaceURI -eq $ns.LookupNamespace('dcsset') -and $tag -cin @('left', 'right') -and $node.GetAttribute('type', $ns.LookupNamespace('xsi')).EndsWith(':Field'))) { return 'path' }
+}
+
+function Convert-ScopedFormLeaf($node, [string]$kind, $nameMap, $scope, $bad) {
+	if ($kind -eq 'element') { $node.InnerText = Resolve-FormElementReference $node.InnerText.Trim() $nameMap $scope $bad }
+	elseif ($kind -eq 'path') { $node.InnerText = Convert-FormPath $node.InnerText $nameMap $scope $bad }
+}
+
+function Get-FormPropertyKey($node, [string]$prefix, $scope = $null, $nameMap = $null, $bad = $null) {
+	if (-not $node) { return Get-RefCmpKey $node $prefix }
+	$refs = [System.Collections.Generic.List[string]]::new()
+	# Keep the surrounding XML context for standalone property leaves.
+	if ($scope) {
+		$owner = if ((Get-FormReferenceKind $node) -eq 'element' -and $node.LocalName -eq 'Item') { $node.ParentNode } else { $node }
+		$node = if ([object]::ReferenceEquals($owner, $node)) { $node.CloneNode($true) } else { $owner.CloneNode($true).SelectSingleNode('d:Item', $ns) }
+	}
+	foreach ($leaf in $node.SelectNodes('descendant-or-self::*[not(*)]')) {
+		$kind = Get-FormReferenceKind $leaf
+		if (-not $kind) { continue }
+		if ($scope) { Convert-ScopedFormLeaf $leaf $kind $nameMap $scope $bad }
+		$refs.Add($leaf.InnerText.Trim())
+	}
+	$key = Get-RefCmpKey $node $prefix
+	if ($refs.Count) { $key += '|' + ($refs -join '|') }
+	return $key
+}
+
+function Convert-FormLeaf($node, $nameMap, $refMap, $handlerMap, $bad, $scope) {
 	$tag = $node.LocalName
 	if ($tag -eq 'content' -and $node.NamespaceURI -eq $ns.LookupNamespace('v8')) { return }
 	if ($tag -eq 'Action' -or $tag -eq 'Event') {
@@ -3565,7 +3689,7 @@ function Convert-FormLeaf($node, $nameMap, $refMap, $handlerMap, $bad) {
 	if ($v -match '^\s*0:([0-9a-fA-F-]{36})\s*$') {
 		$u = $Matches[1].ToLower()
 		if ($refMap.ContainsKey($u)) { $node.InnerText = $refMap[$u] }
-		else { [void]$bad.Add("$tag 0:$u") }
+		else { [void]$bad.Add("reference $tag 0:$u is not in the configuration") }
 		return
 	}
 	if ($tag -eq 'CommandName' -and $v.Trim().StartsWith('Form.Command.')) {
@@ -3573,16 +3697,12 @@ function Convert-FormLeaf($node, $nameMap, $refMap, $handlerMap, $bad) {
 		if ($nameMap.ContainsKey($cn.ToLower())) { $node.InnerText = 'Form.Command.' + $nameMap[$cn.ToLower()] }
 		return
 	}
-	if ($tag -match $script:formPathTags -and $nameMap.Count -gt 0) {
-		$alt = (@($nameMap.Keys) | ForEach-Object { [regex]::Escape($_) }) -join '|'
-		$re = New-Object System.Text.RegularExpressions.Regex ('(?<![\w.])(' + $alt + ')(?!\w)'), ([System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
-		$node.InnerText = $re.Replace($v, [System.Text.RegularExpressions.MatchEvaluator] { param($m) $nameMap[$m.Value.ToLower()] })
-	}
+	Convert-ScopedFormLeaf $node (Get-FormReferenceKind $node) $nameMap $scope $bad
 }
 
 # A copy of the extension's node for the configuration: ids from its pools, names and references converted,
 # whitespace at the new depth. $colOwner — the attribute whose columns are copied.
-function Copy-FormNode($node, $dstDoc, $pools, $nameMap, $refMap, $handlerMap, $bad, [string]$colOwner, $omitNames) {
+function Copy-FormNode($node, $dstDoc, $pools, $nameMap, $refMap, $handlerMap, $bad, [string]$colOwner, $omitNames, $scope) {
 	$copy = $dstDoc.ImportNode($node, $true)
 	if ($omitNames) {
 		foreach ($n in @($copy.SelectNodes(".//*[@name and @id]"))) {
@@ -3615,7 +3735,7 @@ function Copy-FormNode($node, $dstDoc, $pools, $nameMap, $refMap, $handlerMap, $
 		if ($n.NodeType -ne 'Element') { continue }
 		$hasKids = $false
 		foreach ($c in $n.ChildNodes) { if ($c.NodeType -eq 'Element') { $hasKids = $true; break } }
-		if (-not $hasKids) { Convert-FormLeaf $n $nameMap $refMap $handlerMap $bad }
+		if (-not $hasKids) { Convert-FormLeaf $n $nameMap $refMap $handlerMap $bad $scope }
 	}
 	return $copy
 }
@@ -3703,17 +3823,20 @@ function Apply-FormOp($fe, $op, $ctx) {
 		param($node, [string]$colOwner, $omitNames = $null)
 		$src = if ($fe.SrcDoc) { Get-NodeByPath $fe.SrcDoc (Get-NodePath $node) } else { $null }
 		if (-not $src) { $src = $node }
-		Copy-FormNode $src $fe.Fw.Doc $pools $ctx.NameMap $ctx.RefMap $ctx.HandlerMap $ctx.Bad $colOwner $omitNames
+		Copy-FormNode $src $fe.Fw.Doc $pools $ctx.NameMap $ctx.RefMap $ctx.HandlerMap $ctx.Bad $colOwner $omitNames $ctx.ReferenceScope
 	}
 	switch ($op.Kind) {
 		'attribute' {
 			$attrs = Get-FormSection $root 'Attributes'
 			$node = & $copy $op.Node $op.Name
+			if ($ctx.ReferenceScope.AttributeTargets.ContainsKey($op.Name)) {
+				$node.SetAttribute('name', $ctx.ReferenceScope.AttributeTargets[$op.Name])
+			}
 			Set-FormSubtreeIndent $node $eol ((Get-FormDepth $attrs) + 1)
 			Insert-FormAttribute $attrs $node
 		}
 		'column' {
-			$anm = if ($ctx.NameMap.ContainsKey($op.Attr.ToLower())) { $ctx.NameMap[$op.Attr.ToLower()] } else { $op.Attr }
+			$anm = if ($ctx.ReferenceScope.AttributeTargets.ContainsKey($op.Attr.ToLower())) { $ctx.ReferenceScope.AttributeTargets[$op.Attr.ToLower()] } else { $op.Attr }
 			$at = Find-FormAttr $root $anm
 			if (-not $at) { throw "SKIP: attribute $($op.Attr) is not in the configuration" }
 			$cols = $at.SelectSingleNode("d:Columns", $ns)
@@ -3836,9 +3959,9 @@ function Apply-FormOp($fe, $op, $ctx) {
 				Set-FormSubtreeIndent $node $eol ((Get-FormDepth $ca) + 1)
 				Insert-FormNodeAt $ca $node $null $eol
 			} elseif ($ca) {
-				$key = Get-CmpKey $op.Rule $script:transferPrefix
+				$key = Get-FormPropertyKey $op.Rule $script:transferPrefix $ctx.ReferenceScope $ctx.NameMap $ctx.Bad
 				foreach ($it in @($ca.SelectNodes("dcsset:item", $ns))) {
-					if ((Get-CmpKey $it $script:transferPrefix) -ieq $key) { Remove-FormNode $it; break }
+					if ((Get-FormPropertyKey $it $script:transferPrefix) -ceq $key) { Remove-FormNode $it; break }
 				}
 			}
 		}
@@ -3914,7 +4037,7 @@ function Test-FormWrite($fe, [switch]$ModuleOnly) {
 			$bad = @()
 			if (-not $target) { return @('target not found') }
 			$cpm = Get-PropMap $target
-			foreach ($p in $props) { if ((Get-PropTransfer $cpm $p $fe.Prefix) -ne 'ok') { $bad += $p.Key } }
+			foreach ($p in $props) { if ((Get-PropTransfer $cpm $p $fe.Prefix $fe.Ctx.ReferenceScope $fe.Ctx.NameMap) -ne 'ok') { $bad += $p.Key } }
 			return $bad
 		}
 		foreach ($op in $fe.Ops) {
@@ -4597,12 +4720,23 @@ function Initialize-BslCatalog([string]$extDir, [string]$prefix) {
 			$ed = Read-FormDoc $ef; $cd = Read-FormDoc $cf
 			if ($ed -and $cd) {
 				$fm = Get-FormNameMap $ed.DocumentElement $cd.DocumentElement $prefix
+				$attributeTargets = Get-FormAttributeTargets $ed.DocumentElement $cd.DocumentElement $prefix $cl
 				$cfgNames2 = @($cd.SelectNodes('//*[@name]') | ForEach-Object { $_.GetAttribute('name') })
-				foreach ($k2 in @($fm.Keys)) { $hit2 = Find-NameIn $cfgNames2 $k2 $prefix; if ($hit2) { $fm[$k2] = $hit2 } }
+				$extAttributes = Get-SectionMap $ed.DocumentElement 'Attributes' 'Attribute'
+				$cfgAttributes = Get-SectionMap $cd.DocumentElement 'Attributes' 'Attribute'
+				$ctx.AmbiguousFormAttrs = @{}
+				foreach ($name in $extAttributes.Keys) {
+					$matches2 = @(Find-ScopedFormNames @($cfgAttributes.Keys) $name $prefix @($extAttributes.Keys))
+					if ($matches2.Count -gt 1 -and $matches2[0] -ine $name) { $ctx.AmbiguousFormAttrs[$name] = $matches2 -join ', ' }
+				}
+				foreach ($k2 in @($fm.Keys)) {
+					$hit2 = Find-NameIn $cfgNames2 $k2 $prefix
+					if ($hit2) { $fm[$k2] = $hit2 }
+				}
 				$ctx.FormNames = $fm
 				foreach ($x in $ed.SelectNodes("/*/*[local-name()='Attributes']/*[local-name()='Attribute']")) {
 					$n = $x.GetAttribute('name'); if (-not $n) { continue }
-					$ctx.Attrs[$n.ToLower()] = if ($fm.ContainsKey($n.ToLower())) { $fm[$n.ToLower()] } else { Remove-ExtPrefix $n $prefix }
+					$ctx.Attrs[$n.ToLower()] = if ($attributeTargets.ContainsKey($n)) { $attributeTargets[$n] } else { Remove-ExtPrefix $n $prefix }
 					$ctx.Names[$n.ToLower()] = $n
 				}
 			}
@@ -4764,6 +4898,10 @@ function Get-BslConversion($lines, $fileMap, $ctx, $params = $null, [switch]$Com
 		$isCall = $i + 1 -lt $ts.Count -and $ts[$i + 1].Value -eq '('
 		$isCtor = $i -gt 0 -and $ts[$i - 1].Value -in @('Новый', 'New')
 		if ($Comparison -or (-not $qualified -and -not $isCall -and $params -contains $k)) { continue }
+		if (-not $isCall -and (-not $qualified -or $oc -eq $ctx) -and $ctx.AmbiguousFormAttrs -and $ctx.AmbiguousFormAttrs.ContainsKey($k)) {
+			$issues += @{ Token = $t; Rename = "$($t.Value) -> $($ctx.AmbiguousFormAttrs[$k])"; Why = 'form attribute matches multiple target names' }
+			continue
+		}
 		if (-not $isCtor) {
 			if ($om.ContainsKey($k) -and ($isCall -or -not $qualified)) { $edits[$t.Start] = $om[$k] }
 			elseif (-not $qualified -and $attrs.ContainsKey($k)) { $edits[$t.Start] = $attrs[$k] }
@@ -4836,6 +4974,11 @@ function Get-BslConversion($lines, $fileMap, $ctx, $params = $null, [switch]$Com
 				} elseif ($targets2.Count -gt 1) {
 					$issues += @{ Token = $st; Rename = "$value -> $($targets2 -join ', ')"; Why = 'global handler resolves to different target names' }
 				}
+				continue
+			}
+			if ($sp.Kind -eq 'attribute' -and $rc.AmbiguousFormAttrs -and $rc.AmbiguousFormAttrs.ContainsKey($sk)) {
+				$handled[$st.Start] = $true
+				$issues += @{ Token = $st; Rename = "$value -> $($rc.AmbiguousFormAttrs[$sk])"; Why = 'form attribute matches multiple target names' }
 				continue
 			}
 			$rm = if ($sp.Kind -eq 'attribute') { if ($rc -and $rc.Kind -eq 'form') { $rc.Attrs } else { @{} } } elseif ($rc -eq $ctx -and $rc) { $methods } elseif ($rc) { $rc.Methods } else { @{} }
@@ -5729,6 +5872,14 @@ function Get-FormCodeDependencies([string]$rel, [string]$extDir, $cache) {
 		$missing = Get-MissingNames (Get-FormItemNames $extForm) (Get-FormItemNames (Get-CfgPath $formRel))
 		$temporary = @{}
 		$root = (Read-FormDoc $extForm).DocumentElement
+		$cfgRoot = (Read-FormDoc (Get-CfgPath $formRel)).DocumentElement
+		if ($root -and $cfgRoot) {
+			$extAttrs = Get-SectionMap $root 'Attributes' 'Attribute'
+			$cfgAttrs = Get-SectionMap $cfgRoot 'Attributes' 'Attribute'
+			foreach ($name in $extAttrs.Keys) {
+				if (-not @(Find-ScopedFormNames @($cfgAttrs.Keys) $name $script:transferPrefix @($extAttrs.Keys)).Count) { $missing[$name.ToLower()] = $name }
+			}
+		}
 		$index = if ($root) { Get-FormElementIndex $root } else { @{} }
 		foreach ($name in (Get-FormTransferMarks $index (Read-BslLines (Join-Path $extDir $rel))).Keys) {
 			$temporary[$name] = if ($missing.ContainsKey($name)) { $missing[$name] } else { $name }
@@ -6478,8 +6629,9 @@ if ($Mode -eq 'transfer') {
 						$fk = $cfgFormMod.ToLower()
 						if (-not $fileMaps.ContainsKey($fk)) { $fileMaps[$fk] = @{} }
 						$extRoot = (Read-FormDoc $extForm).DocumentElement
+						$scope = Get-FormReferenceScope $extRoot $fe.Fw.Doc.DocumentElement $prefix (Read-BslLines $cfgFormMod)
 						$fe.Ctx = @{ NameMap = (Get-FormNameMap $extRoot $fe.Fw.Doc.DocumentElement $prefix); RefMap = $script:configRefMap; HandlerMap = $fileMaps[$fk]; Bad = (New-Object System.Collections.ArrayList)
-							TempMarks = (Get-FormTransferMarks (Get-FormElementIndex $extRoot) (Read-BslLines $extFormMod)) }
+							TempMarks = (Get-FormTransferMarks $scope.Elements (Read-BslLines $extFormMod)); ReferenceScope = $scope }
 					}
 					# A binding of the extension's own (an event, a new command's actions): its handlers go into
 					# the module by the role the form gives them, the item into Form.xml; nothing is committed
@@ -6536,7 +6688,7 @@ if ($Mode -eq 'transfer') {
 					}
 					try {
 						Apply-FormOp $fe $op $fe.Ctx
-						if ($fe.Ctx.Bad.Count -gt 0) { throw "reference $($fe.Ctx.Bad[0]) is not in the configuration" }
+						if ($fe.Ctx.Bad.Count -gt 0) { throw $fe.Ctx.Bad[0] }
 						foreach ($ma in $modAdds) {
 							$mf = $ma.Fw; $mp = $ma.Place
 							if ($mp.Create) {

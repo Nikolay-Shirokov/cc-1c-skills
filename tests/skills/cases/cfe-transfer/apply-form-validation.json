@@ -29,7 +29,7 @@
     {
       "editFile": "cfe/Catalogs/Items/Forms/ItemForm/Ext/Form.xml",
       "replace": "<Attributes>",
-      "with": "<Attributes>\n\t\t<Attribute name=\"PatchA_Clash\" id=\"1000090\">\n\t\t\t<Type><v8:Type>xs:string</v8:Type></Type>\n\t\t</Attribute>"
+      "with": "<Attributes>\n\t\t<Attribute name=\"Clash\" id=\"1000090\">\n\t\t\t<Type><v8:Type>xs:string</v8:Type></Type>\n\t\t</Attribute>"
     },
     {
       "editFile": "cfe/Catalogs/Items/Forms/ItemForm/Ext/Form.xml",

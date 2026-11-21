@@ -1,5 +1,5 @@
 ﻿#!/usr/bin/env python3
-# cfe-transfer v1.30 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+# cfe-transfer v1.31 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -2542,14 +2542,17 @@ def form_localized_text(node):
                  for n in node.iter("{%s}content" % NSMAP["v8"]))
 
 
-def prop_transfer(cpm, p, prefix):
+def prop_transfer(cpm, p, prefix, scope, name_map):
     """One property change of the extension against the configuration: 'ok' (the extension's
     value), 'pending' (still the BaseForm value) or 'differs' (changed in the configuration some
     other way)."""
     current = cpm.get(p["key"])
-    cv = lower_or_none(get_ref_cmp_key(current, prefix))
-    nv = lower_or_none(get_ref_cmp_key(p["new"], prefix))
-    ov = lower_or_none(get_ref_cmp_key(p["old"], prefix))
+    bad = []
+    cv = lower_or_none(get_form_property_key(current, prefix))
+    nv = lower_or_none(get_form_property_key(p["new"], prefix, scope, name_map, bad))
+    ov = lower_or_none(get_form_property_key(p["old"], prefix, scope, name_map, bad))
+    if bad:
+        return "differs"
     if cv == nv and form_localized_text(current) == form_localized_text(p["new"]):
         return "ok"
     # A property the configuration never had: the extension's own, still to be added
@@ -2590,6 +2593,9 @@ def form_transfer_items(diff, form, cfg_form_xml, cfg_module_path, ext_dir, pref
     cr = cfg_doc.getroot()
     ci = form_element_index(cr)
     c_names = index_names(ci)
+    cfg_mod = read_bsl_lines(cfg_module_path)
+    reference_scope = get_form_reference_scope(diff["root"], cr, prefix, cfg_mod)
+    reference_names = get_form_name_map(diff["root"], cr, prefix)
 
     def as_text(found, orig):
         if found and found.lower() != orig.lower():
@@ -2640,7 +2646,7 @@ def form_transfer_items(diff, form, cfg_form_xml, cfg_module_path, ext_dir, pref
                 ok = 0
                 differs = []
                 for p in ch["props"]:
-                    r = prop_transfer(cpm, p, prefix)
+                    r = prop_transfer(cpm, p, prefix, reference_scope, reference_names)
                     if r == "ok":
                         ok += 1
                     elif r == "differs":
@@ -2659,7 +2665,7 @@ def form_transfer_items(diff, form, cfg_form_xml, cfg_module_path, ext_dir, pref
                 ni = marked(new_item(st, "~ %s %s: %s%s" % (tag, rec["name"], ", ".join(keys), cnt), "", group), own)
                 # Only the properties still at their BaseForm value: a value changed in the configuration some
                 # other way stays as it is and is left to a person
-                pend = [p for p in ch["props"] if prop_transfer(cpm, p, prefix) == "pending"]
+                pend = [p for p in ch["props"] if prop_transfer(cpm, p, prefix, reference_scope, reference_names) == "pending"]
                 if pend:
                     ni["plan"] = {"kind": "prop", "rec": rec, "props": pend}
                     ni["plan_key"] = "~ %s %s: %s" % (tag, rec["name"], ", ".join(keys))
@@ -2681,7 +2687,6 @@ def form_transfer_items(diff, form, cfg_form_xml, cfg_module_path, ext_dir, pref
             items.append(ni)
 
     # Interceptor of a handler: the extension's handler code looked up in the configuration's one
-    cfg_mod = read_bsl_lines(cfg_module_path)
     mod_rel = rel_path(ext_dir, form["module"]) if form["module"] and os.path.isfile(form["module"]) else ""
     ext_method_names = Counter(name.lower() for name in get_proc_names(ext_mod or []))
     cfg_method_names = Counter(name.lower() for name in get_proc_names(cfg_mod or []))
@@ -2742,7 +2747,15 @@ def form_transfer_items(diff, form, cfg_form_xml, cfg_module_path, ext_dir, pref
                     if form_interceptors is not None and kind and cfg_m:
                         form_interceptors.append((mod_rel, cfg_m["decl_idx"], it))
                 continue
-            hit = find_name_in(cn, x["name"], prefix)
+            if word == "attribute":
+                matches = find_scoped_form_names(cn, x["name"], prefix, reference_scope["attributes"])
+                if len(matches) > 1 and matches[0].lower() != x["name"].lower():
+                    label = "+ attribute %s%s (matches %s; choose the intended target)" % (x["name"], x["info"], ", ".join(matches))
+                    items.append(marked(new_item("MANUAL", label, "", group), [x["name"]]))
+                    continue
+                hit = matches[0] if matches else None
+            else:
+                hit = find_name_in(cn, x["name"], prefix)
             st = "TRANSFERRED" if hit else "NOT_TRANSFERRED"
             ni = marked(new_item(st, "+ %s %s%s%s" % (word, x["name"], x["info"], as_text(hit, x["name"])), "", group), [x["name"]])
             # A command whose action intercepts a method is a transfer of its own kind. A command the
@@ -2806,7 +2819,7 @@ def form_transfer_items(diff, form, cfg_form_xml, cfg_module_path, ext_dir, pref
     if diff["form_props"]:
         cpm = get_prop_map(cr, root=True)
         for p in diff["form_props"]:
-            r = prop_transfer(cpm, p, prefix)
+            r = prop_transfer(cpm, p, prefix, reference_scope, reference_names)
             st = {"ok": "TRANSFERRED", "pending": "NOT_TRANSFERRED"}.get(r, "DIVERGED")
             why = " (config value differs)" if r == "differs" else ""
             ni = new_item(st, "~ form " + prop_change_text(p) + why, "", group)
@@ -2816,12 +2829,20 @@ def form_transfer_items(diff, form, cfg_form_xml, cfg_module_path, ext_dir, pref
             items.append(ni)
     # Conditional appearance rules: an added one must be among the configuration's rules, a removed one not
     if diff["appearance"]:
-        have = [cmp_key(x, prefix) for x in cr.findall("d:Attributes/d:ConditionalAppearance/dcsset:item", NSMAP)]
+        rules = cr.findall("d:Attributes/d:ConditionalAppearance/dcsset:item", NSMAP)
+        have = [get_form_property_key(x, prefix) for x in rules]
+        old_keys = [cmp_key(x, prefix) for x in rules]
         for a in diff["appearance"]:
-            inn = cmp_key(a["node"], prefix) in have
-            done = inn if a["kind"] == "added" else not inn
+            bad = []
+            inn = get_form_property_key(a["node"], prefix, reference_scope, reference_names, bad) in have
             mk = "+" if a["kind"] == "added" else "-"
-            ni = new_item("TRANSFERRED" if done else "NOT_TRANSFERRED", "%s conditional appearance rule %s" % (mk, appearance_text(a["node"])), "", group)
+            label = "%s conditional appearance rule %s" % (mk, appearance_text(a["node"]))
+            if bad or (not inn and cmp_key(a["node"], prefix) in old_keys):
+                reason = bad[0] if bad else "form references differ"
+                items.append(new_item("DIVERGED", "%s (%s)" % (label, reason), "", group))
+                continue
+            done = inn if a["kind"] == "added" else not inn
+            ni = new_item("TRANSFERRED" if done else "NOT_TRANSFERRED", label, "", group)
             if not done:
                 ni["plan"] = {"kind": "appearance", "rule": a["node"], "add": a["kind"] == "added"}
                 ni["plan_key"] = "%s conditional appearance rule %s" % (mk, appearance_text(a["node"]))
@@ -3690,17 +3711,41 @@ def get_form_name_set(root):
     return {(n.get("name") or "").lower() for n in root.iter() if isinstance(n.tag, str) and n.get("name")}
 
 
+def find_scoped_form_names(targets, name, prefix, owners):
+    owners = {source.lower() for source in owners}
+    return [hit for hit in find_names_in(targets, name, prefix) if hit.lower() == name.lower() or hit.lower() not in owners]
+
+
+def get_form_attribute_targets(ext_root, cfg_root, prefix, cfg_lines):
+    taken = get_form_name_set(cfg_root)
+    ext_attrs = section_map(ext_root, "Attributes", "Attribute")
+    cfg_attrs = section_map(cfg_root, "Attributes", "Attribute")
+    cfg_names = [name for name, _ in cfg_attrs.values()]
+    taken.update(name.lower() for decl in get_module_layout(cfg_lines or [])["vars"] for name in decl["names"])
+    result = {}
+    for name, _ in ext_attrs.values():
+        if not prefix or not name.lower().startswith(prefix.lower()):
+            continue
+        hits = find_scoped_form_names(cfg_names, name, prefix, ext_attrs)
+        if hits:
+            result[name.lower()] = hits[0]
+            continue
+        target = get_target_name(name, prefix, taken, False)
+        result[name.lower()] = target["name"]
+        if not target.get("taken"):
+            taken.add(target["name"].lower())
+    return result
+
+
 def get_form_name_map(ext_root, cfg_root, prefix):
     """Names of the extension's main part -> names in the configuration: the extension prefix goes, a taken
     name gets the project's development prefix."""
     taken = get_form_name_set(cfg_root)
     res = {}
     for n in ext_root.iter():
-        if not isinstance(n.tag, str):
+        if not isinstance(n.tag, str) or not n.get("name"):
             continue
         nm = n.get("name")
-        if not nm:
-            continue
         k = nm.lower()
         if k in res:
             continue
@@ -3750,7 +3795,101 @@ def get_ref_cmp_key(node, prefix):
 FORM_PATH_TAGS = re.compile(r'(DataPath|TitleDataPath|FooterDataPath|HeaderDataPath|MultipleValue\w*DataPath)$')
 
 
-def convert_form_leaf(node, name_map, ref_map, handler_map, bad):
+def get_form_reference_scope(ext_root, cfg_root, prefix, cfg_lines):
+    attrs = {
+        (attr.get("name") or "").lower(): {(column.get("name") or "").lower()
+                                          for column in attr.findall("d:Columns/d:Column", NSMAP)}
+        for attr in ext_root.findall("d:Attributes/d:Attribute", NSMAP)
+    }
+    return {"attributes": attrs, "attribute_targets": get_form_attribute_targets(ext_root, cfg_root, prefix, cfg_lines),
+            "elements": form_element_index(ext_root), "config": cfg_root, "prefix": prefix}
+
+
+def resolve_form_reference_name(name, targets, name_map, scope, bad, owners):
+    hits = find_scoped_form_names(targets, name, scope["prefix"], owners)
+    if len(hits) == 1 or (hits and hits[0].lower() == name.lower()):
+        return hits[0]
+    if hits:
+        bad.append("ambiguous form reference %s (matches %s); choose the intended target" % (name, ", ".join(hits)))
+        return name
+    return name_map.get(name.lower(), name)
+
+
+def resolve_form_element_reference(name, name_map, scope, bad):
+    source = scope["elements"].get(name.lower())
+    if source is None:
+        return name
+    kind = localname(source["node"])
+    targets = [rec["name"] for rec in form_element_index(scope["config"]).values() if localname(rec["node"]) == kind]
+    return resolve_form_reference_name(name, targets, name_map, scope, bad, scope["elements"])
+
+
+def convert_form_path(value, name_map, scope, bad):
+    m = re.fullmatch(r'\s*~?(?P<head>\w+)(?:\[\d+\])?(?:\.(?P<member>\w+))?(?:\[\d+\])?(?:\.\w+(?:\[\d+\])?)*\s*', value)
+    if not m:
+        return value
+    head, member = m.group("head", "member")
+    if head.lower() in ("items", "элементы") and member:
+        target = resolve_form_element_reference(member, name_map, scope, bad)
+        return value[:m.start("member")] + target + value[m.end("member"):]
+    columns = scope["attributes"].get(head.lower())
+    if columns is None:
+        return value
+    attrs = section_map(scope["config"], "Attributes", "Attribute")
+    target = resolve_form_reference_name(head, [name for name, _ in attrs.values()], scope["attribute_targets"], scope, bad,
+                                        scope["attributes"])
+    if member and member.lower() in columns:
+        owner = attrs.get(target.lower())
+        existing = [(n.get("name") or "") for n in owner[1].findall("d:Columns/d:Column", NSMAP)] if owner else []
+        replacement = resolve_form_reference_name(member, existing, name_map, scope, bad, columns)
+        value = value[:m.start("member")] + replacement + value[m.end("member"):]
+    return value[:m.start("head")] + target + value[m.end("head"):]
+
+
+def get_form_reference_kind(node):
+    dcsset = "{%s}" % NSMAP["dcsset"]
+    form_tag = "{%s}" % NSMAP["d"]
+    parent = node.getparent()
+    owner = parent.getparent() if parent is not None else None
+    if ((node.tag == dcsset + "field" and owner is not None and owner.tag == dcsset + "selection")
+            or (node.tag == form_tag + "Item" and parent is not None and parent.tag == form_tag + "AdditionSource")):
+        return "element"
+    if FORM_PATH_TAGS.search(localname(node)) or (node.tag in (dcsset + "left", dcsset + "right") and
+            (node.get("{%s}type" % NSMAP["xsi"]) or "").endswith(":Field")):
+        return "path"
+    return None
+
+
+def convert_scoped_form_leaf(node, role, name_map, scope, bad):
+    value = node.text or ""
+    if role == "element":
+        node.text = resolve_form_element_reference(value.strip(), name_map, scope, bad)
+    elif role == "path":
+        node.text = convert_form_path(value, name_map, scope, bad)
+
+
+def get_form_property_key(node, prefix, scope=None, name_map=None, bad=None):
+    if node is None:
+        return get_ref_cmp_key(node, prefix)
+    if scope is not None:
+        if localname(node) == "Item" and get_form_reference_kind(node) == "element":
+            node = copy.deepcopy(node.getparent()).find("d:Item", NSMAP)
+        else:
+            node = copy.deepcopy(node)
+    refs = []
+    for leaf in node.iter():
+        if not isinstance(leaf.tag, str) or len(leaf):
+            continue
+        role = get_form_reference_kind(leaf)
+        if role:
+            if scope is not None:
+                convert_scoped_form_leaf(leaf, role, name_map, scope, bad)
+            refs.append((leaf.text or "").strip())
+    key = get_ref_cmp_key(node, prefix)
+    return key + "|" + "|".join(refs) if refs else key
+
+
+def convert_form_leaf(node, name_map, ref_map, handler_map, bad, scope):
     """Text of a leaf rewritten: names renamed, "0:<uuid>" references resolved, handler names renamed."""
     tag = localname(node)
     if node.tag == "{%s}content" % NSMAP["v8"]:
@@ -3772,14 +3911,12 @@ def convert_form_leaf(node, name_map, ref_map, handler_map, bad):
         if u in ref_map:
             node.text = ref_map[u]
         else:
-            bad.append("%s 0:%s" % (tag, u))
+            bad.append("reference %s 0:%s is not in the configuration" % (tag, u))
         return
-    if FORM_PATH_TAGS.search(tag) and name_map:
-        node.text = re.sub(r'(?<![\w.])(\w+)(?!\w)',
-                           lambda mm: name_map.get(mm.group(1).lower(), mm.group(1)), v)
+    convert_scoped_form_leaf(node, get_form_reference_kind(node), name_map, scope, bad)
 
 
-def copy_form_node(node, pools, name_map, ref_map, handler_map, bad, col_owner="", omit_names=None):
+def copy_form_node(node, pools, name_map, ref_map, handler_map, bad, scope, col_owner="", omit_names=None):
     """A copy of the extension's node for the configuration: ids from its pools, names and references converted."""
     c = copy.deepcopy(node)
     if omit_names:
@@ -3808,7 +3945,7 @@ def copy_form_node(node, pools, name_map, ref_map, handler_map, bad, col_owner="
         if nm and nm.lower() in name_map:
             n.set("name", name_map[nm.lower()])
         if len(n) == 0:
-            convert_form_leaf(n, name_map, ref_map, handler_map, bad)
+            convert_form_leaf(n, name_map, ref_map, handler_map, bad, scope)
     return c
 
 
@@ -3864,17 +4001,21 @@ def apply_form_op(fe, op, ctx):
     pools = fe["pools"]
 
     def copy_node(node, col_owner="", omit_names=None):
-        return copy_form_node(node, pools, ctx["name_map"], ctx["ref_map"], ctx["handler_map"], ctx["bad"], col_owner, omit_names)
+        return copy_form_node(node, pools, ctx["name_map"], ctx["ref_map"], ctx["handler_map"], ctx["bad"],
+                              ctx["reference_scope"], col_owner, omit_names)
 
     kind = op["kind"]
     if kind == "attribute":
         attrs = get_form_section(root, "Attributes")
         node = copy_node(op["node"], op.get("name", ""))
+        target = ctx["reference_scope"]["attribute_targets"].get(op["name"].lower())
+        if target:
+            node.set("name", target)
         set_form_subtree_indent(node, eol, get_form_depth(attrs) + 1)
         ca = attrs.find("d:ConditionalAppearance", NSMAP)
         insert_form_node_at(attrs, node, ca, eol)
     elif kind == "column":
-        at = find_form_attr(root, ctx["name_map"].get(op["attr"].lower(), op["attr"]))
+        at = find_form_attr(root, ctx["reference_scope"]["attribute_targets"].get(op["attr"].lower(), op["attr"]))
         if at is None:
             raise ValueError("SKIP: attribute %s is not in the configuration" % op["attr"])
         cols = at.find("d:Columns", NSMAP)
@@ -3994,9 +4135,9 @@ def apply_form_op(fe, op, ctx):
             set_form_subtree_indent(node, eol, get_form_depth(ca) + 1)
             insert_form_node_at(ca, node, None, eol)
         elif ca is not None:
-            key = cmp_key(op["rule"], TRANSFER_PREFIX)
+            key = get_form_property_key(op["rule"], TRANSFER_PREFIX, ctx["reference_scope"], ctx["name_map"], ctx["bad"])
             for it in ca.findall("dcsset:item", NSMAP):
-                if cmp_key(it, TRANSFER_PREFIX).lower() == key.lower():
+                if get_form_property_key(it, TRANSFER_PREFIX) == key:
                     remove_form_node(it)
                     break
     else:
@@ -4086,7 +4227,8 @@ def test_form_write(fe, module_only=False):
             if target is None:
                 return ["target not found"]
             cpm = get_prop_map(target)
-            return [p["key"] for p in props if prop_transfer(cpm, p, fe["prefix"]) != "ok"]
+            return [p["key"] for p in props
+                    if prop_transfer(cpm, p, fe["prefix"], fe["ctx"]["reference_scope"], fe["ctx"]["name_map"]) != "ok"]
 
         for op in fe["ops"]:
             if op["kind"] == "prop":
@@ -4924,7 +5066,17 @@ def initialize_bsl_catalog(ext_dir, config_path, prefix):
                 ed, cd = read_form_doc(ef), read_form_doc(cf)
                 if ed is not None and cd is not None:
                     fm = get_form_name_map(ed, cd, prefix)
+                    attribute_targets = get_form_attribute_targets(ed, cd, prefix, cl)
                     cfg_names2 = [x.get('name') for x in cd.iter() if x.get('name')]
+                    ext_attrs = section_map(ed, "Attributes", "Attribute")
+                    cfg_attrs = section_map(cd, "Attributes", "Attribute")
+                    cfg_attr_names = [name for name, _ in cfg_attrs.values()]
+                    ambiguous_attrs = {}
+                    for name, _ in ext_attrs.values():
+                        matches = find_scoped_form_names(cfg_attr_names, name, prefix, ext_attrs)
+                        if len(matches) > 1 and matches[0].lower() != name.lower():
+                            ambiguous_attrs[name.lower()] = ", ".join(matches)
+                    ctx["ambiguous_form_attrs"] = ambiguous_attrs
                     for k2 in list(fm):
                         hit2 = find_name_in(cfg_names2, k2, prefix)
                         if hit2:
@@ -4935,7 +5087,7 @@ def initialize_bsl_catalog(ext_dir, config_path, prefix):
                             continue
                         n = x.get('name', '')
                         if n:
-                            ctx['attrs'][n.lower()] = fm.get(n.lower(), remove_ext_prefix(n, prefix)); ctx['names'][n.lower()] = n
+                            ctx['attrs'][n.lower()] = attribute_targets.get(n.lower(), remove_ext_prefix(n, prefix)); ctx['names'][n.lower()] = n
             match = re.match(r'^([^/\\]+)[/\\]([^/\\]+)[/\\]', rel)
             if match:
                 md_rel = '%s/%s.xml' % (match[1], match[2])
@@ -5102,6 +5254,11 @@ def get_bsl_conversion(lines, file_map, ctx, params=(), comparison=False):
         is_ctor = i > 0 and ts[i - 1]['value'].lower() in ('новый', 'new')
         if comparison or (not qualified and not is_call and k in params):
             continue
+        ambiguous = ctx.get("ambiguous_form_attrs", {}) if ctx and (not qualified or oc is ctx) else {}
+        if not is_call and k in ambiguous:
+            issues.append({"token": t, "rename": "%s -> %s" % (t["value"], ambiguous[k]),
+                           "why": "form attribute matches multiple target names"})
+            continue
         if not is_ctor:
             if k in om and (is_call or not qualified):
                 edits[t['start']] = om[k]
@@ -5185,8 +5342,13 @@ def get_bsl_conversion(lines, file_map, ctx, params=(), comparison=False):
                 elif len(targets) > 1:
                     issues.append({'token': st, 'rename': value + ' -> ' + ', '.join(sorted(targets.values())), 'why': 'global handler resolves to different target names'})
                 continue
-            rm = (rc['attrs'] if rc and rc['kind'] == 'form' else {}) if ref_kind == 'attribute' else methods if rc is ctx and rc else rc['methods'] if rc else {}
             handled.add(st['start'])
+            ambiguous = rc.get("ambiguous_form_attrs", {}) if rc and ref_kind == "attribute" else {}
+            if sk in ambiguous:
+                issues.append({"token": st, "rename": "%s -> %s" % (value, ambiguous[sk]),
+                               "why": "form attribute matches multiple target names"})
+                continue
+            rm = (rc['attrs'] if rc and rc['kind'] == 'form' else {}) if ref_kind == 'attribute' else methods if rc is ctx and rc else rc['methods'] if rc else {}
             if sk in rm:
                 edits[st['start']] = '"' + rm[sk].replace('"', '""') + '"'
                 references.append({'name': value, 'context': rc, 'kind': ref_kind, 'token': st})
@@ -6237,6 +6399,13 @@ def get_form_code_dependencies(rel, ext_dir, config_path, cache):
             get_form_item_names(os.path.join(config_path, form_rel)),
         )
         ext_doc = read_form_doc(ext_form)
+        cfg_doc = read_form_doc(os.path.join(config_path, form_rel))
+        if ext_doc is not None and cfg_doc is not None:
+            ext_attrs = section_map(ext_doc, "Attributes", "Attribute")
+            cfg_attrs = section_map(cfg_doc, "Attributes", "Attribute")
+            for name, _ in ext_attrs.values():
+                if not find_scoped_form_names(cfg_attrs, name, TRANSFER_PREFIX, ext_attrs):
+                    missing[name.lower()] = name
         index = form_element_index(ext_doc.getroot()) if ext_doc is not None else {}
         marks = get_form_transfer_marks(index, read_bsl_lines(os.path.join(ext_dir, rel)))
         temporary = {name: missing.pop(name, name) for name in marks}
@@ -7092,9 +7261,11 @@ def main():
                             # (a command's Action, an element's Event) finds the names given in this run
                             hm = file_maps.setdefault(cfg_form_mod.lower(), {})
                             ext_root = read_form_doc(ext_form).getroot()
+                            scope = get_form_reference_scope(ext_root, fe["fw"]["root"], prefix, read_bsl_lines(cfg_form_mod))
                             fe["ctx"] = {"name_map": get_form_name_map(ext_root, fe["fw"]["root"], prefix),
                                          "ref_map": CONFIG_REF_MAP, "handler_map": hm, "bad": [],
-                                         "temp_marks": get_form_transfer_marks(form_element_index(ext_root), read_bsl_lines(ext_form_mod))}
+                                         "temp_marks": get_form_transfer_marks(scope["elements"], read_bsl_lines(ext_form_mod)),
+                                         "reference_scope": scope}
                         # A binding of the extension's own (an event, a new command's actions): its handlers go
                         # into the module by the role the form gives them, the item into Form.xml; nothing is
                         # committed until the item itself has been applied
@@ -7155,7 +7326,7 @@ def main():
                         try:
                             apply_form_op(fe, op, fe["ctx"])
                             if fe["ctx"]["bad"]:
-                                raise ValueError("reference %s is not in the configuration" % fe["ctx"]["bad"][0])
+                                raise ValueError(fe["ctx"]["bad"][0])
                             for ma in mod_adds:
                                 mf, mp = ma["fw"], ma["place"]
                                 if mp.get("create"):
