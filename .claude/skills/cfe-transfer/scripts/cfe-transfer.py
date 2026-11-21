@@ -1,5 +1,5 @@
 ﻿#!/usr/bin/env python3
-# cfe-transfer v1.28 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+# cfe-transfer v1.29 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -2737,6 +2737,13 @@ def form_transfer_items(diff, form, cfg_form_xml, cfg_module_path, ext_dir, pref
                     ni["plan_key"] = "+ %s %s" % (word, x["name"])
                 elif not ct_actions:
                     ni["plan"] = {"kind": word if word != "parameter" else "parameter", "node": x["node"], "name": x["name"]}
+                    if word == "command":
+                        ni["plan"]["rel"] = mod_rel
+                        ni["plan"]["handlers"] = [
+                            {"handler": action["handler"], "ext_m": method}
+                            for action in x["actions"]
+                            if (method := get_method_safe(ext_mod, action["handler"]))
+                        ]
                     ni["plan_key"] = "+ %s %s" % (word, x["name"])
             items.append(ni)
 
@@ -5067,6 +5074,11 @@ def get_bsl_conversion(lines, file_map, ctx, params=(), comparison=False):
                 edits[t['start']] = ctx['data_attrs'][k]
             elif qualified and not is_call and k in BSL_GLOBALS:
                 edits[t['start']] = BSL_GLOBALS[k]
+        if not is_call and ctx and ctx["kind"] == "form":
+            form_item = (re.fullmatch(r'(?:(?:ЭтотОбъект|ЭтаФорма|ThisObject|ThisForm)\.)?(?:Элементы|Items|Команды|Commands)', owner, re.I)
+                         if qualified else k in attrs)
+            if form_item:
+                references.append({"name": t["value"], "context": ctx, "kind": "form_item", "token": t})
         if not is_call:
             continue
         if not is_ctor:
@@ -5221,13 +5233,25 @@ def get_bsl_manual_details(plan, problem):
             'next: resolve the handler context in the extension, or copy the complete method and verify its handler by hand; then re-run -Mode transfer']
 
 
-def get_bsl_blocked_dependencies(plan, by_file, common, config_path):
+def get_bsl_blocked_dependencies(plan, by_file, common, config_path, form_items=None):
     missing = dict(common)
     missing.update(by_file.get(os.path.abspath(os.path.join(config_path, plan['rel'])).lower(), {}))
     methods = [plan.get('ext_m')] + [h.get('ext_m') for h in plan.get('handlers', [])]
     deps = {dep for m in methods if m
-            for dep in get_used_missing(m['body_lines'], missing, params=m['param_names'])}
+            for dep in get_used_missing(m['body_lines'], missing, params=m['param_names'], form_items=form_items)}
     return sorted(deps, key=str.upper)
+
+
+def add_blocked_form_handlers(plan, by_file, common, file_maps, config_path):
+    module = os.path.abspath(os.path.join(config_path, plan["rel"]))
+    file_map = file_maps.get(module.lower(), {})
+    names = [plan["handler"]] if plan["kind"] == "event-bind" else [h["handler"] for h in plan["handlers"]]
+    added = False
+    for name in names:
+        file_map.pop(name.lower(), None)
+        if add_out_name(by_file, common, module, plan["rel"], name):
+            added = True
+    return added
 
 
 def get_bsl_warning_report(records, config_path):
@@ -6160,6 +6184,20 @@ def get_form_item_names(form_xml):
     return [n.get("name") for n in root.iter() if isinstance(n.tag, str) and n.get("name") is not None and not _in_base_form(n, root)]
 
 
+def get_form_code_dependencies(rel, ext_dir, config_path, cache):
+    key = rel.lower()
+    if key not in cache:
+        form_rel = re.sub(r'[\\/]Ext[\\/]Form[\\/]Module\.bsl$', '/Ext/Form.xml', rel)
+        missing = get_missing_names(
+            get_form_item_names(os.path.join(ext_dir, form_rel)),
+            get_form_item_names(os.path.join(config_path, form_rel)),
+        )
+        marks = get_form_temp_marks(read_bsl_lines(os.path.join(ext_dir, rel)))
+        temporary = {name: missing.pop(name, name) for name in marks}
+        cache[key] = (missing, temporary)
+    return cache[key]
+
+
 def add_out_name(by_file, common, cfg_file, rel, name):
     """A method that is not coming, for the code that calls it: by its name in its own module; a common
     module's method also as Модуль.Метод for the other modules (a bare name there is someone else's).
@@ -6174,11 +6212,11 @@ def add_out_name(by_file, common, cfg_file, rel, name):
     return new
 
 
-def get_used_missing(lines, missing, selected=None, params=()):
+def get_used_missing(lines, missing, selected=None, params=(), form_items=None):
     """Missing names the code uses (comments left out): the sorted original names. The extension's code
     names its own things as the extension does, so a word matches by the very name: a plain Товары is
     not the extension's Расш_Товары."""
-    if not missing:
+    if not missing and not form_items:
         return []
     shadowed = {name.lower() for name in params}
     hit = set()
@@ -6197,6 +6235,9 @@ def get_used_missing(lines, missing, selected=None, params=()):
         if selected is not None and ref_line not in selected:
             continue
         k = ref['name'].lower()
+        if (ref["kind"] in ("form_item", "attribute") and ref["context"] and ref["context"]["kind"] == "form"
+                and form_items and k in form_items):
+            hit.add(form_items[k])
         if ref['context'] and ref['context'] is not BSL_CONTEXT and ref['context']['kind'] == 'common':
             mod = ref['context']['rel'].replace('\\', '/').split('/')[1]
             k = (mod + '.' + ref['name']).lower()
@@ -6845,8 +6886,7 @@ def main():
         # calling it waits too. Nothing is written before pass 4, so the pass runs again until no new
         # method stays out. A method of a common module is called from other modules, the rest from
         # their own module only.
-        form_missing = {}
-        form_temp = {}
+        form_dependencies = {}
         form_rejections = {}
         form_handler_rejections = {}
         form_topcode_rejections = {}
@@ -6935,10 +6975,9 @@ def main():
                         if it['status'] != 'MANUAL':
                             t['text'] += ' — ' + problem['issue']['why']
                         t['sub'] = get_bsl_manual_details(pl, problem)
-                        blocked_names2 = [pl['handler']] if pl['kind'] == 'event-bind' else [h['handler'] for h in pl.get('handlers', [])] if pl['kind'] == 'command-bind' else []
-                        for n2 in blocked_names2:
-                            if add_out_name(out_by_file, out_common, os.path.abspath(os.path.join(config_path, pl['rel'])), pl['rel'], n2):
-                                again = True
+                        if pl["kind"] in ("event-bind", "command-bind") and add_blocked_form_handlers(
+                                pl, out_by_file, out_common, file_maps, config_path):
+                            again = True
                         titems.append(t); continue
                     if it.get("group") and w["support"] == "locked":
                         t["status"] = "MANUAL"
@@ -6978,21 +7017,24 @@ def main():
                             t["status"] = "CONFLICT"
                             t["text"] = "%s — %s; form not changed" % (it["text"], form_rejections[form_key]["reason"])
                             t["sub"] = [get_form_conflict_hint(form_rejections[form_key]["reason"])]
-                            if is_binding:
-                                cfg_mod_file = os.path.abspath(os.path.join(config_path, pl["rel"]))
-                                file_map = file_maps.get(cfg_mod_file.lower(), {})
-                                names = [pl["handler"]] if pl["kind"] == "event-bind" else [h["handler"] for h in pl["handlers"]]
-                                for name in names:
-                                    file_map.pop(name.lower(), None)
-                                    if add_out_name(out_by_file, out_common, cfg_mod_file, pl["rel"], name):
-                                        again = True
+                            if is_binding and add_blocked_form_handlers(pl, out_by_file, out_common, file_maps, config_path):
+                                again = True
                             titems.append(t)
                             continue
-                        if is_binding:
-                            blocked2 = get_bsl_blocked_dependencies(pl, out_by_file, out_common, config_path)
-                            if blocked2:
-                                t["status"] = "WAITING"
-                                t["text"] = it["text"] + " - waits for: " + ", ".join(blocked2)
+                        if is_binding or (pl["kind"] == "command" and pl.get("handlers")):
+                            missing, temporary = get_form_code_dependencies(pl["rel"], ext_dir0, config_path, form_dependencies)
+                            temp_deps = get_bsl_blocked_dependencies(pl, {}, {}, config_path, temporary)
+                            blocked2 = get_bsl_blocked_dependencies(pl, out_by_file, out_common, config_path, missing)
+                            if temp_deps or blocked2:
+                                if temp_deps:
+                                    t["status"] = "MANUAL"
+                                    t["text"] = "%s — uses form items %s, marked as not for transfer" % (it["text"], ", ".join(temp_deps))
+                                    t["sub"] = get_where_lines(pl, "drop the use before the transfer or remove the mark from the form module, then re-run -Mode transfer")
+                                else:
+                                    t["status"] = "WAITING"
+                                    t["text"] = it["text"] + " - waits for: " + ", ".join(blocked2)
+                                if is_binding and add_blocked_form_handlers(pl, out_by_file, out_common, file_maps, config_path):
+                                    again = True
                                 titems.append(t)
                                 continue
                         ext_form = os.path.abspath(os.path.join(ext_dir0, rel_form))
@@ -7402,22 +7444,14 @@ def main():
                         continue
                     # Code that uses names the configuration does not have yet waits for them
                     missing = {}
+                    form_missing_items = {}
+                    form_temp_items = {}
                     for m in (missing_global, missing_by_obj.get(w["id"])):
                         if m:
                             missing.update(m)
                     if get_module_kind(pl["rel"]) == "form":
-                        fk = pl["rel"].lower()
-                        if fk not in form_missing:
-                            def fx(root):
-                                return re.sub(r'[\\/]Ext[\\/]Form[\\/]Module\.bsl$', '/Ext/Form.xml', os.path.join(root, pl["rel"]))
-                            form_missing[fk] = get_missing_names(get_form_item_names(fx(ext_dir0)), get_form_item_names(fx(config_path)))
-                        missing.update(form_missing[fk])
-                        # Form items the form module marks "not for transfer" are never coming
-                        if fk not in form_temp:
-                            form_temp[fk] = {}
-                            for k, why in get_form_temp_marks(read_bsl_lines(os.path.join(ext_dir0, pl["rel"]))).items():
-                                form_temp[fk][k] = form_missing[fk].get(k, k)
-                        for k in form_temp[fk]:
+                        form_missing_items, form_temp_items = get_form_code_dependencies(pl["rel"], ext_dir0, config_path, form_dependencies)
+                        for k in form_temp_items:
                             missing.pop(k, None)
                     for m in (out_by_file.get(cfg_file.lower()), out_common):
                         if m:
@@ -7435,7 +7469,7 @@ def main():
                                 selected2.update(range(a2, b2))
                     else:
                         code = list(pl["ext_m"]["body_lines"])
-                    deps = get_used_missing(code, missing, selected2, pl["ext_m"]["param_names"])
+                    deps = get_used_missing(code, missing, selected2, pl["ext_m"]["param_names"], form_missing_items)
                     # A conflict or a missing module shows first: waiting would hide it
                     blocked = ((pl["kind"] == "control" and any(e["res"] not in ("pending", "absorbed", "temp") for e in pl["ops"]))
                                or (pl["kind"] == "own" and (it["status"] == "DIVERGED" or pl["cfg_missing"]
@@ -7451,7 +7485,7 @@ def main():
                         t["sub"] = get_where_lines(pl, "drop the call before the transfer or remove the mark from the method, then re-run -Mode transfer")
                         titems.append(t)
                         continue
-                    form_temp_deps = get_used_missing(code, form_temp.get(pl["rel"].lower(), {}), params=pl["ext_m"]["param_names"]) if get_module_kind(pl["rel"]) == "form" else []
+                    form_temp_deps = get_used_missing(code, {}, selected2, pl["ext_m"]["param_names"], form_temp_items)
                     if form_temp_deps and not blocked:
                         t["text"] = "%s — uses form items %s, marked as not for transfer" % (label, ", ".join(form_temp_deps))
                         t["sub"] = get_where_lines(pl, "drop the use before the transfer or remove the mark from the form module, then re-run -Mode transfer")

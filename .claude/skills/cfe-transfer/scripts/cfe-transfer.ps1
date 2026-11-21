@@ -1,4 +1,4 @@
-﻿# cfe-transfer v1.28 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+﻿# cfe-transfer v1.29 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -2519,6 +2519,13 @@ function Get-FormTransferItems($diff, $form, [string]$cfgFormXml, [string]$cfgMo
 					$ni.PlanKey = "+ $($sec[2]) $($x.Name)"
 				} elseif ($ctActions.Count -eq 0) {
 					$ni.Plan = @{ Kind = $(switch ($sec[2]) { 'attribute' { 'attribute' } 'command' { 'command' } default { 'parameter' } }); Node = $x.Node; Name = $x.Name }
+					if ($sec[2] -eq 'command') {
+						$ni.Plan.Rel = $modRel
+						$ni.Plan.Handlers = @(foreach ($a in $x.Actions) {
+							$m = Get-MethodSafe $extMod $a.Handler
+							if ($m) { @{ Handler = $a.Handler; ExtM = $m } }
+						})
+					}
 					$ni.PlanKey = "+ $($sec[2]) $($x.Name)"
 				}
 			}
@@ -4719,6 +4726,10 @@ function Get-BslConversion($lines, $fileMap, $ctx, $params = $null, [switch]$Com
 			elseif ($qualified -and $ctx -and $owner.ToLower() -in @('объект', 'object') -and $ctx.Kind -eq 'form' -and $ctx.DataAttrs.ContainsKey($k)) { $edits[$t.Start] = $ctx.DataAttrs[$k] }
 			elseif ($qualified -and -not $isCall -and $script:bslGlobals.ContainsKey($k)) { $edits[$t.Start] = $script:bslGlobals[$k] }
 		}
+		if (-not $isCall -and $ctx.Kind -eq 'form') {
+			$formItem = if ($qualified) { $owner -match '^(?:(?:ЭтотОбъект|ЭтаФорма|ThisObject|ThisForm)\.)?(?:Элементы|Items|Команды|Commands)$' } else { $attrs.ContainsKey($k) }
+			if ($formItem) { $references += @{ Name = $t.Value; Context = $ctx; Kind = 'form_item'; Token = $t } }
+		}
 		if (-not $isCall) { continue }
 		if (-not $isCtor) {
 			if ($qualified -and $oc) {
@@ -4879,16 +4890,28 @@ function Get-BslManualDetails($plan, $problem) {
 		'next: resolve the handler context in the extension, or copy the complete method and verify its handler by hand; then re-run -Mode transfer')
 }
 
-function Get-BslBlockedDependencies($plan, $byFile, $common) {
+function Get-BslBlockedDependencies($plan, $byFile, $common, $formItems = $null) {
 	$missing2 = @{}
 	foreach ($map2 in @($byFile[(Get-CfgPath $plan.Rel).ToLower()], $common)) {
 		if ($map2) { foreach ($k2 in $map2.Keys) { $missing2[$k2] = $map2[$k2] } }
 	}
 	$methods2 = @($plan.ExtM) + @(foreach ($h2 in @($plan.Handlers)) { $h2.ExtM })
-	$deps2 = @(foreach ($m2 in $methods2) { if ($m2) { Get-UsedMissing $m2.BodyLines $missing2 $null $m2.ParamNames } })
+	$deps2 = @(foreach ($m2 in $methods2) { if ($m2) { Get-UsedMissing $m2.BodyLines $missing2 $null $m2.ParamNames $formItems } })
 	$deps2 = [string[]]@($deps2 | Select-Object -Unique)
 	[Array]::Sort($deps2, [StringComparer]::OrdinalIgnoreCase)
 	return $deps2
+}
+
+function Add-BlockedFormHandlers($plan, $byFile, $common, $fileMaps) {
+	$cfgModule = Get-CfgPath $plan.Rel
+	$fk = $cfgModule.ToLower()
+	$names = if ($plan.Kind -eq 'event-bind') { @($plan.Handler) } else { @($plan.Handlers | ForEach-Object { $_.Handler }) }
+	$added = $false
+	foreach ($name in $names) {
+		if ($fileMaps.ContainsKey($fk)) { [void]$fileMaps[$fk].Remove($name.ToLower()) }
+		if (Add-OutName $byFile $common $cfgModule $plan.Rel $name) { $added = $true }
+	}
+	return $added
 }
 
 # Scan the final method by its owner and declaration, never by a potentially repeated text line.
@@ -5651,6 +5674,21 @@ function Get-FormItemNames([string]$formXml) {
 	return $res
 }
 
+function Get-FormCodeDependencies([string]$rel, [string]$extDir, $cache) {
+	$key = $rel.ToLower()
+	if (-not $cache.ContainsKey($key)) {
+		$formRel = $rel -replace '[\\/]Ext[\\/]Form[\\/]Module\.bsl$', '/Ext/Form.xml'
+		$missing = Get-MissingNames (Get-FormItemNames (Join-Path $extDir $formRel)) (Get-FormItemNames (Get-CfgPath $formRel))
+		$temporary = @{}
+		foreach ($name in (Get-FormTempMarks (Read-BslLines (Join-Path $extDir $rel))).Keys) {
+			$temporary[$name] = if ($missing.ContainsKey($name)) { $missing[$name] } else { $name }
+			$missing.Remove($name)
+		}
+		$cache[$key] = @{ Missing = $missing; Temporary = $temporary }
+	}
+	return $cache[$key]
+}
+
 # A method that is not coming, for the code that calls it: by its name in its own module; a common
 # module's method also as Модуль.Метод for the other modules (a bare name there is someone else's).
 # Returns $true when it is new.
@@ -5669,9 +5707,9 @@ function Add-OutName($byFile, $common, [string]$cfgFile, [string]$rel, [string]$
 # Missing names the code uses (comments left out): the sorted original names. The extension's code
 # names its own things as the extension does, so a word matches by the very name: a plain Товары is
 # not the extension's Расш_Товары.
-function Get-UsedMissing($lines, $missing, $selected = $null, $params = $null) {
+function Get-UsedMissing($lines, $missing, $selected = $null, $params = $null, $formItems = $null) {
 	$hit = @{}
-	if ($missing.Count -eq 0) { return @() }
+	if ($missing.Count -eq 0 -and $formItems.Count -eq 0) { return @() }
 	$only = Get-CodeOnly $lines
 	for ($lineIdx = 0; $lineIdx -lt $only.Count; $lineIdx++) {
 		if ($null -ne $selected -and -not $selected.ContainsKey($lineIdx)) { continue }
@@ -5689,6 +5727,9 @@ function Get-UsedMissing($lines, $missing, $selected = $null, $params = $null) {
 		$refLine = ([regex]::Matches((@($lines) -join "`n").Substring(0, $ref.Token.Start), "`n")).Count
 		if ($null -ne $selected -and -not $selected.ContainsKey($refLine)) { continue }
 		$k = $ref.Name.ToLower()
+		if ($ref.Kind -in @('form_item', 'attribute') -and $ref.Context.Kind -eq 'form' -and $formItems -and $formItems.ContainsKey($k)) {
+			$hit[$formItems[$k]] = $true
+		}
 		if ($ref.Context -and $ref.Context -ne $script:bslContext -and $ref.Context.Kind -eq 'common') {
 			$mod = ($ref.Context.Rel -replace '\\', '/').Split('/')[1]; $k = "$mod.$($ref.Name)".ToLower()
 		}
@@ -6235,8 +6276,7 @@ if ($Mode -eq 'transfer') {
 	# calling it waits too. Nothing is written before pass 4, so the pass runs again until no new
 	# method stays out. A method of a common module is called from other modules, the rest from
 	# their own module only.
-	$formMissing = @{}
-	$formTemp = @{}
+	$formDependencies = @{}
 	$formRejections = @{}
 	$formHandlerRejections = @{}
 	$formTopcodeRejections = @{}
@@ -6319,10 +6359,7 @@ if ($Mode -eq 'transfer') {
 					if ($it.Status -ne 'MANUAL') { $t.Text += " — $($problem.Issue.Why)" }
 					$t.Sub = Get-BslManualDetails $pl $problem
 					# New refusals of event/command handlers must also protect their callers.
-					$blockedNames2 = @()
-					if ($pl.Kind -eq 'event-bind') { $blockedNames2 += $pl.Handler }
-					if ($pl.Kind -eq 'command-bind') { $blockedNames2 += @($pl.Handlers | ForEach-Object { $_.Handler }) }
-					foreach ($n2 in $blockedNames2) { if (Add-OutName $outByFile $outCommon (Get-CfgPath $pl.Rel) $pl.Rel $n2) { $again = $true } }
+					if ($pl.Kind -in @('event-bind', 'command-bind') -and (Add-BlockedFormHandlers $pl $outByFile $outCommon $fileMaps)) { $again = $true }
 					$titems += $t; continue
 				}
 				if ($it.Group -and $w.Support -eq 'locked') {
@@ -6359,20 +6396,25 @@ if ($Mode -eq 'transfer') {
 						$t.Status = 'CONFLICT'
 						$t.Text = "$($it.Text) — $($formRejections[$formKey].Reason); form not changed"
 						$t.Sub = @(Get-FormConflictHint $formRejections[$formKey].Reason)
-						if ($isBinding) {
-							$cfgModFile = Get-CfgPath $pl.Rel
-							$fk = $cfgModFile.ToLower()
-							$names = if ($pl.Kind -eq 'event-bind') { @($pl.Handler) } else { @($pl.Handlers | ForEach-Object { $_.Handler }) }
-							foreach ($name in $names) {
-								if ($fileMaps.ContainsKey($fk)) { [void]$fileMaps[$fk].Remove($name.ToLower()) }
-								if (Add-OutName $outByFile $outCommon $cfgModFile $pl.Rel $name) { $again = $true }
-							}
-						}
+						if ($isBinding -and (Add-BlockedFormHandlers $pl $outByFile $outCommon $fileMaps)) { $again = $true }
 						$titems += $t; continue
 					}
-					if ($isBinding) {
-						$blocked2 = @(Get-BslBlockedDependencies $pl $outByFile $outCommon)
-						if ($blocked2.Count) { $t.Status = 'WAITING'; $t.Text = "$($it.Text) - waits for: $($blocked2 -join ', ')"; $titems += $t; continue }
+					if ($isBinding -or ($pl.Kind -eq 'command' -and $pl.Handlers.Count -gt 0)) {
+						$formDeps = Get-FormCodeDependencies $pl.Rel $extDir0 $formDependencies
+						$tempDeps = @(Get-BslBlockedDependencies $pl @{} @{} $formDeps.Temporary)
+						$blocked2 = @(Get-BslBlockedDependencies $pl $outByFile $outCommon $formDeps.Missing)
+						if ($tempDeps.Count -gt 0 -or $blocked2.Count -gt 0) {
+							if ($tempDeps.Count -gt 0) {
+								$t.Status = 'MANUAL'
+								$t.Text = "$($it.Text) — uses form items $($tempDeps -join ', '), marked as not for transfer"
+								$t.Sub = Get-WhereLines $pl 'drop the use before the transfer or remove the mark from the form module, then re-run -Mode transfer'
+							} else {
+								$t.Status = 'WAITING'
+								$t.Text = "$($it.Text) - waits for: $($blocked2 -join ', ')"
+							}
+							if ($isBinding -and (Add-BlockedFormHandlers $pl $outByFile $outCommon $fileMaps)) { $again = $true }
+							$titems += $t; continue
+						}
 					}
 					$extForm = Join-Path $extDir0 $relForm
 					# Join-Path turns the forward slashes of a relative path into backslashes: both are matched;
@@ -6734,21 +6776,14 @@ if ($Mode -eq 'transfer') {
 				}
 				# Code that uses names the configuration does not have yet waits for them
 				$missing = @{}
+				$formMissingItems = @{}
+				$formTempItems = @{}
 				foreach ($m in @($missingGlobal, $missingByObj[$w.Id])) { if ($m) { foreach ($k in $m.Keys) { $missing[$k] = $m[$k] } } }
 				if ((Get-ModuleKind $pl.Rel) -eq 'form') {
-					$fk = $pl.Rel.ToLower()
-					if (-not $formMissing.ContainsKey($fk)) {
-						$fx = { param($root) ((Join-Path $root $pl.Rel) -replace '[\\/]Ext[\\/]Form[\\/]Module\.bsl$', '/Ext/Form.xml') }
-						$formMissing[$fk] = Get-MissingNames (Get-FormItemNames (& $fx $extDir0)) (Get-FormItemNames (& $fx $ConfigPath))
-					}
-					foreach ($k in $formMissing[$fk].Keys) { $missing[$k] = $formMissing[$fk][$k] }
-					# Form items the form module marks "not for transfer" are never coming
-					if (-not $formTemp.ContainsKey($fk)) {
-						$fm = Get-FormTempMarks (Read-BslLines (Join-Path $extDir0 $pl.Rel))
-						$formTemp[$fk] = @{}
-						foreach ($k in $fm.Keys) { $formTemp[$fk][$k] = $(if ($formMissing[$fk].ContainsKey($k)) { $formMissing[$fk][$k] } else { $k }) }
-					}
-					foreach ($k in $formTemp[$fk].Keys) { $missing.Remove($k) }
+					$formDeps = Get-FormCodeDependencies $pl.Rel $extDir0 $formDependencies
+					$formMissingItems = $formDeps.Missing
+					$formTempItems = $formDeps.Temporary
+					foreach ($k in $formTempItems.Keys) { $missing.Remove($k) }
 				}
 				foreach ($m in @($outByFile[$cfgFile.ToLower()], $outCommon)) { if ($m) { foreach ($k in $m.Keys) { $missing[$k] = $m[$k] } } }
 				# A method calling itself does not wait for itself
@@ -6762,7 +6797,7 @@ if ($Mode -eq 'transfer') {
 						for ($j2 = $range2.Start; $j2 -lt $range2.End; $j2++) { $selected2[$j2] = $true }
 					}
 				} else { $code = @($pl.ExtM.BodyLines) }
-				$deps = @(Get-UsedMissing $code $missing $selected2 $pl.ExtM.ParamNames)
+				$deps = @(Get-UsedMissing $code $missing $selected2 $pl.ExtM.ParamNames $formMissingItems)
 				# A conflict or a missing module shows first: waiting would hide it
 				$blocked = ($pl.Kind -eq 'control' -and @($pl.Ops | Where-Object { @('pending', 'absorbed', 'temp') -notcontains $_.Res }).Count -gt 0) -or
 					($pl.Kind -eq 'own' -and ($it.Status -eq 'DIVERGED' -or $pl.CfgMissing -or ($pl.Target -and $pl.Target.Taken))) -or
@@ -6775,7 +6810,7 @@ if ($Mode -eq 'transfer') {
 					$t.Sub = Get-WhereLines $pl 'drop the call before the transfer or remove the mark from the method, then re-run -Mode transfer'
 					$titems += $t; continue
 				}
-				$formTempDeps = if ((Get-ModuleKind $pl.Rel) -eq 'form') { @(Get-UsedMissing $code $formTemp[$pl.Rel.ToLower()] $selected2 $pl.ExtM.ParamNames) } else { @() }
+				$formTempDeps = @(Get-UsedMissing $code @{} $selected2 $pl.ExtM.ParamNames $formTempItems)
 				if ($formTempDeps.Count -gt 0 -and -not $blocked) {
 					$t.Text = "$label — uses form items $($formTempDeps -join ', '), marked as not for transfer"
 					$t.Sub = Get-WhereLines $pl 'drop the use before the transfer or remove the mark from the form module, then re-run -Mode transfer'
