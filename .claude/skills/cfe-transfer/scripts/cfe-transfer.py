@@ -1,5 +1,5 @@
 ﻿#!/usr/bin/env python3
-# cfe-transfer v1.19 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+# cfe-transfer v1.20 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -2831,6 +2831,58 @@ def call_type_handlers(diff):
 # Transfer check of one object
 # ============================================================
 
+def own_method_parameters(text):
+    clean = "\n".join(get_code_only(text.splitlines(), True)).strip()
+    if not clean:
+        return []
+    pattern = re.compile(r'^\s*(?:(' + kw_alt("Val") + r')\s+)?\w+\s*(?:=\s*(.+))?$', re.I | re.S)
+    keywords = {'истина': 'true', 'ложь': 'false', 'неопределено': 'undefined'}
+    parameters = []
+    for part in split_top_level(clean):
+        match = pattern.match(part)
+        if not match:
+            return None
+        modifier, default = match.groups()
+        if default is not None:
+            default = default.strip()
+            if not default.startswith('"'):
+                normalized = re.sub(r'\s+', '', default).lower()
+                default = keywords.get(normalized, normalized)
+        parameters.append((modifier is not None, default))
+    return parameters
+
+
+def own_method_context(method):
+    context = method["context"].lstrip("&").lower()
+    for ru, en in zip(BSL_KW["ru"]["Directives"], BSL_KW["en"]["Directives"]):
+        if context in (ru.lower(), en.lower()):
+            return en.lower()
+    return context
+
+
+def own_declaration_difference(ext_lines, ext_method, cfg_lines, cfg_method):
+    if ext_method["is_function"] != cfg_method["is_function"]:
+        return "procedure/function differs"
+    if ext_method["is_async"] != cfg_method["is_async"]:
+        return "Async modifier differs"
+    if is_export(ext_lines, ext_method) != is_export(cfg_lines, cfg_method):
+        return "Export modifier differs"
+    if own_method_context(ext_method) != own_method_context(cfg_method):
+        return "execution context differs"
+    left = own_method_parameters(ext_method["params_text"])
+    right = own_method_parameters(cfg_method["params_text"])
+    if left is None or right is None:
+        return "cannot compare parameter declarations"
+    if len(left) != len(right):
+        return "parameter count differs"
+    for i, ((left_val, left_default), (right_val, right_default)) in enumerate(zip(left, right), 1):
+        if left_val != right_val:
+            return "parameter %d has a different Val modifier" % i
+        if left_default != right_default:
+            return "parameter %d has a different default value" % i
+    return None
+
+
 def module_transfer_items(bsl, ext_dir, config_path, prefix, skip_handlers):
     items = []
     ext_lines = read_bsl_lines(bsl)
@@ -2884,12 +2936,13 @@ def module_transfer_items(bsl, ext_dir, config_path, prefix, skip_handlers):
             continue
         loc = "%s:%d" % (rel, ext_m["decl_idx"] + 1)
         mark = get_method_temp_mark(ext_lines, ext_m)
-        # Every method of the module the name may stand for; the one with the same body wins (a name
+        # Every method of the module the name may stand for; matching declaration and body win (a name
         # given with the development prefix next to a vendor method of the plain name)
         hits = find_names_in(cfg_names, pn, prefix)
         hit = None
         cfg_m = None
         literal_mismatch = False
+        declaration_mismatch = None
         if not hits:
             it = new_item("NOT_TRANSFERRED", "method " + pn, loc)
         else:
@@ -2897,20 +2950,28 @@ def module_transfer_items(bsl, ext_dir, config_path, prefix, skip_handlers):
             same = False
             for h in hits:
                 m = get_method_safe(cfg_lines, h)
-                if m and "\n".join(sig_lines(protect_bsl_parameter_members(m["body_lines"], m["param_names"]), prefix)).lower() == ext_sig.lower():
-                    hit, cfg_m, same = h, m, True
-                    break
-                if m and previously_folded_body_match(ext_m['body_lines'], m['body_lines'], prefix):
+                if not m:
+                    continue
+                if "\n".join(sig_lines(protect_bsl_parameter_members(m["body_lines"], m["param_names"]), prefix)).lower() == ext_sig.lower():
+                    reason = own_declaration_difference(ext_lines, ext_m, cfg_lines, m)
+                    if not reason:
+                        hit, cfg_m, same = h, m, True
+                        declaration_mismatch = None
+                        break
+                    if not declaration_mismatch:
+                        hit, cfg_m, declaration_mismatch = h, m, reason
+                elif previously_folded_body_match(ext_m['body_lines'], m['body_lines'], prefix):
                     literal_mismatch = True
-            if not same:
+            if not hit:
                 hit = hits[0]
                 cfg_m = get_method_safe(cfg_lines, hit)
             as_ = (" (found as %s)" % hit) if hit.lower() != pn.lower() else ""
             if same:
                 it = new_item("TRANSFERRED", "method %s%s" % (pn, as_), loc)
             else:
-                it = new_item("DIVERGED", "method %s%s (body differs)" % (pn, as_), loc)
-        it["plan"] = {"kind": "own", "rel": rel, "ext_m": ext_m, "ext_lines": ext_lines, "cfg_m": cfg_m, "name": pn, "hit": hit, "cfg_missing": cfg_lines is None, "literal_mismatch": literal_mismatch}
+                reason = "declaration differs: " + declaration_mismatch if declaration_mismatch else "body differs"
+                it = new_item("DIVERGED", "method %s%s (%s)" % (pn, as_, reason), loc)
+        it["plan"] = {"kind": "own", "rel": rel, "ext_m": ext_m, "ext_lines": ext_lines, "cfg_m": cfg_m, "name": pn, "hit": hit, "cfg_missing": cfg_lines is None, "literal_mismatch": literal_mismatch, "declaration_mismatch": declaration_mismatch}
         items.append(set_temp_mark(it, mark, "method " + pn))
     # Code outside methods (module variables, statements of the module body): its lines looked up among
     # the configuration module's code outside methods, prefixes left out; order is not compared. A line
@@ -4601,7 +4662,7 @@ def initialize_bsl_catalog(ext_dir, config_path, prefix):
                 em = get_method_safe(el, n)
                 for h in hits:
                     cm = get_method_safe(cl, h)
-                    if cm and sig_lines(cm['body_lines'], prefix) == sig_lines(em['body_lines'], prefix):
+                    if cm and not own_declaration_difference(el, em, cl, cm) and sig_lines(cm['body_lines'], prefix) == sig_lines(em['body_lines'], prefix):
                         hit = h; break
                 hit = hit or (hits[0] if hits else None)
                 target = hit or get_target_name(n, prefix, taken, False)['name']
@@ -4696,7 +4757,7 @@ def initialize_bsl_catalog(ext_dir, config_path, prefix):
                 for hit in find_names_in(get_proc_names(ctx2['cfg'] or []), n2, prefix):
                     ctx2['methods'][k2] = hit
                     cm2 = get_method_safe(ctx2['cfg'], hit)
-                    if cm2 and sig_lines(protect_bsl_parameter_members(convert_bsl_code(em2['body_lines'], {}, em2['param_names']), em2['param_names']), prefix) == sig_lines(protect_bsl_parameter_members(cm2['body_lines'], cm2['param_names']), prefix):
+                    if cm2 and not own_declaration_difference(ctx2['ext'], em2, ctx2['cfg'], cm2) and sig_lines(protect_bsl_parameter_members(convert_bsl_code(em2['body_lines'], {}, em2['param_names']), em2['param_names']), prefix) == sig_lines(protect_bsl_parameter_members(cm2['body_lines'], cm2['param_names']), prefix):
                         found = hit; break
                 ctx2['methods'][k2] = found or old
                 changed |= found is not None and found != old
@@ -5134,7 +5195,7 @@ def get_notify_names(lines):
 
 
 def is_export(lines, m):
-    t = lines[m["sig_end_idx"]]
+    t = get_code_only([lines[m["sig_end_idx"]]], True)[0]
     i = t.rfind(")")
     return i >= 0 and re.match(r'\s*(?:Экспорт|Export)(?!\w)', t[i + 1:], re.IGNORECASE) is not None
 
@@ -6372,7 +6433,7 @@ def main():
                     t["group"] = it.get("group", "")
                     t["marked"] = it.get("marked", False)
                     t["seq"] = oi
-                    if pl and pl["kind"] == "own" and (it["status"] in ("NOT_TRANSFERRED", "MANUAL") or (it["status"] == "DIVERGED" and pl.get('literal_mismatch'))):
+                    if pl and pl["kind"] == "own" and (it["status"] in ("NOT_TRANSFERRED", "MANUAL") or (it["status"] == "DIVERGED" and (pl.get('literal_mismatch') or pl.get('declaration_mismatch')))):
                         own_items.append({"plan": pl, "t": t})
                     # A method with an &ИзменениеИКонтроль edit not in the configuration yet: an interceptor of it
                     # would move the lines the edit is anchored to

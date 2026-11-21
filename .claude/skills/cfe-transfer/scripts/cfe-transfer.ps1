@@ -1,4 +1,4 @@
-﻿# cfe-transfer v1.19 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+﻿# cfe-transfer v1.20 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -2619,6 +2619,55 @@ function Get-CallTypeHandlers($diff) {
 # Transfer check of one object
 # ============================================================
 
+# Compare the call contract of an own method. Interceptors use the base declaration.
+function Get-OwnMethodParameters([string]$text) {
+	$clean = ((Get-CodeOnly ($text -split '\r?\n') -KeepStrings) -join [char]10).Trim()
+	if (-not $clean) { return ,@() }
+	$pattern = '(?is)^\s*(?:(?<val>' + (Get-KwAlt 'Val') + ')\s+)?\w+\s*(?:=\s*(?<default>.+))?$'
+	$result = foreach ($part in (Split-TopLevel $clean)) {
+		if ($part -notmatch $pattern) { return $null }
+		$byValue = $Matches.ContainsKey('val')
+		$default = $null
+		if ($Matches.ContainsKey('default')) {
+			$value = $Matches['default'].Trim()
+			$default = switch ($value.ToLowerInvariant()) {
+				'истина' { 'true' }
+				'ложь' { 'false' }
+				'неопределено' { 'undefined' }
+				default { if ($value.StartsWith('"')) { $value } else { ($value -replace '\s+', '').ToLowerInvariant() } }
+			}
+		}
+		@{ ByValue = $byValue; Default = $default }
+	}
+	return ,@($result)
+}
+
+function Get-OwnMethodContext($method) {
+	$context = $method.Context.TrimStart('&')
+	for ($i = 0; $i -lt $script:bslKw.en.Directives.Count; $i++) {
+		if ($context -ieq $script:bslKw.ru.Directives[$i] -or $context -ieq $script:bslKw.en.Directives[$i]) { return $script:bslKw.en.Directives[$i] }
+	}
+	return $context
+}
+
+function Get-OwnDeclarationDifference($extLines, $extMethod, $cfgLines, $cfgMethod) {
+	if ($extMethod.IsFunction -ne $cfgMethod.IsFunction) { return 'procedure/function differs' }
+	if ($extMethod.IsAsync -ne $cfgMethod.IsAsync) { return 'Async modifier differs' }
+	if ((Test-IsExport $extLines $extMethod) -ne (Test-IsExport $cfgLines $cfgMethod)) { return 'Export modifier differs' }
+	if ((Get-OwnMethodContext $extMethod) -ine (Get-OwnMethodContext $cfgMethod)) { return 'execution context differs' }
+	$left = Get-OwnMethodParameters $extMethod.ParamsText
+	$right = Get-OwnMethodParameters $cfgMethod.ParamsText
+	if ($null -eq $left -or $null -eq $right) { return 'cannot compare parameter declarations' }
+	if ($left.Count -ne $right.Count) { return 'parameter count differs' }
+	for ($i = 0; $i -lt $left.Count; $i++) {
+		if ($left[$i].ByValue -ne $right[$i].ByValue) { return "parameter $($i + 1) has a different Val modifier" }
+		if (-not [string]::Equals($left[$i].Default, $right[$i].Default, [StringComparison]::Ordinal)) {
+			return "parameter $($i + 1) has a different default value"
+		}
+	}
+	return $null
+}
+
 function Get-ModuleTransferItems([string]$bsl, [string]$extDir, [string]$prefix, $skipHandlers) {
 	$items = @()
 	$extLines = Read-BslLines $bsl
@@ -2666,24 +2715,31 @@ function Get-ModuleTransferItems([string]$bsl, [string]$extDir, [string]$prefix,
 		if (-not $extM) { continue }
 		$loc = "${rel}:$($extM.DeclIdx + 1)"
 		$mark = Get-MethodTempMark $extLines $extM
-		# Every method of the module the name may stand for; the one with the same body wins (a name
+		# Every method of the module the name may stand for; the one with the same declaration and body wins (a name
 		# given with the development prefix next to a vendor method of the plain name)
 		$hits = @(Find-NamesIn $cfgNames $pn $prefix)
-		$hit = $null; $cfgM = $null; $literalMismatch = $false
+		$hit = $null; $cfgM = $null; $literalMismatch = $false; $declarationMismatch = $null
 		if ($hits.Count -eq 0) { $it = New-Item2 'NOT_TRANSFERRED' "method $pn" $loc }
 		else {
 			$extSig = (Get-SigLines (Protect-BslParameterMembers (Convert-BslCode $extM.BodyLines @{} $extM.ParamNames) $extM.ParamNames) $prefix) -join "`n"
 			$same = $false
 			foreach ($h in $hits) {
 				$m = Get-MethodSafe $cfgLines $h
-				if ($m -and (((Get-SigLines (Protect-BslParameterMembers $m.BodyLines $m.ParamNames) $prefix) -join "`n") -ieq $extSig)) { $hit = $h; $cfgM = $m; $same = $true; break }
-				if ($m -and (Test-PreviouslyFoldedBody $extM.BodyLines $m.BodyLines $prefix)) { $literalMismatch = $true }
+				if (-not $m) { continue }
+				if (((Get-SigLines (Protect-BslParameterMembers $m.BodyLines $m.ParamNames) $prefix) -join [char]10) -ieq $extSig) {
+					$why = Get-OwnDeclarationDifference $extLines $extM $cfgLines $m
+					if (-not $why) { $hit = $h; $cfgM = $m; $same = $true; break }
+					if (-not $declarationMismatch) { $hit = $h; $cfgM = $m; $declarationMismatch = $why }
+				} elseif (Test-PreviouslyFoldedBody $extM.BodyLines $m.BodyLines $prefix) { $literalMismatch = $true }
 			}
-			if (-not $same) { $hit = $hits[0]; $cfgM = Get-MethodSafe $cfgLines $hit }
+			if (-not $hit) { $hit = $hits[0]; $cfgM = Get-MethodSafe $cfgLines $hit }
 			$as = if ($hit -ine $pn) { " (found as $hit)" } else { '' }
-			$it = if ($same) { New-Item2 'TRANSFERRED' "method $pn$as" $loc } else { New-Item2 'DIVERGED' "method $pn$as (body differs)" $loc }
+			$it = if ($same) { New-Item2 'TRANSFERRED' "method $pn$as" $loc } else {
+				$reason = if ($declarationMismatch) { "declaration differs: $declarationMismatch" } else { 'body differs' }
+				New-Item2 'DIVERGED' "method $pn$as ($reason)" $loc
+			}
 		}
-		$it.Plan = @{ Kind = 'own'; Rel = $rel; ExtM = $extM; ExtLines = $extLines; CfgM = $cfgM; Name = $pn; Hit = $hit; CfgMissing = ($null -eq $cfgLines); LiteralMismatch = $literalMismatch }
+		$it.Plan = @{ Kind = 'own'; Rel = $rel; ExtM = $extM; ExtLines = $extLines; CfgM = $cfgM; Name = $pn; Hit = $hit; CfgMissing = ($null -eq $cfgLines); LiteralMismatch = $literalMismatch; DeclarationMismatch = $declarationMismatch }
 		$items += (Set-TempMark $it $mark "method $pn")
 	}
 	# Code outside methods (module variables, statements of the module body): its lines looked up among
@@ -4274,7 +4330,7 @@ function Initialize-BslCatalog([string]$extDir, [string]$prefix) {
 			$em = Get-MethodSafe $el $n
 			foreach ($h in $hits) {
 				$cm = Get-MethodSafe $cl $h
-				if ($cm -and ((Get-SigLines $cm.BodyLines $prefix) -join "`n") -ceq ((Get-SigLines $em.BodyLines $prefix) -join "`n")) { $hit = $h; break }
+				if ($cm -and $em -and -not (Get-OwnDeclarationDifference $el $em $cl $cm) -and ((Get-SigLines $cm.BodyLines $prefix) -join "`n") -ceq ((Get-SigLines $em.BodyLines $prefix) -join "`n")) { $hit = $h; break }
 			}
 			if (-not $hit -and $hits.Count) { $hit = $hits[0] }
 			if ($hit) { $target = $hit } else { $target = (Get-TargetName $n $prefix $taken $false).Name }
@@ -4362,7 +4418,7 @@ function Initialize-BslCatalog([string]$extDir, [string]$prefix) {
 				foreach ($hit2 in @(Find-NamesIn @(Get-ProcNames $ctx2.Cfg) $n2 $prefix)) {
 					$ctx2.Methods[$k2] = $hit2
 					$cm2 = Get-MethodSafe $ctx2.Cfg $hit2
-					if ($cm2 -and ((Get-SigLines (Protect-BslParameterMembers (Convert-BslCode $em2.BodyLines @{} $em2.ParamNames) $em2.ParamNames) $prefix) -join "`n") -ceq ((Get-SigLines (Protect-BslParameterMembers $cm2.BodyLines $cm2.ParamNames) $prefix) -join "`n")) { $found2 = $hit2; break }
+					if ($cm2 -and -not (Get-OwnDeclarationDifference $ctx2.Ext $em2 $ctx2.Cfg $cm2) -and ((Get-SigLines (Protect-BslParameterMembers (Convert-BslCode $em2.BodyLines @{} $em2.ParamNames) $em2.ParamNames) $prefix) -join "`n") -ceq ((Get-SigLines (Protect-BslParameterMembers $cm2.BodyLines $cm2.ParamNames) $prefix) -join "`n")) { $found2 = $hit2; break }
 				}
 				$ctx2.Methods[$k2] = if ($found2) { $found2 } else { $old2 }
 				if ($found2 -and $found2 -cne $old2) { $changed2 = $true }
@@ -4751,7 +4807,7 @@ function Get-NotifyNames($lines) {
 }
 
 function Test-IsExport($lines, $m) {
-	$t = [string]$lines[$m.SigEndIdx]
+	$t = (Get-CodeOnly @($lines[$m.SigEndIdx]) -KeepStrings)[0]
 	$i = $t.LastIndexOf(')')
 	return ($i -ge 0 -and $t.Substring($i + 1) -imatch '^\s*(?:Экспорт|Export)(?![\w])')
 }
@@ -5790,7 +5846,7 @@ if ($Mode -eq 'transfer') {
 				$t = New-TItem $it.Status $it.Text $it.Loc $it.Section
 				$t.Plan = $pl
 				$t.Group = $it.Group; $t.Marked = $it.Marked; $t.Seq = $o.I
-				if ($pl -and $pl.Kind -eq 'own' -and ($it.Status -in @('NOT_TRANSFERRED', 'MANUAL') -or ($it.Status -eq 'DIVERGED' -and $pl.LiteralMismatch))) { $ownItems += @{ Plan = $pl; T = $t } }
+				if ($pl -and $pl.Kind -eq 'own' -and ($it.Status -in @('NOT_TRANSFERRED', 'MANUAL') -or ($it.Status -eq 'DIVERGED' -and ($pl.LiteralMismatch -or $pl.DeclarationMismatch)))) { $ownItems += @{ Plan = $pl; T = $t } }
 				# A method with an &ИзменениеИКонтроль edit not in the configuration yet: an interceptor of it
 				# would move the lines the edit is anchored to
 				if ($pl -and $pl.Kind -eq 'control' -and $pl.CfgM -and @('TRANSFERRED', 'TEMPORARY') -notcontains $it.Status) {
