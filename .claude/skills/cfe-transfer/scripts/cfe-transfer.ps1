@@ -1,4 +1,4 @@
-﻿# cfe-transfer v1.18 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+﻿# cfe-transfer v1.19 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -1179,6 +1179,41 @@ function Find-RunInContext($v2norm, $v2proj, $keys, $sigKeys, $beforeCtx, $after
 	return $found
 }
 
+function Compare-CodeSequence($left, $right) {
+	if ($left.Count -ne $right.Count) { return $false }
+	for ($i = 0; $i -lt $left.Count; $i++) {
+		if ($left[$i] -cne $right[$i]) { return $false }
+	}
+	return $true
+}
+
+# Can one occurrence be removed to reproduce the shorter sequence exactly?
+function Test-SequenceWithoutRun($longer, $shorter, $keys) {
+	if ($keys.Count -eq 0 -or $longer.Count -ne $shorter.Count + $keys.Count) { return $false }
+	$first = $shorter.Count
+	while ($first -gt 0 -and $longer[$first + $keys.Count - 1] -ceq $shorter[$first - 1]) { $first-- }
+	for ($i = 0; $i -le $shorter.Count; $i++) {
+		if ($i -ge $first -and (Test-RunAt $longer $keys $i)) { return $true }
+		if ($i -lt $shorter.Count -and $longer[$i] -cne $shorter[$i]) { break }
+	}
+	return $false
+}
+
+# Expected live code with just this operation undone. Keep the positions from the
+# projected body so equal occurrences elsewhere do not change which run is undone.
+function Get-ExpectedWithoutEdit($projection, [int]$index, $restoredKeys) {
+	$range = $projection.Ranges[$index]
+	$result = New-Object 'System.Collections.Generic.List[string]'
+	for ($i = 0; $i -lt $range.Start; $i++) {
+		if (Test-Significant $projection.Keys[$i]) { $result.Add($projection.Keys[$i]) }
+	}
+	foreach ($key in $restoredKeys) { $result.Add($key) }
+	for ($i = $range.End; $i -lt $projection.Keys.Count; $i++) {
+		if (Test-Significant $projection.Keys[$i]) { $result.Add($projection.Keys[$i]) }
+	}
+	return ,$result.ToArray()
+}
+
 function Get-ControlTransfer($extMethod, $cfgMethod, [string]$prefix) {
 	$parsed = Parse-MarkedBody $extMethod.BodyLines
 	$projection = Get-ControlProjection $extMethod.BodyLines @{} $prefix $extMethod.ParamNames
@@ -1195,7 +1230,13 @@ function Get-ControlTransfer($extMethod, $cfgMethod, [string]$prefix) {
 		$ops[$oi].SourceIndex = $oi
 		if ($ops[$oi].Kind -eq 'insert') { $payloads[$oi] = @($projection.PayloadKeys[$oi] | Where-Object { Test-Significant $_ }) }
 	}
-	$replaced = Get-AbsorbedInPlace $ops $v1norm $v2norm $v2proj.Sig $payloads
+	$desiredSig = @($projection.Keys | Where-Object { Test-Significant $_ })
+	$hasTempEdits = @($ops | Where-Object { $null -ne (Get-BlockTempMark $_) } | Select-Object -First 1).Count -gt 0
+	# Whole-body agreement identifies repeated lines by their position in the sequence.
+	$hasBodyChange = -not (Compare-CodeSequence $v1sig $desiredSig)
+	$atOriginal = $hasBodyChange -and (Compare-CodeSequence $v1norm $v2norm)
+	$atDesired = $hasBodyChange -and (Compare-CodeSequence $desiredSig $v2proj.Sig)
+	$replaced = if ($atOriginal -or $atDesired) { @{} } else { Get-AbsorbedInPlace $ops $v1norm $v2norm $v2proj.Sig $payloads }
 	$deleted = @{}
 	foreach ($op in $ops) { if ($op.Kind -eq 'delete') { for ($m = $op.Start; $m -le $op.End; $m++) { $deleted[$m] = $true } } }
 	# Lines of deletions found carried over (an insert anchored to them cannot be pending elsewhere)
@@ -1209,8 +1250,15 @@ function Get-ControlTransfer($extMethod, $cfgMethod, [string]$prefix) {
 			# A comment-only insert carries nothing to transfer
 			if ($payloadSig.Count -eq 0) { continue }
 			$k = $null
-			if ($replaced.ContainsKey($oi)) { $res = 'absorbed' }
+			if ($atDesired) { $res = 'absorbed' }
+			elseif ($atOriginal) { $k = $op.After; $res = 'pending' }
 			else {
+				$baseRuns = Get-RunCount $v1sig $payloadSig
+				$currentRuns = Get-RunCount $v2proj.Sig $payloadSig
+				$desiredRuns = if ($baseRuns -gt 0) { Get-RunCount $desiredSig $payloadSig } else { 0 }
+				# An optional insertion must not raise the required count of a permanent insertion.
+				if ($hasTempEdits) { $desiredRuns = [Math]::Min($desiredRuns, $baseRuns + 1) }
+				$missingRepeat = $baseRuns -gt 0 -and $desiredRuns -gt $baseRuns -and $currentRuns -lt $desiredRuns
 				$beforeLines = @()
 				if ($op.After -ge 0) { $bs = [Math]::Max(0, $op.After - 2); for ($m = $bs; $m -le $op.After; $m++) { $beforeLines += $v1norm[$m] } }
 				$afterLines = @()
@@ -1220,7 +1268,7 @@ function Get-ControlTransfer($extMethod, $cfgMethod, [string]$prefix) {
 				# The looser checks below accept the payload only as new code: the configuration has it
 				# more times than the original method (an insert repeating a line next to it otherwise
 				# finds that very line)
-				$isNew = (Get-RunCount $v2proj.Sig $payloadSig) -gt (Get-RunCount $v1sig $payloadSig)
+				$isNew = $currentRuns -gt $baseRuns
 				if ($null -eq $k) { $isAbsorbed = $isNew -and (Find-UniqueRun $v2proj.Sig $payloadSig) -ge 0 }
 				else { $sigStart = @($v2proj.Map | Where-Object { $_ -le $k }).Count; $isAbsorbed = Test-RunAt $v2proj.Sig $payloadSig $sigStart }
 				# Neighbours of the insert in the edited method: deleted lines are not there
@@ -1245,7 +1293,21 @@ function Get-ControlTransfer($extMethod, $cfgMethod, [string]$prefix) {
 				}
 				# Lines that stand anywhere (КонецЕсли;, Возврат;) prove nothing by being elsewhere
 				$plain = @($payloadSig | Where-Object { $_ -notmatch $script:trivialRe }).Count -eq 0
-				if ($isAbsorbed) { $res = 'absorbed' }
+				$wrongPosition = $false
+				if ($hasBodyChange -and $baseRuns -gt 0 -and $v2proj.Sig.Count -eq $desiredSig.Count) {
+					if ($ops.Count -eq 1) {
+						$wrongPosition = Test-SequenceWithoutRun $v2proj.Sig $v1sig $payloadSig
+					} elseif ($desiredRuns -gt $baseRuns) {
+						$withoutEdit = Get-ExpectedWithoutEdit $projection $oi @()
+						$wrongPosition = Test-SequenceWithoutRun $v2proj.Sig $withoutEdit $payloadSig
+					}
+				}
+				if ($wrongPosition) {
+					$res = 'repeated insertion is at a different position in config'
+				}
+				elseif ($isAbsorbed -or $replaced.ContainsKey($oi)) {
+					$res = if ($missingRepeat) { 'repeated insertion is ambiguous in config' } else { 'absorbed' }
+				}
 				elseif ($null -ne $k -and $deletedDone.ContainsKey($op.After) -and -not $freeSpot) { $res = 'inserted code next to the carried-over deletion differs in config' }
 				# Not at the anchor, yet the configuration has the code more times than the original: carried
 				# over to another spot (other code may have come in between). Writing it would make a copy.
@@ -1256,11 +1318,28 @@ function Get-ControlTransfer($extMethod, $cfgMethod, [string]$prefix) {
 				else { $res = Get-DisputeReason 'insert' '' '' '' $v2norm }
 			}
 		} else {
-			$p = -1
-			if ($replaced.ContainsKey($oi)) { $res = 'absorbed' }
+			$p = -1; $cAt = -1
+			$keys = @(); for ($m = $op.Start; $m -le $op.End; $m++) { $keys += $v1norm[$m] }
+			$sigKeys = @($keys | Where-Object { Test-Significant $_ })
+			if ($atDesired) {
+				$res = 'absorbed'
+				if ($sigKeys.Count -eq 0 -and $keys.Count -gt 0) {
+					# The live lines agree. Look for the explicitly deleted comments only
+					# between the live lines that surround their projected position.
+					$liveBefore = 0
+					for ($m = 0; $m -lt $projection.Ranges[$oi].Start; $m++) {
+						if (Test-Significant $projection.Keys[$m]) { $liveBefore++ }
+					}
+					$firstGap = if ($liveBefore -gt 0) { $v2proj.Map[$liveBefore - 1] + 1 } else { 0 }
+					$endGap = if ($liveBefore -lt $v2proj.Map.Count) { $v2proj.Map[$liveBefore] } else { $v2norm.Count }
+					$gapKeys = @(for ($m = $firstGap; $m -lt $endGap; $m++) { $v2norm[$m] })
+					$offset = Find-UniqueRun $gapKeys $keys
+					if ($offset -ge 0) { $p = $firstGap + $offset; $res = 'pending' }
+					elseif ((Get-RunCount $gapKeys $keys) -gt 1) { $res = 'comment-only deletion has multiple matches in config' }
+				}
+			}
+			elseif ($atOriginal) { $p = $op.Start; $res = 'pending' }
 			else {
-				$keys = @(); for ($m = $op.Start; $m -le $op.End; $m++) { $keys += $v1norm[$m] }
-				$sigKeys = @($keys | Where-Object { Test-Significant $_ })
 				$delBeforeCtx = $null; for ($z = $op.Start - 1; $z -ge 0; $z--) { if (Test-Significant $v1norm[$z]) { $delBeforeCtx = $v1norm[$z]; break } }
 				$delAfterCtx = $null; for ($z = $op.End + 1; $z -lt $v1norm.Count; $z++) { if (Test-Significant $v1norm[$z]) { $delAfterCtx = $v1norm[$z]; break } }
 				# Deleted text that stays in the method elsewhere — moved into an insert of the method, or one
@@ -1269,19 +1348,36 @@ function Get-ControlTransfer($extMethod, $cfgMethod, [string]$prefix) {
 				# the original would after the edits: one less, plus the inserts that carry it.
 				$insRuns = 0; foreach ($pk in @($payloads.Keys)) { $insRuns += Get-RunCount @($payloads[$pk]) $sigKeys }
 				$v1Runs = Get-RunCount $v1sig $sigKeys
-				$liveLeft = $sigKeys.Count -gt 0 -and (Get-RunCount $v2proj.Sig $sigKeys) -eq ($v1Runs - 1 + $insRuns)
+				$currentRuns = Get-RunCount $v2proj.Sig $sigKeys
+				$desiredRuns = if ($v1Runs -gt 1) { Get-RunCount $desiredSig $sigKeys } else { $v1Runs }
+				if ($hasTempEdits) { $desiredRuns = [Math]::Max($desiredRuns, $v1Runs - 1) }
+				$missingDeletion = $v1Runs -gt 1 -and $desiredRuns -lt $v1Runs -and $currentRuns -gt $desiredRuns
+				$liveLeft = $sigKeys.Count -gt 0 -and $currentRuns -eq ($v1Runs - 1 + $insRuns)
 				$stays = $liveLeft -and ($insRuns -gt 0 -or $v1Runs -gt 1)
 				# Commented out at its own place, and the code left as often as after the edit: carried over.
 				# Looked at first — a line the edit moves into its own insert is there as code too, and
 				# deleting it would break the carried-over insert. An old comment elsewhere does not count.
 				$cAt = if ($liveLeft) { Find-CommentedRun $v2norm $sigKeys $delBeforeCtx $delAfterCtx } else { -1 }
-				if ($cAt -ge 0) { $res = 'absorbed' }
-				elseif ($stays -and (Test-DeleteAbsorbed $v2proj.Sig $delBeforeCtx $delAfterCtx)) { $res = 'absorbed' }
+				$wrongPosition = $false
+				if ($hasBodyChange -and $v1Runs -gt 1 -and $v2proj.Sig.Count -eq $desiredSig.Count) {
+					if ($ops.Count -eq 1) {
+						$wrongPosition = Test-SequenceWithoutRun $v1sig $v2proj.Sig $sigKeys
+					} elseif ($desiredRuns -lt $v1Runs) {
+						$withoutEdit = Get-ExpectedWithoutEdit $projection $oi $sigKeys
+						$wrongPosition = Test-SequenceWithoutRun $withoutEdit $v2proj.Sig $sigKeys
+					}
+				}
+				if ($wrongPosition) {
+					$res = 'repeated deletion is at a different position in config'
+				}
+				elseif ($replaced.ContainsKey($oi) -and -not $missingDeletion) { $res = 'absorbed'; $cAt = -1 }
+				elseif ($cAt -ge 0 -and -not $missingDeletion) { $res = 'absorbed' }
+				elseif (-not $missingDeletion -and $stays -and (Test-DeleteAbsorbed $v2proj.Sig $delBeforeCtx $delAfterCtx)) { $res = 'absorbed' }
 				elseif (($p = Find-UniqueRun $v2norm $keys) -ge 0) { $res = 'pending' }
 				elseif ($v1Runs -gt 1 -and ($p = Find-RunInContext $v2norm $v2proj $keys $sigKeys $delBeforeCtx $delAfterCtx) -ge 0) { $res = 'pending' }
 				else {
 					$p = -1
-					if (Test-DeleteAbsorbed $v2proj.Sig $delBeforeCtx $delAfterCtx) { $res = 'absorbed' }
+					if (-not $missingDeletion -and (Test-DeleteAbsorbed $v2proj.Sig $delBeforeCtx $delAfterCtx)) { $res = 'absorbed' }
 					else {
 						$first = @($op.Lines | Where-Object { Test-Significant (Get-Normalized $_) } | Select-Object -First 1)
 						$line = if ($first.Count -gt 0) { $first[0] } else { '' }
@@ -4474,7 +4570,7 @@ function Get-ControlProjection($body, $fileMap, [string]$prefix, $params = $null
 		for ($j2 = $r2.Start; $j2 -lt $r2.End; $j2++) { $ls2 += $converted2[$j2]; $ks2 += $keys2[$j2] }
 		$payloads2[$k2] = $ls2; $payloadKeys2[$k2] = $ks2
 	}
-	return @{ Desired = $desired; Source = $source; Ranges = $ranges; Payloads = $payloads2; PayloadKeys = $payloadKeys2 }
+	return @{ Desired = $desired; Source = $source; Ranges = $ranges; Payloads = $payloads2; PayloadKeys = $payloadKeys2; Keys = $keys2 }
 }
 
 function Get-BslPlanIssue($plan) {

@@ -48,3 +48,20 @@
 Функция Тест_Сумма(А, Б)
 	Возврат А + Б;
 КонецФункции
+
+&ChangeAndValidate("InsertRepeat")
+Procedure Test_InsertRepeat()
+#Insert
+    A();
+#EndInsert
+    A();
+EndProcedure
+&ChangeAndValidate("DeleteRepeat")
+Procedure Test_DeleteRepeat()
+    A();
+#Delete
+    A();
+#EndDelete
+    A();
+    A();
+EndProcedure

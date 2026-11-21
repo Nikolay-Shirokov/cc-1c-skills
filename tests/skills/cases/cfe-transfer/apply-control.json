@@ -1,5 +1,5 @@
 {
-  "name": "Перенос &ИзменениеИКонтроль и собственных методов: вставка после якоря и в начало, удаление комментированием, частично перенесённый метод, заметка маркера; вызов своего метода во вставке без префикса; свои методы по областям (интерфейс — новой областью, служебный — в служебную); правка-перемещение переносится (удалённая строка закомментирована, сверка видит её перенесённой); метод с разошедшейся правкой не тронут (CONFLICT с from/to/next); вставка рядом с удалением, перенесённым руками иначе, не дописывается в похожее место метода; старый комментарий с удаляемой строкой в другом месте метода не засчитывает удаление; вставка рядом с удалением, закомментированным руками, дописывается на его место, метода нет в конфигурации и тело своего метода отличается — MANUAL и CONFLICT",
+  "name": "Перенос &ИзменениеИКонтроль и собственных методов: вставка после якоря и в начало, удаление комментированием, частично перенесённый метод, заметка маркера; вызов своего метода во вставке без префикса; свои методы по областям (интерфейс — новой областью, служебный — в служебную); правка-перемещение переносится (удалённая строка закомментирована, сверка видит её перенесённой); метод с разошедшейся правкой не тронут (CONFLICT с from/to/next); вставка рядом с удалением, перенесённым руками иначе, не дописывается в похожее место метода; старый комментарий с удаляемой строкой в другом месте метода не засчитывает удаление; вставка рядом с удалением, закомментированным руками, дописывается на его место, метода нет в конфигурации и тело своего метода отличается — MANUAL и CONFLICT. Repeated edits at ambiguous or wrong positions are conflicts.",
   "preRun": [
     {
       "script": "meta-compile/scripts/meta-compile",
@@ -68,13 +68,13 @@
     {
       "writeFile": {
         "path": "CommonModules/М2/Ext/Module.bsl",
-        "content": "Процедура Г() Экспорт\n\tНачало();\n\tХ = 2;\n\tСохранить();\nКонецПроцедуры\n\nПроцедура Д() Экспорт\n\tПодготовить();\n\tПеренести();\n\tЗавершить();\nКонецПроцедуры\n\nПроцедура Е() Экспорт\n\tПодготовить();\nКонецПроцедуры\n\nПроцедура Л() Экспорт\n\tНачало();\n\t//Записать();\n\tЕсли Ф Тогда\n\t\tЗаписать();\n\tКонецЕсли;\n\tСередина();\n\tНачало();\n\tЗаписать();\nКонецПроцедуры\n\nПроцедура П() Экспорт\n\tНачало();\n\t// Сообщить(Текст);\n\tСередина();\n\tСообщить(Текст);\n\tКонец();\nКонецПроцедуры\n\nПроцедура Р() Экспорт\n\tНачало();\n//\tСтарое();\n\tКонец();\nКонецПроцедуры\n"
+        "content": "Процедура Г() Экспорт\n\tНачало();\n\tХ = 2;\n\tСохранить();\nКонецПроцедуры\n\nПроцедура Д() Экспорт\n\tПодготовить();\n\tПеренести();\n\tЗавершить();\nКонецПроцедуры\n\nПроцедура Е() Экспорт\n\tПодготовить();\nКонецПроцедуры\n\nПроцедура Л() Экспорт\n\tНачало();\n\t//Записать();\n\tЕсли Ф Тогда\n\t\tЗаписать();\n\tКонецЕсли;\n\tСередина();\n\tНачало();\n\tЗаписать();\nКонецПроцедуры\n\nПроцедура П() Экспорт\n\tНачало();\n\t// Сообщить(Текст);\n\tСередина();\n\tСообщить(Текст);\n\tКонец();\nКонецПроцедуры\n\nПроцедура Р() Экспорт\n\tНачало();\n//\tСтарое();\n\tКонец();\nКонецПроцедуры\n\nProcedure InsertRepeat() Export\n    A();\n    Unrelated();\nEndProcedure\nProcedure DeleteRepeat() Export\n    A();\n    A();\n    A();\n    A();\n    Unrelated();\nEndProcedure\nProcedure WrongInsert() Export\n    A();\n    B();\n    A();\n    A();\n    B();\nEndProcedure\nProcedure WrongDelete() Export\n    A();\n    B();\n    B();\nEndProcedure\nProcedure WrongInsertWithOtherEdit() Export\n    A();\n    B();\n    A();\n    A();\n    B();\n    Z();\n    C();\nEndProcedure\nProcedure WrongDeleteWithOtherEdit() Export\n    A();\n    B();\n    B();\n    Z();\n    C();\nEndProcedure\n"
       }
     },
     {
       "writeFile": {
         "path": "cfe/CommonModules/М2/Ext/Module.bsl",
-        "content": "&ИзменениеИКонтроль(\"Г\")\nПроцедура Тест_Г()\n\tНачало();\n\t#Вставка\n\tПервая();\n\t#КонецВставки\n\tХ = 1;\n\t#Вставка\n\tВторая();\n\t#КонецВставки\n\tЗаписать();\nКонецПроцедуры\n\n&ИзменениеИКонтроль(\"Д\")\nПроцедура Тест_Д()\n\tПодготовить();\n\t#Удаление\n\tПеренести();\n\t#КонецУдаления\n\tЗавершить();\n\t#Вставка\n\tПеренести();\n\t#КонецВставки\nКонецПроцедуры\n\n&ИзменениеИКонтроль(\"Ж\")\nПроцедура Тест_Ж()\n\tПодготовить();\n\t#Вставка\n\tНачать();\n\t#КонецВставки\nКонецПроцедуры\n\nПроцедура Е()\n\tПодготовить();\n\tСообщить(1);\nКонецПроцедуры\n\n&ИзменениеИКонтроль(\"Л\")\nПроцедура Тест_Л()\n\tНачало();\n\t#Удаление\n\tЗаписать();\n\t#КонецУдаления\n\t#Вставка\n\tЕсли Ф Тогда\n\t\tЗаписать();\n\tИначе\n\t\tОтменить();\n\tКонецЕсли;\n\t#КонецВставки\n\tСередина();\n\tНачало();\n\tЗаписать();\nКонецПроцедуры\n\n&ИзменениеИКонтроль(\"П\")\nПроцедура Тест_П()\n\tНачало();\n\t// Сообщить(Текст);\n\tСередина();\n\t#Удаление\n\tСообщить(Текст);\n\t#КонецУдаления\n\tКонец();\nКонецПроцедуры\n\n&ИзменениеИКонтроль(\"Р\")\nПроцедура Тест_Р()\n\tНачало();\n\t#Удаление\n\tСтарое();\n\t#КонецУдаления\n\t#Вставка\n\tНовое();\n\t#КонецВставки\n\tКонец();\nКонецПроцедуры\n"
+        "content": "&ИзменениеИКонтроль(\"Г\")\nПроцедура Тест_Г()\n\tНачало();\n\t#Вставка\n\tПервая();\n\t#КонецВставки\n\tХ = 1;\n\t#Вставка\n\tВторая();\n\t#КонецВставки\n\tЗаписать();\nКонецПроцедуры\n\n&ИзменениеИКонтроль(\"Д\")\nПроцедура Тест_Д()\n\tПодготовить();\n\t#Удаление\n\tПеренести();\n\t#КонецУдаления\n\tЗавершить();\n\t#Вставка\n\tПеренести();\n\t#КонецВставки\nКонецПроцедуры\n\n&ИзменениеИКонтроль(\"Ж\")\nПроцедура Тест_Ж()\n\tПодготовить();\n\t#Вставка\n\tНачать();\n\t#КонецВставки\nКонецПроцедуры\n\nПроцедура Е()\n\tПодготовить();\n\tСообщить(1);\nКонецПроцедуры\n\n&ИзменениеИКонтроль(\"Л\")\nПроцедура Тест_Л()\n\tНачало();\n\t#Удаление\n\tЗаписать();\n\t#КонецУдаления\n\t#Вставка\n\tЕсли Ф Тогда\n\t\tЗаписать();\n\tИначе\n\t\tОтменить();\n\tКонецЕсли;\n\t#КонецВставки\n\tСередина();\n\tНачало();\n\tЗаписать();\nКонецПроцедуры\n\n&ИзменениеИКонтроль(\"П\")\nПроцедура Тест_П()\n\tНачало();\n\t// Сообщить(Текст);\n\tСередина();\n\t#Удаление\n\tСообщить(Текст);\n\t#КонецУдаления\n\tКонец();\nКонецПроцедуры\n\n&ИзменениеИКонтроль(\"Р\")\nПроцедура Тест_Р()\n\tНачало();\n\t#Удаление\n\tСтарое();\n\t#КонецУдаления\n\t#Вставка\n\tНовое();\n\t#КонецВставки\n\tКонец();\nКонецПроцедуры\n\n&ChangeAndValidate(\"InsertRepeat\")\nProcedure Test_InsertRepeat()\n#Insert\n    A();\n#EndInsert\n    A();\nEndProcedure\n&ChangeAndValidate(\"DeleteRepeat\")\nProcedure Test_DeleteRepeat()\n    A();\n#Delete\n    A();\n#EndDelete\n    A();\n    A();\nEndProcedure\n&ChangeAndValidate(\"WrongInsert\")\nProcedure Test_WrongInsert()\n    A();\n#Insert\n    A();\n#EndInsert\n    B();\n    A();\n    B();\nEndProcedure\n&ChangeAndValidate(\"WrongDelete\")\nProcedure Test_WrongDelete()\n#Delete\n    A();\n#EndDelete\n    B();\n    A();\n    B();\nEndProcedure\n&ChangeAndValidate(\"WrongInsertWithOtherEdit\")\nProcedure Test_WrongInsertWithOtherEdit()\n    A();\n#Insert\n    A();\n#EndInsert\n    B();\n    A();\n    B();\n#Insert\n    Z();\n#EndInsert\n    C();\nEndProcedure\n&ChangeAndValidate(\"WrongDeleteWithOtherEdit\")\nProcedure Test_WrongDeleteWithOtherEdit()\n#Delete\n    A();\n#EndDelete\n    B();\n    A();\n    B();\n#Insert\n    Z();\n#EndInsert\n    C();\nEndProcedure\n"
       }
     }
   ],
@@ -104,7 +104,13 @@
       "[TRANSFERRED]        &ИзменениеИКонтроль(\"П\") — 1 edit",
       "[TRANSFERRED]        &ИзменениеИКонтроль(\"Р\") — 1 edit, 1 already there",
       "Changed files:",
-      "    CommonModules/М/Ext/Module.bsl"
+      "    CommonModules/М/Ext/Module.bsl",
+      "&ChangeAndValidate(\"InsertRepeat\")",
+      "&ChangeAndValidate(\"DeleteRepeat\")",
+      "repeated insertion is at a different position in config",
+      "repeated deletion is at a different position in config",
+      "&ChangeAndValidate(\"WrongInsertWithOtherEdit\") — 1 of 2 edits fit, 1 diverged; method not changed",
+      "&ChangeAndValidate(\"WrongDeleteWithOtherEdit\") — 1 of 2 edits fit, 1 diverged; method not changed"
     ],
     "fileContains": [
       {
@@ -120,6 +126,10 @@
       {
         "file": "CommonModules/М2/Ext/Module.bsl",
         "text": "Процедура Г() Экспорт\n\tНачало();\n\tХ = 2;\n\tСохранить();\nКонецПроцедуры\n\nПроцедура Д() Экспорт\n\tПодготовить();\n//\tПеренести();\n\tЗавершить();\n\tПеренести();\nКонецПроцедуры\n\nПроцедура Е() Экспорт\n\tПодготовить();\nКонецПроцедуры\n\nПроцедура Л() Экспорт\n\tНачало();\n\t//Записать();\n\tЕсли Ф Тогда\n\t\tЗаписать();\n\tКонецЕсли;\n\tСередина();\n\tНачало();\n\tЗаписать();\nКонецПроцедуры\n\nПроцедура П() Экспорт\n\tНачало();\n\t// Сообщить(Текст);\n\tСередина();\n//\tСообщить(Текст);\n\tКонец();\nКонецПроцедуры\n\nПроцедура Р() Экспорт\n\tНачало();\n//\tСтарое();\n\tНовое();\n\tКонец();\nКонецПроцедуры\n"
+      },
+      {
+        "file": "CommonModules/М2/Ext/Module.bsl",
+        "text": "Procedure InsertRepeat() Export\n    A();\n    Unrelated();\nEndProcedure\nProcedure DeleteRepeat() Export\n    A();\n    A();\n    A();\n    A();\n    Unrelated();\nEndProcedure\nProcedure WrongInsert() Export\n    A();\n    B();\n    A();\n    A();\n    B();\nEndProcedure\nProcedure WrongDelete() Export\n    A();\n    B();\n    B();\nEndProcedure\nProcedure WrongInsertWithOtherEdit() Export\n    A();\n    B();\n    A();\n    A();\n    B();\n    Z();\n    C();\nEndProcedure\nProcedure WrongDeleteWithOtherEdit() Export\n    A();\n    B();\n    B();\n    Z();\n    C();\nEndProcedure\n"
       }
     ]
   }

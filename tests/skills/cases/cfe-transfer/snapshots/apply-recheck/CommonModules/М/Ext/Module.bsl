@@ -34,6 +34,17 @@
 
 #КонецОбласти
 
+Procedure InsertRepeat() Export
+    A();
+    A();
+EndProcedure
+Procedure DeleteRepeat() Export
+    A();
+//    A();
+    A();
+    A();
+EndProcedure
+
 #Область ПрограммныйИнтерфейс
 
 Процедура Тест_Сообщить() Экспорт

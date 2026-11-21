@@ -1,5 +1,5 @@
 {
-  "name": "Удаление без следа (deletion: remove): перемещение строки внутри метода и удаление одного из повторов строки переносятся, повторная сверка видит их перенесёнными (соседи удалённого сомкнулись), повторный перенос ничего не пишет",
+  "name": "Удаление без следа (deletion: remove): перемещение строки внутри метода и удаление одного из повторов строки переносятся, повторная сверка видит их перенесёнными (соседи удалённого сомкнулись), повторный перенос ничего не пишет. Repeated edits, an optional insertion, and an unchanged replacement.",
   "preRun": [
     {
       "script": "meta-compile/scripts/meta-compile",
@@ -34,13 +34,13 @@
     {
       "writeFile": {
         "path": "CommonModules/М/Ext/Module.bsl",
-        "content": "Процедура Д() Экспорт\n\tПодготовить();\n\tПеренести();\n\tЗавершить();\nКонецПроцедуры\n\nПроцедура П() Экспорт\n\tА();\n\tБ();\n\tА();\n\tВ();\nКонецПроцедуры\n"
+        "content": "Процедура Д() Экспорт\n\tПодготовить();\n\tПеренести();\n\tЗавершить();\nКонецПроцедуры\n\nПроцедура П() Экспорт\n\tА();\n\tБ();\n\tА();\n\tВ();\nКонецПроцедуры\n\nProcedure InsertRepeat() Export\n    A();\nEndProcedure\nProcedure DeleteRepeat() Export\n    A();\n    A();\n    A();\n    A();\nEndProcedure\nProcedure NoOp() Export\n    A();\nEndProcedure\nProcedure OptionalRepeat() Export\n    A();\n    B();\n    C();\nEndProcedure\n\nProcedure DeleteComment() Export\n    Start();\n    // old comment\n    EndStep();\n    NewCode();\n    // old comment\nEndProcedure\n"
       }
     },
     {
       "writeFile": {
         "path": "cfe/CommonModules/М/Ext/Module.bsl",
-        "content": "&ИзменениеИКонтроль(\"Д\")\nПроцедура Тест_Д()\n\tПодготовить();\n\t#Удаление\n\tПеренести();\n\t#КонецУдаления\n\tЗавершить();\n\t#Вставка\n\tПеренести();\n\t#КонецВставки\nКонецПроцедуры\n\n&ИзменениеИКонтроль(\"П\")\nПроцедура Тест_П()\n\tА();\n\tБ();\n\t#Удаление\n\tА();\n\t#КонецУдаления\n\tВ();\nКонецПроцедуры\n"
+        "content": "&ИзменениеИКонтроль(\"Д\")\nПроцедура Тест_Д()\n\tПодготовить();\n\t#Удаление\n\tПеренести();\n\t#КонецУдаления\n\tЗавершить();\n\t#Вставка\n\tПеренести();\n\t#КонецВставки\nКонецПроцедуры\n\n&ИзменениеИКонтроль(\"П\")\nПроцедура Тест_П()\n\tА();\n\tБ();\n\t#Удаление\n\tА();\n\t#КонецУдаления\n\tВ();\nКонецПроцедуры\n\n&ChangeAndValidate(\"InsertRepeat\")\nProcedure Test_InsertRepeat()\n#Insert\n    A();\n#EndInsert\n    A();\nEndProcedure\n&ChangeAndValidate(\"DeleteRepeat\")\nProcedure Test_DeleteRepeat()\n    A();\n#Delete\n    A();\n#EndDelete\n    A();\n    A();\nEndProcedure\n&ChangeAndValidate(\"NoOp\")\nProcedure Test_NoOp()\n#Delete\n    A();\n#EndDelete\n#Insert\n    A();\n#EndInsert\nEndProcedure\n&ChangeAndValidate(\"OptionalRepeat\")\nProcedure Test_OptionalRepeat()\n    A();\n#Insert\n    A();\n#EndInsert\n    B();\n#Insert // Временно: debug\n    A();\n#EndInsert\n    C();\nEndProcedure\n\n&ChangeAndValidate(\"DeleteComment\")\nProcedure Test_DeleteComment()\n    Start();\n#Delete\n    // old comment\n#EndDelete\n    EndStep();\n#Insert\n    NewCode();\n#EndInsert\n    // old comment\nEndProcedure\n"
       }
     },
     {
@@ -70,7 +70,7 @@
   "expect": {
     "stdoutContains": [
       "All changes already transferred.",
-      "=== Summary Тест: 0 transferred now · 2 already transferred · 1 role, not transferred ==="
+      "=== Summary Тест: 0 transferred now · 7 already transferred · 1 role, not transferred ==="
     ],
     "stdoutNotContains": [
       "Changed files:"
@@ -79,6 +79,26 @@
       {
         "file": "CommonModules/М/Ext/Module.bsl",
         "text": "Процедура Д() Экспорт\n\tПодготовить();\n\tЗавершить();\n\tПеренести();\nКонецПроцедуры\n\nПроцедура П() Экспорт\n\tА();\n\tБ();\n\tВ();\nКонецПроцедуры\n"
+      },
+      {
+        "file": "CommonModules/М/Ext/Module.bsl",
+        "text": "Procedure InsertRepeat() Export\n    A();\n    A();\nEndProcedure\n"
+      },
+      {
+        "file": "CommonModules/М/Ext/Module.bsl",
+        "text": "Procedure DeleteRepeat() Export\n    A();\n    A();\n    A();\nEndProcedure\n"
+      },
+      {
+        "file": "CommonModules/М/Ext/Module.bsl",
+        "text": "Procedure NoOp() Export\n    A();\nEndProcedure\n"
+      },
+      {
+        "file": "CommonModules/М/Ext/Module.bsl",
+        "text": "Procedure OptionalRepeat() Export\n    A();\n    A();\n    B();\n    C();\nEndProcedure\n"
+      },
+      {
+        "file": "CommonModules/М/Ext/Module.bsl",
+        "text": "Procedure DeleteComment() Export\n    Start();\n    EndStep();\n    NewCode();\n    // old comment\nEndProcedure\n"
       }
     ]
   }

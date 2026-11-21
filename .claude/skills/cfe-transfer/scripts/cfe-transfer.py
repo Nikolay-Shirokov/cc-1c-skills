@@ -1,5 +1,5 @@
 ﻿#!/usr/bin/env python3
-# cfe-transfer v1.18 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+# cfe-transfer v1.19 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -1260,6 +1260,31 @@ def find_run_in_context(v2norm, v2sig, v2map, keys, sig_keys, before_ctx, after_
     return found
 
 
+def test_sequence_without_run(longer, shorter, keys):
+    """Can one occurrence be removed to reproduce the shorter sequence exactly?"""
+    size = len(keys)
+    if not size or len(longer) != len(shorter) + size:
+        return False
+    first = len(shorter)
+    while first > 0 and longer[first + size - 1] == shorter[first - 1]:
+        first -= 1
+    for i in range(len(shorter) + 1):
+        if i >= first and test_run_at(longer, keys, i):
+            return True
+        if i < len(shorter) and longer[i] != shorter[i]:
+            break
+    return False
+
+
+def expected_without_edit(projection, index, restored_keys=()):
+    """Expected live code with the operation at its projected position undone."""
+    start, end = projection['ranges'][index]
+    keys = projection['keys']
+    return [key for key in keys[:start] if test_significant(key)] + list(restored_keys) + [
+        key for key in keys[end:] if test_significant(key)
+    ]
+
+
 def get_control_transfer(ext_method, cfg_method, prefix):
     parsed = parse_marked_body(ext_method["body_lines"])
     projection = get_control_projection(ext_method['body_lines'], {}, prefix, ext_method['param_names'])
@@ -1281,7 +1306,13 @@ def get_control_transfer(ext_method, cfg_method, prefix):
     plan = []
     payloads = {i: [k for k in projection['payload_keys'][i] if test_significant(k)]
                 for i, o in enumerate(ops) if o["kind"] == "insert"}
-    replaced = get_absorbed_in_place(ops, v1norm, v2norm, v2sig, payloads)
+    desired_sig = [key for key in projection['keys'] if test_significant(key)]
+    has_temp_edits = any(get_block_temp_mark(op) is not None for op in ops)
+    # Whole-body agreement identifies repeated lines by their position in the sequence.
+    has_body_change = v1sig != desired_sig
+    at_original = has_body_change and v1norm == v2norm
+    at_desired = has_body_change and desired_sig == v2sig
+    replaced = set() if at_original or at_desired else get_absorbed_in_place(ops, v1norm, v2norm, v2sig, payloads)
     deleted = set()
     for o in ops:
         if o["kind"] == "delete":
@@ -1296,9 +1327,19 @@ def get_control_transfer(ext_method, cfg_method, prefix):
             if not payload_sig:
                 continue
             k = None
-            if oi in replaced:
+            if at_desired:
                 res = "absorbed"
+            elif at_original:
+                k = op["after"]
+                res = "pending"
             else:
+                base_runs = run_count(v1sig, payload_sig)
+                current_runs = run_count(v2sig, payload_sig)
+                desired_runs = run_count(desired_sig, payload_sig) if base_runs > 0 else 0
+                # An optional insertion must not raise the required count of a permanent insertion.
+                if has_temp_edits:
+                    desired_runs = min(desired_runs, base_runs + 1)
+                missing_repeat = base_runs > 0 and desired_runs > base_runs and current_runs < desired_runs
                 after = op["after"]
                 before_lines = v1norm[max(0, after - 2):after + 1] if after >= 0 else []
                 after_lines = v1norm[after + 1:after + 4]
@@ -1306,7 +1347,7 @@ def get_control_transfer(ext_method, cfg_method, prefix):
                 # The looser checks below accept the payload only as new code: the configuration has it
                 # more times than the original method (an insert repeating a line next to it otherwise
                 # finds that very line)
-                is_new = run_count(v2sig, payload_sig) > run_count(v1sig, payload_sig)
+                is_new = current_runs > base_runs
                 if k is None:
                     is_absorbed = is_new and find_unique_run(v2sig, payload_sig) >= 0
                 else:
@@ -1336,8 +1377,17 @@ def get_control_transfer(ext_method, cfg_method, prefix):
                         free_spot = False
                 # Lines that stand anywhere (КонецЕсли;, Возврат;) prove nothing by being elsewhere
                 plain = all(TRIVIAL_RE.search(x) for x in payload_sig)
-                if is_absorbed:
-                    res = "absorbed"
+                wrong_position = False
+                if has_body_change and base_runs > 0 and len(v2sig) == len(desired_sig):
+                    if len(ops) == 1:
+                        wrong_position = test_sequence_without_run(v2sig, v1sig, payload_sig)
+                    elif desired_runs > base_runs:
+                        without_edit = expected_without_edit(projection, oi)
+                        wrong_position = test_sequence_without_run(v2sig, without_edit, payload_sig)
+                if wrong_position:
+                    res = "repeated insertion is at a different position in config"
+                elif is_absorbed or oi in replaced:
+                    res = "repeated insertion is ambiguous in config" if missing_repeat else "absorbed"
                 elif k is not None and op["after"] in deleted_done and not free_spot:
                     res = "inserted code next to the carried-over deletion differs in config"
                 # Not at the anchor, yet the configuration has the code more times than the original: carried
@@ -1353,12 +1403,29 @@ def get_control_transfer(ext_method, cfg_method, prefix):
                 else:
                     res = dispute_reason("insert", "", "", "", v2norm)
         else:
-            p = -1
-            if oi in replaced:
+            p = c_at = -1
+            keys = v1norm[op["start"]:op["end"] + 1]
+            sig_keys = [x for x in keys if test_significant(x)]
+            if at_desired:
                 res = "absorbed"
+                if not sig_keys and keys:
+                    # The live lines agree. Look for the explicitly deleted comments only
+                    # between the live lines that surround their projected position.
+                    start = projection['ranges'][oi][0]
+                    live_before = sum(test_significant(key) for key in projection['keys'][:start])
+                    first_gap = v2map[live_before - 1] + 1 if live_before else 0
+                    end_gap = v2map[live_before] if live_before < len(v2map) else len(v2norm)
+                    gap_keys = v2norm[first_gap:end_gap]
+                    offset = find_unique_run(gap_keys, keys)
+                    if offset >= 0:
+                        p = first_gap + offset
+                        res = "pending"
+                    elif run_count(gap_keys, keys) > 1:
+                        res = "comment-only deletion has multiple matches in config"
+            elif at_original:
+                p = op["start"]
+                res = "pending"
             else:
-                keys = v1norm[op["start"]:op["end"] + 1]
-                sig_keys = [x for x in keys if test_significant(x)]
                 before_ctx = None
                 for z in range(op["start"] - 1, -1, -1):
                     if test_significant(v1norm[z]):
@@ -1375,15 +1442,32 @@ def get_control_transfer(ext_method, cfg_method, prefix):
                 # the original would after the edits: one less, plus the inserts that carry it.
                 ins_runs = sum(run_count(payloads[pk], sig_keys) for pk in payloads)
                 v1_runs = run_count(v1sig, sig_keys)
-                live_left = bool(sig_keys) and run_count(v2sig, sig_keys) == v1_runs - 1 + ins_runs
+                current_runs = run_count(v2sig, sig_keys)
+                desired_runs = run_count(desired_sig, sig_keys) if v1_runs > 1 else v1_runs
+                if has_temp_edits:
+                    desired_runs = max(desired_runs, v1_runs - 1)
+                missing_deletion = v1_runs > 1 and desired_runs < v1_runs and current_runs > desired_runs
+                live_left = bool(sig_keys) and current_runs == v1_runs - 1 + ins_runs
                 stays = live_left and (ins_runs > 0 or v1_runs > 1)
                 # Commented out at its own place, and the code left as often as after the edit: carried over.
                 # Looked at first — a line the edit moves into its own insert is there as code too, and
                 # deleting it would break the carried-over insert. An old comment elsewhere does not count.
                 c_at = find_commented_run(v2norm, sig_keys, before_ctx, after_ctx) if live_left else -1
-                if c_at >= 0:
+                wrong_position = False
+                if has_body_change and v1_runs > 1 and len(v2sig) == len(desired_sig):
+                    if len(ops) == 1:
+                        wrong_position = test_sequence_without_run(v1sig, v2sig, sig_keys)
+                    elif desired_runs < v1_runs:
+                        without_edit = expected_without_edit(projection, oi, sig_keys)
+                        wrong_position = test_sequence_without_run(without_edit, v2sig, sig_keys)
+                if wrong_position:
+                    res = "repeated deletion is at a different position in config"
+                elif oi in replaced and not missing_deletion:
                     res = "absorbed"
-                elif stays and test_delete_absorbed(v2sig, before_ctx, after_ctx):
+                    c_at = -1
+                elif c_at >= 0 and not missing_deletion:
+                    res = "absorbed"
+                elif not missing_deletion and stays and test_delete_absorbed(v2sig, before_ctx, after_ctx):
                     res = "absorbed"
                 elif find_unique_run(v2norm, keys) >= 0:
                     p = find_unique_run(v2norm, keys)
@@ -1392,7 +1476,7 @@ def get_control_transfer(ext_method, cfg_method, prefix):
                     p = find_run_in_context(v2norm, v2sig, v2map, keys, sig_keys, before_ctx, after_ctx)
                     res = "pending"
                 else:
-                    if test_delete_absorbed(v2sig, before_ctx, after_ctx):
+                    if not missing_deletion and test_delete_absorbed(v2sig, before_ctx, after_ctx):
                         res = "absorbed"
                     else:
                         first = next((x for x in op["lines"] if test_significant(normalize(x))), "")
@@ -4822,7 +4906,7 @@ def get_control_projection(body, file_map, prefix, params=()):
     keys = code_keys(converted, prefix, params=params)
     return {'desired': desired, 'source': source, 'ranges': ranges,
             'payloads': {k: converted[a:b] for k, (a, b) in ranges.items()},
-            'payload_keys': {k: keys[a:b] for k, (a, b) in ranges.items()}}
+            'payload_keys': {k: keys[a:b] for k, (a, b) in ranges.items()}, 'keys': keys}
 
 
 def get_bsl_plan_issue(plan):
