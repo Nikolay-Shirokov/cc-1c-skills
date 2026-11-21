@@ -8,8 +8,9 @@
     { "script": "meta-compile/scripts/meta-compile", "input": { "type": "Catalog", "name": "Т5" }, "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" } },
     { "script": "meta-compile/scripts/meta-compile", "input": { "type": "Catalog", "name": "Т6" }, "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" } },
     { "script": "meta-compile/scripts/meta-compile", "input": { "type": "Catalog", "name": "Т7" }, "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" } },
+    { "script": "meta-compile/scripts/meta-compile", "input": { "type": "Catalog", "name": "Т8" }, "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" } },
     { "script": "cfe-init/scripts/cfe-init", "args": { "-Name": "Тест", "-OutputDir": "{workDir}/cfe", "-ConfigPath": "{workDir}" } },
-    { "script": "cfe-borrow/scripts/cfe-borrow", "args": { "-ExtensionPath": "{workDir}/cfe", "-ConfigPath": "{workDir}", "-Object": "Catalog.Т1 ;; Catalog.Т2 ;; Catalog.Т3 ;; Catalog.Т4 ;; Catalog.Т5 ;; Catalog.Т6 ;; Catalog.Т7" } },
+    { "script": "cfe-borrow/scripts/cfe-borrow", "args": { "-ExtensionPath": "{workDir}/cfe", "-ConfigPath": "{workDir}", "-Object": "Catalog.Т1 ;; Catalog.Т2 ;; Catalog.Т3 ;; Catalog.Т4 ;; Catalog.Т5 ;; Catalog.Т6 ;; Catalog.Т7 ;; Catalog.Т8" } },
     { "writeFile": { "path": "Catalogs/Т1/Ext/ObjectModule.bsl", "content": "Перем Кэш;\n\nПроцедура А() Экспорт\n\tРабота();\nКонецПроцедуры\n" } },
     { "writeFile": { "path": "cfe/Catalogs/Т1/Ext/ObjectModule.bsl", "content": "// Сколько раз вызван\nПерем Тест_Счетчик;\n\nПроцедура Тест_Посчитать() Экспорт\n\tТест_Счетчик = 1;\nКонецПроцедуры\n" } },
     { "writeFile": { "path": "Catalogs/Т2/Ext/ObjectModule.bsl", "content": "#Если Сервер Или ТолстыйКлиентОбычноеПриложение Или ВнешнееСоединение Тогда\n\nПроцедура А() Экспорт\n\tРабота();\nКонецПроцедуры\n\n#Иначе\nВызватьИсключение \"Недопустимый вызов объекта на клиенте.\";\n#КонецЕсли\n" } },
@@ -17,13 +18,15 @@
     { "writeFile": { "path": "Catalogs/Т3/Ext/ObjectModule.bsl", "content": "Перем Кэш;\n\nПроцедура А() Экспорт\n\tРабота();\nКонецПроцедуры\n" } },
     { "writeFile": { "path": "cfe/Catalogs/Т3/Ext/ObjectModule.bsl", "content": "Перем Тест_Кэш, Тест_Флаг;\n\nПроцедура Тест_Проверить() Экспорт\n\tТест_Флаг = Истина;\nКонецПроцедуры\n" } },
     { "writeFile": { "path": "Catalogs/Т4/Ext/ObjectModule.bsl", "content": "Процедура А() Экспорт\n\tРабота();\nКонецПроцедуры\n\nНачало = 1;\n" } },
-    { "writeFile": { "path": "cfe/Catalogs/Т4/Ext/ObjectModule.bsl", "content": "Перем Тест_Счетчик;\n\nТест_Счетчик = 0;\n" } },
+    { "writeFile": { "path": "cfe/Catalogs/Т4/Ext/ObjectModule.bsl", "content": "Перем Тест_Счетчик;\n\nТест_Счетчик = 0;\nТест_Счетчик = 0;\n" } },
     { "writeFile": { "path": "Catalogs/Т5/Ext/ManagerModule.bsl", "content": "Функция Ф0() Экспорт\n\tВозврат 0;\nКонецФункции\n" } },
     { "writeFile": { "path": "cfe/Catalogs/Т5/Ext/ManagerModule.bsl", "content": "Перем Тест_М;\n" } },
     { "writeFile": { "path": "Catalogs/Т6/Ext/ObjectModule.bsl", "content": "#Если Клиент Тогда\nПерем А;\n#КонецЕсли\n\nПроцедура П() Экспорт\nКонецПроцедуры\n" } },
     { "writeFile": { "path": "cfe/Catalogs/Т6/Ext/ObjectModule.bsl", "content": "Перем Тест_Б;\n" } },
     { "writeFile": { "path": "Catalogs/Т7/Ext/ObjectModule.bsl", "content": "Перем Настройки;\n\nПроцедура П() Экспорт\nКонецПроцедуры\n" } },
-    { "writeFile": { "path": "cfe/Catalogs/Т7/Ext/ObjectModule.bsl", "content": "Перем Тест_Настройки; // кэш настроек\nПерем Тест_Настройки;\n" } }
+    { "writeFile": { "path": "cfe/Catalogs/Т7/Ext/ObjectModule.bsl", "content": "Перем Тест_Настройки; // кэш настроек\nПерем Тест_Настройки;\n\n// Не переносить: debug\nProcedure Тест_DebugOnly()\n    Message(\"debug\");\nEndProcedure\nТест_DebugOnly();\n" } },
+    {"writeFile": {"path": "Catalogs/Т8/Ext/ObjectModule.bsl", "content": "Message(\"same format\"); Message(\"same format\");\n"}},
+    {"writeFile": {"path": "cfe/Catalogs/Т8/Ext/ObjectModule.bsl", "content": "Message(\"same format\");\nMessage(\"same format\");\n"}}
   ],
   "params": {
     "extensionPath": "cfe"
@@ -41,7 +44,8 @@
       "[CONFLICT]           module code outside methods — variable Кэш is declared in config already; not changed",
       "[WAITING]            method Тест_Проверить — waits for: Тест_Флаг",
       "[TRANSFERRED]        module code outside methods — 1 variable declaration -> before the first method; statements of the module body -> end of module",
-      "[MANUAL]             module code outside methods — a manager module with variables or statements is not applied by the platform: this code never ran"
+      "[MANUAL]             module code outside methods — calls Тест_DebugOnly, marked as not for transfer",
+    "[MANUAL]             module code outside methods — a manager module with variables or statements is not applied by the platform: this code never ran"
     ],
     "stdoutNotContains": [
       "variable Настройки"
@@ -50,10 +54,12 @@
       { "file": "Catalogs/Т1/Ext/ObjectModule.bsl", "text": "Перем Кэш;\n// Сколько раз вызван\nПерем Счетчик;\n\nПроцедура А() Экспорт" },
       { "file": "Catalogs/Т2/Ext/ObjectModule.bsl", "text": "#Если Сервер Или ТолстыйКлиентОбычноеПриложение Или ВнешнееСоединение Тогда\n\nПерем Кэш Экспорт;\n\nПроцедура А() Экспорт" },
       { "file": "Catalogs/Т3/Ext/ObjectModule.bsl", "text": "Перем Кэш;\n\nПроцедура А() Экспорт\n\tРабота();\nКонецПроцедуры\n" },
-      { "file": "Catalogs/Т4/Ext/ObjectModule.bsl", "text": "Перем Счетчик;\n\nПроцедура А() Экспорт\n\tРабота();\nКонецПроцедуры\n\nНачало = 1;\n\nСчетчик = 0;\n" },
+      { "file": "Catalogs/Т4/Ext/ObjectModule.bsl", "text": "Перем Счетчик;\n\nПроцедура А() Экспорт\n\tРабота();\nКонецПроцедуры\n\nНачало = 1;\n\nСчетчик = 0;\nСчетчик = 0;\n" },
       { "file": "Catalogs/Т5/Ext/ManagerModule.bsl", "text": "Функция Ф0() Экспорт\n\tВозврат 0;\nКонецФункции\n" },
       { "file": "Catalogs/Т6/Ext/ObjectModule.bsl", "text": "#Если Клиент Тогда\nПерем А;\n#КонецЕсли\n\nПерем Б;\n\nПроцедура П() Экспорт" },
-      { "file": "Catalogs/Т7/Ext/ObjectModule.bsl", "text": "Перем Настройки;\n\nПроцедура П() Экспорт\nКонецПроцедуры\n" }
-    ]
+      { "file": "Catalogs/Т7/Ext/ObjectModule.bsl", "text": "Перем Настройки;\n\nПроцедура П() Экспорт\nКонецПроцедуры\n" },
+      {"file": "Catalogs/Т8/Ext/ObjectModule.bsl", "text": "Message(\"same format\"); Message(\"same format\");\n"}
+    ],
+    "fileNotContains": [{"file": "Catalogs/Т8/Ext/ObjectModule.bsl", "text": "Message(\"same format\");\nMessage(\"same format\");\n"}]
   }
 }

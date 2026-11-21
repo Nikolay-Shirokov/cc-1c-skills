@@ -34,13 +34,13 @@
     {
       "writeFile": {
         "path": "CommonModules/М/Ext/Module.bsl",
-        "content": "Процедура Л(Параметр) Экспорт\nКонецПроцедуры\n\nПроцедура Н(Параметр) Экспорт\n\tРабота();\nКонецПроцедуры\n\nПроцедура О(Параметр) Экспорт\n\tРабота();\nКонецПроцедуры\n\nПроцедура П(Знач А) Экспорт\n\tРабота();\nКонецПроцедуры\n\nПроцедура Р(Знач А) Экспорт\n\tРабота(А);\nКонецПроцедуры\n\nПроцедура С(Знач А) Экспорт\n\tА = 0;\nКонецПроцедуры\n\nПроцедура Т(Знач А, Список) Экспорт\n\tРабота(А);\nКонецПроцедуры\n"
+        "content": "Процедура Л(Параметр) Экспорт\nКонецПроцедуры\n\nПроцедура Н(Параметр) Экспорт\n\tРабота();\nКонецПроцедуры\n\nПроцедура О(Параметр) Экспорт\n\tРабота();\nКонецПроцедуры\n\nПроцедура П(Знач А) Экспорт\n\tРабота();\nКонецПроцедуры\n\nПроцедура Р(Знач А) Экспорт\n\tРабота(А);\nКонецПроцедуры\n\nПроцедура С(Знач А) Экспорт\n\tА = 0;\nКонецПроцедуры\n\nПроцедура Т(Знач А, Список) Экспорт\n\tРабота(А);\nКонецПроцедуры\n\nProcedure RefBefore(Val Arg) Export\n    Message(Arg);\nEndProcedure\n\nProcedure RefAfter(Val Arg) Export\n    Mutate(Arg);\nEndProcedure\n\nProcedure SafeValue(Val Arg) Export\n    Message(Arg);\nEndProcedure\n\nProcedure SafeExpression(Val Arg) Export\n    Message(Arg);\nEndProcedure\n\nProcedure Mutate(Arg)\n    Arg = 99;\nEndProcedure\n\nProcedure OwnValue(Val Arg)\n    Arg = 99;\nEndProcedure\n"
       }
     },
     {
       "writeFile": {
         "path": "cfe/CommonModules/М/Ext/Module.bsl",
-        "content": "&После(\"Л\")\nПроцедура Тест_Л2(Параметр)\n\tПерем Итог;\n\tИтог = 1;\n\tСообщить(Итог);\nКонецПроцедуры\n\n&Перед(\"Л\")\nПроцедура Тест_Л1(Параметр)\n\tПодготовить();\nКонецПроцедуры\n\n&Перед(\"Н\")\nПроцедура Тест_Н1(Параметр)\n\tЕсли Параметр Тогда Буфер = 1; КонецЕсли;\nКонецПроцедуры\n\n&После(\"Н\")\nПроцедура Тест_Н2(Параметр)\n\tСообщить(Буфер);\nКонецПроцедуры\n\n&ИзменениеИКонтроль(\"О\")\nПроцедура Тест_О(Параметр)\n\tДругаяРабота();\n\t#Вставка\n\tНовое();\n\t#КонецВставки\nКонецПроцедуры\n\n&Перед(\"О\")\nПроцедура Тест_О1(Параметр)\n\tПодготовить();\nКонецПроцедуры\n\n&Перед(\"П\")\nПроцедура Тест_П(А)\n\tПодготовить();\nКонецПроцедуры\n\n&Перед(\"Р\")\nПроцедура Тест_Р(Знач А)\n\tА = А + 1;\nКонецПроцедуры\n\n&После(\"С\")\nПроцедура Тест_С(Знач А)\n\tСообщить(А);\nКонецПроцедуры\n\n&Перед(\"Т\")\nПроцедура Тест_Т(Знач А, Список)\n\tДля Каждого А Из Список Цикл\n\t\tСообщить(А);\n\tКонецЦикла;\nКонецПроцедуры\n"
+        "content": "&После(\"Л\")\nПроцедура Тест_Л2(Параметр)\n\tПерем Итог;\n\tИтог = 1;\n\tСообщить(Итог);\nКонецПроцедуры\n\n&Перед(\"Л\")\nПроцедура Тест_Л1(Параметр)\n\tПодготовить();\nКонецПроцедуры\n\n&Перед(\"Н\")\nПроцедура Тест_Н1(Параметр)\n\tЕсли Параметр Тогда Буфер = 1; КонецЕсли;\nКонецПроцедуры\n\n&После(\"Н\")\nПроцедура Тест_Н2(Параметр)\n\tСообщить(Буфер);\nКонецПроцедуры\n\n&ИзменениеИКонтроль(\"О\")\nПроцедура Тест_О(Параметр)\n\tДругаяРабота();\n\t#Вставка\n\tНовое();\n\t#КонецВставки\nКонецПроцедуры\n\n&Перед(\"О\")\nПроцедура Тест_О1(Параметр)\n\tПодготовить();\nКонецПроцедуры\n\n&Перед(\"П\")\nПроцедура Тест_П(А)\n\tПодготовить();\nКонецПроцедуры\n\n&Перед(\"Р\")\nПроцедура Тест_Р(Знач А)\n\tА = А + 1;\nКонецПроцедуры\n\n&После(\"С\")\nПроцедура Тест_С(Знач А)\n\tСообщить(А);\nКонецПроцедуры\n\n&Перед(\"Т\")\nПроцедура Тест_Т(Знач А, Список)\n\tДля Каждого А Из Список Цикл\n\t\tСообщить(А);\n\tКонецЦикла;\nКонецПроцедуры\n\n&Before(\"RefBefore\")\nProcedure Test_RefBefore(Val Source)\n    Mutate(Source);\nEndProcedure\n\n&After(\"RefAfter\")\nProcedure Test_RefAfter(Val Arg)\n    Message(Arg);\nEndProcedure\n\n&Before(\"SafeValue\")\nProcedure Test_SafeValue(Val Arg)\n    OwnValue(Arg);\nEndProcedure\n\n&Before(\"SafeExpression\")\nProcedure Test_SafeExpression(Val Arg)\n    Mutate(Arg + 0);\nEndProcedure\n"
       }
     }
   ],
@@ -64,14 +64,22 @@
       "next: fix the signature in the extension or drop the interceptor, then re-run -Mode check",
       "[MANUAL]             &Перед(\"Р\") — the handler changes Знач parameter А: the original did not see it",
       "[MANUAL]             &После(\"С\") — the original changes Знач parameter А: the handler did not see it",
-      "[MANUAL]             &Перед(\"Т\") — the handler changes Знач parameter А: the original did not see it"
+      "[MANUAL]             &Перед(\"Т\") — the handler changes Знач parameter А: the original did not see it",
+      "[MANUAL]             &Before(\"RefBefore\") — the handler may change",
+      "[MANUAL]             &After(\"RefAfter\") — the original may change",
+      "[TRANSFERRED]        &Before(\"SafeValue\") — before the original",
+      "[TRANSFERRED]        &Before(\"SafeExpression\") — before the original"
     ],
     "fileContains": [
       {
         "file": "CommonModules/М/Ext/Module.bsl",
         "text": [
           "Процедура Л(Параметр) Экспорт\n\tПерем Итог;\n\tПодготовить();\n\tИтог = 1;\n\tСообщить(Итог);\nКонецПроцедуры",
-          "Процедура Н(Параметр) Экспорт\n\tРабота();\nКонецПроцедуры\n\nПроцедура О(Параметр) Экспорт\n\tРабота();\nКонецПроцедуры"
+          "Процедура Н(Параметр) Экспорт\n\tРабота();\nКонецПроцедуры\n\nПроцедура О(Параметр) Экспорт\n\tРабота();\nКонецПроцедуры",
+          "Procedure RefBefore(Val Arg) Export\n    Message(Arg);\nEndProcedure",
+          "Procedure RefAfter(Val Arg) Export\n    Mutate(Arg);\nEndProcedure",
+          "Procedure SafeValue(Val Arg) Export\n    OwnValue(Arg);\n    Message(Arg);\nEndProcedure",
+          "Procedure SafeExpression(Val Arg) Export\n    Mutate(Arg + 0);\n    Message(Arg);\nEndProcedure"
         ]
       }
     ]

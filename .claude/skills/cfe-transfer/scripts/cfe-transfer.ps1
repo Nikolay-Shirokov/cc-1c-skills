@@ -1,4 +1,4 @@
-﻿# cfe-transfer v1.24 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+﻿# cfe-transfer v1.26 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -960,23 +960,6 @@ function Get-CodeKeys($lines, [string]$prefix, [switch]$Significant, $params = $
 # Significant lines of a body as code keys
 function Get-SigLines($lines, [string]$prefix) {
 	return ,@(Get-CodeKeys $lines $prefix -Significant)
-}
-
-# Only scopes dependency protection to newly exposed literal mismatches. This historical
-# folding is never used to accept code as transferred; the actual comparison uses Get-SigLines.
-function Test-PreviouslyFoldedBody($left, $right, [string]$prefix) {
-	$signatures = @()
-	foreach ($ls in @(@{ Lines = $left }, @{ Lines = $right })) {
-		$keys = @()
-		foreach ($l in $ls.Lines) {
-			$t = Remove-ExtPrefix ([string]$l) $prefix
-			if ($script:devRe) { $t = $script:devRe.Replace($t, '') }
-			$t = (Get-Normalized $t).ToLowerInvariant()
-			if (Test-Significant $t) { $keys += $t }
-		}
-		$signatures += ($keys -join "`n")
-	}
-	return $signatures[0] -ceq $signatures[1]
 }
 
 # Declaration following an annotation (context directives and other annotations may sit between)
@@ -2823,7 +2806,7 @@ function Get-ModuleTransferItems([string]$bsl, [string]$extDir, [string]$prefix,
 		# Every method of the module the name may stand for; the one with the same declaration and body wins (a name
 		# given with the development prefix next to a vendor method of the plain name)
 		$hits = @(Find-NamesIn $cfgNames $pn $prefix)
-		$hit = $null; $cfgM = $null; $literalMismatch = $false; $declarationMismatch = $null
+		$hit = $null; $cfgM = $null; $declarationMismatch = $null
 		$manualReason = $null
 		if ($extCounts[$pn] -gt 1 -or @($hits | Where-Object { $cfgCounts[$_] -gt 1 }).Count -gt 0) {
 			$manualReason = 'multiple declarations of the same method'
@@ -2846,7 +2829,7 @@ function Get-ModuleTransferItems([string]$bsl, [string]$extDir, [string]$prefix,
 					$why = Get-OwnDeclarationDifference $extLines $extM $cfgLines $m
 					if (-not $why) { $hit = $h; $cfgM = $m; $same = $true; break }
 					if (-not $declarationMismatch) { $hit = $h; $cfgM = $m; $declarationMismatch = $why }
-				} elseif (Test-PreviouslyFoldedBody $extM.BodyLines $m.BodyLines $prefix) { $literalMismatch = $true }
+				}
 			}
 			if (-not $hit) { $hit = $hits[0]; $cfgM = Get-MethodSafe $cfgLines $hit }
 			if (-not $same -and -not $declarationMismatch -and $cfgM -and
@@ -2862,19 +2845,21 @@ function Get-ModuleTransferItems([string]$bsl, [string]$extDir, [string]$prefix,
 				New-Item2 'DIVERGED' "method $pn$as ($reason)" $loc
 			}
 		}
-		$it.Plan = @{ Kind = 'own'; Rel = $rel; ExtM = $extM; ExtLines = $extLines; CfgM = $cfgM; Name = $pn; Hit = $hit; CfgMissing = ($null -eq $cfgLines); LiteralMismatch = $literalMismatch; DeclarationMismatch = $declarationMismatch; ManualReason = $manualReason }
+		$it.Plan = @{ Kind = 'own'; Rel = $rel; ExtM = $extM; ExtLines = $extLines; CfgM = $cfgM; Name = $pn; Hit = $hit; CfgMissing = ($null -eq $cfgLines); ManualReason = $manualReason }
 		$items += (Set-TempMark $it $mark "method $pn")
 	}
-	# Code outside methods (module variables, statements of the module body): its lines looked up among
-	# the configuration module's code outside methods, prefixes left out; order is not compared
+	# Variables are declarations. Statements must retain their order and multiplicity.
 	if ($mc.TopCode -ge 0) {
-		# A line counts once: a variable declared twice in the extension is declared once in the configuration
-		$extTop = [ordered]@{}; foreach ($key in (Get-TopCodeKeys $extLines $prefix -Extension).Values) { $extTop[$key] = $true }
-		$have = @{}
-		if ($null -ne $cfgLines) { foreach ($key in (Get-TopCodeKeys $cfgLines $prefix).Values) { $have[$key] = $true } }
-		$found = @($extTop.Keys | Where-Object { $have.ContainsKey($_) }).Count
-		$st = Get-HeuristicStatus @{ Found = $found; Total = $extTop.Count }
-		$it = New-Item2 $st "module code outside methods (heuristic: $found/$($extTop.Count) lines)" "${rel}:$($mc.TopCode + 1)"
+		$el = Get-ModuleLayout $extLines; $cl = Get-ModuleLayout $cfgLines
+		$extKeys = Get-TopCodeKeys $extLines $prefix -Extension; $cfgKeys = Get-TopCodeKeys $cfgLines $prefix
+		$extVars = @($el.Vars | ForEach-Object { $extKeys[[string]$_.Idx] } | Sort-Object -Unique)
+		$cfgVars = @($cl.Vars | ForEach-Object { $cfgKeys[[string]$_.Idx] })
+		$stmts = Get-ModuleStatementMatch $extLines $el $extKeys $cfgLines $cl $cfgKeys
+		$found = @($extVars | Where-Object { $cfgVars -contains $_ }).Count + $stmts.Found
+		$total = $extVars.Count + $stmts.Total
+		$st = Get-HeuristicStatus @{ Found = $found; Total = $total }
+		if ($st -eq 'NOT_TRANSFERRED' -and $stmts.Any) { $st = 'PARTIAL' }
+		$it = New-Item2 $st "module code outside methods (heuristic: $found/$total items)" "${rel}:$($mc.TopCode + 1)"
 		$it.Plan = @{ Kind = 'topcode'; Rel = $rel; Line = $mc.TopCode; ExtLines = $extLines }
 		$items += $it
 	}
@@ -2925,6 +2910,53 @@ function Get-TopCodeKeys($lines, [string]$prefix, [switch]$Extension) {
 	$res = [ordered]@{}
 	foreach ($i in @(@($lay.Vars | ForEach-Object { $_.Idx }) + @($lay.Statements) | Sort-Object)) { $res[[string]$i] = $keys[$i] }
 	return $res
+}
+
+function Get-ModuleStatements($lines, $layout, $keys) {
+	$parts = New-Object 'System.Collections.Generic.List[string]'
+	$scopes = New-Object 'System.Collections.Generic.List[string]'
+	$depth = 0; $paren = 0; $lastScope = $null
+	foreach ($i in $layout.Statements) {
+		$scope = Get-MethodConditionKey (Get-MethodConditions (Get-EnclosingChain $lines $i 'en'))
+		foreach ($m in [regex]::Matches($keys[[string]$i], '\w+|[^\s]')) {
+			$token = $m.Value.ToLowerInvariant()
+			if ($token -in @('(', '[')) { $paren++ }
+			elseif ($token -in @(')', ']')) { $paren-- }
+			if ($paren -eq 0) {
+				if ($token -in @('if','если','try','попытка','for','для','while','пока')) { $depth++ }
+				elseif ($token -in @('endif','конецесли','endtry','конецпопытки','enddo','конеццикла')) { $depth-- }
+			}
+			if ($token -eq ';' -and $paren -eq 0 -and $depth -eq 0) {
+				if ($parts.Count) { @{ Text = ($parts -join ' '); Scope = ($scopes -join [char]0) } }
+				$parts.Clear(); $scopes.Clear(); $lastScope = $null
+			} else {
+				if (-not $parts.Count -or $lastScope -cne $scope) { $scopes.Add("$($parts.Count):$scope"); $lastScope = $scope }
+				$parts.Add($token)
+			}
+		}
+	}
+	if ($parts.Count) { @{ Text = ($parts -join ' '); Scope = ($scopes -join [char]0) } }
+}
+
+function Get-ModuleStatementMatch($extLines, $extLayout, $extKeys, $cfgLines, $cfgLayout, $cfgKeys) {
+	$wanted = @(Get-ModuleStatements $extLines $extLayout $extKeys)
+	# A shared fragment in a changed compound statement is a partial match, not a new statement to append.
+	$separator = ' (?:;|then|тогда|do|цикл|else|иначе|except|исключение) '
+	$keys = @{}; foreach ($item in $wanted) {
+		foreach ($fragment in ($item.Text -split $separator)) { if ($fragment.Contains(' ')) { $keys[$fragment] = $true } }
+		$keys[$item.Text] = $true
+	}
+	$found = 0; $any = $false
+	foreach ($item in @(Get-ModuleStatements $cfgLines $cfgLayout $cfgKeys)) {
+		if ($keys.ContainsKey($item.Text)) { $any = $true }
+		elseif (-not $any) {
+			foreach ($fragment in ($item.Text -split $separator)) {
+				if ($fragment.Contains(' ') -and $keys.ContainsKey($fragment)) { $any = $true; break }
+			}
+		}
+		if ($found -lt $wanted.Count -and $wanted[$found].Text -ceq $item.Text -and $wanted[$found].Scope -ceq $item.Scope) { $found++ }
+	}
+	return @{ Found = $found; Total = $wanted.Count; Any = $any }
 }
 
 # Own sub-objects of a borrowed object (attributes, tabular sections, commands, forms, templates, …)
@@ -4430,6 +4462,8 @@ function Get-CalledNames($lines, $skip) {
 # Per-extension symbol catalog. Methods and attributes never share a global short-name map.
 function Initialize-BslCatalog([string]$extDir, [string]$prefix) {
 	$script:bslCatalog = @{}; $script:bslCommon = @{}; $script:bslGlobals = @{}; $script:bslGlobalOwners = @()
+	$script:bslGlobalNames = @{}
+	$script:bslCfgCommonNames = @{}
 	$script:transferPrefix = $prefix
 	foreach ($f in @(Get-ChildItem -LiteralPath $extDir -Filter '*.bsl' -Recurse)) {
 		$rel = Get-RelPath $extDir $f.FullName
@@ -4512,6 +4546,7 @@ function Initialize-BslCatalog([string]$extDir, [string]$prefix) {
 		$dir2 = Join-Path $root2 'CommonModules'
 		if (-not (Test-Path -LiteralPath $dir2)) { continue }
 		foreach ($md2 in @(Get-ChildItem -LiteralPath $dir2 -Filter '*.xml')) {
+			if ($root2 -eq $ConfigPath) { $script:bslCfgCommonNames[$md2.BaseName] = $md2.BaseName }
 			$md3 = Read-MdObject $md2.FullName
 			if (-not $md3 -or -not $md3.Props) { continue }
 			$g = $md3.Props.SelectSingleNode('md:Global', $md3.Ns)
@@ -4528,6 +4563,10 @@ function Initialize-BslCatalog([string]$extDir, [string]$prefix) {
 		if ($ac -or $null -ne $acl) {
 			$script:bslGlobalOwners += @{ Rel = $rel2; Kind = 'application'; Methods = $(if ($ac) { $ac.Methods } else { @{} }); Ext = $(if ($ac) { $ac.Ext } else { @() }); Cfg = $acl }
 		}
+	}
+	$script:bslGlobalNames = @{}
+	foreach ($gc in $script:bslGlobalOwners) {
+		foreach ($name in (@(Get-ProcNames $gc.Ext) + @(Get-ProcNames $gc.Cfg))) { $script:bslGlobalNames[$name] = $true }
 	}
 	# A carried-over callback contains the target name inside a literal. Resolve candidate
 	# bodies with that candidate's map, including self-references and cross-module cycles.
@@ -4608,6 +4647,7 @@ function Get-BslConversion($lines, $fileMap, $ctx, $params = $null, [switch]$Com
 	$methods = @{}; $attrs = @{}
 	if ($ctx) { foreach ($k in $ctx.Methods.Keys) { $methods[$k] = $ctx.Methods[$k] }; $attrs = $ctx.Attrs }
 	foreach ($k in $fileMap.Keys) { $methods[$k] = $fileMap[$k] }
+	$locals = $null
 	for ($i = 0; $i -lt $ts.Count; $i++) {
 		$t = $ts[$i]; if ($t.Kind -ne 'word') { continue }; $k = $t.Value.ToLowerInvariant()
 		$owner = ''; $qualified = $i -gt 0 -and $ts[$i - 1].Value -eq '.'
@@ -4623,6 +4663,10 @@ function Get-BslConversion($lines, $fileMap, $ctx, $params = $null, [switch]$Com
 			continue
 		}
 		$oc = if (-not $Comparison) { Get-BslOwner $owner $ctx } else { $null }
+		if ($qualified -and $oc -and $oc -ne $ctx) {
+			if ($null -eq $locals) { $locals = Get-LocalNames (Get-CodeOnly $lines) $params }
+			if ($locals.Contains($owner.ToLowerInvariant())) { $oc = $null }
+		}
 		$om = if ($oc -and $oc -eq $ctx) { $methods } elseif ($oc) { $oc.Methods } else { @{} }
 		$isCall = $i + 1 -lt $ts.Count -and $ts[$i + 1].Value -eq '('
 		$isCtor = $i -gt 0 -and $ts[$i - 1].Value -in @('Новый', 'New')
@@ -4637,6 +4681,19 @@ function Get-BslConversion($lines, $fileMap, $ctx, $params = $null, [switch]$Com
 			elseif ($qualified -and -not $isCall -and $script:bslGlobals.ContainsKey($k)) { $edits[$t.Start] = $script:bslGlobals[$k] }
 		}
 		if (-not $isCall) { continue }
+		if (-not $isCtor) {
+			if ($qualified -and $oc) {
+				$references += @{ Name = $t.Value; Context = $oc; Kind = 'method'; Token = $t }
+			} elseif (-not $qualified) {
+				$gs = @()
+				if (-not $om.ContainsKey($k) -and $script:bslGlobalNames -and $script:bslGlobalNames.ContainsKey($k) -and -not (Get-MethodSafe $ctx.Cfg $t.Value)) {
+					$gs = @(Get-BslGlobalReferences $t.Value)
+				}
+				foreach ($gr in $gs) { $references += @{ Name = $t.Value; Context = $gr.Context; Kind = 'method'; Token = $t } }
+				if ($gs.Count -eq 1 -and $gs[0].Target -cne $t.Value) { $edits[$t.Start] = $gs[0].Target }
+				if (-not $gs.Count) { $references += @{ Name = $t.Value; Context = $ctx; Kind = 'method'; Token = $t } }
+			}
+		}
 		if (-not $isCtor -and ($om.ContainsKey($k) -or ($qualified -and $oc.Kind -eq 'common'))) { continue }
 		$specs = @()
 		if ($k -in @('описаниеоповещения', 'notifydescription', 'callbackdescription')) {
@@ -5210,7 +5267,7 @@ function Get-BodyShape($code) {
 # Local variables of a body (assigned, loop variables, Перем), parameters left out: lower -> name.
 # A line may hold several statements (Если … Тогда Х = 1; КонецЕсли;): each is looked at.
 function Get-LocalNames($code, $params) {
-	$skip = @{}; foreach ($p in @($params)) { $skip[$p.ToLower()] = $true }
+	$skip = @{}; foreach ($p in @($params)) { if ($p) { $skip[$p.ToLower()] = $true } }
 	$res = [ordered]@{}
 	$add = { param($n) if ($n -and -not $skip.ContainsKey($n.ToLower()) -and -not $res.Contains($n.ToLower())) { $res[$n.ToLower()] = $n } }
 	foreach ($l in @($code)) {
@@ -5242,6 +5299,74 @@ function Get-AssignedNames($code) {
 function Get-ValFlags([string]$paramsText) {
 	if ($paramsText.Trim() -eq '') { return ,@() }
 	return ,@(Split-TopLevel $paramsText | ForEach-Object { $_ -match ('(?i)^\s*' + (Get-KwAlt 'Val') + '\s') })
+}
+
+# A bare variable passed to an unresolved or by-reference parameter can be rebound by the call.
+function Get-CallWrittenNames($code, $names, $params) {
+	$written = New-Object 'System.Collections.Generic.HashSet[string]'
+	if ($names.Count -eq 0) { return ,$written }
+	$tokens = @(Get-BslTokens $code | Where-Object { $_.Kind -ne 'comment' -and $_.Value -notmatch '^\s+$' })
+	$locals = Get-LocalNames $code $params
+	$nonCalls = @('Если', 'If', 'ИначеЕсли', 'ElsIf', 'Пока', 'While', 'Возврат', 'Return', 'И', 'And', 'Или', 'Or', 'Не', 'Not', 'По', 'To', 'Из', 'In', 'ВызватьИсключение', 'Raise', 'Ждать', 'Await')
+	for ($i = 0; $i + 1 -lt $tokens.Count; $i++) {
+		$name = $tokens[$i].Value
+		if ($tokens[$i].Kind -ne 'word' -or $tokens[$i + 1].Value -ne '(' -or $nonCalls -icontains $name) { continue }
+		$args2 = Get-BslArguments $tokens ($i + 1)
+		$arguments = @{}
+		for ($j = 0; $j -lt $args2.Count; $j++) {
+			$part = @($args2[$j])
+			while ($part.Count -gt 2 -and $tokens[$part[0]].Value -eq '(' -and $tokens[$part[-1]].Value -eq ')') {
+				$part = @($part[1..($part.Count - 2)])
+			}
+			if ($part.Count -ne 1) { continue }
+			$arg = $tokens[$part[0]].Value.ToLowerInvariant()
+			if ($names -contains $arg) { $arguments[$j] = $arg }
+		}
+		if (-not $arguments.Count) { continue }
+		$qualified = $i -gt 0 -and $tokens[$i - 1].Value -eq '.'
+		$owner = $script:bslContext
+		if ($qualified) {
+			$owner = $null
+			if ($i -ge 2 -and $tokens[$i - 2].Kind -eq 'word' -and ($i -lt 3 -or $tokens[$i - 3].Value -ne '.')) {
+				$receiver = $tokens[$i - 2].Value
+				if ($params -notcontains $receiver -and -not $locals.Contains($receiver.ToLowerInvariant())) {
+					$owner = Get-BslOwner $receiver $script:bslContext
+					$cfgName = $script:bslCfgCommonNames[$receiver]
+					if (-not $owner -and $cfgName) {
+						$owner = @{ Ext = @(); Methods = @{}; Cfg = Read-BslLines (Get-CfgPath "CommonModules/$cfgName/Ext/Module.bsl") }
+					}
+				}
+			}
+		}
+		$methods = @(); $ambiguous = $false
+		if ($owner) {
+			$cfgNames = @(Get-ProcNames $owner.Cfg | Where-Object { $_ -ieq $name })
+			$extNames = @(Get-ProcNames $owner.Ext | Where-Object { $_ -ieq $name -or $owner.Methods[$_] -ieq $name })
+			$ambiguous = $cfgNames.Count -gt 1 -or $extNames.Count -gt 1
+			foreach ($n in $cfgNames) { $m = Get-MethodSafe $owner.Cfg $n; if ($m) { $methods += $m } else { $ambiguous = $true } }
+			foreach ($n in $extNames) { $m = Get-MethodSafe $owner.Ext $n; if ($m) { $methods += $m } else { $ambiguous = $true } }
+		}
+		if (-not $qualified -and -not $ambiguous -and -not $methods.Count -and $script:bslGlobalNames -and $script:bslGlobalNames.ContainsKey($name)) {
+			$owners = @(Get-BslGlobalReferences $name | ForEach-Object { $_.Context } | Sort-Object { $_.Rel } -Unique)
+			$ambiguous = $owners.Count -gt 1
+			foreach ($gc in $owners) {
+				$cn = @(Get-ProcNames $gc.Cfg | Where-Object { $_ -ieq $name })
+				$en = @(Get-ProcNames $gc.Ext | Where-Object { $_ -ieq $name -or $gc.Methods[$_] -ieq $name })
+				if ($cn.Count -gt 1 -or $en.Count -gt 1) { $ambiguous = $true }
+				foreach ($n in $cn) { $m = Get-MethodSafe $gc.Cfg $n; if ($m) { $methods += $m } else { $ambiguous = $true } }
+				foreach ($n in $en) { $m = Get-MethodSafe $gc.Ext $n; if ($m) { $methods += $m } else { $ambiguous = $true } }
+			}
+		}
+		if (-not $qualified -and -not $ambiguous -and -not $methods.Count -and $name -in @('Сообщить', 'Message')) { continue }
+		foreach ($m in $methods) { $m.CallValFlags = Get-ValFlags $m.ParamsText }
+		foreach ($j in $arguments.Keys) {
+			$unsafe = $ambiguous -or $methods.Count -eq 0 -or @($methods | Where-Object {
+				-not $_.IsAsync -and ($j -ge $_.CallValFlags.Count -or -not $_.CallValFlags[$j])
+			}).Count -gt 0
+			if ($unsafe) { [void]$written.Add($arguments[$j]) }
+		}
+	}
+	return ,$written
 }
 
 function Get-WordSet($code) {
@@ -5353,11 +5478,18 @@ function Get-InterceptOps($extM, $cfgM, [string]$type, $frame, [string]$deletion
 			$as = Get-AssignedNames $hc
 			$names = @($valNames | Where-Object { $as.Contains($_) })
 			if ($names.Count -gt 0) { return "the handler changes Знач parameter $(($names | ForEach-Object { $n = $_; @($cp | Where-Object { $_ -ieq $n })[0] }) -join ', '): the original did not see it" }
+			$as = Get-CallWrittenNames $hc $valNames $cp
+			$names = @($cp | Where-Object { $as.Contains($_.ToLowerInvariant()) })
+			if ($names.Count -gt 0) { return "the handler may change Знач parameter $($names -join ', ') through a call" }
 		} else {
 			$as = Get-AssignedNames $oc
 			$ws = Get-WordSet @(if ($from -le $last) { $hc[$from..$last] })
 			$names = @($valNames | Where-Object { $as.Contains($_) -and $ws.Contains($_) })
 			if ($names.Count -gt 0) { return "the original changes Знач parameter $(($names | ForEach-Object { $n = $_; @($cp | Where-Object { $_ -ieq $n })[0] }) -join ', '): the handler did not see it" }
+			$readValNames = @($valNames | Where-Object { $ws.Contains($_) })
+			$as = Get-CallWrittenNames $oc $readValNames $cp
+			$names = @($cp | Where-Object { $as.Contains($_.ToLowerInvariant()) })
+			if ($names.Count -gt 0) { return "the original may change Знач parameter $($names -join ', ') through a call" }
 		}
 		return $null
 	}
@@ -5486,11 +5618,11 @@ function Get-FormItemNames([string]$formXml) {
 function Add-OutName($byFile, $common, [string]$cfgFile, [string]$rel, [string]$name) {
 	$fk = $cfgFile.ToLower()
 	if (-not $byFile.ContainsKey($fk)) { $byFile[$fk] = @{} }
-	$new = -not $byFile[$fk].ContainsKey($name.ToLower())
-	$byFile[$fk][$name.ToLower()] = $name
+	$new = -not $byFile[$fk].ContainsKey("method:$name")
+	$byFile[$fk]["method:$name"] = $name
 	if ((Get-ModuleKind $rel) -eq 'common') {
 		$mod = ($rel -replace '\\', '/').Split('/')[1]
-		$common["$mod.$name".ToLower()] = "$mod.$name"
+		$common["method:$mod.$name".ToLower()] = "$mod.$name"
 	}
 	return $new
 }
@@ -5507,20 +5639,7 @@ function Get-UsedMissing($lines, $missing, $selected = $null, $params = $null) {
 		$t = $only[$lineIdx]
 		foreach ($m in [regex]::Matches($t, '[\w]+')) {
 			$k = $m.Value.ToLower()
-			if ($script:bslContext.Methods.ContainsKey($k)) {
-				$before2 = $t.Substring(0, $m.Index)
-				if ($before2 -match '([\w]+)\s*\.\s*$') {
-					if ($params -contains $Matches[1]) { continue }
-					$owner2 = Get-BslOwner $Matches[1] $script:bslContext
-					if (-not $owner2 -or $owner2 -ne $script:bslContext) { continue }
-				}
-			}
-			if ($missing.ContainsKey($k)) { $hit[$missing[$k]] = $true }
-		}
-		# A common module's method called from another module: Модуль.Метод
-		foreach ($m in [regex]::Matches($t, '([\w]+)\s*\.\s*([\w]+)')) {
-			if ($params -contains $m.Groups[1].Value) { continue }
-			$k = ($m.Groups[1].Value + '.' + $m.Groups[2].Value).ToLower()
+			if ($params -contains $k) { continue }
 			if ($missing.ContainsKey($k)) { $hit[$missing[$k]] = $true }
 		}
 	}
@@ -5535,6 +5654,7 @@ function Get-UsedMissing($lines, $missing, $selected = $null, $params = $null) {
 			$mod = ($ref.Context.Rel -replace '\\', '/').Split('/')[1]; $k = "$mod.$($ref.Name)".ToLower()
 		}
 		if ($ref.Context -and $ref.Context -ne $script:bslContext -and $ref.Context.Kind -eq 'application') { continue }
+		if ($ref.Kind -eq 'method') { $k = "method:$k" }
 		if ($missing.ContainsKey($k)) { $hit[$missing[$k]] = $true }
 	}
 	# Ordinal, case-insensitive: the same order in both ports, whatever the culture
@@ -5866,13 +5986,20 @@ if ($Mode -eq 'transfer') {
 	Initialize-BslCatalog $extDir0 $prefix
 	# --- Pass 1: what the check sees, object by object ---
 	$work = @()
+	$filteredOwn = @()
 	$cfgPools = @{}
 	if ($cfgInfo.ChildObjects) { foreach ($c in $cfgInfo.ChildObjects.ChildNodes) { if ($c.NodeType -eq 'Element') { if (-not $cfgPools.ContainsKey($c.LocalName)) { $cfgPools[$c.LocalName] = @() }; $cfgPools[$c.LocalName] += $c.InnerText.Trim() } } }
 	$allObjs = @()
 	if ($cp0.ChildObjects) { foreach ($c in $cp0.ChildObjects.ChildNodes) { if ($c.NodeType -eq 'Element' -and $c.LocalName -ne 'Language') { $allObjs += @{ Type = $c.LocalName; Name = $c.InnerText.Trim() } } } }
 	foreach ($obj in $allObjs) {
 		$id = "$($obj.Type).$($obj.Name)"
-		if (-not (Test-NameMatch $id)) { continue }
+		if (-not (Test-NameMatch $id)) {
+			if ($obj.Type -eq 'CommonModule') {
+				$rec = Get-TransferObject $ext $obj
+				$filteredOwn += @($rec.Items | Where-Object { $_.Plan.Kind -eq 'own' -and $_.Status -ne 'TRANSFERRED' })
+			}
+			continue
+		}
 		$matchedIds[$id.ToLower()] = $true
 		if ($obj.Type -eq 'Role') { $roles++; continue }
 		$rec = Get-TransferObject $ext $obj
@@ -6007,10 +6134,15 @@ if ($Mode -eq 'transfer') {
 	# calls them is left to a person (drop the call or the mark) rather than waiting
 	$tempByFile = @{}
 	$tempCommon = @{}
+	foreach ($it in $filteredOwn) {
+		$pl = $it.Plan
+		if ($it.Status -eq 'TEMPORARY') { [void](Add-OutName $tempByFile $tempCommon (Get-CfgPath $pl.Rel) $pl.Rel $pl.Name) }
+		else { [void](Add-OutName $outByFile $outCommon (Get-CfgPath $pl.Rel) $pl.Rel $pl.Name) }
+	}
 	foreach ($w in $work) {
 		foreach ($it in $w.Rec.Items) {
 			$pl = $it.Plan
-			if ($it.Status -ne 'TEMPORARY' -or -not $pl -or $pl.Kind -ne 'own' -or $pl.Hit) { continue }
+			if ($it.Status -ne 'TEMPORARY' -or -not $pl -or $pl.Kind -ne 'own') { continue }
 			[void](Add-OutName $tempByFile $tempCommon (Get-CfgPath $pl.Rel) $pl.Rel $pl.Name)
 		}
 	}
@@ -6045,7 +6177,7 @@ if ($Mode -eq 'transfer') {
 				$t = New-TItem $it.Status $it.Text $it.Loc $it.Section
 				$t.Plan = $pl
 				$t.Group = $it.Group; $t.Marked = $it.Marked; $t.Seq = $o.I
-				if ($pl -and $pl.Kind -eq 'own' -and ($it.Status -in @('NOT_TRANSFERRED', 'MANUAL') -or ($it.Status -eq 'DIVERGED' -and ($pl.LiteralMismatch -or $pl.DeclarationMismatch)))) { $ownItems += @{ Plan = $pl; T = $t } }
+				if ($pl -and $pl.Kind -eq 'own' -and $it.Status -in @('NOT_TRANSFERRED', 'MANUAL', 'DIVERGED')) { $ownItems += @{ Plan = $pl; T = $t } }
 				# A method with an &ИзменениеИКонтроль edit not in the configuration yet: an interceptor of it
 				# would move the lines the edit is anchored to
 				if ($pl -and $pl.Kind -eq 'control' -and $pl.CfgM -and @('TRANSFERRED', 'TEMPORARY') -notcontains $it.Status) {
@@ -6357,21 +6489,17 @@ if ($Mode -eq 'transfer') {
 					}
 					$fe = Get-FileEdits $cfgFile
 					if (-not $pl.Layout) { $pl.Layout = Get-ModuleLayout $pl.ExtLines }
-					if (-not $fe.TopKeys) { $fe.TopKeys = @{}; foreach ($key in (Get-TopCodeKeys $fe.File.Lines $prefix).Values) { $fe.TopKeys[$key] = $true } }
-					$el = $pl.Layout; $cl = $fe.Layout; $have = $fe.TopKeys
+					if (-not $fe.TopKeys) { $fe.TopKeys = Get-TopCodeKeys $fe.File.Lines $prefix }
+					$el = $pl.Layout; $cl = $fe.Layout
 					$extKeys = Get-TopCodeKeys $pl.ExtLines $prefix -Extension
+					$have = @{}; foreach ($v in $cl.Vars) { $have[$fe.TopKeys[[string]$v.Idx]] = $true }
 					$taken = @{}
 					foreach ($v in $cl.Vars) { foreach ($n in $v.Names) { $taken[$n.ToLower()] = $true } }
 					foreach ($n in @(Get-ProcNames $fe.File.Lines)) { $taken[$n.ToLower()] = $true }
 					# Each line once: a variable declared twice in the extension is declared once in the configuration
 					$seen = @{}
-					$stmts = @(); $stmtsHave = 0
-					foreach ($i in $el.Statements) {
-						$key = $extKeys[[string]$i]
-						if ($have.ContainsKey($key)) { $stmtsHave++; continue }
-						if ($seen.ContainsKey($key)) { continue }
-						$seen[$key] = $true; $stmts += $i
-					}
+					$matched = Get-ModuleStatementMatch $pl.ExtLines $el $extKeys $fe.File.Lines $cl $fe.TopKeys
+					$stmts = if ($matched.Found -lt $matched.Total) { @($el.Statements) } else { @() }
 					$todo = @(); $clash = @()
 					foreach ($v in $el.Vars) {
 						$key = $extKeys[[string]$v.Idx]
@@ -6401,15 +6529,32 @@ if ($Mode -eq 'transfer') {
 						$s1 = $stmts[-1]
 						$range = @($pl.ExtLines[$s0..$s1])
 						$why = $null
-						if ($stmtsHave -gt 0) { $why = 'statements of the module body are partly in config' }
-						elseif (@($range | Where-Object { ([string]$_).Trim().StartsWith('#') }).Count -gt 0) { $why = 'statements of the module body stand under preprocessor instructions' }
+						if ($matched.Any) { $why = 'statements of the module body are partly in config' }
+						elseif ($s0 -lt $el.AfterMethods -or @($el.Vars | Where-Object { $_.Idx -ge $s0 -and $_.Idx -le $s1 }).Count -gt 0) {
+							$why = 'statements of the module body are interleaved with declarations'
+						} elseif ((Get-MethodConditions (Get-EnclosingChain $pl.ExtLines $s0 (Get-ModuleLang $pl.ExtLines))).Count -gt 0 -or
+							@($range | Where-Object { ([string]$_).Trim().StartsWith('#') }).Count -gt 0) {
+							$why = 'statements of the module body stand under preprocessor instructions'
+						} elseif ((Get-MethodConditions (Get-EnclosingChain $fe.File.Lines (Get-ModuleTail $fe.File.Lines) 'en')).Count -gt 0) {
+							$why = 'module body has no unconditional insertion position'
+						}
 						if ($why) {
 							$t.Text = "$label — $why"
 							$t.Sub = @("from: extension $($pl.Rel):$($s0 + 1)-$($s1 + 1)", 'next: add them at the end of the configuration module by hand, then re-run -Mode check')
 							$titems += $t; continue
 						}
 						$blockedMethods = @{}
-						foreach ($methodMap in @($outByFile[$cfgFile.ToLower()], $outCommon)) {
+						$tempMethods = @{}
+						foreach ($methodMap in @($tempByFile[$cfgFile.ToLower()], $tempCommon)) {
+							if ($methodMap) { foreach ($name in $methodMap.Keys) { $tempMethods[$name] = $methodMap[$name] } }
+						}
+						$tempDeps = @(Get-UsedMissing $range $tempMethods)
+						if ($tempDeps.Count -gt 0) {
+							$t.Text = "$label — calls $($tempDeps -join ', '), marked as not for transfer"
+							$t.Sub = $whereSub + @('next: drop the call or remove the mark, then re-run -Mode transfer')
+							$titems += $t; continue
+						}
+						foreach ($methodMap in @($missingGlobal, $missingByObj[$w.Id], $outByFile[$cfgFile.ToLower()], $outCommon)) {
 							if ($methodMap) { foreach ($name in $methodMap.Keys) { $blockedMethods[$name] = $methodMap[$name] } }
 						}
 						$deps = @(Get-UsedMissing $range $blockedMethods)
@@ -6463,7 +6608,7 @@ if ($Mode -eq 'transfer') {
 				}
 				foreach ($m in @($outByFile[$cfgFile.ToLower()], $outCommon)) { if ($m) { foreach ($k in $m.Keys) { $missing[$k] = $m[$k] } } }
 				# A method calling itself does not wait for itself
-				if ($pl.Kind -eq 'own') { $missing.Remove($pl.Name.ToLower()) }
+				if ($pl.Kind -eq 'own') { $missing.Remove("method:$($pl.Name)") }
 				$selected2 = $null
 				if ($pl.Kind -eq 'control') {
 					$cp2 = Get-ControlProjection $pl.ExtM.BodyLines $fileMap $prefix $pl.ExtM.ParamNames
