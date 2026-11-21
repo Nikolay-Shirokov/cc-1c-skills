@@ -1,4 +1,4 @@
-﻿# cfe-patch-method v2.15 — Source-aware method interceptor for 1C extension (CFE)
+﻿# cfe-patch-method v2.16 — Source-aware method interceptor for 1C extension (CFE)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -280,7 +280,8 @@ function Get-EffectiveCondition {
 	if ($n -eq 1) { return $conds[0] }
 	$parts = @()
 	for ($j = 0; $j -lt ($n - 1); $j++) { $parts += "$kwNot ($($conds[$j]))" }
-	$parts += $conds[$n - 1]
+	$last = $conds[$n - 1]
+	$parts += $(if ($last -match '\b(?:Или|Or)\b') { "($last)" } else { $last })
 	return ($parts -join " $kwAnd ")
 }
 
@@ -290,10 +291,10 @@ function Get-EnclosingChain {
 	param($lines, [int]$targetIdx, [string]$lang)
 	$reRegion = '^#' + (Get-KwAlt 'Region') + '\s+(\S+)'
 	$reEndRegion = '^#' + (Get-KwAlt 'EndRegion')
-	$reIf = '^#' + (Get-KwAlt 'If') + '\s+(.+?)\s+' + (Get-KwAlt 'Then')
-	$reElsIf = '^#' + (Get-KwAlt 'ElsIf') + '\s+(.+?)\s+' + (Get-KwAlt 'Then')
-	$reElse = '^#' + (Get-KwAlt 'Else') + '(\s|$)'
-	$reEndIf = '^#' + (Get-KwAlt 'EndIf')
+	$reIf = '^#\s*' + (Get-KwAlt 'If') + '(?!\w)\s*(.+?)\s*(?<!\w)' + (Get-KwAlt 'Then') + '(?=\s|//|$)'
+	$reElsIf = '^#\s*' + (Get-KwAlt 'ElsIf') + '(?!\w)\s*(.+?)\s*(?<!\w)' + (Get-KwAlt 'Then') + '(?=\s|//|$)'
+	$reElse = '^#\s*' + (Get-KwAlt 'Else') + '(?=\s|//|$)'
+	$reEndIf = '^#\s*' + (Get-KwAlt 'EndIf') + '(?=\s|//|$)'
 	$stack = New-Object System.Collections.ArrayList
 	for ($i = 0; $i -lt $targetIdx; $i++) {
 		$t = $lines[$i].Trim()

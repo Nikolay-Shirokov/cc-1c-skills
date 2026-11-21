@@ -1,5 +1,5 @@
 ﻿#!/usr/bin/env python3
-# cfe-transfer v1.22 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+# cfe-transfer v1.24 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -10,6 +10,7 @@ import re
 import subprocess
 import sys
 import uuid
+from collections import Counter
 from lxml import etree
 
 # Регистронезависимый ввод — паритет с PS1: в PowerShell имена параметров и [ValidateSet]
@@ -254,17 +255,18 @@ def effective_condition(frame, lang):
     if n == 1:
         return conds[0]
     parts = ["%s (%s)" % (kw_not, conds[j]) for j in range(n - 1)]
-    parts.append(conds[n - 1])
+    last = conds[n - 1]
+    parts.append("(%s)" % last if re.search(r'\b(?:Или|Or)\b', last, re.I) else last)
     return (" %s " % kw_and).join(parts)
 
 
 def get_enclosing_chain(lines, target_idx, lang):
     re_region = re.compile(r'^#' + kw_alt("Region") + r'\s+(\S+)', re.IGNORECASE)
     re_end_region = re.compile(r'^#' + kw_alt("EndRegion"), re.IGNORECASE)
-    re_if = re.compile(r'^#' + kw_alt("If") + r'\s+(.+?)\s+' + kw_alt("Then"), re.IGNORECASE)
-    re_elsif = re.compile(r'^#' + kw_alt("ElsIf") + r'\s+(.+?)\s+' + kw_alt("Then"), re.IGNORECASE)
-    re_else = re.compile(r'^#' + kw_alt("Else") + r'(\s|$)', re.IGNORECASE)
-    re_endif = re.compile(r'^#' + kw_alt("EndIf"), re.IGNORECASE)
+    re_if = re.compile(r'^#\s*' + kw_alt("If") + r'(?!\w)\s*(.+?)\s*(?<!\w)' + kw_alt("Then") + r'(?=\s|//|$)', re.IGNORECASE)
+    re_elsif = re.compile(r'^#\s*' + kw_alt("ElsIf") + r'(?!\w)\s*(.+?)\s*(?<!\w)' + kw_alt("Then") + r'(?=\s|//|$)', re.IGNORECASE)
+    re_else = re.compile(r'^#\s*' + kw_alt("Else") + r'(?=\s|//|$)', re.IGNORECASE)
+    re_endif = re.compile(r'^#\s*' + kw_alt("EndIf") + r'(?=\s|//|$)', re.IGNORECASE)
     stack = []
     for i in range(target_idx):
         t = lines[i].strip()
@@ -2657,14 +2659,29 @@ def form_transfer_items(diff, form, cfg_form_xml, cfg_module_path, ext_dir, pref
     # Interceptor of a handler: the extension's handler code looked up in the configuration's one
     cfg_mod = read_bsl_lines(cfg_module_path)
     mod_rel = rel_path(ext_dir, form["module"]) if form["module"] and os.path.isfile(form["module"]) else ""
+    ext_method_names = Counter(name.lower() for name in get_proc_names(ext_mod or []))
+    cfg_method_names = Counter(name.lower() for name in get_proc_names(cfg_mod or []))
 
     def check_handler(label, ext_handler, cfg_handler, missing):
         ext_m = get_method_safe(ext_mod, ext_handler)
+        cfg_m = get_method_safe(cfg_mod, cfg_handler)
         loc = ("%s:%d" % (mod_rel, ext_m["decl_idx"] + 1)) if ext_m and mod_rel else ""
         mark = get_method_temp_mark(ext_mod, ext_m) if ext_m else None
+        reason = None
+        if ext_method_names[(ext_handler or "").lower()] > 1 or cfg_method_names[(cfg_handler or "").lower()] > 1:
+            reason = "multiple declarations of the same handler"
+        elif method_crosses_branch(ext_mod, ext_m) or method_crosses_branch(cfg_mod, cfg_m):
+            reason = "handler crosses a preprocessor branch boundary"
+        elif (ext_m and cfg_m
+              and method_condition_key(method_conditions(ext_m["chain"])) != method_condition_key(method_conditions(cfg_m["chain"]))):
+            reason = "preprocessor condition differs"
+        if reason:
+            manual = new_item("MANUAL", "%s (%s)" % (label, reason), loc, group)
+            manual["plan"] = {"kind": "form-handler", "rel": mod_rel, "ext_m": ext_m, "cfg_m": cfg_m,
+                              "manual_reason": reason, "blocked_handlers": [ext_handler]}
+            return set_temp_mark(manual, mark, label)
         if not cfg_handler:
             return set_temp_mark(new_item("NOT_TRANSFERRED", "%s (%s)" % (label, missing), loc, group), mark, label)
-        cfg_m = get_method_safe(cfg_mod, cfg_handler)
         if not ext_m:
             return new_item("NOT_TRANSFERRED", label + " (handler not found in extension module)", loc, group)
         if not cfg_m:
@@ -2692,7 +2709,7 @@ def form_transfer_items(diff, form, cfg_form_xml, cfg_module_path, ext_dir, pref
                     kind = get_call_type_kind(a["call_type"])
                     ext_m = get_method_safe(ext_mod, a["handler"]) if a["handler"] else None
                     cfg_m = get_method_safe(cfg_mod, cfg_handler) if cfg_handler else None
-                    if it and kind and ext_m and cfg_m and it["status"] != "TRANSFERRED":
+                    if it and not it.get("plan", {}).get("manual_reason") and kind and ext_m and cfg_m and it["status"] != "TRANSFERRED":
                         it["plan"] = {"kind": "intercept", "type": kind, "ext_m": ext_m, "cfg_m": cfg_m, "rel": mod_rel, "label": label}
                         it["plan_key"] = label
                     if it:
@@ -2711,6 +2728,17 @@ def form_transfer_items(diff, form, cfg_form_xml, cfg_module_path, ext_dir, pref
             ct_actions = [a for a in x["actions"] if a["call_type"]]
             if not hit:
                 cmd_own = []
+                if word == "command" and ni["status"] != "TEMPORARY":
+                    for a in x["actions"]:
+                        handler = check_handler(ni["text"], a["handler"], "", "")
+                        if not handler.get("plan", {}).get("manual_reason"):
+                            continue
+                        ni = handler
+                        ni["plan"]["blocked_handlers"] = [action["handler"] for action in x["actions"]]
+                        break
+                if ni.get("plan", {}).get("manual_reason"):
+                    items.append(ni)
+                    continue
                 if word == "command" and ct_actions:
                     for a in ct_actions:
                         m = get_method_safe(ext_mod, a["handler"]) if a["handler"] else None
@@ -2790,13 +2818,13 @@ def form_transfer_items(diff, form, cfg_form_xml, cfg_module_path, ext_dir, pref
         kind = get_call_type_kind(e["call_type"])
         ext_m = get_method_safe(ext_mod, e["handler"]) if e["handler"] else None
         cfg_m = get_method_safe(cfg_mod, cfg_handler) if cfg_handler else None
-        if it and kind and ext_m and cfg_m and it["status"] != "TRANSFERRED":
+        if it and not it.get("plan", {}).get("manual_reason") and kind and ext_m and cfg_m and it["status"] != "TRANSFERRED":
             it["plan"] = {"kind": "intercept", "type": kind, "ext_m": ext_m, "cfg_m": cfg_m, "rel": mod_rel,
                           "label": "event " + event_text(e)}
             it["plan_key"] = "event " + event_text(e)
         # An event the configuration has no handler for — whatever its callType: there is nothing to intercept,
         # the event is the extension's own. It goes into the configuration's form and its handler as own method
-        if it and ext_m and not cfg_handler and it["status"] != "TRANSFERRED":
+        if it and not it.get("plan", {}).get("manual_reason") and ext_m and not cfg_handler and it["status"] != "TRANSFERRED":
             it["plan"] = {"kind": "event-bind", "ext_m": ext_m, "ext_lines": ext_mod, "rel": mod_rel,
                           "scope": e["scope"], "name": e["name"], "handler": e["handler"]}
             it["plan_key"] = "event " + (e["scope"] + "." if e["scope"] else "") + e["name"]
@@ -2866,6 +2894,44 @@ def own_method_context(method):
     return context
 
 
+def method_conditions(chain):
+    return [frame["cond"] for frame in chain if frame["kind"] == "if"]
+
+
+def method_crosses_branch(lines, method):
+    if not method:
+        return False
+    depth = 0
+    for line in lines[method["decl_idx"]:method["body_end_idx"] + 1]:
+        if re.match(r'^\s*#\s*(?:Если|If)\b', line, re.I):
+            depth += 1
+        elif re.match(r'^\s*#\s*(?:КонецЕсли|EndIf)\b', line, re.I):
+            if depth == 0:
+                return True
+            depth -= 1
+        elif depth == 0 and re.match(r'^\s*#\s*(?:ИначеЕсли|Иначе|ElsIf|Else)\b', line, re.I):
+            return True
+    return depth != 0
+
+
+# Compare the existing condition expressions without attempting logical simplification.
+PREPROCESSOR_WORDS = {
+    'не': 'not', 'и': 'and', 'или': 'or', 'клиент': 'client', 'сервер': 'server',
+    'наклиенте': 'atclient', 'насервере': 'atserver', 'внешнеесоединение': 'externalconnection',
+    'тонкийклиент': 'thinclient', 'вебклиент': 'webclient', 'мобильныйклиент': 'mobileclient',
+    'толстыйклиентобычноеприложение': 'thickclientordinaryapplication',
+    'толстыйклиентуправляемоеприложение': 'thickclientmanagedapplication',
+    'мобильноеприложениеклиент': 'mobileappclient', 'мобильноеприложениесервер': 'mobileappserver',
+    'мобильныйавтономныйсервер': 'mobilestandaloneserver',
+}
+
+
+def method_condition_key(conditions):
+    return "\n".join(
+        " ".join(PREPROCESSOR_WORDS.get(word, word) for word in re.findall(r'\w+|[^\s]', condition.lower()))
+        for condition in conditions)
+
+
 def own_declaration_difference(ext_lines, ext_method, cfg_lines, cfg_method):
     if ext_method["is_function"] != cfg_method["is_function"]:
         return "procedure/function differs"
@@ -2875,6 +2941,8 @@ def own_declaration_difference(ext_lines, ext_method, cfg_lines, cfg_method):
         return "Export modifier differs"
     if own_method_context(ext_method) != own_method_context(cfg_method):
         return "execution context differs"
+    if method_condition_key(method_conditions(ext_method["chain"])) != method_condition_key(method_conditions(cfg_method["chain"])):
+        return "preprocessor condition differs"
     left = own_method_parameters(ext_method["params_text"])
     right = own_method_parameters(cfg_method["params_text"])
     if left is None or right is None:
@@ -2963,8 +3031,14 @@ def module_transfer_items(bsl, ext_dir, config_path, prefix, skip_handlers, form
             it["status"] = "MANUAL"
             it["text"] = "%s (%s)" % (plan["label"], plan["manual_reason"])
     cfg_names = get_proc_names(cfg_lines) if cfg_lines is not None else []
+    cfg_counts = Counter(name.lower() for name in cfg_names)
+    ext_counts = Counter(name.lower() for name in get_proc_names(ext_lines))
+    seen_own = set()
     for od in mc["own"]:
         pn = od["name"]
+        if pn.lower() in seen_own:
+            continue
+        seen_own.add(pn.lower())
         ext_m = get_method_safe(ext_lines, pn)
         if not ext_m:
             continue
@@ -2977,7 +3051,14 @@ def module_transfer_items(bsl, ext_dir, config_path, prefix, skip_handlers, form
         cfg_m = None
         literal_mismatch = False
         declaration_mismatch = None
-        if not hits:
+        manual_reason = None
+        if ext_counts[pn.lower()] > 1 or any(cfg_counts[h.lower()] > 1 for h in hits):
+            manual_reason = "multiple declarations of the same method"
+            it = new_item("MANUAL", "method %s (%s)" % (pn, manual_reason), loc)
+        elif method_crosses_branch(ext_lines, ext_m):
+            manual_reason = "method crosses a preprocessor branch boundary"
+            it = new_item("MANUAL", "method %s (%s)" % (pn, manual_reason), loc)
+        elif not hits:
             it = new_item("NOT_TRANSFERRED", "method " + pn, loc)
         else:
             ext_sig = "\n".join(sig_lines(protect_bsl_parameter_members(convert_bsl_code(ext_m["body_lines"], {}, ext_m["param_names"]), ext_m["param_names"]), prefix))
@@ -2985,6 +3066,9 @@ def module_transfer_items(bsl, ext_dir, config_path, prefix, skip_handlers, form
             for h in hits:
                 m = get_method_safe(cfg_lines, h)
                 if not m:
+                    continue
+                if method_crosses_branch(cfg_lines, m):
+                    manual_reason = "method crosses a preprocessor branch boundary"
                     continue
                 if "\n".join(sig_lines(protect_bsl_parameter_members(m["body_lines"], m["param_names"]), prefix)).lower() == ext_sig.lower():
                     reason = own_declaration_difference(ext_lines, ext_m, cfg_lines, m)
@@ -2999,13 +3083,19 @@ def module_transfer_items(bsl, ext_dir, config_path, prefix, skip_handlers, form
             if not hit:
                 hit = hits[0]
                 cfg_m = get_method_safe(cfg_lines, hit)
+            if (not same and not declaration_mismatch and cfg_m
+                    and method_condition_key(method_conditions(ext_m["chain"])) != method_condition_key(method_conditions(cfg_m["chain"]))):
+                declaration_mismatch = "preprocessor condition differs"
             as_ = (" (found as %s)" % hit) if hit.lower() != pn.lower() else ""
             if same:
+                manual_reason = None
                 it = new_item("TRANSFERRED", "method %s%s" % (pn, as_), loc)
+            elif manual_reason:
+                it = new_item("MANUAL", "method %s%s (%s)" % (pn, as_, manual_reason), loc)
             else:
                 reason = "declaration differs: " + declaration_mismatch if declaration_mismatch else "body differs"
                 it = new_item("DIVERGED", "method %s%s (%s)" % (pn, as_, reason), loc)
-        it["plan"] = {"kind": "own", "rel": rel, "ext_m": ext_m, "ext_lines": ext_lines, "cfg_m": cfg_m, "name": pn, "hit": hit, "cfg_missing": cfg_lines is None, "literal_mismatch": literal_mismatch, "declaration_mismatch": declaration_mismatch}
+        it["plan"] = {"kind": "own", "rel": rel, "ext_m": ext_m, "ext_lines": ext_lines, "cfg_m": cfg_m, "name": pn, "hit": hit, "cfg_missing": cfg_lines is None, "literal_mismatch": literal_mismatch, "declaration_mismatch": declaration_mismatch, "manual_reason": manual_reason}
         items.append(set_temp_mark(it, mark, "method " + pn))
     # Code outside methods (module variables, statements of the module body): its lines looked up among
     # the configuration module's code outside methods, prefixes left out; order is not compared. A line
@@ -5289,6 +5379,38 @@ def get_method_place(cfg_lines, regions, ext_m, role, set_, created):
     return {"at": get_module_end(cfg_lines), "region": ""}
 
 
+def resolve_method_conditions(lines, place, method):
+    conditions = method_conditions(method["chain"])
+    at = get_module_end(lines) if place.get("create") else place["at"]
+    target = method_conditions(get_enclosing_chain(lines, at, method["lang"]))
+    key = method_condition_key(conditions)
+    target_key = method_condition_key(target)
+    if target and target_key != key:
+        at = get_module_end(lines)
+        target = method_conditions(get_enclosing_chain(lines, at, method["lang"]))
+        target_key = method_condition_key(target)
+        if target and target_key != key:
+            # Look before the guard of the first statement, without crossing an existing method.
+            after_methods = get_module_layout(lines)["after_methods"]
+            whole_module_guard = get_module_tail(lines) < len(lines)
+            for i in range(at - 1, after_methods - 1, -1):
+                if not re.match(r'^\s*#\s*(?:Если|If|ИначеЕсли|ElsIf|Иначе|Else)\b', lines[i], re.I):
+                    continue
+                scope = method_conditions(get_enclosing_chain(lines, i, method["lang"]))
+                scope_key = method_condition_key(scope)
+                if (scope and scope_key == key) or (not scope and not whole_module_guard):
+                    at, target_key = i, scope_key
+                    break
+            else:
+                return None
+        place = {"at": at, "region": ""}
+    if target_key == key:
+        place.update(guards=[], guard_key="")
+    else:
+        place.update(guards=conditions, guard_key=key)
+    return place
+
+
 def get_module_end(lines):
     """Where methods appended to a module go: before the statements of the module body after the last method
     (a method after them would not compile), else the module's tail (get_module_tail)."""
@@ -5314,7 +5436,7 @@ def get_module_tail(lines):
         return t == "" or t.startswith("//")
 
     def pp(t, words):
-        return re.match(r'^\s*#(' + words + r')(?!\w)', t, re.I) is not None
+        return re.match(r'^\s*#\s*(' + words + r')(?!\w)', t, re.I) is not None
 
     i = n - 1
     while i >= 0 and skip(lines[i]):
@@ -5949,7 +6071,7 @@ def test_own_result(plan, fe, file_map):
     return "\n".join(sig_lines(convert_bsl_code(plan["ext_m"]["body_lines"], file_map, plan["ext_m"]["param_names"]), TRANSFER_PREFIX)).lower() == "\n".join(sig_lines(conv, TRANSFER_PREFIX)).lower()
 
 
-def get_own_method_block(ext_lines, ext_m, frame, file_map):
+def get_own_method_block(ext_lines, ext_m, frame, file_map, place):
     """An own method as the configuration gets it: the description comments above it, the directive, the
     declaration through Конец*; names converted; begin comment on top, end comment on the Конец* line."""
     start = ext_m["decl_idx"]
@@ -5964,6 +6086,25 @@ def get_own_method_block(ext_lines, ext_m, frame, file_map):
     out.extend(conv)
     if frame["end"]:
         out[-1] = out[-1] + " " + frame["end"]
+    return {"lines": out, "guards": place["guards"], "guard_key": place["guard_key"], "lang": ext_m["lang"]}
+
+
+def join_own_method_blocks(blocks):
+    out = []
+    previous = None
+    for block in blocks:
+        same_guard = previous is not None and previous["guard_key"] == block["guard_key"]
+        if previous is not None and not same_guard:
+            out.extend(["#" + BSL_KW[previous["lang"]]["EndIf"]] * len(previous["guards"]))
+        if out:
+            out.append("")
+        if not same_guard:
+            keywords = BSL_KW[block["lang"]]
+            out.extend("#%s %s %s" % (keywords["If"], guard, keywords["Then"]) for guard in block["guards"])
+            previous = block
+        out.extend(block["lines"])
+    if previous is not None:
+        out.extend(["#" + BSL_KW[previous["lang"]]["EndIf"]] * len(previous["guards"]))
     return out
 
 
@@ -5989,35 +6130,42 @@ def write_file_edits():
         lines = list(fe["file"]["lines"])
         repl = list(fe["repl"])
         for at, o in fe["own_at"].items():
-            blk = []
-            for b in o["blocks"]:
-                if blk:
-                    blk.append("")
-                blk.extend(b)
+            blk = join_own_method_blocks(o["blocks"])
             repl.append({"start": at, "end": at, "lines": get_spaced_block(fe["file"]["lines"], at, blk), "seq": o["seq"]})
+        region_at = get_module_end(fe["file"]["lines"]) if fe["create_order"] else -1
+        end_at = region_at
+        tail_at = get_module_tail(fe["file"]["lines"]) if fe["tail"] else -1
+        body_at = tail_at
         for r in sorted(repl, key=lambda x: (x["start"], x["seq"]), reverse=True):
+            # Keep the original insertion scope even when edits add a new conditional block at this spot.
+            delta = len(r["lines"]) - (r["end"] - r["start"])
+            if r["end"] <= region_at:
+                end_at += delta
+            if r["end"] <= tail_at:
+                body_at += delta
             lines[r["start"]:r["end"]] = list(r["lines"])
         if fe["create_order"]:
             lang = get_module_lang(fe["file"]["lines"])
-            end_at = get_module_end(lines)
             prev = lines[end_at - 1] if end_at > 0 else ""
             add = []
             for name in fe["create_order"]:
                 if add or prev.strip() != "":
                     add.append("")
                 add.append("#%s %s" % (BSL_KW[lang]["Region"], name))
-                for blk in fe["create"][name]:
-                    add.append("")
-                    add.extend(blk)
+                add.append("")
+                add.extend(join_own_method_blocks(fe["create"][name]))
                 add.append("")
                 add.append("#" + BSL_KW[lang]["EndRegion"])
             if end_at < len(lines) and lines[end_at].strip() != "":
                 add.append("")
             lines[end_at:end_at] = add
+            if region_at <= tail_at:
+                body_at += len(add)
         # Statements of the module body: after the configuration's own, at the tail
         for blk in fe["tail"]:
-            at = get_module_tail(lines)
-            lines[at:at] = get_spaced_block(lines, at, blk)
+            spaced = get_spaced_block(lines, body_at, blk)
+            lines[body_at:body_at] = spaced
+            body_at += len(spaced)
         write_bsl_file(fe["file"], lines)
         changed.append(fe["file"]["path"])
     return changed
@@ -6395,7 +6543,7 @@ def main():
         for w in work:
             for it in w["rec"]["items"]:
                 pl = it.get("plan")
-                if not pl or pl["kind"] != "own":
+                if not pl or pl["kind"] != "own" or pl.get("manual_reason"):
                     continue
                 cfg_file = os.path.abspath(os.path.join(config_path, pl["rel"]))
                 fk = cfg_file.lower()
@@ -6496,6 +6644,9 @@ def main():
                         continue
                     if pl and pl.get("manual_reason"):
                         t["sub"] = get_where_lines(pl, "apply by hand, then re-run -Mode check")
+                        for handler in pl.get("blocked_handlers", []):
+                            if handler and add_out_name(out_by_file, out_common, os.path.abspath(os.path.join(config_path, pl["rel"])), pl["rel"], handler):
+                                again = True
                         titems.append(t)
                         continue
                     problem = get_bsl_plan_issue(pl)
@@ -6595,8 +6746,12 @@ def main():
                                 role = get_method_role(h["handler"], "form", bind, notify, is_export(pl["ext_lines"], h["ext_m"]))
                                 created = {k.lower() for k in fw["create_order"]}
                                 place = get_method_place(fw["file"]["lines"], fw["regions"], h["ext_m"], role, set_, created)
+                                place = resolve_method_conditions(fw["file"]["lines"], place, h["ext_m"])
+                                if not place:
+                                    conflict = "no compatible preprocessor scope for the handler"
+                                    break
                                 mod_adds.append({"name": tn["name"], "note": tn["note"], "fw": fw, "place": place,
-                                                 "block": get_own_method_block(pl["ext_lines"], h["ext_m"], frame, map_ref),
+                                                 "block": get_own_method_block(pl["ext_lines"], h["ext_m"], frame, map_ref, place),
                                                  "where": ""})
                             if conflict:
                                 for k in map_added:
@@ -7067,7 +7222,13 @@ def main():
                     role = get_method_role(pl["name"], kind_mod, bind, notify, is_export(pl["ext_lines"], pl["ext_m"]))
                     created = {k.lower() for k in fe["create_order"]}
                     place = get_method_place(fe["file"]["lines"], fe["regions"], pl["ext_m"], role, set_, created)
-                    block = get_own_method_block(pl["ext_lines"], pl["ext_m"], frame, file_map)
+                    place = resolve_method_conditions(fe["file"]["lines"], place, pl["ext_m"])
+                    if not place:
+                        t["text"] = "%s — no compatible preprocessor scope" % label
+                        t["sub"] = get_where_lines(pl, "choose a placement with matching conditions, then re-run -Mode check")
+                        titems.append(t)
+                        continue
+                    block = get_own_method_block(pl["ext_lines"], pl["ext_m"], frame, file_map, place)
                     if not test_own_result(pl, fe, file_map):
                         t["status"] = "CONFLICT"
                         t["text"] = "%s — after the transfer the check would not find it under %s; not changed" % (label, pl["target"]["name"])

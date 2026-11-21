@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# cfe-patch-method v2.15 — Source-aware method interceptor for 1C extension (CFE)
+# cfe-patch-method v2.16 — Source-aware method interceptor for 1C extension (CFE)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -389,17 +389,18 @@ def effective_condition(frame, lang):
     if n == 1:
         return conds[0]
     parts = ["%s (%s)" % (kw_not, conds[j]) for j in range(n - 1)]
-    parts.append(conds[n - 1])
+    last = conds[n - 1]
+    parts.append("(%s)" % last if re.search(r'\b(?:Или|Or)\b', last, re.I) else last)
     return (" %s " % kw_and).join(parts)
 
 
 def get_enclosing_chain(lines, target_idx, lang):
     re_region = re.compile(r'^#' + kw_alt("Region") + r'\s+(\S+)', re.IGNORECASE)
     re_end_region = re.compile(r'^#' + kw_alt("EndRegion"), re.IGNORECASE)
-    re_if = re.compile(r'^#' + kw_alt("If") + r'\s+(.+?)\s+' + kw_alt("Then"), re.IGNORECASE)
-    re_elsif = re.compile(r'^#' + kw_alt("ElsIf") + r'\s+(.+?)\s+' + kw_alt("Then"), re.IGNORECASE)
-    re_else = re.compile(r'^#' + kw_alt("Else") + r'(\s|$)', re.IGNORECASE)
-    re_endif = re.compile(r'^#' + kw_alt("EndIf"), re.IGNORECASE)
+    re_if = re.compile(r'^#\s*' + kw_alt("If") + r'(?!\w)\s*(.+?)\s*(?<!\w)' + kw_alt("Then") + r'(?=\s|//|$)', re.IGNORECASE)
+    re_elsif = re.compile(r'^#\s*' + kw_alt("ElsIf") + r'(?!\w)\s*(.+?)\s*(?<!\w)' + kw_alt("Then") + r'(?=\s|//|$)', re.IGNORECASE)
+    re_else = re.compile(r'^#\s*' + kw_alt("Else") + r'(?=\s|//|$)', re.IGNORECASE)
+    re_endif = re.compile(r'^#\s*' + kw_alt("EndIf") + r'(?=\s|//|$)', re.IGNORECASE)
     stack = []
     for i in range(target_idx):
         t = lines[i].strip()

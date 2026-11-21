@@ -56,13 +56,13 @@
     {
       "writeFile": {
         "path": "CommonModules/М/Ext/Module.bsl",
-        "content": "#Область СлужебныеПроцедурыИФункции\n\nПроцедура А() Экспорт\n\tХ = 1;\n\tЗаписать();\nКонецПроцедуры\n\nПроцедура Б() Экспорт\n\tНачало();\n\tУдалить1();\n\tКонец();\nКонецПроцедуры\n\nПроцедура В() Экспорт\n\tХ = 1;\n\tПроверить();\n\tЗаписать();\nКонецПроцедуры\n\nПроцедура Г() Экспорт\n\tА();\n\tБ();\n\tА();\n\tВ();\nКонецПроцедуры\n\n#КонецОбласти\n\nProcedure InsertRepeat() Export\n    A();\nEndProcedure\nProcedure DeleteRepeat() Export\n    A();\n    A();\n    A();\n    A();\nEndProcedure\n"
+        "content": "#Область СлужебныеПроцедурыИФункции\n\nПроцедура А() Экспорт\n\tХ = 1;\n\tЗаписать();\nКонецПроцедуры\n\nПроцедура Б() Экспорт\n\tНачало();\n\tУдалить1();\n\tКонец();\nКонецПроцедуры\n\nПроцедура В() Экспорт\n\tХ = 1;\n\tПроверить();\n\tЗаписать();\nКонецПроцедуры\n\nПроцедура Г() Экспорт\n\tА();\n\tБ();\n\tА();\n\tВ();\nКонецПроцедуры\n\n#КонецОбласти\n\nProcedure InsertRepeat() Export\n    A();\nEndProcedure\nProcedure DeleteRepeat() Export\n    A();\n    A();\n    A();\n    A();\nEndProcedure\n\n#Если Сервер Тогда\n#Region SameScope\nProcedure BaseServer() Export\n    Message(\"scope\");\nEndProcedure\n#EndRegion\n#КонецЕсли\n\n#If Client Then\n#Region DifferentScope\nProcedure BaseClient() Export\n    Message(\"scope\");\nEndProcedure\n#EndRegion\n#EndIf\n"
       }
     },
     {
       "writeFile": {
         "path": "cfe/CommonModules/М/Ext/Module.bsl",
-        "content": "&ИзменениеИКонтроль(\"А\")\nПроцедура Тест_А()\n\tХ = 1;\n\t#Вставка // проверка прав\n\tПроверитьПрава();\n\t#КонецВставки\n\tЗаписать();\nКонецПроцедуры\n\n&ИзменениеИКонтроль(\"Б\")\nПроцедура Тест_Б()\n\t#Вставка\n\tНачать();\n\t#КонецВставки\n\tНачало();\n\t#Удаление\n\tУдалить1();\n\t#КонецУдаления\n\tКонец();\nКонецПроцедуры\n\n&ИзменениеИКонтроль(\"В\")\nПроцедура Тест_В()\n\tХ = 1;\n\t#Вставка\n\tПроверить();\n\t#КонецВставки\n\tЗаписать();\n\t#Вставка\n\tТест_Сообщить();\n\t#КонецВставки\nКонецПроцедуры\n\n&ИзменениеИКонтроль(\"Г\")\nПроцедура Тест_Г()\n\tА();\n\tБ();\n\t#Удаление\n\tА();\n\t#КонецУдаления\n\tВ();\nКонецПроцедуры\n\nПроцедура Тест_Сообщить() Экспорт\n\tСообщить(\"Готово\");\nКонецПроцедуры\n\nФункция Тест_Сумма(А, Б)\n\tВозврат А + Б;\nКонецФункции\n\n&ChangeAndValidate(\"InsertRepeat\")\nProcedure Test_InsertRepeat()\n#Insert\n    A();\n#EndInsert\n    A();\nEndProcedure\n&ChangeAndValidate(\"DeleteRepeat\")\nProcedure Test_DeleteRepeat()\n    A();\n#Delete\n    A();\n#EndDelete\n    A();\n    A();\nEndProcedure\n"
+        "content": "&ИзменениеИКонтроль(\"А\")\nПроцедура Тест_А()\n\tХ = 1;\n\t#Вставка // проверка прав\n\tПроверитьПрава();\n\t#КонецВставки\n\tЗаписать();\nКонецПроцедуры\n\n&ИзменениеИКонтроль(\"Б\")\nПроцедура Тест_Б()\n\t#Вставка\n\tНачать();\n\t#КонецВставки\n\tНачало();\n\t#Удаление\n\tУдалить1();\n\t#КонецУдаления\n\tКонец();\nКонецПроцедуры\n\n&ИзменениеИКонтроль(\"В\")\nПроцедура Тест_В()\n\tХ = 1;\n\t#Вставка\n\tПроверить();\n\t#КонецВставки\n\tЗаписать();\n\t#Вставка\n\tТест_Сообщить();\n\t#КонецВставки\nКонецПроцедуры\n\n&ИзменениеИКонтроль(\"Г\")\nПроцедура Тест_Г()\n\tА();\n\tБ();\n\t#Удаление\n\tА();\n\t#КонецУдаления\n\tВ();\nКонецПроцедуры\n\nПроцедура Тест_Сообщить() Экспорт\n\tСообщить(\"Готово\");\nКонецПроцедуры\n\nФункция Тест_Сумма(А, Б)\n\tВозврат А + Б;\nКонецФункции\n\n&ChangeAndValidate(\"InsertRepeat\")\nProcedure Test_InsertRepeat()\n#Insert\n    A();\n#EndInsert\n    A();\nEndProcedure\n&ChangeAndValidate(\"DeleteRepeat\")\nProcedure Test_DeleteRepeat()\n    A();\n#Delete\n    A();\n#EndDelete\n    A();\n    A();\nEndProcedure\n\n# If Server Then\nProcedure Тест_ServerOne() Export\n    Message(\"scope\");\nEndProcedure\n\nProcedure Тест_ServerTwo() Export\n    Message(\"scope\");\nEndProcedure\n#ElsIf Client Or ExternalConnection Then\nProcedure Тест_ElseIfScope() Export\n    Message(\"scope\");\nEndProcedure\n#Else// comment\nProcedure Тест_ElseScope() Export\n    Message(\"scope\");\nEndProcedure\n#EndIf\n\n#If Server Then\nProcedure Тест_ServerTail() Export\n    Message(\"scope\");\nEndProcedure\n#If Not ExternalConnection Then\nProcedure Тест_NestedScope() Export\n    Message(\"scope\");\nEndProcedure\n#EndIf\n#EndIf\n\n#If Server Then\n#Region SameScope\nProcedure Тест_SameScopeMethod() Export\n    Message(\"scope\");\nEndProcedure\n#EndRegion\n#EndIf\n\n#If Server Then\n#Region DifferentScope\nProcedure Тест_OtherScopeMethod() Export\n    Message(\"scope\");\nEndProcedure\n#EndRegion\n#EndIf\n"
       }
     },
     {
@@ -86,7 +86,7 @@
   "expect": {
     "stdoutContains": [
       "All changes already transferred.",
-      "=== Summary Тест: 0 transferred now · 8 already transferred · 1 role, not transferred ==="
+      "=== Summary Тест: 0 transferred now · 16 already transferred · 1 role, not transferred ==="
     ],
     "stdoutNotContains": [
       "Changed files:"
@@ -99,6 +99,30 @@
       {
         "file": "CommonModules/М/Ext/Module.bsl",
         "text": "Procedure DeleteRepeat() Export\n    A();\n//    A();\n    A();\n    A();\nEndProcedure\n"
+      },
+      {
+        "file": "CommonModules/М/Ext/Module.bsl",
+        "text": "#If Server Then\nProcedure ServerOne() Export\n    Message(\"scope\");\nEndProcedure\n\nProcedure ServerTwo() Export\n    Message(\"scope\");\nEndProcedure\n#EndIf"
+      },
+      {
+        "file": "CommonModules/М/Ext/Module.bsl",
+        "text": "#If Not (Server) And (Client Or ExternalConnection) Then\nProcedure ElseIfScope() Export\n    Message(\"scope\");\nEndProcedure\n#EndIf"
+      },
+      {
+        "file": "CommonModules/М/Ext/Module.bsl",
+        "text": "#If Not (Server) And Not (Client Or ExternalConnection) Then\nProcedure ElseScope() Export\n    Message(\"scope\");\nEndProcedure\n#EndIf"
+      },
+      {
+        "file": "CommonModules/М/Ext/Module.bsl",
+        "text": "#If Server Then\n#If Not ExternalConnection Then\nProcedure NestedScope() Export\n    Message(\"scope\");\nEndProcedure\n#EndIf\n#EndIf"
+      },
+      {
+        "file": "CommonModules/М/Ext/Module.bsl",
+        "text": "#Region SameScope\nProcedure BaseServer() Export\n    Message(\"scope\");\nEndProcedure\n\nProcedure SameScopeMethod() Export\n    Message(\"scope\");\nEndProcedure\n\n#EndRegion"
+      },
+      {
+        "file": "CommonModules/М/Ext/Module.bsl",
+        "text": "Procedure BaseClient() Export\n    Message(\"scope\");\nEndProcedure\n#EndRegion\n#EndIf\n\n#If Server Then\nProcedure OtherScopeMethod() Export\n    Message(\"scope\");\nEndProcedure\n#EndIf"
       }
     ]
   }

@@ -1,4 +1,4 @@
-﻿# cfe-transfer v1.22 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+﻿# cfe-transfer v1.24 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -313,7 +313,8 @@ function Get-EffectiveCondition {
 	if ($n -eq 1) { return $conds[0] }
 	$parts = @()
 	for ($j = 0; $j -lt ($n - 1); $j++) { $parts += "$kwNot ($($conds[$j]))" }
-	$parts += $conds[$n - 1]
+	$last = $conds[$n - 1]
+	$parts += $(if ($last -match '\b(?:Или|Or)\b') { "($last)" } else { $last })
 	return ($parts -join " $kwAnd ")
 }
 
@@ -323,10 +324,10 @@ function Get-EnclosingChain {
 	param($lines, [int]$targetIdx, [string]$lang)
 	$reRegion = '^#' + (Get-KwAlt 'Region') + '\s+(\S+)'
 	$reEndRegion = '^#' + (Get-KwAlt 'EndRegion')
-	$reIf = '^#' + (Get-KwAlt 'If') + '\s+(.+?)\s+' + (Get-KwAlt 'Then')
-	$reElsIf = '^#' + (Get-KwAlt 'ElsIf') + '\s+(.+?)\s+' + (Get-KwAlt 'Then')
-	$reElse = '^#' + (Get-KwAlt 'Else') + '(\s|$)'
-	$reEndIf = '^#' + (Get-KwAlt 'EndIf')
+	$reIf = '^#\s*' + (Get-KwAlt 'If') + '(?!\w)\s*(.+?)\s*(?<!\w)' + (Get-KwAlt 'Then') + '(?=\s|//|$)'
+	$reElsIf = '^#\s*' + (Get-KwAlt 'ElsIf') + '(?!\w)\s*(.+?)\s*(?<!\w)' + (Get-KwAlt 'Then') + '(?=\s|//|$)'
+	$reElse = '^#\s*' + (Get-KwAlt 'Else') + '(?=\s|//|$)'
+	$reEndIf = '^#\s*' + (Get-KwAlt 'EndIf') + '(?=\s|//|$)'
 	$stack = New-Object System.Collections.ArrayList
 	for ($i = 0; $i -lt $targetIdx; $i++) {
 		$t = $lines[$i].Trim()
@@ -2447,13 +2448,28 @@ function Get-FormTransferItems($diff, $form, [string]$cfgFormXml, [string]$cfgMo
 	# Interceptor of a handler: the extension's handler code looked up in the configuration's one
 	$cfgMod = Read-BslLines $cfgModulePath
 	$modRel = if ($form.Module -and (Test-Path -LiteralPath $form.Module)) { Get-RelPath $extDir $form.Module } else { '' }
+	$extMethodNames = @(Get-ProcNames $extMod)
+	$cfgMethodNames = @(Get-ProcNames $cfgMod)
 	$checkHandler = {
 		param([string]$label, [string]$extHandler, [string]$cfgHandler, [string]$missing)
 		$extM = Get-MethodSafe $extMod $extHandler
+		$cfgM = Get-MethodSafe $cfgMod $cfgHandler
 		$loc = if ($extM -and $modRel) { "${modRel}:$($extM.DeclIdx + 1)" } else { '' }
 		$mark = if ($extM) { Get-MethodTempMark $extMod $extM } else { $null }
+		$reason = $null
+		if (@($extMethodNames -ieq $extHandler).Count -gt 1 -or @($cfgMethodNames -ieq $cfgHandler).Count -gt 1) {
+			$reason = 'multiple declarations of the same handler'
+		} elseif ((Test-MethodCrossesBranch $extMod $extM) -or (Test-MethodCrossesBranch $cfgMod $cfgM)) {
+			$reason = 'handler crosses a preprocessor branch boundary'
+		} elseif ($extM -and $cfgM -and (Get-MethodConditionKey (Get-MethodConditions $extM.Chain)) -cne (Get-MethodConditionKey (Get-MethodConditions $cfgM.Chain))) {
+			$reason = 'preprocessor condition differs'
+		}
+		if ($reason) {
+			$manual = New-Item2 'MANUAL' "$label ($reason)" $loc $group
+			$manual.Plan = @{ Kind = 'form-handler'; Rel = $modRel; ExtM = $extM; CfgM = $cfgM; ManualReason = $reason; BlockedHandlers = @($extHandler) }
+			return (Set-TempMark $manual $mark $label)
+		}
 		if (-not $cfgHandler) { return (Set-TempMark (New-Item2 'NOT_TRANSFERRED' "$label ($missing)" $loc $group) $mark $label) }
-		$cfgM = Get-MethodSafe $cfgMod $cfgHandler
 		if (-not $extM) { return (New-Item2 'NOT_TRANSFERRED' "$label (handler not found in extension module)" $loc $group) }
 		if (-not $cfgM) { return (Set-TempMark (New-Item2 'NOT_TRANSFERRED' "$label (config handler $cfgHandler not found in module)" $loc $group) $mark $label) }
 		$h = Get-HeuristicTransfer $extM $cfgM $prefix
@@ -2478,7 +2494,7 @@ function Get-FormTransferItems($diff, $form, [string]$cfgFormXml, [string]$cfgMo
 					$kind = Get-CallTypeKind $a.CallType
 					$extM = if ($a.Handler) { Get-MethodSafe $extMod $a.Handler } else { $null }
 					$cfgM = if ($cfgHandler) { Get-MethodSafe $cfgMod $cfgHandler } else { $null }
-					if ($it -and $kind -and $extM -and $cfgM -and $it.Status -ne 'TRANSFERRED') {
+					if ($it -and -not $it.Plan.ManualReason -and $kind -and $extM -and $cfgM -and $it.Status -ne 'TRANSFERRED') {
 						$it.Plan = @{ Kind = 'intercept'; Type = $kind; ExtM = $extM; CfgM = $cfgM; Rel = $modRel; Label = $label }
 						$it.PlanKey = $label
 					}
@@ -2499,6 +2515,16 @@ function Get-FormTransferItems($diff, $form, [string]$cfgFormXml, [string]$cfgMo
 			$ctActions = @($x.Actions | Where-Object { $_.CallType })
 			if (-not $hit) {
 				$cmdOwn = @()
+				if ($sec[2] -eq 'command' -and $ni.Status -ne 'TEMPORARY') {
+					foreach ($a in $x.Actions) {
+						$handler = & $checkHandler $ni.Text $a.Handler '' ''
+						if (-not $handler.Plan.ManualReason) { continue }
+						$ni = $handler
+						$ni.Plan.BlockedHandlers = @($x.Actions | ForEach-Object { $_.Handler })
+						break
+					}
+				}
+				if ($ni.Plan.ManualReason) { $items += $ni; continue }
 				if ($sec[2] -eq 'command' -and $ctActions.Count -gt 0) {
 					foreach ($a in $ctActions) {
 						$m = if ($a.Handler) { Get-MethodSafe $extMod $a.Handler } else { $null }
@@ -2577,13 +2603,13 @@ function Get-FormTransferItems($diff, $form, [string]$cfgFormXml, [string]$cfgMo
 		$kind = Get-CallTypeKind $e.CallType
 		$extM = if ($e.Handler) { Get-MethodSafe $extMod $e.Handler } else { $null }
 		$cfgM = if ($cfgHandler) { Get-MethodSafe $cfgMod $cfgHandler } else { $null }
-		if ($it -and $kind -and $extM -and $cfgM -and $it.Status -ne 'TRANSFERRED') {
+		if ($it -and -not $it.Plan.ManualReason -and $kind -and $extM -and $cfgM -and $it.Status -ne 'TRANSFERRED') {
 			$it.Plan = @{ Kind = 'intercept'; Type = $kind; ExtM = $extM; CfgM = $cfgM; Rel = $modRel; Label = "event $(Get-EventText $e)" }
 			$it.PlanKey = "event $(Get-EventText $e)"
 		}
 		# An event the configuration has no handler for — whatever its callType: there is nothing to intercept,
 		# the event is the extension's own. It goes into the configuration's form and its handler as own method
-		if ($it -and $extM -and -not $cfgHandler -and $it.Status -ne 'TRANSFERRED') {
+		if ($it -and -not $it.Plan.ManualReason -and $extM -and -not $cfgHandler -and $it.Status -ne 'TRANSFERRED') {
 			$it.Plan = @{ Kind = 'event-bind'; ExtM = $extM; ExtLines = $extMod; Rel = $modRel; Scope = $e.Scope; Name = $e.Name; Handler = $e.Handler }
 			$it.PlanKey = "event $(if ($e.Scope) { "$($e.Scope)." } else { '' })$($e.Name)"
 		}
@@ -2656,11 +2682,52 @@ function Get-OwnMethodContext($method) {
 	return $context
 }
 
+function Get-MethodConditions($chain) {
+	return ,@($chain | Where-Object { $_.Kind -eq 'if' } | ForEach-Object { $_.Cond })
+}
+
+function Test-MethodCrossesBranch($lines, $method) {
+	if (-not $method) { return $false }
+	$depth = 0
+	for ($i = $method.DeclIdx; $i -le $method.BodyEndIdx; $i++) {
+		$line = $lines[$i]
+		if ($line -imatch '^\s*#\s*(?:Если|If)\b') { $depth++ }
+		elseif ($line -imatch '^\s*#\s*(?:КонецЕсли|EndIf)\b') {
+			if ($depth -eq 0) { return $true }
+			$depth--
+		} elseif ($depth -eq 0 -and $line -imatch '^\s*#\s*(?:ИначеЕсли|Иначе|ElsIf|Else)\b') { return $true }
+	}
+	return ($depth -ne 0)
+}
+
+# Compare the existing condition expressions without attempting logical simplification.
+$script:preprocessorWords = @{
+	'Не' = 'not'; 'И' = 'and'; 'Или' = 'or'; 'Клиент' = 'client'; 'Сервер' = 'server'
+	'НаКлиенте' = 'atclient'; 'НаСервере' = 'atserver'; 'ВнешнееСоединение' = 'externalconnection'
+	'ТонкийКлиент' = 'thinclient'; 'ВебКлиент' = 'webclient'; 'МобильныйКлиент' = 'mobileclient'
+	'ТолстыйКлиентОбычноеПриложение' = 'thickclientordinaryapplication'
+	'ТолстыйКлиентУправляемоеПриложение' = 'thickclientmanagedapplication'
+	'МобильноеПриложениеКлиент' = 'mobileappclient'; 'МобильноеПриложениеСервер' = 'mobileappserver'
+	'МобильныйАвтономныйСервер' = 'mobilestandaloneserver'
+}
+
+function Get-MethodConditionKey($conditions) {
+	$keys = foreach ($condition in $conditions) {
+		$tokens = foreach ($m in [regex]::Matches($condition, '\w+|[^\s]')) {
+			$word = $m.Value.ToLowerInvariant()
+			if ($script:preprocessorWords.ContainsKey($word)) { $script:preprocessorWords[$word] } else { $word }
+		}
+		$tokens -join ' '
+	}
+	return ($keys -join [char]10)
+}
+
 function Get-OwnDeclarationDifference($extLines, $extMethod, $cfgLines, $cfgMethod) {
 	if ($extMethod.IsFunction -ne $cfgMethod.IsFunction) { return 'procedure/function differs' }
 	if ($extMethod.IsAsync -ne $cfgMethod.IsAsync) { return 'Async modifier differs' }
 	if ((Test-IsExport $extLines $extMethod) -ne (Test-IsExport $cfgLines $cfgMethod)) { return 'Export modifier differs' }
 	if ((Get-OwnMethodContext $extMethod) -ine (Get-OwnMethodContext $cfgMethod)) { return 'execution context differs' }
+	if ((Get-MethodConditionKey (Get-MethodConditions $extMethod.Chain)) -cne (Get-MethodConditionKey (Get-MethodConditions $cfgMethod.Chain))) { return 'preprocessor condition differs' }
 	$left = Get-OwnMethodParameters $extMethod.ParamsText
 	$right = Get-OwnMethodParameters $cfgMethod.ParamsText
 	if ($null -eq $left -or $null -eq $right) { return 'cannot compare parameter declarations' }
@@ -2742,8 +2809,13 @@ function Get-ModuleTransferItems([string]$bsl, [string]$extDir, [string]$prefix,
 		}
 	}
 	$cfgNames = if ($null -ne $cfgLines) { @(Get-ProcNames $cfgLines) } else { @() }
+	$cfgCounts = @{}; foreach ($name in $cfgNames) { $cfgCounts[$name]++ }
+	$extCounts = @{}; foreach ($name in @(Get-ProcNames $extLines)) { $extCounts[$name]++ }
+	$seenOwn = @{}
 	foreach ($od in $mc.Own) {
 		$pn = $od.Name
+		if ($seenOwn.ContainsKey($pn)) { continue }
+		$seenOwn[$pn] = $true
 		$extM = Get-MethodSafe $extLines $pn
 		if (-not $extM) { continue }
 		$loc = "${rel}:$($extM.DeclIdx + 1)"
@@ -2752,13 +2824,24 @@ function Get-ModuleTransferItems([string]$bsl, [string]$extDir, [string]$prefix,
 		# given with the development prefix next to a vendor method of the plain name)
 		$hits = @(Find-NamesIn $cfgNames $pn $prefix)
 		$hit = $null; $cfgM = $null; $literalMismatch = $false; $declarationMismatch = $null
-		if ($hits.Count -eq 0) { $it = New-Item2 'NOT_TRANSFERRED' "method $pn" $loc }
+		$manualReason = $null
+		if ($extCounts[$pn] -gt 1 -or @($hits | Where-Object { $cfgCounts[$_] -gt 1 }).Count -gt 0) {
+			$manualReason = 'multiple declarations of the same method'
+			$it = New-Item2 'MANUAL' "method $pn ($manualReason)" $loc
+		} elseif (Test-MethodCrossesBranch $extLines $extM) {
+			$manualReason = 'method crosses a preprocessor branch boundary'
+			$it = New-Item2 'MANUAL' "method $pn ($manualReason)" $loc
+		} elseif ($hits.Count -eq 0) { $it = New-Item2 'NOT_TRANSFERRED' "method $pn" $loc }
 		else {
 			$extSig = (Get-SigLines (Protect-BslParameterMembers (Convert-BslCode $extM.BodyLines @{} $extM.ParamNames) $extM.ParamNames) $prefix) -join "`n"
 			$same = $false
 			foreach ($h in $hits) {
 				$m = Get-MethodSafe $cfgLines $h
 				if (-not $m) { continue }
+				if (Test-MethodCrossesBranch $cfgLines $m) {
+					$manualReason = 'method crosses a preprocessor branch boundary'
+					continue
+				}
 				if (((Get-SigLines (Protect-BslParameterMembers $m.BodyLines $m.ParamNames) $prefix) -join [char]10) -ieq $extSig) {
 					$why = Get-OwnDeclarationDifference $extLines $extM $cfgLines $m
 					if (-not $why) { $hit = $h; $cfgM = $m; $same = $true; break }
@@ -2766,13 +2849,20 @@ function Get-ModuleTransferItems([string]$bsl, [string]$extDir, [string]$prefix,
 				} elseif (Test-PreviouslyFoldedBody $extM.BodyLines $m.BodyLines $prefix) { $literalMismatch = $true }
 			}
 			if (-not $hit) { $hit = $hits[0]; $cfgM = Get-MethodSafe $cfgLines $hit }
+			if (-not $same -and -not $declarationMismatch -and $cfgM -and
+				(Get-MethodConditionKey (Get-MethodConditions $extM.Chain)) -cne (Get-MethodConditionKey (Get-MethodConditions $cfgM.Chain))) {
+				$declarationMismatch = 'preprocessor condition differs'
+			}
 			$as = if ($hit -ine $pn) { " (found as $hit)" } else { '' }
-			$it = if ($same) { New-Item2 'TRANSFERRED' "method $pn$as" $loc } else {
+			if ($same) { $manualReason = $null }
+			$it = if ($same) { New-Item2 'TRANSFERRED' "method $pn$as" $loc } elseif ($manualReason) {
+				New-Item2 'MANUAL' "method $pn$as ($manualReason)" $loc
+			} else {
 				$reason = if ($declarationMismatch) { "declaration differs: $declarationMismatch" } else { 'body differs' }
 				New-Item2 'DIVERGED' "method $pn$as ($reason)" $loc
 			}
 		}
-		$it.Plan = @{ Kind = 'own'; Rel = $rel; ExtM = $extM; ExtLines = $extLines; CfgM = $cfgM; Name = $pn; Hit = $hit; CfgMissing = ($null -eq $cfgLines); LiteralMismatch = $literalMismatch; DeclarationMismatch = $declarationMismatch }
+		$it.Plan = @{ Kind = 'own'; Rel = $rel; ExtM = $extM; ExtLines = $extLines; CfgM = $cfgM; Name = $pn; Hit = $hit; CfgMissing = ($null -eq $cfgLines); LiteralMismatch = $literalMismatch; DeclarationMismatch = $declarationMismatch; ManualReason = $manualReason }
 		$items += (Set-TempMark $it $mark "method $pn")
 	}
 	# Code outside methods (module variables, statements of the module body): its lines looked up among
@@ -4881,6 +4971,38 @@ function Get-MethodPlace($cfgLines, $regions, $extM, $role, $set, $created) {
 	return @{ At = (Get-ModuleEnd $cfgLines); Region = '' }
 }
 
+function Resolve-MethodConditions($lines, $place, $method) {
+	$conditions = Get-MethodConditions $method.Chain
+	$at = if ($place.Create) { Get-ModuleEnd $lines } else { $place.At }
+	$target = Get-MethodConditions (Get-EnclosingChain $lines $at $method.Lang)
+	$key = Get-MethodConditionKey $conditions
+	$targetKey = Get-MethodConditionKey $target
+	if ($target.Count -gt 0 -and $targetKey -cne $key) {
+		$at = Get-ModuleEnd $lines
+		$target = Get-MethodConditions (Get-EnclosingChain $lines $at $method.Lang)
+		$targetKey = Get-MethodConditionKey $target
+		if ($target.Count -gt 0 -and $targetKey -cne $key) {
+			# Look before the guard of the first statement, without crossing an existing method.
+			$afterMethods = (Get-ModuleLayout $lines).AfterMethods
+			$wholeModuleGuard = (Get-ModuleTail $lines) -lt $lines.Count
+			$found = $false
+			for ($i = $at - 1; $i -ge $afterMethods; $i--) {
+				if ($lines[$i] -notmatch '^\s*#\s*(?:Если|If|ИначеЕсли|ElsIf|Иначе|Else)\b') { continue }
+				$scope = Get-MethodConditions (Get-EnclosingChain $lines $i $method.Lang)
+				$scopeKey = Get-MethodConditionKey $scope
+				if (($scope.Count -gt 0 -and $scopeKey -ceq $key) -or ($scope.Count -eq 0 -and -not $wholeModuleGuard)) {
+					$at = $i; $targetKey = $scopeKey; $found = $true; break
+				}
+			}
+			if (-not $found) { return $null }
+		}
+		$place = @{ At = $at; Region = '' }
+	}
+	if ($targetKey -ceq $key) { $place.Guards = @(); $place.GuardKey = '' }
+	else { $place.Guards = $conditions; $place.GuardKey = $key }
+	return $place
+}
+
 # Where methods appended to a module go: before the statements of the module body after the last method
 # (a method after them would not compile), else the module's tail (Get-ModuleTail)
 function Get-ModuleEnd($lines) {
@@ -4897,23 +5019,24 @@ function Get-ModuleEnd($lines) {
 # or — in a module wrapped whole in #Если Сервер ... Тогда ... [#Иначе ВызватьИсключение ...] #КонецЕсли —
 # before the wrapper's #Иначе (#КонецЕсли when it has none): after the wrapper the code would not compile
 function Get-ModuleTail($lines) {
+	if ($null -eq $lines) { return 0 }
 	$n = @($lines).Count
 	$skip = { param([string]$t) $t = $t.Trim(); ($t -eq '' -or $t.StartsWith('//')) }
 	$i = $n - 1
 	while ($i -ge 0 -and (& $skip $lines[$i])) { $i-- }
-	if ($i -lt 0 -or $lines[$i] -notmatch '^\s*#(КонецЕсли|EndIf)(?!\w)') { return $n }
+	if ($i -lt 0 -or $lines[$i] -notmatch '^\s*#\s*(КонецЕсли|EndIf)(?!\w)') { return $n }
 	$depth = 0; $else = -1
 	for ($j = $i; $j -ge 0; $j--) {
 		$t = $lines[$j]
-		if ($t -match '^\s*#(КонецЕсли|EndIf)(?!\w)') { $depth++ }
-		elseif ($t -match '^\s*#(Если|If)(?!\w)') {
+		if ($t -match '^\s*#\s*(КонецЕсли|EndIf)(?!\w)') { $depth++ }
+		elseif ($t -match '^\s*#\s*(Если|If)(?!\w)') {
 			$depth--
 			if ($depth -gt 0) { continue }
 			# A wrapper only when nothing but comments stands above it
 			for ($k = 0; $k -lt $j; $k++) { if (-not (& $skip $lines[$k])) { return $n } }
 			if ($else -ge 0) { return $else } else { return $i }
 		}
-		elseif ($depth -eq 1 -and $t -match '^\s*#(Иначе|ИначеЕсли|Else|ElsIf)(?!\w)') { $else = $j }
+		elseif ($depth -eq 1 -and $t -match '^\s*#\s*(Иначе|ИначеЕсли|Else|ElsIf)(?!\w)') { $else = $j }
 	}
 	return $n
 }
@@ -5448,7 +5571,7 @@ function Test-OwnResult($plan, $fe, $fileMap) {
 
 # An own method as the configuration gets it: the description comments above it, the directive, the
 # declaration through Конец*; names converted; begin comment on top, end comment on the Конец* line
-function Get-OwnMethodBlock($extLines, $extM, $frame, $fileMap) {
+function Get-OwnMethodBlock($extLines, $extM, $frame, $fileMap, $place) {
 	$start = $extM.DeclIdx
 	if ($start -ge 1 -and (Test-ContextDirective $extLines[$start - 1].Trim())) { $start-- }
 	while ($start -ge 1 -and $extLines[$start - 1].Trim().StartsWith('//')) { $start-- }
@@ -5458,6 +5581,26 @@ function Get-OwnMethodBlock($extLines, $extM, $frame, $fileMap) {
 	if ($frame.Begin) { $out.Add($frame.Begin) }
 	foreach ($l in $conv) { $out.Add($l) }
 	if ($frame.End) { $out[$out.Count - 1] = "$($out[$out.Count - 1]) $($frame.End)" }
+	return @{ Lines = $out.ToArray(); Guards = $place.Guards; GuardKey = $place.GuardKey; Lang = $extM.Lang }
+}
+
+function Join-OwnMethodBlocks($blocks) {
+	$out = New-Object 'System.Collections.Generic.List[string]'
+	$previous = $null
+	foreach ($block in $blocks) {
+		$sameGuard = $previous -and $previous.GuardKey -ceq $block.GuardKey
+		if ($previous -and -not $sameGuard) {
+			foreach ($guard in $previous.Guards) { $out.Add("#$($script:bslKw[$previous.Lang].EndIf)") }
+		}
+		if ($out.Count -gt 0) { $out.Add('') }
+		if (-not $sameGuard) {
+			$kw = $script:bslKw[$block.Lang]
+			foreach ($guard in $block.Guards) { $out.Add("#$($kw.If) $guard $($kw.Then)") }
+			$previous = $block
+		}
+		foreach ($line in $block.Lines) { $out.Add($line) }
+	}
+	if ($previous) { foreach ($guard in $previous.Guards) { $out.Add("#$($script:bslKw[$previous.Lang].EndIf)") } }
 	return ,$out.ToArray()
 }
 
@@ -5485,35 +5628,43 @@ function Write-FileEdits {
 		$repl = @($fe.Repl)
 		foreach ($at in @($fe.OwnAt.Keys)) {
 			$o = $fe.OwnAt[$at]
-			$blk = @()
-			foreach ($b in $o.Blocks) { if ($blk.Count -gt 0) { $blk += '' }; $blk += $b }
+			$blk = Join-OwnMethodBlocks $o.Blocks
 			$repl += @{ Start = [int]$at; End = [int]$at; Lines = (Get-SpacedBlock $fe.File.Lines ([int]$at) $blk); Seq = $o.Seq }
 		}
 		$sorted = @($repl | Sort-Object -Property @{ Expression = { $_.Start }; Descending = $true }, @{ Expression = { $_.Seq }; Descending = $true })
+		$regionAt = if ($fe.Create.Count -gt 0) { Get-ModuleEnd $fe.File.Lines } else { -1 }
+		$endAt = $regionAt
+		$tailAt = if ($fe.Tail.Count -gt 0) { Get-ModuleTail $fe.File.Lines } else { -1 }
+		$bodyAt = $tailAt
 		foreach ($r in $sorted) {
+			# Keep the original insertion scope even when edits add a new conditional block at this spot.
+			$delta = @($r.Lines).Count - ($r.End - $r.Start)
+			if ($r.End -le $regionAt) { $endAt += $delta }
+			if ($r.End -le $tailAt) { $bodyAt += $delta }
 			if ($r.End -gt $r.Start) { $lines.RemoveRange($r.Start, $r.End - $r.Start) }
 			$lines.InsertRange($r.Start, [string[]]@($r.Lines))
 		}
 		if ($fe.Create.Count -gt 0) {
 			$lang = Get-ModuleLang $fe.File.Lines
-			$endAt = Get-ModuleEnd $lines.ToArray()
 			$prev = if ($endAt -gt 0) { $lines[$endAt - 1] } else { '' }
 			$add = New-Object System.Collections.Generic.List[string]
 			foreach ($name in $fe.Create.Keys) {
 				if ($add.Count -gt 0 -or $prev.Trim() -ne '') { $add.Add('') }
 				$add.Add("#$($script:bslKw[$lang].Region) $name")
-				foreach ($blk in $fe.Create[$name]) { $add.Add(''); foreach ($l in $blk) { $add.Add($l) } }
+				$add.Add('')
+				foreach ($l in (Join-OwnMethodBlocks $fe.Create[$name])) { $add.Add($l) }
 				$add.Add('')
 				$add.Add("#$($script:bslKw[$lang].EndRegion)")
 			}
 			if ($endAt -lt $lines.Count -and $lines[$endAt].Trim() -ne '') { $add.Add('') }
 			$lines.InsertRange($endAt, $add)
+			if ($regionAt -le $tailAt) { $bodyAt += $add.Count }
 		}
 		# Statements of the module body: after the configuration's own, at the tail
 		foreach ($blk in $fe.Tail) {
-			$at = Get-ModuleTail $lines.ToArray()
-			$sb = Get-SpacedBlock $lines.ToArray() $at $blk
-			$lines.InsertRange($at, [string[]]$sb)
+			$sb = Get-SpacedBlock $lines.ToArray() $bodyAt $blk
+			$lines.InsertRange($bodyAt, [string[]]$sb)
+			$bodyAt += $sb.Count
 		}
 		Write-BslFile $fe.File $lines.ToArray()
 		$changed += $fe.File.Path
@@ -5813,7 +5964,7 @@ if ($Mode -eq 'transfer') {
 	foreach ($w in $work) {
 		foreach ($it in $w.Rec.Items) {
 			$pl = $it.Plan
-			if (-not $pl -or $pl.Kind -ne 'own') { continue }
+			if (-not $pl -or $pl.Kind -ne 'own' -or $pl.ManualReason) { continue }
 			$cfgFile = Get-CfgPath $pl.Rel
 			$fk = $cfgFile.ToLower()
 			if (-not $fileMaps.ContainsKey($fk)) { $fileMaps[$fk] = @{} }
@@ -5904,6 +6055,9 @@ if ($Mode -eq 'transfer') {
 				if ($it.Status -eq 'TRANSFERRED') { $titems += $t; continue }
 				if ($pl.ManualReason) {
 					$t.Sub = Get-WhereLines $pl 'apply by hand, then re-run -Mode check'
+					foreach ($handler in @($pl.BlockedHandlers)) {
+						if ($handler -and (Add-OutName $outByFile $outCommon (Get-CfgPath $pl.Rel) $pl.Rel $handler)) { $again = $true }
+					}
 					$titems += $t; continue
 				}
 				$problem = Get-BslPlanIssue $pl
@@ -6001,8 +6155,10 @@ if ($Mode -eq 'transfer') {
 							$role = Get-MethodRole $h.Handler 'form' $bind $notify (Test-IsExport $pl.ExtLines $h.ExtM)
 							$created = @($fw.Create.Keys | ForEach-Object { $_.ToLower() })
 							$place = Get-MethodPlace $fw.File.Lines $fw.Regions $h.ExtM $role $set $created
+							$place = Resolve-MethodConditions $fw.File.Lines $place $h.ExtM
+							if (-not $place) { $conflict = 'no compatible preprocessor scope for the handler'; break }
 							$modAdds += @{ Name = $tn.Name; Note = $tn.Note; Fw = $fw; Place = $place
-								Block = (Get-OwnMethodBlock $pl.ExtLines $h.ExtM $frame $mapRef); Where = '' }
+								Block = (Get-OwnMethodBlock $pl.ExtLines $h.ExtM $frame $mapRef $place); Where = '' }
 						}
 						if ($conflict) {
 							foreach ($k in $mapAdded) { [void]$mapRef.Remove($k) }
@@ -6413,7 +6569,13 @@ if ($Mode -eq 'transfer') {
 				$role = Get-MethodRole $pl.Name $kindMod $bind $notify (Test-IsExport $pl.ExtLines $pl.ExtM)
 				$created = @($fe.Create.Keys | ForEach-Object { $_.ToLower() })
 				$place = Get-MethodPlace $fe.File.Lines $fe.Regions $pl.ExtM $role $set $created
-				$block = Get-OwnMethodBlock $pl.ExtLines $pl.ExtM $frame $fileMap
+				$place = Resolve-MethodConditions $fe.File.Lines $place $pl.ExtM
+				if (-not $place) {
+					$t.Text = "$label — no compatible preprocessor scope"
+					$t.Sub = Get-WhereLines $pl 'choose a placement with matching conditions, then re-run -Mode check'
+					$titems += $t; continue
+				}
+				$block = Get-OwnMethodBlock $pl.ExtLines $pl.ExtM $frame $fileMap $place
 				if (-not (Test-OwnResult $pl $fe $fileMap)) {
 					$t.Status = 'CONFLICT'
 					$t.Text = "$label — after the transfer the check would not find it under $($pl.Target.Name); not changed"
