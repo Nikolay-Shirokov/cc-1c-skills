@@ -83,13 +83,34 @@
       }
     },
     {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "Catalog",
+        "name": "Тест_Склады"
+      },
+      "args": {
+        "-JsonPath": "{inputFile}",
+        "-OutputDir": "{workDir}/cfe"
+      }
+    },
+    {
+      "editFile": "cfe/Subsystems/Продажи.xml",
+      "replace": ">Catalog.Склады</xr:Item>",
+      "with": ">Catalog.Тест_Склады</xr:Item>"
+    },
+    {
       "script": "meta-edit/scripts/meta-edit",
       "args": {
         "-ObjectPath": "{workDir}/cfe/Catalogs/Товары.xml",
         "-Operation": "add-attribute",
-        "-Value": "Тест_Признак: Boolean",
+        "-Value": "Тест_Признак: CatalogRef.Тест_Склады",
         "-NoValidate": true
       }
+    },
+    {
+      "editFile": "cfe/Catalogs/Товары.xml",
+      "replace": "<FillValue xsi:nil=\"true\"/>",
+      "with": "<FillValue xsi:type=\"xr:DesignTimeRef\">Catalog.Тест_Склады.EmptyRef</FillValue>"
     },
     {
       "script": "meta-edit/scripts/meta-edit",
@@ -124,10 +145,10 @@
       "[TRANSFERRED]        attribute Тест_Признак (as Признак) — structure only, stored values are not migrated",
       "[TRANSFERRED]        attribute Ошибки.Тест_Отметка (as Отметка) — structure only, stored values are not migrated",
       "[TRANSFERRED]        tabular section Тест_ТЧ (as ТЧ) — structure only, stored values are not migrated",
-      "[TRANSFERRED]        content Catalog.Склады",
+      "[TRANSFERRED]        content Catalog.Тест_Склады (found as Catalog.Склады)",
       "!!! Stored data is NOT migrated:",
       "Values the extension",
-      "=== Summary Тест: 4 transferred now · 1 role, not transferred ===",
+      "=== Summary Тест: 4 transferred now · 1 already transferred · 1 role, not transferred ===",
       "Changed files:",
       "Catalogs/Товары.xml",
       "Subsystems/Продажи.xml"
@@ -137,6 +158,8 @@
         "file": "Catalogs/Товары.xml",
         "text": [
           "<Name>Признак</Name>",
+          "<v8:Type>cfg:CatalogRef.Склады</v8:Type>",
+          "<FillValue xsi:type=\"xr:DesignTimeRef\">Catalog.Склады.EmptyRef</FillValue>",
           "<Name>Отметка</Name>",
           "<Name>ТЧ</Name>",
           "<Name>Кол</Name>",

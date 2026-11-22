@@ -1,4 +1,4 @@
-﻿# cfe-transfer v1.31 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+﻿# cfe-transfer v1.32 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -1544,6 +1544,73 @@ function Get-MdTypeRefBase([string]$kind) {
 	return $kind
 }
 
+function Resolve-MdReference([string]$value, [string]$prefix, [bool]$type = $false) {
+	$identity = @{ Value = $value; Status = ''; Reason = '' }
+	if ($value -notmatch '^((?:\w+:)?)(\w+)\.(\w+)((?:\.\w+)*)$') { return $identity }
+	$nsPrefix = $Matches[1]; $kind = $Matches[2]; $name = $Matches[3]; $tail = $Matches[4]
+	$base = if ($type) { Get-MdTypeRefBase $kind } else { $kind }
+	if (-not $script:childTypeDirMap.ContainsKey($base)) { return $identity }
+	if (-not $cfgInfo.ChildObjects) {
+		return @{ Status = 'MANUAL'; Reason = "configuration has no ChildObjects to resolve $value" }
+	}
+	if ($null -eq $script:mdReferencePools) {
+		$script:mdReferencePools = @{}
+		foreach ($c in $cfgInfo.ChildObjects.ChildNodes) {
+			if ($c.NodeType -eq 'Element') { $script:mdReferencePools[$c.LocalName] += @($c.InnerText.Trim()) }
+		}
+	}
+	$hits = @(Find-NamesIn @($script:mdReferencePools[$base] | Where-Object { $_ }) $name $prefix)
+	if (-not $hits.Count) { return @{ Status = 'WAITING'; Reason = "$base.${name}: the object is not in the configuration" } }
+	if ($hits.Count -gt 1 -and $hits[0] -ine $name) {
+		return @{ Status = 'MANUAL'; Reason = "$base.${name}: ambiguous target ($($hits -join ', '))" }
+	}
+	$target = $hits[0]
+	$dir = $script:childTypeDirMap[$base]
+	$path = Get-CfgPath "$dir/$target.xml"
+	if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+		return @{ Status = 'MANUAL'; Reason = "$base.${target}: missing descriptor $dir/$target.xml" }
+	}
+	if ($tail -and $tail -cne '.EmptyRef') {
+		$owner = Read-MdObject $path
+		$parts = $tail.TrimStart('.').Split('.')
+		if ($parts.Count % 2) { return @{ Status = 'MANUAL'; Reason = "unsupported metadata path: $value" } }
+		$tail = ''
+		for ($i = 0; $i -lt $parts.Count; $i += 2) {
+			$tag = $parts[$i]; $member = $parts[$i + 1]
+			$nodes = @($owner.Children.ChildNodes | Where-Object { $_.NodeType -eq 'Element' -and $_.LocalName -eq $tag })
+			$names = @($nodes | ForEach-Object { Get-MdChildName $_ $owner.Ns })
+			$matches = @(Find-NamesIn $names $member $prefix)
+			if (-not $matches.Count) { return @{ Status = 'WAITING'; Reason = "${value}: $tag.$member is not in the configuration" } }
+			if ($matches.Count -gt 1 -and $matches[0] -ine $member) { return @{ Status = 'MANUAL'; Reason = "$value has ambiguous members ($($matches -join ', '))" } }
+			$tail += ".$tag.$($matches[0])"
+			$child = @($nodes | Where-Object { (Get-MdChildName $_ $owner.Ns) -ieq $matches[0] })[0]
+			$owner = @{ Children = $child.SelectSingleNode('md:ChildObjects', $owner.Ns); Ns = $owner.Ns }
+		}
+	}
+	return @{ Value = "$nsPrefix$kind.$target$tail"; Status = ''; Reason = '' }
+}
+
+function Get-MdNodeReferences($node, $m, [string]$prefix, [bool]$project) {
+	$values = @()
+	foreach ($leaf in @($node.SelectNodes(".//v8:Type|.//v8:TypeSet|.//md:FillValue[@xsi:type='xr:DesignTimeRef']", $m))) {
+		$value = $leaf.InnerText.Trim()
+		if ($project) {
+			$res = Resolve-MdReference $value $prefix ($leaf.LocalName -ne 'FillValue')
+			if ($res.Status) { return $res }
+			$value = $res.Value
+			$leaf.InnerText = $value
+		}
+		$values += $value
+	}
+	return @{ Values = $values; Status = ''; Reason = '' }
+}
+
+function New-MdReferenceItem([string]$label, $reference) {
+	$item = New-Item2 $reference.Status "$label — $($reference.Reason)"
+	$item.Plan = @{ Kind = 'md-reference' }
+	return $item
+}
+
 # Modes of one element: property -> Notify / MultiState / Extended, from InternalInfo/PropertyState
 function Get-MdPropertyStates($el) {
 	$states = @{}
@@ -1569,7 +1636,7 @@ function Get-MdPropertyStates($el) {
 function Get-MdTypeEntryKey([string]$local, [string]$value, [string]$prefix) {
 	$v = $value.Trim() -replace '^[\w]+:', ''
 	$i = $v.IndexOf('.')
-	if ($i -ge 0) { $v = $v.Substring(0, $i + 1) + (Get-NameKey $v.Substring($i + 1) $prefix) }
+	if ($i -ge 0 -and $prefix) { $v = $v.Substring(0, $i + 1) + (Get-NameKey $v.Substring($i + 1) $prefix) }
 	return (($local + '|' + $v).ToLower())
 }
 
@@ -1748,10 +1815,14 @@ function Get-MdPropItems($extEl, $cfgEl, [string]$prefix, [int]$rank, [string]$r
 				if ($parts.Count -eq 0) { continue }
 				$ex = @{ Types = @(); Quals = @{} }
 				foreach ($pt in $parts) {
-					$m = Get-MdTypeModel $pt $prefix
+					$projected = $pt.CloneNode($true)
+					$ref = Get-MdNodeReferences $projected (New-MdNt $projected.OwnerDocument) $prefix $true
+					if ($ref.Status) { break }
+					$m = Get-MdTypeModel $projected ''
 					$ex.Types += $m.Types
 					foreach ($k in $m.Quals.Keys) { if (-not $ex.Quals.ContainsKey($k)) { $ex.Quals[$k] = $m.Quals[$k] } }
 				}
+				if ($ref.Status) { $items += New-MdReferenceItem $at $ref; continue }
 				$cfgType = Get-MdPropNode $cfgProps 'Type'
 				$why = ''
 				if ($elemMissing) { $why = 'the element is not in the configuration' }
@@ -3046,6 +3117,9 @@ function Get-OwnChildItems($ctx, $cfgMd, [string]$prefix, [string]$rel, [int]$ra
 		$hit = Find-NameIn @($cands | ForEach-Object { Get-MdChildName $_ $cfgMd.Ns }) $nm $prefix
 		$full = if ($path) { "$path.$nm" } else { $nm }
 		$plan = @{ Kind = 'md'; Rel = $rel; ObjType = $ctx.Type; Tag = $node.LocalName; Name = $nm; Parent = $path; Node = $node; TypeKey = '' }
+		$copy = $node.CloneNode($true)
+		$refs = Get-MdNodeReferences $copy (New-MdNt $copy.OwnerDocument) $prefix $true
+		if ($refs.Status) { return (New-MdReferenceItem "$label $full" $refs) }
 		if ($node.LocalName -eq 'TabularSection') {
 			$plan.ChildNames = @()
 			$sk = $node.SelectSingleNode("md:ChildObjects", $mns)
@@ -3061,12 +3135,16 @@ function Get-OwnChildItems($ctx, $cfgMd, [string]$prefix, [string]$rel, [int]$ra
 		$as = if ($hit -ine $nm) { " (found as $hit)" } else { '' }
 		if ($node.SelectSingleNode("md:Properties/md:Type", $mns)) {
 			$cnode = @($cands | Where-Object { (Get-MdChildName $_ $cfgMd.Ns) -ieq $hit })[0]
-			$a = Get-MdTypeKey $node $mns $prefix; $b = Get-MdTypeKey $cnode $cfgMd.Ns $prefix
+			$a = Get-MdTypeKey $copy $mns ''; $b = Get-MdTypeKey $cnode $cfgMd.Ns ''
 			if ($a -ine $b) {
 				$ni = New-Item2 'DIVERGED' "$label $full$as (type: $a vs $b in config)"
 				$plan.TypeKey = $a; $plan.Conflict = 'the type differs'
 				$ni.Plan = $plan
 				return $ni
+			}
+			$current = Get-MdNodeReferences $cnode (New-MdNt $cnode.OwnerDocument) '' $false
+			if ((@($refs.Values | Sort-Object) -join '|') -ine (@($current.Values | Sort-Object) -join '|')) {
+				return (New-MdReferenceItem "$label $full$as" @{ Status = 'CONFLICT'; Reason = 'metadata references differ' })
 			}
 		}
 		return (New-Item2 'TRANSFERRED' "$label $full$as")
@@ -3131,6 +3209,10 @@ function Get-TransferObject($ext, $obj) {
 		$pool = @()
 		if ($cfgInfo.ChildObjects) { foreach ($c in $cfgInfo.ChildObjects.ChildNodes) { if ($c.NodeType -eq 'Element' -and $c.LocalName -eq $obj.Type) { $pool += $c.InnerText.Trim() } } }
 		$hit = Find-NameIn $pool $obj.Name $prefix
+		if ($hit -and -not (Test-Path -LiteralPath (Get-CfgPath "$($ctx.Dir)/$hit.xml") -PathType Leaf)) {
+			$rec.Items += New-MdReferenceItem 'own object' @{ Status = 'MANUAL'; Reason = "missing descriptor $($ctx.Dir)/$hit.xml" }
+			return $rec
+		}
 		$as = if ($hit -and $hit -ine $obj.Name) { " (found as $hit)" } else { '' }
 		$st = if ($hit) { 'TRANSFERRED' } else { 'NOT_TRANSFERRED' }
 		$rec.Items += New-Item2 $st "own object$as"
@@ -3257,19 +3339,22 @@ function Get-SubsystemContentItems($md, $cfgMd, [string]$prefix, [string]$rel) {
 	$items = @()
 	$cfg = @(Get-SubsystemContent $cfgMd)
 	foreach ($ref in @(Get-SubsystemContent $md)) {
-		$i = $ref.IndexOf('.')
-		$typ = if ($i -ge 0) { $ref.Substring(0, $i) } else { $ref }
-		$nm = if ($i -ge 0) { $ref.Substring($i + 1) } else { '' }
-		$pool = @($cfg | Where-Object { $_.StartsWith("$typ.") } | ForEach-Object { $_.Substring($typ.Length + 1) })
-		$hit = Find-NameIn $pool $nm $prefix
-		$as = if ($hit -and $hit -ine $nm) { " (found as $typ.$hit)" } else { '' }
-		$st = if ($hit) { 'TRANSFERRED' } else { 'NOT_TRANSFERRED' }
-		$ni = New-Item2 $st "content $ref$as"
-		if (-not $hit) {
-			# The referenced object must be in the configuration: the subsystem cannot name a missing one
-			$missing = $false
-			if ($cfgPools -and $cfgPools.ContainsKey($typ)) { $missing = -not (Find-NameIn @($cfgPools[$typ]) $nm $prefix) }
-			$ni.Plan = @{ Kind = 'md-content'; Rel = $rel; Ref = $ref; Type = $typ; Name = $nm; Missing = $missing }
+		$resolved = Resolve-MdReference $ref $prefix
+		if ($resolved.Status) {
+			if ($cfg -contains $ref -and $resolved.Status -eq 'WAITING') { $resolved.Status = 'CONFLICT' }
+			$items += New-MdReferenceItem "content $ref" $resolved
+			continue
+		}
+		$target = $resolved.Value
+		if ($target -ine $ref -and $cfg -contains $ref) {
+			$items += New-MdReferenceItem "content $ref" @{ Status = 'CONFLICT'; Reason = "existing reference differs from $target" }
+			continue
+		}
+		$as = if ($target -ine $ref) { " (found as $target)" } else { '' }
+		$ni = if ($cfg -contains $target) { New-Item2 'TRANSFERRED' "content $ref$as" } else {
+			$pending = New-Item2 'NOT_TRANSFERRED' "content $ref$as"
+			$pending.Plan = @{ Kind = 'md-content'; Rel = $rel; Ref = $target }
+			$pending
 		}
 		$items += $ni
 	}
@@ -4080,6 +4165,7 @@ function New-MdNt($doc) {
 	$m.AddNamespace('md', $mdNsUri)
 	$m.AddNamespace('xr', 'http://v8.1c.ru/8.3/xcf/readable')
 	$m.AddNamespace('v8', 'http://v8.1c.ru/8.1/data/core')
+	$m.AddNamespace('xsi', 'http://www.w3.org/2001/XMLSchema-instance')
 	# A namespace manager is enumerable: the comma keeps it one object
 	return , $m
 }
@@ -4118,7 +4204,7 @@ function Get-MdContainer($me, [string]$parent, [string]$tag) {
 	}
 	$co = $owner.SelectSingleNode("md:ChildObjects", $m)
 	if (-not $co) {
-		$co = $doc.CreateElement('ChildObjects', $doc.DocumentElement.GetNamespaceOfPrefix('md'))
+		$co = $doc.CreateElement('ChildObjects', $mdNsUri)
 		Insert-FormNodeAt $owner $co $null $eol
 	}
 	return $co
@@ -4146,7 +4232,7 @@ function Apply-MdOp($me, $plan, [string]$extDir) {
 		if (-not $props) { throw "SKIP: the subsystem has no Properties" }
 		$content = $props.SelectSingleNode("md:Content", $m)
 		if (-not $content) {
-			$content = $doc.CreateElement('Content', $doc.DocumentElement.GetNamespaceOfPrefix('md'))
+			$content = $doc.CreateElement('Content', $mdNsUri)
 			Insert-FormNodeAt $props $content $null $eol
 		}
 		$item = $doc.CreateElement('xr:Item', $doc.DocumentElement.GetNamespaceOfPrefix('xr'))
@@ -4184,11 +4270,9 @@ function Apply-MdOp($me, $plan, [string]$extDir) {
 	}
 	# The node is the configuration's own: the extension's belongings have no place here
 	foreach ($x in @($node.SelectNodes("md:Properties/md:ObjectBelonging|md:Properties/md:ExtendedConfigurationObject", $m))) { [void]$x.ParentNode.RemoveChild($x) }
-	# Reference types name the objects the configuration has
-	foreach ($t in @($node.SelectNodes(".//v8:Type|.//v8:TypeSet", $m))) {
-		$conv = Convert-ExtCode @($t.InnerText) @{}
-		$t.InnerText = [string]$conv[0]
-	}
+	$refs = Get-MdNodeReferences $node $m $script:transferPrefix $true
+	if ($refs.Status) { throw "SKIP: $($refs.Reason)" }
+	$plan.ExpectedReferences = $refs.Values
 	$ref = Find-ChildAnchor $container $plan.Tag $plan.ObjType
 	Insert-FormNodeAt $container $node $ref $eol
 }
@@ -4248,7 +4332,9 @@ function Add-MdTypeExtends($props, $plan, [string]$extDir, [string]$eol) {
 		foreach ($c in $part.ChildNodes) {
 			if ($c.NodeType -ne 'Element') { continue }
 			if ($c.LocalName -eq 'Type' -or $c.LocalName -eq 'TypeSet') {
-				$val = [string](Convert-ExtCode @($c.InnerText.Trim()) @{})[0]
+				$ref = Resolve-MdReference $c.InnerText.Trim() $script:transferPrefix $true
+				if ($ref.Status) { throw "SKIP: $($ref.Reason)" }
+				$val = $ref.Value
 				$ex.Types += @{ Local = $c.LocalName; Value = $val; Key = (Get-MdTypeEntryKey $c.LocalName $val ''); Node = $c }
 			} elseif ($c.LocalName.EndsWith('Qualifiers')) {
 				if (-not $ex.Quals.ContainsKey($c.LocalName)) { $ex.Quals[$c.LocalName] = $c }
@@ -4259,15 +4345,6 @@ function Add-MdTypeExtends($props, $plan, [string]$extDir, [string]$eol) {
 	$cfgModel = Get-MdTypeModel $type ''
 	$why = Get-MdTypeMergeConflict $cfgModel $ex
 	if ($why) { throw "SKIP: $why" }
-	# A type naming a metadata object the configuration lacks would dangle
-	foreach ($t in $ex.Types) {
-		$v = $t.Value -replace '^[\w]+:', ''
-		$j = $v.IndexOf('.')
-		if ($j -lt 0) { continue }
-		$base = Get-MdTypeRefBase $v.Substring(0, $j)
-		$obj = $v.Substring($j + 1)
-		if ($cfgPools -and $cfgPools.ContainsKey($base) -and -not (Find-NameIn @($cfgPools[$base]) $obj '')) { throw "SKIP: $v is not in the configuration" }
-	}
 	$doc = $props.OwnerDocument
 	$new = $doc.CreateElement('Type', $mdNsUri)
 	[void]$type.ParentNode.ReplaceChild($new, $type)
@@ -4401,7 +4478,11 @@ function Test-MdWrite($me) {
 				}
 			}
 			$bad = -not $node
-			if (-not $bad -and $pl.TypeKey) { $bad = ((Get-MdTypeKey $node $m $script:transferPrefix) -ine $pl.TypeKey) }
+			if (-not $bad -and $pl.TypeKey) { $bad = ((Get-MdTypeKey $node $m '') -ine $pl.TypeKey) }
+			if (-not $bad) {
+				$actual = Get-MdNodeReferences $node $m '' $false
+				$bad = ($actual.Values -join '|') -cne ($pl.ExpectedReferences -join '|')
+			}
 			if (-not $bad -and $pl.Tag -eq 'TabularSection' -and $pl.ChildNames) {
 				$sub = $node.SelectSingleNode("md:ChildObjects", $m)
 				$have = @()
@@ -6380,7 +6461,7 @@ if ($Mode -eq 'transfer') {
 			if (-not $hit) { $missingGlobal[$obj.Name.ToLower()] = $obj.Name }
 			$t = if ($hit) { $hit } else {
 				$taken = New-Object 'System.Collections.Generic.HashSet[string]'
-				foreach ($n in $pool) { [void]$taken.Add($n.ToLower()) }
+				foreach ($n in $pool) { if ($n) { [void]$taken.Add($n.ToLower()) } }
 				(Get-TargetName $obj.Name $prefix $taken $script:settings.vendor.AddDevObjects).Name
 			}
 			if ($t -cne (Remove-ExtPrefix $obj.Name $prefix)) { $script:nameMap[$obj.Name.ToLower()] = $t }
@@ -6547,6 +6628,7 @@ if ($Mode -eq 'transfer') {
 				}
 				if ($it.Status -eq 'TEMPORARY') { $tempCount++; continue }
 				if ($it.Status -eq 'TRANSFERRED') { $titems += $t; continue }
+				if ($pl.Kind -eq 'md-reference') { $titems += $t; continue }
 				if ($pl.ManualReason) {
 					$t.Sub = Get-WhereLines $pl 'apply by hand, then re-run -Mode check'
 					foreach ($handler in @($pl.BlockedHandlers)) {

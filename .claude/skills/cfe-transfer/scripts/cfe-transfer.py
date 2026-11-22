@@ -1,5 +1,5 @@
 ﻿#!/usr/bin/env python3
-# cfe-transfer v1.31 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+# cfe-transfer v1.32 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -1692,6 +1692,65 @@ def get_md_type_ref_base(kind):
     return kind
 
 
+def resolve_md_reference(value, prefix, type_reference=False):
+    match = re.fullmatch(r"((?:\w+:)?)(\w+)\.(\w+)((?:\.\w+)*)", value)
+    if not match:
+        return {"value": value}
+    namespace, kind, name, tail = match.groups()
+    base = get_md_type_ref_base(kind) if type_reference else kind
+    if base not in CHILD_TYPE_DIR_MAP:
+        return {"value": value}
+    if MD_REFERENCE_POOLS is None:
+        return {"status": "MANUAL", "reason": "configuration has no ChildObjects to resolve " + value}
+    hits = find_names_in(MD_REFERENCE_POOLS.get(base, ()), name, prefix)
+    if not hits:
+        return {"status": "WAITING", "reason": "%s.%s: the object is not in the configuration" % (base, name)}
+    if len(hits) > 1 and hits[0].lower() != name.lower():
+        return {"status": "MANUAL", "reason": "%s.%s: ambiguous target (%s)" % (base, name, ", ".join(hits))}
+    target = hits[0]
+    relative = os.path.join(CHILD_TYPE_DIR_MAP[base], target + ".xml")
+    path = os.path.join(MD_REFERENCE_ROOT, relative)
+    if not os.path.isfile(path):
+        return {"status": "MANUAL", "reason": "%s.%s: missing descriptor %s" % (base, target, relative.replace(os.sep, "/"))}
+    if tail and tail != ".EmptyRef":
+        owner = read_md_object(path)["children"]
+        parts = tail[1:].split(".")
+        if len(parts) % 2:
+            return {"status": "MANUAL", "reason": "unsupported metadata path: " + value}
+        tail = ""
+        for tag, member in zip(parts[::2], parts[1::2]):
+            nodes = {md_child_name(x).lower(): x for x in elem_children(owner) if localname(x) == tag} if owner is not None else {}
+            members = find_names_in([md_child_name(x) for x in nodes.values()], member, prefix)
+            if not members:
+                return {"status": "WAITING", "reason": "%s: %s.%s is not in the configuration" % (value, tag, member)}
+            if len(members) > 1 and members[0].lower() != member.lower():
+                return {"status": "MANUAL", "reason": "%s has ambiguous members (%s)" % (value, ", ".join(members))}
+            tail += "." + tag + "." + members[0]
+            owner = nodes[members[0].lower()].find("md:ChildObjects", MD_NSMAP)
+    return {"value": namespace + kind + "." + target + tail}
+
+
+def get_md_node_references(node, prefix, project):
+    values = []
+    for leaf in node.xpath(".//v8:Type|.//v8:TypeSet|.//md:FillValue[@xsi:type='xr:DesignTimeRef']",
+                           namespaces={**MD_NSMAP, "xsi": XSI_NS}):
+        value = inner_text(leaf).strip()
+        if project:
+            ref = resolve_md_reference(value, prefix, localname(leaf) != "FillValue")
+            if ref.get("status"):
+                return ref
+            value = ref["value"]
+            leaf.text = value
+        values.append(value)
+    return {"values": values}
+
+
+def new_md_reference_item(label, reference):
+    item = new_item(reference["status"], label + " — " + reference["reason"])
+    item["plan"] = {"kind": "md-reference"}
+    return item
+
+
 def get_md_property_states(el):
     """Modes of one element: property -> Notify / MultiState / Extended, from InternalInfo/PropertyState."""
     states = {}
@@ -1723,7 +1782,7 @@ def get_md_type_entry_key(local, value, prefix):
     without the extension prefix — the configuration has the name the transfer gives it."""
     v = re.sub(r'^[\w]+:', '', (value or "").strip())
     i = v.find(".")
-    if i >= 0:
+    if i >= 0 and prefix:
         v = v[:i + 1] + get_name_key(v[i + 1:], prefix)
     return (local + "|" + v).lower()
 
@@ -1926,10 +1985,17 @@ def add_md_prop_items(items, ext_el, cfg_el, prefix, rank, rel, obj_type, tag, n
                     continue
                 ex = {"types": [], "quals": {}}
                 for pt in parts:
-                    m = get_md_type_model(pt, prefix)
+                    projected = copy.deepcopy(pt)
+                    ref = get_md_node_references(projected, prefix, True)
+                    if ref.get("status"):
+                        break
+                    m = get_md_type_model(projected, "")
                     ex["types"] += m["types"]
                     for k, v in m["quals"].items():
                         ex["quals"].setdefault(k, v)
+                if ref.get("status"):
+                    items.append(new_md_reference_item(at, ref))
+                    continue
                 cfg_type = get_md_prop_node(cfg_props, "Type")
                 why = ""
                 if elem_missing:
@@ -3294,6 +3360,10 @@ def own_child_items(ctx, cfg_md, prefix, rel, rank):
         full = (path + "." + nm) if path else nm
         plan = {"kind": "md", "rel": rel, "obj_type": ctx["type"], "tag": localname(node), "name": nm,
                 "parent": path, "node": node, "type_key": ""}
+        projected = copy.deepcopy(node)
+        refs = get_md_node_references(projected, prefix, True)
+        if refs.get("status"):
+            return new_md_reference_item("%s %s" % (label, full), refs)
         if localname(node) == "TabularSection":
             plan["child_names"] = []
             sk = node.find("md:ChildObjects", MD_NSMAP)
@@ -3309,14 +3379,18 @@ def own_child_items(ctx, cfg_md, prefix, rel, rank):
         as_ = (" (found as %s)" % hit) if hit.lower() != nm.lower() else ""
         if node.find("md:Properties/md:Type", MD_NSMAP) is not None:
             cnode = [c for c in cands if md_child_name(c).lower() == hit.lower()][0]
-            a = md_type_key(node, prefix)
-            b = md_type_key(cnode, prefix)
+            a = md_type_key(projected, "")
+            b = md_type_key(cnode, "")
             if a.lower() != b.lower():
                 ni = new_item("DIVERGED", "%s %s%s (type: %s vs %s in config)" % (label, full, as_, a, b))
                 plan["type_key"] = a
                 plan["conflict"] = "the type differs"
                 ni["plan"] = plan
                 return ni
+            current = get_md_node_references(cnode, "", False)
+            if sorted(s.lower() for s in refs["values"]) != sorted(s.lower() for s in current["values"]):
+                return new_md_reference_item("%s %s%s" % (label, full, as_),
+                                             {"status": "CONFLICT", "reason": "metadata references differ"})
         return new_item("TRANSFERRED", "%s %s%s" % (label, full, as_))
 
     for c in elem_children(ctx["md"]["children"]):
@@ -3385,6 +3459,10 @@ def transfer_object(ext, obj, cfg_info, config_path, cfg_pools=None):
         if cfg_info["child_objects"] is not None:
             pool = [(c.text or "").strip() for c in elem_children(cfg_info["child_objects"]) if localname(c) == obj["type"]]
         hit = find_name_in(pool, obj["name"], prefix)
+        if hit and not os.path.isfile(os.path.join(config_path, ctx["dir"], hit + ".xml")):
+            rec["items"].append(new_md_reference_item("own object", {"status": "MANUAL",
+                                "reason": "missing descriptor %s/%s.xml" % (ctx["dir"], hit)}))
+            return rec
         as_ = (" (found as %s)" % hit) if hit and hit.lower() != obj["name"].lower() else ""
         rec["items"].append(new_item("TRANSFERRED" if hit else "NOT_TRANSFERRED", "own object" + as_))
         return rec
@@ -3508,17 +3586,25 @@ def subsystem_content_items(md, cfg_md, prefix, rel, cfg_pools=None):
     """Transfer of a borrowed subsystem's content: each object the extension adds must be in the
     content of the configuration's subsystem (own names compared with and without the prefix)."""
     items = []
-    cfg = get_subsystem_content(cfg_md)
+    cfg = {value.lower() for value in get_subsystem_content(cfg_md)}
     for ref in get_subsystem_content(md):
-        typ, _, nm = ref.partition(".")
-        pool = [c.partition(".")[2] for c in cfg if c.partition(".")[0] == typ]
-        hit = find_name_in(pool, nm, prefix)
-        as_ = (" (found as %s.%s)" % (typ, hit)) if hit and hit.lower() != nm.lower() else ""
+        resolved = resolve_md_reference(ref, prefix)
+        if resolved.get("status"):
+            if ref.lower() in cfg and resolved["status"] == "WAITING":
+                resolved["status"] = "CONFLICT"
+            items.append(new_md_reference_item("content " + ref, resolved))
+            continue
+        target = resolved["value"]
+        renamed = target.lower() != ref.lower()
+        if renamed and ref.lower() in cfg:
+            items.append(new_md_reference_item("content " + ref, {"status": "CONFLICT",
+                                              "reason": "existing reference differs from " + target}))
+            continue
+        hit = target.lower() in cfg
+        as_ = (" (found as %s)" % target) if renamed else ""
         ni = new_item("TRANSFERRED" if hit else "NOT_TRANSFERRED", "content " + ref + as_)
         if not hit:
-            # The referenced object must be in the configuration: the subsystem cannot name a missing one
-            missing = bool(cfg_pools) and typ in cfg_pools and not find_name_in(cfg_pools[typ], nm, prefix)
-            ni["plan"] = {"kind": "md-content", "rel": rel, "ref": ref, "type": typ, "name": nm, "missing": missing}
+            ni["plan"] = {"kind": "md-content", "rel": rel, "ref": target}
         items.append(ni)
     return items
 
@@ -4361,9 +4447,10 @@ def apply_md_op(me, plan):
     for x in (node.findall("md:Properties/md:ObjectBelonging", MD_NSMAP)
               + node.findall("md:Properties/md:ExtendedConfigurationObject", MD_NSMAP)):
         x.getparent().remove(x)
-    # Reference types name the objects the configuration has
-    for t in list(node.iter("{%s}Type" % V8_NS)) + list(node.iter("{%s}TypeSet" % V8_NS)):
-        t.text = convert_ext_code([inner_text(t)], {})[0]
+    refs = get_md_node_references(node, TRANSFER_PREFIX, True)
+    if refs.get("status"):
+        raise ValueError("SKIP: " + refs["reason"])
+    plan["expected_references"] = refs["values"]
     ref = find_child_anchor(container, plan["tag"], plan["obj_type"])
     insert_form_node_at(container, node, ref, eol)
 
@@ -4424,7 +4511,10 @@ def add_md_type_extends(props, plan, eol):
             continue
         for c in elem_children(part):
             if localname(c) in ("Type", "TypeSet"):
-                val = convert_ext_code([inner_text(c).strip()], {})[0]
+                ref = resolve_md_reference(inner_text(c).strip(), TRANSFER_PREFIX, True)
+                if ref.get("status"):
+                    raise ValueError("SKIP: " + ref["reason"])
+                val = ref["value"]
                 ex["types"].append({"local": localname(c), "value": val,
                                     "key": get_md_type_entry_key(localname(c), val, ""), "node": c})
             elif localname(c).endswith("Qualifiers"):
@@ -4435,16 +4525,6 @@ def add_md_type_extends(props, plan, eol):
     why = get_md_type_merge_conflict(cfg_model, ex)
     if why:
         raise ValueError("SKIP: " + why)
-    # A type naming a metadata object the configuration lacks would dangle
-    for t in ex["types"]:
-        v = re.sub(r'^[\w]+:', '', t["value"])
-        j = v.find(".")
-        if j < 0:
-            continue
-        base = get_md_type_ref_base(v[:j])
-        obj = v[j + 1:]
-        if CFG_POOLS and base in CFG_POOLS and not find_name_in(CFG_POOLS[base], obj, ""):
-            raise ValueError("SKIP: %s is not in the configuration" % v)
     new = etree.Element("{%s}Type" % MD_NS)
     new.tail = type_el.tail
     type_el.getparent().replace(type_el, new)
@@ -4597,7 +4677,9 @@ def test_md_write(me):
                         break
             bad = node is None
             if not bad and pl["type_key"]:
-                bad = md_type_key(node, TRANSFER_PREFIX).lower() != pl["type_key"].lower()
+                bad = md_type_key(node, "").lower() != pl["type_key"].lower()
+            if not bad:
+                bad = get_md_node_references(node, "", False)["values"] != pl["expected_references"]
             if not bad and pl["tag"] == "TabularSection" and pl.get("child_names"):
                 sub = node.find("md:ChildObjects", MD_NSMAP)
                 have = [md_child_name(x) for x in elem_children(sub)] if sub is not None else []
@@ -4685,7 +4767,8 @@ FORM_EDITS = {}
 MD_EDITS = {}
 MD_GIVEN = {}
 MD_WARN = []
-CFG_POOLS = {}
+MD_REFERENCE_POOLS = None
+MD_REFERENCE_ROOT = ""
 EDIT_SEQ = [0]
 CONFIG_REF_MAP = {}
 
@@ -6855,7 +6938,7 @@ def resolve_input_path(p):
 
 
 def main():
-    global SETTINGS, DEV_RE, NAME_MAP, TRANSFER_PREFIX, SUPPORT_INFO
+    global SETTINGS, DEV_RE, NAME_MAP, TRANSFER_PREFIX, SUPPORT_INFO, MD_REFERENCE_POOLS, MD_REFERENCE_ROOT
     sys.stdout.reconfigure(encoding="utf-8")
     sys.stderr.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(description="Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer", allow_abbrev=False)
@@ -6909,6 +6992,11 @@ def main():
         die("Config Configuration.xml not found: " + os.path.join(config_path, "Configuration.xml"))
     if cfg_info["is_extension"]:
         die("-ConfigPath is an extension, expected the main configuration: " + config_path)
+    MD_REFERENCE_ROOT = config_path
+    if cfg_info["child_objects"] is not None:
+        MD_REFERENCE_POOLS = {}
+        for child in elem_children(cfg_info["child_objects"]):
+            MD_REFERENCE_POOLS.setdefault(localname(child), []).append(inner_text(child).strip())
 
     name_filter = [x.strip() for x in args.Name.split(",") if x.strip()] if args.Name else []
     expand_list = [x.strip() for x in args.Expand.split(",") if x.strip()] if args.Expand else []
@@ -6962,7 +7050,6 @@ def main():
             for c in elem_children(cfg_info["child_objects"]):
                 cfg_pools.setdefault(localname(c), []).append((c.text or "").strip())
         # The write side refuses a type reference the configuration lacks: same pools there
-        globals()["CFG_POOLS"] = cfg_pools
         all_objs = []
         if cp0["child_objects"] is not None:
             for c in elem_children(cp0["child_objects"]):
@@ -7174,7 +7261,7 @@ def main():
                     if it["status"] == "TEMPORARY":
                         temp_count += 1
                         continue
-                    if it["status"] == "TRANSFERRED":
+                    if it["status"] == "TRANSFERRED" or (pl and pl["kind"] == "md-reference"):
                         titems.append(t)
                         continue
                     if pl and pl.get("manual_reason"):

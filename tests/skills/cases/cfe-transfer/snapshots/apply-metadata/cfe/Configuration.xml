@@ -68,6 +68,7 @@
 			<Subsystem>Продажи</Subsystem>
 			<Role>Тест_ОсновнаяРоль</Role>
 			<Catalog>Товары</Catalog>
+			<Catalog>Тест_Склады</Catalog>
 		</ChildObjects>
 	</Configuration>
 </MetaDataObject>
