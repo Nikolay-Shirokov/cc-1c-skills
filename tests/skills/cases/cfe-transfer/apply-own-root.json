@@ -36,7 +36,7 @@
     {
       "writeFile": {
         "path": "cfe/CommonModules/Тест_Частичный/Ext/Module.bsl",
-        "content": "Функция Первый() Экспорт\n\tВозврат 1;\nКонецФункции\n\nФункция Второй() Экспорт\n\tВозврат 2;\nКонецФункции\n\nФункция Третий() Экспорт\n\tВозврат Первый() + Второй();\nКонецФункции\n"
+        "content": "Функция Первый() Экспорт\n\tВозврат 1;\nКонецФункции\n\nФункция Второй() Экспорт\n\tВозврат 2;\nКонецФункции\n\nФункция Третий() Экспорт\n\tВозврат Первый() + Второй();\nКонецФункции\n\n// Не переносить: временная проверка\nФункция ВременныйМетод()\n\tВозврат 50;\nКонецФункции\n"
       }
     },
     {
@@ -55,6 +55,9 @@
   "expect": {
     "stdoutContains": ["2/3 methods already present", "method Третий", "own object (as НовыйМодуль)", "own object (as Команда)"],
     "filesAbsent": ["CommonModules/Тест_Частичный.xml", "CommonModules/Тест_НовыйМодуль.xml", "CommonCommands/Тест_Команда.xml"],
+    "fileNotContains": [
+      { "file": "CommonModules/Частичный/Ext/Module.bsl", "text": "ВременныйМетод" }
+    ],
     "fileContains": [
       { "file": "Configuration.xml", "text": ["<CommonModule>НовыйМодуль</CommonModule>", "<CommonCommand>Команда</CommonCommand>"] },
       { "file": "CommonModules/Частичный/Ext/Module.bsl", "text": "Функция Третий() Экспорт" },

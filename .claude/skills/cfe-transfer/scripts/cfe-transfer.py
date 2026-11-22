@@ -1,9 +1,10 @@
 ﻿#!/usr/bin/env python3
-# cfe-transfer v1.33 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+# cfe-transfer v1.34 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
 import copy
+import hashlib
 import json
 import os
 import re
@@ -1687,6 +1688,8 @@ md_qual_order = ["NumberQualifiers", "StringQualifiers", "DateQualifiers", "Bina
 
 def get_md_type_ref_base(kind):
     """Type kinds that name a metadata object of the configuration; a *Ref kind looks up its base kind."""
+    if kind == "Characteristic":
+        return "ChartOfCharacteristicTypes"
     if kind.endswith("Ref") and len(kind) > 3:
         return kind[:-3]
     return kind
@@ -1754,6 +1757,17 @@ def new_md_reference_item(label, reference):
     item = new_item(reference["status"], label + " — " + reference["reason"])
     item["plan"] = {"kind": "md-reference"}
     return item
+
+
+def find_stale_md_reference(existing, target, prefix, type_reference=False):
+    key = get_name_key(target, prefix).lower()
+    for value in existing:
+        if value.lower() == target.lower() or get_name_key(value, prefix).lower() != key:
+            continue
+        actual = resolve_md_reference(value, prefix, type_reference)
+        if actual.get("status") or actual["value"].lower() != value.lower():
+            return value
+    return None
 
 
 def get_md_property_states(el):
@@ -2008,7 +2022,16 @@ def add_md_prop_items(items, ext_el, cfg_el, prefix, rank, rel, obj_type, tag, n
                 elif cfg_type is None:
                     why = "the element has no type in the configuration"
                 else:
-                    why = get_md_type_merge_conflict(get_md_type_model(cfg_type, ""), ex)
+                    cfg_model = get_md_type_model(cfg_type, "")
+                    stale = next((hit for t in ex["types"]
+                                  if (hit := find_stale_md_reference(
+                                      (c["value"] for c in cfg_model["types"] if c["local"] == t["local"]),
+                                      t["value"], prefix, True))), None)
+                    if stale:
+                        items.append(new_md_reference_item(at, {"status": "CONFLICT", "reason":
+                                     "existing reference %s does not resolve to its registered target" % stale}))
+                        continue
+                    why = get_md_type_merge_conflict(cfg_model, ex)
                 if why:
                     ni = new_item("DIVERGED", "%s — %s" % (at, why))
                     ni["plan"] = new_plan("TypeExtend", why,
@@ -3568,24 +3591,39 @@ def root_object_code_key(lines):
                      if t["kind"] != "comment" and t["value"].strip())
 
 
+def root_top_code_key(lines):
+    layout = get_module_layout(lines)
+    indexes = sorted([v["idx"] for v in layout["vars"]] + layout["statements"])
+    guards = tuple(method_condition_key(method_conditions(get_enclosing_chain(lines, i, "en"))) for i in indexes)
+    return root_object_code_key([lines[i] for i in indexes]), guards
+
+
 def compare_root_module(source, target):
     names, current = get_proc_names(source), get_proc_names(target)
     source_counts, target_counts = Counter(n.lower() for n in names), Counter(n.lower() for n in current)
-    matched, missing, different = 0, [], []
+    matched, missing, different, temporary = 0, [], [], []
     for name in names:
         key = name.lower()
         a, b = get_method_safe(source, name), get_method_safe(target, name)
         if not a or source_counts[key] != 1:
             different.append(name)
+            continue
+        same = (b and target_counts[key] == 1 and not own_declaration_difference(source, a, target, b)
+                and root_object_code_key(a["body_lines"]) == root_object_code_key(b["body_lines"]))
+        mark = get_method_temp_mark(source, a)
+        if mark is not None:
+            status = "TRANSFERRED" if same else "NOT_TRANSFERRED"
+            label = "method " + name
+            temporary.append(set_temp_mark(new_item(status, label), mark, label))
         elif not target_counts[key]:
             missing.append((name, a))
-        elif not b or target_counts[key] != 1 or own_declaration_difference(source, a, target, b) or (
-                root_object_code_key(a["body_lines"]) != root_object_code_key(b["body_lines"])):
+        elif not same:
             different.append(name)
         elif root_object_code_key(a["body_lines"]):
             matched += 1
-    top = list(get_top_code_keys(source, "").values()) == list(get_top_code_keys(target, "").values())
-    return {"matched": matched, "total": len(names), "missing": missing, "different": different, "top": top}
+    top = root_top_code_key(source) == root_top_code_key(target)
+    return {"matched": matched, "total": len(names) - len(temporary), "missing": missing,
+            "different": different, "temporary": temporary, "top": top}
 
 
 def get_root_object_plan(entry, ext_dir, prefix, cfg):
@@ -3621,7 +3659,7 @@ def get_root_object_plan(entry, ext_dir, prefix, cfg):
         projection = get_root_bsl_projection(bsl["lines"], prefix, oid, candidate)
         if projection.get("status"):
             return projection
-        dst_bsl = read_bsl_file(dst_path)
+        dst_bsl = read_bsl_file(dst_path, track_content=True)
         same_xml = node_canon(xml["props"]) == node_canon(dst["props"])
         same_bsl = root_object_code_key(projection["lines"]) == root_object_code_key(dst_bsl["lines"])
         plan = {"target": candidate, "paths": paths, "bsl": dst_bsl, "lines": projection["lines"], "status": "TRANSFERRED"}
@@ -3633,7 +3671,7 @@ def get_root_object_plan(entry, ext_dir, prefix, cfg):
             count = comparison["matched"]
             if same_xml and count >= 2 and count * 2 > comparison["total"]:
                 plan["comparison"] = comparison
-                if comparison["missing"] or comparison["different"] or not comparison["top"]:
+                if comparison["missing"] or comparison["different"] or comparison["temporary"] or not comparison["top"]:
                     plan["status"] = "PARTIAL"
                 matches.append(plan)
                 continue
@@ -3756,6 +3794,22 @@ def write_root_object(entry, plan):
     return [xml_path, bsl_path, cfg_path]
 
 
+def get_root_local_calls(method, target):
+    tokens = [t for t in bsl_tokens(method["body_lines"]) if t["kind"] != "comment" and t["value"].strip()]
+    params = method.get("param_names", ())
+    key = target.lower()
+    shadowed = key in {p.lower() for p in params} or key in get_local_names(get_code_only(method["body_lines"]), params)
+    for i, token in enumerate(tokens[:-1]):
+        if token["kind"] != "word" or tokens[i + 1]["value"] != "(":
+            continue
+        if i and tokens[i - 1]["value"].lower() in ("новый", "new"):
+            continue
+        if i and tokens[i - 1]["value"] == "." and (shadowed or i < 2 or tokens[i - 2]["value"].lower() != key
+                                                   or (i > 2 and tokens[i - 3]["value"] == ".")):
+            continue
+        yield token["value"]
+
+
 def complete_root_module(plan, frame, apply):
     comparison = plan["comparison"]
     items, changed, inserted = [], [], []
@@ -3766,18 +3820,40 @@ def complete_root_module(plan, frame, apply):
     if not comparison["top"]:
         items.append(new_item("CONFLICT", "module code outside methods differs"))
     lines = list(plan["bsl"]["lines"])
+    blocked = {name.lower() for name in comparison["different"]}
+    items.extend(comparison["temporary"])
+    blocked.update(item["text"].split()[1].lower() for item in comparison["temporary"] if item["status"] == "TEMPORARY")
+    pending = []
     for name, method in comparison["missing"]:
         if not comparison["top"]:
             items.append(new_item("WAITING", "method %s — waiting for module code outside methods" % name))
+            blocked.add(name.lower())
             continue
         place = resolve_method_conditions(lines, {"at": get_module_end(lines)}, method)
         if not place or method_crosses_branch(plan["lines"], method):
             items.append(new_item("MANUAL", "method %s — preprocessor condition differs" % name))
+            blocked.add(name.lower())
+            continue
+        pending.append((name, method, list(dict.fromkeys(get_root_local_calls(method, plan["target"])))))
+    while True:
+        before = len(blocked)
+        for name, _, calls in pending:
+            if name.lower() in blocked:
+                continue
+            dependencies = [call for call in calls if call.lower() in blocked]
+            if dependencies:
+                items.append(new_item("WAITING", "method %s — waiting for %s" % (name, ", ".join(dependencies))))
+                blocked.add(name.lower())
+        if len(blocked) == before:
+            break
+    for name, method, _ in pending:
+        if name.lower() in blocked:
             continue
         item = new_item("NOT_TRANSFERRED", "method " + name)
         items.append(item)
         if not apply:
             continue
+        place = resolve_method_conditions(lines, {"at": get_module_end(lines)}, method)
         start = method["decl_idx"]
         if start and is_context_directive(plan["lines"][start - 1].strip()):
             start -= 1
@@ -3803,6 +3879,9 @@ def complete_root_module(plan, frame, apply):
             invalid = {name for name, _ in readback["missing"]} | set(readback["different"])
             if any(item["text"] in {"method " + name for name in invalid} for item in inserted):
                 raise ValueError("inserted methods did not pass read-back validation")
+            with open(path, "rb") as current:
+                if hashlib.sha256(current.read()).digest() != plan["bsl"]["digest"]:
+                    raise ValueError("module changed during transfer")
             replace_form_file(temp, path)
             changed.append(path)
             for item in inserted:
@@ -4049,7 +4128,8 @@ def subsystem_content_items(md, cfg_md, prefix, rel, cfg_pools=None):
     """Transfer of a borrowed subsystem's content: each object the extension adds must be in the
     content of the configuration's subsystem (own names compared with and without the prefix)."""
     items = []
-    cfg = {value.lower() for value in get_subsystem_content(cfg_md)}
+    entries = get_subsystem_content(cfg_md)
+    cfg = {value.lower() for value in entries}
     for ref in get_subsystem_content(md):
         resolved = resolve_md_reference(ref, prefix)
         if resolved.get("status"):
@@ -4059,9 +4139,10 @@ def subsystem_content_items(md, cfg_md, prefix, rel, cfg_pools=None):
             continue
         target = resolved["value"]
         renamed = target.lower() != ref.lower()
-        if renamed and ref.lower() in cfg:
+        stale = ref if renamed and ref.lower() in cfg else find_stale_md_reference(entries, target, prefix)
+        if stale:
             items.append(new_md_reference_item("content " + ref, {"status": "CONFLICT",
-                                              "reason": "existing reference differs from " + target}))
+                                              "reason": "existing reference %s differs from %s" % (stale, target)}))
             continue
         hit = target.lower() in cfg
         as_ = (" (found as %s)" % target) if renamed else ""
@@ -6351,7 +6432,7 @@ def get_module_lang(lines):
     return "ru"
 
 
-def read_bsl_file(path):
+def read_bsl_file(path, track_content=False):
     """A .bsl file read for writing back as it was: BOM, line breaks, final line break."""
     data = open(path, "rb").read()
     bom = data[:3] == b"\xef\xbb\xbf"
@@ -6361,7 +6442,10 @@ def read_bsl_file(path):
     lines = re.split(r'\r\n|\n|\r', text) if text != "" else []
     if final and lines:
         lines = lines[:-1]
-    return {"path": path, "lines": lines, "bom": bom, "eol": eol, "final": final}
+    result = {"path": path, "lines": lines, "bom": bom, "eol": eol, "final": final}
+    if track_content:
+        result["digest"] = hashlib.sha256(data).digest()
+    return result
 
 
 def write_bsl_file(f, lines, path=None):

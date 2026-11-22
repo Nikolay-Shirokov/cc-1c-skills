@@ -1,4 +1,4 @@
-﻿# cfe-transfer v1.33 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+﻿# cfe-transfer v1.34 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -1540,6 +1540,7 @@ $script:mdQualOrder = @('NumberQualifiers', 'StringQualifiers', 'DateQualifiers'
 
 # Type kinds that name a metadata object of the configuration; a *Ref kind looks up its base kind
 function Get-MdTypeRefBase([string]$kind) {
+	if ($kind -ceq 'Characteristic') { return 'ChartOfCharacteristicTypes' }
 	if ($kind.EndsWith('Ref') -and $kind.Length -gt 3) { return $kind.Substring(0, $kind.Length - 3) }
 	return $kind
 }
@@ -1614,6 +1615,16 @@ function New-MdReferenceItem([string]$label, $reference) {
 	$item = New-Item2 $reference.Status "$label — $($reference.Reason)"
 	$item.Plan = @{ Kind = 'md-reference' }
 	return $item
+}
+
+function Find-StaleMdReference($existing, [string]$target, [string]$prefix, [bool]$type = $false) {
+	$key = Get-NameKey $target $prefix
+	foreach ($value in $existing) {
+		if ($value -ieq $target -or (Get-NameKey $value $prefix) -ine $key) { continue }
+		$actual = Resolve-MdReference $value $prefix $type
+		if ($actual.Status -or $actual.Value -ine $value) { return $value }
+	}
+	return $null
 }
 
 # Modes of one element: property -> Notify / MultiState / Extended, from InternalInfo/PropertyState
@@ -1832,7 +1843,19 @@ function Get-MdPropItems($extEl, $cfgEl, [string]$prefix, [int]$rank, [string]$r
 				$why = ''
 				if ($elemMissing) { $why = 'the element is not in the configuration' }
 				elseif (-not $cfgType) { $why = "the element has no type in the configuration" }
-				else { $why = Get-MdTypeMergeConflict (Get-MdTypeModel $cfgType '') $ex }
+				else {
+					$cfgModel = Get-MdTypeModel $cfgType ''
+					$stale = $null
+					foreach ($type in $ex.Types) {
+						$stale = Find-StaleMdReference @($cfgModel.Types | Where-Object { $_.Local -eq $type.Local } | ForEach-Object { $_.Value }) $type.Value $prefix $true
+						if ($stale) { break }
+					}
+					if ($stale) {
+						$items += New-MdReferenceItem $at @{ Status = 'CONFLICT'; Reason = "existing reference $stale does not resolve to its registered target" }
+						continue
+					}
+					$why = Get-MdTypeMergeConflict $cfgModel $ex
+				}
 				if ($why) {
 					$ni = New-Item2 'DIVERGED' "$at — $why"
 					$pl = & $newPlan 'TypeExtend' $why 'next: compare the types and merge by hand, then re-run -Mode check'
@@ -3311,22 +3334,37 @@ function Get-RootObjectCodeKey($lines) {
 	}) -join [char]0)
 }
 
+function Get-RootTopCodeKey($lines) {
+	$layout = Get-ModuleLayout $lines
+	$indexes = @(@($layout.Vars | ForEach-Object { $_.Idx }) + @($layout.Statements) | Sort-Object)
+	$guards = @($indexes | ForEach-Object { Get-MethodConditionKey (Get-MethodConditions (Get-EnclosingChain $lines $_ 'en')) })
+	return ((Get-RootObjectCodeKey @($indexes | ForEach-Object { $lines[$_] })) + [char]0 + ($guards -join [char]0))
+}
+
 function Compare-RootModule($from, $to) {
 	$names = @(Get-ProcNames $from)
 	$current = @(Get-ProcNames $to)
-	$matched = 0; $missing = @(); $different = @()
+	$matched = 0; $missing = @(); $different = @(); $temporary = @(); $total = $names.Count
 	foreach ($name in $names) {
 		$a = Get-MethodSafe $from $name; $b = Get-MethodSafe $to $name
 		if (-not $a -or @($names | Where-Object { $_ -ieq $name }).Count -ne 1) { $different += $name; continue }
+		$same = $b -and @($current | Where-Object { $_ -ieq $name }).Count -eq 1 -and
+			-not (Get-OwnDeclarationDifference $from $a $to $b) -and (Get-RootObjectCodeKey $a.BodyLines) -ceq (Get-RootObjectCodeKey $b.BodyLines)
+		$mark = Get-MethodTempMark $from $a
+		if ($null -ne $mark) {
+			$total--
+			$status = if ($same) { 'TRANSFERRED' } else { 'NOT_TRANSFERRED' }
+			$temporary += Set-TempMark (New-Item2 $status "method $name") $mark "method $name"
+			continue
+		}
 		if ($name -notin $current) { $a.RootName = $name; $missing += $a; continue }
-		if (-not $b -or @($current | Where-Object { $_ -ieq $name }).Count -ne 1 -or
-			(Get-OwnDeclarationDifference $from $a $to $b) -or (Get-RootObjectCodeKey $a.BodyLines) -cne (Get-RootObjectCodeKey $b.BodyLines)) {
+		if (-not $same) {
 			$different += $name; continue
 		}
 		if (Get-RootObjectCodeKey $a.BodyLines) { $matched++ }
 	}
-	$top = ((Get-TopCodeKeys $from '').Values -join "`n") -ceq ((Get-TopCodeKeys $to '').Values -join "`n")
-	return @{ Matched = $matched; Total = $names.Count; Missing = $missing; Different = $different; Top = $top }
+	$top = (Get-RootTopCodeKey $from) -ceq (Get-RootTopCodeKey $to)
+	return @{ Matched = $matched; Total = $total; Missing = $missing; Different = $different; Temporary = $temporary; Top = $top }
 }
 
 function Get-RootObjectPlan($entry, [string]$extDir, [string]$prefix) {
@@ -3339,7 +3377,7 @@ function Get-RootObjectPlan($entry, [string]$extDir, [string]$prefix) {
 	if ($fw.Doc.DocumentElement.GetAttribute('version') -cne $cfgInfo.Doc.DocumentElement.GetAttribute('version')) {
 		return @{ Status = 'MANUAL'; Reason = 'metadata dump formats differ' }
 	}
-	$extras = @(Get-ChildItem -LiteralPath (Join-Path $extDir $src.Dir) -File -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.FullName -ine $srcBsl })
+	$extras = @(Get-ChildItem -LiteralPath (Join-Path $extDir $src.Dir) -File -Recurse -Force -ErrorAction SilentlyContinue | Where-Object { $_.FullName -ine $srcBsl })
 	if ($extras.Count) { return @{ Status = 'MANUAL'; Reason = "unsupported object file $($extras[0].Name)" } }
 	if (-not (Test-Path -LiteralPath $srcBsl -PathType Leaf)) { return @{ Status = 'MANUAL'; Reason = "missing module $($src.Bsl)" } }
 	$bsl = Read-BslFile $srcBsl
@@ -3355,7 +3393,7 @@ function Get-RootObjectPlan($entry, [string]$extDir, [string]$prefix) {
 		if ($xml.Status) { return $xml }
 		$projection = Get-RootBslProjection $bsl.Lines $prefix $id $candidate
 		if ($projection.Status) { return $projection }
-		$dstBsl = Read-BslFile (Get-CfgPath $paths.Bsl)
+		$dstBsl = Read-BslFile (Get-CfgPath $paths.Bsl) -TrackContent
 		$sameXml = (Get-NodeCanon $xml.Props) -ceq (Get-NodeCanon $dst.Props)
 		$sameBsl = (Get-RootObjectCodeKey $projection.Lines) -ceq (Get-RootObjectCodeKey $dstBsl.Lines)
 		$plan = @{ Target = $candidate; Paths = $paths; Bsl = $dstBsl; Lines = $projection.Lines; Status = 'TRANSFERRED' }
@@ -3364,7 +3402,7 @@ function Get-RootObjectPlan($entry, [string]$extDir, [string]$prefix) {
 			$comparison = Compare-RootModule $projection.Lines $dstBsl.Lines
 			if ($sameXml -and $comparison.Matched -ge 2 -and 2 * $comparison.Matched -gt $comparison.Total) {
 				$plan.Comparison = $comparison
-				if ($comparison.Missing.Count -or $comparison.Different.Count -or -not $comparison.Top) { $plan.Status = 'PARTIAL' }
+				if ($comparison.Missing.Count -or $comparison.Different.Count -or $comparison.Temporary.Count -or -not $comparison.Top) { $plan.Status = 'PARTIAL' }
 				$matches2 += $plan
 				continue
 			}
@@ -3457,6 +3495,17 @@ function Write-RootObject($entry, $plan) {
 	return ,@($xmlPath, $bslPath, $cfgPath)
 }
 
+function Get-RootLocalCalls($method, [string]$target) {
+	$tokens = @(Get-BslTokens $method.BodyLines | Where-Object { $_.Kind -ne 'comment' -and $_.Value.Trim() })
+	$shadowed = $target -in $method.ParamNames -or (Get-LocalNames (Get-CodeOnly $method.BodyLines) $method.ParamNames).Contains($target.ToLowerInvariant())
+	for ($i = 0; $i + 1 -lt $tokens.Count; $i++) {
+		if ($tokens[$i].Kind -ne 'word' -or $tokens[$i + 1].Value -ne '(') { continue }
+		if ($i -and $tokens[$i - 1].Value -in @('Новый', 'New')) { continue }
+		if ($i -and $tokens[$i - 1].Value -eq '.' -and ($shadowed -or $i -lt 2 -or $tokens[$i - 2].Value -ine $target -or ($i -gt 2 -and $tokens[$i - 3].Value -eq '.'))) { continue }
+		$tokens[$i].Value
+	}
+}
+
 function Complete-RootModule($plan, $frame, [bool]$apply) {
 	$c = $plan.Comparison
 	$items = @(); $changed = @()
@@ -3465,19 +3514,46 @@ function Complete-RootModule($plan, $frame, [bool]$apply) {
 	if (-not $c.Top) { $items += New-Item2 'CONFLICT' 'module code outside methods differs' }
 	$lines = @($plan.Bsl.Lines)
 	$inserted = @()
+	$blocked = @{}; $pending = @()
+	foreach ($name in $c.Different) { $blocked[$name] = $true }
+	foreach ($item in $c.Temporary) {
+		$items += $item
+		if ($item.Status -eq 'TEMPORARY') { $blocked[($item.Text -split ' ', 3)[1]] = $true }
+	}
 	foreach ($method in $c.Missing) {
+		$name = $method.RootName
 		if (-not $c.Top) {
-			$items += New-Item2 'WAITING' "method $($method.RootName) — waiting for module code outside methods"
+			$items += New-Item2 'WAITING' "method $name — waiting for module code outside methods"
+			$blocked[$name] = $true
 			continue
 		}
 		$place = Resolve-MethodConditions $lines @{ At = (Get-ModuleEnd $lines) } $method
 		if (-not $place -or (Test-MethodCrossesBranch $plan.Lines $method)) {
-			$items += New-Item2 'MANUAL' "method $($method.RootName) — preprocessor condition differs"
+			$items += New-Item2 'MANUAL' "method $name — preprocessor condition differs"
+			$blocked[$name] = $true
 			continue
 		}
+		$pending += @{ Method = $method; Calls = @(Get-RootLocalCalls $method $plan.Target | Select-Object -Unique) }
+	}
+	do {
+		$again = $false
+		foreach ($entry in $pending) {
+			$name = $entry.Method.RootName
+			if ($blocked.ContainsKey($name)) { continue }
+			$deps = @($entry.Calls | Where-Object { $blocked.ContainsKey($_) })
+			if (-not $deps.Count) { continue }
+			$items += New-Item2 'WAITING' "method $name — waiting for $($deps -join ', ')"
+			$blocked[$name] = $true
+			$again = $true
+		}
+	} while ($again)
+	foreach ($entry in $pending) {
+		$method = $entry.Method
+		if ($blocked.ContainsKey($method.RootName)) { continue }
 		$it = New-Item2 'NOT_TRANSFERRED' "method $($method.RootName)"
 		$items += $it
 		if (-not $apply) { continue }
+		$place = Resolve-MethodConditions $lines @{ At = (Get-ModuleEnd $lines) } $method
 		# The root object projection already did the identifier conversion. Copy the method with its directives and framing.
 		$start = $method.DeclIdx
 		if ($start -gt 0 -and (Test-ContextDirective $plan.Lines[$start - 1].Trim())) { $start-- }
@@ -3501,6 +3577,7 @@ function Complete-RootModule($plan, $frame, [bool]$apply) {
 			$readback = Compare-RootModule $plan.Lines (Read-BslLines $temp)
 			if (@($readback.Missing | Where-Object { "method $($_.RootName)" -in $inserted.Text }).Count -or
 				@($readback.Different | Where-Object { "method $_" -in $inserted.Text }).Count) { throw 'inserted methods did not pass read-back validation' }
+			if ((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash -cne $plan.Bsl.Digest) { throw 'module changed during transfer' }
 			[IO.File]::Replace($temp, $path, [NullString]::Value)
 			$changed += $path
 			foreach ($it in $inserted) { $it.Status = 'TRANSFERRED'; $it.Now = $true }
@@ -3737,8 +3814,9 @@ function Get-SubsystemContentItems($md, $cfgMd, [string]$prefix, [string]$rel) {
 			continue
 		}
 		$target = $resolved.Value
-		if ($target -ine $ref -and $cfg -contains $ref) {
-			$items += New-MdReferenceItem "content $ref" @{ Status = 'CONFLICT'; Reason = "existing reference differs from $target" }
+		$stale = if ($target -ine $ref -and $cfg -contains $ref) { $ref } else { Find-StaleMdReference $cfg $target $prefix }
+		if ($stale) {
+			$items += New-MdReferenceItem "content $ref" @{ Status = 'CONFLICT'; Reason = "existing reference $stale differs from $target" }
 			continue
 		}
 		$as = if ($target -ine $ref) { " (found as $target)" } else { '' }
@@ -5842,7 +5920,7 @@ function Get-ModuleLang($lines) {
 }
 
 # A .bsl file read for writing back as it was: BOM, line breaks, final line break
-function Read-BslFile([string]$path) {
+function Read-BslFile([string]$path, [switch]$TrackContent) {
 	$bytes = [System.IO.File]::ReadAllBytes($path)
 	$bom = ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF)
 	$off = if ($bom) { 3 } else { 0 }
@@ -5851,7 +5929,12 @@ function Read-BslFile([string]$path) {
 	$final = ($text.EndsWith("`n") -or $text.EndsWith("`r"))
 	$lines = if ($text -eq '') { @() } else { @($text -split "`r`n|`n|`r") }
 	if ($final -and $lines.Count -gt 0) { $lines = @($lines[0..($lines.Count - 2)]) }
-	return @{ Path = $path; Lines = $lines; Bom = $bom; Eol = $eol; Final = $final }
+	$result = @{ Path = $path; Lines = $lines; Bom = $bom; Eol = $eol; Final = $final }
+	if ($TrackContent) {
+		$sha = [Security.Cryptography.SHA256]::Create()
+		try { $result.Digest = [BitConverter]::ToString($sha.ComputeHash($bytes)).Replace('-', '') } finally { $sha.Dispose() }
+	}
+	return $result
 }
 
 function Write-BslFile($f, $lines, [string]$path = $f.Path) {
