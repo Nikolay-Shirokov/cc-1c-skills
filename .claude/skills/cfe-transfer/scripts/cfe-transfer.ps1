@@ -1,4 +1,4 @@
-﻿# cfe-transfer v1.35 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+﻿# cfe-transfer v1.36 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -1577,6 +1577,12 @@ function Resolve-MdReference([string]$value, [string]$prefix, [bool]$type = $fal
 		return @{ Status = 'MANUAL'; Reason = "$base.${target}: missing descriptor $dir/$target.xml" }
 	}
 	if ($tail -and $tail -cne '.EmptyRef') {
+		if ($base -eq 'Catalog' -and $tail -match '^\.(Form|Template|Command)\.(\w+)$') {
+			$id = "$rootId.$($Matches[1]).$($Matches[2])"
+			$childResult = Get-CatalogChildBinding $id
+			if ($childResult.Status) { return $childResult }
+			if ($childResult.Target) { return @{ Value = "$nsPrefix$kind.$target.$($childResult.Kind).$($childResult.Target)" } }
+		}
 		$owner = Read-MdObject $path
 		$parts = $tail.TrimStart('.').Split('.')
 		if ($parts.Count % 2) { return @{ Status = 'MANUAL'; Reason = "unsupported metadata path: $value" } }
@@ -1818,6 +1824,8 @@ function Get-MdPropItems($extEl, $cfgEl, [string]$prefix, [int]$rank, [string]$r
 		if ($p.NodeType -ne 'Element') { continue }
 		$prop = $p.LocalName
 		if ($script:mdServiceProps -contains $prop -or $script:mdModuleProps -contains $prop -or $script:additiveProps -contains $prop) { continue }
+		if ($isObject -and $objType -eq 'Catalog' -and $prop -match '^(Default|Auxiliary).*Form$' -and
+			$script:catalogChildren -and $script:catalogChildren.ContainsKey($p.InnerText.Trim())) { continue }
 		$state = if ($states.ContainsKey($prop)) { $states[$prop] } else { '' }
 		$at = if ($isObject) { "$subject property $prop" } else { "$subject.$prop" }
 
@@ -3135,8 +3143,7 @@ function Get-OwnChildItems($ctx, $cfgMd, [string]$prefix, [string]$rel, [int]$ra
 	$mns = $ctx.Md.Ns
 	$cfgKids = @()
 	if ($cfgMd -and $cfgMd.Children) { foreach ($c in $cfgMd.Children.ChildNodes) { if ($c.NodeType -eq 'Element') { $cfgKids += $c } } }
-	# Kinds kept in files of their own: a form, a template, a command module. The metadata transfer
-	# carries XML-only children; these stay for a person
+	# Catalog file-backed children are planned separately as a package.
 	$fileKinds = @('Form', 'Template', 'Command')
 	$check = {
 		param($node, [string]$label, $cfgPool, [string]$path)
@@ -3182,6 +3189,7 @@ function Get-OwnChildItems($ctx, $cfgMd, [string]$prefix, [string]$rel, [int]$ra
 	}
 	foreach ($c in $ctx.Md.Children.ChildNodes) {
 		if ($c.NodeType -ne 'Element') { continue }
+		if ($ctx.Type -eq 'Catalog' -and $c.LocalName -in $fileKinds) { continue }
 		if (-not (Test-HasElementChild $c)) {
 			# <Form>Имя</Form>, <Template>Имя</Template>: ownership is in the sub-object descriptor
 			$nm = $c.InnerText.Trim()
@@ -3262,7 +3270,7 @@ function Get-RootObjectXml($fw, [string]$kind, [string]$name, [string]$prefix) {
 	return @{ Props = $props }
 }
 
-function Get-RootBslProjection($lines, [string]$prefix, [string]$selfId, [string]$selfName) {
+function Get-RootBslProjection($lines, [string]$prefix, [string]$selfId, [string]$selfName, [string]$rel = '', $child = $null) {
 	$collections = @{
 		'Справочники'='Catalog'; 'Catalogs'='Catalog'; 'Документы'='Document'; 'Documents'='Document'
 		'Перечисления'='Enum'; 'Enums'='Enum'; 'ОбщиеКоманды'='CommonCommand'; 'CommonCommands'='CommonCommand'
@@ -3278,6 +3286,9 @@ function Get-RootBslProjection($lines, [string]$prefix, [string]$selfId, [string
 	$locals = @( (Get-ModuleLayout $lines).Vars | ForEach-Object { $_.Names })
 	$methodLocals = @{}
 	$edits = @{}
+	$childRefs = Get-CatalogChildBsl @($all | Where-Object { $_.Kind -ne 'comment' -and $_.Value.Trim() }) $rel $child $procNames
+	if ($childRefs.Issues.Count) { return $childRefs.Issues[0] }
+	foreach ($pos in $childRefs.Edits.Keys) { $edits[$pos] = $childRefs.Edits[$pos] }
 	for ($i = 0; $i + 1 -lt $tokens.Count; $i++) {
 		$token = $tokens[$i]
 		if ($token.Kind -ne 'word' -or ($i -and $tokens[$i - 1].Value -eq '.')) { continue }
@@ -3296,7 +3307,8 @@ function Get-RootBslProjection($lines, [string]$prefix, [string]$selfId, [string
 		$refToken = if ($kind) { $next } else { $token }
 		if (-not $kind) { $kind = 'CommonModule' }
 		$id = "$kind.$($refToken.Value)"
-		if (-not $script:rootSourceIds.ContainsKey($id)) { continue }
+		$dataAlias = $child -and $token.Value -in $child.DataAliases
+		if (-not $dataAlias -and -not $script:rootSourceIds.ContainsKey($id)) { continue }
 		if ($token.Value -in $locals) { continue }
 		$line = [regex]::Matches($source.Substring(0, $token.Start), "`n").Count
 		$owner = @($methods | Where-Object { $_.DeclIdx -le $line -and $_.BodyEndIdx -ge $line })[0]
@@ -3305,6 +3317,12 @@ function Get-RootBslProjection($lines, [string]$prefix, [string]$selfId, [string
 				$methodLocals[$owner.DeclIdx] = @($owner.ParamNames) + @((Get-LocalNames (Get-CodeOnly $owner.BodyLines) $owner.ParamNames).Keys)
 			}
 			if ($token.Value -in $methodLocals[$owner.DeclIdx]) { continue }
+		}
+		if ($dataAlias) {
+			$ref = Resolve-CatalogDataPath $child.Ctx $token.Value $next.Value '' $prefix
+			if ($ref.Status) { return $ref }
+			if ($ref.Value) { $edits[$next.Start] = $ref.Value.Split('.')[1] }
+			continue
 		}
 		if ($id -ieq $selfId) { $target = $selfName }
 		elseif ($script:rootBindings.ContainsKey($id)) {
@@ -3335,7 +3353,7 @@ function Get-RootBslProjection($lines, [string]$prefix, [string]$selfId, [string
 		$edits[$refToken.Start] = $target
 	}
 	# A direct platform form call names the owning catalog in its first argument.
-	if ($selfId.StartsWith('Catalog.', [StringComparison]::OrdinalIgnoreCase)) {
+	if ($selfId.StartsWith('Catalog.', [StringComparison]::OrdinalIgnoreCase) -and $selfName -cne $selfId.Substring(8)) {
 		$formPath = '^("(?:Catalog|Справочник)\.)' + [regex]::Escape($selfId.Substring(8)) + '(\.(?:Form|Форма)\.\w+")$'
 		$call = @($all | Where-Object { $_.Kind -ne 'comment' -and $_.Value.Trim() })
 		for ($i = 0; $i + 3 -lt $call.Count; $i++) {
@@ -3404,12 +3422,13 @@ function Get-CatalogTransferUuid([string]$identityKind, [string]$source) {
 	return ([guid]::ParseExact([BitConverter]::ToString($hash, 0, 16).Replace('-', ''), 'N')).ToString()
 }
 
-function Get-CatalogFileSet($doc, [string]$root) {
+function Get-CatalogFileSet($doc, [string]$root, $child = $null) {
 	$m = New-MdNt $doc
 	$required = @{}; $optional = @{}
 	foreach ($name in @('ObjectModule.bsl','ManagerModule.bsl')) { $optional["Ext/$name"] = '' }
 	$children = $doc.SelectSingleNode('md:MetaDataObject/md:Catalog/md:ChildObjects', $m)
-	foreach ($node in @($children.ChildNodes | Where-Object NodeType -eq 'Element')) {
+	$nodes = if ($child) { ,$child } else { @($children.ChildNodes | Where-Object NodeType -eq 'Element') }
+	foreach ($node in $nodes) {
 		$name = Get-MdChildName $node $m
 		if ($name -notmatch '^\w+$') { return @{ Reason = "invalid catalog child name: $name" } }
 		switch ($node.LocalName) {
@@ -3438,7 +3457,12 @@ function Get-CatalogFileSet($doc, [string]$root) {
 		}
 	}
 	$files = @{}
-	foreach ($f in @(Get-ChildItem -LiteralPath $root -File -Recurse -Force -ErrorAction SilentlyContinue)) {
+	$scan = if ($child) {
+		$folder = "$($child.LocalName)s/$(Get-MdChildName $child $m)"
+		Get-ChildItem -LiteralPath (Join-Path $root $folder) -File -Recurse -Force -ErrorAction SilentlyContinue
+		Get-Item -LiteralPath (Join-Path $root "$folder.xml") -ErrorAction SilentlyContinue
+	} else { Get-ChildItem -LiteralPath $root -File -Recurse -Force -ErrorAction SilentlyContinue }
+	foreach ($f in @($scan)) {
 		$rel = Get-RelPath $root $f.FullName
 		if (-not $required.ContainsKey($rel) -and -not $optional.ContainsKey($rel)) { return @{ Reason = "unsupported object file $rel" } }
 		$files[$rel] = $f.FullName
@@ -3447,7 +3471,7 @@ function Get-CatalogFileSet($doc, [string]$root) {
 	return @{ Files = $files }
 }
 
-function Convert-CatalogXml($fw, [string]$source, [string]$target, [string]$prefix, [bool]$descriptor) {
+function Convert-CatalogXml($fw, [string]$source, [string]$target, [string]$prefix, [bool]$descriptor, $child = $null) {
 	$m = New-MdNt $fw.Doc
 	if ($descriptor) {
 		$props = (Get-MdObjectElement $fw.Doc).SelectSingleNode('md:Properties', $m)
@@ -3466,12 +3490,28 @@ function Convert-CatalogXml($fw, [string]$source, [string]$target, [string]$pref
 	}
 	foreach ($node in @($fw.Doc.SelectNodes('//*[not(*)]', $m))) {
 		$value = $node.InnerText.Trim()
+		if ($child -and $node.LocalName -match $script:formPathTags -and $value -match '^(\w+)\.(\w+)(?:\.(\w+))?$') {
+			$alias = $Matches[1]; $field = $Matches[2]; $column = $Matches[3]
+			$attr = $fw.Doc.SelectSingleNode("/*[local-name()='Form']/*[local-name()='Attributes']/*[local-name()='Attribute'][@name='$alias']/*[local-name()='Type']/v8:Type", $m)
+			if ($attr.InnerText -ieq "cfg:CatalogObject.$source") {
+				$ref = Resolve-CatalogDataPath $child.Ctx $alias $field $column $prefix
+				if ($ref.Status) { return $ref }
+				if ($ref.Value) { $node.InnerText = $ref.Value; continue }
+			}
+		}
 		$isType = $node.NamespaceURI -eq $m.LookupNamespace('v8') -and $node.LocalName -in @('Type','TypeSet')
 		$isRef = $node.LocalName -match '^(Default|Auxiliary).+Form$|^(ChoiceForm|Owners|Group|Ref|DataPath)$' -or
 			($node.LocalName -eq 'Field' -and $node.NamespaceURI -eq $m.LookupNamespace('xr')) -or
 			$node.GetAttribute('type', $m.LookupNamespace('xsi')) -eq 'xr:DesignTimeRef' -or
 			$node.GetAttribute('type', $m.LookupNamespace('xsi')) -eq 'xr:MDObjectRef'
 		if (-not ($isType -or $isRef) -or -not $value) { continue }
+		if ($child -and $value -match '^Catalog\.\w+\.(Form|Template|Command|Attribute|TabularSection)\.\w+(?:\.Attribute\.\w+)?$') {
+			if ($value -ieq $child.Id) { $node.InnerText = "Catalog.$target.$($child.Kind).$($child.Target)"; continue }
+			$ref = Resolve-MdReference $value $prefix
+			if ($ref.Status) { return $ref }
+			$node.InnerText = $ref.Value
+			continue
+		}
 		if ($value -match $self) {
 			$node.InnerText = [regex]::Replace($value, $self, { param($match) $match.Groups[1].Value + $match.Groups[2].Value + $target }, 'IgnoreCase')
 		} elseif ($isType -or $node.LocalName -notin @('DataPath')) {
@@ -3481,6 +3521,279 @@ function Convert-CatalogXml($fw, [string]$source, [string]$target, [string]$pref
 		}
 	}
 	return @{ Status = '' }
+}
+
+function Resolve-CatalogDataPath($ctx, [string]$alias, [string]$field, [string]$column, [string]$prefix) {
+	$member = @($ctx.Md.Children.ChildNodes | Where-Object {
+		$_.LocalName -in @('Attribute','TabularSection') -and (Get-MdChildName $_ $ctx.Md.Ns) -ieq $field
+	})[0]
+	if (-not $member) { return @{} }
+	$path = "$($ctx.Id).$($member.LocalName).$field"
+	$own = -not (Test-AdoptedNode $member $ctx.Md.Ns)
+	if ($column) {
+		if ($member.LocalName -ne 'TabularSection') { return @{} }
+		$col = @($member.SelectNodes('md:ChildObjects/md:Attribute', $ctx.Md.Ns) | Where-Object { (Get-MdChildName $_ $ctx.Md.Ns) -ieq $column })[0]
+		if (-not $col) { return @{} }
+		$own = $own -or -not (Test-AdoptedNode $col $ctx.Md.Ns)
+		$path += ".Attribute.$column"
+	}
+	if (-not $own) { return @{} }
+	$ref = Resolve-MdReference $path $prefix
+	if ($ref.Status) { return $ref }
+	$parts = $ref.Value.Split('.')
+	$sourceNode = if ($column) { $col } else { $member }
+	$type = $sourceNode.SelectSingleNode('md:Properties/md:Type', $ctx.Md.Ns)
+	if ($type) {
+		$projected = $type.CloneNode($true)
+		$refs = Get-MdNodeReferences $projected (New-MdNt $projected.OwnerDocument) $prefix $true
+		if ($refs.Status) { return $refs }
+		$md = Read-MdObject (Get-CfgPath "Catalogs/$($parts[1]).xml")
+		$lookup = if ($column) { @{ Tag = 'Attribute'; Name = $parts[5]; Parent = $parts[3] } } else { @{ Tag = 'Attribute'; Name = $parts[3] } }
+		$actual = Get-MdTargetElement $md.El $lookup $md.Ns
+		if (-not $actual -or -not (Test-MdTypeModelEqual (Get-MdTypeModel $projected '') (Get-MdTypeModel ($actual.SelectSingleNode('md:Properties/md:Type', $md.Ns)) ''))) {
+			return @{ Status = 'WAITING'; Reason = "waiting for compatible type of $path" }
+		}
+	}
+	$value = "$alias.$($parts[3])"
+	if ($column) { $value += ".$($parts[5])" }
+	return @{ Value = $value }
+}
+
+function Get-CatalogChildBinding([string]$id) {
+	if ($script:catalogChildren -and $script:catalogChildren.ContainsKey($id)) {
+		$entry = $script:catalogChildren[$id]
+		if ($entry.Ready) { return @{ Kind = $entry.Kind; Target = $entry.Ready } }
+		return @{ Status = 'WAITING'; Reason = "waiting for $id"; Dependency = $id }
+	}
+	return @{}
+}
+
+function Get-CatalogChildBsl($tokens, [string]$rel, $self, $declared) {
+	$result = @{ Edits = @{}; Issues = @() }
+	if (-not $script:catalogChildren.Count) { return $result }
+	$owner = if ($rel -match '^Catalogs/(\w+)/Ext/(ObjectModule|ManagerModule)\.bsl$') { $Matches[1] } else { '' }
+	for ($i = 0; $i + 3 -lt $tokens.Count; $i++) {
+		$api = $tokens[$i].Value
+		if ($api -in $declared -or ($script:rootGlobalMethods -and $script:rootGlobalMethods.ContainsKey($api)) -or
+			$tokens[$i + 1].Value -ne '(' -or $tokens[$i + 2].Kind -ne 'string' -or $tokens[$i + 3].Value -notin @(',',')')) { continue }
+		$literal = $tokens[$i + 2]
+		if ($api -in @('ОткрытьФорму','OpenForm','ПолучитьФорму','GetForm') -and (-not $i -or $tokens[$i - 1].Value -ne '.') -and
+			$literal.Value -match '^("(?:Catalog|Справочник)\.)(\w+)(\.(?:Form|Форма)\.)(\w+)"$') {
+			$id = "Catalog.$($Matches[2]).Form.$($Matches[4])"
+			$head = $Matches[1] + $Matches[2] + $Matches[3]
+		} elseif ($api -in @('ПолучитьМакет','GetTemplate') -and $owner -and (-not $i -or $tokens[$i - 1].Value -ne '.') -and
+			$literal.Value -match '^"(\w+)"$') {
+			$id = "Catalog.$owner.Template.$($Matches[1])"
+			$head = '"'
+		} else { continue }
+		$binding = if ($self -and $id -ieq $self.Id) { $self } else { Get-CatalogChildBinding $id }
+		if ($binding.Status) {
+			$result.Issues += @{ Token = $literal; Rename = $id; Why = $binding.Reason; Reason = $binding.Reason; Status = $binding.Status; Dependency = $binding.Dependency }
+		} elseif ($binding.Target) { $result.Edits[$literal.Start] = $head + $binding.Target + '"' }
+	}
+	return $result
+}
+
+function Get-CatalogChildDescriptor($registry, [string]$root, $m) {
+	if (Test-HasElementChild $registry) { return $registry }
+	$name = Get-MdChildName $registry $m
+	if ($name -notmatch '^\w+$') { return }
+	$md = Read-MdObject (Join-Path $root "$($registry.LocalName)s/$name.xml")
+	if ($md) { return $md.El }
+}
+
+function Get-CatalogChildProjection($entry, [string]$target, [string]$prefix, $files) {
+	$result = @{ Files = @{} }
+	$child = @{ Id = $entry.Id; Kind = $entry.Kind; Target = $target; Ctx = $entry.Ctx }
+	$kind = $entry.Kind
+	$owner = $entry.Ctx.Name
+	$old = "${kind}s/$($entry.Name)"
+	$new = "Catalogs/$owner/${kind}s/$target"
+	if ($kind -eq 'Form') {
+		$doc = Read-FormDoc $files["$old/Ext/Form.xml"]
+		$child.DataAliases = @(foreach ($a in @($doc.SelectNodes("/*[local-name()='Form']/*[local-name()='Attributes']/*[local-name()='Attribute']"))) {
+			$t = $a.SelectSingleNode("*[local-name()='Type']/v8:Type", (New-MdNt $doc))
+			if ($t.InnerText -ieq "cfg:CatalogObject.$owner") { $a.GetAttribute('name') }
+		})
+	}
+	if (Test-HasElementChild $entry.Node) {
+		$doc = New-Object System.Xml.XmlDocument
+		[void]$doc.AppendChild($doc.CreateElement('MetaDataObject', $mdNsUri))
+		$result.Node = $doc.ImportNode($entry.Node, $true)
+		[void]$doc.DocumentElement.AppendChild($result.Node)
+		$ref = Convert-CatalogXml @{ Doc = $doc } $owner $owner $prefix $false $child
+		# The descriptor name belongs to the child, while typed references use the catalog owner.
+		$result.Node.SelectSingleNode('md:Properties/md:Name', (New-MdNt $doc)).InnerText = $target
+		if ($ref.Status) { return $ref }
+	}
+	foreach ($rel in @($files.Keys | Sort-Object)) {
+		$src = $files[$rel]
+		$dst = $new + $rel.Substring($old.Length)
+		if ($rel -like '*.bsl') {
+			$bsl = Read-BslFile $src
+			$base = Get-RootBslProjection $bsl.Lines $prefix "Catalog.$owner" $owner "Catalogs/$owner/$rel" $child
+			if ($base.Status) { return $base }
+			$result.Files[$dst] = @{ Bsl = $bsl; Lines = $base.Lines }
+		} elseif ($rel -like 'Templates/*/Ext/Template.xml') {
+			$result.Files[$dst] = @{ Copy = $src }
+		} else {
+			$xml = Read-FormWrite $src
+			if ($kind -eq 'Form' -and $rel -like '*/Ext/Form.xml' -and $xml.Doc.SelectSingleNode("//*[local-name()='BaseForm']")) {
+				return @{ Status = 'MANUAL'; Reason = 'form body contains a borrowed BaseForm' }
+			}
+			$ref = Convert-CatalogXml $xml $owner $owner $prefix $false $child
+			if ($ref.Status) { return $ref }
+			if ($rel -eq "$old.xml") {
+				$descriptor = Get-MdObjectElement $xml.Doc
+				if ($descriptor.LocalName -ne $kind) { throw "unexpected descriptor type $($descriptor.LocalName)" }
+				$props = $descriptor.SelectSingleNode('md:Properties', (New-MdNt $xml.Doc))
+				$props.SelectSingleNode("*[local-name()='Name']").InnerText = $target
+			}
+			$result.Files[$dst] = @{ Xml = $xml }
+		}
+	}
+	return $result
+}
+
+function Get-CatalogChildPlan($entry, [string]$prefix) {
+	$ctx = $entry.Ctx; $kind = $entry.Kind; $name = $entry.Name
+	$relative = "Catalogs/$($ctx.Name).xml"
+	$ownerPath = Get-CfgPath $relative
+	$owners = @($cfgInfo.ChildObjects.ChildNodes | Where-Object { $_.LocalName -eq 'Catalog' -and $_.InnerText.Trim() -ieq $ctx.Name })
+	if (-not $owners.Count -or -not (Test-Path -LiteralPath $ownerPath -PathType Leaf)) { return @{ Status = 'WAITING'; Reason = "missing catalog $($ctx.Id)" } }
+	if ($owners.Count -gt 1) { return @{ Status = 'CONFLICT'; Reason = "duplicate registration of $($ctx.Id)" } }
+	$before = (Get-FileHash -LiteralPath $ownerPath).Hash
+	$fw = Read-FormWrite $ownerPath
+	if ($fw.Doc.DocumentElement.GetAttribute('version') -cne $ctx.Md.El.OwnerDocument.DocumentElement.GetAttribute('version')) {
+		return @{ Status = 'MANUAL'; Reason = 'metadata dump formats differ' }
+	}
+	if ($entry.Error) { return @{ Status = 'MANUAL'; Reason = $entry.Error } }
+	if (-not $entry.Descriptor) { return @{ Status = 'MANUAL'; Reason = 'missing source descriptor' } }
+	if (-not $entry.Descriptor.GetAttribute('uuid')) { return @{ Status = 'MANUAL'; Reason = 'source descriptor has no UUID' } }
+	if ($kind -eq 'Form' -and $entry.Descriptor.SelectSingleNode("md:Properties/md:FormType", (New-MdNt $entry.Descriptor.OwnerDocument)).InnerText -eq 'Ordinary') {
+		return @{ Status = 'MANUAL'; Reason = 'ordinary forms are not supported' }
+	}
+	$m = New-MdNt $fw.Doc
+	$owner = Get-MdObjectElement $fw.Doc
+	$children = $owner.SelectSingleNode('md:ChildObjects', $m)
+	if (-not $children) { $children = $fw.Doc.CreateElement('ChildObjects', $mdNsUri); Insert-FormNodeAt $owner $children $null $fw.Eol }
+	$nodes = @($children.SelectNodes("md:$kind", $m))
+	$pool = @($nodes | ForEach-Object { Get-MdChildName $_ $m })
+	$destRoot = Get-CfgPath "Catalogs/$($ctx.Name)"
+	$files = Get-CatalogFileSet $ctx.Md.El.OwnerDocument $ctx.ObjDir $entry.Node
+	if ($files.Reason) { return @{ Status = 'MANUAL'; Reason = $files.Reason } }
+	$uuid = Get-CatalogTransferUuid $kind $entry.Descriptor.GetAttribute('uuid')
+	$identified = @($nodes | Where-Object {
+		$d = Get-CatalogChildDescriptor $_ $destRoot $m
+		$d -and $d.GetAttribute('uuid') -eq $uuid
+	})
+	if ($identified.Count -gt 1) { return @{ Status = 'CONFLICT'; Reason = "duplicate $kind UUID $uuid" } }
+	$candidates = if ($identified.Count) { @(Get-MdChildName $identified[0] $m) } else { @(Find-NamesIn $pool $name $prefix) }
+	$matches2 = @(); $incomplete = @()
+	foreach ($candidate in $candidates) {
+		$p = Get-CatalogChildProjection $entry $candidate $prefix $files.Files
+		if ($p.Status) { return $p }
+		$current = @($nodes | Where-Object { (Get-MdChildName $_ $m) -ieq $candidate })[0]
+		$changed2 = @($p.Files.Keys | Where-Object {
+			$path = Get-CfgPath $_
+			(Test-Path -LiteralPath $path) -and (-not (Test-Path -LiteralPath $path -PathType Leaf) -or -not (Test-CatalogFileEqual $p.Files[$_] $path))
+		})
+		$missing = @($p.Files.Keys | Where-Object { -not (Test-Path -LiteralPath (Get-CfgPath $_)) })
+		$registryDiffers = ($p.Node -or (Test-HasElementChild $current)) -and
+			((Get-CatalogNodeKey $p.Node) -cne (Get-CatalogNodeKey $current))
+		if ($changed2.Count -or $registryDiffers) {
+			if ($identified.Count) { return @{ Status = 'CONFLICT'; Target = $candidate; Reason = "existing $kind differs: $($changed2 -join ', ')" } }
+			continue
+		}
+		if (-not $identified.Count -and $missing.Count) { $incomplete += $candidate; continue }
+		$writes = @{}
+		foreach ($path in $missing) { $writes[$path] = $p.Files[$path] }
+		$status = if ($writes.Count) { 'NOT_TRANSFERRED' } else { 'TRANSFERRED' }
+		$matches2 += @{ Status = $status; Name = $candidate; Files = $writes; Register = $false }
+	}
+	if ($matches2.Count -gt 1) { return @{ Status = 'MANUAL'; Reason = 'multiple matching children in configuration' } }
+	if (-not $matches2.Count -and $incomplete.Count) { return @{ Status = 'MANUAL'; Reason = "incomplete matching child without a confirmed UUID: $($incomplete -join ', ')" } }
+	if ($matches2.Count) { $plan = $matches2[0] }
+	else {
+		$taken = New-Object 'System.Collections.Generic.HashSet[string]'
+		foreach ($n in $pool) { [void]$taken.Add($n.ToLowerInvariant()) }
+		foreach ($f in @(Get-ChildItem -LiteralPath (Join-Path $destRoot "${kind}s") -Force -ErrorAction SilentlyContinue)) {
+			[void]$taken.Add($(if ($f.PSIsContainer) { $f.Name.ToLowerInvariant() } else { $f.BaseName.ToLowerInvariant() }))
+			if (-not $f.PSIsContainer -and (Get-RootUuid $f.FullName) -eq $uuid) {
+				return @{ Status = 'CONFLICT'; Reason = "unregistered $kind UUID $uuid" }
+			}
+		}
+		$policy = Get-ObjectSupport $ownerPath
+		$choice = Get-TargetName $name $prefix $taken $script:settings[(Get-ObjectKind $ctx.Name $policy)].AddDevObjects
+		if ($choice.Taken) { return @{ Status = 'CONFLICT'; Reason = "name taken in configuration ($($choice.Note))" } }
+		$p = Get-CatalogChildProjection $entry $choice.Name $prefix $files.Files
+		if ($p.Status) { return $p }
+		if ($p.Node) { $node = $fw.Doc.ImportNode($p.Node, $true) }
+		else { $node = $fw.Doc.CreateElement($kind, $mdNsUri); $node.InnerText = $choice.Name }
+		Insert-FormNodeAt $children $node (Find-ChildAnchor $children $kind 'Catalog') $fw.Eol
+		$plan = @{ Status = 'NOT_TRANSFERRED'; Name = $choice.Name; Files = $p.Files; Register = $true }
+	}
+	$plan.Relative = $relative
+	$plan.Target = $ctx.Name
+	$plan.Files[$relative] = @{ Xml = $fw; Before = $before; WriteOwner = $plan.Register }
+	return $plan
+}
+
+function Initialize-CatalogChildren($ext, $objects) {
+	$script:catalogChildren = @{}
+	$entries = @()
+	foreach ($obj in $objects) {
+		if ($obj.Type -ne 'Catalog') { continue }
+		$ctx = Get-ObjContext $ext.Dir $obj.Type $obj.Name
+		if (-not $ctx.Borrowed) { continue }
+		foreach ($node in @($ctx.Md.Children.ChildNodes | Where-Object { $_.NodeType -eq 'Element' -and $_.LocalName -in @('Form','Template','Command') })) {
+			$name = Get-MdChildName $node $ctx.Md.Ns
+			$desc = $null; $errorText = ''
+			try { $desc = Get-CatalogChildDescriptor $node $ctx.ObjDir $ctx.Md.Ns }
+			catch { $errorText = $_.Exception.Message }
+			if ($desc -and (Test-AdoptedNode $desc (New-MdNt $desc.OwnerDocument))) { continue }
+			$id = "$($ctx.Id).$($node.LocalName).$name"
+			$entry = @{ Id = $id; Ctx = $ctx; Kind = $node.LocalName; Name = $name; Node = $node; Descriptor = $desc; Error = $errorText }
+			$script:catalogChildren[$id] = $entry
+			$entries += $entry
+		}
+	}
+	return $entries
+}
+
+function Complete-CatalogChildren($entries, [string]$prefix, [bool]$apply) {
+	$changed = @()
+	$pending = @($entries | Where-Object { -not $_['Item'] -or $_['Item'].Status -eq 'WAITING' })
+	while ($pending.Count) {
+		$again = @()
+		foreach ($entry in $pending) {
+			try { $plan = Get-CatalogChildPlan $entry $prefix }
+			catch { $plan = @{ Status = 'MANUAL'; Reason = $_.Exception.Message } }
+			$item = New-Item2 $plan.Status "$(Get-KindWord $entry.Kind) $($entry.Name)"
+			if ($plan.Name -and $plan.Name -ine $entry.Name) { $item.Text += " (as $($plan.Name))" }
+			if ($plan.Reason) { $item.Text += " — $($plan.Reason)" }
+			$item.Plan = @{ Kind = 'md-reference' }
+			$entry['Item'] = $item
+			if ($plan.Status -eq 'WAITING') { $entry.Dependency = $plan.Dependency; $again += $entry; continue }
+			if ($plan.Status -eq 'TRANSFERRED') { $entry.Ready = $plan.Name }
+			if ($plan.Status -ne 'NOT_TRANSFERRED' -or -not $apply -or -not (Test-NameMatch $entry.Ctx.Id)) { continue }
+			$support = Get-ObjectSupport (Get-CfgPath $plan.Relative)
+			if ($support -eq 'locked') {
+				$item.Status = 'MANUAL'; $item.Text += ' — object is locked by vendor support'
+				$item.Sub = @('next: allow editing with /support-edit, then re-run -Mode transfer')
+				continue
+			}
+			try {
+				$changed += Write-CatalogTransfer @{ Type = 'Catalog' } $plan
+				$entry.Ready = $plan.Name
+				$item.Status = 'TRANSFERRED'; $item.Now = $true
+				if ($support -eq 'warn') { $item.Text += ' (object locked by vendor support, written: editingAllowedCheck = warn)' }
+			} catch { $item.Status = 'CONFLICT'; $item.Text += " — $($_.Exception.Message)" }
+		}
+		if ($again.Count -eq $pending.Count) { break }
+		$pending = $again
+	}
+	return ,$changed
 }
 
 function Get-CatalogNodeKey($node, [switch]$IgnoreFormSlots, [switch]$Shallow) {
@@ -3840,6 +4153,20 @@ function Write-CatalogTransfer($entry, $plan) {
 		if (-not $check -or $check.El.LocalName -ne 'Catalog' -or (Get-MdChildName $check.El $check.Ns) -cne $plan.Target) {
 			throw 'staged catalog did not pass read-back validation'
 		}
+		if (-not $plan.New) {
+			# Preserve the validation context for slots pointing at existing local forms.
+			foreach ($slot in @($check.Props.ChildNodes | Where-Object { $_.LocalName -match '^(Default|Auxiliary).*Form$' })) {
+				if ($slot.InnerText -notmatch '^Catalog\.(\w+)\.Form\.(\w+)$' -or $Matches[1] -ine $plan.Target) { continue }
+				$formBase = "Catalogs/$($plan.Target)/Forms/$($Matches[2])"
+				foreach ($rel in @("$formBase.xml", "$formBase/Form.xml", "$formBase/Ext/Form.xml")) {
+					$original = Get-CfgPath $rel; $candidate = Join-Path $stage $rel
+					if ((Test-Path -LiteralPath $original -PathType Leaf) -and -not (Test-Path -LiteralPath $candidate)) {
+						[void][IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($candidate))
+						[IO.File]::Copy($original, $candidate)
+					}
+				}
+			}
+		}
 		$errors = Get-MdValidateErrors $stagedOwner 'Catalog' -RequireResult
 		if (-not $plan.New) {
 			$baseline = Get-MdValidateErrors $owner 'Catalog' -RequireResult
@@ -3850,7 +4177,12 @@ function Write-CatalogTransfer($entry, $plan) {
 			if ($rel -match '/Forms/.+/Ext/(?:Form\.xml|Form/Module\.bsl)$') {
 				$formRel = $rel -replace '/Form/Module\.bsl$', '/Form.xml'
 				$form = Join-Path $stage $formRel
-				$module = if ($rel -like '*.bsl') { Join-Path $stage $rel } else { $null }
+				$moduleRel = $formRel -replace '/Form\.xml$', '/Form/Module.bsl'
+				$module = Join-Path $stage $moduleRel
+				if (-not (Test-Path -LiteralPath $module)) {
+					$module = Get-CfgPath $moduleRel
+					if (-not (Test-Path -LiteralPath $module -PathType Leaf)) { $module = $null }
+				}
 				if (-not (Test-Path -LiteralPath $form)) { $form = Get-CfgPath $formRel }
 				$errors = Get-FormValidateErrors $form $null $module
 				if ($script:formValidateMissing) { throw 'form validator is not installed' }
@@ -4052,6 +4384,7 @@ function Initialize-RootTransfer($ext, $objects, $vars, [bool]$apply) {
 	$script:rootSourceIds = @{}; $script:rootOwn = @{}; $script:rootBindings = @{}; $script:rootResults = @{}
 	$script:rootMethodBlocks = @{}
 	$script:rootGlobalMethods = @{}
+	$childEntries = @(Initialize-CatalogChildren $ext $objects)
 	$pending = @()
 	$changed = @()
 	foreach ($obj in $objects) {
@@ -4073,6 +4406,7 @@ function Initialize-RootTransfer($ext, $objects, $vars, [bool]$apply) {
 	}
 	$waiting = @{}
 	while ($pending.Count) {
+		$changed += Complete-CatalogChildren $childEntries $ext.Prefix $apply
 		$again = @(); $waiting = @{}
 		foreach ($entry in $pending) {
 			$id = $entry.Id
@@ -4150,17 +4484,29 @@ function Initialize-RootTransfer($ext, $objects, $vars, [bool]$apply) {
 		if ($again.Count -eq $pending.Count) { break }
 		$pending = $again
 	}
-	foreach ($id in $waiting.Keys) {
-		$plan = $waiting[$id]
-		$path = @($id); $dep = $plan.Dependency
-		while ($dep -and $waiting.ContainsKey($dep)) {
+	$changed += Complete-CatalogChildren $childEntries $ext.Prefix $apply
+	$deps = @{}
+	foreach ($id in $waiting.Keys) { $deps[$id] = $waiting[$id].Dependency }
+	foreach ($child in $childEntries) { if ($child['Item'].Status -eq 'WAITING') { $deps[$child.Id] = $child.Dependency } }
+	foreach ($id in $deps.Keys) {
+		$path = @($id); $dep = $deps[$id]
+		while ($dep -and $deps.ContainsKey($dep)) {
 			if ($dep -in $path) {
-				if ($dep -ieq $id) { $plan.Status = 'MANUAL'; $plan.Reason = "dependency cycle: $(($path + $dep) -join ' -> ')" }
+				if ($dep -ieq $id) {
+					$reason = "dependency cycle: $(($path + $dep) -join ' -> ')"
+					if ($waiting.ContainsKey($id)) { $waiting[$id].Status = 'MANUAL'; $waiting[$id].Reason = $reason }
+					else {
+						$item = $script:catalogChildren[$id]['Item']
+						$item.Status = 'MANUAL'; $item.Text += " — $reason"
+					}
+				}
 				break
 			}
-			$path += $dep; $dep = $waiting[$dep].Dependency
+			$path += $dep; $dep = $deps[$dep]
 		}
-		$script:rootResults[$id] = @{ Id = $id; Items = @(New-MdReferenceItem 'own object' $plan) }
+	}
+	foreach ($id in $waiting.Keys) {
+		$script:rootResults[$id] = @{ Id = $id; Items = @(New-MdReferenceItem 'own object' $waiting[$id]) }
 	}
 	return ,@($changed | Select-Object -Unique)
 }
@@ -4219,6 +4565,9 @@ function Get-TransferObject($ext, $obj) {
 	$rank = if ($ctx.Md -and $ctx.Md.El) { Get-FormatRank $ctx.Md.El.OwnerDocument.DocumentElement.GetAttribute('version') } else { 0 }
 	if ($cfgMd) { $rec.Items += @(Get-MdPropItems $ctx.Md.El $cfgMd.El $prefix $rank $objRel $ctx.Type '' '' '' 'object' $true) }
 	$rec.Items += @(Get-OwnChildItems $ctx $cfgMd $prefix $objRel $rank)
+	foreach ($entry in @($script:catalogChildren.Values | Sort-Object { $_.Kind }, { $_.Name })) {
+		if ($entry.Ctx.Id -ieq $rec.Id -and $entry['Item']) { $rec.Items += $entry['Item'] }
+	}
 	if ($obj.Type -eq 'Subsystem') { $rec.Items += @(Get-SubsystemContentItems $ctx.Md $cfgMd $prefix $objRel) }
 	$rec.Items += $formItems
 	foreach ($it in $rec.Items) {
@@ -4227,7 +4576,8 @@ function Get-TransferObject($ext, $obj) {
 			Set-BslContext $pl2.Rel
 			$problem = Get-BslPlanIssue $pl2
 			if ($problem) {
-				$it.Status = 'MANUAL'; $it.Text += " — $($problem.Issue.Why)"
+				$it.Status = if ($problem.Issue.Status) { $problem.Issue.Status } else { 'MANUAL' }
+				$it.Text += " — $($problem.Issue.Why)"
 				$it.Sub = Get-BslManualDetails $pl2 $problem
 			}
 		}
@@ -5933,6 +6283,12 @@ function Get-BslConversion($lines, $fileMap, $ctx, $params = $null, [switch]$Com
 	$methods = @{}; $attrs = @{}
 	if ($ctx) { foreach ($k in $ctx.Methods.Keys) { $methods[$k] = $ctx.Methods[$k] }; $attrs = $ctx.Attrs }
 	foreach ($k in $fileMap.Keys) { $methods[$k] = $fileMap[$k] }
+	if (-not $Comparison -and $script:catalogChildren.Count) {
+		if ($ctx -and -not $ctx.ContainsKey('DeclaredMethods')) { $ctx.DeclaredMethods = @(Get-ProcNames $ctx.Ext) }
+		$childRefs = Get-CatalogChildBsl $ts $ctx.Rel $null $ctx.DeclaredMethods
+		foreach ($pos in $childRefs.Edits.Keys) { $edits[$pos] = $childRefs.Edits[$pos]; $handled[$pos] = $true }
+		$issues += $childRefs.Issues
+	}
 	$locals = $null
 	for ($i = 0; $i -lt $ts.Count; $i++) {
 		$t = $ts[$i]; if ($t.Kind -ne 'word') { continue }; $k = $t.Value.ToLowerInvariant()
@@ -6134,6 +6490,9 @@ function Get-BslPlanIssue($plan) {
 function Get-BslManualDetails($plan, $problem) {
 	$m2 = $problem.Method; $issue = $problem.Issue
 	$offset2 = $problem.Offset
+	if ($issue.Status -eq 'WAITING') {
+		return @("from: extension $($plan.Rel):$($m2.SigEndIdx + 2 + $offset2)", 'next: transfer the dependency, then re-run -Mode transfer')
+	}
 	return @("from: extension $($plan.Rel):$($m2.SigEndIdx + 2 + $offset2)",
 		"code: $(([string]$m2.BodyLines[$offset2]).Trim())", "rename: $($issue.Rename)",
 		'next: resolve the handler context in the extension, or copy the complete method and verify its handler by hand; then re-run -Mode transfer')
@@ -7644,8 +8003,8 @@ if ($Mode -eq 'transfer') {
 				}
 				$problem = Get-BslPlanIssue $pl
 				if ($problem) {
-					$t.Status = 'MANUAL'
-					if ($it.Status -ne 'MANUAL') { $t.Text += " — $($problem.Issue.Why)" }
+					$t.Status = if ($problem.Issue.Status) { $problem.Issue.Status } else { 'MANUAL' }
+					if ($it.Status -ne $t.Status) { $t.Text += " — $($problem.Issue.Why)" }
 					$t.Sub = Get-BslManualDetails $pl $problem
 					# New refusals of event/command handlers must also protect their callers.
 					if ($pl.Kind -in @('event-bind', 'command-bind') -and (Add-BlockedFormHandlers $pl $outByFile $outCommon $fileMaps)) { $again = $true }

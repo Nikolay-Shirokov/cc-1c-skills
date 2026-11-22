@@ -72,6 +72,10 @@
       }
     },
     {
+      "script": "form-add/scripts/form-add",
+      "args": { "-ObjectPath": "{workDir}/cfe/Catalogs/Закрытый.xml", "-FormName": "Тест_Новая", "-Purpose": "Custom" }
+    },
+    {
       "editFile": "Catalogs/Закрытый.xml",
       "replace": "<Catalog uuid=\"",
       "with": "<Catalog uuid=\"22222222-2222-2222-2222-222222222222\" data-was=\""
@@ -113,12 +117,13 @@
   "expect": {
     "stdoutContains": [
       "[MANUAL]             method Тест_Новый — object is locked by vendor support",
+      "form Тест_Новая (as Новая) — object is locked by vendor support",
       "next: allow editing with /support-edit, then re-run -Mode transfer",
       "own object (found as НовыйМодуль) — Configuration.xml is locked by vendor support",
       "own catalog Тест_НовыйСправочник (as НовыйСправочник) — Configuration.xml is locked by vendor support",
       "[TRANSFERRED]        method Тест_Новый (as Новый) -> new region ПрограммныйИнтерфейс"
     ],
-    "filesAbsent": ["Catalogs/НовыйСправочник.xml", "CommonModules/НовыйМодуль.xml"],
+    "filesAbsent": ["Catalogs/НовыйСправочник.xml", "CommonModules/НовыйМодуль.xml", "Catalogs/Закрытый/Forms/Новая.xml"],
     "fileContains": [
       {
         "file": "Catalogs/Снятый/Ext/ObjectModule.bsl",

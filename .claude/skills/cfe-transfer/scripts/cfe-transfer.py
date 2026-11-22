@@ -1,5 +1,5 @@
 ﻿#!/usr/bin/env python3
-# cfe-transfer v1.35 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+# cfe-transfer v1.36 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -1721,6 +1721,13 @@ def resolve_md_reference(value, prefix, type_reference=False):
     if not os.path.isfile(path):
         return {"status": "MANUAL", "reason": "%s.%s: missing descriptor %s" % (base, target, relative.replace(os.sep, "/"))}
     if tail and tail != ".EmptyRef":
+        child_path = re.fullmatch(r"\.(Form|Template|Command)\.(\w+)", tail, re.I)
+        if base == "Catalog" and child_path:
+            binding = get_catalog_child_binding(f"{root_id}.{child_path[1]}.{child_path[2]}")
+            if binding.get("status"):
+                return binding
+            if binding:
+                return {"value": f"{namespace}{kind}.{target}.{binding['kind']}.{binding['target']}"}
         owner = read_md_object(path)["children"]
         parts = tail[1:].split(".")
         if len(parts) % 2:
@@ -1991,6 +1998,9 @@ def add_md_prop_items(items, ext_el, cfg_el, prefix, rank, rel, obj_type, tag, n
     for p in elem_children(ext_props):
         prop = localname(p)
         if prop in md_service_props or prop in md_module_props or prop in additive_props:
+            continue
+        if (is_object and obj_type == "Catalog" and re.fullmatch(r"(Default|Auxiliary).*Form", prop)
+                and inner_text(p).strip().lower() in CATALOG_CHILDREN):
             continue
         state = states.get(prop, "")
         at = ("%s property %s" % (subject, prop)) if is_object else ("%s.%s" % (subject, prop))
@@ -3377,8 +3387,7 @@ def own_child_items(ctx, cfg_md, prefix, rel, rank):
     if ctx["md"] is None or ctx["md"]["children"] is None:
         return items
     cfg_kids = elem_children(cfg_md["children"]) if cfg_md is not None and cfg_md["children"] is not None else []
-    # Kinds kept in files of their own: a form, a template, a command module. The metadata transfer
-    # carries XML-only children; these stay for a person
+    # Catalog file-backed children are planned separately as a package.
     file_kinds = ("Form", "Template", "Command")
 
     def check(node, label, cfg_pool, path):
@@ -3426,6 +3435,8 @@ def own_child_items(ctx, cfg_md, prefix, rel, rank):
         return new_item("TRANSFERRED", "%s %s%s" % (label, full, as_))
 
     for c in elem_children(ctx["md"]["children"]):
+        if ctx["type"] == "Catalog" and localname(c) in file_kinds:
+            continue
         if not has_element_child(c):
             # <Form>Имя</Form>, <Template>Имя</Template>: ownership is in the sub-object descriptor
             nm = inner_text(c).strip()
@@ -3492,6 +3503,7 @@ ROOT_OWN = {}
 ROOT_BINDINGS = {}
 ROOT_RESULTS = {}
 ROOT_DATA_WARNINGS = []
+CATALOG_CHILDREN = {}
 ROOT_METHOD_BLOCKS = {}
 ROOT_GLOBAL_METHODS = {}
 
@@ -3527,7 +3539,7 @@ ROOT_BSL_COLLECTIONS = {
 }
 
 
-def get_root_bsl_projection(lines, prefix, self_id, self_name):
+def get_root_bsl_projection(lines, prefix, self_id, self_name, rel="", child=None):
     all_tokens = list(bsl_tokens(lines))
     tokens = [t for t in all_tokens if t["kind"] not in ("comment", "string", "fragment") and t["value"].strip()]
     source = "\n".join(lines)
@@ -3536,7 +3548,10 @@ def get_root_bsl_projection(lines, prefix, self_id, self_name):
     methods = [m for n in proc_names if (m := get_method_safe(lines, n))]
     locals_ = {n.lower() for v in get_module_layout(lines)["vars"] for n in v["names"]}
     method_locals = {}
-    edits = {}
+    edits, issues = get_catalog_child_bsl([t for t in all_tokens if t["kind"] != "comment" and t["value"].strip()],
+                                         rel, child, proc_names)
+    if issues:
+        return issues[0]
     for i in range(len(tokens) - 1):
         token, dot = tokens[i:i + 2]
         if token["kind"] != "word" or (i and tokens[i - 1]["value"] == "."):
@@ -3559,7 +3574,8 @@ def get_root_bsl_projection(lines, prefix, self_id, self_name):
         ref_token = member if collection else token
         ref = kind + "." + ref_token["value"]
         key = ref.lower()
-        if key not in ROOT_SOURCE_IDS or word in locals_:
+        data_alias = child and word in child.get("data_aliases", ())
+        if (not data_alias and key not in ROOT_SOURCE_IDS) or word in locals_:
             continue
         line = source.count("\n", 0, token["start"])
         owner = next((m for m in methods if m["decl_idx"] <= line <= m["body_end_idx"]), None)
@@ -3570,6 +3586,13 @@ def get_root_bsl_projection(lines, prefix, self_id, self_name):
                 method_locals[idx] = {p.lower() for p in params} | set(get_local_names(get_code_only(owner["body_lines"]), params))
             if word in method_locals[idx]:
                 continue
+        if data_alias:
+            reference = resolve_catalog_data_path(child["ctx"], token["value"], member["value"], None, prefix)
+            if reference.get("status"):
+                return reference
+            if reference.get("value"):
+                edits[member["start"]] = reference["value"].split(".")[1]
+            continue
         if key == self_id.lower():
             target = self_name
         elif key in ROOT_BINDINGS:
@@ -3596,7 +3619,7 @@ def get_root_bsl_projection(lines, prefix, self_id, self_name):
                 edits[member["start"]] = hits[0]
         edits[ref_token["start"]] = target
     # A direct platform form call names the owning catalog in its first argument.
-    if self_id.lower().startswith("catalog."):
+    if self_id.lower().startswith("catalog.") and self_name != self_id.split(".", 1)[1]:
         form_path = re.compile(r'^("(?:Catalog|Справочник)\.)' + re.escape(self_id.split(".", 1)[1])
                                + r'(\.(?:Form|Форма)\.\w+")$', re.I)
         call = [t for t in all_tokens if t["kind"] != "comment" and t["value"].strip()]
@@ -3658,11 +3681,12 @@ def catalog_transfer_uuid(cfg, kind, source):
     return str(uuid.uuid5(uuid.NAMESPACE_DNS, f"cc-1c-skills:cfe-transfer:v1|{config_uuid.lower()}|{kind}|{source.lower()}"))
 
 
-def catalog_files(root, directory):
+def catalog_files(root, directory, child=None):
     required = set()
     optional = {"Ext/ObjectModule.bsl", "Ext/ManagerModule.bsl"}
     children = get_md_object_element(root).find("md:ChildObjects", MD_NSMAP)
-    for node in elem_children(children) if children is not None else ():
+    nodes = [child] if child is not None else elem_children(children) if children is not None else []
+    for node in nodes:
         kind, name = localname(node), md_child_name(node)
         if not re.fullmatch(r"\w+", name):
             raise ValueError(f"invalid catalog child name: {name}")
@@ -3682,20 +3706,26 @@ def catalog_files(root, directory):
         elif kind not in ("Attribute", "TabularSection"):
             raise ValueError(f"unsupported catalog child {kind}")
     files = {}
-    for folder, _, filenames in os.walk(directory):
+    scan = directory if child is None else os.path.join(directory, localname(child) + "s", md_child_name(child))
+    for folder, _, filenames in os.walk(scan):
         for filename in filenames:
             path = os.path.join(folder, filename)
             rel = os.path.relpath(path, directory).replace(os.sep, "/")
             if rel not in required and rel not in optional:
                 raise ValueError(f"unsupported object file {rel}")
             files[rel] = path
+    if child is not None and os.path.isfile(scan + ".xml"):
+        rel = os.path.relpath(scan + ".xml", directory).replace(os.sep, "/")
+        if rel not in required:
+            raise ValueError(f"unsupported object file {rel}")
+        files[rel] = scan + ".xml"
     missing = sorted(required - files.keys())
     if missing:
         raise ValueError(f"missing object file {missing[0]}")
     return files
 
 
-def convert_catalog_xml(fw, cfg, source, target, prefix, descriptor):
+def convert_catalog_xml(fw, cfg, source, target, prefix, descriptor, child=None):
     root = fw["root"]
     if descriptor:
         get_md_object_element(root).find("md:Properties/md:Name", MD_NSMAP).text = target
@@ -3711,6 +3741,18 @@ def convert_catalog_xml(fw, cfg, source, target, prefix, descriptor):
             id_node.text = catalog_transfer_uuid(cfg, localname(id_node), inner_text(id_node).strip())
     for node in root.xpath("//*[not(*)]"):
         value, name = inner_text(node).strip(), localname(node)
+        if child and FORM_PATH_TAGS.search(name):
+            path = re.fullmatch(r"(\w+)\.(\w+)(?:\.(\w+))?", value)
+            if path:
+                attr = root.xpath("/*[local-name()='Form']/*[local-name()='Attributes']/*[local-name()='Attribute'][@name=$alias]/*[local-name()='Type']/v8:Type",
+                                  namespaces=MD_NSMAP, alias=path[1])
+                if attr and inner_text(attr[0]).lower() == f"cfg:CatalogObject.{source}".lower():
+                    ref = resolve_catalog_data_path(child["ctx"], path[1], path[2], path[3], prefix)
+                    if ref.get("status"):
+                        return ref
+                    if ref.get("value"):
+                        node.text = ref["value"]
+                        continue
         xsi_type = node.get("{http://www.w3.org/2001/XMLSchema-instance}type")
         is_type = node.tag in ("{%s}Type" % MD_NSMAP["v8"], "{%s}TypeSet" % MD_NSMAP["v8"])
         is_ref = (re.match(r"^(Default|Auxiliary).+Form$", name)
@@ -3719,7 +3761,15 @@ def convert_catalog_xml(fw, cfg, source, target, prefix, descriptor):
                   or xsi_type in ("xr:DesignTimeRef", "xr:MDObjectRef"))
         if not value or not (is_type or is_ref):
             continue
-        if pattern.match(value):
+        if child and re.fullmatch(r"Catalog\.\w+\.(Form|Template|Command|Attribute|TabularSection)\.\w+(?:\.Attribute\.\w+)?", value, re.I):
+            if value.lower() == child["id"].lower():
+                node.text = f"Catalog.{target}.{child['kind']}.{child['target']}"
+            else:
+                ref = resolve_md_reference(value, prefix)
+                if ref.get("status"):
+                    return ref
+                node.text = ref["value"]
+        elif pattern.match(value):
             node.text = pattern.sub(lambda m: m[1] + target, value)
         elif name != "DataPath" or is_type:
             ref = resolve_md_reference(value, prefix, is_type)
@@ -3727,6 +3777,309 @@ def convert_catalog_xml(fw, cfg, source, target, prefix, descriptor):
                 return ref
             node.text = ref["value"]
     return {}
+
+
+def resolve_catalog_data_path(ctx, alias, field, column, prefix):
+    member = next((node for node in elem_children(ctx["md"]["children"])
+                   if localname(node) in ("Attribute", "TabularSection") and md_child_name(node).lower() == field.lower()), None)
+    if member is None:
+        return {}
+    path = f"{ctx['id']}.{localname(member)}.{field}"
+    own = not test_adopted_node(member)
+    if column:
+        if localname(member) != "TabularSection":
+            return {}
+        col = next((node for node in member.findall("md:ChildObjects/md:Attribute", MD_NSMAP)
+                    if md_child_name(node).lower() == column.lower()), None)
+        if col is None:
+            return {}
+        own = own or not test_adopted_node(col)
+        path += ".Attribute." + column
+    if not own:
+        return {}
+    ref = resolve_md_reference(path, prefix)
+    if ref.get("status"):
+        return ref
+    parts = ref["value"].split(".")
+    source_node = col if column else member
+    type_node = source_node.find("md:Properties/md:Type", MD_NSMAP)
+    if type_node is not None:
+        projected = copy.deepcopy(type_node)
+        refs = get_md_node_references(projected, prefix, True)
+        if refs.get("status"):
+            return refs
+        md = read_md_object(os.path.join(MD_REFERENCE_ROOT, "Catalogs", parts[1] + ".xml"))
+        lookup = {"tag": "Attribute", "name": parts[5] if column else parts[3], "parent": parts[3] if column else ""}
+        actual = get_md_target_element(md["el"], lookup)
+        if actual is None or not test_md_type_model_equal(
+                get_md_type_model(projected, ""), get_md_type_model(actual.find("md:Properties/md:Type", MD_NSMAP), "")):
+            return {"status": "WAITING", "reason": "waiting for compatible type of " + path}
+    return {"value": f"{alias}.{parts[3]}" + (f".{parts[5]}" if column else "")}
+
+
+def get_catalog_child_binding(oid):
+    entry = CATALOG_CHILDREN.get(oid.lower())
+    if not entry:
+        return {}
+    if entry.get("ready"):
+        return {"kind": entry["kind"], "target": entry["ready"]}
+    return {"status": "WAITING", "reason": "waiting for " + oid, "dependency": oid.lower()}
+
+
+def get_catalog_child_bsl(tokens, rel, child, declared):
+    edits, issues = {}, []
+    if not CATALOG_CHILDREN:
+        return edits, issues
+    m = re.fullmatch(r"Catalogs/(\w+)/Ext/(ObjectModule|ManagerModule)\.bsl", rel, re.I)
+    owner = m[1] if m else ""
+    declared = {name.lower() for name in declared}
+    for i in range(len(tokens) - 3):
+        token, opening, literal, separator = tokens[i:i + 4]
+        api = token["value"].lower()
+        if (api in declared or api in ROOT_GLOBAL_METHODS or opening["value"] != "("
+                or literal["kind"] != "string" or separator["value"] not in (",", ")")
+                or (i and tokens[i - 1]["value"] == ".")):
+            continue
+        if api in ("открытьформу", "openform", "получитьформу", "getform"):
+            match = re.fullmatch(r'("(?:Catalog|Справочник)\.)(\w+)(\.(?:Form|Форма)\.)(\w+)"', literal["value"], re.I)
+            if not match:
+                continue
+            oid = f"Catalog.{match[2]}.Form.{match[4]}"
+            head = match[1] + match[2] + match[3]
+        elif owner and api in ("получитьмакет", "gettemplate"):
+            match = re.fullmatch(r'"(\w+)"', literal["value"])
+            if not match:
+                continue
+            oid, head = f"Catalog.{owner}.Template.{match[1]}", '"'
+        else:
+            continue
+        binding = child if child and oid.lower() == child["id"].lower() else get_catalog_child_binding(oid)
+        if binding.get("status"):
+            issues.append({"token": literal, "rename": oid, "why": binding["reason"],
+                           "reason": binding["reason"], "status": binding["status"], "dependency": binding["dependency"]})
+        elif binding:
+            edits[literal["start"]] = head + binding["target"] + '"'
+    return edits, issues
+
+
+def get_catalog_child_descriptor(registry, root):
+    if has_element_child(registry):
+        return registry
+    name = md_child_name(registry)
+    if re.fullmatch(r"\w+", name):
+        md = read_md_object(os.path.join(root, localname(registry) + "s", name + ".xml"))
+        if md:
+            return md["el"]
+    return None
+
+
+def get_catalog_child_projection(entry, cfg, target, prefix, files):
+    result = {"files": {}}
+    kind, owner = entry["kind"], entry["ctx"]["name"]
+    child = {"id": entry["id"], "kind": kind, "target": target, "ctx": entry["ctx"]}
+    old, new = f"{kind}s/{entry['name']}", f"Catalogs/{owner}/{kind}s/{target}"
+    if kind == "Form":
+        form = read_form_write(files[old + "/Ext/Form.xml"])["root"]
+        attrs = form.xpath("/*[local-name()='Form']/*[local-name()='Attributes']/*[local-name()='Attribute']")
+        child["data_aliases"] = {attr.get("name", "").lower() for attr in attrs
+                                 if (value := attr.findtext("{*}Type/v8:Type", namespaces=MD_NSMAP))
+                                 and value.lower() == f"cfg:CatalogObject.{owner}".lower()}
+    if has_element_child(entry["node"]):
+        root = etree.Element(f"{{{MD_NS}}}MetaDataObject")
+        node = copy.deepcopy(entry["node"])
+        root.append(node)
+        ref = convert_catalog_xml({"root": root}, cfg, owner, owner, prefix, False, child)
+        if ref:
+            return ref
+        node.find("md:Properties/md:Name", MD_NSMAP).text = target
+        result["node"] = node
+    for rel, src in sorted(files.items()):
+        dest = new + rel[len(old):]
+        if rel.endswith(".bsl"):
+            bsl = read_bsl_file(src)
+            base = get_root_bsl_projection(bsl["lines"], prefix, "Catalog." + owner, owner, f"Catalogs/{owner}/{rel}", child)
+            if base.get("status"):
+                return base
+            result["files"][dest] = {"bsl": bsl, "lines": base["lines"]}
+        elif rel.startswith("Templates/") and rel.endswith("/Ext/Template.xml"):
+            result["files"][dest] = {"copy": src}
+        else:
+            xml = read_form_write(src)
+            if kind == "Form" and rel.endswith("/Ext/Form.xml") and xml["root"].xpath("//*[local-name()='BaseForm']"):
+                return {"status": "MANUAL", "reason": "form body contains a borrowed BaseForm"}
+            ref = convert_catalog_xml(xml, cfg, owner, owner, prefix, False, child)
+            if ref:
+                return ref
+            if rel == old + ".xml":
+                descriptor = get_md_object_element(xml["root"])
+                if localname(descriptor) != kind:
+                    raise ValueError("unexpected descriptor type " + localname(descriptor))
+                descriptor.find("md:Properties/md:Name", MD_NSMAP).text = target
+            result["files"][dest] = {"xml": xml}
+    return result
+
+
+def get_catalog_child_plan(entry, prefix, cfg):
+    ctx, kind, name = (entry[k] for k in ("ctx", "kind", "name"))
+    relative = f"Catalogs/{ctx['name']}.xml"
+    owner_path = os.path.join(MD_REFERENCE_ROOT, relative)
+    owners = [n for n in (MD_REFERENCE_POOLS or {}).get("Catalog", ()) if n.lower() == ctx["name"].lower()]
+    if not owners or not os.path.isfile(owner_path):
+        return {"status": "WAITING", "reason": "missing catalog Catalog." + ctx["name"]}
+    if len(owners) > 1:
+        return {"status": "CONFLICT", "reason": "duplicate registration of Catalog." + ctx["name"]}
+    with open(owner_path, "rb") as original:
+        before = original.read()
+    fw = read_form_write(owner_path)
+    source_doc = ctx["md"]["el"].getroottree().getroot()
+    if fw["root"].get("version") != source_doc.get("version"):
+        return {"status": "MANUAL", "reason": "metadata dump formats differ"}
+    desc = entry["descriptor"]
+    if entry.get("error"):
+        return {"status": "MANUAL", "reason": entry["error"]}
+    if desc is None:
+        return {"status": "MANUAL", "reason": "missing source descriptor"}
+    if not desc.get("uuid"):
+        return {"status": "MANUAL", "reason": "source descriptor has no UUID"}
+    if kind == "Form" and desc.findtext("md:Properties/md:FormType", namespaces=MD_NSMAP) == "Ordinary":
+        return {"status": "MANUAL", "reason": "ordinary forms are not supported"}
+    owner = get_md_object_element(fw["root"])
+    children = owner.find("md:ChildObjects", MD_NSMAP)
+    if children is None:
+        children = etree.Element(f"{{{MD_NS}}}ChildObjects")
+        insert_form_node_at(owner, children, None, fw["eol"])
+    nodes = children.findall("md:" + kind, MD_NSMAP)
+    pool = [md_child_name(node) for node in nodes]
+    dest_root = os.path.splitext(owner_path)[0]
+    files = catalog_files(source_doc, ctx["obj_dir"], entry["node"])
+    identity = catalog_transfer_uuid(cfg, kind, desc.get("uuid"))
+    identified = [node for node in nodes if (d := get_catalog_child_descriptor(node, dest_root)) is not None
+                  and d.get("uuid") == identity]
+    if len(identified) > 1:
+        return {"status": "CONFLICT", "reason": f"duplicate {kind} UUID {identity}"}
+    candidates = [md_child_name(identified[0])] if identified else find_names_in(pool, name, prefix)
+    matches, incomplete = [], []
+    for candidate in candidates:
+        projection = get_catalog_child_projection(entry, cfg, candidate, prefix, files)
+        if projection.get("status"):
+            return projection
+        current = next(node for node in nodes if md_child_name(node).lower() == candidate.lower())
+        different, missing = [], {}
+        for rel, file in projection["files"].items():
+            path = os.path.join(MD_REFERENCE_ROOT, rel)
+            if not os.path.lexists(path):
+                missing[rel] = file
+            elif not os.path.isfile(path) or not catalog_file_equal(file, path):
+                different.append(rel)
+        node = projection.get("node")
+        registry_differs = (node is not None or has_element_child(current)) and catalog_node_key(node) != catalog_node_key(current)
+        if different or registry_differs:
+            if identified:
+                return {"status": "CONFLICT", "target": candidate, "reason": f"existing {kind} differs: " + ", ".join(different)}
+            continue
+        if identified or not missing:
+            matches.append({"status": "NOT_TRANSFERRED" if missing else "TRANSFERRED",
+                            "name": candidate, "files": missing, "register": False})
+        else:
+            incomplete.append(candidate)
+    if len(matches) > 1:
+        return {"status": "MANUAL", "reason": "multiple matching children in configuration"}
+    if not matches and incomplete:
+        return {"status": "MANUAL", "reason": "incomplete matching child without a confirmed UUID: " + ", ".join(incomplete)}
+    if matches:
+        plan = matches[0]
+    else:
+        taken = {n.lower() for n in pool}
+        folder = os.path.join(dest_root, kind + "s")
+        if os.path.isdir(folder):
+            for file in os.scandir(folder):
+                taken.add((file.name if file.is_dir() else os.path.splitext(file.name)[0]).lower())
+                if not file.is_dir() and _sg_root_uuid(file.path) == identity:
+                    return {"status": "CONFLICT", "reason": f"unregistered {kind} UUID {identity}"}
+        policy = get_object_support(owner_path)
+        choice = get_target_name(name, prefix, taken, SETTINGS[get_object_kind(ctx["name"], policy)]["add_dev_objects"])
+        if choice.get("taken"):
+            return {"status": "CONFLICT", "reason": f"name taken in configuration ({choice['note']})"}
+        target = choice["name"]
+        projection = get_catalog_child_projection(entry, cfg, target, prefix, files)
+        if projection.get("status"):
+            return projection
+        node = projection.get("node")
+        if node is None:
+            node = etree.Element(f"{{{MD_NS}}}{kind}")
+            node.text = target
+        insert_form_node_at(children, node, find_child_anchor(children, kind, "Catalog"), fw["eol"])
+        plan = {"status": "NOT_TRANSFERRED", "name": target, "files": projection["files"], "register": True}
+    plan.update(relative=relative, target=ctx["name"])
+    plan["files"][relative] = {"xml": fw, "before": before, "write_owner": plan["register"]}
+    return plan
+
+
+def initialize_catalog_children(ext, objects):
+    CATALOG_CHILDREN.clear()
+    for obj in objects:
+        if obj["type"] != "Catalog":
+            continue
+        ctx = get_obj_context(ext["dir"], obj["type"], obj["name"])
+        if not ctx["borrowed"] or ctx["md"]["children"] is None:
+            continue
+        for node in elem_children(ctx["md"]["children"]):
+            kind, name = localname(node), md_child_name(node)
+            if kind not in ("Form", "Template", "Command"):
+                continue
+            desc, error = None, None
+            try:
+                desc = get_catalog_child_descriptor(node, ctx["obj_dir"])
+            except Exception as exc:
+                error = str(exc)
+            if desc is not None and test_adopted_node(desc):
+                continue
+            oid = f"Catalog.{ctx['name']}.{kind}.{name}"
+            CATALOG_CHILDREN[oid.lower()] = dict(id=oid, ctx=ctx, kind=kind, name=name, node=node, descriptor=desc, error=error)
+
+
+def complete_catalog_children(prefix, cfg, selected, apply):
+    changed = []
+    pending = [entry for entry in CATALOG_CHILDREN.values() if entry.get("item", {}).get("status", "WAITING") == "WAITING"]
+    while pending:
+        again = []
+        for entry in pending:
+            try:
+                plan = get_catalog_child_plan(entry, prefix, cfg)
+            except Exception as exc:
+                plan = {"status": "MANUAL", "reason": str(exc)}
+            item = new_item(plan["status"], f"{kind_word(entry['kind'])} {entry['name']}")
+            if plan.get("name") and plan["name"].lower() != entry["name"].lower():
+                item["text"] += f" (as {plan['name']})"
+            if plan.get("reason"):
+                item["text"] += " — " + plan["reason"]
+            item["plan"] = {"kind": "md-reference"}
+            entry["item"] = item
+            if plan["status"] == "WAITING":
+                entry["dependency"] = plan.get("dependency")
+                again.append(entry)
+                continue
+            if plan["status"] == "TRANSFERRED":
+                entry["ready"] = plan["name"]
+            if plan["status"] != "NOT_TRANSFERRED" or not apply or not selected("Catalog." + entry["ctx"]["name"]):
+                continue
+            support = get_object_support(os.path.join(MD_REFERENCE_ROOT, plan["relative"]))
+            if support == "locked":
+                item.update(status="MANUAL", text=item["text"] + " — object is locked by vendor support",
+                            sub=["next: allow editing with /support-edit, then re-run -Mode transfer"])
+                continue
+            try:
+                changed.extend(write_catalog_transfer({"type": "Catalog"}, plan))
+                entry["ready"] = plan["name"]
+                item.update(status="TRANSFERRED", now=True)
+                if support == "warn":
+                    item["text"] += " (object locked by vendor support, written: editingAllowedCheck = warn)"
+            except Exception as exc:
+                item.update(status="CONFLICT", text=item["text"] + " — " + str(exc))
+        if len(again) == len(pending):
+            break
+        pending = again
+    return changed
 
 
 def catalog_node_key(node, ignore_slots=False, shallow=False):
@@ -4137,6 +4490,20 @@ def write_catalog_transfer(entry, plan):
         check = read_md_object(staged_owner)
         if not check or localname(check["el"]) != "Catalog" or md_child_name(check["el"]) != plan["target"]:
             raise ValueError("staged catalog did not pass read-back validation")
+        if not plan.get("new"):
+            # Preserve the validation context for slots pointing at existing local forms.
+            for slot in elem_children(check["props"]):
+                if not re.fullmatch(r"(Default|Auxiliary).*Form", localname(slot)):
+                    continue
+                match = re.fullmatch(r"Catalog\.(\w+)\.Form\.(\w+)", inner_text(slot), re.I)
+                if not match or match[1].lower() != plan["target"].lower():
+                    continue
+                base = f"Catalogs/{plan['target']}/Forms/{match[2]}"
+                for rel in (base + ".xml", base + "/Form.xml", base + "/Ext/Form.xml"):
+                    original, candidate = os.path.join(root, rel), os.path.join(stage, rel)
+                    if os.path.isfile(original) and not os.path.exists(candidate):
+                        os.makedirs(os.path.dirname(candidate), exist_ok=True)
+                        shutil.copyfile(original, candidate)
         errors = get_md_validate_errors(staged_owner, "Catalog", require_result=True)
         if not plan.get("new"):
             baseline = get_md_validate_errors(owner, "Catalog", require_result=True)
@@ -4147,7 +4514,12 @@ def write_catalog_transfer(entry, plan):
             if re.search(r"/Forms/.+/Ext/(?:Form\.xml|Form/Module\.bsl)$", rel):
                 form_rel = re.sub(r"/Form/Module\.bsl$", "/Form.xml", rel)
                 form = os.path.join(stage, form_rel)
-                module = os.path.join(stage, rel) if rel.endswith(".bsl") else None
+                module_rel = re.sub(r"/Form\.xml$", "/Form/Module.bsl", form_rel)
+                module = os.path.join(stage, module_rel)
+                if not os.path.isfile(module):
+                    module = os.path.join(root, module_rel)
+                    if not os.path.isfile(module):
+                        module = None
                 if not os.path.isfile(form):
                     form = os.path.join(root, form_rel)
                 errors = get_form_validate_errors(form, module_path=module)
@@ -4382,6 +4754,7 @@ def initialize_root_transfer(ext, objects, cfg, vars_, selected, apply=False):
     ROOT_RESULTS.clear()
     ROOT_METHOD_BLOCKS.clear()
     ROOT_GLOBAL_METHODS.clear()
+    initialize_catalog_children(ext, objects)
     ROOT_DATA_WARNINGS.clear()
     pending, changed = [], []
     for obj in objects:
@@ -4405,6 +4778,7 @@ def initialize_root_transfer(ext, objects, cfg, vars_, selected, apply=False):
                     ROOT_GLOBAL_METHODS.setdefault(name.lower(), []).append(key)
     waiting = {}
     while pending:
+        changed.extend(complete_catalog_children(ext["prefix"], cfg, selected, apply))
         again, waiting = [], {}
         for entry in pending:
             oid, key = entry["id"], entry["key"]
@@ -4495,15 +4869,25 @@ def initialize_root_transfer(ext, objects, cfg, vars_, selected, apply=False):
         if len(again) == len(pending):
             break
         pending = again
-    for key, plan in waiting.items():
-        path, dep = [key], plan.get("dependency")
-        while dep in waiting:
+    changed.extend(complete_catalog_children(ext["prefix"], cfg, selected, apply))
+    deps = {key: plan.get("dependency") for key, plan in waiting.items()}
+    deps.update({key: entry["dependency"] for key, entry in CATALOG_CHILDREN.items() if entry["item"]["status"] == "WAITING"})
+    for key, dep in deps.items():
+        path = [key]
+        while dep in deps:
             if dep in path:
                 if dep == key:
-                    plan.update(status="MANUAL", reason="dependency cycle: " + " -> ".join(ROOT_OWN[k]["id"] for k in path + [dep]))
+                    cycle = " -> ".join((ROOT_OWN.get(k) or CATALOG_CHILDREN[k])["id"] for k in path + [dep])
+                    reason = "dependency cycle: " + cycle
+                    if key in waiting:
+                        waiting[key].update(status="MANUAL", reason=reason)
+                    else:
+                        item = CATALOG_CHILDREN[key]["item"]
+                        item.update(status="MANUAL", text=item["text"] + " — " + reason)
                 break
             path.append(dep)
-            dep = waiting[dep].get("dependency")
+            dep = deps[dep]
+    for key, plan in waiting.items():
         ROOT_RESULTS[key] = {"id": ROOT_OWN[key]["id"], "items": [new_md_reference_item("own object", plan)]}
     return list(dict.fromkeys(changed))
 
@@ -4564,6 +4948,8 @@ def transfer_object(ext, obj, cfg_info, config_path, cfg_pools=None):
         add_md_prop_items(rec["items"], ctx["md"]["el"], cfg_md["el"], prefix, rank, obj_rel,
                           ctx["type"], "", "", "", "object", True)
     rec["items"] += own_child_items(ctx, cfg_md, prefix, obj_rel, rank)
+    rec["items"] += [entry["item"] for entry in sorted(CATALOG_CHILDREN.values(), key=lambda e: (e["kind"], e["name"]))
+                     if rec["id"].lower() == ("Catalog." + entry["ctx"]["name"]).lower() and entry.get("item")]
     if obj["type"] == "Subsystem":
         rec["items"] += subsystem_content_items(ctx["md"], cfg_md, prefix, obj_rel, cfg_pools)
     rec["items"] += form_items
@@ -4573,7 +4959,8 @@ def transfer_object(ext, obj, cfg_info, config_path, cfg_pools=None):
             set_bsl_context(pl2['rel'])
             problem = get_bsl_plan_issue(pl2)
             if problem:
-                it['status'] = 'MANUAL'; it['text'] += ' — ' + problem['issue']['why']
+                it['status'] = problem['issue'].get('status', 'MANUAL')
+                it['text'] += ' — ' + problem['issue']['why']
                 it['sub'] = get_bsl_manual_details(pl2, problem)
         m = re.match(r'^(.+):(\d+)$', it["loc"] or "")
         if m:
@@ -6386,6 +6773,14 @@ def get_bsl_conversion(lines, file_map, ctx, params=(), comparison=False):
     methods = dict(ctx['methods']) if ctx else {}
     methods.update(file_map)
     attrs = ctx['attrs'] if ctx else {}
+    if not comparison and CATALOG_CHILDREN:
+        if ctx and "declared_methods" not in ctx:
+            ctx["declared_methods"] = get_proc_names(ctx["ext"])
+        child_edits, child_issues = get_catalog_child_bsl(ts, ctx['rel'] if ctx else '', None,
+                                                         ctx["declared_methods"] if ctx else ())
+        edits.update(child_edits)
+        handled.update(child_edits)
+        issues.extend(child_issues)
     locals_ = None
     for i, t in enumerate(ts):
         if t['kind'] != 'word':
@@ -6592,6 +6987,9 @@ def get_bsl_plan_issue(plan):
 def get_bsl_manual_details(plan, problem):
     m, issue = problem['method'], problem['issue']
     offset = problem['offset']
+    if issue.get("status") == "WAITING":
+        return ['from: extension %s:%d' % (plan['rel'], m['sig_end_idx'] + 2 + offset),
+                'next: transfer the dependency, then re-run -Mode transfer']
     return ['from: extension %s:%d' % (plan['rel'], m['sig_end_idx'] + 2 + offset),
             'code: ' + m['body_lines'][offset].strip(), 'rename: ' + issue['rename'],
             'next: resolve the handler context in the extension, or copy the complete method and verify its handler by hand; then re-run -Mode transfer']
@@ -8363,8 +8761,8 @@ def main():
                         continue
                     problem = get_bsl_plan_issue(pl)
                     if problem:
-                        t['status'] = 'MANUAL'
-                        if it['status'] != 'MANUAL':
+                        t['status'] = problem['issue'].get('status', 'MANUAL')
+                        if it['status'] != t['status']:
                             t['text'] += ' — ' + problem['issue']['why']
                         t['sub'] = get_bsl_manual_details(pl, problem)
                         if pl["kind"] in ("event-bind", "command-bind") and add_blocked_form_handlers(
