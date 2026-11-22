@@ -1,5 +1,5 @@
 ﻿#!/usr/bin/env python3
-# cfe-transfer v1.42 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+# cfe-transfer v1.43 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -15,6 +15,7 @@ import sys
 import tempfile
 import uuid
 from collections import Counter
+from decimal import Decimal, InvalidOperation
 from lxml import etree
 
 # Регистронезависимый ввод — паритет с PS1: в PowerShell имена параметров и [ValidateSet]
@@ -1690,6 +1691,8 @@ def get_md_type_ref_base(kind, event_source=False):
     """Type kinds that name a metadata object of the configuration; a *Ref kind looks up its base kind."""
     if kind == "Characteristic":
         return "ChartOfCharacteristicTypes"
+    if re.fullmatch(r"ChartOfCharacteristicTypes(?:Object|Manager|Selection|List|TabularSectionRow|TabularSection)", kind):
+        return "ChartOfCharacteristicTypes"
     if kind in ("ConstantManager", "ConstantValueManager", "ConstantValueKey"):
         return "Constant"
     if kind.endswith("Ref") and len(kind) > 3:
@@ -1737,6 +1740,17 @@ def resolve_md_reference(value, prefix, type_reference=False, event_source=False
     if not provisional and not os.path.isfile(path):
         return {"status": "MANUAL", "reason": "%s.%s: missing descriptor %s" % (base, target, relative.replace(os.sep, "/"))}
     if tail and tail != ".EmptyRef":
+        item = re.fullmatch(r"\.(\w+)", tail)
+        if base in PREDEFINED_KINDS and item:
+            file = os.path.join(MD_REFERENCE_ROOT, CHILD_TYPE_DIR_MAP[base], target, "Ext", "Predefined.xml")
+            if provisional:
+                file = provisional["predefined_path"]
+            if os.path.isfile(file):
+                names = read_form_write(file)["root"].findall(f".//{PREDEFINED_NS}Item/{PREDEFINED_NS}Name")
+                if sum(inner_text(n).lower() == item[1].lower() for n in names) == 1:
+                    return {"value": f"{namespace}{kind}.{target}{tail}"}
+            return {"status": "WAITING", "reason": f"predefined item {base}.{target}.{item[1]} is not in the configuration",
+                    "dependency": root_id}
         child_path = re.fullmatch(r"\.(Form|Template|Command)\.(\w+)", tail, re.I)
         if base == "Catalog" and child_path:
             binding = get_catalog_child_binding(f"{root_id}.{child_path[1]}.{child_path[2]}")
@@ -3552,6 +3566,7 @@ def get_root_object_xml(fw, kind, name, prefix):
 
 
 ROOT_BSL_COLLECTIONS = {
+    "планывидовхарактеристик": "ChartOfCharacteristicTypes", "chartsofcharacteristictypes": "ChartOfCharacteristicTypes",
     "справочники": "Catalog", "catalogs": "Catalog", "документы": "Document", "documents": "Document",
     "перечисления": "Enum", "enums": "Enum", "общиекоманды": "CommonCommand", "commoncommands": "CommonCommand",
     "константы": "Constant", "constants": "Constant", "регистрысведений": "InformationRegister", "informationregisters": "InformationRegister",
@@ -3565,7 +3580,9 @@ FLAT_TRANSFER_KINDS = ("Constant", "DefinedType", "SessionParameter", "Functiona
                        "EventSubscription", "ScheduledJob", "CommonPicture", "CommandGroup", "DocumentNumerator")
 REGISTER_TRANSFER_KINDS = ("InformationRegister", "AccumulationRegister")
 LINKED_TRANSFER_KINDS = ("Document",) + REGISTER_TRANSFER_KINDS
-STRUCTURED_TRANSFER_KINDS = ("Catalog", "Report", "DataProcessor") + LINKED_TRANSFER_KINDS
+PREDEFINED_KINDS = ("Catalog", "ChartOfCharacteristicTypes")
+PREDEFINED_NS = "{http://v8.1c.ru/8.3/xcf/predef}"
+STRUCTURED_TRANSFER_KINDS = PREDEFINED_KINDS + ("Report", "DataProcessor") + LINKED_TRANSFER_KINDS
 ROOT_PROVISIONAL = {}
 ROOT_REGISTRARS = {}
 ROOT_TARGET_REGISTRARS = None
@@ -3773,6 +3790,8 @@ def catalog_files(root, directory, child=None):
     optional = {"Ext/ObjectModule.bsl", "Ext/ManagerModule.bsl"}
     obj = get_md_object_element(root)
     obj_kind = localname(obj)
+    if child is None and obj_kind in PREDEFINED_KINDS:
+        optional.add("Ext/Predefined.xml")
     if obj_kind in REGISTER_TRANSFER_KINDS:
         optional.add("Ext/RecordSetModule.bsl")
     children = obj.find("md:ChildObjects", MD_NSMAP)
@@ -3839,6 +3858,7 @@ def convert_catalog_xml(fw, cfg, source, target, prefix, descriptor, child=None,
         "Enum": r"Enum(?:Ref|Manager|List)?",
         "Constant": r"Constant(?:Manager|ValueManager|ValueKey)?",
         "Catalog": r"Catalog(?:Ref|Object|Manager|Selection|List|TabularSectionRow|TabularSection)?",
+        "ChartOfCharacteristicTypes": r"(?:Characteristic|ChartOfCharacteristicTypes(?:Ref|Object|Manager|Selection|List|TabularSectionRow|TabularSection)?)",
         "Report": r"Report(?:Object|Manager|TabularSectionRow|TabularSection)?",
         "DataProcessor": r"DataProcessor(?:Object|Manager|TabularSectionRow|TabularSection)?",
         "Document": r"Document(?:Ref|Object|Manager|Selection|List|TabularSectionRow|TabularSection)?",
@@ -3882,7 +3902,8 @@ def convert_catalog_xml(fw, cfg, source, target, prefix, descriptor, child=None,
                 or (name == "DataPath" and node.xpath("ancestor::md:ChoiceParameterLinks|ancestor::md:LinkByType",
                                                       namespaces=MD_NSMAP))))
             or (obj_kind == "Document" and ((name == "Item" and parent in ("RegisterRecords", "BasedOn"))
-                                           or (name == "Numerator" and parent == "Properties"))))
+                                           or (name == "Numerator" and parent == "Properties")))
+            or (obj_kind == "ChartOfCharacteristicTypes" and name == "CharacteristicExtValues" and parent == "Properties"))
         if strict_ref and value:
             path = re.fullmatch(r"(\w+)\.\w+(?:\.\w+\.\w+)*", value)
             if not path or path[1] not in CHILD_TYPE_DIR_MAP:
@@ -3979,13 +4000,36 @@ def get_catalog_child_bsl(tokens, rel, child, declared, prefix, self_id="", self
                 or literal["kind"] != "string" or separator["value"] not in (",", ")")
                 or (i and tokens[i - 1]["value"] == ".")):
             continue
+        if api in ("предопределенноезначение", "предопределённоезначение", "predefinedvalue"):
+            item = re.fullmatch(r'("(Catalog|Справочник|ChartOfCharacteristicTypes|ПланВидовХарактеристик)\.)(\w+)\.(\w+)"',
+                                literal["value"], re.I)
+            if not item:
+                continue
+            kind = "Catalog" if item[2].lower() in ("catalog", "справочник") else "ChartOfCharacteristicTypes"
+            oid = f"{kind}.{item[3]}"
+            if oid.lower() not in ROOT_OWN:
+                continue
+            if oid.lower() == self_id.lower():
+                edits[literal["start"]] = f'{item[1]}{self_name}.{item[4]}"'
+                continue
+            path = f"{oid}.{item[4]}"
+            ref = resolve_md_reference(path, prefix)
+            if ref.get("status"):
+                issues.append({"token": literal, "rename": path, "why": ref["reason"], "reason": ref["reason"],
+                               "status": ref["status"], "dependency": ref.get("dependency")})
+            else:
+                edits[literal["start"]] = item[1] + ref["value"].split(".", 1)[1] + '"'
+            continue
         if api in ("открытьформу", "openform", "получитьформу", "getform"):
-            match = re.fullmatch(r'("(Report|Отч[её]т|DataProcessor|Обработка|Document|Документ)\.)(\w+)(\.(?:Form|Форма)\.)(\w+)"',
+            match = re.fullmatch(r'("(Report|Отч[её]т|DataProcessor|Обработка|Document|Документ|ChartOfCharacteristicTypes|ПланВидовХарактеристик)\.)'
+                                 r'(\w+)(\.(?:Form|Форма)\.)(\w+)"',
                                  literal["value"], re.I)
             if match:
                 owner_kind = match[2].lower()
                 kind = {"report": "Report", "отчет": "Report", "отчёт": "Report",
-                        "document": "Document", "документ": "Document"}.get(owner_kind, "DataProcessor")
+                        "document": "Document", "документ": "Document",
+                        "chartofcharacteristictypes": "ChartOfCharacteristicTypes",
+                        "планвидовхарактеристик": "ChartOfCharacteristicTypes"}.get(owner_kind, "DataProcessor")
                 root_id = f"{kind}.{match[3]}"
                 if root_id.lower() not in ROOT_OWN:
                     continue
@@ -4242,7 +4286,7 @@ def complete_catalog_children(prefix, cfg, selected, apply):
     return changed
 
 
-def catalog_node_key(node, ignore_slots=False, shallow=False):
+def catalog_node_key(node, ignore_slots=False, shallow=False, ignore_characteristic_type=False):
     if node is None:
         return None
     node = copy.deepcopy(node)
@@ -4250,6 +4294,9 @@ def catalog_node_key(node, ignore_slots=False, shallow=False):
         del descendant.attrib["uuid"]
     for child in node.xpath(".//xr:TypeId|.//xr:ValueId", namespaces=MD_NSMAP):
         child.getparent().remove(child)
+    if ignore_characteristic_type:
+        for child in node.xpath("self::md:Properties/md:Type|self::md:ChartOfCharacteristicTypes/md:Properties/md:Type", namespaces=MD_NSMAP):
+            child.getparent().remove(child)
     for child in elem_children(node):
         tag = localname(child)
         if (ignore_slots and (tag == "MainDataCompositionSchema" or
@@ -4287,6 +4334,125 @@ def resolve_transfer_handler(value, prefix):
     if not decl or not is_export(lines, decl):
         return {"status": "MANUAL", "reason": f"{value}: handler {target}.{hits[0]} is not a readable export"}
     return {"value": f"{qualifier or ''}{target}.{hits[0]}", "validation_files": (base + ".xml", relative)}
+
+
+def get_predefined_tree(fw, kind, version):
+    root = fw["root"]
+    expected_type = "CatalogPredefinedItems" if kind == "Catalog" else "PlanOfCharacteristicKindPredefinedItems"
+    if (root.tag != f"{PREDEFINED_NS}PredefinedData" or root.get("version") != version
+            or root.get(f"{{{XSI_NS}}}type") != expected_type):
+        raise ValueError("unsupported Predefined.xml format")
+    entries, by_id, by_name = [], {}, {}
+    required = {"Name", "Code", "Description", "IsFolder"}
+    allowed = required | {"ChildItems"}
+    if kind != "Catalog":
+        allowed.add("Type")
+    for node in root.iter(f"{PREDEFINED_NS}Item"):
+        parent = node.getparent()
+        parent_id = ""
+        if parent is not root:
+            if parent.tag != f"{PREDEFINED_NS}ChildItems":
+                raise ValueError("invalid predefined hierarchy")
+            parent_id = parent.getparent().get("id", "").lower()
+            if parent_id not in by_id or not by_id[parent_id]["folder"]:
+                raise ValueError(f"invalid predefined parent {parent_id}")
+        fields = {}
+        for leaf in elem_children(node):
+            name = localname(leaf)
+            if leaf.tag != PREDEFINED_NS + name or name not in allowed or name in fields:
+                raise ValueError(f"unsupported predefined field {name}")
+            fields[name] = leaf
+        for field in sorted(required):
+            if field not in fields or has_element_child(fields[field]):
+                raise ValueError(f"invalid predefined field {field}")
+        if "Type" in fields:
+            for leaf in elem_children(fields["Type"]):
+                name = localname(leaf)
+                if (leaf.tag != f"{{{MD_NSMAP['v8']}}}{name}"
+                        or not re.fullmatch(r"(Type|TypeSet|TypeId|\w+Qualifiers)", name)):
+                    raise ValueError(f"unsupported predefined type field {name}")
+        identity = node.get("id", "").lower()
+        name, folder = inner_text(fields["Name"]), inner_text(fields["IsFolder"])
+        if (not re.fullmatch(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", identity)
+                or not re.fullmatch(r"\w+", name) or identity in by_id or name.lower() in by_name
+                or folder not in ("true", "false")):
+            raise ValueError(f"invalid or duplicate predefined item {name} ({identity})")
+        item = {"id": identity, "name": name, "code": inner_text(fields["Code"]),
+                "description": inner_text(fields["Description"]), "folder": folder == "true",
+                "parent": parent_id, "node": node, "type": fields.get("Type")}
+        entries.append(item)
+        by_id[identity] = item
+        by_name[name.lower()] = item
+    for container in (root, *root.iter(f"{PREDEFINED_NS}ChildItems")):
+        if any(child.tag != f"{PREDEFINED_NS}Item" for child in elem_children(container)):
+            raise ValueError("unsupported predefined list element")
+    return entries, by_id, by_name
+
+
+def predefined_code_value(item, owner_props):
+    code = item["code"]
+    if code and owner_props.findtext("md:CodeType", namespaces=MD_NSMAP) == "Number":
+        try:
+            decimal = Decimal(code)
+            if decimal.is_finite():
+                return decimal
+        except InvalidOperation:
+            pass
+        raise ValueError(f"invalid predefined numeric code {code}")
+    return code
+
+
+def predefined_code_key(item, owner_props):
+    code = predefined_code_value(item, owner_props)
+    if isinstance(code, str):
+        code = code.rstrip().lower()
+    if code == "" or owner_props.findtext("md:CheckUnique", namespaces=MD_NSMAP) != "true":
+        return None
+    series = owner_props.findtext("md:CodeSeries", namespaces=MD_NSMAP)
+    parent = item["parent"] if series in ("WithinSubordination", "WithinOwnerSubordination") else ""
+    return parent, code
+
+
+def merge_predefined_tree(source, destination, owner_props, kind, version):
+    wanted, _, _ = get_predefined_tree(source, kind, version)
+    existing, by_id, by_name = get_predefined_tree(destination, kind, version) if destination else ([], {}, {})
+    added, matched = [], 0
+    codes = {key: item for item in existing if (key := predefined_code_key(item, owner_props)) is not None}
+    for item in wanted:
+        same = by_id.get(item["id"])
+        if same:
+            if (any(same[field] != item[field] for field in ("parent", "name", "description", "folder"))
+                    or predefined_code_value(same, owner_props) != predefined_code_value(item, owner_props)
+                    or not test_md_type_model_equal(get_md_type_model(same["type"], ""), get_md_type_model(item["type"], ""))):
+                return {"reason": f"predefined item {item['name']} ({item['id']}) differs in properties or parent"}
+            matched += 1
+            continue
+        collision = by_name.get(item["name"].lower())
+        if collision:
+            return {"reason": f"predefined name {item['name']} is used by {collision['id']}, expected {item['id']}"}
+        key = predefined_code_key(item, owner_props)
+        if key is not None:
+            if key in codes:
+                return {"reason": f"predefined code {item['code']} is already used by {codes[key]['name']}"}
+            codes[key] = item
+        added.append(item["name"])
+        if destination:
+            container = destination["root"]
+            if item["parent"]:
+                parent = by_id[item["parent"]]["node"]
+                container = parent.find(f"{PREDEFINED_NS}ChildItems")
+                if container is None:
+                    container = etree.Element(f"{PREDEFINED_NS}ChildItems")
+                    insert_form_node_at(parent, container, None, destination["eol"])
+            source_node = item["node"]
+            new = etree.Element(source_node.tag, attrib=dict(source_node.attrib), nsmap=source_node.nsmap)
+            new.text = source_node.text
+            for child in source_node:
+                if child.tag != f"{PREDEFINED_NS}ChildItems":
+                    new.append(copy.deepcopy(child))
+            insert_form_node_at(container, new, None, destination["eol"])
+            by_id[item["id"]] = {"node": new}
+    return {"added": added, "matched": matched}
 
 
 def root_metadata_projection(entry, cfg, source, files, target, prefix, enum_aliases=None, skd=()):
@@ -4329,6 +4495,18 @@ def root_metadata_projection(entry, cfg, source, files, target, prefix, enum_ali
             if projection.get("status"):
                 return projection
             data = {"bsl": bsl, "lines": projection["lines"]}
+        elif rel == "Ext/Predefined.xml":
+            fw = read_form_write(path)
+            issue = convert_catalog_xml(fw, cfg, entry["name"], target, prefix, False, owner_kind=entry["type"])
+            if issue:
+                return issue
+            descriptor = plan["files"][plan["relative"]]["xml"]["root"]
+            props = get_md_object_element(descriptor).find("md:Properties", MD_NSMAP)
+            merged = merge_predefined_tree(fw, None, props, entry["type"], descriptor.get("version"))
+            if merged.get("reason"):
+                return {"status": "MANUAL", "reason": merged["reason"]}
+            plan["has_predefined"] = True
+            data = {"xml": fw}
         elif rel in skd:
             schema = read_form_write(path)["root"]
             if schema.tag != "{http://v8.1c.ru/8.1/data-composition-system/schema}DataCompositionSchema":
@@ -4463,7 +4641,7 @@ def get_structured_transfer_plan(entry, ext_dir, prefix, cfg):
     kind = entry["type"]
     directory = CHILD_TYPE_DIR_MAP[kind]
     label = "catalog" if kind == "Catalog" else kind
-    stored = kind == "Catalog" or kind in LINKED_TRANSFER_KINDS
+    stored = kind in PREDEFINED_KINDS or kind in LINKED_TRANSFER_KINDS
     path = os.path.join(ext_dir, directory, entry["name"])
     source = read_form_write(path + ".xml")
     if source["root"].get("version") != children.getroottree().getroot().get("version"):
@@ -4488,15 +4666,39 @@ def get_structured_transfer_plan(entry, ext_dir, prefix, cfg):
         dest = read_form_write(path)
         a = get_md_object_element(plan["files"][plan["relative"]]["xml"]["root"])
         b = get_md_object_element(dest["root"])
-        props = catalog_node_key(a.find("md:Properties", MD_NSMAP), ignore_slots=True) == catalog_node_key(
-            b.find("md:Properties", MD_NSMAP), ignore_slots=True)
+        chart = kind == "ChartOfCharacteristicTypes"
+        props_a = a.find("md:Properties", MD_NSMAP)
+        props_b = b.find("md:Properties", MD_NSMAP)
+        props = catalog_node_key(props_a, ignore_slots=True, ignore_characteristic_type=chart) == catalog_node_key(
+            props_b, ignore_slots=True, ignore_characteristic_type=chart)
+        if props and chart:
+            props = test_md_type_model_equal(get_md_type_model(props_a.find("md:Type", MD_NSMAP), ""),
+                                             get_md_type_model(props_b.find("md:Type", MD_NSMAP), ""))
         x, y = (obj.find("md:ChildObjects", MD_NSMAP) for obj in (a, b))
         if y is None:
             y = etree.SubElement(b, f"{{{MD_NS}}}ChildObjects")
         score, _, blocked = compare_catalog_children(x, y, plan["relative"])
+        predefined_rel = f"{directory}/{name}/Ext/Predefined.xml"
+        predefined_path = os.path.join(MD_REFERENCE_ROOT, predefined_rel)
+        predefined, predefined_write = {}, None
+        if plan.get("has_predefined") and os.path.isfile(predefined_path):
+            try:
+                with open(predefined_path, "rb") as original:
+                    predefined_before = original.read()
+                merged = read_form_write(predefined_path)
+                predefined = merge_predefined_tree(plan["files"][predefined_rel]["xml"], merged,
+                                                   b.find("md:Properties", MD_NSMAP), kind, dest["root"].get("version"))
+                if predefined.get("added"):
+                    predefined_write = {"xml": merged, "before": predefined_before, "write_owner": True}
+            except (OSError, ValueError, etree.XMLSyntaxError) as exc:
+                predefined = {"reason": str(exc)}
+            if predefined.get("reason") and (targets["known"] or props):
+                return {"status": "CONFLICT", "reason": f"{predefined_rel} — {predefined['reason']}"}
         items, available = [], {}
         for rel, file in sorted(plan["files"].items()):
             if rel == plan["relative"]:
+                continue
+            if rel == predefined_rel and predefined and not predefined.get("reason"):
                 continue
             sub = rel[len(f"{directory}/{name}/"):]
             parts = sub.split("/")
@@ -4508,23 +4710,36 @@ def get_structured_transfer_plan(entry, ext_dir, prefix, cfg):
                 items.append(new_item("CONFLICT", sub + " — existing file differs"))
                 if group:
                     blocked.add(group)
-        full = props and not items and not available and catalog_node_key(a) == catalog_node_key(b)
-        if not targets["known"] and not full and not (kind not in LINKED_TRANSFER_KINDS and props and score):
+        full = (props and not predefined_write and not items and not available
+                and catalog_node_key(a, ignore_characteristic_type=chart) == catalog_node_key(b, ignore_characteristic_type=chart))
+        if not targets["known"] and not full and not (kind not in LINKED_TRANSFER_KINDS and props and (score or predefined.get("matched"))):
             if props or score:
                 uncertain.append(name)
             continue
+        if not props and plan.get("has_predefined") and (predefined_write or not os.path.isfile(predefined_path)):
+            return {"status": "CONFLICT", "reason": f"{label} properties differ; cannot merge predefined items"}
         if not props:
             items.append(new_item("CONFLICT", f"{label} properties differ"))
         _, detail, _ = compare_catalog_children(x, y, plan["relative"], True, blocked, stored)
         items.extend(detail)
         write_owner = any(item["status"] == "NOT_TRANSFERRED" for item in detail)
         writes = {}
+        if predefined_write:
+            writes[predefined_rel] = predefined_write
+            item = new_item("NOT_TRANSFERRED", "predefined items: " + ", ".join(predefined["added"]))
+            item["stored"] = f"{kind}.{name} — predefined data"
+            items.append(item)
+        elif predefined and not predefined.get("reason"):
+            items.append(new_item("TRANSFERRED", "predefined items"))
         for rel, group in available.items():
             if group in blocked:
                 items.append(new_item("CONFLICT", rel + " — related child files differ"))
             else:
                 writes[rel] = plan["files"][rel]
-                items.append(new_item("NOT_TRANSFERRED", rel))
+                item = new_item("NOT_TRANSFERRED", rel)
+                if rel == predefined_rel:
+                    item["stored"] = f"{kind}.{name} — predefined data"
+                items.append(item)
         for slot in a.xpath(ROOT_SLOT_PATH, namespaces=MD_NSMAP):
             tag = localname(slot)
             dest_slot = b.find("md:Properties/md:" + tag, MD_NSMAP)
@@ -4541,7 +4756,8 @@ def get_structured_transfer_plan(entry, ext_dir, prefix, cfg):
             else:
                 items.append(new_item("CONFLICT", tag + " — existing assignment or form differs"))
         writes[plan["relative"]] = {"xml": dest, "before": before, "write_owner": write_owner}
-        plan.update(status="PACKAGE_PARTIAL", items=items or [new_item("TRANSFERRED", f"own {label}")], files=writes)
+        plan.update(status="PACKAGE_PARTIAL", items=items or [new_item("TRANSFERRED", f"own {label}")],
+                    files=writes, predefined_pending=predefined_rel in writes)
         matches.append(plan)
     if len(matches) == 1 and not uncertain:
         return matches[0]
@@ -4555,9 +4771,11 @@ def get_structured_transfer_plan(entry, ext_dir, prefix, cfg):
     if not plan.get("status"):
         item = new_item("NOT_TRANSFERRED", f"own {label} {entry['name']} (as {target})")
         if stored:
-            data = {"Catalog": "catalog and tabular-section records",
+            data = {"Catalog": "catalog and tabular-section records", "ChartOfCharacteristicTypes": "characteristic kinds and data",
                     "Document": "documents, tabular sections and register movements"}.get(kind, "register records")
             item["stored"] = f"{entry['id']} -> {kind}.{target} — {data}"
+            if plan.get("has_predefined"):
+                item["stored"] += " (includes predefined data)"
         plan.update(status="NOT_TRANSFERRED", items=[item], new=True)
     return plan
 
@@ -5408,17 +5626,18 @@ def get_linked_package_plans(keys, ext, cfg):
             targets = get_structured_target_set(entry, md["el"], prefix, cfg)
             if targets.get("status"):
                 return dict(targets, id=key)
-            sources[key] = md, targets
+            predefined_path = os.path.join(os.path.splitext(path)[0], "Ext", "Predefined.xml")
+            sources[key] = md, targets, predefined_path
             if targets["candidates"]:
-                ROOT_PROVISIONAL[key] = {"target": targets["candidates"][0], "md": md}
+                ROOT_PROVISIONAL[key] = {"target": targets["candidates"][0], "md": md, "predefined_path": predefined_path}
             else:
                 unassigned.append(key)
         for key in unassigned:
-            md, targets = sources[key]
+            md, targets, predefined_path = sources[key]
             choice = get_new_structured_target(ROOT_OWN[key], targets, prefix)
             if choice.get("status"):
                 return dict(choice, id=key)
-            ROOT_PROVISIONAL[key] = {"target": choice["target"], "md": md}
+            ROOT_PROVISIONAL[key] = {"target": choice["target"], "md": md, "predefined_path": predefined_path}
         seen = set()
         while True:
             signature = tuple(ROOT_PROVISIONAL[key]["target"].lower() for key in keys)
@@ -5459,14 +5678,21 @@ def get_linked_package_plans(keys, ext, cfg):
 
 def complete_linked_root_groups(waiting, ext, cfg, apply):
     global ROOT_TARGET_REGISTRARS
-    edges = {key: set() for key in waiting if ROOT_OWN[key]["type"] in LINKED_TRANSFER_KINDS}
+    edges = {key: set() for key in waiting if ROOT_OWN[key]["type"] in LINKED_TRANSFER_KINDS + PREDEFINED_KINDS}
     for key, dependencies in edges.items():
         dependency = waiting[key].get("dependency")
         if dependency in edges:
             dependencies.add(dependency)
     tried, changed = set(), []
     while True:
-        keys = next((group for group in linked_groups(edges) if group not in tried), ())
+        keys = ()
+        for group in linked_groups(edges):
+            if group in tried:
+                continue
+            kinds = {ROOT_OWN[key]["type"] for key in group}
+            if kinds.issubset(LINKED_TRANSFER_KINDS) or ("ChartOfCharacteristicTypes" in kinds and kinds.issubset(PREDEFINED_KINDS)):
+                keys = group
+                break
         if not keys:
             return set(), changed
         tried.add(keys)
@@ -5590,7 +5816,8 @@ def initialize_root_transfer(ext, objects, cfg, vars_, selected, apply=False):
                 writes = [item for item in items if item["status"] == "NOT_TRANSFERRED"]
                 if not new and entry["type"] not in FLAT_TRANSFER_KINDS:
                     ROOT_BINDINGS[key] = plan["target"]
-                if entry["type"] in LINKED_TRANSFER_KINDS and any(item["status"] != "TRANSFERRED" for item in items):
+                if plan.get("predefined_pending") or (entry["type"] in LINKED_TRANSFER_KINDS
+                        and any(item["status"] != "TRANSFERRED" for item in items)):
                     ROOT_BINDINGS.pop(key, None)
                 if apply and entry["selected"] and writes:
                     support = None
@@ -7593,7 +7820,8 @@ def get_bsl_conversion(lines, file_map, ctx, params=(), comparison=False):
         if (not comparison and not qualified
                 and k in ("константы", "constants", "параметрысеанса", "sessionparameters", "библиотекакартинок", "picturelib",
                           "документы", "documents", "регистрысведений", "informationregisters",
-                          "регистрынакопления", "accumulationregisters")
+                          "регистрынакопления", "accumulationregisters",
+                          "планывидовхарактеристик", "chartsofcharacteristictypes")
                 and i + 2 < len(ts) and ts[i+1]["value"] == "." and ts[i+2]["kind"] == "word" and k not in params):
             kind = ROOT_BSL_COLLECTIONS[k]
             oid = kind + "." + ts[i+2]["value"]
@@ -10464,11 +10692,15 @@ def main():
             for l in dict.fromkeys(MD_WARN):
                 footer.append("    " + l)
             if any(not note.startswith(("Enum.", "Constant.")) for note in MD_WARN):
-                footer.append("    The metadata is transferred as structure only, with new identifiers. Values the extension")
+                footer.append("    The transfer copies metadata structure. Values the extension")
                 footer.append("    wrote into its own attributes stay in the extension's columns and are LOST when it is")
                 footer.append("    disabled or removed. Copy them into the configuration's attributes BEFORE that.")
             if any(note.startswith("Catalog.") for note in ROOT_DATA_WARNINGS):
                 footer.append("    Copy the catalog records and their tabular sections into the configuration BEFORE disabling or removing the extension.")
+            if any(note.startswith("ChartOfCharacteristicTypes.") for note in ROOT_DATA_WARNINGS):
+                footer.append("    Migrate characteristic kinds and their data BEFORE disabling or removing the extension.")
+            if any("predefined data" in note for note in ROOT_DATA_WARNINGS):
+                footer.append("    Verify the predefined elements and migrate their linked data BEFORE disabling or removing the extension.")
             if any(note.startswith("Enum.") for note in ROOT_DATA_WARNINGS):
                 footer.append("    Replace stored references to the extension's enumeration values BEFORE disabling or removing the extension.")
             if any(note.startswith("Constant.") for note in ROOT_DATA_WARNINGS):
