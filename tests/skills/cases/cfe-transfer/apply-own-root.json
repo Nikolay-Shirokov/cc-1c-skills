@@ -1,9 +1,9 @@
 {
-  "name": "Собственные общие модули и команды: доперенос двух из трёх методов, создание файлов и регистрация, зависимости и повторный запуск",
+  "name": "Собственные корневые объекты: общие модули и команды, справочник с дочерними объектами, зависимости и повторный запуск",
   "setup": "fixture:prop-positive",
   "params": { "extensionPath": "cfe" },
   "cwd": "workDir",
-  "args_extra": ["-Mode", "transfer", "-Expand", "*", "-Name", "CommonModule.Тест_Частичный,CommonModule.Тест_НовыйМодуль,CommonCommand.Тест_Команда"],
+  "args_extra": ["-Mode", "transfer", "-Expand", "*", "-Name", "CommonModule.Тест_Частичный,CommonModule.Тест_НовыйМодуль,CommonCommand.Тест_Команда,Catalog.Тест_НовыйСправочник"],
   "idempotent": true,
   "noSnapshot": "Проверяются регистрация, файлы и обработка зависимостей. Остальная выгрузка берётся из prop-positive.",
   "preRun": [
@@ -26,6 +26,36 @@
       "script": "meta-compile/scripts/meta-compile",
       "input": { "type": "CommonCommand", "name": "Тест_Команда", "group": "ActionsPanelTools" },
       "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}/cfe" }
+    },
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "Catalog", "name": "Тест_НовыйСправочник",
+        "attributes": ["Родственный: CatalogRef.Тест_НовыйСправочник"],
+        "tabularSections": [{ "name": "Позиции", "attributes": ["Количество: Number(10,2)"] }],
+        "commands": [{ "name": "Проверить", "group": "FormCommandBarImportant" }]
+      },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}/cfe" }
+    },
+    {
+      "script": "form-add/scripts/form-add",
+      "args": { "-ObjectPath": "{workDir}/cfe/Catalogs/Тест_НовыйСправочник.xml", "-FormName": "ФормаЭлемента" }
+    },
+    {
+      "script": "template-add/scripts/add-template",
+      "args": { "-ObjectName": "Тест_НовыйСправочник", "-SrcDir": "{workDir}/cfe/Catalogs", "-TemplateName": "Печать", "-TemplateType": "SpreadsheetDocument" }
+    },
+    {
+      "writeFile": {
+        "path": "cfe/Catalogs/Тест_НовыйСправочник/Ext/ObjectModule.bsl",
+        "content": "Функция СсылкаНаНовый() Экспорт\n\tВозврат Справочники.Тест_НовыйСправочник.ПустаяСсылка();\nКонецФункции\n"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "cfe/Catalogs/Тест_НовыйСправочник/Forms/ФормаЭлемента/Ext/Form/Module.bsl",
+        "content": "&НаКлиенте\nПроцедура ОткрытьСвоюФорму()\n\tПуть = \"Справочник.Тест_НовыйСправочник.Форма.ФормаЭлемента\";\n\tОткрытьФорму(\"Справочник.Тест_НовыйСправочник.Форма.ФормаЭлемента\");\n\tOpenForm(\"Catalog.Тест_НовыйСправочник.Form.ФормаЭлемента\");\nКонецПроцедуры\n"
+      }
     },
     {
       "writeFile": {
@@ -53,13 +83,17 @@
     }
   ],
   "expect": {
-    "stdoutContains": ["2/3 methods already present", "method Третий", "own object (as НовыйМодуль)", "own object (as Команда)"],
+    "stdoutContains": ["2/3 methods already present", "method Третий", "own object (as НовыйМодуль)", "own object (as Команда)", "!!! Stored data is NOT migrated:", "catalog and tabular-section records"],
     "filesAbsent": ["CommonModules/Тест_Частичный.xml", "CommonModules/Тест_НовыйМодуль.xml", "CommonCommands/Тест_Команда.xml"],
     "fileNotContains": [
       { "file": "CommonModules/Частичный/Ext/Module.bsl", "text": "ВременныйМетод" }
     ],
     "fileContains": [
-      { "file": "Configuration.xml", "text": ["<CommonModule>НовыйМодуль</CommonModule>", "<CommonCommand>Команда</CommonCommand>"] },
+      { "file": "Configuration.xml", "text": ["<CommonModule>НовыйМодуль</CommonModule>", "<CommonCommand>Команда</CommonCommand>", "<Catalog>НовыйСправочник</Catalog>"] },
+      { "file": "Catalogs/НовыйСправочник.xml", "text": ["cfg:CatalogRef.НовыйСправочник", "<Name>Позиции</Name>", "<Name>Количество</Name>", "<Name>Проверить</Name>", "<Form>ФормаЭлемента</Form>", "<Template>Печать</Template>"] },
+      { "file": "Catalogs/НовыйСправочник/Ext/ObjectModule.bsl", "text": "Справочники.НовыйСправочник.ПустаяСсылка()" },
+      { "file": "Catalogs/НовыйСправочник/Forms/ФормаЭлемента/Ext/Form.xml", "text": "cfg:CatalogObject.НовыйСправочник" },
+      { "file": "Catalogs/НовыйСправочник/Forms/ФормаЭлемента/Ext/Form/Module.bsl", "text": ["ОткрытьФорму(\"Справочник.НовыйСправочник.Форма.ФормаЭлемента\")", "OpenForm(\"Catalog.НовыйСправочник.Form.ФормаЭлемента\")", "Путь = \"Справочник.Тест_НовыйСправочник.Форма.ФормаЭлемента\";"] },
       { "file": "CommonModules/Частичный/Ext/Module.bsl", "text": "Функция Третий() Экспорт" },
       { "file": "CommonModules/НовыйМодуль/Ext/Module.bsl", "text": "Возврат Частичный.Третий()" },
       { "file": "CommonCommands/Команда/Ext/CommandModule.bsl", "text": "\tНовыйМодуль.Запустить()" }

@@ -86,7 +86,9 @@
       "script": "meta-compile/scripts/meta-compile",
       "input": {
         "type": "Catalog",
-        "name": "Тест_Склады"
+        "name": "Тест_Склады",
+        "synonym": "Склады",
+        "attributes": ["Артикул: String(10)"]
       },
       "args": {
         "-JsonPath": "{inputFile}",

@@ -848,7 +848,7 @@ const FAMILIES = [
     py: 'get_new_object_position', ps1: 'Get-NewObjectPosition',
     variants: [
       { id: 'base', authority: 'meta-compile',
-        consumers: ['cf-edit', 'cfe-borrow', 'role-compile', 'xdto-compile'] },
+        consumers: ['cf-edit', 'cfe-borrow', 'cfe-transfer', 'role-compile', 'xdto-compile'] },
     ],
   },
   {
@@ -856,7 +856,7 @@ const FAMILIES = [
     py: 'is_order_sensitive_type', ps1: 'Test-OrderSensitiveType',
     variants: [
       { id: 'base', authority: 'meta-compile',
-        consumers: ['cf-edit', 'cfe-borrow', 'role-compile', 'xdto-compile'] },
+        consumers: ['cf-edit', 'cfe-borrow', 'cfe-transfer', 'role-compile', 'xdto-compile'] },
     ],
   },
   {
@@ -864,7 +864,7 @@ const FAMILIES = [
     py: 'compare_metadata_names', ps1: 'Compare-MetadataNames',
     variants: [
       { id: 'base', authority: 'meta-compile',
-        consumers: ['cf-edit', 'cfe-borrow', 'role-compile', 'xdto-compile'] },
+        consumers: ['cf-edit', 'cfe-borrow', 'cfe-transfer', 'role-compile', 'xdto-compile'] },
     ],
   },
   // ─── Имя команды объекта ≠ стандартная команда вида (замер 8.3.24/8.3.27) ─────
