@@ -1,4 +1,4 @@
-﻿# cfe-transfer v1.41 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+﻿# cfe-transfer v1.42 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -1544,6 +1544,7 @@ function Get-MdTypeRefBase([string]$kind, [bool]$eventSource = $false) {
 	if ($kind -in @('ConstantManager','ConstantValueManager','ConstantValueKey')) { return 'Constant' }
 	if ($kind.EndsWith('Ref') -and $kind.Length -gt 3) { return $kind.Substring(0, $kind.Length - 3) }
 	if ($kind -cmatch '^(Report|DataProcessor)(?:Object|Manager|TabularSectionRow|TabularSection)$') { return $Matches[1] }
+	if ($kind -cmatch '^(Document|InformationRegister|AccumulationRegister)(?:Object|Manager|RecordSet|RecordManager|RecordKey|Record|Selection|List|TabularSectionRow|TabularSection)$') { return $Matches[1] }
 	if ($eventSource -and $kind -cmatch '^(.+?)(?:Object|RecordSet|Manager)$' -and $script:childTypeDirMap.ContainsKey($Matches[1])) { return $Matches[1] }
 	return $kind
 }
@@ -1555,7 +1556,8 @@ function Resolve-MdReference([string]$value, [string]$prefix, [bool]$type = $fal
 	$base = if ($type) { Get-MdTypeRefBase $kind $eventSource } else { $kind }
 	if (-not $script:childTypeDirMap.ContainsKey($base)) { return $identity }
 	$rootId = "$base.$name"
-	if ($script:rootOwn -and $script:rootOwn.ContainsKey($rootId) -and -not $script:rootBindings.ContainsKey($rootId)) {
+	$provisional = if ($script:rootProvisional) { $script:rootProvisional[$rootId] }
+	if ($script:rootOwn -and $script:rootOwn.ContainsKey($rootId) -and -not $script:rootBindings.ContainsKey($rootId) -and -not $provisional) {
 		return @{ Status = 'WAITING'; Reason = "waiting for $rootId"; Dependency = $rootId }
 	}
 	if (-not $cfgInfo.ChildObjects) {
@@ -1569,6 +1571,7 @@ function Resolve-MdReference([string]$value, [string]$prefix, [bool]$type = $fal
 	}
 	$hits = @(Find-NamesIn @($script:mdReferencePools[$base] | Where-Object { $_ }) $name $prefix)
 	if ($script:rootBindings -and $script:rootBindings.ContainsKey($rootId)) { $hits = @($script:rootBindings[$rootId]) }
+	if ($provisional) { $hits = @($provisional.Target) }
 	if (-not $hits.Count) { return @{ Status = 'WAITING'; Reason = "$base.${name}: the object is not in the configuration" } }
 	if ($hits.Count -gt 1 -and $hits[0] -ine $name) {
 		return @{ Status = 'MANUAL'; Reason = "$base.${name}: ambiguous target ($($hits -join ', '))" }
@@ -1576,7 +1579,7 @@ function Resolve-MdReference([string]$value, [string]$prefix, [bool]$type = $fal
 	$target = $hits[0]
 	$dir = $script:childTypeDirMap[$base]
 	$path = Get-CfgPath "$dir/$target.xml"
-	if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+	if (-not $provisional -and -not (Test-Path -LiteralPath $path -PathType Leaf)) {
 		return @{ Status = 'MANUAL'; Reason = "$base.${target}: missing descriptor $dir/$target.xml" }
 	}
 	if ($tail -and $tail -cne '.EmptyRef') {
@@ -1586,7 +1589,7 @@ function Resolve-MdReference([string]$value, [string]$prefix, [bool]$type = $fal
 			if ($childResult.Status) { return $childResult }
 			if ($childResult.Target) { return @{ Value = "$nsPrefix$kind.$target.$($childResult.Kind).$($childResult.Target)" } }
 		}
-		$owner = Read-MdObject $path
+		$owner = if ($provisional) { $provisional.Md } else { Read-MdObject $path }
 		$parts = $tail.TrimStart('.').Split('.')
 		if ($parts.Count % 2) { return @{ Status = 'MANUAL'; Reason = "unsupported metadata path: $value" } }
 		$tail = ''
@@ -3278,8 +3281,16 @@ function Get-RootObjectXml($fw, [string]$kind, [string]$name, [string]$prefix) {
 	return @{ Props = $props }
 }
 
-$script:flatTransferKinds = @('Constant','DefinedType','SessionParameter','FunctionalOption','FunctionalOptionsParameter','EventSubscription','ScheduledJob','CommonPicture','CommandGroup')
-$script:structuredTransferKinds = @('Catalog','Report','DataProcessor')
+$script:flatTransferKinds = @('Constant','DefinedType','SessionParameter','FunctionalOption','FunctionalOptionsParameter','EventSubscription','ScheduledJob','CommonPicture','CommandGroup','DocumentNumerator')
+$script:registerTransferKinds = @('InformationRegister','AccumulationRegister')
+$script:linkedTransferKinds = @('Document') + $script:registerTransferKinds
+$script:structuredTransferKinds = @('Catalog','Report','DataProcessor') + $script:linkedTransferKinds
+$script:directMdCollections = @{
+	'Константы' = 'Constant'; 'Constants' = 'Constant'; 'ПараметрыСеанса' = 'SessionParameter'; 'SessionParameters' = 'SessionParameter'
+	'БиблиотекаКартинок' = 'CommonPicture'; 'PictureLib' = 'CommonPicture'; 'Документы' = 'Document'; 'Documents' = 'Document'
+	'РегистрыСведений' = 'InformationRegister'; 'InformationRegisters' = 'InformationRegister'
+	'РегистрыНакопления' = 'AccumulationRegister'; 'AccumulationRegisters' = 'AccumulationRegister'
+}
 $script:rootSlotPath = "md:Properties/*[((starts-with(local-name(),'Default') or starts-with(local-name(),'Auxiliary')) and contains(local-name(),'Form')) or local-name()='MainDataCompositionSchema']"
 
 function Get-FunctionalOptionBsl($tokens, $declared, [string]$prefix) {
@@ -3342,6 +3353,11 @@ function Get-RootBslProjection($lines, [string]$prefix, [string]$selfId, [string
 		if ($i + 2 -ge $tokens.Count -or $tokens[$i + 1].Value -ne '.' -or $tokens[$i + 2].Kind -ne 'word') { continue }
 		$next = $tokens[$i + 2]
 		$kind = $collections[$token.Value]
+		if ($selfId -like 'Document.*' -and $rel -eq 'Ext/ObjectModule.bsl' -and $token.Value -in @('Движения','RegisterRecords')) {
+			$recordKinds = @($script:registerTransferKinds | Where-Object { $script:rootRegistrars["$_.$($next.Value)"] -contains $selfId })
+			if ($recordKinds.Count -gt 1) { return @{ Status = 'MANUAL'; Reason = "ambiguous register movement $($next.Value)" } }
+			if ($recordKinds.Count) { $kind = $recordKinds[0] }
+		}
 		$refToken = if ($kind) { $next } else { $token }
 		if (-not $kind) { $kind = 'CommonModule' }
 		$id = "$kind.$($refToken.Value)"
@@ -3363,6 +3379,7 @@ function Get-RootBslProjection($lines, [string]$prefix, [string]$selfId, [string
 			continue
 		}
 		if ($id -ieq $selfId) { $target = $selfName }
+		elseif ($script:rootProvisional -and $script:rootProvisional.ContainsKey($id)) { $target = $script:rootProvisional[$id].Target }
 		elseif ($script:rootBindings.ContainsKey($id)) {
 			$target = $script:rootBindings[$id]
 			if ($kind -eq 'CommonModule' -and -not $collections.ContainsKey($token.Value) -and $i + 3 -lt $tokens.Count -and $tokens[$i + 3].Value -eq '(') {
@@ -3476,6 +3493,7 @@ function Get-CatalogFileSet($doc, [string]$root, $child = $null) {
 	$required = @{}; $optional = @{}; $skd = @{}
 	foreach ($name in @('ObjectModule.bsl','ManagerModule.bsl')) { $optional["Ext/$name"] = '' }
 	$obj = Get-MdObjectElement $doc
+	if ($obj.LocalName -in $script:registerTransferKinds) { $optional['Ext/RecordSetModule.bsl'] = '' }
 	$children = $obj.SelectSingleNode('md:ChildObjects', $m)
 	$nodes = if ($child) { ,$child } else { @($children.ChildNodes | Where-Object NodeType -eq 'Element') }
 	foreach ($node in $nodes) {
@@ -3515,6 +3533,8 @@ function Get-CatalogFileSet($doc, [string]$root, $child = $null) {
 			}
 			'Attribute' {}
 			'TabularSection' {}
+			'Dimension' { if ($obj.LocalName -notin $script:registerTransferKinds) { return @{ Reason = 'unexpected dimension' } } }
+			'Resource' { if ($obj.LocalName -notin $script:registerTransferKinds) { return @{ Reason = 'unexpected resource' } } }
 			default { return @{ Reason = "unsupported $($obj.LocalName) child $($_)" } }
 		}
 	}
@@ -3547,6 +3567,8 @@ function Convert-CatalogXml($fw, [string]$source, [string]$target, [string]$pref
 		'Constant' { 'Constant(?:Manager|ValueManager|ValueKey)?' }
 		'Catalog' { 'Catalog(?:Ref|Object|Manager|Selection|List|TabularSectionRow|TabularSection)?' }
 		{ $_ -in @('Report','DataProcessor') } { "$_(?:Object|Manager|TabularSectionRow|TabularSection)?" }
+		'Document' { 'Document(?:Ref|Object|Manager|Selection|List|TabularSectionRow|TabularSection)?' }
+		{ $_ -in $script:registerTransferKinds } { "$_(?:Manager|RecordSet|RecordManager|RecordKey|Record|Selection|List)?" }
 		default { [regex]::Escape($objKind) }
 	}
 	if ($descriptor) {
@@ -3580,10 +3602,17 @@ function Convert-CatalogXml($fw, [string]$source, [string]$target, [string]$pref
 			($node.LocalName -eq 'Object' -and $node.ParentNode.LocalName -eq 'Content'))) -or
 			($objKind -eq 'FunctionalOptionsParameter' -and $node.LocalName -eq 'Item' -and $node.ParentNode.LocalName -eq 'Use') -or
 			($objKind -eq 'Constant' -and (($node.LocalName -in @('DefaultForm','ChoiceForm') -and $node.ParentNode.LocalName -eq 'Properties') -or
-				($node.LocalName -eq 'DataPath' -and $node.SelectSingleNode('ancestor::md:ChoiceParameterLinks|ancestor::md:LinkByType', $m))))
+				($node.LocalName -eq 'DataPath' -and $node.SelectSingleNode('ancestor::md:ChoiceParameterLinks|ancestor::md:LinkByType', $m)))) -or
+			($objKind -eq 'Document' -and (($node.LocalName -eq 'Item' -and $node.ParentNode.LocalName -in @('RegisterRecords','BasedOn')) -or
+				($node.LocalName -eq 'Numerator' -and $node.ParentNode.LocalName -eq 'Properties')))
 		if ($strictRef -and $value -and ($value -notmatch '^(\w+)\.\w+(?:\.\w+\.\w+)*$' -or
 			-not $script:childTypeDirMap.ContainsKey($Matches[1]))) {
 			return @{ Status = 'MANUAL'; Reason = "unsupported metadata reference in $($node.LocalName): $value" }
+		}
+		if ($objKind -eq 'Document' -and $value -and
+			(($node.LocalName -eq 'Numerator' -and $value -notmatch '^DocumentNumerator\.\w+$') -or
+			 ($node.ParentNode.LocalName -eq 'RegisterRecords' -and $value -notmatch '^(Information|Accumulation|Accounting|Calculation)Register\.\w+$'))) {
+			return @{ Status = 'MANUAL'; Reason = "invalid document reference: $value" }
 		}
 		$isRef = $node.LocalName -match '^(Default|Auxiliary).*Form$|^(ChoiceForm|Owners|Group|Ref|DataPath|MainDataCompositionSchema|VariantsStorage|SettingsStorage)$' -or
 			$strictRef -or
@@ -3664,8 +3693,12 @@ function Get-CatalogChildBsl($tokens, [string]$rel, $self, $declared, [string]$p
 			$tokens[$i + 1].Value -ne '(' -or $tokens[$i + 2].Kind -ne 'string' -or $tokens[$i + 3].Value -notin @(',',')')) { continue }
 		$literal = $tokens[$i + 2]
 		if ($api -in @('ОткрытьФорму','OpenForm','ПолучитьФорму','GetForm') -and (-not $i -or $tokens[$i - 1].Value -ne '.') -and
-			$literal.Value -match '^("(Report|Отч[её]т|DataProcessor|Обработка)\.)(\w+)(\.(?:Form|Форма)\.)(\w+)"$') {
-			$kind = if ($Matches[2] -in @('Report','Отчет','Отчёт')) { 'Report' } else { 'DataProcessor' }
+			$literal.Value -match '^("(Report|Отч[её]т|DataProcessor|Обработка|Document|Документ)\.)(\w+)(\.(?:Form|Форма)\.)(\w+)"$') {
+			$kind = switch ($Matches[2]) {
+				{ $_ -in @('Report','Отчет','Отчёт') } { 'Report'; break }
+				{ $_ -in @('Document','Документ') } { 'Document'; break }
+				default { 'DataProcessor' }
+			}
 			$rootId = "$kind.$($Matches[3])"
 			if (-not $script:rootOwn.ContainsKey($rootId)) { continue }
 			$head = $Matches[1]; $separator = $Matches[4]; $tail = $separator + $Matches[5] + '"'
@@ -3988,7 +4021,7 @@ function Get-RootMetadataProjection($entry, $sourceFw, $files, [string]$target, 
 		$path = $files[$rel]
 		$data = if ($rel -like '*.bsl') {
 			$bsl = Read-BslFile $path
-			$projection = Get-RootBslProjection $bsl.Lines $prefix $entry.Id $target '' $null $enumAliases
+			$projection = Get-RootBslProjection $bsl.Lines $prefix $entry.Id $target $rel $null $enumAliases
 			if ($projection.Status) { return $projection }
 			@{ Bsl = $bsl; Lines = $projection.Lines }
 		} elseif ($rel -cmatch '^Templates/\w+/Ext/Template\.(txt|bin)$') {
@@ -4009,6 +4042,7 @@ function Get-RootMetadataProjection($entry, $sourceFw, $files, [string]$target, 
 					$name = $script:rootOwn[$id].Name
 					if (-not $words.ContainsKey($name)) { continue }
 					if ($id -ieq $entry.Id) { $alias = $target }
+					elseif ($script:rootProvisional -and $script:rootProvisional.ContainsKey($id)) { $alias = $script:rootProvisional[$id].Target }
 					elseif ($script:rootBindings.ContainsKey($id)) { $alias = $script:rootBindings[$id] }
 					else { return @{ Status = 'WAITING'; Reason = "waiting for $id referenced in $rel"; Dependency = $id } }
 					if ($alias -ine $name) { return @{ Status = 'MANUAL'; Reason = "inspect reference to $id in $rel (as $alias)" } }
@@ -4062,7 +4096,7 @@ function Compare-CatalogChildren($source, $target, $m, [bool]$merge, [string]$re
 		}
 		if (-not $existing.Count) {
 			$item = New-Item2 'NOT_TRANSFERRED' $label
-			if ($stored -and $node.LocalName -in @('Attribute','TabularSection')) { $item.Stored = "${relative}: $label" }
+			if ($stored -and $node.LocalName -in @('Attribute','TabularSection','Dimension','Resource')) { $item.Stored = "${relative}: $label" }
 			$result.Items += $item
 			if ($merge) {
 				$copy = $target.OwnerDocument.ImportNode($node, $true)
@@ -4072,7 +4106,7 @@ function Compare-CatalogChildren($source, $target, $m, [bool]$merge, [string]$re
 			continue
 		}
 		if ($existing.Count -eq 1 -and (Get-CatalogNodeKey $node) -ceq (Get-CatalogNodeKey $existing[0])) {
-			if ($node.LocalName -in @('Attribute','TabularSection')) { $result.Score++ }
+			if ($node.LocalName -in @('Attribute','TabularSection','Dimension','Resource')) { $result.Score++ }
 			$result.Items += New-Item2 'TRANSFERRED' $label
 		} elseif ($node.LocalName -eq 'TabularSection' -and $existing.Count -eq 1 -and
 			(Get-CatalogNodeKey $node -Shallow) -ceq (Get-CatalogNodeKey $existing[0] -Shallow)) {
@@ -4093,9 +4127,44 @@ function Compare-CatalogChildren($source, $target, $m, [bool]$merge, [string]$re
 	return $result
 }
 
+function Get-StructuredTargetSet($entry, $node, [string]$prefix) {
+	$kind = $entry.Type
+	$uuid = Get-MetadataTransferUuid $kind $node.GetAttribute('uuid')
+	$registry = @($cfgInfo.ChildObjects.ChildNodes | Where-Object NodeType -eq 'Element')
+	$ids = @($registry | Where-Object {
+		$dir = $script:childTypeDirMap[$_.LocalName]
+		$dir -and (Get-RootUuid (Get-CfgPath "$dir/$($_.InnerText).xml")) -eq $uuid
+	})
+	if ($ids.Count -gt 1 -or ($ids.Count -eq 1 -and $ids[0].LocalName -ne $kind)) { return @{ Status = 'CONFLICT'; Reason = "$kind UUID $uuid collides in configuration" } }
+	$pool = @($registry | Where-Object LocalName -eq $kind | ForEach-Object InnerText)
+	$candidates = @(if ($ids.Count) { $ids[0].InnerText } else { Find-NamesIn $pool $entry.Name $prefix })
+	return @{ Uuid = $uuid; Known = [bool]$ids.Count; Pool = $pool; Candidates = $candidates }
+}
+
+function Get-NewStructuredTarget($entry, $targets, [string]$prefix) {
+	$kind = $entry.Type; $directory = $script:childTypeDirMap[$kind]
+	$taken = New-Object 'System.Collections.Generic.HashSet[string]'
+	foreach ($name in $targets.Pool) { [void]$taken.Add($name.ToLowerInvariant()) }
+	foreach ($id in $script:rootProvisional.Keys) {
+		if ($id -ine $entry.Id -and $script:rootOwn[$id].Type -eq $kind) {
+			[void]$taken.Add($script:rootProvisional[$id].Target.ToLowerInvariant())
+		}
+	}
+	foreach ($file in @(Get-ChildItem -LiteralPath (Get-CfgPath $directory) -Force -ErrorAction SilentlyContinue)) {
+		if ($file.PSIsContainer -or $file.Extension -ieq '.xml') { [void]$taken.Add($file.BaseName.ToLowerInvariant()) }
+		if (-not $file.PSIsContainer -and $file.Extension -ieq '.xml' -and (Get-RootUuid $file.FullName) -eq $targets.Uuid) {
+			return @{ Status = 'CONFLICT'; Reason = "$kind UUID $($targets.Uuid) exists in an unregistered descriptor" }
+		}
+	}
+	$choice = Get-TargetName $entry.Name $prefix $taken $script:settings[(Get-ObjectKind $entry.Name 'own')].AddDevObjects
+	if ($choice.Taken) { return @{ Status = 'CONFLICT'; Reason = "name taken in configuration ($($choice.Note))" } }
+	return @{ Target = $choice.Name }
+}
+
 function Get-StructuredTransferPlan($entry, [string]$extDir, [string]$prefix) {
 	if (-not $cfgInfo.ChildObjects) { return @{ Status = 'MANUAL'; Reason = 'configuration has no ChildObjects' } }
 	$kind = $entry.Type; $directory = $script:childTypeDirMap[$kind]
+	$stored = $kind -eq 'Catalog' -or $kind -in $script:linkedTransferKinds
 	$label = if ($kind -eq 'Catalog') { 'catalog' } else { $kind }
 	$base = Join-Path $extDir "$directory/$($entry.Name)"
 	$source = Read-FormWrite "$base.xml"
@@ -4104,17 +4173,10 @@ function Get-StructuredTransferPlan($entry, [string]$extDir, [string]$prefix) {
 	if ($node.LocalName -cne $kind -or -not $node.GetAttribute('uuid')) { return @{ Status = 'MANUAL'; Reason = "unsupported $kind descriptor" } }
 	$files = Get-CatalogFileSet $source.Doc $base
 	if ($files.Reason) { return @{ Status = 'MANUAL'; Reason = $files.Reason } }
-	$uuid = Get-MetadataTransferUuid $kind $node.GetAttribute('uuid')
-	$registry = @($cfgInfo.ChildObjects.ChildNodes | Where-Object NodeType -eq 'Element')
-	$ids = @($registry | Where-Object {
-		$dir = $script:childTypeDirMap[$_.LocalName]
-		$dir -and (Get-RootUuid (Get-CfgPath "$dir/$($_.InnerText).xml")) -eq $uuid
-	})
-	if ($ids.Count -gt 1 -or ($ids.Count -eq 1 -and $ids[0].LocalName -ne $kind)) { return @{ Status = 'CONFLICT'; Reason = "$label UUID $uuid collides in configuration" } }
-	$pool = @($registry | Where-Object LocalName -eq $kind | ForEach-Object InnerText)
-	$candidates = if ($ids.Count) { @($ids[0].InnerText) } else { @(Find-NamesIn $pool $entry.Name $prefix) }
+	$targets = Get-StructuredTargetSet $entry $node $prefix
+	if ($targets.Status) { return $targets }
 	$matches2 = @(); $uncertain = @()
-	foreach ($name in $candidates) {
+	foreach ($name in $targets.Candidates) {
 		$projection = Get-RootMetadataProjection $entry $source $files.Files $name $prefix -skd $files.Skd
 		if ($projection.Status) { return $projection }
 		$path = Get-CfgPath $projection.Relative
@@ -4133,7 +4195,7 @@ function Get-StructuredTransferPlan($entry, [string]$extDir, [string]$prefix) {
 			if (-not (Test-Path -LiteralPath (Get-CfgPath $rel) -PathType Leaf) -or -not (Test-CatalogFileEqual $projection.Files[$rel] (Get-CfgPath $rel))) { $sameFiles = $false; break }
 		}
 		$full = $props -and $sameFiles -and ((Get-CatalogNodeKey $a) -ceq (Get-CatalogNodeKey $b))
-		if (-not $ids.Count -and -not $full -and -not ($props -and $compare.Score)) {
+		if (-not $targets.Known -and -not $full -and -not ($kind -notin $script:linkedTransferKinds -and $props -and $compare.Score)) {
 			if ($props -or $compare.Score) { $uncertain += $name }
 			continue
 		}
@@ -4158,7 +4220,7 @@ function Get-StructuredTransferPlan($entry, [string]$extDir, [string]$prefix) {
 			}
 			$availableFiles[$rel] = $group
 		}
-		$compare = Compare-CatalogChildren $x $y $m $true $projection.Relative $badGroups ($kind -eq 'Catalog')
+		$compare = Compare-CatalogChildren $x $y $m $true $projection.Relative $badGroups $stored
 		$projection.Items += $compare.Items
 		$writeOwner = @($compare.Items | Where-Object Status -eq 'NOT_TRANSFERRED').Count -gt 0
 		foreach ($rel in @($availableFiles.Keys | Sort-Object)) {
@@ -4192,20 +4254,19 @@ function Get-StructuredTransferPlan($entry, [string]$extDir, [string]$prefix) {
 	}
 	if ($matches2.Count -eq 1 -and -not $uncertain.Count) { return $matches2[0] }
 	if ($matches2.Count -or $uncertain.Count) { return @{ Status = 'MANUAL'; Reason = "check matching objects: $((@($matches2.Target) + $uncertain | Where-Object { $_ }) -join ', ')" } }
-	$taken = New-Object 'System.Collections.Generic.HashSet[string]'
-	foreach ($name in $pool) { [void]$taken.Add($name.ToLowerInvariant()) }
-	foreach ($file in @(Get-ChildItem -LiteralPath (Get-CfgPath $directory) -Force -ErrorAction SilentlyContinue)) {
-		if ($file.PSIsContainer -or $file.Extension -ieq '.xml') { [void]$taken.Add($file.BaseName.ToLowerInvariant()) }
-		if (-not $file.PSIsContainer -and $file.Extension -ieq '.xml' -and (Get-RootUuid $file.FullName) -eq $uuid) {
-			return @{ Status = 'CONFLICT'; Reason = "$label UUID $uuid exists in an unregistered descriptor" }
-		}
-	}
-	$choice = Get-TargetName $entry.Name $prefix $taken $script:settings[(Get-ObjectKind $entry.Name 'own')].AddDevObjects
-	if ($choice.Taken) { return @{ Status = 'CONFLICT'; Reason = "name taken in configuration ($($choice.Note))" } }
-	$projection = Get-RootMetadataProjection $entry $source $files.Files $choice.Name $prefix -skd $files.Skd
+	$choice = Get-NewStructuredTarget $entry $targets $prefix
+	if ($choice.Status) { return $choice }
+	$projection = Get-RootMetadataProjection $entry $source $files.Files $choice.Target $prefix -skd $files.Skd
 	if ($projection.Status) { return $projection }
-	$item = New-Item2 'NOT_TRANSFERRED' "own $label $($entry.Name) (as $($choice.Name))"
-	if ($kind -eq 'Catalog') { $item.Stored = "Catalog.$($entry.Name) -> Catalog.$($choice.Name) — catalog and tabular-section records" }
+	$item = New-Item2 'NOT_TRANSFERRED' "own $label $($entry.Name) (as $($choice.Target))"
+	if ($stored) {
+		$data = switch ($kind) {
+			'Catalog' { 'catalog and tabular-section records' }
+			'Document' { 'documents, tabular sections and register movements' }
+			default { 'register records' }
+		}
+		$item.Stored = "$($entry.Id) -> $kind.$($choice.Target) — $data"
+	}
 	$projection.Status = 'NOT_TRANSFERRED'; $projection.Items = @($item); $projection.New = $true
 	return $projection
 }
@@ -4419,12 +4480,56 @@ function Get-FlatTransferPlan($entry, [string]$extDir, [string]$prefix) {
 	if ($plan.Status) { return $plan }
 	$item = New-Item2 'NOT_TRANSFERRED' "own $kind $($entry.Name) (as $($choice.Name))"
 	if ($kind -eq 'Constant') { $item.Stored = "Constant.$($entry.Name) -> Constant.$($choice.Name) — stored constant value" }
+	if ($kind -eq 'DocumentNumerator') { $item.Stored = "$($entry.Id) -> $kind.$($choice.Name) — numbering continuity" }
 	$plan.Status = 'NOT_TRANSFERRED'; $plan.Items = @($item); $plan.New = $true
 	return $plan
 }
 
+function Add-RegisterRegistrarCheck($entry, $plan) {
+	if ($plan.Status -notin @('NOT_TRANSFERRED','PACKAGE_PARTIAL')) { return $plan }
+	$owner = $plan.Files[$plan.Relative].Xml
+	$ns = New-MdNt $owner.Doc
+	$useRecorder = $entry.Type -eq 'AccumulationRegister' -or
+		$owner.Doc.SelectSingleNode('//md:Properties/md:WriteMode', $ns).InnerText -eq 'RecorderSubordinate'
+	if (-not $useRecorder) { return $plan }
+	$target = "$($entry.Type).$($plan.Target)"
+	if ($null -eq $script:rootTargetRegistrars) {
+		$script:rootTargetRegistrars = @{}
+		foreach ($doc in @($cfgInfo.ChildObjects.ChildNodes | Where-Object LocalName -eq 'Document')) {
+			$rel = "Documents/$($doc.InnerText).xml"
+			$md = Read-MdObject (Get-CfgPath $rel)
+			if (-not $md) { continue }
+			foreach ($ref in $md.Props.SelectNodes("md:RegisterRecords/*", $md.Ns)) {
+				$script:rootTargetRegistrars[$ref.InnerText.Trim()] += @($rel)
+			}
+		}
+	}
+	if ($script:rootTargetRegistrars.ContainsKey($target)) {
+		$plan.ValidationFiles = @($script:rootTargetRegistrars[$target] | Select-Object -First 1)
+		return $plan
+	}
+	$registrars = @($script:rootRegistrars[$entry.Id] | Where-Object { $_ } | Sort-Object)
+	foreach ($id in $registrars) {
+		if ($script:rootProvisional -and $script:rootProvisional.ContainsKey($id)) { return $plan }
+	}
+	$pending = @($registrars | Where-Object { $script:rootOwn.ContainsKey($_) -and -not $script:rootBindings.ContainsKey($_) })
+	if ($pending.Count) {
+		$dependency = @($pending | Where-Object { $script:rootOwn[$_].Selected } | Select-Object -First 1)[0]
+		if (-not $dependency) { $dependency = $pending[0] }
+		return @{ Status = 'WAITING'; Reason = "waiting for $dependency to register movements in $($entry.Id)"; Dependency = $dependency }
+	}
+	if ($registrars.Count) {
+		return @{ Status = 'WAITING'; Reason = "$target needs a registrar: add it to RegisterRecords of $($registrars -join ', ')" }
+	}
+	return @{ Status = 'MANUAL'; Reason = "$target has no registrar document; configure RegisterRecords" }
+}
+
 function Get-RootObjectPlan($entry, [string]$extDir, [string]$prefix) {
-	if ($entry.Type -in $script:structuredTransferKinds) { return Get-StructuredTransferPlan $entry $extDir $prefix }
+	if ($entry.Type -in $script:structuredTransferKinds) {
+		$plan = Get-StructuredTransferPlan $entry $extDir $prefix
+		if ($entry.Type -in $script:registerTransferKinds) { return Add-RegisterRegistrarCheck $entry $plan }
+		return $plan
+	}
 	if ($entry.Type -eq 'Enum') { return Get-EnumTransferPlan $entry $extDir $prefix }
 	if ($entry.Type -in $script:flatTransferKinds) { return Get-FlatTransferPlan $entry $extDir $prefix }
 	$id = $entry.Id; $kind = $entry.Type; $name = $entry.Name
@@ -4557,63 +4662,92 @@ function Add-RootObjectRegistration($fw, [string]$kind, [string]$name) {
 	Insert-FormNodeAt $children $node $before $fw.Eol
 }
 
-function Write-MetadataPackage($entry, $plan) {
+function Confirm-StagedMetadataOwner([string]$stage, $entry, $plan) {
+	$owner = Get-CfgPath $plan.Relative
+	$stagedOwner = Join-Path $stage $plan.Relative
+	$check = Read-MdObject $stagedOwner
+	if (-not $check -or $check.El.LocalName -ne $entry.Type -or (Get-MdChildName $check.El $check.Ns) -cne $plan.Target) {
+		throw 'staged metadata object did not pass read-back validation'
+	}
+	if ($entry.Type -in $script:registerTransferKinds -and ($entry.Type -eq 'AccumulationRegister' -or
+		$check.Props.SelectSingleNode('md:WriteMode', $check.Ns).InnerText -eq 'RecorderSubordinate')) {
+		$target = "$($entry.Type).$($plan.Target)"
+		$registrarFound = $false
+		foreach ($document in @(Get-ChildItem -LiteralPath (Join-Path $stage 'Documents') -Filter '*.xml' -File -ErrorAction SilentlyContinue)) {
+			$md = Read-MdObject $document.FullName
+			if ($md -and @($md.Props.SelectNodes('md:RegisterRecords/*', $md.Ns) | ForEach-Object { $_.InnerText.Trim() }) -contains $target) {
+				$registrarFound = $true
+				break
+			}
+		}
+		if (-not $registrarFound) { throw "validator: no staged registrar links to $target" }
+	}
+	if (-not $plan.New -and $entry.Type -in $script:structuredTransferKinds) {
+		# Preserve the validation context for slots pointing at existing local forms.
+		foreach ($slot in @($check.Props.ChildNodes | Where-Object { $_.LocalName -match '^(Default|Auxiliary).*Form$' })) {
+			if ($slot.InnerText -notmatch '^(\w+)\.(\w+)\.Form\.(\w+)$' -or $Matches[1] -ine $entry.Type -or $Matches[2] -ine $plan.Target) { continue }
+			$formBase = "$($script:childTypeDirMap[$entry.Type])/$($plan.Target)/Forms/$($Matches[3])"
+			foreach ($rel in @("$formBase.xml", "$formBase/Form.xml", "$formBase/Ext/Form.xml")) {
+				$original = Get-CfgPath $rel; $candidate = Join-Path $stage $rel
+				if ((Test-Path -LiteralPath $original -PathType Leaf) -and -not (Test-Path -LiteralPath $candidate)) {
+					[void][IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($candidate))
+					[IO.File]::Copy($original, $candidate)
+				}
+			}
+		}
+	}
+	$errors = Get-MdValidateErrors $stagedOwner $entry.Type -RequireResult
+	if (-not $plan.New) {
+		$baseline = Get-MdValidateErrors $owner $entry.Type -RequireResult
+		$errors = @($errors | Where-Object { $_ -like 'metadata validator*' -or $_ -notin $baseline })
+	}
+	if ($errors.Count) { throw "validator: $($errors[0])" }
+}
+
+function Write-MetadataPackage($entry, $plan, $packages, [string]$expectedRegistry) {
+	if (-not $packages) { $packages = @(@{ Entry = $entry; Plan = $plan }) }
 	$root = [IO.Path]::GetFullPath((Get-CfgPath '.'))
 	$stage = Join-Path $root ('.cfe-catalog-' + [guid]::NewGuid().ToString('N'))
 	$lockPath = Get-CfgPath '.cfe-transfer-registration.lock'
 	$lock = $null
-	$installed = @(); $madeDirs = @()
+	$installed = @(); $madeDirs = @(); $replaced = @()
 	$published = $false
 	$cfgPath = Get-CfgPath 'Configuration.xml'
-	$owner = Get-CfgPath $plan.Relative
-	$backup = Join-Path $stage 'owner-before.xml'
 	try {
 		$lock = [IO.File]::Open($lockPath, 'CreateNew', 'Write', 'None')
 		[void][IO.Directory]::CreateDirectory($stage)
 		$cfgHash = (Get-FileHash -LiteralPath $cfgPath).Hash
+		if ($expectedRegistry -and $cfgHash -cne $expectedRegistry) { throw 'Configuration.xml changed during planning' }
 		$stagedCfg = Join-Path $stage 'Configuration.xml'
 		$cfg = Read-FormWrite $cfgPath
-		if ($plan.New) { Add-RootObjectRegistration $cfg $entry.Type $plan.Target }
+		$files = @{}; $register = $false
+		foreach ($member in $packages) {
+			$p = $member.Plan
+			if ($p.New) { Add-RootObjectRegistration $cfg $member.Entry.Type $p.Target; $register = $true }
+			foreach ($rel in $p.Files.Keys) {
+				if ($files.ContainsKey($rel)) { throw "multiple objects claim $rel" }
+				$files[$rel] = $p.Files[$rel]
+			}
+		}
 		Save-FormWrite $cfg $stagedCfg
-		foreach ($rel in @($plan.Files.Keys | Sort-Object)) {
-			$file = $plan.Files[$rel]
+		foreach ($rel in @($files.Keys | Sort-Object)) {
+			$file = $files[$rel]
 			$path = Join-Path $stage $rel
 			[void][IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($path))
 			if ($file.Xml) { Save-FormWrite $file.Xml $path }
 			elseif ($file.Bsl) { Write-BslFile $file.Bsl $file.Lines $path }
 			else { [IO.File]::Copy($file.Copy, $path) }
 		}
-		foreach ($rel in $plan.ValidationFiles) {
+		foreach ($rel in @($packages | ForEach-Object { $_.Plan.ValidationFiles } | Select-Object -Unique)) {
 			$path = Join-Path $stage $rel
+			if (Test-Path -LiteralPath $path -PathType Leaf) { continue }
 			[void][IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($path))
 			[IO.File]::Copy((Get-CfgPath $rel), $path)
 		}
-		$stagedOwner = Join-Path $stage $plan.Relative
-		$check = Read-MdObject $stagedOwner
-		if (-not $check -or $check.El.LocalName -ne $entry.Type -or (Get-MdChildName $check.El $check.Ns) -cne $plan.Target) {
-			throw 'staged metadata object did not pass read-back validation'
+		foreach ($member in $packages) {
+			Confirm-StagedMetadataOwner $stage $member.Entry $member.Plan
 		}
-		if (-not $plan.New -and $entry.Type -in $script:structuredTransferKinds) {
-			# Preserve the validation context for slots pointing at existing local forms.
-			foreach ($slot in @($check.Props.ChildNodes | Where-Object { $_.LocalName -match '^(Default|Auxiliary).*Form$' })) {
-				if ($slot.InnerText -notmatch '^(\w+)\.(\w+)\.Form\.(\w+)$' -or $Matches[1] -ine $entry.Type -or $Matches[2] -ine $plan.Target) { continue }
-				$formBase = "$($script:childTypeDirMap[$entry.Type])/$($plan.Target)/Forms/$($Matches[3])"
-				foreach ($rel in @("$formBase.xml", "$formBase/Form.xml", "$formBase/Ext/Form.xml")) {
-					$original = Get-CfgPath $rel; $candidate = Join-Path $stage $rel
-					if ((Test-Path -LiteralPath $original -PathType Leaf) -and -not (Test-Path -LiteralPath $candidate)) {
-						[void][IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($candidate))
-						[IO.File]::Copy($original, $candidate)
-					}
-				}
-			}
-		}
-		$errors = Get-MdValidateErrors $stagedOwner $entry.Type -RequireResult
-		if (-not $plan.New) {
-			$baseline = Get-MdValidateErrors $owner $entry.Type -RequireResult
-			$errors = @($errors | Where-Object { $_ -like 'metadata validator*' -or $_ -notin $baseline })
-		}
-		if ($errors.Count) { throw "validator: $($errors[0])" }
-		foreach ($rel in @($plan.Files.Keys | Sort-Object)) {
+		foreach ($rel in @($files.Keys | Sort-Object)) {
 			if ($rel -match '/Forms/.+/Ext/(?:Form\.xml|Form/Module\.bsl)$') {
 				$formRel = $rel -replace '/Form/Module\.bsl$', '/Form.xml'
 				$form = Join-Path $stage $formRel
@@ -4628,16 +4762,20 @@ function Write-MetadataPackage($entry, $plan) {
 				if ($script:formValidateMissing) { throw 'form validator is not installed' }
 				if ($errors.Count) { throw "validator: $($errors[0])" }
 			} elseif ($rel -like '*/Templates/*/Ext/Template.xml') {
-				$skill = if ($plan.Files[$rel].Skd) { 'skd-validate' } else { 'mxl-validate' }
+				$skill = if ($files[$rel].Skd) { 'skd-validate' } else { 'mxl-validate' }
 				$validator = Join-Path $PSScriptRoot "../../$skill/scripts/$skill.ps1"
 				$out = & powershell.exe -NoProfile -File $validator -TemplatePath (Join-Path $stage $rel) 2>&1
 				if ($LASTEXITCODE -ne 0) { throw "$skill failed: $($out -join ' ')" }
 			}
 		}
-		$ownerBefore = $plan.Files[$plan.Relative].Before
-		if ($ownerBefore -and (Get-FileHash -LiteralPath $owner).Hash -cne $ownerBefore) { throw 'catalog changed during transfer' }
-		foreach ($rel in @($plan.Files.Keys | Sort-Object)) {
-			if ($ownerBefore -and $rel -eq $plan.Relative) { continue }
+		if ((Get-FileHash -LiteralPath $cfgPath).Hash -cne $cfgHash) { throw 'Configuration.xml changed during transfer' }
+		foreach ($rel in @($files.Keys | Sort-Object)) {
+			if ($files[$rel].Before -and (Get-FileHash -LiteralPath (Get-CfgPath $rel)).Hash -cne $files[$rel].Before) {
+				throw "$rel changed during transfer"
+			}
+		}
+		foreach ($rel in @($files.Keys | Sort-Object)) {
+			if ($files[$rel].Before) { continue }
 			$dest = Get-CfgPath $rel
 			$missing = @()
 			$folder = [IO.Path]::GetDirectoryName($dest)
@@ -4648,19 +4786,26 @@ function Write-MetadataPackage($entry, $plan) {
 			[IO.File]::Move((Join-Path $stage $rel), $dest)
 			$installed += $dest
 		}
+		foreach ($rel in @($files.Keys | Sort-Object)) {
+			$file = $files[$rel]
+			if (-not $file.Before -or -not $file.WriteOwner) { continue }
+			$dest = Get-CfgPath $rel
+			if ((Get-FileHash -LiteralPath $dest).Hash -cne $file.Before) { throw "$rel changed during transfer" }
+			$backup = Join-Path $stage ('owner-before-' + $replaced.Count + '.xml')
+			[IO.File]::Replace((Join-Path $stage $rel), $dest, $backup)
+			$replaced += @{ Target = $dest; Backup = $backup }
+		}
 		if ((Get-FileHash -LiteralPath $cfgPath).Hash -cne $cfgHash) { throw 'Configuration.xml changed during transfer' }
-		if ($plan.New) {
+		if ($register) {
 			[IO.File]::Replace($stagedCfg, $cfgPath, [NullString]::Value)
-			$installed += $cfgPath
-		} elseif ($plan.Files[$plan.Relative].WriteOwner) {
-			if ((Get-FileHash -LiteralPath $owner).Hash -cne $ownerBefore) { throw 'catalog changed during transfer' }
-			[IO.File]::Replace($stagedOwner, $owner, $backup)
-			$installed += $owner
 		}
 		$published = $true
 	} finally {
 		try {
 			if (-not $published) {
+				for ($i = $replaced.Count - 1; $i -ge 0; $i--) {
+					[IO.File]::Replace($replaced[$i].Backup, $replaced[$i].Target, [NullString]::Value)
+				}
 				foreach ($path in $installed) { [IO.File]::Delete($path) }
 				for ($i = $madeDirs.Count - 1; $i -ge 0; $i--) {
 					if (-not @(Get-ChildItem -LiteralPath $madeDirs[$i] -Force).Count) { [IO.Directory]::Delete($madeDirs[$i]) }
@@ -4672,7 +4817,9 @@ function Write-MetadataPackage($entry, $plan) {
 			if ($lock) { $lock.Dispose(); [IO.File]::Delete($lockPath) }
 		}
 	}
-	return ,$installed
+	$changed = $installed + @($replaced | ForEach-Object Target)
+	if ($register) { $changed += $cfgPath }
+	return ,$changed
 }
 
 function Write-RootObject($entry, $plan) {
@@ -4820,11 +4967,176 @@ function Complete-RootModule($plan, $frame, [bool]$apply) {
 	return @{ Items = $items; Changed = $changed }
 }
 
+function Get-LinkedReachable([string]$id, $edges) {
+	$seen = @{}; $stack = [Collections.Generic.Stack[string]]::new()
+	$stack.Push($id)
+	while ($stack.Count) {
+		$key = $stack.Pop()
+		if ($seen.ContainsKey($key)) { continue }
+		$seen[$key] = $true
+		foreach ($next in $edges[$key]) { $stack.Push($next) }
+	}
+	return $seen
+}
+
+function Get-LinkedGroups($edges) {
+	$reverse = @{}; $visited = @{}
+	foreach ($id in $edges.Keys) {
+		foreach ($dependency in $edges[$id]) { $reverse[$dependency] += @($id) }
+	}
+	foreach ($id in @($edges.Keys | Sort-Object)) {
+		if ($visited.ContainsKey($id)) { continue }
+		$forward = Get-LinkedReachable $id $edges
+		$back = Get-LinkedReachable $id $reverse
+		$group = @($forward.Keys | Where-Object { $back.ContainsKey($_) } | Sort-Object)
+		foreach ($member in $group) { $visited[$member] = $true }
+		if ($group.Count -gt 1) { @{ Ids = $group } }
+	}
+}
+
+function Get-LinkedPackagePlans($ids, $ext) {
+	$sources = @{}; $unassigned = @()
+	try {
+		foreach ($id in $ids) {
+			$entry = $script:rootOwn[$id]
+			$path = Join-Path $ext.Dir "$($script:childTypeDirMap[$entry.Type])/$($entry.Name).xml"
+			$md = Read-MdObject $path
+			if (-not $md -or $md.El.LocalName -cne $entry.Type -or -not $md.El.GetAttribute('uuid')) {
+				return @{ Id = $id; Status = 'MANUAL'; Reason = 'invalid source descriptor' }
+			}
+			$targets = Get-StructuredTargetSet $entry $md.El $ext.Prefix
+			if ($targets.Status) { return @{ Id = $id; Status = $targets.Status; Reason = $targets.Reason } }
+			$sources[$id] = @{ Md = $md; Targets = $targets }
+			if ($targets.Candidates.Count) { $script:rootProvisional[$id] = @{ Target = $targets.Candidates[0]; Md = $md } }
+			else { $unassigned += $id }
+		}
+		foreach ($id in $unassigned) {
+			$choice = Get-NewStructuredTarget $script:rootOwn[$id] $sources[$id].Targets $ext.Prefix
+			if ($choice.Status) { return @{ Id = $id; Status = $choice.Status; Reason = $choice.Reason } }
+			$script:rootProvisional[$id] = @{ Target = $choice.Target; Md = $sources[$id].Md }
+		}
+		$seen = @{}
+		while ($true) {
+			$signature = ($ids | ForEach-Object { $script:rootProvisional[$_].Target }) -join '|'
+			if ($seen.ContainsKey($signature)) { return @{ Id = $ids[0]; Status = 'MANUAL'; Reason = 'ambiguous targets for linked objects' } }
+			$seen[$signature] = $true
+			$members = @(); $changes = @{}; $blocked = @()
+			foreach ($id in $ids) {
+				$entry = $script:rootOwn[$id]
+				$plan = Get-RootObjectPlan $entry $ext.Dir $ext.Prefix
+				if ($plan.Status -notin @('NOT_TRANSFERRED','PACKAGE_PARTIAL')) {
+					$blocked += @{ Id = $id; Status = $plan.Status; Reason = $plan.Reason; Dependency = $plan.Dependency }
+					continue
+				}
+				if ($plan.Target -ine $script:rootProvisional[$id].Target) { $changes[$id] = $plan.Target }
+				$members += @{ Entry = $entry; Plan = $plan }
+			}
+			if ($changes.Count) {
+				foreach ($id in $changes.Keys) { $script:rootProvisional[$id].Target = $changes[$id] }
+				continue
+			}
+			if ($blocked.Count) { return $blocked[0] }
+			$claimed = @{}
+			foreach ($member in $members) {
+				$plan = $member.Plan
+				$conflict = @($plan.Items | Where-Object Status -eq 'CONFLICT' | Select-Object -First 1)
+				if ($conflict.Count) { return @{ Id = $member.Entry.Id; Status = 'CONFLICT'; Reason = $conflict[0].Text } }
+				if ($claimed.ContainsKey($plan.Relative)) {
+					return @{ Id = $member.Entry.Id; Status = 'MANUAL'; Reason = "multiple objects claim $($plan.Relative)" }
+				}
+				$claimed[$plan.Relative] = $true
+			}
+			return @{ Members = $members }
+		}
+	} catch {
+		return @{ Id = $id; Status = 'MANUAL'; Reason = $_.Exception.Message }
+	} finally {
+		$script:rootProvisional.Clear()
+	}
+}
+
+function Complete-LinkedRootGroups($waiting, $ext, [bool]$apply) {
+	$result = @{ Done = @{}; Changed = @() }
+	$edges = @{}; $tried = @{}
+	foreach ($id in $waiting.Keys) {
+		if ($script:rootOwn[$id].Type -in $script:linkedTransferKinds) { $edges[$id] = @() }
+	}
+	foreach ($id in @($edges.Keys)) {
+		$dependency = $waiting[$id].Dependency
+		if ($dependency -and $edges.ContainsKey($dependency)) { $edges[$id] = @($dependency) }
+	}
+	while ($true) {
+		$group = Get-LinkedGroups $edges | Where-Object { -not $tried.ContainsKey(($_.Ids -join '|')) } | Select-Object -First 1
+		if (-not $group) { return $result }
+		$ids = $group.Ids
+		$tried[$ids -join '|'] = $true
+		$expectedRegistry = (Get-FileHash -LiteralPath (Get-CfgPath 'Configuration.xml')).Hash
+		$batch = Get-LinkedPackagePlans $ids $ext
+		if ($batch.Status -eq 'WAITING' -and $batch.Dependency -and $edges.ContainsKey($batch.Dependency) -and
+			$batch.Dependency -notin $edges[$batch.Id]) {
+			$edges[$batch.Id] += @($batch.Dependency)
+			$tried.Remove($ids -join '|')
+			continue
+		}
+		$writes = @(); $supports = @{}
+		if ($batch.Members) {
+			$writes = @($batch.Members | Where-Object { @($_.Plan.Items | Where-Object Status -eq 'NOT_TRANSFERRED').Count })
+			if ($apply) {
+				foreach ($member in $writes) {
+					$entry = $member.Entry; $plan = $member.Plan
+					if (-not $entry.Selected) {
+						$batch = @{ Id = $entry.Id; Status = 'WAITING'; Reason = "$($entry.Id) is excluded by -Name" }
+						break
+					}
+					$policyFile = if ($plan.New) { 'Configuration.xml' } else { $plan.Relative }
+					$supports[$entry.Id] = Get-ObjectSupport (Get-CfgPath $policyFile)
+					if ($supports[$entry.Id] -eq 'locked') {
+						$batch = @{ Id = $entry.Id; Status = 'MANUAL'; Reason = "$policyFile is locked by vendor support" }
+						break
+					}
+				}
+			}
+		}
+		if ($batch.Members -and $apply -and $writes.Count) {
+			try {
+				$result.Changed = Write-MetadataPackage -packages $batch.Members -expectedRegistry $expectedRegistry
+				$script:mdReferencePools = $null; $script:rootTargetRegistrars = $null
+				$script:cfgInfo = Read-ConfigurationProps $ConfigPath
+			} catch { $batch = @{ Id = $ids[0]; Status = 'CONFLICT'; Reason = $_.Exception.Message } }
+		}
+		if ($batch.Status) {
+			foreach ($id in $ids) {
+				$status = if ($id -ieq $batch.Id) { $batch.Status } else { 'WAITING' }
+				$reason = "$($batch.Id): $($batch.Reason)"
+				$waiting[$id] = @{ Status = $status; Reason = $reason; Dependency = $batch.Dependency; Linked = $true }
+			}
+			continue
+		}
+		foreach ($member in $batch.Members) {
+			$id = $member.Entry.Id; $plan = $member.Plan
+			if ($apply -or -not $writes.Count) { $script:rootBindings[$id] = $plan.Target }
+			foreach ($item in $plan.Items) {
+				$item.Plan = @{ Kind = 'md-reference' }
+				if ($apply -and $item.Status -eq 'NOT_TRANSFERRED') {
+					$item.Status = 'TRANSFERRED'; $item.Now = $true
+					if ($item.Stored) { $script:rootDataWarnings += $item.Stored }
+					if ($supports[$id] -eq 'warn') { $item.Text += ' (locked by vendor support, written: editingAllowedCheck = warn)' }
+				}
+			}
+			$script:rootResults[$id] = @{ Id = $id; Items = $plan.Items }
+			$waiting.Remove($id)
+			$result.Done[$id] = $true
+		}
+		return $result
+	}
+}
+
 function Initialize-RootTransfer($ext, $objects, $vars, [bool]$apply) {
 	$script:rootDataWarnings = @()
 	$script:rootSourceIds = @{}; $script:rootOwn = @{}; $script:rootBindings = @{}; $script:rootResults = @{}
 	$script:rootMethodBlocks = @{}
 	$script:rootGlobalMethods = @{}
+	$script:rootRegistrars = @{}; $script:rootTargetRegistrars = $null; $script:rootProvisional = @{}
 	$childEntries = @(Initialize-CatalogChildren $ext $objects)
 	$pending = @()
 	$changed = @()
@@ -4833,6 +5145,11 @@ function Initialize-RootTransfer($ext, $objects, $vars, [bool]$apply) {
 		$script:rootSourceIds[$id] = $true
 		if ($obj.Type -notin (@('CommonModule','CommonCommand','Enum') + $script:structuredTransferKinds + $script:flatTransferKinds)) { continue }
 		$ctx = Get-ObjContext $ext.Dir $obj.Type $obj.Name
+		if ($obj.Type -eq 'Document' -and $ctx.Md.Props) {
+			foreach ($ref in $ctx.Md.Props.SelectNodes('md:RegisterRecords/*', $ctx.Md.Ns)) {
+				$script:rootRegistrars[$ref.InnerText.Trim()] += @($id)
+			}
+		}
 		if (-not $ctx.Exists -or $ctx.Borrowed) { continue }
 		$entry = @{ Id = $id; Type = $obj.Type; Name = $obj.Name; Selected = (Test-NameMatch $id) }
 		if ($obj.Type -eq 'Enum') {
@@ -4865,7 +5182,13 @@ function Initialize-RootTransfer($ext, $objects, $vars, [bool]$apply) {
 			if ($entry.Type -in (@('Enum') + $script:structuredTransferKinds + $script:flatTransferKinds) -and $plan.Status -in @('NOT_TRANSFERRED','PACKAGE_PARTIAL')) {
 				$new = $plan.Status -eq 'NOT_TRANSFERRED'
 				$items = @($plan.Items)
+				if ($entry.Type -in $script:linkedTransferKinds -and @($items | Where-Object Status -eq 'CONFLICT').Count) {
+					$items = @($items | Where-Object Status -ne 'NOT_TRANSFERRED')
+				}
 				if (-not $new -and $entry.Type -notin $script:flatTransferKinds) { $script:rootBindings[$id] = $plan.Target }
+				if ($entry.Type -in $script:linkedTransferKinds -and @($items | Where-Object Status -ne 'TRANSFERRED').Count) {
+					$script:rootBindings.Remove($id)
+				}
 				$writes = @($items | Where-Object Status -eq 'NOT_TRANSFERRED')
 				if ($apply -and $entry.Selected -and $writes.Count) {
 					$support = $null
@@ -4879,6 +5202,7 @@ function Initialize-RootTransfer($ext, $objects, $vars, [bool]$apply) {
 							$script:cfgInfo = Read-ConfigurationProps $ConfigPath
 						}
 						$script:rootBindings[$id] = $plan.Target
+						if ($entry.Type -eq 'Document') { $script:rootTargetRegistrars = $null }
 						foreach ($item in $writes) {
 							$item.Status = 'TRANSFERRED'; $item.Now = $true
 							if ($item.Stored) { $script:rootDataWarnings += $item.Stored }
@@ -4928,12 +5252,17 @@ function Initialize-RootTransfer($ext, $objects, $vars, [bool]$apply) {
 			foreach ($item in $items) { $item.Plan = @{ Kind = 'md-reference' } }
 			$script:rootResults[$id] = @{ Id = $id; Items = $items }
 		}
-		if ($again.Count -eq $pending.Count) { break }
+		if ($again.Count -eq $pending.Count) {
+			$batch = Complete-LinkedRootGroups $waiting $ext $apply
+			$changed += $batch.Changed
+			if (-not $batch.Done.Count) { break }
+			$again = @($again | Where-Object { -not $batch.Done.ContainsKey($_.Id) })
+		}
 		$pending = $again
 	}
 	$changed += Complete-CatalogChildren $childEntries $ext.Prefix $apply
 	$deps = @{}
-	foreach ($id in $waiting.Keys) { $deps[$id] = $waiting[$id].Dependency }
+	foreach ($id in $waiting.Keys) { if (-not $waiting[$id].Linked) { $deps[$id] = $waiting[$id].Dependency } }
 	foreach ($child in $childEntries) { if ($child['Item'].Status -eq 'WAITING') { $deps[$child.Id] = $child.Dependency } }
 	foreach ($id in $deps.Keys) {
 		$path = @($id); $dep = $deps[$id]
@@ -6743,13 +7072,9 @@ function Get-BslConversion($lines, $fileMap, $ctx, $params = $null, [switch]$Com
 	for ($i = 0; $i -lt $ts.Count; $i++) {
 		$t = $ts[$i]; if ($t.Kind -ne 'word') { continue }; $k = $t.Value.ToLowerInvariant()
 		$owner = ''; $qualified = $i -gt 0 -and $ts[$i - 1].Value -eq '.'
-		if (-not $Comparison -and -not $qualified -and $k -in @('константы','constants','параметрысеанса','sessionparameters','библиотекакартинок','picturelib') -and
+		if (-not $Comparison -and -not $qualified -and $script:directMdCollections.ContainsKey($k) -and
 			$i + 2 -lt $ts.Count -and $ts[$i + 1].Value -eq '.' -and $ts[$i + 2].Kind -eq 'word' -and $k -notin $params) {
-			$kind = switch ($k) {
-				{ $_ -in @('константы','constants') } { 'Constant'; break }
-				{ $_ -in @('параметрысеанса','sessionparameters') } { 'SessionParameter'; break }
-				default { 'CommonPicture' }
-			}
+			$kind = $script:directMdCollections[$k]
 			$id = "$kind.$($ts[$i + 2].Value)"
 			if ($script:rootOwn.ContainsKey($id)) {
 				if ($null -eq $locals) { $locals = Get-LocalNames (Get-CodeOnly $lines) $params }
@@ -9253,6 +9578,8 @@ if ($Mode -eq 'transfer') {
 		if (@($script:rootDataWarnings -like 'Catalog.*').Count) { $footer += "    Copy the catalog records and their tabular sections into the configuration BEFORE disabling or removing the extension." }
 		if (@($script:rootDataWarnings -like 'Enum.*').Count) { $footer += "    Replace stored references to the extension's enumeration values BEFORE disabling or removing the extension." }
 		if (@($script:rootDataWarnings -like 'Constant.*').Count) { $footer += "    Copy the stored constant value into the configuration BEFORE disabling or removing the extension." }
+		if (@($script:rootDataWarnings -match '^(Document|InformationRegister|AccumulationRegister)[./]').Count) { $footer += "    Migrate documents, register records and posting movements BEFORE disabling or removing the extension." }
+		if (@($script:rootDataWarnings -like 'DocumentNumerator.*').Count) { $footer += "    Verify numbering continuity for documents using the transferred numerators." }
 	}
 	if ($changed.Count -gt 0) {
 		$footer += "Changed files:"

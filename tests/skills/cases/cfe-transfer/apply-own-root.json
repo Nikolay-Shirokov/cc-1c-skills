@@ -3,7 +3,7 @@
   "setup": "fixture:prop-positive",
   "params": { "extensionPath": "cfe" },
   "cwd": "workDir",
-  "args_extra": ["-Mode", "transfer", "-Expand", "*", "-Name", "CommonModule.Тест_Частичный,CommonModule.Тест_НовыйМодуль,CommonCommand.Тест_Команда,Catalog.Тест_НовыйСправочник,Catalog.Хранилище,Enum.Тест_Состояния,DefinedType.Тест_СценарийТип,SessionParameter.Тест_Сценарий,Constant.Тест_Режим,FunctionalOption.Тест_Опция,FunctionalOptionsParameter.Тест_Разрез,EventSubscription.Тест_ПриЗаписи,ScheduledJob.Тест_ФоноваяПроверка,CommonPicture.Тест_Значок,CommonPicture.Тест_ПустаяКартинка,CommandGroup.Тест_Группа,Report.Тест_Сводка,DataProcessor.Тест_МастерЗагрузки"],
+  "args_extra": ["-Mode", "transfer", "-Expand", "*", "-Name", "CommonModule.Тест_Частичный,CommonModule.Тест_НовыйМодуль,CommonCommand.Тест_Команда,Catalog.Тест_НовыйСправочник,Catalog.Хранилище,Enum.Тест_Состояния,DefinedType.Тест_СценарийТип,SessionParameter.Тест_Сценарий,Constant.Тест_Режим,FunctionalOption.Тест_Опция,FunctionalOptionsParameter.Тест_Разрез,EventSubscription.Тест_ПриЗаписи,ScheduledJob.Тест_ФоноваяПроверка,CommonPicture.Тест_Значок,CommonPicture.Тест_ПустаяКартинка,CommandGroup.Тест_Группа,Report.Тест_Сводка,DataProcessor.Тест_МастерЗагрузки,Document.Тест_Приемка,DocumentNumerator.Тест_НомераПриемки,InformationRegister.Тест_ДанныеПриемки,AccumulationRegister.Тест_ИтогиПриемки"],
   "idempotent": true,
   "noSnapshot": "Проверяются регистрация, файлы и обработка зависимостей. Остальная выгрузка берётся из prop-positive.",
   "preRun": [
@@ -21,9 +21,25 @@
         { "type": "CommonPicture", "name": "Тест_Значок", "availabilityForChoice": true },
         { "type": "CommonPicture", "name": "Тест_ПустаяКартинка" },
         { "type": "Report", "name": "Тест_Сводка", "attributes": ["Режим: EnumRef.Тест_Состояния"] },
-        { "type": "DataProcessor", "name": "Тест_МастерЗагрузки", "attributes": ["Путь: String(100)"], "tabularSections": [{ "name": "Позиции", "attributes": ["Количество: Number(10,2)"] }] }
+        { "type": "DataProcessor", "name": "Тест_МастерЗагрузки", "attributes": ["Путь: String(100)"], "tabularSections": [{ "name": "Позиции", "attributes": ["Количество: Number(10,2)"] }] },
+        { "type": "DocumentNumerator", "name": "Тест_НомераПриемки", "numberLength": 11 },
+        { "type": "Document", "name": "Тест_Приемка", "numerator": "DocumentNumerator.Тест_НомераПриемки", "basedOn": ["Catalog.Тест_НовыйСправочник"], "registerRecords": ["AccumulationRegister.Тест_ИтогиПриемки", "InformationRegister.Тест_ДанныеПриемки"], "tabularSections": [{ "name": "Строки", "attributes": ["Количество: Number(10,2)"] }] },
+        { "type": "InformationRegister", "name": "Тест_ДанныеПриемки", "writeMode": "RecorderSubordinate", "dimensions": ["ДокументПриемки: DocumentRef.Тест_Приемка"], "resources": ["Количество: Number(10,2)"] },
+        { "type": "AccumulationRegister", "name": "Тест_ИтогиПриемки", "registerType": "Turnovers", "dimensions": ["ДокументПриемки: DocumentRef.Тест_Приемка"], "resources": ["Количество: Number(10,2)"] }
       ],
       "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}/cfe" }
+    },
+    {
+      "writeFile": {
+        "path": "cfe/Documents/Тест_Приемка/Ext/ObjectModule.bsl",
+        "content": "Процедура ОбработкаПроведения(Отказ, РежимПроведения)\n\tДвижения.Тест_ИтогиПриемки.Записывать = Истина;\n\tДвижения.Тест_ДанныеПриемки.Записывать = Истина;\nКонецПроцедуры\n"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "cfe/InformationRegisters/Тест_ДанныеПриемки/Ext/RecordSetModule.bsl",
+        "content": "Функция ПустаяПриемка()\n\tВозврат Документы.Тест_Приемка.ПустаяСсылка();\nКонецФункции\n"
+      }
     },
     {
       "script": "form-add/scripts/form-add",
@@ -256,6 +272,12 @@
       { "file": "CommandGroups/Группа.xml", "text": ["<xr:Ref>CommonPicture.Значок</xr:Ref>", "<Category>ActionsPanel</Category>"] },
       { "file": "CommonCommands/Команда.xml", "text": ["<Group>CommandGroup.Группа</Group>", "<xr:Ref>CommonPicture.Значок</xr:Ref>"] },
       { "file": "Configuration.xml", "text": ["<Report>Сводка</Report>", "<DataProcessor>МастерЗагрузки</DataProcessor>"] },
+      { "file": "Configuration.xml", "text": ["<Document>Приемка</Document>", "<DocumentNumerator>НомераПриемки</DocumentNumerator>", "<InformationRegister>ДанныеПриемки</InformationRegister>", "<AccumulationRegister>ИтогиПриемки</AccumulationRegister>"] },
+      { "file": "Documents/Приемка.xml", "text": ["DocumentNumerator.НомераПриемки", "Catalog.НовыйСправочник", "AccumulationRegister.ИтогиПриемки", "InformationRegister.ДанныеПриемки", "DocumentTabularSection.Приемка.Строки"] },
+      { "file": "Documents/Приемка/Ext/ObjectModule.bsl", "text": ["Движения.ИтогиПриемки.Записывать", "Движения.ДанныеПриемки.Записывать"] },
+      { "file": "InformationRegisters/ДанныеПриемки.xml", "text": ["cfg:DocumentRef.Приемка", "InformationRegisterRecordSet.ДанныеПриемки", "<WriteMode>RecorderSubordinate</WriteMode>"] },
+      { "file": "InformationRegisters/ДанныеПриемки/Ext/RecordSetModule.bsl", "text": "Документы.Приемка.ПустаяСсылка()" },
+      { "file": "AccumulationRegisters/ИтогиПриемки.xml", "text": ["cfg:DocumentRef.Приемка", "AccumulationRegisterRecordSet.ИтогиПриемки"] },
       { "file": "Reports/Сводка.xml", "text": ["ReportObject.Сводка", "Report.Сводка.Form.ФормаОтчета", "Report.Сводка.Template.Схема", "cfg:EnumRef.Состояния"] },
       { "file": "Reports/Сводка/Forms/ФормаОтчета/Ext/Form.xml", "text": "cfg:ReportObject.Сводка" },
       { "file": "Reports/Сводка/Ext/ObjectModule.bsl", "text": "Обработки.МастерЗагрузки.Создать()" },

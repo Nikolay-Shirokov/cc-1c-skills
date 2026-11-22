@@ -1,5 +1,5 @@
 ﻿#!/usr/bin/env python3
-# cfe-transfer v1.41 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+# cfe-transfer v1.42 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -1697,6 +1697,10 @@ def get_md_type_ref_base(kind, event_source=False):
     match = re.fullmatch(r"(Report|DataProcessor)(?:Object|Manager|TabularSectionRow|TabularSection)", kind)
     if match:
         return match[1]
+    match = re.fullmatch(r"(Document|InformationRegister|AccumulationRegister)"
+                         r"(?:Object|Manager|RecordSet|RecordManager|RecordKey|Record|Selection|List|TabularSectionRow|TabularSection)", kind)
+    if match:
+        return match[1]
     if event_source:
         match = re.fullmatch(r"(.+?)(?:Object|RecordSet|Manager)", kind)
         if match and match[1] in CHILD_TYPE_DIR_MAP:
@@ -1713,13 +1717,16 @@ def resolve_md_reference(value, prefix, type_reference=False, event_source=False
     if base not in CHILD_TYPE_DIR_MAP:
         return {"value": value}
     root_id = (base + "." + name).lower()
-    if root_id in ROOT_OWN and root_id not in ROOT_BINDINGS:
+    provisional = ROOT_PROVISIONAL.get(root_id)
+    if root_id in ROOT_OWN and root_id not in ROOT_BINDINGS and not provisional:
         return {"status": "WAITING", "reason": "waiting for %s.%s" % (base, name), "dependency": root_id}
     if MD_REFERENCE_POOLS is None:
         return {"status": "MANUAL", "reason": "configuration has no ChildObjects to resolve " + value}
     hits = find_names_in(MD_REFERENCE_POOLS.get(base, ()), name, prefix)
     if root_id in ROOT_BINDINGS:
         hits = [ROOT_BINDINGS[root_id]]
+    if provisional:
+        hits = [provisional["target"]]
     if not hits:
         return {"status": "WAITING", "reason": "%s.%s: the object is not in the configuration" % (base, name)}
     if len(hits) > 1 and hits[0].lower() != name.lower():
@@ -1727,7 +1734,7 @@ def resolve_md_reference(value, prefix, type_reference=False, event_source=False
     target = hits[0]
     relative = os.path.join(CHILD_TYPE_DIR_MAP[base], target + ".xml")
     path = os.path.join(MD_REFERENCE_ROOT, relative)
-    if not os.path.isfile(path):
+    if not provisional and not os.path.isfile(path):
         return {"status": "MANUAL", "reason": "%s.%s: missing descriptor %s" % (base, target, relative.replace(os.sep, "/"))}
     if tail and tail != ".EmptyRef":
         child_path = re.fullmatch(r"\.(Form|Template|Command)\.(\w+)", tail, re.I)
@@ -1737,7 +1744,7 @@ def resolve_md_reference(value, prefix, type_reference=False, event_source=False
                 return binding
             if binding:
                 return {"value": f"{namespace}{kind}.{target}.{binding['kind']}.{binding['target']}"}
-        owner = read_md_object(path)["children"]
+        owner = (provisional["md"] if provisional else read_md_object(path))["children"]
         parts = tail[1:].split(".")
         if len(parts) % 2:
             return {"status": "MANUAL", "reason": "unsupported metadata path: " + value}
@@ -3555,8 +3562,13 @@ ROOT_BSL_COLLECTIONS = {
 }
 
 FLAT_TRANSFER_KINDS = ("Constant", "DefinedType", "SessionParameter", "FunctionalOption", "FunctionalOptionsParameter",
-                       "EventSubscription", "ScheduledJob", "CommonPicture", "CommandGroup")
-STRUCTURED_TRANSFER_KINDS = ("Catalog", "Report", "DataProcessor")
+                       "EventSubscription", "ScheduledJob", "CommonPicture", "CommandGroup", "DocumentNumerator")
+REGISTER_TRANSFER_KINDS = ("InformationRegister", "AccumulationRegister")
+LINKED_TRANSFER_KINDS = ("Document",) + REGISTER_TRANSFER_KINDS
+STRUCTURED_TRANSFER_KINDS = ("Catalog", "Report", "DataProcessor") + LINKED_TRANSFER_KINDS
+ROOT_PROVISIONAL = {}
+ROOT_REGISTRARS = {}
+ROOT_TARGET_REGISTRARS = None
 ROOT_SLOT_PATH = ("md:Properties/*[((starts-with(local-name(),'Default') or starts-with(local-name(),'Auxiliary')) "
                   "and contains(local-name(),'Form')) or local-name()='MainDataCompositionSchema']")
 
@@ -3622,6 +3634,14 @@ def get_root_bsl_projection(lines, prefix, self_id, self_name, rel="", child=Non
             continue
         member = tokens[i + 2]
         collection = ROOT_BSL_COLLECTIONS.get(word)
+        if (self_id.lower().startswith("document.") and rel == "Ext/ObjectModule.bsl"
+                and word in ("движения", "registerrecords")):
+            kinds = [kind for kind in REGISTER_TRANSFER_KINDS
+                     if self_id.lower() in ROOT_REGISTRARS.get(f"{kind}.{member['value']}".lower(), ())]
+            if len(kinds) > 1:
+                return {"status": "MANUAL", "reason": f"ambiguous register movement {member['value']}"}
+            if kinds:
+                collection = kinds[0]
         kind = collection or "CommonModule"
         ref_token = member if collection else token
         ref = kind + "." + ref_token["value"]
@@ -3647,6 +3667,8 @@ def get_root_bsl_projection(lines, prefix, self_id, self_name, rel="", child=Non
             continue
         if key == self_id.lower():
             target = self_name
+        elif key in ROOT_PROVISIONAL:
+            target = ROOT_PROVISIONAL[key]["target"]
         elif key in ROOT_BINDINGS:
             target = ROOT_BINDINGS[key]
             if not collection and i + 3 < len(tokens) and tokens[i + 3]["value"] == "(":
@@ -3751,6 +3773,8 @@ def catalog_files(root, directory, child=None):
     optional = {"Ext/ObjectModule.bsl", "Ext/ManagerModule.bsl"}
     obj = get_md_object_element(root)
     obj_kind = localname(obj)
+    if obj_kind in REGISTER_TRANSFER_KINDS:
+        optional.add("Ext/RecordSetModule.bsl")
     children = obj.find("md:ChildObjects", MD_NSMAP)
     nodes = [child] if child is not None else elem_children(children) if children is not None else []
     for node in nodes:
@@ -3780,6 +3804,8 @@ def catalog_files(root, directory, child=None):
             required.add(f"Commands/{name}/Ext/CommandModule.bsl")
             if not elem_children(node):
                 required.add(f"Commands/{name}.xml")
+        elif kind in ("Dimension", "Resource") and obj_kind in REGISTER_TRANSFER_KINDS:
+            continue
         elif kind not in ("Attribute", "TabularSection"):
             raise ValueError(f"unsupported {obj_kind} child {kind}")
     schema = obj.findtext("md:Properties/md:MainDataCompositionSchema", "", MD_NSMAP)
@@ -3815,6 +3841,9 @@ def convert_catalog_xml(fw, cfg, source, target, prefix, descriptor, child=None,
         "Catalog": r"Catalog(?:Ref|Object|Manager|Selection|List|TabularSectionRow|TabularSection)?",
         "Report": r"Report(?:Object|Manager|TabularSectionRow|TabularSection)?",
         "DataProcessor": r"DataProcessor(?:Object|Manager|TabularSectionRow|TabularSection)?",
+        "Document": r"Document(?:Ref|Object|Manager|Selection|List|TabularSectionRow|TabularSection)?",
+        "InformationRegister": r"InformationRegister(?:Manager|RecordSet|RecordManager|RecordKey|Record|Selection|List)?",
+        "AccumulationRegister": r"AccumulationRegister(?:Manager|RecordSet|RecordManager|RecordKey|Record|Selection|List)?",
     }.get(obj_kind, re.escape(obj_kind))
     if descriptor:
         get_md_object_element(root).find("md:Properties/md:Name", MD_NSMAP).text = target
@@ -3851,11 +3880,18 @@ def convert_catalog_xml(fw, cfg, source, target, prefix, descriptor, child=None,
             or (obj_kind == "Constant" and (
                 (name in ("DefaultForm", "ChoiceForm") and parent == "Properties")
                 or (name == "DataPath" and node.xpath("ancestor::md:ChoiceParameterLinks|ancestor::md:LinkByType",
-                                                      namespaces=MD_NSMAP)))))
+                                                      namespaces=MD_NSMAP))))
+            or (obj_kind == "Document" and ((name == "Item" and parent in ("RegisterRecords", "BasedOn"))
+                                           or (name == "Numerator" and parent == "Properties"))))
         if strict_ref and value:
             path = re.fullmatch(r"(\w+)\.\w+(?:\.\w+\.\w+)*", value)
             if not path or path[1] not in CHILD_TYPE_DIR_MAP:
                 return {"status": "MANUAL", "reason": f"unsupported metadata reference in {name}: {value}"}
+        if (obj_kind == "Document" and value
+                and ((name == "Numerator" and not re.fullmatch(r"DocumentNumerator\.\w+", value))
+                     or (parent == "RegisterRecords" and
+                         not re.fullmatch(r"(Information|Accumulation|Accounting|Calculation)Register\.\w+", value)))):
+            return {"status": "MANUAL", "reason": f"invalid document reference: {value}"}
         is_ref = (re.match(r"^(Default|Auxiliary).*Form$", name)
                   or strict_ref
                   or name in ("ChoiceForm", "Owners", "Group", "Ref", "DataPath", "MainDataCompositionSchema",
@@ -3944,10 +3980,12 @@ def get_catalog_child_bsl(tokens, rel, child, declared, prefix, self_id="", self
                 or (i and tokens[i - 1]["value"] == ".")):
             continue
         if api in ("открытьформу", "openform", "получитьформу", "getform"):
-            match = re.fullmatch(r'("(Report|Отч[её]т|DataProcessor|Обработка)\.)(\w+)(\.(?:Form|Форма)\.)(\w+)"',
+            match = re.fullmatch(r'("(Report|Отч[её]т|DataProcessor|Обработка|Document|Документ)\.)(\w+)(\.(?:Form|Форма)\.)(\w+)"',
                                  literal["value"], re.I)
             if match:
-                kind = "Report" if match[2].lower() in ("report", "отчет", "отчёт") else "DataProcessor"
+                owner_kind = match[2].lower()
+                kind = {"report": "Report", "отчет": "Report", "отчёт": "Report",
+                        "document": "Document", "документ": "Document"}.get(owner_kind, "DataProcessor")
                 root_id = f"{kind}.{match[3]}"
                 if root_id.lower() not in ROOT_OWN:
                     continue
@@ -4287,7 +4325,7 @@ def root_metadata_projection(entry, cfg, source, files, target, prefix, enum_ali
     for rel, path in sorted(files.items()):
         if rel.endswith(".bsl"):
             bsl = read_bsl_file(path)
-            projection = get_root_bsl_projection(bsl["lines"], prefix, entry["id"], target, enum_aliases=enum_aliases)
+            projection = get_root_bsl_projection(bsl["lines"], prefix, entry["id"], target, rel, enum_aliases=enum_aliases)
             if projection.get("status"):
                 return projection
             data = {"bsl": bsl, "lines": projection["lines"]}
@@ -4304,7 +4342,7 @@ def root_metadata_projection(entry, cfg, source, files, target, prefix, enum_ali
                 if name.lower() not in words:
                     continue
                 identity = dependency["id"]
-                alias = target if oid == entry["id"].lower() else ROOT_BINDINGS.get(oid)
+                alias = target if oid == entry["id"].lower() else ROOT_PROVISIONAL.get(oid, {}).get("target", ROOT_BINDINGS.get(oid))
                 if not alias:
                     return {"status": "WAITING", "reason": f"waiting for {identity} referenced in {rel}",
                             "dependency": identity}
@@ -4358,14 +4396,14 @@ def compare_catalog_children(source, target, relative, merge=False, blocked=(), 
             items.append(new_item("CONFLICT", label + " — related child files differ"))
         elif not existing:
             item = new_item("NOT_TRANSFERRED", label)
-            if stored and kind in ("Attribute", "TabularSection"):
+            if stored and kind in ("Attribute", "TabularSection", "Dimension", "Resource"):
                 item["stored"] = f"{relative}: {label}"
             items.append(item)
             if merge:
                 anchor = find_child_anchor(target, kind, localname(target.getparent()))
                 insert_form_node_at(target, copy.deepcopy(node), anchor, "\n")
         elif len(existing) == 1 and catalog_node_key(node) == catalog_node_key(existing[0]):
-            if kind in ("Attribute", "TabularSection"):
+            if kind in ("Attribute", "TabularSection", "Dimension", "Resource"):
                 score += 1
             items.append(new_item("TRANSFERRED", label))
         elif (kind == "TabularSection" and len(existing) == 1
@@ -4384,6 +4422,40 @@ def compare_catalog_children(source, target, relative, merge=False, blocked=(), 
     return score, items, file_conflicts
 
 
+def get_structured_target_set(entry, node, prefix, cfg):
+    kind = entry["type"]
+    identity = metadata_transfer_uuid(cfg, kind, node.get("uuid"))
+    registry = [(localname(n), inner_text(n)) for n in elem_children(cfg["child_objects"])]
+    ids = [(kind, name) for kind, name in registry if kind in CHILD_TYPE_DIR_MAP
+           and _sg_root_uuid(os.path.join(MD_REFERENCE_ROOT, CHILD_TYPE_DIR_MAP[kind], name + ".xml")) == identity]
+    if len(ids) > 1 or (ids and ids[0][0] != kind):
+        return {"status": "CONFLICT", "reason": f"{kind} UUID {identity} collides in configuration"}
+    pool = [name for tag, name in registry if tag == kind]
+    candidates = [ids[0][1]] if ids else find_names_in(pool, entry["name"], prefix)
+    return {"uuid": identity, "known": bool(ids), "pool": pool, "candidates": candidates}
+
+
+def get_new_structured_target(entry, targets, prefix):
+    kind = entry["type"]
+    directory = os.path.join(MD_REFERENCE_ROOT, CHILD_TYPE_DIR_MAP[kind])
+    taken = {name.lower() for name in targets["pool"]}
+    taken.update(value["target"].lower() for key, value in ROOT_PROVISIONAL.items()
+                 if key != entry["key"] and ROOT_OWN[key]["type"] == kind)
+    if os.path.isdir(directory):
+        for file in os.scandir(directory):
+            if file.is_dir():
+                taken.add(file.name.lower())
+            elif file.name.lower().endswith(".xml"):
+                taken.add(file.name[:-4].lower())
+                if _sg_root_uuid(file.path) == targets["uuid"]:
+                    return {"status": "CONFLICT", "reason": f"{kind} UUID {targets['uuid']} exists in an unregistered descriptor"}
+    settings = SETTINGS[get_object_kind(entry["name"], "own")]
+    choice = get_target_name(entry["name"], prefix, taken, settings["add_dev_objects"])
+    if choice.get("taken"):
+        return {"status": "CONFLICT", "reason": f"name taken in configuration ({choice['note']})"}
+    return {"target": choice["name"]}
+
+
 def get_structured_transfer_plan(entry, ext_dir, prefix, cfg):
     children = cfg["child_objects"]
     if children is None:
@@ -4391,6 +4463,7 @@ def get_structured_transfer_plan(entry, ext_dir, prefix, cfg):
     kind = entry["type"]
     directory = CHILD_TYPE_DIR_MAP[kind]
     label = "catalog" if kind == "Catalog" else kind
+    stored = kind == "Catalog" or kind in LINKED_TRANSFER_KINDS
     path = os.path.join(ext_dir, directory, entry["name"])
     source = read_form_write(path + ".xml")
     if source["root"].get("version") != children.getroottree().getroot().get("version"):
@@ -4399,16 +4472,11 @@ def get_structured_transfer_plan(entry, ext_dir, prefix, cfg):
     if localname(node) != kind or not node.get("uuid"):
         return {"status": "MANUAL", "reason": f"unsupported {kind} descriptor"}
     files, skd = catalog_files(source["root"], path)
-    identity = metadata_transfer_uuid(cfg, kind, node.get("uuid"))
-    registry = [(localname(n), inner_text(n)) for n in elem_children(children)]
-    ids = [(kind, name) for kind, name in registry if kind in CHILD_TYPE_DIR_MAP
-           and _sg_root_uuid(os.path.join(MD_REFERENCE_ROOT, CHILD_TYPE_DIR_MAP[kind], name + ".xml")) == identity]
-    if len(ids) > 1 or (ids and ids[0][0] != kind):
-        return {"status": "CONFLICT", "reason": f"{label} UUID {identity} collides in configuration"}
-    pool = [name for tag, name in registry if tag == kind]
-    candidates = [ids[0][1]] if ids else find_names_in(pool, entry["name"], prefix)
+    targets = get_structured_target_set(entry, node, prefix, cfg)
+    if targets.get("status"):
+        return targets
     matches, uncertain = [], []
-    for name in candidates:
+    for name in targets["candidates"]:
         plan = root_metadata_projection(entry, cfg, source, files, name, prefix, skd=skd)
         if plan.get("status"):
             return plan
@@ -4441,13 +4509,13 @@ def get_structured_transfer_plan(entry, ext_dir, prefix, cfg):
                 if group:
                     blocked.add(group)
         full = props and not items and not available and catalog_node_key(a) == catalog_node_key(b)
-        if not ids and not full and not (props and score):
+        if not targets["known"] and not full and not (kind not in LINKED_TRANSFER_KINDS and props and score):
             if props or score:
                 uncertain.append(name)
             continue
         if not props:
             items.append(new_item("CONFLICT", f"{label} properties differ"))
-        _, detail, _ = compare_catalog_children(x, y, plan["relative"], True, blocked, kind == "Catalog")
+        _, detail, _ = compare_catalog_children(x, y, plan["relative"], True, blocked, stored)
         items.extend(detail)
         write_owner = any(item["status"] == "NOT_TRANSFERRED" for item in detail)
         writes = {}
@@ -4479,26 +4547,17 @@ def get_structured_transfer_plan(entry, ext_dir, prefix, cfg):
         return matches[0]
     if matches or uncertain:
         return {"status": "MANUAL", "reason": "check matching objects: " + ", ".join([p["target"] for p in matches] + uncertain)}
-    taken = {name.lower() for name in pool}
-    directory = os.path.join(MD_REFERENCE_ROOT, directory)
-    if os.path.isdir(directory):
-        for file in os.scandir(directory):
-            if file.is_dir():
-                taken.add(file.name.lower())
-            elif file.name.lower().endswith(".xml"):
-                taken.add(file.name[:-4].lower())
-                if _sg_root_uuid(file.path) == identity:
-                    return {"status": "CONFLICT", "reason": f"{label} UUID {identity} exists in an unregistered descriptor"}
-    settings = SETTINGS[get_object_kind(entry["name"], "own")]
-    choice = get_target_name(entry["name"], prefix, taken, settings["add_dev_objects"])
-    if choice.get("taken"):
-        return {"status": "CONFLICT", "reason": f"name taken in configuration ({choice['note']})"}
-    target = choice["name"]
+    choice = get_new_structured_target(entry, targets, prefix)
+    if choice.get("status"):
+        return choice
+    target = choice["target"]
     plan = root_metadata_projection(entry, cfg, source, files, target, prefix, skd=skd)
     if not plan.get("status"):
         item = new_item("NOT_TRANSFERRED", f"own {label} {entry['name']} (as {target})")
-        if kind == "Catalog":
-            item["stored"] = f"Catalog.{entry['name']} -> Catalog.{target} — catalog and tabular-section records"
+        if stored:
+            data = {"Catalog": "catalog and tabular-section records",
+                    "Document": "documents, tabular sections and register movements"}.get(kind, "register records")
+            item["stored"] = f"{entry['id']} -> {kind}.{target} — {data}"
         plan.update(status="NOT_TRANSFERRED", items=[item], new=True)
     return plan
 
@@ -4750,13 +4809,50 @@ def get_flat_transfer_plan(entry, ext_dir, prefix, cfg):
         item = new_item("NOT_TRANSFERRED", f"own {kind} {source_name} (as {target})")
         if kind == "Constant":
             item["stored"] = f"Constant.{source_name} -> Constant.{target} — stored constant value"
+        if kind == "DocumentNumerator":
+            item["stored"] = f"{entry['id']} -> {kind}.{target} — numbering continuity"
         plan.update(status="NOT_TRANSFERRED", items=[item], new=True)
     return plan
 
 
+def add_register_registrar_check(entry, plan, cfg):
+    global ROOT_TARGET_REGISTRARS
+    if plan["status"] not in ("NOT_TRANSFERRED", "PACKAGE_PARTIAL"):
+        return plan
+    owner = get_md_object_element(plan["files"][plan["relative"]]["xml"]["root"])
+    if (entry["type"] != "AccumulationRegister"
+            and owner.findtext("md:Properties/md:WriteMode", namespaces=MD_NSMAP) != "RecorderSubordinate"):
+        return plan
+    target = f"{entry['type']}.{plan['target']}"
+    if ROOT_TARGET_REGISTRARS is None:
+        ROOT_TARGET_REGISTRARS = {}
+        for doc in cfg["child_objects"].findall("md:Document", MD_NSMAP):
+            rel = f"Documents/{inner_text(doc)}.xml"
+            md = read_md_object(os.path.join(MD_REFERENCE_ROOT, rel))
+            if md:
+                for ref in md["props"].findall("md:RegisterRecords/*", MD_NSMAP):
+                    ROOT_TARGET_REGISTRARS.setdefault(inner_text(ref).strip().lower(), []).append(rel)
+    if target.lower() in ROOT_TARGET_REGISTRARS:
+        plan["validation_files"] = ROOT_TARGET_REGISTRARS[target.lower()][:1]
+        return plan
+    registrars = ROOT_REGISTRARS.get(entry["key"], {})
+    if any(key in ROOT_PROVISIONAL for key in registrars):
+        return plan
+    pending = sorted(key for key in registrars if key in ROOT_OWN and key not in ROOT_BINDINGS)
+    if pending:
+        dependency = next((key for key in pending if ROOT_OWN[key]["selected"]), pending[0])
+        return {"status": "WAITING", "reason": f"waiting for {registrars[dependency]} to register movements in {entry['id']}",
+                "dependency": dependency}
+    if registrars:
+        return {"status": "WAITING", "reason": f"{target} needs a registrar: add it to RegisterRecords of "
+                                                + ", ".join(registrars[key] for key in sorted(registrars))}
+    return {"status": "MANUAL", "reason": f"{target} has no registrar document; configure RegisterRecords"}
+
+
 def get_root_object_plan(entry, ext_dir, prefix, cfg):
     if entry["type"] in STRUCTURED_TRANSFER_KINDS:
-        return get_structured_transfer_plan(entry, ext_dir, prefix, cfg)
+        plan = get_structured_transfer_plan(entry, ext_dir, prefix, cfg)
+        return add_register_registrar_check(entry, plan, cfg) if entry["type"] in REGISTER_TRANSFER_KINDS else plan
     if entry["type"] == "Enum":
         return get_enum_transfer_plan(entry, ext_dir, prefix, cfg)
     if entry["type"] in FLAT_TRANSFER_KINDS:
@@ -4940,15 +5036,14 @@ def add_root_object_registration(fw, kind, name):
     insert_form_node_at(children, node, before, fw["eol"])
 
 
-def write_metadata_package(entry, plan):
+def write_metadata_package(entry=None, plan=None, *, packages=None, expected_registry=None):
+    packages = packages or [(entry, plan)]
     root = os.path.abspath(MD_REFERENCE_ROOT)
     stage = os.path.join(root, ".cfe-catalog-" + uuid.uuid4().hex)
     lock_path = os.path.join(root, ".cfe-transfer-registration.lock")
     cfg_path = os.path.join(root, "Configuration.xml")
-    owner = os.path.join(root, plan["relative"])
     staged_cfg = os.path.join(stage, "Configuration.xml")
-    staged_owner = os.path.join(stage, plan["relative"])
-    installed, made_dirs = [], []
+    installed, made_dirs, replaced = [], [], []
     lock = os.open(lock_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     published = stage_created = False
     try:
@@ -4956,11 +5051,21 @@ def write_metadata_package(entry, plan):
         stage_created = True
         with open(cfg_path, "rb") as original:
             cfg_before = original.read()
+        if expected_registry is not None and cfg_before != expected_registry:
+            raise ValueError("Configuration.xml changed during planning")
         cfg = read_form_write(cfg_path)
-        if plan.get("new"):
-            add_root_object_registration(cfg, entry["type"], plan["target"])
+        files, claimed, register = {}, set(), False
+        for entry, plan in packages:
+            if plan.get("new"):
+                add_root_object_registration(cfg, entry["type"], plan["target"])
+                register = True
+            for rel, file in plan["files"].items():
+                if rel.lower() in claimed:
+                    raise ValueError(f"multiple objects claim {rel}")
+                claimed.add(rel.lower())
+                files[rel] = file
         save_form_write(cfg, staged_cfg)
-        for rel, file in sorted(plan["files"].items()):
+        for rel, file in sorted(files.items()):
             path = os.path.join(stage, rel)
             os.makedirs(os.path.dirname(path), exist_ok=True)
             if "xml" in file:
@@ -4969,34 +5074,15 @@ def write_metadata_package(entry, plan):
                 write_bsl_file(file["bsl"], file["lines"], path)
             else:
                 shutil.copyfile(file["copy"], path)
-        for rel in plan.get("validation_files", ()):
+        for rel in dict.fromkeys(rel for _, plan in packages for rel in plan.get("validation_files", ())):
             path = os.path.join(stage, rel)
+            if os.path.isfile(path):
+                continue
             os.makedirs(os.path.dirname(path), exist_ok=True)
             shutil.copyfile(os.path.join(root, rel), path)
-        check = read_md_object(staged_owner)
-        if not check or localname(check["el"]) != entry["type"] or md_child_name(check["el"]) != plan["target"]:
-            raise ValueError("staged metadata object did not pass read-back validation")
-        if not plan.get("new") and entry["type"] in STRUCTURED_TRANSFER_KINDS:
-            # Preserve the validation context for slots pointing at existing local forms.
-            for slot in elem_children(check["props"]):
-                if not re.fullmatch(r"(Default|Auxiliary).*Form", localname(slot)):
-                    continue
-                match = re.fullmatch(r"(\w+)\.(\w+)\.Form\.(\w+)", inner_text(slot), re.I)
-                if not match or match[1].lower() != entry["type"].lower() or match[2].lower() != plan["target"].lower():
-                    continue
-                base = f"{CHILD_TYPE_DIR_MAP[entry['type']]}/{plan['target']}/Forms/{match[3]}"
-                for rel in (base + ".xml", base + "/Form.xml", base + "/Ext/Form.xml"):
-                    original, candidate = os.path.join(root, rel), os.path.join(stage, rel)
-                    if os.path.isfile(original) and not os.path.exists(candidate):
-                        os.makedirs(os.path.dirname(candidate), exist_ok=True)
-                        shutil.copyfile(original, candidate)
-        errors = get_md_validate_errors(staged_owner, entry["type"], require_result=True)
-        if not plan.get("new"):
-            baseline = get_md_validate_errors(owner, entry["type"], require_result=True)
-            errors = [error for error in errors if error.startswith("metadata validator") or error not in baseline]
-        if errors:
-            raise ValueError("validator: " + errors[0])
-        for rel in sorted(plan["files"]):
+        for entry, plan in packages:
+            validate_staged_metadata_owner(root, stage, entry, plan)
+        for rel in sorted(files):
             if re.search(r"/Forms/.+/Ext/(?:Form\.xml|Form/Module\.bsl)$", rel):
                 form_rel = re.sub(r"/Form/Module\.bsl$", "/Form.xml", rel)
                 form = os.path.join(stage, form_rel)
@@ -5014,19 +5100,22 @@ def write_metadata_package(entry, plan):
                 if errors:
                     raise ValueError("validator: " + errors[0])
             elif "/Templates/" in rel and rel.endswith("/Ext/Template.xml"):
-                skill = "skd-validate" if plan["files"][rel].get("skd") else "mxl-validate"
+                skill = "skd-validate" if files[rel].get("skd") else "mxl-validate"
                 validator = os.path.join(os.path.dirname(__file__), f"../../{skill}/scripts/{skill}.py")
                 result = subprocess.run([sys.executable, validator, "-TemplatePath", os.path.join(stage, rel)],
                                         capture_output=True, text=True, encoding="utf-8", errors="replace")
                 if result.returncode:
                     raise ValueError(f"{skill} failed: " + " ".join((result.stdout + result.stderr).splitlines()))
-        owner_before = plan["files"][plan["relative"]].get("before")
-        if owner_before is not None:
-            with open(owner, "rb") as original:
-                if original.read() != owner_before:
-                    raise ValueError("catalog changed during transfer")
-        for rel in sorted(plan["files"]):
-            if owner_before is not None and rel == plan["relative"]:
+        with open(cfg_path, "rb") as original:
+            if original.read() != cfg_before:
+                raise ValueError("Configuration.xml changed during transfer")
+        for rel, file in sorted(files.items()):
+            if file.get("before") is not None:
+                with open(os.path.join(root, rel), "rb") as original:
+                    if original.read() != file["before"]:
+                        raise ValueError(f"{rel} changed during transfer")
+        for rel, file in sorted(files.items()):
+            if file.get("before") is not None:
                 continue
             dest = os.path.join(root, rel)
             missing = []
@@ -5039,22 +5128,27 @@ def write_metadata_package(entry, plan):
                 made_dirs.append(folder)
             os.link(os.path.join(stage, rel), dest)
             installed.append(dest)
+        for rel, file in sorted(files.items()):
+            if file.get("before") is None or not file.get("write_owner"):
+                continue
+            owner = os.path.join(root, rel)
+            with open(owner, "rb") as original:
+                if original.read() != file["before"]:
+                    raise ValueError(f"{rel} changed during transfer")
+            backup = os.path.join(stage, f"owner-before-{len(replaced)}.xml")
+            replace_form_file(os.path.join(stage, rel), owner, backup)
+            replaced.append((owner, backup))
         with open(cfg_path, "rb") as original:
             if original.read() != cfg_before:
                 raise ValueError("Configuration.xml changed during transfer")
-        if plan.get("new"):
+        if register:
             replace_form_file(staged_cfg, cfg_path)
-            installed.append(cfg_path)
-        elif plan["files"][plan["relative"]]["write_owner"]:
-            with open(owner, "rb") as original:
-                if original.read() != owner_before:
-                    raise ValueError("catalog changed during transfer")
-            replace_form_file(staged_owner, owner)
-            installed.append(owner)
         published = True
     finally:
         try:
             if not published:
+                for owner, backup in reversed(replaced):
+                    replace_form_file(backup, owner)
                 for path in installed:
                     os.unlink(path)
                 for folder in reversed(made_dirs):
@@ -5065,7 +5159,51 @@ def write_metadata_package(entry, plan):
         finally:
             os.close(lock)
             os.unlink(lock_path)
-    return installed
+    return installed + [owner for owner, _ in replaced] + ([cfg_path] if register else [])
+
+
+def validate_staged_metadata_owner(root, stage, entry, plan):
+    owner = os.path.join(root, plan["relative"])
+    staged_owner = os.path.join(stage, plan["relative"])
+    check = read_md_object(staged_owner)
+    if not check or localname(check["el"]) != entry["type"] or md_child_name(check["el"]) != plan["target"]:
+        raise ValueError("staged metadata object did not pass read-back validation")
+    if entry["type"] in REGISTER_TRANSFER_KINDS and (entry["type"] == "AccumulationRegister"
+            or check["props"].findtext("md:WriteMode", namespaces=MD_NSMAP) == "RecorderSubordinate"):
+        target = f"{entry['type']}.{plan['target']}"
+        documents = os.path.join(stage, "Documents")
+        registrar_found = False
+        if os.path.isdir(documents):
+            for file in os.scandir(documents):
+                if not file.is_file() or not file.name.lower().endswith(".xml"):
+                    continue
+                md = read_md_object(file.path)
+                if md and any(inner_text(ref).strip().lower() == target.lower()
+                              for ref in md["props"].findall("md:RegisterRecords/*", MD_NSMAP)):
+                    registrar_found = True
+                    break
+        if not registrar_found:
+            raise ValueError(f"validator: no staged registrar links to {target}")
+    if not plan.get("new") and entry["type"] in STRUCTURED_TRANSFER_KINDS:
+        # Preserve the validation context for slots pointing at existing local forms.
+        for slot in elem_children(check["props"]):
+            if not re.fullmatch(r"(Default|Auxiliary).*Form", localname(slot)):
+                continue
+            match = re.fullmatch(r"(\w+)\.(\w+)\.Form\.(\w+)", inner_text(slot), re.I)
+            if not match or match[1].lower() != entry["type"].lower() or match[2].lower() != plan["target"].lower():
+                continue
+            base = f"{CHILD_TYPE_DIR_MAP[entry['type']]}/{plan['target']}/Forms/{match[3]}"
+            for rel in (base + ".xml", base + "/Form.xml", base + "/Ext/Form.xml"):
+                original, candidate = os.path.join(root, rel), os.path.join(stage, rel)
+                if os.path.isfile(original) and not os.path.exists(candidate):
+                    os.makedirs(os.path.dirname(candidate), exist_ok=True)
+                    shutil.copyfile(original, candidate)
+    errors = get_md_validate_errors(staged_owner, entry["type"], require_result=True)
+    if not plan.get("new"):
+        baseline = get_md_validate_errors(owner, entry["type"], require_result=True)
+        errors = [error for error in errors if error.startswith("metadata validator") or error not in baseline]
+    if errors:
+        raise ValueError("validator: " + errors[0])
 
 
 def write_root_object(entry, plan):
@@ -5234,13 +5372,170 @@ def complete_root_module(plan, frame, apply):
     return items, changed
 
 
+def linked_reachable(start, edges):
+    seen, stack = set(), [start]
+    while stack:
+        key = stack.pop()
+        if key not in seen:
+            seen.add(key)
+            stack.extend(edges.get(key, ()))
+    return seen
+
+
+def linked_groups(edges):
+    reverse, visited = {}, set()
+    for key, dependencies in edges.items():
+        for dependency in dependencies:
+            reverse.setdefault(dependency, set()).add(key)
+    for key in sorted(edges):
+        if key not in visited:
+            group = linked_reachable(key, edges) & linked_reachable(key, reverse)
+            visited.update(group)
+            if len(group) > 1:
+                yield tuple(sorted(group))
+
+
+def get_linked_package_plans(keys, ext, cfg):
+    sources, unassigned = {}, []
+    prefix = ext["prefix"]
+    try:
+        for key in keys:
+            entry = ROOT_OWN[key]
+            path = os.path.join(ext["dir"], CHILD_TYPE_DIR_MAP[entry["type"]], entry["name"] + ".xml")
+            md = read_md_object(path)
+            if not md or localname(md["el"]) != entry["type"] or not md["el"].get("uuid"):
+                return {"id": key, "status": "MANUAL", "reason": "invalid source descriptor"}
+            targets = get_structured_target_set(entry, md["el"], prefix, cfg)
+            if targets.get("status"):
+                return dict(targets, id=key)
+            sources[key] = md, targets
+            if targets["candidates"]:
+                ROOT_PROVISIONAL[key] = {"target": targets["candidates"][0], "md": md}
+            else:
+                unassigned.append(key)
+        for key in unassigned:
+            md, targets = sources[key]
+            choice = get_new_structured_target(ROOT_OWN[key], targets, prefix)
+            if choice.get("status"):
+                return dict(choice, id=key)
+            ROOT_PROVISIONAL[key] = {"target": choice["target"], "md": md}
+        seen = set()
+        while True:
+            signature = tuple(ROOT_PROVISIONAL[key]["target"].lower() for key in keys)
+            if signature in seen:
+                return {"id": keys[0], "status": "MANUAL", "reason": "ambiguous targets for linked objects"}
+            seen.add(signature)
+            members, changes, blocked = [], {}, []
+            for key in keys:
+                entry = ROOT_OWN[key]
+                plan = get_root_object_plan(entry, ext["dir"], prefix, cfg)
+                if plan["status"] not in ("NOT_TRANSFERRED", "PACKAGE_PARTIAL"):
+                    blocked.append(dict(plan, id=key))
+                    continue
+                if plan["target"].lower() != ROOT_PROVISIONAL[key]["target"].lower():
+                    changes[key] = plan["target"]
+                members.append((entry, plan))
+            if changes:
+                for key, target in changes.items():
+                    ROOT_PROVISIONAL[key]["target"] = target
+                continue
+            if blocked:
+                return blocked[0]
+            claimed = set()
+            for entry, plan in members:
+                conflict = next((item for item in plan["items"] if item["status"] == "CONFLICT"), None)
+                if conflict:
+                    return {"id": entry["key"], "status": "CONFLICT", "reason": conflict["text"]}
+                relative = plan["relative"].lower()
+                if relative in claimed:
+                    return {"id": entry["key"], "status": "MANUAL", "reason": f"multiple objects claim {plan['relative']}"}
+                claimed.add(relative)
+            return {"members": members}
+    except Exception as exc:
+        return {"id": key, "status": "MANUAL", "reason": str(exc)}
+    finally:
+        ROOT_PROVISIONAL.clear()
+
+
+def complete_linked_root_groups(waiting, ext, cfg, apply):
+    global ROOT_TARGET_REGISTRARS
+    edges = {key: set() for key in waiting if ROOT_OWN[key]["type"] in LINKED_TRANSFER_KINDS}
+    for key, dependencies in edges.items():
+        dependency = waiting[key].get("dependency")
+        if dependency in edges:
+            dependencies.add(dependency)
+    tried, changed = set(), []
+    while True:
+        keys = next((group for group in linked_groups(edges) if group not in tried), ())
+        if not keys:
+            return set(), changed
+        tried.add(keys)
+        with open(os.path.join(MD_REFERENCE_ROOT, "Configuration.xml"), "rb") as registry:
+            expected_registry = registry.read()
+        batch = get_linked_package_plans(keys, ext, cfg)
+        dependency = batch.get("dependency")
+        if batch.get("status") == "WAITING" and dependency in edges and dependency not in edges[batch["id"]]:
+            edges[batch["id"]].add(dependency)
+            tried.remove(keys)
+            continue
+        members, supports = batch.get("members", ()), {}
+        writes = [(entry, plan) for entry, plan in members
+                  if any(item["status"] == "NOT_TRANSFERRED" for item in plan["items"])]
+        if apply:
+            for entry, plan in writes:
+                key = entry["key"]
+                if not entry["selected"]:
+                    batch = {"id": key, "status": "WAITING", "reason": f"{entry['id']} is excluded by -Name"}
+                    break
+                policy_file = "Configuration.xml" if plan.get("new") else plan["relative"]
+                supports[key] = get_object_support(os.path.join(MD_REFERENCE_ROOT, policy_file))
+                if supports[key] == "locked":
+                    batch = {"id": key, "status": "MANUAL", "reason": f"{policy_file} is locked by vendor support"}
+                    break
+        if not batch.get("status") and apply and writes:
+            try:
+                changed = write_metadata_package(packages=members, expected_registry=expected_registry)
+                for entry, plan in members:
+                    if plan.get("new"):
+                        MD_REFERENCE_POOLS.setdefault(entry["type"], []).append(plan["target"])
+                ROOT_TARGET_REGISTRARS = None
+                cfg.update(read_configuration_props(MD_REFERENCE_ROOT))
+            except Exception as exc:
+                batch = {"id": keys[0], "status": "CONFLICT", "reason": str(exc)}
+        if batch.get("status"):
+            for key in keys:
+                status = batch["status"] if key == batch["id"] else "WAITING"
+                waiting[key] = {"status": status, "reason": f"{ROOT_OWN[batch['id']]['id']}: {batch['reason']}",
+                                "dependency": batch.get("dependency"), "linked": True}
+            continue
+        for entry, plan in members:
+            key = entry["key"]
+            if apply or not writes:
+                ROOT_BINDINGS[key] = plan["target"]
+            for item in plan["items"]:
+                item["plan"] = {"kind": "md-reference"}
+                if apply and item["status"] == "NOT_TRANSFERRED":
+                    item.update(status="TRANSFERRED", now=True)
+                    if item.get("stored"):
+                        ROOT_DATA_WARNINGS.append(item["stored"])
+                    if supports.get(key) == "warn":
+                        item["text"] += " (locked by vendor support, written: editingAllowedCheck = warn)"
+            ROOT_RESULTS[key] = {"id": entry["id"], "items": plan["items"]}
+            waiting.pop(key)
+        return set(keys), changed
+
+
 def initialize_root_transfer(ext, objects, cfg, vars_, selected, apply=False):
+    global ROOT_TARGET_REGISTRARS
     ROOT_SOURCE_IDS.clear()
     ROOT_OWN.clear()
     ROOT_BINDINGS.clear()
     ROOT_RESULTS.clear()
     ROOT_METHOD_BLOCKS.clear()
     ROOT_GLOBAL_METHODS.clear()
+    ROOT_PROVISIONAL.clear()
+    ROOT_REGISTRARS.clear()
+    ROOT_TARGET_REGISTRARS = None
     initialize_catalog_children(ext, objects)
     ROOT_DATA_WARNINGS.clear()
     pending, changed = [], []
@@ -5251,6 +5546,9 @@ def initialize_root_transfer(ext, objects, cfg, vars_, selected, apply=False):
         if obj["type"] not in ("CommonModule", "CommonCommand", "Enum") + STRUCTURED_TRANSFER_KINDS + FLAT_TRANSFER_KINDS:
             continue
         ctx = get_obj_context(ext["dir"], obj["type"], obj["name"])
+        if obj["type"] == "Document" and ctx.get("md") and ctx["md"]["props"] is not None:
+            for ref in ctx["md"]["props"].findall("md:RegisterRecords/*", MD_NSMAP):
+                ROOT_REGISTRARS.setdefault(inner_text(ref).strip().lower(), {})[key] = oid
         if not ctx["exists"] or ctx["borrowed"]:
             continue
         entry = dict(obj, id=oid, key=key, selected=selected(oid))
@@ -5287,9 +5585,13 @@ def initialize_root_transfer(ext, objects, cfg, vars_, selected, apply=False):
             if entry["type"] in ("Enum",) + STRUCTURED_TRANSFER_KINDS + FLAT_TRANSFER_KINDS and status in ("NOT_TRANSFERRED", "PACKAGE_PARTIAL"):
                 new = status == "NOT_TRANSFERRED"
                 items = plan["items"]
+                if entry["type"] in LINKED_TRANSFER_KINDS and any(item["status"] == "CONFLICT" for item in items):
+                    items = [item for item in items if item["status"] != "NOT_TRANSFERRED"]
                 writes = [item for item in items if item["status"] == "NOT_TRANSFERRED"]
                 if not new and entry["type"] not in FLAT_TRANSFER_KINDS:
                     ROOT_BINDINGS[key] = plan["target"]
+                if entry["type"] in LINKED_TRANSFER_KINDS and any(item["status"] != "TRANSFERRED" for item in items):
+                    ROOT_BINDINGS.pop(key, None)
                 if apply and entry["selected"] and writes:
                     support = None
                     try:
@@ -5302,6 +5604,8 @@ def initialize_root_transfer(ext, objects, cfg, vars_, selected, apply=False):
                             MD_REFERENCE_POOLS.setdefault(entry["type"], []).append(plan["target"])
                             cfg.update(read_configuration_props(MD_REFERENCE_ROOT))
                         ROOT_BINDINGS[key] = plan["target"]
+                        if entry["type"] == "Document":
+                            ROOT_TARGET_REGISTRARS = None
                         for item in writes:
                             item.update(status="TRANSFERRED", now=True)
                             if item.get("stored"):
@@ -5358,10 +5662,14 @@ def initialize_root_transfer(ext, objects, cfg, vars_, selected, apply=False):
                 item["plan"] = {"kind": "md-reference"}
             ROOT_RESULTS[key] = {"id": oid, "items": items}
         if len(again) == len(pending):
-            break
+            done, batch_changes = complete_linked_root_groups(waiting, ext, cfg, apply)
+            changed.extend(batch_changes)
+            if not done:
+                break
+            again = [entry for entry in again if entry["key"] not in done]
         pending = again
     changed.extend(complete_catalog_children(ext["prefix"], cfg, selected, apply))
-    deps = {key: plan.get("dependency") for key, plan in waiting.items()}
+    deps = {key: plan.get("dependency") for key, plan in waiting.items() if not plan.get("linked")}
     deps.update({key: entry["dependency"] for key, entry in CATALOG_CHILDREN.items() if entry["item"]["status"] == "WAITING"})
     for key, dep in deps.items():
         path = [key]
@@ -7283,7 +7591,9 @@ def get_bsl_conversion(lines, file_map, ctx, params=(), comparison=False):
         k, owner = t['value'].lower(), ''
         qualified = i > 0 and ts[i - 1]['value'] == '.'
         if (not comparison and not qualified
-                and k in ("константы", "constants", "параметрысеанса", "sessionparameters", "библиотекакартинок", "picturelib")
+                and k in ("константы", "constants", "параметрысеанса", "sessionparameters", "библиотекакартинок", "picturelib",
+                          "документы", "documents", "регистрысведений", "informationregisters",
+                          "регистрынакопления", "accumulationregisters")
                 and i + 2 < len(ts) and ts[i+1]["value"] == "." and ts[i+2]["kind"] == "word" and k not in params):
             kind = ROOT_BSL_COLLECTIONS[k]
             oid = kind + "." + ts[i+2]["value"]
@@ -10163,6 +10473,10 @@ def main():
                 footer.append("    Replace stored references to the extension's enumeration values BEFORE disabling or removing the extension.")
             if any(note.startswith("Constant.") for note in ROOT_DATA_WARNINGS):
                 footer.append("    Copy the stored constant value into the configuration BEFORE disabling or removing the extension.")
+            if any(re.match(r"^(Document|InformationRegister|AccumulationRegister)[./]", note) for note in ROOT_DATA_WARNINGS):
+                footer.append("    Migrate documents, register records and posting movements BEFORE disabling or removing the extension.")
+            if any(note.startswith("DocumentNumerator.") for note in ROOT_DATA_WARNINGS):
+                footer.append("    Verify numbering continuity for documents using the transferred numerators.")
         if changed:
             footer.append("Changed files:")
             for c in changed:
