@@ -1,5 +1,5 @@
 ﻿#!/usr/bin/env python3
-# cfe-transfer v1.37 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+# cfe-transfer v1.38 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -1690,6 +1690,8 @@ def get_md_type_ref_base(kind):
     """Type kinds that name a metadata object of the configuration; a *Ref kind looks up its base kind."""
     if kind == "Characteristic":
         return "ChartOfCharacteristicTypes"
+    if kind in ("ConstantManager", "ConstantValueManager", "ConstantValueKey"):
+        return "Constant"
     if kind.endswith("Ref") and len(kind) > 3:
         return kind[:-3]
     return kind
@@ -3539,9 +3541,38 @@ ROOT_BSL_COLLECTIONS = {
     "справочники": "Catalog", "catalogs": "Catalog", "документы": "Document", "documents": "Document",
     "перечисления": "Enum", "enums": "Enum", "общиекоманды": "CommonCommand", "commoncommands": "CommonCommand",
     "константы": "Constant", "constants": "Constant", "регистрысведений": "InformationRegister", "informationregisters": "InformationRegister",
+    "параметрысеанса": "SessionParameter", "sessionparameters": "SessionParameter",
     "регистрынакопления": "AccumulationRegister", "accumulationregisters": "AccumulationRegister",
     "обработки": "DataProcessor", "dataprocessors": "DataProcessor", "отчеты": "Report", "reports": "Report",
 }
+
+FLAT_TRANSFER_KINDS = ("Constant", "DefinedType", "SessionParameter", "FunctionalOption", "FunctionalOptionsParameter")
+
+
+def get_functional_option_bsl(tokens, declared, prefix):
+    edits, issues = {}, []
+    if not ROOT_OWN:
+        return edits, issues
+    declared = {name.lower() for name in declared}
+    for i in range(len(tokens) - 3):
+        token, opening, literal, separator = tokens[i:i+4]
+        api = token["value"].lower()
+        if (api not in ("получитьфункциональнуюопцию", "getfunctionaloption") or api in declared
+                or (i and tokens[i-1]["value"] == ".") or api in ROOT_GLOBAL_METHODS
+                or opening["value"] != "(" or literal["kind"] != "string" or separator["value"] not in (",", ")")):
+            continue
+        match = re.fullmatch(r'"(\w+)"', literal["value"])
+        if not match:
+            continue
+        oid = f"FunctionalOption.{match[1]}"
+        if oid.lower() not in ROOT_OWN:
+            continue
+        ref = resolve_md_reference(oid, prefix)
+        if ref.get("status"):
+            issues.append(dict(ref, token=literal, rename=oid, why=ref["reason"]))
+        else:
+            edits[literal["start"]] = '"' + ref["value"].split(".")[1] + '"'
+    return edits, issues
 
 
 def get_root_bsl_projection(lines, prefix, self_id, self_name, rel="", child=None, enum_aliases=None):
@@ -3553,10 +3584,14 @@ def get_root_bsl_projection(lines, prefix, self_id, self_name, rel="", child=Non
     methods = [m for n in proc_names if (m := get_method_safe(lines, n))]
     locals_ = {n.lower() for v in get_module_layout(lines)["vars"] for n in v["names"]}
     method_locals = {}
-    edits, issues = get_catalog_child_bsl([t for t in all_tokens if t["kind"] != "comment" and t["value"].strip()],
-                                         rel, child, proc_names)
+    significant = [t for t in all_tokens if t["kind"] != "comment" and t["value"].strip()]
+    edits, issues = get_catalog_child_bsl(significant, rel, child, proc_names)
     if issues:
         return issues[0]
+    option_edits, option_issues = get_functional_option_bsl(significant, proc_names, prefix)
+    if option_issues:
+        return option_issues[0]
+    edits.update(option_edits)
     for i in range(len(tokens) - 1):
         token, dot = tokens[i:i + 2]
         if token["kind"] != "word" or (i and tokens[i - 1]["value"] == "."):
@@ -3744,8 +3779,12 @@ def catalog_files(root, directory, child=None):
 
 def convert_catalog_xml(fw, cfg, source, target, prefix, descriptor, child=None):
     root = fw["root"]
-    kind = (r"Enum(?:Ref|Manager|List)?" if descriptor and localname(get_md_object_element(root)) == "Enum"
-            else r"Catalog(?:Ref|Object|Manager|Selection|List|TabularSectionRow|TabularSection)?")
+    obj_kind = localname(get_md_object_element(root)) if descriptor else "Catalog"
+    kind = {
+        "Enum": r"Enum(?:Ref|Manager|List)?",
+        "Constant": r"Constant(?:Manager|ValueManager|ValueKey)?",
+        "Catalog": r"Catalog(?:Ref|Object|Manager|Selection|List|TabularSectionRow|TabularSection)?",
+    }.get(obj_kind, re.escape(obj_kind))
     if descriptor:
         get_md_object_element(root).find("md:Properties/md:Name", MD_NSMAP).text = target
     for node in root.xpath("//md:ObjectBelonging|//md:ExtendedConfigurationObject", namespaces=MD_NSMAP):
@@ -3774,7 +3813,20 @@ def convert_catalog_xml(fw, cfg, source, target, prefix, descriptor, child=None)
                         continue
         xsi_type = node.get("{http://www.w3.org/2001/XMLSchema-instance}type")
         is_type = node.tag in ("{%s}Type" % MD_NSMAP["v8"], "{%s}TypeSet" % MD_NSMAP["v8"])
+        parent = localname(node.getparent()) if node.getparent() is not None else ""
+        strict_ref = (
+            (obj_kind == "FunctionalOption" and (name == "Location" or (name == "Object" and parent == "Content")))
+            or (obj_kind == "FunctionalOptionsParameter" and name == "Item" and parent == "Use")
+            or (obj_kind == "Constant" and (
+                (name in ("DefaultForm", "ChoiceForm") and parent == "Properties")
+                or (name == "DataPath" and node.xpath("ancestor::md:ChoiceParameterLinks|ancestor::md:LinkByType",
+                                                      namespaces=MD_NSMAP)))))
+        if strict_ref and value:
+            path = re.fullmatch(r"(\w+)\.\w+(?:\.\w+\.\w+)*", value)
+            if not path or path[1] not in CHILD_TYPE_DIR_MAP:
+                return {"status": "MANUAL", "reason": f"unsupported metadata reference in {name}: {value}"}
         is_ref = (re.match(r"^(Default|Auxiliary).+Form$", name)
+                  or strict_ref
                   or name in ("ChoiceForm", "Owners", "Group", "Ref", "DataPath")
                   or node.tag == "{%s}Field" % MD_NSMAP["xr"]
                   or xsi_type in ("xr:DesignTimeRef", "xr:MDObjectRef"))
@@ -3790,7 +3842,7 @@ def convert_catalog_xml(fw, cfg, source, target, prefix, descriptor, child=None)
                 node.text = ref["value"]
         elif pattern.match(value):
             node.text = pattern.sub(lambda m: m[1] + target, value)
-        elif name != "DataPath" or is_type:
+        elif name != "DataPath" or is_type or strict_ref:
             ref = resolve_md_reference(value, prefix, is_type)
             if ref.get("status"):
                 return ref
@@ -4429,11 +4481,130 @@ def get_enum_transfer_plan(entry, ext_dir, prefix, cfg):
     return plan
 
 
+def flat_metadata_equal(source, target):
+    a, b = copy.deepcopy(source), copy.deepcopy(target)
+    path = "md:Properties/md:Type"
+    x, y = a.find(path, MD_NSMAP), b.find(path, MD_NSMAP)
+    if (x is None) != (y is None):
+        return False
+    if x is not None:
+        if not test_md_type_model_equal(get_md_type_model(x, ""), get_md_type_model(y, "")):
+            return False
+        x.getparent().remove(x)
+        y.getparent().remove(y)
+    return catalog_node_key(a) == catalog_node_key(b)
+
+
+def get_flat_transfer_plan(entry, ext_dir, prefix, cfg):
+    children = cfg["child_objects"]
+    if children is None:
+        return {"status": "MANUAL", "reason": "configuration has no ChildObjects"}
+    kind, source_name = entry["type"], entry["name"]
+    directory = CHILD_TYPE_DIR_MAP[kind]
+    base = os.path.join(ext_dir, directory, source_name)
+    source = read_form_write(base + ".xml")
+    if source["root"].get("version") != children.getroottree().getroot().get("version"):
+        return {"status": "MANUAL", "reason": "metadata dump formats differ"}
+    node = get_md_object_element(source["root"])
+    if localname(node) != kind or not node.get("uuid") or node.find("md:ChildObjects/*", MD_NSMAP) is not None:
+        return {"status": "MANUAL", "reason": f"unsupported {kind} descriptor or children"}
+    allowed = {"Ext/ManagerModule.bsl", "Ext/ValueManagerModule.bsl"} if kind == "Constant" else set()
+    files = {}
+    for folder, _, names in os.walk(base):
+        for name in names:
+            path = os.path.join(folder, name)
+            rel = os.path.relpath(path, base).replace(os.sep, "/")
+            if rel not in allowed:
+                return {"status": "MANUAL", "reason": f"unsupported {kind} file {rel}"}
+            files[rel] = path
+    identity = metadata_transfer_uuid(cfg, kind, node.get("uuid"))
+    registry = [(localname(n), inner_text(n)) for n in elem_children(children)]
+    ids = [(tag, name) for tag, name in registry if tag in CHILD_TYPE_DIR_MAP
+           and _sg_root_uuid(os.path.join(MD_REFERENCE_ROOT, CHILD_TYPE_DIR_MAP[tag], name + ".xml")) == identity]
+    if len(ids) > 1 or (ids and ids[0][0] != kind):
+        return {"status": "CONFLICT", "reason": f"{kind} UUID {identity} collides in configuration"}
+    pool = [name for tag, name in registry if tag == kind]
+    candidates = [ids[0][1]] if ids else find_names_in(pool, source_name, prefix)
+    matches, uncertain = [], []
+    for name in candidates:
+        relative = f"{directory}/{name}.xml"
+        path = os.path.join(MD_REFERENCE_ROOT, relative)
+        if not os.path.isfile(path):
+            return {"status": "CONFLICT", "reason": "missing descriptor " + relative}
+        with open(path, "rb") as original:
+            before = original.read()
+        dest = read_form_write(path)
+        plan = root_metadata_projection(entry, cfg, source, files, name, prefix)
+        if plan.get("status"):
+            return plan
+        same = flat_metadata_equal(get_md_object_element(plan["files"][relative]["xml"]["root"]),
+                                   get_md_object_element(dest["root"]))
+        writes, different = {}, []
+        folder = os.path.splitext(path)[0]
+        for parent, _, names in os.walk(folder):
+            for filename in names:
+                existing = os.path.join(parent, filename)
+                rel = os.path.relpath(existing, MD_REFERENCE_ROOT).replace(os.sep, "/")
+                if rel not in plan["files"] or not catalog_file_equal(plan["files"][rel], existing):
+                    different.append(rel)
+        for rel, info in sorted(plan["files"].items()):
+            if rel == relative:
+                continue
+            path = os.path.join(MD_REFERENCE_ROOT, rel)
+            if not os.path.lexists(path):
+                writes[rel] = info
+            elif not os.path.isfile(path):
+                different.append(rel)
+        if ids and (not same or different):
+            reason = f"{kind} descriptor differs" if not same else "existing files differ: " + ", ".join(different)
+            return {"status": "CONFLICT", "target": name, "reason": reason}
+        if not same:
+            continue
+        if not ids and (different or writes):
+            uncertain.append(name)
+            continue
+        if writes:
+            items = [new_item("NOT_TRANSFERRED", rel) for rel in writes]
+            writes[relative] = {"xml": dest, "before": before, "write_owner": False}
+            plan.update(status="PACKAGE_PARTIAL", files=writes, items=items)
+        else:
+            plan["status"] = "TRANSFERRED"
+        matches.append(plan)
+    if len(matches) == 1 and not uncertain:
+        return matches[0]
+    if matches or uncertain:
+        return {"status": "MANUAL", "reason": "check matching objects: " + ", ".join([p["target"] for p in matches] + uncertain)}
+    taken = {name.lower() for name in pool}
+    dest_dir = os.path.join(MD_REFERENCE_ROOT, directory)
+    if os.path.isdir(dest_dir):
+        for file in os.scandir(dest_dir):
+            if file.is_dir():
+                taken.add(file.name.lower())
+            elif file.name.lower().endswith(".xml"):
+                taken.add(file.name[:-4].lower())
+                if _sg_root_uuid(file.path) == identity:
+                    return {"status": "CONFLICT", "reason": f"{kind} UUID {identity} exists in an unregistered descriptor"}
+    settings = SETTINGS[get_object_kind(source_name, "own")]
+    choice = get_target_name(source_name, prefix, taken, settings["add_dev_objects"])
+    if choice.get("taken"):
+        return {"status": "CONFLICT", "reason": f"name taken in configuration ({choice['note']})"}
+    target = choice["name"]
+    plan = root_metadata_projection(entry, cfg, source, files, target, prefix)
+    if not plan.get("status"):
+        item = new_item("NOT_TRANSFERRED", f"own {kind} {source_name} (as {target})")
+        if kind == "Constant":
+            item["stored"] = f"Constant.{source_name} -> Constant.{target} — stored constant value"
+        plan.update(status="NOT_TRANSFERRED", items=[item], new=True)
+    return plan
+
+
 def get_root_object_plan(entry, ext_dir, prefix, cfg):
     if entry["type"] == "Catalog":
         return get_catalog_transfer_plan(entry, ext_dir, prefix, cfg)
     if entry["type"] == "Enum":
         return get_enum_transfer_plan(entry, ext_dir, prefix, cfg)
+    if entry["type"] in FLAT_TRANSFER_KINDS:
+        return get_flat_transfer_plan(entry, ext_dir, prefix, cfg)
     oid, kind, name = entry["id"], entry["type"], entry["name"]
     src = root_object_paths(kind, name)
     src_bsl = os.path.normpath(os.path.join(ext_dir, src["bsl"]))
@@ -4916,7 +5087,7 @@ def initialize_root_transfer(ext, objects, cfg, vars_, selected, apply=False):
         oid = "%s.%s" % (obj["type"], obj["name"])
         key = oid.lower()
         ROOT_SOURCE_IDS.add(key)
-        if obj["type"] not in ("CommonModule", "CommonCommand", "Catalog", "Enum"):
+        if obj["type"] not in ("CommonModule", "CommonCommand", "Catalog", "Enum") + FLAT_TRANSFER_KINDS:
             continue
         ctx = get_obj_context(ext["dir"], obj["type"], obj["name"])
         if not ctx["exists"] or ctx["borrowed"]:
@@ -4952,11 +5123,11 @@ def initialize_root_transfer(ext, objects, cfg, vars_, selected, apply=False):
                 continue
             if status in ("TRANSFERRED", "PARTIAL"):
                 ROOT_BINDINGS[key] = plan["target"]
-            if entry["type"] in ("Catalog", "Enum") and status in ("NOT_TRANSFERRED", "PACKAGE_PARTIAL"):
+            if entry["type"] in ("Catalog", "Enum") + FLAT_TRANSFER_KINDS and status in ("NOT_TRANSFERRED", "PACKAGE_PARTIAL"):
                 new = status == "NOT_TRANSFERRED"
                 items = plan["items"]
                 writes = [item for item in items if item["status"] == "NOT_TRANSFERRED"]
-                if not new:
+                if not new and entry["type"] not in FLAT_TRANSFER_KINDS:
                     ROOT_BINDINGS[key] = plan["target"]
                 if apply and entry["selected"] and writes:
                     support = None
@@ -6932,7 +7103,7 @@ def get_bsl_conversion(lines, file_map, ctx, params=(), comparison=False):
     methods = dict(ctx['methods']) if ctx else {}
     methods.update(file_map)
     attrs = ctx['attrs'] if ctx else {}
-    if not comparison and CATALOG_CHILDREN:
+    if not comparison and (CATALOG_CHILDREN or ROOT_OWN):
         if ctx and "declared_methods" not in ctx:
             ctx["declared_methods"] = get_proc_names(ctx["ext"])
         child_edits, child_issues = get_catalog_child_bsl(ts, ctx['rel'] if ctx else '', None,
@@ -6940,12 +7111,29 @@ def get_bsl_conversion(lines, file_map, ctx, params=(), comparison=False):
         edits.update(child_edits)
         handled.update(child_edits)
         issues.extend(child_issues)
+        option_edits, option_issues = get_functional_option_bsl(ts, ctx["declared_methods"] if ctx else (), TRANSFER_PREFIX)
+        edits.update(option_edits)
+        handled.update(option_edits)
+        issues.extend(option_issues)
     locals_ = None
     for i, t in enumerate(ts):
         if t['kind'] != 'word':
             continue
         k, owner = t['value'].lower(), ''
         qualified = i > 0 and ts[i - 1]['value'] == '.'
+        if (not comparison and not qualified and k in ("константы", "constants", "параметрысеанса", "sessionparameters")
+                and i + 2 < len(ts) and ts[i+1]["value"] == "." and ts[i+2]["kind"] == "word" and k not in params):
+            kind = ROOT_BSL_COLLECTIONS[k]
+            oid = kind + "." + ts[i+2]["value"]
+            if oid.lower() in ROOT_OWN:
+                if locals_ is None:
+                    locals_ = get_local_names(get_code_only(lines), params)
+                if k not in locals_:
+                    ref = resolve_md_reference(oid, TRANSFER_PREFIX)
+                    if ref.get("status"):
+                        issues.append({"token": t, "rename": oid, "why": ref["reason"], "status": ref["status"]})
+                    else:
+                        edits[ts[i+2]["start"]] = ref["value"].split(".")[1]
         if (not comparison and not qualified and k in ("перечисления", "enums") and i + 4 < len(ts)
                 and ts[i+1]["value"] == "." and ts[i+3]["value"] == "." and ts[i+2]["kind"] == ts[i+4]["kind"] == "word"
                 and (i + 5 >= len(ts) or ts[i+5]["value"] != "(") and k not in params
@@ -9803,7 +9991,7 @@ def main():
             footer.append("!!! Stored data is NOT migrated:")
             for l in dict.fromkeys(MD_WARN):
                 footer.append("    " + l)
-            if any(not note.startswith("Enum.") for note in MD_WARN):
+            if any(not note.startswith(("Enum.", "Constant.")) for note in MD_WARN):
                 footer.append("    The metadata is transferred as structure only, with new identifiers. Values the extension")
                 footer.append("    wrote into its own attributes stay in the extension's columns and are LOST when it is")
                 footer.append("    disabled or removed. Copy them into the configuration's attributes BEFORE that.")
@@ -9811,6 +9999,8 @@ def main():
                 footer.append("    Copy the catalog records and their tabular sections into the configuration BEFORE disabling or removing the extension.")
             if any(note.startswith("Enum.") for note in ROOT_DATA_WARNINGS):
                 footer.append("    Replace stored references to the extension's enumeration values BEFORE disabling or removing the extension.")
+            if any(note.startswith("Constant.") for note in ROOT_DATA_WARNINGS):
+                footer.append("    Copy the stored constant value into the configuration BEFORE disabling or removing the extension.")
         if changed:
             footer.append("Changed files:")
             for c in changed:

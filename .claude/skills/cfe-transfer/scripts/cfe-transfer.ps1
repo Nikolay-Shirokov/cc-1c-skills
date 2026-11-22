@@ -1,4 +1,4 @@
-﻿# cfe-transfer v1.37 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+﻿# cfe-transfer v1.38 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -1541,6 +1541,7 @@ $script:mdQualOrder = @('NumberQualifiers', 'StringQualifiers', 'DateQualifiers'
 # Type kinds that name a metadata object of the configuration; a *Ref kind looks up its base kind
 function Get-MdTypeRefBase([string]$kind) {
 	if ($kind -ceq 'Characteristic') { return 'ChartOfCharacteristicTypes' }
+	if ($kind -in @('ConstantManager','ConstantValueManager','ConstantValueKey')) { return 'Constant' }
 	if ($kind.EndsWith('Ref') -and $kind.Length -gt 3) { return $kind.Substring(0, $kind.Length - 3) }
 	return $kind
 }
@@ -3275,11 +3276,34 @@ function Get-RootObjectXml($fw, [string]$kind, [string]$name, [string]$prefix) {
 	return @{ Props = $props }
 }
 
+$script:flatTransferKinds = @('Constant','DefinedType','SessionParameter','FunctionalOption','FunctionalOptionsParameter')
+
+function Get-FunctionalOptionBsl($tokens, $declared, [string]$prefix) {
+	$result = @{ Edits = @{}; Issues = @() }
+	if (-not $script:rootOwn.Count) { return $result }
+	for ($i = 0; $i + 3 -lt $tokens.Count; $i++) {
+		$api = $tokens[$i].Value
+		if ($api -notin @('ПолучитьФункциональнуюОпцию','GetFunctionalOption') -or $api -in $declared -or
+			($i -and $tokens[$i - 1].Value -eq '.') -or $script:rootGlobalMethods.ContainsKey($api) -or
+			$tokens[$i + 1].Value -ne '(' -or $tokens[$i + 2].Kind -ne 'string' -or $tokens[$i + 3].Value -notin @(',',')') -or
+			$tokens[$i + 2].Value -notmatch '^"(\w+)"$') { continue }
+		$literal = $tokens[$i + 2]
+		$id = "FunctionalOption.$($Matches[1])"
+		if (-not $script:rootOwn.ContainsKey($id)) { continue }
+		$ref = Resolve-MdReference $id $prefix
+		if ($ref.Status) {
+			$result.Issues += @{ Token = $literal; Rename = $id; Why = $ref.Reason; Reason = $ref.Reason; Status = $ref.Status; Dependency = $ref.Dependency }
+		} else { $result.Edits[$literal.Start] = '"' + $ref.Value.Split('.')[1] + '"' }
+	}
+	return $result
+}
+
 function Get-RootBslProjection($lines, [string]$prefix, [string]$selfId, [string]$selfName, [string]$rel = '', $child = $null, $enumAliases = @{}) {
 	$collections = @{
 		'Справочники'='Catalog'; 'Catalogs'='Catalog'; 'Документы'='Document'; 'Documents'='Document'
 		'Перечисления'='Enum'; 'Enums'='Enum'; 'ОбщиеКоманды'='CommonCommand'; 'CommonCommands'='CommonCommand'
 		'Константы'='Constant'; 'Constants'='Constant'; 'РегистрыСведений'='InformationRegister'; 'InformationRegisters'='InformationRegister'
+		'ПараметрыСеанса'='SessionParameter'; 'SessionParameters'='SessionParameter'
 		'РегистрыНакопления'='AccumulationRegister'; 'AccumulationRegisters'='AccumulationRegister'
 		'Обработки'='DataProcessor'; 'DataProcessors'='DataProcessor'; 'Отчеты'='Report'; 'Reports'='Report'
 	}
@@ -3291,9 +3315,13 @@ function Get-RootBslProjection($lines, [string]$prefix, [string]$selfId, [string
 	$locals = @( (Get-ModuleLayout $lines).Vars | ForEach-Object { $_.Names })
 	$methodLocals = @{}
 	$edits = @{}
-	$childRefs = Get-CatalogChildBsl @($all | Where-Object { $_.Kind -ne 'comment' -and $_.Value.Trim() }) $rel $child $procNames
+	$significant = @($all | Where-Object { $_.Kind -ne 'comment' -and $_.Value.Trim() })
+	$childRefs = Get-CatalogChildBsl $significant $rel $child $procNames
 	if ($childRefs.Issues.Count) { return $childRefs.Issues[0] }
 	foreach ($pos in $childRefs.Edits.Keys) { $edits[$pos] = $childRefs.Edits[$pos] }
+	$options = Get-FunctionalOptionBsl $significant $procNames $prefix
+	if ($options.Issues.Count) { return $options.Issues[0] }
+	foreach ($pos in $options.Edits.Keys) { $edits[$pos] = $options.Edits[$pos] }
 	for ($i = 0; $i + 1 -lt $tokens.Count; $i++) {
 		$token = $tokens[$i]
 		if ($token.Kind -ne 'word' -or ($i -and $tokens[$i - 1].Value -eq '.')) { continue }
@@ -3489,7 +3517,13 @@ function Get-CatalogFileSet($doc, [string]$root, $child = $null) {
 
 function Convert-CatalogXml($fw, [string]$source, [string]$target, [string]$prefix, [bool]$descriptor, $child = $null) {
 	$m = New-MdNt $fw.Doc
-	$kind = if ($descriptor -and (Get-MdObjectElement $fw.Doc).LocalName -eq 'Enum') { 'Enum(?:Ref|Manager|List)?' } else { 'Catalog(?:Ref|Object|Manager|Selection|List|TabularSectionRow|TabularSection)?' }
+	$objKind = if ($descriptor) { (Get-MdObjectElement $fw.Doc).LocalName } else { 'Catalog' }
+	$kind = switch ($objKind) {
+		'Enum' { 'Enum(?:Ref|Manager|List)?' }
+		'Constant' { 'Constant(?:Manager|ValueManager|ValueKey)?' }
+		'Catalog' { 'Catalog(?:Ref|Object|Manager|Selection|List|TabularSectionRow|TabularSection)?' }
+		default { [regex]::Escape($objKind) }
+	}
 	if ($descriptor) {
 		$props = (Get-MdObjectElement $fw.Doc).SelectSingleNode('md:Properties', $m)
 		$props.SelectSingleNode('md:Name', $m).InnerText = $target
@@ -3517,7 +3551,17 @@ function Convert-CatalogXml($fw, [string]$source, [string]$target, [string]$pref
 			}
 		}
 		$isType = $node.NamespaceURI -eq $m.LookupNamespace('v8') -and $node.LocalName -in @('Type','TypeSet')
+		$strictRef = ($objKind -eq 'FunctionalOption' -and ($node.LocalName -eq 'Location' -or
+			($node.LocalName -eq 'Object' -and $node.ParentNode.LocalName -eq 'Content'))) -or
+			($objKind -eq 'FunctionalOptionsParameter' -and $node.LocalName -eq 'Item' -and $node.ParentNode.LocalName -eq 'Use') -or
+			($objKind -eq 'Constant' -and (($node.LocalName -in @('DefaultForm','ChoiceForm') -and $node.ParentNode.LocalName -eq 'Properties') -or
+				($node.LocalName -eq 'DataPath' -and $node.SelectSingleNode('ancestor::md:ChoiceParameterLinks|ancestor::md:LinkByType', $m))))
+		if ($strictRef -and $value -and ($value -notmatch '^(\w+)\.\w+(?:\.\w+\.\w+)*$' -or
+			-not $script:childTypeDirMap.ContainsKey($Matches[1]))) {
+			return @{ Status = 'MANUAL'; Reason = "unsupported metadata reference in $($node.LocalName): $value" }
+		}
 		$isRef = $node.LocalName -match '^(Default|Auxiliary).+Form$|^(ChoiceForm|Owners|Group|Ref|DataPath)$' -or
+			$strictRef -or
 			($node.LocalName -eq 'Field' -and $node.NamespaceURI -eq $m.LookupNamespace('xr')) -or
 			$node.GetAttribute('type', $m.LookupNamespace('xsi')) -eq 'xr:DesignTimeRef' -or
 			$node.GetAttribute('type', $m.LookupNamespace('xsi')) -eq 'xr:MDObjectRef'
@@ -3531,7 +3575,7 @@ function Convert-CatalogXml($fw, [string]$source, [string]$target, [string]$pref
 		}
 		if ($value -match $self) {
 			$node.InnerText = [regex]::Replace($value, $self, { param($match) $match.Groups[1].Value + $match.Groups[2].Value + $target }, 'IgnoreCase')
-		} elseif ($isType -or $node.LocalName -notin @('DataPath')) {
+		} elseif ($isType -or $strictRef -or $node.LocalName -notin @('DataPath')) {
 			$ref = Resolve-MdReference $value $prefix $isType
 			if ($ref.Status) { return $ref }
 			$node.InnerText = $ref.Value
@@ -4129,9 +4173,102 @@ function Get-EnumTransferPlan($entry, [string]$extDir, [string]$prefix) {
 	return $plan
 }
 
+function Test-FlatMetadataEqual($source, $target) {
+	$a = $source.CloneNode($true); $b = $target.CloneNode($true)
+	$path = 'md:Properties/md:Type'
+	$x = $a.SelectSingleNode($path, (New-MdNt $a.OwnerDocument))
+	$y = $b.SelectSingleNode($path, (New-MdNt $b.OwnerDocument))
+	if ([bool]$x -ne [bool]$y) { return $false }
+	if ($x) {
+		if (-not (Test-MdTypeModelEqual (Get-MdTypeModel $x '') (Get-MdTypeModel $y ''))) { return $false }
+		[void]$x.ParentNode.RemoveChild($x)
+		[void]$y.ParentNode.RemoveChild($y)
+	}
+	return (Get-CatalogNodeKey $a) -ceq (Get-CatalogNodeKey $b)
+}
+
+function Get-FlatTransferPlan($entry, [string]$extDir, [string]$prefix) {
+	if (-not $cfgInfo.ChildObjects) { return @{ Status = 'MANUAL'; Reason = 'configuration has no ChildObjects' } }
+	$kind = $entry.Type; $dir = $script:childTypeDirMap[$kind]
+	$base = Join-Path $extDir "$dir/$($entry.Name)"
+	$source = Read-FormWrite "$base.xml"
+	if ($source.Doc.DocumentElement.GetAttribute('version') -cne $cfgInfo.Doc.DocumentElement.GetAttribute('version')) { return @{ Status = 'MANUAL'; Reason = 'metadata dump formats differ' } }
+	$node = Get-MdObjectElement $source.Doc
+	$m = New-MdNt $source.Doc
+	if ($node.LocalName -ne $kind -or -not $node.GetAttribute('uuid') -or $node.SelectSingleNode('md:ChildObjects/*', $m)) {
+		return @{ Status = 'MANUAL'; Reason = "unsupported $kind descriptor or children" }
+	}
+	$files = @{}
+	$allowed = if ($kind -eq 'Constant') { @('Ext/ManagerModule.bsl','Ext/ValueManagerModule.bsl') } else { @() }
+	foreach ($f in @(Get-ChildItem -LiteralPath $base -File -Force -Recurse -ErrorAction SilentlyContinue)) {
+		$rel = Get-RelPath $base $f.FullName
+		if ($rel -notin $allowed) { return @{ Status = 'MANUAL'; Reason = "unsupported $kind file $rel" } }
+		$files[$rel] = $f.FullName
+	}
+	$uuid = Get-MetadataTransferUuid $kind $node.GetAttribute('uuid')
+	$registry = @($cfgInfo.ChildObjects.ChildNodes | Where-Object NodeType -eq 'Element')
+	$ids = @($registry | Where-Object {
+		$folder = $script:childTypeDirMap[$_.LocalName]
+		$folder -and (Get-RootUuid (Get-CfgPath "$folder/$($_.InnerText).xml")) -eq $uuid
+	})
+	if ($ids.Count -gt 1 -or ($ids.Count -eq 1 -and $ids[0].LocalName -ne $kind)) { return @{ Status = 'CONFLICT'; Reason = "$kind UUID $uuid collides in configuration" } }
+	$pool = @($registry | Where-Object LocalName -eq $kind | ForEach-Object InnerText)
+	$candidates = if ($ids.Count) { @($ids[0].InnerText) } else { @(Find-NamesIn $pool $entry.Name $prefix) }
+	$matches2 = @(); $uncertain = @()
+	foreach ($name in $candidates) {
+		$relative = "$dir/$name.xml"
+		$path = Get-CfgPath $relative
+		if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return @{ Status = 'CONFLICT'; Reason = "missing descriptor $relative" } }
+		$before = (Get-FileHash -LiteralPath $path).Hash
+		$dest = Read-FormWrite $path
+		$plan = Get-RootMetadataProjection $entry $source $files $name $prefix
+		if ($plan.Status) { return $plan }
+		$same = Test-FlatMetadataEqual (Get-MdObjectElement $plan.Files[$relative].Xml.Doc) (Get-MdObjectElement $dest.Doc)
+		$writes = @{}; $different = @()
+		$folder = Get-CfgPath "$dir/$name"
+		foreach ($f in @(Get-ChildItem -LiteralPath $folder -File -Force -Recurse -ErrorAction SilentlyContinue)) {
+			$rel = "$dir/$name/$(Get-RelPath $folder $f.FullName)"
+			if (-not $plan.Files.ContainsKey($rel) -or -not (Test-CatalogFileEqual $plan.Files[$rel] $f.FullName)) { $different += $rel }
+		}
+		foreach ($rel in @($plan.Files.Keys | Where-Object { $_ -ne $relative } | Sort-Object)) {
+			if (-not (Test-Path -LiteralPath (Get-CfgPath $rel))) { $writes[$rel] = $plan.Files[$rel] }
+			elseif (-not (Test-Path -LiteralPath (Get-CfgPath $rel) -PathType Leaf)) { $different += $rel }
+		}
+		if ($ids.Count -and (-not $same -or $different.Count)) {
+			$reason = if (-not $same) { "$kind descriptor differs" } else { "existing files differ: $($different -join ', ')" }
+			return @{ Status = 'CONFLICT'; Target = $name; Reason = $reason }
+		}
+		if (-not $same) { continue }
+		if (-not $ids.Count -and ($different.Count -or $writes.Count)) { $uncertain += $name; continue }
+		if ($writes.Count) {
+			$plan.Items = @(foreach ($rel in @($writes.Keys | Sort-Object)) { New-Item2 'NOT_TRANSFERRED' $rel })
+			$writes[$relative] = @{ Xml = $dest; Before = $before; WriteOwner = $false }
+			$plan.Status = 'PACKAGE_PARTIAL'; $plan.Files = $writes
+		} else { $plan.Status = 'TRANSFERRED' }
+		$matches2 += $plan
+	}
+	if ($matches2.Count -eq 1 -and -not $uncertain.Count) { return $matches2[0] }
+	if ($matches2.Count -or $uncertain.Count) { return @{ Status = 'MANUAL'; Reason = "check matching objects: $((@($matches2.Target) + $uncertain | Where-Object { $_ }) -join ', ')" } }
+	$taken = New-Object 'System.Collections.Generic.HashSet[string]'
+	foreach ($name in $pool) { [void]$taken.Add($name.ToLowerInvariant()) }
+	foreach ($f in @(Get-ChildItem -LiteralPath (Get-CfgPath $dir) -Force -ErrorAction SilentlyContinue)) {
+		if ($f.PSIsContainer -or $f.Extension -ieq '.xml') { [void]$taken.Add($f.BaseName.ToLowerInvariant()) }
+		if (-not $f.PSIsContainer -and $f.Extension -ieq '.xml' -and (Get-RootUuid $f.FullName) -eq $uuid) { return @{ Status = 'CONFLICT'; Reason = "$kind UUID $uuid exists in an unregistered descriptor" } }
+	}
+	$choice = Get-TargetName $entry.Name $prefix $taken $script:settings[(Get-ObjectKind $entry.Name 'own')].AddDevObjects
+	if ($choice.Taken) { return @{ Status = 'CONFLICT'; Reason = "name taken in configuration ($($choice.Note))" } }
+	$plan = Get-RootMetadataProjection $entry $source $files $choice.Name $prefix
+	if ($plan.Status) { return $plan }
+	$item = New-Item2 'NOT_TRANSFERRED' "own $kind $($entry.Name) (as $($choice.Name))"
+	if ($kind -eq 'Constant') { $item.Stored = "Constant.$($entry.Name) -> Constant.$($choice.Name) — stored constant value" }
+	$plan.Status = 'NOT_TRANSFERRED'; $plan.Items = @($item); $plan.New = $true
+	return $plan
+}
+
 function Get-RootObjectPlan($entry, [string]$extDir, [string]$prefix) {
 	if ($entry.Type -eq 'Catalog') { return Get-CatalogTransferPlan $entry $extDir $prefix }
 	if ($entry.Type -eq 'Enum') { return Get-EnumTransferPlan $entry $extDir $prefix }
+	if ($entry.Type -in $script:flatTransferKinds) { return Get-FlatTransferPlan $entry $extDir $prefix }
 	$id = $entry.Id; $kind = $entry.Type; $name = $entry.Name
 	$src = Get-RootObjectPaths $kind $name
 	$srcXml = Join-Path $extDir $src.Xml
@@ -4530,7 +4667,7 @@ function Initialize-RootTransfer($ext, $objects, $vars, [bool]$apply) {
 	foreach ($obj in $objects) {
 		$id = "$($obj.Type).$($obj.Name)"
 		$script:rootSourceIds[$id] = $true
-		if ($obj.Type -notin @('CommonModule','CommonCommand','Catalog','Enum')) { continue }
+		if ($obj.Type -notin @('CommonModule','CommonCommand','Catalog','Enum') -and $obj.Type -notin $script:flatTransferKinds) { continue }
 		$ctx = Get-ObjContext $ext.Dir $obj.Type $obj.Name
 		if (-not $ctx.Exists -or $ctx.Borrowed) { continue }
 		$entry = @{ Id = $id; Type = $obj.Type; Name = $obj.Name; Selected = (Test-NameMatch $id) }
@@ -4561,10 +4698,10 @@ function Initialize-RootTransfer($ext, $objects, $vars, [bool]$apply) {
 			if ($plan.Status -eq 'WAITING') { $waiting[$id] = $plan; $again += $entry; continue }
 			$items = @()
 			if ($plan.Status -in @('TRANSFERRED','PARTIAL')) { $script:rootBindings[$id] = $plan.Target }
-			if ($entry.Type -in @('Catalog','Enum') -and $plan.Status -in @('NOT_TRANSFERRED','PACKAGE_PARTIAL')) {
+			if (($entry.Type -in @('Catalog','Enum') -or $entry.Type -in $script:flatTransferKinds) -and $plan.Status -in @('NOT_TRANSFERRED','PACKAGE_PARTIAL')) {
 				$new = $plan.Status -eq 'NOT_TRANSFERRED'
 				$items = @($plan.Items)
-				if (-not $new) { $script:rootBindings[$id] = $plan.Target }
+				if (-not $new -and $entry.Type -notin $script:flatTransferKinds) { $script:rootBindings[$id] = $plan.Target }
 				$writes = @($items | Where-Object Status -eq 'NOT_TRANSFERRED')
 				if ($apply -and $entry.Selected -and $writes.Count) {
 					$support = $null
@@ -6429,16 +6566,32 @@ function Get-BslConversion($lines, $fileMap, $ctx, $params = $null, [switch]$Com
 	$methods = @{}; $attrs = @{}
 	if ($ctx) { foreach ($k in $ctx.Methods.Keys) { $methods[$k] = $ctx.Methods[$k] }; $attrs = $ctx.Attrs }
 	foreach ($k in $fileMap.Keys) { $methods[$k] = $fileMap[$k] }
-	if (-not $Comparison -and $script:catalogChildren.Count) {
+	if (-not $Comparison -and ($script:catalogChildren.Count -or $script:rootOwn.Count)) {
 		if ($ctx -and -not $ctx.ContainsKey('DeclaredMethods')) { $ctx.DeclaredMethods = @(Get-ProcNames $ctx.Ext) }
 		$childRefs = Get-CatalogChildBsl $ts $ctx.Rel $null $ctx.DeclaredMethods
 		foreach ($pos in $childRefs.Edits.Keys) { $edits[$pos] = $childRefs.Edits[$pos]; $handled[$pos] = $true }
 		$issues += $childRefs.Issues
+		$optionRefs = Get-FunctionalOptionBsl $ts $ctx.DeclaredMethods $script:transferPrefix
+		foreach ($pos in $optionRefs.Edits.Keys) { $edits[$pos] = $optionRefs.Edits[$pos]; $handled[$pos] = $true }
+		$issues += $optionRefs.Issues
 	}
 	$locals = $null
 	for ($i = 0; $i -lt $ts.Count; $i++) {
 		$t = $ts[$i]; if ($t.Kind -ne 'word') { continue }; $k = $t.Value.ToLowerInvariant()
 		$owner = ''; $qualified = $i -gt 0 -and $ts[$i - 1].Value -eq '.'
+		if (-not $Comparison -and -not $qualified -and $k -in @('константы','constants','параметрысеанса','sessionparameters') -and
+			$i + 2 -lt $ts.Count -and $ts[$i + 1].Value -eq '.' -and $ts[$i + 2].Kind -eq 'word' -and $k -notin $params) {
+			$kind = if ($k -in @('константы','constants')) { 'Constant' } else { 'SessionParameter' }
+			$id = "$kind.$($ts[$i + 2].Value)"
+			if ($script:rootOwn.ContainsKey($id)) {
+				if ($null -eq $locals) { $locals = Get-LocalNames (Get-CodeOnly $lines) $params }
+				if (-not $locals.Contains($k)) {
+					$ref = Resolve-MdReference $id $script:transferPrefix
+					if ($ref.Status) { $issues += @{ Token = $t; Rename = $id; Why = $ref.Reason; Status = $ref.Status } }
+					else { $edits[$ts[$i + 2].Start] = $ref.Value.Split('.')[1] }
+				}
+			}
+		}
 		if (-not $Comparison -and -not $qualified -and $k -in @('перечисления','enums') -and $i + 4 -lt $ts.Count -and
 			$ts[$i + 1].Value -eq '.' -and $ts[$i + 3].Value -eq '.' -and $ts[$i + 2].Kind -eq 'word' -and $ts[$i + 4].Kind -eq 'word' -and
 			($i + 5 -ge $ts.Count -or $ts[$i + 5].Value -ne '(') -and $k -notin $params -and $script:rootOwn.ContainsKey("Enum.$($ts[$i + 2].Value)")) {
@@ -8924,13 +9077,14 @@ if ($Mode -eq 'transfer') {
 	if ($mdWarn.Count -gt 0) {
 		$footer += "!!! Stored data is NOT migrated:"
 		foreach ($l in @($mdWarn | Select-Object -Unique)) { $footer += "    $l" }
-		if (@($mdWarn -notlike 'Enum.*').Count) {
+		if (@($mdWarn | Where-Object { $_ -notmatch '^(Enum|Constant)\.' }).Count) {
 			$footer += "    The metadata is transferred as structure only, with new identifiers. Values the extension"
 			$footer += "    wrote into its own attributes stay in the extension's columns and are LOST when it is"
 			$footer += "    disabled or removed. Copy them into the configuration's attributes BEFORE that."
 		}
 		if (@($script:rootDataWarnings -like 'Catalog.*').Count) { $footer += "    Copy the catalog records and their tabular sections into the configuration BEFORE disabling or removing the extension." }
 		if (@($script:rootDataWarnings -like 'Enum.*').Count) { $footer += "    Replace stored references to the extension's enumeration values BEFORE disabling or removing the extension." }
+		if (@($script:rootDataWarnings -like 'Constant.*').Count) { $footer += "    Copy the stored constant value into the configuration BEFORE disabling or removing the extension." }
 	}
 	if ($changed.Count -gt 0) {
 		$footer += "Changed files:"

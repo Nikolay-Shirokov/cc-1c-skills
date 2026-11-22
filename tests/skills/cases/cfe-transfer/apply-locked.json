@@ -89,7 +89,8 @@
       "script": "meta-compile/scripts/meta-compile",
       "input": [
         { "type": "Catalog", "name": "Тест_НовыйСправочник" },
-        { "type": "CommonModule", "name": "Тест_НовыйМодуль", "server": true }
+        { "type": "CommonModule", "name": "Тест_НовыйМодуль", "server": true },
+        { "type": "Constant", "name": "Тест_Предел", "valueType": "Boolean" }
       ],
       "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}/cfe" }
     },
@@ -121,9 +122,10 @@
       "next: allow editing with /support-edit, then re-run -Mode transfer",
       "own object (found as НовыйМодуль) — Configuration.xml is locked by vendor support",
       "own catalog Тест_НовыйСправочник (as НовыйСправочник) — Configuration.xml is locked by vendor support",
+      "own Constant Тест_Предел (as Предел) — Configuration.xml is locked by vendor support",
       "[TRANSFERRED]        method Тест_Новый (as Новый) -> new region ПрограммныйИнтерфейс"
     ],
-    "filesAbsent": ["Catalogs/НовыйСправочник.xml", "CommonModules/НовыйМодуль.xml", "Catalogs/Закрытый/Forms/Новая.xml"],
+    "filesAbsent": ["Catalogs/НовыйСправочник.xml", "CommonModules/НовыйМодуль.xml", "Catalogs/Закрытый/Forms/Новая.xml", "Constants/Предел.xml"],
     "fileContains": [
       {
         "file": "Catalogs/Снятый/Ext/ObjectModule.bsl",

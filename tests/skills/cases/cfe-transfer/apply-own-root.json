@@ -1,12 +1,35 @@
 {
-  "name": "Собственные корневые объекты, перечисления и новые дочерние объекты заимствованного справочника",
+  "name": "Собственные корневые объекты, цепочка настроек и новые дочерние объекты заимствованного справочника",
   "setup": "fixture:prop-positive",
   "params": { "extensionPath": "cfe" },
   "cwd": "workDir",
-  "args_extra": ["-Mode", "transfer", "-Expand", "*", "-Name", "CommonModule.Тест_Частичный,CommonModule.Тест_НовыйМодуль,CommonCommand.Тест_Команда,Catalog.Тест_НовыйСправочник,Catalog.Хранилище,Enum.Тест_Состояния"],
+  "args_extra": ["-Mode", "transfer", "-Expand", "*", "-Name", "CommonModule.Тест_Частичный,CommonModule.Тест_НовыйМодуль,CommonCommand.Тест_Команда,Catalog.Тест_НовыйСправочник,Catalog.Хранилище,Enum.Тест_Состояния,DefinedType.Тест_СценарийТип,SessionParameter.Тест_Сценарий,Constant.Тест_Режим,FunctionalOption.Тест_Опция,FunctionalOptionsParameter.Тест_Разрез"],
   "idempotent": true,
   "noSnapshot": "Проверяются регистрация, файлы и обработка зависимостей. Остальная выгрузка берётся из prop-positive.",
   "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": [
+        { "type": "DefinedType", "name": "Тест_СценарийТип", "valueType": "String(25, fixed) + EnumRef.Тест_Состояния" },
+        { "type": "SessionParameter", "name": "Тест_Сценарий", "valueType": "DefinedType.Тест_СценарийТип" },
+        { "type": "Constant", "name": "Тест_Режим", "valueType": "Boolean" },
+        { "type": "FunctionalOption", "name": "Тест_Опция", "location": "Constant.Тест_Режим", "content": ["Catalog.Тест_НовыйСправочник.Attribute.Состояние"] },
+        { "type": "FunctionalOptionsParameter", "name": "Тест_Разрез", "use": ["Catalog.Хранилище.Attribute.Тест_Примечание"] }
+      ],
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}/cfe" }
+    },
+    {
+      "writeFile": {
+        "path": "cfe/Constants/Тест_Режим/Ext/ManagerModule.bsl",
+        "content": "Функция Использовать() Экспорт\n\tВозврат Константы.Тест_Режим.Получить();\nКонецФункции\n"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "cfe/Constants/Тест_Режим/Ext/ValueManagerModule.bsl",
+        "content": "Функция Сценарий()\n\tВозврат ПараметрыСеанса.Тест_Сценарий;\nКонецФункции\n"
+      }
+    },
     {
       "script": "meta-compile/scripts/meta-compile",
       "input": { "type": "Catalog", "name": "Хранилище", "attributes": ["Примечание: String(10)"] },
@@ -132,7 +155,7 @@
     {
       "writeFile": {
         "path": "cfe/CommonModules/Тест_НовыйМодуль/Ext/Module.bsl",
-        "content": "Функция Запустить() Экспорт\n\tСостояние = Перечисления.Тест_Состояния.Черновик;\n\tВозврат Тест_Частичный.Третий();\nКонецФункции\n"
+        "content": "Функция Запустить() Экспорт\n\tСостояние = Перечисления.Тест_Состояния.Черновик;\n\tИмяОпции = \"Тест_Опция\";\n\tВключено = ПолучитьФункциональнуюОпцию(\"Тест_Опция\");\n\tВозврат Тест_Частичный.Третий();\nКонецФункции\n"
       }
     },
     {
@@ -143,13 +166,21 @@
     }
   ],
   "expect": {
-    "stdoutContains": ["2/3 methods already present", "method Третий", "own object (as НовыйМодуль)", "own object (as Команда)", "!!! Stored data is NOT migrated:", "catalog and tabular-section records", "stored references to enumeration values"],
+    "stdoutContains": ["2/3 methods already present", "method Третий", "own object (as НовыйМодуль)", "own object (as Команда)", "!!! Stored data is NOT migrated:", "catalog and tabular-section records", "stored references to enumeration values", "Copy the stored constant value"],
     "filesAbsent": ["CommonModules/Тест_Частичный.xml", "CommonModules/Тест_НовыйМодуль.xml", "CommonCommands/Тест_Команда.xml"],
     "fileNotContains": [
       { "file": "CommonModules/Частичный/Ext/Module.bsl", "text": "ВременныйМетод" }
     ],
     "fileContains": [
       { "file": "Configuration.xml", "text": ["<CommonModule>НовыйМодуль</CommonModule>", "<CommonCommand>Команда</CommonCommand>", "<Catalog>НовыйСправочник</Catalog>", "<Enum>Состояния</Enum>"] },
+      { "file": "Configuration.xml", "text": ["<DefinedType>СценарийТип</DefinedType>", "<SessionParameter>Сценарий</SessionParameter>", "<Constant>Режим</Constant>", "<FunctionalOption>Опция</FunctionalOption>", "<FunctionalOptionsParameter>Разрез</FunctionalOptionsParameter>"] },
+      { "file": "DefinedTypes/СценарийТип.xml", "text": ["DefinedType.СценарийТип", "EnumRef.Состояния", "<v8:Length>25</v8:Length>", "<v8:AllowedLength>Fixed</v8:AllowedLength>"] },
+      { "file": "SessionParameters/Сценарий.xml", "text": "DefinedType.СценарийТип</v8:TypeSet>" },
+      { "file": "Constants/Режим.xml", "text": ["ConstantManager.Режим", "ConstantValueManager.Режим", "ConstantValueKey.Режим"] },
+      { "file": "Constants/Режим/Ext/ManagerModule.bsl", "text": "Константы.Режим.Получить();" },
+      { "file": "Constants/Режим/Ext/ValueManagerModule.bsl", "text": "ПараметрыСеанса.Сценарий;" },
+      { "file": "FunctionalOptions/Опция.xml", "text": ["<Location>Constant.Режим</Location>", "Catalog.НовыйСправочник.Attribute.Состояние"] },
+      { "file": "FunctionalOptionsParameters/Разрез.xml", "text": "Catalog.Хранилище.Attribute.Примечание" },
       { "file": "Enums/Состояния.xml", "text": ["EnumRef.Состояния", "<Name>Черновик</Name>", "<Name>Готово</Name>", "<Name>Архив</Name>"] },
       { "file": "Enums/Состояния/Ext/ManagerModule.bsl", "text": "Возврат Перечисления.Состояния.Черновик;" },
       { "file": "Catalogs/НовыйСправочник.xml", "text": ["cfg:CatalogRef.НовыйСправочник", "cfg:EnumRef.Состояния", "<Name>Позиции</Name>", "<Name>Количество</Name>", "<Name>Проверить</Name>", "<Form>ФормаЭлемента</Form>", "<Template>Печать</Template>"] },
@@ -161,7 +192,7 @@
       { "file": "Catalogs/Хранилище/Forms/Дораб_Карточка/Ext/Form/Module.bsl", "text": ["Возврат Объект.Примечание;", "НовыйМодуль.Запустить();"] },
       { "file": "Catalogs/Хранилище/Commands/Печать/Ext/CommandModule.bsl", "text": "ОткрытьФорму(\"Справочник.Хранилище.Форма.Дораб_Карточка\")" },
       { "file": "CommonModules/Частичный/Ext/Module.bsl", "text": "Функция Третий() Экспорт" },
-      { "file": "CommonModules/НовыйМодуль/Ext/Module.bsl", "text": ["Возврат Частичный.Третий()", "Перечисления.Состояния.Черновик"] },
+      { "file": "CommonModules/НовыйМодуль/Ext/Module.bsl", "text": ["Возврат Частичный.Третий()", "Перечисления.Состояния.Черновик", "ИмяОпции = \"Тест_Опция\";", "ПолучитьФункциональнуюОпцию(\"Опция\")"] },
       { "file": "CommonCommands/Команда/Ext/CommandModule.bsl", "text": ["\tНовыйМодуль.Запустить()", "ОткрытьФорму(\"Справочник.Хранилище.Форма.Дораб_Карточка\")"] }
     ]
   }
