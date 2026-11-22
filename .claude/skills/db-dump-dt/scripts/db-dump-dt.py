@@ -570,14 +570,23 @@ def output_nonempty(path):
 
 
 def _redact(text, *secrets):
-    """Redact literal secret values (password, user) from a display string —
-    precise, never touches lookalike paths."""
+    """Redact literal secret values (password, user) from a display string.
+
+    Key values are already masked by format_args_for_display; this pass catches a secret
+    wherever else it shows up. A secret of 6+ characters is replaced as a literal substring
+    anywhere; a shorter one only as the whole value of a key (/N"x", --user=x) - replaced
+    anywhere, a one-character password turns every matching digit of a path or a comment
+    into *** and the printed command line can no longer be checked."""
     # A secret with a quote reaches the command line doubled (quote_text), so both forms
     # are redacted. Longest first: a shorter form replaced earlier could break a longer one
     # that contains it and leave part of that secret visible.
     forms = {f for s in secrets if s for f in (str(s), str(s).replace('"', '""'))}
     for f in sorted(forms, key=len, reverse=True):
-        text = text.replace(f, "***")
+        if len(f) >= 6:
+            text = text.replace(f, "***")
+        else:
+            text = re.sub(r'((?:^|\s)(?:/\w+"|--[\w-]+=))' + re.escape(f) + r'(?="|\s|$)',
+                          r"\g<1>***", text)
     return text
 
 
