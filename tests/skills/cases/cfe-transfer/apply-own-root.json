@@ -1,0 +1,65 @@
+{
+  "name": "Собственные общие модули и команды: доперенос двух из трёх методов, создание файлов и регистрация, зависимости и повторный запуск",
+  "setup": "fixture:prop-positive",
+  "params": { "extensionPath": "cfe" },
+  "cwd": "workDir",
+  "args_extra": ["-Mode", "transfer", "-Expand", "*", "-Name", "CommonModule.Тест_Частичный,CommonModule.Тест_НовыйМодуль,CommonCommand.Тест_Команда"],
+  "idempotent": true,
+  "noSnapshot": "Проверяются регистрация, файлы и обработка зависимостей. Остальная выгрузка берётся из prop-positive.",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "CommonModule", "name": "Частичный", "synonym": "Частичный", "server": true },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "CommonModule", "name": "Тест_Частичный", "synonym": "Частичный", "server": true },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}/cfe" }
+    },
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "CommonModule", "name": "Тест_НовыйМодуль", "server": true, "serverCall": true },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}/cfe" }
+    },
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "CommonCommand", "name": "Тест_Команда", "group": "ActionsPanelTools" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}/cfe" }
+    },
+    {
+      "writeFile": {
+        "path": "CommonModules/Частичный/Ext/Module.bsl",
+        "content": "Функция Первый() Экспорт\n\tВозврат 1;\nКонецФункции\n\nФункция Второй() Экспорт\n\tВозврат 2;\nКонецФункции\n"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "cfe/CommonModules/Тест_Частичный/Ext/Module.bsl",
+        "content": "Функция Первый() Экспорт\n\tВозврат 1;\nКонецФункции\n\nФункция Второй() Экспорт\n\tВозврат 2;\nКонецФункции\n\nФункция Третий() Экспорт\n\tВозврат Первый() + Второй();\nКонецФункции\n"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "cfe/CommonModules/Тест_НовыйМодуль/Ext/Module.bsl",
+        "content": "Функция Запустить() Экспорт\n\tВозврат Тест_Частичный.Третий();\nКонецФункции\n"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "cfe/CommonCommands/Тест_Команда/Ext/CommandModule.bsl",
+        "content": "&НаКлиенте\nПроцедура ОбработкаКоманды(ПараметрКоманды, ПараметрыВыполненияКоманды)\n\tТест_НовыйМодуль.Запустить();\nКонецПроцедуры\n"
+      }
+    }
+  ],
+  "expect": {
+    "stdoutContains": ["2/3 methods already present", "method Третий", "own object (as НовыйМодуль)", "own object (as Команда)"],
+    "filesAbsent": ["CommonModules/Тест_Частичный.xml", "CommonModules/Тест_НовыйМодуль.xml", "CommonCommands/Тест_Команда.xml"],
+    "fileContains": [
+      { "file": "Configuration.xml", "text": ["<CommonModule>НовыйМодуль</CommonModule>", "<CommonCommand>Команда</CommonCommand>"] },
+      { "file": "CommonModules/Частичный/Ext/Module.bsl", "text": "Функция Третий() Экспорт" },
+      { "file": "CommonModules/НовыйМодуль/Ext/Module.bsl", "text": "Возврат Частичный.Третий()" },
+      { "file": "CommonCommands/Команда/Ext/CommandModule.bsl", "text": "\tНовыйМодуль.Запустить()" }
+    ]
+  }
+}

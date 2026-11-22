@@ -1,4 +1,4 @@
-﻿# cfe-transfer v1.32 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+﻿# cfe-transfer v1.33 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -1550,6 +1550,10 @@ function Resolve-MdReference([string]$value, [string]$prefix, [bool]$type = $fal
 	$nsPrefix = $Matches[1]; $kind = $Matches[2]; $name = $Matches[3]; $tail = $Matches[4]
 	$base = if ($type) { Get-MdTypeRefBase $kind } else { $kind }
 	if (-not $script:childTypeDirMap.ContainsKey($base)) { return $identity }
+	$rootId = "$base.$name"
+	if ($script:rootOwn -and $script:rootOwn.ContainsKey($rootId) -and -not $script:rootBindings.ContainsKey($rootId)) {
+		return @{ Status = 'WAITING'; Reason = "waiting for $rootId"; Dependency = $rootId }
+	}
 	if (-not $cfgInfo.ChildObjects) {
 		return @{ Status = 'MANUAL'; Reason = "configuration has no ChildObjects to resolve $value" }
 	}
@@ -1560,6 +1564,7 @@ function Resolve-MdReference([string]$value, [string]$prefix, [bool]$type = $fal
 		}
 	}
 	$hits = @(Find-NamesIn @($script:mdReferencePools[$base] | Where-Object { $_ }) $name $prefix)
+	if ($script:rootBindings -and $script:rootBindings.ContainsKey($rootId)) { $hits = @($script:rootBindings[$rootId]) }
 	if (-not $hits.Count) { return @{ Status = 'WAITING'; Reason = "$base.${name}: the object is not in the configuration" } }
 	if ($hits.Count -gt 1 -and $hits[0] -ine $name) {
 		return @{ Status = 'MANUAL'; Reason = "$base.${name}: ambiguous target ($($hits -join ', '))" }
@@ -3200,12 +3205,398 @@ function Get-OwnChildItems($ctx, $cfgMd, [string]$prefix, [string]$rel, [int]$ra
 	return $items
 }
 
+function Get-RootObjectPaths([string]$kind, [string]$name) {
+	$dir = "$($script:childTypeDirMap[$kind])/$name"
+	$bsl = if ($kind -eq 'CommonModule') { 'Module.bsl' } else { 'CommandModule.bsl' }
+	return @{ Xml = "$dir.xml"; Bsl = "$dir/Ext/$bsl"; Dir = $dir }
+}
+
+function Get-RootObjectXml($fw, [string]$kind, [string]$name, [string]$prefix) {
+	$obj = Get-MdObjectElement $fw.Doc
+	$m = New-MdNt $fw.Doc
+	$props = Get-MdPropsElement $obj
+	$props.SelectSingleNode('md:Name', $m).InnerText = $name
+	foreach ($node in @($props.SelectNodes('md:ObjectBelonging|md:ExtendedConfigurationObject', $m))) { [void]$props.RemoveChild($node) }
+	if ($kind -eq 'CommonCommand') {
+		foreach ($leaf in @($props.SelectNodes('md:Group|md:Picture/xr:Ref|md:CommandParameterType/v8:Type|md:CommandParameterType/v8:TypeSet', $m))) {
+			$ref = Resolve-MdReference $leaf.InnerText.Trim() $prefix ($leaf.LocalName -in @('Type', 'TypeSet'))
+			if ($ref.Status) { return $ref }
+			$leaf.InnerText = $ref.Value
+		}
+	}
+	return @{ Props = $props }
+}
+
+function Get-RootBslProjection($lines, [string]$prefix, [string]$selfId, [string]$selfName) {
+	$collections = @{
+		'Справочники'='Catalog'; 'Catalogs'='Catalog'; 'Документы'='Document'; 'Documents'='Document'
+		'Перечисления'='Enum'; 'Enums'='Enum'; 'ОбщиеКоманды'='CommonCommand'; 'CommonCommands'='CommonCommand'
+		'Константы'='Constant'; 'Constants'='Constant'; 'РегистрыСведений'='InformationRegister'; 'InformationRegisters'='InformationRegister'
+		'РегистрыНакопления'='AccumulationRegister'; 'AccumulationRegisters'='AccumulationRegister'
+		'Обработки'='DataProcessor'; 'DataProcessors'='DataProcessor'; 'Отчеты'='Report'; 'Reports'='Report'
+	}
+	$all = @(Get-BslTokens $lines)
+	$tokens = @($all | Where-Object { $_.Kind -notin @('comment','string','fragment') -and $_.Value.Trim() })
+	$source = $lines -join "`n"
+	$procNames = @(Get-ProcNames $lines)
+	$methods = @($procNames | ForEach-Object { Get-MethodSafe $lines $_ } | Where-Object { $_ })
+	$locals = @( (Get-ModuleLayout $lines).Vars | ForEach-Object { $_.Names })
+	$methodLocals = @{}
+	$edits = @{}
+	for ($i = 0; $i + 1 -lt $tokens.Count; $i++) {
+		$token = $tokens[$i]
+		if ($token.Kind -ne 'word' -or ($i -and $tokens[$i - 1].Value -eq '.')) { continue }
+		if ($tokens[$i + 1].Value -eq '(' -and $token.Value -notin $procNames -and $script:rootGlobalMethods.ContainsKey($token.Value)) {
+			$providers = @($script:rootGlobalMethods[$token.Value])
+			if ($providers.Count -gt 1) { return @{ Status = 'MANUAL'; Reason = "ambiguous global method $($token.Value): $($providers -join ', ')" } }
+			$id = $providers[0]
+			if (-not $script:rootBindings.ContainsKey($id) -or $token.Value -in $script:rootMethodBlocks[$id]) {
+				return @{ Status = 'WAITING'; Reason = "waiting for $id.$($token.Value)"; Dependency = $id }
+			}
+			continue
+		}
+		if ($i + 2 -ge $tokens.Count -or $tokens[$i + 1].Value -ne '.' -or $tokens[$i + 2].Kind -ne 'word') { continue }
+		$next = $tokens[$i + 2]
+		$kind = $collections[$token.Value]
+		$refToken = if ($kind) { $next } else { $token }
+		if (-not $kind) { $kind = 'CommonModule' }
+		$id = "$kind.$($refToken.Value)"
+		if (-not $script:rootSourceIds.ContainsKey($id)) { continue }
+		if ($token.Value -in $locals) { continue }
+		$line = [regex]::Matches($source.Substring(0, $token.Start), "`n").Count
+		$owner = @($methods | Where-Object { $_.DeclIdx -le $line -and $_.BodyEndIdx -ge $line })[0]
+		if ($owner) {
+			if (-not $methodLocals.ContainsKey($owner.DeclIdx)) {
+				$methodLocals[$owner.DeclIdx] = @($owner.ParamNames) + @((Get-LocalNames (Get-CodeOnly $owner.BodyLines) $owner.ParamNames).Keys)
+			}
+			if ($token.Value -in $methodLocals[$owner.DeclIdx]) { continue }
+		}
+		if ($id -ieq $selfId) { $target = $selfName }
+		elseif ($script:rootBindings.ContainsKey($id)) {
+			$target = $script:rootBindings[$id]
+			if ($kind -eq 'CommonModule' -and -not $collections.ContainsKey($token.Value) -and $i + 3 -lt $tokens.Count -and $tokens[$i + 3].Value -eq '(') {
+				$path = Get-CfgPath (Get-RootObjectPaths $kind $target).Bsl
+				if ($next.Value -in $script:rootMethodBlocks[$id] -or -not (Get-MethodSafe (Read-BslLines $path) $next.Value)) {
+					return @{ Status = 'WAITING'; Reason = "waiting for $id.$($next.Value)" }
+				}
+			}
+		}
+		else {
+			# Supported own objects get a binding only after their plan is verified.
+			if ($script:rootOwn.ContainsKey($id)) { return @{ Status = 'WAITING'; Reason = "waiting for $id"; Dependency = $id } }
+			$ref = Resolve-MdReference $id $prefix
+			if ($ref.Status) { return $ref }
+			$target = $ref.Value.Substring($kind.Length + 1)
+			if ($kind -eq 'CommonModule' -and -not $collections.ContainsKey($token.Value) -and $i + 3 -lt $tokens.Count -and $tokens[$i + 3].Value -eq '(') {
+				$cl = Read-BslLines (Get-CfgPath (Get-RootObjectPaths $kind $target).Bsl)
+				$hits = @(Find-NamesIn @(Get-ProcNames $cl) $next.Value $prefix)
+				if (-not $hits.Count) { return @{ Status = 'WAITING'; Reason = "waiting for $id.$($next.Value)" } }
+				if ($hits.Count -gt 1 -and $hits[0] -ine $next.Value) {
+					return @{ Status = 'MANUAL'; Reason = "ambiguous method $id.$($next.Value): $($hits -join ', ')" }
+				}
+				$edits[$next.Start] = $hits[0]
+			}
+		}
+		$edits[$refToken.Start] = $target
+	}
+	if (-not $edits.Count) { return @{ Lines = @($lines) } }
+	$converted = ($all | ForEach-Object { if ($edits.ContainsKey($_.Start)) { $edits[$_.Start] } else { $_.Value } }) -join ''
+	return @{ Lines = @($converted -split "`n", 0, 'SimpleMatch') }
+}
+
+function Get-RootObjectCodeKey($lines) {
+	# Compare tokens, retaining directives, literals and their spelling. Layout and comments are immaterial.
+	return (@(Get-BslTokens $lines | Where-Object { $_.Kind -ne 'comment' -and $_.Value.Trim() } | ForEach-Object {
+		if ($_.Kind -eq 'word') { $_.Value.ToLowerInvariant() } else { $_.Value }
+	}) -join [char]0)
+}
+
+function Compare-RootModule($from, $to) {
+	$names = @(Get-ProcNames $from)
+	$current = @(Get-ProcNames $to)
+	$matched = 0; $missing = @(); $different = @()
+	foreach ($name in $names) {
+		$a = Get-MethodSafe $from $name; $b = Get-MethodSafe $to $name
+		if (-not $a -or @($names | Where-Object { $_ -ieq $name }).Count -ne 1) { $different += $name; continue }
+		if ($name -notin $current) { $a.RootName = $name; $missing += $a; continue }
+		if (-not $b -or @($current | Where-Object { $_ -ieq $name }).Count -ne 1 -or
+			(Get-OwnDeclarationDifference $from $a $to $b) -or (Get-RootObjectCodeKey $a.BodyLines) -cne (Get-RootObjectCodeKey $b.BodyLines)) {
+			$different += $name; continue
+		}
+		if (Get-RootObjectCodeKey $a.BodyLines) { $matched++ }
+	}
+	$top = ((Get-TopCodeKeys $from '').Values -join "`n") -ceq ((Get-TopCodeKeys $to '').Values -join "`n")
+	return @{ Matched = $matched; Total = $names.Count; Missing = $missing; Different = $different; Top = $top }
+}
+
+function Get-RootObjectPlan($entry, [string]$extDir, [string]$prefix) {
+	$id = $entry.Id; $kind = $entry.Type; $name = $entry.Name
+	$src = Get-RootObjectPaths $kind $name
+	$srcXml = Join-Path $extDir $src.Xml
+	$srcBsl = [IO.Path]::GetFullPath((Join-Path $extDir $src.Bsl))
+	if (-not $cfgInfo.ChildObjects) { return @{ Status = 'MANUAL'; Reason = 'configuration has no ChildObjects' } }
+	$fw = Read-FormWrite $srcXml
+	if ($fw.Doc.DocumentElement.GetAttribute('version') -cne $cfgInfo.Doc.DocumentElement.GetAttribute('version')) {
+		return @{ Status = 'MANUAL'; Reason = 'metadata dump formats differ' }
+	}
+	$extras = @(Get-ChildItem -LiteralPath (Join-Path $extDir $src.Dir) -File -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.FullName -ine $srcBsl })
+	if ($extras.Count) { return @{ Status = 'MANUAL'; Reason = "unsupported object file $($extras[0].Name)" } }
+	if (-not (Test-Path -LiteralPath $srcBsl -PathType Leaf)) { return @{ Status = 'MANUAL'; Reason = "missing module $($src.Bsl)" } }
+	$bsl = Read-BslFile $srcBsl
+	$sourceUuid = (Get-MdObjectElement $fw.Doc).GetAttribute('uuid')
+	$pool = @($cfgInfo.ChildObjects.ChildNodes | Where-Object { $_.NodeType -eq 'Element' -and $_.LocalName -eq $kind } | ForEach-Object { $_.InnerText.Trim() })
+	$candidates = @(Find-NamesIn $pool $name $prefix)
+	$matches2 = @(); $uncertain = @()
+	foreach ($candidate in $candidates) {
+		$paths = Get-RootObjectPaths $kind $candidate
+		$dst = Read-MdObject (Get-CfgPath $paths.Xml)
+		if (-not $dst -or -not (Test-Path -LiteralPath (Get-CfgPath $paths.Bsl) -PathType Leaf)) { $uncertain += $candidate; continue }
+		$xml = Get-RootObjectXml (Read-FormWrite $srcXml) $kind $candidate $prefix
+		if ($xml.Status) { return $xml }
+		$projection = Get-RootBslProjection $bsl.Lines $prefix $id $candidate
+		if ($projection.Status) { return $projection }
+		$dstBsl = Read-BslFile (Get-CfgPath $paths.Bsl)
+		$sameXml = (Get-NodeCanon $xml.Props) -ceq (Get-NodeCanon $dst.Props)
+		$sameBsl = (Get-RootObjectCodeKey $projection.Lines) -ceq (Get-RootObjectCodeKey $dstBsl.Lines)
+		$plan = @{ Target = $candidate; Paths = $paths; Bsl = $dstBsl; Lines = $projection.Lines; Status = 'TRANSFERRED' }
+		if ($sameXml -and $sameBsl) { $matches2 += $plan; continue }
+		if ($kind -eq 'CommonModule') {
+			$comparison = Compare-RootModule $projection.Lines $dstBsl.Lines
+			if ($sameXml -and $comparison.Matched -ge 2 -and 2 * $comparison.Matched -gt $comparison.Total) {
+				$plan.Comparison = $comparison
+				if ($comparison.Missing.Count -or $comparison.Different.Count -or -not $comparison.Top) { $plan.Status = 'PARTIAL' }
+				$matches2 += $plan
+				continue
+			}
+			if ($comparison.Matched -ge 2 -or ($sameXml -and $comparison.Matched)) { $uncertain += $candidate; continue }
+		}
+		if (($sourceUuid -and $sourceUuid -eq $dst.El.GetAttribute('uuid')) -or ($sameBsl -and (Get-RootObjectCodeKey $projection.Lines) -and
+			@((Get-ProcNames $projection.Lines) | Where-Object { (Get-RootObjectCodeKey (Get-MethodSafe $projection.Lines $_).BodyLines) }).Count)) { $uncertain += $candidate }
+	}
+	if ($matches2.Count -eq 1 -and -not $uncertain.Count) { return $matches2[0] }
+	if ($matches2.Count -or $uncertain.Count) { return @{ Status = 'MANUAL'; Reason = "check matching objects: $((@($matches2.Target) + $uncertain | Where-Object { $_ }) -join ', ')" } }
+	$taken = New-Object 'System.Collections.Generic.HashSet[string]'
+	foreach ($n in $pool) { [void]$taken.Add($n.ToLowerInvariant()) }
+	$dir = Get-CfgPath $script:childTypeDirMap[$kind]
+	foreach ($f in @(Get-ChildItem -LiteralPath $dir -ErrorAction SilentlyContinue)) {
+		if ($f.PSIsContainer -or $f.Extension -ieq '.xml') { [void]$taken.Add($f.BaseName.ToLowerInvariant()) }
+	}
+	$choice = Get-TargetName $name $prefix $taken $script:settings[(Get-ObjectKind $name 'own')].AddDevObjects
+	if ($choice.Taken) { return @{ Status = 'CONFLICT'; Reason = "name taken in configuration ($($choice.Note))" } }
+	$xml = Get-RootObjectXml $fw $kind $choice.Name $prefix
+	if ($xml.Status) { return $xml }
+	$projection = Get-RootBslProjection $bsl.Lines $prefix $id $choice.Name
+	if ($projection.Status) { return $projection }
+	return @{ Status = 'NOT_TRANSFERRED'; Target = $choice.Name; Paths = (Get-RootObjectPaths $kind $choice.Name); Fw = $fw; Bsl = $bsl; Lines = $projection.Lines }
+}
+
+function Add-RootObjectRegistration($fw, [string]$kind, [string]$name) {
+	# Same type order as Configuration.xml emitters.
+	$order = 'Language Subsystem StyleItem Style CommonPicture SessionParameter Role CommonTemplate FilterCriterion CommonModule CommonAttribute ExchangePlan XDTOPackage WebService HTTPService WSReference EventSubscription ScheduledJob SettingsStorage FunctionalOption FunctionalOptionsParameter DefinedType Bot PaletteColor CommonCommand CommandGroup Constant CommonForm Catalog Document DocumentNumerator Sequence DocumentJournal Enum Report DataProcessor InformationRegister AccumulationRegister ChartOfCharacteristicTypes ChartOfAccounts AccountingRegister ChartOfCalculationTypes CalculationRegister BusinessProcess Task ExternalDataSource IntegrationService'.Split(' ')
+	$m = New-MdNt $fw.Doc
+	$children = $fw.Doc.SelectSingleNode('md:MetaDataObject/md:Configuration/md:ChildObjects', $m)
+	if (-not $children -or @($children.SelectNodes("md:$kind", $m) | Where-Object { $_.InnerText -ieq $name }).Count) {
+		throw 'configuration registration changed since planning'
+	}
+	$rank = [Array]::IndexOf($order, $kind)
+	$before = @($children.ChildNodes | Where-Object { $_.NodeType -eq 'Element' -and [Array]::IndexOf($order, $_.LocalName) -gt $rank } | Select-Object -First 1)[0]
+	$node = $fw.Doc.CreateElement($kind, $mdNsUri)
+	$node.InnerText = $name
+	Insert-FormNodeAt $children $node $before $fw.Eol
+}
+
+function Write-RootObject($entry, $plan) {
+	$cfgPath = Get-CfgPath 'Configuration.xml'
+	$xmlPath = Get-CfgPath $plan.Paths.Xml; $bslPath = Get-CfgPath $plan.Paths.Bsl
+	$suffix = '.cfe-root-' + [guid]::NewGuid().ToString('N')
+	$cfgTemp = Get-CfgPath "$suffix-config.xml"; $xmlTemp = Get-CfgPath "$suffix-object.xml"; $bslTemp = Get-CfgPath "$suffix-module.bsl"
+	$installed = @(); $madeDirs = @()
+	$lockPath = Get-CfgPath '.cfe-transfer-registration.lock'
+	$lock = $null
+	try {
+		$lock = [IO.File]::Open($lockPath, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+		if ([IO.File]::GetAttributes($cfgPath) -band [IO.FileAttributes]::ReadOnly) { throw 'Configuration.xml is read-only' }
+		if (Test-Path -LiteralPath (Get-CfgPath $plan.Paths.Dir)) { throw "object directory already exists: $($plan.Paths.Dir)" }
+		$before = (Get-FileHash -LiteralPath $cfgPath -Algorithm SHA256).Hash
+		$cfg = Read-FormWrite $cfgPath
+		Add-RootObjectRegistration $cfg $entry.Type $plan.Target
+		$obj = Get-MdObjectElement $plan.Fw.Doc
+		$obj.SetAttribute('uuid', [guid]::NewGuid().ToString())
+		Save-FormWrite $cfg $cfgTemp
+		Save-FormWrite $plan.Fw $xmlTemp
+		Write-BslFile $plan.Bsl $plan.Lines $bslTemp
+		$check = Read-MdObject $xmlTemp
+		$cfgCheck = Read-FormDoc $cfgTemp
+		$m = New-MdNt $cfgCheck
+		$registered = @($cfgCheck.SelectNodes("md:MetaDataObject/md:Configuration/md:ChildObjects/md:$($entry.Type)", $m) | Where-Object { $_.InnerText -ceq $plan.Target })
+		if (-not $check -or $check.El.LocalName -ne $entry.Type -or (Get-MdChildName $check.El $check.Ns) -cne $plan.Target -or $registered.Count -ne 1 -or
+			(Get-RootObjectCodeKey (Read-BslLines $bslTemp)) -cne (Get-RootObjectCodeKey $plan.Lines)) { throw 'staged object did not pass read-back validation' }
+		$errors = Get-MdValidateErrors $xmlTemp $entry.Type -RequireResult
+		if ($errors.Count) { throw "validator: $($errors[0])" }
+		$missing = @()
+		$folder = [IO.Path]::GetDirectoryName($bslPath)
+		while (-not [IO.Directory]::Exists($folder)) { $missing += $folder; $folder = [IO.Path]::GetDirectoryName($folder) }
+		for ($i = $missing.Count - 1; $i -ge 0; $i--) {
+			[void][IO.Directory]::CreateDirectory($missing[$i])
+			$madeDirs += $missing[$i]
+		}
+		[IO.File]::Move($xmlTemp, $xmlPath); $installed += $xmlPath
+		[IO.File]::Move($bslTemp, $bslPath); $installed += $bslPath
+		if ((Get-FileHash -LiteralPath $cfgPath -Algorithm SHA256).Hash -cne $before) { throw 'Configuration.xml changed during transfer' }
+		[IO.File]::Replace($cfgTemp, $cfgPath, [NullString]::Value)
+	} catch {
+		foreach ($path in $installed) { [IO.File]::Delete($path) }
+		for ($i = $madeDirs.Count - 1; $i -ge 0; $i--) {
+			if (-not @(Get-ChildItem -LiteralPath $madeDirs[$i] -Force).Count) { [IO.Directory]::Delete($madeDirs[$i]) }
+		}
+		throw
+	} finally {
+		foreach ($path in @($cfgTemp, $xmlTemp, $bslTemp)) { [IO.File]::Delete($path) }
+		if ($lock) { $lock.Dispose(); [IO.File]::Delete($lockPath) }
+	}
+	return ,@($xmlPath, $bslPath, $cfgPath)
+}
+
+function Complete-RootModule($plan, $frame, [bool]$apply) {
+	$c = $plan.Comparison
+	$items = @(); $changed = @()
+	if ($c.Matched) { $items += New-Item2 'TRANSFERRED' "$($c.Matched)/$($c.Total) methods already present" }
+	foreach ($name in $c.Different) { $items += New-Item2 'CONFLICT' "method $name — declaration or body differs" }
+	if (-not $c.Top) { $items += New-Item2 'CONFLICT' 'module code outside methods differs' }
+	$lines = @($plan.Bsl.Lines)
+	$inserted = @()
+	foreach ($method in $c.Missing) {
+		if (-not $c.Top) {
+			$items += New-Item2 'WAITING' "method $($method.RootName) — waiting for module code outside methods"
+			continue
+		}
+		$place = Resolve-MethodConditions $lines @{ At = (Get-ModuleEnd $lines) } $method
+		if (-not $place -or (Test-MethodCrossesBranch $plan.Lines $method)) {
+			$items += New-Item2 'MANUAL' "method $($method.RootName) — preprocessor condition differs"
+			continue
+		}
+		$it = New-Item2 'NOT_TRANSFERRED' "method $($method.RootName)"
+		$items += $it
+		if (-not $apply) { continue }
+		# The root object projection already did the identifier conversion. Copy the method with its directives and framing.
+		$start = $method.DeclIdx
+		if ($start -gt 0 -and (Test-ContextDirective $plan.Lines[$start - 1].Trim())) { $start-- }
+		while ($start -gt 0 -and $plan.Lines[$start - 1].Trim().StartsWith('//')) { $start-- }
+		$block = @($plan.Lines[$start..$method.BodyEndIdx])
+		if ($frame.Begin) { $block = @($frame.Begin) + $block }
+		if ($frame.End) { $block[$block.Count - 1] += " $($frame.End)" }
+		$block = Join-OwnMethodBlocks @(@{ Lines = $block; Guards = $place.Guards; GuardKey = $place.GuardKey; Lang = $method.Lang })
+		$list = New-Object 'System.Collections.Generic.List[string]'
+		$list.AddRange([string[]]$lines)
+		$list.InsertRange($place.At, [string[]](Get-SpacedBlock $lines $place.At $block))
+		$lines = $list.ToArray()
+		$inserted += $it
+	}
+	if ($inserted.Count) {
+		$path = $plan.Bsl.Path
+		$temp = $path + '.cfe-root-' + [guid]::NewGuid().ToString('N') + '.tmp'
+		try {
+			if ([IO.File]::GetAttributes($path) -band [IO.FileAttributes]::ReadOnly) { throw 'module is read-only' }
+			Write-BslFile $plan.Bsl $lines $temp
+			$readback = Compare-RootModule $plan.Lines (Read-BslLines $temp)
+			if (@($readback.Missing | Where-Object { "method $($_.RootName)" -in $inserted.Text }).Count -or
+				@($readback.Different | Where-Object { "method $_" -in $inserted.Text }).Count) { throw 'inserted methods did not pass read-back validation' }
+			[IO.File]::Replace($temp, $path, [NullString]::Value)
+			$changed += $path
+			foreach ($it in $inserted) { $it.Status = 'TRANSFERRED'; $it.Now = $true }
+		} catch {
+			foreach ($it in $inserted) { $it.Status = 'CONFLICT'; $it.Text += " — $($_.Exception.Message)" }
+		} finally { [IO.File]::Delete($temp) }
+	}
+	return @{ Items = $items; Changed = $changed }
+}
+
+function Initialize-RootTransfer($ext, $objects, $vars, [bool]$apply) {
+	$script:rootSourceIds = @{}; $script:rootOwn = @{}; $script:rootBindings = @{}; $script:rootResults = @{}
+	$script:rootMethodBlocks = @{}
+	$script:rootGlobalMethods = @{}
+	$pending = @()
+	$changed = @()
+	foreach ($obj in $objects) {
+		$id = "$($obj.Type).$($obj.Name)"
+		$script:rootSourceIds[$id] = $true
+		if ($obj.Type -notin @('CommonModule','CommonCommand')) { continue }
+		$ctx = Get-ObjContext $ext.Dir $obj.Type $obj.Name
+		if (-not $ctx.Exists -or $ctx.Borrowed) { continue }
+		$entry = @{ Id = $id; Type = $obj.Type; Name = $obj.Name; Selected = (Test-NameMatch $id) }
+		$script:rootOwn[$id] = $entry
+		$pending += $entry
+		if ($obj.Type -eq 'CommonModule' -and $ctx.Md.Props -and $ctx.Md.Props.SelectSingleNode('md:Global', $ctx.Md.Ns).InnerText -ieq 'true') {
+			$lines = Read-BslLines (Join-Path $ext.Dir (Get-RootObjectPaths $obj.Type $obj.Name).Bsl)
+			foreach ($method in @(Get-ProcNames $lines)) {
+				$m = Get-MethodSafe $lines $method
+				if ($m -and (Test-IsExport $lines $m)) { $script:rootGlobalMethods[$method] += @($id) }
+			}
+		}
+	}
+	$waiting = @{}
+	while ($pending.Count) {
+		$again = @(); $waiting = @{}
+		foreach ($entry in $pending) {
+			$id = $entry.Id
+			try { $plan = Get-RootObjectPlan $entry $ext.Dir $ext.Prefix }
+			catch { $plan = @{ Status = 'MANUAL'; Reason = $_.Exception.Message } }
+			if ($plan.Status -eq 'WAITING') { $waiting[$id] = $plan; $again += $entry; continue }
+			$items = @()
+			if ($plan.Status -in @('TRANSFERRED','PARTIAL')) { $script:rootBindings[$id] = $plan.Target }
+			if ($plan.Status -eq 'PARTIAL') {
+				$locked = $apply -and (Get-ObjectSupport (Get-CfgPath $plan.Paths.Xml)) -eq 'locked'
+				$partial = Complete-RootModule $plan (Get-Frame $script:settings[(Get-ObjectKind $entry.Name 'own')] $vars) ($apply -and $entry.Selected -and -not $locked)
+				$items = $partial.Items; $changed += $partial.Changed
+				$script:rootMethodBlocks[$id] = @($items | Where-Object { $_.Status -ne 'TRANSFERRED' -and $_.Text -match '^method \w+' } | ForEach-Object {
+					($_.Text -split ' ', 3)[1]
+				})
+				if ($apply -and $entry.Selected -and $locked) {
+					foreach ($item in $items) { if ($item.Status -eq 'NOT_TRANSFERRED') { $item.Status = 'MANUAL'; $item.Text += ' — object is locked by vendor support' } }
+				}
+			} else {
+				$text = "own object$(if ($plan.Target -and $plan.Target -ine $entry.Name) { " (found as $($plan.Target))" })"
+				if ($plan.Reason) { $text += " — $($plan.Reason)" }
+				$it = New-Item2 $plan.Status $text
+				if ($plan.Status -eq 'NOT_TRANSFERRED' -and $apply -and $entry.Selected) {
+					try {
+						$changed += Write-RootObject $entry $plan
+						$script:rootBindings[$id] = $plan.Target
+						$script:mdReferencePools = $null
+						$script:cfgInfo = Read-ConfigurationProps $ConfigPath
+						$it.Status = 'TRANSFERRED'; $it.Now = $true; $it.Text = "own object (as $($plan.Target))"
+					} catch { $it.Status = 'CONFLICT'; $it.Text += " — $($_.Exception.Message)" }
+				}
+				$items += $it
+			}
+			foreach ($item in $items) { $item.Plan = @{ Kind = 'md-reference' } }
+			$script:rootResults[$id] = @{ Id = $id; Items = $items }
+		}
+		if ($again.Count -eq $pending.Count) { break }
+		$pending = $again
+	}
+	foreach ($id in $waiting.Keys) {
+		$plan = $waiting[$id]
+		$path = @($id); $dep = $plan.Dependency
+		while ($dep -and $waiting.ContainsKey($dep)) {
+			if ($dep -in $path) {
+				if ($dep -ieq $id) { $plan.Status = 'MANUAL'; $plan.Reason = "dependency cycle: $(($path + $dep) -join ' -> ')" }
+				break
+			}
+			$path += $dep; $dep = $waiting[$dep].Dependency
+		}
+		$script:rootResults[$id] = @{ Id = $id; Items = @(New-MdReferenceItem 'own object' $plan) }
+	}
+	return ,@($changed | Select-Object -Unique)
+}
+
 function Get-TransferObject($ext, $obj) {
 	$ctx = Get-ObjContext $ext.Dir $obj.Type $obj.Name
 	$rec = @{ Id = "$($obj.Type).$($obj.Name)"; Items = @() }
 	if (-not $ctx.Known -or -not $ctx.Exists) { return $rec }
 	$prefix = $ext.Prefix
 	if (-not $ctx.Borrowed) {
+		if ($script:rootResults -and $script:rootResults.ContainsKey($rec.Id)) { return $script:rootResults[$rec.Id] }
 		$pool = @()
 		if ($cfgInfo.ChildObjects) { foreach ($c in $cfgInfo.ChildObjects.ChildNodes) { if ($c.NodeType -eq 'Element' -and $c.LocalName -eq $obj.Type) { $pool += $c.InnerText.Trim() } } }
 		$hit = Find-NameIn $pool $obj.Name $prefix
@@ -4405,17 +4796,21 @@ function Apply-MdPropOp($me, $plan, [string]$extDir) {
 }
 
 # Errors of the metadata validator (meta-validate for an object, subsystem-validate for a subsystem)
-function Get-MdValidateErrors([string]$path, [string]$objType) {
+function Get-MdValidateErrors([string]$path, [string]$objType, [switch]$RequireResult) {
 	$rel = if ($objType -eq 'Subsystem') { '../../subsystem-validate/scripts/subsystem-validate.ps1' } else { '../../meta-validate/scripts/meta-validate.ps1' }
 	$vs = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot $rel))
 	if (-not (Test-Path -LiteralPath $vs)) {
 		$script:mdValidateMissing = $true
+		if ($RequireResult) { return ,@('metadata validator is not installed') }
 		return , @()
 	}
 	$param = if ($objType -eq 'Subsystem') { '-SubsystemPath' } else { '-ObjectPath' }
 	$out = & powershell.exe -NoProfile -File $vs $param $path 2>&1
 	$errs = @()
 	foreach ($l in @($out)) { $t = [string]$l; if ($t -match '\[ERROR\]') { $errs += ($t.Substring($t.IndexOf('[ERROR]') + 7) -replace '\s+', ' ').Trim() } }
+	if ($RequireResult -and ($LASTEXITCODE -notin @(0, 1) -or ($LASTEXITCODE -eq 1 -and -not $errs.Count))) {
+		return ,@("metadata validator did not complete (exit $LASTEXITCODE)")
+	}
 	return , $errs
 }
 
@@ -4765,6 +5160,9 @@ function Initialize-BslCatalog([string]$extDir, [string]$prefix) {
 	foreach ($f in @(Get-ChildItem -LiteralPath $extDir -Filter '*.bsl' -Recurse)) {
 		$rel = Get-RelPath $extDir $f.FullName
 		$cfg = Get-CfgPath $rel
+		$rootId = if ($rel -match '^CommonModules[/\\]([^/\\]+)[/\\]Ext[/\\]Module\.bsl$') { "CommonModule.$($Matches[1])" } else { '' }
+		$ownRoot = $rootId -and $script:rootOwn -and $script:rootOwn.ContainsKey($rootId)
+		if ($ownRoot -and $script:rootBindings.ContainsKey($rootId)) { $cfg = Get-CfgPath (Get-RootObjectPaths 'CommonModule' $script:rootBindings[$rootId]).Bsl }
 		$el = Read-BslLines $f.FullName; $cl = Read-BslLines $cfg
 		$kind = Get-ModuleKind $rel
 		$ctx = @{ Rel = $rel; Ext = $el; Cfg = $cl; Kind = $kind; Methods = @{}; Attrs = @{}; DataAttrs = @{}; FormNames = @{}; Names = @{} }
@@ -4780,6 +5178,7 @@ function Initialize-BslCatalog([string]$extDir, [string]$prefix) {
 			$n = $d.Name
 			# An interceptor is not a separately callable own method.
 			if ($interceptNames2.ContainsKey($n.ToLower())) { continue }
+			if ($ownRoot) { $ctx.Methods[$n.ToLower()] = $n; $ctx.Names[$n.ToLower()] = $n; continue }
 			$hits = @(Find-NamesIn $cn $n $prefix)
 			$hit = $null
 			$em = Get-MethodSafe $el $n
@@ -4845,7 +5244,9 @@ function Initialize-BslCatalog([string]$extDir, [string]$prefix) {
 		if ($x.NodeType -ne 'Element') { continue }; $n = $x.InnerText.Trim()
 		$pool2 = @(); if ($cfgInfo.ChildObjects) { foreach ($c2 in $cfgInfo.ChildObjects.ChildNodes) { if ($c2.NodeType -eq 'Element' -and $c2.LocalName -eq $x.LocalName) { $pool2 += $c2.InnerText.Trim() } } }
 		$hit2 = Find-NameIn $pool2 $n $prefix
-		$script:bslGlobals[$n.ToLower()] = if ($hit2) { $hit2 } else { Remove-ExtPrefix $n $prefix }
+		$script:bslGlobals[$n.ToLower()] = if ($script:rootBindings -and $script:rootBindings.ContainsKey("$($x.LocalName).$n")) {
+			$script:rootBindings["$($x.LocalName).$n"]
+		} elseif ($hit2) { $hit2 } else { Remove-ExtPrefix $n $prefix }
 	} }
 	# The global idle-handler API can only see application/global common-module exports.
 	# Include configuration-only modules too: extension-only coincidences are not an exhaustive set.
@@ -6415,14 +6816,16 @@ if ($Mode -eq 'transfer') {
 	$matchedIds = @{}
 	$roles = 0
 
-	Initialize-BslCatalog $extDir0 $prefix
 	# --- Pass 1: what the check sees, object by object ---
 	$work = @()
 	$filteredOwn = @()
-	$cfgPools = @{}
-	if ($cfgInfo.ChildObjects) { foreach ($c in $cfgInfo.ChildObjects.ChildNodes) { if ($c.NodeType -eq 'Element') { if (-not $cfgPools.ContainsKey($c.LocalName)) { $cfgPools[$c.LocalName] = @() }; $cfgPools[$c.LocalName] += $c.InnerText.Trim() } } }
 	$allObjs = @()
 	if ($cp0.ChildObjects) { foreach ($c in $cp0.ChildObjects.ChildNodes) { if ($c.NodeType -eq 'Element' -and $c.LocalName -ne 'Language') { $allObjs += @{ Type = $c.LocalName; Name = $c.InnerText.Trim() } } } }
+	$script:transferPrefix = $prefix
+	$rootChanged = Initialize-RootTransfer $ext $allObjs $vars $true
+	Initialize-BslCatalog $extDir0 $prefix
+	$cfgPools = @{}
+	if ($cfgInfo.ChildObjects) { foreach ($c in $cfgInfo.ChildObjects.ChildNodes) { if ($c.NodeType -eq 'Element') { if (-not $cfgPools.ContainsKey($c.LocalName)) { $cfgPools[$c.LocalName] = @() }; $cfgPools[$c.LocalName] += $c.InnerText.Trim() } } }
 	foreach ($obj in $allObjs) {
 		$id = "$($obj.Type).$($obj.Name)"
 		if (-not (Test-NameMatch $id)) {
@@ -6458,6 +6861,8 @@ if ($Mode -eq 'transfer') {
 		if (-not $ctx.Borrowed) {
 			$pool = @($cfgPools[$obj.Type])
 			$hit = Find-NameIn $pool $obj.Name $prefix
+			$ownId = "$($obj.Type).$($obj.Name)"
+			if ($script:rootOwn.ContainsKey($ownId)) { $hit = $script:rootBindings[$ownId] }
 			if (-not $hit) { $missingGlobal[$obj.Name.ToLower()] = $obj.Name }
 			$t = if ($hit) { $hit } else {
 				$taken = New-Object 'System.Collections.Generic.HashSet[string]'
@@ -6564,6 +6969,18 @@ if ($Mode -eq 'transfer') {
 	$formTopcodeRejections = @{}
 	$outByFile = @{}
 	$outCommon = @{}
+	foreach ($id in $script:rootMethodBlocks.Keys) {
+		$rel = (Get-RootObjectPaths 'CommonModule' $script:rootOwn[$id].Name).Bsl
+		foreach ($method in $script:rootMethodBlocks[$id]) { [void](Add-OutName $outByFile $outCommon (Get-CfgPath $rel) $rel $method) }
+	}
+	foreach ($id in $script:rootOwn.Keys) {
+		$entry = $script:rootOwn[$id]
+		if ($entry.Type -ne 'CommonModule' -or $script:rootBindings.ContainsKey($id)) { continue }
+		$rel = (Get-RootObjectPaths $entry.Type $entry.Name).Bsl
+		foreach ($method in @(Get-ProcNames (Read-BslLines (Join-Path $extDir0 $rel)))) {
+			[void](Add-OutName $outByFile $outCommon (Get-CfgPath $rel) $rel $method)
+		}
+	}
 	# Own methods marked "not for transfer" and not in the configuration: never coming, so code that
 	# calls them is left to a person (drop the call or the mark) rather than waiting
 	$tempByFile = @{}
@@ -6611,6 +7028,7 @@ if ($Mode -eq 'transfer') {
 				$t = New-TItem $it.Status $it.Text $it.Loc $it.Section
 				$t.Plan = $pl
 				$t.Group = $it.Group; $t.Marked = $it.Marked; $t.Seq = $o.I
+				if ($it.Now) { $t.Now = $true }
 				if ($pl.Kind -eq 'own' -and $it.Status -ne 'TRANSFERRED') {
 					$handlerKey = "$((Get-CfgPath $pl.Rel).ToLower())|$($pl.Name)"
 					if ($formHandlerRejections.ContainsKey($handlerKey)) {
@@ -7319,7 +7737,7 @@ if ($Mode -eq 'transfer') {
 		$handledModules[$fe.CfgModule.ToLower()] = $true
 		Set-FormWriteConflict $fe $recs "$($miss[0]); module not changed"
 	}
-	$changed = @()
+	$changed = @($rootChanged)
 	foreach ($fe in @($script:formEdits.Values)) {
 		if ($fe.Ops.Count -eq 0) { continue }
 		$handledModules[$fe.CfgModule.ToLower()] = $true
@@ -7407,7 +7825,7 @@ if ($Mode -eq 'transfer') {
 	if ($cConflict) { $footer += "Hint: resolve each conflict (see next:), then re-run -Mode transfer" }
 	if ($script:formValidateMissing) { $footer += "Hint: /form-validate is not installed — the written forms were not checked; run /form-validate by hand" }
 	if ($script:mdValidateMissing) { $footer += "Hint: /meta-validate (or /subsystem-validate) is not installed — the written metadata was not checked; run it by hand" }
-	if ($cWait) { $footer += "Hint: waiting changes go over by themselves on a re-run of -Mode transfer once what they wait for is in the configuration: own methods of this run (see their lines), objects, sub-objects and form items (by hand for now)" }
+	if ($cWait) { $footer += "Hint: waiting changes go over by themselves on a re-run of -Mode transfer once their dependencies are in the configuration" }
 	$footer += Get-BslWarningReport $recs $extDir0
 	$failed = ($cWait + $cManual + $cConflict) -gt 0
 	$showDetails = $true
@@ -7416,8 +7834,11 @@ if ($Mode -eq 'transfer') {
 	$matchedIds = @{}
 	foreach ($dir in $extDirs) {
 		$cp = Read-ConfigurationProps $dir
-		Initialize-BslCatalog $dir ([string]$cp.Prefix)
 		$ext = @{ Dir = $dir; Name = $cp.Name; Prefix = $cp.Prefix; Purpose = $cp.Purpose; Objects = @(); Roles = 0; Matched = 0 }
+		$objs = @($cp.ChildObjects.ChildNodes | Where-Object { $_.NodeType -eq 'Element' } | ForEach-Object { @{ Type = $_.LocalName; Name = $_.InnerText.Trim() } })
+		$script:transferPrefix = $ext.Prefix
+		[void](Initialize-RootTransfer $ext $objs @{} $false)
+		Initialize-BslCatalog $dir ([string]$cp.Prefix)
 		if ($cp.ChildObjects) {
 			foreach ($child in $cp.ChildObjects.ChildNodes) {
 				if ($child.NodeType -ne 'Element' -or $child.LocalName -eq 'Language') { continue }

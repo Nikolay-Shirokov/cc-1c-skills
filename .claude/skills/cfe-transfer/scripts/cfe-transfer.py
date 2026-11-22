@@ -1,5 +1,5 @@
 ﻿#!/usr/bin/env python3
-# cfe-transfer v1.32 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+# cfe-transfer v1.33 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -1700,9 +1700,14 @@ def resolve_md_reference(value, prefix, type_reference=False):
     base = get_md_type_ref_base(kind) if type_reference else kind
     if base not in CHILD_TYPE_DIR_MAP:
         return {"value": value}
+    root_id = (base + "." + name).lower()
+    if root_id in ROOT_OWN and root_id not in ROOT_BINDINGS:
+        return {"status": "WAITING", "reason": "waiting for %s.%s" % (base, name), "dependency": root_id}
     if MD_REFERENCE_POOLS is None:
         return {"status": "MANUAL", "reason": "configuration has no ChildObjects to resolve " + value}
     hits = find_names_in(MD_REFERENCE_POOLS.get(base, ()), name, prefix)
+    if root_id in ROOT_BINDINGS:
+        hits = [ROOT_BINDINGS[root_id]]
     if not hits:
         return {"status": "WAITING", "reason": "%s.%s: the object is not in the configuration" % (base, name)}
     if len(hits) > 1 and hits[0].lower() != name.lower():
@@ -3448,6 +3453,462 @@ def own_child_items(ctx, cfg_md, prefix, rel, rank):
     return items
 
 
+ROOT_SOURCE_IDS = set()
+ROOT_OWN = {}
+ROOT_BINDINGS = {}
+ROOT_RESULTS = {}
+ROOT_METHOD_BLOCKS = {}
+ROOT_GLOBAL_METHODS = {}
+
+
+def root_object_paths(kind, name):
+    directory = "%s/%s" % (CHILD_TYPE_DIR_MAP[kind], name)
+    filename = "Module.bsl" if kind == "CommonModule" else "CommandModule.bsl"
+    return {"xml": directory + ".xml", "bsl": directory + "/Ext/" + filename, "dir": directory}
+
+
+def get_root_object_xml(fw, kind, name, prefix):
+    obj = get_md_object_element(fw["root"])
+    props = get_md_props_element(obj)
+    props.find("md:Name", MD_NSMAP).text = name
+    for owned in props.xpath("md:ObjectBelonging|md:ExtendedConfigurationObject", namespaces=MD_NSMAP):
+        props.remove(owned)
+    if kind == "CommonCommand":
+        for leaf in props.xpath("md:Group|md:Picture/xr:Ref|md:CommandParameterType/v8:Type|md:CommandParameterType/v8:TypeSet",
+                                namespaces=MD_NSMAP):
+            ref = resolve_md_reference(inner_text(leaf).strip(), prefix, localname(leaf) in ("Type", "TypeSet"))
+            if ref.get("status"):
+                return ref
+            leaf.text = ref["value"]
+    return {"props": props}
+
+
+ROOT_BSL_COLLECTIONS = {
+    "справочники": "Catalog", "catalogs": "Catalog", "документы": "Document", "documents": "Document",
+    "перечисления": "Enum", "enums": "Enum", "общиекоманды": "CommonCommand", "commoncommands": "CommonCommand",
+    "константы": "Constant", "constants": "Constant", "регистрысведений": "InformationRegister", "informationregisters": "InformationRegister",
+    "регистрынакопления": "AccumulationRegister", "accumulationregisters": "AccumulationRegister",
+    "обработки": "DataProcessor", "dataprocessors": "DataProcessor", "отчеты": "Report", "reports": "Report",
+}
+
+
+def get_root_bsl_projection(lines, prefix, self_id, self_name):
+    all_tokens = list(bsl_tokens(lines))
+    tokens = [t for t in all_tokens if t["kind"] not in ("comment", "string", "fragment") and t["value"].strip()]
+    source = "\n".join(lines)
+    proc_names = get_proc_names(lines)
+    proc_keys = {n.lower() for n in proc_names}
+    methods = [m for n in proc_names if (m := get_method_safe(lines, n))]
+    locals_ = {n.lower() for v in get_module_layout(lines)["vars"] for n in v["names"]}
+    method_locals = {}
+    edits = {}
+    for i in range(len(tokens) - 1):
+        token, dot = tokens[i:i + 2]
+        if token["kind"] != "word" or (i and tokens[i - 1]["value"] == "."):
+            continue
+        word = token["value"].lower()
+        if dot["value"] == "(" and word not in proc_keys and word in ROOT_GLOBAL_METHODS:
+            providers = ROOT_GLOBAL_METHODS[word]
+            if len(providers) > 1:
+                return {"status": "MANUAL", "reason": "ambiguous global method %s: %s" %
+                        (token["value"], ", ".join(ROOT_OWN[key]["id"] for key in providers))}
+            key = providers[0]
+            if key not in ROOT_BINDINGS or word in ROOT_METHOD_BLOCKS.get(key, ()):
+                return {"status": "WAITING", "reason": "waiting for %s.%s" % (ROOT_OWN[key]["id"], token["value"]), "dependency": key}
+            continue
+        if i + 2 >= len(tokens) or dot["value"] != "." or tokens[i + 2]["kind"] != "word":
+            continue
+        member = tokens[i + 2]
+        collection = ROOT_BSL_COLLECTIONS.get(word)
+        kind = collection or "CommonModule"
+        ref_token = member if collection else token
+        ref = kind + "." + ref_token["value"]
+        key = ref.lower()
+        if key not in ROOT_SOURCE_IDS or word in locals_:
+            continue
+        line = source.count("\n", 0, token["start"])
+        owner = next((m for m in methods if m["decl_idx"] <= line <= m["body_end_idx"]), None)
+        if owner:
+            idx = owner["decl_idx"]
+            if idx not in method_locals:
+                params = owner.get("param_names", ())
+                method_locals[idx] = {p.lower() for p in params} | set(get_local_names(get_code_only(owner["body_lines"]), params))
+            if word in method_locals[idx]:
+                continue
+        if key == self_id.lower():
+            target = self_name
+        elif key in ROOT_BINDINGS:
+            target = ROOT_BINDINGS[key]
+            if not collection and i + 3 < len(tokens) and tokens[i + 3]["value"] == "(":
+                path = os.path.join(MD_REFERENCE_ROOT, root_object_paths(kind, target)["bsl"])
+                if member["value"].lower() in ROOT_METHOD_BLOCKS.get(key, ()) or not get_method_safe(read_bsl_lines(path), member["value"]):
+                    return {"status": "WAITING", "reason": "waiting for " + ref + "." + member["value"]}
+        else:
+            if key in ROOT_OWN:
+                return {"status": "WAITING", "reason": "waiting for " + ref, "dependency": key}
+            resolved = resolve_md_reference(ref, prefix)
+            if resolved.get("status"):
+                return resolved
+            target = resolved["value"].split(".", 1)[1]
+            if not collection and i + 3 < len(tokens) and tokens[i + 3]["value"] == "(":
+                path = os.path.join(MD_REFERENCE_ROOT, root_object_paths(kind, target)["bsl"])
+                hits = find_names_in(get_proc_names(read_bsl_lines(path) or []), member["value"], prefix)
+                method_id = ref + "." + member["value"]
+                if not hits:
+                    return {"status": "WAITING", "reason": "waiting for " + method_id}
+                if len(hits) > 1 and hits[0].lower() != member["value"].lower():
+                    return {"status": "MANUAL", "reason": "ambiguous method %s: %s" % (method_id, ", ".join(hits))}
+                edits[member["start"]] = hits[0]
+        edits[ref_token["start"]] = target
+    return {"lines": "".join(edits.get(t["start"], t["value"]) for t in all_tokens).split("\n") if edits else lines}
+
+
+def root_object_code_key(lines):
+    return "\0".join(t["value"].lower() if t["kind"] == "word" else t["value"] for t in bsl_tokens(lines)
+                     if t["kind"] != "comment" and t["value"].strip())
+
+
+def compare_root_module(source, target):
+    names, current = get_proc_names(source), get_proc_names(target)
+    source_counts, target_counts = Counter(n.lower() for n in names), Counter(n.lower() for n in current)
+    matched, missing, different = 0, [], []
+    for name in names:
+        key = name.lower()
+        a, b = get_method_safe(source, name), get_method_safe(target, name)
+        if not a or source_counts[key] != 1:
+            different.append(name)
+        elif not target_counts[key]:
+            missing.append((name, a))
+        elif not b or target_counts[key] != 1 or own_declaration_difference(source, a, target, b) or (
+                root_object_code_key(a["body_lines"]) != root_object_code_key(b["body_lines"])):
+            different.append(name)
+        elif root_object_code_key(a["body_lines"]):
+            matched += 1
+    top = list(get_top_code_keys(source, "").values()) == list(get_top_code_keys(target, "").values())
+    return {"matched": matched, "total": len(names), "missing": missing, "different": different, "top": top}
+
+
+def get_root_object_plan(entry, ext_dir, prefix, cfg):
+    oid, kind, name = entry["id"], entry["type"], entry["name"]
+    src = root_object_paths(kind, name)
+    src_bsl = os.path.normpath(os.path.join(ext_dir, src["bsl"]))
+    if cfg["child_objects"] is None:
+        return {"status": "MANUAL", "reason": "configuration has no ChildObjects"}
+    src_xml = os.path.join(ext_dir, src["xml"])
+    fw = read_form_write(src_xml)
+    if fw["root"].get("version") != cfg["child_objects"].getroottree().getroot().get("version"):
+        return {"status": "MANUAL", "reason": "metadata dump formats differ"}
+    for folder, _, files in os.walk(os.path.join(ext_dir, src["dir"])):
+        for filename in files:
+            if os.path.normpath(os.path.join(folder, filename)).lower() != src_bsl.lower():
+                return {"status": "MANUAL", "reason": "unsupported object file " + filename}
+    if not os.path.isfile(src_bsl):
+        return {"status": "MANUAL", "reason": "missing module " + src["bsl"]}
+    bsl = read_bsl_file(src_bsl)
+    source_uuid = get_md_object_element(fw["root"]).get("uuid")
+    pool = MD_REFERENCE_POOLS.get(kind, ())
+    matches, uncertain = [], []
+    for candidate in find_names_in(pool, name, prefix):
+        paths = root_object_paths(kind, candidate)
+        dst = read_md_object(os.path.join(MD_REFERENCE_ROOT, paths["xml"]))
+        dst_path = os.path.join(MD_REFERENCE_ROOT, paths["bsl"])
+        if not dst or not os.path.isfile(dst_path):
+            uncertain.append(candidate)
+            continue
+        xml = get_root_object_xml(read_form_write(src_xml), kind, candidate, prefix)
+        if xml.get("status"):
+            return xml
+        projection = get_root_bsl_projection(bsl["lines"], prefix, oid, candidate)
+        if projection.get("status"):
+            return projection
+        dst_bsl = read_bsl_file(dst_path)
+        same_xml = node_canon(xml["props"]) == node_canon(dst["props"])
+        same_bsl = root_object_code_key(projection["lines"]) == root_object_code_key(dst_bsl["lines"])
+        plan = {"target": candidate, "paths": paths, "bsl": dst_bsl, "lines": projection["lines"], "status": "TRANSFERRED"}
+        if same_xml and same_bsl:
+            matches.append(plan)
+            continue
+        if kind == "CommonModule":
+            comparison = compare_root_module(projection["lines"], dst_bsl["lines"])
+            count = comparison["matched"]
+            if same_xml and count >= 2 and count * 2 > comparison["total"]:
+                plan["comparison"] = comparison
+                if comparison["missing"] or comparison["different"] or not comparison["top"]:
+                    plan["status"] = "PARTIAL"
+                matches.append(plan)
+                continue
+            if count >= 2 or (same_xml and count):
+                uncertain.append(candidate)
+                continue
+        if (source_uuid and source_uuid == dst["el"].get("uuid")) or (same_bsl and any(
+                root_object_code_key(m["body_lines"]) for n in get_proc_names(projection["lines"])
+                if (m := get_method_safe(projection["lines"], n)))):
+            uncertain.append(candidate)
+    if len(matches) == 1 and not uncertain:
+        return matches[0]
+    if matches or uncertain:
+        return {"status": "MANUAL", "reason": "check matching objects: " + ", ".join([p["target"] for p in matches] + uncertain)}
+    taken = {n.lower() for n in pool}
+    directory = os.path.join(MD_REFERENCE_ROOT, CHILD_TYPE_DIR_MAP[kind])
+    if os.path.isdir(directory):
+        for p in os.scandir(directory):
+            if p.is_dir():
+                taken.add(p.name.lower())
+            elif p.name.lower().endswith(".xml"):
+                taken.add(p.name[:-4].lower())
+    choice = get_target_name(name, prefix, taken, SETTINGS[get_object_kind(name, "own")]["add_dev_objects"])
+    if choice.get("taken"):
+        return {"status": "CONFLICT", "reason": "name taken in configuration (%s)" % choice["note"]}
+    target = choice["name"]
+    xml = get_root_object_xml(fw, kind, target, prefix)
+    if xml.get("status"):
+        return xml
+    projection = get_root_bsl_projection(bsl["lines"], prefix, oid, target)
+    if projection.get("status"):
+        return projection
+    return {"status": "NOT_TRANSFERRED", "target": target, "paths": root_object_paths(kind, target),
+            "fw": fw, "bsl": bsl, "lines": projection["lines"]}
+
+
+CONFIG_CHILD_ORDER = (
+    "Language Subsystem StyleItem Style CommonPicture SessionParameter Role CommonTemplate FilterCriterion CommonModule "
+    "CommonAttribute ExchangePlan XDTOPackage WebService HTTPService WSReference EventSubscription ScheduledJob "
+    "SettingsStorage FunctionalOption FunctionalOptionsParameter DefinedType Bot PaletteColor CommonCommand CommandGroup "
+    "Constant CommonForm Catalog Document DocumentNumerator Sequence DocumentJournal Enum Report DataProcessor "
+    "InformationRegister AccumulationRegister ChartOfCharacteristicTypes ChartOfAccounts AccountingRegister "
+    "ChartOfCalculationTypes CalculationRegister BusinessProcess Task ExternalDataSource IntegrationService"
+).split()
+
+
+def add_root_object_registration(fw, kind, name):
+    children = fw["root"].find("md:Configuration/md:ChildObjects", MD_NSMAP)
+    if children is None or any(inner_text(x).lower() == name.lower() for x in children.findall("md:" + kind, MD_NSMAP)):
+        raise ValueError("configuration registration changed since planning")
+    later = set(CONFIG_CHILD_ORDER[CONFIG_CHILD_ORDER.index(kind) + 1:])
+    before = next((x for x in elem_children(children) if localname(x) in later), None)
+    node = etree.Element("{%s}%s" % (MD_NS, kind))
+    node.text = name
+    insert_form_node_at(children, node, before, fw["eol"])
+
+
+def write_root_object(entry, plan):
+    cfg_path = os.path.join(MD_REFERENCE_ROOT, "Configuration.xml")
+    xml_path, bsl_path = (os.path.join(MD_REFERENCE_ROOT, plan["paths"][key]) for key in ("xml", "bsl"))
+    suffix = ".cfe-root-" + uuid.uuid4().hex
+    cfg_temp, xml_temp, bsl_temp = (os.path.join(MD_REFERENCE_ROOT, suffix + extension)
+                                     for extension in ("-config.xml", "-object.xml", "-module.bsl"))
+    installed, made_dirs = [], []
+    lock_path = os.path.join(MD_REFERENCE_ROOT, ".cfe-transfer-registration.lock")
+    lock = None
+    try:
+        lock = os.open(lock_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        if not os.stat(cfg_path).st_mode & (stat.S_IWUSR | stat.S_IWGRP | stat.S_IWOTH):
+            raise PermissionError("Configuration.xml is read-only")
+        if os.path.lexists(os.path.join(MD_REFERENCE_ROOT, plan["paths"]["dir"])):
+            raise FileExistsError("object directory already exists: " + plan["paths"]["dir"])
+        with open(cfg_path, "rb") as original:
+            before = original.read()
+        cfg = read_form_write(cfg_path)
+        add_root_object_registration(cfg, entry["type"], plan["target"])
+        get_md_object_element(plan["fw"]["root"]).set("uuid", str(uuid.uuid4()))
+        save_form_write(cfg, cfg_temp)
+        save_form_write(plan["fw"], xml_temp)
+        write_bsl_file(plan["bsl"], plan["lines"], bsl_temp)
+        check = read_md_object(xml_temp)
+        registered = read_xml(cfg_temp).findall("md:Configuration/md:ChildObjects/md:" + entry["type"], MD_NSMAP)
+        if (not check or localname(check["el"]) != entry["type"] or md_child_name(check["el"]) != plan["target"]
+                or sum(inner_text(x) == plan["target"] for x in registered) != 1
+                or root_object_code_key(read_bsl_lines(bsl_temp)) != root_object_code_key(plan["lines"])):
+            raise ValueError("staged object did not pass read-back validation")
+        errors = get_md_validate_errors(xml_temp, entry["type"], require_result=True)
+        if errors:
+            raise ValueError("validator: " + errors[0])
+        folder = os.path.dirname(bsl_path)
+        missing = []
+        while not os.path.isdir(folder):
+            missing.append(folder)
+            folder = os.path.dirname(folder)
+        for folder in reversed(missing):
+            os.mkdir(folder)
+            made_dirs.append(folder)
+        # Link creates the destination without overwriting a file that appeared since planning.
+        for source, target in ((xml_temp, xml_path), (bsl_temp, bsl_path)):
+            os.link(source, target)
+            installed.append(target)
+        with open(cfg_path, "rb") as current:
+            if current.read() != before:
+                raise ValueError("Configuration.xml changed during transfer")
+        replace_form_file(cfg_temp, cfg_path)
+    except Exception:
+        for path in installed:
+            os.unlink(path)
+        for folder in reversed(made_dirs):
+            if not os.listdir(folder):
+                os.rmdir(folder)
+        raise
+    finally:
+        for path in (cfg_temp, xml_temp, bsl_temp):
+            if os.path.exists(path):
+                os.unlink(path)
+        if lock is not None:
+            os.close(lock)
+            os.unlink(lock_path)
+    return [xml_path, bsl_path, cfg_path]
+
+
+def complete_root_module(plan, frame, apply):
+    comparison = plan["comparison"]
+    items, changed, inserted = [], [], []
+    if comparison["matched"]:
+        items.append(new_item("TRANSFERRED", "%d/%d methods already present" % (comparison["matched"], comparison["total"])))
+    for name in comparison["different"]:
+        items.append(new_item("CONFLICT", "method %s — declaration or body differs" % name))
+    if not comparison["top"]:
+        items.append(new_item("CONFLICT", "module code outside methods differs"))
+    lines = list(plan["bsl"]["lines"])
+    for name, method in comparison["missing"]:
+        if not comparison["top"]:
+            items.append(new_item("WAITING", "method %s — waiting for module code outside methods" % name))
+            continue
+        place = resolve_method_conditions(lines, {"at": get_module_end(lines)}, method)
+        if not place or method_crosses_branch(plan["lines"], method):
+            items.append(new_item("MANUAL", "method %s — preprocessor condition differs" % name))
+            continue
+        item = new_item("NOT_TRANSFERRED", "method " + name)
+        items.append(item)
+        if not apply:
+            continue
+        start = method["decl_idx"]
+        if start and is_context_directive(plan["lines"][start - 1].strip()):
+            start -= 1
+        while start and plan["lines"][start - 1].strip().startswith("//"):
+            start -= 1
+        block = plan["lines"][start:method["body_end_idx"] + 1]
+        if frame["begin"]:
+            block.insert(0, frame["begin"])
+        if frame["end"]:
+            block[-1] += " " + frame["end"]
+        block = join_own_method_blocks([{"lines": block, "guards": place["guards"], "guard_key": place["guard_key"], "lang": method["lang"]}])
+        at = place["at"]
+        lines[at:at] = get_spaced_block(lines, at, block)
+        inserted.append(item)
+    if inserted:
+        path = plan["bsl"]["path"]
+        temp = path + ".cfe-root-" + uuid.uuid4().hex + ".tmp"
+        try:
+            if not os.stat(path).st_mode & (stat.S_IWUSR | stat.S_IWGRP | stat.S_IWOTH):
+                raise PermissionError("module is read-only")
+            write_bsl_file(plan["bsl"], lines, temp)
+            readback = compare_root_module(plan["lines"], read_bsl_lines(temp))
+            invalid = {name for name, _ in readback["missing"]} | set(readback["different"])
+            if any(item["text"] in {"method " + name for name in invalid} for item in inserted):
+                raise ValueError("inserted methods did not pass read-back validation")
+            replace_form_file(temp, path)
+            changed.append(path)
+            for item in inserted:
+                item.update(status="TRANSFERRED", now=True)
+        except Exception as exc:
+            for item in inserted:
+                item.update(status="CONFLICT", text=item["text"] + " — " + str(exc))
+        finally:
+            if os.path.exists(temp):
+                os.unlink(temp)
+    return items, changed
+
+
+def initialize_root_transfer(ext, objects, cfg, vars_, selected, apply=False):
+    ROOT_SOURCE_IDS.clear()
+    ROOT_OWN.clear()
+    ROOT_BINDINGS.clear()
+    ROOT_RESULTS.clear()
+    ROOT_METHOD_BLOCKS.clear()
+    ROOT_GLOBAL_METHODS.clear()
+    pending, changed = [], []
+    for obj in objects:
+        oid = "%s.%s" % (obj["type"], obj["name"])
+        key = oid.lower()
+        ROOT_SOURCE_IDS.add(key)
+        if obj["type"] not in ("CommonModule", "CommonCommand"):
+            continue
+        ctx = get_obj_context(ext["dir"], obj["type"], obj["name"])
+        if not ctx["exists"] or ctx["borrowed"]:
+            continue
+        entry = dict(obj, id=oid, key=key, selected=selected(oid))
+        ROOT_OWN[key] = entry
+        pending.append(entry)
+        props = ctx["md"]["props"]
+        if obj["type"] == "CommonModule" and props is not None and props.findtext("md:Global", namespaces=MD_NSMAP) == "true":
+            lines = read_bsl_lines(os.path.join(ext["dir"], root_object_paths(obj["type"], obj["name"])["bsl"])) or []
+            for name in get_proc_names(lines):
+                method = get_method_safe(lines, name)
+                if method and is_export(lines, method):
+                    ROOT_GLOBAL_METHODS.setdefault(name.lower(), []).append(key)
+    waiting = {}
+    while pending:
+        again, waiting = [], {}
+        for entry in pending:
+            oid, key = entry["id"], entry["key"]
+            try:
+                plan = get_root_object_plan(entry, ext["dir"], ext["prefix"], cfg)
+            except Exception as exc:
+                plan = {"status": "MANUAL", "reason": str(exc)}
+            status = plan["status"]
+            if status == "WAITING":
+                waiting[key] = plan
+                again.append(entry)
+                continue
+            if status in ("TRANSFERRED", "PARTIAL"):
+                ROOT_BINDINGS[key] = plan["target"]
+            if status == "PARTIAL":
+                locked = apply and get_object_support(os.path.join(MD_REFERENCE_ROOT, plan["paths"]["xml"])) == "locked"
+                settings = SETTINGS[get_object_kind(entry["name"], "own")]
+                items, paths = complete_root_module(plan, get_frame(settings, vars_), apply and entry["selected"] and not locked)
+                changed.extend(paths)
+                ROOT_METHOD_BLOCKS[key] = {
+                    item["text"].split()[1].lower() for item in items
+                    if item["status"] != "TRANSFERRED" and item["text"].startswith("method ")
+                }
+                if apply and entry["selected"] and locked:
+                    for item in items:
+                        if item["status"] == "NOT_TRANSFERRED":
+                            item.update(status="MANUAL", text=item["text"] + " — object is locked by vendor support")
+            else:
+                target = plan.get("target")
+                label = "own object"
+                if target and target.lower() != entry["name"].lower():
+                    label += " (found as %s)" % target
+                if plan.get("reason"):
+                    label += " — " + plan["reason"]
+                item = new_item(status, label)
+                if status == "NOT_TRANSFERRED" and apply and entry["selected"]:
+                    try:
+                        changed.extend(write_root_object(entry, plan))
+                        ROOT_BINDINGS[key] = target
+                        MD_REFERENCE_POOLS.setdefault(entry["type"], []).append(target)
+                        cfg.update(read_configuration_props(MD_REFERENCE_ROOT))
+                        item.update(status="TRANSFERRED", now=True, text="own object (as %s)" % target)
+                    except Exception as exc:
+                        item.update(status="CONFLICT", text=label + " — " + str(exc))
+                items = [item]
+            for item in items:
+                item["plan"] = {"kind": "md-reference"}
+            ROOT_RESULTS[key] = {"id": oid, "items": items}
+        if len(again) == len(pending):
+            break
+        pending = again
+    for key, plan in waiting.items():
+        path, dep = [key], plan.get("dependency")
+        while dep in waiting:
+            if dep in path:
+                if dep == key:
+                    plan.update(status="MANUAL", reason="dependency cycle: " + " -> ".join(ROOT_OWN[k]["id"] for k in path + [dep]))
+                break
+            path.append(dep)
+            dep = waiting[dep].get("dependency")
+        ROOT_RESULTS[key] = {"id": ROOT_OWN[key]["id"], "items": [new_md_reference_item("own object", plan)]}
+    return list(dict.fromkeys(changed))
+
+
 def transfer_object(ext, obj, cfg_info, config_path, cfg_pools=None):
     ctx = get_obj_context(ext["dir"], obj["type"], obj["name"])
     rec = {"id": "%s.%s" % (obj["type"], obj["name"]), "items": []}
@@ -3455,6 +3916,8 @@ def transfer_object(ext, obj, cfg_info, config_path, cfg_pools=None):
         return rec
     prefix = ext["prefix"]
     if not ctx["borrowed"]:
+        if rec["id"].lower() in ROOT_RESULTS:
+            return ROOT_RESULTS[rec["id"].lower()]
         pool = []
         if cfg_info["child_objects"] is not None:
             pool = [(c.text or "").strip() for c in elem_children(cfg_info["child_objects"]) if localname(c) == obj["type"]]
@@ -4593,7 +5056,7 @@ def apply_md_prop_op(me, plan):
     set_md_scalar_prop(p, plan)
 
 
-def get_md_validate_errors(path, obj_type):
+def get_md_validate_errors(path, obj_type, require_result=False):
     """Errors of the metadata validator (meta-validate for an object, subsystem-validate for a subsystem)."""
     here = os.path.dirname(os.path.abspath(__file__))
     rel = ("../../subsystem-validate/scripts/subsystem-validate.py" if obj_type == "Subsystem"
@@ -4601,17 +5064,19 @@ def get_md_validate_errors(path, obj_type):
     script = os.path.normpath(os.path.join(here, rel))
     if not os.path.exists(script):
         globals()["MD_VALIDATE_MISSING"] = True
-        return []
+        return ["metadata validator is not installed"] if require_result else []
     param = "-SubsystemPath" if obj_type == "Subsystem" else "-ObjectPath"
     try:
-        out = subprocess.run([sys.executable, script, param, path], capture_output=True, text=True,
-                             encoding="utf-8", errors="replace").stdout
-    except Exception:
-        return []
+        result = subprocess.run([sys.executable, script, param, path], capture_output=True, text=True,
+                                encoding="utf-8", errors="replace")
+    except Exception as exc:
+        return [str(exc)] if require_result else []
     errs = []
-    for line in out.splitlines():
+    for line in result.stdout.splitlines():
         if "[ERROR]" in line:
             errs.append(re.sub(r'\s+', ' ', line.split("[ERROR]", 1)[1]).strip())
+    if require_result and (result.returncode not in (0, 1) or (result.returncode == 1 and not errs)):
+        return ["metadata validator did not complete (exit %d)" % result.returncode]
     return errs
 
 
@@ -5111,6 +5576,11 @@ def initialize_bsl_catalog(ext_dir, config_path, prefix):
             path = os.path.join(directory, filename)
             rel = rel_path(ext_dir, path)
             cfg = os.path.join(config_path, rel)
+            match_root = re.match(r"^CommonModules[/\\]([^/\\]+)[/\\]Ext[/\\]Module\.bsl$", rel, re.I)
+            root_id = ("CommonModule." + match_root[1]).lower() if match_root else ""
+            own_root = root_id in ROOT_OWN
+            if own_root and root_id in ROOT_BINDINGS:
+                cfg = os.path.join(config_path, root_object_paths("CommonModule", ROOT_BINDINGS[root_id])["bsl"])
             el, cl = read_bsl_lines(path), read_bsl_lines(cfg)
             kind = get_module_kind(rel)
             ctx = {"rel": rel, "ext": el, "cfg": cl, "kind": kind, "methods": {}, "attrs": {}, "data_attrs": {}, "form_names": {}, "names": {}}
@@ -5125,6 +5595,10 @@ def initialize_bsl_catalog(ext_dir, config_path, prefix):
             for d in get_proc_decls(el):
                 n = d['name']
                 if n.lower() in intercept_names:
+                    continue
+                if own_root:
+                    ctx["methods"][n.lower()] = n
+                    ctx["names"][n.lower()] = n
                     continue
                 hits = find_names_in(cn, n, prefix)
                 hit = None
@@ -5193,7 +5667,7 @@ def initialize_bsl_catalog(ext_dir, config_path, prefix):
         for x in elem_children(cp['child_objects']):
             n = (x.text or '').strip()
             pool = [(c.text or '').strip() for c in elem_children(cfg_props['child_objects']) if localname(c) == localname(x)] if cfg_props['child_objects'] is not None else []
-            BSL_GLOBALS[n.lower()] = find_name_in(pool, n, prefix) or remove_ext_prefix(n, prefix)
+            BSL_GLOBALS[n.lower()] = ROOT_BINDINGS.get((localname(x) + "." + n).lower()) or find_name_in(pool, n, prefix) or remove_ext_prefix(n, prefix)
 
     global_paths = {}
     for root2 in (config_path, ext_dir):
@@ -7041,20 +7515,17 @@ def main():
         ext = {"dir": ext_dir0, "name": cp0["name"], "prefix": prefix, "purpose": cp0["purpose"]}
         roles = 0
 
-        initialize_bsl_catalog(ext_dir0, config_path, prefix)
         # --- Pass 1: what the check sees, object by object ---
         work = []
         filtered_own = []
-        cfg_pools = {}
-        if cfg_info["child_objects"] is not None:
-            for c in elem_children(cfg_info["child_objects"]):
-                cfg_pools.setdefault(localname(c), []).append((c.text or "").strip())
-        # The write side refuses a type reference the configuration lacks: same pools there
         all_objs = []
         if cp0["child_objects"] is not None:
             for c in elem_children(cp0["child_objects"]):
                 if localname(c) != "Language":
                     all_objs.append({"type": localname(c), "name": (c.text or "").strip()})
+        root_changed = initialize_root_transfer(ext, all_objs, cfg_info, vars_, name_match, apply=True)
+        initialize_bsl_catalog(ext_dir0, config_path, prefix)
+        cfg_pools = MD_REFERENCE_POOLS or {}
         for obj in all_objs:
             oid = "%s.%s" % (obj["type"], obj["name"])
             if not name_match(oid):
@@ -7093,6 +7564,9 @@ def main():
             if not ctx["borrowed"]:
                 pool = cfg_pools.get(obj["type"], [])
                 hit = find_name_in(pool, obj["name"], prefix)
+                own_id = ("%s.%s" % (obj["type"], obj["name"])).lower()
+                if own_id in ROOT_OWN:
+                    hit = ROOT_BINDINGS.get(own_id)
                 if not hit:
                     missing_global[obj["name"].lower()] = obj["name"]
                 t = hit if hit else get_target_name(obj["name"], prefix, {n.lower() for n in pool}, SETTINGS["vendor"]["add_dev_objects"])["name"]
@@ -7194,6 +7668,16 @@ def main():
         form_topcode_rejections = {}
         out_by_file = {}
         out_common = {}
+        for oid, methods in ROOT_METHOD_BLOCKS.items():
+            rel = root_object_paths("CommonModule", ROOT_OWN[oid]["name"])["bsl"]
+            for method in methods:
+                add_out_name(out_by_file, out_common, os.path.join(config_path, rel), rel, method)
+        for oid, entry in ROOT_OWN.items():
+            if entry["type"] != "CommonModule" or oid in ROOT_BINDINGS:
+                continue
+            rel = root_object_paths("CommonModule", entry["name"])["bsl"]
+            for method in get_proc_names(read_bsl_lines(os.path.join(ext_dir0, rel)) or []):
+                add_out_name(out_by_file, out_common, os.path.join(config_path, rel), rel, method)
         # Own methods marked "not for transfer" and not in the configuration: never coming, so code that
         # calls them is left to a person (drop the call or the mark) rather than waiting
         temp_by_file = {}
@@ -7240,6 +7724,8 @@ def main():
                     if pl and pl.get("rel"):
                         set_bsl_context(pl["rel"])
                     t = new_titem(it["status"], it["text"], it.get("loc", ""), it.get("section", ""))
+                    if it.get("now"):
+                        t["now"] = True
                     t["plan"] = pl
                     t["group"] = it.get("group", "")
                     t["marked"] = it.get("marked", False)
@@ -8033,7 +8519,7 @@ def main():
                 continue
             handled_modules.add(fe["cfg_module"].lower())
             set_form_write_conflict(fe, recs, config_path, "%s; module not changed" % miss[0])
-        changed = []
+        changed = list(root_changed)
         for fe in list(FORM_EDITS.values()):
             if not fe["ops"]:
                 continue
@@ -8144,8 +8630,7 @@ def main():
         if globals().get("MD_VALIDATE_MISSING"):
             footer.append("Hint: /meta-validate (or /subsystem-validate) is not installed — the written metadata was not checked; run it by hand")
         if c_wait:
-            footer.append("Hint: waiting changes go over by themselves on a re-run of -Mode transfer once what they wait for is in the configuration: "
-                          "own methods of this run (see their lines), objects, sub-objects and form items (by hand for now)")
+            footer.append("Hint: waiting changes go over by themselves on a re-run of -Mode transfer once their dependencies are in the configuration")
         for ctx2 in BSL_CATALOG.values():
             fk2 = os.path.abspath(os.path.join(config_path, ctx2['rel'])).lower()
             ctx2['methods'].update(file_maps.get(fk2, {}))
@@ -8159,9 +8644,12 @@ def main():
         matched_ids = set()
         for d in ext_dirs:
             cp = read_configuration_props(d)
-            initialize_bsl_catalog(d, config_path, cp["prefix"] or "")
             ext = {"dir": d, "name": cp["name"], "prefix": cp["prefix"], "purpose": cp["purpose"], "objects": [],
                    "roles": 0, "matched": 0}
+            objects = [{"type": localname(c), "name": inner_text(c).strip()} for c in elem_children(cp["child_objects"])] if cp["child_objects"] is not None else []
+            TRANSFER_PREFIX = ext["prefix"] or ""
+            initialize_root_transfer(ext, objects, cfg_info, {}, name_match)
+            initialize_bsl_catalog(d, config_path, TRANSFER_PREFIX)
             if cp["child_objects"] is not None:
                 for child in elem_children(cp["child_objects"]):
                     if localname(child) == "Language":
