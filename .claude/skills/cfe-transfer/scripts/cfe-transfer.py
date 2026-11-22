@@ -1,5 +1,5 @@
 ﻿#!/usr/bin/env python3
-# cfe-transfer v1.36 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+# cfe-transfer v1.37 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -1736,6 +1736,11 @@ def resolve_md_reference(value, prefix, type_reference=False):
         for tag, member in zip(parts[::2], parts[1::2]):
             nodes = {md_child_name(x).lower(): x for x in elem_children(owner) if localname(x) == tag} if owner is not None else {}
             members = find_names_in([md_child_name(x) for x in nodes.values()], member, prefix)
+            if base == "Enum" and tag == "EnumValue" and root_id in ROOT_OWN:
+                expected = ROOT_OWN[root_id]["value_ids"].get(member.lower())
+                matches_by_id = [md_child_name(x) for x in nodes.values() if expected and x.get("uuid") == expected]
+                if len(matches_by_id) == 1:
+                    members = matches_by_id
             if not members:
                 return {"status": "WAITING", "reason": "%s: %s.%s is not in the configuration" % (value, tag, member)}
             if len(members) > 1 and members[0].lower() != member.lower():
@@ -3539,7 +3544,7 @@ ROOT_BSL_COLLECTIONS = {
 }
 
 
-def get_root_bsl_projection(lines, prefix, self_id, self_name, rel="", child=None):
+def get_root_bsl_projection(lines, prefix, self_id, self_name, rel="", child=None, enum_aliases=None):
     all_tokens = list(bsl_tokens(lines))
     tokens = [t for t in all_tokens if t["kind"] not in ("comment", "string", "fragment") and t["value"].strip()]
     source = "\n".join(lines)
@@ -3617,6 +3622,18 @@ def get_root_bsl_projection(lines, prefix, self_id, self_name, rel="", child=Non
                 if len(hits) > 1 and hits[0].lower() != member["value"].lower():
                     return {"status": "MANUAL", "reason": "ambiguous method %s: %s" % (method_id, ", ".join(hits))}
                 edits[member["start"]] = hits[0]
+        if (kind == "Enum" and i + 4 < len(tokens) and tokens[i+3]["value"] == "."
+                and tokens[i+4]["kind"] == "word" and (i + 5 >= len(tokens) or tokens[i+5]["value"] != "(")
+                and key in ROOT_OWN):
+            value = tokens[i+4]
+            if key == self_id.lower():
+                if enum_aliases and value["value"].lower() in enum_aliases:
+                    edits[value["start"]] = enum_aliases[value["value"].lower()]
+            else:
+                reference = resolve_md_reference(ref + ".EnumValue." + value["value"], prefix)
+                if reference.get("status"):
+                    return reference
+                edits[value["start"]] = reference["value"].split(".")[3]
         edits[ref_token["start"]] = target
     # A direct platform form call names the owning catalog in its first argument.
     if self_id.lower().startswith("catalog.") and self_name != self_id.split(".", 1)[1]:
@@ -3676,7 +3693,7 @@ def compare_root_module(source, target):
             "different": different, "temporary": temporary, "top": top}
 
 
-def catalog_transfer_uuid(cfg, kind, source):
+def metadata_transfer_uuid(cfg, kind, source):
     config_uuid = cfg["child_objects"].getparent().get("uuid")
     return str(uuid.uuid5(uuid.NAMESPACE_DNS, f"cc-1c-skills:cfe-transfer:v1|{config_uuid.lower()}|{kind}|{source.lower()}"))
 
@@ -3727,18 +3744,20 @@ def catalog_files(root, directory, child=None):
 
 def convert_catalog_xml(fw, cfg, source, target, prefix, descriptor, child=None):
     root = fw["root"]
+    kind = (r"Enum(?:Ref|Manager|List)?" if descriptor and localname(get_md_object_element(root)) == "Enum"
+            else r"Catalog(?:Ref|Object|Manager|Selection|List|TabularSectionRow|TabularSection)?")
     if descriptor:
         get_md_object_element(root).find("md:Properties/md:Name", MD_NSMAP).text = target
     for node in root.xpath("//md:ObjectBelonging|//md:ExtendedConfigurationObject", namespaces=MD_NSMAP):
         node.getparent().remove(node)
     for node in root.xpath("//*[@uuid]"):
-        node.set("uuid", catalog_transfer_uuid(cfg, localname(node), node.get("uuid")))
-    pattern = re.compile(r"^((?:\w+:)?Catalog(?:Ref|Object|Manager|Selection|List|TabularSectionRow|TabularSection)?\.)"
+        node.set("uuid", metadata_transfer_uuid(cfg, localname(node), node.get("uuid")))
+    pattern = re.compile(r"^((?:\w+:)?" + kind + r"\.)"
                          + re.escape(source) + r"(?=\.|$)", re.I)
     for node in root.xpath("//xr:GeneratedType", namespaces=MD_NSMAP):
         node.set("name", pattern.sub(lambda m: m[1] + target, node.get("name")))
         for id_node in node.xpath("xr:TypeId|xr:ValueId", namespaces=MD_NSMAP):
-            id_node.text = catalog_transfer_uuid(cfg, localname(id_node), inner_text(id_node).strip())
+            id_node.text = metadata_transfer_uuid(cfg, localname(id_node), inner_text(id_node).strip())
     for node in root.xpath("//*[not(*)]"):
         value, name = inner_text(node).strip(), localname(node)
         if child and FORM_PATH_TAGS.search(name):
@@ -3952,7 +3971,7 @@ def get_catalog_child_plan(entry, prefix, cfg):
     pool = [md_child_name(node) for node in nodes]
     dest_root = os.path.splitext(owner_path)[0]
     files = catalog_files(source_doc, ctx["obj_dir"], entry["node"])
-    identity = catalog_transfer_uuid(cfg, kind, desc.get("uuid"))
+    identity = metadata_transfer_uuid(cfg, kind, desc.get("uuid"))
     identified = [node for node in nodes if (d := get_catalog_child_descriptor(node, dest_root)) is not None
                   and d.get("uuid") == identity]
     if len(identified) > 1:
@@ -4069,7 +4088,7 @@ def complete_catalog_children(prefix, cfg, selected, apply):
                             sub=["next: allow editing with /support-edit, then re-run -Mode transfer"])
                 continue
             try:
-                changed.extend(write_catalog_transfer({"type": "Catalog"}, plan))
+                changed.extend(write_metadata_package({"type": "Catalog"}, plan))
                 entry["ready"] = plan["name"]
                 item.update(status="TRANSFERRED", now=True)
                 if support == "warn":
@@ -4097,17 +4116,20 @@ def catalog_node_key(node, ignore_slots=False, shallow=False):
     return node_canon(node)
 
 
-def catalog_projection(entry, cfg, source, files, target, prefix):
-    base = f"Catalogs/{target}"
+def root_metadata_projection(entry, cfg, source, files, target, prefix, enum_aliases=None):
+    base = f"{CHILD_TYPE_DIR_MAP[entry['type']]}/{target}"
     fw = read_form_write(source["path"])
     result = convert_catalog_xml(fw, cfg, entry["name"], target, prefix, True)
     if result:
         return result
+    if enum_aliases:
+        for node in fw["root"].xpath("//md:EnumValue/md:Properties/md:Name", namespaces=MD_NSMAP):
+            node.text = enum_aliases.get(node.text.lower(), node.text)
     outputs = {base + ".xml": {"xml": fw}}
     for rel, path in sorted(files.items()):
         if rel.endswith(".bsl"):
             bsl = read_bsl_file(path)
-            projection = get_root_bsl_projection(bsl["lines"], prefix, entry["id"], target)
+            projection = get_root_bsl_projection(bsl["lines"], prefix, entry["id"], target, enum_aliases=enum_aliases)
             if projection.get("status"):
                 return projection
             data = {"bsl": bsl, "lines": projection["lines"]}
@@ -4177,7 +4199,7 @@ def get_catalog_transfer_plan(entry, ext_dir, prefix, cfg):
     if source["root"].get("version") != children.getroottree().getroot().get("version"):
         return {"status": "MANUAL", "reason": "metadata dump formats differ"}
     files = catalog_files(source["root"], path)
-    identity = catalog_transfer_uuid(cfg, "Catalog", get_md_object_element(source["root"]).get("uuid"))
+    identity = metadata_transfer_uuid(cfg, "Catalog", get_md_object_element(source["root"]).get("uuid"))
     registry = [(localname(n), inner_text(n)) for n in elem_children(children)]
     ids = [(kind, name) for kind, name in registry if kind in CHILD_TYPE_DIR_MAP
            and _sg_root_uuid(os.path.join(MD_REFERENCE_ROOT, CHILD_TYPE_DIR_MAP[kind], name + ".xml")) == identity]
@@ -4187,7 +4209,7 @@ def get_catalog_transfer_plan(entry, ext_dir, prefix, cfg):
     candidates = [ids[0][1]] if ids else find_names_in(pool, entry["name"], prefix)
     matches, uncertain = [], []
     for name in candidates:
-        plan = catalog_projection(entry, cfg, source, files, name, prefix)
+        plan = root_metadata_projection(entry, cfg, source, files, name, prefix)
         if plan.get("status"):
             return plan
         path = os.path.join(MD_REFERENCE_ROOT, plan["relative"])
@@ -4247,7 +4269,7 @@ def get_catalog_transfer_plan(entry, ext_dir, prefix, cfg):
             else:
                 items.append(new_item("CONFLICT", tag + " — existing assignment or form differs"))
         writes[plan["relative"]] = {"xml": dest, "before": before, "write_owner": write_owner}
-        plan.update(status="CATALOG_PARTIAL", items=items or [new_item("TRANSFERRED", "own catalog")], files=writes)
+        plan.update(status="PACKAGE_PARTIAL", items=items or [new_item("TRANSFERRED", "own catalog")], files=writes)
         matches.append(plan)
     if len(matches) == 1 and not uncertain:
         return matches[0]
@@ -4268,7 +4290,7 @@ def get_catalog_transfer_plan(entry, ext_dir, prefix, cfg):
     if choice.get("taken"):
         return {"status": "CONFLICT", "reason": f"name taken in configuration ({choice['note']})"}
     target = choice["name"]
-    plan = catalog_projection(entry, cfg, source, files, target, prefix)
+    plan = root_metadata_projection(entry, cfg, source, files, target, prefix)
     if not plan.get("status"):
         item = new_item("NOT_TRANSFERRED", f"own catalog {entry['name']} (as {target})")
         item["stored"] = f"Catalog.{entry['name']} -> Catalog.{target} — catalog and tabular-section records"
@@ -4276,9 +4298,142 @@ def get_catalog_transfer_plan(entry, ext_dir, prefix, cfg):
     return plan
 
 
+def get_enum_transfer_plan(entry, ext_dir, prefix, cfg):
+    children = cfg["child_objects"]
+    if children is None:
+        return {"status": "MANUAL", "reason": "configuration has no ChildObjects"}
+    base = os.path.join(ext_dir, "Enums", entry["name"])
+    source = read_form_write(base + ".xml")
+    if source["root"].get("version") != children.getroottree().getroot().get("version"):
+        return {"status": "MANUAL", "reason": "metadata dump formats differ"}
+    node = get_md_object_element(source["root"])
+    if not node.get("uuid") or node.xpath("md:ChildObjects/*[not(self::md:EnumValue)]", namespaces=MD_NSMAP):
+        return {"status": "MANUAL", "reason": "unsupported enumeration descriptor or children"}
+    files = {}
+    for folder, _, filenames in os.walk(base):
+        for filename in filenames:
+            path = os.path.join(folder, filename)
+            rel = os.path.relpath(path, base).replace(os.sep, "/")
+            if rel != "Ext/ManagerModule.bsl":
+                return {"status": "MANUAL", "reason": f"unsupported enumeration file {rel}"}
+            files[rel] = path
+    identity = metadata_transfer_uuid(cfg, "Enum", node.get("uuid"))
+    registry = [(localname(n), inner_text(n)) for n in elem_children(children)]
+    ids = [(kind, name) for kind, name in registry if kind in CHILD_TYPE_DIR_MAP
+           and _sg_root_uuid(os.path.join(MD_REFERENCE_ROOT, CHILD_TYPE_DIR_MAP[kind], name + ".xml")) == identity]
+    if len(ids) > 1 or (ids and ids[0][0] != "Enum"):
+        return {"status": "CONFLICT", "reason": f"enumeration UUID {identity} collides in configuration"}
+    pool = [name for kind, name in registry if kind == "Enum"]
+    candidates = [ids[0][1]] if ids else find_names_in(pool, entry["name"], prefix)
+    matches, uncertain = [], []
+    for name in candidates:
+        relative = f"Enums/{name}.xml"
+        path = os.path.join(MD_REFERENCE_ROOT, relative)
+        if not os.path.isfile(path):
+            return {"status": "CONFLICT", "reason": "missing descriptor " + relative}
+        with open(path, "rb") as original:
+            before = original.read()
+        dest = read_form_write(path)
+        b = get_md_object_element(dest["root"])
+        container = b.find("md:ChildObjects", MD_NSMAP)
+        if container is None:
+            container = etree.Element(f"{{{MD_NS}}}ChildObjects")
+            insert_form_node_at(b, container, None, dest["eol"])
+        dest_values = container.findall("md:EnumValue", MD_NSMAP)
+        aliases = {}
+        if ids:
+            for value_name, value_id in entry["value_ids"].items():
+                by_id = [v for v in dest_values if v.get("uuid") == value_id]
+                if len(by_id) > 1:
+                    return {"status": "CONFLICT", "reason": f"duplicate UUID of enumeration value {value_name}"}
+                if by_id:
+                    aliases[value_name] = md_child_name(by_id[0])
+        plan = root_metadata_projection(entry, cfg, source, files, name, prefix, aliases)
+        if plan.get("status"):
+            return plan
+        a = get_md_object_element(plan["files"][plan["relative"]]["xml"]["root"])
+        props = catalog_node_key(a, shallow=True) == catalog_node_key(b, shallow=True)
+        src = a.findall("md:ChildObjects/md:EnumValue", MD_NSMAP)
+        src_names = [md_child_name(v).lower() for v in src]
+        dst = {md_child_name(v).lower(): v for v in dest_values}
+        if len(src_names) != len(set(src_names)) or len(dst) != len(dest_values):
+            return {"status": "CONFLICT", "reason": "duplicate enumeration value names"}
+        common = [n for n in src_names if n in dst]
+        ordered = common == [n for n in dst if n in src_names]
+        module = f"Enums/{name}/Ext/ManagerModule.bsl"
+        module_path = os.path.join(MD_REFERENCE_ROOT, module)
+        module_exists = os.path.lexists(module_path)
+        same_module = (module_exists and catalog_file_equal(plan["files"][module], module_path)
+                       if module in plan["files"] else not module_exists)
+        full = same_module and catalog_node_key(a) == catalog_node_key(b)
+        if not ids and not full:
+            if props or common:
+                uncertain.append(name)
+            continue
+        items = []
+        if not props:
+            items.append(new_item("CONFLICT", "enumeration properties differ"))
+        if not ordered:
+            items.append(new_item("CONFLICT", "enumeration value order differs"))
+        write = False
+        for i, value in enumerate(src):
+            value_name = md_child_name(value)
+            key = src_names[i]
+            if key in dst:
+                status = "TRANSFERRED" if catalog_node_key(value) == catalog_node_key(dst[key]) else "CONFLICT"
+                items.append(new_item(status, f"enumeration value {value_name}"))
+            elif ordered:
+                anchor = next((dst[n] for n in src_names[i+1:] if n in dst), None)
+                if anchor is None:
+                    anchor = find_child_anchor(container, "EnumValue", "Enum")
+                insert_form_node_at(container, copy.deepcopy(value), anchor, dest["eol"])
+                item = new_item("NOT_TRANSFERRED", f"enumeration value {value_name}")
+                item["stored"] = f"Enum.{entry['name']}.EnumValue.{value_name} -> Enum.{name}.EnumValue.{value_name} — stored references"
+                items.append(item)
+                write = True
+        writes = {plan["relative"]: {"xml": dest, "before": before, "write_owner": write}}
+        if module in plan["files"] and not same_module:
+            if module_exists:
+                items.append(new_item("CONFLICT", "existing manager module differs"))
+            elif not ordered:
+                items.append(new_item("WAITING", "manager module — waiting for enumeration value order to be resolved"))
+            else:
+                writes[module] = plan["files"][module]
+                items.append(new_item("NOT_TRANSFERRED", "manager module"))
+        plan.update(status="PACKAGE_PARTIAL", items=items or [new_item("TRANSFERRED", "own enumeration")], files=writes)
+        matches.append(plan)
+    if len(matches) == 1 and not uncertain:
+        return matches[0]
+    if matches or uncertain:
+        return {"status": "MANUAL", "reason": "check matching enumerations: " + ", ".join([p["target"] for p in matches] + uncertain)}
+    taken = {name.lower() for name in pool}
+    directory = os.path.join(MD_REFERENCE_ROOT, "Enums")
+    if os.path.isdir(directory):
+        for file in os.scandir(directory):
+            if file.is_dir():
+                taken.add(file.name.lower())
+            elif file.name.lower().endswith(".xml"):
+                taken.add(file.name[:-4].lower())
+                if _sg_root_uuid(file.path) == identity:
+                    return {"status": "CONFLICT", "reason": f"enumeration UUID {identity} exists in an unregistered descriptor"}
+    settings = SETTINGS[get_object_kind(entry["name"], "own")]
+    choice = get_target_name(entry["name"], prefix, taken, settings["add_dev_objects"])
+    if choice.get("taken"):
+        return {"status": "CONFLICT", "reason": f"name taken in configuration ({choice['note']})"}
+    target = choice["name"]
+    plan = root_metadata_projection(entry, cfg, source, files, target, prefix)
+    if not plan.get("status"):
+        item = new_item("NOT_TRANSFERRED", f"own enumeration {entry['name']} (as {target})")
+        item["stored"] = f"Enum.{entry['name']} -> Enum.{target} — stored references to enumeration values"
+        plan.update(status="NOT_TRANSFERRED", items=[item], new=True)
+    return plan
+
+
 def get_root_object_plan(entry, ext_dir, prefix, cfg):
     if entry["type"] == "Catalog":
         return get_catalog_transfer_plan(entry, ext_dir, prefix, cfg)
+    if entry["type"] == "Enum":
+        return get_enum_transfer_plan(entry, ext_dir, prefix, cfg)
     oid, kind, name = entry["id"], entry["type"], entry["name"]
     src = root_object_paths(kind, name)
     src_bsl = os.path.normpath(os.path.join(ext_dir, src["bsl"]))
@@ -4458,7 +4613,7 @@ def add_root_object_registration(fw, kind, name):
     insert_form_node_at(children, node, before, fw["eol"])
 
 
-def write_catalog_transfer(entry, plan):
+def write_metadata_package(entry, plan):
     root = os.path.abspath(MD_REFERENCE_ROOT)
     stage = os.path.join(root, ".cfe-catalog-" + uuid.uuid4().hex)
     lock_path = os.path.join(root, ".cfe-transfer-registration.lock")
@@ -4488,9 +4643,9 @@ def write_catalog_transfer(entry, plan):
             else:
                 shutil.copyfile(file["copy"], path)
         check = read_md_object(staged_owner)
-        if not check or localname(check["el"]) != "Catalog" or md_child_name(check["el"]) != plan["target"]:
-            raise ValueError("staged catalog did not pass read-back validation")
-        if not plan.get("new"):
+        if not check or localname(check["el"]) != entry["type"] or md_child_name(check["el"]) != plan["target"]:
+            raise ValueError("staged metadata object did not pass read-back validation")
+        if not plan.get("new") and entry["type"] == "Catalog":
             # Preserve the validation context for slots pointing at existing local forms.
             for slot in elem_children(check["props"]):
                 if not re.fullmatch(r"(Default|Auxiliary).*Form", localname(slot)):
@@ -4504,9 +4659,9 @@ def write_catalog_transfer(entry, plan):
                     if os.path.isfile(original) and not os.path.exists(candidate):
                         os.makedirs(os.path.dirname(candidate), exist_ok=True)
                         shutil.copyfile(original, candidate)
-        errors = get_md_validate_errors(staged_owner, "Catalog", require_result=True)
+        errors = get_md_validate_errors(staged_owner, entry["type"], require_result=True)
         if not plan.get("new"):
-            baseline = get_md_validate_errors(owner, "Catalog", require_result=True)
+            baseline = get_md_validate_errors(owner, entry["type"], require_result=True)
             errors = [error for error in errors if error.startswith("metadata validator") or error not in baseline]
         if errors:
             raise ValueError("validator: " + errors[0])
@@ -4761,12 +4916,16 @@ def initialize_root_transfer(ext, objects, cfg, vars_, selected, apply=False):
         oid = "%s.%s" % (obj["type"], obj["name"])
         key = oid.lower()
         ROOT_SOURCE_IDS.add(key)
-        if obj["type"] not in ("CommonModule", "CommonCommand", "Catalog"):
+        if obj["type"] not in ("CommonModule", "CommonCommand", "Catalog", "Enum"):
             continue
         ctx = get_obj_context(ext["dir"], obj["type"], obj["name"])
         if not ctx["exists"] or ctx["borrowed"]:
             continue
         entry = dict(obj, id=oid, key=key, selected=selected(oid))
+        if obj["type"] == "Enum":
+            values = ctx["md"]["el"].findall("md:ChildObjects/md:EnumValue", MD_NSMAP)
+            entry["value_ids"] = {md_child_name(v).lower(): metadata_transfer_uuid(cfg, "EnumValue", v.get("uuid"))
+                                  for v in values if v.get("uuid") and cfg["child_objects"] is not None}
         ROOT_OWN[key] = entry
         pending.append(entry)
         props = ctx["md"]["props"]
@@ -4793,7 +4952,7 @@ def initialize_root_transfer(ext, objects, cfg, vars_, selected, apply=False):
                 continue
             if status in ("TRANSFERRED", "PARTIAL"):
                 ROOT_BINDINGS[key] = plan["target"]
-            if entry["type"] == "Catalog" and status in ("NOT_TRANSFERRED", "CATALOG_PARTIAL"):
+            if entry["type"] in ("Catalog", "Enum") and status in ("NOT_TRANSFERRED", "PACKAGE_PARTIAL"):
                 new = status == "NOT_TRANSFERRED"
                 items = plan["items"]
                 writes = [item for item in items if item["status"] == "NOT_TRANSFERRED"]
@@ -4806,7 +4965,7 @@ def initialize_root_transfer(ext, objects, cfg, vars_, selected, apply=False):
                         support = get_object_support(os.path.join(MD_REFERENCE_ROOT, policy_file))
                         if support == "locked":
                             raise ValueError(policy_file + " is locked by vendor support")
-                        changed.extend(write_catalog_transfer(entry, plan))
+                        changed.extend(write_metadata_package(entry, plan))
                         if new:
                             MD_REFERENCE_POOLS.setdefault(entry["type"], []).append(plan["target"])
                             cfg.update(read_configuration_props(MD_REFERENCE_ROOT))
@@ -6787,6 +6946,21 @@ def get_bsl_conversion(lines, file_map, ctx, params=(), comparison=False):
             continue
         k, owner = t['value'].lower(), ''
         qualified = i > 0 and ts[i - 1]['value'] == '.'
+        if (not comparison and not qualified and k in ("перечисления", "enums") and i + 4 < len(ts)
+                and ts[i+1]["value"] == "." and ts[i+3]["value"] == "." and ts[i+2]["kind"] == ts[i+4]["kind"] == "word"
+                and (i + 5 >= len(ts) or ts[i+5]["value"] != "(") and k not in params
+                and ("enum." + ts[i+2]["value"].lower()) in ROOT_OWN):
+            if locals_ is None:
+                locals_ = get_local_names(get_code_only(lines), params)
+            if k not in locals_:
+                path = "Enum." + ts[i+2]["value"] + ".EnumValue." + ts[i+4]["value"]
+                ref = resolve_md_reference(path, TRANSFER_PREFIX)
+                if ref.get("status"):
+                    issues.append({"token": t, "rename": path, "why": ref["reason"], "status": ref["status"]})
+                else:
+                    parts = ref["value"].split(".")
+                    edits[ts[i+2]["start"]] = parts[1]
+                    edits[ts[i+4]["start"]] = parts[3]
         if qualified:
             a = i - 2
             while a > 1 and ts[a - 1]['value'] == '.' and ts[a - 2]['kind'] == 'word':
@@ -9629,11 +9803,14 @@ def main():
             footer.append("!!! Stored data is NOT migrated:")
             for l in dict.fromkeys(MD_WARN):
                 footer.append("    " + l)
-            footer.append("    The metadata is transferred as structure only, with new identifiers. Values the extension")
-            footer.append("    wrote into its own attributes stay in the extension's columns and are LOST when it is")
-            footer.append("    disabled or removed. Copy them into the configuration's attributes BEFORE that.")
-            if ROOT_DATA_WARNINGS:
+            if any(not note.startswith("Enum.") for note in MD_WARN):
+                footer.append("    The metadata is transferred as structure only, with new identifiers. Values the extension")
+                footer.append("    wrote into its own attributes stay in the extension's columns and are LOST when it is")
+                footer.append("    disabled or removed. Copy them into the configuration's attributes BEFORE that.")
+            if any(note.startswith("Catalog.") for note in ROOT_DATA_WARNINGS):
                 footer.append("    Copy the catalog records and their tabular sections into the configuration BEFORE disabling or removing the extension.")
+            if any(note.startswith("Enum.") for note in ROOT_DATA_WARNINGS):
+                footer.append("    Replace stored references to the extension's enumeration values BEFORE disabling or removing the extension.")
         if changed:
             footer.append("Changed files:")
             for c in changed:
