@@ -1,5 +1,5 @@
 ﻿#!/usr/bin/env python3
-# cfe-transfer v1.38 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+# cfe-transfer v1.39 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -1686,7 +1686,7 @@ md_qual_kind_by_type = {"string": "StringQualifiers", "decimal": "NumberQualifie
 md_qual_order = ["NumberQualifiers", "StringQualifiers", "DateQualifiers", "BinaryDataQualifiers"]
 
 
-def get_md_type_ref_base(kind):
+def get_md_type_ref_base(kind, event_source=False):
     """Type kinds that name a metadata object of the configuration; a *Ref kind looks up its base kind."""
     if kind == "Characteristic":
         return "ChartOfCharacteristicTypes"
@@ -1694,15 +1694,19 @@ def get_md_type_ref_base(kind):
         return "Constant"
     if kind.endswith("Ref") and len(kind) > 3:
         return kind[:-3]
+    if event_source:
+        match = re.fullmatch(r"(.+?)(?:Object|RecordSet|Manager)", kind)
+        if match and match[1] in CHILD_TYPE_DIR_MAP:
+            return match[1]
     return kind
 
 
-def resolve_md_reference(value, prefix, type_reference=False):
+def resolve_md_reference(value, prefix, type_reference=False, event_source=False):
     match = re.fullmatch(r"((?:\w+:)?)(\w+)\.(\w+)((?:\.\w+)*)", value)
     if not match:
         return {"value": value}
     namespace, kind, name, tail = match.groups()
-    base = get_md_type_ref_base(kind) if type_reference else kind
+    base = get_md_type_ref_base(kind, event_source) if type_reference else kind
     if base not in CHILD_TYPE_DIR_MAP:
         return {"value": value}
     root_id = (base + "." + name).lower()
@@ -3546,7 +3550,8 @@ ROOT_BSL_COLLECTIONS = {
     "обработки": "DataProcessor", "dataprocessors": "DataProcessor", "отчеты": "Report", "reports": "Report",
 }
 
-FLAT_TRANSFER_KINDS = ("Constant", "DefinedType", "SessionParameter", "FunctionalOption", "FunctionalOptionsParameter")
+FLAT_TRANSFER_KINDS = ("Constant", "DefinedType", "SessionParameter", "FunctionalOption", "FunctionalOptionsParameter",
+                       "EventSubscription", "ScheduledJob")
 
 
 def get_functional_option_bsl(tokens, declared, prefix):
@@ -3843,7 +3848,7 @@ def convert_catalog_xml(fw, cfg, source, target, prefix, descriptor, child=None)
         elif pattern.match(value):
             node.text = pattern.sub(lambda m: m[1] + target, value)
         elif name != "DataPath" or is_type or strict_ref:
-            ref = resolve_md_reference(value, prefix, is_type)
+            ref = resolve_md_reference(value, prefix, is_type, obj_kind == "EventSubscription" and parent == "Source")
             if ref.get("status"):
                 return ref
             node.text = ref["value"]
@@ -4168,16 +4173,55 @@ def catalog_node_key(node, ignore_slots=False, shallow=False):
     return node_canon(node)
 
 
+def resolve_transfer_handler(value, prefix):
+    match = re.fullmatch(r"(CommonModule\.)?(\w+)\.(\w+)", value, re.I)
+    if not match:
+        return {"status": "MANUAL", "reason": f"unsupported handler reference: '{value}'"}
+    qualifier, module, method = match.groups()
+    identity = f"CommonModule.{module}"
+    ref = resolve_md_reference(identity, prefix)
+    if ref.get("status"):
+        return ref
+    target = ref["value"].split(".")[1]
+    base = f"CommonModules/{target}"
+    relative = f"{base}/Ext/Module.bsl"
+    path = os.path.join(MD_REFERENCE_ROOT, relative)
+    if os.path.isfile(os.path.join(MD_REFERENCE_ROOT, base, "Ext", "Module.bin")):
+        return {"status": "MANUAL", "reason": f"{value}: handler module is binary"}
+    waiting = {"status": "WAITING", "reason": f"waiting for handler {value}", "dependency": identity}
+    if method.lower() in ROOT_METHOD_BLOCKS.get(identity.lower(), ()) or not os.path.isfile(path):
+        return waiting
+    lines = read_bsl_lines(path)
+    hits = find_names_in([decl["name"] for decl in get_proc_decls(lines)], method, prefix)
+    hits = [name for name in hits if name.lower() == method.lower()] or hits
+    if not hits:
+        return waiting
+    if len(hits) != 1:
+        return {"status": "MANUAL", "reason": f"{value}: ambiguous handler ({', '.join(hits)})"}
+    decl = get_method_safe(lines, hits[0])
+    if not decl or not is_export(lines, decl):
+        return {"status": "MANUAL", "reason": f"{value}: handler {target}.{hits[0]} is not a readable export"}
+    return {"value": f"{qualifier or ''}{target}.{hits[0]}", "validation_files": (base + ".xml", relative)}
+
+
 def root_metadata_projection(entry, cfg, source, files, target, prefix, enum_aliases=None):
     base = f"{CHILD_TYPE_DIR_MAP[entry['type']]}/{target}"
     fw = read_form_write(source["path"])
     result = convert_catalog_xml(fw, cfg, entry["name"], target, prefix, True)
     if result:
         return result
+    plan = {"target": target, "relative": base + ".xml", "files": {base + ".xml": {"xml": fw}}}
+    if entry["type"] in ("EventSubscription", "ScheduledJob"):
+        prop = "Handler" if entry["type"] == "EventSubscription" else "MethodName"
+        handler = get_md_object_element(fw["root"]).find(f"md:Properties/md:{prop}", MD_NSMAP)
+        ref = resolve_transfer_handler(inner_text(handler) if handler is not None else "", prefix)
+        if ref.get("status"):
+            return ref
+        handler.text = ref["value"]
+        plan["validation_files"] = ref["validation_files"]
     if enum_aliases:
         for node in fw["root"].xpath("//md:EnumValue/md:Properties/md:Name", namespaces=MD_NSMAP):
             node.text = enum_aliases.get(node.text.lower(), node.text)
-    outputs = {base + ".xml": {"xml": fw}}
     for rel, path in sorted(files.items()):
         if rel.endswith(".bsl"):
             bsl = read_bsl_file(path)
@@ -4187,14 +4231,21 @@ def root_metadata_projection(entry, cfg, source, files, target, prefix, enum_ali
             data = {"bsl": bsl, "lines": projection["lines"]}
         elif rel.startswith("Templates/") and rel.endswith("/Ext/Template.xml"):
             data = {"copy": path}
+        elif entry["type"] == "ScheduledJob" and rel == "Ext/Schedule.xml":
+            schedule = read_form_write(path)["root"]
+            ns = "{http://v8.1c.ru/8.3/xcf/extrnprops}"
+            if (schedule.tag != ns + "JobSchedule" or schedule.get("version") != fw["root"].get("version")
+                    or len(schedule.findall(ns + "Schedule")) != 1):
+                return {"status": "MANUAL", "reason": f"unsupported scheduled job schedule {rel}"}
+            data = {"copy": path, "schedule": schedule}
         else:
             xml = read_form_write(path)
             result = convert_catalog_xml(xml, cfg, entry["name"], target, prefix, False)
             if result:
                 return result
             data = {"xml": xml}
-        outputs[f"{base}/{rel}"] = data
-    return {"target": target, "relative": base + ".xml", "files": outputs}
+        plan["files"][f"{base}/{rel}"] = data
+    return plan
 
 
 def catalog_file_equal(entry, path):
@@ -4202,6 +4253,8 @@ def catalog_file_equal(entry, path):
         return root_object_code_key(entry["lines"]) == root_object_code_key(read_bsl_lines(path))
     if "xml" in entry:
         return catalog_node_key(entry["xml"]["root"]) == catalog_node_key(read_form_write(path)["root"])
+    if "schedule" in entry:
+        return node_canon(entry["schedule"]) == node_canon(read_form_write(path)["root"])
     with open(entry["copy"], "rb") as source, open(path, "rb") as target:
         return source.read() == target.read()
 
@@ -4483,7 +4536,7 @@ def get_enum_transfer_plan(entry, ext_dir, prefix, cfg):
 
 def flat_metadata_equal(source, target):
     a, b = copy.deepcopy(source), copy.deepcopy(target)
-    path = "md:Properties/md:Type"
+    path = "md:Properties/md:Source" if localname(source) == "EventSubscription" else "md:Properties/md:Type"
     x, y = a.find(path, MD_NSMAP), b.find(path, MD_NSMAP)
     if (x is None) != (y is None):
         return False
@@ -4508,7 +4561,10 @@ def get_flat_transfer_plan(entry, ext_dir, prefix, cfg):
     node = get_md_object_element(source["root"])
     if localname(node) != kind or not node.get("uuid") or node.find("md:ChildObjects/*", MD_NSMAP) is not None:
         return {"status": "MANUAL", "reason": f"unsupported {kind} descriptor or children"}
-    allowed = {"Ext/ManagerModule.bsl", "Ext/ValueManagerModule.bsl"} if kind == "Constant" else set()
+    allowed = {
+        "Constant": {"Ext/ManagerModule.bsl", "Ext/ValueManagerModule.bsl"},
+        "ScheduledJob": {"Ext/Schedule.xml"},
+    }.get(kind, ())
     files = {}
     for folder, _, names in os.walk(base):
         for name in names:
@@ -4813,6 +4869,10 @@ def write_metadata_package(entry, plan):
                 write_bsl_file(file["bsl"], file["lines"], path)
             else:
                 shutil.copyfile(file["copy"], path)
+        for rel in plan.get("validation_files", ()):
+            path = os.path.join(stage, rel)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            shutil.copyfile(os.path.join(root, rel), path)
         check = read_md_object(staged_owner)
         if not check or localname(check["el"]) != entry["type"] or md_child_name(check["el"]) != plan["target"]:
             raise ValueError("staged metadata object did not pass read-back validation")

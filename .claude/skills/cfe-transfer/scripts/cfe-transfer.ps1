@@ -1,4 +1,4 @@
-﻿# cfe-transfer v1.38 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+﻿# cfe-transfer v1.39 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -1539,18 +1539,19 @@ $script:mdQualKindByType = @{ 'string' = 'StringQualifiers'; 'decimal' = 'Number
 $script:mdQualOrder = @('NumberQualifiers', 'StringQualifiers', 'DateQualifiers', 'BinaryDataQualifiers')
 
 # Type kinds that name a metadata object of the configuration; a *Ref kind looks up its base kind
-function Get-MdTypeRefBase([string]$kind) {
+function Get-MdTypeRefBase([string]$kind, [bool]$eventSource = $false) {
 	if ($kind -ceq 'Characteristic') { return 'ChartOfCharacteristicTypes' }
 	if ($kind -in @('ConstantManager','ConstantValueManager','ConstantValueKey')) { return 'Constant' }
 	if ($kind.EndsWith('Ref') -and $kind.Length -gt 3) { return $kind.Substring(0, $kind.Length - 3) }
+	if ($eventSource -and $kind -cmatch '^(.+?)(?:Object|RecordSet|Manager)$' -and $script:childTypeDirMap.ContainsKey($Matches[1])) { return $Matches[1] }
 	return $kind
 }
 
-function Resolve-MdReference([string]$value, [string]$prefix, [bool]$type = $false) {
+function Resolve-MdReference([string]$value, [string]$prefix, [bool]$type = $false, [bool]$eventSource = $false) {
 	$identity = @{ Value = $value; Status = ''; Reason = '' }
 	if ($value -notmatch '^((?:\w+:)?)(\w+)\.(\w+)((?:\.\w+)*)$') { return $identity }
 	$nsPrefix = $Matches[1]; $kind = $Matches[2]; $name = $Matches[3]; $tail = $Matches[4]
-	$base = if ($type) { Get-MdTypeRefBase $kind } else { $kind }
+	$base = if ($type) { Get-MdTypeRefBase $kind $eventSource } else { $kind }
 	if (-not $script:childTypeDirMap.ContainsKey($base)) { return $identity }
 	$rootId = "$base.$name"
 	if ($script:rootOwn -and $script:rootOwn.ContainsKey($rootId) -and -not $script:rootBindings.ContainsKey($rootId)) {
@@ -3276,7 +3277,7 @@ function Get-RootObjectXml($fw, [string]$kind, [string]$name, [string]$prefix) {
 	return @{ Props = $props }
 }
 
-$script:flatTransferKinds = @('Constant','DefinedType','SessionParameter','FunctionalOption','FunctionalOptionsParameter')
+$script:flatTransferKinds = @('Constant','DefinedType','SessionParameter','FunctionalOption','FunctionalOptionsParameter','EventSubscription','ScheduledJob')
 
 function Get-FunctionalOptionBsl($tokens, $declared, [string]$prefix) {
 	$result = @{ Edits = @{}; Issues = @() }
@@ -3576,7 +3577,7 @@ function Convert-CatalogXml($fw, [string]$source, [string]$target, [string]$pref
 		if ($value -match $self) {
 			$node.InnerText = [regex]::Replace($value, $self, { param($match) $match.Groups[1].Value + $match.Groups[2].Value + $target }, 'IgnoreCase')
 		} elseif ($isType -or $strictRef -or $node.LocalName -notin @('DataPath')) {
-			$ref = Resolve-MdReference $value $prefix $isType
+			$ref = Resolve-MdReference $value $prefix $isType ($objKind -eq 'EventSubscription' -and $node.ParentNode.LocalName -eq 'Source')
 			if ($ref.Status) { return $ref }
 			$node.InnerText = $ref.Value
 		}
@@ -3869,12 +3870,53 @@ function Get-CatalogNodeKey($node, [switch]$IgnoreFormSlots, [switch]$Shallow) {
 	return Get-NodeCanon $copy
 }
 
+function Resolve-TransferHandler([string]$value, [string]$prefix) {
+	if ($value -notmatch '^(CommonModule\.)?(\w+)\.(\w+)$') {
+		return @{ Status = 'MANUAL'; Reason = "unsupported handler reference: '$value'" }
+	}
+	$qualifier = $Matches[1]; $module = $Matches[2]; $method = $Matches[3]
+	$id = "CommonModule.$module"
+	$ref = Resolve-MdReference $id $prefix
+	if ($ref.Status) { return $ref }
+	$target = $ref.Value.Substring('CommonModule.'.Length)
+	$base = "CommonModules/$target"
+	$rel = "$base/Ext/Module.bsl"
+	$path = Get-CfgPath $rel
+	if (Test-Path -LiteralPath (Get-CfgPath "$base/Ext/Module.bin") -PathType Leaf) {
+		return @{ Status = 'MANUAL'; Reason = "${value}: handler module is binary" }
+	}
+	if ($method -in $script:rootMethodBlocks[$id] -or -not (Test-Path -LiteralPath $path -PathType Leaf)) {
+		return @{ Status = 'WAITING'; Reason = "waiting for handler $value"; Dependency = $id }
+	}
+	$lines = Read-BslLines $path
+	$names = @(Get-ProcDecls $lines | ForEach-Object { $_.Name })
+	$hits = @(Find-NamesIn $names $method $prefix)
+	$exact = @($hits | Where-Object { $_ -ieq $method })
+	if ($exact.Count) { $hits = $exact }
+	if (-not $hits.Count) { return @{ Status = 'WAITING'; Reason = "waiting for handler $value"; Dependency = $id } }
+	if ($hits.Count -ne 1) { return @{ Status = 'MANUAL'; Reason = "${value}: ambiguous handler ($($hits -join ', '))" } }
+	$decl = Get-MethodSafe $lines $hits[0]
+	if (-not $decl -or -not (Test-IsExport $lines $decl)) {
+		return @{ Status = 'MANUAL'; Reason = "${value}: handler $target.$($hits[0]) is not a readable export" }
+	}
+	return @{ Value = "$qualifier$target.$($hits[0])"; ValidationFiles = @("$base.xml", $rel) }
+}
+
 function Get-RootMetadataProjection($entry, $sourceFw, $files, [string]$target, [string]$prefix, $enumAliases = @{}) {
 	$dir = $script:childTypeDirMap[$entry.Type]
 	$result = @{ Target = $target; Relative = "$dir/$target.xml"; Files = @{} }
 	$descriptor = Read-FormWrite $sourceFw.Path
 	$ref = Convert-CatalogXml $descriptor $entry.Name $target $prefix $true
 	if ($ref.Status) { return $ref }
+	if ($entry.Type -in @('EventSubscription','ScheduledJob')) {
+		$property = if ($entry.Type -eq 'EventSubscription') { 'Handler' } else { 'MethodName' }
+		$m = New-MdNt $descriptor.Doc
+		$handler = (Get-MdObjectElement $descriptor.Doc).SelectSingleNode("md:Properties/md:$property", $m)
+		$ref = Resolve-TransferHandler $handler.InnerText $prefix
+		if ($ref.Status) { return $ref }
+		$handler.InnerText = $ref.Value
+		$result.ValidationFiles = $ref.ValidationFiles
+	}
 	if ($enumAliases.Count) {
 		$m = New-MdNt $descriptor.Doc
 		foreach ($n in @($descriptor.Doc.SelectNodes('//md:EnumValue/md:Properties/md:Name', $m))) {
@@ -3891,7 +3933,16 @@ function Get-RootMetadataProjection($entry, $sourceFw, $files, [string]$target, 
 			@{ Bsl = $bsl; Lines = $projection.Lines }
 		} else {
 			$xml = Read-FormWrite $path
-			if ($rel -notlike 'Templates/*/Ext/Template.xml') {
+			if ($entry.Type -eq 'ScheduledJob' -and $rel -ceq 'Ext/Schedule.xml') {
+				$root = $xml.Doc.DocumentElement
+				$ns = 'http://v8.1c.ru/8.3/xcf/extrnprops'
+				if ($root.LocalName -cne 'JobSchedule' -or $root.NamespaceURI -cne $ns -or
+					$root.GetAttribute('version') -cne $descriptor.Doc.DocumentElement.GetAttribute('version') -or
+					@($root.ChildNodes | Where-Object { $_.LocalName -ceq 'Schedule' -and $_.NamespaceURI -ceq $ns }).Count -ne 1) {
+					return @{ Status = 'MANUAL'; Reason = "unsupported scheduled job schedule $rel" }
+				}
+				@{ Copy = $path; Schedule = $xml }
+			} elseif ($rel -notlike 'Templates/*/Ext/Template.xml') {
 				$ref = Convert-CatalogXml $xml $entry.Name $target $prefix $false
 				if ($ref.Status) { return $ref }
 				@{ Xml = $xml }
@@ -3905,6 +3956,7 @@ function Get-RootMetadataProjection($entry, $sourceFw, $files, [string]$target, 
 function Test-CatalogFileEqual($entry, [string]$path) {
 	if ($entry.Bsl) { return (Get-RootObjectCodeKey $entry.Lines) -ceq (Get-RootObjectCodeKey (Read-BslLines $path)) }
 	if ($entry.Xml) { return (Get-CatalogNodeKey $entry.Xml.Doc.DocumentElement) -ceq (Get-CatalogNodeKey (Read-FormDoc $path).DocumentElement) }
+	if ($entry.Schedule) { return (Get-NodeCanon $entry.Schedule.Doc.DocumentElement) -ceq (Get-NodeCanon (Read-FormDoc $path).DocumentElement) }
 	return (Get-FileHash -LiteralPath $entry.Copy).Hash -eq (Get-FileHash -LiteralPath $path).Hash
 }
 
@@ -4176,6 +4228,7 @@ function Get-EnumTransferPlan($entry, [string]$extDir, [string]$prefix) {
 function Test-FlatMetadataEqual($source, $target) {
 	$a = $source.CloneNode($true); $b = $target.CloneNode($true)
 	$path = 'md:Properties/md:Type'
+	if ($source.LocalName -eq 'EventSubscription') { $path = 'md:Properties/md:Source' }
 	$x = $a.SelectSingleNode($path, (New-MdNt $a.OwnerDocument))
 	$y = $b.SelectSingleNode($path, (New-MdNt $b.OwnerDocument))
 	if ([bool]$x -ne [bool]$y) { return $false }
@@ -4199,7 +4252,10 @@ function Get-FlatTransferPlan($entry, [string]$extDir, [string]$prefix) {
 		return @{ Status = 'MANUAL'; Reason = "unsupported $kind descriptor or children" }
 	}
 	$files = @{}
-	$allowed = if ($kind -eq 'Constant') { @('Ext/ManagerModule.bsl','Ext/ValueManagerModule.bsl') } else { @() }
+	$allowed = switch ($kind) {
+		'Constant' { 'Ext/ManagerModule.bsl'; 'Ext/ValueManagerModule.bsl' }
+		'ScheduledJob' { 'Ext/Schedule.xml' }
+	}
 	foreach ($f in @(Get-ChildItem -LiteralPath $base -File -Force -Recurse -ErrorAction SilentlyContinue)) {
 		$rel = Get-RelPath $base $f.FullName
 		if ($rel -notin $allowed) { return @{ Status = 'MANUAL'; Reason = "unsupported $kind file $rel" } }
@@ -4424,6 +4480,11 @@ function Write-MetadataPackage($entry, $plan) {
 			if ($file.Xml) { Save-FormWrite $file.Xml $path }
 			elseif ($file.Bsl) { Write-BslFile $file.Bsl $file.Lines $path }
 			else { [IO.File]::Copy($file.Copy, $path) }
+		}
+		foreach ($rel in $plan.ValidationFiles) {
+			$path = Join-Path $stage $rel
+			[void][IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($path))
+			[IO.File]::Copy((Get-CfgPath $rel), $path)
 		}
 		$stagedOwner = Join-Path $stage $plan.Relative
 		$check = Read-MdObject $stagedOwner

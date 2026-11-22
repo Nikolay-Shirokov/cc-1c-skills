@@ -3,7 +3,7 @@
   "setup": "fixture:prop-positive",
   "params": { "extensionPath": "cfe" },
   "cwd": "workDir",
-  "args_extra": ["-Mode", "transfer", "-Expand", "*", "-Name", "CommonModule.Тест_Частичный,CommonModule.Тест_НовыйМодуль,CommonCommand.Тест_Команда,Catalog.Тест_НовыйСправочник,Catalog.Хранилище,Enum.Тест_Состояния,DefinedType.Тест_СценарийТип,SessionParameter.Тест_Сценарий,Constant.Тест_Режим,FunctionalOption.Тест_Опция,FunctionalOptionsParameter.Тест_Разрез"],
+  "args_extra": ["-Mode", "transfer", "-Expand", "*", "-Name", "CommonModule.Тест_Частичный,CommonModule.Тест_НовыйМодуль,CommonCommand.Тест_Команда,Catalog.Тест_НовыйСправочник,Catalog.Хранилище,Enum.Тест_Состояния,DefinedType.Тест_СценарийТип,SessionParameter.Тест_Сценарий,Constant.Тест_Режим,FunctionalOption.Тест_Опция,FunctionalOptionsParameter.Тест_Разрез,EventSubscription.Тест_ПриЗаписи,ScheduledJob.Тест_ФоноваяПроверка"],
   "idempotent": true,
   "noSnapshot": "Проверяются регистрация, файлы и обработка зависимостей. Остальная выгрузка берётся из prop-positive.",
   "preRun": [
@@ -14,9 +14,17 @@
         { "type": "SessionParameter", "name": "Тест_Сценарий", "valueType": "DefinedType.Тест_СценарийТип" },
         { "type": "Constant", "name": "Тест_Режим", "valueType": "Boolean" },
         { "type": "FunctionalOption", "name": "Тест_Опция", "location": "Constant.Тест_Режим", "content": ["Catalog.Тест_НовыйСправочник.Attribute.Состояние"] },
-        { "type": "FunctionalOptionsParameter", "name": "Тест_Разрез", "use": ["Catalog.Хранилище.Attribute.Тест_Примечание"] }
+        { "type": "FunctionalOptionsParameter", "name": "Тест_Разрез", "use": ["Catalog.Хранилище.Attribute.Тест_Примечание"] },
+        { "type": "EventSubscription", "name": "Тест_ПриЗаписи", "source": ["CatalogObject.Тест_НовыйСправочник"], "event": "OnWrite", "handler": "Тест_НовыйМодуль.ПослеЗаписи" },
+        { "type": "ScheduledJob", "name": "Тест_ФоноваяПроверка", "methodName": "Тест_НовыйМодуль.ВыполнитьЗадание", "use": true, "predefined": true }
       ],
       "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}/cfe" }
+    },
+    {
+      "writeFile": {
+        "path": "cfe/ScheduledJobs/Тест_ФоноваяПроверка/Ext/Schedule.xml",
+        "content": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<JobSchedule xmlns=\"http://v8.1c.ru/8.3/xcf/extrnprops\" xmlns:ent=\"http://v8.1c.ru/8.1/data/enterprise\" version=\"2.20\">\n\t<Schedule BeginDate=\"0001-01-01\" EndDate=\"0001-01-01\" BeginTime=\"00:00:00\" EndTime=\"00:00:00\" CompletionTime=\"00:00:00\" CompletionInterval=\"0\" RepeatPeriodInDay=\"900\" RepeatPause=\"0\" WeekDayInMonth=\"0\" DayInMonth=\"0\" WeeksPeriod=\"1\" DaysRepeatPeriod=\"1\">\n\t\t<ent:WeekDays>1 2 3 4 5 6 7</ent:WeekDays>\n\t\t<ent:Months>1 2 3 4 5 6 7 8 9 10 11 12</ent:Months>\n\t</Schedule>\n</JobSchedule>\n"
+      }
     },
     {
       "writeFile": {
@@ -32,7 +40,10 @@
     },
     {
       "script": "meta-compile/scripts/meta-compile",
-      "input": { "type": "Catalog", "name": "Хранилище", "attributes": ["Примечание: String(10)"] },
+      "input": [
+        { "type": "Catalog", "name": "Хранилище", "attributes": ["Примечание: String(10)"] },
+        { "type": "EventSubscription", "name": "ПриЗаписи", "source": ["CatalogObject.Хранилище"], "event": "OnWrite", "handler": "НовыйМодуль.ПослеЗаписи" }
+      ],
       "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
     },
     {
@@ -155,7 +166,7 @@
     {
       "writeFile": {
         "path": "cfe/CommonModules/Тест_НовыйМодуль/Ext/Module.bsl",
-        "content": "Функция Запустить() Экспорт\n\tСостояние = Перечисления.Тест_Состояния.Черновик;\n\tИмяОпции = \"Тест_Опция\";\n\tВключено = ПолучитьФункциональнуюОпцию(\"Тест_Опция\");\n\tВозврат Тест_Частичный.Третий();\nКонецФункции\n"
+        "content": "Функция Запустить() Экспорт\n\tСостояние = Перечисления.Тест_Состояния.Черновик;\n\tИмяОпции = \"Тест_Опция\";\n\tВключено = ПолучитьФункциональнуюОпцию(\"Тест_Опция\");\n\tВозврат Тест_Частичный.Третий();\nКонецФункции\n\nПроцедура ПослеЗаписи(Источник, Отказ) Экспорт\nКонецПроцедуры\n\nПроцедура ВыполнитьЗадание() Экспорт\nКонецПроцедуры\n"
       }
     },
     {
@@ -181,6 +192,11 @@
       { "file": "Constants/Режим/Ext/ValueManagerModule.bsl", "text": "ПараметрыСеанса.Сценарий;" },
       { "file": "FunctionalOptions/Опция.xml", "text": ["<Location>Constant.Режим</Location>", "Catalog.НовыйСправочник.Attribute.Состояние"] },
       { "file": "FunctionalOptionsParameters/Разрез.xml", "text": "Catalog.Хранилище.Attribute.Примечание" },
+      { "file": "Configuration.xml", "text": ["<EventSubscription>ПриЗаписи</EventSubscription>", "<EventSubscription>Дораб_ПриЗаписи</EventSubscription>", "<ScheduledJob>ФоноваяПроверка</ScheduledJob>"] },
+      { "file": "EventSubscriptions/ПриЗаписи.xml", "text": "CatalogObject.Хранилище</v8:Type>" },
+      { "file": "EventSubscriptions/Дораб_ПриЗаписи.xml", "text": ["CatalogObject.НовыйСправочник</v8:Type>", "<Event>OnWrite</Event>", "<Handler>CommonModule.НовыйМодуль.ПослеЗаписи</Handler>"] },
+      { "file": "ScheduledJobs/ФоноваяПроверка.xml", "text": ["<MethodName>CommonModule.НовыйМодуль.ВыполнитьЗадание</MethodName>", "<Use>true</Use>", "<Predefined>true</Predefined>"] },
+      { "file": "ScheduledJobs/ФоноваяПроверка/Ext/Schedule.xml", "text": "RepeatPeriodInDay=\"900\"" },
       { "file": "Enums/Состояния.xml", "text": ["EnumRef.Состояния", "<Name>Черновик</Name>", "<Name>Готово</Name>", "<Name>Архив</Name>"] },
       { "file": "Enums/Состояния/Ext/ManagerModule.bsl", "text": "Возврат Перечисления.Состояния.Черновик;" },
       { "file": "Catalogs/НовыйСправочник.xml", "text": ["cfg:CatalogRef.НовыйСправочник", "cfg:EnumRef.Состояния", "<Name>Позиции</Name>", "<Name>Количество</Name>", "<Name>Проверить</Name>", "<Form>ФормаЭлемента</Form>", "<Template>Печать</Template>"] },
