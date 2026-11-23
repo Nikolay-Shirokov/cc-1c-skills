@@ -1,5 +1,5 @@
 ﻿#!/usr/bin/env python3
-# cfe-transfer v1.43 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+# cfe-transfer v1.45 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -12,6 +12,7 @@ import shutil
 import stat
 import subprocess
 import sys
+import time
 import tempfile
 import uuid
 from collections import Counter
@@ -1695,13 +1696,21 @@ def get_md_type_ref_base(kind, event_source=False):
         return "ChartOfCharacteristicTypes"
     if kind in ("ConstantManager", "ConstantValueManager", "ConstantValueKey"):
         return "Constant"
+    if re.fullmatch(r"(BaseCalculationTypes|DisplacingCalculationTypes|LeadingCalculationTypes)(Row)?", kind):
+        return "ChartOfCalculationTypes"
+    if kind == "RecalculationsManager":
+        return "CalculationRegister"
+    if kind == "BusinessProcessRoutePointRef":
+        return "BusinessProcess"
     if kind.endswith("Ref") and len(kind) > 3:
         return kind[:-3]
     match = re.fullmatch(r"(Report|DataProcessor)(?:Object|Manager|TabularSectionRow|TabularSection)", kind)
     if match:
         return match[1]
-    match = re.fullmatch(r"(Document|InformationRegister|AccumulationRegister)"
-                         r"(?:Object|Manager|RecordSet|RecordManager|RecordKey|Record|Selection|List|TabularSectionRow|TabularSection)", kind)
+    match = re.fullmatch(r"(Document|InformationRegister|AccumulationRegister|AccountingRegister|CalculationRegister|ExchangePlan|"
+                         r"BusinessProcess|Task|ChartOfAccounts|ChartOfCalculationTypes)"
+                         r"(?:Object|Manager|RecordSet|RecordManager|RecordKey|Record|Selection|List|TabularSectionRow|"
+                         r"TabularSection|ExtDimensions|ExtDimensionTypesRow|ExtDimensionTypes)", kind)
     if match:
         return match[1]
     if event_source:
@@ -1742,6 +1751,11 @@ def resolve_md_reference(value, prefix, type_reference=False, event_source=False
     if tail and tail != ".EmptyRef":
         item = re.fullmatch(r"\.(\w+)", tail)
         if base in PREDEFINED_KINDS and item:
+            binding = BORROWED_PREDEFINED_BINDINGS.get(f"{root_id}.{item[1].lower()}")
+            if binding:
+                if binding.get("status"):
+                    return binding
+                return {"value": f"{namespace}{kind}.{target}.{binding['name']}"}
             file = os.path.join(MD_REFERENCE_ROOT, CHILD_TYPE_DIR_MAP[base], target, "Ext", "Predefined.xml")
             if provisional:
                 file = provisional["predefined_path"]
@@ -3539,6 +3553,8 @@ ROOT_BINDINGS = {}
 ROOT_RESULTS = {}
 ROOT_DATA_WARNINGS = []
 CATALOG_CHILDREN = {}
+BORROWED_PREDEFINED_BINDINGS = {}
+BORROWED_PREDEFINED_ITEMS = {}
 ROOT_METHOD_BLOCKS = {}
 ROOT_GLOBAL_METHODS = {}
 
@@ -3565,24 +3581,44 @@ def get_root_object_xml(fw, kind, name, prefix):
     return {"props": props}
 
 
-ROOT_BSL_COLLECTIONS = {
-    "планывидовхарактеристик": "ChartOfCharacteristicTypes", "chartsofcharacteristictypes": "ChartOfCharacteristicTypes",
-    "справочники": "Catalog", "catalogs": "Catalog", "документы": "Document", "documents": "Document",
-    "перечисления": "Enum", "enums": "Enum", "общиекоманды": "CommonCommand", "commoncommands": "CommonCommand",
-    "константы": "Constant", "constants": "Constant", "регистрысведений": "InformationRegister", "informationregisters": "InformationRegister",
-    "параметрысеанса": "SessionParameter", "sessionparameters": "SessionParameter",
-    "библиотекакартинок": "CommonPicture", "picturelib": "CommonPicture",
+DIRECT_MD_COLLECTIONS = {
+    "планысчетов": "ChartOfAccounts", "chartsofaccounts": "ChartOfAccounts",
+    "планывидоврасчета": "ChartOfCalculationTypes", "chartsofcalculationtypes": "ChartOfCalculationTypes",
+    "регистрыбухгалтерии": "AccountingRegister", "accountingregisters": "AccountingRegister",
+    "регистрырасчета": "CalculationRegister", "calculationregisters": "CalculationRegister",
+    "планыобмена": "ExchangePlan", "exchangeplans": "ExchangePlan",
+    "бизнеспроцессы": "BusinessProcess", "businessprocesses": "BusinessProcess",
+    "задачи": "Task", "tasks": "Task",
+    "планывидоврасчёта": "ChartOfCalculationTypes", "регистрырасчёта": "CalculationRegister",
+    "константы": "Constant", "constants": "Constant", "параметрысеанса": "SessionParameter", "sessionparameters": "SessionParameter",
+    "библиотекакартинок": "CommonPicture", "picturelib": "CommonPicture", "документы": "Document", "documents": "Document",
+    "регистрысведений": "InformationRegister", "informationregisters": "InformationRegister",
     "регистрынакопления": "AccumulationRegister", "accumulationregisters": "AccumulationRegister",
+    "планывидовхарактеристик": "ChartOfCharacteristicTypes", "chartsofcharacteristictypes": "ChartOfCharacteristicTypes",
+}
+ROOT_BSL_COLLECTIONS = {
+    **DIRECT_MD_COLLECTIONS,
+    "справочники": "Catalog", "catalogs": "Catalog",
+    "перечисления": "Enum", "enums": "Enum", "общиекоманды": "CommonCommand", "commoncommands": "CommonCommand",
     "обработки": "DataProcessor", "dataprocessors": "DataProcessor", "отчеты": "Report", "reports": "Report",
 }
 
 FLAT_TRANSFER_KINDS = ("Constant", "DefinedType", "SessionParameter", "FunctionalOption", "FunctionalOptionsParameter",
-                       "EventSubscription", "ScheduledJob", "CommonPicture", "CommandGroup", "DocumentNumerator")
-REGISTER_TRANSFER_KINDS = ("InformationRegister", "AccumulationRegister")
+                       "EventSubscription", "ScheduledJob", "CommonPicture", "CommandGroup", "DocumentNumerator", "Role")
+REGISTER_TRANSFER_KINDS = ("InformationRegister", "AccumulationRegister", "AccountingRegister", "CalculationRegister")
 LINKED_TRANSFER_KINDS = ("Document",) + REGISTER_TRANSFER_KINDS
-PREDEFINED_KINDS = ("Catalog", "ChartOfCharacteristicTypes")
+PREDEFINED_KINDS = ("Catalog", "ChartOfCharacteristicTypes", "ChartOfAccounts", "ChartOfCalculationTypes")
 PREDEFINED_NS = "{http://v8.1c.ru/8.3/xcf/predef}"
-STRUCTURED_TRANSFER_KINDS = PREDEFINED_KINDS + ("Report", "DataProcessor") + LINKED_TRANSFER_KINDS
+EXTENDED_TRANSFER_KINDS = (
+    "ChartOfAccounts",
+    "ChartOfCalculationTypes",
+    "AccountingRegister",
+    "CalculationRegister",
+    "ExchangePlan",
+    "BusinessProcess",
+    "Task",
+)
+STRUCTURED_TRANSFER_KINDS = PREDEFINED_KINDS + ("Report", "DataProcessor", "ExchangePlan", "BusinessProcess", "Task") + LINKED_TRANSFER_KINDS
 ROOT_PROVISIONAL = {}
 ROOT_REGISTRARS = {}
 ROOT_TARGET_REGISTRARS = None
@@ -3708,6 +3744,12 @@ def get_root_bsl_projection(lines, prefix, self_id, self_name, rel="", child=Non
                 if len(hits) > 1 and hits[0].lower() != member["value"].lower():
                     return {"status": "MANUAL", "reason": "ambiguous method %s: %s" % (method_id, ", ".join(hits))}
                 edits[member["start"]] = hits[0]
+        predefined_path = borrowed_predefined_access(tokens, i)
+        if predefined_path:
+            binding = BORROWED_PREDEFINED_BINDINGS[predefined_path.lower()]
+            if binding.get("status"):
+                return binding
+            edits[tokens[i + 4]["start"]] = binding["name"]
         if (kind == "Enum" and i + 4 < len(tokens) and tokens[i+3]["value"] == "."
                 and tokens[i+4]["kind"] == "word" and (i + 5 >= len(tokens) or tokens[i+5]["value"] != "(")
                 and key in ROOT_OWN):
@@ -3794,6 +3836,21 @@ def catalog_files(root, directory, child=None):
         optional.add("Ext/Predefined.xml")
     if obj_kind in REGISTER_TRANSFER_KINDS:
         optional.add("Ext/RecordSetModule.bsl")
+    if child is None and obj_kind in EXTENDED_TRANSFER_KINDS:
+        optional.add("Ext/Help.xml")
+        if obj_kind == "ExchangePlan":
+            required.add("Ext/Content.xml")
+        if obj_kind == "BusinessProcess":
+            required.add("Ext/Flowchart.xml")
+        help_path = os.path.join(directory, "Ext/Help.xml")
+        if os.path.isfile(help_path):
+            help_root = read_form_doc(help_path).getroot()
+            if help_root.tag != "{http://v8.1c.ru/8.3/xcf/extrnprops}Help":
+                raise ValueError("unsupported help descriptor")
+            for page in elem_children(help_root):
+                if localname(page) != "Page" or not re.fullmatch(r"[\w-]+", inner_text(page)):
+                    raise ValueError("unsupported help page")
+                required.add(f"Ext/Help/{inner_text(page)}.html")
     children = obj.find("md:ChildObjects", MD_NSMAP)
     nodes = [child] if child is not None else elem_children(children) if children is not None else []
     for node in nodes:
@@ -3824,6 +3881,12 @@ def catalog_files(root, directory, child=None):
             if not elem_children(node):
                 required.add(f"Commands/{name}.xml")
         elif kind in ("Dimension", "Resource") and obj_kind in REGISTER_TRANSFER_KINDS:
+            continue
+        elif kind in ("AccountingFlag", "ExtDimensionAccountingFlag") and obj_kind == "ChartOfAccounts":
+            continue
+        elif kind == "AddressingAttribute" and obj_kind == "Task":
+            continue
+        elif kind == "Recalculation" and obj_kind == "CalculationRegister":
             continue
         elif kind not in ("Attribute", "TabularSection"):
             raise ValueError(f"unsupported {obj_kind} child {kind}")
@@ -3862,6 +3925,12 @@ def convert_catalog_xml(fw, cfg, source, target, prefix, descriptor, child=None,
         "Report": r"Report(?:Object|Manager|TabularSectionRow|TabularSection)?",
         "DataProcessor": r"DataProcessor(?:Object|Manager|TabularSectionRow|TabularSection)?",
         "Document": r"Document(?:Ref|Object|Manager|Selection|List|TabularSectionRow|TabularSection)?",
+        "ChartOfAccounts": r"ChartOfAccounts(?:Ref|Object|Manager|Selection|List|TabularSectionRow|TabularSection|ExtDimensionTypesRow|ExtDimensionTypes)?",
+        "ChartOfCalculationTypes": r"(?:ChartOfCalculationTypes(?:Ref|Object|Manager|Selection|List|TabularSectionRow|TabularSection)?|(?:Base|Displacing|Leading)CalculationTypes(?:Row)?)",
+        "AccountingRegister": r"AccountingRegister(?:Manager|RecordSet|RecordManager|RecordKey|Record|Selection|List|ExtDimensions)?",
+        "CalculationRegister": r"(?:CalculationRegister(?:Manager|RecordSet|RecordManager|RecordKey|Record|Selection|List)?|RecalculationsManager)",
+        **{k: rf"{k}(?:Ref|Object|Manager|Selection|List|TabularSectionRow|TabularSection|RoutePointRef)?"
+           for k in ("ExchangePlan", "BusinessProcess", "Task")},
         "InformationRegister": r"InformationRegister(?:Manager|RecordSet|RecordManager|RecordKey|Record|Selection|List)?",
         "AccumulationRegister": r"AccumulationRegister(?:Manager|RecordSet|RecordManager|RecordKey|Record|Selection|List)?",
     }.get(obj_kind, re.escape(obj_kind))
@@ -3891,7 +3960,9 @@ def convert_catalog_xml(fw, cfg, source, target, prefix, descriptor, child=None,
                     if ref.get("value"):
                         node.text = ref["value"]
                         continue
-        xsi_type = node.get("{http://www.w3.org/2001/XMLSchema-instance}type")
+        xsi_type = node.get(f"{{{XSI_NS}}}type", "").split(":", 1)
+        design_ref = (len(xsi_type) == 2 and xsi_type[1] in ("DesignTimeRef", "MDObjectRef")
+                      and node.nsmap.get(xsi_type[0]) == MD_NSMAP["xr"])
         is_type = node.tag in ("{%s}Type" % MD_NSMAP["v8"], "{%s}TypeSet" % MD_NSMAP["v8"])
         parent = localname(node.getparent()) if node.getparent() is not None else ""
         strict_ref = (
@@ -3903,7 +3974,16 @@ def convert_catalog_xml(fw, cfg, source, target, prefix, descriptor, child=None,
                                                       namespaces=MD_NSMAP))))
             or (obj_kind == "Document" and ((name == "Item" and parent in ("RegisterRecords", "BasedOn"))
                                            or (name == "Numerator" and parent == "Properties")))
-            or (obj_kind == "ChartOfCharacteristicTypes" and name == "CharacteristicExtValues" and parent == "Properties"))
+            or (obj_kind == "ChartOfCharacteristicTypes" and name == "CharacteristicExtValues" and parent == "Properties")
+            or (obj_kind == "ChartOfAccounts" and name == "ExtDimensionTypes" and parent == "Properties")
+            or (obj_kind == "ChartOfCalculationTypes" and name == "Item"
+                and parent in ("BaseCalculationTypes", "DisplacingCalculationTypes", "LeadingCalculationTypes"))
+            or (obj_kind == "AccountingRegister" and name in ("ChartOfAccounts", "AccountingFlag", "ExtDimensionAccountingFlag"))
+            or (obj_kind == "CalculationRegister" and name in ("ChartOfCalculationTypes", "Schedule", "ScheduleDate",
+                                                               "ScheduleValue", "ScheduleLink", "LeadingDimension", "Dimension"))
+            or (obj_kind == "BusinessProcess" and name in ("Task", "AddressingAttribute"))
+            or (obj_kind == "Task" and name in ("Addressing", "AddressingDimension", "MainAddressingAttribute", "CurrentPerformer"))
+            or (obj_kind == "ExchangePlan" and node.tag == "{http://v8.1c.ru/8.3/xcf/extrnprops}Metadata"))
         if strict_ref and value:
             path = re.fullmatch(r"(\w+)\.\w+(?:\.\w+\.\w+)*", value)
             if not path or path[1] not in CHILD_TYPE_DIR_MAP:
@@ -3918,7 +3998,7 @@ def convert_catalog_xml(fw, cfg, source, target, prefix, descriptor, child=None,
                   or name in ("ChoiceForm", "Owners", "Group", "Ref", "DataPath", "MainDataCompositionSchema",
                               "VariantsStorage", "SettingsStorage")
                   or node.tag == "{%s}Field" % MD_NSMAP["xr"]
-                  or xsi_type in ("xr:DesignTimeRef", "xr:MDObjectRef"))
+                  or design_ref)
         if not value or not (is_type or is_ref):
             continue
         if child and re.fullmatch(r"Catalog\.\w+\.(Form|Template|Command|Attribute|TabularSection)\.\w+(?:\.Attribute\.\w+)?", value, re.I):
@@ -3936,6 +4016,26 @@ def convert_catalog_xml(fw, cfg, source, target, prefix, descriptor, child=None,
             if ref.get("status"):
                 return ref
             node.text = ref["value"]
+    for node in root.xpath("//*[@ref]|//*[local-name()='ExtDimensionType' and @name]"):
+        if obj_kind == "ChartOfAccounts" and node.tag == PREDEFINED_NS + "Flag":
+            attribute, expected = "ref", r"ChartOfAccounts\.\w+\.(AccountingFlag|ExtDimensionAccountingFlag)\.\w+"
+        elif obj_kind == "ChartOfAccounts" and node.tag == PREDEFINED_NS + "ExtDimensionType":
+            attribute, expected = "name", r"ChartOfCharacteristicTypes\.\w+\.\w+"
+        elif obj_kind == "BusinessProcess" and node.tag == "{http://v8.1c.ru/8.3/xcf/scheme}AddressingAttribute":
+            attribute, expected = "ref", r"Task\.\w+\.AddressingAttribute\.\w+"
+        else:
+            continue
+        value = node.get(attribute, "")
+        if not re.fullmatch(expected, value, re.I):
+            return {"status": "MANUAL", "reason": f"unsupported {localname(node)} reference: {value}"}
+        if pattern.match(value):
+            value = pattern.sub(lambda m: m[1] + target, value)
+        else:
+            ref = resolve_md_reference(value, prefix)
+            if ref.get("status"):
+                return ref
+            value = ref["value"]
+        node.set(attribute, value)
     return {}
 
 
@@ -3986,9 +4086,21 @@ def get_catalog_child_binding(oid):
     return {"status": "WAITING", "reason": "waiting for " + oid, "dependency": oid.lower()}
 
 
+def borrowed_predefined_access(tokens, i):
+    if (not BORROWED_PREDEFINED_BINDINGS or i + 4 >= len(tokens)
+            or tokens[i]["value"].lower() not in ("справочники", "catalogs")
+            or (i and tokens[i - 1]["value"] == ".")
+            or tokens[i+1]["value"] != "." or tokens[i+3]["value"] != "."
+            or tokens[i+2]["kind"] != "word" or tokens[i+4]["kind"] != "word"
+            or (i + 5 < len(tokens) and tokens[i+5]["value"] == "(")):
+        return None
+    path = f"Catalog.{tokens[i+2]['value']}.{tokens[i+4]['value']}"
+    return path if path.lower() in BORROWED_PREDEFINED_BINDINGS else None
+
+
 def get_catalog_child_bsl(tokens, rel, child, declared, prefix, self_id="", self_name=""):
     edits, issues = {}, []
-    if not CATALOG_CHILDREN and not ROOT_OWN:
+    if not (CATALOG_CHILDREN or ROOT_OWN or BORROWED_PREDEFINED_BINDINGS):
         return edits, issues
     m = re.fullmatch(r"Catalogs/(\w+)/Ext/(ObjectModule|ManagerModule)\.bsl", rel, re.I)
     owner = m[1] if m else ""
@@ -4001,18 +4113,22 @@ def get_catalog_child_bsl(tokens, rel, child, declared, prefix, self_id="", self
                 or (i and tokens[i - 1]["value"] == ".")):
             continue
         if api in ("предопределенноезначение", "предопределённоезначение", "predefinedvalue"):
-            item = re.fullmatch(r'("(Catalog|Справочник|ChartOfCharacteristicTypes|ПланВидовХарактеристик)\.)(\w+)\.(\w+)"',
+            item = re.fullmatch(r'("(Catalog|Справочник|ChartOfCharacteristicTypes|ПланВидовХарактеристик|ChartOfAccounts|ПланСчетов|ChartOfCalculationTypes|ПланВидовРасч[её]та)\.)(\w+)\.(\w+)"',
                                 literal["value"], re.I)
             if not item:
                 continue
-            kind = "Catalog" if item[2].lower() in ("catalog", "справочник") else "ChartOfCharacteristicTypes"
+            kind = {"catalog": "Catalog", "справочник": "Catalog",
+                    "chartofaccounts": "ChartOfAccounts", "плансчетов": "ChartOfAccounts",
+                    "chartofcalculationtypes": "ChartOfCalculationTypes",
+                    "планвидоврасчета": "ChartOfCalculationTypes", "планвидоврасчёта": "ChartOfCalculationTypes"
+                    }.get(item[2].lower(), "ChartOfCharacteristicTypes")
             oid = f"{kind}.{item[3]}"
-            if oid.lower() not in ROOT_OWN:
+            path = f"{oid}.{item[4]}"
+            if oid.lower() not in ROOT_OWN and path.lower() not in BORROWED_PREDEFINED_BINDINGS:
                 continue
             if oid.lower() == self_id.lower():
                 edits[literal["start"]] = f'{item[1]}{self_name}.{item[4]}"'
                 continue
-            path = f"{oid}.{item[4]}"
             ref = resolve_md_reference(path, prefix)
             if ref.get("status"):
                 issues.append({"token": literal, "rename": path, "why": ref["reason"], "reason": ref["reason"],
@@ -4021,7 +4137,8 @@ def get_catalog_child_bsl(tokens, rel, child, declared, prefix, self_id="", self
                 edits[literal["start"]] = item[1] + ref["value"].split(".", 1)[1] + '"'
             continue
         if api in ("открытьформу", "openform", "получитьформу", "getform"):
-            match = re.fullmatch(r'("(Report|Отч[её]т|DataProcessor|Обработка|Document|Документ|ChartOfCharacteristicTypes|ПланВидовХарактеристик)\.)'
+            match = re.fullmatch(r'("(Report|Отч[её]т|DataProcessor|Обработка|Document|Документ|ChartOfCharacteristicTypes|ПланВидовХарактеристик|'
+                                 r'ChartOfAccounts|ПланСчетов|ChartOfCalculationTypes|ПланВидовРасч[её]та|AccountingRegister|РегистрБухгалтерии|CalculationRegister|РегистрРасч[её]та|ExchangePlan|ПланОбмена|BusinessProcess|БизнесПроцесс|Task|Задача)\.)'
                                  r'(\w+)(\.(?:Form|Форма)\.)(\w+)"',
                                  literal["value"], re.I)
             if match:
@@ -4029,6 +4146,13 @@ def get_catalog_child_bsl(tokens, rel, child, declared, prefix, self_id="", self
                 kind = {"report": "Report", "отчет": "Report", "отчёт": "Report",
                         "document": "Document", "документ": "Document",
                         "chartofcharacteristictypes": "ChartOfCharacteristicTypes",
+                        "chartofaccounts": "ChartOfAccounts", "плансчетов": "ChartOfAccounts",
+                        "accountingregister": "AccountingRegister", "регистрбухгалтерии": "AccountingRegister",
+                        "exchangeplan": "ExchangePlan", "планобмена": "ExchangePlan",
+                        "businessprocess": "BusinessProcess", "бизнеспроцесс": "BusinessProcess",
+                        "task": "Task", "задача": "Task",
+                        "chartofcalculationtypes": "ChartOfCalculationTypes", "планвидоврасчета": "ChartOfCalculationTypes", "планвидоврасчёта": "ChartOfCalculationTypes",
+                        "calculationregister": "CalculationRegister", "регистррасчета": "CalculationRegister", "регистррасчёта": "CalculationRegister",
                         "планвидовхарактеристик": "ChartOfCharacteristicTypes"}.get(owner_kind, "DataProcessor")
                 root_id = f"{kind}.{match[3]}"
                 if root_id.lower() not in ROOT_OWN:
@@ -4302,6 +4426,19 @@ def catalog_node_key(node, ignore_slots=False, shallow=False, ignore_characteris
         if (ignore_slots and (tag == "MainDataCompositionSchema" or
                              (tag.startswith(("Default", "Auxiliary")) and "Form" in tag))) or (shallow and tag == "ChildObjects"):
             node.remove(child)
+    # Designer orders recorder links by metadata identity.
+    for records in node.xpath("descendant-or-self::md:Properties/md:RegisterRecords", namespaces=MD_NSMAP):
+        for record in sorted(elem_children(records), key=lambda child: inner_text(child).lower()):
+            records.append(record)
+    # The metadata compiler emits an empty string for the boolean flags' unset FillValue.
+    flags = node.xpath("descendant-or-self::md:AccountingFlag/md:Properties/md:FillValue|"
+                          "descendant-or-self::md:ExtDimensionAccountingFlag/md:Properties/md:FillValue", namespaces=MD_NSMAP)
+    for fill in flags:
+        type_name = fill.get(f"{{{XSI_NS}}}type", "").split(":", 1)
+        if (not inner_text(fill) and len(type_name) == 2 and type_name[1] == "string"
+                and (type_name[0] == "xs" or fill.nsmap.get(type_name[0]) == "http://www.w3.org/2001/XMLSchema")):
+            fill.attrib.pop(f"{{{XSI_NS}}}type")
+            fill.set(f"{{{XSI_NS}}}nil", "true")
     return node_canon(node)
 
 
@@ -4336,16 +4473,25 @@ def resolve_transfer_handler(value, prefix):
     return {"value": f"{qualifier or ''}{target}.{hits[0]}", "validation_files": (base + ".xml", relative)}
 
 
-def get_predefined_tree(fw, kind, version):
+def get_predefined_tree(fw, kind, version, borrowed=False):
     root = fw["root"]
-    expected_type = "CatalogPredefinedItems" if kind == "Catalog" else "PlanOfCharacteristicKindPredefinedItems"
+    expected_type = {"Catalog": "CatalogPredefinedItems", "ChartOfCharacteristicTypes": "PlanOfCharacteristicKindPredefinedItems",
+                     "ChartOfAccounts": "ChartOfAccountsPredefinedItems", "ChartOfCalculationTypes": "CalculationTypePredefinedItems"}[kind]
     if (root.tag != f"{PREDEFINED_NS}PredefinedData" or root.get("version") != version
             or root.get(f"{{{XSI_NS}}}type") != expected_type):
         raise ValueError("unsupported Predefined.xml format")
     entries, by_id, by_name = [], {}, {}
-    required = {"Name", "Code", "Description", "IsFolder"}
-    allowed = required | {"ChildItems"}
-    if kind != "Catalog":
+    required = {"Name", "Code", "Description"}
+    if kind in ("Catalog", "ChartOfCharacteristicTypes"):
+        required.add("IsFolder")
+    extra = {"ChartOfAccounts": ("AccountType", "OffBalance", "Order", "AccountingFlags", "ExtDimensionTypes"),
+             "ChartOfCalculationTypes": ("ActionPeriodIsBase",)}.get(kind, ())
+    allowed = required | set(extra)
+    if borrowed:
+        allowed.add('ExtensionState')
+    if kind != "ChartOfCalculationTypes":
+        allowed.add("ChildItems")
+    if kind == "ChartOfCharacteristicTypes":
         allowed.add("Type")
     for node in root.iter(f"{PREDEFINED_NS}Item"):
         parent = node.getparent()
@@ -4372,14 +4518,19 @@ def get_predefined_tree(fw, kind, version):
                         or not re.fullmatch(r"(Type|TypeSet|TypeId|\w+Qualifiers)", name)):
                     raise ValueError(f"unsupported predefined type field {name}")
         identity = node.get("id", "").lower()
-        name, folder = inner_text(fields["Name"]), inner_text(fields["IsFolder"])
+        name, folder = inner_text(fields["Name"]), inner_text(fields["IsFolder"]) if "IsFolder" in fields else ""
         if (not re.fullmatch(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", identity)
                 or not re.fullmatch(r"\w+", name) or identity in by_id or name.lower() in by_name
-                or folder not in ("true", "false")):
+                or ("IsFolder" in fields and folder not in ("true", "false"))):
             raise ValueError(f"invalid or duplicate predefined item {name} ({identity})")
-        item = {"id": identity, "name": name, "code": inner_text(fields["Code"]),
-                "description": inner_text(fields["Description"]), "folder": folder == "true",
-                "parent": parent_id, "node": node, "type": fields.get("Type")}
+        state = inner_text(fields["ExtensionState"]) if "ExtensionState" in fields else "AdoptedCheck"
+        if borrowed and (state not in ("Native", "AdoptedCheck", "AdoptedNotify")
+                         or ("ExtensionState" in fields and has_element_child(fields["ExtensionState"]))):
+            raise ValueError(f"unsupported predefined extension state '{state}' for {name}")
+        item = {"id": identity, "name": name, "state": state, "code": inner_text(fields["Code"]),
+                "description": inner_text(fields["Description"]), "folder": kind == "ChartOfAccounts" or folder == "true",
+                "parent": parent_id, "node": node, "type": fields.get("Type"),
+                "extra": tuple(node_canon(fields[key]) if key in fields else "" for key in extra)}
         entries.append(item)
         by_id[identity] = item
         by_name[name.lower()] = item
@@ -4413,15 +4564,16 @@ def predefined_code_key(item, owner_props):
     return parent, code
 
 
-def merge_predefined_tree(source, destination, owner_props, kind, version):
-    wanted, _, _ = get_predefined_tree(source, kind, version)
+def merge_predefined_tree(source, destination, owner_props, kind, version, wanted=None):
+    if wanted is None:
+        wanted, _, _ = get_predefined_tree(source, kind, version)
     existing, by_id, by_name = get_predefined_tree(destination, kind, version) if destination else ([], {}, {})
     added, matched = [], 0
     codes = {key: item for item in existing if (key := predefined_code_key(item, owner_props)) is not None}
     for item in wanted:
         same = by_id.get(item["id"])
         if same:
-            if (any(same[field] != item[field] for field in ("parent", "name", "description", "folder"))
+            if (any(same[field] != item[field] for field in ("parent", "name", "description", "folder", "extra"))
                     or predefined_code_value(same, owner_props) != predefined_code_value(item, owner_props)
                     or not test_md_type_model_equal(get_md_type_model(same["type"], ""), get_md_type_model(item["type"], ""))):
                 return {"reason": f"predefined item {item['name']} ({item['id']}) differs in properties or parent"}
@@ -4450,9 +4602,141 @@ def merge_predefined_tree(source, destination, owner_props, kind, version):
             for child in source_node:
                 if child.tag != f"{PREDEFINED_NS}ChildItems":
                     new.append(copy.deepcopy(child))
+            if item["state"] == "Native":
+                new.remove(new.find(PREDEFINED_NS + "ExtensionState"))
+                new.find(PREDEFINED_NS + "Name").text = item["name"]
             insert_form_node_at(container, new, None, destination["eol"])
             by_id[item["id"]] = {"node": new}
     return {"added": added, "matched": matched}
+
+
+def get_borrowed_predefined_plan(entries, destination, owner, name, prefix, version, policy):
+    _, by_id, by_name = get_predefined_tree(destination, "Catalog", version)
+    taken = set(by_name)
+    parents = {"": ""}
+    wanted, kept, bindings = [], [], {}
+    add_dev = SETTINGS[get_object_kind(name, policy)]["add_dev_objects"]
+    for item in entries:
+        parent = parents.get(item["parent"])
+        if item["state"] != "Native":
+            # Adopted GUIDs can differ. Match a controlled group along the actual parent chain.
+            match = by_id.get(item["id"]) or by_name.get(item["name"].lower())
+            if (item["state"] == "AdoptedCheck" and parent is not None and match and match["folder"]
+                    and match["name"].lower() == item["name"].lower() and match["parent"] == parent):
+                parents[item["id"]] = match["id"]
+            continue
+        if parent is None:
+            return {"status": "CONFLICT", "reason": f"cannot match the adopted parent of {item['name']}"}
+        original_name = item["name"]
+        same = by_id.get(item["id"])
+        if same:
+            target = same["name"]
+        else:
+            choice = get_target_name(original_name, prefix, taken, add_dev)
+            if choice.get("taken"):
+                return {"status": "CONFLICT", "reason": f"predefined name {original_name} is occupied ({choice['note']})"}
+            target = choice["name"]
+        taken.add(target.lower())
+        parents[item["id"]] = item["id"]
+        bindings[f"Catalog.{name}.{original_name}".lower()] = target
+        if original_name.lower() == target.lower():
+            kept.append(target)
+        wanted.append(dict(item, name=target, parent=parent))
+    result = merge_predefined_tree(None, destination, owner["props"], "Catalog", version, wanted)
+    if result.get("reason"):
+        return dict(result, status="CONFLICT")
+    return dict(result, bindings=bindings, kept=kept)
+
+
+def initialize_borrowed_predefined(ext, objects, cfg, selected, apply):
+    global SUPPORT_INFO
+    support_loaded = apply
+    BORROWED_PREDEFINED_BINDINGS.clear()
+    BORROWED_PREDEFINED_ITEMS.clear()
+    changed = []
+    for obj in objects:
+        if obj["type"] != "Catalog":
+            continue
+        name = obj["name"]
+        oid = f"Catalog.{name}"
+        rel = f"Catalogs/{name}/Ext/Predefined.xml"
+        source_path = os.path.join(ext["dir"], rel)
+        if not os.path.isfile(source_path):
+            continue
+        ctx = get_obj_context(ext["dir"], "Catalog", name)
+        if not ctx["borrowed"]:
+            continue
+        keys = {}
+        try:
+            src = read_form_write(source_path)
+            version = ctx["md"]["el"].getroottree().getroot().get("version")
+            keys = {f"{oid}.{inner_text(node)}".lower(): f"{oid}.{inner_text(node)}"
+                    for node in src["root"].xpath(".//pre:Item[pre:ExtensionState='Native']/pre:Name",
+                                                 namespaces={"pre": PREDEFINED_NS[1:-1]})}
+            entries, _, _ = get_predefined_tree(src, "Catalog", version, borrowed=True)
+            if not keys:
+                continue
+            owner_rel = f"Catalogs/{name}.xml"
+            owner_path = os.path.join(MD_REFERENCE_ROOT, owner_rel)
+            with open(owner_path, "rb") as owner_file:
+                owner_before = owner_file.read()
+            owner = read_md_object(owner_path)
+            adopted_id = ctx["md"]["props"].findtext("md:ExtendedConfigurationObject", "", MD_NSMAP)
+            if (cfg["child_objects"] is None or not any(node.text == name for node in cfg["child_objects"].findall("md:Catalog", MD_NSMAP))
+                    or not owner or localname(owner["el"]) != "Catalog" or (owner["el"].get("uuid") or "").lower() != adopted_id.lower()):
+                raise ValueError("borrowed catalog identity does not match")
+            if owner["el"].getroottree().getroot().get("version") != version:
+                raise ValueError("metadata dump formats differ")
+            if (owner["props"].findtext("md:Hierarchical", namespaces=MD_NSMAP) != "true"
+                    and any(entry["state"] == "Native" and (entry["parent"] or entry["folder"]) for entry in entries)):
+                raise ValueError("the target catalog does not support hierarchy")
+            path = os.path.join(MD_REFERENCE_ROOT, rel)
+            before = None
+            if os.path.isfile(path):
+                with open(path, "rb") as original:
+                    before = original.read()
+            destination = read_form_write(path if before is not None else source_path)
+            if before is None:
+                for node in list(destination["root"]):
+                    destination["root"].remove(node)
+            if not support_loaded:
+                SUPPORT_INFO = get_support_info(MD_REFERENCE_ROOT)
+                support_loaded = True
+            policy = get_object_support(owner_path)
+            plan = get_borrowed_predefined_plan(entries, destination, owner, name, ext["prefix"], version, policy)
+            if plan.get("status"):
+                item = new_md_reference_item("predefined items", plan)
+            else:
+                label = f"predefined items ({', '.join(plan['bindings'].values())})"
+                if plan["kept"]:
+                    label += " — deactivate the old extension before updating the database: predefined names overlap"
+                item = new_item("NOT_TRANSFERRED" if plan["added"] else "TRANSFERRED", label)
+                item["plan"] = {"kind": "md-reference"}
+                if plan["added"] and apply and selected(oid):
+                    if policy == "locked":
+                        item = new_md_reference_item(label, {"status": "MANUAL", "reason": f"{owner_rel} is locked by vendor support"})
+                    else:
+                        files = {owner_rel: {"xml": read_form_write(owner_path), "before": owner_before, "write_owner": False},
+                                 rel: {"xml": destination, "before": before, "write_owner": True}}
+                        try:
+                            changed.extend(write_metadata_package({"type": "Catalog"},
+                                                                  {"relative": owner_rel, "target": name, "files": files}))
+                            item.update(status="TRANSFERRED", now=True)
+                            ROOT_DATA_WARNINGS.append(f"Predefined items in {oid} — verify linked predefined data before removing the extension")
+                            if policy == "warn":
+                                item["text"] += " (locked by vendor support, written: editingAllowedCheck = warn)"
+                        except Exception as exc:
+                            item = new_md_reference_item(label, {"status": "CONFLICT", "reason": str(exc)})
+        except Exception as exc:
+            item = new_md_reference_item("predefined items", {"status": "MANUAL", "reason": str(exc)})
+            plan = {}
+        item["section"] = rel
+        BORROWED_PREDEFINED_ITEMS[oid.lower()] = item
+        for key, path in keys.items():
+            BORROWED_PREDEFINED_BINDINGS[key] = ({"name": plan["bindings"][key]} if item["status"] == "TRANSFERRED"
+                                                else {"status": "WAITING", "reason": f"waiting for predefined item {path}",
+                                                      "dependency": path})
+    return changed
 
 
 def root_metadata_projection(entry, cfg, source, files, target, prefix, enum_aliases=None, skd=()):
@@ -4507,6 +4791,32 @@ def root_metadata_projection(entry, cfg, source, files, target, prefix, enum_ali
                 return {"status": "MANUAL", "reason": merged["reason"]}
             plan["has_predefined"] = True
             data = {"xml": fw}
+        elif rel in ("Ext/Content.xml", "Ext/Flowchart.xml") and entry["type"] in ("ExchangePlan", "BusinessProcess"):
+            fw = read_form_write(path)
+            root = fw["root"]
+            is_flowchart = entry["type"] == "BusinessProcess"
+            tag = ("{http://v8.1c.ru/8.3/xcf/scheme}GraphicalSchema" if is_flowchart
+                   else "{http://v8.1c.ru/8.3/xcf/extrnprops}ExchangePlanContent")
+            empty_flow = is_flowchart and root.tag == f"{{{MD_NSMAP['md']}}}Flowchart" and not elem_children(root)
+            descriptor = plan["files"][plan["relative"]]["xml"]["root"]
+            if (root.tag != tag and not empty_flow) or root.get("version") != descriptor.get("version"):
+                return {"status": "MANUAL", "reason": f"unsupported external metadata {rel}"}
+            issue = convert_catalog_xml(fw, cfg, entry["name"], target, prefix, False, owner_kind=entry["type"])
+            if issue:
+                return issue
+            if not is_flowchart:
+                ns = "{http://v8.1c.ru/8.3/xcf/extrnprops}"
+                members = set()
+                for member in elem_children(root):
+                    parts = elem_children(member)
+                    if (member.tag != ns + "Item" or [part.tag for part in parts] != [ns + "Metadata", ns + "AutoRecord"]
+                            or not re.fullmatch(r"\w+\.\w+", inner_text(parts[0]))
+                            or inner_text(parts[1]) not in ("Allow", "Deny") or inner_text(parts[0]).lower() in members):
+                        return {"status": "MANUAL", "reason": f"invalid or duplicate exchange plan member in {rel}"}
+                    members.add(inner_text(parts[0]).lower())
+            data = {"xml": fw, "flowchart": is_flowchart, "exchange_content": not is_flowchart}
+        elif re.fullmatch(r"Ext/Help/[^/]+\.html", rel):
+            data = {"copy": path}
         elif rel in skd:
             schema = read_form_write(path)["root"]
             if schema.tag != "{http://v8.1c.ru/8.1/data-composition-system/schema}DataCompositionSchema":
@@ -4536,6 +4846,13 @@ def root_metadata_projection(entry, cfg, source, files, target, prefix, enum_ali
             data = {"copy": path, "skd": True}
         elif re.fullmatch(r"Templates/\w+/Ext/Template\.(xml|txt|bin)", rel):
             data = {"copy": path}
+        elif entry["type"] == "Role" and rel == "Ext/Rights.xml":
+            fw = read_form_write(path)
+            descriptor = plan["files"][plan["relative"]]["xml"]["root"]
+            issue = convert_role_rights(fw["root"], cfg, prefix, descriptor.get("version"))
+            if issue:
+                return issue
+            data = {"xml": fw, "role_rights": True}
         elif entry["type"] == "ScheduledJob" and rel == "Ext/Schedule.xml":
             schedule = read_form_write(path)["root"]
             ns = "{http://v8.1c.ru/8.3/xcf/extrnprops}"
@@ -4553,7 +4870,68 @@ def root_metadata_projection(entry, cfg, source, files, target, prefix, enum_ali
     return plan
 
 
+def flowchart_key(node):
+    if node is None:
+        return None
+    layout = {"BackColor", "GridEnabled", "DrawGridMode", "GridHorizontalStep", "GridVerticalStep", "PrintParameters", "Items"}
+    if (node.tag in (f"{{{MD_NSMAP['md']}}}Flowchart", "{http://v8.1c.ru/8.3/xcf/scheme}GraphicalSchema")
+            and all(localname(child) in layout and (localname(child) != "Items" or not elem_children(child))
+                    for child in elem_children(node))):
+        return "empty route " + node.get("version", "")
+    projected = copy.deepcopy(node)
+    for entry in projected.xpath("descendant-or-self::*[@id]"):
+        entry.set("route-point-id", entry.get("id"))
+    # The Designer writes empty placeholder events for the available handlers.
+    for event in projected.xpath("//*[local-name()='Events']/*[local-name()='Event' and @name and count(@*)=1 and not(*)]"):
+        if not inner_text(event).strip():
+            event.getparent().remove(event)
+    return node_canon(projected)
+
+
+def convert_role_rights(root, cfg, prefix, version):
+    ns = "{http://v8.1c.ru/8.2/roles}"
+    if root.tag != ns + "Rights" or root.get("version") != version:
+        return {"status": "MANUAL", "reason": "unsupported role rights format"}
+    renamed = set()
+    for obj in root.findall(ns + "object"):
+        node = obj.find(ns + "name")
+        value = inner_text(node).strip() if node is not None else ""
+        if re.fullmatch(r"Configuration\.\w+", value, re.I):
+            node.text = f"Configuration.{cfg['name']}"
+            continue
+        match = re.fullmatch(r"(\w+)\.\w+(?:\.\w+\.\w+)*", value)
+        if not match or match[1] not in CHILD_TYPE_DIR_MAP:
+            return {"status": "MANUAL", "reason": f"unsupported role object: {value}"}
+        ref = resolve_md_reference(value, prefix)
+        if ref.get("status"):
+            return ref
+        target = ref["value"]
+        if target.lower() in renamed:
+            return {"status": "MANUAL", "reason": f"duplicate role object: {target}"}
+        renamed.add(target.lower())
+        node.text = target
+    # Query text can contain metadata paths and prefixed members. Leave such roles for review.
+    for condition in root.iter(ns + "condition"):
+        for token in re.findall(r"\w+", inner_text(condition)):
+            if prefix and token.lower().startswith(prefix.lower()):
+                return {"status": "MANUAL", "reason": f"review extension identifier {token} in RLS condition"}
+    return {}
+
+
+def unordered_metadata_xml_key(node):
+    children = sorted((node_canon(item), tuple(inner_text(condition) for condition in
+                                              item.xpath(".//*[local-name()='condition']")))
+                      for item in elem_children(node))
+    return node.tag, node.get("version"), children
+
+
 def catalog_file_equal(entry, path):
+    if entry.get("role_rights") or entry.get("exchange_content"):
+        other = read_form_doc(path)
+        return other is not None and unordered_metadata_xml_key(entry["xml"]["root"]) == unordered_metadata_xml_key(other.getroot())
+    if entry.get("flowchart"):
+        other = read_form_doc(path)
+        return other is not None and flowchart_key(entry["xml"]["root"]) == flowchart_key(other.getroot())
     if "bsl" in entry:
         return root_object_code_key(entry["lines"]) == root_object_code_key(read_bsl_lines(path))
     if "xml" in entry:
@@ -4641,7 +5019,7 @@ def get_structured_transfer_plan(entry, ext_dir, prefix, cfg):
     kind = entry["type"]
     directory = CHILD_TYPE_DIR_MAP[kind]
     label = "catalog" if kind == "Catalog" else kind
-    stored = kind in PREDEFINED_KINDS or kind in LINKED_TRANSFER_KINDS
+    stored = kind in PREDEFINED_KINDS + LINKED_TRANSFER_KINDS + ('ExchangePlan', 'BusinessProcess', 'Task')
     path = os.path.join(ext_dir, directory, entry["name"])
     source = read_form_write(path + ".xml")
     if source["root"].get("version") != children.getroottree().getroot().get("version"):
@@ -4772,6 +5150,10 @@ def get_structured_transfer_plan(entry, ext_dir, prefix, cfg):
         item = new_item("NOT_TRANSFERRED", f"own {label} {entry['name']} (as {target})")
         if stored:
             data = {"Catalog": "catalog and tabular-section records", "ChartOfCharacteristicTypes": "characteristic kinds and data",
+                    "ChartOfAccounts": "accounts, subaccounts and balances",
+                    "ChartOfCalculationTypes": "calculation types and their data",
+                    "ExchangePlan": "exchange nodes and exchange state", "BusinessProcess": "business process instances",
+                    "Task": "tasks and task execution state",
                     "Document": "documents, tabular sections and register movements"}.get(kind, "register records")
             item["stored"] = f"{entry['id']} -> {kind}.{target} — {data}"
             if plan.get("has_predefined"):
@@ -4940,6 +5322,7 @@ def get_flat_transfer_plan(entry, ext_dir, prefix, cfg):
         return {"status": "MANUAL", "reason": f"unsupported {kind} descriptor or children"}
     allowed = {
         "Constant": {"Ext/ManagerModule.bsl", "Ext/ValueManagerModule.bsl"},
+        "Role": {"Ext/Rights.xml"},
         "ScheduledJob": {"Ext/Schedule.xml"},
     }.get(kind, ())
     files = {}
@@ -4950,6 +5333,8 @@ def get_flat_transfer_plan(entry, ext_dir, prefix, cfg):
             if rel not in allowed and not (kind == "CommonPicture" and re.fullmatch(r"Ext/Picture(?:\.xml|/Picture\.[A-Za-z0-9]+)", rel)):
                 return {"status": "MANUAL", "reason": f"unsupported {kind} file {rel}"}
             files[rel] = path
+    if kind == "Role" and "Ext/Rights.xml" not in files:
+        return {"status": "MANUAL", "reason": "missing Ext/Rights.xml"}
     identity = metadata_transfer_uuid(cfg, kind, node.get("uuid"))
     registry = [(localname(n), inner_text(n)) for n in elem_children(children)]
     ids = [(tag, name) for tag, name in registry if tag in CHILD_TYPE_DIR_MAP
@@ -5038,7 +5423,7 @@ def add_register_registrar_check(entry, plan, cfg):
     if plan["status"] not in ("NOT_TRANSFERRED", "PACKAGE_PARTIAL"):
         return plan
     owner = get_md_object_element(plan["files"][plan["relative"]]["xml"]["root"])
-    if (entry["type"] != "AccumulationRegister"
+    if (entry["type"] == "InformationRegister"
             and owner.findtext("md:Properties/md:WriteMode", namespaces=MD_NSMAP) != "RecorderSubordinate"):
         return plan
     target = f"{entry['type']}.{plan['target']}"
@@ -5254,6 +5639,23 @@ def add_root_object_registration(fw, kind, name):
     insert_form_node_at(children, node, before, fw["eol"])
 
 
+def replace_metadata_file(source, target, backup=None, expected=None):
+    retry_delay = (0.025, 0.05, 0.1, 0.2, 0.4)
+    for attempt in range(len(retry_delay) + 1):
+        try:
+            if expected is not None:
+                with open(target, "rb") as original:
+                    if original.read() != expected:
+                        raise ValueError(f"{target} changed during transfer")
+            replace_form_file(source, target, backup)
+            return
+        except OSError as exc:
+            # Windows leaves both filenames intact on these sharing and removal errors.
+            if attempt == len(retry_delay) or getattr(exc, "winerror", None) not in (32, 33, 1175):
+                raise
+            time.sleep(retry_delay[attempt])
+
+
 def write_metadata_package(entry=None, plan=None, *, packages=None, expected_registry=None):
     packages = packages or [(entry, plan)]
     root = os.path.abspath(MD_REFERENCE_ROOT)
@@ -5354,19 +5756,19 @@ def write_metadata_package(entry=None, plan=None, *, packages=None, expected_reg
                 if original.read() != file["before"]:
                     raise ValueError(f"{rel} changed during transfer")
             backup = os.path.join(stage, f"owner-before-{len(replaced)}.xml")
-            replace_form_file(os.path.join(stage, rel), owner, backup)
+            replace_metadata_file(os.path.join(stage, rel), owner, backup, file["before"])
             replaced.append((owner, backup))
         with open(cfg_path, "rb") as original:
             if original.read() != cfg_before:
                 raise ValueError("Configuration.xml changed during transfer")
         if register:
-            replace_form_file(staged_cfg, cfg_path)
+            replace_metadata_file(staged_cfg, cfg_path, expected=cfg_before)
         published = True
     finally:
         try:
             if not published:
                 for owner, backup in reversed(replaced):
-                    replace_form_file(backup, owner)
+                    replace_metadata_file(backup, owner)
                 for path in installed:
                     os.unlink(path)
                 for folder in reversed(made_dirs):
@@ -5386,7 +5788,7 @@ def validate_staged_metadata_owner(root, stage, entry, plan):
     check = read_md_object(staged_owner)
     if not check or localname(check["el"]) != entry["type"] or md_child_name(check["el"]) != plan["target"]:
         raise ValueError("staged metadata object did not pass read-back validation")
-    if entry["type"] in REGISTER_TRANSFER_KINDS and (entry["type"] == "AccumulationRegister"
+    if entry["type"] in REGISTER_TRANSFER_KINDS and (entry["type"] != "InformationRegister"
             or check["props"].findtext("md:WriteMode", namespaces=MD_NSMAP) == "RecorderSubordinate"):
         target = f"{entry['type']}.{plan['target']}"
         documents = os.path.join(stage, "Documents")
@@ -5471,7 +5873,7 @@ def write_root_object(entry, plan):
         with open(cfg_path, "rb") as current:
             if current.read() != before:
                 raise ValueError("Configuration.xml changed during transfer")
-        replace_form_file(cfg_temp, cfg_path)
+        replace_metadata_file(cfg_temp, cfg_path, expected=before)
     except Exception:
         for path in installed:
             os.unlink(path)
@@ -5678,7 +6080,7 @@ def get_linked_package_plans(keys, ext, cfg):
 
 def complete_linked_root_groups(waiting, ext, cfg, apply):
     global ROOT_TARGET_REGISTRARS
-    edges = {key: set() for key in waiting if ROOT_OWN[key]["type"] in LINKED_TRANSFER_KINDS + PREDEFINED_KINDS}
+    edges = {key: set() for key in waiting if ROOT_OWN[key]["type"] in LINKED_TRANSFER_KINDS + PREDEFINED_KINDS + EXTENDED_TRANSFER_KINDS}
     for key, dependencies in edges.items():
         dependency = waiting[key].get("dependency")
         if dependency in edges:
@@ -5690,7 +6092,9 @@ def complete_linked_root_groups(waiting, ext, cfg, apply):
             if group in tried:
                 continue
             kinds = {ROOT_OWN[key]["type"] for key in group}
-            if kinds.issubset(LINKED_TRANSFER_KINDS) or ("ChartOfCharacteristicTypes" in kinds and kinds.issubset(PREDEFINED_KINDS)):
+            if (kinds.issubset(LINKED_TRANSFER_KINDS)
+                    or ("ChartOfCharacteristicTypes" in kinds and kinds.issubset(PREDEFINED_KINDS))
+                    or kinds.intersection(EXTENDED_TRANSFER_KINDS)):
                 keys = group
                 break
         if not keys:
@@ -5751,7 +6155,7 @@ def complete_linked_root_groups(waiting, ext, cfg, apply):
         return set(keys), changed
 
 
-def initialize_root_transfer(ext, objects, cfg, vars_, selected, apply=False):
+def initialize_root_transfer(ext, objects, cfg, vars_, selected, apply=False, include_default_roles=False):
     global ROOT_TARGET_REGISTRARS
     ROOT_SOURCE_IDS.clear()
     ROOT_OWN.clear()
@@ -5764,12 +6168,20 @@ def initialize_root_transfer(ext, objects, cfg, vars_, selected, apply=False):
     ROOT_TARGET_REGISTRARS = None
     initialize_catalog_children(ext, objects)
     ROOT_DATA_WARNINGS.clear()
-    pending, changed = [], []
+    pending = []
+    changed = initialize_borrowed_predefined(ext, objects, cfg, selected, apply)
+    default_roles = set()
+    if not include_default_roles and any(obj["type"] == "Role" for obj in objects):
+        source_config = read_xml(os.path.join(ext["dir"], "Configuration.xml")).getroot()
+        default_roles = {inner_text(node).strip().lower() for node in
+                         source_config.findall(".//md:Configuration/md:Properties/md:DefaultRoles/*", MD_NSMAP)}
     for obj in objects:
         oid = "%s.%s" % (obj["type"], obj["name"])
         key = oid.lower()
         ROOT_SOURCE_IDS.add(key)
         if obj["type"] not in ("CommonModule", "CommonCommand", "Enum") + STRUCTURED_TRANSFER_KINDS + FLAT_TRANSFER_KINDS:
+            continue
+        if obj["type"] == "Role" and not include_default_roles and key in default_roles:
             continue
         ctx = get_obj_context(ext["dir"], obj["type"], obj["name"])
         if obj["type"] == "Document" and ctx.get("md") and ctx["md"]["props"] is not None:
@@ -5976,6 +6388,9 @@ def transfer_object(ext, obj, cfg_info, config_path, cfg_pools=None):
     rec["items"] += own_child_items(ctx, cfg_md, prefix, obj_rel, rank)
     rec["items"] += [entry["item"] for entry in sorted(CATALOG_CHILDREN.values(), key=lambda e: (e["kind"], e["name"]))
                      if rec["id"].lower() == ("Catalog." + entry["ctx"]["name"]).lower() and entry.get("item")]
+    predefined = BORROWED_PREDEFINED_ITEMS.get(rec["id"].lower())
+    if predefined:
+        rec["items"].append(predefined)
     if obj["type"] == "Subsystem":
         rec["items"] += subsystem_content_items(ctx["md"], cfg_md, prefix, obj_rel, cfg_pools)
     rec["items"] += form_items
@@ -7076,15 +7491,17 @@ def apply_md_prop_op(me, plan):
 def get_md_validate_errors(path, obj_type, require_result=False):
     """Errors of the metadata validator (meta-validate for an object, subsystem-validate for a subsystem)."""
     here = os.path.dirname(os.path.abspath(__file__))
-    rel = ("../../subsystem-validate/scripts/subsystem-validate.py" if obj_type == "Subsystem"
-           else "../../meta-validate/scripts/meta-validate.py")
+    rel = {"Subsystem": "../../subsystem-validate/scripts/subsystem-validate.py",
+           "Role": "../../role-validate/scripts/role-validate.py"}.get(obj_type, "../../meta-validate/scripts/meta-validate.py")
     script = os.path.normpath(os.path.join(here, rel))
     if not os.path.exists(script):
         globals()["MD_VALIDATE_MISSING"] = True
         return ["metadata validator is not installed"] if require_result else []
-    param = "-SubsystemPath" if obj_type == "Subsystem" else "-ObjectPath"
+    validator_args = {"Subsystem": ["-SubsystemPath", path],
+                      "Role": ["-RightsPath", os.path.splitext(path)[0], "-MaxErrors", str(2**31 - 1)]
+                      }.get(obj_type, ["-ObjectPath", path])
     try:
-        result = subprocess.run([sys.executable, script, param, path], capture_output=True, text=True,
+        result = subprocess.run([sys.executable, script, *validator_args], capture_output=True, text=True,
                                 encoding="utf-8", errors="replace")
     except Exception as exc:
         return ["metadata validator did not complete: " + str(exc)] if require_result else []
@@ -7799,7 +8216,7 @@ def get_bsl_conversion(lines, file_map, ctx, params=(), comparison=False):
     methods = dict(ctx['methods']) if ctx else {}
     methods.update(file_map)
     attrs = ctx['attrs'] if ctx else {}
-    if not comparison and (CATALOG_CHILDREN or ROOT_OWN):
+    if not comparison and (CATALOG_CHILDREN or ROOT_OWN or BORROWED_PREDEFINED_BINDINGS):
         if ctx and "declared_methods" not in ctx:
             ctx["declared_methods"] = get_proc_names(ctx["ext"])
         child_edits, child_issues = get_catalog_child_bsl(ts, ctx['rel'] if ctx else '', None,
@@ -7818,10 +8235,7 @@ def get_bsl_conversion(lines, file_map, ctx, params=(), comparison=False):
         k, owner = t['value'].lower(), ''
         qualified = i > 0 and ts[i - 1]['value'] == '.'
         if (not comparison and not qualified
-                and k in ("константы", "constants", "параметрысеанса", "sessionparameters", "библиотекакартинок", "picturelib",
-                          "документы", "documents", "регистрысведений", "informationregisters",
-                          "регистрынакопления", "accumulationregisters",
-                          "планывидовхарактеристик", "chartsofcharacteristictypes")
+                and k in DIRECT_MD_COLLECTIONS
                 and i + 2 < len(ts) and ts[i+1]["value"] == "." and ts[i+2]["kind"] == "word" and k not in params):
             kind = ROOT_BSL_COLLECTIONS[k]
             oid = kind + "." + ts[i+2]["value"]
@@ -7834,6 +8248,18 @@ def get_bsl_conversion(lines, file_map, ctx, params=(), comparison=False):
                         issues.append({"token": t, "rename": oid, "why": ref["reason"], "status": ref["status"]})
                     else:
                         edits[ts[i+2]["start"]] = ref["value"].split(".")[1]
+        predefined_path = borrowed_predefined_access(ts, i) if not comparison and k not in params else None
+        if predefined_path:
+            if locals_ is None:
+                locals_ = get_local_names(get_code_only(lines), params)
+            if k not in locals_:
+                binding = BORROWED_PREDEFINED_BINDINGS[predefined_path.lower()]
+                member = ts[i+4]
+                if binding.get("status"):
+                    issues.append(dict(binding, token=member, rename=predefined_path, why=binding["reason"]))
+                else:
+                    edits[member["start"]] = binding["name"]
+                handled.add(member["start"])
         if (not comparison and not qualified and k in ("перечисления", "enums") and i + 4 < len(ts)
                 and ts[i+1]["value"] == "." and ts[i+3]["value"] == "." and ts[i+2]["kind"] == ts[i+4]["kind"] == "word"
                 and (i + 5 >= len(ts) or ts[i+5]["value"] != "(") and k not in params
@@ -9490,6 +9916,7 @@ def main():
     parser.add_argument("-Expand", default="", help="Open folded transferred changes: Type.Name, a section path, or *")
     parser.add_argument("-Tag", default="", help="Value of {tag} in the comment template")
     parser.add_argument("-OutFile", default="")
+    parser.add_argument("-IncludeDefaultRoles", action="store_true")
     args = ci_parse_args(parser)
 
     mode = args.Mode.strip().lower()
@@ -9588,7 +10015,7 @@ def main():
             for c in elem_children(cp0["child_objects"]):
                 if localname(c) != "Language":
                     all_objs.append({"type": localname(c), "name": (c.text or "").strip()})
-        root_changed = initialize_root_transfer(ext, all_objs, cfg_info, vars_, name_match, apply=True)
+        root_changed = initialize_root_transfer(ext, all_objs, cfg_info, vars_, name_match, apply=True, include_default_roles=args.IncludeDefaultRoles)
         initialize_bsl_catalog(ext_dir0, config_path, prefix)
         cfg_pools = MD_REFERENCE_POOLS or {}
         for obj in all_objs:
@@ -9600,7 +10027,7 @@ def main():
                                         if it.get("plan", {}).get("kind") == "own" and it["status"] != "TRANSFERRED")
                 continue
             matched_ids.add(oid.lower())
-            if obj["type"] == "Role":
+            if obj["type"] == "Role" and oid.lower() not in ROOT_OWN:
                 roles += 1
                 continue
             rec = transfer_object(ext, obj, cfg_info, config_path, cfg_pools)
@@ -10705,8 +11132,10 @@ def main():
                 footer.append("    Replace stored references to the extension's enumeration values BEFORE disabling or removing the extension.")
             if any(note.startswith("Constant.") for note in ROOT_DATA_WARNINGS):
                 footer.append("    Copy the stored constant value into the configuration BEFORE disabling or removing the extension.")
-            if any(re.match(r"^(Document|InformationRegister|AccumulationRegister)[./]", note) for note in ROOT_DATA_WARNINGS):
+            if any(re.match(r"^(Document|InformationRegister|AccumulationRegister|AccountingRegister|CalculationRegister)[./]", note) for note in ROOT_DATA_WARNINGS):
                 footer.append("    Migrate documents, register records and posting movements BEFORE disabling or removing the extension.")
+            if any(re.match(r"^(ChartOfAccounts|ChartOfCalculationTypes|ExchangePlan|BusinessProcess|Task)\.", note) for note in ROOT_DATA_WARNINGS):
+                footer.append("    Migrate accounts, calculation types, exchange state and process or task records listed above BEFORE disabling or removing the extension.")
             if any(note.startswith("DocumentNumerator.") for note in ROOT_DATA_WARNINGS):
                 footer.append("    Verify numbering continuity for documents using the transferred numerators.")
         if changed:
@@ -10739,7 +11168,7 @@ def main():
                    "roles": 0, "matched": 0}
             objects = [{"type": localname(c), "name": inner_text(c).strip()} for c in elem_children(cp["child_objects"])] if cp["child_objects"] is not None else []
             TRANSFER_PREFIX = ext["prefix"] or ""
-            initialize_root_transfer(ext, objects, cfg_info, {}, name_match)
+            initialize_root_transfer(ext, objects, cfg_info, {}, name_match, include_default_roles=args.IncludeDefaultRoles)
             initialize_bsl_catalog(d, config_path, TRANSFER_PREFIX)
             if cp["child_objects"] is not None:
                 for child in elem_children(cp["child_objects"]):
@@ -10751,7 +11180,7 @@ def main():
                         continue
                     matched_ids.add(oid.lower())
                     ext["matched"] += 1
-                    if obj["type"] == "Role":
+                    if obj["type"] == "Role" and oid.lower() not in ROOT_OWN:
                         ext["roles"] += 1
                         continue
                     rec = transfer_object(ext, obj, cfg_info, config_path)
