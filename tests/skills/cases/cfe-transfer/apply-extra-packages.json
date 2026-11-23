@@ -1,0 +1,59 @@
+{
+  "name": "Общие объекты, журналы, интеграции и дополнения заимствованных объектов",
+  "setup": "fixture:prop-positive",
+  "params": {
+    "extensionPath": "cfe"
+  },
+  "cwd": "workDir",
+  "args_extra": [
+    "-Mode",
+    "transfer",
+    "-Expand",
+    "*",
+    "-Name",
+    "CommonForm.Тест_Общая,CommonTemplate.Тест_Текст,CommonAttribute.Тест_Раздел,SettingsStorage.Тест_Настройки,FilterCriterion.Тест_Отбор,DocumentJournal.Тест_Журнал,Sequence.Тест_Очередность,HTTPService.Тест_Api,WebService.Тест_Web,ExternalDataSource.Тест_Внешнее,Document.Тест_Приемка,Document.ЖурналИмпорта,ChartOfCalculationTypes.СуществующиеВиды"
+  ],
+  "idempotent": true,
+  "noSnapshot": "Проверяются дескрипторы, файлы пакетов и ссылки на фактические имена.",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": [
+        {"type": "CommonForm", "name": "Тест_Общая", "usePurposes": ["PlatformApplication"]},
+        {"type": "CommonTemplate", "name": "Тест_Текст", "templateType": "TextDocument"},
+        {"type": "CommonAttribute", "name": "Тест_Раздел", "valueType": "Boolean", "content": ["Document.Тест_Приемка"]},
+        {"type": "SettingsStorage", "name": "Тест_Настройки"},
+        {"type": "FilterCriterion", "name": "Тест_Отбор", "valueType": "String(10)", "content": ["Document.Тест_Приемка.Attribute.Состояние"]},
+        {"type": "DocumentJournal", "name": "Тест_Журнал", "registeredDocuments": ["Document.Тест_Приемка"]},
+        {"type": "Sequence", "name": "Тест_Очередность", "documents": ["Document.Тест_Приемка"]},
+        {"type": "HTTPService", "name": "Тест_Api", "rootURL": "demo", "urlTemplates": {"Health": {"template": "/health", "methods": {"Get": "GET"}}}},
+        {"type": "WebService", "name": "Тест_Web", "namespace": "urn:transfer-demo", "operations": {"Query": {"returnType": "xs:string"}}},
+        {"type": "ExternalDataSource", "name": "Тест_Внешнее", "tables": {"Products": {"nameInDataSource": "products", "fields": ["ID: Number(10,0)"]}}},
+        {"type": "Document", "name": "Тест_Приемка", "attributes": ["Состояние: String(10)"]}
+      ],
+      "args": {"-JsonPath": "{inputFile}", "-OutputDir": "{workDir}/cfe"}
+    },
+    {"script": "meta-compile/scripts/meta-compile", "input": [{"type": "Document", "name": "ЖурналИмпорта"}, {"type": "ChartOfCalculationTypes", "name": "СуществующиеВиды"}], "args": {"-JsonPath": "{inputFile}", "-OutputDir": "{workDir}"}},
+    {"script": "cfe-borrow/scripts/cfe-borrow", "args": {"-Object": "Document.ЖурналИмпорта", "-ConfigPath": "{workDir}", "-ExtensionPath": "{workDir}/cfe"}},
+    {"script": "cfe-borrow/scripts/cfe-borrow", "args": {"-Object": "ChartOfCalculationTypes.СуществующиеВиды", "-ConfigPath": "{workDir}", "-ExtensionPath": "{workDir}/cfe"}},
+    {"script": "form-add/scripts/form-add", "args": {"-ObjectPath": "{workDir}/cfe/Documents/ЖурналИмпорта.xml", "-FormName": "Тест_Карточка", "-Purpose": "Custom"}},
+    {"writeFile": {"path": "cfe/ChartsOfCalculationTypes/СуществующиеВиды/Ext/Predefined.xml", "content": "<PredefinedData xmlns=\"http://v8.1c.ru/8.3/xcf/predef\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xsi:type=\"CalculationTypePredefinedItems\" version=\"2.20\"><Item id=\"3fdaade2-78d1-4ab8-8b64-459541ab21a1\"><Name>Тест_Тариф</Name><Code>02</Code><Description>Базовый тариф</Description><ActionPeriodIsBase>true</ActionPeriodIsBase><ExtensionState>Native</ExtensionState></Item></PredefinedData>"}},
+    {"writeFile": {"path": "cfe/CommonTemplates/Тест_Текст/Ext/Template.txt", "content": "Example template"}}
+  ],
+  "expect": {
+    "fileContains": [
+      {"file": "Documents/ЖурналИмпорта/Forms/Карточка.xml", "text": "<Name>Карточка</Name>"},
+      {"file": "ChartsOfCalculationTypes/СуществующиеВиды/Ext/Predefined.xml", "text": ["3fdaade2-78d1-4ab8-8b64-459541ab21a1", "<Name>Тариф</Name>"]},
+      {"file": "CommonForms/Общая.xml", "text": "<Name>Общая</Name>"},
+      {"file": "CommonTemplates/Текст/Ext/Template.txt", "text": "Example template"},
+      {"file": "CommonAttributes/Раздел.xml", "text": "Document.Приемка"},
+      {"file": "SettingsStorages/Настройки.xml", "text": "<Name>Настройки</Name>"},
+      {"file": "FilterCriteria/Отбор.xml", "text": "Document.Приемка.Attribute.Состояние"},
+      {"file": "DocumentJournals/Журнал.xml", "text": "Document.Приемка"},
+      {"file": "Sequences/Очередность.xml", "text": "Document.Приемка"},
+      {"file": "HTTPServices/Api.xml", "text": "<RootURL>demo</RootURL>"},
+      {"file": "WebServices/Web.xml", "text": "urn:transfer-demo"},
+      {"file": "ExternalDataSources/Внешнее/Tables/Products.xml", "text": "<Name>Products</Name>"}
+    ]
+  }
+}

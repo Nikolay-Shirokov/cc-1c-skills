@@ -1,5 +1,5 @@
 ﻿#!/usr/bin/env python3
-# cfe-transfer v1.45 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+# cfe-transfer v1.46 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -1689,6 +1689,11 @@ md_qual_order = ["NumberQualifiers", "StringQualifiers", "DateQualifiers", "Bina
 
 
 def get_md_type_ref_base(kind, event_source=False):
+    extra = re.fullmatch(r"(FilterCriterion|IntegrationService|WSReference|SettingsStorage|Bot|Sequence|DocumentJournal)(?:Manager|List|RecordSet)", kind)
+    if extra:
+        return extra[1]
+    if re.fullmatch(r"ExternalDataSource(?:Table(?:Ref|Object|Manager|List|RecordSet|RecordManager|RecordKey|Record)?|CubesManager|Cube(?:Manager|RecordSet|Record|Selection)?|TablesManager|Manager)", kind):
+        return "ExternalDataSource"
     """Type kinds that name a metadata object of the configuration; a *Ref kind looks up its base kind."""
     if kind == "Characteristic":
         return "ChartOfCharacteristicTypes"
@@ -1766,7 +1771,7 @@ def resolve_md_reference(value, prefix, type_reference=False, event_source=False
             return {"status": "WAITING", "reason": f"predefined item {base}.{target}.{item[1]} is not in the configuration",
                     "dependency": root_id}
         child_path = re.fullmatch(r"\.(Form|Template|Command)\.(\w+)", tail, re.I)
-        if base == "Catalog" and child_path:
+        if child_path:
             binding = get_catalog_child_binding(f"{root_id}.{child_path[1]}.{child_path[2]}")
             if binding.get("status"):
                 return binding
@@ -1774,6 +1779,8 @@ def resolve_md_reference(value, prefix, type_reference=False, event_source=False
                 return {"value": f"{namespace}{kind}.{target}.{binding['kind']}.{binding['target']}"}
         owner = (provisional["md"] if provisional else read_md_object(path))["children"]
         parts = tail[1:].split(".")
+        if type_reference and kind.startswith("ExternalDataSourceTable") and len(parts) == 1:
+            parts.insert(0, "Table")
         if len(parts) % 2:
             return {"status": "MANUAL", "reason": "unsupported metadata path: " + value}
         tail = ""
@@ -1791,6 +1798,8 @@ def resolve_md_reference(value, prefix, type_reference=False, event_source=False
                 return {"status": "MANUAL", "reason": "%s has ambiguous members (%s)" % (value, ", ".join(members))}
             tail += "." + tag + "." + members[0]
             owner = nodes[members[0].lower()].find("md:ChildObjects", MD_NSMAP)
+    if type_reference and kind.startswith("ExternalDataSourceTable"):
+        tail = re.sub(r"^\.Table\.", ".", tail)
     return {"value": namespace + kind + "." + target + tail}
 
 
@@ -2048,7 +2057,7 @@ def add_md_prop_items(items, ext_el, cfg_el, prefix, rank, rel, obj_type, tag, n
         prop = localname(p)
         if prop in md_service_props or prop in md_module_props or prop in additive_props:
             continue
-        if (is_object and obj_type == "Catalog" and re.fullmatch(r"(Default|Auxiliary).*Form", prop)
+        if (is_object and re.fullmatch(r"(Default|Auxiliary).*Form", prop)
                 and inner_text(p).strip().lower() in CATALOG_CHILDREN):
             continue
         state = states.get(prop, "")
@@ -3582,6 +3591,9 @@ def get_root_object_xml(fw, kind, name, prefix):
 
 
 DIRECT_MD_COLLECTIONS = {
+    "журналыдокументов": "DocumentJournal", "documentjournals": "DocumentJournal",
+    "последовательности": "Sequence", "sequences": "Sequence",
+    "внешниеисточникиданных": "ExternalDataSource", "externaldatasources": "ExternalDataSource",
     "планысчетов": "ChartOfAccounts", "chartsofaccounts": "ChartOfAccounts",
     "планывидоврасчета": "ChartOfCalculationTypes", "chartsofcalculationtypes": "ChartOfCalculationTypes",
     "регистрыбухгалтерии": "AccountingRegister", "accountingregisters": "AccountingRegister",
@@ -3603,8 +3615,13 @@ ROOT_BSL_COLLECTIONS = {
     "обработки": "DataProcessor", "dataprocessors": "DataProcessor", "отчеты": "Report", "reports": "Report",
 }
 
+EXTRA_PACKAGE_KINDS = ("Subsystem", "CommonForm", "CommonTemplate", "CommonAttribute", "SettingsStorage",
+                       "FilterCriterion", "Style", "StyleItem", "PaletteColor", "DocumentJournal", "Sequence",
+                       "HTTPService", "WebService", "WSReference", "XDTOPackage", "ExternalDataSource",
+                       "IntegrationService", "Bot")
 FLAT_TRANSFER_KINDS = ("Constant", "DefinedType", "SessionParameter", "FunctionalOption", "FunctionalOptionsParameter",
                        "EventSubscription", "ScheduledJob", "CommonPicture", "CommandGroup", "DocumentNumerator", "Role")
+FLAT_TRANSFER_KINDS += EXTRA_PACKAGE_KINDS
 REGISTER_TRANSFER_KINDS = ("InformationRegister", "AccumulationRegister", "AccountingRegister", "CalculationRegister")
 LINKED_TRANSFER_KINDS = ("Document",) + REGISTER_TRANSFER_KINDS
 PREDEFINED_KINDS = ("Catalog", "ChartOfCharacteristicTypes", "ChartOfAccounts", "ChartOfCalculationTypes")
@@ -3826,7 +3843,18 @@ def metadata_transfer_uuid(cfg, kind, source):
     return str(uuid.uuid5(uuid.NAMESPACE_DNS, f"cc-1c-skills:cfe-transfer:v1|{config_uuid.lower()}|{kind}|{source.lower()}"))
 
 
-def catalog_files(root, directory, child=None):
+def template_payload(template_type, folder, skd):
+    suffix = {"SpreadsheetDocument": "xml", "DataCompositionSchema": "xml",
+              "TextDocument": "txt", "BinaryData": "bin"}.get(template_type)
+    if not suffix:
+        return None
+    path = f"{folder}Ext/Template.{suffix}"
+    if template_type == "DataCompositionSchema":
+        skd.add(path)
+    return path
+
+
+def catalog_files(root, directory, child=None, extra_package=False):
     required = set()
     skd = set()
     optional = {"Ext/ObjectModule.bsl", "Ext/ManagerModule.bsl"}
@@ -3836,7 +3864,38 @@ def catalog_files(root, directory, child=None):
         optional.add("Ext/Predefined.xml")
     if obj_kind in REGISTER_TRANSFER_KINDS:
         optional.add("Ext/RecordSetModule.bsl")
-    if child is None and obj_kind in EXTENDED_TRANSFER_KINDS:
+    if extra_package:
+        optional = set()
+        if obj_kind == "Subsystem":
+            optional.add("Ext/CommandInterface.xml")
+        elif obj_kind == "CommonForm":
+            if obj.findtext("md:Properties/md:FormType", namespaces=MD_NSMAP) == "Ordinary":
+                raise ValueError("ordinary forms are not supported")
+            required.add("Ext/Form.xml")
+            optional.add("Ext/Form/Module.bsl")
+        elif obj_kind == "CommonTemplate":
+            template_type = obj.findtext("md:Properties/md:TemplateType", "", MD_NSMAP)
+            payload = template_payload(template_type, "", skd)
+            if not payload:
+                raise ValueError(f"unsupported template type {template_type}")
+            required.add(payload)
+        elif obj_kind in ("DocumentJournal", "FilterCriterion", "SettingsStorage"):
+            optional.add("Ext/ManagerModule.bsl")
+        elif obj_kind == "Style":
+            required.add("Ext/Style.xml")
+        elif obj_kind == "Sequence":
+            optional.add("Ext/RecordSetModule.bsl")
+        elif obj_kind in ("HTTPService", "WebService", "IntegrationService", "Bot"):
+            optional.add("Ext/Module.bsl")
+        elif obj_kind == "WSReference":
+            required.add("Ext/WSDefinition.xml")
+        elif obj_kind == "XDTOPackage":
+            required.add("Ext/Package.bin")
+        elif obj_kind in ("ExternalDataSource", "Table", "Cube", "DimensionTable"):
+            optional.update(f"Ext/{module}.bsl" for module in
+                            ("ManagerModule", "ObjectModule", "RecordSetModule", "RecordManagerModule"))
+    if child is None and (obj_kind in EXTENDED_TRANSFER_KINDS or (extra_package and obj_kind in
+            ("Subsystem", "CommonForm", "DocumentJournal", "Table", "Cube", "DimensionTable"))):
         optional.add("Ext/Help.xml")
         if obj_kind == "ExchangePlan":
             required.add("Ext/Content.xml")
@@ -3857,6 +3916,28 @@ def catalog_files(root, directory, child=None):
         kind, name = localname(node), md_child_name(node)
         if not re.fullmatch(r"\w+", name):
             raise ValueError(f"invalid {obj_kind} child name: {name}")
+        if extra_package:
+            order = {"Subsystem": ("Subsystem",), "Sequence": ("Dimension",), "HTTPService": ("URLTemplate",),
+                     "WebService": ("Operation",), "IntegrationService": ("IntegrationServiceChannel",)}
+            if kind not in order.get(obj_kind, object_child_order().get(obj_kind, ())):
+                raise ValueError(f"unsupported {obj_kind} child {kind}")
+            if kind in ("Subsystem", "Table", "Cube", "DimensionTable"):
+                folder = f"{kind}s/{name}"
+                md = read_md_object(os.path.join(directory, folder + ".xml"))
+                if (not md or localname(md["el"]) != kind or md_child_name(md["el"]) != name
+                        or md["el"].getroottree().getroot().get("version") != root.get("version")):
+                    raise ValueError(f"missing or invalid child descriptor {folder}.xml")
+                try:
+                    nested, nested_skd = catalog_files(md["el"].getroottree().getroot(), os.path.join(directory, folder),
+                                                       extra_package=True)
+                except ValueError as exc:
+                    raise ValueError(f"{folder} — {exc}") from exc
+                required.add(folder + ".xml")
+                required.update(f"{folder}/{rel}" for rel in nested)
+                skd.update(f"{folder}/{rel}" for rel in nested_skd)
+                continue
+            if kind not in ("Form", "Template", "Command"):
+                continue
         if kind == "Form":
             required.update((f"Forms/{name}.xml", f"Forms/{name}/Ext/Form.xml"))
             optional.add(f"Forms/{name}/Ext/Form/Module.bsl")
@@ -3868,13 +3949,9 @@ def catalog_files(root, directory, child=None):
             template_type = template["props"].findtext("md:TemplateType", namespaces=MD_NSMAP)
             if obj_kind == "Catalog" and template_type != "SpreadsheetDocument":
                 raise ValueError(f"unsupported or missing template {name}")
-            suffix = {"SpreadsheetDocument": "xml", "DataCompositionSchema": "xml",
-                      "TextDocument": "txt", "BinaryData": "bin"}.get(template_type)
-            if not suffix:
+            payload = template_payload(template_type, f"Templates/{name}/", skd)
+            if not payload:
                 raise ValueError(f"unsupported template type {template_type} for {name}")
-            payload = f"Templates/{name}/Ext/Template.{suffix}"
-            if template_type == "DataCompositionSchema":
-                skd.add(payload)
             required.update((filename, payload))
         elif kind == "Command":
             required.add(f"Commands/{name}/Ext/CommandModule.bsl")
@@ -3900,7 +3977,8 @@ def catalog_files(root, directory, child=None):
         for filename in filenames:
             path = os.path.join(folder, filename)
             rel = os.path.relpath(path, directory).replace(os.sep, "/")
-            if rel not in required and rel not in optional:
+            if rel not in required and rel not in optional and not (
+                    extra_package and obj_kind == "WSReference" and re.fullmatch(r"Ext/[1-9][0-9]*\.xsd", rel)):
                 raise ValueError(f"unsupported object file {rel}")
             files[rel] = path
     if child is not None and os.path.isfile(scan + ".xml"):
@@ -3911,6 +3989,22 @@ def catalog_files(root, directory, child=None):
     missing = sorted(required - files.keys())
     if missing:
         raise ValueError(f"missing object file {missing[0]}")
+    if extra_package and obj_kind == "WSReference":
+        schemas = set()
+        for rel, path in files.items():
+            document = read_form_doc(path).getroot()
+            expected = ("{http://schemas.xmlsoap.org/wsdl/}definitions" if rel == "Ext/WSDefinition.xml"
+                        else "{http://www.w3.org/2001/XMLSchema}schema")
+            if document.tag != expected:
+                raise ValueError(f"invalid {rel}")
+            for location in document.xpath(".//*[namespace-uri()='http://www.w3.org/2001/XMLSchema']/@schemaLocation|"
+                                           ".//*[local-name()='import' and namespace-uri()='http://schemas.xmlsoap.org/wsdl/']/@location"):
+                schema = re.fullmatch(r"file://([1-9][0-9]*\.xsd)", location)
+                if not schema or f"Ext/{schema[1]}" not in files:
+                    raise ValueError(f"unresolved WS schema in {rel}")
+                schemas.add(schema[1])
+        if len(files) != len(schemas) + 1:
+            raise ValueError("unexpected WS schema file")
     return files, skd
 
 
@@ -3931,6 +4025,11 @@ def convert_catalog_xml(fw, cfg, source, target, prefix, descriptor, child=None,
         "CalculationRegister": r"(?:CalculationRegister(?:Manager|RecordSet|RecordManager|RecordKey|Record|Selection|List)?|RecalculationsManager)",
         **{k: rf"{k}(?:Ref|Object|Manager|Selection|List|TabularSectionRow|TabularSection|RoutePointRef)?"
            for k in ("ExchangePlan", "BusinessProcess", "Task")},
+        "ExternalDataSource": r"ExternalDataSource(?:Table(?:Ref|Object|Manager|List|RecordSet|RecordManager|RecordKey|Record)?|CubesManager|Cube(?:Manager|RecordSet|Record|Selection)?|TablesManager|Manager)?",
+        "FilterCriterion": r"FilterCriterion(?:Manager|List)?",
+        "IntegrationService": r"IntegrationService(?:Channel)?(?:Manager)?",
+        **{k: rf"{k}(?:Manager)?" for k in ("WSReference", "SettingsStorage", "Bot")},
+        **{k: rf"{k}(?:Manager|RecordSet|RecordManager|RecordKey|Record|Selection|List)?" for k in ("Sequence", "DocumentJournal")},
         "InformationRegister": r"InformationRegister(?:Manager|RecordSet|RecordManager|RecordKey|Record|Selection|List)?",
         "AccumulationRegister": r"AccumulationRegister(?:Manager|RecordSet|RecordManager|RecordKey|Record|Selection|List)?",
     }.get(obj_kind, re.escape(obj_kind))
@@ -3983,7 +4082,23 @@ def convert_catalog_xml(fw, cfg, source, target, prefix, descriptor, child=None,
                                                                "ScheduleValue", "ScheduleLink", "LeadingDimension", "Dimension"))
             or (obj_kind == "BusinessProcess" and name in ("Task", "AddressingAttribute"))
             or (obj_kind == "Task" and name in ("Addressing", "AddressingDimension", "MainAddressingAttribute", "CurrentPerformer"))
-            or (obj_kind == "ExchangePlan" and node.tag == "{http://v8.1c.ru/8.3/xcf/extrnprops}Metadata"))
+            or (obj_kind == "ExchangePlan" and node.tag == "{http://v8.1c.ru/8.3/xcf/extrnprops}Metadata")
+            or (obj_kind == "CommonAttribute" and name == "Metadata" and node.getparent().getparent() is not None
+                and localname(node.getparent().getparent()) == "Content")
+            or (obj_kind == "WebService" and name == "Value" and node.getparent().getparent() is not None
+                and localname(node.getparent().getparent()) == "XDTOPackages" and value.lower().startswith("xdtopackage."))
+            or (obj_kind == "Subsystem" and ((name == "Item" and parent == "Content")
+                or (name == "CommandGroup" and value.lower().startswith("commandgroup.")))))
+        color = re.fullmatch(r"(style|palette):(\w+)", value, re.I)
+        if color and (re.search(r"(Color|Font|Border)$", name, re.I) or name == "Value"):
+            tag = "StyleItem" if color[1].lower() == "style" else "PaletteColor"
+            if f"{tag}.{color[2]}".lower() not in ROOT_SOURCE_IDS:
+                continue
+            ref = resolve_md_reference(f"{tag}.{color[2]}", prefix)
+            if ref.get("status"):
+                return ref
+            node.text = f"{color[1]}:{ref['value'].split('.', 1)[1]}"
+            continue
         if strict_ref and value:
             path = re.fullmatch(r"(\w+)\.\w+(?:\.\w+\.\w+)*", value)
             if not path or path[1] not in CHILD_TYPE_DIR_MAP:
@@ -4001,9 +4116,9 @@ def convert_catalog_xml(fw, cfg, source, target, prefix, descriptor, child=None,
                   or design_ref)
         if not value or not (is_type or is_ref):
             continue
-        if child and re.fullmatch(r"Catalog\.\w+\.(Form|Template|Command|Attribute|TabularSection)\.\w+(?:\.Attribute\.\w+)?", value, re.I):
+        if child and re.fullmatch(r"\w+\.\w+\.(Form|Template|Command|Attribute|TabularSection)\.\w+(?:\.Attribute\.\w+)?", value, re.I):
             if value.lower() == child["id"].lower():
-                node.text = f"Catalog.{target}.{child['kind']}.{child['target']}"
+                node.text = f"{obj_kind}.{target}.{child['kind']}.{child['target']}"
             else:
                 ref = resolve_md_reference(value, prefix)
                 if ref.get("status"):
@@ -4016,6 +4131,19 @@ def convert_catalog_xml(fw, cfg, source, target, prefix, descriptor, child=None,
             if ref.get("status"):
                 return ref
             node.text = ref["value"]
+    if obj_kind == "Subsystem" and localname(root) == "CommandInterface":
+        for attr in root.xpath("//*[local-name()='Command' or local-name()='Subsystem']/@name"):
+            if not re.match(r"^\w+\.\w+", attr):
+                continue
+            parts = re.split(r"\.StandardCommand\.", attr, maxsplit=1, flags=re.I)
+            if pattern.match(parts[0]):
+                parts[0] = pattern.sub(lambda m: m[1] + target, parts[0])
+            else:
+                ref = resolve_md_reference(parts[0], prefix)
+                if ref.get("status"):
+                    return ref
+                parts[0] = ref["value"]
+            attr.getparent().set("name", ".StandardCommand.".join(parts))
     for node in root.xpath("//*[@ref]|//*[local-name()='ExtDimensionType' and @name]"):
         if obj_kind == "ChartOfAccounts" and node.tag == PREDEFINED_NS + "Flag":
             attribute, expected = "ref", r"ChartOfAccounts\.\w+\.(AccountingFlag|ExtDimensionAccountingFlag)\.\w+"
@@ -4087,14 +4215,16 @@ def get_catalog_child_binding(oid):
 
 
 def borrowed_predefined_access(tokens, i):
+    collection = tokens[i]["value"].lower()
+    kind = "Catalog" if collection in ("справочники", "catalogs") else DIRECT_MD_COLLECTIONS.get(collection)
     if (not BORROWED_PREDEFINED_BINDINGS or i + 4 >= len(tokens)
-            or tokens[i]["value"].lower() not in ("справочники", "catalogs")
+            or kind not in PREDEFINED_KINDS
             or (i and tokens[i - 1]["value"] == ".")
             or tokens[i+1]["value"] != "." or tokens[i+3]["value"] != "."
             or tokens[i+2]["kind"] != "word" or tokens[i+4]["kind"] != "word"
             or (i + 5 < len(tokens) and tokens[i+5]["value"] == "(")):
         return None
-    path = f"Catalog.{tokens[i+2]['value']}.{tokens[i+4]['value']}"
+    path = f"{kind}.{tokens[i+2]['value']}.{tokens[i+4]['value']}"
     return path if path.lower() in BORROWED_PREDEFINED_BINDINGS else None
 
 
@@ -4111,6 +4241,22 @@ def get_catalog_child_bsl(tokens, rel, child, declared, prefix, self_id="", self
         if (api in declared or api in ROOT_GLOBAL_METHODS or opening["value"] != "("
                 or literal["kind"] != "string" or separator["value"] not in (",", ")")
                 or (i and tokens[i - 1]["value"] == ".")):
+            continue
+        form = (re.fullmatch(r'("(?:CommonForm|ОбщаяФорма)\.)(\w+)"', literal["value"], re.I)
+                if api in ("openform", "getform", "открытьформу", "получитьформу") else None)
+        template = (re.fullmatch(r'(")(\w+)"', literal["value"])
+                    if api in ("getcommontemplate", "получитьобщиймакет") else None)
+        if form or template:
+            match = form or template
+            kind = "CommonForm" if form else "CommonTemplate"
+            oid = f"{kind}.{match[2]}"
+            if oid.lower() in ROOT_OWN:
+                ref = ({"value": f"{kind}.{self_name}"} if oid.lower() == self_id.lower()
+                       else resolve_md_reference(oid, prefix))
+                if ref.get("status"):
+                    issues.append(dict(token=literal, rename=oid, why=ref["reason"], **ref))
+                else:
+                    edits[literal["start"]] = match[1] + ref["value"].split(".")[1] + '"'
             continue
         if api in ("предопределенноезначение", "предопределённоезначение", "predefinedvalue"):
             item = re.fullmatch(r'("(Catalog|Справочник|ChartOfCharacteristicTypes|ПланВидовХарактеристик|ChartOfAccounts|ПланСчетов|ChartOfCalculationTypes|ПланВидовРасч[её]та)\.)(\w+)\.(\w+)"',
@@ -4155,12 +4301,15 @@ def get_catalog_child_bsl(tokens, rel, child, declared, prefix, self_id="", self
                         "calculationregister": "CalculationRegister", "регистррасчета": "CalculationRegister", "регистррасчёта": "CalculationRegister",
                         "планвидовхарактеристик": "ChartOfCharacteristicTypes"}.get(owner_kind, "DataProcessor")
                 root_id = f"{kind}.{match[3]}"
-                if root_id.lower() not in ROOT_OWN:
+                oid = f"{root_id}.Form.{match[5]}"
+                if root_id.lower() not in ROOT_OWN and oid.lower() not in CATALOG_CHILDREN:
                     continue
-                if root_id.lower() == self_id.lower():
+                if child and child["id"].lower() == oid.lower():
+                    edits[literal["start"]] = f'{match[1]}{self_name}{match[4]}{child["target"]}"'
+                    continue
+                if root_id.lower() == self_id.lower() and root_id.lower() in ROOT_OWN:
                     edits[literal["start"]] = f'{match[1]}{self_name}{match[4]}{match[5]}"'
                     continue
-                oid = f"{root_id}.Form.{match[5]}"
                 ref = resolve_md_reference(oid, prefix)
                 if ref.get("status"):
                     issues.append({"token": literal, "rename": oid, "why": ref["reason"], "reason": ref["reason"],
@@ -4201,11 +4350,13 @@ def get_catalog_child_descriptor(registry, root):
     return None
 
 
-def get_catalog_child_projection(entry, cfg, target, prefix, files):
+def get_catalog_child_projection(entry, cfg, target, prefix, files, skd):
     result = {"files": {}}
     kind, owner = entry["kind"], entry["ctx"]["name"]
     child = {"id": entry["id"], "kind": kind, "target": target, "ctx": entry["ctx"]}
-    old, new = f"{kind}s/{entry['name']}", f"Catalogs/{owner}/{kind}s/{target}"
+    owner_kind = entry["ctx"]["type"]
+    directory = entry["ctx"]["dir"]
+    old, new = f"{kind}s/{entry['name']}", f"{directory}/{owner}/{kind}s/{target}"
     if kind == "Form":
         form = read_form_write(files[old + "/Ext/Form.xml"])["root"]
         attrs = form.xpath("/*[local-name()='Form']/*[local-name()='Attributes']/*[local-name()='Attribute']")
@@ -4216,7 +4367,7 @@ def get_catalog_child_projection(entry, cfg, target, prefix, files):
         root = etree.Element(f"{{{MD_NS}}}MetaDataObject")
         node = copy.deepcopy(entry["node"])
         root.append(node)
-        ref = convert_catalog_xml({"root": root}, cfg, owner, owner, prefix, False, child)
+        ref = convert_catalog_xml({"root": root}, cfg, owner, owner, prefix, False, child, owner_kind)
         if ref:
             return ref
         node.find("md:Properties/md:Name", MD_NSMAP).text = target
@@ -4225,17 +4376,21 @@ def get_catalog_child_projection(entry, cfg, target, prefix, files):
         dest = new + rel[len(old):]
         if rel.endswith(".bsl"):
             bsl = read_bsl_file(src)
-            base = get_root_bsl_projection(bsl["lines"], prefix, "Catalog." + owner, owner, f"Catalogs/{owner}/{rel}", child)
+            base = get_root_bsl_projection(bsl["lines"], prefix, entry["ctx"]["id"], owner, f"{directory}/{owner}/{rel}", child)
             if base.get("status"):
                 return base
             result["files"][dest] = {"bsl": bsl, "lines": base["lines"]}
-        elif rel.startswith("Templates/") and rel.endswith("/Ext/Template.xml"):
-            result["files"][dest] = {"copy": src}
+        elif rel.startswith("Templates/") and re.search(r"/Ext/Template\.(xml|txt|bin)$", rel):
+            if rel in skd:
+                issue = skd_transfer_issue(read_form_write(src)["root"], entry["ctx"]["id"], owner, prefix, rel)
+                if issue:
+                    return issue
+            result["files"][dest] = {"copy": src, "skd": rel in skd}
         else:
             xml = read_form_write(src)
             if kind == "Form" and rel.endswith("/Ext/Form.xml") and xml["root"].xpath("//*[local-name()='BaseForm']"):
                 return {"status": "MANUAL", "reason": "form body contains a borrowed BaseForm"}
-            ref = convert_catalog_xml(xml, cfg, owner, owner, prefix, False, child)
+            ref = convert_catalog_xml(xml, cfg, owner, owner, prefix, False, child, owner_kind)
             if ref:
                 return ref
             if rel == old + ".xml":
@@ -4249,13 +4404,15 @@ def get_catalog_child_projection(entry, cfg, target, prefix, files):
 
 def get_catalog_child_plan(entry, prefix, cfg):
     ctx, kind, name = (entry[k] for k in ("ctx", "kind", "name"))
-    relative = f"Catalogs/{ctx['name']}.xml"
+    owner_kind = ctx["type"]
+    owner_id = ctx["id"]
+    relative = f"{ctx['dir']}/{ctx['name']}.xml"
     owner_path = os.path.join(MD_REFERENCE_ROOT, relative)
-    owners = [n for n in (MD_REFERENCE_POOLS or {}).get("Catalog", ()) if n.lower() == ctx["name"].lower()]
+    owners = [n for n in (MD_REFERENCE_POOLS or {}).get(owner_kind, ()) if n.lower() == ctx["name"].lower()]
     if not owners or not os.path.isfile(owner_path):
-        return {"status": "WAITING", "reason": "missing catalog Catalog." + ctx["name"]}
+        return {"status": "WAITING", "reason": "missing owner " + owner_id}
     if len(owners) > 1:
-        return {"status": "CONFLICT", "reason": "duplicate registration of Catalog." + ctx["name"]}
+        return {"status": "CONFLICT", "reason": "duplicate registration of " + owner_id}
     with open(owner_path, "rb") as original:
         before = original.read()
     fw = read_form_write(owner_path)
@@ -4272,6 +4429,9 @@ def get_catalog_child_plan(entry, prefix, cfg):
     if kind == "Form" and desc.findtext("md:Properties/md:FormType", namespaces=MD_NSMAP) == "Ordinary":
         return {"status": "MANUAL", "reason": "ordinary forms are not supported"}
     owner = get_md_object_element(fw["root"])
+    adopted_id = ctx["md"]["props"].findtext("md:ExtendedConfigurationObject", "", MD_NSMAP)
+    if localname(owner) != owner_kind or owner.get("uuid", "").lower() != adopted_id.lower():
+        return {"status": "CONFLICT", "reason": f"borrowed owner identity does not match {owner_id}"}
     children = owner.find("md:ChildObjects", MD_NSMAP)
     if children is None:
         children = etree.Element(f"{{{MD_NS}}}ChildObjects")
@@ -4279,7 +4439,7 @@ def get_catalog_child_plan(entry, prefix, cfg):
     nodes = children.findall("md:" + kind, MD_NSMAP)
     pool = [md_child_name(node) for node in nodes]
     dest_root = os.path.splitext(owner_path)[0]
-    files, _ = catalog_files(source_doc, ctx["obj_dir"], entry["node"])
+    files, skd = catalog_files(source_doc, ctx["obj_dir"], entry["node"])
     identity = metadata_transfer_uuid(cfg, kind, desc.get("uuid"))
     identified = [node for node in nodes if (d := get_catalog_child_descriptor(node, dest_root)) is not None
                   and d.get("uuid") == identity]
@@ -4288,7 +4448,7 @@ def get_catalog_child_plan(entry, prefix, cfg):
     candidates = [md_child_name(identified[0])] if identified else find_names_in(pool, name, prefix)
     matches, incomplete = [], []
     for candidate in candidates:
-        projection = get_catalog_child_projection(entry, cfg, candidate, prefix, files)
+        projection = get_catalog_child_projection(entry, cfg, candidate, prefix, files, skd)
         if projection.get("status"):
             return projection
         current = next(node for node in nodes if md_child_name(node).lower() == candidate.lower())
@@ -4329,14 +4489,14 @@ def get_catalog_child_plan(entry, prefix, cfg):
         if choice.get("taken"):
             return {"status": "CONFLICT", "reason": f"name taken in configuration ({choice['note']})"}
         target = choice["name"]
-        projection = get_catalog_child_projection(entry, cfg, target, prefix, files)
+        projection = get_catalog_child_projection(entry, cfg, target, prefix, files, skd)
         if projection.get("status"):
             return projection
         node = projection.get("node")
         if node is None:
             node = etree.Element(f"{{{MD_NS}}}{kind}")
             node.text = target
-        insert_form_node_at(children, node, find_child_anchor(children, kind, "Catalog"), fw["eol"])
+        insert_form_node_at(children, node, find_child_anchor(children, kind, owner_kind), fw["eol"])
         plan = {"status": "NOT_TRANSFERRED", "name": target, "files": projection["files"], "register": True}
     plan.update(relative=relative, target=ctx["name"])
     plan["files"][relative] = {"xml": fw, "before": before, "write_owner": plan["register"]}
@@ -4346,14 +4506,15 @@ def get_catalog_child_plan(entry, prefix, cfg):
 def initialize_catalog_children(ext, objects):
     CATALOG_CHILDREN.clear()
     for obj in objects:
-        if obj["type"] != "Catalog":
+        order = object_child_order().get(obj["type"], ())
+        if not set(order).intersection(("Form", "Template", "Command")):
             continue
         ctx = get_obj_context(ext["dir"], obj["type"], obj["name"])
         if not ctx["borrowed"] or ctx["md"]["children"] is None:
             continue
         for node in elem_children(ctx["md"]["children"]):
             kind, name = localname(node), md_child_name(node)
-            if kind not in ("Form", "Template", "Command"):
+            if kind not in ("Form", "Template", "Command") or kind not in order:
                 continue
             desc, error = None, None
             try:
@@ -4362,7 +4523,7 @@ def initialize_catalog_children(ext, objects):
                 error = str(exc)
             if desc is not None and test_adopted_node(desc):
                 continue
-            oid = f"Catalog.{ctx['name']}.{kind}.{name}"
+            oid = f"{ctx['id']}.{kind}.{name}"
             CATALOG_CHILDREN[oid.lower()] = dict(id=oid, ctx=ctx, kind=kind, name=name, node=node, descriptor=desc, error=error)
 
 
@@ -4389,7 +4550,7 @@ def complete_catalog_children(prefix, cfg, selected, apply):
                 continue
             if plan["status"] == "TRANSFERRED":
                 entry["ready"] = plan["name"]
-            if plan["status"] != "NOT_TRANSFERRED" or not apply or not selected("Catalog." + entry["ctx"]["name"]):
+            if plan["status"] != "NOT_TRANSFERRED" or not apply or not selected(entry["ctx"]["id"]):
                 continue
             support = get_object_support(os.path.join(MD_REFERENCE_ROOT, plan["relative"]))
             if support == "locked":
@@ -4397,7 +4558,7 @@ def complete_catalog_children(prefix, cfg, selected, apply):
                             sub=["next: allow editing with /support-edit, then re-run -Mode transfer"])
                 continue
             try:
-                changed.extend(write_metadata_package({"type": "Catalog"}, plan))
+                changed.extend(write_metadata_package({"type": entry["ctx"]["type"]}, plan))
                 entry["ready"] = plan["name"]
                 item.update(status="TRANSFERRED", now=True)
                 if support == "warn":
@@ -4610,8 +4771,8 @@ def merge_predefined_tree(source, destination, owner_props, kind, version, wante
     return {"added": added, "matched": matched}
 
 
-def get_borrowed_predefined_plan(entries, destination, owner, name, prefix, version, policy):
-    _, by_id, by_name = get_predefined_tree(destination, "Catalog", version)
+def get_borrowed_predefined_plan(entries, destination, owner, kind, name, prefix, version, policy):
+    _, by_id, by_name = get_predefined_tree(destination, kind, version)
     taken = set(by_name)
     parents = {"": ""}
     wanted, kept, bindings = [], [], {}
@@ -4638,32 +4799,37 @@ def get_borrowed_predefined_plan(entries, destination, owner, name, prefix, vers
             target = choice["name"]
         taken.add(target.lower())
         parents[item["id"]] = item["id"]
-        bindings[f"Catalog.{name}.{original_name}".lower()] = target
+        bindings[f"{kind}.{name}.{original_name}".lower()] = target
         if original_name.lower() == target.lower():
             kept.append(target)
         wanted.append(dict(item, name=target, parent=parent))
-    result = merge_predefined_tree(None, destination, owner["props"], "Catalog", version, wanted)
+    result = merge_predefined_tree(None, destination, owner["props"], kind, version, wanted)
     if result.get("reason"):
         return dict(result, status="CONFLICT")
     return dict(result, bindings=bindings, kept=kept)
 
 
-def initialize_borrowed_predefined(ext, objects, cfg, selected, apply):
+def initialize_borrowed_predefined(ext, objects, cfg, selected, apply, retry=False):
     global SUPPORT_INFO
     support_loaded = apply
-    BORROWED_PREDEFINED_BINDINGS.clear()
-    BORROWED_PREDEFINED_ITEMS.clear()
+    if not retry:
+        BORROWED_PREDEFINED_BINDINGS.clear()
+        BORROWED_PREDEFINED_ITEMS.clear()
     changed = []
     for obj in objects:
-        if obj["type"] != "Catalog":
+        kind = obj["type"]
+        if kind not in PREDEFINED_KINDS:
             continue
         name = obj["name"]
-        oid = f"Catalog.{name}"
-        rel = f"Catalogs/{name}/Ext/Predefined.xml"
+        oid = f"{kind}.{name}"
+        if retry and BORROWED_PREDEFINED_ITEMS.get(oid.lower(), {}).get("status") != "WAITING":
+            continue
+        directory = CHILD_TYPE_DIR_MAP[kind]
+        rel = f"{directory}/{name}/Ext/Predefined.xml"
         source_path = os.path.join(ext["dir"], rel)
         if not os.path.isfile(source_path):
             continue
-        ctx = get_obj_context(ext["dir"], "Catalog", name)
+        ctx = get_obj_context(ext["dir"], kind, name)
         if not ctx["borrowed"]:
             continue
         keys = {}
@@ -4673,21 +4839,21 @@ def initialize_borrowed_predefined(ext, objects, cfg, selected, apply):
             keys = {f"{oid}.{inner_text(node)}".lower(): f"{oid}.{inner_text(node)}"
                     for node in src["root"].xpath(".//pre:Item[pre:ExtensionState='Native']/pre:Name",
                                                  namespaces={"pre": PREDEFINED_NS[1:-1]})}
-            entries, _, _ = get_predefined_tree(src, "Catalog", version, borrowed=True)
+            entries, _, _ = get_predefined_tree(src, kind, version, borrowed=True)
             if not keys:
                 continue
-            owner_rel = f"Catalogs/{name}.xml"
+            owner_rel = f"{directory}/{name}.xml"
             owner_path = os.path.join(MD_REFERENCE_ROOT, owner_rel)
             with open(owner_path, "rb") as owner_file:
                 owner_before = owner_file.read()
             owner = read_md_object(owner_path)
             adopted_id = ctx["md"]["props"].findtext("md:ExtendedConfigurationObject", "", MD_NSMAP)
-            if (cfg["child_objects"] is None or not any(node.text == name for node in cfg["child_objects"].findall("md:Catalog", MD_NSMAP))
-                    or not owner or localname(owner["el"]) != "Catalog" or (owner["el"].get("uuid") or "").lower() != adopted_id.lower()):
-                raise ValueError("borrowed catalog identity does not match")
+            if (cfg["child_objects"] is None or not any(node.text == name for node in cfg["child_objects"].findall(f"md:{kind}", MD_NSMAP))
+                    or not owner or localname(owner["el"]) != kind or (owner["el"].get("uuid") or "").lower() != adopted_id.lower()):
+                raise ValueError("borrowed owner identity does not match")
             if owner["el"].getroottree().getroot().get("version") != version:
                 raise ValueError("metadata dump formats differ")
-            if (owner["props"].findtext("md:Hierarchical", namespaces=MD_NSMAP) != "true"
+            if (kind == "Catalog" and owner["props"].findtext("md:Hierarchical", namespaces=MD_NSMAP) != "true"
                     and any(entry["state"] == "Native" and (entry["parent"] or entry["folder"]) for entry in entries)):
                 raise ValueError("the target catalog does not support hierarchy")
             path = os.path.join(MD_REFERENCE_ROOT, rel)
@@ -4703,7 +4869,23 @@ def initialize_borrowed_predefined(ext, objects, cfg, selected, apply):
                 SUPPORT_INFO = get_support_info(MD_REFERENCE_ROOT)
                 support_loaded = True
             policy = get_object_support(owner_path)
-            plan = get_borrowed_predefined_plan(entries, destination, owner, name, ext["prefix"], version, policy)
+            refs = {}
+            for entry in entries:
+                if entry["state"] != "Native":
+                    continue
+                original = entry["node"]
+                node = etree.Element(original.tag, nsmap=original.nsmap, attrib=original.attrib)
+                node.extend(copy.deepcopy(child) for child in original if child.tag != PREDEFINED_NS + "ChildItems")
+                refs = convert_catalog_xml({"root": node}, cfg, name, name, ext["prefix"], False, owner_kind=kind)
+                if refs:
+                    break
+                entry["node"] = node
+                entry["type"] = node.find(PREDEFINED_NS + "Type")
+                if kind == "ChartOfAccounts":
+                    entry["extra"] = tuple(node_canon(field) if field is not None else "" for field in
+                                           (node.find(PREDEFINED_NS + name) for name in
+                                            ("AccountType", "OffBalance", "Order", "AccountingFlags", "ExtDimensionTypes")))
+            plan = refs or get_borrowed_predefined_plan(entries, destination, owner, kind, name, ext["prefix"], version, policy)
             if plan.get("status"):
                 item = new_md_reference_item("predefined items", plan)
             else:
@@ -4719,7 +4901,7 @@ def initialize_borrowed_predefined(ext, objects, cfg, selected, apply):
                         files = {owner_rel: {"xml": read_form_write(owner_path), "before": owner_before, "write_owner": False},
                                  rel: {"xml": destination, "before": before, "write_owner": True}}
                         try:
-                            changed.extend(write_metadata_package({"type": "Catalog"},
+                            changed.extend(write_metadata_package({"type": kind},
                                                                   {"relative": owner_rel, "target": name, "files": files}))
                             item.update(status="TRANSFERRED", now=True)
                             ROOT_DATA_WARNINGS.append(f"Predefined items in {oid} — verify linked predefined data before removing the extension")
@@ -4739,6 +4921,72 @@ def initialize_borrowed_predefined(ext, objects, cfg, selected, apply):
     return changed
 
 
+def xdto_package_context(path, ext_dir, target, cfg):
+    ns = "{http://v8.1c.ru/8.1/xdto}"
+    document = read_form_doc(path)
+    package = document.getroot() if document is not None else None
+    uri = package.get("targetNamespace") if package is not None else None
+    if package is None or package.tag != ns + "package" or not uri:
+        return {"status": "MANUAL", "reason": "unsupported XDTO package format"}
+    imports = {node.get("namespace") for node in package.findall(ns + "import")}
+    known = set()
+    context = []
+    for node in cfg["child_objects"].findall("md:XDTOPackage", MD_NSMAP):
+        name = inner_text(node).strip()
+        if name.lower() == target.lower():
+            continue
+        rel = f"XDTOPackages/{name}/Ext/Package.bin"
+        other = read_form_doc(os.path.join(MD_REFERENCE_ROOT, rel))
+        if other is None:
+            continue
+        other_uri = other.getroot().get("targetNamespace")
+        if other_uri == uri:
+            return {"status": "CONFLICT", "reason": f"XDTO namespace is already registered by {name}"}
+        known.add(other_uri)
+        context.append(rel)
+    if imports:
+        for key, entry in sorted(ROOT_OWN.items()):
+            if entry["type"] != "XDTOPackage" or key in ROOT_PROVISIONAL:
+                continue
+            other_path = os.path.join(ext_dir, f"XDTOPackages/{entry['name']}/Ext/Package.bin")
+            if os.path.normcase(os.path.normpath(other_path)) == os.path.normcase(os.path.normpath(path)):
+                continue
+            other = read_form_doc(other_path)
+            other_uri = other.getroot().get("targetNamespace") if other is not None else None
+            if other_uri and other_uri in imports - known:
+                oid = entry["id"]
+                return {"status": "WAITING", "reason": f"waiting for {oid} imported by XDTO package", "dependency": oid}
+    return {"validation_files": context}
+
+
+def skd_transfer_issue(schema, self_id, target, prefix, rel):
+    if schema.tag != "{http://v8.1c.ru/8.1/data-composition-system/schema}DataCompositionSchema":
+        return {"status": "MANUAL", "reason": f"unsupported data composition schema {rel}"}
+    # Query and expression text can contain references that the metadata resolver cannot rewrite.
+    leaves = schema.xpath("//*[not(*)][local-name()='query' or local-name()='expression' "
+                          "or local-name()='Type' or local-name()='TypeSet']")
+    words = {word.lower() for leaf in leaves for word in re.findall(r"\w+", inner_text(leaf))}
+    for oid, dependency in sorted(ROOT_OWN.items()):
+        name = dependency["name"]
+        if name.lower() not in words:
+            continue
+        identity = dependency["id"]
+        alias = target if oid == self_id.lower() else ROOT_PROVISIONAL.get(oid, {}).get("target", ROOT_BINDINGS.get(oid))
+        if not alias:
+            return {"status": "WAITING", "reason": f"waiting for {identity} referenced in {rel}",
+                    "dependency": identity}
+        if alias.lower() != name.lower():
+            return {"status": "MANUAL", "reason": f"inspect reference to {identity} in {rel} (as {alias})"}
+    if prefix:
+        for oid in sorted(ROOT_SOURCE_IDS):
+            name = oid.split(".", 1)[1]
+            if oid not in ROOT_OWN and name.startswith(prefix.lower()) and name in words:
+                ref = resolve_md_reference(oid, prefix)
+                if ref.get("status") or ref["value"].lower() != oid:
+                    return {"status": "MANUAL", "reason": f"inspect unresolved reference to {oid} in {rel}"}
+    return {}
+
+
 def root_metadata_projection(entry, cfg, source, files, target, prefix, enum_aliases=None, skd=()):
     base = f"{CHILD_TYPE_DIR_MAP[entry['type']]}/{target}"
     fw = read_form_write(source["path"])
@@ -4746,6 +4994,11 @@ def root_metadata_projection(entry, cfg, source, files, target, prefix, enum_ali
     if result:
         return result
     plan = {"target": target, "relative": base + ".xml", "files": {base + ".xml": {"xml": fw}}}
+    if entry["type"] == "XDTOPackage":
+        context = xdto_package_context(files["Ext/Package.bin"], os.path.dirname(os.path.dirname(source["path"])), target, cfg)
+        if context.get("status"):
+            return context
+        plan.update(context)
     if entry["type"] in ("EventSubscription", "ScheduledJob"):
         prop = "Handler" if entry["type"] == "EventSubscription" else "MethodName"
         handler = get_md_object_element(fw["root"]).find(f"md:Properties/md:{prop}", MD_NSMAP)
@@ -4818,33 +5071,14 @@ def root_metadata_projection(entry, cfg, source, files, target, prefix, enum_ali
         elif re.fullmatch(r"Ext/Help/[^/]+\.html", rel):
             data = {"copy": path}
         elif rel in skd:
-            schema = read_form_write(path)["root"]
-            if schema.tag != "{http://v8.1c.ru/8.1/data-composition-system/schema}DataCompositionSchema":
-                return {"status": "MANUAL", "reason": f"unsupported data composition schema {rel}"}
-            # Query and expression text can contain references that the metadata resolver cannot rewrite.
-            leaves = schema.xpath("//*[not(*)][local-name()='query' or local-name()='expression' "
-                                  "or local-name()='Type' or local-name()='TypeSet']")
-            words = {word.lower() for leaf in leaves for word in re.findall(r"\w+", inner_text(leaf))}
-            for oid, dependency in sorted(ROOT_OWN.items()):
-                name = dependency["name"]
-                if name.lower() not in words:
-                    continue
-                identity = dependency["id"]
-                alias = target if oid == entry["id"].lower() else ROOT_PROVISIONAL.get(oid, {}).get("target", ROOT_BINDINGS.get(oid))
-                if not alias:
-                    return {"status": "WAITING", "reason": f"waiting for {identity} referenced in {rel}",
-                            "dependency": identity}
-                if alias.lower() != name.lower():
-                    return {"status": "MANUAL", "reason": f"inspect reference to {identity} in {rel} (as {alias})"}
-            if prefix:
-                for oid in sorted(ROOT_SOURCE_IDS):
-                    name = oid.split(".", 1)[1]
-                    if oid not in ROOT_OWN and name.startswith(prefix.lower()) and name in words:
-                        ref = resolve_md_reference(oid, prefix)
-                        if ref.get("status") or ref["value"].lower() != oid:
-                            return {"status": "MANUAL", "reason": f"inspect unresolved reference to {oid} in {rel}"}
+            issue = skd_transfer_issue(read_form_write(path)["root"], entry["id"], target, prefix, rel)
+            if issue:
+                return issue
             data = {"copy": path, "skd": True}
-        elif re.fullmatch(r"Templates/\w+/Ext/Template\.(xml|txt|bin)", rel):
+        elif (re.search(r"(?:^|/)Ext/Template\.(xml|txt|bin)$", rel)
+              or re.search(r"(?:^|/)Ext/Help/[^/]+\.html$", rel)
+              or (entry["type"] == "XDTOPackage" and rel == "Ext/Package.bin")
+              or (entry["type"] == "WSReference" and re.fullmatch(r"Ext/(WSDefinition\.xml|[1-9][0-9]*\.xsd)", rel))):
             data = {"copy": path}
         elif entry["type"] == "Role" and rel == "Ext/Rights.xml":
             fw = read_form_write(path)
@@ -4862,10 +5096,23 @@ def root_metadata_projection(entry, cfg, source, files, target, prefix, enum_ali
             data = {"copy": path, "external_xml": schedule}
         else:
             xml = read_form_write(path)
+            if entry["type"] in EXTRA_PACKAGE_KINDS:
+                for filename, tag, ns in (("Form", "Form", "logform"), ("Style", "Style", "extrnprops"),
+                                          ("CommandInterface", "CommandInterface", "extrnprops")):
+                    if not (rel == f"Ext/{filename}.xml" or rel.endswith(f"/Ext/{filename}.xml")):
+                        continue
+                    root = xml["root"]
+                    if (root.tag != f"{{http://v8.1c.ru/8.3/xcf/{ns}}}{tag}"
+                            or root.get("version") != source["root"].get("version")):
+                        return {"status": "MANUAL", "reason": f"unsupported {rel}"}
+                    if tag == "Form" and root.find("{*}BaseForm") is not None:
+                        return {"status": "MANUAL", "reason": f"form body contains a borrowed BaseForm: {rel}"}
             result = convert_catalog_xml(xml, cfg, entry["name"], target, prefix, False, owner_kind=entry["type"])
             if result:
                 return result
             data = {"xml": xml}
+            if entry["type"] == "CommonForm" and rel == "Ext/Form.xml":
+                data["common_form_body"] = True
         plan["files"][f"{base}/{rel}"] = data
     return plan
 
@@ -4925,6 +5172,14 @@ def unordered_metadata_xml_key(node):
     return node.tag, node.get("version"), children
 
 
+def common_form_body_key(node):
+    root = copy.deepcopy(node)
+    for default in root.xpath("*[(local-name()='ChildItems' or local-name()='Attributes') and not(*) and not(@*) and not(normalize-space())]|"
+                              "*[local-name()='AutoCommandBar']/*[local-name()='Autofill' and text()='true' and not(*) and not(@*)]"):
+        default.getparent().remove(default)
+    return catalog_node_key(root)
+
+
 def catalog_file_equal(entry, path):
     if entry.get("role_rights") or entry.get("exchange_content"):
         other = read_form_doc(path)
@@ -4934,6 +5189,9 @@ def catalog_file_equal(entry, path):
         return other is not None and flowchart_key(entry["xml"]["root"]) == flowchart_key(other.getroot())
     if "bsl" in entry:
         return root_object_code_key(entry["lines"]) == root_object_code_key(read_bsl_lines(path))
+    if entry.get("common_form_body"):
+        other = read_form_doc(path)
+        return other is not None and common_form_body_key(entry["xml"]["root"]) == common_form_body_key(other.getroot())
     if "xml" in entry:
         return catalog_node_key(entry["xml"]["root"]) == catalog_node_key(read_form_write(path)["root"])
     if "external_xml" in entry:
@@ -5295,6 +5553,10 @@ def get_enum_transfer_plan(entry, ext_dir, prefix, cfg):
 
 def flat_metadata_equal(source, target):
     a, b = copy.deepcopy(source), copy.deepcopy(target)
+    if localname(source) == "Bot":
+        for obj in (a, b):
+            for picture in obj.xpath("md:Properties/md:Picture[not(*) and not(@*) and not(normalize-space())]", namespaces=MD_NSMAP):
+                picture.getparent().remove(picture)
     path = "md:Properties/md:Source" if localname(source) == "EventSubscription" else "md:Properties/md:Type"
     x, y = a.find(path, MD_NSMAP), b.find(path, MD_NSMAP)
     if (x is None) != (y is None):
@@ -5318,23 +5580,31 @@ def get_flat_transfer_plan(entry, ext_dir, prefix, cfg):
     if source["root"].get("version") != children.getroottree().getroot().get("version"):
         return {"status": "MANUAL", "reason": "metadata dump formats differ"}
     node = get_md_object_element(source["root"])
-    if localname(node) != kind or not node.get("uuid") or node.find("md:ChildObjects/*", MD_NSMAP) is not None:
+    extra_package = kind in EXTRA_PACKAGE_KINDS
+    if kind == "PaletteColor" and format_rank(source["root"].get("version")) < 221:
+        return {"status": "MANUAL", "reason": "palette colors require dump format 2.21 or newer"}
+    if (localname(node) != kind or not node.get("uuid")
+            or (not extra_package and node.find("md:ChildObjects/*", MD_NSMAP) is not None)):
         return {"status": "MANUAL", "reason": f"unsupported {kind} descriptor or children"}
-    allowed = {
-        "Constant": {"Ext/ManagerModule.bsl", "Ext/ValueManagerModule.bsl"},
-        "Role": {"Ext/Rights.xml"},
-        "ScheduledJob": {"Ext/Schedule.xml"},
-    }.get(kind, ())
-    files = {}
-    for folder, _, names in os.walk(base):
-        for name in names:
-            path = os.path.join(folder, name)
-            rel = os.path.relpath(path, base).replace(os.sep, "/")
-            if rel not in allowed and not (kind == "CommonPicture" and re.fullmatch(r"Ext/Picture(?:\.xml|/Picture\.[A-Za-z0-9]+)", rel)):
-                return {"status": "MANUAL", "reason": f"unsupported {kind} file {rel}"}
-            files[rel] = path
-    if kind == "Role" and "Ext/Rights.xml" not in files:
-        return {"status": "MANUAL", "reason": "missing Ext/Rights.xml"}
+    skd = set()
+    if extra_package:
+        files, skd = catalog_files(source["root"], base, extra_package=True)
+    else:
+        allowed = {
+            "Constant": {"Ext/ManagerModule.bsl", "Ext/ValueManagerModule.bsl"},
+            "Role": {"Ext/Rights.xml"},
+            "ScheduledJob": {"Ext/Schedule.xml"},
+        }.get(kind, ())
+        files = {}
+        for folder, _, names in os.walk(base):
+            for name in names:
+                path = os.path.join(folder, name)
+                rel = os.path.relpath(path, base).replace(os.sep, "/")
+                if rel not in allowed and not (kind == "CommonPicture" and re.fullmatch(r"Ext/Picture(?:\.xml|/Picture\.[A-Za-z0-9]+)", rel)):
+                    return {"status": "MANUAL", "reason": f"unsupported {kind} file {rel}"}
+                files[rel] = path
+        if kind == "Role" and "Ext/Rights.xml" not in files:
+            return {"status": "MANUAL", "reason": "missing Ext/Rights.xml"}
     identity = metadata_transfer_uuid(cfg, kind, node.get("uuid"))
     registry = [(localname(n), inner_text(n)) for n in elem_children(children)]
     ids = [(tag, name) for tag, name in registry if tag in CHILD_TYPE_DIR_MAP
@@ -5352,7 +5622,7 @@ def get_flat_transfer_plan(entry, ext_dir, prefix, cfg):
         with open(path, "rb") as original:
             before = original.read()
         dest = read_form_write(path)
-        plan = root_metadata_projection(entry, cfg, source, files, name, prefix)
+        plan = root_metadata_projection(entry, cfg, source, files, name, prefix, skd=skd)
         if plan.get("status"):
             return plan
         same = flat_metadata_equal(get_md_object_element(plan["files"][relative]["xml"]["root"]),
@@ -5370,6 +5640,8 @@ def get_flat_transfer_plan(entry, ext_dir, prefix, cfg):
                 continue
             path = os.path.join(MD_REFERENCE_ROOT, rel)
             if not os.path.lexists(path):
+                if kind == "CommonForm" and rel.endswith("/Ext/Form/Module.bsl") and not "".join(info["lines"]).strip():
+                    continue
                 writes[rel] = info
             elif not os.path.isfile(path):
                 different.append(rel)
@@ -5407,13 +5679,15 @@ def get_flat_transfer_plan(entry, ext_dir, prefix, cfg):
     if choice.get("taken"):
         return {"status": "CONFLICT", "reason": f"name taken in configuration ({choice['note']})"}
     target = choice["name"]
-    plan = root_metadata_projection(entry, cfg, source, files, target, prefix)
+    plan = root_metadata_projection(entry, cfg, source, files, target, prefix, skd=skd)
     if not plan.get("status"):
         item = new_item("NOT_TRANSFERRED", f"own {kind} {source_name} (as {target})")
         if kind == "Constant":
             item["stored"] = f"Constant.{source_name} -> Constant.{target} — stored constant value"
         if kind == "DocumentNumerator":
             item["stored"] = f"{entry['id']} -> {kind}.{target} — numbering continuity"
+        if kind in ("CommonAttribute", "SettingsStorage", "Sequence"):
+            item["stored"] = f"{entry['id']} -> {kind}.{target} — migrate stored data before removing the extension"
         plan.update(status="NOT_TRANSFERRED", items=[item], new=True)
     return plan
 
@@ -5703,7 +5977,7 @@ def write_metadata_package(entry=None, plan=None, *, packages=None, expected_reg
         for entry, plan in packages:
             validate_staged_metadata_owner(root, stage, entry, plan)
         for rel in sorted(files):
-            if re.search(r"/Forms/.+/Ext/(?:Form\.xml|Form/Module\.bsl)$", rel):
+            if re.search(r"/Ext/(?:Form\.xml|Form/Module\.bsl)$", rel):
                 form_rel = re.sub(r"/Form/Module\.bsl$", "/Form.xml", rel)
                 form = os.path.join(stage, form_rel)
                 module_rel = re.sub(r"/Form\.xml$", "/Form/Module.bsl", form_rel)
@@ -5719,7 +5993,13 @@ def write_metadata_package(entry=None, plan=None, *, packages=None, expected_reg
                     raise ValueError("form validator is not installed")
                 if errors:
                     raise ValueError("validator: " + errors[0])
-            elif "/Templates/" in rel and rel.endswith("/Ext/Template.xml"):
+            elif re.fullmatch(r"XDTOPackages/\w+/Ext/Package\.bin", rel):
+                validator = os.path.join(os.path.dirname(__file__), "../../xdto-validate/scripts/xdto-validate.py")
+                result = subprocess.run([sys.executable, validator, "-PackagePath", os.path.join(stage, rel), "-ConfigDir", stage],
+                                        capture_output=True, text=True, encoding="utf-8", errors="replace")
+                if result.returncode:
+                    raise ValueError("xdto-validate failed: " + " ".join((result.stdout + result.stderr).splitlines()))
+            elif rel.endswith("/Ext/Template.xml"):
                 skill = "skd-validate" if files[rel].get("skd") else "mxl-validate"
                 validator = os.path.join(os.path.dirname(__file__), f"../../{skill}/scripts/{skill}.py")
                 result = subprocess.run([sys.executable, validator, "-TemplatePath", os.path.join(stage, rel)],
@@ -5804,7 +6084,7 @@ def validate_staged_metadata_owner(root, stage, entry, plan):
                     break
         if not registrar_found:
             raise ValueError(f"validator: no staged registrar links to {target}")
-    if not plan.get("new") and entry["type"] in STRUCTURED_TRANSFER_KINDS:
+    if not plan.get("new") and entry["type"] in STRUCTURED_TRANSFER_KINDS + EXTRA_PACKAGE_KINDS + ("Enum",):
         # Preserve the validation context for slots pointing at existing local forms.
         for slot in elem_children(check["props"]):
             if not re.fullmatch(r"(Default|Auxiliary).*Form", localname(slot)):
@@ -6080,7 +6360,8 @@ def get_linked_package_plans(keys, ext, cfg):
 
 def complete_linked_root_groups(waiting, ext, cfg, apply):
     global ROOT_TARGET_REGISTRARS
-    edges = {key: set() for key in waiting if ROOT_OWN[key]["type"] in LINKED_TRANSFER_KINDS + PREDEFINED_KINDS + EXTENDED_TRANSFER_KINDS}
+    edges = {key: set() for key in waiting if ROOT_OWN[key]["type"] in
+             LINKED_TRANSFER_KINDS + PREDEFINED_KINDS + EXTENDED_TRANSFER_KINDS + EXTRA_PACKAGE_KINDS}
     for key, dependencies in edges.items():
         dependency = waiting[key].get("dependency")
         if dependency in edges:
@@ -6094,7 +6375,7 @@ def complete_linked_root_groups(waiting, ext, cfg, apply):
             kinds = {ROOT_OWN[key]["type"] for key in group}
             if (kinds.issubset(LINKED_TRANSFER_KINDS)
                     or ("ChartOfCharacteristicTypes" in kinds and kinds.issubset(PREDEFINED_KINDS))
-                    or kinds.intersection(EXTENDED_TRANSFER_KINDS)):
+                    or kinds.intersection(EXTENDED_TRANSFER_KINDS + EXTRA_PACKAGE_KINDS)):
                 keys = group
                 break
         if not keys:
@@ -6169,7 +6450,6 @@ def initialize_root_transfer(ext, objects, cfg, vars_, selected, apply=False, in
     initialize_catalog_children(ext, objects)
     ROOT_DATA_WARNINGS.clear()
     pending = []
-    changed = initialize_borrowed_predefined(ext, objects, cfg, selected, apply)
     default_roles = set()
     if not include_default_roles and any(obj["type"] == "Role" for obj in objects):
         source_config = read_xml(os.path.join(ext["dir"], "Configuration.xml")).getroot()
@@ -6203,6 +6483,7 @@ def initialize_root_transfer(ext, objects, cfg, vars_, selected, apply=False, in
                 method = get_method_safe(lines, name)
                 if method and is_export(lines, method):
                     ROOT_GLOBAL_METHODS.setdefault(name.lower(), []).append(key)
+    changed = initialize_borrowed_predefined(ext, objects, cfg, selected, apply)
     waiting = {}
     while pending:
         changed.extend(complete_catalog_children(ext["prefix"], cfg, selected, apply))
@@ -6301,12 +6582,18 @@ def initialize_root_transfer(ext, objects, cfg, vars_, selected, apply=False, in
                 item["plan"] = {"kind": "md-reference"}
             ROOT_RESULTS[key] = {"id": oid, "items": items}
         if len(again) == len(pending):
+            predefined_changes = initialize_borrowed_predefined(ext, objects, cfg, selected, apply, retry=True)
+            if predefined_changes:
+                changed.extend(predefined_changes)
+                pending = again
+                continue
             done, batch_changes = complete_linked_root_groups(waiting, ext, cfg, apply)
             changed.extend(batch_changes)
             if not done:
                 break
             again = [entry for entry in again if entry["key"] not in done]
         pending = again
+    changed.extend(initialize_borrowed_predefined(ext, objects, cfg, selected, apply, retry=True))
     changed.extend(complete_catalog_children(ext["prefix"], cfg, selected, apply))
     deps = {key: plan.get("dependency") for key, plan in waiting.items() if not plan.get("linked")}
     deps.update({key: entry["dependency"] for key, entry in CATALOG_CHILDREN.items() if entry["item"]["status"] == "WAITING"})
@@ -6387,7 +6674,7 @@ def transfer_object(ext, obj, cfg_info, config_path, cfg_pools=None):
                           ctx["type"], "", "", "", "object", True)
     rec["items"] += own_child_items(ctx, cfg_md, prefix, obj_rel, rank)
     rec["items"] += [entry["item"] for entry in sorted(CATALOG_CHILDREN.values(), key=lambda e: (e["kind"], e["name"]))
-                     if rec["id"].lower() == ("Catalog." + entry["ctx"]["name"]).lower() and entry.get("item")]
+                     if rec["id"].lower() == entry["ctx"]["id"].lower() and entry.get("item")]
     predefined = BORROWED_PREDEFINED_ITEMS.get(rec["id"].lower())
     if predefined:
         rec["items"].append(predefined)

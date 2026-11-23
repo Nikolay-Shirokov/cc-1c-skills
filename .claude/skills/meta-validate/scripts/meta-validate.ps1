@@ -1,4 +1,4 @@
-﻿# meta-validate v1.47 — Validate 1C metadata object structure
+﻿# meta-validate v1.48 — Validate 1C metadata object structure
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -236,7 +236,7 @@ $structuralOnlyTypes = @(
 	"CommonTemplate","CommonPicture","SessionParameter","SettingsStorage","FilterCriterion",
 	"IntegrationService","Bot",
 	"FunctionalOption","FunctionalOptionsParameter","Language","Style","StyleItem",
-	"WSReference","XDTOPackage","DocumentNumerator","Sequence"
+	"WSReference","XDTOPackage","DocumentNumerator","Sequence","PaletteColor"
 )
 
 # Вложенные дескрипторы объекта: Forms/<Имя>.xml и Templates/<Имя>.xml. Корень тот же MetaDataObject,

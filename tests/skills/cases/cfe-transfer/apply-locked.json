@@ -24,6 +24,16 @@
       }
     },
     {
+      "editFile": "Catalogs/Закрытый.xml",
+      "replace": "<Catalog uuid=\"",
+      "with": "<Catalog uuid=\"22222222-2222-2222-2222-222222222222\" data-was=\""
+    },
+    {
+      "editFile": "Catalogs/Снятый.xml",
+      "replace": "<Catalog uuid=\"",
+      "with": "<Catalog uuid=\"33333333-3333-3333-3333-333333333333\" data-was=\""
+    },
+    {
       "script": "cfe-init/scripts/cfe-init",
       "args": {
         "-Name": "Тест",
@@ -74,16 +84,6 @@
     {
       "script": "form-add/scripts/form-add",
       "args": { "-ObjectPath": "{workDir}/cfe/Catalogs/Закрытый.xml", "-FormName": "Тест_Новая", "-Purpose": "Custom" }
-    },
-    {
-      "editFile": "Catalogs/Закрытый.xml",
-      "replace": "<Catalog uuid=\"",
-      "with": "<Catalog uuid=\"22222222-2222-2222-2222-222222222222\" data-was=\""
-    },
-    {
-      "editFile": "Catalogs/Снятый.xml",
-      "replace": "<Catalog uuid=\"",
-      "with": "<Catalog uuid=\"33333333-3333-3333-3333-333333333333\" data-was=\""
     },
     {
       "script": "meta-compile/scripts/meta-compile",
