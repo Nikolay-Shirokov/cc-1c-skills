@@ -143,13 +143,13 @@
     },
     {
       "script": "form-edit/scripts/form-edit",
-      "input": { "elements": [{ "input": "ПолеПримечания", "path": "Объект.Тест_Примечание" }] },
+      "input": { "elements": [{ "input": "ПолеПримечания", "path": "Объект.Тест_Примечание", "choiceParameters": [{"name": "Отбор.Ссылка", "value": "Catalog.Хранилище.Тест_Основной"}] }] },
       "args": { "-FormPath": "{workDir}/cfe/Catalogs/Хранилище/Forms/Тест_Карточка/Ext/Form.xml", "-JsonPath": "{inputFile}" }
     },
     {
       "writeFile": {
         "path": "cfe/Catalogs/Хранилище/Forms/Тест_Карточка/Ext/Form/Module.bsl",
-        "content": "&НаКлиенте\nФункция ПрочитатьПримечание()\n\tТест_НовыйМодуль.Запустить();\n\tВозврат Объект.Тест_Примечание;\nКонецФункции\n"
+        "content": "&НаКлиенте\nФункция ПрочитатьПримечание()\n\tТест_НовыйМодуль.Запустить();\n\tЗначение = PredefinedValue(\"Catalog.Хранилище.Тест_Основной\");\n\tВозврат Объект.Тест_Примечание;\nКонецФункции\n"
       }
     },
     {
@@ -272,6 +272,7 @@
       { "file": "DataProcessors/МастерЗагрузки.xml", "text": "DataProcessorTabularSection.Тест_МастерЗагрузки" }
     ],
     "fileContains": [
+      {"file": "Catalogs/Хранилище/Forms/Дораб_Карточка/Ext/Form.xml", "text": "Catalog.Хранилище.Дораб_Основной"},
       {"file": "Catalogs/Хранилище/Ext/Predefined.xml", "text": ["id=\"3bd982fd-c19d-4b3a-8a14-30cd625fbedd\"", "<Name>Раздел</Name>", "<Name>Основной</Name>", "<Name>Дораб_Основной</Name>"]},
       {"file": "Catalogs/Хранилище/Ext/ManagerModule.bsl", "text": "Catalogs.Хранилище.Дораб_Основной"},
       {"file": "CommonModules/НовыйМодуль/Ext/Module.bsl", "text": ["Справочники.Хранилище.Дораб_Основной", "PredefinedValue(\"Catalog.Хранилище.Дораб_Основной\")", "Ключ = \"Catalog.Хранилище.Тест_Основной\""]},
@@ -332,7 +333,7 @@
       { "file": "Catalogs/НовыйСправочник/Forms/ФормаЭлемента/Ext/Form/Module.bsl", "text": ["ОткрытьФорму(\"Справочник.НовыйСправочник.Форма.ФормаЭлемента\")", "OpenForm(\"Catalog.НовыйСправочник.Form.ФормаЭлемента\")", "Путь = \"Справочник.Тест_НовыйСправочник.Форма.ФормаЭлемента\";"] },
       { "file": "Catalogs/Хранилище.xml", "text": ["<Form>Карточка</Form>", "<Form>Дораб_Карточка</Form>", "<Template>Бланк</Template>", "<Name>Печать</Name>", "<DefaultObjectForm>Catalog.Хранилище.Form.Карточка</DefaultObjectForm>"] },
       { "file": "Catalogs/Хранилище/Forms/Дораб_Карточка/Ext/Form.xml", "text": "<DataPath>Объект.Примечание</DataPath>" },
-      { "file": "Catalogs/Хранилище/Forms/Дораб_Карточка/Ext/Form/Module.bsl", "text": ["Возврат Объект.Примечание;", "НовыйМодуль.Запустить();"] },
+      { "file": "Catalogs/Хранилище/Forms/Дораб_Карточка/Ext/Form/Module.bsl", "text": ["Возврат Объект.Примечание;", "НовыйМодуль.Запустить();", "PredefinedValue(\"Catalog.Хранилище.Дораб_Основной\")"] },
       { "file": "Catalogs/Хранилище/Commands/Печать/Ext/CommandModule.bsl", "text": "ОткрытьФорму(\"Справочник.Хранилище.Форма.Дораб_Карточка\")" },
       { "file": "CommonModules/Частичный/Ext/Module.bsl", "text": "Функция Третий() Экспорт" },
       { "file": "CommonModules/НовыйМодуль/Ext/Module.bsl", "text": ["Возврат Частичный.Третий()", "Перечисления.Состояния.Черновик", "ИмяОпции = \"Тест_Опция\";", "ПолучитьФункциональнуюОпцию(\"Опция\")", "ПланыВидовХарактеристик.Свойства.Цвет", "ПредопределенноеЗначение(\"Справочник.НовыйСправочник.Основной\")"] },

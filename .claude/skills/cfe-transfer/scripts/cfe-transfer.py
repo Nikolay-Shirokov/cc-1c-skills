@@ -1,5 +1,5 @@
 ﻿#!/usr/bin/env python3
-# cfe-transfer v1.46 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+# cfe-transfer v1.47 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -3445,7 +3445,7 @@ def own_child_items(ctx, cfg_md, prefix, rel, rank):
     if ctx["md"] is None or ctx["md"]["children"] is None:
         return items
     cfg_kids = elem_children(cfg_md["children"]) if cfg_md is not None and cfg_md["children"] is not None else []
-    # Catalog file-backed children are planned separately as a package.
+    # File-backed children registered with the package planner have their own report items.
     file_kinds = ("Form", "Template", "Command")
 
     def check(node, label, cfg_pool, path):
@@ -3493,7 +3493,8 @@ def own_child_items(ctx, cfg_md, prefix, rel, rank):
         return new_item("TRANSFERRED", "%s %s%s" % (label, full, as_))
 
     for c in elem_children(ctx["md"]["children"]):
-        if ctx["type"] == "Catalog" and localname(c) in file_kinds:
+        if (localname(c) in file_kinds
+                and f"{ctx['id']}.{localname(c)}.{md_child_name(c)}".lower() in CATALOG_CHILDREN):
             continue
         if not has_element_child(c):
             # <Form>Имя</Form>, <Template>Имя</Template>: ownership is in the sub-object descriptor
@@ -3729,7 +3730,7 @@ def get_root_bsl_projection(lines, prefix, self_id, self_name, rel="", child=Non
             if word in method_locals[idx]:
                 continue
         if data_alias:
-            reference = resolve_catalog_data_path(child["ctx"], token["value"], member["value"], None, prefix)
+            reference = resolve_form_owner_data_path(child["ctx"], token["value"], member["value"], None, prefix)
             if reference.get("status"):
                 return reference
             if reference.get("value"):
@@ -4049,16 +4050,13 @@ def convert_catalog_xml(fw, cfg, source, target, prefix, descriptor, child=None,
         value, name = inner_text(node).strip(), localname(node)
         if child and FORM_PATH_TAGS.search(name):
             path = re.fullmatch(r"(\w+)\.(\w+)(?:\.(\w+))?", value)
-            if path:
-                attr = root.xpath("/*[local-name()='Form']/*[local-name()='Attributes']/*[local-name()='Attribute'][@name=$alias]/*[local-name()='Type']/v8:Type",
-                                  namespaces=MD_NSMAP, alias=path[1])
-                if attr and inner_text(attr[0]).lower() == f"cfg:CatalogObject.{source}".lower():
-                    ref = resolve_catalog_data_path(child["ctx"], path[1], path[2], path[3], prefix)
-                    if ref.get("status"):
-                        return ref
-                    if ref.get("value"):
-                        node.text = ref["value"]
-                        continue
+            if path and path[1].lower() in child.get("data_aliases", ()):
+                ref = resolve_form_owner_data_path(child["ctx"], path[1], path[2], path[3], prefix)
+                if ref.get("status"):
+                    return ref
+                if ref.get("value"):
+                    node.text = ref["value"]
+                    continue
         xsi_type = node.get(f"{{{XSI_NS}}}type", "").split(":", 1)
         design_ref = (len(xsi_type) == 2 and xsi_type[1] in ("DesignTimeRef", "MDObjectRef")
                       and node.nsmap.get(xsi_type[0]) == MD_NSMAP["xr"])
@@ -4125,6 +4123,12 @@ def convert_catalog_xml(fw, cfg, source, target, prefix, descriptor, child=None,
                     return ref
                 node.text = ref["value"]
         elif pattern.match(value):
+            item = re.fullmatch(r"((?:\w+:)?\w+)\.\w+\.(\w+)", value)
+            binding = BORROWED_PREDEFINED_BINDINGS.get(f"{obj_kind}.{source}.{item[2]}".lower()) if item else None
+            if binding:
+                if binding.get("status"):
+                    return binding
+                value = f"{item[1]}.{source}.{binding['name']}"
             node.text = pattern.sub(lambda m: m[1] + target, value)
         elif name != "DataPath" or is_type or strict_ref:
             ref = resolve_md_reference(value, prefix, is_type, obj_kind == "EventSubscription" and parent == "Source")
@@ -4167,7 +4171,7 @@ def convert_catalog_xml(fw, cfg, source, target, prefix, descriptor, child=None,
     return {}
 
 
-def resolve_catalog_data_path(ctx, alias, field, column, prefix):
+def resolve_form_owner_data_path(ctx, alias, field, column, prefix):
     member = next((node for node in elem_children(ctx["md"]["children"])
                    if localname(node) in ("Attribute", "TabularSection") and md_child_name(node).lower() == field.lower()), None)
     if member is None:
@@ -4196,7 +4200,7 @@ def resolve_catalog_data_path(ctx, alias, field, column, prefix):
         refs = get_md_node_references(projected, prefix, True)
         if refs.get("status"):
             return refs
-        md = read_md_object(os.path.join(MD_REFERENCE_ROOT, "Catalogs", parts[1] + ".xml"))
+        md = read_md_object(os.path.join(MD_REFERENCE_ROOT, ctx["dir"], parts[1] + ".xml"))
         lookup = {"tag": "Attribute", "name": parts[5] if column else parts[3], "parent": parts[3] if column else ""}
         actual = get_md_target_element(md["el"], lookup)
         if actual is None or not test_md_type_model_equal(
@@ -4232,8 +4236,9 @@ def get_catalog_child_bsl(tokens, rel, child, declared, prefix, self_id="", self
     edits, issues = {}, []
     if not (CATALOG_CHILDREN or ROOT_OWN or BORROWED_PREDEFINED_BINDINGS):
         return edits, issues
-    m = re.fullmatch(r"Catalogs/(\w+)/Ext/(ObjectModule|ManagerModule)\.bsl", rel, re.I)
-    owner = m[1] if m else ""
+    module = re.fullmatch(r"(\w+)/(\w+)/Ext/(ObjectModule|ManagerModule)\.bsl", rel, re.I)
+    owner_id = next((f"{kind}.{module[2]}" for kind, directory in CHILD_TYPE_DIR_MAP.items()
+                     if directory.lower() == module[1].lower()), "") if module else ""
     declared = {name.lower() for name in declared}
     for i in range(len(tokens) - 3):
         token, opening, literal, separator = tokens[i:i + 4]
@@ -4272,7 +4277,7 @@ def get_catalog_child_bsl(tokens, rel, child, declared, prefix, self_id="", self
             path = f"{oid}.{item[4]}"
             if oid.lower() not in ROOT_OWN and path.lower() not in BORROWED_PREDEFINED_BINDINGS:
                 continue
-            if oid.lower() == self_id.lower():
+            if oid.lower() == self_id.lower() and path.lower() not in BORROWED_PREDEFINED_BINDINGS:
                 edits[literal["start"]] = f'{item[1]}{self_name}.{item[4]}"'
                 continue
             ref = resolve_md_reference(path, prefix)
@@ -4323,11 +4328,11 @@ def get_catalog_child_bsl(tokens, rel, child, declared, prefix, self_id="", self
                 continue
             oid = f"Catalog.{match[2]}.Form.{match[4]}"
             head = match[1] + match[2] + match[3]
-        elif owner and api in ("получитьмакет", "gettemplate"):
+        elif owner_id and api in ("получитьмакет", "gettemplate"):
             match = re.fullmatch(r'"(\w+)"', literal["value"])
             if not match:
                 continue
-            oid, head = f"Catalog.{owner}.Template.{match[1]}", '"'
+            oid, head = f"{owner_id}.Template.{match[1]}", '"'
         else:
             continue
         binding = child if child and oid.lower() == child["id"].lower() else get_catalog_child_binding(oid)
@@ -4362,7 +4367,7 @@ def get_catalog_child_projection(entry, cfg, target, prefix, files, skd):
         attrs = form.xpath("/*[local-name()='Form']/*[local-name()='Attributes']/*[local-name()='Attribute']")
         child["data_aliases"] = {attr.get("name", "").lower() for attr in attrs
                                  if (value := attr.findtext("{*}Type/v8:Type", namespaces=MD_NSMAP))
-                                 and value.lower() == f"cfg:CatalogObject.{owner}".lower()}
+                                 and value.lower() == f"cfg:{owner_kind}Object.{owner}".lower()}
     if has_element_child(entry["node"]):
         root = etree.Element(f"{{{MD_NS}}}MetaDataObject")
         node = copy.deepcopy(entry["node"])
@@ -6330,9 +6335,11 @@ def get_linked_package_plans(keys, ext, cfg):
             for key in keys:
                 entry = ROOT_OWN[key]
                 plan = get_root_object_plan(entry, ext["dir"], prefix, cfg)
-                if plan["status"] not in ("NOT_TRANSFERRED", "PACKAGE_PARTIAL"):
+                if plan["status"] not in ("NOT_TRANSFERRED", "PACKAGE_PARTIAL", "TRANSFERRED"):
                     blocked.append(dict(plan, id=key))
                     continue
+                if plan["status"] == "TRANSFERRED" and not plan.get("items"):
+                    plan["items"] = [new_item("TRANSFERRED", f"own object (found as {plan['target']})")]
                 if plan["target"].lower() != ROOT_PROVISIONAL[key]["target"].lower():
                     changes[key] = plan["target"]
                 members.append((entry, plan))
