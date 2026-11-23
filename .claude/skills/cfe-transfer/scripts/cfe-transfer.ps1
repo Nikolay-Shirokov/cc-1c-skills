@@ -1,4 +1,4 @@
-﻿# cfe-transfer v1.47 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+﻿# cfe-transfer v1.52 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -878,14 +878,42 @@ function Get-MethodSafe($lines, [string]$methodName) {
 # Lexical spans cover the original text, including multiline literals and doubled quotes.
 # Offsets are used for edits; formatting never comes from comparison keys.
 $script:bslLiteralRe = '"(?:""|[^"\r\n])*(?:\r?\n[\t ]*(?:\|(?:""|[^"\r\n])*|//[^\r\n]*|(?=\r?\n|$)))*(?:"|(?=\r?\n|$))'
-function Get-BslTokens($lines) {
+$script:bslTokenCache = [Collections.Generic.Dictionary[string,object]]::new([StringComparer]::Ordinal)
+$script:bslTokenOrder = [Collections.Generic.Queue[string]]::new()
+$script:bslCachedTokenCount = 0
+
+# Read-only spans depend only on exact source text. Names are resolved by callers against the current plan.
+function Get-BslLexicalSpans($lines) {
 	$text = @($lines) -join "`n"
+	$cached = $null
+	if ($script:bslTokenCache.TryGetValue($text, [ref]$cached)) { return $cached }
 	$rx = '//[^\r\n]*|' + $script:bslLiteralRe + '|\w+|\s+|[^\w\s]'
+	$all = [Collections.Generic.List[object]]::new()
+	$significant = [Collections.Generic.List[object]]::new()
 	foreach ($m in [regex]::Matches($text, $rx)) {
 		$v = $m.Value
 		$kind = if ($v.StartsWith('//')) { 'comment' } elseif ($v.StartsWith('"') -and $v.Length -ge 2 -and $v.EndsWith('"')) { 'string' } elseif ($v.StartsWith('"')) { 'fragment' } elseif ($v -match '^\w+$') { 'word' } else { 'punct' }
-		@{ Kind = $kind; Value = $v; Start = $m.Index; Length = $m.Length }
+		$token = @{ Kind = $kind; Value = $v; Start = $m.Index; Length = $m.Length }
+		$all.Add($token)
+		if ($kind -ne 'comment' -and $v -notmatch '^\s+$') { $significant.Add($token) }
 	}
+	$result = @{ All = $all.ToArray(); Significant = $significant.ToArray() }
+	# Limit both the number of source strings and the retained token objects.
+	if ($text.Length -le 8192 -and $all.Count -le 40000) {
+		while ($script:bslTokenCache.Count -ge 1024 -or $script:bslCachedTokenCount + $all.Count -gt 40000) {
+			$old = $script:bslTokenOrder.Dequeue()
+			$script:bslCachedTokenCount -= $script:bslTokenCache[$old].All.Count
+			[void]$script:bslTokenCache.Remove($old)
+		}
+		$script:bslTokenCache.Add($text, $result)
+		$script:bslTokenOrder.Enqueue($text)
+		$script:bslCachedTokenCount += $all.Count
+	}
+	return $result
+}
+
+function Get-BslTokens($lines) {
+	return (Get-BslLexicalSpans $lines).All
 }
 
 function Get-CodeKey([string]$line, [string]$prefix) {
@@ -6552,9 +6580,10 @@ function Remove-FormNode($node) {
 
 # ChildItems of a form or an element; created where the platform writes it — after AutoCommandBar/Events of the
 # form, at the end of an element's own children
-function Get-FormChildItems($container, $root) {
+function Get-FormChildItems($container, $root, $fe) {
 	$ci = $container.SelectSingleNode("d:ChildItems", $ns)
 	if ($ci) { return $ci }
+	$fe.ElementIndex = $null
 	$doc = $container.OwnerDocument
 	$ci = $doc.CreateElement('ChildItems', $ns.LookupNamespace('d'))
 	if ($container -eq $root) {
@@ -6855,15 +6884,16 @@ function Insert-FormAttribute($attrs, $node) {
 
 # An element put among its parent's children: after the nearest previous sibling of the extension that the
 # configuration has, else first
-function Insert-FormElement($rec, $root, $nameMap, [string]$eol) {
+function Insert-FormElement($rec, $fe, $nameMap, [string]$eol) {
+	$root = $fe.Fw.Doc.DocumentElement
 	$parentName = $rec.Parent
 	$container = $root
 	if ($parentName) {
-		$target = Find-FormTarget $root $nameMap $parentName
+		$target = Find-FormTarget $fe $nameMap $parentName
 		if (-not $target) { return $null }
 		$container = $target
 	}
-	$ci = Get-FormChildItems $container $root
+	$ci = Get-FormChildItems $container $root $fe
 	$ref = $null; $foundAny = $false
 	for ($i = $rec.Pos - 1; $i -ge 0; $i--) {
 		$sib = $rec.Siblings[$i]
@@ -6889,7 +6919,7 @@ function New-FormEdit([string]$path, [string]$extForm, [string]$extModule, [stri
 			Path = $path; Fw = $fw; SrcDoc = (Read-FormDocKeep $extForm); Pools = (Get-FormIdPools $fw.Doc.DocumentElement)
 			ExtForm = $extForm; ExtModule = $extModule; CfgModule = $cfgModule; ExtDir = $extDir; Prefix = $prefix; Label = $label
 			FormInfo = @{ Xml = $extForm; Module = $extModule; Label = $label }
-			Ops = (New-Object System.Collections.ArrayList); Failed = 0
+			Ops = (New-Object System.Collections.ArrayList); Failed = 0; ElementIndex = $null
 		}
 	}
 	# Insertion helpers of this form write its line breaks
@@ -6897,11 +6927,25 @@ function New-FormEdit([string]$path, [string]$extForm, [string]$extModule, [stri
 	return $script:formEdits[$k]
 }
 
+# Reuse the same ordered index while the edit document's element tree is intact.
+function Get-FormEditElementIndex($fe) {
+	if ($null -eq $fe.ElementIndex) {
+		$fe.ElementIndex = Get-FormElementIndex $fe.Fw.Doc.DocumentElement
+	}
+	return ,$fe.ElementIndex
+}
+
+function Reset-FormEditIndexForProperty($fe, $node) {
+	if ($null -ne $node -and ($node.LocalName -eq 'ChildItems' -or (Test-FormElement $node))) {
+		$fe.ElementIndex = $null
+	}
+}
+
 # The element of the configuration by its name in the extension: the name map applied. Attributes, commands
 # and parameters may share a name with an element — only the form's own elements are looked up here
-function Find-FormTarget($root, $nameMap, [string]$name) {
+function Find-FormTarget($fe, $nameMap, [string]$name) {
 	$mn = if ($nameMap.ContainsKey($name.ToLower())) { $nameMap[$name.ToLower()] } else { $name }
-	$idx = Get-FormElementIndex $root
+	$idx = Get-FormEditElementIndex $fe
 	$hit = Find-NameIn @($idx.Keys) $mn ''
 	if ($hit) { return $idx[$hit].Node }
 	return $null
@@ -6957,11 +7001,11 @@ function Apply-FormOp($fe, $op, $ctx) {
 		}
 		'element' {
 			# Only the form's own elements count: an attribute may share a name with an element
-			$elNames = @((Get-FormElementIndex $root).Keys)
+			$elNames = @((Get-FormEditElementIndex $fe).Keys)
 			# What a copied ancestor brought into this run is not added a second time
 			$mn = if ($ctx.NameMap.ContainsKey($op.Rec.Name.ToLower())) { $ctx.NameMap[$op.Rec.Name.ToLower()] } else { $op.Rec.Name }
 			if (Find-NameIn $elNames $mn '') { return }
-			$where = Insert-FormElement $op.Rec $root $ctx.NameMap $eol
+			$where = Insert-FormElement $op.Rec $fe $ctx.NameMap $eol
 			if (-not $where) { throw "SKIP: parent $($op.Rec.Parent) is not in the configuration" }
 			$node = & $copy $op.Rec.Node $null $ctx.TempMarks
 			# Descendants the configuration already has come with their own items: a property, a move — the
@@ -6980,10 +7024,11 @@ function Apply-FormOp($fe, $op, $ctx) {
 				if (-not $cmds0.Contains($v)) { throw "SKIP: command $v is not in the configuration" }
 			}
 			Set-FormSubtreeIndent $node $eol ((Get-FormDepth $where.Ci) + 1)
+			$fe.ElementIndex = $null
 			Insert-FormNodeAt $where.Ci $node $where.Ref $eol
 		}
 		'event' {
-			$target = if ($op.Scope) { Find-FormTarget $root $ctx.NameMap $op.Scope } else { $root }
+			$target = if ($op.Scope) { Find-FormTarget $fe $ctx.NameMap $op.Scope } else { $root }
 			if (-not $target) { throw "SKIP: element $($op.Scope) is not in the configuration" }
 			$evs = $target.SelectSingleNode("d:Events", $ns)
 			if (-not $evs) {
@@ -6996,36 +7041,42 @@ function Apply-FormOp($fe, $op, $ctx) {
 			Insert-FormNodeAt $evs $node $null $eol
 		}
 		'prop' {
-			$target = Find-FormTarget $root $ctx.NameMap $op.Rec.Name
+			$target = Find-FormTarget $fe $ctx.NameMap $op.Rec.Name
 			if (-not $target) { throw "SKIP: element $($op.Rec.Name) is not in the configuration" }
 			foreach ($p in $op.Props) {
 				$keys = Get-FormPropKeys $target
+				$old = $keys[$p.Key]
 				if ($null -eq $p.New) {
-					if ($keys.ContainsKey($p.Key)) { Remove-FormNode $keys[$p.Key] }
+					if ($null -ne $old) { Reset-FormEditIndexForProperty $fe $old; Remove-FormNode $old }
 					continue
 				}
 				$node = & $copy $p.New $null
-				if ($keys.ContainsKey($p.Key)) { [void]$target.ReplaceChild($node, $keys[$p.Key]) }
+				Reset-FormEditIndexForProperty $fe $old
+				Reset-FormEditIndexForProperty $fe $node
+				if ($null -ne $old) { [void]$target.ReplaceChild($node, $old) }
 				else { Insert-FormProp $target $op.Rec.Node $p.Key $node $eol }
 			}
 		}
 		'formprop' {
 			foreach ($p in $op.Props) {
 				$keys = Get-FormPropKeys $root
+				$old = $keys[$p.Key]
 				if ($null -eq $p.New) {
-					if ($keys.ContainsKey($p.Key)) { Remove-FormNode $keys[$p.Key] }
+					if ($null -ne $old) { Reset-FormEditIndexForProperty $fe $old; Remove-FormNode $old }
 					continue
 				}
 				$node = & $copy $p.New $null
-				if ($keys.ContainsKey($p.Key)) { [void]$root.ReplaceChild($node, $keys[$p.Key]) }
+				Reset-FormEditIndexForProperty $fe $old
+				Reset-FormEditIndexForProperty $fe $node
+				if ($null -ne $old) { [void]$root.ReplaceChild($node, $old) }
 				else { Insert-FormProp $root $op.ExtRoot $p.Key $node $eol }
 			}
 		}
 		'move' {
-			$target = Find-FormTarget $root $ctx.NameMap $op.Rec.Name
+			$target = Find-FormTarget $fe $ctx.NameMap $op.Rec.Name
 			if (-not $target) { throw "SKIP: element $($op.Rec.Name) is not in the configuration" }
 			if ($op.Rec.Parent) {
-				$parent = Find-FormTarget $root $ctx.NameMap $op.Rec.Parent
+				$parent = Find-FormTarget $fe $ctx.NameMap $op.Rec.Parent
 				if (-not $parent) { throw "SKIP: parent $($op.Rec.Parent) is not in the configuration" }
 				for ($ancestor = $parent; $ancestor; $ancestor = $ancestor.ParentNode) {
 					if ([object]::ReferenceEquals($ancestor, $target)) {
@@ -7034,13 +7085,15 @@ function Apply-FormOp($fe, $op, $ctx) {
 				}
 			}
 			$node = $target.CloneNode($true)
+			$fe.ElementIndex = $null
 			Remove-FormNode $target
 			# The spot is looked up after the element has left: its neighbours have changed
-			$where = Insert-FormElement $op.Rec $root $ctx.NameMap $eol
+			$where = Insert-FormElement $op.Rec $fe $ctx.NameMap $eol
 			if (-not $where) { throw "parent $($op.Rec.Parent) disappeared during the move" }
 			$ci = $where.Ci
 			$ref = $null
 			if ($where.Ref -and $where.Ref.ParentNode -eq $ci) { $ref = $where.Ref }
+			$fe.ElementIndex = $null
 			Insert-FormNodeAt $ci $node $ref $eol
 		}
 		'appearance' {
@@ -7979,9 +8032,10 @@ function Get-BslArguments($tokens, [int]$open) {
 }
 
 # Result includes diagnostics; callers decide whether a complete transfer unit must stay manual.
-function Get-BslConversion($lines, $fileMap, $ctx, $params = $null, [switch]$Comparison) {
-	$all = @(Get-BslTokens $lines)
-	$ts = @($all | Where-Object { $_.Kind -ne 'comment' -and $_.Value -notmatch '^\s+$' })
+function Get-BslConversion($lines, $fileMap, $ctx, $params = $null, [switch]$Comparison, [switch]$IncludeWarnings) {
+	$spans = Get-BslLexicalSpans $lines
+	$all = $spans.All
+	$ts = $spans.Significant
 	$edits = @{}; $handled = @{}; $issues = @(); $warnings = @(); $references = @()
 	$methods = @{}; $attrs = @{}
 	if ($ctx) { foreach ($k in $ctx.Methods.Keys) { $methods[$k] = $ctx.Methods[$k] }; $attrs = $ctx.Attrs }
@@ -8150,15 +8204,17 @@ function Get-BslConversion($lines, $fileMap, $ctx, $params = $null, [switch]$Com
 			}
 		}
 	}
-	foreach ($t in $ts) {
-		if ($t.Kind -ne 'string' -or $handled.ContainsKey($t.Start)) { continue }
-		$v = $t.Value.Substring(1, $t.Value.Length - 2).Replace('""', '"'); $k = $v.ToLowerInvariant()
-		foreach ($pair in @(@{ Map = $methods; Kind = 'method' }, @{ Map = $attrs; Kind = 'attribute' })) {
-			$renames2 = @{}
-			$maps2 = @($pair.Map)
-			foreach ($c2 in $script:bslCatalog.Values) { $maps2 += if ($pair.Kind -eq 'method') { $c2.Methods } else { $c2.Attrs } }
-			foreach ($map2 in $maps2) { if ($map2.ContainsKey($k) -and $map2[$k] -ine $v) { $renames2[$map2[$k]] = "$v -> $($map2[$k])" } }
-			if ($renames2.Count) { $warnings += @{ Token = $t; Kind = $pair.Kind; Rename = (@($renames2.Values | Sort-Object) -join ', ') } }
+	if ($IncludeWarnings) {
+		foreach ($t in $ts) {
+			if ($t.Kind -ne 'string' -or $handled.ContainsKey($t.Start)) { continue }
+			$v = $t.Value.Substring(1, $t.Value.Length - 2).Replace('""', '"'); $k = $v.ToLowerInvariant()
+			foreach ($pair in @(@{ Map = $methods; Kind = 'method' }, @{ Map = $attrs; Kind = 'attribute' })) {
+				$renames2 = @{}
+				$maps2 = @($pair.Map)
+				foreach ($c2 in $script:bslCatalog.Values) { $maps2 += if ($pair.Kind -eq 'method') { $c2.Methods } else { $c2.Attrs } }
+				foreach ($map2 in $maps2) { if ($map2.ContainsKey($k) -and $map2[$k] -ine $v) { $renames2[$map2[$k]] = "$v -> $($map2[$k])" } }
+				if ($renames2.Count) { $warnings += @{ Token = $t; Kind = $pair.Kind; Rename = (@($renames2.Values | Sort-Object) -join ', ') } }
+			}
 		}
 	}
 	$sb = New-Object System.Text.StringBuilder
@@ -8182,7 +8238,7 @@ function Protect-BslParameterMembers($lines, $params) {
 
 # Project the effective method before lexing it: a payload may begin or end inside a literal.
 # Ranges keep each raw edit's identity while strings and call arguments see the complete body.
-function Get-ControlProjection($body, $fileMap, [string]$prefix, $params = $null) {
+function Get-ControlSourceProjection($body) {
 	$desired = @(); $source = @(); $ranges = @{}; $opIndex = -1; $i = 0
 	while ($i -lt $body.Count) {
 		$kind2 = Get-BslMarkerKind $body[$i]
@@ -8195,15 +8251,20 @@ function Get-ControlProjection($body, $fileMap, [string]$prefix, $params = $null
 			$ranges[$opIndex] = @{ Start = $start2; End = $desired.Count }; $i++
 		} else { $desired += $body[$i]; $source += $i; $i++ }
 	}
-	$converted2 = Convert-BslCode $desired $fileMap $params
+	return @{ Desired = $desired; Source = $source; Ranges = $ranges }
+}
+
+function Get-ControlProjection($body, $fileMap, [string]$prefix, $params = $null) {
+	$projection = Get-ControlSourceProjection $body
+	$converted2 = Convert-BslCode $projection.Desired $fileMap $params
 	$keys2 = @(Get-CodeKeys $converted2 $prefix -params $params)
 	$payloads2 = @{}; $payloadKeys2 = @{}
-	foreach ($k2 in $ranges.Keys) {
-		$r2 = $ranges[$k2]; $ls2 = @(); $ks2 = @()
+	foreach ($k2 in $projection.Ranges.Keys) {
+		$r2 = $projection.Ranges[$k2]; $ls2 = @(); $ks2 = @()
 		for ($j2 = $r2.Start; $j2 -lt $r2.End; $j2++) { $ls2 += $converted2[$j2]; $ks2 += $keys2[$j2] }
 		$payloads2[$k2] = $ls2; $payloadKeys2[$k2] = $ks2
 	}
-	return @{ Desired = $desired; Source = $source; Ranges = $ranges; Payloads = $payloads2; PayloadKeys = $payloadKeys2; Keys = $keys2 }
+	return @{ Desired = $projection.Desired; Source = $projection.Source; Ranges = $projection.Ranges; Payloads = $payloads2; PayloadKeys = $payloadKeys2; Keys = $keys2 }
 }
 
 function Get-BslPlanIssue($plan) {
@@ -8216,7 +8277,11 @@ function Get-BslPlanIssue($plan) {
 	}
 	foreach ($m2 in $methods2) {
 		$ls2 = $m2.BodyLines; $sourceMap = $null
-		if ($plan.Kind -eq 'control') { $projection2 = Get-ControlProjection $ls2 @{} $script:transferPrefix $m2.ParamNames; $ls2 = $projection2.Desired; $sourceMap = $projection2.Source }
+		if ($plan.Kind -eq 'control') {
+			$projection2 = Get-ControlSourceProjection $ls2
+			$ls2 = $projection2.Desired
+			$sourceMap = $projection2.Source
+		}
 		$r2 = Get-BslConversion $ls2 @{} $script:bslContext $m2.ParamNames
 		foreach ($issue2 in $r2.Issues) {
 			$offset2 = ([regex]::Matches((@($ls2) -join "`n").Substring(0, $issue2.Token.Start), "`n")).Count
@@ -8295,7 +8360,7 @@ function Get-BslWarningReport($records, [string]$extDir) {
 			$cm = Get-MethodSafe (Read-BslLines (Get-CfgPath $pl.Rel)) $name
 			if ($cm) { $m = $cm; $side = 'config' }
 		}
-		$bc = Get-BslConversion $m.BodyLines @{} $ctx $m.ParamNames
+		$bc = Get-BslConversion $m.BodyLines @{} $ctx $m.ParamNames -IncludeWarnings
 		$text = @($m.BodyLines) -join "`n"
 		foreach ($w in $bc.Warnings) {
 			$line = $m.SigEndIdx + 2 + ([regex]::Matches($text.Substring(0, $w.Token.Start), "`n")).Count
@@ -9073,8 +9138,21 @@ function Add-OutName($byFile, $common, [string]$cfgFile, [string]$rel, [string]$
 # names its own things as the extension does, so a word matches by the very name: a plain Товары is
 # not the extension's Расш_Товары.
 function Get-UsedMissing($lines, $missing, $selected = $null, $params = $null, $formItems = $null) {
-	$hit = @{}
-	if ($missing.Count -eq 0 -and $formItems.Count -eq 0) { return @() }
+	$check = @{ Missing = $missing; FormItems = $formItems }
+	Find-UsedMissingInSets $lines @($check) $selected $params
+	return $check.Names
+}
+
+# Scan one candidate against independent sets without changing the priority of their results.
+function Find-UsedMissingInSets($lines, $checks, $selected, $params) {
+	$active = @(foreach ($check in $checks) {
+		$check.Names = @()
+		if ($check.Missing.Count -or $check.FormItems.Count) {
+			$check.Hit = @{}
+			$check
+		}
+	})
+	if ($active.Count -eq 0) { return }
 	$only = Get-CodeOnly $lines
 	for ($lineIdx = 0; $lineIdx -lt $only.Count; $lineIdx++) {
 		if ($null -ne $selected -and -not $selected.ContainsKey($lineIdx)) { continue }
@@ -9082,30 +9160,41 @@ function Get-UsedMissing($lines, $missing, $selected = $null, $params = $null, $
 		foreach ($m in [regex]::Matches($t, '[\w]+')) {
 			$k = $m.Value.ToLower()
 			if ($params -contains $k) { continue }
-			if ($missing.ContainsKey($k)) { $hit[$missing[$k]] = $true }
+			foreach ($check in $active) {
+				if ($check.Missing.ContainsKey($k)) { $check.Hit[$check.Missing[$k]] = $true }
+			}
 		}
 	}
 	# Only explicit API references carry dependencies through strings. Ordinary data may warn,
 	# but never waits merely because its text is also the name of a blocked method.
 	$bc = Get-BslConversion $lines @{} $script:bslContext $params
+	$text = @($lines) -join [char]10
 	foreach ($ref in $bc.References) {
-		$refLine = ([regex]::Matches((@($lines) -join "`n").Substring(0, $ref.Token.Start), "`n")).Count
-		if ($null -ne $selected -and -not $selected.ContainsKey($refLine)) { continue }
+		if ($null -ne $selected) {
+			$refLine = ([regex]::Matches($text.Substring(0, $ref.Token.Start), [string][char]10)).Count
+			if (-not $selected.ContainsKey($refLine)) { continue }
+		}
 		$k = $ref.Name.ToLower()
-		if ($ref.Kind -in @('form_item', 'attribute') -and $ref.Context.Kind -eq 'form' -and $formItems -and $formItems.ContainsKey($k)) {
-			$hit[$formItems[$k]] = $true
+		if ($ref.Kind -in @('form_item', 'attribute') -and $ref.Context.Kind -eq 'form') {
+			foreach ($check in $active) {
+				if ($check.FormItems -and $check.FormItems.ContainsKey($k)) { $check.Hit[$check.FormItems[$k]] = $true }
+			}
 		}
 		if ($ref.Context -and $ref.Context -ne $script:bslContext -and $ref.Context.Kind -eq 'common') {
 			$mod = ($ref.Context.Rel -replace '\\', '/').Split('/')[1]; $k = "$mod.$($ref.Name)".ToLower()
 		}
 		if ($ref.Context -and $ref.Context -ne $script:bslContext -and $ref.Context.Kind -eq 'application') { continue }
 		if ($ref.Kind -eq 'method') { $k = "method:$k" }
-		if ($missing.ContainsKey($k)) { $hit[$missing[$k]] = $true }
+		foreach ($check in $active) {
+			if ($check.Missing.ContainsKey($k)) { $check.Hit[$check.Missing[$k]] = $true }
+		}
 	}
 	# Ordinal, case-insensitive: the same order in both ports, whatever the culture
-	$arr = [string[]]@($hit.Keys)
-	if ($arr.Count -gt 1) { [Array]::Sort($arr, [StringComparer]::OrdinalIgnoreCase) }
-	return $arr
+	foreach ($check in $active) {
+		$arr = [string[]]@($check.Hit.Keys)
+		if ($arr.Count -gt 1) { [Array]::Sort($arr, [StringComparer]::OrdinalIgnoreCase) }
+		$check.Names = $arr
+	}
 }
 
 # The new body of an &ИзменениеИКонтроль method, compared again: every edit must come out absorbed,
@@ -10182,27 +10271,31 @@ if ($Mode -eq 'transfer') {
 				if ($pl.Kind -eq 'own') { $missing.Remove("method:$($pl.Name)") }
 				$selected2 = $null
 				if ($pl.Kind -eq 'control') {
-					$cp2 = Get-ControlProjection $pl.ExtM.BodyLines $fileMap $prefix $pl.ExtM.ParamNames
+					$cp2 = Get-ControlSourceProjection $pl.ExtM.BodyLines
 					$code = $cp2.Desired; $selected2 = @{}
 					foreach ($op2 in @($pl.Ops | Where-Object { $_.Res -eq 'pending' -and $_.Op.Kind -eq 'insert' })) {
 						$range2 = $cp2.Ranges[$op2.Op.SourceIndex]
 						for ($j2 = $range2.Start; $j2 -lt $range2.End; $j2++) { $selected2[$j2] = $true }
 					}
 				} else { $code = @($pl.ExtM.BodyLines) }
-				$deps = @(Get-UsedMissing $code $missing $selected2 $pl.ExtM.ParamNames $formMissingItems)
+				$tempMap = @{}
+				foreach ($m in @($tempByFile[$cfgFile.ToLower()], $tempCommon)) { if ($m) { foreach ($k in $m.Keys) { $tempMap[$k] = $m[$k] } } }
+				$dependencyCheck = @{ Missing = $missing; FormItems = $formMissingItems }
+				$tempMethodCheck = @{ Missing = $tempMap }
+				$tempFormCheck = @{ Missing = @{}; FormItems = $formTempItems }
+				Find-UsedMissingInSets $code @($dependencyCheck, $tempMethodCheck, $tempFormCheck) $selected2 $pl.ExtM.ParamNames
+				$deps = $dependencyCheck.Names
 				# A conflict or a missing module shows first: waiting would hide it
 				$blocked = ($pl.Kind -eq 'control' -and @($pl.Ops | Where-Object { @('pending', 'absorbed', 'temp') -notcontains $_.Res }).Count -gt 0) -or
 					($pl.Kind -eq 'own' -and ($it.Status -eq 'DIVERGED' -or $pl.CfgMissing -or ($pl.Target -and $pl.Target.Taken))) -or
 					($pl.Kind -eq 'intercept' -and $it.Status -eq 'PARTIAL')
-				$tempMap = @{}
-				foreach ($m in @($tempByFile[$cfgFile.ToLower()], $tempCommon)) { if ($m) { foreach ($k in $m.Keys) { $tempMap[$k] = $m[$k] } } }
-				$tempDeps = @(Get-UsedMissing $code $tempMap $selected2 $pl.ExtM.ParamNames)
+				$tempDeps = $tempMethodCheck.Names
 				if ($tempDeps.Count -gt 0 -and -not $blocked) {
 					$t.Text = "$label — calls $($tempDeps -join ', '), marked as not for transfer"
 					$t.Sub = Get-WhereLines $pl 'drop the call before the transfer or remove the mark from the method, then re-run -Mode transfer'
 					$titems += $t; continue
 				}
-				$formTempDeps = @(Get-UsedMissing $code @{} $selected2 $pl.ExtM.ParamNames $formTempItems)
+				$formTempDeps = $tempFormCheck.Names
 				if ($formTempDeps.Count -gt 0 -and -not $blocked) {
 					$t.Text = "$label — uses form items $($formTempDeps -join ', '), marked as not for transfer"
 					$t.Sub = Get-WhereLines $pl 'drop the use before the transfer or remove the mark from the form module, then re-run -Mode transfer'

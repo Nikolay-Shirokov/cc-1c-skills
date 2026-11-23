@@ -1,5 +1,5 @@
 ﻿#!/usr/bin/env python3
-# cfe-transfer v1.47 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+# cfe-transfer v1.52 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -15,7 +15,7 @@ import sys
 import time
 import tempfile
 import uuid
-from collections import Counter
+from collections import Counter, OrderedDict
 from decimal import Decimal, InvalidOperation
 from lxml import etree
 
@@ -6921,10 +6921,11 @@ def remove_form_node(node):
         parent.text = tail
 
 
-def get_form_child_items(container):
+def get_form_child_items(container, fe):
     ci = container.find("d:ChildItems", NSMAP)
     if ci is not None:
         return ci
+    fe["element_index"] = None
     ci = etree.SubElement(container, "{%s}ChildItems" % NSMAP["d"])
     return ci
 
@@ -7229,16 +7230,16 @@ def get_form_section(root, name):
     return s
 
 
-def insert_form_element(rec, root, name_map):
+def insert_form_element(rec, fe, name_map):
     """An element put among its parent's children: after the nearest previous sibling the configuration has."""
     parent_name = rec["parent"]
-    container = root
+    container = fe["fw"]["root"]
     if parent_name:
-        target = find_form_target(root, name_map, parent_name)
+        target = find_form_target(fe, name_map, parent_name)
         if target is None:
             return None
         container = target
-    ci = get_form_child_items(container)
+    ci = get_form_child_items(container, fe)
     ref = None
     found_any = False
     for sib in reversed(rec["siblings"][:rec["pos"]]):
@@ -7254,11 +7255,23 @@ def insert_form_element(rec, root, name_map):
     return {"ci": ci, "ref": ref}
 
 
-def find_form_target(root, name_map, name):
+def get_form_edit_element_index(fe):
+    """Reuse the index while the edit document's element tree is intact."""
+    if fe["element_index"] is None:
+        fe["element_index"] = form_element_index(fe["fw"]["root"])
+    return fe["element_index"]
+
+
+def reset_form_edit_index_for_property(fe, node):
+    if node is not None and (localname(node) == "ChildItems" or is_form_element(node)):
+        fe["element_index"] = None
+
+
+def find_form_target(fe, name_map, name):
     """The element of the configuration by its name in the extension: the name map applied. Attributes and
     commands may share a name with an element — only the form's own elements are looked up here."""
     mn = name_map.get(name.lower(), name)
-    rec = form_element_index(root).get(mn.lower())
+    rec = get_form_edit_element_index(fe).get(mn.lower())
     return rec["node"] if rec else None
 
 
@@ -7307,12 +7320,12 @@ def apply_form_op(fe, op, ctx):
         insert_form_node_at(cmds, node, None, eol)
     elif kind == "element":
         # Only the form's own elements count: an attribute may share a name with an element
-        el_names = form_element_index(root)
+        el_names = get_form_edit_element_index(fe)
         # What a copied ancestor brought into this run is not added a second time
         mn = ctx["name_map"].get(op["rec"]["name"].lower(), op["rec"]["name"])
         if mn.lower() in el_names:
             return
-        where = insert_form_element(op["rec"], root, ctx["name_map"])
+        where = insert_form_element(op["rec"], fe, ctx["name_map"])
         if where is None:
             raise ValueError("SKIP: parent %s is not in the configuration" % op["rec"]["parent"])
         node = copy_node(op["rec"]["node"], omit_names=ctx["temp_marks"])
@@ -7335,9 +7348,10 @@ def apply_form_op(fe, op, ctx):
             if v.lower() not in cmds0:
                 raise ValueError("SKIP: command %s is not in the configuration" % v)
         set_form_subtree_indent(node, eol, get_form_depth(where["ci"]) + 1)
+        fe["element_index"] = None
         insert_form_node_at(where["ci"], node, where["ref"], eol)
     elif kind == "event":
-        target = find_form_target(root, ctx["name_map"], op["scope"]) if op["scope"] else root
+        target = find_form_target(fe, ctx["name_map"], op["scope"]) if op["scope"] else root
         if target is None:
             raise ValueError("SKIP: element %s is not in the configuration" % op["scope"])
         evs = target.find("d:Events", NSMAP)
@@ -7349,18 +7363,20 @@ def apply_form_op(fe, op, ctx):
         node.text = op["handler"]
         insert_form_node_at(evs, node, None, eol)
     elif kind == "prop":
-        target = find_form_target(root, ctx["name_map"], op["rec"]["name"])
+        target = find_form_target(fe, ctx["name_map"], op["rec"]["name"])
         if target is None:
             raise ValueError("SKIP: element %s is not in the configuration" % op["rec"]["name"])
         for p in op["props"]:
-            keys = get_form_prop_keys(target)
+            old = get_form_prop_keys(target).get(p["key"])
             if p["new"] is None:
-                if p["key"] in keys:
-                    remove_form_node(keys[p["key"]])
+                if old is not None:
+                    reset_form_edit_index_for_property(fe, old)
+                    remove_form_node(old)
                 continue
             node = copy_node(p["new"])
-            if p["key"] in keys:
-                old = keys[p["key"]]
+            reset_form_edit_index_for_property(fe, old)
+            reset_form_edit_index_for_property(fe, node)
+            if old is not None:
                 old.addprevious(node)
                 node.tail = old.tail
                 target.remove(old)
@@ -7368,34 +7384,38 @@ def apply_form_op(fe, op, ctx):
                 insert_form_prop(target, op["rec"]["node"], p["key"], node, eol)
     elif kind == "formprop":
         for p in op["props"]:
-            keys = get_form_prop_keys(root)
+            old = get_form_prop_keys(root).get(p["key"])
             if p["new"] is None:
-                if p["key"] in keys:
-                    remove_form_node(keys[p["key"]])
+                if old is not None:
+                    reset_form_edit_index_for_property(fe, old)
+                    remove_form_node(old)
                 continue
             node = copy_node(p["new"])
-            if p["key"] in keys:
-                old = keys[p["key"]]
+            reset_form_edit_index_for_property(fe, old)
+            reset_form_edit_index_for_property(fe, node)
+            if old is not None:
                 old.addprevious(node)
                 node.tail = old.tail
                 root.remove(old)
             else:
                 insert_form_prop(root, op["ext_root"], p["key"], node, eol)
     elif kind == "move":
-        target = find_form_target(root, ctx["name_map"], op["rec"]["name"])
+        target = find_form_target(fe, ctx["name_map"], op["rec"]["name"])
         if target is None:
             raise ValueError("SKIP: element %s is not in the configuration" % op["rec"]["name"])
         if op["rec"]["parent"]:
-            parent = find_form_target(root, ctx["name_map"], op["rec"]["parent"])
+            parent = find_form_target(fe, ctx["name_map"], op["rec"]["parent"])
             if parent is None:
                 raise ValueError("SKIP: parent %s is not in the configuration" % op["rec"]["parent"])
             if parent is target or any(ancestor is target for ancestor in parent.iterancestors()):
                 raise ValueError("SKIP: destination %s is inside the element being moved" % op["rec"]["parent"])
         node = copy.deepcopy(target)
+        fe["element_index"] = None
         remove_form_node(target)
-        where = insert_form_element(op["rec"], root, ctx["name_map"])
+        where = insert_form_element(op["rec"], fe, ctx["name_map"])
         if where is None:
             raise ValueError("parent %s disappeared during the move" % op["rec"]["parent"])
+        fe["element_index"] = None
         insert_form_node_at(where["ci"], node, where["ref"], eol)
     elif kind == "appearance":
         attrs = get_form_section(root, "Attributes")
@@ -7426,7 +7446,7 @@ def new_form_edit(path, ext_form, ext_module, cfg_module, ext_dir, prefix, label
             "ext_form": ext_form, "ext_module": ext_module, "cfg_module": cfg_module,
             "ext_dir": ext_dir, "prefix": prefix, "label": label,
             "form_info": {"xml": ext_form, "module": ext_module, "label": label},
-            "ops": [], "failed": 0,
+            "ops": [], "failed": 0, "element_index": None,
         }
     return FORM_EDITS[k]
 
@@ -8278,13 +8298,38 @@ BSL_CONFIG_PATH = ""
 BSL_CONTEXT = None
 BSL_LITERAL_PATTERN = r'"(?:""|[^"\r\n])*(?:\r?\n[\t ]*(?:\|(?:""|[^"\r\n])*|//[^\r\n]*|(?=\r?\n|$)))*(?:"|(?=\r?\n|$))'
 BSL_TOKEN_RE = re.compile(r'//[^\r\n]*|' + BSL_LITERAL_PATTERN + r'|\w+|\s+|[^\w\s]')
+BSL_TOKEN_CACHE = OrderedDict()
+BSL_CACHED_TOKEN_COUNT = 0
+
+
+# Read-only spans depend only on exact source text. Names are resolved against the current plan.
+def bsl_lexical_spans(lines):
+    global BSL_CACHED_TOKEN_COUNT
+    text = "\n".join(lines)
+    cached = BSL_TOKEN_CACHE.get(text)
+    if cached is not None:
+        return cached
+    tokens, significant = [], []
+    for m in BSL_TOKEN_RE.finditer(text):
+        v = m.group()
+        kind = "comment" if v.startswith("//") else "string" if v.startswith('"') and len(v) >= 2 and v.endswith('"') else "fragment" if v.startswith('"') else "word" if re.fullmatch(r'\w+', v) else "punct"
+        token = {"kind": kind, "value": v, "start": m.start(), "length": len(v)}
+        tokens.append(token)
+        if kind != "comment" and not v.isspace():
+            significant.append(token)
+    result = tuple(tokens), tuple(significant)
+    # Bound both the number of source strings and the retained token objects.
+    if len(text) <= 8192 and len(tokens) <= 40000:
+        while len(BSL_TOKEN_CACHE) >= 1024 or BSL_CACHED_TOKEN_COUNT + len(tokens) > 40000:
+            _, old = BSL_TOKEN_CACHE.popitem(last=False)
+            BSL_CACHED_TOKEN_COUNT -= len(old[0])
+        BSL_TOKEN_CACHE[text] = result
+        BSL_CACHED_TOKEN_COUNT += len(tokens)
+    return result
 
 
 def bsl_tokens(lines):
-    for m in BSL_TOKEN_RE.finditer("\n".join(lines)):
-        v = m.group()
-        kind = "comment" if v.startswith("//") else "string" if v.startswith('"') and len(v) >= 2 and v.endswith('"') else "fragment" if v.startswith('"') else "word" if re.fullmatch(r'\w+', v) else "punct"
-        yield {"kind": kind, "value": v, "start": m.start(), "length": len(v)}
+    return iter(bsl_lexical_spans(lines)[0])
 
 
 def initialize_bsl_catalog(ext_dir, config_path, prefix):
@@ -8502,10 +8547,9 @@ def get_bsl_arguments(tokens, opening):
     return args
 
 
-def get_bsl_conversion(lines, file_map, ctx, params=(), comparison=False):
+def get_bsl_conversion(lines, file_map, ctx, params=(), comparison=False, *, include_warnings=False):
     params = {name.lower() for name in params}
-    all_tokens = list(bsl_tokens(lines))
-    ts = [t for t in all_tokens if t['kind'] != 'comment' and not t['value'].isspace()]
+    all_tokens, ts = bsl_lexical_spans(lines)
     edits, handled, issues, warnings, references = {}, set(), [], [], []
     methods = dict(ctx['methods']) if ctx else {}
     methods.update(file_map)
@@ -8696,15 +8740,16 @@ def get_bsl_conversion(lines, file_map, ctx, params=(), comparison=False):
                         matches.add('%s -> %s' % (value, mm[sk]))
                 if matches:
                     issues.append({'token': st, 'rename': ', '.join(sorted(matches)), 'why': 'handler owner is unknown; the current module map cannot be used'})
-    for t in ts:
-        if t['kind'] != 'string' or t['start'] in handled:
-            continue
-        value = t['value'][1:-1].replace('""', '"'); k = value.lower()
-        for mapping, kind in ((methods, 'method'), (attrs, 'attribute')):
-            maps = [mapping] + [c['methods'] if kind == 'method' else c['attrs'] for c in BSL_CATALOG.values()]
-            renames = {m[k].lower(): '%s -> %s' % (value, m[k]) for m in maps if k in m and m[k].lower() != k}
-            if renames:
-                warnings.append({'token': t, 'kind': kind, 'rename': ', '.join(sorted(renames.values()))})
+    if include_warnings:
+        for t in ts:
+            if t['kind'] != 'string' or t['start'] in handled:
+                continue
+            value = t['value'][1:-1].replace('""', '"'); k = value.lower()
+            for mapping, kind in ((methods, 'method'), (attrs, 'attribute')):
+                maps = [mapping] + [c['methods'] if kind == 'method' else c['attrs'] for c in BSL_CATALOG.values()]
+                renames = {m[k].lower(): '%s -> %s' % (value, m[k]) for m in maps if k in m and m[k].lower() != k}
+                if renames:
+                    warnings.append({'token': t, 'kind': kind, 'rename': ', '.join(sorted(renames.values()))})
     text = ''.join(edits.get(t['start'], t['value']) for t in all_tokens)
     return {'lines': text.split('\n'), 'issues': issues, 'warnings': warnings, 'references': references}
 
@@ -8720,7 +8765,7 @@ def protect_bsl_parameter_members(lines, params):
     return lines
 
 
-def get_control_projection(body, file_map, prefix, params=()):
+def get_control_source_projection(body):
     desired, source, ranges, op_index, i = [], [], {}, -1, 0
     while i < len(body):
         kind = bsl_marker_kind(body[i])
@@ -8734,6 +8779,11 @@ def get_control_projection(body, file_map, prefix, params=()):
             ranges[op_index] = (start, len(desired)); i += 1
         else:
             desired.append(body[i]); source.append(i); i += 1
+    return desired, source, ranges
+
+
+def get_control_projection(body, file_map, prefix, params=()):
+    desired, source, ranges = get_control_source_projection(body)
     converted = convert_bsl_code(desired, file_map, params)
     keys = code_keys(converted, prefix, params=params)
     return {'desired': desired, 'source': source, 'ranges': ranges,
@@ -8753,8 +8803,7 @@ def get_bsl_plan_issue(plan):
     for m in methods:
         lines, source_map = m['body_lines'], None
         if plan['kind'] == 'control':
-            projection = get_control_projection(lines, {}, TRANSFER_PREFIX, m.get('param_names', ()))
-            lines, source_map = projection['desired'], projection['source']
+            lines, source_map, _ = get_control_source_projection(lines)
         bc = get_bsl_conversion(lines, {}, BSL_CONTEXT, m.get('param_names', ()))
         for issue in bc['issues']:
             offset = '\n'.join(lines)[:issue['token']['start']].count('\n')
@@ -8837,7 +8886,7 @@ def get_bsl_warning_report(records, config_path):
                 cm = get_method_safe(cl, name)
                 if cm:
                     m, side = cm, 'config'
-            bc = get_bsl_conversion(m['body_lines'], {}, ctx, m.get('param_names', ()))
+            bc = get_bsl_conversion(m['body_lines'], {}, ctx, m.get('param_names', ()), include_warnings=True)
             text = '\n'.join(m['body_lines'])
             for w in bc['warnings']:
                 offset = text[:w['token']['start']].count('\n')
@@ -9773,10 +9822,17 @@ def get_used_missing(lines, missing, selected=None, params=(), form_items=None):
     """Missing names the code uses (comments left out): the sorted original names. The extension's code
     names its own things as the extension does, so a word matches by the very name: a plain Товары is
     not the extension's Расш_Товары."""
-    if not missing and not form_items:
-        return []
+    return find_used_missing_in_sets(lines, [(missing, form_items)], selected, params)[0]
+
+
+def find_used_missing_in_sets(lines, checks, selected, params):
+    """Scan one candidate against independent sets without changing the priority of their results."""
+    hits = [set() for _ in checks]
+    active = [(missing, form_items, hit) for (missing, form_items), hit in zip(checks, hits)
+              if missing or form_items]
+    if not active:
+        return [[] for _ in checks]
     shadowed = {name.lower() for name in params}
-    hit = set()
     for line_idx, t in enumerate(get_code_only(lines)):
         if selected is not None and line_idx not in selected:
             continue
@@ -9784,17 +9840,19 @@ def get_used_missing(lines, missing, selected=None, params=(), form_items=None):
             k = m.group(0).lower()
             if k in shadowed:
                 continue
-            if k in missing:
-                hit.add(missing[k])
+            for missing, _, hit in active:
+                if k in missing:
+                    hit.add(missing[k])
     bc = get_bsl_conversion(lines, {}, BSL_CONTEXT, params)
+    text = '\n'.join(lines) if selected is not None else None
     for ref in bc['references']:
-        ref_line = '\n'.join(lines)[:ref['token']['start']].count('\n')
-        if selected is not None and ref_line not in selected:
+        if text is not None and text.count('\n', 0, ref['token']['start']) not in selected:
             continue
         k = ref['name'].lower()
-        if (ref["kind"] in ("form_item", "attribute") and ref["context"] and ref["context"]["kind"] == "form"
-                and form_items and k in form_items):
-            hit.add(form_items[k])
+        if ref["kind"] in ("form_item", "attribute") and ref["context"] and ref["context"]["kind"] == "form":
+            for _, form_items, hit in active:
+                if form_items and k in form_items:
+                    hit.add(form_items[k])
         if ref['context'] and ref['context'] is not BSL_CONTEXT and ref['context']['kind'] == 'common':
             mod = ref['context']['rel'].replace('\\', '/').split('/')[1]
             k = (mod + '.' + ref['name']).lower()
@@ -9802,10 +9860,11 @@ def get_used_missing(lines, missing, selected=None, params=(), form_items=None):
             continue
         if ref['kind'] == 'method':
             k = "method:" + k
-        if k in missing:
-            hit.add(missing[k])
+        for missing, _, hit in active:
+            if k in missing:
+                hit.add(missing[k])
     # Ordinal, case-insensitive (as StringComparer.OrdinalIgnoreCase in the .ps1, which upper-cases)
-    return sorted(hit, key=lambda x: x.upper())
+    return [sorted(hit, key=str.upper) for hit in hits]
 
 
 def get_control_result_gap(plan, body):
@@ -11037,31 +11096,32 @@ def main():
                         missing.pop("method:" + pl["name"].lower(), None)
                     selected2 = None
                     if pl["kind"] == "control":
-                        cp2 = get_control_projection(pl['ext_m']['body_lines'], file_map, prefix, pl['ext_m']['param_names'])
-                        code, selected2 = cp2['desired'], set()
+                        code, _, ranges = get_control_source_projection(pl['ext_m']['body_lines'])
+                        selected2 = set()
                         for op2 in pl['ops']:
                             if op2['res'] == 'pending' and op2['op']['kind'] == 'insert':
-                                a2, b2 = cp2['ranges'][op2['op']['source_index']]
+                                a2, b2 = ranges[op2['op']['source_index']]
                                 selected2.update(range(a2, b2))
                     else:
                         code = list(pl["ext_m"]["body_lines"])
-                    deps = get_used_missing(code, missing, selected2, pl["ext_m"]["param_names"], form_missing_items)
+                    temp_map = {}
+                    for m in (temp_by_file.get(cfg_file.lower()), temp_common):
+                        if m:
+                            temp_map.update(m)
+                    deps, temp_deps, form_temp_deps = find_used_missing_in_sets(
+                        code, [(missing, form_missing_items), (temp_map, None), ({}, form_temp_items)],
+                        selected2, pl["ext_m"]["param_names"],
+                    )
                     # A conflict or a missing module shows first: waiting would hide it
                     blocked = ((pl["kind"] == "control" and any(e["res"] not in ("pending", "absorbed", "temp") for e in pl["ops"]))
                                or (pl["kind"] == "own" and (it["status"] == "DIVERGED" or pl["cfg_missing"]
                                                             or (pl.get("target") or {}).get("taken")))
                                or (pl["kind"] == "intercept" and it["status"] == "PARTIAL"))
-                    temp_map = {}
-                    for m in (temp_by_file.get(cfg_file.lower()), temp_common):
-                        if m:
-                            temp_map.update(m)
-                    temp_deps = get_used_missing(code, temp_map, selected2, pl["ext_m"]["param_names"])
                     if temp_deps and not blocked:
                         t["text"] = "%s — calls %s, marked as not for transfer" % (label, ", ".join(temp_deps))
                         t["sub"] = get_where_lines(pl, "drop the call before the transfer or remove the mark from the method, then re-run -Mode transfer")
                         titems.append(t)
                         continue
-                    form_temp_deps = get_used_missing(code, {}, selected2, pl["ext_m"]["param_names"], form_temp_items)
                     if form_temp_deps and not blocked:
                         t["text"] = "%s — uses form items %s, marked as not for transfer" % (label, ", ".join(form_temp_deps))
                         t["sub"] = get_where_lines(pl, "drop the use before the transfer or remove the mark from the form module, then re-run -Mode transfer")
