@@ -1,0 +1,17 @@
+{
+  "name": "Сверка с ненайденным объектом возвращает ошибку отбора",
+  "setup": "fixture:form-event-new",
+  "params": {
+    "extensionPath": "cfe"
+  },
+  "cwd": "workDir",
+  "args_extra": ["-Name", "Catalog.Itmes"],
+  "expectError": true,
+  "expect": {
+    "stdoutContains": [
+      "[INFO] -Name: selected 0 objects",
+      "[ERROR] -Name: no object matches 'Catalog.Itmes'"
+    ],
+    "stdoutNotContains": ["=== Summary"]
+  }
+}

@@ -1,4 +1,4 @@
-﻿# cfe-transfer v1.55 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+﻿# cfe-transfer v1.56 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -9597,6 +9597,7 @@ function Get-FormItemRank($it) {
 # Project settings (.v8-project.json): development prefixes for both modes, the rest for transfer
 $script:settings = Get-TransferSettings $ConfigPath
 $script:configRefMap = Get-ConfigRefMap $ConfigPath
+$matchedIds = [ordered]@{}
 $script:devRe = $null
 if ($script:settings.DevPrefix.Count -gt 0) {
 	$alt = (@($script:settings.DevPrefix | Sort-Object -Property Length -Descending) | ForEach-Object { [regex]::Escape($_) }) -join '|'
@@ -9620,7 +9621,6 @@ if ($Mode -eq 'transfer') {
 	$script:nameMap = @{}
 	$script:seq = 0
 	$ext = @{ Dir = $extDir0; Name = $cp0.Name; Prefix = $prefix; Purpose = $cp0.Purpose }
-	$matchedIds = @{}
 	$roles = 0
 
 	# --- Pass 1: what the check sees, object by object ---
@@ -9642,7 +9642,7 @@ if ($Mode -eq 'transfer') {
 			}
 			continue
 		}
-		$matchedIds[$id.ToLower()] = $true
+		if ($nameFilter.Count) { $matchedIds[$id] = $id }
 		if ($obj.Type -eq 'Role' -and -not $script:rootOwn.ContainsKey($id)) { $roles++; continue }
 		$rec = Get-TransferObject $ext $obj
 		if ($rec.Items.Count -eq 0) { continue }
@@ -10621,7 +10621,9 @@ if ($Mode -eq 'transfer') {
 		if ($dv.Folded) { $anyFolded = $true }
 		$shown++
 	}
-	if ($shown -eq 0) { $body += if ($recs.Count -gt 0) { "All changes already transferred." } else { "No changes to transfer." } }
+	if ($shown -eq 0 -and ($nameFilter.Count -eq 0 -or $matchedIds.Count)) {
+		$body += if ($recs.Count -gt 0) { "All changes already transferred." } else { "No changes to transfer." }
+	}
 	$body += ""
 
 	$footer = @()
@@ -10679,7 +10681,6 @@ if ($Mode -eq 'transfer') {
 	$showDetails = $true
 } else {
 	$exts = @()
-	$matchedIds = @{}
 	foreach ($dir in $extDirs) {
 		$cp = Read-ConfigurationProps $dir
 		$ext = @{ Dir = $dir; Name = $cp.Name; Prefix = $cp.Prefix; Purpose = $cp.Purpose; Objects = @(); Roles = 0; Matched = 0 }
@@ -10693,7 +10694,7 @@ if ($Mode -eq 'transfer') {
 				$obj = @{ Type = $child.LocalName; Name = $child.InnerText.Trim() }
 				$id = "$($obj.Type).$($obj.Name)"
 				if (-not (Test-NameMatch $id)) { continue }
-				$matchedIds[$id.ToLower()] = $true
+				if ($nameFilter.Count) { $matchedIds[$id] = $id }
 				$ext.Matched++
 				if ($obj.Type -eq 'Role' -and -not $script:rootOwn.ContainsKey($id)) { $ext.Roles++; continue }
 				$rec = Get-TransferObject $ext $obj
@@ -10792,10 +10793,19 @@ if ($Mode -eq 'transfer') {
 		$footer += "=== Total: $($exts.Count) extensions — $extDone complete$tail ==="
 	}
 }
+$nameSelection = @()
 foreach ($f in $nameFilter) {
 	$hit = $false
-	foreach ($k in $matchedIds.Keys) { if ($k -eq $f.ToLower() -or ($f -notmatch '\.' -and $k.Substring($k.IndexOf('.') + 1) -eq $f.ToLower())) { $hit = $true; break } }
-	if (-not $hit) { $footer += "[INFO] -Name: no object matches '$f'" }
+	foreach ($id in $matchedIds.Values) {
+		if ($id -ieq $f -or ($f -notmatch '\.' -and $id.Substring($id.IndexOf('.') + 1) -ieq $f)) { $hit = $true; break }
+	}
+	if (-not $hit) { $nameSelection += "[ERROR] -Name: no object matches '$f'" }
+}
+if ($nameSelection.Count) {
+	$failed = $true
+	$selection = if ($matchedIds.Count) { "[INFO] -Name: matched objects: $($matchedIds.Values -join ', ')" } else { '[INFO] -Name: selected 0 objects' }
+	$nameSelection = @($selection) + $nameSelection
+	$footer = $nameSelection + $footer
 }
 if (-not $showDetails) {
 	$footer += "Details omitted ($fullCount lines in full). Use -Name <Type.Name>[,<Type.Name>] for item details."
@@ -10834,6 +10844,7 @@ if ($OutFile) {
 		Write-Host $transferSummary
 		if ($mdWarn.Count -gt 0) { Write-Host '!!! Stored data is NOT migrated. Review the full report before disabling or removing the extension.' }
 	}
+	foreach ($l in $nameSelection) { Write-Host $l }
 	Write-Host "Output written to $OutFile"
 } else {
 	foreach ($l in $out) { Write-Host $l }

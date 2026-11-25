@@ -1,5 +1,5 @@
 ﻿#!/usr/bin/env python3
-# cfe-transfer v1.55 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+# cfe-transfer v1.56 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -10332,13 +10332,15 @@ def main():
     if full_transfer_report:
         expand_list = ["*"]
 
-    def name_match(oid):
-        if not name_filter:
+    def name_match(oid, filters=name_filter):
+        if not filters:
             return True
-        for f in name_filter:
-            if oid.lower() == f.lower():
+        oid = oid.lower()
+        for f in filters:
+            f = f.lower()
+            if oid == f:
                 return True
-            if "." not in f and oid[oid.index(".") + 1:].lower() == f.lower():
+            if "." not in f and oid[oid.index(".") + 1:] == f:
                 return True
         return False
 
@@ -10350,7 +10352,7 @@ def main():
     if SETTINGS["dev_prefix"]:
         alt = "|".join(re.escape(x) for x in sorted(SETTINGS["dev_prefix"], key=len, reverse=True))
         DEV_RE = re.compile(r'(?<!\w)(?:' + alt + r')(?=\w)', re.IGNORECASE)
-    matched_ids = set()
+    matched_ids = {}
 
     if mode == "transfer":
         ext_dir0 = ext_dirs[0]
@@ -10391,7 +10393,8 @@ def main():
                     filtered_own.extend(it for it in rec["items"]
                                         if it.get("plan", {}).get("kind") == "own" and it["status"] != "TRANSFERRED")
                 continue
-            matched_ids.add(oid.lower())
+            if name_filter:
+                matched_ids[oid.lower()] = oid
             if obj["type"] == "Role" and oid.lower() not in ROOT_OWN:
                 roles += 1
                 continue
@@ -11460,7 +11463,7 @@ def main():
             if dv["folded"]:
                 any_folded = True
             shown += 1
-        if shown == 0:
+        if shown == 0 and (not name_filter or matched_ids):
             body.append("All changes already transferred." if recs else "No changes to transfer.")
         body.append("")
 
@@ -11538,7 +11541,6 @@ def main():
         unch_folded = False
     else:
         exts = []
-        matched_ids = set()
         for d in ext_dirs:
             cp = read_configuration_props(d)
             ext = {"dir": d, "name": cp["name"], "prefix": cp["prefix"], "purpose": cp["purpose"], "objects": [],
@@ -11555,7 +11557,8 @@ def main():
                     oid = "%s.%s" % (obj["type"], obj["name"])
                     if not name_match(oid):
                         continue
-                    matched_ids.add(oid.lower())
+                    if name_filter:
+                        matched_ids[oid.lower()] = oid
                     ext["matched"] += 1
                     if obj["type"] == "Role" and oid.lower() not in ROOT_OWN:
                         ext["roles"] += 1
@@ -11672,14 +11675,14 @@ def main():
         if len(exts) > 1:
             tail = (", %d with %d remaining" % (ext_left, left_total)) if ext_left else ""
             footer.append("=== Total: %d extensions — %d complete%s ===" % (len(exts), ext_done, tail))
-    for f in name_filter:
-        hit = False
-        for k in matched_ids:
-            if k == f.lower() or ("." not in f and k[k.index(".") + 1:] == f.lower()):
-                hit = True
-                break
-        if not hit:
-            footer.append("[INFO] -Name: no object matches '%s'" % f)
+    name_selection = ["[ERROR] -Name: no object matches '%s'" % f for f in name_filter
+                      if not any(name_match(oid, (f,)) for oid in matched_ids.values())]
+    if name_selection:
+        failed = True
+        selection = ("[INFO] -Name: matched objects: " + ", ".join(matched_ids.values())
+                     if matched_ids else "[INFO] -Name: selected 0 objects")
+        name_selection.insert(0, selection)
+        footer = name_selection + footer
     if not show_details:
         footer.append("Details omitted (%d lines in full). Use -Name <Type.Name>[,<Type.Name>] for item details." % full_count)
     if any_folded:
@@ -11719,6 +11722,8 @@ def main():
             print(transfer_summary)
             if MD_WARN:
                 print("!!! Stored data is NOT migrated. Review the full report before disabling or removing the extension.")
+        for line in name_selection:
+            print(line)
         print("Output written to " + out_file)
     else:
         for l in out:

@@ -86,6 +86,8 @@
   "args_extra": [
     "-Mode",
     "transfer",
+    "-Name",
+    "CommonModule.М,М2,CommonModule.DoesNotExist",
     "-Limit",
     "4",
     "-Offset",
@@ -96,6 +98,8 @@
     "stdoutContains": [
       "=== Summary",
       "transferred now",
+      "[INFO] -Name: matched objects: CommonModule.М, CommonModule.М2",
+      "[ERROR] -Name: no object matches 'CommonModule.DoesNotExist'",
       "Output written to"
     ],
     "stdoutNotContains": [
@@ -108,6 +112,8 @@
         "file": "transfer-report.txt",
         "text": [
           "=== cfe-transfer transfer:",
+          "[INFO] -Name: matched objects: CommonModule.М, CommonModule.М2",
+          "[ERROR] -Name: no object matches 'CommonModule.DoesNotExist'",
           "[TRANSFERRED]        &ИзменениеИКонтроль(\"А\") — 1 edit",
           "[TRANSFERRED]        &ИзменениеИКонтроль(\"Б\") — 2 edits",
           "[TRANSFERRED]        &ИзменениеИКонтроль(\"В\") — 1 edit, 1 already there",
