@@ -42,6 +42,7 @@
 			<ExtendedTooltip name="ArticleРасширеннаяПодсказка" id="9"/>
 			<Events>
 				<Event name="OnChange">ArticleOnChange</Event>
+				<Event name="StartChoice">ArticleStartChoice</Event>
 			</Events>
 		</InputField>
 		<LabelDecoration name="L3" id="4">

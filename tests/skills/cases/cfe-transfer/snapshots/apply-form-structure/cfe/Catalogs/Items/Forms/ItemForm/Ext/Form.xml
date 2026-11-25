@@ -41,6 +41,7 @@
 			<ExtendedTooltip name="ArticleРасширеннаяПодсказка" id="9"/>
 			<Events>
 				<Event name="OnChange" callType="Before">PatchA_ArticleOnChangeBefore</Event>
+				<Event name="StartChoice">PatchA_ArticleStartChoice</Event>
 			</Events>
 		</InputField>
 		<LabelDecoration name="L3" id="4">

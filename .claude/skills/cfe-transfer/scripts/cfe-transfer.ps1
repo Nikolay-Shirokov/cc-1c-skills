@@ -1,4 +1,4 @@
-﻿# cfe-transfer v1.52 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+﻿# cfe-transfer v1.53 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -6583,7 +6583,7 @@ function Remove-FormNode($node) {
 function Get-FormChildItems($container, $root, $fe) {
 	$ci = $container.SelectSingleNode("d:ChildItems", $ns)
 	if ($ci) { return $ci }
-	$fe.ElementIndex = $null
+	$fe.ElementLookup = $null
 	$doc = $container.OwnerDocument
 	$ci = $doc.CreateElement('ChildItems', $ns.LookupNamespace('d'))
 	if ($container -eq $root) {
@@ -6919,7 +6919,7 @@ function New-FormEdit([string]$path, [string]$extForm, [string]$extModule, [stri
 			Path = $path; Fw = $fw; SrcDoc = (Read-FormDocKeep $extForm); Pools = (Get-FormIdPools $fw.Doc.DocumentElement)
 			ExtForm = $extForm; ExtModule = $extModule; CfgModule = $cfgModule; ExtDir = $extDir; Prefix = $prefix; Label = $label
 			FormInfo = @{ Xml = $extForm; Module = $extModule; Label = $label }
-			Ops = (New-Object System.Collections.ArrayList); Failed = 0; ElementIndex = $null
+			Ops = (New-Object System.Collections.ArrayList); Failed = 0; ElementLookup = $null
 		}
 	}
 	# Insertion helpers of this form write its line breaks
@@ -6927,17 +6927,40 @@ function New-FormEdit([string]$path, [string]$extForm, [string]$extModule, [stri
 	return $script:formEdits[$k]
 }
 
-# Reuse the same ordered index while the edit document's element tree is intact.
-function Get-FormEditElementIndex($fe) {
-	if ($null -eq $fe.ElementIndex) {
-		$fe.ElementIndex = Get-FormElementIndex $fe.Fw.Doc.DocumentElement
+# Rebuild the index and its lookups together when the edit document's element tree changes.
+function Get-FormEditElementLookup($fe) {
+	if ($null -eq $fe.ElementLookup) {
+		$index = Get-FormElementIndex $fe.Fw.Doc.DocumentElement
+		$exact = [Collections.Generic.Dictionary[string,string]]::new([StringComparer]::InvariantCultureIgnoreCase)
+		foreach ($name in $index.Keys) {
+			if (-not $exact.ContainsKey($name)) { $exact.Add($name, $name) }
+		}
+		$fe.ElementLookup = @{ Index = $index; Exact = $exact; Normalized = $null }
 	}
-	return ,$fe.ElementIndex
+	return $fe.ElementLookup
+}
+
+function Find-FormIndexedName($lookup, [string]$name) {
+	[string]$hit = ''
+	if ($lookup.Exact.TryGetValue($name, [ref]$hit)) { return $hit }
+	# The form index uses an empty extension prefix. Without development prefixes there is no fallback.
+	if (-not $script:devRe) { return $null }
+	if ($null -eq $lookup.Normalized) {
+		$normalized = [Collections.Generic.Dictionary[string,string]]::new([StringComparer]::InvariantCultureIgnoreCase)
+		foreach ($candidate in $lookup.Index.Keys) {
+			$key = Get-NameKey $candidate ''
+			# Keep the first match in document order, as Find-NameIn does.
+			if (-not $normalized.ContainsKey($key)) { $normalized.Add($key, $candidate) }
+		}
+		$lookup.Normalized = $normalized
+	}
+	if ($lookup.Normalized.TryGetValue((Get-NameKey $name ''), [ref]$hit)) { return $hit }
+	return $null
 }
 
 function Reset-FormEditIndexForProperty($fe, $node) {
 	if ($null -ne $node -and ($node.LocalName -eq 'ChildItems' -or (Test-FormElement $node))) {
-		$fe.ElementIndex = $null
+		$fe.ElementLookup = $null
 	}
 }
 
@@ -6945,9 +6968,9 @@ function Reset-FormEditIndexForProperty($fe, $node) {
 # and parameters may share a name with an element — only the form's own elements are looked up here
 function Find-FormTarget($fe, $nameMap, [string]$name) {
 	$mn = if ($nameMap.ContainsKey($name.ToLower())) { $nameMap[$name.ToLower()] } else { $name }
-	$idx = Get-FormEditElementIndex $fe
-	$hit = Find-NameIn @($idx.Keys) $mn ''
-	if ($hit) { return $idx[$hit].Node }
+	$lookup = Get-FormEditElementLookup $fe
+	$hit = Find-FormIndexedName $lookup $mn
+	if ($hit) { return $lookup.Index[$hit].Node }
 	return $null
 }
 # The attribute of the configuration by its name: a form element may share it, the element stands first
@@ -7001,10 +7024,10 @@ function Apply-FormOp($fe, $op, $ctx) {
 		}
 		'element' {
 			# Only the form's own elements count: an attribute may share a name with an element
-			$elNames = @((Get-FormEditElementIndex $fe).Keys)
+			$lookup = Get-FormEditElementLookup $fe
 			# What a copied ancestor brought into this run is not added a second time
 			$mn = if ($ctx.NameMap.ContainsKey($op.Rec.Name.ToLower())) { $ctx.NameMap[$op.Rec.Name.ToLower()] } else { $op.Rec.Name }
-			if (Find-NameIn $elNames $mn '') { return }
+			if (Find-FormIndexedName $lookup $mn) { return }
 			$where = Insert-FormElement $op.Rec $fe $ctx.NameMap $eol
 			if (-not $where) { throw "SKIP: parent $($op.Rec.Parent) is not in the configuration" }
 			$node = & $copy $op.Rec.Node $null $ctx.TempMarks
@@ -7012,7 +7035,7 @@ function Apply-FormOp($fe, $op, $ctx) {
 			# copy of the new element must not bring a second one
 			foreach ($d in @($node.SelectNodes(".//*[@name]", $ns))) {
 				$dn = $d.GetAttribute('name')
-				if ($dn -and (Find-NameIn $elNames $dn '')) { [void]$d.ParentNode.RemoveChild($d) }
+				if ($dn -and (Find-FormIndexedName $lookup $dn)) { [void]$d.ParentNode.RemoveChild($d) }
 			}
 			# A button carries its command with it: a command the configuration does not have leaves
 			# the form broken
@@ -7024,7 +7047,7 @@ function Apply-FormOp($fe, $op, $ctx) {
 				if (-not $cmds0.Contains($v)) { throw "SKIP: command $v is not in the configuration" }
 			}
 			Set-FormSubtreeIndent $node $eol ((Get-FormDepth $where.Ci) + 1)
-			$fe.ElementIndex = $null
+			$fe.ElementLookup = $null
 			Insert-FormNodeAt $where.Ci $node $where.Ref $eol
 		}
 		'event' {
@@ -7085,7 +7108,7 @@ function Apply-FormOp($fe, $op, $ctx) {
 				}
 			}
 			$node = $target.CloneNode($true)
-			$fe.ElementIndex = $null
+			$fe.ElementLookup = $null
 			Remove-FormNode $target
 			# The spot is looked up after the element has left: its neighbours have changed
 			$where = Insert-FormElement $op.Rec $fe $ctx.NameMap $eol
@@ -7093,7 +7116,7 @@ function Apply-FormOp($fe, $op, $ctx) {
 			$ci = $where.Ci
 			$ref = $null
 			if ($where.Ref -and $where.Ref.ParentNode -eq $ci) { $ref = $where.Ref }
-			$fe.ElementIndex = $null
+			$fe.ElementLookup = $null
 			Insert-FormNodeAt $ci $node $ref $eol
 		}
 		'appearance' {
