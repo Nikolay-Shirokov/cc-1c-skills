@@ -79,42 +79,61 @@
     }
   ],
   "params": {
-    "extensionPath": "cfe"
+    "extensionPath": "cfe",
+    "outFile": "transfer-report.txt"
   },
   "cwd": "workDir",
   "args_extra": [
     "-Mode",
-    "transfer"
+    "transfer",
+    "-Limit",
+    "4",
+    "-Offset",
+    "5"
   ],
   "expectError": true,
   "expect": {
     "stdoutContains": [
-      "[TRANSFERRED]        &ИзменениеИКонтроль(\"А\") — 1 edit",
-      "[TRANSFERRED]        &ИзменениеИКонтроль(\"Б\") — 2 edits",
-      "[TRANSFERRED]        &ИзменениеИКонтроль(\"В\") — 1 edit, 1 already there",
-      "[TRANSFERRED]        method Тест_Сообщить (kept prefix: Сообщить exists) -> new region ПрограммныйИнтерфейс",
-      "[TRANSFERRED]        method Тест_Сумма (as Сумма) -> region СлужебныеПроцедурыИФункции",
-      "&ИзменениеИКонтроль(\"Г\") — 1 of 2 edits fit, 1 diverged; method not changed",
-      "next: original changed in config -> /cfe-patch-method -Actualize, then re-run -Mode transfer; otherwise apply by hand",
-      "[TRANSFERRED]        &ИзменениеИКонтроль(\"Д\") — 2 edits",
-      "[MANUAL]             &ИзменениеИКонтроль(\"Ж\") (method not found in config)",
-      "[CONFLICT]           method Е (body differs); not changed",
-      "&ИзменениеИКонтроль(\"Л\") — 1 of 2 edits fit, 1 diverged; method not changed",
-      "diverged: inserted code next to the carried-over deletion differs in config",
-      "[TRANSFERRED]        &ИзменениеИКонтроль(\"П\") — 1 edit",
-      "[TRANSFERRED]        &ИзменениеИКонтроль(\"Р\") — 1 edit, 1 already there",
-      "Changed files:",
-      "    CommonModules/М/Ext/Module.bsl",
-      "&ChangeAndValidate(\"InsertRepeat\")",
-      "&ChangeAndValidate(\"DeleteRepeat\")",
-      "repeated insertion is at a different position in config",
-      "repeated deletion is at a different position in config",
-      "&ChangeAndValidate(\"WrongInsertWithOtherEdit\") — 1 of 2 edits fit, 1 diverged; method not changed",
-      "&ChangeAndValidate(\"WrongDeleteWithOtherEdit\") — 1 of 2 edits fit, 1 diverged; method not changed",
-      "[CONFLICT]           method Тест_SignatureClash (found as SignatureClash) (declaration differs: parameter 1 has a different Val modifier)",
-      "[WAITING]            method Тест_SignatureCaller"
+      "=== Summary",
+      "transferred now",
+      "Output written to"
+    ],
+    "stdoutNotContains": [
+      "[CONFLICT]",
+      "[TRUNCATED]",
+      "Changed files:"
     ],
     "fileContains": [
+      {
+        "file": "transfer-report.txt",
+        "text": [
+          "=== cfe-transfer transfer:",
+          "[TRANSFERRED]        &ИзменениеИКонтроль(\"А\") — 1 edit",
+          "[TRANSFERRED]        &ИзменениеИКонтроль(\"Б\") — 2 edits",
+          "[TRANSFERRED]        &ИзменениеИКонтроль(\"В\") — 1 edit, 1 already there",
+          "[TRANSFERRED]        method Тест_Сообщить (kept prefix: Сообщить exists) -> new region ПрограммныйИнтерфейс",
+          "[TRANSFERRED]        method Тест_Сумма (as Сумма) -> region СлужебныеПроцедурыИФункции",
+          "&ИзменениеИКонтроль(\"Г\") — 1 of 2 edits fit, 1 diverged; method not changed",
+          "next: original changed in config -> /cfe-patch-method -Actualize, then re-run -Mode transfer; otherwise apply by hand",
+          "[TRANSFERRED]        &ИзменениеИКонтроль(\"Д\") — 2 edits",
+          "[MANUAL]             &ИзменениеИКонтроль(\"Ж\") (method not found in config)",
+          "[CONFLICT]           method Е (body differs); not changed",
+          "&ИзменениеИКонтроль(\"Л\") — 1 of 2 edits fit, 1 diverged; method not changed",
+          "diverged: inserted code next to the carried-over deletion differs in config",
+          "[TRANSFERRED]        &ИзменениеИКонтроль(\"П\") — 1 edit",
+          "[TRANSFERRED]        &ИзменениеИКонтроль(\"Р\") — 1 edit, 1 already there",
+          "Changed files:",
+          "    CommonModules/М/Ext/Module.bsl",
+          "&ChangeAndValidate(\"InsertRepeat\")",
+          "&ChangeAndValidate(\"DeleteRepeat\")",
+          "repeated insertion is at a different position in config",
+          "repeated deletion is at a different position in config",
+          "&ChangeAndValidate(\"WrongInsertWithOtherEdit\") — 1 of 2 edits fit, 1 diverged; method not changed",
+          "&ChangeAndValidate(\"WrongDeleteWithOtherEdit\") — 1 of 2 edits fit, 1 diverged; method not changed",
+          "[CONFLICT]           method Тест_SignatureClash (found as SignatureClash) (declaration differs: parameter 1 has a different Val modifier)",
+          "[WAITING]            method Тест_SignatureCaller"
+        ]
+      },
       {
         "file": "CommonModules/М/Ext/Module.bsl",
         "text": [
@@ -139,6 +158,10 @@
       }
     ],
     "fileNotContains": [
+      {
+        "file": "transfer-report.txt",
+        "text": "[TRUNCATED]"
+      },
       {
         "file": "CommonModules/М2/Ext/Module.bsl",
         "text": "Procedure SignatureCaller("

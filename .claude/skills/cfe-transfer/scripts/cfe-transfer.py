@@ -1,5 +1,5 @@
 ﻿#!/usr/bin/env python3
-# cfe-transfer v1.53 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+# cfe-transfer v1.54 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -10319,6 +10319,9 @@ def main():
 
     name_filter = [x.strip() for x in args.Name.split(",") if x.strip()] if args.Name else []
     expand_list = [x.strip() for x in args.Expand.split(",") if x.strip()] if args.Expand else []
+    full_transfer_report = mode == "transfer" and bool(args.OutFile)
+    if full_transfer_report:
+        expand_list = ["*"]
 
     def name_match(oid):
         if not name_filter:
@@ -11465,7 +11468,8 @@ def main():
         if roles:
             tail.append("%s, not transferred" % plural(roles, "role"))
         tail_text = (" · " + " · ".join(tail)) if tail else ""
-        footer.append("=== Summary %s: %s%s ===" % (ext["name"], ", ".join(parts), tail_text))
+        transfer_summary = "=== Summary %s: %s%s ===" % (ext["name"], ", ".join(parts), tail_text)
+        footer.append(transfer_summary)
         # The values the extension wrote into its own attributes do not come along: loud and never cut by
         # the detail budget, so it goes into the footer with the summary
         if MD_WARN:
@@ -11660,22 +11664,28 @@ def main():
     if not show_details:
         footer.append("Details omitted (%d lines in full). Use -Name <Type.Name>[,<Type.Name>] for item details." % full_count)
     if any_folded:
-        what = "already transferred" if mode == "transfer" else "transferred"
-        footer.append("Hint: use -Expand <Type.Name> or a section path to list %s changes, -Expand * for all" % what)
+        if mode == "check":
+            footer.append("Hint: use -Expand <Type.Name> or a section path to list transferred changes, -Expand * for all")
+        elif len(body) <= args.Offset + args.Limit:
+            footer.append("Hint: use -OutFile <path> on future transfers to save all details")
 
     # --- Pagination of the body; the footer stays ---
     total = len(body)
     out = []
     offset = args.Offset
     limit = args.Limit
-    if offset > 0 and offset >= total:
+    if full_transfer_report:
+        out.extend(body)
+    elif offset > 0 and offset >= total:
         out.append("[INFO] Offset %d exceeds total lines (%d)." % (offset, total))
     else:
         end = min(total, offset + limit)
         if end > offset:
             out += body[offset:end]
         if end < total:
-            out.append("[TRUNCATED] Shown %d of %d lines. Use -Offset %d to continue." % (end - offset, total, end))
+            hint = ("Use -OutFile <path> on future transfers to save the full report."
+                    if mode == "transfer" else "Use -Offset %d to continue." % end)
+            out.append("[TRUNCATED] Shown %d of %d lines. %s" % (end - offset, total, hint))
             out.append("")
     out += footer
 
@@ -11686,6 +11696,10 @@ def main():
         # Same bytes as [IO.File]::WriteAllLines in the .ps1: UTF-8 with BOM, CRLF, trailing newline
         with open(out_file, "w", encoding="utf-8-sig", newline="") as fh:
             fh.write("\r\n".join(out) + "\r\n")
+        if full_transfer_report:
+            print(transfer_summary)
+            if MD_WARN:
+                print("!!! Stored data is NOT migrated. Review the full report before disabling or removing the extension.")
         print("Output written to " + out_file)
     else:
         for l in out:

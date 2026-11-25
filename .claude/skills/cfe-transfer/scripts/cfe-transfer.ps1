@@ -1,4 +1,4 @@
-﻿# cfe-transfer v1.53 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+﻿# cfe-transfer v1.54 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -113,6 +113,8 @@ $nameFilter = @()
 if ($Name) { $nameFilter = @($Name -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ }) }
 $expandList = @()
 if ($Expand) { $expandList = @($Expand -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ }) }
+$fullTransferReport = $Mode -eq 'transfer' -and [bool]$OutFile
+if ($fullTransferReport) { $expandList = @('*') }
 
 # --- Type -> directory mapping ---
 $childTypeDirMap = @{
@@ -10618,7 +10620,8 @@ if ($Mode -eq 'transfer') {
 	if ($tempCount) { $tail += "$tempCount temporary skipped" }
 	if ($roles) { $tail += "$(Get-Plural $roles 'role'), not transferred" }
 	$tailText = if ($tail.Count) { " · $($tail -join ' · ')" } else { '' }
-	$footer += "=== Summary $($ext.Name): $($parts -join ', ')$tailText ==="
+	$transferSummary = "=== Summary $($ext.Name): $($parts -join ', ')$tailText ==="
+	$footer += $transferSummary
 	# The values the extension wrote into its own attributes do not come along: loud and never cut by
 	# the detail budget, so it goes into the footer with the summary
 	if ($mdWarn.Count -gt 0) {
@@ -10776,25 +10779,39 @@ if (-not $showDetails) {
 	$footer += "Details omitted ($fullCount lines in full). Use -Name <Type.Name>[,<Type.Name>] for item details."
 }
 if ($anyFolded) {
-	$what = if ($Mode -eq 'transfer') { 'already transferred' } else { 'transferred' }
-	$footer += "Hint: use -Expand <Type.Name> or a section path to list $what changes, -Expand * for all"
+	if ($Mode -eq 'check') {
+		$footer += "Hint: use -Expand <Type.Name> or a section path to list transferred changes, -Expand * for all"
+	} elseif ($body.Count -le $Offset + $Limit) {
+		$footer += "Hint: use -OutFile <path> on future transfers to save all details"
+	}
 }
 
 # --- Pagination of the body; the footer stays ---
 $total = $body.Count
 $out = @()
-if ($Offset -gt 0 -and $Offset -ge $total) {
+if ($fullTransferReport) {
+	$out = $body
+} elseif ($Offset -gt 0 -and $Offset -ge $total) {
 	$out += "[INFO] Offset $Offset exceeds total lines ($total)."
 } else {
 	$end = [Math]::Min($total, $Offset + $Limit)
 	if ($end -gt $Offset) { $out += $body[$Offset..($end - 1)] }
-	if ($end -lt $total) { $out += "[TRUNCATED] Shown $($end - $Offset) of $total lines. Use -Offset $end to continue."; $out += "" }
+	if ($end -lt $total) {
+		$hint = if ($Mode -eq 'transfer') { 'Use -OutFile <path> on future transfers to save the full report.' }
+			else { "Use -Offset $end to continue." }
+		$out += "[TRUNCATED] Shown $($end - $Offset) of $total lines. $hint"
+		$out += ""
+	}
 }
 $out += $footer
 
 if ($OutFile) {
 	if (-not [System.IO.Path]::IsPathRooted($OutFile)) { $OutFile = Join-Path (Get-Location).ProviderPath $OutFile }
 	[System.IO.File]::WriteAllLines($OutFile, [string[]]$out, (New-Object System.Text.UTF8Encoding($true)))
+	if ($fullTransferReport) {
+		Write-Host $transferSummary
+		if ($mdWarn.Count -gt 0) { Write-Host '!!! Stored data is NOT migrated. Review the full report before disabling or removing the extension.' }
+	}
 	Write-Host "Output written to $OutFile"
 } else {
 	foreach ($l in $out) { Write-Host $l }
