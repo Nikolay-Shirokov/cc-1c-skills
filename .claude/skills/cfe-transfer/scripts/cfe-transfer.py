@@ -1,5 +1,5 @@
 ﻿#!/usr/bin/env python3
-# cfe-transfer v1.54 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+# cfe-transfer v1.55 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -10085,6 +10085,8 @@ def set_form_write_conflict(fe, recs, config_path, reason):
 def get_form_conflict_hint(reason):
     if "form-validate: 24. Module variable" in reason:
         return "next: give the form attribute or module variable a distinct name and update its references, then re-run -Mode transfer"
+    if re.search(r"form-validate: 22\..*handler.*not found in the form module", reason, re.I):
+        return "next: check the event binding and handler, then re-run -Mode transfer"
     return "next: resolve the reported form or module issue, then re-run -Mode transfer"
 
 
@@ -10175,7 +10177,7 @@ def section_layout(order):
     return {"plain": plain, "forms": [{"dir": fd, "secs": sorted(secs_of[fd], key=lambda x: 0 if x.endswith(".xml") else 1)} for fd in forms]}
 
 
-def get_transfer_details(ext, rec, expand_list, fold_word="transferred"):
+def get_transfer_details(ext, rec, expand_list, fold_word="transferred", form_conflicts=None):
     """Details of an object in transfer, grouped by the file each change lives in. A plain
     transferred change folds into "… N transferred" unless its section is expanded (one marked
     temporary stays in sight); a section with nothing else left is one line, and so is a form whose
@@ -10186,6 +10188,13 @@ def get_transfer_details(ext, rec, expand_list, fold_word="transferred"):
     by_sec = {}
     for it in rec["items"]:
         s = it.get("section") or ""
+        if form_conflicts is not None and it.get("form_conflict"):
+            rejection = it["form_conflict"]
+            group = form_conflicts.setdefault(rejection["path"], {"rejection": rejection, "count": 0})
+            group["count"] += 1
+            if not test_expanded(ext, rec["id"], s, expand_list):
+                folded += 1
+                continue
         if s not in by_sec:
             by_sec[s] = []
             order.append(s)
@@ -10581,7 +10590,8 @@ def main():
                         handler_key = (os.path.abspath(os.path.join(config_path, pl["rel"])).lower(), pl["name"].lower())
                         if handler_key in form_handler_rejections:
                             t["status"] = "CONFLICT"
-                            t["text"] = "%s — %s; handler not added" % (it["text"], form_handler_rejections[handler_key])
+                            t["form_conflict"] = form_handler_rejections[handler_key]
+                            t["text"] = "%s — %s; handler not added" % (it["text"], t["form_conflict"]["reason"])
                             t["sub"] = get_where_lines(pl, "resolve the form conflict, then re-run -Mode transfer")
                             titems.append(t)
                             continue
@@ -10650,8 +10660,9 @@ def main():
                         form_key = cfg_form.lower()
                         if form_key in form_rejections:
                             t["status"] = "CONFLICT"
-                            t["text"] = "%s — %s; form not changed" % (it["text"], form_rejections[form_key]["reason"])
-                            t["sub"] = [get_form_conflict_hint(form_rejections[form_key]["reason"])]
+                            t["form_conflict"] = form_rejections[form_key]
+                            t["text"] = "%s — %s; form not changed" % (it["text"], t["form_conflict"]["reason"])
+                            t["sub"] = [get_form_conflict_hint(t["form_conflict"]["reason"])]
                             if is_binding and add_blocked_form_handlers(pl, out_by_file, out_common, file_maps, config_path):
                                 again = True
                             titems.append(t)
@@ -11354,7 +11365,7 @@ def main():
                         name = pl["name"].lower()
                         if name not in ext_bindings or pl["target"]["name"].lower() in cfg_bindings:
                             continue
-                        form_handler_rejections[(cfg_module.lower(), name)] = why
+                        form_handler_rejections[(cfg_module.lower(), name)] = form_rejections[form_key]
                         add_out_name(out_by_file, out_common, cfg_module, pl["rel"], pl["name"])
             if not again:
                 break
@@ -11410,6 +11421,7 @@ def main():
 
         # --- Report ---
         c_now = c_already = c_wait = c_manual = c_conflict = 0
+        form_conflicts = {}
         body = []
         any_folded = False
         body.append("=== cfe-transfer transfer: %s (%s) -> %s ===" % (ext["name"], ext["purpose"], cfg_info["name"]))
@@ -11443,7 +11455,7 @@ def main():
             if already:
                 parts.append("%d already transferred" % already)
             body.append("%s%s — %s" % (fmt_status(st), r["id"], ", ".join(parts)))
-            dv = get_transfer_details(ext, r, expand_list, "already transferred")
+            dv = get_transfer_details(ext, r, expand_list, "already transferred", form_conflicts)
             body += dv["lines"]
             if dv["folded"]:
                 any_folded = True
@@ -11496,6 +11508,13 @@ def main():
                 footer.append("    Migrate accounts, calculation types, exchange state and process or task records listed above BEFORE disabling or removing the extension.")
             if any(note.startswith("DocumentNumerator.") for note in ROOT_DATA_WARNINGS):
                 footer.append("    Verify numbering continuity for documents using the transferred numerators.")
+        for group in form_conflicts.values():
+            rejection = group["rejection"]
+            footer.append("%sForm.xml — form not written, %s" % (fmt_status("CONFLICT"), plural(group["count"], "affected change")))
+            footer.append("    reason: " + rejection["reason"])
+            footer.append("    form: " + rel_path(config_path, rejection["path"]))
+            footer.append("    module: " + rel_path(config_path, rejection["cfg_module"]))
+            footer.append("    " + get_form_conflict_hint(rejection["reason"]))
         if changed:
             footer.append("Changed files:")
             for c in changed:

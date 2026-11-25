@@ -41,12 +41,19 @@
     "stdoutContains": [
       "form-validate: 24. Module variable 'Clash'",
       "next: give the form attribute or module variable a distinct name and update its references, then re-run -Mode transfer",
-      "[CONFLICT]           event L1.OnClick",
-      "[CONFLICT]           + command PatchA_Cmd",
+      "[CONFLICT]           Form.xml — form not written, 10 affected changes",
+      "form: Catalogs/Items/Forms/ItemForm/Ext/Form.xml",
+      "module: Catalogs/Items/Forms/ItemForm/Ext/Form/Module.bsl",
       "[WAITING]            method PatchA_Dependant",
       "[WAITING]            method PatchA_VarReader",
+      "[CONFLICT]           module code outside methods — form-validate: 24. Module variable 'SrcAttr1'",
       "declarations not transferred",
       "[TRANSFERRED]        method PatchA_Independent"
+    ],
+    "stdoutNotContains": [
+      "[CONFLICT]           event L1.OnClick",
+      "[CONFLICT]           + command PatchA_Cmd",
+      "; handler not added"
     ],
     "fileContains": [
       {

@@ -1,4 +1,4 @@
-﻿# cfe-transfer v1.54 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+﻿# cfe-transfer v1.55 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -9418,6 +9418,9 @@ function Get-FormConflictHint([string]$reason) {
 	if ($reason.Contains('form-validate: 24. Module variable')) {
 		return 'next: give the form attribute or module variable a distinct name and update its references, then re-run -Mode transfer'
 	}
+	if ($reason -match 'form-validate: 22\..*handler.*not found in the form module') {
+		return 'next: check the event binding and handler, then re-run -Mode transfer'
+	}
 	return 'next: resolve the reported form or module issue, then re-run -Mode transfer'
 }
 
@@ -9511,13 +9514,21 @@ function Get-SectionLayout($order) {
 # Details of an object in transfer, grouped by the file each change lives in. A plain transferred
 # change folds into "… N transferred" unless its section is expanded (one marked temporary stays
 # in sight); a section with nothing else left is one line, and so is a form whose files all are.
-function Get-TransferDetails($ext, $rec, [string]$foldWord = 'transferred') {
+function Get-TransferDetails($ext, $rec, [string]$foldWord = 'transferred', $formConflicts = $null) {
 	$lines = New-Object System.Collections.Generic.List[string]
 	$folded = 0
 	$order = New-Object System.Collections.Generic.List[string]
 	$bySec = @{}
 	foreach ($it in $rec.Items) {
 		$s = [string]$it.Section
+		if ($null -ne $formConflicts -and $it.FormConflict) {
+			$rejection = $it.FormConflict
+			if (-not $formConflicts.Contains($rejection.Path)) {
+				$formConflicts[$rejection.Path] = @{ Rejection = $rejection; Count = 0 }
+			}
+			$formConflicts[$rejection.Path].Count++
+			if (-not (Test-Expanded $ext $rec.Id $s)) { $folded++; continue }
+		}
 		if (-not $bySec.ContainsKey($s)) { $bySec[$s] = New-Object System.Collections.ArrayList; $order.Add($s) }
 		[void]$bySec[$s].Add($it)
 	}
@@ -9835,7 +9846,8 @@ if ($Mode -eq 'transfer') {
 					$handlerKey = "$((Get-CfgPath $pl.Rel).ToLower())|$($pl.Name)"
 					if ($formHandlerRejections.ContainsKey($handlerKey)) {
 						$t.Status = 'CONFLICT'
-						$t.Text = "$($it.Text) — $($formHandlerRejections[$handlerKey]); handler not added"
+						$t.FormConflict = $formHandlerRejections[$handlerKey]
+						$t.Text = "$($it.Text) — $($t.FormConflict.Reason); handler not added"
 						$t.Sub = Get-WhereLines $pl 'resolve the form conflict, then re-run -Mode transfer'
 						$titems += $t; continue
 					}
@@ -9897,8 +9909,9 @@ if ($Mode -eq 'transfer') {
 					$formKey = $cfgForm.ToLower()
 					if ($formRejections.ContainsKey($formKey)) {
 						$t.Status = 'CONFLICT'
-						$t.Text = "$($it.Text) — $($formRejections[$formKey].Reason); form not changed"
-						$t.Sub = @(Get-FormConflictHint $formRejections[$formKey].Reason)
+						$t.FormConflict = $formRejections[$formKey]
+						$t.Text = "$($it.Text) — $($t.FormConflict.Reason); form not changed"
+						$t.Sub = @(Get-FormConflictHint $t.FormConflict.Reason)
 						if ($isBinding -and (Add-BlockedFormHandlers $pl $outByFile $outCommon $fileMaps)) { $again = $true }
 						$titems += $t; continue
 					}
@@ -10528,7 +10541,7 @@ if ($Mode -eq 'transfer') {
 					$pl = $o.Plan
 					if (-not $o.T.Now -or (Get-CfgPath $pl.Rel) -ine $fe.CfgModule) { continue }
 					if (-not $extBindings.ContainsKey($pl.Name) -or $cfgBindings.ContainsKey($pl.Target.Name)) { continue }
-					$formHandlerRejections["$($fe.CfgModule.ToLower())|$($pl.Name)"] = $why
+					$formHandlerRejections["$($fe.CfgModule.ToLower())|$($pl.Name)"] = $formRejections[$formKey]
 					[void](Add-OutName $outByFile $outCommon $fe.CfgModule $pl.Rel $pl.Name)
 				}
 			}
@@ -10580,6 +10593,7 @@ if ($Mode -eq 'transfer') {
 
 	# --- Report ---
 	$cNow = 0; $cAlready = 0; $cWait = 0; $cManual = 0; $cConflict = 0
+	$formConflicts = [ordered]@{}
 	$body = @()
 	$anyFolded = $false
 	$body += "=== cfe-transfer transfer: $($ext.Name) ($($ext.Purpose)) -> $($cfgInfo.Name) ==="
@@ -10602,7 +10616,7 @@ if ($Mode -eq 'transfer') {
 		if ($con) { $parts += "$con conflict" }
 		if ($already) { $parts += "$already already transferred" }
 		$body += "$(Format-Status $st)$($r.Id) — $($parts -join ', ')"
-		$dv = Get-TransferDetails $ext $r 'already transferred'
+		$dv = Get-TransferDetails $ext $r 'already transferred' $formConflicts
 		$body += $dv.Lines
 		if ($dv.Folded) { $anyFolded = $true }
 		$shown++
@@ -10642,6 +10656,14 @@ if ($Mode -eq 'transfer') {
 			$footer += "    Migrate accounts, calculation types, exchange state and process or task records listed above BEFORE disabling or removing the extension."
 		}
 		if (@($script:rootDataWarnings -like 'DocumentNumerator.*').Count) { $footer += "    Verify numbering continuity for documents using the transferred numerators." }
+	}
+	foreach ($group in $formConflicts.Values) {
+		$rejection = $group.Rejection
+		$footer += "$(Format-Status 'CONFLICT')Form.xml — form not written, $(Get-Plural $group.Count 'affected change')"
+		$footer += "    reason: $($rejection.Reason)"
+		$footer += "    form: $(Get-RelPath $ConfigPath $rejection.Path)"
+		$footer += "    module: $(Get-RelPath $ConfigPath $rejection.CfgModule)"
+		$footer += "    $(Get-FormConflictHint $rejection.Reason)"
 	}
 	if ($changed.Count -gt 0) {
 		$footer += "Changed files:"
