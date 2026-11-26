@@ -1,4 +1,4 @@
-﻿# cfe-transfer v1.58 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+﻿# cfe-transfer v1.60 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -925,7 +925,7 @@ function Get-CodeKey([string]$line, [string]$prefix) {
 # Encode literals before the legacy case-insensitive matchers see them. Hex is invariant under
 # case folding and whitespace normalization, so differing literal bytes cannot compare equal.
 function Get-CodeKeys($lines, [string]$prefix, [switch]$Significant, $params = $null) {
-	if ($params.Count -gt 0) { $lines = Protect-BslParameterMembers $lines $params }
+	if ($params.Count -gt 0 -or $script:bslContext.DataCollisions.Count) { $lines = Protect-BslParameterMembers $lines $params }
 	$src = @($lines) -join "`n"
 	$sb = New-Object System.Text.StringBuilder; $pos2 = 0; $line2 = 0; $comments2 = @{}
 	foreach ($m2 in [regex]::Matches($src, ('//[^\r\n]*|' + $script:bslLiteralRe))) {
@@ -5678,6 +5678,16 @@ function Replace-MetadataFile([string]$source, [string]$target, $backup, [string
 	}
 }
 
+function Open-RegistrationLock([string]$path) {
+	try { return [IO.File]::Open($path, 'CreateNew', 'Write', 'None') }
+	catch [IO.IOException] {
+		if ([IO.File]::Exists($path)) {
+			throw "registration lock exists: $path. Wait for the other transfer. If it has ended, inspect the configuration before removing the leftover lock and retrying."
+		}
+		throw
+	}
+}
+
 function Write-MetadataPackage($entry, $plan, $packages, [string]$expectedRegistry) {
 	if (-not $packages) { $packages = @(@{ Entry = $entry; Plan = $plan }) }
 	$root = [IO.Path]::GetFullPath((Get-CfgPath '.'))
@@ -5688,7 +5698,7 @@ function Write-MetadataPackage($entry, $plan, $packages, [string]$expectedRegist
 	$published = $false
 	$cfgPath = Get-CfgPath 'Configuration.xml'
 	try {
-		$lock = [IO.File]::Open($lockPath, 'CreateNew', 'Write', 'None')
+		$lock = Open-RegistrationLock $lockPath
 		[void][IO.Directory]::CreateDirectory($stage)
 		$cfgHash = (Get-FileHash -LiteralPath $cfgPath).Hash
 		if ($expectedRegistry -and $cfgHash -cne $expectedRegistry) { throw 'Configuration.xml changed during planning' }
@@ -5809,7 +5819,7 @@ function Write-RootObject($entry, $plan) {
 	$lockPath = Get-CfgPath '.cfe-transfer-registration.lock'
 	$lock = $null
 	try {
-		$lock = [IO.File]::Open($lockPath, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+		$lock = Open-RegistrationLock $lockPath
 		if ([IO.File]::GetAttributes($cfgPath) -band [IO.FileAttributes]::ReadOnly) { throw 'Configuration.xml is read-only' }
 		if (Test-Path -LiteralPath (Get-CfgPath $plan.Paths.Dir)) { throw "object directory already exists: $($plan.Paths.Dir)" }
 		$before = (Get-FileHash -LiteralPath $cfgPath -Algorithm SHA256).Hash
@@ -7927,7 +7937,7 @@ function Initialize-BslCatalog([string]$extDir, [string]$prefix) {
 		if ($ownRoot -and $script:rootBindings.ContainsKey($rootId)) { $cfg = Get-CfgPath (Get-RootObjectPaths 'CommonModule' $script:rootBindings[$rootId]).Bsl }
 		$el = Read-BslLines $f.FullName; $cl = Read-BslLines $cfg
 		$kind = Get-ModuleKind $rel
-		$ctx = @{ Rel = $rel; Ext = $el; Cfg = $cl; Kind = $kind; Methods = @{}; Attrs = @{}; DataAttrs = @{}; FormNames = @{}; Names = @{} }
+		$ctx = @{ Rel = $rel; Ext = $el; Cfg = $cl; Kind = $kind; Methods = @{}; Attrs = @{}; DataAttrs = @{}; DataCollisions = @{}; DataMissing = @{}; FormNames = @{}; Names = @{} }
 		$script:bslCatalog[$rel.ToLower()] = $ctx
 		$cn = @(Get-ProcNames $cl)
 		$taken = New-Object 'System.Collections.Generic.HashSet[string]'
@@ -7988,12 +7998,24 @@ function Initialize-BslCatalog([string]$extDir, [string]$prefix) {
 			$mdRel = "$($Matches[1])/$($Matches[2]).xml"
 			$ed = Read-MdObject (Join-Path $extDir $mdRel); $cd = Read-MdObject (Get-CfgPath $mdRel)
 			if ($ed -and $ed.Children) {
-				$cfgNames = @(); if ($cd -and $cd.Children) { foreach ($x in $cd.Children.ChildNodes) { if ($x.NodeType -eq 'Element') { $cfgNames += (Get-MdChildName $x $cd.Ns) } } }
+				$cfgNames = @(); $cfgPeers = @{}
+				if ($cd -and $cd.Children) {
+					foreach ($x in $cd.Children.ChildNodes) {
+						if ($x.NodeType -ne 'Element') { continue }
+						$cfgName = Get-MdChildName $x $cd.Ns
+						$cfgNames += $cfgName; $cfgPeers[$x.LocalName] += @($cfgName)
+					}
+				}
 				foreach ($x in $ed.Children.ChildNodes) {
 					if ($x.LocalName -notin @('Attribute', 'TabularSection')) { continue }
 					$n = Get-MdChildName $x $ed.Ns; if (-not $n) { continue }
-					$hit = Find-NameIn $cfgNames $n $prefix
+					$hit = Find-NameIn $cfgPeers[$x.LocalName] $n $prefix
 					$target = if ($hit) { $hit } else { Remove-ExtPrefix $n $prefix }
+					if ($kind -eq 'form') {
+						$matches = @(Find-NamesIn $cfgNames $n $prefix)
+						if ($matches.Count -gt 1) { foreach ($alias in $matches) { $ctx.DataCollisions[$alias] = $true } }
+						if (-not $hit -and $matches.Count) { $ctx.DataMissing[$n] = $true }
+					}
 					$ctx.DataAttrs[$n.ToLower()] = $target; $ctx.Names[$n.ToLower()] = $n
 					if ($kind -ne 'form') { $ctx.Attrs[$n.ToLower()] = $target }
 				}
@@ -8172,6 +8194,10 @@ function Get-BslConversion($lines, $fileMap, $ctx, $params = $null, [switch]$Com
 			while ($a -gt 1 -and $ts[$a - 1].Value -eq '.' -and $ts[$a - 2].Kind -eq 'word') { $a -= 2 }
 			$owner = (@($ts[$a..($i - 2)] | ForEach-Object { $_.Value }) -join '')
 		}
+		if ($Comparison -and $ctx.DataCollisions -and $owner -in @('объект', 'object') -and $ctx.DataCollisions.ContainsKey($k)) {
+			$edits[$t.Start] = '~' + [BitConverter]::ToString([text.encoding]::Unicode.GetBytes($k)).Replace('-', '') + '~'
+			continue
+		}
 		if ($qualified -and $params -contains ($owner -split '\.', 2)[0]) {
 			if ($Comparison -and $script:bslCommon.ContainsKey((($owner -split '\.', 2)[0]).ToLowerInvariant())) {
 				$edits[$t.Start] = '~' + [BitConverter]::ToString([text.encoding]::Unicode.GetBytes($k)).Replace('-', '') + '~'
@@ -8197,7 +8223,11 @@ function Get-BslConversion($lines, $fileMap, $ctx, $params = $null, [switch]$Com
 			elseif ($qualified -and -not $isCall -and $oc.Attrs -and $oc.Attrs.ContainsKey($k)) { $edits[$t.Start] = $oc.Attrs[$k] }
 			elseif (-not $qualified -and $i + 1 -lt $ts.Count -and $ts[$i + 1].Value -eq '.' -and $script:bslGlobals.ContainsKey($k)) { $edits[$t.Start] = $script:bslGlobals[$k] }
 			elseif ($qualified -and $ctx -and $owner.ToLower() -in @('элементы', 'items', 'команды', 'commands') -and $ctx.FormNames.ContainsKey($k)) { $edits[$t.Start] = $ctx.FormNames[$k] }
-			elseif ($qualified -and $ctx -and $owner.ToLower() -in @('объект', 'object') -and $ctx.Kind -eq 'form' -and $ctx.DataAttrs.ContainsKey($k)) { $edits[$t.Start] = $ctx.DataAttrs[$k] }
+			elseif ($qualified -and $ctx -and $owner.ToLower() -in @('объект', 'object') -and $ctx.Kind -eq 'form' -and $ctx.DataAttrs.ContainsKey($k)) {
+				if ($ctx.DataMissing.ContainsKey($k)) {
+					$issues += @{ Token = $t; Status = 'WAITING'; Why = "waits for: $($t.Value) (the matching name belongs to another kind of object member)" }
+				} else { $edits[$t.Start] = $ctx.DataAttrs[$k] }
+			}
 			elseif ($qualified -and -not $isCall -and $script:bslGlobals.ContainsKey($k)) { $edits[$t.Start] = $script:bslGlobals[$k] }
 		}
 		if (-not $isCall -and $ctx.Kind -eq 'form') {
@@ -8305,8 +8335,11 @@ function Convert-BslCode($lines, $fileMap, $params = $null) {
 	return ,@((Get-BslConversion $lines $fileMap $script:bslContext $params).Lines)
 }
 
-# Protect member names of shadowing parameters only in comparison keys.
+# Protect member names of shadowing parameters and form data with competing names in comparison keys.
 function Protect-BslParameterMembers($lines, $params) {
+	if ($script:bslContext.DataCollisions.Count) {
+		return ,@((Get-BslConversion $lines @{} $script:bslContext $params -Comparison).Lines)
+	}
 	foreach ($name in $params) {
 		if ($script:bslCommon.ContainsKey($name.ToLowerInvariant())) {
 			return ,@((Get-BslConversion $lines @{} $null $params -Comparison).Lines)
@@ -10429,7 +10462,7 @@ if ($Mode -eq 'transfer') {
 					if ($div.Count -gt 0) {
 						$t.Status = 'CONFLICT'
 						$t.Text = "$label — $fit of $($fit + $div.Count) edits fit, $($div.Count) diverged; method not changed"
-						$t.Sub = @($div | ForEach-Object { "diverged: $($_.Res)" }) + @(Get-WhereLines $pl 'original changed in config -> /cfe-patch-method -Actualize, then re-run -Mode transfer; otherwise apply by hand')
+						$t.Sub = @($div | ForEach-Object { "diverged: $($_.Res)" }) + @(Get-WhereLines $pl 'compare the conflicting edit at from: and to:, then re-run -Mode check')
 						$titems += $t; continue
 					}
 					$fe = Get-FileEdits $cfgFile

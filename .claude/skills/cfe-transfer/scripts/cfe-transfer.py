@@ -1,5 +1,5 @@
 ﻿#!/usr/bin/env python3
-# cfe-transfer v1.58 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+# cfe-transfer v1.60 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -5990,6 +5990,14 @@ def replace_metadata_file(source, target, backup=None, expected=None):
             time.sleep(retry_delay[attempt])
 
 
+def open_registration_lock(path):
+    try:
+        return os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    except FileExistsError:
+        raise ValueError(f"registration lock exists: {path}. Wait for the other transfer. "
+                         "If it has ended, inspect the configuration before removing the leftover lock and retrying.") from None
+
+
 def write_metadata_package(entry=None, plan=None, *, packages=None, expected_registry=None):
     packages = packages or [(entry, plan)]
     root = os.path.abspath(MD_REFERENCE_ROOT)
@@ -5998,7 +6006,7 @@ def write_metadata_package(entry=None, plan=None, *, packages=None, expected_reg
     cfg_path = os.path.join(root, "Configuration.xml")
     staged_cfg = os.path.join(stage, "Configuration.xml")
     installed, made_dirs, replaced = [], [], []
-    lock = os.open(lock_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    lock = open_registration_lock(lock_path)
     published = stage_created = False
     try:
         os.mkdir(stage)
@@ -6176,7 +6184,7 @@ def write_root_object(entry, plan):
     lock_path = os.path.join(MD_REFERENCE_ROOT, ".cfe-transfer-registration.lock")
     lock = None
     try:
-        lock = os.open(lock_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        lock = open_registration_lock(lock_path)
         if not os.stat(cfg_path).st_mode & (stat.S_IWUSR | stat.S_IWGRP | stat.S_IWOTH):
             raise PermissionError("Configuration.xml is read-only")
         if os.path.lexists(os.path.join(MD_REFERENCE_ROOT, plan["paths"]["dir"])):
@@ -8416,7 +8424,8 @@ def initialize_bsl_catalog(ext_dir, config_path, prefix):
                 cfg = os.path.join(config_path, root_object_paths("CommonModule", ROOT_BINDINGS[root_id])["bsl"])
             el, cl = read_bsl_lines(path), read_bsl_lines(cfg)
             kind = get_module_kind(rel)
-            ctx = {"rel": rel, "ext": el, "cfg": cl, "kind": kind, "methods": {}, "attrs": {}, "data_attrs": {}, "form_names": {}, "names": {}}
+            ctx = {"rel": rel, "ext": el, "cfg": cl, "kind": kind, "methods": {}, "attrs": {},
+                   "data_attrs": {}, "data_collisions": set(), "data_missing": set(), "form_names": {}, "names": {}}
             BSL_CATALOG[rel.lower()] = ctx
             cn, en = get_proc_names(cl or []), get_proc_names(el)
             taken = {n.lower() for n in cn} | get_called_names((cl or []) + el, en)
@@ -8483,14 +8492,26 @@ def initialize_bsl_catalog(ext_dir, config_path, prefix):
                 md_rel = '%s/%s.xml' % (match[1], match[2])
                 ed, cd = read_md_object(os.path.join(ext_dir, md_rel)), read_md_object(os.path.join(config_path, md_rel))
                 if ed and ed['children'] is not None:
-                    cfg_names = [md_child_name(x) for x in elem_children(cd['children'])] if cd and cd['children'] is not None else []
+                    cfg_names, cfg_peers = [], {}
+                    if cd and cd["children"] is not None:
+                        for child in elem_children(cd["children"]):
+                            cfg_name = md_child_name(child)
+                            cfg_names.append(cfg_name)
+                            cfg_peers.setdefault(localname(child), []).append(cfg_name)
                     for x in elem_children(ed['children']):
                         if localname(x) not in ('Attribute', 'TabularSection'):
                             continue
                         n = md_child_name(x)
                         if not n:
                             continue
-                        target = find_name_in(cfg_names, n, prefix) or remove_ext_prefix(n, prefix)
+                        hit = find_name_in(cfg_peers.get(localname(x), ()), n, prefix)
+                        target = hit or remove_ext_prefix(n, prefix)
+                        if kind == "form":
+                            matches = find_names_in(cfg_names, n, prefix)
+                            if len(matches) > 1:
+                                ctx["data_collisions"].update(alias.lower() for alias in matches)
+                            if not hit and matches:
+                                ctx["data_missing"].add(n.lower())
                         ctx['data_attrs'][n.lower()] = target; ctx['names'][n.lower()] = n
                         if kind != 'form':
                             ctx['attrs'][n.lower()] = target
@@ -8681,6 +8702,9 @@ def get_bsl_conversion(lines, file_map, ctx, params=(), comparison=False, *, inc
                 a -= 2
             owner = ''.join(x['value'] for x in ts[a:i - 1])
         receiver = owner.split('.', 1)[0].lower()
+        if comparison and ctx and owner.lower() in ("объект", "object") and k in ctx["data_collisions"]:
+            edits[t['start']] = '~' + k.encode('utf-16-le').hex() + '~'
+            continue
         if qualified and receiver in params:
             if comparison and receiver in BSL_COMMON:
                 edits[t['start']] = '~' + k.encode('utf-16-le').hex() + '~'
@@ -8713,7 +8737,11 @@ def get_bsl_conversion(lines, file_map, ctx, params=(), comparison=False, *, inc
             elif qualified and ctx and owner.lower() in ('элементы', 'items', 'команды', 'commands') and k in ctx['form_names']:
                 edits[t['start']] = ctx['form_names'][k]
             elif qualified and ctx and owner.lower() in ('объект', 'object') and ctx['kind'] == 'form' and k in ctx['data_attrs']:
-                edits[t['start']] = ctx['data_attrs'][k]
+                if k in ctx["data_missing"]:
+                    issues.append({"token": t, "status": "WAITING",
+                                   "why": "waits for: %s (the matching name belongs to another kind of object member)" % t["value"]})
+                else:
+                    edits[t['start']] = ctx['data_attrs'][k]
             elif qualified and not is_call and k in BSL_GLOBALS:
                 edits[t['start']] = BSL_GLOBALS[k]
         if not is_call and ctx and ctx["kind"] == "form":
@@ -8821,7 +8849,9 @@ def convert_bsl_code(lines, file_map, params=()):
 
 
 def protect_bsl_parameter_members(lines, params):
-    # Protect member names of shadowing parameters only in comparison keys.
+    # Protect member names of shadowing parameters and form data with competing names in comparison keys.
+    if BSL_CONTEXT and BSL_CONTEXT["data_collisions"]:
+        return get_bsl_conversion(lines, {}, BSL_CONTEXT, params, comparison=True)['lines']
     if any(name.lower() in BSL_COMMON for name in params):
         return get_bsl_conversion(lines, {}, None, params, comparison=True)['lines']
     return lines
@@ -11241,7 +11271,7 @@ def main():
                         if div:
                             t["status"] = "CONFLICT"
                             t["text"] = "%s — %d of %d edits fit, %d diverged; method not changed" % (label, fit, fit + len(div), len(div))
-                            t["sub"] = ["diverged: " + e["res"] for e in div] + get_where_lines(pl, "original changed in config -> /cfe-patch-method -Actualize, then re-run -Mode transfer; otherwise apply by hand")
+                            t["sub"] = ["diverged: " + e["res"] for e in div] + get_where_lines(pl, "compare the conflicting edit at from: and to:, then re-run -Mode check")
                             titems.append(t)
                             continue
                         fe = get_file_edits(cfg_file)

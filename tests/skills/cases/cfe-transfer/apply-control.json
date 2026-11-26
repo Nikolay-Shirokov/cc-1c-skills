@@ -120,7 +120,7 @@
           "[TRANSFERRED]        method Тест_Сообщить (kept prefix: Сообщить exists) -> new region ПрограммныйИнтерфейс",
           "[TRANSFERRED]        method Тест_Сумма (as Сумма) -> region СлужебныеПроцедурыИФункции",
           "&ИзменениеИКонтроль(\"Г\") — 1 of 2 edits fit, 1 diverged; method not changed",
-          "next: original changed in config -> /cfe-patch-method -Actualize, then re-run -Mode transfer; otherwise apply by hand",
+          "next: compare the conflicting edit at from: and to:, then re-run -Mode check",
           "[TRANSFERRED]        &ИзменениеИКонтроль(\"Д\") — 2 edits",
           "[MANUAL]             &ИзменениеИКонтроль(\"Ж\") (method not found in config)",
           "[CONFLICT]           method Е (body differs); not changed",

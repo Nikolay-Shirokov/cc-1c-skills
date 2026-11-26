@@ -25,6 +25,7 @@
       "next: compare the named properties in both forms and merge by hand, then re-run -Mode check",
       "[TRANSFERRED]        + [Input] PatchA_Alias (found as Dev_Alias)",
       "[TRANSFERRED]        ~ [Input] Article: DataPath",
+      "[TRANSFERRED]        method PatchA_ReadTotal (as ReadTotal)",
       "[WAITING]            method PatchA_AttrReader"
     ],
     "fileNotContains": [
@@ -40,9 +41,17 @@
           "name=\"SkipTable\"",
           "name=\"SkipSearch\""
         ]
+      },
+      {
+        "file": "Catalogs/Items/Forms/ItemForm/Ext/Form/Module.bsl",
+        "text": "Возврат Объект.PatchA_Total;"
       }
     ],
     "fileContains": [
+      {
+        "file": "Catalogs/Items/Forms/ItemForm/Ext/Form/Module.bsl",
+        "text": "Возврат Объект.Dev_Total;"
+      },
       {
         "file": "Catalogs/Items/Forms/ItemForm/Ext/Form.xml",
         "text": [
@@ -68,6 +77,33 @@
     ]
   },
   "preRun": [
+    {
+      "script": "meta-edit/scripts/meta-edit",
+      "args": {
+        "-ObjectPath": "{workDir}/Catalogs/Items.xml",
+        "-Operation": "add-ts",
+        "-Value": "PatchA_Total: Note: String(10)",
+        "-NoValidate": true
+      }
+    },
+    {
+      "script": "meta-edit/scripts/meta-edit",
+      "args": {
+        "-ObjectPath": "{workDir}/Catalogs/Items.xml",
+        "-Operation": "add-attribute",
+        "-Value": "Dev_Total: String(10)",
+        "-NoValidate": true
+      }
+    },
+    {
+      "script": "meta-edit/scripts/meta-edit",
+      "args": {
+        "-ObjectPath": "{workDir}/cfe/Catalogs/Items.xml",
+        "-Operation": "add-attribute",
+        "-Value": "PatchA_Total: String(10)",
+        "-NoValidate": true
+      }
+    },
     {
       "editFile": "Catalogs/Items/Forms/ItemForm/Ext/Form.xml",
       "replace": "<DataPath>Объект.Article</DataPath>",
@@ -171,7 +207,7 @@
     {
       "editFile": "cfe/Catalogs/Items/Forms/ItemForm/Ext/Form/Module.bsl",
       "replace": "&НаКлиенте",
-      "with": "&НаКлиенте\nФункция PatchA_AttrReader()\n\tВозврат PatchA_ClashName;\nКонецФункции\n\n&НаКлиенте"
+      "with": "&НаКлиенте\nФункция PatchA_AttrReader()\n\tВозврат PatchA_ClashName;\nКонецФункции\n\n&НаКлиенте\nФункция PatchA_ReadTotal()\n\tВозврат Объект.PatchA_Total;\nКонецФункции\n\n&НаКлиенте"
     }
   ]
 }

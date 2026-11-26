@@ -1,5 +1,5 @@
 {
-  "name": "Реквизит расширения совпал с реквизитом конфигурации по имени, но не по типу: перенос не молчит о расхождении и файл не трогает",
+  "name": "Перенос метаданных сохраняет файлы при несовместимом типе реквизита и занятом замке регистрации",
   "preRun": [
     {
       "script": "meta-compile/scripts/meta-compile",
@@ -40,6 +40,17 @@
         "-Value": "Тест_Признак: Boolean",
         "-NoValidate": true
       }
+    },
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "Catalog", "name": "Тест_LockProbe" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}/cfe" }
+    },
+    {
+      "writeFile": {
+        "path": ".cfe-transfer-registration.lock",
+        "content": "existing lock"
+      }
     }
   ],
   "params": {
@@ -56,13 +67,19 @@
       "[CONFLICT]           Catalog.Товары — 1 conflict",
       "attribute Тест_Признак (type: boolean vs decimal in config) — the type differs; object not changed",
       "next: compare the types and merge by hand",
-      "=== Summary Тест: 0 transferred now, 1 conflict · 1 role, not transferred ==="
+      "registration lock exists:",
+      ".cfe-transfer-registration.lock. Wait for the other transfer.",
+      "=== Summary Тест: 0 transferred now, 2 conflict · 1 role, not transferred ==="
     ],
     "stdoutNotContains": [
       "Changed files:",
       "Stored data is NOT migrated"
     ],
     "fileContains": [
+      {
+        "file": ".cfe-transfer-registration.lock",
+        "text": "existing lock"
+      },
       {
         "file": "Catalogs/Товары.xml",
         "text": [
