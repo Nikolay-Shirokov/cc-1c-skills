@@ -1,4 +1,4 @@
-﻿# cfe-transfer v1.57 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+﻿# cfe-transfer v1.58 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -2543,8 +2543,32 @@ function Get-PropTransfer($cpm, $p, [string]$prefix, $scope, $nameMap) {
 function Get-FormAdditionDifferences($source, $target, [string]$prefix, $scope, $nameMap) {
 	$expected = Get-PropMap $source
 	$actual = Get-PropMap $target
-	foreach ($key in $expected.Keys) {
+	# The form compiler omits these defaults when it writes element flags.
+	$defaults = [ordered]@{ Visible = 'true'; Enabled = 'true'; ReadOnly = 'false' }
+	$keys = @($expected.Keys) + @($defaults.Keys | Where-Object { -not $expected.Contains($_) -and $actual.Contains($_) })
+	foreach ($key in $keys) {
 		$node = $expected[$key]
+		if ($defaults.Contains($key) -and (-not $node -or -not $actual[$key])) {
+			$explicit = if ($node) { $node } else { $actual[$key] }
+			$value = $explicit.InnerText.Trim()
+			if ($value -eq '0') { $value = 'false' } elseif ($value -eq '1') { $value = 'true' }
+			if ($value -cne $defaults[$key]) { $key }
+			continue
+		}
+		if ($key -ceq 'Columns' -and $source.LocalName -ceq 'Attribute') {
+			$columns = Get-SectionMap $source 'Columns' 'Column'
+			$targets = Get-SectionMap $target 'Columns' 'Column'
+			$targetNames = @($targets.Keys)
+			if ($columns.Count -ne $targets.Count) { $key; continue }
+			$i = 0
+			foreach ($name in $columns.Keys) {
+				$hits = @(Find-ScopedFormNames $targetNames $name $prefix @($columns.Keys))
+				if (-not $hits.Count -or ($hits.Count -gt 1 -and $hits[0] -ine $name) -or $hits[0] -ine $targetNames[$i] -or
+					@(Get-FormAdditionDifferences $columns[$name] $targets[$hits[0]] $prefix $scope $nameMap).Count) { $key; break }
+				$i++
+			}
+			continue
+		}
 		$comparePrefix = $prefix
 		if ($key -ceq 'CommandName' -and $node.InnerText.Trim().StartsWith('Form.Command.')) {
 			$commands = Get-SectionMap $scope.Config 'Commands' 'Command'
@@ -6735,15 +6759,19 @@ function Get-ConfigRefMap([string]$cfgDir) {
 # A compared value that is a reference to a style item or a picture: the extension has "0:<uuid>", the
 # configuration's dump has "style:<Name>"/"CommonPicture.<Name>", so the extension's side is read the same
 function Get-RefCmpKey($node, [string]$prefix) {
-	$k = Get-CmpKey $node $prefix
-	if (-not $k -or $k.IndexOf('0:') -lt 0 -or -not $script:configRefMap) { return $k }
-	# The value of a leaf inside the canonical form: <tag>0:<uuid></>
-	return [regex]::Replace($k, '(?<=>)0:([0-9a-fA-F-]{36})(?=<)', {
-		param($m)
-		$u = $m.Groups[1].Value.ToLower()
-		if ($script:configRefMap.ContainsKey($u)) { return $script:configRefMap[$u] }
-		return $m.Value
-	})
+	$k = Get-CmpKey $node ''
+	if (-not $k) { return $k }
+	if ($k -notmatch '0:|style:|CommonPicture\.') { return Remove-ExtPrefix $k $prefix }
+	# Preserve the identity of named references while normalizing other XML content.
+	$parts = $k -split '((?<=>)(?:0:[0-9a-fA-F-]{36}|(?:style:|CommonPicture\.)\w+)(?=<))'
+	for ($i = 0; $i -lt $parts.Count; $i++) {
+		if ($i % 2 -eq 0) { $parts[$i] = Remove-ExtPrefix $parts[$i] $prefix }
+		elseif ($parts[$i].StartsWith('0:')) {
+			$u = $parts[$i].Substring(2).ToLower()
+			if ($script:configRefMap.ContainsKey($u)) { $parts[$i] = $script:configRefMap[$u] }
+		}
+	}
+	return $parts -join ''
 }
 
 $script:formPathTags = '(?:DataPath|TitleDataPath|FooterDataPath|HeaderDataPath|MultipleValue\w*DataPath)$'

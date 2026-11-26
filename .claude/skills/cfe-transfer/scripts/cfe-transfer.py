@@ -1,5 +1,5 @@
 ﻿#!/usr/bin/env python3
-# cfe-transfer v1.57 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+# cfe-transfer v1.58 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -2728,8 +2728,33 @@ def prop_transfer(cpm, p, prefix, scope, name_map):
 def get_form_addition_differences(source, target, prefix, scope, name_map):
     expected = get_prop_map(source)
     actual = get_prop_map(target)
+    # The form compiler omits these defaults when it writes element flags.
+    defaults = {"Visible": "true", "Enabled": "true", "ReadOnly": "false"}
+    keys = list(expected) + [key for key in defaults if key not in expected and key in actual]
     differs = []
-    for key, node in expected.items():
+    for key in keys:
+        node = expected.get(key)
+        current = actual.get(key)
+        if key in defaults and (node is None or current is None):
+            value = inner_text(node if node is not None else current).strip()
+            if {"0": "false", "1": "true"}.get(value, value) != defaults[key]:
+                differs.append(key)
+            continue
+        if key == "Columns" and localname(source) == "Attribute":
+            columns = section_map(source, "Columns", "Column")
+            targets = section_map(target, "Columns", "Column")
+            target_names = [name for name, _ in targets.values()]
+            if len(columns) != len(targets):
+                differs.append(key)
+                continue
+            for (name, column), target_name in zip(columns.values(), target_names):
+                hits = find_scoped_form_names(target_names, name, prefix, columns)
+                if (not hits or (len(hits) > 1 and hits[0].lower() != name.lower()) or
+                        hits[0].lower() != target_name.lower() or
+                        get_form_addition_differences(column, targets[hits[0].lower()][1], prefix, scope, name_map)):
+                    differs.append(key)
+                    break
+            continue
         compare_prefix = prefix
         if key == "CommandName":
             name = inner_text(node).strip()
@@ -7087,12 +7112,19 @@ def get_config_ref_map(cfg_dir):
 def get_ref_cmp_key(node, prefix):
     """A compared value that is a reference to a style item or a picture: the extension has "0:<uuid>", the
     configuration's dump has "style:<Name>"/"CommonPicture.<Name>", so the extension's side is read the same."""
-    k = cmp_key(node, prefix)
-    if not k or "0:" not in k or not CONFIG_REF_MAP:
+    k = cmp_key(node, "")
+    if not k:
         return k
-    # The value of a leaf inside the canonical form: <tag>0:<uuid></>
-    return re.sub(r'(?<=>)0:([0-9a-fA-F-]{36})(?=<)',
-                  lambda m: CONFIG_REF_MAP.get(m.group(1).lower(), m.group(0)), k)
+    if not re.search(r'0:|style:|CommonPicture\.', k, re.I):
+        return remove_ext_prefix(k, prefix)
+    # Preserve the identity of named references while normalizing other XML content.
+    parts = re.split(r'((?<=>)(?:0:[0-9a-fA-F-]{36}|(?:style:|CommonPicture\.)\w+)(?=<))', k, flags=re.I)
+    for i, part in enumerate(parts):
+        if i % 2 == 0:
+            parts[i] = remove_ext_prefix(part, prefix)
+        elif part.startswith("0:"):
+            parts[i] = CONFIG_REF_MAP.get(part[2:].lower(), part)
+    return "".join(parts)
 
 
 FORM_PATH_TAGS = re.compile(r'(DataPath|TitleDataPath|FooterDataPath|HeaderDataPath|MultipleValue\w*DataPath)$')

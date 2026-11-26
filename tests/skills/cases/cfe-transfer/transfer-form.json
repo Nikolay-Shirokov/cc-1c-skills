@@ -4,33 +4,68 @@
   "params": {
     "extensionPath": "cfe"
   },
+  "cwd": "workDir",
   "args_extra": [
     "-Expand",
     "Catalogs/Items/Forms/ItemForm"
   ],
   "preRun": [
     {
+      "writeFile": {
+        "path": ".v8-project.json",
+        "content": { "devPrefix": ["Dev_"] }
+      }
+    },
+    {
+      "writeFile": {
+        "path": "StyleItems/PatchA_Color.xml",
+        "content": "<MetaDataObject><StyleItem uuid=\"550e8400-e29b-41d4-a716-446655440000\"><Properties><Name>PatchA_Color</Name></Properties></StyleItem></MetaDataObject>"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "CommonPictures/PatchA_Logo.xml",
+        "content": "<MetaDataObject><CommonPicture uuid=\"550e8400-e29b-41d4-a716-446655440001\"><Properties><Name>PatchA_Logo</Name></Properties></CommonPicture></MetaDataObject>"
+      }
+    },
+    {
+      "editFile": "cfe/Catalogs/Items/Forms/ItemForm/Ext/Form.xml",
+      "replace": "<DataPath>PatchA_Attr</DataPath>",
+      "with": "<DataPath>PatchA_Attr</DataPath><TitleTextColor>0:550e8400-e29b-41d4-a716-446655440000</TitleTextColor><HeaderPicture><xr:Ref>0:550e8400-e29b-41d4-a716-446655440001</xr:Ref></HeaderPicture>"
+    },
+    {
       "editFile": "Catalogs/Items/Forms/ItemForm/Ext/Form.xml",
       "replace": "<DataPath>Attr</DataPath>",
-      "with": "<DataPath>SrcAttr1</DataPath>"
+      "with": "<DataPath>SrcAttr1</DataPath><Enabled>true</Enabled><ReadOnly>true</ReadOnly><TitleTextColor>style:PatchA_Color</TitleTextColor><HeaderPicture><xr:Ref>CommonPicture.Logo</xr:Ref></HeaderPicture>"
     },
     {
       "editFile": "Catalogs/Items/Forms/ItemForm/Ext/Form.xml",
       "replace": "<v8:Length>20</v8:Length>",
       "with": "<v8:Length>10</v8:Length>"
+    },
+    {
+      "editFile": "cfe/Catalogs/Items/Forms/ItemForm/Ext/Form.xml",
+      "replace": "<Attribute name=\"PatchA_Attr\"",
+      "with": "<Attribute name=\"PatchA_Table\" id=\"1000010\"><Type><v8:Type>v8:ValueTable</v8:Type></Type><Columns><Column name=\"Code\" id=\"1\"><Type><v8:Type>xs:string</v8:Type></Type></Column><Column name=\"PatchA_Code\" id=\"2\"><Type><v8:Type>xs:boolean</v8:Type></Type></Column></Columns></Attribute><Attribute name=\"PatchA_Attr\""
+    },
+    {
+      "editFile": "Catalogs/Items/Forms/ItemForm/Ext/Form.xml",
+      "replace": "<Attribute name=\"Attr\"",
+      "with": "<Attribute name=\"Table\" id=\"4\"><Type><v8:Type>v8:ValueTable</v8:Type></Type><Columns><Column name=\"Code\" id=\"1\"><Type><v8:Type>xs:string</v8:Type></Type></Column><Column name=\"Dev_Code\" id=\"2\"><Type><v8:Type>xs:boolean</v8:Type></Type></Column></Columns></Attribute><Attribute name=\"Attr\""
     }
   ],
   "expectError": true,
   "expect": {
     "stdoutContains": [
-      "[DIVERGED]           Catalog.Items — 13 changes: 4 transferred, 9 remaining",
+      "[DIVERGED]           Catalog.Items — 14 changes: 5 transferred, 9 remaining",
       "    Catalogs/Items/Forms/ItemForm/Ext/Form.xml:",
       "      [NOT_TRANSFERRED]    + [Button] PatchA_Btn (in: ФормаКоманднаяПанель)",
       "      [TRANSFERRED]        ~ [Label] L1: Title",
       "      [DIVERGED]           ~ [Input] Article: Title, Width (config value differs: Width)",
       "      [NOT_TRANSFERRED]    > [Input] Article: moved (after: L1)",
       "      [NOT_TRANSFERRED]    ~ [Label] L3: Title",
-      "      [DIVERGED]           + [Input] PatchA_Field (found as Field) (config value differs: DataPath)",
+      "      [DIVERGED]           + [Input] PatchA_Field (found as Field) (config value differs: DataPath, HeaderPicture, ReadOnly)",
+      "      [TRANSFERRED]        + attribute PatchA_Table:",
       "      [DIVERGED]           + attribute PatchA_Attr: string(20) (found as Attr) (config value differs: Type)",
       "      [NOT_TRANSFERRED]    + command PatchA_Cmd -> PatchA_CmdAction[Before]",
       "    Catalogs/Items/Forms/ItemForm/Ext/Form/Module.bsl:",
@@ -39,7 +74,7 @@
       "      [NOT_TRANSFERRED]    command SrcCmd2[After] -> PatchA_SrcCmd2After (heuristic: 0/1 lines)  :27",
       "      [TRANSFERRED]        event Article.OnChange[Before] -> PatchA_ArticleOnChangeBefore (heuristic: 1/1 lines)  :7",
       "      [NOT_TRANSFERRED]    event OnOpen[After] -> PatchA_OnOpenAfter (heuristic: 0/1 lines)  :2",
-      "=== Summary PatchA: 13 changes — 4 transferred, 6 not transferred, 3 diverged · 1 role, not checked ===",
+      "=== Summary PatchA: 14 changes — 5 transferred, 6 not transferred, 3 diverged · 1 role, not checked ===",
       "Remaining: Catalog.Items"
     ]
   }
