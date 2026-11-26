@@ -1,0 +1,112 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<MetaDataObject xmlns="http://v8.1c.ru/8.3/MDClasses" xmlns:app="http://v8.1c.ru/8.2/managed-application/core" xmlns:cfg="http://v8.1c.ru/8.1/data/enterprise/current-config" xmlns:cmi="http://v8.1c.ru/8.2/managed-application/cmi" xmlns:ent="http://v8.1c.ru/8.1/data/enterprise" xmlns:lf="http://v8.1c.ru/8.2/managed-application/logform" xmlns:style="http://v8.1c.ru/8.1/data/ui/style" xmlns:sys="http://v8.1c.ru/8.1/data/ui/fonts/system" xmlns:v8="http://v8.1c.ru/8.1/data/core" xmlns:v8ui="http://v8.1c.ru/8.1/data/ui" xmlns:web="http://v8.1c.ru/8.1/data/ui/colors/web" xmlns:win="http://v8.1c.ru/8.1/data/ui/colors/windows" xmlns:xen="http://v8.1c.ru/8.3/xcf/enums" xmlns:xpr="http://v8.1c.ru/8.3/xcf/predef" xmlns:xr="http://v8.1c.ru/8.3/xcf/readable" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" version="2.20">
+	<Catalog uuid="82f8ec95-92e4-454e-a65d-12f9e9d76f37">
+		<InternalInfo>
+			<xr:GeneratedType name="CatalogObject.Товары" category="Object">
+				<xr:TypeId>3a9b600a-c59a-4c18-8fc0-fdc58ce72ee6</xr:TypeId>
+				<xr:ValueId>a684b357-0374-49fa-979b-08b0e718e01d</xr:ValueId>
+			</xr:GeneratedType>
+			<xr:GeneratedType name="CatalogRef.Товары" category="Ref">
+				<xr:TypeId>3ef28325-5b7c-4fad-8427-299265476a77</xr:TypeId>
+				<xr:ValueId>eb6cd338-19ba-4d0c-94d5-6c03a27593e9</xr:ValueId>
+			</xr:GeneratedType>
+			<xr:GeneratedType name="CatalogSelection.Товары" category="Selection">
+				<xr:TypeId>ea505412-78c7-4f04-a792-1dd57886b5bb</xr:TypeId>
+				<xr:ValueId>1b588825-f1fe-4827-a0b8-1d5fae2b2fa7</xr:ValueId>
+			</xr:GeneratedType>
+			<xr:GeneratedType name="CatalogList.Товары" category="List">
+				<xr:TypeId>65ef3b26-9c5c-4467-8b9d-0aef08a5e532</xr:TypeId>
+				<xr:ValueId>c913139a-9a2a-4e92-92d0-43f1476e5817</xr:ValueId>
+			</xr:GeneratedType>
+			<xr:GeneratedType name="CatalogManager.Товары" category="Manager">
+				<xr:TypeId>b7d9d962-6f40-4e03-abf6-cff6655ff8cd</xr:TypeId>
+				<xr:ValueId>45263fee-ff19-428c-a1bd-13e9da90e56e</xr:ValueId>
+			</xr:GeneratedType>
+			<xr:PropertyState>
+				<xr:Property>DescriptionLength</xr:Property>
+				<xr:State>Notify</xr:State>
+			</xr:PropertyState>
+			<xr:PropertyState>
+				<xr:Property>Hierarchical</xr:Property>
+				<xr:State>Extended</xr:State>
+			</xr:PropertyState>
+		</InternalInfo>
+		<Properties>
+			<ObjectBelonging>Adopted</ObjectBelonging>
+			<Name>Товары</Name>
+			<Comment/>
+			<ExtendedConfigurationObject>42560e12-5374-4295-af61-59946d14a985</ExtendedConfigurationObject>
+			<DescriptionLength>30</DescriptionLength>
+			<CodeLength>11</CodeLength>
+			<Hierarchical>true</Hierarchical>
+		</Properties>
+		<ChildObjects>
+			<Attribute uuid="3a74ccae-d6b2-470c-be52-c28c5f7fd4d3">
+				<InternalInfo>
+					<xr:PropertyState>
+						<xr:Property>Type</xr:Property>
+						<xr:State>Extended</xr:State>
+					</xr:PropertyState>
+				</InternalInfo>
+				<Properties>
+					<ObjectBelonging>Adopted</ObjectBelonging>
+					<Name>Артикул</Name>
+					<Comment/>
+					<ExtendedConfigurationObject>884b6e78-776a-4586-b8a0-ae41a878761a</ExtendedConfigurationObject>
+					<Type><v8:Type>xs:string</v8:Type><v8:StringQualifiers><v8:Length>99</v8:Length><v8:AllowedLength>Variable</v8:AllowedLength></v8:StringQualifiers></Type>
+				</Properties>
+			</Attribute>
+			<Attribute uuid="d1beb0c1-f2f9-4b9a-8b53-364876ef3bd5">
+				<InternalInfo>
+					<xr:PropertyState>
+						<xr:Property>Type</xr:Property>
+						<xr:State>MultiState</xr:State>
+					</xr:PropertyState>
+				</InternalInfo>
+				<Properties>
+					<ObjectBelonging>Adopted</ObjectBelonging>
+					<Name>Цена</Name>
+					<Comment/>
+					<ExtendedConfigurationObject>93fb8b21-7dd4-4d67-9bae-8a8d6b9253d3</ExtendedConfigurationObject>
+					<Type xsi:type="xr:ExtendedProperty">
+						<xr:CheckValue xsi:type="v8:TypeDescription">
+							<v8:Type>xs:decimal</v8:Type>
+							<v8:NumberQualifiers>
+								<v8:Digits>15</v8:Digits>
+								<v8:FractionDigits>2</v8:FractionDigits>
+								<v8:AllowedSign>Any</v8:AllowedSign>
+							</v8:NumberQualifiers>
+						</xr:CheckValue>
+						<xr:ExtendValue xsi:type="v8:TypeDescription">
+							<v8:Type>xs:decimal</v8:Type>
+							<v8:NumberQualifiers>
+								<v8:Digits>10</v8:Digits>
+								<v8:FractionDigits>2</v8:FractionDigits>
+								<v8:AllowedSign>Any</v8:AllowedSign>
+							</v8:NumberQualifiers>
+						</xr:ExtendValue>
+					</Type>
+				</Properties>
+			</Attribute>
+			<TabularSection uuid="6663349c-e8c5-4f46-9bc8-7ce8c4652783">
+				<InternalInfo>
+					<xr:GeneratedType name="CatalogTabularSection.Товары.Ошибки" category="TabularSection">
+						<xr:TypeId>7054afc3-c69b-4ff3-93f0-6909eda4b415</xr:TypeId>
+						<xr:ValueId>ea14e3a5-f1b0-4f37-ad1e-48cc9636fcc5</xr:ValueId>
+					</xr:GeneratedType>
+					<xr:GeneratedType name="CatalogTabularSectionRow.Товары.Ошибки" category="TabularSectionRow">
+						<xr:TypeId>8478ea67-cc0b-40d6-895e-59811a4dd16c</xr:TypeId>
+						<xr:ValueId>f09a6dda-e38f-4abf-8e69-d6634c44c22e</xr:ValueId>
+					</xr:GeneratedType>
+				</InternalInfo>
+				<Properties>
+					<ObjectBelonging>Adopted</ObjectBelonging>
+					<Name>Ошибки</Name>
+					<Comment/>
+					<ExtendedConfigurationObject>6d5cc2fb-f439-47c4-a389-df2c2d651a66</ExtendedConfigurationObject>
+				</Properties>
+				<ChildObjects/>
+			</TabularSection>
+		</ChildObjects>
+	</Catalog>
+</MetaDataObject>

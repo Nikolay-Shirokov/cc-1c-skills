@@ -1,0 +1,117 @@
+{
+  "name": "Scoped methods, preserved external strings, explicit notification owners and warnings; pending insert beside a commented literal deletion",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "CommonModule",
+        "name": "Alpha",
+        "properties": {
+          "Server": true
+        }
+      },
+      "args": {
+        "-JsonPath": "{inputFile}",
+        "-OutputDir": "{workDir}"
+      }
+    },
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "CommonModule",
+        "name": "Beta",
+        "properties": {
+          "Server": true
+        }
+      },
+      "args": {
+        "-JsonPath": "{inputFile}",
+        "-OutputDir": "{workDir}"
+      }
+    },
+    {
+      "script": "cfe-init/scripts/cfe-init",
+      "args": {
+        "-Name": "Ext",
+        "-OutputDir": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}"
+      }
+    },
+    {
+      "script": "cfe-borrow/scripts/cfe-borrow",
+      "args": {
+        "-ExtensionPath": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}",
+        "-Object": "CommonModule.Alpha"
+      }
+    },
+    {
+      "script": "cfe-borrow/scripts/cfe-borrow",
+      "args": {
+        "-ExtensionPath": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}",
+        "-Object": "CommonModule.Beta"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "CommonModules/Alpha/Ext/Module.bsl",
+        "content": "Procedure Original() Export\n\nEndProcedure\n"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "CommonModules/Beta/Ext/Module.bsl",
+        "content": "Procedure Original() Export\n    Start();\n//    Value = \"ABC\";\n    Finish();\nEndProcedure\n"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "cfe/CommonModules/Alpha/Ext/Module.bsl",
+        "content": "Procedure Ext_Message() Export\n    Message(\"patch\");\nEndProcedure\n"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "cfe/CommonModules/Beta/Ext/Module.bsl",
+        "content": "Procedure Ext_Message() Export\n    Value = 2;\nEndProcedure\nProcedure Ext_Caller() Export\n    Alpha.Ext_Message();\n    Ext_Message();\n    Path = \"inbox/Ext_receipt.xml\"; // Ext_Message stays\n    If Id = \"Ext_Message\" Then\n        Value = \"Ext_Message\" + Suffix;\n    EndIf;\n    N = New CallbackDescription(\n        \"Ext_Message\", Beta, New Structure(\"x\", F(1, 2)),\n        \"Ext_Message\", Alpha);\nEndProcedure\n\n&ChangeAndValidate(\"Original\")\nProcedure Ext_Original()\n    Start();\n    #Delete\n    Value = \"ABC\";\n    #EndDelete\n    #Insert\n    NewValue = 1;\n    #EndInsert\n    Finish();\nEndProcedure\n"
+      }
+    }
+  ],
+  "params": {
+    "extensionPath": "cfe"
+  },
+  "cwd": "workDir",
+  "args_extra": [
+    "-Mode",
+    "transfer",
+    "-Expand",
+    "*"
+  ],
+  "expect": {
+    "stdoutContains": [
+      "Warnings: 2",
+      "string matches a renamed method; left unchanged"
+    ],
+    "stdoutNotContains": [
+      "[CONFLICT]",
+      "[MANUAL]"
+    ],
+    "fileContains": [
+      {
+        "file": "CommonModules/Beta/Ext/Module.bsl",
+        "text": [
+          "Alpha.Ext_Message();",
+          "    Message();",
+          "\"inbox/Ext_receipt.xml\"; // Ext_Message stays",
+          "Id = \"Ext_Message\"",
+          "\"Ext_Message\" + Suffix",
+          "\"Message\", Beta",
+          "\"Ext_Message\", Alpha",
+          "//    Value = \"ABC\";\n    NewValue = 1;\n    Finish();"
+        ]
+      }
+    ]
+  },
+  "idempotent": true
+}

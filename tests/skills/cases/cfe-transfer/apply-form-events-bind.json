@@ -1,0 +1,85 @@
+{
+  "name": "Свои привязки расширения: новое событие (в том числе с callType в расширении) и новая команда с callType встают в Form.xml без callType, обработчики — своими методами по ролям (события формы/элемента, команды); кнопка на новую команду добавляется",
+  "setup": "fixture:form-event-new",
+  "params": {
+    "extensionPath": "cfe"
+  },
+  "cwd": "workDir",
+  "args_extra": [
+    "-Mode",
+    "transfer"
+  ],
+  "expect": {
+    "stdoutContains": [
+      "[TRANSFERRED]        event L1.OnClick -> L1Click — method in new region ОбработчикиСобытийЭлементовШапкиФормы",
+      "[MANUAL]             event L3.OnClick -> PatchA_L3Click (multiple declarations of the same handler)",
+      "[TRANSFERRED]        + command PatchA_Cmd -> PatchA_CmdAction[Before] — method CmdAction -> new region ОбработчикиКомандФормы",
+      "[TRANSFERRED]        + [Button] PatchA_Btn (in: ФормаКоманднаяПанель)",
+      "[WAITING]            event OnClose -> PatchA_OnClose (no OnClose handler in config) - waits for: SrcField1",
+      "[WAITING]            + command PatchA_WaitCmd -> PatchA_WaitCmdAction - waits for: SrcField1",
+      "[WAITING]            method PatchA_UseClose — waits for: PatchA_OnClose"
+    ],
+    "fileContains": [
+      {
+        "file": "Catalogs/Items/Forms/ItemForm/Ext/Form.xml",
+        "text": [
+          "\t\t\t<Events>\n\t\t\t\t<Event name=\"OnClick\">L1Click</Event>\n\t\t\t</Events>",
+          "<CommandName>Form.Command.Cmd</CommandName>",
+          "<Action>CmdAction</Action>"
+        ]
+      },
+      {
+        "file": "Catalogs/Items/Forms/ItemForm/Ext/Form/Module.bsl",
+        "text": [
+          "#Область ОбработчикиКомандФормы\n\n&НаКлиенте\nПроцедура CmdAction(Команда)\n\tСообщить(\"своя команда\");\nКонецПроцедуры\n\n#КонецОбласти",
+          "#Область ОбработчикиСобытийЭлементовШапкиФормы\n\n&НаКлиенте\nПроцедура L1Click(Элемент)\n\tData = Новый Структура(\"SrcField1\", 1);\n\tСообщить(Data.SrcField1);\n\tСообщить(\"Нажали L1\");\nКонецПроцедуры\n\n#КонецОбласти"
+        ]
+      }
+    ],
+    "fileNotContains": [
+      {
+        "file": "Catalogs/Items/Forms/ItemForm/Ext/Form.xml",
+        "text": [
+          "PatchA_",
+          "L3Click",
+          "name=\"OnClose\"",
+          "name=\"WaitCmd\""
+        ]
+      },
+      {
+        "file": "Catalogs/Items/Forms/ItemForm/Ext/Form/Module.bsl",
+        "text": [
+          "PatchA_",
+          "L3Click",
+          "Процедура OnClose(",
+          "Процедура WaitCmdAction(",
+          "Процедура UseClose("
+        ]
+      }
+    ]
+  },
+  "preRun": [
+    {
+      "editFile": "Catalogs/Items/Forms/ItemForm/Ext/Form.xml",
+      "replace": "name=\"SrcField1\"",
+      "with": "name=\"RenamedField\""
+    },
+    {
+      "editFile": "cfe/Catalogs/Items/Forms/ItemForm/Ext/Form.xml",
+      "replace": "<Event name=\"OnOpen\" callType=\"After\">PatchA_OnOpenAfter</Event>",
+      "with": "<Event name=\"OnOpen\" callType=\"After\">PatchA_OnOpenAfter</Event>\n\t\t<Event name=\"OnClose\">PatchA_OnClose</Event>"
+    },
+    {
+      "editFile": "cfe/Catalogs/Items/Forms/ItemForm/Ext/Form.xml",
+      "replace": "<Commands>",
+      "with": "<Commands>\n\t\t<Command name=\"PatchA_WaitCmd\" id=\"1000010\">\n\t\t\t<Action>PatchA_WaitCmdAction</Action>\n\t\t</Command>"
+    },
+    {
+      "writeFile": {
+        "path": "cfe/Catalogs/Items/Forms/ItemForm/Ext/Form/Module.bsl",
+        "content": "&НаКлиенте\nПроцедура PatchA_OnOpenAfter(Отказ)\n\tPatchA_Обновить();\nКонецПроцедуры\n\n&НаКлиенте\nПроцедура PatchA_ArticleOnChangeBefore(Элемент)\n\tСообщить(\"Артикул изменён\");\nКонецПроцедуры\n\n&НаКлиенте\nПроцедура PatchA_CmdAction(Команда)\n\tСообщить(\"своя команда\");\nКонецПроцедуры\n\n&НаКлиенте\nПроцедура PatchA_SrcCmd1After(Команда)\n\tСообщить(\"после команды\");\nКонецПроцедуры\n\n&НаКлиенте\nПроцедура PatchA_Обновить()\n\tЭлементы.PatchA_Field.Видимость = Истина;\nКонецПроцедуры\n\n&НаКлиенте\nПроцедура PatchA_SrcCmd2After(Команда)\n\tСообщить(\"после второй команды\");\nКонецПроцедуры\n\n&НаКлиенте\nПроцедура PatchA_L1Click(Элемент)\n\tData = Новый Структура(\"SrcField1\", 1);\n\tСообщить(Data.SrcField1);\n\tСообщить(\"Нажали L1\");\nКонецПроцедуры\n\n#If WebClient Then\n&НаКлиенте\nПроцедура PatchA_L3Click(Элемент)\n\tСообщить(\"Нажали L3\");\nКонецПроцедуры\n#Else\n&НаКлиенте\nПроцедура PatchA_L3Click(Элемент)\n\tСообщить(\"Нажали L3 alternate\");\nКонецПроцедуры\n#EndIf\n\n&НаКлиенте\nПроцедура PatchA_OnClose(SrcField1)\n\tЭлементы.SrcField1.Видимость = Ложь;\nКонецПроцедуры\n\n&НаКлиенте\nПроцедура PatchA_WaitCmdAction(Команда)\n\tItems.SrcField1.Visible = True;\nКонецПроцедуры\n\n&НаКлиенте\nПроцедура PatchA_UseClose()\n\tPatchA_OnClose(Ложь);\nКонецПроцедуры\n"
+      }
+    }
+  ],
+  "expectError": true
+}

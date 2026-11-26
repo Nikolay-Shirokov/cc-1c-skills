@@ -1,0 +1,76 @@
+{
+  "name": "Проверка переноса находит &ИзменениеИКонтроль в модуле общей формы: вставка уже в основной",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "CommonForm",
+        "name": "Подбор"
+      },
+      "args": {
+        "-JsonPath": "{inputFile}",
+        "-OutputDir": "{workDir}"
+      }
+    },
+    {
+      "script": "form-compile/scripts/form-compile",
+      "input": {
+        "title": "Подбор",
+        "elements": [
+          {
+            "check": "Режим",
+            "path": "Режим"
+          }
+        ],
+        "attributes": [
+          {
+            "name": "Режим",
+            "type": "boolean"
+          }
+        ]
+      },
+      "args": {
+        "-JsonPath": "{inputFile}",
+        "-OutputPath": "{workDir}/CommonForms/Подбор/Ext/Form.xml"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "CommonForms/Подбор/Ext/Form/Module.bsl",
+        "content": "#Область ОбработчикиСобытийФормы\n\n&НаСервере\nПроцедура Заполнить()\n\tХ = 1;\nКонецПроцедуры\n\n#КонецОбласти\n"
+      }
+    },
+    {
+      "script": "cfe-init/scripts/cfe-init",
+      "args": {
+        "-Name": "Тест",
+        "-OutputDir": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}"
+      }
+    },
+    {
+      "script": "cfe-borrow/scripts/cfe-borrow",
+      "args": {
+        "-ExtensionPath": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}",
+        "-Object": "CommonForm.Подбор"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "cfe/CommonForms/Подбор/Ext/Form/Module.bsl",
+        "content": "#Область ОбработчикиСобытийФормы\n&НаСервере\n&ИзменениеИКонтроль(\"Заполнить\")\nПроцедура Тест_Заполнить()\n\tХ = 1;\n#Вставка\n\tПроверитьПрава();\n#КонецВставки\nКонецПроцедуры\n#КонецОбласти\n"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "CommonForms/Подбор/Ext/Form/Module.bsl",
+        "content": "#Область ОбработчикиСобытийФормы\n\n&НаСервере\nПроцедура Заполнить()\n\tХ = 1;\n\tПроверитьПрава();\nКонецПроцедуры\n\n#КонецОбласти\n"
+      }
+    }
+  ],
+  "params": {
+    "extensionPath": "cfe",
+    "outFile": "report.txt"
+  }
+}

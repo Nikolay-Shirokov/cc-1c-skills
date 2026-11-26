@@ -3,18 +3,37 @@
   "preRun": [
     {
       "script": "meta-compile/scripts/meta-compile",
-      "input": { "type": "CommonModule", "name": "ОбщийМодуль1", "properties": { "Server": true } },
-      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+      "input": {
+        "type": "CommonModule",
+        "name": "ОбщийМодуль1",
+        "properties": {
+          "Server": true
+        }
+      },
+      "args": {
+        "-JsonPath": "{inputFile}",
+        "-OutputDir": "{workDir}"
+      }
     },
     {
       "script": "cfe-init/scripts/cfe-init",
-      "args": { "-Name": "Тест", "-OutputDir": "{workDir}/cfe", "-ConfigPath": "{workDir}" }
+      "args": {
+        "-Name": "Тест",
+        "-OutputDir": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}"
+      }
     },
     {
       "script": "cfe-borrow/scripts/cfe-borrow",
-      "args": { "-ExtensionPath": "{workDir}/cfe", "-ConfigPath": "{workDir}", "-Object": "CommonModule.ОбщийМодуль1" }
+      "args": {
+        "-ExtensionPath": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}",
+        "-Object": "CommonModule.ОбщийМодуль1"
+      }
     }
   ],
-  "params": { "extensionPath": "cfe" },
-  "expect": { "stdoutContains": "CommonModule" }
+  "params": {
+    "extensionPath": "cfe",
+    "outFile": "report.txt"
+  }
 }

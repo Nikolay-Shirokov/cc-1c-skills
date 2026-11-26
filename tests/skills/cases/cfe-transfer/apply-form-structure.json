@@ -1,0 +1,54 @@
+{
+  "name": "Перенос структуры формы: свойства и перемещение элемента, новое событие после перемещения, новая команда со своим обработчиком и кнопка на неё",
+  "setup": "fixture:form-transfer",
+  "preRun": [
+    {
+      "editFile": "cfe/Catalogs/Items/Forms/ItemForm/Ext/Form.xml",
+      "replace": "<Event name=\"OnChange\" callType=\"Before\">PatchA_ArticleOnChangeBefore</Event>",
+      "with": "<Event name=\"OnChange\" callType=\"Before\">PatchA_ArticleOnChangeBefore</Event>\n\t\t\t\t<Event name=\"StartChoice\">PatchA_ArticleStartChoice</Event>"
+    },
+    {
+      "editFile": "cfe/Catalogs/Items/Forms/ItemForm/Ext/Form/Module.bsl",
+      "replace": "Процедура PatchA_ArticleOnChangeBefore(Элемент)",
+      "with": "Процедура PatchA_ArticleStartChoice(Элемент, ДанныеВыбора, СтандартнаяОбработка)\n\tСообщить(\"Выбор артикула\");\nКонецПроцедуры\n\n&НаКлиенте\nПроцедура PatchA_ArticleOnChangeBefore(Элемент)"
+    }
+  ],
+  "params": {
+    "extensionPath": "cfe"
+  },
+  "cwd": "workDir",
+  "args_extra": [
+    "-Mode",
+    "transfer"
+  ],
+  "expect": {
+    "stdoutContains": [
+      "[DIVERGED]           ~ [Input] Article: Title, Width (config value differs: Width) — the rest transferred",
+      "[TRANSFERRED]        > [Input] Article: moved (after: L1)",
+      "[TRANSFERRED]        ~ [Label] L3: Title",
+      "Changed files:",
+      "    Catalogs/Items/Forms/ItemForm/Ext/Form.xml",
+      "[TRANSFERRED]        + [Button] PatchA_Btn (in: ФормаКоманднаяПанель)",
+      "[TRANSFERRED]        + command PatchA_Cmd -> PatchA_CmdAction[Before] — method CmdAction (as CmdAction) -> new region ОбработчикиКомандФормы"
+    ],
+    "fileContains": [
+      {
+        "file": "Catalogs/Items/Forms/ItemForm/Ext/Form.xml",
+        "text": [
+          "\t\t\t\t\t<v8:content>Ext Article</v8:content>",
+          "\t\t</InputField>\n\t\t<LabelDecoration name=\"L3\" id=\"4\">",
+          "<Event name=\"StartChoice\">ArticleStartChoice</Event>\n\t\t\t</Events>\n\t\t</InputField>",
+          "\t\t\t\t\t<v8:content>Ext L3</v8:content>",
+          "<CommandName>Form.Command.Cmd</CommandName>",
+          "<Action>CmdAction</Action>"
+        ]
+      }
+    ],
+    "fileNotContains": [
+      {
+        "file": "Catalogs/Items/Forms/ItemForm/Ext/Form.xml",
+        "text": "callType=\"Before\">PatchA_"
+      }
+    ]
+  }
+}

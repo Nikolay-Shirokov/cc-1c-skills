@@ -1,0 +1,146 @@
+{
+  "name": "Поддержка: объект на замке не правится (MANUAL с подсказкой /support-edit), снятый с поддержки — переносится",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "Catalog",
+        "name": "Закрытый"
+      },
+      "args": {
+        "-JsonPath": "{inputFile}",
+        "-OutputDir": "{workDir}"
+      }
+    },
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "Catalog",
+        "name": "Снятый"
+      },
+      "args": {
+        "-JsonPath": "{inputFile}",
+        "-OutputDir": "{workDir}"
+      }
+    },
+    {
+      "editFile": "Catalogs/Закрытый.xml",
+      "replace": "<Catalog uuid=\"",
+      "with": "<Catalog uuid=\"22222222-2222-2222-2222-222222222222\" data-was=\""
+    },
+    {
+      "editFile": "Catalogs/Снятый.xml",
+      "replace": "<Catalog uuid=\"",
+      "with": "<Catalog uuid=\"33333333-3333-3333-3333-333333333333\" data-was=\""
+    },
+    {
+      "script": "cfe-init/scripts/cfe-init",
+      "args": {
+        "-Name": "Тест",
+        "-OutputDir": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}"
+      }
+    },
+    {
+      "script": "cfe-borrow/scripts/cfe-borrow",
+      "args": {
+        "-ExtensionPath": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}",
+        "-Object": "Catalog.Закрытый"
+      }
+    },
+    {
+      "script": "cfe-borrow/scripts/cfe-borrow",
+      "args": {
+        "-ExtensionPath": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}",
+        "-Object": "Catalog.Снятый"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "Catalogs/Закрытый/Ext/ObjectModule.bsl",
+        "content": "Процедура А()\nКонецПроцедуры\n"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "Catalogs/Снятый/Ext/ObjectModule.bsl",
+        "content": "Процедура А()\nКонецПроцедуры\n"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "cfe/Catalogs/Закрытый/Ext/ObjectModule.bsl",
+        "content": "Процедура Тест_Новый() Экспорт\n\tСообщить(1);\nКонецПроцедуры\n"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "cfe/Catalogs/Снятый/Ext/ObjectModule.bsl",
+        "content": "Процедура Тест_Новый() Экспорт\n\tСообщить(1);\nКонецПроцедуры\n"
+      }
+    },
+    {
+      "script": "form-add/scripts/form-add",
+      "args": { "-ObjectPath": "{workDir}/cfe/Catalogs/Закрытый.xml", "-FormName": "Тест_Новая", "-Purpose": "Custom" }
+    },
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": [
+        { "type": "Catalog", "name": "Тест_НовыйСправочник" },
+        { "type": "CommonModule", "name": "Тест_НовыйМодуль", "server": true },
+        { "type": "Constant", "name": "Тест_Предел", "valueType": "Boolean" }
+      ],
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}/cfe" }
+    },
+    {
+      "editFile": "Configuration.xml",
+      "replace": "<Configuration uuid=\"",
+      "with": "<Configuration uuid=\"11111111-1111-1111-1111-111111111111\" data-was=\""
+    },
+    {
+      "writeFile": {
+        "path": "Ext/ParentConfigurations.bin",
+        "content": "{6,0,1,aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa,0,bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb,\"1.0\",\"ТестВендор\",\"ТестКонфиг\",3,0,0,11111111-1111-1111-1111-111111111111,11111111-1111-1111-1111-111111111111,0,0,22222222-2222-2222-2222-222222222222,22222222-2222-2222-2222-222222222222,2,0,33333333-3333-3333-3333-333333333333,33333333-3333-3333-3333-333333333333}"
+      }
+    }
+  ],
+  "params": {
+    "extensionPath": "cfe"
+  },
+  "cwd": "workDir",
+  "args_extra": [
+    "-Mode",
+    "transfer"
+  ],
+  "expectError": true,
+  "expect": {
+    "stdoutContains": [
+      "[MANUAL]             method Тест_Новый — object is locked by vendor support",
+      "form Тест_Новая (as Новая) — object is locked by vendor support",
+      "next: allow editing with /support-edit, then re-run -Mode transfer",
+      "own object (found as НовыйМодуль) — Configuration.xml is locked by vendor support",
+      "own catalog Тест_НовыйСправочник (as НовыйСправочник) — Configuration.xml is locked by vendor support",
+      "own Constant Тест_Предел (as Предел) — Configuration.xml is locked by vendor support",
+      "[TRANSFERRED]        method Тест_Новый (as Новый) -> new region ПрограммныйИнтерфейс"
+    ],
+    "filesAbsent": ["Catalogs/НовыйСправочник.xml", "CommonModules/НовыйМодуль.xml", "Catalogs/Закрытый/Forms/Новая.xml", "Constants/Предел.xml"],
+    "fileContains": [
+      {
+        "file": "Catalogs/Снятый/Ext/ObjectModule.bsl",
+        "text": "Процедура Новый() Экспорт"
+      },
+      {
+        "file": "Catalogs/Закрытый/Ext/ObjectModule.bsl",
+        "text": "Процедура А()\nКонецПроцедуры\n"
+      }
+    ],
+    "fileNotContains": [
+      {
+        "file": "Catalogs/Закрытый/Ext/ObjectModule.bsl",
+        "text": "Новый"
+      }
+    ]
+  }
+}

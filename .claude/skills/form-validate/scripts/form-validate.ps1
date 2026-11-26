@@ -1,4 +1,4 @@
-﻿# form-validate v1.41 — Validate 1C managed form
+﻿# form-validate v1.42 — Validate 1C managed form
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -8,7 +8,11 @@ param(
 
 	[switch]$Detailed,
 
-	[int]$MaxErrors = 30
+	[int]$MaxErrors = 30,
+
+	[string]$ContextFormPath,
+
+	[string]$ModulePath
 )
 
 $ErrorActionPreference = "Stop"
@@ -41,6 +45,17 @@ if (-not (Test-Path $FormPath)) {
 	Write-Error "File not found: $FormPath"
 	exit 1
 }
+
+if ($ContextFormPath -and -not (Test-Path -LiteralPath $ContextFormPath -PathType Leaf)) {
+	Write-Error "Context form file not found: $ContextFormPath"
+	exit 1
+}
+$contextPath = (Resolve-Path -LiteralPath $(if ($ContextFormPath) { $ContextFormPath } else { $FormPath })).ProviderPath
+if ($ModulePath -and -not (Test-Path -LiteralPath $ModulePath -PathType Leaf)) {
+	Write-Error "Module file not found: $ModulePath"
+	exit 1
+}
+$formModulePath = if ($ModulePath) { $ModulePath } else { Join-Path (Split-Path $contextPath -Parent) "Form/Module.bsl" }
 
 $xmlDoc = New-Object System.Xml.XmlDocument
 $xmlDoc.PreserveWhitespace = $false
@@ -121,7 +136,7 @@ function Get-ExtBodyOwner([string]$bodyPath) {
 # обработка/отчёт. Ближайший побеждает: автономная обработка остаётся автономной, даже если её
 # исходники лежат внутри дерева с Configuration.xml (типовая раскладка проекта: src/cf рядом с
 # src/epf). Иначе её собственные External*-типы считались бы ошибкой.
-$script:dumpAnchor = Find-DumpAnchor (Split-Path (Resolve-Path $FormPath).ProviderPath -Parent)
+$script:dumpAnchor = Find-DumpAnchor (Split-Path $contextPath -Parent)
 $script:isConfigContext = [bool]($script:dumpAnchor -and [System.IO.Path]::GetFileName($script:dumpAnchor) -eq "Configuration.xml")
 
 # --- Counters ---
@@ -178,8 +193,9 @@ function Get-FormatRank([string]$ver) {
 
 # --- Form name from path ---
 
-$formName = [System.IO.Path]::GetFileNameWithoutExtension($FormPath)
-$parentDir = [System.IO.Path]::GetDirectoryName($FormPath)
+$displayPath = if ($ContextFormPath) { $contextPath } else { $FormPath }
+$formName = [System.IO.Path]::GetFileNameWithoutExtension($displayPath)
+$parentDir = [System.IO.Path]::GetDirectoryName($displayPath)
 if ($parentDir) {
 	$extDir = [System.IO.Path]::GetFileName($parentDir)
 	if ($extDir -eq "Ext") {
@@ -1032,8 +1048,7 @@ if (-not $stopped) {
 
 if (-not $stopped) {
 	$formVer = $root.GetAttribute("version")
-	$formFull = (Resolve-Path $FormPath).ProviderPath
-	$ownerPath = Get-ExtBodyOwner $formFull
+	$ownerPath = Get-ExtBodyOwner $contextPath
 	$ownerVer = if ($ownerPath) { Get-RootVersion $ownerPath } else { $null }
 	$dumpVer = if ($script:dumpAnchor) { Get-RootVersion $script:dumpAnchor } else { $null }
 
@@ -2361,9 +2376,8 @@ function Get-ModuleOutline([string[]]$lines) {
 $script:handlerArgPrefix = '(?:(?:ПодключитьОбработчикОжидания|AttachIdleHandler|ОписаниеОповещения|NotifyDescription)\s*\((?<a>[^,]*)|(?:УстановитьДействие|SetAction)\s*\([^,]*,(?<a>[^,]*)|\.(?:Действие|Action)\s*=(?<a>[^;]*))$'
 
 if (-not $stopped) {
-	$modulePath = Join-Path (Split-Path (Resolve-Path $FormPath).ProviderPath -Parent) "Form/Module.bsl"
-	$moduleText = if (Test-Path -LiteralPath $modulePath) { Read-ModuleText $modulePath } else { $null }
-	if (-not (Test-Path -LiteralPath $modulePath)) {
+	$moduleText = if (Test-Path -LiteralPath $formModulePath) { Read-ModuleText $formModulePath } else { $null }
+	if (-not (Test-Path -LiteralPath $formModulePath)) {
 		Report-OK "22. Form module handlers: no module — skipped"
 	} elseif ($null -eq $moduleText) {
 		Report-Warn "22. Form module is not UTF-8 — handlers are not checked"
@@ -2490,11 +2504,10 @@ function Get-FormAttributeMap {
 # с указанным именем уже определена». Загрузка XML и обновление конфигурации этого не показывают — ошибка
 # всплывает при первом обращении к форме. Локальная Перем в процедуре реквизит перекрывает, это допустимо.
 if (-not $stopped) {
-	$modulePath = Join-Path (Split-Path (Resolve-Path $FormPath).ProviderPath -Parent) "Form/Module.bsl"
-	if (-not (Test-Path -LiteralPath $modulePath)) {
+	if (-not (Test-Path -LiteralPath $formModulePath)) {
 		Report-OK "24. Module variables: no module — skipped"
 	} else {
-		$moduleText = Read-ModuleText $modulePath
+		$moduleText = Read-ModuleText $formModulePath
 		if ($null -eq $moduleText) {
 			Report-Warn "24. Form module is not UTF-8 — module variables are not checked"
 		} else {

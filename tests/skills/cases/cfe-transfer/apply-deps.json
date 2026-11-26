@@ -1,0 +1,101 @@
+{
+  "name": "Код, которому нужно то, чего в конфигурации ещё нет, ждёт: WAITING с именами — свой реквизит, свой метод, который сам ждёт (цепочка), одна подсказка в конце; простое имя без префикса не путается со своим реквизитом; модуль в обёртке #Если … #Иначе ВызватьИсключение — новая область встаёт перед #Иначе",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "Catalog",
+        "name": "Товары"
+      },
+      "args": {
+        "-JsonPath": "{inputFile}",
+        "-OutputDir": "{workDir}"
+      }
+    },
+    {
+      "script": "cfe-init/scripts/cfe-init",
+      "args": {
+        "-Name": "Тест",
+        "-OutputDir": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}"
+      }
+    },
+    {
+      "script": "cfe-borrow/scripts/cfe-borrow",
+      "args": {
+        "-ExtensionPath": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}",
+        "-Object": "Catalog.Товары"
+      }
+    },
+    {
+      "script": "meta-edit/scripts/meta-edit",
+      "args": {
+        "-ObjectPath": "{workDir}/cfe/Catalogs/Товары.xml",
+        "-Operation": "add-attribute",
+        "-Value": "Тест_Признак: Boolean",
+        "-NoValidate": true
+      }
+    },
+    {
+      "writeFile": {
+        "path": "Catalogs/Товары/Ext/ObjectModule.bsl",
+        "content": "#Если Сервер Или ТолстыйКлиентОбычноеПриложение Или ВнешнееСоединение Тогда\n\nПроцедура ПередЗаписью(Отказ)\n\tХ = 1;\nКонецПроцедуры\n\nProcedure ExistingBlocked() Export\n    Message(\"base\");\nEndProcedure\n\n#Иначе\nВызватьИсключение \"Недопустимый вызов объекта на клиенте.\";\n#КонецЕсли\n"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "cfe/Catalogs/Товары/Ext/ObjectModule.bsl",
+        "content": "#Если Сервер Или ТолстыйКлиентОбычноеПриложение Или ВнешнееСоединение Тогда\n&ИзменениеИКонтроль(\"ПередЗаписью\")\nПроцедура Тест_ПередЗаписью(Отказ)\n\tХ = 1;\n\t#Вставка\n\tТест_Признак = Истина;\n\t#КонецВставки\nКонецПроцедуры\n\nПроцедура Тест_Проверить() Экспорт\n\tСообщить(1);\nКонецПроцедуры\n\nПроцедура Тест_ПрочитатьПризнак()\n\tСообщить(Тест_Признак);\nКонецПроцедуры\n\nПроцедура Тест_Зависимый() Экспорт\n\tТест_ПрочитатьПризнак();\nКонецПроцедуры\n\nПроцедура Тест_Показать() Экспорт\n\tПризнак = 1;\n\tСообщить(Признак);\nКонецПроцедуры\nProcedure Тест_ExistingBlocked() Export\n    Message(\"extension\");\nEndProcedure\n\nProcedure Тест_DependentOnConflict() Export\n    Тест_ExistingBlocked();\nEndProcedure\n\nProcedure Тест_UsesValue(Val Тест_ExistingBlocked) Export\n    Message(Тест_ExistingBlocked);\nEndProcedure\n\n#КонецЕсли\n\nProcedure Тест_NoSafeScope() Export\n    Message(\"all contexts\");\nEndProcedure\n"
+      }
+    }
+  ],
+  "params": {
+    "extensionPath": "cfe"
+  },
+  "cwd": "workDir",
+  "args_extra": [
+    "-Mode",
+    "transfer"
+  ],
+  "expectError": true,
+  "expect": {
+    "stdoutContains": [
+      "[WAITING]            &ИзменениеИКонтроль(\"ПередЗаписью\") — waits for: Тест_Признак",
+      "[WAITING]            method Тест_ПрочитатьПризнак — waits for: Тест_Признак",
+      "[WAITING]            method Тест_Зависимый — waits for: Тест_ПрочитатьПризнак",
+      "[TRANSFERRED]        attribute Тест_Признак (as Признак) — structure only, stored values are not migrated",
+      "!!! Stored data is NOT migrated:",
+      "[TRANSFERRED]        method Тест_Проверить (as Проверить) -> new region ПрограммныйИнтерфейс",
+      "[TRANSFERRED]        method Тест_Показать (as Показать) -> new region ПрограммныйИнтерфейс",
+      "4 waiting",
+      "Hint: waiting changes go over by themselves on a re-run of -Mode transfer",
+      "[MANUAL]             method Тест_NoSafeScope — no compatible preprocessor scope",
+      "[WAITING]            method Тест_DependentOnConflict — waits for: Тест_ExistingBlocked",
+      "[TRANSFERRED]        method Тест_UsesValue (as UsesValue)"
+    ],
+    "stdoutNotContains": [
+      "next: re-run"
+    ],
+    "fileContains": [
+      {
+        "file": "Catalogs/Товары/Ext/ObjectModule.bsl",
+        "text": [
+          "Процедура ПередЗаписью(Отказ)\n\tХ = 1;\nКонецПроцедуры\n\nProcedure ExistingBlocked() Export\n    Message(\"base\");\nEndProcedure\n\n#Область ПрограммныйИнтерфейс\n\nПроцедура Проверить() Экспорт\n\tСообщить(1);\nКонецПроцедуры\n\nПроцедура Показать() Экспорт\n\tПризнак = 1;\n\tСообщить(Признак);\nКонецПроцедуры\n\nProcedure UsesValue(Val Тест_ExistingBlocked) Export\n    Message(Тест_ExistingBlocked);\nEndProcedure\n\n#КонецОбласти\n\n#Иначе\n"
+        ]
+      }
+    ],
+    "fileNotContains": [
+      {
+        "file": "Catalogs/Товары/Ext/ObjectModule.bsl",
+        "text": [
+          "Признак = Истина",
+          "ПрочитатьПризнак",
+          "Зависимый",
+          "NoSafeScope",
+          "DependentOnConflict"
+        ]
+      }
+    ]
+  }
+}

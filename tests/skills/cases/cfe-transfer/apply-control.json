@@ -1,0 +1,177 @@
+{
+  "name": "Перенос &ИзменениеИКонтроль и собственных методов: вставка после якоря и в начало, удаление комментированием, частично перенесённый метод, заметка маркера; вызов своего метода во вставке без префикса; свои методы по областям (интерфейс — новой областью, служебный — в служебную); правка-перемещение переносится (удалённая строка закомментирована, сверка видит её перенесённой); метод с разошедшейся правкой не тронут (CONFLICT с from/to/next); вставка рядом с удалением, перенесённым руками иначе, не дописывается в похожее место метода; старый комментарий с удаляемой строкой в другом месте метода не засчитывает удаление; вставка рядом с удалением, закомментированным руками, дописывается на его место, метода нет в конфигурации и тело своего метода отличается — MANUAL и CONFLICT. Repeated edits at ambiguous or wrong positions are conflicts.",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "CommonModule",
+        "name": "М",
+        "properties": {
+          "Server": true
+        }
+      },
+      "args": {
+        "-JsonPath": "{inputFile}",
+        "-OutputDir": "{workDir}"
+      }
+    },
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "CommonModule",
+        "name": "М2",
+        "properties": {
+          "Server": true
+        }
+      },
+      "args": {
+        "-JsonPath": "{inputFile}",
+        "-OutputDir": "{workDir}"
+      }
+    },
+    {
+      "script": "cfe-init/scripts/cfe-init",
+      "args": {
+        "-Name": "Тест",
+        "-OutputDir": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}"
+      }
+    },
+    {
+      "script": "cfe-borrow/scripts/cfe-borrow",
+      "args": {
+        "-ExtensionPath": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}",
+        "-Object": "CommonModule.М"
+      }
+    },
+    {
+      "script": "cfe-borrow/scripts/cfe-borrow",
+      "args": {
+        "-ExtensionPath": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}",
+        "-Object": "CommonModule.М2"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "CommonModules/М/Ext/Module.bsl",
+        "content": "#Область СлужебныеПроцедурыИФункции\n\nПроцедура А() Экспорт\n\tХ = 1;\n\tЗаписать();\nКонецПроцедуры\n\nПроцедура Б() Экспорт\n\tНачало();\n\tУдалить1();\n\tКонец();\nКонецПроцедуры\n\nПроцедура В() Экспорт\n\tХ = 1;\n\tПроверить();\n\tЗаписать();\nКонецПроцедуры\n\n#КонецОбласти\n"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "cfe/CommonModules/М/Ext/Module.bsl",
+        "content": "&ИзменениеИКонтроль(\"А\")\nПроцедура Тест_А()\n\tХ = 1;\n\t#Вставка // проверка прав\n\tПроверитьПрава();\n\t#КонецВставки\n\tЗаписать();\nКонецПроцедуры\n\n&ИзменениеИКонтроль(\"Б\")\nПроцедура Тест_Б()\n\t#Вставка\n\tНачать();\n\t#КонецВставки\n\tНачало();\n\t#Удаление\n\tУдалить1();\n\t#КонецУдаления\n\tКонец();\nКонецПроцедуры\n\n&ИзменениеИКонтроль(\"В\")\nПроцедура Тест_В()\n\tХ = 1;\n\t#Вставка\n\tПроверить();\n\t#КонецВставки\n\tЗаписать();\n\t#Вставка\n\tТест_Сообщить();\n\t#КонецВставки\nКонецПроцедуры\n\nПроцедура Тест_Сообщить() Экспорт\n\tСообщить(\"Готово\");\nКонецПроцедуры\n\nФункция Тест_Сумма(А, Б)\n\tВозврат А + Б;\nКонецФункции\n"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "CommonModules/М2/Ext/Module.bsl",
+        "content": "Процедура Г() Экспорт\n\tНачало();\n\tХ = 2;\n\tСохранить();\nКонецПроцедуры\n\nПроцедура Д() Экспорт\n\tПодготовить();\n\tПеренести();\n\tЗавершить();\nКонецПроцедуры\n\nПроцедура Е() Экспорт\n\tПодготовить();\nКонецПроцедуры\n\nПроцедура Л() Экспорт\n\tНачало();\n\t//Записать();\n\tЕсли Ф Тогда\n\t\tЗаписать();\n\tКонецЕсли;\n\tСередина();\n\tНачало();\n\tЗаписать();\nКонецПроцедуры\n\nПроцедура П() Экспорт\n\tНачало();\n\t// Сообщить(Текст);\n\tСередина();\n\tСообщить(Текст);\n\tКонец();\nКонецПроцедуры\n\nПроцедура Р() Экспорт\n\tНачало();\n//\tСтарое();\n\tКонец();\nКонецПроцедуры\n\nProcedure InsertRepeat() Export\n    A();\n    Unrelated();\nEndProcedure\nProcedure DeleteRepeat() Export\n    A();\n    A();\n    A();\n    A();\n    Unrelated();\nEndProcedure\nProcedure WrongInsert() Export\n    A();\n    B();\n    A();\n    A();\n    B();\nEndProcedure\nProcedure WrongDelete() Export\n    A();\n    B();\n    B();\nEndProcedure\nProcedure WrongInsertWithOtherEdit() Export\n    A();\n    B();\n    A();\n    A();\n    B();\n    Z();\n    C();\nEndProcedure\nProcedure WrongDeleteWithOtherEdit() Export\n    A();\n    B();\n    B();\n    Z();\n    C();\nEndProcedure\n\nProcedure SignatureClash(A) Export\n    Message(A);\nEndProcedure\n"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "cfe/CommonModules/М2/Ext/Module.bsl",
+        "content": "&ИзменениеИКонтроль(\"Г\")\nПроцедура Тест_Г()\n\tНачало();\n\t#Вставка\n\tПервая();\n\t#КонецВставки\n\tХ = 1;\n\t#Вставка\n\tВторая();\n\t#КонецВставки\n\tЗаписать();\nКонецПроцедуры\n\n&ИзменениеИКонтроль(\"Д\")\nПроцедура Тест_Д()\n\tПодготовить();\n\t#Удаление\n\tПеренести();\n\t#КонецУдаления\n\tЗавершить();\n\t#Вставка\n\tПеренести();\n\t#КонецВставки\nКонецПроцедуры\n\n&ИзменениеИКонтроль(\"Ж\")\nПроцедура Тест_Ж()\n\tПодготовить();\n\t#Вставка\n\tНачать();\n\t#КонецВставки\nКонецПроцедуры\n\nПроцедура Е()\n\tПодготовить();\n\tСообщить(1);\nКонецПроцедуры\n\n&ИзменениеИКонтроль(\"Л\")\nПроцедура Тест_Л()\n\tНачало();\n\t#Удаление\n\tЗаписать();\n\t#КонецУдаления\n\t#Вставка\n\tЕсли Ф Тогда\n\t\tЗаписать();\n\tИначе\n\t\tОтменить();\n\tКонецЕсли;\n\t#КонецВставки\n\tСередина();\n\tНачало();\n\tЗаписать();\nКонецПроцедуры\n\n&ИзменениеИКонтроль(\"П\")\nПроцедура Тест_П()\n\tНачало();\n\t// Сообщить(Текст);\n\tСередина();\n\t#Удаление\n\tСообщить(Текст);\n\t#КонецУдаления\n\tКонец();\nКонецПроцедуры\n\n&ИзменениеИКонтроль(\"Р\")\nПроцедура Тест_Р()\n\tНачало();\n\t#Удаление\n\tСтарое();\n\t#КонецУдаления\n\t#Вставка\n\tНовое();\n\t#КонецВставки\n\tКонец();\nКонецПроцедуры\n\n&ChangeAndValidate(\"InsertRepeat\")\nProcedure Test_InsertRepeat()\n#Insert\n    A();\n#EndInsert\n    A();\nEndProcedure\n&ChangeAndValidate(\"DeleteRepeat\")\nProcedure Test_DeleteRepeat()\n    A();\n#Delete\n    A();\n#EndDelete\n    A();\n    A();\nEndProcedure\n&ChangeAndValidate(\"WrongInsert\")\nProcedure Test_WrongInsert()\n    A();\n#Insert\n    A();\n#EndInsert\n    B();\n    A();\n    B();\nEndProcedure\n&ChangeAndValidate(\"WrongDelete\")\nProcedure Test_WrongDelete()\n#Delete\n    A();\n#EndDelete\n    B();\n    A();\n    B();\nEndProcedure\n&ChangeAndValidate(\"WrongInsertWithOtherEdit\")\nProcedure Test_WrongInsertWithOtherEdit()\n    A();\n#Insert\n    A();\n#EndInsert\n    B();\n    A();\n    B();\n#Insert\n    Z();\n#EndInsert\n    C();\nEndProcedure\n&ChangeAndValidate(\"WrongDeleteWithOtherEdit\")\nProcedure Test_WrongDeleteWithOtherEdit()\n#Delete\n    A();\n#EndDelete\n    B();\n    A();\n    B();\n#Insert\n    Z();\n#EndInsert\n    C();\nEndProcedure\n\nProcedure Тест_SignatureClash(Val A) Export\n    Message(A);\nEndProcedure\nProcedure Тест_SignatureCaller() Export\n    Тест_SignatureClash(1);\nEndProcedure\n"
+      }
+    }
+  ],
+  "params": {
+    "extensionPath": "cfe",
+    "outFile": "transfer-report.txt"
+  },
+  "cwd": "workDir",
+  "args_extra": [
+    "-Mode",
+    "transfer",
+    "-Name",
+    "CommonModule.М,М2,CommonModule.DoesNotExist",
+    "-Limit",
+    "4",
+    "-Offset",
+    "5"
+  ],
+  "expectError": true,
+  "expect": {
+    "stdoutContains": [
+      "=== Summary",
+      "transferred now",
+      "[INFO] -Name: matched objects: CommonModule.М, CommonModule.М2",
+      "[ERROR] -Name: no object matches 'CommonModule.DoesNotExist'",
+      "Output written to"
+    ],
+    "stdoutNotContains": [
+      "[CONFLICT]",
+      "[TRUNCATED]",
+      "Changed files:"
+    ],
+    "fileContains": [
+      {
+        "file": "transfer-report.txt",
+        "text": [
+          "=== cfe-transfer transfer:",
+          "[INFO] -Name: matched objects: CommonModule.М, CommonModule.М2",
+          "[ERROR] -Name: no object matches 'CommonModule.DoesNotExist'",
+          "[TRANSFERRED]        &ИзменениеИКонтроль(\"А\") — 1 edit",
+          "[TRANSFERRED]        &ИзменениеИКонтроль(\"Б\") — 2 edits",
+          "[TRANSFERRED]        &ИзменениеИКонтроль(\"В\") — 1 edit, 1 already there",
+          "[TRANSFERRED]        method Тест_Сообщить (kept prefix: Сообщить exists) -> new region ПрограммныйИнтерфейс",
+          "[TRANSFERRED]        method Тест_Сумма (as Сумма) -> region СлужебныеПроцедурыИФункции",
+          "&ИзменениеИКонтроль(\"Г\") — 1 of 2 edits fit, 1 diverged; method not changed",
+          "next: compare the conflicting edit at from: and to:, then re-run -Mode check",
+          "[TRANSFERRED]        &ИзменениеИКонтроль(\"Д\") — 2 edits",
+          "[MANUAL]             &ИзменениеИКонтроль(\"Ж\") (method not found in config)",
+          "[CONFLICT]           method Е (body differs); not changed",
+          "&ИзменениеИКонтроль(\"Л\") — 1 of 2 edits fit, 1 diverged; method not changed",
+          "diverged: inserted code next to the carried-over deletion differs in config",
+          "[TRANSFERRED]        &ИзменениеИКонтроль(\"П\") — 1 edit",
+          "[TRANSFERRED]        &ИзменениеИКонтроль(\"Р\") — 1 edit, 1 already there",
+          "Changed files:",
+          "    CommonModules/М/Ext/Module.bsl",
+          "&ChangeAndValidate(\"InsertRepeat\")",
+          "&ChangeAndValidate(\"DeleteRepeat\")",
+          "repeated insertion is at a different position in config",
+          "repeated deletion is at a different position in config",
+          "&ChangeAndValidate(\"WrongInsertWithOtherEdit\") — 1 of 2 edits fit, 1 diverged; method not changed",
+          "&ChangeAndValidate(\"WrongDeleteWithOtherEdit\") — 1 of 2 edits fit, 1 diverged; method not changed",
+          "[CONFLICT]           method Тест_SignatureClash (found as SignatureClash) (declaration differs: parameter 1 has a different Val modifier)",
+          "[WAITING]            method Тест_SignatureCaller"
+        ]
+      },
+      {
+        "file": "CommonModules/М/Ext/Module.bsl",
+        "text": [
+          "\tХ = 1;\n\t// проверка прав\n\tПроверитьПрава();\n\tЗаписать();",
+          "\tНачать();\n\tНачало();\n//\tУдалить1();\n\tКонец();",
+          "\tЗаписать();\n\tТест_Сообщить();\nКонецПроцедуры",
+          "Функция Сумма(А, Б)\n\tВозврат А + Б;\nКонецФункции\n\n#КонецОбласти",
+          "#Область ПрограммныйИнтерфейс\n\nПроцедура Тест_Сообщить() Экспорт\n\tСообщить(\"Готово\");\nКонецПроцедуры\n\n#КонецОбласти"
+        ]
+      },
+      {
+        "file": "CommonModules/М2/Ext/Module.bsl",
+        "text": "Процедура Г() Экспорт\n\tНачало();\n\tХ = 2;\n\tСохранить();\nКонецПроцедуры\n\nПроцедура Д() Экспорт\n\tПодготовить();\n//\tПеренести();\n\tЗавершить();\n\tПеренести();\nКонецПроцедуры\n\nПроцедура Е() Экспорт\n\tПодготовить();\nКонецПроцедуры\n\nПроцедура Л() Экспорт\n\tНачало();\n\t//Записать();\n\tЕсли Ф Тогда\n\t\tЗаписать();\n\tКонецЕсли;\n\tСередина();\n\tНачало();\n\tЗаписать();\nКонецПроцедуры\n\nПроцедура П() Экспорт\n\tНачало();\n\t// Сообщить(Текст);\n\tСередина();\n//\tСообщить(Текст);\n\tКонец();\nКонецПроцедуры\n\nПроцедура Р() Экспорт\n\tНачало();\n//\tСтарое();\n\tНовое();\n\tКонец();\nКонецПроцедуры\n"
+      },
+      {
+        "file": "CommonModules/М2/Ext/Module.bsl",
+        "text": "Procedure InsertRepeat() Export\n    A();\n    Unrelated();\nEndProcedure\nProcedure DeleteRepeat() Export\n    A();\n    A();\n    A();\n    A();\n    Unrelated();\nEndProcedure\nProcedure WrongInsert() Export\n    A();\n    B();\n    A();\n    A();\n    B();\nEndProcedure\nProcedure WrongDelete() Export\n    A();\n    B();\n    B();\nEndProcedure\nProcedure WrongInsertWithOtherEdit() Export\n    A();\n    B();\n    A();\n    A();\n    B();\n    Z();\n    C();\nEndProcedure\nProcedure WrongDeleteWithOtherEdit() Export\n    A();\n    B();\n    B();\n    Z();\n    C();\nEndProcedure\n"
+      },
+      {
+        "file": "CommonModules/М2/Ext/Module.bsl",
+        "text": "Procedure SignatureClash(A) Export\n    Message(A);\nEndProcedure"
+      }
+    ],
+    "fileNotContains": [
+      {
+        "file": "transfer-report.txt",
+        "text": "[TRUNCATED]"
+      },
+      {
+        "file": "CommonModules/М2/Ext/Module.bsl",
+        "text": "Procedure SignatureCaller("
+      }
+    ]
+  }
+}

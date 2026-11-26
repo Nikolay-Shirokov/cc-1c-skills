@@ -1,0 +1,343 @@
+{
+  "name": "Собственные корневые объекты, цепочка настроек и новые дочерние объекты заимствованного справочника",
+  "setup": "fixture:prop-positive",
+  "params": { "extensionPath": "cfe" },
+  "cwd": "workDir",
+  "args_extra": ["-Mode", "transfer", "-Expand", "*", "-Name", "CommonModule.Тест_Частичный,CommonModule.Тест_НовыйМодуль,CommonCommand.Тест_Команда,Catalog.Тест_НовыйСправочник,Catalog.Хранилище,Enum.Тест_Состояния,DefinedType.Тест_СценарийТип,SessionParameter.Тест_Сценарий,Constant.Тест_Режим,FunctionalOption.Тест_Опция,FunctionalOptionsParameter.Тест_Разрез,EventSubscription.Тест_ПриЗаписи,ScheduledJob.Тест_ФоноваяПроверка,CommonPicture.Тест_Значок,CommonPicture.Тест_ПустаяКартинка,CommandGroup.Тест_Группа,Report.Тест_Сводка,DataProcessor.Тест_МастерЗагрузки,Document.Тест_Приемка,DocumentNumerator.Тест_НомераПриемки,InformationRegister.Тест_ДанныеПриемки,AccumulationRegister.Тест_ИтогиПриемки,ChartOfCharacteristicTypes.Тест_Свойства,ChartOfAccounts.Тест_Счета,ChartOfCalculationTypes.Тест_ВидыРасчета,AccountingRegister.Тест_Баланс,CalculationRegister.Тест_Расчет,ExchangePlan.Тест_Синхронизация,BusinessProcess.Тест_Согласование,Task.Тест_Исполнение,Role.Тест_Чтение"],
+  "idempotent": true,
+  "noSnapshot": "Проверяются регистрация, файлы и обработка зависимостей. Остальная выгрузка берётся из prop-positive.",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": [
+        { "type": "DefinedType", "name": "Тест_СценарийТип", "valueType": "String(25, fixed) + EnumRef.Тест_Состояния" },
+        { "type": "SessionParameter", "name": "Тест_Сценарий", "valueType": "DefinedType.Тест_СценарийТип" },
+        { "type": "Constant", "name": "Тест_Режим", "valueType": "Boolean" },
+        { "type": "FunctionalOption", "name": "Тест_Опция", "location": "Constant.Тест_Режим", "content": ["Catalog.Тест_НовыйСправочник.Attribute.Состояние"] },
+        { "type": "FunctionalOptionsParameter", "name": "Тест_Разрез", "use": ["Catalog.Хранилище.Attribute.Тест_Примечание"] },
+        { "type": "EventSubscription", "name": "Тест_ПриЗаписи", "source": ["CatalogObject.Тест_НовыйСправочник"], "event": "OnWrite", "handler": "Тест_НовыйМодуль.ПослеЗаписи" },
+        { "type": "ScheduledJob", "name": "Тест_ФоноваяПроверка", "methodName": "Тест_НовыйМодуль.ВыполнитьЗадание", "use": true, "predefined": true },
+        { "type": "CommandGroup", "name": "Тест_Группа", "category": "ActionsPanel", "picture": "CommonPicture.Тест_Значок" },
+        { "type": "CommonPicture", "name": "Тест_Значок", "availabilityForChoice": true },
+        { "type": "CommonPicture", "name": "Тест_ПустаяКартинка" },
+        { "type": "Report", "name": "Тест_Сводка", "attributes": ["Режим: EnumRef.Тест_Состояния"] },
+        { "type": "DataProcessor", "name": "Тест_МастерЗагрузки", "attributes": ["Путь: String(100)"], "tabularSections": [{ "name": "Позиции", "attributes": ["Количество: Number(10,2)"] }] },
+        { "type": "DocumentNumerator", "name": "Тест_НомераПриемки", "numberLength": 11 },
+        { "type": "Document", "name": "Тест_Приемка", "numerator": "DocumentNumerator.Тест_НомераПриемки", "basedOn": ["Catalog.Тест_НовыйСправочник"], "registerRecords": ["AccumulationRegister.Тест_ИтогиПриемки", "InformationRegister.Тест_ДанныеПриемки", "AccountingRegister.Тест_Баланс", "CalculationRegister.Тест_Расчет"], "tabularSections": [{ "name": "Строки", "attributes": ["Количество: Number(10,2)"] }] },
+        { "type": "InformationRegister", "name": "Тест_ДанныеПриемки", "writeMode": "RecorderSubordinate", "dimensions": ["ДокументПриемки: DocumentRef.Тест_Приемка"], "resources": ["Количество: Number(10,2)"] },
+        { "type": "AccumulationRegister", "name": "Тест_ИтогиПриемки", "registerType": "Turnovers", "dimensions": ["ДокументПриемки: DocumentRef.Тест_Приемка"], "resources": ["Количество: Number(10,2)"] },
+        { "type": "ChartOfCharacteristicTypes", "name": "Тест_Свойства", "hierarchical": true, "valueTypes": ["String(60)", "CatalogRef.Тест_НовыйСправочник"], "characteristicExtValues": "Catalog.Тест_НовыйСправочник", "predefined": [{ "name": "Виды", "code": "001", "isFolder": true, "type": "", "childItems": ["(002) Цвет: CatalogRef.Тест_НовыйСправочник"] }] },
+        {"type": "ChartOfAccounts", "name": "Тест_Счета", "extDimensionTypes": "ChartOfCharacteristicTypes.Тест_Свойства", "maxExtDimensionCount": 1, "accountingFlags": ["Валютный"], "extDimensionAccountingFlags": ["Суммовой"], "checkUnique": true, "predefined": [{"name": "Основной", "code": "01", "flags": ["Валютный"], "subconto": ["Цвет | Суммовой"], "childItems": [{"name": "Подчиненный", "code": "01.01"}]}]},
+        {"type": "ChartOfCalculationTypes", "name": "Тест_ВидыРасчета", "predefined": [{"name": "Тариф", "code": "01", "actionPeriodIsBase": true}]},
+        {"type": "AccountingRegister", "name": "Тест_Баланс", "chartOfAccounts": "ChartOfAccounts.Тест_Счета", "correspondence": true, "resources": ["Сумма: Number(15,2)"]},
+        {"type": "CalculationRegister", "name": "Тест_Расчет", "chartOfCalculationTypes": "ChartOfCalculationTypes.Тест_ВидыРасчета", "dimensions": ["Позиция: CatalogRef.Тест_НовыйСправочник"], "resources": ["Сумма: Number(15,2)"]},
+        {"type": "ExchangePlan", "name": "Тест_Синхронизация", "content": [{"metadata": "Document.Тест_Приемка", "autoRecord": true}, {"metadata": "Catalog.Тест_НовыйСправочник", "autoRecord": false}]},
+        {"type": "BusinessProcess", "name": "Тест_Согласование", "task": "Task.Тест_Исполнение"},
+        {"type": "Task", "name": "Тест_Исполнение", "attributes": ["Связь: BusinessProcessRef.Тест_Согласование"], "addressingAttributes": ["Исполнитель: CatalogRef.Тест_НовыйСправочник"]}
+      ],
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}/cfe" }
+    },
+    {"writeFile": {"path": "cfe/BusinessProcesses/Тест_Согласование/Ext/Flowchart.xml", "content": "<GraphicalSchema xmlns=\"http://v8.1c.ru/8.3/xcf/scheme\" version=\"2.20\"><Items><Point id=\"1\"><AddressingAttributes><AddressingAttribute ref=\"Task.Тест_Исполнение.AddressingAttribute.Исполнитель\"><Value/></AddressingAttribute></AddressingAttributes></Point></Items></GraphicalSchema>"}},
+    {
+      "writeFile": {
+        "path": "cfe/Documents/Тест_Приемка/Ext/ObjectModule.bsl",
+        "content": "Процедура ОбработкаПроведения(Отказ, РежимПроведения)\n\tДвижения.Тест_ИтогиПриемки.Записывать = Истина;\n\tДвижения.Тест_ДанныеПриемки.Записывать = Истина;\n\tДвижения.Тест_Баланс.Записывать = Истина;\n\tRegisterRecords.Тест_Расчет.Write = True;\nКонецПроцедуры\n"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "cfe/InformationRegisters/Тест_ДанныеПриемки/Ext/RecordSetModule.bsl",
+        "content": "Функция ПустаяПриемка()\n\tВозврат Документы.Тест_Приемка.ПустаяСсылка();\nКонецФункции\n"
+      }
+    },
+    {
+      "script": "form-add/scripts/form-add",
+      "args": { "-ObjectPath": "{workDir}/cfe/Reports/Тест_Сводка.xml", "-FormName": "ФормаОтчета" }
+    },
+    {
+      "script": "template-add/scripts/add-template",
+      "args": { "-ObjectName": "Тест_Сводка", "-SrcDir": "{workDir}/cfe/Reports", "-TemplateName": "Схема", "-TemplateType": "DataCompositionSchema" }
+    },
+    {
+      "script": "form-add/scripts/form-add",
+      "args": { "-ObjectPath": "{workDir}/cfe/DataProcessors/Тест_МастерЗагрузки.xml", "-FormName": "ФормаЗагрузки" }
+    },
+    {
+      "script": "template-add/scripts/add-template",
+      "args": { "-ObjectName": "Тест_МастерЗагрузки", "-SrcDir": "{workDir}/cfe/DataProcessors", "-TemplateName": "Заголовок", "-TemplateType": "Text" }
+    },
+    {
+      "writeFile": {
+        "path": "cfe/DataProcessors/Тест_МастерЗагрузки/Templates/Заголовок/Ext/Template.txt",
+        "content": "Колонки для импорта\n"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "cfe/Reports/Тест_Сводка/Ext/ObjectModule.bsl",
+        "content": "Функция НовыйМастер() Экспорт\n\tВозврат Обработки.Тест_МастерЗагрузки.Создать();\nКонецФункции\n"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "cfe/DataProcessors/Тест_МастерЗагрузки/Forms/ФормаЗагрузки/Ext/Form/Module.bsl",
+        "content": "&НаКлиенте\nПроцедура ОткрытьЕщеРаз()\n\tПуть = \"Обработка.Тест_МастерЗагрузки.Форма.ФормаЗагрузки\";\n\tОткрытьФорму(\"Обработка.Тест_МастерЗагрузки.Форма.ФормаЗагрузки\");\nКонецПроцедуры\n"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "cfe/CommonPictures/Тест_Значок/Ext/Picture.xml",
+        "content": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<ExtPicture xmlns=\"http://v8.1c.ru/8.3/xcf/extrnprops\" xmlns:xr=\"http://v8.1c.ru/8.3/xcf/readable\" version=\"2.20\">\n\t<Picture><xr:Abs>Picture.svg</xr:Abs><xr:LoadTransparent>false</xr:LoadTransparent></Picture>\n</ExtPicture>\n"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "cfe/CommonPictures/Тест_Значок/Ext/Picture/Picture.svg",
+        "content": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\"><rect width=\"16\" height=\"16\" fill=\"#336699\"/></svg>\n"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "cfe/ScheduledJobs/Тест_ФоноваяПроверка/Ext/Schedule.xml",
+        "content": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<JobSchedule xmlns=\"http://v8.1c.ru/8.3/xcf/extrnprops\" xmlns:ent=\"http://v8.1c.ru/8.1/data/enterprise\" version=\"2.20\">\n\t<Schedule BeginDate=\"0001-01-01\" EndDate=\"0001-01-01\" BeginTime=\"00:00:00\" EndTime=\"00:00:00\" CompletionTime=\"00:00:00\" CompletionInterval=\"0\" RepeatPeriodInDay=\"900\" RepeatPause=\"0\" WeekDayInMonth=\"0\" DayInMonth=\"0\" WeeksPeriod=\"1\" DaysRepeatPeriod=\"1\">\n\t\t<ent:WeekDays>1 2 3 4 5 6 7</ent:WeekDays>\n\t\t<ent:Months>1 2 3 4 5 6 7 8 9 10 11 12</ent:Months>\n\t</Schedule>\n</JobSchedule>\n"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "cfe/Constants/Тест_Режим/Ext/ManagerModule.bsl",
+        "content": "Функция Использовать() Экспорт\n\tВозврат Константы.Тест_Режим.Получить();\nКонецФункции\n"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "cfe/Constants/Тест_Режим/Ext/ValueManagerModule.bsl",
+        "content": "Функция Сценарий()\n\tВозврат ПараметрыСеанса.Тест_Сценарий;\nКонецФункции\n"
+      }
+    },
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": [
+        { "type": "Catalog", "name": "Хранилище", "attributes": ["Примечание: String(10)"], "hierarchical": true, "predefined": [{ "name": "Раздел", "code": "010", "isFolder": true, "childItems": ["(011) Основной"] }] },
+        { "type": "EventSubscription", "name": "ПриЗаписи", "source": ["CatalogObject.Хранилище"], "event": "OnWrite", "handler": "НовыйМодуль.ПослеЗаписи" }
+      ],
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    {
+      "script": "form-add/scripts/form-add",
+      "args": { "-ObjectPath": "{workDir}/Catalogs/Хранилище.xml", "-FormName": "Карточка" }
+    },
+    {
+      "script": "cfe-borrow/scripts/cfe-borrow",
+      "args": { "-ConfigPath": "{workDir}", "-ExtensionPath": "{workDir}/cfe", "-Object": "Catalog.Хранилище" }
+    },
+    {"writeFile": {"path": "cfe/Catalogs/Хранилище/Ext/Predefined.xml", "content": "<PredefinedData xmlns=\"http://v8.1c.ru/8.3/xcf/predef\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xsi:type=\"CatalogPredefinedItems\" version=\"2.20\"><Item id=\"4ad89d21-7b76-4c6f-843a-de489ccdf75a\"><Name>Раздел</Name><Code>010</Code><Description>Раздел</Description><IsFolder>true</IsFolder><ExtensionState>AdoptedCheck</ExtensionState><ChildItems><Item id=\"3bd982fd-c19d-4b3a-8a14-30cd625fbedd\"><Name>Тест_Основной</Name><Code>012</Code><Description>Тест_Основной</Description><IsFolder>false</IsFolder><ExtensionState>Native</ExtensionState></Item></ChildItems></Item></PredefinedData>"}},
+    {"writeFile": {"path": "Catalogs/Хранилище/Ext/ManagerModule.bsl", "content": "Процедура Контроль()\nКонецПроцедуры\n"}},
+    {"writeFile": {"path": "cfe/Catalogs/Хранилище/Ext/ManagerModule.bsl", "content": "Функция Тест_Получить() Экспорт\n\tВозврат Catalogs.Хранилище.Тест_Основной;\nКонецФункции\n"}},
+    {
+      "script": "form-add/scripts/form-add",
+      "args": { "-ObjectPath": "{workDir}/cfe/Catalogs/Хранилище.xml", "-FormName": "Тест_Карточка", "-SetDefault": true }
+    },
+    {
+      "script": "meta-edit/scripts/meta-edit",
+      "args": { "-ObjectPath": "{workDir}/cfe/Catalogs/Хранилище.xml", "-Operation": "add-attribute", "-Value": "Тест_Примечание: String(10)", "-NoValidate": true }
+    },
+    {
+      "script": "form-edit/scripts/form-edit",
+      "input": { "elements": [{ "input": "ПолеПримечания", "path": "Объект.Тест_Примечание", "choiceParameters": [{"name": "Отбор.Ссылка", "value": "Catalog.Хранилище.Тест_Основной"}] }] },
+      "args": { "-FormPath": "{workDir}/cfe/Catalogs/Хранилище/Forms/Тест_Карточка/Ext/Form.xml", "-JsonPath": "{inputFile}" }
+    },
+    {
+      "writeFile": {
+        "path": "cfe/Catalogs/Хранилище/Forms/Тест_Карточка/Ext/Form/Module.bsl",
+        "content": "&НаКлиенте\nФункция ПрочитатьПримечание()\n\tТест_НовыйМодуль.Запустить();\n\tЗначение = PredefinedValue(\"Catalog.Хранилище.Тест_Основной\");\n\tВозврат Объект.Тест_Примечание;\nКонецФункции\n"
+      }
+    },
+    {
+      "script": "template-add/scripts/add-template",
+      "args": { "-ObjectName": "Хранилище", "-SrcDir": "{workDir}/cfe/Catalogs", "-TemplateName": "Тест_Бланк", "-TemplateType": "SpreadsheetDocument" }
+    },
+    {
+      "script": "meta-edit/scripts/meta-edit",
+      "args": { "-ObjectPath": "{workDir}/cfe/Catalogs/Хранилище.xml", "-Operation": "add-command", "-Value": "Тест_Печать", "-NoValidate": true }
+    },
+    {
+      "writeFile": {
+        "path": "cfe/Catalogs/Хранилище/Commands/Тест_Печать/Ext/CommandModule.bsl",
+        "content": "&НаКлиенте\nПроцедура ОбработкаКоманды(ПараметрКоманды, ПараметрыВыполненияКоманды)\n\tОткрытьФорму(\"Справочник.Хранилище.Форма.Тест_Карточка\");\nКонецПроцедуры\n"
+      }
+    },
+    {
+      "writeFile": { "path": ".v8-project.json", "content": "{\"devPrefix\":[\"Дораб_\"],\"cfeTransfer\":{\"vendor\":{\"addDevPrefix\":{\"objects\":false}},\"own\":{\"addDevPrefix\":{\"objects\":false}}}}" }
+    },
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "CommonModule", "name": "Частичный", "synonym": "Частичный", "server": true },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}" }
+    },
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "CommonModule", "name": "Тест_Частичный", "synonym": "Частичный", "server": true },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}/cfe" }
+    },
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "CommonModule", "name": "Тест_НовыйМодуль", "server": true, "serverCall": true },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}/cfe" }
+    },
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "CommonCommand", "name": "Тест_Команда", "group": "CommandGroup.Тест_Группа", "picture": "CommonPicture.Тест_Значок" },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}/cfe" }
+    },
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": { "type": "Enum", "name": "Тест_Состояния", "values": ["Черновик", "Готово", "Архив"] },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}/cfe" }
+    },
+    {
+      "writeFile": {
+        "path": "cfe/Enums/Тест_Состояния/Ext/ManagerModule.bsl",
+        "content": "Функция НачальноеСостояние() Экспорт\n\tВозврат Перечисления.Тест_Состояния.Черновик;\nКонецФункции\n"
+      }
+    },
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "Catalog", "name": "Тест_НовыйСправочник",
+        "hierarchical": true, "checkUnique": true,
+        "owners": ["ChartOfCharacteristicTypes.Тест_Свойства"],
+        "predefined": [{ "name": "Группа", "code": "001", "isFolder": true, "childItems": ["(002) Основной"] }],
+        "attributes": ["Родственный: CatalogRef.Тест_НовыйСправочник", "Состояние: EnumRef.Тест_Состояния", { "name": "ОсновноеХранилище", "type": "CatalogRef.Хранилище", "fillValue": "Catalog.Хранилище.Тест_Основной" }],
+        "tabularSections": [{ "name": "Позиции", "attributes": ["Количество: Number(10,2)"] }],
+        "commands": [{ "name": "Проверить", "group": "FormCommandBarImportant" }]
+      },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}/cfe" }
+    },
+    {
+      "script": "role-compile/scripts/role-compile",
+      "input": { "name": "Тест_Чтение", "objects": ["Catalog.Тест_НовыйСправочник: @view"] },
+      "args": { "-JsonPath": "{inputFile}", "-OutputDir": "{workDir}/cfe" }
+    },
+    {
+      "script": "form-add/scripts/form-add",
+      "args": { "-ObjectPath": "{workDir}/cfe/Catalogs/Тест_НовыйСправочник.xml", "-FormName": "ФормаЭлемента" }
+    },
+    {
+      "script": "template-add/scripts/add-template",
+      "args": { "-ObjectName": "Тест_НовыйСправочник", "-SrcDir": "{workDir}/cfe/Catalogs", "-TemplateName": "Печать", "-TemplateType": "SpreadsheetDocument" }
+    },
+    {
+      "writeFile": {
+        "path": "cfe/Catalogs/Тест_НовыйСправочник/Ext/ObjectModule.bsl",
+        "content": "Функция СсылкаНаНовый() Экспорт\n\tВозврат Справочники.Тест_НовыйСправочник.ПустаяСсылка();\nКонецФункции\n"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "cfe/Catalogs/Тест_НовыйСправочник/Forms/ФормаЭлемента/Ext/Form/Module.bsl",
+        "content": "&НаКлиенте\nПроцедура ОткрытьСвоюФорму()\n\tПуть = \"Справочник.Тест_НовыйСправочник.Форма.ФормаЭлемента\";\n\tОткрытьФорму(\"Справочник.Тест_НовыйСправочник.Форма.ФормаЭлемента\");\n\tOpenForm(\"Catalog.Тест_НовыйСправочник.Form.ФормаЭлемента\");\nКонецПроцедуры\n"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "CommonModules/Частичный/Ext/Module.bsl",
+        "content": "Функция Первый() Экспорт\n\tВозврат 1;\nКонецФункции\n\nФункция Второй() Экспорт\n\tВозврат 2;\nКонецФункции\n"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "cfe/CommonModules/Тест_Частичный/Ext/Module.bsl",
+        "content": "Функция Первый() Экспорт\n\tВозврат 1;\nКонецФункции\n\nФункция Второй() Экспорт\n\tВозврат 2;\nКонецФункции\n\nФункция Третий() Экспорт\n\tВозврат Первый() + Второй();\nКонецФункции\n\n// Не переносить: временная проверка\nФункция ВременныйМетод()\n\tВозврат 50;\nКонецФункции\n"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "cfe/CommonModules/Тест_НовыйМодуль/Ext/Module.bsl",
+        "content": "Функция Запустить() Экспорт\n\tСостояние = Перечисления.Тест_Состояния.Черновик;\n\tИмяОпции = \"Тест_Опция\";\n\tВключено = ПолучитьФункциональнуюОпцию(\"Тест_Опция\");\n\tЦвет = ПланыВидовХарактеристик.Тест_Свойства.Цвет;\n\tЗапись = ПредопределенноеЗначение(\"Справочник.Тест_НовыйСправочник.Основной\");\n\tСсылка = Справочники.Хранилище.Тест_Основной;\n\tСсылка = PredefinedValue(\"Catalog.Хранилище.Тест_Основной\");\n\tКлюч = \"Catalog.Хранилище.Тест_Основной\";\n\tВозврат Тест_Частичный.Третий();\nКонецФункции\n\nПроцедура ПослеЗаписи(Источник, Отказ) Экспорт\nКонецПроцедуры\n\nПроцедура ВыполнитьЗадание() Экспорт\nКонецПроцедуры\n"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "cfe/CommonCommands/Тест_Команда/Ext/CommandModule.bsl",
+        "content": "&НаКлиенте\nПроцедура ОбработкаКоманды(ПараметрКоманды, ПараметрыВыполненияКоманды)\n\tТест_НовыйМодуль.Запустить();\n\tЗначок = БиблиотекаКартинок.Тест_Значок;\n\tЗначок = PictureLib.Тест_Значок;\n\tОткрытьФорму(\"Справочник.Хранилище.Форма.Тест_Карточка\");\n\tОткрытьФорму(\"Отчет.Тест_Сводка.Форма.ФормаОтчета\");\n\tOpenForm(\"DataProcessor.Тест_МастерЗагрузки.Form.ФормаЗагрузки\");\nКонецПроцедуры\n"
+      }
+    }
+  ],
+  "expect": {
+    "stdoutContains": ["2/3 methods already present", "method Третий", "own object (as НовыйМодуль)", "own object (as Команда)", "!!! Stored data is NOT migrated:", "catalog and tabular-section records", "stored references to enumeration values", "Copy the stored constant value"],
+    "filesAbsent": ["CommonModules/Тест_Частичный.xml", "CommonModules/Тест_НовыйМодуль.xml", "CommonCommands/Тест_Команда.xml", "CommonPictures/ПустаяКартинка/Ext/Picture.xml"],
+    "fileNotContains": [
+      { "file": "Catalogs/Хранилище/Ext/Predefined.xml", "text": ["ExtensionState", "<Name>Тест_Основной</Name>"] },
+      { "file": "CommonModules/Частичный/Ext/Module.bsl", "text": "ВременныйМетод" },
+      { "file": "DataProcessors/МастерЗагрузки.xml", "text": "DataProcessorTabularSection.Тест_МастерЗагрузки" }
+    ],
+    "fileContains": [
+      {"file": "Catalogs/Хранилище/Forms/Дораб_Карточка/Ext/Form.xml", "text": "Catalog.Хранилище.Дораб_Основной"},
+      {"file": "Catalogs/Хранилище/Ext/Predefined.xml", "text": ["id=\"3bd982fd-c19d-4b3a-8a14-30cd625fbedd\"", "<Name>Раздел</Name>", "<Name>Основной</Name>", "<Name>Дораб_Основной</Name>"]},
+      {"file": "Catalogs/Хранилище/Ext/ManagerModule.bsl", "text": "Catalogs.Хранилище.Дораб_Основной"},
+      {"file": "CommonModules/НовыйМодуль/Ext/Module.bsl", "text": ["Справочники.Хранилище.Дораб_Основной", "PredefinedValue(\"Catalog.Хранилище.Дораб_Основной\")", "Ключ = \"Catalog.Хранилище.Тест_Основной\""]},
+      { "file": "Roles/Чтение/Ext/Rights.xml", "text": ["<name>Catalog.НовыйСправочник</name>", "<name>Read</name>"] },
+      {"file": "Configuration.xml", "text": ["<ChartOfAccounts>Счета</ChartOfAccounts>", "<ChartOfCalculationTypes>ВидыРасчета</ChartOfCalculationTypes>", "<AccountingRegister>Баланс</AccountingRegister>", "<CalculationRegister>Расчет</CalculationRegister>", "<ExchangePlan>Синхронизация</ExchangePlan>", "<BusinessProcess>Согласование</BusinessProcess>", "<Task>Исполнение</Task>", "<Role>Чтение</Role>"]},
+      {"file": "ChartsOfAccounts/Счета/Ext/Predefined.xml", "text": ["ChartOfAccounts.Счета.AccountingFlag.Валютный", "ChartOfAccounts.Счета.ExtDimensionAccountingFlag.Суммовой", "ChartOfCharacteristicTypes.Свойства.Цвет", "<Name>Подчиненный</Name>"]},
+      {"file": "ChartsOfCalculationTypes/ВидыРасчета/Ext/Predefined.xml", "text": ["<Name>Тариф</Name>", "<ActionPeriodIsBase>true</ActionPeriodIsBase>"]},
+      {"file": "AccountingRegisters/Баланс.xml", "text": ["<ChartOfAccounts>ChartOfAccounts.Счета</ChartOfAccounts>", "AccountingRegisterRecordSet.Баланс"]},
+      {"file": "CalculationRegisters/Расчет.xml", "text": ["<ChartOfCalculationTypes>ChartOfCalculationTypes.ВидыРасчета</ChartOfCalculationTypes>", "RecalculationsManager.Расчет"]},
+      {"file": "ExchangePlans/Синхронизация/Ext/Content.xml", "text": ["<Metadata>Document.Приемка</Metadata>", "<AutoRecord>Allow</AutoRecord>", "<Metadata>Catalog.НовыйСправочник</Metadata>", "<AutoRecord>Deny</AutoRecord>"]},
+      {"file": "BusinessProcesses/Согласование.xml", "text": "<Task>Task.Исполнение</Task>"},
+      {"file": "BusinessProcesses/Согласование/Ext/Flowchart.xml", "text": "ref=\"Task.Исполнение.AddressingAttribute.Исполнитель\""},
+      {"file": "Tasks/Исполнение.xml", "text": ["BusinessProcessRef.Согласование", "<Name>Исполнитель</Name>"]},
+      { "file": "Configuration.xml", "text": ["<CommonModule>НовыйМодуль</CommonModule>", "<CommonCommand>Команда</CommonCommand>", "<Catalog>НовыйСправочник</Catalog>", "<Enum>Состояния</Enum>"] },
+      { "file": "Configuration.xml", "text": ["<DefinedType>СценарийТип</DefinedType>", "<SessionParameter>Сценарий</SessionParameter>", "<Constant>Режим</Constant>", "<FunctionalOption>Опция</FunctionalOption>", "<FunctionalOptionsParameter>Разрез</FunctionalOptionsParameter>"] },
+      { "file": "DefinedTypes/СценарийТип.xml", "text": ["DefinedType.СценарийТип", "EnumRef.Состояния", "<v8:Length>25</v8:Length>", "<v8:AllowedLength>Fixed</v8:AllowedLength>"] },
+      { "file": "SessionParameters/Сценарий.xml", "text": "DefinedType.СценарийТип</v8:TypeSet>" },
+      { "file": "Constants/Режим.xml", "text": ["ConstantManager.Режим", "ConstantValueManager.Режим", "ConstantValueKey.Режим"] },
+      { "file": "Constants/Режим/Ext/ManagerModule.bsl", "text": "Константы.Режим.Получить();" },
+      { "file": "Constants/Режим/Ext/ValueManagerModule.bsl", "text": "ПараметрыСеанса.Сценарий;" },
+      { "file": "FunctionalOptions/Опция.xml", "text": ["<Location>Constant.Режим</Location>", "Catalog.НовыйСправочник.Attribute.Состояние"] },
+      { "file": "FunctionalOptionsParameters/Разрез.xml", "text": "Catalog.Хранилище.Attribute.Примечание" },
+      { "file": "Configuration.xml", "text": ["<EventSubscription>ПриЗаписи</EventSubscription>", "<EventSubscription>Дораб_ПриЗаписи</EventSubscription>", "<ScheduledJob>ФоноваяПроверка</ScheduledJob>"] },
+      { "file": "EventSubscriptions/ПриЗаписи.xml", "text": "CatalogObject.Хранилище</v8:Type>" },
+      { "file": "EventSubscriptions/Дораб_ПриЗаписи.xml", "text": ["CatalogObject.НовыйСправочник</v8:Type>", "<Event>OnWrite</Event>", "<Handler>CommonModule.НовыйМодуль.ПослеЗаписи</Handler>"] },
+      { "file": "ScheduledJobs/ФоноваяПроверка.xml", "text": ["<MethodName>CommonModule.НовыйМодуль.ВыполнитьЗадание</MethodName>", "<Use>true</Use>", "<Predefined>true</Predefined>"] },
+      { "file": "ScheduledJobs/ФоноваяПроверка/Ext/Schedule.xml", "text": "RepeatPeriodInDay=\"900\"" },
+      { "file": "Configuration.xml", "text": ["<CommandGroup>Группа</CommandGroup>", "<CommonPicture>Значок</CommonPicture>", "<CommonPicture>ПустаяКартинка</CommonPicture>"] },
+      { "file": "CommonPictures/Значок.xml", "text": "<AvailabilityForChoice>true</AvailabilityForChoice>" },
+      { "file": "CommonPictures/Значок/Ext/Picture.xml", "text": "<xr:Abs>Picture.svg</xr:Abs>" },
+      { "file": "CommonPictures/Значок/Ext/Picture/Picture.svg", "text": "fill=\"#336699\"" },
+      { "file": "CommandGroups/Группа.xml", "text": ["<xr:Ref>CommonPicture.Значок</xr:Ref>", "<Category>ActionsPanel</Category>"] },
+      { "file": "CommonCommands/Команда.xml", "text": ["<Group>CommandGroup.Группа</Group>", "<xr:Ref>CommonPicture.Значок</xr:Ref>"] },
+      { "file": "Configuration.xml", "text": ["<Report>Сводка</Report>", "<DataProcessor>МастерЗагрузки</DataProcessor>"] },
+      { "file": "Configuration.xml", "text": ["<Document>Приемка</Document>", "<DocumentNumerator>НомераПриемки</DocumentNumerator>", "<InformationRegister>ДанныеПриемки</InformationRegister>", "<AccumulationRegister>ИтогиПриемки</AccumulationRegister>"] },
+      { "file": "Documents/Приемка.xml", "text": ["DocumentNumerator.НомераПриемки", "Catalog.НовыйСправочник", "AccumulationRegister.ИтогиПриемки", "InformationRegister.ДанныеПриемки", "DocumentTabularSection.Приемка.Строки"] },
+      { "file": "Documents/Приемка/Ext/ObjectModule.bsl", "text": ["Движения.ИтогиПриемки.Записывать", "Движения.ДанныеПриемки.Записывать", "Движения.Баланс.Записывать", "RegisterRecords.Расчет.Write"] },
+      { "file": "InformationRegisters/ДанныеПриемки.xml", "text": ["cfg:DocumentRef.Приемка", "InformationRegisterRecordSet.ДанныеПриемки", "<WriteMode>RecorderSubordinate</WriteMode>"] },
+      { "file": "InformationRegisters/ДанныеПриемки/Ext/RecordSetModule.bsl", "text": "Документы.Приемка.ПустаяСсылка()" },
+      { "file": "AccumulationRegisters/ИтогиПриемки.xml", "text": ["cfg:DocumentRef.Приемка", "AccumulationRegisterRecordSet.ИтогиПриемки"] },
+      { "file": "Reports/Сводка.xml", "text": ["ReportObject.Сводка", "Report.Сводка.Form.ФормаОтчета", "Report.Сводка.Template.Схема", "cfg:EnumRef.Состояния"] },
+      { "file": "Reports/Сводка/Forms/ФормаОтчета/Ext/Form.xml", "text": "cfg:ReportObject.Сводка" },
+      { "file": "Reports/Сводка/Ext/ObjectModule.bsl", "text": "Обработки.МастерЗагрузки.Создать()" },
+      { "file": "Reports/Сводка/Templates/Схема/Ext/Template.xml", "text": "DataCompositionSchema" },
+      { "file": "DataProcessors/МастерЗагрузки.xml", "text": ["DataProcessorObject.МастерЗагрузки", "DataProcessor.МастерЗагрузки.Form.ФормаЗагрузки", "DataProcessorTabularSection.МастерЗагрузки.Позиции", "DataProcessorTabularSectionRow.МастерЗагрузки.Позиции", "<Name>Позиции</Name>", "<Name>Количество</Name>"] },
+      { "file": "DataProcessors/МастерЗагрузки/Forms/ФормаЗагрузки/Ext/Form.xml", "text": "cfg:DataProcessorObject.МастерЗагрузки" },
+      { "file": "DataProcessors/МастерЗагрузки/Forms/ФормаЗагрузки/Ext/Form/Module.bsl", "text": ["Путь = \"Обработка.Тест_МастерЗагрузки.Форма.ФормаЗагрузки\"", "ОткрытьФорму(\"Обработка.МастерЗагрузки.Форма.ФормаЗагрузки\")"] },
+      { "file": "DataProcessors/МастерЗагрузки/Templates/Заголовок/Ext/Template.txt", "text": "Колонки для импорта" },
+      { "file": "Enums/Состояния.xml", "text": ["EnumRef.Состояния", "<Name>Черновик</Name>", "<Name>Готово</Name>", "<Name>Архив</Name>"] },
+      { "file": "Enums/Состояния/Ext/ManagerModule.bsl", "text": "Возврат Перечисления.Состояния.Черновик;" },
+      { "file": "Catalogs/НовыйСправочник.xml", "text": ["cfg:CatalogRef.НовыйСправочник", "cfg:EnumRef.Состояния", "Catalog.Хранилище.Дораб_Основной</FillValue>", "ChartOfCharacteristicTypes.Свойства</xr:Item>", "<Name>Позиции</Name>", "<Name>Количество</Name>", "<Name>Проверить</Name>", "<Form>ФормаЭлемента</Form>", "<Template>Печать</Template>"] },
+      { "file": "Catalogs/НовыйСправочник/Ext/Predefined.xml", "text": ["<Name>Группа</Name>", "<ChildItems>", "<Name>Основной</Name>"] },
+      { "file": "Configuration.xml", "text": "<ChartOfCharacteristicTypes>Свойства</ChartOfCharacteristicTypes>" },
+      { "file": "ChartsOfCharacteristicTypes/Свойства.xml", "text": ["Characteristic.Свойства", "ChartOfCharacteristicTypesObject.Свойства", "cfg:CatalogRef.НовыйСправочник", "<CharacteristicExtValues>Catalog.НовыйСправочник</CharacteristicExtValues>"] },
+      { "file": "ChartsOfCharacteristicTypes/Свойства/Ext/Predefined.xml", "text": ["<Name>Виды</Name>", "<ChildItems>", "<Name>Цвет</Name>", "CatalogRef.НовыйСправочник"] },
+      { "file": "Catalogs/НовыйСправочник/Ext/ObjectModule.bsl", "text": "Справочники.НовыйСправочник.ПустаяСсылка()" },
+      { "file": "Catalogs/НовыйСправочник/Forms/ФормаЭлемента/Ext/Form.xml", "text": "cfg:CatalogObject.НовыйСправочник" },
+      { "file": "Catalogs/НовыйСправочник/Forms/ФормаЭлемента/Ext/Form/Module.bsl", "text": ["ОткрытьФорму(\"Справочник.НовыйСправочник.Форма.ФормаЭлемента\")", "OpenForm(\"Catalog.НовыйСправочник.Form.ФормаЭлемента\")", "Путь = \"Справочник.Тест_НовыйСправочник.Форма.ФормаЭлемента\";"] },
+      { "file": "Catalogs/Хранилище.xml", "text": ["<Form>Карточка</Form>", "<Form>Дораб_Карточка</Form>", "<Template>Бланк</Template>", "<Name>Печать</Name>", "<DefaultObjectForm>Catalog.Хранилище.Form.Карточка</DefaultObjectForm>"] },
+      { "file": "Catalogs/Хранилище/Forms/Дораб_Карточка/Ext/Form.xml", "text": "<DataPath>Объект.Примечание</DataPath>" },
+      { "file": "Catalogs/Хранилище/Forms/Дораб_Карточка/Ext/Form/Module.bsl", "text": ["Возврат Объект.Примечание;", "НовыйМодуль.Запустить();", "PredefinedValue(\"Catalog.Хранилище.Дораб_Основной\")"] },
+      { "file": "Catalogs/Хранилище/Commands/Печать/Ext/CommandModule.bsl", "text": "ОткрытьФорму(\"Справочник.Хранилище.Форма.Дораб_Карточка\")" },
+      { "file": "CommonModules/Частичный/Ext/Module.bsl", "text": "Функция Третий() Экспорт" },
+      { "file": "CommonModules/НовыйМодуль/Ext/Module.bsl", "text": ["Возврат Частичный.Третий()", "Перечисления.Состояния.Черновик", "ИмяОпции = \"Тест_Опция\";", "ПолучитьФункциональнуюОпцию(\"Опция\")", "ПланыВидовХарактеристик.Свойства.Цвет", "ПредопределенноеЗначение(\"Справочник.НовыйСправочник.Основной\")"] },
+      { "file": "CommonCommands/Команда/Ext/CommandModule.bsl", "text": ["\tНовыйМодуль.Запустить()", "БиблиотекаКартинок.Значок", "PictureLib.Значок", "ОткрытьФорму(\"Справочник.Хранилище.Форма.Дораб_Карточка\")", "ОткрытьФорму(\"Отчет.Сводка.Форма.ФормаОтчета\")", "OpenForm(\"DataProcessor.МастерЗагрузки.Form.ФормаЗагрузки\")"] }
+    ]
+  }
+}

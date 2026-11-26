@@ -64,7 +64,7 @@ const FAMILIES = [
     name: 'support-guard: get_edit_mode', py: '_sg_get_edit_mode', ps1: 'Get-EditMode',
     variants: [
       { id: 'full', authority: 'cf-edit',
-        consumers: ['form-add', 'form-compile', 'form-edit', 'help-add', 'interface-edit', 'meta-compile',
+        consumers: ['cfe-transfer', 'form-add', 'form-compile', 'form-edit', 'help-add', 'interface-edit', 'meta-compile',
           'meta-edit', 'meta-remove', 'mxl-compile', 'role-compile', 'role-edit', 'skd-compile', 'skd-edit',
           'subsystem-compile', 'subsystem-edit', 'template-add', 'xdto-compile', 'xdto-edit'] },
     ],
@@ -91,7 +91,7 @@ const FAMILIES = [
       // вверх. Группа db-* использует её же, чтобы найти запись базы и взять реквизиты
       // хранилища и путь к платформе — задача одна, поэтому семья общая, а не вторая с тем же телом.
       { id: 'full', authority: 'cf-edit',
-        consumers: ['cfe-borrow', 'db-cfe-admin', 'db-create', 'db-dump-cf', 'db-dump-dt', 'db-dump-xml',
+        consumers: ['cfe-transfer', 'cfe-borrow', 'db-cfe-admin', 'db-create', 'db-dump-cf', 'db-dump-dt', 'db-dump-xml',
           'db-load-cf', 'db-load-dt', 'db-load-git', 'db-load-xml', 'db-repo', 'db-run', 'db-update',
           'epf-build', 'epf-dump', 'web-publish', 'v8-xsd-fetch', 'skd-validate',
           'form-add', 'form-compile', 'form-edit', 'help-add', 'interface-edit', 'meta-compile',
@@ -103,7 +103,7 @@ const FAMILIES = [
     name: 'support-guard: root_uuid', py: '_sg_root_uuid', ps1: 'Get-RootUuid',
     variants: [
       { id: 'full', authority: 'cf-edit',
-        consumers: ['form-add', 'form-compile', 'form-edit', 'help-add', 'interface-edit', 'meta-compile',
+        consumers: ['cfe-transfer', 'form-add', 'form-compile', 'form-edit', 'help-add', 'interface-edit', 'meta-compile',
           'meta-edit', 'meta-remove', 'mxl-compile', 'role-compile', 'role-edit', 'skd-compile', 'skd-edit',
           'subsystem-compile', 'subsystem-edit', 'template-add', 'xdto-compile', 'xdto-edit'],
         // support-edit и *-info читают uuid для ОТОБРАЖЕНИЯ состояния поддержки; в PY-портах
@@ -149,7 +149,7 @@ const FAMILIES = [
     name: 'format_rank', py: 'format_rank', ps1: 'Get-FormatRank',
     variants: [
       { id: 'base', authority: 'meta-compile',
-        consumers: ['cf-init', 'cf-validate', 'cfe-borrow', 'cfe-init', 'cfe-patch-method', 'cfe-validate', 'epf-build',
+        consumers: ['cf-init', 'cf-validate', 'cfe-borrow', 'cfe-init', 'cfe-patch-method', 'cfe-transfer', 'cfe-validate', 'epf-build',
           'epf-init', 'epf-validate', 'erf-init', 'form-add', 'form-compile', 'form-edit', 'form-validate',
           'meta-validate', 'mxl-compile', 'role-compile', 'role-edit', 'skd-validate', 'subsystem-compile', 'subsystem-edit',
           'template-add', 'xdto-compile'] },
@@ -181,21 +181,118 @@ const FAMILIES = [
   {
     name: 'BSL: таблица ключевых слов', py: 'bsl_keywords', ps1: 'Get-BslKeywords',
     variants: [
-      { id: 'base', authority: 'cfe-patch-method', consumers: ['cfe-diff', 'cfe-validate'] },
+      { id: 'base', authority: 'cfe-patch-method', consumers: ['cfe-diff', 'cfe-transfer', 'cfe-validate'] },
     ],
   },
   {
     name: 'BSL: вид маркера правки', py: 'bsl_marker_kind', ps1: 'Get-BslMarkerKind',
     variants: [
-      { id: 'base', authority: 'cfe-patch-method', consumers: ['cfe-diff'] },
+      { id: 'base', authority: 'cfe-patch-method', consumers: ['cfe-transfer'] },
     ],
   },
   {
     name: 'BSL: разбор аннотаций перехвата', py: 'get_interceptors', ps1: 'Get-Interceptors',
     variants: [
-      { id: 'base', authority: 'cfe-patch-method', consumers: ['cfe-diff'] },
+      { id: 'base', authority: 'cfe-patch-method', consumers: ['cfe-diff', 'cfe-transfer'] },
     ],
   },
+  // Проверка переноса cfe-transfer классифицирует правки &ИзменениеИКонтроль теми же сопоставлениями,
+  // что cfe-patch-method -Check. Разойдись копия — два навыка дадут разные вердикты по одному методу.
+  // Третий элемент — потребители, если они не только cfe-transfer.
+  ...[
+    ['Get-KwAlt', 'kw_alt', ['cfe-diff', 'cfe-transfer']],
+    ['Get-BslLang', 'bsl_lang'],
+    ['Split-TopLevel', 'split_top_level'],
+    ['Test-ContextDirective', 'is_context_directive'],
+    ['Read-Signature', 'read_signature'],
+    ['Get-EffectiveCondition', 'effective_condition'],
+    ['Get-EnclosingChain', 'get_enclosing_chain'],
+    ['Extract-Method', 'extract_method'],
+    ['Get-ProcNames', 'get_proc_names'],
+    ['Get-Normalized', 'normalize'],
+    ['Parse-MarkedBody', 'parse_marked_body'],
+    ['Find-UniqueIndex', 'find_unique_index'],
+    ['Find-UniqueRun', 'find_unique_run'],
+    ['Test-Significant', 'test_significant'],
+    ['Get-SignificantProjection', 'significant_projection'],
+    ['Test-RunAt', 'test_run_at'],
+    ['Test-DeleteAbsorbed', 'test_delete_absorbed'],
+    ['Get-AbsorbedInPlace', 'get_absorbed_in_place'],
+    ['Resolve-InsertionPointExact', 'resolve_insertion_point_exact'],
+    ['Resolve-InsertionPoint', 'resolve_insertion_point'],
+  ].map(([ps1, py, consumers = ['cfe-transfer']]) => ({
+    name: `BSL: ${py}`, py, ps1,
+    variants: [{ id: 'base', authority: 'cfe-patch-method', consumers }],
+  })),
+  // Разница заимствованной формы в cfe-diff и cfe-transfer пишется нотацией form-info — одни теги и типы
+  {
+    name: 'форма: format_type', py: 'format_type', ps1: 'Format-Type',
+    variants: [
+      { id: 'base', authority: 'form-info', consumers: ['cfe-diff', 'cfe-transfer'] },
+      { id: 'metadata', authority: 'meta-info', consumers: [],
+        why: 'тип реквизита объекта метаданных, а не формы: свой набор типов и своя запись' },
+    ],
+  },
+  {
+    name: 'форма: get_element_tag', py: 'get_element_tag', ps1: 'Get-ElementTag',
+    variants: [{ id: 'base', authority: 'form-info', consumers: ['cfe-diff', 'cfe-transfer'] }],
+  },
+
+  // ─── cfe-diff ↔ cfe-transfer: разбор расширения ─────────────────────────
+  // Сверка переноса выделена из cfe-diff в отдельный навык. Обзор и сверка читают расширение
+  // одинаково: объект и его модули/формы, разница формы с BaseForm, собственные методы, адресация
+  // разделов. Разойдись копия — обзор покажет правку, которой сверка не видит, или наоборот.
+  ...[
+    ['Resolve-InputPath', 'resolve_input_path'],
+    ['Read-ConfigurationProps', 'read_configuration_props'],
+    ['Remove-ExtPrefix', 'remove_ext_prefix'],
+    ['Get-Short', 'get_short'],
+    ['Get-Plural', 'plural'],
+    ['Get-RelPath', 'rel_path'],
+    ['Read-BslLines', 'read_bsl_lines'],
+    ['Find-DeclAfter', 'find_decl_after'],
+    ['Read-MdObject', 'read_md_object'],
+    ['Test-AdoptedNode', 'test_adopted_node'],
+    ['Get-MdChildName', 'md_child_name'],
+    ['Test-HasElementChild', 'has_element_child'],
+    ['Get-KindWord', 'kind_word'],
+    ['Get-ObjContext', 'get_obj_context'],
+    ['Get-ObjForms', 'get_obj_forms'],
+    ['Get-ObjModules', 'get_obj_modules'],
+    ['Read-FormDoc', 'read_form_doc'],
+    ['Test-FormElement', 'is_form_element'],
+    ['Add-FormElements', 'add_form_elements'],
+    ['Get-FormElementIndex', 'form_element_index'],
+    ['Get-LcsSet', 'lcs_set'],
+    ['Get-MovedSet', 'get_moved_set'],
+    ['Get-PropMap', 'get_prop_map'],
+    ['Get-NodeCanon', 'node_canon'],
+    ['Add-NodeCanon', null],
+    ['Test-SameProp', null],
+    ['Get-CmpKey', 'cmp_key'],
+    ['Get-PropDisplay', 'prop_display'],
+    ['Get-EventList', 'event_list'],
+    ['Get-EventKeySet', 'event_key_set'],
+    ['Get-SectionMap', 'section_map'],
+    ['Get-FormDiff', 'get_form_diff'],
+    ['Get-PropChangeText', 'prop_change_text'],
+    ['Get-MoveText', 'move_text'],
+    ['Get-EventText', 'event_text'],
+    ['Get-CallTypeHandlers', 'call_type_handlers'],
+    ['Get-ProcDecls', 'get_proc_decls'],
+    ['Get-TopCodeLine', 'get_top_code_line'],
+    ['Get-ModuleChanges', 'get_module_changes'],
+    ['Get-SubsystemContent', 'get_subsystem_content'],
+    ['Test-NameMatch', null],
+    ['Get-SectionLayout', 'section_layout'],
+    [null, 'elem_children'],
+    [null, 'path_key'],
+    [null, 'read_xml'],
+    [null, '_ws'],
+  ].map(([ps1, py]) => ({
+    name: `cfe-разбор: ${py || ps1}`, py, ps1,
+    variants: [{ id: 'base', authority: 'cfe-diff', consumers: ['cfe-transfer'] }],
+  })),
 
   // ─── СКД: краткая запись значения ────────────────────────────────────────
   // compile и edit читают вариант стандартного периода в краткой записи как период, а decompile
@@ -661,7 +758,7 @@ const FAMILIES = [
       { id: 'base', authority: 'meta-compile',
         consumers: [
           'cf-edit', 'cf-info', 'cf-init', 'cf-validate', 'cfe-borrow', 'cfe-diff', 'cfe-init',
-          'cfe-patch-method', 'cfe-validate', 'db-cfe-admin', 'db-create', 'db-dump-cf', 'db-dump-dt', 'db-dump-xml',
+          'cfe-patch-method', 'cfe-transfer', 'cfe-validate', 'db-cfe-admin', 'db-create', 'db-dump-cf', 'db-dump-dt', 'db-dump-xml',
           'db-load-cf', 'db-load-dt', 'db-load-git', 'db-load-xml', 'db-repo', 'db-run', 'db-update', 'epf-build',
           'epf-dump', 'epf-init', 'epf-validate', 'erf-init', 'form-add', 'form-compile',
           'form-decompile', 'form-edit', 'form-info', 'form-remove', 'form-validate', 'help-add',
@@ -761,7 +858,7 @@ const FAMILIES = [
     py: 'get_new_object_position', ps1: 'Get-NewObjectPosition',
     variants: [
       { id: 'base', authority: 'meta-compile',
-        consumers: ['cf-edit', 'cfe-borrow', 'role-compile', 'xdto-compile'] },
+        consumers: ['cf-edit', 'cfe-borrow', 'cfe-transfer', 'role-compile', 'xdto-compile'] },
     ],
   },
   {
@@ -769,7 +866,7 @@ const FAMILIES = [
     py: 'is_order_sensitive_type', ps1: 'Test-OrderSensitiveType',
     variants: [
       { id: 'base', authority: 'meta-compile',
-        consumers: ['cf-edit', 'cfe-borrow', 'role-compile', 'xdto-compile'] },
+        consumers: ['cf-edit', 'cfe-borrow', 'cfe-transfer', 'role-compile', 'xdto-compile'] },
     ],
   },
   {
@@ -777,7 +874,7 @@ const FAMILIES = [
     py: 'compare_metadata_names', ps1: 'Compare-MetadataNames',
     variants: [
       { id: 'base', authority: 'meta-compile',
-        consumers: ['cf-edit', 'cfe-borrow', 'role-compile', 'xdto-compile'] },
+        consumers: ['cf-edit', 'cfe-borrow', 'cfe-transfer', 'role-compile', 'xdto-compile'] },
     ],
   },
   // ─── Имя команды объекта ≠ стандартная команда вида (замер 8.3.24/8.3.27) ─────
@@ -796,7 +893,7 @@ const FAMILIES = [
     py: 'object_child_order', ps1: 'Get-ObjectChildOrder',
     variants: [
       { id: 'base', authority: 'meta-edit',
-        consumers: ['cfe-borrow', 'form-add', 'form-compile', 'meta-validate', 'template-add'] },
+        consumers: ['cfe-borrow', 'cfe-transfer', 'form-add', 'form-compile', 'meta-validate', 'template-add'] },
     ],
   },
   {
@@ -804,7 +901,7 @@ const FAMILIES = [
     py: 'find_child_anchor', ps1: 'Find-ChildAnchor',
     variants: [
       { id: 'base', authority: 'meta-edit',
-        consumers: ['cfe-borrow', 'form-add', 'template-add'],
+        consumers: ['cfe-borrow', 'cfe-transfer', 'form-add', 'template-add'],
         consumersPs1: ['form-compile'] },
     ],
   },

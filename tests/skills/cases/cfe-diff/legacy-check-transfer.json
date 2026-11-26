@@ -1,0 +1,22 @@
+{
+  "name": "Старый вызов проверки переноса (-ConfigPath, -Mode check-transfer) получает подсказку про /cfe-transfer, а не ошибку параметра",
+  "preRun": [
+    {
+      "script": "cfe-init/scripts/cfe-init",
+      "args": {
+        "-Name": "Тест",
+        "-OutputDir": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}"
+      }
+    }
+  ],
+  "params": {
+    "extensionPath": "cfe"
+  },
+  "args_extra": ["-ConfigPath", "{workDir}", "-Mode", "check-transfer"],
+  "expectError": true,
+  "noSnapshot": "отказ до чтения расширения: проверяется сообщение",
+  "expect": {
+    "stderrContains": ["Transfer check moved: use /cfe-transfer -ExtensionPath <path> -ConfigPath <path>"]
+  }
+}

@@ -1,0 +1,106 @@
+{
+  "name": "Настройки .v8-project.json: devPrefix делит модули на чужие и свои; у чужого — обрамление по шаблону с {prefixBare} и {tag} (шаблон без // дополняется), удаление комментированием, свой метод получает devPrefix и обрамление, конец — на строке КонецПроцедуры; у своего — удаление без следа и служебная область из regions, два метода в одно место — одним блоком с одной пустой строкой",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "CommonModule",
+        "name": "М",
+        "properties": {
+          "Server": true
+        }
+      },
+      "args": {
+        "-JsonPath": "{inputFile}",
+        "-OutputDir": "{workDir}"
+      }
+    },
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "CommonModule",
+        "name": "мпМ",
+        "properties": {
+          "Server": true
+        }
+      },
+      "args": {
+        "-JsonPath": "{inputFile}",
+        "-OutputDir": "{workDir}"
+      }
+    },
+    {
+      "script": "cfe-init/scripts/cfe-init",
+      "args": {
+        "-Name": "Тест",
+        "-OutputDir": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}"
+      }
+    },
+    {
+      "script": "cfe-borrow/scripts/cfe-borrow",
+      "args": {
+        "-ExtensionPath": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}",
+        "-Object": "CommonModule.М"
+      }
+    },
+    {
+      "script": "cfe-borrow/scripts/cfe-borrow",
+      "args": {
+        "-ExtensionPath": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}",
+        "-Object": "CommonModule.мпМ"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "CommonModules/М/Ext/Module.bsl",
+        "content": "#Область СлужебныеПроцедурыИФункции\n\nПроцедура А() Экспорт\n\tХ = 1;\n\tУстаревшее();\n\tЗаписать();\nКонецПроцедуры\n\n#КонецОбласти\n"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "cfe/CommonModules/М/Ext/Module.bsl",
+        "content": "&ИзменениеИКонтроль(\"А\")\nПроцедура Тест_А()\n\tХ = 1;\n\t#Удаление\n\tУстаревшее();\n\t#КонецУдаления\n\t#Вставка\n\tТест_Новый();\n\t#КонецВставки\n\tЗаписать();\nКонецПроцедуры\n\n// Новая процедура\nПроцедура Тест_Новый()\n\tСообщить(\"Новый\");\nКонецПроцедуры\n"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "CommonModules/мпМ/Ext/Module.bsl",
+        "content": "#Область Прочее\n\nПроцедура Б() Экспорт\n\tНачало();\n\tУстаревшее();\nКонецПроцедуры\n#КонецОбласти\n"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "cfe/CommonModules/мпМ/Ext/Module.bsl",
+        "content": "&ИзменениеИКонтроль(\"Б\")\nПроцедура Тест_Б()\n\tНачало();\n\t#Удаление\n\tУстаревшее();\n\t#КонецУдаления\nКонецПроцедуры\n\nФункция Тест_Расчет()\n\tВозврат 1;\nКонецФункции\n\nФункция Тест_Расчет2()\n\tВозврат 2;\nКонецФункции\n"
+      }
+    },
+    {
+      "writeFile": {
+        "path": ".v8-project.json",
+        "content": "{\n  \"devPrefix\": [\n    \"мп\"\n  ],\n  \"cfeTransfer\": {\n    \"vendor\": {\n      \"insertComment\": {\n        \"begin\": \"++ {prefixBare} {tag}\",\n        \"end\": \"// -- {prefixBare}\"\n      },\n      \"addDevPrefix\": {\n        \"methods\": true\n      }\n    },\n    \"own\": {\n      \"deletion\": \"remove\",\n      \"createRegions\": false,\n      \"regions\": {\n        \"service\": [\n          \"Прочее\"\n        ]\n      }\n    }\n  }\n}"
+      }
+    }
+  ],
+  "params": {
+    "extensionPath": "cfe"
+  },
+  "cwd": "workDir",
+  "args_extra": [
+    "-Mode",
+    "transfer",
+    "-Tag",
+    "T-1"
+  ],
+  "expect": {
+    "stdoutContains": [
+      "[TRANSFERRED]        &ИзменениеИКонтроль(\"А\") — 2 edits",
+      "[TRANSFERRED]        method Тест_Новый (as мпНовый) -> region СлужебныеПроцедурыИФункции",
+      "[TRANSFERRED]        &ИзменениеИКонтроль(\"Б\") — 1 edit",
+      "[TRANSFERRED]        method Тест_Расчет (as Расчет) -> region Прочее",
+      "[TRANSFERRED]        method Тест_Расчет2 (as Расчет2) -> region Прочее"
+    ]
+  }
+}

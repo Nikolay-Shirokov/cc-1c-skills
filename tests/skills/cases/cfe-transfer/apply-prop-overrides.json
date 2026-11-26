@@ -1,0 +1,50 @@
+{
+  "name": "Перенос изменений метаданных: скалярное свойство заимствованного объекта получает значение расширения, недостающий тип сливается в Type конфигурации; повторный прогон ничего не пишет",
+  "setup": "fixture:prop-positive",
+  "params": {
+    "extensionPath": "cfe"
+  },
+  "cwd": "workDir",
+  "args_extra": [
+    "-Mode",
+    "transfer"
+  ],
+  "idempotent": true,
+  "expect": {
+    "stdoutContains": [
+      "[TRANSFERRED]        Catalog.Товары — 2 transferred now",
+      "object property CodeLength: 11 vs 9 in config — applied",
+      "attribute Артикул.Type: + Number(10,2) — applied",
+      "=== Summary Тест: 2 transferred now · 1 role, not transferred ===",
+      "Changed files:",
+      "Catalogs/Товары.xml"
+    ],
+    "stdoutNotContains": [
+      "Stored data is NOT migrated"
+    ],
+    "fileContains": [
+      {
+        "file": "Catalogs/Товары.xml",
+        "text": [
+          "<CodeLength>11</CodeLength>",
+          "<v8:Type>xs:string</v8:Type>",
+          "<v8:Type>xs:decimal</v8:Type>",
+          "<v8:NumberQualifiers>",
+          "<v8:Digits>10</v8:Digits>",
+          "<v8:FractionDigits>2</v8:FractionDigits>"
+        ]
+      }
+    ],
+    "fileNotContains": [
+      {
+        "file": "Catalogs/Товары.xml",
+        "text": [
+          "ObjectBelonging",
+          "ExtendedConfigurationObject",
+          "xr:PropertyState",
+          "ExtendedProperty"
+        ]
+      }
+    ]
+  }
+}

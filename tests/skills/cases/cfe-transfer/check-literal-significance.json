@@ -1,0 +1,114 @@
+{
+  "name": "Literal case, whitespace, multiline continuations, doubled quotes and comment markers remain significant",
+  "preRun": [
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "CommonModule",
+        "name": "Alpha",
+        "properties": {
+          "Server": true
+        }
+      },
+      "args": {
+        "-JsonPath": "{inputFile}",
+        "-OutputDir": "{workDir}"
+      }
+    },
+    {
+      "script": "meta-compile/scripts/meta-compile",
+      "input": {
+        "type": "CommonModule",
+        "name": "Beta",
+        "properties": {
+          "Server": true
+        }
+      },
+      "args": {
+        "-JsonPath": "{inputFile}",
+        "-OutputDir": "{workDir}"
+      }
+    },
+    {
+      "script": "cfe-init/scripts/cfe-init",
+      "args": {
+        "-Name": "Ext",
+        "-OutputDir": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}"
+      }
+    },
+    {
+      "script": "cfe-borrow/scripts/cfe-borrow",
+      "args": {
+        "-ExtensionPath": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}",
+        "-Object": "CommonModule.Alpha"
+      }
+    },
+    {
+      "script": "cfe-borrow/scripts/cfe-borrow",
+      "args": {
+        "-ExtensionPath": "{workDir}/cfe",
+        "-ConfigPath": "{workDir}",
+        "-Object": "CommonModule.Beta"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "CommonModules/Alpha/Ext/Module.bsl",
+        "content": "Procedure Case() Export\n    Value = \"ABC\";\nEndProcedure\nProcedure Spaces() Export\n    Value = \"a b\";\nEndProcedure\nProcedure Multi() Export\n    Value = \"first\n    |Second\";\nEndProcedure\nProcedure Escaped() Export\n    Value = \"a\"\"B //  x\"; // tail\nEndProcedure\n\nProcedure Same() Export\n    Text = \"first\n    |tail\";\nEndProcedure\n\nProcedure ExportFlag(A)\n    Message(\"same\");\nEndProcedure\n\nProcedure ParamCount(A) Export\n    Message(\"same\");\nEndProcedure\n\nProcedure DefaultValue(A = \"a\") Export\n    Message(\"same\");\nEndProcedure\n\nProcedure ByValue(A) Export\n    Message(\"same\");\nEndProcedure\n\nProcedure Order(A = 1, B = 2) Export\n    Message(\"same\");\nEndProcedure\n\nProcedure AsyncFlag() Export\n    Message(\"same\");\nEndProcedure\n\n&AtServer\nProcedure Context() Export\n    Message(\"same\");\nEndProcedure\n\nProcedure Kind() Export\n    Message(\"same\");\nEndProcedure\n\n&AtServer\nProcedure Equivalent(Val A = True) Export\n    Message(A);\nEndProcedure\n\nProcedure Candidate(Val A) Export\n    Message(A);\nEndProcedure\nProcedure Ext_Candidate(A) Export\n    Message(A);\nEndProcedure\n\n#If Client Then\nProcedure DifferentCondition() Export\n    Message(\"scope\");\nEndProcedure\n#EndIf\n\n#If Client Then\nProcedure DuplicateCondition() Export\n    Message(\"scope\");\nEndProcedure\n#Else\nProcedure DuplicateCondition() Export\n    Message(\"scope\");\nEndProcedure\n#EndIf\n\n#Если Сервер Тогда\nProcedure EquivalentCondition() Export\n    Message(\"scope\");\nEndProcedure\n#КонецЕсли\n"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "CommonModules/Beta/Ext/Module.bsl",
+        "content": "Procedure Original() Export\n\nEndProcedure\n"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "cfe/CommonModules/Alpha/Ext/Module.bsl",
+        "content": "Procedure Ext_Case() Export\n    Value = \"abc\";\nEndProcedure\nProcedure Ext_Spaces() Export\n    Value = \"a  b\";\nEndProcedure\nProcedure Ext_Multi() Export\n    Value = \"first\n    |second\";\nEndProcedure\nProcedure Ext_Escaped() Export\n    Value = \"a\"\"b //  x\"; // tail\nEndProcedure\n\nProcedure Ext_Same() Export\n    Text = \"first\n    //| source comment \"quotes\" Ext_Same\n    |tail\";\nEndProcedure\n\nProcedure Ext_ExportFlag(A) Export\n    Message(\"same\");\nEndProcedure\n\nProcedure Ext_ParamCount(A, B = 0) Export\n    Message(\"same\");\nEndProcedure\n\nProcedure Ext_DefaultValue(A = \"A\") Export\n    Message(\"same\");\nEndProcedure\n\nProcedure Ext_ByValue(Val A) Export\n    Message(\"same\");\nEndProcedure\n\nProcedure Ext_Order(B = 2, A = 1) Export\n    Message(\"same\");\nEndProcedure\n\nAsync Procedure Ext_AsyncFlag() Export\n    Message(\"same\");\nEndProcedure\n\n&AtClient\nProcedure Ext_Context() Export\n    Message(\"same\");\nEndProcedure\n\nFunction Ext_Kind() Export\n    Message(\"same\");\nEndFunction\n\n&НаСервере\nProcedure Ext_Equivalent(Знач A = Истина) Export // note )\n    Message(A);\nEndProcedure\n\nProcedure Ext_Candidate(Val A) Export\n    Message(A);\nEndProcedure\n\n#If Server Then\nProcedure Ext_DifferentCondition() Export\n    Message(\"scope\");\nEndProcedure\nProcedure Ext_DuplicateCondition() Export\n    Message(\"scope\");\nEndProcedure\nProcedure Ext_EquivalentCondition() Export\n    Message(\"scope\");\nEndProcedure\n#EndIf\n"
+      }
+    },
+    {
+      "writeFile": {
+        "path": "cfe/CommonModules/Beta/Ext/Module.bsl",
+        "content": ""
+      }
+    }
+  ],
+  "params": {
+    "extensionPath": "cfe"
+  },
+  "cwd": "workDir",
+  "args_extra": [
+    "-Mode",
+    "check",
+    "-Expand",
+    "*"
+  ],
+  "expect": {
+    "stdoutContains": [
+      "method Ext_Case (found as Case) (body differs)",
+      "method Ext_Spaces (found as Spaces) (body differs)",
+      "method Ext_Multi (found as Multi) (body differs)",
+      "method Ext_Escaped (found as Escaped) (body differs)",
+      "[TRANSFERRED]        method Ext_Same (found as Same)",
+      "method Ext_ExportFlag (found as ExportFlag) (declaration differs: Export modifier differs)",
+      "method Ext_ParamCount (found as ParamCount) (declaration differs: parameter count differs)",
+      "method Ext_DefaultValue (found as DefaultValue) (declaration differs: parameter 1 has a different default value)",
+      "method Ext_ByValue (found as ByValue) (declaration differs: parameter 1 has a different Val modifier)",
+      "method Ext_Order (found as Order) (declaration differs: parameter 1 has a different default value)",
+      "method Ext_AsyncFlag (found as AsyncFlag) (declaration differs: Async modifier differs)",
+      "method Ext_Context (found as Context) (declaration differs: execution context differs)",
+      "method Ext_Kind (found as Kind) (declaration differs: procedure/function differs)",
+      "[TRANSFERRED]        method Ext_Equivalent (found as Equivalent)",
+      "[TRANSFERRED]        method Ext_Candidate (found as Candidate)",
+      "[DIVERGED]           method Ext_DifferentCondition (found as DifferentCondition) (declaration differs: preprocessor condition differs)",
+      "[MANUAL]             method Ext_DuplicateCondition (multiple declarations of the same method)",
+      "[TRANSFERRED]        method Ext_EquivalentCondition (found as EquivalentCondition)"
+    ]
+  },
+  "expectError": true
+}
