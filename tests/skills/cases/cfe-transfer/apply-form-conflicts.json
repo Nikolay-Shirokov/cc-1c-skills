@@ -20,6 +20,9 @@
       "[MANUAL]             + [Input] PatchA_NameCollision",
       "[CONFLICT]           > [Group:V] GroupA: moved to GroupB",
       "destination GroupB is inside the element being moved; change not applied",
+      "[CONFLICT]           + [Input] PatchA_Field (found as Field) (config value differs: Title)",
+      "[CONFLICT]           + attribute PatchA_Attr: string(20) (found as Attr) (config value differs: Title)",
+      "next: compare the named properties in both forms and merge by hand, then re-run -Mode check",
       "[TRANSFERRED]        + [Input] PatchA_Alias (found as Dev_Alias)",
       "[TRANSFERRED]        ~ [Input] Article: DataPath",
       "[WAITING]            method PatchA_AttrReader"
@@ -29,6 +32,8 @@
         "file": "Catalogs/Items/Forms/ItemForm/Ext/Form.xml",
         "text": [
           "Ext L3",
+          "Ext field",
+          "Ext attr",
           "name=\"SkipGroup\"",
           "name=\"SkipField\"",
           "<InputField name=\"NameCollision\"",

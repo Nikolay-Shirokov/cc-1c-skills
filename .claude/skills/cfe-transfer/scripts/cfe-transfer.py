@@ -1,5 +1,5 @@
 ﻿#!/usr/bin/env python3
-# cfe-transfer v1.56 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+# cfe-transfer v1.57 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -2725,6 +2725,26 @@ def prop_transfer(cpm, p, prefix, scope, name_map):
     return "differs"
 
 
+def get_form_addition_differences(source, target, prefix, scope, name_map):
+    expected = get_prop_map(source)
+    actual = get_prop_map(target)
+    differs = []
+    for key, node in expected.items():
+        compare_prefix = prefix
+        if key == "CommandName":
+            name = inner_text(node).strip()
+            if name.startswith("Form.Command."):
+                commands = [value[0] for value in section_map(scope["config"], "Commands", "Command").values()]
+                hit = find_name_in(commands, name[len("Form.Command."):], prefix)
+                if hit:
+                    node = copy.deepcopy(node)
+                    node.text = "Form.Command." + hit
+                    compare_prefix = ""
+        if prop_transfer(actual, {"key": key, "new": node, "old": None}, compare_prefix, scope, name_map) != "ok":
+            differs.append(key)
+    return differs
+
+
 def get_form_transfer_marks(index, lines):
     marks = get_form_temp_marks(lines)
     if not marks:
@@ -2792,8 +2812,12 @@ def form_transfer_items(diff, form, cfg_form_xml, cfg_module_path, ext_dir, pref
                                                  (tag, rec["name"], inn, hit, actual), "", group), own))
                     continue
                 hit = compatible
-            st = "TRANSFERRED" if hit else "NOT_TRANSFERRED"
-            ni = marked(new_item(st, "+ %s %s%s%s" % (tag, rec["name"], inn, as_text(hit, rec["name"])), "", group), own)
+            differs = get_form_addition_differences(rec["node"], ci[hit.lower()]["node"], prefix, reference_scope, reference_names) if hit else []
+            st = "DIVERGED" if differs else ("TRANSFERRED" if hit else "NOT_TRANSFERRED")
+            note = " (config value differs: %s)" % ", ".join(differs) if differs else ""
+            ni = marked(new_item(st, "+ %s %s%s%s%s" % (tag, rec["name"], inn, as_text(hit, rec["name"]), note), "", group), own)
+            if differs:
+                ni["form_addition_conflict"] = True
             if not hit:
                 ni["plan"] = {"kind": "element", "rec": rec}
                 ni["plan_key"] = "+ %s %s" % (tag, rec["name"])
@@ -2918,8 +2942,14 @@ def form_transfer_items(diff, form, cfg_form_xml, cfg_module_path, ext_dir, pref
                 hit = matches[0] if matches else None
             else:
                 hit = find_name_in(cn, x["name"], prefix)
-            st = "TRANSFERRED" if hit else "NOT_TRANSFERRED"
-            ni = marked(new_item(st, "+ %s %s%s%s" % (word, x["name"], x["info"], as_text(hit, x["name"])), "", group), [x["name"]])
+            differs = []
+            if hit and word == "attribute":
+                differs = get_form_addition_differences(x["node"], cm[hit.lower()][1], prefix, reference_scope, reference_names)
+            st = "DIVERGED" if differs else ("TRANSFERRED" if hit else "NOT_TRANSFERRED")
+            note = " (config value differs: %s)" % ", ".join(differs) if differs else ""
+            ni = marked(new_item(st, "+ %s %s%s%s%s" % (word, x["name"], x["info"], as_text(hit, x["name"]), note), "", group), [x["name"]])
+            if differs:
+                ni["form_addition_conflict"] = True
             # A command whose action intercepts a method is a transfer of its own kind. A command the
             # configuration lacks is the extension's own even when its action carries callType — there is no
             # handler to intercept: it goes as a command, with its handler as an own method and the callType
@@ -10608,6 +10638,11 @@ def main():
                         temp_count += 1
                         continue
                     if it["status"] == "TRANSFERRED" or (pl and pl["kind"] == "md-reference"):
+                        titems.append(t)
+                        continue
+                    if it.get("form_addition_conflict"):
+                        t["status"] = "CONFLICT"
+                        t["sub"] = ["next: compare the named properties in both forms and merge by hand, then re-run -Mode check"]
                         titems.append(t)
                         continue
                     if pl and pl.get("manual_reason"):

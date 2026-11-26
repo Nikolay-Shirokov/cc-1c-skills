@@ -8,18 +8,30 @@
     "-Expand",
     "Catalogs/Items/Forms/ItemForm"
   ],
+  "preRun": [
+    {
+      "editFile": "Catalogs/Items/Forms/ItemForm/Ext/Form.xml",
+      "replace": "<DataPath>Attr</DataPath>",
+      "with": "<DataPath>SrcAttr1</DataPath>"
+    },
+    {
+      "editFile": "Catalogs/Items/Forms/ItemForm/Ext/Form.xml",
+      "replace": "<v8:Length>20</v8:Length>",
+      "with": "<v8:Length>10</v8:Length>"
+    }
+  ],
   "expectError": true,
   "expect": {
     "stdoutContains": [
-      "[DIVERGED]           Catalog.Items — 13 changes: 6 transferred, 7 remaining",
+      "[DIVERGED]           Catalog.Items — 13 changes: 4 transferred, 9 remaining",
       "    Catalogs/Items/Forms/ItemForm/Ext/Form.xml:",
       "      [NOT_TRANSFERRED]    + [Button] PatchA_Btn (in: ФормаКоманднаяПанель)",
       "      [TRANSFERRED]        ~ [Label] L1: Title",
       "      [DIVERGED]           ~ [Input] Article: Title, Width (config value differs: Width)",
       "      [NOT_TRANSFERRED]    > [Input] Article: moved (after: L1)",
       "      [NOT_TRANSFERRED]    ~ [Label] L3: Title",
-      "      [TRANSFERRED]        + [Input] PatchA_Field (found as Field)",
-      "      [TRANSFERRED]        + attribute PatchA_Attr: string(20) (found as Attr)",
+      "      [DIVERGED]           + [Input] PatchA_Field (found as Field) (config value differs: DataPath)",
+      "      [DIVERGED]           + attribute PatchA_Attr: string(20) (found as Attr) (config value differs: Type)",
       "      [NOT_TRANSFERRED]    + command PatchA_Cmd -> PatchA_CmdAction[Before]",
       "    Catalogs/Items/Forms/ItemForm/Ext/Form/Module.bsl:",
       "      [TRANSFERRED]        method PatchA_Обновить (found as Обновить)  :22",
@@ -27,7 +39,7 @@
       "      [NOT_TRANSFERRED]    command SrcCmd2[After] -> PatchA_SrcCmd2After (heuristic: 0/1 lines)  :27",
       "      [TRANSFERRED]        event Article.OnChange[Before] -> PatchA_ArticleOnChangeBefore (heuristic: 1/1 lines)  :7",
       "      [NOT_TRANSFERRED]    event OnOpen[After] -> PatchA_OnOpenAfter (heuristic: 0/1 lines)  :2",
-      "=== Summary PatchA: 13 changes — 6 transferred, 6 not transferred, 1 diverged · 1 role, not checked ===",
+      "=== Summary PatchA: 13 changes — 4 transferred, 6 not transferred, 3 diverged · 1 role, not checked ===",
       "Remaining: Catalog.Items"
     ]
   }

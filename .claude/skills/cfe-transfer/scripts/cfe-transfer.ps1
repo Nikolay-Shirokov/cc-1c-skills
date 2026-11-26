@@ -1,4 +1,4 @@
-﻿# cfe-transfer v1.56 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+﻿# cfe-transfer v1.57 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -2540,6 +2540,26 @@ function Get-PropTransfer($cpm, $p, [string]$prefix, $scope, $nameMap) {
 	return 'differs'
 }
 
+function Get-FormAdditionDifferences($source, $target, [string]$prefix, $scope, $nameMap) {
+	$expected = Get-PropMap $source
+	$actual = Get-PropMap $target
+	foreach ($key in $expected.Keys) {
+		$node = $expected[$key]
+		$comparePrefix = $prefix
+		if ($key -ceq 'CommandName' -and $node.InnerText.Trim().StartsWith('Form.Command.')) {
+			$commands = Get-SectionMap $scope.Config 'Commands' 'Command'
+			$hit = Find-NameIn @($commands.Keys) $node.InnerText.Trim().Substring('Form.Command.'.Length) $prefix
+			if ($hit) {
+				$node = $node.CloneNode($true)
+				$node.InnerText = "Form.Command.$hit"
+				$comparePrefix = ''
+			}
+		}
+		$prop = @{ Key = $key; New = $node }
+		if ((Get-PropTransfer $actual $prop $comparePrefix $scope $nameMap) -ne 'ok') { $key }
+	}
+}
+
 function Get-FormTransferMarks($index, $lines) {
 	$marks = Get-FormTempMarks $lines
 	if ($marks.Count -eq 0) { return $marks }
@@ -2600,8 +2620,11 @@ function Get-FormTransferItems($diff, $form, [string]$cfgFormXml, [string]$cfgMo
 				}
 				$hit = $compatible
 			}
-			$st = if ($hit) { 'TRANSFERRED' } else { 'NOT_TRANSFERRED' }
-			$ni = & $marked (New-Item2 $st "+ $tag $($rec.Name)$in$(& $asText $hit $rec.Name)" '' $group) $own
+			$differs = @(if ($hit) { Get-FormAdditionDifferences $rec.Node $ci[$hit].Node $prefix $referenceScope $referenceNames })
+			$st = if ($differs.Count) { 'DIVERGED' } elseif ($hit) { 'TRANSFERRED' } else { 'NOT_TRANSFERRED' }
+			$note = if ($differs.Count) { " (config value differs: $($differs -join ', '))" } else { '' }
+			$ni = & $marked (New-Item2 $st "+ $tag $($rec.Name)$in$(& $asText $hit $rec.Name)$note" '' $group) $own
+			if ($differs.Count) { $ni.FormAdditionConflict = $true }
 			if (-not $hit) { $ni.Plan = @{ Kind = 'element'; Rec = $rec }; $ni.PlanKey = "+ $tag $($rec.Name)" }
 			$items += $ni
 			continue
@@ -2714,8 +2737,11 @@ function Get-FormTransferItems($diff, $form, [string]$cfgFormXml, [string]$cfgMo
 				}
 				$hit = $matches[0]
 			} else { $hit = Find-NameIn $cn $x.Name $prefix }
-			$st = if ($hit) { 'TRANSFERRED' } else { 'NOT_TRANSFERRED' }
-			$ni = & $marked (New-Item2 $st "+ $($sec[2]) $($x.Name)$($x.Info)$(& $asText $hit $x.Name)" '' $group) @($x.Name)
+			$differs = @(if ($hit -and $sec[2] -eq 'attribute') { Get-FormAdditionDifferences $x.Node $cm[$hit] $prefix $referenceScope $referenceNames })
+			$st = if ($differs.Count) { 'DIVERGED' } elseif ($hit) { 'TRANSFERRED' } else { 'NOT_TRANSFERRED' }
+			$note = if ($differs.Count) { " (config value differs: $($differs -join ', '))" } else { '' }
+			$ni = & $marked (New-Item2 $st "+ $($sec[2]) $($x.Name)$($x.Info)$(& $asText $hit $x.Name)$note" '' $group) @($x.Name)
+			if ($differs.Count) { $ni.FormAdditionConflict = $true }
 			# A command whose action intercepts a method is a transfer of its own kind: events and command
 			# interceptors go with the handlers. A command the configuration lacks is the extension's own even
 			# when its action carries callType — there is no handler to intercept: it goes as a command, with
@@ -9860,6 +9886,11 @@ if ($Mode -eq 'transfer') {
 				}
 				if ($it.Status -eq 'TEMPORARY') { $tempCount++; continue }
 				if ($it.Status -eq 'TRANSFERRED') { $titems += $t; continue }
+				if ($it.FormAdditionConflict) {
+					$t.Status = 'CONFLICT'
+					$t.Sub = @('next: compare the named properties in both forms and merge by hand, then re-run -Mode check')
+					$titems += $t; continue
+				}
 				if ($pl.Kind -eq 'md-reference') { $titems += $t; continue }
 				if ($pl.ManualReason) {
 					$t.Sub = Get-WhereLines $pl 'apply by hand, then re-run -Mode check'
