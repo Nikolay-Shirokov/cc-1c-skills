@@ -14,18 +14,26 @@
       "editFile": "cfe/Catalogs/Items/Forms/ItemForm/Ext/Form.xml",
       "replace": "<Column name=\"Col1\" id=\"1\">",
       "with": "<Column name=\"COL1\" id=\"1\">"
+    },
+    {
+      "script": "form-add/scripts/form-add",
+      "args": {
+        "-ObjectPath": "{workDir}/cfe/Catalogs/Items.xml",
+        "-FormName": "PatchA_ListForm"
+      }
     }
   ],
   "expect": {
     "stdoutContains": [
-      "[DIVERGED]           Catalog.Items — 18 changes: 5 transferred, 12 remaining, 1 temporary",
+      "[DIVERGED]           Catalog.Items — 19 changes: 5 transferred, 13 remaining, 1 temporary",
+      "      [NOT_TRANSFERRED]    form PatchA_ListForm",
       "      [NOT_TRANSFERRED]    + column Tbl.PatchA_Col2: string",
       "      [NOT_TRANSFERRED]    + column Tbl.PatchA_Col3: string",
       "      [TRANSFERRED]        + conditional appearance rule Article: ЦветТекста",
       "      [NOT_TRANSFERRED]    - conditional appearance rule L1: ЦветТекста",
       "      [DIVERGED]           ! SrcField1 (in BaseForm, not in the extension's form: the configuration's form changed since the borrowing)",
       "      [TEMPORARY]          ~ [Label] L3: Title — обход до расширения типа",
-      "=== Summary PatchA: 18 changes — 5 transferred, 8 not transferred, 4 diverged, 1 temporary · 1 role, not checked ==="
+      "=== Summary PatchA: 19 changes — 5 transferred, 9 not transferred, 4 diverged, 1 temporary · 1 role, not checked ==="
     ],
     "stdoutNotContains": [
       "! SrcField1КонтекстноеМеню",

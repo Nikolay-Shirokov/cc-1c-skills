@@ -1,4 +1,4 @@
-﻿# cfe-transfer v1.60 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+﻿# cfe-transfer v1.61 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 [CmdletBinding(PositionalBinding=$false)]
 param(
@@ -4610,7 +4610,6 @@ function Initialize-BorrowedPredefined($ext, $objects, [bool]$apply, [switch]$Re
 				# Reuse the source XML envelope, keeping its namespace declarations and format.
 				foreach ($node in @($destination.Doc.DocumentElement.ChildNodes)) { [void]$node.ParentNode.RemoveChild($node) }
 			}
-			if ($null -eq $script:supportInfo) { $script:supportInfo = Get-SupportInfo $ConfigPath }
 			$policy = Get-ObjectSupport $ownerPath
 			$refs = @{}
 			$native = @($from.Entries | Where-Object State -ceq 'Native')
@@ -9683,6 +9682,7 @@ function Get-FormItemRank($it) {
 
 # Project settings (.v8-project.json): development prefixes for both modes, the rest for transfer
 $script:settings = Get-TransferSettings $ConfigPath
+$script:supportInfo = Get-SupportInfo $ConfigPath
 $script:configRefMap = Get-ConfigRefMap $ConfigPath
 $matchedIds = [ordered]@{}
 $script:devRe = $null
@@ -9703,7 +9703,6 @@ if ($Mode -eq 'transfer') {
 			foreach ($k in @('begin', 'end')) { if ([string]$ic[$k] -match '\{tag(?::[^}]*)?\}') { Write-Error "The project's comment template (cfeTransfer.insertComment.$k in .v8-project.json) uses {tag}: ask the user for the value (e.g. the task number) and pass -Tag <value>. Nothing was written."; exit 1 } }
 		}
 	}
-	$script:supportInfo = Get-SupportInfo $ConfigPath
 	$script:fileEdits = [ordered]@{}
 	$script:nameMap = @{}
 	$script:seq = 0

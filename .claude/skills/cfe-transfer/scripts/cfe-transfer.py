@@ -1,5 +1,5 @@
 ﻿#!/usr/bin/env python3
-# cfe-transfer v1.60 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
+# cfe-transfer v1.61 — Transfer of 1C configuration extension (CFE) changes into the main configuration: check and transfer
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -4870,8 +4870,6 @@ def get_borrowed_predefined_plan(entries, destination, owner, kind, name, prefix
 
 
 def initialize_borrowed_predefined(ext, objects, cfg, selected, apply, retry=False):
-    global SUPPORT_INFO
-    support_loaded = apply
     if not retry:
         BORROWED_PREDEFINED_BINDINGS.clear()
         BORROWED_PREDEFINED_ITEMS.clear()
@@ -4925,9 +4923,6 @@ def initialize_borrowed_predefined(ext, objects, cfg, selected, apply, retry=Fal
             if before is None:
                 for node in list(destination["root"]):
                     destination["root"].remove(node)
-            if not support_loaded:
-                SUPPORT_INFO = get_support_info(MD_REFERENCE_ROOT)
-                support_loaded = True
             policy = get_object_support(owner_path)
             refs = {}
             for entry in entries:
@@ -10438,6 +10433,7 @@ def main():
 
     # Project settings (.v8-project.json): development prefixes for both modes, the rest for transfer
     SETTINGS = get_transfer_settings(config_path)
+    SUPPORT_INFO = get_support_info(config_path)
     CONFIG_REF_MAP.clear()
     CONFIG_REF_MAP.update(get_config_ref_map(config_path))
     DEV_RE = None
@@ -10459,7 +10455,6 @@ def main():
                     if re.search(r'\{tag(?::[^}]*)?\}', str(ic.get(k) or ""), re.I):
                         die("The project's comment template (cfeTransfer.insertComment.%s in .v8-project.json) uses {tag}: "
                             "ask the user for the value (e.g. the task number) and pass -Tag <value>. Nothing was written." % k)
-        SUPPORT_INFO = get_support_info(config_path)
 
         FILE_EDITS.clear()
         NAME_MAP = {}
