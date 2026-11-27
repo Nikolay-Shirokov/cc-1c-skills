@@ -317,10 +317,14 @@ $script:rightAliases = @{
 # Translate Russian object name to English (e.g. "Справочник.Контрагенты" → "Catalog.Контрагенты")
 function Translate-ObjectName {
 	param([string]$name)
+	# Имя чередует тип и имя: Тип.Имя[.Тип.Имя...]. Переводим только позиции типа: иначе объект
+	# или реквизит с именем, совпадающим с русским типом («Документ», «Обработка»), уходит как
+	# Document/DataProcessor и не находится.
 	$parts = $name.Split(".")
 	$result = @()
-	foreach ($p in $parts) {
-		if ($script:typeAliases.ContainsKey($p)) {
+	for ($i = 0; $i -lt $parts.Count; $i++) {
+		$p = $parts[$i]
+		if ($i % 2 -eq 0 -and $script:typeAliases.ContainsKey($p)) {
 			$result += $script:typeAliases[$p]
 		} else {
 			$result += $p

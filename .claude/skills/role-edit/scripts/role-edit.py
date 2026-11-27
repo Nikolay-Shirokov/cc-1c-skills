@@ -692,10 +692,13 @@ PRESETS = {
 
 
 def translate_object_name(name):
+    # Имя чередует тип и имя: Тип.Имя[.Тип.Имя...]. Переводим только позиции типа: иначе объект
+    # или реквизит с именем, совпадающим с русским типом («Документ», «Обработка»), уходит как
+    # Document/DataProcessor и не находится.
     parts = name.split('.')
     result = []
-    for p in parts:
-        result.append(TYPE_ALIASES.get(p, p))
+    for i, p in enumerate(parts):
+        result.append(TYPE_ALIASES.get(p, p) if i % 2 == 0 else p)
     return '.'.join(result)
 
 

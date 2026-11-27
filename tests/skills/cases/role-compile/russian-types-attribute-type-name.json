@@ -1,0 +1,31 @@
+{
+  "name": "Реквизит с именем-синонимом типа («Документ») не переводится как тип",
+  "setup": "fixture:attribute-type-name-fx",
+  "input": {
+    "name": "ПросмотрДокументаТовара",
+    "objects": [
+      "Справочник.Товары: Чтение, Просмотр",
+      {
+        "name": "Справочник.Товары.Реквизит.Документ",
+        "rights": {
+          "Просмотр": false,
+          "Редактирование": false
+        }
+      }
+    ]
+  },
+  "validatePath": "Roles/ПросмотрДокументаТовара",
+  "expect": {
+    "files": [
+      "Roles/ПросмотрДокументаТовара/Ext/Rights.xml"
+    ],
+    "fileContains": {
+      "file": "Roles/ПросмотрДокументаТовара/Ext/Rights.xml",
+      "text": "<name>Catalog.Товары.Attribute.Документ</name>"
+    },
+    "fileNotContains": {
+      "file": "Roles/ПросмотрДокументаТовара/Ext/Rights.xml",
+      "text": "Attribute.Document"
+    }
+  }
+}

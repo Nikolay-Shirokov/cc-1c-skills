@@ -1,0 +1,26 @@
+{
+  "name": "Реквизит с именем-синонимом типа («Документ») не переводится как тип",
+  "setup": "fixture:attribute-type-name",
+  "params": {
+    "rolePath": "Roles/Менеджер"
+  },
+  "input": [
+    {
+      "operation": "deny-rights",
+      "value": "Справочник.Товары.Реквизит.Документ: Просмотр"
+    }
+  ],
+  "expect": {
+    "stdoutContains": [
+      "Catalog.Товары.Attribute.Документ: запрещено"
+    ],
+    "fileContains": {
+      "file": "Roles/Менеджер/Ext/Rights.xml",
+      "text": "<name>Catalog.Товары.Attribute.Документ</name>"
+    },
+    "fileNotContains": {
+      "file": "Roles/Менеджер/Ext/Rights.xml",
+      "text": "Attribute.Document"
+    }
+  }
+}
