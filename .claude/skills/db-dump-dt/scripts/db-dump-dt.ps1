@@ -78,13 +78,21 @@ $OutputEncoding = [System.Text.Encoding]::UTF8
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
 function Protect-Secrets {
-    # Redact literal secret values from a display string (String.Replace is literal, not regex).
-    param([string]$Text, [string[]]$Secrets)
+    # Redact literal secret values from a display string. Key values are already masked by
+    # Format-ArgsForDisplay; this pass catches a secret wherever else it shows up.
+    # A secret of 6+ characters is replaced as a literal substring anywhere (String.Replace is
+    # literal, not regex). A shorter one only as the whole value of a key (/N"x", --user=x):
+    # replaced anywhere, a one-character password turns every matching digit of a path or a
+    # comment into *** and the printed command line can no longer be checked.
     # A secret with a quote reaches the command line doubled (ConvertTo-QuotedText), so both
     # forms are redacted. Longest first: a shorter form replaced earlier could break a longer
     # one that contains it and leave part of that secret visible. (No -Unique: it ignores case.)
+    param([string]$Text, [string[]]$Secrets)
     $forms = @(foreach ($s in $Secrets) { if ($s) { $s; $s.Replace('"', '""') } }) | Sort-Object -Property Length -Descending
-    foreach ($f in $forms) { $Text = $Text.Replace($f, '***') }
+    foreach ($f in $forms) {
+        if ($f.Length -ge 6) { $Text = $Text.Replace($f, '***'); continue }
+        $Text = [regex]::Replace($Text, '((?:^|\s)(?:/\w+"|--[\w-]+=))' + [regex]::Escape($f) + '(?="|\s|$)', '$1***')
+    }
     return $Text
 }
 
